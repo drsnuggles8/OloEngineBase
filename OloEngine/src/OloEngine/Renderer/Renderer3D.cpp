@@ -346,6 +346,21 @@ namespace OloEngine
         constexpr u32 materialBufferSize = std::max(ShaderBindingLayout::MaterialUBO::GetSize(), ShaderBindingLayout::PBRMaterialUBO::GetSize());
         s_Data.MaterialUBO = UniformBuffer::Create(materialBufferSize, ShaderBindingLayout::UBO_MATERIAL);
         s_Data.MultiLightBuffer = UniformBuffer::Create(ShaderBindingLayout::MultiLightUBO::GetSize(), ShaderBindingLayout::UBO_MULTI_LIGHTS);
+
+        // Validate the MultiLightUBO fits within the GPU's uniform block size limit.
+        // MAX_LIGHTS=256 produces ~20 KB which exceeds the GL spec minimum of 16 KB
+        // but is within typical desktop GPU limits (64 KB+).
+        {
+            const u32 maxUBOSize = RenderCommand::GetMaxUniformBlockSize();
+            constexpr u32 multiLightSize = ShaderBindingLayout::MultiLightUBO::GetSize();
+            if (multiLightSize > maxUBOSize)
+            {
+                OLO_CORE_ERROR("MultiLightUBO size ({} bytes) exceeds GL_MAX_UNIFORM_BLOCK_SIZE ({} bytes). "
+                               "Reduce MAX_LIGHTS or migrate to an SSBO.",
+                               multiLightSize, maxUBOSize);
+            }
+        }
+
         s_Data.ModelMatrixUBO = UniformBuffer::Create(ShaderBindingLayout::ModelUBO::GetSize(), ShaderBindingLayout::UBO_MODEL);
         s_Data.BoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION);
         s_Data.TerrainUBO = UniformBuffer::Create(ShaderBindingLayout::TerrainUBO::GetSize(), ShaderBindingLayout::UBO_TERRAIN);
@@ -1935,8 +1950,10 @@ namespace OloEngine
                 break;
         }
 
-        // Forward+ compute culling requires the depth pre-pass
-        bool effectiveDepthPrepass = settings.DepthPrepassEnabled || (settings.Path == RenderingPath::ForwardPlus);
+        // Forward+ compute culling requires the depth pre-pass.
+        // Include the Auto case: when Forward+ can dynamically activate,
+        // the depth buffer must already be available for the culling dispatch.
+        bool effectiveDepthPrepass = settings.DepthPrepassEnabled || (settings.Path == RenderingPath::ForwardPlus) || (settings.Path == RenderingPath::Forward && settings.ForwardPlusAutoSwitch);
         EnableDepthPrepass(effectiveDepthPrepass);
 
         fplus.SetTileSize(settings.ForwardPlusTileSize);

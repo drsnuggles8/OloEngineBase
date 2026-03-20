@@ -8,13 +8,27 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        if (screenWidth == 0 || screenHeight == 0 || config.TileSizePixels == 0)
+        {
+            OLO_CORE_ERROR("LightGrid::Initialize: Invalid parameters ({}x{}, tile={}px)",
+                           screenWidth, screenHeight, config.TileSizePixels);
+            m_Initialized = false;
+            return;
+        }
+
         m_Config = config;
         m_ScreenWidth = screenWidth;
         m_ScreenHeight = screenHeight;
         m_TileCountX = (screenWidth + config.TileSizePixels - 1) / config.TileSizePixels;
         m_TileCountY = (screenHeight + config.TileSizePixels - 1) / config.TileSizePixels;
 
-        CreateBuffers();
+        if (!CreateBuffers())
+        {
+            OLO_CORE_ERROR("LightGrid::Initialize: Failed to create GPU buffers");
+            m_Initialized = false;
+            return;
+        }
+
         m_Initialized = true;
 
         OLO_CORE_INFO("LightGrid: Initialized {}x{} tiles ({}px), {} depth slices, {} total clusters",
@@ -49,13 +63,19 @@ namespace OloEngine
         m_TileCountX = (screenWidth + m_Config.TileSizePixels - 1) / m_Config.TileSizePixels;
         m_TileCountY = (screenHeight + m_Config.TileSizePixels - 1) / m_Config.TileSizePixels;
 
-        CreateBuffers();
+        if (!CreateBuffers())
+        {
+            OLO_CORE_ERROR("LightGrid::Resize: Failed to recreate GPU buffers");
+            return;
+        }
 
         OLO_CORE_TRACE("LightGrid: Resized to {}x{} tiles", m_TileCountX, m_TileCountY);
     }
 
     void LightGrid::Bind() const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_LightIndexSSBO)
             m_LightIndexSSBO->Bind();
         if (m_LightGridSSBO)
@@ -66,6 +86,8 @@ namespace OloEngine
 
     void LightGrid::Unbind() const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_LightIndexSSBO)
             m_LightIndexSSBO->Unbind();
         if (m_LightGridSSBO)
@@ -76,6 +98,8 @@ namespace OloEngine
 
     void LightGrid::ResetAtomicCounter()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_GlobalIndexSSBO)
         {
             u32 zero = 0;
@@ -83,7 +107,7 @@ namespace OloEngine
         }
     }
 
-    void LightGrid::CreateBuffers()
+    bool LightGrid::CreateBuffers()
     {
         OLO_PROFILE_FUNCTION();
 
@@ -112,7 +136,17 @@ namespace OloEngine
             globalIndexBufferSize, ShaderBindingLayout::SSBO_FPLUS_GLOBAL_INDEX,
             StorageBufferUsage::DynamicCopy);
 
+        if (!m_LightIndexSSBO || !m_LightGridSSBO || !m_GlobalIndexSSBO)
+        {
+            OLO_CORE_ERROR("LightGrid::CreateBuffers: Failed to create one or more SSBOs");
+            m_LightIndexSSBO.Reset();
+            m_LightGridSSBO.Reset();
+            m_GlobalIndexSSBO.Reset();
+            return false;
+        }
+
         OLO_CORE_TRACE("LightGrid: Created buffers — index list: {}KB, grid: {}KB",
                        lightIndexBufferSize / 1024, lightGridBufferSize / 1024);
+        return true;
     }
 } // namespace OloEngine

@@ -25,6 +25,14 @@ namespace OloEngine
             UBOStructures::ForwardPlusUBO::GetSize(),
             ShaderBindingLayout::UBO_FORWARD_PLUS);
 
+        // Only mark as initialized if all sub-components succeeded
+        if (!m_LightGrid.IsInitialized() || !m_LightBuffer.IsInitialized() || !m_CullingPass.IsValid() || !m_ForwardPlusUBO)
+        {
+            OLO_CORE_ERROR("ClusteredForward: Initialization failed — one or more sub-components are invalid");
+            m_Initialized = false;
+            return;
+        }
+
         m_Initialized = true;
         OLO_CORE_INFO("ClusteredForward: Initialized ({}x{}, tile={}px)",
                       screenWidth, screenHeight, m_GridConfig.TileSizePixels);
@@ -34,6 +42,9 @@ namespace OloEngine
     {
         m_ForwardPlusUBO.Reset();
         m_LightGrid.Shutdown();
+        m_LightBuffer.Shutdown();
+        m_CullingPass.Shutdown();
+        m_ActiveThisFrame = false;
         m_Initialized = false;
     }
 
@@ -181,6 +192,16 @@ namespace OloEngine
 
     void ClusteredForward::SetTileSize(u32 tileSize)
     {
+        // The compute shader uses layout(local_size_x=16, local_size_y=16);
+        // only tileSize=16 is supported until shader variants are implemented.
+        if (tileSize != 16)
+        {
+            OLO_CORE_WARN("ClusteredForward::SetTileSize: Only tile size 16 is supported (requested {}). "
+                          "Clamping to 16 until shader variants are implemented.",
+                          tileSize);
+            tileSize = 16;
+        }
+
         if (tileSize != m_GridConfig.TileSizePixels && tileSize > 0)
         {
             m_GridConfig.TileSizePixels = tileSize;

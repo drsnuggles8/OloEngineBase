@@ -343,6 +343,11 @@ namespace OloEngine
             s_RendererAPI->EndConditionalRender();
         }
 
+        [[nodiscard("Store this!")]] static u32 GetMaxUniformBlockSize()
+        {
+            return s_RendererAPI->GetMaxUniformBlockSize();
+        }
+
         static RendererAPI& GetRendererAPI()
         {
             return *s_RendererAPI;

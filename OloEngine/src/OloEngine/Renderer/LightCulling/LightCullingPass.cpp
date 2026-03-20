@@ -25,10 +25,17 @@ namespace OloEngine
 
     void LightCullingPass::Reload()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_CullingShader)
         {
             m_CullingShader->Reload();
         }
+    }
+
+    void LightCullingPass::Shutdown()
+    {
+        m_CullingShader.Reset();
     }
 
     void LightCullingPass::Dispatch(LightGrid& grid,

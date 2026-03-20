@@ -803,4 +803,11 @@ namespace OloEngine
         glEndConditionalRender();
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
     }
+
+    u32 OpenGLRendererAPI::GetMaxUniformBlockSize() const
+    {
+        GLint size = 0;
+        glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE, &size);
+        return static_cast<u32>(size);
+    }
 } // namespace OloEngine

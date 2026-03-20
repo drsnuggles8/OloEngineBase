@@ -26,8 +26,9 @@ namespace OloEngine
         std::vector<glm::mat4> m_FinalBoneMatrices;
 
         // Bind pose data for proper skinning
-        std::vector<glm::mat4> m_BindPoseMatrices; // Original bind pose global transforms
-        std::vector<glm::mat4> m_InverseBindPoses; // Inverse bind pose matrices for skinning
+        std::vector<glm::mat4> m_BindPoseMatrices;        // Original bind pose global transforms
+        std::vector<glm::mat4> m_InverseBindPoses;        // Inverse bind pose matrices for skinning
+        std::vector<glm::mat4> m_BindPoseLocalTransforms; // Original bind pose local transforms
 
         // Accumulated non-bone ancestor transforms per bone.
         // Between a bone and its parent bone (or scene root for root bones),
@@ -47,6 +48,7 @@ namespace OloEngine
             m_FinalBoneMatrices.resize(boneCount, glm::mat4(1.0f));
             m_BindPoseMatrices.resize(boneCount, glm::mat4(1.0f));
             m_InverseBindPoses.resize(boneCount, glm::mat4(1.0f));
+            m_BindPoseLocalTransforms.resize(boneCount, glm::mat4(1.0f));
             m_BonePreTransforms.resize(boneCount, glm::mat4(1.0f));
         }
 
@@ -55,6 +57,7 @@ namespace OloEngine
          */
         void SetBindPose()
         {
+            m_BindPoseLocalTransforms = m_LocalTransforms;
             for (sizet i = 0; i < m_GlobalTransforms.size(); ++i)
             {
                 m_BindPoseMatrices[i] = m_GlobalTransforms[i];

@@ -21,6 +21,7 @@ namespace OloEngine
         ~LightCullingPass() = default;
 
         void Initialize();
+        void Shutdown();
         void Reload();
 
         // Dispatch the light culling compute shader

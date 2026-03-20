@@ -20,10 +20,28 @@ namespace OloEngine
             ShaderBindingLayout::SSBO_FPLUS_SPOT_LIGHTS,
             StorageBufferUsage::DynamicDraw);
 
+        if (!m_PointLightSSBO || !m_SpotLightSSBO)
+        {
+            OLO_CORE_ERROR("LightCullingBuffer: Failed to create one or more SSBOs");
+            m_PointLightSSBO.Reset();
+            m_SpotLightSSBO.Reset();
+            m_Initialized = false;
+            return;
+        }
+
         m_Initialized = true;
 
         OLO_CORE_INFO("LightCullingBuffer: Initialized for {} point + {} spot lights",
                       maxPointLights, maxSpotLights);
+    }
+
+    void LightCullingBuffer::Shutdown()
+    {
+        m_PointLightSSBO.Reset();
+        m_SpotLightSSBO.Reset();
+        m_PointLightCount = 0;
+        m_SpotLightCount = 0;
+        m_Initialized = false;
     }
 
     void LightCullingBuffer::Update(const std::vector<GPUPointLight>& pointLights,

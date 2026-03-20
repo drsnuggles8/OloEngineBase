@@ -82,6 +82,14 @@ namespace OloEngine::Animation
                    glm::scale(glm::mat4(1.0f), trs.scale);
         };
 
+        // Reset all local transforms to bind-pose so bones not animated in
+        // the current clip fall back to their rest pose (not stale values
+        // from a previously active clip).
+        if (!skeleton.m_BindPoseLocalTransforms.empty())
+        {
+            skeleton.m_LocalTransforms = skeleton.m_BindPoseLocalTransforms;
+        }
+
         // For each bone, sample and blend if needed.
         // Bones without animation channels in a clip keep their bind-pose
         // local transform (e.g. b_Root_00 carries a -90° X rotation in the
@@ -134,13 +142,17 @@ namespace OloEngine::Animation
         }
 
         // Compute global transforms, applying pre-transforms for non-bone ancestor nodes
+        static const glm::mat4 identityTransform(1.0f);
         for (sizet i = 0; i < skeleton.m_LocalTransforms.size(); ++i)
         {
+            const glm::mat4& preTransform = (i < skeleton.m_BonePreTransforms.size())
+                                                ? skeleton.m_BonePreTransforms[i]
+                                                : identityTransform;
             int parent = skeleton.m_ParentIndices[i];
             if (parent >= 0)
-                skeleton.m_GlobalTransforms[i] = skeleton.m_GlobalTransforms[parent] * skeleton.m_BonePreTransforms[i] * skeleton.m_LocalTransforms[i];
+                skeleton.m_GlobalTransforms[i] = skeleton.m_GlobalTransforms[parent] * preTransform * skeleton.m_LocalTransforms[i];
             else
-                skeleton.m_GlobalTransforms[i] = skeleton.m_BonePreTransforms[i] * skeleton.m_LocalTransforms[i];
+                skeleton.m_GlobalTransforms[i] = preTransform * skeleton.m_LocalTransforms[i];
         }
 
         // Compute final bone matrices for GPU skinning (GlobalTransform * InverseBindPose)

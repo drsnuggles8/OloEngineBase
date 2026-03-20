@@ -1094,6 +1094,13 @@ namespace OloEngine
             ++s_Data.Stats.ShaderBinds;
         }
 
+        // Camera UBO: re-bind in case a prior pass (e.g. ShadowMap) overwrote
+        // the binding point.  Mirrors the logic in DrawMesh's color path.
+        if (s_Data.CameraUBO)
+        {
+            BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
+        }
+
         // Material UBO + texture bindings (skipped when material unchanged)
         UploadMaterialState(mat, cmd->materialDataIndex);
 

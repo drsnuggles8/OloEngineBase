@@ -87,6 +87,8 @@ namespace OloEngine
         void BeginConditionalRender(u32 queryID) override;
         void EndConditionalRender() override;
 
+        [[nodiscard("Store this!")]] u32 GetMaxUniformBlockSize() const override;
+
       private:
         bool m_DepthTestEnabled = false;
         bool m_DepthMaskEnabled = true;

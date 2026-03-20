@@ -136,6 +136,9 @@ namespace OloEngine
         virtual void BeginConditionalRender(u32 queryID) = 0;
         virtual void EndConditionalRender() = 0;
 
+        // GPU capability queries
+        [[nodiscard("Store this!")]] virtual u32 GetMaxUniformBlockSize() const = 0;
+
         [[nodiscard("Store this!")]] static API GetAPI()
         {
             return s_API;

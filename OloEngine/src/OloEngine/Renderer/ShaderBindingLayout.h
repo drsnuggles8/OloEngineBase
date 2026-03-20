@@ -66,6 +66,8 @@ namespace OloEngine
 
         struct MultiLightUBO
         {
+            // MAX_LIGHTS=256 produces a UBO of ~20 KB.  Renderer3D::Init()
+            // validates this at runtime against GL_MAX_UNIFORM_BLOCK_SIZE.
             static constexpr u32 MAX_LIGHTS = 256; // Maximum supported lights in the array
 
             i32 LightCount;                    // Number of active lights

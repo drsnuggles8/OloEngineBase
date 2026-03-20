@@ -98,7 +98,7 @@ namespace OloEngine
         }
 
       private:
-        void CreateBuffers();
+        bool CreateBuffers();
 
         LightGridConfig m_Config;
         u32 m_ScreenWidth = 0;

@@ -340,6 +340,10 @@ namespace OloEngine::Testing
         {
             Record("EndConditionalRender");
         }
+        [[nodiscard("Store this!")]] u32 GetMaxUniformBlockSize() const override
+        {
+            return 65536u; // Typical desktop GPU value
+        }
         void SetBlendStateForAttachment(u32 /*attachment*/, bool /*enabled*/) override
         {
             Record("SetBlendStateForAttachment");

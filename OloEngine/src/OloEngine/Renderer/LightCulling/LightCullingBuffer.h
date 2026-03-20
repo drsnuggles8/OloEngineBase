@@ -20,6 +20,7 @@ namespace OloEngine
         ~LightCullingBuffer() = default;
 
         void Initialize(u32 maxPointLights = 1024, u32 maxSpotLights = 256);
+        void Shutdown();
 
         // Upload light arrays to GPU SSBOs
         void Update(const std::vector<GPUPointLight>& pointLights,
