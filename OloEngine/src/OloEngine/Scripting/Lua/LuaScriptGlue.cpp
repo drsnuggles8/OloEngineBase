@@ -21,6 +21,8 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 #include "OloEngine/AI/AIComponents.h"
+#include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
+#include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
 
 namespace OloEngine
 {
@@ -676,5 +678,46 @@ namespace OloEngine
                                                 {
                 if (comp.RuntimeFSM)
                     comp.RuntimeFSM->ForceTransition(stateId, entity, comp.Blackboard); });
+
+        // --- InventoryComponent ---
+        lua.new_usertype<InventoryComponent>("InventoryComponent", "currency", &InventoryComponent::Currency, "AddItem", [](InventoryComponent& comp, const std::string& itemId, sol::optional<i32> count)
+                                             {
+                                                 i32 total = count.value_or(1);
+                                                 if (total <= 0)
+                                                     return false;
+                                                 const auto* def = ItemDatabase::Get(itemId);
+                                                 if (!def)
+                                                     return false;
+                                                 i32 maxStack = std::max(def->MaxStackSize, 1);
+                                                 i32 remaining = total;
+                                                 while (remaining > 0)
+                                                 {
+                                                     ItemInstance instance;
+                                                     instance.InstanceID = UUID();
+                                                     instance.ItemDefinitionID = itemId;
+                                                     instance.StackCount = std::min(remaining, maxStack);
+                                                     if (!comp.PlayerInventory.AddItem(instance))
+                                                         return false;
+                                                     remaining -= instance.StackCount;
+                                                 }
+                                                 return true; }, "RemoveItem", [](InventoryComponent& comp, const std::string& itemId, sol::optional<i32> count)
+                                             { return comp.PlayerInventory.RemoveItemByDefinition(itemId, count.value_or(1)); }, "HasItem", [](const InventoryComponent& comp, const std::string& itemId, sol::optional<i32> count) -> bool
+                                             { return comp.PlayerInventory.HasItem(itemId, count.value_or(1)); }, "CountItem", [](const InventoryComponent& comp, const std::string& itemId) -> i32
+                                             { return comp.PlayerInventory.CountItem(itemId); }, "GetUsedSlots", [](const InventoryComponent& comp) -> i32
+                                             { return comp.PlayerInventory.GetUsedSlots(); }, "GetCapacity", [](const InventoryComponent& comp) -> i32
+                                             { return comp.PlayerInventory.GetCapacity(); }, "GetTotalWeight", [](const InventoryComponent& comp) -> f32
+                                             { return comp.PlayerInventory.GetTotalWeight(); });
+
+        // --- ItemPickupComponent ---
+        lua.new_usertype<ItemPickupComponent>("ItemPickupComponent",
+                                              "pickupRadius", &ItemPickupComponent::PickupRadius,
+                                              "autoPickup", &ItemPickupComponent::AutoPickup,
+                                              "despawnTimer", &ItemPickupComponent::DespawnTimer);
+
+        // --- ItemContainerComponent ---
+        lua.new_usertype<ItemContainerComponent>("ItemContainerComponent",
+                                                 "isShop", &ItemContainerComponent::IsShop,
+                                                 "lootTableID", &ItemContainerComponent::LootTableID,
+                                                 "hasBeenLooted", &ItemContainerComponent::HasBeenLooted);
     }
 } // namespace OloEngine

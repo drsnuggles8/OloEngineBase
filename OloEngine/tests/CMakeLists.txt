@@ -117,6 +117,8 @@ add_executable(OloEngine-Tests
 		# AI Behavior Tree & FSM Tests
 		BehaviorTreeTest.cpp
 		StateMachineTest.cpp
+		# Inventory Tests
+		InventoryTest.cpp
 )
 target_link_libraries(OloEngine-Tests
 	OloEngine

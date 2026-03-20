@@ -26,6 +26,7 @@
 #include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
 #include "OloEngine/Dialogue/DialogueTypes.h"
 #include "OloEngine/AI/AIComponents.h"
+#include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 
 #include <box2d/id.h>
 
@@ -1467,5 +1468,8 @@ namespace OloEngine
         AnimationGraphComponent,
         MorphTargetComponent,
         BehaviorTreeComponent,
-        StateMachineComponent>;
+        StateMachineComponent,
+        InventoryComponent,
+        ItemPickupComponent,
+        ItemContainerComponent>;
 } // namespace OloEngine

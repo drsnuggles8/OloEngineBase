@@ -28,6 +28,7 @@
 #include "OloEngine/Task/Task.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
+#include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
 
 #include <imgui.h>
 #include <ImGuizmo.h>
@@ -1660,9 +1661,18 @@ namespace OloEngine
             editorAssetManager->Initialize();
             Project::SetAssetManager(editorAssetManager);
 
+            // Load item definitions before opening scene so deserialization can resolve items
+            ItemDatabase::Clear();
+            auto itemsDir = Project::GetAssetFileSystemPath("Items");
+            if (std::filesystem::exists(itemsDir))
+            {
+                ItemDatabase::LoadFromDirectory(itemsDir.string());
+            }
+
             auto startScenePath = Project::GetAssetFileSystemPath(Project::GetActive()->GetConfig().StartScene);
             OLO_ASSERT(std::filesystem::exists(startScenePath));
             OpenScene(startScenePath);
+
             m_DialogueEditorPanel.NewDialogue();
             m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
             BindContentBrowserSelectionCallback();

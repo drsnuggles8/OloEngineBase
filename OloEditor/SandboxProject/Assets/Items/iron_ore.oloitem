@@ -1,0 +1,20 @@
+ItemDefinition:
+  ItemID: iron_ore
+  DisplayName: Iron Ore
+  Description: Raw iron ore used for crafting.
+  IconPath: ""
+  MeshAsset: ""
+  Category: Material
+  Rarity: Common
+  MaxStackSize: 50
+  Weight: 1.0
+  BuyPrice: 5
+  SellPrice: 2
+  IsQuestItem: false
+  IsConsumable: false
+  AttributeModifiers: []
+  Tags:
+    - material
+    - ore
+    - iron
+    - crafting

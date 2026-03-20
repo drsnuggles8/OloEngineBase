@@ -1,0 +1,19 @@
+ItemDefinition:
+  ItemID: ancient_amulet
+  DisplayName: Ancient Amulet
+  Description: A mysterious amulet discovered in an ancient ruin. Its purpose is unknown.
+  IconPath: ""
+  MeshAsset: ""
+  Category: QuestItem
+  Rarity: Rare
+  MaxStackSize: 1
+  Weight: 0.2
+  BuyPrice: 0
+  SellPrice: 0
+  IsQuestItem: true
+  IsConsumable: false
+  AttributeModifiers: []
+  Tags:
+    - quest
+    - amulet
+    - ancient

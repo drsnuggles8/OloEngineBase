@@ -15,6 +15,7 @@
 #include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
+#include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 
 #include <fstream>
 #include <cmath>
@@ -2199,6 +2200,217 @@ namespace OloEngine
             auto& smc = deserializedEntity.AddComponent<StateMachineComponent>();
             TrySet(smc.StateMachineAssetHandle, stateMachineComponent["StateMachineAsset"]);
         }
+
+        if (auto inventoryComponent = entity["InventoryComponent"]; inventoryComponent)
+        {
+            auto& ic = deserializedEntity.AddComponent<InventoryComponent>();
+            i32 capacity = std::max(inventoryComponent["Capacity"].as<i32>(40), 1);
+            ic.PlayerInventory.SetCapacity(capacity);
+            TrySet(ic.PlayerInventory.MaxWeight, inventoryComponent["MaxWeight"]);
+            TrySet(ic.Currency, inventoryComponent["Currency"]);
+
+            if (auto items = inventoryComponent["Items"]; items && items.IsSequence())
+            {
+                for (auto const& itemNode : items)
+                {
+                    ItemInstance item;
+                    item.InstanceID = itemNode["InstanceID"].as<u64>(0);
+                    item.ItemDefinitionID = itemNode["DefinitionID"].as<std::string>("");
+                    TrySet(item.StackCount, itemNode["StackCount"]);
+                    TrySet(item.Durability, itemNode["Durability"]);
+                    TrySet(item.MaxDurability, itemNode["MaxDurability"]);
+
+                    if (auto affixes = itemNode["Affixes"]; affixes && affixes.IsSequence())
+                    {
+                        for (auto const& affixNode : affixes)
+                        {
+                            ItemAffix affix;
+                            affix.Name = affixNode["Name"].as<std::string>("");
+                            affix.Attribute = affixNode["Attribute"].as<std::string>("");
+                            affix.Value = affixNode["Value"].as<f32>(0.0f);
+                            item.Affixes.push_back(std::move(affix));
+                        }
+                    }
+
+                    if (auto customData = itemNode["CustomData"]; customData && customData.IsMap())
+                    {
+                        for (auto const& kv : customData)
+                        {
+                            item.CustomData[kv.first.as<std::string>()] = kv.second.as<std::string>("");
+                        }
+                    }
+
+                    if (auto slotNode = itemNode["Slot"]; slotNode && slotNode.IsScalar())
+                    {
+                        if (!ic.PlayerInventory.AddItemToSlot(slotNode.as<i32>(0), item))
+                        {
+                            OLO_CORE_WARN("[SceneSerializer] Failed to add item '{}' to slot {}", item.ItemDefinitionID, slotNode.as<i32>(0));
+                        }
+                    }
+                    else
+                    {
+                        if (!ic.PlayerInventory.AddItem(item))
+                        {
+                            OLO_CORE_WARN("[SceneSerializer] Failed to add item '{}' to inventory", item.ItemDefinitionID);
+                        }
+                    }
+                }
+            }
+
+            if (auto equipment = inventoryComponent["Equipment"]; equipment && equipment.IsSequence())
+            {
+                for (auto const& eqNode : equipment)
+                {
+                    ItemInstance item;
+                    item.InstanceID = eqNode["InstanceID"].as<u64>(0);
+                    item.ItemDefinitionID = eqNode["DefinitionID"].as<std::string>("");
+                    TrySet(item.StackCount, eqNode["StackCount"]);
+                    TrySet(item.Durability, eqNode["Durability"]);
+                    TrySet(item.MaxDurability, eqNode["MaxDurability"]);
+
+                    if (auto affixes = eqNode["Affixes"]; affixes && affixes.IsSequence())
+                    {
+                        for (auto const& affixNode : affixes)
+                        {
+                            ItemAffix affix;
+                            affix.DefinitionID = affixNode["DefinitionID"].as<std::string>("");
+                            affix.Type = AffixTypeFromString(affixNode["Type"].as<std::string>("Prefix"));
+                            affix.Tier = affixNode["Tier"].as<i32>(0);
+                            affix.Name = affixNode["Name"].as<std::string>("");
+                            affix.Attribute = affixNode["Attribute"].as<std::string>("");
+                            affix.Value = affixNode["Value"].as<f32>(0.0f);
+                            item.Affixes.push_back(std::move(affix));
+                        }
+                    }
+
+                    if (auto customData = eqNode["CustomData"]; customData && customData.IsMap())
+                    {
+                        for (auto const& kv : customData)
+                        {
+                            item.CustomData[kv.first.as<std::string>()] = kv.second.as<std::string>("");
+                        }
+                    }
+
+                    auto slotNode = eqNode["Slot"];
+                    if (!slotNode || !slotNode.IsScalar())
+                    {
+                        OLO_CORE_WARN("[SceneSerializer] Equipment entry missing 'Slot' field — skipping (item: {})", item.ItemDefinitionID);
+                        continue;
+                    }
+                    auto slotStr = slotNode.as<std::string>("");
+                    if (slotStr.empty())
+                    {
+                        OLO_CORE_WARN("[SceneSerializer] Equipment entry has empty 'Slot' — skipping (item: {})", item.ItemDefinitionID);
+                        continue;
+                    }
+                    auto slot = EquipmentSlots::SlotFromString(slotStr);
+                    if (slot == EquipmentSlots::Slot::Count)
+                    {
+                        OLO_CORE_WARN("[SceneSerializer] Invalid equipment slot '{}' — skipping", slotStr);
+                        continue;
+                    }
+                    // Direct-equip for deserialization (no inventory mutation)
+                    ic.Equipment.DirectEquip(slot, item);
+                }
+            }
+        }
+
+        if (auto itemPickupComponent = entity["ItemPickupComponent"]; itemPickupComponent)
+        {
+            auto& pc = deserializedEntity.AddComponent<ItemPickupComponent>();
+            pc.Item.InstanceID = itemPickupComponent["InstanceID"].as<u64>(0);
+            pc.Item.ItemDefinitionID = itemPickupComponent["DefinitionID"].as<std::string>("");
+            TrySet(pc.Item.StackCount, itemPickupComponent["StackCount"]);
+            TrySet(pc.Item.Durability, itemPickupComponent["Durability"]);
+            TrySet(pc.Item.MaxDurability, itemPickupComponent["MaxDurability"]);
+            TrySet(pc.PickupRadius, itemPickupComponent["PickupRadius"]);
+            TrySet(pc.AutoPickup, itemPickupComponent["AutoPickup"]);
+            TrySet(pc.DespawnTimer, itemPickupComponent["DespawnTimer"]);
+
+            if (auto affixes = itemPickupComponent["Affixes"]; affixes && affixes.IsSequence())
+            {
+                for (auto const& affixNode : affixes)
+                {
+                    ItemAffix affix;
+                    affix.DefinitionID = affixNode["DefinitionID"].as<std::string>("");
+                    affix.Type = AffixTypeFromString(affixNode["Type"].as<std::string>("Prefix"));
+                    affix.Tier = affixNode["Tier"].as<i32>(0);
+                    affix.Name = affixNode["Name"].as<std::string>("");
+                    affix.Attribute = affixNode["Attribute"].as<std::string>("");
+                    affix.Value = affixNode["Value"].as<f32>(0.0f);
+                    pc.Item.Affixes.push_back(std::move(affix));
+                }
+            }
+
+            if (auto customData = itemPickupComponent["CustomData"]; customData && customData.IsMap())
+            {
+                for (auto const& kv : customData)
+                {
+                    pc.Item.CustomData[kv.first.as<std::string>()] = kv.second.as<std::string>("");
+                }
+            }
+        }
+
+        if (auto itemContainerComponent = entity["ItemContainerComponent"]; itemContainerComponent)
+        {
+            auto& cc = deserializedEntity.AddComponent<ItemContainerComponent>();
+            i32 capacity = std::max(itemContainerComponent["Capacity"].as<i32>(20), 1);
+            cc.Contents.SetCapacity(capacity);
+            TrySet(cc.IsShop, itemContainerComponent["IsShop"]);
+            TrySet(cc.LootTableID, itemContainerComponent["LootTableID"]);
+            TrySet(cc.HasBeenLooted, itemContainerComponent["HasBeenLooted"]);
+
+            if (auto items = itemContainerComponent["Items"]; items && items.IsSequence())
+            {
+                for (auto const& itemNode : items)
+                {
+                    ItemInstance item;
+                    item.InstanceID = itemNode["InstanceID"].as<u64>(0);
+                    item.ItemDefinitionID = itemNode["DefinitionID"].as<std::string>("");
+                    TrySet(item.StackCount, itemNode["StackCount"]);
+                    TrySet(item.Durability, itemNode["Durability"]);
+                    TrySet(item.MaxDurability, itemNode["MaxDurability"]);
+
+                    if (auto affixes = itemNode["Affixes"]; affixes && affixes.IsSequence())
+                    {
+                        for (auto const& affixNode : affixes)
+                        {
+                            ItemAffix affix;
+                            affix.DefinitionID = affixNode["DefinitionID"].as<std::string>("");
+                            affix.Type = AffixTypeFromString(affixNode["Type"].as<std::string>("Prefix"));
+                            affix.Tier = affixNode["Tier"].as<i32>(0);
+                            affix.Name = affixNode["Name"].as<std::string>("");
+                            affix.Attribute = affixNode["Attribute"].as<std::string>("");
+                            affix.Value = affixNode["Value"].as<f32>(0.0f);
+                            item.Affixes.push_back(std::move(affix));
+                        }
+                    }
+
+                    if (auto customData = itemNode["CustomData"]; customData && customData.IsMap())
+                    {
+                        for (auto const& kv : customData)
+                        {
+                            item.CustomData[kv.first.as<std::string>()] = kv.second.as<std::string>("");
+                        }
+                    }
+
+                    if (auto slotNode = itemNode["Slot"]; slotNode && slotNode.IsScalar())
+                    {
+                        if (!cc.Contents.AddItemToSlot(slotNode.as<i32>(0), item))
+                        {
+                            OLO_CORE_WARN("[SceneSerializer] Failed to add item '{}' to container slot {}", item.ItemDefinitionID, slotNode.as<i32>(0));
+                        }
+                    }
+                    else
+                    {
+                        if (!cc.Contents.AddItem(item))
+                        {
+                            OLO_CORE_WARN("[SceneSerializer] Failed to add item '{}' to container", item.ItemDefinitionID);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -3618,6 +3830,212 @@ namespace OloEngine
             out << YAML::Key << "StateMachineAsset" << YAML::Value << smc.StateMachineAssetHandle;
 
             out << YAML::EndMap; // StateMachineComponent
+        }
+
+        if (entity.HasComponent<InventoryComponent>())
+        {
+            out << YAML::Key << "InventoryComponent";
+            out << YAML::BeginMap;
+
+            auto const& ic = entity.GetComponent<InventoryComponent>();
+            out << YAML::Key << "Capacity" << YAML::Value << ic.PlayerInventory.GetCapacity();
+            out << YAML::Key << "MaxWeight" << YAML::Value << ic.PlayerInventory.MaxWeight;
+            out << YAML::Key << "Currency" << YAML::Value << ic.Currency;
+
+            // Serialize inventory items
+            out << YAML::Key << "Items" << YAML::Value << YAML::BeginSeq;
+            for (i32 slot = 0; slot < ic.PlayerInventory.GetCapacity(); ++slot)
+            {
+                const auto* item = ic.PlayerInventory.GetItemAtSlot(slot);
+                if (item)
+                {
+                    out << YAML::BeginMap;
+                    out << YAML::Key << "Slot" << YAML::Value << slot;
+                    out << YAML::Key << "InstanceID" << YAML::Value << item->InstanceID;
+                    out << YAML::Key << "DefinitionID" << YAML::Value << item->ItemDefinitionID;
+                    out << YAML::Key << "StackCount" << YAML::Value << item->StackCount;
+                    out << YAML::Key << "Durability" << YAML::Value << item->Durability;
+                    out << YAML::Key << "MaxDurability" << YAML::Value << item->MaxDurability;
+
+                    if (!item->Affixes.empty())
+                    {
+                        out << YAML::Key << "Affixes" << YAML::Value << YAML::BeginSeq;
+                        for (auto const& affix : item->Affixes)
+                        {
+                            out << YAML::BeginMap;
+                            out << YAML::Key << "DefinitionID" << YAML::Value << affix.DefinitionID;
+                            out << YAML::Key << "Type" << YAML::Value << AffixTypeToString(affix.Type);
+                            out << YAML::Key << "Tier" << YAML::Value << affix.Tier;
+                            out << YAML::Key << "Name" << YAML::Value << affix.Name;
+                            out << YAML::Key << "Attribute" << YAML::Value << affix.Attribute;
+                            out << YAML::Key << "Value" << YAML::Value << affix.Value;
+                            out << YAML::EndMap;
+                        }
+                        out << YAML::EndSeq;
+                    }
+                    if (!item->CustomData.empty())
+                    {
+                        out << YAML::Key << "CustomData" << YAML::Value << YAML::BeginMap;
+                        for (auto const& [key, value] : item->CustomData)
+                        {
+                            out << YAML::Key << key << YAML::Value << value;
+                        }
+                        out << YAML::EndMap;
+                    }
+                    out << YAML::EndMap;
+                }
+            }
+            out << YAML::EndSeq;
+
+            // Serialize equipment
+            out << YAML::Key << "Equipment" << YAML::Value << YAML::BeginSeq;
+            for (i32 i = 0; i < EquipmentSlots::SlotCount; ++i)
+            {
+                auto slot = static_cast<EquipmentSlots::Slot>(i);
+                const auto* item = ic.Equipment.GetEquipped(slot);
+                if (item)
+                {
+                    out << YAML::BeginMap;
+                    out << YAML::Key << "Slot" << YAML::Value << EquipmentSlots::SlotToString(slot);
+                    out << YAML::Key << "InstanceID" << YAML::Value << item->InstanceID;
+                    out << YAML::Key << "DefinitionID" << YAML::Value << item->ItemDefinitionID;
+                    out << YAML::Key << "StackCount" << YAML::Value << item->StackCount;
+                    out << YAML::Key << "Durability" << YAML::Value << item->Durability;
+                    out << YAML::Key << "MaxDurability" << YAML::Value << item->MaxDurability;
+
+                    if (!item->Affixes.empty())
+                    {
+                        out << YAML::Key << "Affixes" << YAML::Value << YAML::BeginSeq;
+                        for (auto const& affix : item->Affixes)
+                        {
+                            out << YAML::BeginMap;
+                            out << YAML::Key << "DefinitionID" << YAML::Value << affix.DefinitionID;
+                            out << YAML::Key << "Type" << YAML::Value << AffixTypeToString(affix.Type);
+                            out << YAML::Key << "Tier" << YAML::Value << affix.Tier;
+                            out << YAML::Key << "Name" << YAML::Value << affix.Name;
+                            out << YAML::Key << "Attribute" << YAML::Value << affix.Attribute;
+                            out << YAML::Key << "Value" << YAML::Value << affix.Value;
+                            out << YAML::EndMap;
+                        }
+                        out << YAML::EndSeq;
+                    }
+                    if (!item->CustomData.empty())
+                    {
+                        out << YAML::Key << "CustomData" << YAML::Value << YAML::BeginMap;
+                        for (auto const& [key, value] : item->CustomData)
+                        {
+                            out << YAML::Key << key << YAML::Value << value;
+                        }
+                        out << YAML::EndMap;
+                    }
+                    out << YAML::EndMap;
+                }
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::EndMap; // InventoryComponent
+        }
+
+        if (entity.HasComponent<ItemPickupComponent>())
+        {
+            out << YAML::Key << "ItemPickupComponent";
+            out << YAML::BeginMap;
+
+            auto const& pc = entity.GetComponent<ItemPickupComponent>();
+            out << YAML::Key << "InstanceID" << YAML::Value << pc.Item.InstanceID;
+            out << YAML::Key << "DefinitionID" << YAML::Value << pc.Item.ItemDefinitionID;
+            out << YAML::Key << "StackCount" << YAML::Value << pc.Item.StackCount;
+            out << YAML::Key << "Durability" << YAML::Value << pc.Item.Durability;
+            out << YAML::Key << "MaxDurability" << YAML::Value << pc.Item.MaxDurability;
+            out << YAML::Key << "PickupRadius" << YAML::Value << pc.PickupRadius;
+            out << YAML::Key << "AutoPickup" << YAML::Value << pc.AutoPickup;
+            out << YAML::Key << "DespawnTimer" << YAML::Value << pc.DespawnTimer;
+
+            if (!pc.Item.Affixes.empty())
+            {
+                out << YAML::Key << "Affixes" << YAML::Value << YAML::BeginSeq;
+                for (auto const& affix : pc.Item.Affixes)
+                {
+                    out << YAML::BeginMap;
+                    out << YAML::Key << "DefinitionID" << YAML::Value << affix.DefinitionID;
+                    out << YAML::Key << "Type" << YAML::Value << AffixTypeToString(affix.Type);
+                    out << YAML::Key << "Tier" << YAML::Value << affix.Tier;
+                    out << YAML::Key << "Name" << YAML::Value << affix.Name;
+                    out << YAML::Key << "Attribute" << YAML::Value << affix.Attribute;
+                    out << YAML::Key << "Value" << YAML::Value << affix.Value;
+                    out << YAML::EndMap;
+                }
+                out << YAML::EndSeq;
+            }
+            if (!pc.Item.CustomData.empty())
+            {
+                out << YAML::Key << "CustomData" << YAML::Value << YAML::BeginMap;
+                for (auto const& [key, value] : pc.Item.CustomData)
+                {
+                    out << YAML::Key << key << YAML::Value << value;
+                }
+                out << YAML::EndMap;
+            }
+
+            out << YAML::EndMap; // ItemPickupComponent
+        }
+
+        if (entity.HasComponent<ItemContainerComponent>())
+        {
+            out << YAML::Key << "ItemContainerComponent";
+            out << YAML::BeginMap;
+
+            auto const& cc = entity.GetComponent<ItemContainerComponent>();
+            out << YAML::Key << "Capacity" << YAML::Value << cc.Contents.GetCapacity();
+            out << YAML::Key << "IsShop" << YAML::Value << cc.IsShop;
+            out << YAML::Key << "LootTableID" << YAML::Value << cc.LootTableID;
+            out << YAML::Key << "HasBeenLooted" << YAML::Value << cc.HasBeenLooted;
+
+            out << YAML::Key << "Items" << YAML::Value << YAML::BeginSeq;
+            for (i32 slot = 0; slot < cc.Contents.GetCapacity(); ++slot)
+            {
+                const auto* item = cc.Contents.GetItemAtSlot(slot);
+                if (item)
+                {
+                    out << YAML::BeginMap;
+                    out << YAML::Key << "Slot" << YAML::Value << slot;
+                    out << YAML::Key << "InstanceID" << YAML::Value << item->InstanceID;
+                    out << YAML::Key << "DefinitionID" << YAML::Value << item->ItemDefinitionID;
+                    out << YAML::Key << "StackCount" << YAML::Value << item->StackCount;
+                    out << YAML::Key << "Durability" << YAML::Value << item->Durability;
+                    out << YAML::Key << "MaxDurability" << YAML::Value << item->MaxDurability;
+
+                    if (!item->Affixes.empty())
+                    {
+                        out << YAML::Key << "Affixes" << YAML::Value << YAML::BeginSeq;
+                        for (auto const& affix : item->Affixes)
+                        {
+                            out << YAML::BeginMap;
+                            out << YAML::Key << "DefinitionID" << YAML::Value << affix.DefinitionID;
+                            out << YAML::Key << "Type" << YAML::Value << AffixTypeToString(affix.Type);
+                            out << YAML::Key << "Tier" << YAML::Value << affix.Tier;
+                            out << YAML::Key << "Name" << YAML::Value << affix.Name;
+                            out << YAML::Key << "Attribute" << YAML::Value << affix.Attribute;
+                            out << YAML::Key << "Value" << YAML::Value << affix.Value;
+                            out << YAML::EndMap;
+                        }
+                        out << YAML::EndSeq;
+                    }
+                    if (!item->CustomData.empty())
+                    {
+                        out << YAML::Key << "CustomData" << YAML::Value << YAML::BeginMap;
+                        for (auto const& [key, value] : item->CustomData)
+                        {
+                            out << YAML::Key << key << YAML::Value << value;
+                        }
+                        out << YAML::EndMap;
+                    }
+                    out << YAML::EndMap;
+                }
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::EndMap; // ItemContainerComponent
         }
 
         out << YAML::EndMap; // Entity

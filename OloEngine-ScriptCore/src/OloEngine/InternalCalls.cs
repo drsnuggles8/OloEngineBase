@@ -697,5 +697,20 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void StateMachineComponent_ForceTransition(ulong entityID, string stateId);
 		#endregion
+
+		#region Inventory
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool InventoryComponent_AddItem(ulong entityID, string itemId, int count);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool InventoryComponent_RemoveItem(ulong entityID, string itemId, int count);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool InventoryComponent_HasItem(ulong entityID, string itemId, int count);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int InventoryComponent_CountItem(ulong entityID, string itemId);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int InventoryComponent_GetCurrency(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void InventoryComponent_SetCurrency(ulong entityID, int value);
+		#endregion
 	}
 }
