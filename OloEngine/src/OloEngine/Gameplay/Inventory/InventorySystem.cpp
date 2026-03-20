@@ -13,6 +13,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        std::vector<entt::entity> entitiesToDestroy;
+
         // Process pickup despawn timers
         auto pickupView = scene->GetAllEntitiesWith<ItemPickupComponent, TransformComponent>();
         for (auto e : pickupView)
@@ -25,7 +27,7 @@ namespace OloEngine
                 pickup.DespawnTimer -= dt;
                 if (pickup.DespawnTimer <= 0.0f)
                 {
-                    scene->DestroyEntity(entity);
+                    entitiesToDestroy.push_back(e);
                     continue;
                 }
             }
@@ -33,13 +35,13 @@ namespace OloEngine
 
         // Process auto-pickup: check proximity between pickups and entities with inventories
         auto inventoryView = scene->GetAllEntitiesWith<InventoryComponent, TransformComponent>();
+        auto pickupView2 = scene->GetAllEntitiesWith<ItemPickupComponent, TransformComponent>();
         for (auto invEntity : inventoryView)
         {
             Entity invEnt = { invEntity, scene };
             auto& invTransform = invEnt.GetComponent<TransformComponent>();
             auto& invComp = invEnt.GetComponent<InventoryComponent>();
 
-            auto pickupView2 = scene->GetAllEntitiesWith<ItemPickupComponent, TransformComponent>();
             for (auto pickupEntity : pickupView2)
             {
                 Entity pickupEnt = { pickupEntity, scene };
@@ -61,9 +63,19 @@ namespace OloEngine
                 {
                     if (invComp.PlayerInventory.AddItem(pickupComp.Item))
                     {
-                        scene->DestroyEntity(pickupEnt);
+                        entitiesToDestroy.push_back(pickupEntity);
                     }
                 }
+            }
+        }
+
+        // Deferred destruction
+        for (auto e : entitiesToDestroy)
+        {
+            Entity entity = { e, scene };
+            if (entity)
+            {
+                scene->DestroyEntity(entity);
             }
         }
     }

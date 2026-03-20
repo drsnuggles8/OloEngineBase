@@ -1,24 +1,40 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Gameplay/Inventory/Inventory.h"
+#include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
 #include "OloEngine/Core/Log.h"
 
 namespace OloEngine
 {
     Inventory::Inventory(i32 capacity)
-        : m_Capacity(capacity)
+        : m_Capacity(std::max(capacity, 0))
     {
-        m_Slots.resize(static_cast<size_t>(capacity));
+        m_Slots.resize(static_cast<size_t>(m_Capacity));
     }
 
     bool Inventory::AddItem(const ItemInstance& item)
     {
         OLO_PROFILE_FUNCTION();
 
+        if (item.StackCount <= 0)
+        {
+            return false;
+        }
+
         const ItemDefinition* def = ItemDatabase::Get(item.ItemDefinitionID);
-        i32 maxStack = def ? def->MaxStackSize : 1;
+        if (!def)
+        {
+            return false;
+        }
+
+        i32 maxStack = def->MaxStackSize;
+
+        if (item.StackCount > maxStack)
+        {
+            return false;
+        }
 
         // Check weight limit
-        if (MaxWeight > 0.0f && def)
+        if (MaxWeight > 0.0f)
         {
             f32 addedWeight = def->Weight * static_cast<f32>(item.StackCount);
             if (GetTotalWeight() + addedWeight > MaxWeight)
@@ -64,14 +80,35 @@ namespace OloEngine
             return false;
         }
 
+        if (item.StackCount <= 0)
+        {
+            return false;
+        }
+
+        const ItemDefinition* def = ItemDatabase::Get(item.ItemDefinitionID);
+        i32 maxStack = def ? def->MaxStackSize : 1;
+
+        if (item.StackCount > maxStack)
+        {
+            return false;
+        }
+
+        // Weight check
+        if (MaxWeight > 0.0f && def)
+        {
+            f32 addedWeight = def->Weight * static_cast<f32>(item.StackCount);
+            if (GetTotalWeight() + addedWeight > MaxWeight)
+            {
+                return false;
+            }
+        }
+
         auto& slot = m_Slots[static_cast<size_t>(slotIndex)];
         if (slot.has_value())
         {
             // Try stacking
             if (slot->ItemDefinitionID == item.ItemDefinitionID)
             {
-                const ItemDefinition* def = ItemDatabase::Get(item.ItemDefinitionID);
-                i32 maxStack = def ? def->MaxStackSize : 1;
                 if (slot->StackCount + item.StackCount <= maxStack)
                 {
                     slot->StackCount += item.StackCount;
@@ -87,6 +124,11 @@ namespace OloEngine
 
     bool Inventory::RemoveItem(const UUID& instanceId, i32 count)
     {
+        if (count <= 0)
+        {
+            return false;
+        }
+
         for (auto& slot : m_Slots)
         {
             if (slot.has_value() && slot->InstanceID == instanceId)
@@ -107,6 +149,26 @@ namespace OloEngine
 
     bool Inventory::RemoveItemByDefinition(const std::string& definitionId, i32 count)
     {
+        if (count <= 0)
+        {
+            return false;
+        }
+
+        // First pass: verify enough items exist
+        i32 total = 0;
+        for (auto const& slot : m_Slots)
+        {
+            if (slot.has_value() && slot->ItemDefinitionID == definitionId)
+            {
+                total += slot->StackCount;
+            }
+        }
+        if (total < count)
+        {
+            return false;
+        }
+
+        // Second pass: actually remove
         i32 remaining = count;
         for (auto& slot : m_Slots)
         {
@@ -128,7 +190,7 @@ namespace OloEngine
                 }
             }
         }
-        return remaining <= 0;
+        return true;
     }
 
     bool Inventory::MoveItem(i32 fromSlot, i32 toSlot)
@@ -294,12 +356,16 @@ namespace OloEngine
         std::sort(m_Slots.begin(), m_Slots.end(),
                   [](auto const& a, auto const& b)
                   {
-                      if (!a.has_value()) return false;
-                      if (!b.has_value()) return true;
+                      if (!a.has_value())
+                          return false;
+                      if (!b.has_value())
+                          return true;
                       const auto* defA = ItemDatabase::Get(a->ItemDefinitionID);
                       const auto* defB = ItemDatabase::Get(b->ItemDefinitionID);
-                      if (!defA) return false;
-                      if (!defB) return true;
+                      if (!defA)
+                          return false;
+                      if (!defB)
+                          return true;
                       return static_cast<u8>(defA->Category) < static_cast<u8>(defB->Category);
                   });
     }
@@ -309,12 +375,16 @@ namespace OloEngine
         std::sort(m_Slots.begin(), m_Slots.end(),
                   [](auto const& a, auto const& b)
                   {
-                      if (!a.has_value()) return false;
-                      if (!b.has_value()) return true;
+                      if (!a.has_value())
+                          return false;
+                      if (!b.has_value())
+                          return true;
                       const auto* defA = ItemDatabase::Get(a->ItemDefinitionID);
                       const auto* defB = ItemDatabase::Get(b->ItemDefinitionID);
-                      if (!defA) return false;
-                      if (!defB) return true;
+                      if (!defA)
+                          return false;
+                      if (!defB)
+                          return true;
                       return static_cast<u8>(defA->Rarity) > static_cast<u8>(defB->Rarity);
                   });
     }
@@ -324,18 +394,35 @@ namespace OloEngine
         std::sort(m_Slots.begin(), m_Slots.end(),
                   [](auto const& a, auto const& b)
                   {
-                      if (!a.has_value()) return false;
-                      if (!b.has_value()) return true;
+                      if (!a.has_value())
+                          return false;
+                      if (!b.has_value())
+                          return true;
                       const auto* defA = ItemDatabase::Get(a->ItemDefinitionID);
                       const auto* defB = ItemDatabase::Get(b->ItemDefinitionID);
-                      if (!defA) return false;
-                      if (!defB) return true;
+                      if (!defA)
+                          return false;
+                      if (!defB)
+                          return true;
                       return defA->DisplayName < defB->DisplayName;
                   });
     }
 
     void Inventory::SetCapacity(i32 capacity)
     {
+        capacity = std::max(capacity, 0);
+
+        // Prevent shrinking below occupied slot count
+        if (capacity < m_Capacity)
+        {
+            i32 used = GetUsedSlots();
+            if (capacity < used)
+            {
+                OLO_CORE_WARN("[Inventory] Cannot shrink capacity to {} — {} slots are occupied", capacity, used);
+                capacity = used;
+            }
+        }
+
         m_Capacity = capacity;
         m_Slots.resize(static_cast<size_t>(capacity));
     }

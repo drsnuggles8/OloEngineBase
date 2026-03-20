@@ -177,19 +177,22 @@ Entities:
       MaxWeight: 100.0
       Currency: 500
       Items:
-        - DefinitionID: iron_sword
+        - Slot: 0
+          DefinitionID: iron_sword
           InstanceID: 2000000000000000001
           StackCount: 1
           Durability: 100.0
           MaxDurability: 100.0
           Affixes: []
-        - DefinitionID: health_potion
+        - Slot: 1
+          DefinitionID: health_potion
           InstanceID: 2000000000000000002
           StackCount: 5
           Durability: -1.0
           MaxDurability: -1.0
           Affixes: []
-        - DefinitionID: iron_ore
+        - Slot: 2
+          DefinitionID: iron_ore
           InstanceID: 2000000000000000003
           StackCount: 12
           Durability: -1.0

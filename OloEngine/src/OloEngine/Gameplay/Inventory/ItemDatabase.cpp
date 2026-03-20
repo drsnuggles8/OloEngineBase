@@ -87,7 +87,13 @@ namespace OloEngine
 
     void ItemDatabase::Register(const ItemDefinition& definition)
     {
-        GetItems()[definition.ItemID] = definition;
+        auto& items = GetItems();
+        if (items.contains(definition.ItemID))
+        {
+            OLO_CORE_WARN("[ItemDatabase] Duplicate item ID '{}' — registration ignored", definition.ItemID);
+            return;
+        }
+        items[definition.ItemID] = definition;
     }
 
     const ItemDefinition* ItemDatabase::Get(const std::string& itemId)

@@ -40,12 +40,17 @@ namespace OloEngine
         [[nodiscard]] std::vector<std::pair<std::string, f32>> GetAllAttributeModifiers() const;
 
         // Direct access for serialization
-        [[nodiscard]] const auto& GetAllSlots() const { return m_Equipped; }
+        [[nodiscard]] const auto& GetAllSlots() const
+        {
+            return m_Equipped;
+        }
 
         static constexpr i32 SlotCount = static_cast<i32>(Slot::Count);
 
         static const char* SlotToString(Slot slot);
         static Slot SlotFromString(const std::string& str);
+
+        auto operator==(const EquipmentSlots&) const -> bool = default;
 
       private:
         std::array<std::optional<ItemInstance>, static_cast<size_t>(Slot::Count)> m_Equipped;

@@ -34,6 +34,7 @@
 
 #include <cstring>
 #include <cctype>
+#include <concepts>
 #include <unordered_map>
 #include <algorithm>
 
@@ -1227,6 +1228,43 @@ namespace OloEngine
                         }
                     }
 
+                    // Prefab-aware undo push — shared by both tracking strategies
+                    auto pushUndoCommand = [&]()
+                    {
+                        if (entity.HasComponent<PrefabComponent>())
+                        {
+                            auto& pc = entity.GetComponent<PrefabComponent>();
+                            if (pc.IsValid() && !pc.IsComponentOverridden(componentKey))
+                            {
+                                PrefabComponent pcBefore = pc;
+                                pc.MarkComponentOverridden(componentKey);
+
+                                auto compound = std::make_unique<CompoundCommand>("Property Change");
+                                compound->Add(std::make_unique<ComponentChangeCommand<T>>(
+                                    s_DrawComponentScene, entity.GetUUID(),
+                                    editState.snapshot, component, "Property Change"));
+                                compound->Add(std::make_unique<ComponentChangeCommand<PrefabComponent>>(
+                                    s_DrawComponentScene, entity.GetUUID(),
+                                    pcBefore, pc, "Mark Override"));
+                                s_DrawComponentCmdHistory->PushAlreadyExecuted(std::move(compound));
+                            }
+                            else
+                            {
+                                s_DrawComponentCmdHistory->PushAlreadyExecuted(
+                                    std::make_unique<ComponentChangeCommand<T>>(
+                                        s_DrawComponentScene, entity.GetUUID(),
+                                        editState.snapshot, component, "Property Change"));
+                            }
+                        }
+                        else
+                        {
+                            s_DrawComponentCmdHistory->PushAlreadyExecuted(
+                                std::make_unique<ComponentChangeCommand<T>>(
+                                    s_DrawComponentScene, entity.GetUUID(),
+                                    editState.snapshot, component, "Property Change"));
+                        }
+                    };
+
                     if constexpr (std::is_trivially_copyable_v<T>)
                     {
                         // Byte-level change detection: compare component bytes before and after uiFunction
@@ -1248,47 +1286,37 @@ namespace OloEngine
                             // Only push if the component actually differs from the original snapshot
                             if (std::memcmp(editState.snapshotBytes, &component, sizeof(T)) != 0)
                             {
-                                // Fold prefab override bookkeeping into the undoable command
-                                if (entity.HasComponent<PrefabComponent>())
-                                {
-                                    auto& pc = entity.GetComponent<PrefabComponent>();
-                                    if (pc.IsValid() && !pc.IsComponentOverridden(componentKey))
-                                    {
-                                        PrefabComponent pcBefore = pc;
-                                        pc.MarkComponentOverridden(componentKey);
+                                pushUndoCommand();
+                            }
+                            editState.isEditing = false;
+                        }
+                    }
+                    else if constexpr (std::equality_comparable<T>)
+                    {
+                        // Value-level change detection for non-trivially-copyable types with operator==
+                        T copyBefore = component;
 
-                                        auto compound = std::make_unique<CompoundCommand>("Property Change");
-                                        compound->Add(std::make_unique<ComponentChangeCommand<T>>(
-                                            s_DrawComponentScene, entity.GetUUID(),
-                                            editState.snapshot, component, "Property Change"));
-                                        compound->Add(std::make_unique<ComponentChangeCommand<PrefabComponent>>(
-                                            s_DrawComponentScene, entity.GetUUID(),
-                                            pcBefore, pc, "Mark Override"));
-                                        s_DrawComponentCmdHistory->PushAlreadyExecuted(std::move(compound));
-                                    }
-                                    else
-                                    {
-                                        s_DrawComponentCmdHistory->PushAlreadyExecuted(
-                                            std::make_unique<ComponentChangeCommand<T>>(
-                                                s_DrawComponentScene, entity.GetUUID(),
-                                                editState.snapshot, component, "Property Change"));
-                                    }
-                                }
-                                else
-                                {
-                                    s_DrawComponentCmdHistory->PushAlreadyExecuted(
-                                        std::make_unique<ComponentChangeCommand<T>>(
-                                            s_DrawComponentScene, entity.GetUUID(),
-                                            editState.snapshot, component, "Property Change"));
-                                }
+                        uiFunction(component);
+
+                        const bool componentChanged = !(copyBefore == component);
+
+                        if (componentChanged && !editState.isEditing)
+                        {
+                            editState.isEditing = true;
+                        }
+
+                        if (editState.isEditing && !componentChanged && ::GImGui->ActiveId == 0)
+                        {
+                            if (!(editState.snapshot == component))
+                            {
+                                pushUndoCommand();
                             }
                             editState.isEditing = false;
                         }
                     }
                     else
                     {
-                        // Non-trivially-copyable types: no byte-level tracking,
-                        // rely on widget-level deactivation for undo
+                        // Types without comparison support: no undo tracking
                         uiFunction(component);
                     }
                 }

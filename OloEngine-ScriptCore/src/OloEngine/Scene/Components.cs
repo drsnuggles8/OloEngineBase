@@ -1304,16 +1304,28 @@ namespace OloEngine
 	public class InventoryComponent : Component
 	{
 		public bool AddItem(string itemId, int count = 1)
-			=> InternalCalls.InventoryComponent_AddItem(Entity.ID, itemId, count);
+		{
+			if (string.IsNullOrWhiteSpace(itemId) || count <= 0) return false;
+			return InternalCalls.InventoryComponent_AddItem(Entity.ID, itemId, count);
+		}
 
 		public bool RemoveItem(string itemId, int count = 1)
-			=> InternalCalls.InventoryComponent_RemoveItem(Entity.ID, itemId, count);
+		{
+			if (string.IsNullOrWhiteSpace(itemId) || count <= 0) return false;
+			return InternalCalls.InventoryComponent_RemoveItem(Entity.ID, itemId, count);
+		}
 
 		public bool HasItem(string itemId, int count = 1)
-			=> InternalCalls.InventoryComponent_HasItem(Entity.ID, itemId, count);
+		{
+			if (string.IsNullOrWhiteSpace(itemId) || count <= 0) return false;
+			return InternalCalls.InventoryComponent_HasItem(Entity.ID, itemId, count);
+		}
 
 		public int CountItem(string itemId)
-			=> InternalCalls.InventoryComponent_CountItem(Entity.ID, itemId);
+		{
+			if (string.IsNullOrWhiteSpace(itemId)) return 0;
+			return InternalCalls.InventoryComponent_CountItem(Entity.ID, itemId);
+		}
 
 		public int Currency
 		{

@@ -15,7 +15,7 @@ ItemDefinition:
   AttributeModifiers:
     - Attribute: Defense
       Value: 8.0
-    - Attribute: Health
+    - Attribute: MaxHealth
       Value: 15.0
   Tags:
     - armor

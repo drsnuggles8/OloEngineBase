@@ -15,13 +15,25 @@ namespace OloEngine
             return results;
         }
 
-        // Determine number of drops
-        i32 numDrops = RandomUtils::Int32(MinDrops, MaxDrops);
+        // Clamp inverted drop bounds
+        i32 minDrops = MinDrops;
+        i32 maxDrops = MaxDrops;
+        if (minDrops > maxDrops)
+        {
+            std::swap(minDrops, maxDrops);
+        }
 
-        // Compute total weight (including NothingWeight)
+        // Determine number of drops
+        i32 numDrops = RandomUtils::Int32(minDrops, maxDrops);
+
+        // Compute total weight (including NothingWeight), skipping non-positive weights
         f32 totalWeight = NothingWeight;
         for (auto const& entry : Entries)
         {
+            if (entry.Weight <= 0.0f)
+            {
+                continue;
+            }
             if (itemLevel >= entry.MinItemLevel && itemLevel <= entry.MaxItemLevel)
             {
                 totalWeight += entry.Weight;
@@ -46,6 +58,10 @@ namespace OloEngine
             f32 accumulated = NothingWeight;
             for (auto const& entry : Entries)
             {
+                if (entry.Weight <= 0.0f)
+                {
+                    continue;
+                }
                 if (itemLevel < entry.MinItemLevel || itemLevel > entry.MaxItemLevel)
                 {
                     continue;
@@ -54,10 +70,18 @@ namespace OloEngine
                 accumulated += entry.Weight;
                 if (roll < accumulated)
                 {
+                    // Clamp inverted count bounds
+                    i32 minCount = entry.MinCount;
+                    i32 maxCount = entry.MaxCount;
+                    if (minCount > maxCount)
+                    {
+                        std::swap(minCount, maxCount);
+                    }
+
                     ItemInstance instance;
                     instance.InstanceID = UUID();
                     instance.ItemDefinitionID = entry.ItemDefinitionID;
-                    instance.StackCount = RandomUtils::Int32(entry.MinCount, entry.MaxCount);
+                    instance.StackCount = RandomUtils::Int32(minCount, maxCount);
 
                     results.push_back(std::move(instance));
                     break;

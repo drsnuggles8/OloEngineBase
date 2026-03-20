@@ -59,25 +59,38 @@ namespace OloEngine
     {
         switch (category)
         {
-            case ItemCategory::Weapon:     return "Weapon";
-            case ItemCategory::Armor:      return "Armor";
-            case ItemCategory::Consumable: return "Consumable";
-            case ItemCategory::QuestItem:  return "QuestItem";
-            case ItemCategory::Material:   return "Material";
-            case ItemCategory::Currency:   return "Currency";
-            case ItemCategory::Misc:       return "Misc";
+            case ItemCategory::Weapon:
+                return "Weapon";
+            case ItemCategory::Armor:
+                return "Armor";
+            case ItemCategory::Consumable:
+                return "Consumable";
+            case ItemCategory::QuestItem:
+                return "QuestItem";
+            case ItemCategory::Material:
+                return "Material";
+            case ItemCategory::Currency:
+                return "Currency";
+            case ItemCategory::Misc:
+                return "Misc";
         }
         return "Misc";
     }
 
     inline ItemCategory ItemCategoryFromString(const std::string& str)
     {
-        if (str == "Weapon")     return ItemCategory::Weapon;
-        if (str == "Armor")      return ItemCategory::Armor;
-        if (str == "Consumable") return ItemCategory::Consumable;
-        if (str == "QuestItem")  return ItemCategory::QuestItem;
-        if (str == "Material")   return ItemCategory::Material;
-        if (str == "Currency")   return ItemCategory::Currency;
+        if (str == "Weapon")
+            return ItemCategory::Weapon;
+        if (str == "Armor")
+            return ItemCategory::Armor;
+        if (str == "Consumable")
+            return ItemCategory::Consumable;
+        if (str == "QuestItem")
+            return ItemCategory::QuestItem;
+        if (str == "Material")
+            return ItemCategory::Material;
+        if (str == "Currency")
+            return ItemCategory::Currency;
         return ItemCategory::Misc;
     }
 
@@ -85,21 +98,30 @@ namespace OloEngine
     {
         switch (rarity)
         {
-            case ItemRarity::Common:    return "Common";
-            case ItemRarity::Uncommon:  return "Uncommon";
-            case ItemRarity::Rare:      return "Rare";
-            case ItemRarity::Epic:      return "Epic";
-            case ItemRarity::Legendary: return "Legendary";
+            case ItemRarity::Common:
+                return "Common";
+            case ItemRarity::Uncommon:
+                return "Uncommon";
+            case ItemRarity::Rare:
+                return "Rare";
+            case ItemRarity::Epic:
+                return "Epic";
+            case ItemRarity::Legendary:
+                return "Legendary";
         }
         return "Common";
     }
 
     inline ItemRarity ItemRarityFromString(const std::string& str)
     {
-        if (str == "Uncommon")  return ItemRarity::Uncommon;
-        if (str == "Rare")      return ItemRarity::Rare;
-        if (str == "Epic")      return ItemRarity::Epic;
-        if (str == "Legendary") return ItemRarity::Legendary;
+        if (str == "Uncommon")
+            return ItemRarity::Uncommon;
+        if (str == "Rare")
+            return ItemRarity::Rare;
+        if (str == "Epic")
+            return ItemRarity::Epic;
+        if (str == "Legendary")
+            return ItemRarity::Legendary;
         return ItemRarity::Common;
     }
 

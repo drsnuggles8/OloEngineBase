@@ -28,6 +28,7 @@
 #include "OloEngine/Task/Task.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
+#include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
 
 #include <imgui.h>
 #include <ImGuizmo.h>
@@ -1663,6 +1664,14 @@ namespace OloEngine
             auto startScenePath = Project::GetAssetFileSystemPath(Project::GetActive()->GetConfig().StartScene);
             OLO_ASSERT(std::filesystem::exists(startScenePath));
             OpenScene(startScenePath);
+
+            // Load item definitions
+            auto itemsDir = Project::GetAssetFileSystemPath("Items");
+            if (std::filesystem::exists(itemsDir))
+            {
+                ItemDatabase::LoadFromDirectory(itemsDir.string());
+            }
+
             m_DialogueEditorPanel.NewDialogue();
             m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
             BindContentBrowserSelectionCallback();

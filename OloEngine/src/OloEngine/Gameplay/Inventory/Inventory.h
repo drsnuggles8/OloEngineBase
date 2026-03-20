@@ -1,7 +1,6 @@
 #pragma once
 
 #include "OloEngine/Gameplay/Inventory/ItemInstance.h"
-#include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
 
 #include <algorithm>
 #include <optional>
@@ -29,7 +28,10 @@ namespace OloEngine
         [[nodiscard]] i32 FindItem(const std::string& definitionId) const;
         [[nodiscard]] i32 CountItem(const std::string& definitionId) const;
         [[nodiscard]] bool HasItem(const std::string& definitionId, i32 count = 1) const;
-        [[nodiscard]] i32 GetCapacity() const { return m_Capacity; }
+        [[nodiscard]] i32 GetCapacity() const
+        {
+            return m_Capacity;
+        }
         [[nodiscard]] i32 GetUsedSlots() const;
         [[nodiscard]] f32 GetTotalWeight() const;
 
@@ -39,10 +41,15 @@ namespace OloEngine
         void SortByName();
 
         // Direct access for serialization
-        [[nodiscard]] const std::vector<std::optional<ItemInstance>>& GetSlots() const { return m_Slots; }
+        [[nodiscard]] const std::vector<std::optional<ItemInstance>>& GetSlots() const
+        {
+            return m_Slots;
+        }
         void SetCapacity(i32 capacity);
 
         f32 MaxWeight = 0.0f;
+
+        auto operator==(const Inventory&) const -> bool = default;
 
       private:
         std::vector<std::optional<ItemInstance>> m_Slots;

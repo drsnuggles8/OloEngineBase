@@ -2576,6 +2576,10 @@ namespace OloEngine
 
     static bool InventoryComponent_AddItem(UUID entityID, MonoString* itemId, i32 count)
     {
+        if (!itemId)
+        {
+            return false;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<InventoryComponent>());
         auto& ic = entity.GetComponent<InventoryComponent>();
@@ -2590,6 +2594,10 @@ namespace OloEngine
 
     static bool InventoryComponent_RemoveItem(UUID entityID, MonoString* itemId, i32 count)
     {
+        if (!itemId)
+        {
+            return false;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<InventoryComponent>());
         auto& ic = entity.GetComponent<InventoryComponent>();
@@ -2598,6 +2606,10 @@ namespace OloEngine
 
     static bool InventoryComponent_HasItem(UUID entityID, MonoString* itemId, i32 count)
     {
+        if (!itemId)
+        {
+            return false;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<InventoryComponent>());
         auto& ic = entity.GetComponent<InventoryComponent>();
@@ -2606,6 +2618,10 @@ namespace OloEngine
 
     static i32 InventoryComponent_CountItem(UUID entityID, MonoString* itemId)
     {
+        if (!itemId)
+        {
+            return 0;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<InventoryComponent>());
         auto& ic = entity.GetComponent<InventoryComponent>();

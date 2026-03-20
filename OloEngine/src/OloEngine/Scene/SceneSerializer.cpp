@@ -2214,8 +2214,8 @@ namespace OloEngine
                 for (auto const& itemNode : items)
                 {
                     ItemInstance item;
-                    item.InstanceID = itemNode["InstanceID"].as<u64>();
-                    item.ItemDefinitionID = itemNode["DefinitionID"].as<std::string>();
+                    item.InstanceID = itemNode["InstanceID"].as<u64>(0);
+                    item.ItemDefinitionID = itemNode["DefinitionID"].as<std::string>("");
                     TrySet(item.StackCount, itemNode["StackCount"]);
                     TrySet(item.Durability, itemNode["Durability"]);
                     TrySet(item.MaxDurability, itemNode["MaxDurability"]);
@@ -2225,15 +2225,21 @@ namespace OloEngine
                         for (auto const& affixNode : affixes)
                         {
                             ItemAffix affix;
-                            affix.Name = affixNode["Name"].as<std::string>();
-                            affix.Attribute = affixNode["Attribute"].as<std::string>();
+                            affix.Name = affixNode["Name"].as<std::string>("");
+                            affix.Attribute = affixNode["Attribute"].as<std::string>("");
                             affix.Value = affixNode["Value"].as<f32>(0.0f);
                             item.Affixes.push_back(std::move(affix));
                         }
                     }
 
-                    i32 slot = itemNode["Slot"].as<i32>(0);
-                    ic.PlayerInventory.AddItemToSlot(slot, item);
+                    if (auto slotNode = itemNode["Slot"]; slotNode)
+                    {
+                        ic.PlayerInventory.AddItemToSlot(slotNode.as<i32>(0), item);
+                    }
+                    else
+                    {
+                        ic.PlayerInventory.AddItem(item);
+                    }
                 }
             }
 
@@ -2242,14 +2248,31 @@ namespace OloEngine
                 for (auto const& eqNode : equipment)
                 {
                     ItemInstance item;
-                    item.InstanceID = eqNode["InstanceID"].as<u64>();
-                    item.ItemDefinitionID = eqNode["DefinitionID"].as<std::string>();
+                    item.InstanceID = eqNode["InstanceID"].as<u64>(0);
+                    item.ItemDefinitionID = eqNode["DefinitionID"].as<std::string>("");
                     TrySet(item.StackCount, eqNode["StackCount"]);
                     TrySet(item.Durability, eqNode["Durability"]);
                     TrySet(item.MaxDurability, eqNode["MaxDurability"]);
 
+                    if (auto affixes = eqNode["Affixes"]; affixes && affixes.IsSequence())
+                    {
+                        for (auto const& affixNode : affixes)
+                        {
+                            ItemAffix affix;
+                            affix.Name = affixNode["Name"].as<std::string>("");
+                            affix.Attribute = affixNode["Attribute"].as<std::string>("");
+                            affix.Value = affixNode["Value"].as<f32>(0.0f);
+                            item.Affixes.push_back(std::move(affix));
+                        }
+                    }
+
                     auto slotStr = eqNode["Slot"].as<std::string>("Head");
                     auto slot = EquipmentSlots::SlotFromString(slotStr);
+                    if (slot == EquipmentSlots::Slot::Count)
+                    {
+                        OLO_CORE_WARN("[SceneSerializer] Invalid equipment slot '{}' — skipping", slotStr);
+                        continue;
+                    }
                     // Direct-equip (bypass inventory transfer since we're loading)
                     ic.Equipment.Equip(slot, item, ic.PlayerInventory);
                 }
@@ -2262,9 +2285,23 @@ namespace OloEngine
             pc.Item.InstanceID = itemPickupComponent["InstanceID"].as<u64>(0);
             pc.Item.ItemDefinitionID = itemPickupComponent["DefinitionID"].as<std::string>("");
             TrySet(pc.Item.StackCount, itemPickupComponent["StackCount"]);
+            TrySet(pc.Item.Durability, itemPickupComponent["Durability"]);
+            TrySet(pc.Item.MaxDurability, itemPickupComponent["MaxDurability"]);
             TrySet(pc.PickupRadius, itemPickupComponent["PickupRadius"]);
             TrySet(pc.AutoPickup, itemPickupComponent["AutoPickup"]);
             TrySet(pc.DespawnTimer, itemPickupComponent["DespawnTimer"]);
+
+            if (auto affixes = itemPickupComponent["Affixes"]; affixes && affixes.IsSequence())
+            {
+                for (auto const& affixNode : affixes)
+                {
+                    ItemAffix affix;
+                    affix.Name = affixNode["Name"].as<std::string>("");
+                    affix.Attribute = affixNode["Attribute"].as<std::string>("");
+                    affix.Value = affixNode["Value"].as<f32>(0.0f);
+                    pc.Item.Affixes.push_back(std::move(affix));
+                }
+            }
         }
 
         if (auto itemContainerComponent = entity["ItemContainerComponent"]; itemContainerComponent)
@@ -2280,12 +2317,32 @@ namespace OloEngine
                 for (auto const& itemNode : items)
                 {
                     ItemInstance item;
-                    item.InstanceID = itemNode["InstanceID"].as<u64>();
-                    item.ItemDefinitionID = itemNode["DefinitionID"].as<std::string>();
+                    item.InstanceID = itemNode["InstanceID"].as<u64>(0);
+                    item.ItemDefinitionID = itemNode["DefinitionID"].as<std::string>("");
                     TrySet(item.StackCount, itemNode["StackCount"]);
+                    TrySet(item.Durability, itemNode["Durability"]);
+                    TrySet(item.MaxDurability, itemNode["MaxDurability"]);
 
-                    i32 slot = itemNode["Slot"].as<i32>(0);
-                    cc.Contents.AddItemToSlot(slot, item);
+                    if (auto affixes = itemNode["Affixes"]; affixes && affixes.IsSequence())
+                    {
+                        for (auto const& affixNode : affixes)
+                        {
+                            ItemAffix affix;
+                            affix.Name = affixNode["Name"].as<std::string>("");
+                            affix.Attribute = affixNode["Attribute"].as<std::string>("");
+                            affix.Value = affixNode["Value"].as<f32>(0.0f);
+                            item.Affixes.push_back(std::move(affix));
+                        }
+                    }
+
+                    if (auto slotNode = itemNode["Slot"]; slotNode)
+                    {
+                        cc.Contents.AddItemToSlot(slotNode.as<i32>(0), item);
+                    }
+                    else
+                    {
+                        cc.Contents.AddItem(item);
+                    }
                 }
             }
         }
@@ -3768,6 +3825,20 @@ namespace OloEngine
                     out << YAML::Key << "StackCount" << YAML::Value << item->StackCount;
                     out << YAML::Key << "Durability" << YAML::Value << item->Durability;
                     out << YAML::Key << "MaxDurability" << YAML::Value << item->MaxDurability;
+
+                    if (!item->Affixes.empty())
+                    {
+                        out << YAML::Key << "Affixes" << YAML::Value << YAML::BeginSeq;
+                        for (auto const& affix : item->Affixes)
+                        {
+                            out << YAML::BeginMap;
+                            out << YAML::Key << "Name" << YAML::Value << affix.Name;
+                            out << YAML::Key << "Attribute" << YAML::Value << affix.Attribute;
+                            out << YAML::Key << "Value" << YAML::Value << affix.Value;
+                            out << YAML::EndMap;
+                        }
+                        out << YAML::EndSeq;
+                    }
                     out << YAML::EndMap;
                 }
             }
@@ -3785,9 +3856,25 @@ namespace OloEngine
             out << YAML::Key << "InstanceID" << YAML::Value << pc.Item.InstanceID;
             out << YAML::Key << "DefinitionID" << YAML::Value << pc.Item.ItemDefinitionID;
             out << YAML::Key << "StackCount" << YAML::Value << pc.Item.StackCount;
+            out << YAML::Key << "Durability" << YAML::Value << pc.Item.Durability;
+            out << YAML::Key << "MaxDurability" << YAML::Value << pc.Item.MaxDurability;
             out << YAML::Key << "PickupRadius" << YAML::Value << pc.PickupRadius;
             out << YAML::Key << "AutoPickup" << YAML::Value << pc.AutoPickup;
             out << YAML::Key << "DespawnTimer" << YAML::Value << pc.DespawnTimer;
+
+            if (!pc.Item.Affixes.empty())
+            {
+                out << YAML::Key << "Affixes" << YAML::Value << YAML::BeginSeq;
+                for (auto const& affix : pc.Item.Affixes)
+                {
+                    out << YAML::BeginMap;
+                    out << YAML::Key << "Name" << YAML::Value << affix.Name;
+                    out << YAML::Key << "Attribute" << YAML::Value << affix.Attribute;
+                    out << YAML::Key << "Value" << YAML::Value << affix.Value;
+                    out << YAML::EndMap;
+                }
+                out << YAML::EndSeq;
+            }
 
             out << YAML::EndMap; // ItemPickupComponent
         }
@@ -3813,6 +3900,22 @@ namespace OloEngine
                     out << YAML::Key << "InstanceID" << YAML::Value << item->InstanceID;
                     out << YAML::Key << "DefinitionID" << YAML::Value << item->ItemDefinitionID;
                     out << YAML::Key << "StackCount" << YAML::Value << item->StackCount;
+                    out << YAML::Key << "Durability" << YAML::Value << item->Durability;
+                    out << YAML::Key << "MaxDurability" << YAML::Value << item->MaxDurability;
+
+                    if (!item->Affixes.empty())
+                    {
+                        out << YAML::Key << "Affixes" << YAML::Value << YAML::BeginSeq;
+                        for (auto const& affix : item->Affixes)
+                        {
+                            out << YAML::BeginMap;
+                            out << YAML::Key << "Name" << YAML::Value << affix.Name;
+                            out << YAML::Key << "Attribute" << YAML::Value << affix.Attribute;
+                            out << YAML::Key << "Value" << YAML::Value << affix.Value;
+                            out << YAML::EndMap;
+                        }
+                        out << YAML::EndSeq;
+                    }
                     out << YAML::EndMap;
                 }
             }

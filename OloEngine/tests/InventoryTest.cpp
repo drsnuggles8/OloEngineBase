@@ -27,7 +27,7 @@ class InventoryTestFixture : public ::testing::Test
         sword.Weight = 3.0f;
         sword.BuyPrice = 100;
         sword.SellPrice = 50;
-        sword.AttributeModifiers = {{"AttackPower", 15.0f}};
+        sword.AttributeModifiers = { { "AttackPower", 15.0f } };
         ItemDatabase::Register(sword);
 
         ItemDefinition potion;
@@ -49,7 +49,7 @@ class InventoryTestFixture : public ::testing::Test
         helmet.Rarity = ItemRarity::Uncommon;
         helmet.MaxStackSize = 1;
         helmet.Weight = 2.0f;
-        helmet.AttributeModifiers = {{"Defense", 10.0f}, {"MaxHealth", 50.0f}};
+        helmet.AttributeModifiers = { { "Defense", 10.0f }, { "MaxHealth", 50.0f } };
         ItemDatabase::Register(helmet);
 
         ItemDefinition questItem;
@@ -61,7 +61,7 @@ class InventoryTestFixture : public ::testing::Test
         questItem.MaxStackSize = 1;
         questItem.Weight = 0.1f;
         questItem.IsQuestItem = true;
-        questItem.Tags = {"Quest", "Ancient"};
+        questItem.Tags = { "Quest", "Ancient" };
         ItemDatabase::Register(questItem);
 
         ItemDefinition gold;
@@ -259,6 +259,8 @@ TEST_F(InventoryTestFixture, Inventory_RemoveTooMany)
 
     inv.AddItem(potion);
     EXPECT_FALSE(inv.RemoveItemByDefinition("health_potion", 5));
+    // Non-destructive: items should still be intact after failed removal
+    EXPECT_EQ(inv.CountItem("health_potion"), 3);
 }
 
 TEST_F(InventoryTestFixture, Inventory_HasItem)
@@ -459,8 +461,10 @@ TEST_F(InventoryTestFixture, Equipment_AttributeModifiers)
     bool hasMaxHealth = false;
     for (auto const& [attr, val] : modifiers)
     {
-        if (attr == "Defense" && val == 10.0f) hasDefense = true;
-        if (attr == "MaxHealth" && val == 50.0f) hasMaxHealth = true;
+        if (attr == "Defense" && val == 10.0f)
+            hasDefense = true;
+        if (attr == "MaxHealth" && val == 50.0f)
+            hasMaxHealth = true;
     }
     EXPECT_TRUE(hasDefense);
     EXPECT_TRUE(hasMaxHealth);
@@ -475,7 +479,7 @@ TEST_F(InventoryTestFixture, Equipment_AffixModifiers)
     sword.InstanceID = UUID();
     sword.ItemDefinitionID = "sword_iron";
     sword.StackCount = 1;
-    sword.Affixes.push_back({"of Fire", "FireDamage", 25.0f});
+    sword.Affixes.push_back({ "of Fire", "FireDamage", 25.0f });
 
     equip.Equip(EquipmentSlots::Slot::MainHand, sword, inv);
 
@@ -534,8 +538,8 @@ TEST_F(InventoryTestFixture, LootTable_NothingWeight)
     table.Entries.push_back(entry);
 
     auto results = table.Roll();
-    // With such a high nothing weight, most or all drops should be nothing
-    EXPECT_LE(static_cast<i32>(results.size()), 100);
+    // With such a high nothing weight, virtually all drops should be nothing
+    EXPECT_LE(static_cast<i32>(results.size()), 5);
 }
 
 TEST_F(InventoryTestFixture, LootTable_EmptyTable)

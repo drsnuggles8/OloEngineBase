@@ -23,13 +23,16 @@ Place engine code under `OloEngine/src/<Subsystem>/`. Add public API to clearly 
 ## 7. Testing & Debugging
 Tests live in `OloEngine/tests/` (GoogleTest). Use `run-tests-debug` task after changes. Use asset hot-reload for iteration—modify files under `OloEditor/assets/` and rely on filewatch events.
 
-## 8. Common Pitfalls
+## 8. Editor Undo/Redo for Components
+`DrawComponent<T>` in `SceneHierarchyPanel.cpp` uses a three-tier `constexpr if` for change detection: (1) `std::is_trivially_copyable_v<T>` → byte-level `memcmp`, (2) `std::equality_comparable<T>` → value-level `operator==` copy-before/copy-after, (3) fallback → no undo. When adding a new non-trivially-copyable component (contains `std::string`, `std::vector`, `Ref<>`, etc.), provide `bool operator==(const T&) const = default;` (or a manual one) to opt into undo/redo automatically. **MSVC quirk:** use trailing return type `auto operator==(...) const -> bool = default;` — MSVC rejects plain `auto` as the return type for defaulted comparisons. Also, `UUID` has implicit `operator u64()` which causes C2666 ambiguity with any member `operator==`; compare UUIDs via `static_cast<u64>()` in manual implementations instead.
+
+## 9. Common Pitfalls
 Wrong working dir → missing shaders/mono assemblies.
 Editing vendor code → lost on next configure.
 Forgetting serialization/component binding leads to scenes not persisting or scripts failing.
 Forgetting to run `pre-commit run --all-files` once you're finished with making changes. No need to run it twice, and no need to recompile afterward — they're just formatting changes.
 
-## 9. Update Policy
+## 10. Update Policy
 Keep this file synced with major architecture shifts (render backend changes, scripting API additions, asset pipeline adjustments). Remove stale sections; avoid aspirational features.
 
 > If any subsystem description is unclear or missing (audio, animation, command queue nuances) ask for expansion.
