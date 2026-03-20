@@ -429,7 +429,9 @@ TEST_F(InventoryTestFixture, Equipment_EquipUnequip)
     helmet.ItemDefinitionID = "helmet_steel";
     helmet.StackCount = 1;
 
+    EXPECT_TRUE(inv.AddItem(helmet));
     EXPECT_TRUE(equip.Equip(EquipmentSlots::Slot::Head, helmet, inv));
+    EXPECT_EQ(inv.GetUsedSlots(), 0);
     EXPECT_FALSE(equip.IsSlotEmpty(EquipmentSlots::Slot::Head));
 
     auto const* equipped = equip.GetEquipped(EquipmentSlots::Slot::Head);
@@ -451,6 +453,7 @@ TEST_F(InventoryTestFixture, Equipment_AttributeModifiers)
     helmet.ItemDefinitionID = "helmet_steel";
     helmet.StackCount = 1;
 
+    inv.AddItem(helmet);
     equip.Equip(EquipmentSlots::Slot::Head, helmet, inv);
 
     auto modifiers = equip.GetAllAttributeModifiers();
@@ -481,6 +484,7 @@ TEST_F(InventoryTestFixture, Equipment_AffixModifiers)
     sword.StackCount = 1;
     sword.Affixes.push_back({ "of Fire", "FireDamage", 25.0f });
 
+    inv.AddItem(sword);
     equip.Equip(EquipmentSlots::Slot::MainHand, sword, inv);
 
     auto modifiers = equip.GetAllAttributeModifiers();
@@ -621,19 +625,15 @@ TEST_F(InventoryTestFixture, LootTable_ItemLevelFilter)
     for (i32 i = 0; i < 100; ++i)
     {
         auto results = table.Roll(5.0f);
-        if (!results.empty())
-        {
-            EXPECT_EQ(results[0].ItemDefinitionID, "health_potion");
-        }
+        ASSERT_EQ(results.size(), 1u);
+        EXPECT_EQ(results[0].ItemDefinitionID, "health_potion");
     }
 
     // At level 75, only swords should drop
     for (i32 i = 0; i < 100; ++i)
     {
         auto results = table.Roll(75.0f);
-        if (!results.empty())
-        {
-            EXPECT_EQ(results[0].ItemDefinitionID, "sword_iron");
-        }
+        ASSERT_EQ(results.size(), 1u);
+        EXPECT_EQ(results[0].ItemDefinitionID, "sword_iron");
     }
 }

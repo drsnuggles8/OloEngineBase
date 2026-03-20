@@ -2585,11 +2585,24 @@ namespace OloEngine
         auto& ic = entity.GetComponent<InventoryComponent>();
         std::string id = Utils::MonoStringToString(itemId);
 
-        ItemInstance instance;
-        instance.InstanceID = UUID();
-        instance.ItemDefinitionID = id;
-        instance.StackCount = count;
-        return ic.PlayerInventory.AddItem(instance);
+        const auto* def = ItemDatabase::Get(id);
+        i32 maxStack = def ? def->MaxStackSize : 1;
+
+        // Split count into multiple instances respecting MaxStackSize
+        i32 remaining = count;
+        while (remaining > 0)
+        {
+            ItemInstance instance;
+            instance.InstanceID = UUID();
+            instance.ItemDefinitionID = id;
+            instance.StackCount = std::min(remaining, maxStack);
+            if (!ic.PlayerInventory.AddItem(instance))
+            {
+                return false;
+            }
+            remaining -= instance.StackCount;
+        }
+        return true;
     }
 
     static bool InventoryComponent_RemoveItem(UUID entityID, MonoString* itemId, i32 count)

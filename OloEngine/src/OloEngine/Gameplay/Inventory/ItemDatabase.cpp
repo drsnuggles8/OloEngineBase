@@ -23,6 +23,8 @@ namespace OloEngine
             return;
         }
 
+        Clear();
+
         for (auto const& entry : std::filesystem::recursive_directory_iterator(path))
         {
             if (entry.path().extension() == ".oloitem")

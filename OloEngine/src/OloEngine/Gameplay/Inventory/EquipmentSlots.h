@@ -33,6 +33,7 @@ namespace OloEngine
         };
 
         bool Equip(Slot slot, const ItemInstance& item, Inventory& sourceInventory);
+        bool DirectEquip(Slot slot, const ItemInstance& item);
         bool Unequip(Slot slot, Inventory& targetInventory);
         [[nodiscard]] const ItemInstance* GetEquipped(Slot slot) const;
         [[nodiscard]] bool IsSlotEmpty(Slot slot) const;

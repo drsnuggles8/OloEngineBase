@@ -2204,7 +2204,7 @@ namespace OloEngine
         if (auto inventoryComponent = entity["InventoryComponent"]; inventoryComponent)
         {
             auto& ic = deserializedEntity.AddComponent<InventoryComponent>();
-            i32 capacity = inventoryComponent["Capacity"].as<i32>(40);
+            i32 capacity = std::max(inventoryComponent["Capacity"].as<i32>(40), 1);
             ic.PlayerInventory.SetCapacity(capacity);
             TrySet(ic.PlayerInventory.MaxWeight, inventoryComponent["MaxWeight"]);
             TrySet(ic.Currency, inventoryComponent["Currency"]);
@@ -2273,8 +2273,8 @@ namespace OloEngine
                         OLO_CORE_WARN("[SceneSerializer] Invalid equipment slot '{}' — skipping", slotStr);
                         continue;
                     }
-                    // Direct-equip (bypass inventory transfer since we're loading)
-                    ic.Equipment.Equip(slot, item, ic.PlayerInventory);
+                    // Direct-equip for deserialization (no inventory mutation)
+                    ic.Equipment.DirectEquip(slot, item);
                 }
             }
         }
@@ -2307,10 +2307,11 @@ namespace OloEngine
         if (auto itemContainerComponent = entity["ItemContainerComponent"]; itemContainerComponent)
         {
             auto& cc = deserializedEntity.AddComponent<ItemContainerComponent>();
-            i32 capacity = itemContainerComponent["Capacity"].as<i32>(20);
+            i32 capacity = std::max(itemContainerComponent["Capacity"].as<i32>(20), 1);
             cc.Contents.SetCapacity(capacity);
             TrySet(cc.IsShop, itemContainerComponent["IsShop"]);
             TrySet(cc.LootTableID, itemContainerComponent["LootTableID"]);
+            TrySet(cc.HasBeenLooted, itemContainerComponent["HasBeenLooted"]);
 
             if (auto items = itemContainerComponent["Items"]; items && items.IsSequence())
             {
@@ -3888,6 +3889,7 @@ namespace OloEngine
             out << YAML::Key << "Capacity" << YAML::Value << cc.Contents.GetCapacity();
             out << YAML::Key << "IsShop" << YAML::Value << cc.IsShop;
             out << YAML::Key << "LootTableID" << YAML::Value << cc.LootTableID;
+            out << YAML::Key << "HasBeenLooted" << YAML::Value << cc.HasBeenLooted;
 
             out << YAML::Key << "Items" << YAML::Value << YAML::BeginSeq;
             for (i32 slot = 0; slot < cc.Contents.GetCapacity(); ++slot)

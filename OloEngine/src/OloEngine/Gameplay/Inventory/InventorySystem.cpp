@@ -44,6 +44,12 @@ namespace OloEngine
 
             for (auto pickupEntity : pickupView2)
             {
+                // Skip pickups already claimed this frame
+                if (std::ranges::find(entitiesToDestroy, pickupEntity) != entitiesToDestroy.end())
+                {
+                    continue;
+                }
+
                 Entity pickupEnt = { pickupEntity, scene };
                 if (!pickupEnt)
                 {

@@ -1294,20 +1294,19 @@ namespace OloEngine
                     else if constexpr (std::equality_comparable<T>)
                     {
                         // Value-level change detection for non-trivially-copyable types with operator==
-                        T copyBefore = component;
-
+                        // Compare against snapshot instead of per-frame copy to avoid expensive copies each frame
                         uiFunction(component);
 
-                        const bool componentChanged = !(copyBefore == component);
+                        const bool diffFromSnapshot = !(editState.snapshot == component);
 
-                        if (componentChanged && !editState.isEditing)
+                        if (diffFromSnapshot && !editState.isEditing)
                         {
                             editState.isEditing = true;
                         }
 
-                        if (editState.isEditing && !componentChanged && ::GImGui->ActiveId == 0)
+                        if (editState.isEditing && ::GImGui->ActiveId == 0)
                         {
-                            if (!(editState.snapshot == component))
+                            if (diffFromSnapshot)
                             {
                                 pushUndoCommand();
                             }

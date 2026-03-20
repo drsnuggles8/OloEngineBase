@@ -1661,16 +1661,17 @@ namespace OloEngine
             editorAssetManager->Initialize();
             Project::SetAssetManager(editorAssetManager);
 
-            auto startScenePath = Project::GetAssetFileSystemPath(Project::GetActive()->GetConfig().StartScene);
-            OLO_ASSERT(std::filesystem::exists(startScenePath));
-            OpenScene(startScenePath);
-
-            // Load item definitions
+            // Load item definitions before opening scene so deserialization can resolve items
+            ItemDatabase::Clear();
             auto itemsDir = Project::GetAssetFileSystemPath("Items");
             if (std::filesystem::exists(itemsDir))
             {
                 ItemDatabase::LoadFromDirectory(itemsDir.string());
             }
+
+            auto startScenePath = Project::GetAssetFileSystemPath(Project::GetActive()->GetConfig().StartScene);
+            OLO_ASSERT(std::filesystem::exists(startScenePath));
+            OpenScene(startScenePath);
 
             m_DialogueEditorPanel.NewDialogue();
             m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();

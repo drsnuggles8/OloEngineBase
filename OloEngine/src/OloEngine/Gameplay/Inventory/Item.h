@@ -91,6 +91,10 @@ namespace OloEngine
             return ItemCategory::Material;
         if (str == "Currency")
             return ItemCategory::Currency;
+        if (str != "Misc")
+        {
+            OLO_CORE_WARN("[Item] Unrecognized ItemCategory '{}' \u2014 defaulting to Misc", str);
+        }
         return ItemCategory::Misc;
     }
 
@@ -122,6 +126,10 @@ namespace OloEngine
             return ItemRarity::Epic;
         if (str == "Legendary")
             return ItemRarity::Legendary;
+        if (str != "Common")
+        {
+            OLO_CORE_WARN("[Item] Unrecognized ItemRarity '{}' \u2014 defaulting to Common", str);
+        }
         return ItemRarity::Common;
     }
 

@@ -21,10 +21,22 @@ namespace OloEngine
             }
         }
 
-        // Remove from source inventory to prevent duplication
+        // Remove from source inventory; fail if not found (gameplay path)
         if (!sourceInventory.RemoveItem(item.InstanceID, item.StackCount))
         {
-            // Item not found in inventory — allow direct equip (e.g. loading from file)
+            return false;
+        }
+
+        m_Equipped[slotIdx] = item;
+        return true;
+    }
+
+    bool EquipmentSlots::DirectEquip(Slot slot, const ItemInstance& item)
+    {
+        auto slotIdx = static_cast<size_t>(slot);
+        if (slotIdx >= static_cast<size_t>(Slot::Count))
+        {
+            return false;
         }
 
         m_Equipped[slotIdx] = item;

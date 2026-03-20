@@ -250,6 +250,11 @@ namespace OloEngine
 
     bool Inventory::TransferItem(i32 fromSlot, Inventory& targetInventory)
     {
+        if (this == &targetInventory)
+        {
+            return false;
+        }
+
         if (fromSlot < 0 || fromSlot >= m_Capacity)
         {
             return false;
@@ -412,14 +417,23 @@ namespace OloEngine
     {
         capacity = std::max(capacity, 0);
 
-        // Prevent shrinking below occupied slot count
+        // Prevent shrinking below highest occupied slot index
         if (capacity < m_Capacity)
         {
-            i32 used = GetUsedSlots();
-            if (capacity < used)
+            i32 highestOccupied = -1;
+            for (i32 i = m_Capacity - 1; i >= 0; --i)
             {
-                OLO_CORE_WARN("[Inventory] Cannot shrink capacity to {} — {} slots are occupied", capacity, used);
-                capacity = used;
+                if (m_Slots[static_cast<size_t>(i)].has_value())
+                {
+                    highestOccupied = i;
+                    break;
+                }
+            }
+            i32 minCapacity = highestOccupied + 1;
+            if (capacity < minCapacity)
+            {
+                OLO_CORE_WARN("[Inventory] Cannot shrink capacity to {} — slot {} is occupied", capacity, highestOccupied);
+                capacity = minCapacity;
             }
         }
 

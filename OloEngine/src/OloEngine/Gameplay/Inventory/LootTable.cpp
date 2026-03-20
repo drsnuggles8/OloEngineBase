@@ -22,12 +22,15 @@ namespace OloEngine
         {
             std::swap(minDrops, maxDrops);
         }
+        minDrops = std::max(minDrops, 0);
+        maxDrops = std::max(maxDrops, 0);
 
         // Determine number of drops
         i32 numDrops = RandomUtils::Int32(minDrops, maxDrops);
 
         // Compute total weight (including NothingWeight), skipping non-positive weights
-        f32 totalWeight = NothingWeight;
+        f32 clampedNothingWeight = std::max(NothingWeight, 0.0f);
+        f32 totalWeight = clampedNothingWeight;
         for (auto const& entry : Entries)
         {
             if (entry.Weight <= 0.0f)
@@ -50,12 +53,12 @@ namespace OloEngine
             f32 roll = RandomUtils::Float32(0.0f, totalWeight);
 
             // Check for nothing drop
-            if (roll < NothingWeight)
+            if (roll < clampedNothingWeight)
             {
                 continue;
             }
 
-            f32 accumulated = NothingWeight;
+            f32 accumulated = clampedNothingWeight;
             for (auto const& entry : Entries)
             {
                 if (entry.Weight <= 0.0f)
@@ -77,11 +80,30 @@ namespace OloEngine
                     {
                         std::swap(minCount, maxCount);
                     }
+                    minCount = std::max(minCount, 1);
+                    maxCount = std::max(maxCount, 1);
 
                     ItemInstance instance;
                     instance.InstanceID = UUID();
                     instance.ItemDefinitionID = entry.ItemDefinitionID;
                     instance.StackCount = RandomUtils::Int32(minCount, maxCount);
+
+                    // Roll affixes if the entry specifies them
+                    if (entry.MaxAffixes > 0 && !entry.PossibleAffixPoolIDs.empty())
+                    {
+                        i32 numAffixes = RandomUtils::Int32(
+                            std::max(entry.MinAffixes, 0),
+                            std::max(entry.MaxAffixes, 0));
+                        for (i32 a = 0; a < numAffixes; ++a)
+                        {
+                            i32 poolIdx = RandomUtils::Int32(0, static_cast<i32>(entry.PossibleAffixPoolIDs.size()) - 1);
+                            ItemAffix affix;
+                            affix.Name = entry.PossibleAffixPoolIDs[static_cast<size_t>(poolIdx)];
+                            affix.Attribute = affix.Name;
+                            affix.Value = RandomUtils::Float32(1.0f, 10.0f);
+                            instance.Affixes.push_back(std::move(affix));
+                        }
+                    }
 
                     results.push_back(std::move(instance));
                     break;
