@@ -1,0 +1,35 @@
+QuestID: herb_gathering
+Title: Herb Gathering
+Description: The healer needs herbs to prepare medicine. Collect them from the forest.
+Category: Side
+RequiredLevel: 0
+CanFail: false
+TimeLimit: -1
+IsRepeatable: true
+RepeatCooldownSeconds: 0
+
+Stages:
+  - StageID: stage_1
+    Description: Gather herbs from the forest
+    RequireAllObjectives: true
+    Objectives:
+      - ObjectiveID: collect_herbs
+        Description: Collect 5 Healing Herbs
+        Type: Collect
+        TargetID: healing_herb
+        RequiredCount: 5
+        IsOptional: false
+        IsHidden: false
+      - ObjectiveID: collect_mushroom
+        Description: Find a Rare Mushroom (optional)
+        Type: Collect
+        TargetID: rare_mushroom
+        RequiredCount: 1
+        IsOptional: true
+        IsHidden: false
+
+CompletionRewards:
+  ExperiencePoints: 50
+  Currency: 25
+  GrantedTags:
+    - helped_healer

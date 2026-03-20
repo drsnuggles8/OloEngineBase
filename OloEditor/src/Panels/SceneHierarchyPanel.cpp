@@ -1724,6 +1724,12 @@ namespace OloEngine
             DisplayAddComponentEntry<ItemPickupComponent>("Item Pickup");
             DisplayAddComponentEntry<ItemContainerComponent>("Item Container");
 
+            ImGui::Separator();
+
+            // Quest
+            DisplayAddComponentEntry<QuestJournalComponent>("Quest Journal");
+            DisplayAddComponentEntry<QuestGiverComponent>("Quest Giver");
+
             ImGui::EndPopup();
         }
 
@@ -4431,6 +4437,113 @@ namespace OloEngine
                         ImGui::Text("[%d] %s x%d", slot, label.c_str(), item->StackCount);
                     }
                 }
+                ImGui::TreePop();
+            } });
+
+        DrawComponent<QuestJournalComponent>("Quest Journal", entity, [](auto& component)
+                                             {
+            auto activeQuests = component.Journal.GetActiveQuests();
+            auto completedQuests = component.Journal.GetCompletedQuests();
+
+            ImGui::Text("Active Quests: %d", static_cast<int>(activeQuests.size()));
+            ImGui::Text("Completed Quests: %d", static_cast<int>(completedQuests.size()));
+
+            if (ImGui::TreeNode("Active Quests"))
+            {
+                for (auto const& questId : activeQuests)
+                {
+                    if (ImGui::TreeNode(questId.c_str()))
+                    {
+                        ImGui::Text("Stage: %d", component.Journal.GetCurrentStageIndex(questId));
+
+                        auto const& states = component.Journal.GetActiveQuestStates();
+                        auto it = states.find(questId);
+                        if (it != states.end())
+                        {
+                            for (auto const& obj : it->second.ObjectiveStates)
+                            {
+                                if (!obj.IsHidden)
+                                {
+                                    ImVec4 color = obj.IsCompleted ? ImVec4(0.2f, 0.8f, 0.2f, 1.0f) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+                                    ImGui::TextColored(color, "%s [%d/%d] %s",
+                                        obj.Description.c_str(),
+                                        obj.CurrentCount,
+                                        obj.RequiredCount,
+                                        obj.IsCompleted ? "(done)" : "");
+                                }
+                            }
+
+                            if (it->second.Definition.TimeLimit > 0.0f)
+                            {
+                                f32 remaining = it->second.Definition.TimeLimit - it->second.ElapsedTime;
+                                ImGui::Text("Time remaining: %.1fs", remaining);
+                            }
+                        }
+                        ImGui::TreePop();
+                    }
+                }
+                ImGui::TreePop();
+            }
+
+            if (ImGui::TreeNode("Completed Quests"))
+            {
+                for (auto const& questId : completedQuests)
+                {
+                    ImGui::Text("%s", questId.c_str());
+                }
+                ImGui::TreePop();
+            }
+
+            if (ImGui::TreeNode("Tags"))
+            {
+                for (auto const& tag : component.Journal.GetTags())
+                {
+                    ImGui::Text("%s", tag.c_str());
+                }
+                ImGui::TreePop();
+            } });
+
+        DrawComponent<QuestGiverComponent>("Quest Giver", entity, [](auto& component)
+                                           {
+            ImGui::InputText("Marker Icon", &component.QuestMarkerIcon);
+
+            if (ImGui::TreeNode("Offered Quests"))
+            {
+                for (size_t i = 0; i < component.OfferedQuestIDs.size(); ++i)
+                {
+                    std::string label = "##offered" + std::to_string(i);
+                    ImGui::InputText(label.c_str(), &component.OfferedQuestIDs[i]);
+                    ImGui::SameLine();
+                    std::string removeLabel = "X##removeOffered" + std::to_string(i);
+                    if (ImGui::SmallButton(removeLabel.c_str()))
+                    {
+                        component.OfferedQuestIDs.erase(component.OfferedQuestIDs.begin() + static_cast<ptrdiff_t>(i));
+                        ImGui::TreePop();
+                        return;
+                    }
+                }
+                if (ImGui::SmallButton("Add Offered Quest"))
+                    component.OfferedQuestIDs.emplace_back();
+                ImGui::TreePop();
+            }
+
+            if (ImGui::TreeNode("Turn-In Quests"))
+            {
+                for (size_t i = 0; i < component.TurnInQuestIDs.size(); ++i)
+                {
+                    std::string label = "##turnin" + std::to_string(i);
+                    ImGui::InputText(label.c_str(), &component.TurnInQuestIDs[i]);
+                    ImGui::SameLine();
+                    std::string removeLabel = "X##removeTurnIn" + std::to_string(i);
+                    if (ImGui::SmallButton(removeLabel.c_str()))
+                    {
+                        component.TurnInQuestIDs.erase(component.TurnInQuestIDs.begin() + static_cast<ptrdiff_t>(i));
+                        ImGui::TreePop();
+                        return;
+                    }
+                }
+                if (ImGui::SmallButton("Add Turn-In Quest"))
+                    component.TurnInQuestIDs.emplace_back();
                 ImGui::TreePop();
             } });
     }

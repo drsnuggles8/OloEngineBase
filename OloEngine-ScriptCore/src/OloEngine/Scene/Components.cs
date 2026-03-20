@@ -1336,4 +1336,69 @@ namespace OloEngine
 
 	public class ItemPickupComponent : Component { }
 	public class ItemContainerComponent : Component { }
+
+	public class QuestJournalComponent : Component
+	{
+		public bool AcceptQuest(string questId)
+		{
+			if (string.IsNullOrWhiteSpace(questId)) return false;
+			return InternalCalls.QuestJournalComponent_AcceptQuest(Entity.ID, questId);
+		}
+
+		public bool AbandonQuest(string questId)
+		{
+			if (string.IsNullOrWhiteSpace(questId)) return false;
+			return InternalCalls.QuestJournalComponent_AbandonQuest(Entity.ID, questId);
+		}
+
+		public bool CompleteQuest(string questId, string branchChoice = "")
+		{
+			if (string.IsNullOrWhiteSpace(questId)) return false;
+			return InternalCalls.QuestJournalComponent_CompleteQuest(Entity.ID, questId, branchChoice ?? "");
+		}
+
+		public bool IsQuestActive(string questId)
+		{
+			if (string.IsNullOrWhiteSpace(questId)) return false;
+			return InternalCalls.QuestJournalComponent_IsQuestActive(Entity.ID, questId);
+		}
+
+		public bool HasCompletedQuest(string questId)
+		{
+			if (string.IsNullOrWhiteSpace(questId)) return false;
+			return InternalCalls.QuestJournalComponent_HasCompletedQuest(Entity.ID, questId);
+		}
+
+		public void IncrementObjective(string questId, string objectiveId, int amount = 1)
+		{
+			if (string.IsNullOrWhiteSpace(questId) || string.IsNullOrWhiteSpace(objectiveId)) return;
+			InternalCalls.QuestJournalComponent_IncrementObjective(Entity.ID, questId, objectiveId, amount);
+		}
+
+		public void NotifyKill(string targetTag)
+		{
+			if (string.IsNullOrWhiteSpace(targetTag)) return;
+			InternalCalls.QuestJournalComponent_NotifyKill(Entity.ID, targetTag);
+		}
+
+		public void NotifyCollect(string itemId, int count = 1)
+		{
+			if (string.IsNullOrWhiteSpace(itemId)) return;
+			InternalCalls.QuestJournalComponent_NotifyCollect(Entity.ID, itemId, count);
+		}
+
+		public void NotifyInteract(string interactableId)
+		{
+			if (string.IsNullOrWhiteSpace(interactableId)) return;
+			InternalCalls.QuestJournalComponent_NotifyInteract(Entity.ID, interactableId);
+		}
+
+		public void NotifyReachLocation(string locationId)
+		{
+			if (string.IsNullOrWhiteSpace(locationId)) return;
+			InternalCalls.QuestJournalComponent_NotifyReachLocation(Entity.ID, locationId);
+		}
+	}
+
+	public class QuestGiverComponent : Component { }
 }

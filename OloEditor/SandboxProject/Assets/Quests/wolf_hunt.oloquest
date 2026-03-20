@@ -1,0 +1,39 @@
+QuestID: wolf_hunt
+Title: The Wolf Hunt
+Description: The village is plagued by wolves. Hunt them down to protect the villagers.
+Category: Main
+RequiredLevel: 0
+CanFail: false
+TimeLimit: -1
+IsRepeatable: false
+
+Stages:
+  - StageID: stage_1
+    Description: Hunt the wolves threatening the village
+    RequireAllObjectives: true
+    Objectives:
+      - ObjectiveID: kill_wolves
+        Description: Kill 3 Wolves
+        Type: Kill
+        TargetID: wolf
+        RequiredCount: 3
+        IsOptional: false
+        IsHidden: false
+
+  - StageID: stage_2
+    Description: Report back to the village elder
+    RequireAllObjectives: true
+    Objectives:
+      - ObjectiveID: talk_elder
+        Description: Talk to the Village Elder
+        Type: Interact
+        TargetID: village_elder
+        RequiredCount: 1
+        IsOptional: false
+        IsHidden: false
+
+CompletionRewards:
+  ExperiencePoints: 100
+  Currency: 50
+  GrantedTags:
+    - wolf_hunt_complete

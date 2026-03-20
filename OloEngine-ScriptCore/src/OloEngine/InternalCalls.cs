@@ -712,5 +712,28 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void InventoryComponent_SetCurrency(ulong entityID, int value);
 		#endregion
+
+		#region Quest
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool QuestJournalComponent_AcceptQuest(ulong entityID, string questId);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool QuestJournalComponent_AbandonQuest(ulong entityID, string questId);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool QuestJournalComponent_CompleteQuest(ulong entityID, string questId, string branchChoice);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool QuestJournalComponent_IsQuestActive(ulong entityID, string questId);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool QuestJournalComponent_HasCompletedQuest(ulong entityID, string questId);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void QuestJournalComponent_IncrementObjective(ulong entityID, string questId, string objectiveId, int amount);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void QuestJournalComponent_NotifyKill(ulong entityID, string targetTag);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void QuestJournalComponent_NotifyCollect(ulong entityID, string itemId, int count);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void QuestJournalComponent_NotifyInteract(ulong entityID, string interactableId);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void QuestJournalComponent_NotifyReachLocation(ulong entityID, string locationId);
+		#endregion
 	}
 }

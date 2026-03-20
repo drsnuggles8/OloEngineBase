@@ -23,6 +23,8 @@
 #include "OloEngine/AI/AIComponents.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
+#include "OloEngine/Gameplay/Quest/QuestComponents.h"
+#include "OloEngine/Gameplay/Quest/QuestDatabase.h"
 
 #include "mono/metadata/object.h"
 #include "mono/metadata/reflection.h"
@@ -2659,6 +2661,128 @@ namespace OloEngine
         entity.GetComponent<InventoryComponent>().Currency = value;
     }
 
+    ///////////////////////////////////////////////////////////////////////////
+    // Quest //////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////
+
+    static bool QuestJournalComponent_AcceptQuest(UUID entityID, MonoString* questIdStr)
+    {
+        if (!questIdStr)
+        {
+            return false;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
+        std::string questId = Utils::MonoStringToString(questIdStr);
+        const auto* def = QuestDatabase::Get(questId);
+        if (!def)
+        {
+            return false;
+        }
+        return entity.GetComponent<QuestJournalComponent>().Journal.AcceptQuest(questId, *def);
+    }
+
+    static bool QuestJournalComponent_AbandonQuest(UUID entityID, MonoString* questIdStr)
+    {
+        if (!questIdStr)
+        {
+            return false;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
+        return entity.GetComponent<QuestJournalComponent>().Journal.AbandonQuest(Utils::MonoStringToString(questIdStr));
+    }
+
+    static bool QuestJournalComponent_CompleteQuest(UUID entityID, MonoString* questIdStr, MonoString* branchStr)
+    {
+        if (!questIdStr)
+        {
+            return false;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
+        std::string branch = branchStr ? Utils::MonoStringToString(branchStr) : "";
+        return entity.GetComponent<QuestJournalComponent>().Journal.CompleteQuest(Utils::MonoStringToString(questIdStr), branch);
+    }
+
+    static bool QuestJournalComponent_IsQuestActive(UUID entityID, MonoString* questIdStr)
+    {
+        if (!questIdStr)
+        {
+            return false;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
+        return entity.GetComponent<QuestJournalComponent>().Journal.IsQuestActive(Utils::MonoStringToString(questIdStr));
+    }
+
+    static bool QuestJournalComponent_HasCompletedQuest(UUID entityID, MonoString* questIdStr)
+    {
+        if (!questIdStr)
+        {
+            return false;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
+        return entity.GetComponent<QuestJournalComponent>().Journal.HasCompletedQuest(Utils::MonoStringToString(questIdStr));
+    }
+
+    static void QuestJournalComponent_IncrementObjective(UUID entityID, MonoString* questIdStr, MonoString* objectiveIdStr, i32 amount)
+    {
+        if (!questIdStr || !objectiveIdStr)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
+        entity.GetComponent<QuestJournalComponent>().Journal.IncrementObjective(
+            Utils::MonoStringToString(questIdStr), Utils::MonoStringToString(objectiveIdStr), amount);
+    }
+
+    static void QuestJournalComponent_NotifyKill(UUID entityID, MonoString* targetTagStr)
+    {
+        if (!targetTagStr)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
+        entity.GetComponent<QuestJournalComponent>().Journal.NotifyKill(Utils::MonoStringToString(targetTagStr));
+    }
+
+    static void QuestJournalComponent_NotifyCollect(UUID entityID, MonoString* itemIdStr, i32 count)
+    {
+        if (!itemIdStr)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
+        entity.GetComponent<QuestJournalComponent>().Journal.NotifyCollect(Utils::MonoStringToString(itemIdStr), count);
+    }
+
+    static void QuestJournalComponent_NotifyInteract(UUID entityID, MonoString* interactableIdStr)
+    {
+        if (!interactableIdStr)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
+        entity.GetComponent<QuestJournalComponent>().Journal.NotifyInteract(Utils::MonoStringToString(interactableIdStr));
+    }
+
+    static void QuestJournalComponent_NotifyReachLocation(UUID entityID, MonoString* locationIdStr)
+    {
+        if (!locationIdStr)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
+        entity.GetComponent<QuestJournalComponent>().Journal.NotifyReachLocation(Utils::MonoStringToString(locationIdStr));
+    }
+
     void ScriptGlue::RegisterComponents()
     {
         RegisterComponent(AllComponents{});
@@ -3046,6 +3170,20 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(InventoryComponent_CountItem);
         OLO_ADD_INTERNAL_CALL(InventoryComponent_GetCurrency);
         OLO_ADD_INTERNAL_CALL(InventoryComponent_SetCurrency);
+
+        ///////////////////////////////////////////////////////////////
+        // Quest //////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(QuestJournalComponent_AcceptQuest);
+        OLO_ADD_INTERNAL_CALL(QuestJournalComponent_AbandonQuest);
+        OLO_ADD_INTERNAL_CALL(QuestJournalComponent_CompleteQuest);
+        OLO_ADD_INTERNAL_CALL(QuestJournalComponent_IsQuestActive);
+        OLO_ADD_INTERNAL_CALL(QuestJournalComponent_HasCompletedQuest);
+        OLO_ADD_INTERNAL_CALL(QuestJournalComponent_IncrementObjective);
+        OLO_ADD_INTERNAL_CALL(QuestJournalComponent_NotifyKill);
+        OLO_ADD_INTERNAL_CALL(QuestJournalComponent_NotifyCollect);
+        OLO_ADD_INTERNAL_CALL(QuestJournalComponent_NotifyInteract);
+        OLO_ADD_INTERNAL_CALL(QuestJournalComponent_NotifyReachLocation);
     }
 
 } // namespace OloEngine

@@ -23,6 +23,8 @@
 #include "OloEngine/AI/AIComponents.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
+#include "OloEngine/Gameplay/Quest/QuestComponents.h"
+#include "OloEngine/Gameplay/Quest/QuestDatabase.h"
 
 namespace OloEngine
 {
@@ -719,5 +721,27 @@ namespace OloEngine
                                                  "isShop", &ItemContainerComponent::IsShop,
                                                  "lootTableID", &ItemContainerComponent::LootTableID,
                                                  "hasBeenLooted", &ItemContainerComponent::HasBeenLooted);
+
+        // --- QuestJournalComponent ---
+        lua.new_usertype<QuestJournalComponent>("QuestJournalComponent", "AcceptQuest", [](QuestJournalComponent& comp, const std::string& questId) -> bool
+                                                {
+                const auto* def = QuestDatabase::Get(questId);
+                if (!def) return false;
+                return comp.Journal.AcceptQuest(questId, *def); }, "AbandonQuest", [](QuestJournalComponent& comp, const std::string& questId) -> bool
+                                                { return comp.Journal.AbandonQuest(questId); }, "CompleteQuest", [](QuestJournalComponent& comp, const std::string& questId, sol::optional<std::string> branch) -> bool
+                                                { return comp.Journal.CompleteQuest(questId, branch.value_or("")); }, "IsQuestActive", [](const QuestJournalComponent& comp, const std::string& questId) -> bool
+                                                { return comp.Journal.IsQuestActive(questId); }, "HasCompletedQuest", [](const QuestJournalComponent& comp, const std::string& questId) -> bool
+                                                { return comp.Journal.HasCompletedQuest(questId); }, "IncrementObjective", [](QuestJournalComponent& comp, const std::string& questId, const std::string& objId, sol::optional<i32> amount)
+                                                { comp.Journal.IncrementObjective(questId, objId, amount.value_or(1)); }, "NotifyKill", [](QuestJournalComponent& comp, const std::string& targetTag)
+                                                { comp.Journal.NotifyKill(targetTag); }, "NotifyCollect", [](QuestJournalComponent& comp, const std::string& itemId, sol::optional<i32> count)
+                                                { comp.Journal.NotifyCollect(itemId, count.value_or(1)); }, "NotifyInteract", [](QuestJournalComponent& comp, const std::string& id)
+                                                { comp.Journal.NotifyInteract(id); }, "NotifyReachLocation", [](QuestJournalComponent& comp, const std::string& locId)
+                                                { comp.Journal.NotifyReachLocation(locId); }, "HasTag", [](const QuestJournalComponent& comp, const std::string& tag) -> bool
+                                                { return comp.Journal.HasTag(tag); }, "AddTag", [](QuestJournalComponent& comp, const std::string& tag)
+                                                { comp.Journal.AddTag(tag); });
+
+        // --- QuestGiverComponent ---
+        lua.new_usertype<QuestGiverComponent>("QuestGiverComponent",
+                                              "questMarkerIcon", &QuestGiverComponent::QuestMarkerIcon);
     }
 } // namespace OloEngine
