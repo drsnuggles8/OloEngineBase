@@ -301,9 +301,13 @@ TEST_F(QuestSystemTest, BranchingCompletion)
 
     // Empty branch should be rejected when choices exist
     EXPECT_FALSE(journal.CompleteQuest("branch_quest", "").has_value());
+    EXPECT_TRUE(journal.IsQuestActive("branch_quest"));
+    EXPECT_FALSE(journal.HasCompletedQuest("branch_quest"));
 
     // Invalid branch should be rejected
     EXPECT_FALSE(journal.CompleteQuest("branch_quest", "invalid_branch").has_value());
+    EXPECT_TRUE(journal.IsQuestActive("branch_quest"));
+    EXPECT_FALSE(journal.HasCompletedQuest("branch_quest"));
 
     // Manually complete with a valid chosen branch
     auto rewards = journal.CompleteQuest("branch_quest", "save_village");
@@ -1156,6 +1160,8 @@ TEST_F(QuestSystemTest, RequirementTypeStringConversion)
     EXPECT_EQ(RequirementTypeFromString("Level"), QuestRequirementType::Level);
     EXPECT_EQ(RequirementTypeFromString("Reputation"), QuestRequirementType::Reputation);
     EXPECT_EQ(RequirementTypeFromString("Any"), QuestRequirementType::Any);
+    EXPECT_FALSE(RequirementTypeFromString("InvalidType").has_value());
+    EXPECT_FALSE(RequirementTypeFromString("").has_value());
 }
 
 // Test ComparisonOp string conversion (including shorthand operators)
@@ -1172,6 +1178,8 @@ TEST_F(QuestSystemTest, ComparisonOpStringConversion)
     EXPECT_EQ(ComparisonOpFromString("LessThan"), ComparisonOp::LessThan);
     EXPECT_EQ(ComparisonOpFromString("<"), ComparisonOp::LessThan);
     EXPECT_EQ(ComparisonOpFromString("LT"), ComparisonOp::LessThan);
+    EXPECT_FALSE(ComparisonOpFromString("BadOp").has_value());
+    EXPECT_FALSE(ComparisonOpFromString("").has_value());
 }
 
 // Test player state persistence via setters/getters
@@ -1220,24 +1228,24 @@ TEST_F(QuestSystemTest, Requirement_EmptyAll)
     EXPECT_TRUE(journal.CheckRequirement(req));
 }
 
-// Test empty Any combinator (vacuously true)
+// Test empty Any combinator (no children → false)
 TEST_F(QuestSystemTest, Requirement_EmptyAny)
 {
     QuestJournal journal;
     QuestRequirement req;
     req.Type = QuestRequirementType::Any;
-    // No children → vacuously true
-    EXPECT_TRUE(journal.CheckRequirement(req));
+    // No children → at least one must pass, but none exist → false
+    EXPECT_FALSE(journal.CheckRequirement(req));
 }
 
-// Test empty Not combinator (vacuously true)
+// Test empty Not combinator (expects exactly one child → false)
 TEST_F(QuestSystemTest, Requirement_EmptyNot)
 {
     QuestJournal journal;
     QuestRequirement req;
     req.Type = QuestRequirementType::Not;
-    // No children → vacuously true
-    EXPECT_TRUE(journal.CheckRequirement(req));
+    // No children → malformed → false
+    EXPECT_FALSE(journal.CheckRequirement(req));
 }
 
 // Test multiple requirements together (quest + tag via Requirements)

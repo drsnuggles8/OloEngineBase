@@ -23,6 +23,13 @@ namespace OloEngine
             return false;
         }
 
+        // Check cooldown for repeatable quests
+        if (auto cd = m_QuestCooldowns.find(questId); cd != m_QuestCooldowns.end() && cd->second > 0.0f)
+        {
+            OLO_CORE_WARN("[QuestJournal] Repeatable quest '{}' is on cooldown ({:.1f}s remaining)", questId, cd->second);
+            return false;
+        }
+
         if (definition.Stages.empty())
         {
             OLO_CORE_WARN("[QuestJournal] Quest '{}' has no stages", questId);
@@ -141,6 +148,17 @@ namespace OloEngine
 
         std::string id = questId; // Copy before erase (questId may alias the map key)
         m_CompletedQuestIDs.insert(id);
+        if (!branchChoice.empty())
+        {
+            m_CompletedQuestBranches[id] = branchChoice;
+        }
+
+        // Record cooldown for repeatable quests
+        if (state.Definition.IsRepeatable && state.Definition.RepeatCooldownSeconds > 0.0f)
+        {
+            m_QuestCooldowns[id] = state.Definition.RepeatCooldownSeconds;
+        }
+
         m_ActiveQuests.erase(it);
         OLO_CORE_INFO("[QuestJournal] Completed quest '{}'", id);
         return rewards;
@@ -214,12 +232,12 @@ namespace OloEngine
         TryAdvanceStage(questId);
     }
 
-    bool QuestJournal::TryAdvanceStage(const std::string& questId)
+    std::optional<QuestRewards> QuestJournal::TryAdvanceStage(const std::string& questId)
     {
         auto it = m_ActiveQuests.find(questId);
         if (it == m_ActiveQuests.end())
         {
-            return false;
+            return std::nullopt;
         }
 
         auto& state = it->second;
@@ -227,7 +245,7 @@ namespace OloEngine
 
         if (state.CurrentStageIndex >= static_cast<i32>(definition.Stages.size()))
         {
-            return false;
+            return std::nullopt;
         }
 
         auto const& currentStage = definition.Stages[static_cast<size_t>(state.CurrentStageIndex)];
@@ -260,7 +278,7 @@ namespace OloEngine
 
         if (!stageComplete)
         {
-            return false;
+            return std::nullopt;
         }
 
         state.CurrentStageIndex++;
@@ -271,9 +289,9 @@ namespace OloEngine
             // Quest is ready for completion (auto-complete if no choices)
             if (definition.CompletionChoices.empty())
             {
-                CompleteQuest(questId);
+                return CompleteQuest(questId);
             }
-            return true;
+            return std::nullopt;
         }
 
         // Load objectives for next stage
@@ -286,7 +304,7 @@ namespace OloEngine
         }
 
         OLO_CORE_INFO("[QuestJournal] Quest '{}' advanced to stage {}", questId, state.CurrentStageIndex);
-        return true;
+        return std::nullopt;
     }
 
     QuestStatus QuestJournal::GetQuestStatus(const std::string& questId) const
@@ -436,6 +454,20 @@ namespace OloEngine
         {
             FailQuest(questId);
         }
+
+        // Decrement quest cooldowns
+        for (auto it = m_QuestCooldowns.begin(); it != m_QuestCooldowns.end();)
+        {
+            it->second -= dt;
+            if (it->second <= 0.0f)
+            {
+                it = m_QuestCooldowns.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
     }
 
     void QuestJournal::SetActiveQuestState(const std::string& questId, ActiveQuestState state)
@@ -443,9 +475,13 @@ namespace OloEngine
         m_ActiveQuests[questId] = std::move(state);
     }
 
-    void QuestJournal::AddCompletedQuestID(const std::string& questId)
+    void QuestJournal::AddCompletedQuestID(const std::string& questId, const std::string& branchId)
     {
         m_CompletedQuestIDs.insert(questId);
+        if (!branchId.empty())
+        {
+            m_CompletedQuestBranches[questId] = branchId;
+        }
     }
 
     void QuestJournal::AddFailedQuestID(const std::string& questId)
@@ -500,6 +536,21 @@ namespace OloEngine
     void QuestJournal::SetPlayerFaction(const std::string& factionName)
     {
         m_PlayerFaction = factionName;
+    }
+
+    const std::string& QuestJournal::GetCompletedQuestBranch(const std::string& questId) const
+    {
+        static const std::string s_Empty;
+        auto it = m_CompletedQuestBranches.find(questId);
+        return it != m_CompletedQuestBranches.end() ? it->second : s_Empty;
+    }
+
+    void QuestJournal::SetQuestCooldown(const std::string& questId, f32 remaining)
+    {
+        if (remaining > 0.0f)
+        {
+            m_QuestCooldowns[questId] = remaining;
+        }
     }
 
     // Requirement evaluation
@@ -564,14 +615,14 @@ namespace OloEngine
                         return true;
                     }
                 }
-                return req.Children.empty(); // Empty Any = vacuously true
+                return false;
             }
 
             case QuestRequirementType::Not:
             {
-                if (req.Children.empty())
+                if (req.Children.size() != 1)
                 {
-                    return true;
+                    return false;
                 }
                 return !CheckRequirement(req.Children[0]);
             }

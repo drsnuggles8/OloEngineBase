@@ -31,7 +31,7 @@ namespace OloEngine
         // Progress tracking
         void IncrementObjective(const std::string& questId, const std::string& objectiveId, i32 amount = 1);
         void SetObjectiveComplete(const std::string& questId, const std::string& objectiveId);
-        bool TryAdvanceStage(const std::string& questId);
+        std::optional<QuestRewards> TryAdvanceStage(const std::string& questId);
 
         // Queries
         [[nodiscard]] QuestStatus GetQuestStatus(const std::string& questId) const;
@@ -132,8 +132,22 @@ namespace OloEngine
 
         // For deserialization
         void SetActiveQuestState(const std::string& questId, ActiveQuestState state);
-        void AddCompletedQuestID(const std::string& questId);
+        void AddCompletedQuestID(const std::string& questId, const std::string& branchId = "");
         void AddFailedQuestID(const std::string& questId);
+
+        // Branch tracking for completed quests
+        [[nodiscard]] const std::string& GetCompletedQuestBranch(const std::string& questId) const;
+        [[nodiscard]] const std::unordered_map<std::string, std::string>& GetCompletedQuestBranches() const
+        {
+            return m_CompletedQuestBranches;
+        }
+
+        // Cooldown tracking for repeatable quests
+        [[nodiscard]] const std::unordered_map<std::string, f32>& GetQuestCooldowns() const
+        {
+            return m_QuestCooldowns;
+        }
+        void SetQuestCooldown(const std::string& questId, f32 remaining);
 
         auto operator==(const QuestJournal&) const -> bool = default;
 
@@ -144,6 +158,8 @@ namespace OloEngine
         std::unordered_set<std::string> m_CompletedQuestIDs;
         std::unordered_set<std::string> m_FailedQuestIDs;
         std::unordered_set<std::string> m_Tags;
+        std::unordered_map<std::string, std::string> m_CompletedQuestBranches;
+        std::unordered_map<std::string, f32> m_QuestCooldowns;
 
         // External player state for requirement evaluation
         i32 m_PlayerLevel = 0;

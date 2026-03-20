@@ -745,11 +745,19 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void QuestJournalComponent_SetItemCount(ulong entityID, string itemId, int count);
 		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int QuestJournalComponent_GetItemCount(ulong entityID, string itemId);
+		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void QuestJournalComponent_SetStat(ulong entityID, string statName, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int QuestJournalComponent_GetStat(ulong entityID, string statName);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void QuestJournalComponent_SetPlayerClass(ulong entityID, string className);
 		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string QuestJournalComponent_GetPlayerClass(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void QuestJournalComponent_SetPlayerFaction(ulong entityID, string factionName);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string QuestJournalComponent_GetPlayerFaction(ulong entityID);
 		#endregion
 	}
 }

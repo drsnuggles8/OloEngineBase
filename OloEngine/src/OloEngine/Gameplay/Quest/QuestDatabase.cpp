@@ -6,20 +6,47 @@
 
 namespace OloEngine
 {
-    static QuestRequirement ParseRequirementNode(const YAML::Node& node)
+    static std::optional<QuestRequirement> ParseRequirementNode(const YAML::Node& node)
     {
         QuestRequirement req;
-        req.Type = RequirementTypeFromString(node["Type"].as<std::string>("HasTag"));
+
+        auto typeStr = node["Type"].as<std::string>("");
+        auto typeOpt = RequirementTypeFromString(typeStr);
+        if (!typeOpt)
+        {
+            OLO_CORE_ERROR("[QuestDatabase] Invalid requirement type '{}', skipping", typeStr);
+            return std::nullopt;
+        }
+        req.Type = *typeOpt;
+
         req.Target = node["Target"].as<std::string>("");
         req.Value = node["Value"].as<i32>(0);
-        req.Comparison = ComparisonOpFromString(node["Comparison"].as<std::string>("GreaterThanOrEqual"));
+
+        auto compStr = node["Comparison"].as<std::string>("");
+        if (!compStr.empty())
+        {
+            auto compOpt = ComparisonOpFromString(compStr);
+            if (!compOpt)
+            {
+                OLO_CORE_WARN("[QuestDatabase] Unknown comparison '{}', defaulting to >=", compStr);
+                req.Comparison = ComparisonOp::GreaterThanOrEqual;
+            }
+            else
+            {
+                req.Comparison = *compOpt;
+            }
+        }
+
         req.Description = node["Description"].as<std::string>("");
 
         if (auto children = node["Children"]; children && children.IsSequence())
         {
             for (auto const& childNode : children)
             {
-                req.Children.push_back(ParseRequirementNode(childNode));
+                if (auto child = ParseRequirementNode(childNode))
+                {
+                    req.Children.push_back(std::move(*child));
+                }
             }
         }
 
@@ -34,7 +61,7 @@ namespace OloEngine
 
     void QuestDatabase::LoadFromDirectory(const std::string& path)
     {
-        if (!std::filesystem::exists(path))
+        if (!std::filesystem::is_directory(path))
         {
             OLO_CORE_WARN("[QuestDatabase] Directory not found: {}", path);
             return;
@@ -42,7 +69,9 @@ namespace OloEngine
 
         Clear();
 
-        for (auto const& entry : std::filesystem::recursive_directory_iterator(path))
+        std::error_code ec;
+        for (auto const& entry : std::filesystem::recursive_directory_iterator(
+                 path, std::filesystem::directory_options::skip_permission_denied, ec))
         {
             if (entry.path().extension() == ".oloquest")
             {
@@ -79,7 +108,10 @@ namespace OloEngine
                     {
                         for (auto const& reqNode : requirements)
                         {
-                            def.Requirements.push_back(ParseRequirementNode(reqNode));
+                            if (auto req = ParseRequirementNode(reqNode))
+                            {
+                                def.Requirements.push_back(std::move(*req));
+                            }
                         }
                     }
 
@@ -101,7 +133,7 @@ namespace OloEngine
                                     obj.Description = objNode["Description"].as<std::string>("");
                                     obj.ObjectiveType = ObjectiveTypeFromString(objNode["Type"].as<std::string>("Custom"));
                                     obj.TargetID = objNode["TargetID"].as<std::string>("");
-                                    obj.RequiredCount = objNode["RequiredCount"].as<i32>(1);
+                                    obj.RequiredCount = std::max(objNode["RequiredCount"].as<i32>(1), 1);
                                     obj.IsOptional = objNode["IsOptional"].as<bool>(false);
                                     obj.IsHidden = objNode["IsHidden"].as<bool>(false);
                                     stage.Objectives.push_back(std::move(obj));
@@ -159,6 +191,11 @@ namespace OloEngine
                     OLO_CORE_ERROR("[QuestDatabase] Failed to load {}: {}", entry.path().string(), e.what());
                 }
             }
+        }
+
+        if (ec)
+        {
+            OLO_CORE_ERROR("[QuestDatabase] Directory iteration error: {}", ec.message());
         }
     }
 

@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -16,9 +17,9 @@ namespace OloEngine
         QuestNotStarted, // Target quest must not be active, completed, or failed
 
         // Player attribute checks
-        Level,      // Player level comparison (default: >= Value)
-        Reputation, // Faction reputation comparison (Target = faction ID)
-        HasTag,     // Player must have a specific tag
+        Level,          // Player level comparison (default: >= Value)
+        Reputation,     // Faction reputation comparison (Target = faction ID)
+        HasTag,         // Player must have a specific tag
         DoesNotHaveTag, // Player must NOT have a specific tag
 
         // Inventory checks
@@ -32,9 +33,9 @@ namespace OloEngine
         IsFaction, // Player faction must match Target
 
         // Combinators (children-based)
-        All,  // All children must pass (AND)
-        Any,  // At least one child must pass (OR)
-        Not,  // Single child must NOT pass (negation)
+        All, // All children must pass (AND)
+        Any, // At least one child must pass (OR)
+        Not, // Single child must NOT pass (negation)
     };
 
     enum class ComparisonOp : u8
@@ -86,7 +87,7 @@ namespace OloEngine
         }
     }
 
-    inline QuestRequirementType RequirementTypeFromString(const std::string& str)
+    inline std::optional<QuestRequirementType> RequirementTypeFromString(const std::string& str)
     {
         if (str == "QuestCompleted")
             return QuestRequirementType::QuestCompleted;
@@ -118,7 +119,7 @@ namespace OloEngine
             return QuestRequirementType::Any;
         if (str == "Not")
             return QuestRequirementType::Not;
-        return QuestRequirementType::HasTag; // Fallback
+        return std::nullopt;
     }
 
     inline const char* ComparisonOpToString(ComparisonOp op)
@@ -142,7 +143,7 @@ namespace OloEngine
         }
     }
 
-    inline ComparisonOp ComparisonOpFromString(const std::string& str)
+    inline std::optional<ComparisonOp> ComparisonOpFromString(const std::string& str)
     {
         if (str == "Equal" || str == "==" || str == "EQ")
             return ComparisonOp::Equal;
@@ -156,7 +157,7 @@ namespace OloEngine
             return ComparisonOp::LessThan;
         if (str == "LessThanOrEqual" || str == "<=" || str == "LTE")
             return ComparisonOp::LessThanOrEqual;
-        return ComparisonOp::GreaterThanOrEqual; // Default for level/reputation checks
+        return std::nullopt;
     }
 
     inline bool EvaluateComparison(i32 actual, ComparisonOp op, i32 expected)

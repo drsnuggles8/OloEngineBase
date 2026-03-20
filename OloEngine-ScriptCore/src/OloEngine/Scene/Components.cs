@@ -1429,10 +1429,22 @@ namespace OloEngine
 			InternalCalls.QuestJournalComponent_SetItemCount(Entity.ID, itemId, count);
 		}
 
+		public int GetItemCount(string itemId)
+		{
+			if (string.IsNullOrWhiteSpace(itemId)) return 0;
+			return InternalCalls.QuestJournalComponent_GetItemCount(Entity.ID, itemId);
+		}
+
 		public void SetStat(string statName, int value)
 		{
 			if (string.IsNullOrWhiteSpace(statName)) return;
 			InternalCalls.QuestJournalComponent_SetStat(Entity.ID, statName, value);
+		}
+
+		public int GetStat(string statName)
+		{
+			if (string.IsNullOrWhiteSpace(statName)) return 0;
+			return InternalCalls.QuestJournalComponent_GetStat(Entity.ID, statName);
 		}
 
 		public void SetPlayerClass(string className)
@@ -1441,10 +1453,20 @@ namespace OloEngine
 			InternalCalls.QuestJournalComponent_SetPlayerClass(Entity.ID, className);
 		}
 
+		public string GetPlayerClass()
+		{
+			return InternalCalls.QuestJournalComponent_GetPlayerClass(Entity.ID);
+		}
+
 		public void SetPlayerFaction(string factionName)
 		{
 			if (string.IsNullOrWhiteSpace(factionName)) return;
 			InternalCalls.QuestJournalComponent_SetPlayerFaction(Entity.ID, factionName);
+		}
+
+		public string GetPlayerFaction()
+		{
+			return InternalCalls.QuestJournalComponent_GetPlayerFaction(Entity.ID);
 		}
 	}
 
