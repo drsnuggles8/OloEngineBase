@@ -726,10 +726,11 @@ namespace OloEngine
         lua.new_usertype<QuestJournalComponent>("QuestJournalComponent", "AcceptQuest", [](QuestJournalComponent& comp, const std::string& questId) -> bool
                                                 {
                 const auto* def = QuestDatabase::Get(questId);
-                if (!def) return false;
+                if (!def)
+                    return false;
                 return comp.Journal.AcceptQuest(questId, *def); }, "AbandonQuest", [](QuestJournalComponent& comp, const std::string& questId) -> bool
                                                 { return comp.Journal.AbandonQuest(questId); }, "CompleteQuest", [](QuestJournalComponent& comp, const std::string& questId, sol::optional<std::string> branch) -> bool
-                                                { return comp.Journal.CompleteQuest(questId, branch.value_or("")); }, "IsQuestActive", [](const QuestJournalComponent& comp, const std::string& questId) -> bool
+                                                { return comp.Journal.CompleteQuest(questId, branch.value_or("")).has_value(); }, "IsQuestActive", [](const QuestJournalComponent& comp, const std::string& questId) -> bool
                                                 { return comp.Journal.IsQuestActive(questId); }, "HasCompletedQuest", [](const QuestJournalComponent& comp, const std::string& questId) -> bool
                                                 { return comp.Journal.HasCompletedQuest(questId); }, "IncrementObjective", [](QuestJournalComponent& comp, const std::string& questId, const std::string& objId, sol::optional<i32> amount)
                                                 { comp.Journal.IncrementObjective(questId, objId, amount.value_or(1)); }, "NotifyKill", [](QuestJournalComponent& comp, const std::string& targetTag)
@@ -738,7 +739,15 @@ namespace OloEngine
                                                 { comp.Journal.NotifyInteract(id); }, "NotifyReachLocation", [](QuestJournalComponent& comp, const std::string& locId)
                                                 { comp.Journal.NotifyReachLocation(locId); }, "HasTag", [](const QuestJournalComponent& comp, const std::string& tag) -> bool
                                                 { return comp.Journal.HasTag(tag); }, "AddTag", [](QuestJournalComponent& comp, const std::string& tag)
-                                                { comp.Journal.AddTag(tag); });
+                                                { comp.Journal.AddTag(tag); }, "SetPlayerLevel", [](QuestJournalComponent& comp, i32 level)
+                                                { comp.Journal.SetPlayerLevel(level); }, "GetPlayerLevel", [](const QuestJournalComponent& comp) -> i32
+                                                { return comp.Journal.GetPlayerLevel(); }, "SetReputation", [](QuestJournalComponent& comp, const std::string& factionId, i32 value)
+                                                { comp.Journal.SetReputation(factionId, value); }, "GetReputation", [](const QuestJournalComponent& comp, const std::string& factionId) -> i32
+                                                { return comp.Journal.GetReputation(factionId); }, "SetItemCount", [](QuestJournalComponent& comp, const std::string& itemId, i32 count)
+                                                { comp.Journal.SetItemCount(itemId, count); }, "SetStat", [](QuestJournalComponent& comp, const std::string& statName, i32 value)
+                                                { comp.Journal.SetStat(statName, value); }, "SetPlayerClass", [](QuestJournalComponent& comp, const std::string& className)
+                                                { comp.Journal.SetPlayerClass(className); }, "SetPlayerFaction", [](QuestJournalComponent& comp, const std::string& factionName)
+                                                { comp.Journal.SetPlayerFaction(factionName); });
 
         // --- QuestGiverComponent ---
         lua.new_usertype<QuestGiverComponent>("QuestGiverComponent",

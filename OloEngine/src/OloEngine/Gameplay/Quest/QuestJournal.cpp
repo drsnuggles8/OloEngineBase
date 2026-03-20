@@ -5,6 +5,12 @@ namespace OloEngine
 {
     bool QuestJournal::AcceptQuest(const std::string& questId, const QuestDefinition& definition)
     {
+        if (questId != definition.QuestID)
+        {
+            OLO_CORE_WARN("[QuestJournal] Quest ID mismatch: key='{}' vs definition='{}'", questId, definition.QuestID);
+            return false;
+        }
+
         if (m_ActiveQuests.contains(questId))
         {
             OLO_CORE_WARN("[QuestJournal] Quest '{}' is already active", questId);
@@ -20,6 +26,13 @@ namespace OloEngine
         if (definition.Stages.empty())
         {
             OLO_CORE_WARN("[QuestJournal] Quest '{}' has no stages", questId);
+            return false;
+        }
+
+        // Evaluate all requirements
+        if (!CheckRequirements(definition.Requirements))
+        {
+            OLO_CORE_WARN("[QuestJournal] Quest '{}' has unmet requirements", questId);
             return false;
         }
 
@@ -57,24 +70,60 @@ namespace OloEngine
         return true;
     }
 
-    bool QuestJournal::CompleteQuest(const std::string& questId, const std::string& branchChoice)
+    std::optional<QuestRewards> QuestJournal::CompleteQuest(const std::string& questId, const std::string& branchChoice)
     {
         auto it = m_ActiveQuests.find(questId);
         if (it == m_ActiveQuests.end())
         {
-            return false;
+            return std::nullopt;
         }
 
         auto& state = it->second;
+
+        // Validate that all stages are done
+        if (state.CurrentStageIndex < static_cast<i32>(state.Definition.Stages.size()))
+        {
+            OLO_CORE_WARN("[QuestJournal] Quest '{}' cannot complete: not all stages finished (stage {}/{})", questId, state.CurrentStageIndex, state.Definition.Stages.size());
+            return std::nullopt;
+        }
+
+        // Validate branch choice when completion choices exist
+        if (!state.Definition.CompletionChoices.empty())
+        {
+            if (branchChoice.empty())
+            {
+                OLO_CORE_WARN("[QuestJournal] Quest '{}' requires a branch choice but none provided", questId);
+                return std::nullopt;
+            }
+
+            bool validChoice = false;
+            for (auto const& choice : state.Definition.CompletionChoices)
+            {
+                if (choice.ChoiceID == branchChoice)
+                {
+                    validChoice = true;
+                    break;
+                }
+            }
+            if (!validChoice)
+            {
+                OLO_CORE_WARN("[QuestJournal] Quest '{}' has no branch choice '{}'", questId, branchChoice);
+                return std::nullopt;
+            }
+        }
+
         state.Status = QuestStatus::Completed;
 
-        // Grant rewards via tags
-        for (auto const& tag : state.Definition.CompletionRewards.GrantedTags)
+        // Collect rewards
+        QuestRewards rewards = state.Definition.CompletionRewards;
+
+        // Grant reward tags
+        for (auto const& tag : rewards.GrantedTags)
         {
             m_Tags.insert(tag);
         }
 
-        // If there's a branch choice, grant its tags
+        // Grant branch choice tags
         if (!branchChoice.empty())
         {
             for (auto const& choice : state.Definition.CompletionChoices)
@@ -94,7 +143,7 @@ namespace OloEngine
         m_CompletedQuestIDs.insert(id);
         m_ActiveQuests.erase(it);
         OLO_CORE_INFO("[QuestJournal] Completed quest '{}'", id);
-        return true;
+        return rewards;
     }
 
     bool QuestJournal::FailQuest(const std::string& questId)
@@ -107,6 +156,7 @@ namespace OloEngine
 
         it->second.Status = QuestStatus::Failed;
         std::string id = questId; // Copy before erase (questId may alias the map key)
+        m_FailedQuestIDs.insert(id);
         m_ActiveQuests.erase(it);
         OLO_CORE_INFO("[QuestJournal] Failed quest '{}'", id);
         return true;
@@ -114,6 +164,11 @@ namespace OloEngine
 
     void QuestJournal::IncrementObjective(const std::string& questId, const std::string& objectiveId, i32 amount)
     {
+        if (amount <= 0)
+        {
+            return;
+        }
+
         auto it = m_ActiveQuests.find(questId);
         if (it == m_ActiveQuests.end())
         {
@@ -124,7 +179,9 @@ namespace OloEngine
         {
             if (obj.ObjectiveID == objectiveId && !obj.IsCompleted)
             {
-                obj.CurrentCount = std::min(obj.CurrentCount + amount, obj.RequiredCount);
+                // Overflow-safe: clamp addition to [0, RequiredCount]
+                i32 headroom = obj.RequiredCount - obj.CurrentCount;
+                obj.CurrentCount += std::min(amount, headroom);
                 if (obj.CurrentCount >= obj.RequiredCount)
                 {
                     obj.IsCompleted = true;
@@ -243,6 +300,10 @@ namespace OloEngine
         {
             return QuestStatus::Completed;
         }
+        if (m_FailedQuestIDs.contains(questId))
+        {
+            return QuestStatus::Failed;
+        }
         return QuestStatus::Unavailable;
     }
 
@@ -344,25 +405,29 @@ namespace OloEngine
                 continue;
             }
 
+            if (!state.Definition.CanFail)
+            {
+                continue;
+            }
+
+            // Check time limit
             if (state.Definition.TimeLimit > 0.0f)
             {
                 state.ElapsedTime += dt;
                 if (state.ElapsedTime >= state.Definition.TimeLimit)
                 {
                     questsToFail.push_back(id);
+                    continue;
                 }
             }
 
             // Check failure tags
-            if (state.Definition.CanFail)
+            for (auto const& failTag : state.Definition.FailOnTags)
             {
-                for (auto const& failTag : state.Definition.FailOnTags)
+                if (m_Tags.contains(failTag))
                 {
-                    if (m_Tags.contains(failTag))
-                    {
-                        questsToFail.push_back(id);
-                        break;
-                    }
+                    questsToFail.push_back(id);
+                    break;
                 }
             }
         }
@@ -383,8 +448,171 @@ namespace OloEngine
         m_CompletedQuestIDs.insert(questId);
     }
 
+    void QuestJournal::AddFailedQuestID(const std::string& questId)
+    {
+        m_FailedQuestIDs.insert(questId);
+    }
+
+    // Player state setters
+    void QuestJournal::SetPlayerLevel(i32 level)
+    {
+        m_PlayerLevel = level;
+    }
+
+    void QuestJournal::SetReputation(const std::string& factionId, i32 value)
+    {
+        m_Reputations[factionId] = value;
+    }
+
+    i32 QuestJournal::GetReputation(const std::string& factionId) const
+    {
+        auto it = m_Reputations.find(factionId);
+        return it != m_Reputations.end() ? it->second : 0;
+    }
+
+    void QuestJournal::SetItemCount(const std::string& itemId, i32 count)
+    {
+        m_Items[itemId] = count;
+    }
+
+    i32 QuestJournal::GetItemCount(const std::string& itemId) const
+    {
+        auto it = m_Items.find(itemId);
+        return it != m_Items.end() ? it->second : 0;
+    }
+
+    void QuestJournal::SetStat(const std::string& statName, i32 value)
+    {
+        m_Stats[statName] = value;
+    }
+
+    i32 QuestJournal::GetStat(const std::string& statName) const
+    {
+        auto it = m_Stats.find(statName);
+        return it != m_Stats.end() ? it->second : 0;
+    }
+
+    void QuestJournal::SetPlayerClass(const std::string& className)
+    {
+        m_PlayerClass = className;
+    }
+
+    void QuestJournal::SetPlayerFaction(const std::string& factionName)
+    {
+        m_PlayerFaction = factionName;
+    }
+
+    // Requirement evaluation
+    bool QuestJournal::CheckRequirement(const QuestRequirement& req) const
+    {
+        switch (req.Type)
+        {
+            case QuestRequirementType::QuestCompleted:
+                return m_CompletedQuestIDs.contains(req.Target);
+
+            case QuestRequirementType::QuestActive:
+                return m_ActiveQuests.contains(req.Target);
+
+            case QuestRequirementType::QuestFailed:
+                return m_FailedQuestIDs.contains(req.Target);
+
+            case QuestRequirementType::QuestNotStarted:
+                return !m_ActiveQuests.contains(req.Target) && !m_CompletedQuestIDs.contains(req.Target) && !m_FailedQuestIDs.contains(req.Target);
+
+            case QuestRequirementType::Level:
+                return EvaluateComparison(m_PlayerLevel, req.Comparison, req.Value);
+
+            case QuestRequirementType::Reputation:
+                return EvaluateComparison(GetReputation(req.Target), req.Comparison, req.Value);
+
+            case QuestRequirementType::HasTag:
+                return m_Tags.contains(req.Target);
+
+            case QuestRequirementType::DoesNotHaveTag:
+                return !m_Tags.contains(req.Target);
+
+            case QuestRequirementType::HasItem:
+                return EvaluateComparison(GetItemCount(req.Target), req.Comparison, std::max(req.Value, 1));
+
+            case QuestRequirementType::Stat:
+                return EvaluateComparison(GetStat(req.Target), req.Comparison, req.Value);
+
+            case QuestRequirementType::IsClass:
+                return m_PlayerClass == req.Target;
+
+            case QuestRequirementType::IsFaction:
+                return m_PlayerFaction == req.Target;
+
+            case QuestRequirementType::All:
+            {
+                for (auto const& child : req.Children)
+                {
+                    if (!CheckRequirement(child))
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            case QuestRequirementType::Any:
+            {
+                for (auto const& child : req.Children)
+                {
+                    if (CheckRequirement(child))
+                    {
+                        return true;
+                    }
+                }
+                return req.Children.empty(); // Empty Any = vacuously true
+            }
+
+            case QuestRequirementType::Not:
+            {
+                if (req.Children.empty())
+                {
+                    return true;
+                }
+                return !CheckRequirement(req.Children[0]);
+            }
+
+            default:
+                return false;
+        }
+    }
+
+    bool QuestJournal::CheckRequirements(const std::vector<QuestRequirement>& requirements) const
+    {
+        for (auto const& req : requirements)
+        {
+            if (!CheckRequirement(req))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    std::vector<const QuestRequirement*> QuestJournal::GetUnmetRequirements(const std::vector<QuestRequirement>& requirements) const
+    {
+        std::vector<const QuestRequirement*> unmet;
+        for (auto const& req : requirements)
+        {
+            if (!CheckRequirement(req))
+            {
+                unmet.push_back(&req);
+            }
+        }
+        return unmet;
+    }
+
     void QuestJournal::NotifyObjectiveProgress(QuestObjective::Type type, const std::string& targetId, i32 amount)
     {
+        if (amount <= 0)
+        {
+            return;
+        }
+
         // Collect quests that need stage advancement; TryAdvanceStage may erase entries
         std::vector<std::string> questsToAdvance;
 
@@ -400,7 +628,9 @@ namespace OloEngine
             {
                 if (obj.ObjectiveType == type && obj.TargetID == targetId && !obj.IsCompleted)
                 {
-                    obj.CurrentCount = std::min(obj.CurrentCount + amount, obj.RequiredCount);
+                    // Overflow-safe: clamp addition to [0, RequiredCount]
+                    i32 headroom = obj.RequiredCount - obj.CurrentCount;
+                    obj.CurrentCount += std::min(amount, headroom);
                     if (obj.CurrentCount >= obj.RequiredCount)
                     {
                         obj.IsCompleted = true;

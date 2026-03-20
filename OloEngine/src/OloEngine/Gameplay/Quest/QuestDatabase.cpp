@@ -6,6 +6,26 @@
 
 namespace OloEngine
 {
+    static QuestRequirement ParseRequirementNode(const YAML::Node& node)
+    {
+        QuestRequirement req;
+        req.Type = RequirementTypeFromString(node["Type"].as<std::string>("HasTag"));
+        req.Target = node["Target"].as<std::string>("");
+        req.Value = node["Value"].as<i32>(0);
+        req.Comparison = ComparisonOpFromString(node["Comparison"].as<std::string>("GreaterThanOrEqual"));
+        req.Description = node["Description"].as<std::string>("");
+
+        if (auto children = node["Children"]; children && children.IsSequence())
+        {
+            for (auto const& childNode : children)
+            {
+                req.Children.push_back(ParseRequirementNode(childNode));
+            }
+        }
+
+        return req;
+    }
+
     std::unordered_map<std::string, QuestDefinition>& QuestDatabase::GetQuests()
     {
         static std::unordered_map<std::string, QuestDefinition> s_Quests;
@@ -19,6 +39,8 @@ namespace OloEngine
             OLO_CORE_WARN("[QuestDatabase] Directory not found: {}", path);
             return;
         }
+
+        Clear();
 
         for (auto const& entry : std::filesystem::recursive_directory_iterator(path))
         {
@@ -39,33 +61,25 @@ namespace OloEngine
                     def.Title = root["Title"].as<std::string>("");
                     def.Description = root["Description"].as<std::string>("");
                     def.Category = root["Category"].as<std::string>("Side");
-                    def.RequiredLevel = root["RequiredLevel"].as<i32>(0);
                     def.CanFail = root["CanFail"].as<bool>(false);
                     def.TimeLimit = root["TimeLimit"].as<f32>(-1.0f);
                     def.IsRepeatable = root["IsRepeatable"].as<bool>(false);
                     def.RepeatCooldownSeconds = root["RepeatCooldownSeconds"].as<f32>(0.0f);
-
-                    if (auto prereqs = root["RequiredCompletedQuests"]; prereqs && prereqs.IsSequence())
-                    {
-                        for (auto const& node : prereqs)
-                        {
-                            def.RequiredCompletedQuests.push_back(node.as<std::string>());
-                        }
-                    }
-
-                    if (auto tags = root["RequiredTags"]; tags && tags.IsSequence())
-                    {
-                        for (auto const& node : tags)
-                        {
-                            def.RequiredTags.push_back(node.as<std::string>());
-                        }
-                    }
 
                     if (auto failTags = root["FailOnTags"]; failTags && failTags.IsSequence())
                     {
                         for (auto const& node : failTags)
                         {
                             def.FailOnTags.push_back(node.as<std::string>());
+                        }
+                    }
+
+                    // Parse Requirements block
+                    if (auto requirements = root["Requirements"]; requirements && requirements.IsSequence())
+                    {
+                        for (auto const& reqNode : requirements)
+                        {
+                            def.Requirements.push_back(ParseRequirementNode(reqNode));
                         }
                     }
 
@@ -150,7 +164,18 @@ namespace OloEngine
 
     void QuestDatabase::Register(const QuestDefinition& definition)
     {
-        GetQuests()[definition.QuestID] = definition;
+        if (definition.QuestID.empty())
+        {
+            OLO_CORE_WARN("[QuestDatabase] Cannot register quest with empty QuestID");
+            return;
+        }
+
+        auto& quests = GetQuests();
+        if (quests.contains(definition.QuestID))
+        {
+            OLO_CORE_WARN("[QuestDatabase] Overwriting existing quest '{}'", definition.QuestID);
+        }
+        quests[definition.QuestID] = definition;
     }
 
     const QuestDefinition* QuestDatabase::Get(const std::string& questId)

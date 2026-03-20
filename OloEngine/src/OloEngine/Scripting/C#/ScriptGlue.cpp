@@ -2702,7 +2702,7 @@ namespace OloEngine
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
         std::string branch = branchStr ? Utils::MonoStringToString(branchStr) : "";
-        return entity.GetComponent<QuestJournalComponent>().Journal.CompleteQuest(Utils::MonoStringToString(questIdStr), branch);
+        return entity.GetComponent<QuestJournalComponent>().Journal.CompleteQuest(Utils::MonoStringToString(questIdStr), branch).has_value();
     }
 
     static bool QuestJournalComponent_IsQuestActive(UUID entityID, MonoString* questIdStr)
@@ -2781,6 +2781,86 @@ namespace OloEngine
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
         entity.GetComponent<QuestJournalComponent>().Journal.NotifyReachLocation(Utils::MonoStringToString(locationIdStr));
+    }
+
+    static void QuestJournalComponent_SetPlayerLevel(UUID entityID, i32 level)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
+        entity.GetComponent<QuestJournalComponent>().Journal.SetPlayerLevel(level);
+    }
+
+    static i32 QuestJournalComponent_GetPlayerLevel(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
+        return entity.GetComponent<QuestJournalComponent>().Journal.GetPlayerLevel();
+    }
+
+    static void QuestJournalComponent_SetReputation(UUID entityID, MonoString* factionStr, i32 value)
+    {
+        if (!factionStr)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
+        entity.GetComponent<QuestJournalComponent>().Journal.SetReputation(Utils::MonoStringToString(factionStr), value);
+    }
+
+    static i32 QuestJournalComponent_GetReputation(UUID entityID, MonoString* factionStr)
+    {
+        if (!factionStr)
+        {
+            return 0;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
+        return entity.GetComponent<QuestJournalComponent>().Journal.GetReputation(Utils::MonoStringToString(factionStr));
+    }
+
+    static void QuestJournalComponent_SetItemCount(UUID entityID, MonoString* itemStr, i32 count)
+    {
+        if (!itemStr)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
+        entity.GetComponent<QuestJournalComponent>().Journal.SetItemCount(Utils::MonoStringToString(itemStr), count);
+    }
+
+    static void QuestJournalComponent_SetStat(UUID entityID, MonoString* statStr, i32 value)
+    {
+        if (!statStr)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
+        entity.GetComponent<QuestJournalComponent>().Journal.SetStat(Utils::MonoStringToString(statStr), value);
+    }
+
+    static void QuestJournalComponent_SetPlayerClass(UUID entityID, MonoString* classStr)
+    {
+        if (!classStr)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
+        entity.GetComponent<QuestJournalComponent>().Journal.SetPlayerClass(Utils::MonoStringToString(classStr));
+    }
+
+    static void QuestJournalComponent_SetPlayerFaction(UUID entityID, MonoString* factionStr)
+    {
+        if (!factionStr)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<QuestJournalComponent>());
+        entity.GetComponent<QuestJournalComponent>().Journal.SetPlayerFaction(Utils::MonoStringToString(factionStr));
     }
 
     void ScriptGlue::RegisterComponents()
@@ -3184,6 +3264,14 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(QuestJournalComponent_NotifyCollect);
         OLO_ADD_INTERNAL_CALL(QuestJournalComponent_NotifyInteract);
         OLO_ADD_INTERNAL_CALL(QuestJournalComponent_NotifyReachLocation);
+        OLO_ADD_INTERNAL_CALL(QuestJournalComponent_SetPlayerLevel);
+        OLO_ADD_INTERNAL_CALL(QuestJournalComponent_GetPlayerLevel);
+        OLO_ADD_INTERNAL_CALL(QuestJournalComponent_SetReputation);
+        OLO_ADD_INTERNAL_CALL(QuestJournalComponent_GetReputation);
+        OLO_ADD_INTERNAL_CALL(QuestJournalComponent_SetItemCount);
+        OLO_ADD_INTERNAL_CALL(QuestJournalComponent_SetStat);
+        OLO_ADD_INTERNAL_CALL(QuestJournalComponent_SetPlayerClass);
+        OLO_ADD_INTERNAL_CALL(QuestJournalComponent_SetPlayerFaction);
     }
 
 } // namespace OloEngine

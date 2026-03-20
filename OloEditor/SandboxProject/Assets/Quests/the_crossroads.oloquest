@@ -2,18 +2,26 @@ QuestID: the_crossroads
 Title: The Crossroads Decision
 Description: A traveler asks for help. Your choice will shape your reputation.
 Category: Main
-RequiredLevel: 0
 CanFail: false
 TimeLimit: -1
 IsRepeatable: false
 
-RequiredCompletedQuests:
-  - wolf_hunt
+Requirements:
+  - Type: QuestCompleted
+    Target: wolf_hunt
+    Description: Must have completed the Wolf Hunt
+  - Type: Level
+    Value: 2
+    Comparison: GreaterThanOrEqual
+    Description: Must be at least level 2
+  - Type: DoesNotHaveTag
+    Target: villain_path
+    Description: Must not have chosen the villain path
 
 Stages:
   - StageID: stage_1
     Description: Investigate the crossroads
-    RequireAllObjectives: false
+    RequireAllObjectives: true
     Objectives:
       - ObjectiveID: reach_crossroads
         Description: Reach the Crossroads

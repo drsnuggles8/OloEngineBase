@@ -37,23 +37,35 @@ namespace OloEngine
     {
         switch (type)
         {
-            case QuestObjective::Type::Kill:     return "Kill";
-            case QuestObjective::Type::Collect:  return "Collect";
-            case QuestObjective::Type::Interact: return "Interact";
-            case QuestObjective::Type::Reach:    return "Reach";
-            case QuestObjective::Type::Escort:   return "Escort";
-            case QuestObjective::Type::Custom:   return "Custom";
-            default:                             return "Unknown";
+            case QuestObjective::Type::Kill:
+                return "Kill";
+            case QuestObjective::Type::Collect:
+                return "Collect";
+            case QuestObjective::Type::Interact:
+                return "Interact";
+            case QuestObjective::Type::Reach:
+                return "Reach";
+            case QuestObjective::Type::Escort:
+                return "Escort";
+            case QuestObjective::Type::Custom:
+                return "Custom";
+            default:
+                return "Unknown";
         }
     }
 
     inline QuestObjective::Type ObjectiveTypeFromString(const std::string& str)
     {
-        if (str == "Kill")     return QuestObjective::Type::Kill;
-        if (str == "Collect")  return QuestObjective::Type::Collect;
-        if (str == "Interact") return QuestObjective::Type::Interact;
-        if (str == "Reach")    return QuestObjective::Type::Reach;
-        if (str == "Escort")   return QuestObjective::Type::Escort;
+        if (str == "Kill")
+            return QuestObjective::Type::Kill;
+        if (str == "Collect")
+            return QuestObjective::Type::Collect;
+        if (str == "Interact")
+            return QuestObjective::Type::Interact;
+        if (str == "Reach")
+            return QuestObjective::Type::Reach;
+        if (str == "Escort")
+            return QuestObjective::Type::Escort;
         return QuestObjective::Type::Custom;
     }
 

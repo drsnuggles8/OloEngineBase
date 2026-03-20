@@ -869,6 +869,7 @@
 		"OloEngine/Gameplay/Inventory/InventorySystem.cpp"
 
 		"OloEngine/Gameplay/Quest/QuestObjective.h"
+		"OloEngine/Gameplay/Quest/QuestRequirement.h"
 		"OloEngine/Gameplay/Quest/Quest.h"
 		"OloEngine/Gameplay/Quest/QuestJournal.h"
 		"OloEngine/Gameplay/Quest/QuestJournal.cpp"

@@ -2,7 +2,6 @@ QuestID: herb_gathering
 Title: Herb Gathering
 Description: The healer needs herbs to prepare medicine. Collect them from the forest.
 Category: Side
-RequiredLevel: 0
 CanFail: false
 TimeLimit: -1
 IsRepeatable: true

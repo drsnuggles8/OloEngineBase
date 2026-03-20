@@ -734,6 +734,22 @@ namespace OloEngine
 		internal static extern void QuestJournalComponent_NotifyInteract(ulong entityID, string interactableId);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void QuestJournalComponent_NotifyReachLocation(ulong entityID, string locationId);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void QuestJournalComponent_SetPlayerLevel(ulong entityID, int level);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int QuestJournalComponent_GetPlayerLevel(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void QuestJournalComponent_SetReputation(ulong entityID, string factionId, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int QuestJournalComponent_GetReputation(ulong entityID, string factionId);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void QuestJournalComponent_SetItemCount(ulong entityID, string itemId, int count);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void QuestJournalComponent_SetStat(ulong entityID, string statName, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void QuestJournalComponent_SetPlayerClass(ulong entityID, string className);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void QuestJournalComponent_SetPlayerFaction(ulong entityID, string factionName);
 		#endregion
 	}
 }

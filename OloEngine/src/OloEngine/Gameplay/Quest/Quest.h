@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Gameplay/Quest/QuestObjective.h"
+#include "OloEngine/Gameplay/Quest/QuestRequirement.h"
 
 #include <string>
 #include <vector>
@@ -21,24 +22,37 @@ namespace OloEngine
     {
         switch (status)
         {
-            case QuestStatus::Unavailable: return "Unavailable";
-            case QuestStatus::Available:   return "Available";
-            case QuestStatus::Active:      return "Active";
-            case QuestStatus::Completed:   return "Completed";
-            case QuestStatus::Failed:      return "Failed";
-            case QuestStatus::TurnedIn:    return "TurnedIn";
-            default:                       return "Unknown";
+            case QuestStatus::Unavailable:
+                return "Unavailable";
+            case QuestStatus::Available:
+                return "Available";
+            case QuestStatus::Active:
+                return "Active";
+            case QuestStatus::Completed:
+                return "Completed";
+            case QuestStatus::Failed:
+                return "Failed";
+            case QuestStatus::TurnedIn:
+                return "TurnedIn";
+            default:
+                return "Unknown";
         }
     }
 
     inline QuestStatus QuestStatusFromString(const std::string& str)
     {
-        if (str == "Unavailable") return QuestStatus::Unavailable;
-        if (str == "Available")   return QuestStatus::Available;
-        if (str == "Active")      return QuestStatus::Active;
-        if (str == "Completed")   return QuestStatus::Completed;
-        if (str == "Failed")      return QuestStatus::Failed;
-        if (str == "TurnedIn")    return QuestStatus::TurnedIn;
+        if (str == "Unavailable")
+            return QuestStatus::Unavailable;
+        if (str == "Available")
+            return QuestStatus::Available;
+        if (str == "Active")
+            return QuestStatus::Active;
+        if (str == "Completed")
+            return QuestStatus::Completed;
+        if (str == "Failed")
+            return QuestStatus::Failed;
+        if (str == "TurnedIn")
+            return QuestStatus::TurnedIn;
         return QuestStatus::Unavailable;
     }
 
@@ -81,10 +95,8 @@ namespace OloEngine
 
         std::vector<QuestStage> Stages;
 
-        // Prerequisites
-        std::vector<std::string> RequiredCompletedQuests;
-        std::vector<std::string> RequiredTags;
-        i32 RequiredLevel = 0;
+        // Prerequisites (flexible requirement system)
+        std::vector<QuestRequirement> Requirements;
 
         // Branching
         std::vector<QuestBranchChoice> CompletionChoices;

@@ -1372,6 +1372,7 @@ namespace OloEngine
 		public void IncrementObjective(string questId, string objectiveId, int amount = 1)
 		{
 			if (string.IsNullOrWhiteSpace(questId) || string.IsNullOrWhiteSpace(objectiveId)) return;
+			if (amount <= 0) return;
 			InternalCalls.QuestJournalComponent_IncrementObjective(Entity.ID, questId, objectiveId, amount);
 		}
 
@@ -1384,6 +1385,7 @@ namespace OloEngine
 		public void NotifyCollect(string itemId, int count = 1)
 		{
 			if (string.IsNullOrWhiteSpace(itemId)) return;
+			if (count <= 0) return;
 			InternalCalls.QuestJournalComponent_NotifyCollect(Entity.ID, itemId, count);
 		}
 
@@ -1397,6 +1399,52 @@ namespace OloEngine
 		{
 			if (string.IsNullOrWhiteSpace(locationId)) return;
 			InternalCalls.QuestJournalComponent_NotifyReachLocation(Entity.ID, locationId);
+		}
+
+		public void SetPlayerLevel(int level)
+		{
+			InternalCalls.QuestJournalComponent_SetPlayerLevel(Entity.ID, level);
+		}
+
+		public int GetPlayerLevel()
+		{
+			return InternalCalls.QuestJournalComponent_GetPlayerLevel(Entity.ID);
+		}
+
+		public void SetReputation(string factionId, int value)
+		{
+			if (string.IsNullOrWhiteSpace(factionId)) return;
+			InternalCalls.QuestJournalComponent_SetReputation(Entity.ID, factionId, value);
+		}
+
+		public int GetReputation(string factionId)
+		{
+			if (string.IsNullOrWhiteSpace(factionId)) return 0;
+			return InternalCalls.QuestJournalComponent_GetReputation(Entity.ID, factionId);
+		}
+
+		public void SetItemCount(string itemId, int count)
+		{
+			if (string.IsNullOrWhiteSpace(itemId)) return;
+			InternalCalls.QuestJournalComponent_SetItemCount(Entity.ID, itemId, count);
+		}
+
+		public void SetStat(string statName, int value)
+		{
+			if (string.IsNullOrWhiteSpace(statName)) return;
+			InternalCalls.QuestJournalComponent_SetStat(Entity.ID, statName, value);
+		}
+
+		public void SetPlayerClass(string className)
+		{
+			if (string.IsNullOrWhiteSpace(className)) return;
+			InternalCalls.QuestJournalComponent_SetPlayerClass(Entity.ID, className);
+		}
+
+		public void SetPlayerFaction(string factionName)
+		{
+			if (string.IsNullOrWhiteSpace(factionName)) return;
+			InternalCalls.QuestJournalComponent_SetPlayerFaction(Entity.ID, factionName);
 		}
 	}
 

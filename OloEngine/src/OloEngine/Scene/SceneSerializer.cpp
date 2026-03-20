@@ -2426,11 +2426,64 @@ namespace OloEngine
                 }
             }
 
+            // Player state for requirement evaluation
+            if (auto level = questJournalComponent["PlayerLevel"]; level)
+            {
+                qjc.Journal.SetPlayerLevel(std::max(level.as<i32>(0), 0));
+            }
+            if (auto playerClass = questJournalComponent["PlayerClass"]; playerClass)
+            {
+                qjc.Journal.SetPlayerClass(playerClass.as<std::string>(""));
+            }
+            if (auto playerFaction = questJournalComponent["PlayerFaction"]; playerFaction)
+            {
+                qjc.Journal.SetPlayerFaction(playerFaction.as<std::string>(""));
+            }
+            if (auto reputations = questJournalComponent["Reputations"]; reputations && reputations.IsMap())
+            {
+                for (auto it = reputations.begin(); it != reputations.end(); ++it)
+                {
+                    qjc.Journal.SetReputation(it->first.as<std::string>(""), it->second.as<i32>(0));
+                }
+            }
+            if (auto items = questJournalComponent["Items"]; items && items.IsMap())
+            {
+                for (auto it = items.begin(); it != items.end(); ++it)
+                {
+                    qjc.Journal.SetItemCount(it->first.as<std::string>(""), std::max(it->second.as<i32>(0), 0));
+                }
+            }
+            if (auto stats = questJournalComponent["Stats"]; stats && stats.IsMap())
+            {
+                for (auto it = stats.begin(); it != stats.end(); ++it)
+                {
+                    qjc.Journal.SetStat(it->first.as<std::string>(""), it->second.as<i32>(0));
+                }
+            }
+
             if (auto completed = questJournalComponent["CompletedQuests"]; completed && completed.IsSequence())
             {
                 for (auto const& node : completed)
                 {
-                    qjc.Journal.AddCompletedQuestID(node.as<std::string>(""));
+                    if (node.IsMap())
+                    {
+                        auto questID = node["QuestID"].as<std::string>("");
+                        auto branchID = node["BranchID"].as<std::string>("");
+                        qjc.Journal.AddCompletedQuestID(questID);
+                        // BranchID stored for future use; currently tags are granted on completion
+                    }
+                    else
+                    {
+                        qjc.Journal.AddCompletedQuestID(node.as<std::string>(""));
+                    }
+                }
+            }
+
+            if (auto failed = questJournalComponent["FailedQuests"]; failed && failed.IsSequence())
+            {
+                for (auto const& node : failed)
+                {
+                    qjc.Journal.AddFailedQuestID(node.as<std::string>(""));
                 }
             }
 
@@ -2441,14 +2494,26 @@ namespace OloEngine
                     QuestJournal::ActiveQuestState state;
                     state.QuestID = questNode["QuestID"].as<std::string>("");
                     state.Status = QuestStatusFromString(questNode["Status"].as<std::string>("Active"));
-                    state.CurrentStageIndex = questNode["CurrentStageIndex"].as<i32>(0);
+                    state.CurrentStageIndex = std::max(questNode["CurrentStageIndex"].as<i32>(0), 0);
                     state.ElapsedTime = questNode["ElapsedTime"].as<f32>(0.0f);
+                    if (!std::isfinite(state.ElapsedTime) || state.ElapsedTime < 0.0f)
+                    {
+                        state.ElapsedTime = 0.0f;
+                    }
 
                     // Try to load the definition from database
                     const auto* def = QuestDatabase::Get(state.QuestID);
-                    if (def)
+                    if (!def)
                     {
-                        state.Definition = *def;
+                        OLO_CORE_WARN("[SceneSerializer] Skipping active quest '{}': definition not found in QuestDatabase", state.QuestID);
+                        continue;
+                    }
+                    state.Definition = *def;
+
+                    // Clamp stage index to valid range
+                    if (!state.Definition.Stages.empty())
+                    {
+                        state.CurrentStageIndex = std::min(state.CurrentStageIndex, static_cast<i32>(state.Definition.Stages.size()) - 1);
                     }
 
                     if (auto objectives = questNode["Objectives"]; objectives && objectives.IsSequence())
@@ -2460,8 +2525,8 @@ namespace OloEngine
                             obj.Description = objNode["Description"].as<std::string>("");
                             obj.ObjectiveType = ObjectiveTypeFromString(objNode["Type"].as<std::string>("Custom"));
                             obj.TargetID = objNode["TargetID"].as<std::string>("");
-                            obj.RequiredCount = objNode["RequiredCount"].as<i32>(1);
-                            obj.CurrentCount = objNode["CurrentCount"].as<i32>(0);
+                            obj.RequiredCount = std::max(objNode["RequiredCount"].as<i32>(1), 1);
+                            obj.CurrentCount = std::clamp(objNode["CurrentCount"].as<i32>(0), 0, obj.RequiredCount);
                             obj.IsOptional = objNode["IsOptional"].as<bool>(false);
                             obj.IsHidden = objNode["IsHidden"].as<bool>(false);
                             obj.IsCompleted = objNode["IsCompleted"].as<bool>(false);
@@ -4137,9 +4202,58 @@ namespace OloEngine
             }
             out << YAML::EndSeq;
 
+            // Serialize player state for requirement evaluation
+            out << YAML::Key << "PlayerLevel" << YAML::Value << qjc.Journal.GetPlayerLevel();
+            if (!qjc.Journal.GetPlayerClass().empty())
+            {
+                out << YAML::Key << "PlayerClass" << YAML::Value << qjc.Journal.GetPlayerClass();
+            }
+            if (!qjc.Journal.GetPlayerFaction().empty())
+            {
+                out << YAML::Key << "PlayerFaction" << YAML::Value << qjc.Journal.GetPlayerFaction();
+            }
+            if (!qjc.Journal.GetReputations().empty())
+            {
+                out << YAML::Key << "Reputations" << YAML::Value << YAML::BeginMap;
+                for (auto const& [factionId, value] : qjc.Journal.GetReputations())
+                {
+                    out << YAML::Key << factionId << YAML::Value << value;
+                }
+                out << YAML::EndMap;
+            }
+            if (!qjc.Journal.GetItems().empty())
+            {
+                out << YAML::Key << "Items" << YAML::Value << YAML::BeginMap;
+                for (auto const& [itemId, count] : qjc.Journal.GetItems())
+                {
+                    out << YAML::Key << itemId << YAML::Value << count;
+                }
+                out << YAML::EndMap;
+            }
+            if (!qjc.Journal.GetStats().empty())
+            {
+                out << YAML::Key << "Stats" << YAML::Value << YAML::BeginMap;
+                for (auto const& [statName, value] : qjc.Journal.GetStats())
+                {
+                    out << YAML::Key << statName << YAML::Value << value;
+                }
+                out << YAML::EndMap;
+            }
+
             // Serialize completed quests
             out << YAML::Key << "CompletedQuests" << YAML::Value << YAML::BeginSeq;
             for (auto const& id : qjc.Journal.GetCompletedQuestIDs())
+            {
+                out << YAML::BeginMap;
+                out << YAML::Key << "QuestID" << YAML::Value << id;
+                out << YAML::Key << "BranchID" << YAML::Value << "";
+                out << YAML::EndMap;
+            }
+            out << YAML::EndSeq;
+
+            // Serialize failed quests
+            out << YAML::Key << "FailedQuests" << YAML::Value << YAML::BeginSeq;
+            for (auto const& id : qjc.Journal.GetFailedQuestIDs())
             {
                 out << id;
             }

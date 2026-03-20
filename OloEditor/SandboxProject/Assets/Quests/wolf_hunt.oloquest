@@ -2,7 +2,6 @@ QuestID: wolf_hunt
 Title: The Wolf Hunt
 Description: The village is plagued by wolves. Hunt them down to protect the villagers.
 Category: Main
-RequiredLevel: 0
 CanFail: false
 TimeLimit: -1
 IsRepeatable: false

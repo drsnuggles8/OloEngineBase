@@ -12,6 +12,11 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        if (!scene)
+        {
+            return;
+        }
+
         auto journalView = scene->GetAllEntitiesWith<QuestJournalComponent>();
         for (auto e : journalView)
         {
