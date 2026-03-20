@@ -2240,7 +2240,7 @@ namespace OloEngine
                         }
                     }
 
-                    if (auto slotNode = itemNode["Slot"]; slotNode)
+                    if (auto slotNode = itemNode["Slot"]; slotNode && slotNode.IsScalar())
                     {
                         if (!ic.PlayerInventory.AddItemToSlot(slotNode.as<i32>(0), item))
                         {
@@ -2273,10 +2273,21 @@ namespace OloEngine
                         for (auto const& affixNode : affixes)
                         {
                             ItemAffix affix;
+                            affix.DefinitionID = affixNode["DefinitionID"].as<std::string>("");
+                            affix.Type = AffixTypeFromString(affixNode["Type"].as<std::string>("Prefix"));
+                            affix.Tier = affixNode["Tier"].as<i32>(0);
                             affix.Name = affixNode["Name"].as<std::string>("");
                             affix.Attribute = affixNode["Attribute"].as<std::string>("");
                             affix.Value = affixNode["Value"].as<f32>(0.0f);
                             item.Affixes.push_back(std::move(affix));
+                        }
+                    }
+
+                    if (auto customData = eqNode["CustomData"]; customData && customData.IsMap())
+                    {
+                        for (auto const& kv : customData)
+                        {
+                            item.CustomData[kv.first.as<std::string>()] = kv.second.as<std::string>("");
                         }
                     }
 
@@ -2321,10 +2332,21 @@ namespace OloEngine
                 for (auto const& affixNode : affixes)
                 {
                     ItemAffix affix;
+                    affix.DefinitionID = affixNode["DefinitionID"].as<std::string>("");
+                    affix.Type = AffixTypeFromString(affixNode["Type"].as<std::string>("Prefix"));
+                    affix.Tier = affixNode["Tier"].as<i32>(0);
                     affix.Name = affixNode["Name"].as<std::string>("");
                     affix.Attribute = affixNode["Attribute"].as<std::string>("");
                     affix.Value = affixNode["Value"].as<f32>(0.0f);
                     pc.Item.Affixes.push_back(std::move(affix));
+                }
+            }
+
+            if (auto customData = itemPickupComponent["CustomData"]; customData && customData.IsMap())
+            {
+                for (auto const& kv : customData)
+                {
+                    pc.Item.CustomData[kv.first.as<std::string>()] = kv.second.as<std::string>("");
                 }
             }
         }
@@ -2354,6 +2376,9 @@ namespace OloEngine
                         for (auto const& affixNode : affixes)
                         {
                             ItemAffix affix;
+                            affix.DefinitionID = affixNode["DefinitionID"].as<std::string>("");
+                            affix.Type = AffixTypeFromString(affixNode["Type"].as<std::string>("Prefix"));
+                            affix.Tier = affixNode["Tier"].as<i32>(0);
                             affix.Name = affixNode["Name"].as<std::string>("");
                             affix.Attribute = affixNode["Attribute"].as<std::string>("");
                             affix.Value = affixNode["Value"].as<f32>(0.0f);
@@ -2369,7 +2394,7 @@ namespace OloEngine
                         }
                     }
 
-                    if (auto slotNode = itemNode["Slot"]; slotNode)
+                    if (auto slotNode = itemNode["Slot"]; slotNode && slotNode.IsScalar())
                     {
                         if (!cc.Contents.AddItemToSlot(slotNode.as<i32>(0), item))
                         {
@@ -3838,6 +3863,9 @@ namespace OloEngine
                         for (auto const& affix : item->Affixes)
                         {
                             out << YAML::BeginMap;
+                            out << YAML::Key << "DefinitionID" << YAML::Value << affix.DefinitionID;
+                            out << YAML::Key << "Type" << YAML::Value << AffixTypeToString(affix.Type);
+                            out << YAML::Key << "Tier" << YAML::Value << affix.Tier;
                             out << YAML::Key << "Name" << YAML::Value << affix.Name;
                             out << YAML::Key << "Attribute" << YAML::Value << affix.Attribute;
                             out << YAML::Key << "Value" << YAML::Value << affix.Value;
@@ -3881,6 +3909,9 @@ namespace OloEngine
                         for (auto const& affix : item->Affixes)
                         {
                             out << YAML::BeginMap;
+                            out << YAML::Key << "DefinitionID" << YAML::Value << affix.DefinitionID;
+                            out << YAML::Key << "Type" << YAML::Value << AffixTypeToString(affix.Type);
+                            out << YAML::Key << "Tier" << YAML::Value << affix.Tier;
                             out << YAML::Key << "Name" << YAML::Value << affix.Name;
                             out << YAML::Key << "Attribute" << YAML::Value << affix.Attribute;
                             out << YAML::Key << "Value" << YAML::Value << affix.Value;
@@ -3926,6 +3957,9 @@ namespace OloEngine
                 for (auto const& affix : pc.Item.Affixes)
                 {
                     out << YAML::BeginMap;
+                    out << YAML::Key << "DefinitionID" << YAML::Value << affix.DefinitionID;
+                    out << YAML::Key << "Type" << YAML::Value << AffixTypeToString(affix.Type);
+                    out << YAML::Key << "Tier" << YAML::Value << affix.Tier;
                     out << YAML::Key << "Name" << YAML::Value << affix.Name;
                     out << YAML::Key << "Attribute" << YAML::Value << affix.Attribute;
                     out << YAML::Key << "Value" << YAML::Value << affix.Value;
@@ -3977,6 +4011,9 @@ namespace OloEngine
                         for (auto const& affix : item->Affixes)
                         {
                             out << YAML::BeginMap;
+                            out << YAML::Key << "DefinitionID" << YAML::Value << affix.DefinitionID;
+                            out << YAML::Key << "Type" << YAML::Value << AffixTypeToString(affix.Type);
+                            out << YAML::Key << "Tier" << YAML::Value << affix.Tier;
                             out << YAML::Key << "Name" << YAML::Value << affix.Name;
                             out << YAML::Key << "Attribute" << YAML::Value << affix.Attribute;
                             out << YAML::Key << "Value" << YAML::Value << affix.Value;

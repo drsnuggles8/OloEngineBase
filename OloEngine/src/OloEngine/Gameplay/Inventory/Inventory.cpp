@@ -26,7 +26,7 @@ namespace OloEngine
             return false;
         }
 
-        i32 maxStack = def->MaxStackSize;
+        i32 maxStack = std::max(def->MaxStackSize, 1);
 
         if (item.StackCount > maxStack)
         {
@@ -91,7 +91,7 @@ namespace OloEngine
             return false;
         }
 
-        i32 maxStack = def->MaxStackSize;
+        i32 maxStack = std::max(def->MaxStackSize, 1);
 
         if (item.StackCount > maxStack)
         {
@@ -138,7 +138,11 @@ namespace OloEngine
         {
             if (slot.has_value() && slot->InstanceID == instanceId)
             {
-                if (slot->StackCount <= count)
+                if (slot->StackCount < count)
+                {
+                    return false;
+                }
+                if (slot->StackCount == count)
                 {
                     slot.reset();
                 }

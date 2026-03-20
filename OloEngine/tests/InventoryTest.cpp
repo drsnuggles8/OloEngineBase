@@ -1,11 +1,14 @@
 #include <gtest/gtest.h>
 
+#include <optional>
+
 #include "OloEngine/Gameplay/Inventory/Item.h"
 #include "OloEngine/Gameplay/Inventory/ItemInstance.h"
 #include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
 #include "OloEngine/Gameplay/Inventory/Inventory.h"
 #include "OloEngine/Gameplay/Inventory/EquipmentSlots.h"
 #include "OloEngine/Gameplay/Inventory/LootTable.h"
+#include "OloEngine/Gameplay/Inventory/AffixDatabase.h"
 
 using namespace OloEngine;
 
@@ -76,6 +79,7 @@ class InventoryTestFixture : public ::testing::Test
     void TearDown() override
     {
         ItemDatabase::Clear();
+        AffixDatabase::Clear();
     }
 };
 
@@ -482,7 +486,7 @@ TEST_F(InventoryTestFixture, Equipment_AffixModifiers)
     sword.InstanceID = UUID();
     sword.ItemDefinitionID = "sword_iron";
     sword.StackCount = 1;
-    sword.Affixes.push_back({ "of Fire", "FireDamage", 25.0f });
+    sword.Affixes.push_back({ .Name = "of Fire", .Attribute = "FireDamage", .Value = 25.0f });
 
     inv.AddItem(sword);
     equip.Equip(EquipmentSlots::Slot::MainHand, sword, inv);
@@ -490,6 +494,22 @@ TEST_F(InventoryTestFixture, Equipment_AffixModifiers)
     auto modifiers = equip.GetAllAttributeModifiers();
     // Should have AttackPower from definition + FireDamage from affix
     EXPECT_EQ(modifiers.size(), 2u);
+
+    auto findMod = [&](const std::string& attr) -> std::optional<f32>
+    {
+        for (auto const& [name, val] : modifiers)
+        {
+            if (name == attr)
+                return val;
+        }
+        return std::nullopt;
+    };
+    auto attackPower = findMod("AttackPower");
+    ASSERT_TRUE(attackPower.has_value());
+    EXPECT_FLOAT_EQ(*attackPower, 15.0f);
+    auto fireDamage = findMod("FireDamage");
+    ASSERT_TRUE(fireDamage.has_value());
+    EXPECT_FLOAT_EQ(*fireDamage, 25.0f);
 }
 
 TEST_F(InventoryTestFixture, Equipment_SlotStringConversion)
@@ -594,13 +614,13 @@ TEST_F(InventoryTestFixture, LootTable_StatisticalDistribution)
     for (i32 i = 0; i < NUM_ROLLS; ++i)
     {
         auto results = table.Roll();
-        if (!results.empty())
-        {
-            if (results[0].ItemDefinitionID == "sword_iron")
-                swordCount++;
-            else if (results[0].ItemDefinitionID == "health_potion")
-                potionCount++;
-        }
+        ASSERT_EQ(results.size(), 1u);
+        auto const& id = results[0].ItemDefinitionID;
+        EXPECT_TRUE(id == "sword_iron" || id == "health_potion");
+        if (id == "sword_iron")
+            swordCount++;
+        else if (id == "health_potion")
+            potionCount++;
     }
 
     // With equal weights, each should be roughly 50% (allow 10% tolerance)
@@ -649,4 +669,307 @@ TEST_F(InventoryTestFixture, LootTable_ItemLevelFilter)
         ASSERT_EQ(results.size(), 1u);
         EXPECT_EQ(results[0].ItemDefinitionID, "sword_iron");
     }
+}
+
+// ===== AffixDatabase Tests =====
+
+TEST_F(InventoryTestFixture, AffixDatabase_RegisterAndGet)
+{
+    AffixDefinition def;
+    def.AffixID = "fire_damage";
+    def.Type = AffixType::Prefix;
+    def.Attribute = "FireDamage";
+    def.Description = "Adds fire damage";
+    def.Tiers = { { 1, "Heated", 5.0f, 10.0f, 0.0f },
+                  { 2, "Flaming", 11.0f, 20.0f, 10.0f },
+                  { 3, "Scorching", 21.0f, 40.0f, 25.0f } };
+    AffixDatabase::Register(def);
+
+    const auto* fetched = AffixDatabase::Get("fire_damage");
+    ASSERT_NE(fetched, nullptr);
+    EXPECT_EQ(fetched->AffixID, "fire_damage");
+    EXPECT_EQ(fetched->Type, AffixType::Prefix);
+    EXPECT_EQ(fetched->Attribute, "FireDamage");
+    EXPECT_EQ(fetched->Tiers.size(), 3u);
+    EXPECT_EQ(fetched->Tiers[0].DisplayName, "Heated");
+
+    EXPECT_EQ(AffixDatabase::Get("nonexistent"), nullptr);
+}
+
+TEST_F(InventoryTestFixture, AffixDatabase_RegisterPoolAndGet)
+{
+    AffixPool pool;
+    pool.PoolID = "weapon_prefixes";
+    pool.AffixIDs = { "fire_damage", "cold_damage" };
+    AffixDatabase::RegisterPool(pool);
+
+    const auto* fetched = AffixDatabase::GetPool("weapon_prefixes");
+    ASSERT_NE(fetched, nullptr);
+    EXPECT_EQ(fetched->PoolID, "weapon_prefixes");
+    EXPECT_EQ(fetched->AffixIDs.size(), 2u);
+
+    EXPECT_EQ(AffixDatabase::GetPool("nonexistent"), nullptr);
+}
+
+TEST_F(InventoryTestFixture, AffixDatabase_GetAll)
+{
+    AffixDefinition def1;
+    def1.AffixID = "fire_damage";
+    def1.Type = AffixType::Prefix;
+    def1.Attribute = "FireDamage";
+    def1.Tiers = { { 1, "Heated", 5.0f, 10.0f, 0.0f } };
+    AffixDatabase::Register(def1);
+
+    AffixDefinition def2;
+    def2.AffixID = "cold_damage";
+    def2.Type = AffixType::Suffix;
+    def2.Attribute = "ColdDamage";
+    def2.Tiers = { { 1, "of Frost", 3.0f, 8.0f, 0.0f } };
+    AffixDatabase::Register(def2);
+
+    auto all = AffixDatabase::GetAll();
+    EXPECT_EQ(all.size(), 2u);
+}
+
+TEST_F(InventoryTestFixture, AffixDatabase_ClearRemovesAll)
+{
+    AffixDefinition def;
+    def.AffixID = "test_affix";
+    def.Type = AffixType::Prefix;
+    def.Attribute = "TestAttr";
+    def.Tiers = { { 1, "Test T1", 1.0f, 5.0f, 0.0f } };
+    AffixDatabase::Register(def);
+
+    AffixPool pool;
+    pool.PoolID = "test_pool";
+    pool.AffixIDs = { "test_affix" };
+    AffixDatabase::RegisterPool(pool);
+
+    ASSERT_NE(AffixDatabase::Get("test_affix"), nullptr);
+    ASSERT_NE(AffixDatabase::GetPool("test_pool"), nullptr);
+
+    AffixDatabase::Clear();
+
+    EXPECT_EQ(AffixDatabase::Get("test_affix"), nullptr);
+    EXPECT_EQ(AffixDatabase::GetPool("test_pool"), nullptr);
+    EXPECT_TRUE(AffixDatabase::GetAll().empty());
+}
+
+// ===== Affix Roll Tests =====
+
+TEST_F(InventoryTestFixture, LootTable_RollWithAffixPool)
+{
+    // Register affix definitions + pool
+    AffixDefinition fireDmg;
+    fireDmg.AffixID = "fire_damage";
+    fireDmg.Type = AffixType::Prefix;
+    fireDmg.Attribute = "FireDamage";
+    fireDmg.Tiers = { { 1, "Heated", 5.0f, 10.0f, 0.0f } };
+    AffixDatabase::Register(fireDmg);
+
+    AffixDefinition lifeSteal;
+    lifeSteal.AffixID = "life_steal";
+    lifeSteal.Type = AffixType::Suffix;
+    lifeSteal.Attribute = "LifeSteal";
+    lifeSteal.Tiers = { { 1, "of Leeching", 1.0f, 3.0f, 0.0f } };
+    AffixDatabase::Register(lifeSteal);
+
+    AffixPool pool;
+    pool.PoolID = "weapon_pool";
+    pool.AffixIDs = { "fire_damage", "life_steal" };
+    AffixDatabase::RegisterPool(pool);
+
+    LootTable table;
+    table.TableID = "affix_test";
+    table.MinDrops = 1;
+    table.MaxDrops = 1;
+
+    LootTableEntry entry;
+    entry.ItemDefinitionID = "sword_iron";
+    entry.Weight = 1.0f;
+    entry.MinAffixes = 2;
+    entry.MaxAffixes = 2;
+    entry.PossibleAffixPoolIDs = { "weapon_pool" };
+    table.Entries.push_back(entry);
+
+    auto results = table.Roll(10.0f);
+    ASSERT_EQ(results.size(), 1u);
+    EXPECT_EQ(results[0].ItemDefinitionID, "sword_iron");
+    EXPECT_EQ(results[0].Affixes.size(), 2u);
+
+    for (auto const& affix : results[0].Affixes)
+    {
+        EXPECT_FALSE(affix.DefinitionID.empty());
+        EXPECT_FALSE(affix.Name.empty());
+        EXPECT_FALSE(affix.Attribute.empty());
+        EXPECT_GT(affix.Value, 0.0f);
+        EXPECT_GE(affix.Tier, 1);
+    }
+}
+
+TEST_F(InventoryTestFixture, LootTable_AffixTierSelection)
+{
+    AffixDefinition dmg;
+    dmg.AffixID = "phys_damage";
+    dmg.Type = AffixType::Prefix;
+    dmg.Attribute = "PhysDamage";
+    dmg.Tiers = { { 1, "Heavy", 5.0f, 10.0f, 0.0f },
+                  { 2, "Massive", 15.0f, 25.0f, 20.0f },
+                  { 3, "Devastating", 30.0f, 50.0f, 50.0f } };
+    AffixDatabase::Register(dmg);
+
+    AffixPool pool;
+    pool.PoolID = "tier_test_pool";
+    pool.AffixIDs = { "phys_damage" };
+    AffixDatabase::RegisterPool(pool);
+
+    LootTable table;
+    table.TableID = "tier_test";
+    table.MinDrops = 1;
+    table.MaxDrops = 1;
+
+    LootTableEntry entry;
+    entry.ItemDefinitionID = "sword_iron";
+    entry.Weight = 1.0f;
+    entry.MinAffixes = 1;
+    entry.MaxAffixes = 1;
+    entry.PossibleAffixPoolIDs = { "tier_test_pool" };
+    table.Entries.push_back(entry);
+
+    // At level 5, only tier 1 is eligible (MinItemLevel 0)
+    for (i32 i = 0; i < 50; ++i)
+    {
+        auto results = table.Roll(5.0f);
+        ASSERT_EQ(results.size(), 1u);
+        ASSERT_EQ(results[0].Affixes.size(), 1u);
+        EXPECT_EQ(results[0].Affixes[0].Tier, 1);
+        EXPECT_EQ(results[0].Affixes[0].Name, "Heavy");
+        EXPECT_GE(results[0].Affixes[0].Value, 5.0f);
+        EXPECT_LE(results[0].Affixes[0].Value, 10.0f);
+    }
+
+    // At level 30, tier 2 is best eligible (MinItemLevel 20)
+    for (i32 i = 0; i < 50; ++i)
+    {
+        auto results = table.Roll(30.0f);
+        ASSERT_EQ(results.size(), 1u);
+        ASSERT_EQ(results[0].Affixes.size(), 1u);
+        EXPECT_EQ(results[0].Affixes[0].Tier, 2);
+        EXPECT_EQ(results[0].Affixes[0].Name, "Massive");
+        EXPECT_GE(results[0].Affixes[0].Value, 15.0f);
+        EXPECT_LE(results[0].Affixes[0].Value, 25.0f);
+    }
+
+    // At level 60, tier 3 is best eligible (MinItemLevel 50)
+    for (i32 i = 0; i < 50; ++i)
+    {
+        auto results = table.Roll(60.0f);
+        ASSERT_EQ(results.size(), 1u);
+        ASSERT_EQ(results[0].Affixes.size(), 1u);
+        EXPECT_EQ(results[0].Affixes[0].Tier, 3);
+        EXPECT_EQ(results[0].Affixes[0].Name, "Devastating");
+        EXPECT_GE(results[0].Affixes[0].Value, 30.0f);
+        EXPECT_LE(results[0].Affixes[0].Value, 50.0f);
+    }
+}
+
+TEST_F(InventoryTestFixture, LootTable_AffixPrefixSuffixLimits)
+{
+    // Register 4 prefix and 4 suffix affixes — should cap at 3/3
+    for (i32 i = 0; i < 4; ++i)
+    {
+        AffixDefinition prefix;
+        prefix.AffixID = "prefix_" + std::to_string(i);
+        prefix.Type = AffixType::Prefix;
+        prefix.Attribute = "PrefixAttr" + std::to_string(i);
+        prefix.Tiers = { { 1, "P" + std::to_string(i), 1.0f, 5.0f, 0.0f } };
+        AffixDatabase::Register(prefix);
+
+        AffixDefinition suffix;
+        suffix.AffixID = "suffix_" + std::to_string(i);
+        suffix.Type = AffixType::Suffix;
+        suffix.Attribute = "SuffixAttr" + std::to_string(i);
+        suffix.Tiers = { { 1, "S" + std::to_string(i), 1.0f, 5.0f, 0.0f } };
+        AffixDatabase::Register(suffix);
+    }
+
+    AffixPool pool;
+    pool.PoolID = "limit_pool";
+    for (i32 i = 0; i < 4; ++i)
+    {
+        pool.AffixIDs.push_back("prefix_" + std::to_string(i));
+        pool.AffixIDs.push_back("suffix_" + std::to_string(i));
+    }
+    AffixDatabase::RegisterPool(pool);
+
+    LootTable table;
+    table.TableID = "limit_test";
+    table.MinDrops = 1;
+    table.MaxDrops = 1;
+
+    LootTableEntry entry;
+    entry.ItemDefinitionID = "sword_iron";
+    entry.Weight = 1.0f;
+    entry.MinAffixes = 8; // Request 8, but max 3+3=6
+    entry.MaxAffixes = 8;
+    entry.PossibleAffixPoolIDs = { "limit_pool" };
+    table.Entries.push_back(entry);
+
+    // Roll many times and verify the limits hold
+    for (i32 trial = 0; trial < 50; ++trial)
+    {
+        auto results = table.Roll(10.0f);
+        ASSERT_EQ(results.size(), 1u);
+
+        i32 prefixCount = 0;
+        i32 suffixCount = 0;
+        for (auto const& affix : results[0].Affixes)
+        {
+            if (affix.Type == AffixType::Prefix)
+                ++prefixCount;
+            else
+                ++suffixCount;
+        }
+        EXPECT_LE(prefixCount, 3);
+        EXPECT_LE(suffixCount, 3);
+    }
+}
+
+TEST_F(InventoryTestFixture, LootTable_LegacyAffixFallback)
+{
+    // Don't register any pool — should fall back to legacy behavior
+    LootTable table;
+    table.TableID = "legacy_test";
+    table.MinDrops = 1;
+    table.MaxDrops = 1;
+
+    LootTableEntry entry;
+    entry.ItemDefinitionID = "sword_iron";
+    entry.Weight = 1.0f;
+    entry.MinAffixes = 1;
+    entry.MaxAffixes = 1;
+    entry.PossibleAffixPoolIDs = { "unregistered_pool" };
+    table.Entries.push_back(entry);
+
+    auto results = table.Roll();
+    ASSERT_EQ(results.size(), 1u);
+    ASSERT_EQ(results[0].Affixes.size(), 1u);
+
+    // Legacy fallback uses pool ID as Name/Attribute
+    EXPECT_EQ(results[0].Affixes[0].Name, "unregistered_pool");
+    EXPECT_EQ(results[0].Affixes[0].Attribute, "unregistered_pool");
+    EXPECT_GE(results[0].Affixes[0].Value, 1.0f);
+    EXPECT_LE(results[0].Affixes[0].Value, 10.0f);
+    // Legacy affixes have empty DefinitionID and default Type/Tier
+    EXPECT_TRUE(results[0].Affixes[0].DefinitionID.empty());
+    EXPECT_EQ(results[0].Affixes[0].Tier, 0);
+}
+
+TEST_F(InventoryTestFixture, AffixTypeStringConversion)
+{
+    EXPECT_STREQ(AffixTypeToString(AffixType::Prefix), "Prefix");
+    EXPECT_STREQ(AffixTypeToString(AffixType::Suffix), "Suffix");
+    EXPECT_EQ(AffixTypeFromString("Prefix"), AffixType::Prefix);
+    EXPECT_EQ(AffixTypeFromString("Suffix"), AffixType::Suffix);
+    EXPECT_EQ(AffixTypeFromString("invalid"), AffixType::Prefix); // Default
 }

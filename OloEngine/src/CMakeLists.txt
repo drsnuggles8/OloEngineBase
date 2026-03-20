@@ -850,6 +850,9 @@
 		"OloEngine/Dialogue/DialogueUIController.h"
 		"OloEngine/Dialogue/DialogueUIController.cpp"
 
+		"OloEngine/Gameplay/Inventory/AffixDefinition.h"
+		"OloEngine/Gameplay/Inventory/AffixDatabase.h"
+		"OloEngine/Gameplay/Inventory/AffixDatabase.cpp"
 		"OloEngine/Gameplay/Inventory/Item.h"
 		"OloEngine/Gameplay/Inventory/ItemInstance.h"
 		"OloEngine/Gameplay/Inventory/ItemDatabase.h"

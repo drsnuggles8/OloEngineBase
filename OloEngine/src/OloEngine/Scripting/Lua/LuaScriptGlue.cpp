@@ -682,11 +682,25 @@ namespace OloEngine
         // --- InventoryComponent ---
         lua.new_usertype<InventoryComponent>("InventoryComponent", "currency", &InventoryComponent::Currency, "AddItem", [](InventoryComponent& comp, const std::string& itemId, sol::optional<i32> count)
                                              {
-                                                 ItemInstance instance;
-                                                 instance.InstanceID = UUID();
-                                                 instance.ItemDefinitionID = itemId;
-                                                 instance.StackCount = count.value_or(1);
-                                                 return comp.PlayerInventory.AddItem(instance); }, "RemoveItem", [](InventoryComponent& comp, const std::string& itemId, sol::optional<i32> count)
+                                                 i32 total = count.value_or(1);
+                                                 if (total <= 0)
+                                                     return false;
+                                                 const auto* def = ItemDatabase::Get(itemId);
+                                                 if (!def)
+                                                     return false;
+                                                 i32 maxStack = std::max(def->MaxStackSize, 1);
+                                                 i32 remaining = total;
+                                                 while (remaining > 0)
+                                                 {
+                                                     ItemInstance instance;
+                                                     instance.InstanceID = UUID();
+                                                     instance.ItemDefinitionID = itemId;
+                                                     instance.StackCount = std::min(remaining, maxStack);
+                                                     if (!comp.PlayerInventory.AddItem(instance))
+                                                         return false;
+                                                     remaining -= instance.StackCount;
+                                                 }
+                                                 return true; }, "RemoveItem", [](InventoryComponent& comp, const std::string& itemId, sol::optional<i32> count)
                                              { return comp.PlayerInventory.RemoveItemByDefinition(itemId, count.value_or(1)); }, "HasItem", [](const InventoryComponent& comp, const std::string& itemId, sol::optional<i32> count) -> bool
                                              { return comp.PlayerInventory.HasItem(itemId, count.value_or(1)); }, "CountItem", [](const InventoryComponent& comp, const std::string& itemId) -> i32
                                              { return comp.PlayerInventory.CountItem(itemId); }, "GetUsedSlots", [](const InventoryComponent& comp) -> i32

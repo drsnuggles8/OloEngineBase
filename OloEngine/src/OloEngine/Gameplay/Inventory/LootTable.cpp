@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Gameplay/Inventory/LootTable.h"
+#include "OloEngine/Gameplay/Inventory/AffixDatabase.h"
 #include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Core/UUID.h"
 
@@ -94,14 +95,82 @@ namespace OloEngine
                         i32 lo = std::max(std::min(entry.MinAffixes, entry.MaxAffixes), 0);
                         i32 hi = std::max(std::max(entry.MinAffixes, entry.MaxAffixes), 0);
                         i32 numAffixes = RandomUtils::Int32(lo, hi);
+
+                        i32 prefixCount = 0;
+                        i32 suffixCount = 0;
+                        constexpr i32 MaxPrefixes = 3;
+                        constexpr i32 MaxSuffixes = 3;
+
                         for (i32 a = 0; a < numAffixes; ++a)
                         {
+                            // Pick a random pool from the entry's list
                             i32 poolIdx = RandomUtils::Int32(0, static_cast<i32>(entry.PossibleAffixPoolIDs.size()) - 1);
+                            const auto& poolId = entry.PossibleAffixPoolIDs[static_cast<size_t>(poolIdx)];
+
+                            const AffixPool* pool = AffixDatabase::GetPool(poolId);
+                            if (!pool || pool->AffixIDs.empty())
+                            {
+                                // Fallback: use pool ID as a raw affix (legacy behavior)
+                                ItemAffix affix;
+                                affix.Name = poolId;
+                                affix.Attribute = poolId;
+                                affix.Value = RandomUtils::Float32(1.0f, 10.0f);
+                                instance.Affixes.push_back(std::move(affix));
+                                continue;
+                            }
+
+                            // Pick a random affix definition from the pool
+                            i32 affixIdx = RandomUtils::Int32(0, static_cast<i32>(pool->AffixIDs.size()) - 1);
+                            const AffixDefinition* affixDef = AffixDatabase::Get(pool->AffixIDs[static_cast<size_t>(affixIdx)]);
+                            if (!affixDef || affixDef->Tiers.empty())
+                            {
+                                continue;
+                            }
+
+                            // Enforce prefix/suffix limits
+                            if (affixDef->Type == AffixType::Prefix && prefixCount >= MaxPrefixes)
+                            {
+                                continue;
+                            }
+                            if (affixDef->Type == AffixType::Suffix && suffixCount >= MaxSuffixes)
+                            {
+                                continue;
+                            }
+
+                            // Select the best eligible tier based on item level
+                            const AffixTier* selectedTier = nullptr;
+                            for (auto const& tier : affixDef->Tiers)
+                            {
+                                if (itemLevel >= tier.MinItemLevel)
+                                {
+                                    if (!selectedTier || tier.Tier > selectedTier->Tier)
+                                    {
+                                        selectedTier = &tier;
+                                    }
+                                }
+                            }
+                            if (!selectedTier)
+                            {
+                                continue;
+                            }
+
                             ItemAffix affix;
-                            affix.Name = entry.PossibleAffixPoolIDs[static_cast<size_t>(poolIdx)];
-                            affix.Attribute = affix.Name;
-                            affix.Value = RandomUtils::Float32(1.0f, 10.0f);
+                            affix.DefinitionID = affixDef->AffixID;
+                            affix.Type = affixDef->Type;
+                            affix.Tier = selectedTier->Tier;
+                            affix.Name = selectedTier->DisplayName;
+                            affix.Attribute = affixDef->Attribute;
+                            affix.Value = RandomUtils::Float32(selectedTier->MinValue, selectedTier->MaxValue);
                             instance.Affixes.push_back(std::move(affix));
+
+                            if (affixDef->Type == AffixType::Prefix)
+                            {
+                                ++prefixCount;
+                            }
+                            else
+                            {
+                                ++suffixCount;
+                            }
                         }
                     }
 

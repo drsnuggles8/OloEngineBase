@@ -2611,7 +2611,7 @@ namespace OloEngine
 
     static bool InventoryComponent_RemoveItem(UUID entityID, MonoString* itemId, i32 count)
     {
-        if (!itemId)
+        if (!itemId || count <= 0)
         {
             return false;
         }
@@ -2623,7 +2623,7 @@ namespace OloEngine
 
     static bool InventoryComponent_HasItem(UUID entityID, MonoString* itemId, i32 count)
     {
-        if (!itemId)
+        if (!itemId || count <= 0)
         {
             return false;
         }

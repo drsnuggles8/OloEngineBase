@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Gameplay/Inventory/AffixDefinition.h"
 #include "OloEngine/Gameplay/Inventory/Item.h"
 #include "OloEngine/Core/UUID.h"
 
@@ -11,9 +12,12 @@ namespace OloEngine
 {
     struct ItemAffix
     {
-        std::string Name;
-        std::string Attribute;
-        f32 Value = 0.0f;
+        std::string DefinitionID; // References AffixDefinition::AffixID (empty for legacy/manual affixes)
+        AffixType Type = AffixType::Prefix;
+        i32 Tier = 0;          // Which tier was rolled (0 = untiered/legacy)
+        std::string Name;      // Display name (e.g., "Flaming", "of the Bear")
+        std::string Attribute; // Stat key this modifies (e.g., "FireDamage")
+        f32 Value = 0.0f;      // Rolled value within the tier's range
 
         auto operator==(const ItemAffix&) const -> bool = default;
     };

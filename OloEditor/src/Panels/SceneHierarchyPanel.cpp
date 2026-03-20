@@ -4393,7 +4393,13 @@ namespace OloEngine
                                            {
             ImGui::InputText("Item ID", &component.Item.ItemDefinitionID);
 
-            ImGui::DragInt("Stack Count", &component.Item.StackCount, 1, 1, 9999);
+            const auto* def = ItemDatabase::Get(component.Item.ItemDefinitionID);
+            if (!component.Item.ItemDefinitionID.empty() && !def)
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Unknown item definition");
+
+            i32 maxStack = def ? std::max(def->MaxStackSize, 1) : 9999;
+            ImGui::DragInt("Stack Count", &component.Item.StackCount, 1, 1, maxStack);
+            component.Item.StackCount = std::clamp(component.Item.StackCount, 1, maxStack);
             ImGui::DragFloat("Pickup Radius", &component.PickupRadius, 0.1f, 0.0f, 100.0f);
             ImGui::Checkbox("Auto Pickup", &component.AutoPickup);
             ImGui::DragFloat("Despawn Timer", &component.DespawnTimer, 0.5f, -1.0f, 600.0f);
