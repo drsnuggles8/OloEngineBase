@@ -1,0 +1,21 @@
+ItemDefinition:
+  ItemID: mana_potion
+  DisplayName: Mana Potion
+  Description: Restores 30 mana points when consumed.
+  IconPath: ""
+  MeshAsset: ""
+  Category: Consumable
+  Rarity: Common
+  MaxStackSize: 20
+  Weight: 0.5
+  BuyPrice: 15
+  SellPrice: 7
+  IsQuestItem: false
+  IsConsumable: true
+  AttributeModifiers:
+    - Attribute: Mana
+      Value: 30.0
+  Tags:
+    - potion
+    - mana
+    - consumable

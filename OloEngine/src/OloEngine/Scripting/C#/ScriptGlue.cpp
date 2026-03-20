@@ -21,6 +21,8 @@
 #include "OloEngine/Animation/AnimationGraphComponent.h"
 #include "OloEngine/Animation/MorphTargets/FacialExpressionLibrary.h"
 #include "OloEngine/AI/AIComponents.h"
+#include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
+#include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
 
 #include "mono/metadata/object.h"
 #include "mono/metadata/reflection.h"
@@ -2568,6 +2570,62 @@ namespace OloEngine
         }
     }
 
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // Inventory //////////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static bool InventoryComponent_AddItem(UUID entityID, MonoString* itemId, i32 count)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<InventoryComponent>());
+        auto& ic = entity.GetComponent<InventoryComponent>();
+        std::string id = Utils::MonoStringToString(itemId);
+
+        ItemInstance instance;
+        instance.InstanceID = UUID();
+        instance.ItemDefinitionID = id;
+        instance.StackCount = count;
+        return ic.PlayerInventory.AddItem(instance);
+    }
+
+    static bool InventoryComponent_RemoveItem(UUID entityID, MonoString* itemId, i32 count)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<InventoryComponent>());
+        auto& ic = entity.GetComponent<InventoryComponent>();
+        return ic.PlayerInventory.RemoveItemByDefinition(Utils::MonoStringToString(itemId), count);
+    }
+
+    static bool InventoryComponent_HasItem(UUID entityID, MonoString* itemId, i32 count)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<InventoryComponent>());
+        auto& ic = entity.GetComponent<InventoryComponent>();
+        return ic.PlayerInventory.HasItem(Utils::MonoStringToString(itemId), count);
+    }
+
+    static i32 InventoryComponent_CountItem(UUID entityID, MonoString* itemId)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<InventoryComponent>());
+        auto& ic = entity.GetComponent<InventoryComponent>();
+        return ic.PlayerInventory.CountItem(Utils::MonoStringToString(itemId));
+    }
+
+    static i32 InventoryComponent_GetCurrency(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<InventoryComponent>());
+        return entity.GetComponent<InventoryComponent>().Currency;
+    }
+
+    static void InventoryComponent_SetCurrency(UUID entityID, i32 value)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<InventoryComponent>());
+        entity.GetComponent<InventoryComponent>().Currency = value;
+    }
+
     void ScriptGlue::RegisterComponents()
     {
         RegisterComponent(AllComponents{});
@@ -2945,6 +3003,16 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(StateMachineComponent_HasBlackboardKey);
         OLO_ADD_INTERNAL_CALL(StateMachineComponent_GetCurrentState);
         OLO_ADD_INTERNAL_CALL(StateMachineComponent_ForceTransition);
+
+        ///////////////////////////////////////////////////////////////
+        // Inventory //////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(InventoryComponent_AddItem);
+        OLO_ADD_INTERNAL_CALL(InventoryComponent_RemoveItem);
+        OLO_ADD_INTERNAL_CALL(InventoryComponent_HasItem);
+        OLO_ADD_INTERNAL_CALL(InventoryComponent_CountItem);
+        OLO_ADD_INTERNAL_CALL(InventoryComponent_GetCurrency);
+        OLO_ADD_INTERNAL_CALL(InventoryComponent_SetCurrency);
     }
 
 } // namespace OloEngine

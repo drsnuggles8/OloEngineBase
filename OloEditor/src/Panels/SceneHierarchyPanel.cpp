@@ -21,6 +21,8 @@
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 #include "OloEngine/Debug/Instrumentor.h"
 #include "OloEngine/Animation/MorphTargets/FacialExpressionLibrary.h"
+#include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
+#include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
 #include "../UndoRedo/EntityCommands.h"
 #include "../UndoRedo/ComponentCommands.h"
 #include "../UndoRedo/SpecializedCommands.h"
@@ -1683,6 +1685,13 @@ namespace OloEngine
             // AI
             DisplayAddComponentEntry<BehaviorTreeComponent>("Behavior Tree");
             DisplayAddComponentEntry<StateMachineComponent>("State Machine");
+
+            ImGui::Separator();
+
+            // Inventory
+            DisplayAddComponentEntry<InventoryComponent>("Inventory");
+            DisplayAddComponentEntry<ItemPickupComponent>("Item Pickup");
+            DisplayAddComponentEntry<ItemContainerComponent>("Item Container");
 
             ImGui::EndPopup();
         }
@@ -4264,6 +4273,134 @@ namespace OloEngine
             else
             {
                 ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Not started");
+            } });
+
+        DrawComponent<InventoryComponent>("Inventory", entity, [](auto& component)
+                                          {
+            i32 capacity = component.PlayerInventory.GetCapacity();
+            if (ImGui::DragInt("Capacity", &capacity, 1, 1, 1000))
+                component.PlayerInventory.SetCapacity(capacity);
+
+            ImGui::DragFloat("Max Weight", &component.PlayerInventory.MaxWeight, 0.1f, 0.0f, 10000.0f);
+            ImGui::DragInt("Currency", &component.Currency, 1, 0, 999999);
+
+            ImGui::Separator();
+            ImGui::Text("Used Slots: %d / %d", component.PlayerInventory.GetUsedSlots(), component.PlayerInventory.GetCapacity());
+            ImGui::Text("Total Weight: %.1f", component.PlayerInventory.GetTotalWeight());
+
+            // Show inventory grid
+            if (ImGui::TreeNode("Inventory Slots"))
+            {
+                for (i32 slot = 0; slot < component.PlayerInventory.GetCapacity(); ++slot)
+                {
+                    const auto* item = component.PlayerInventory.GetItemAtSlot(slot);
+                    if (item)
+                    {
+                        const auto* def = ItemDatabase::Get(item->ItemDefinitionID);
+                        std::string label = def ? def->DisplayName : item->ItemDefinitionID;
+                        ImGui::Text("[%d] %s x%d", slot, label.c_str(), item->StackCount);
+
+                        if (def && ImGui::IsItemHovered())
+                        {
+                            ImGui::BeginTooltip();
+                            ImGui::Text("%s", def->Description.c_str());
+                            ImGui::Text("Category: %s | Rarity: %s",
+                                        ItemCategoryToString(def->Category),
+                                        ItemRarityToString(def->Rarity));
+                            if (item->Durability >= 0.0f)
+                                ImGui::Text("Durability: %.0f / %.0f", item->Durability, item->MaxDurability);
+                            ImGui::EndTooltip();
+                        }
+                    }
+                    else
+                    {
+                        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 0.5f), "[%d] (empty)", slot);
+                    }
+                }
+                ImGui::TreePop();
+            }
+
+            // Show equipment
+            if (ImGui::TreeNode("Equipment"))
+            {
+                for (i32 i = 0; i < EquipmentSlots::SlotCount; ++i)
+                {
+                    auto eqSlot = static_cast<EquipmentSlots::Slot>(i);
+                    const auto* item = component.Equipment.GetEquipped(eqSlot);
+                    if (item)
+                    {
+                        const auto* def = ItemDatabase::Get(item->ItemDefinitionID);
+                        std::string label = def ? def->DisplayName : item->ItemDefinitionID;
+                        ImGui::Text("%s: %s", EquipmentSlots::SlotToString(eqSlot), label.c_str());
+                    }
+                    else
+                    {
+                        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 0.5f), "%s: (empty)",
+                                           EquipmentSlots::SlotToString(eqSlot));
+                    }
+                }
+                ImGui::TreePop();
+            }
+
+            // Attribute summary
+            if (ImGui::TreeNode("Equipment Bonuses"))
+            {
+                auto modifiers = component.Equipment.GetAllAttributeModifiers();
+                if (modifiers.empty())
+                {
+                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No bonuses");
+                }
+                else
+                {
+                    for (auto const& [attr, val] : modifiers)
+                        ImGui::Text("%s: %+.1f", attr.c_str(), val);
+                }
+                ImGui::TreePop();
+            } });
+
+        DrawComponent<ItemPickupComponent>("Item Pickup", entity, [](auto& component)
+                                           {
+            char buffer[128];
+            ::strcpy_s(buffer, sizeof(buffer), component.Item.ItemDefinitionID.c_str());
+            if (ImGui::InputText("Item ID", buffer, sizeof(buffer)))
+                component.Item.ItemDefinitionID = buffer;
+
+            ImGui::DragInt("Stack Count", &component.Item.StackCount, 1, 1, 9999);
+            ImGui::DragFloat("Pickup Radius", &component.PickupRadius, 0.1f, 0.0f, 100.0f);
+            ImGui::Checkbox("Auto Pickup", &component.AutoPickup);
+            ImGui::DragFloat("Despawn Timer", &component.DespawnTimer, 0.5f, -1.0f, 600.0f);
+            if (component.DespawnTimer < 0.0f)
+                ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "(never despawns)"); });
+
+        DrawComponent<ItemContainerComponent>("Item Container", entity, [](auto& component)
+                                              {
+            i32 capacity = component.Contents.GetCapacity();
+            if (ImGui::DragInt("Capacity", &capacity, 1, 1, 1000))
+                component.Contents.SetCapacity(capacity);
+
+            ImGui::Checkbox("Is Shop", &component.IsShop);
+
+            char buffer[128];
+            ::strcpy_s(buffer, sizeof(buffer), component.LootTableID.c_str());
+            if (ImGui::InputText("Loot Table ID", buffer, sizeof(buffer)))
+                component.LootTableID = buffer;
+
+            ImGui::Separator();
+            ImGui::Text("Used: %d / %d", component.Contents.GetUsedSlots(), component.Contents.GetCapacity());
+
+            if (ImGui::TreeNode("Container Items"))
+            {
+                for (i32 slot = 0; slot < component.Contents.GetCapacity(); ++slot)
+                {
+                    const auto* item = component.Contents.GetItemAtSlot(slot);
+                    if (item)
+                    {
+                        const auto* def = ItemDatabase::Get(item->ItemDefinitionID);
+                        std::string label = def ? def->DisplayName : item->ItemDefinitionID;
+                        ImGui::Text("[%d] %s x%d", slot, label.c_str(), item->StackCount);
+                    }
+                }
+                ImGui::TreePop();
             } });
     }
 

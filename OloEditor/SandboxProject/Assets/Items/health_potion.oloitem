@@ -1,0 +1,21 @@
+ItemDefinition:
+  ItemID: health_potion
+  DisplayName: Health Potion
+  Description: Restores 50 health points when consumed.
+  IconPath: ""
+  MeshAsset: ""
+  Category: Consumable
+  Rarity: Common
+  MaxStackSize: 20
+  Weight: 0.5
+  BuyPrice: 10
+  SellPrice: 5
+  IsQuestItem: false
+  IsConsumable: true
+  AttributeModifiers:
+    - Attribute: Health
+      Value: 50.0
+  Tags:
+    - potion
+    - healing
+    - consumable

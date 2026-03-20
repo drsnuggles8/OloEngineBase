@@ -1,0 +1,23 @@
+ItemDefinition:
+  ItemID: steel_helmet
+  DisplayName: Steel Helmet
+  Description: A solid steel helmet providing good protection.
+  IconPath: ""
+  MeshAsset: ""
+  Category: Armor
+  Rarity: Uncommon
+  MaxStackSize: 1
+  Weight: 2.0
+  BuyPrice: 75
+  SellPrice: 38
+  IsQuestItem: false
+  IsConsumable: false
+  AttributeModifiers:
+    - Attribute: Defense
+      Value: 8.0
+    - Attribute: Health
+      Value: 15.0
+  Tags:
+    - armor
+    - helmet
+    - steel

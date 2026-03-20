@@ -1,0 +1,18 @@
+ItemDefinition:
+  ItemID: gold_coin
+  DisplayName: Gold Coin
+  Description: Shiny gold currency accepted everywhere.
+  IconPath: ""
+  MeshAsset: ""
+  Category: Currency
+  Rarity: Common
+  MaxStackSize: 9999
+  Weight: 0.01
+  BuyPrice: 1
+  SellPrice: 1
+  IsQuestItem: false
+  IsConsumable: false
+  AttributeModifiers: []
+  Tags:
+    - currency
+    - gold

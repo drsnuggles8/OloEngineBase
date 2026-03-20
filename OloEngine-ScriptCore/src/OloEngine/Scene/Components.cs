@@ -1300,4 +1300,28 @@ namespace OloEngine
 		public void ForceTransition(string stateId)
 			=> InternalCalls.StateMachineComponent_ForceTransition(Entity.ID, stateId);
 	}
+
+	public class InventoryComponent : Component
+	{
+		public bool AddItem(string itemId, int count = 1)
+			=> InternalCalls.InventoryComponent_AddItem(Entity.ID, itemId, count);
+
+		public bool RemoveItem(string itemId, int count = 1)
+			=> InternalCalls.InventoryComponent_RemoveItem(Entity.ID, itemId, count);
+
+		public bool HasItem(string itemId, int count = 1)
+			=> InternalCalls.InventoryComponent_HasItem(Entity.ID, itemId, count);
+
+		public int CountItem(string itemId)
+			=> InternalCalls.InventoryComponent_CountItem(Entity.ID, itemId);
+
+		public int Currency
+		{
+			get => InternalCalls.InventoryComponent_GetCurrency(Entity.ID);
+			set => InternalCalls.InventoryComponent_SetCurrency(Entity.ID, value);
+		}
+	}
+
+	public class ItemPickupComponent : Component { }
+	public class ItemContainerComponent : Component { }
 }

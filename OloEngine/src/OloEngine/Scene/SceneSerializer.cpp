@@ -15,6 +15,7 @@
 #include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
+#include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 
 #include <fstream>
 #include <cmath>
@@ -2199,6 +2200,95 @@ namespace OloEngine
             auto& smc = deserializedEntity.AddComponent<StateMachineComponent>();
             TrySet(smc.StateMachineAssetHandle, stateMachineComponent["StateMachineAsset"]);
         }
+
+        if (auto inventoryComponent = entity["InventoryComponent"]; inventoryComponent)
+        {
+            auto& ic = deserializedEntity.AddComponent<InventoryComponent>();
+            i32 capacity = inventoryComponent["Capacity"].as<i32>(40);
+            ic.PlayerInventory.SetCapacity(capacity);
+            TrySet(ic.PlayerInventory.MaxWeight, inventoryComponent["MaxWeight"]);
+            TrySet(ic.Currency, inventoryComponent["Currency"]);
+
+            if (auto items = inventoryComponent["Items"]; items && items.IsSequence())
+            {
+                for (auto const& itemNode : items)
+                {
+                    ItemInstance item;
+                    item.InstanceID = itemNode["InstanceID"].as<u64>();
+                    item.ItemDefinitionID = itemNode["DefinitionID"].as<std::string>();
+                    TrySet(item.StackCount, itemNode["StackCount"]);
+                    TrySet(item.Durability, itemNode["Durability"]);
+                    TrySet(item.MaxDurability, itemNode["MaxDurability"]);
+
+                    if (auto affixes = itemNode["Affixes"]; affixes && affixes.IsSequence())
+                    {
+                        for (auto const& affixNode : affixes)
+                        {
+                            ItemAffix affix;
+                            affix.Name = affixNode["Name"].as<std::string>();
+                            affix.Attribute = affixNode["Attribute"].as<std::string>();
+                            affix.Value = affixNode["Value"].as<f32>(0.0f);
+                            item.Affixes.push_back(std::move(affix));
+                        }
+                    }
+
+                    i32 slot = itemNode["Slot"].as<i32>(0);
+                    ic.PlayerInventory.AddItemToSlot(slot, item);
+                }
+            }
+
+            if (auto equipment = inventoryComponent["Equipment"]; equipment && equipment.IsSequence())
+            {
+                for (auto const& eqNode : equipment)
+                {
+                    ItemInstance item;
+                    item.InstanceID = eqNode["InstanceID"].as<u64>();
+                    item.ItemDefinitionID = eqNode["DefinitionID"].as<std::string>();
+                    TrySet(item.StackCount, eqNode["StackCount"]);
+                    TrySet(item.Durability, eqNode["Durability"]);
+                    TrySet(item.MaxDurability, eqNode["MaxDurability"]);
+
+                    auto slotStr = eqNode["Slot"].as<std::string>("Head");
+                    auto slot = EquipmentSlots::SlotFromString(slotStr);
+                    // Direct-equip (bypass inventory transfer since we're loading)
+                    ic.Equipment.Equip(slot, item, ic.PlayerInventory);
+                }
+            }
+        }
+
+        if (auto itemPickupComponent = entity["ItemPickupComponent"]; itemPickupComponent)
+        {
+            auto& pc = deserializedEntity.AddComponent<ItemPickupComponent>();
+            pc.Item.InstanceID = itemPickupComponent["InstanceID"].as<u64>(0);
+            pc.Item.ItemDefinitionID = itemPickupComponent["DefinitionID"].as<std::string>("");
+            TrySet(pc.Item.StackCount, itemPickupComponent["StackCount"]);
+            TrySet(pc.PickupRadius, itemPickupComponent["PickupRadius"]);
+            TrySet(pc.AutoPickup, itemPickupComponent["AutoPickup"]);
+            TrySet(pc.DespawnTimer, itemPickupComponent["DespawnTimer"]);
+        }
+
+        if (auto itemContainerComponent = entity["ItemContainerComponent"]; itemContainerComponent)
+        {
+            auto& cc = deserializedEntity.AddComponent<ItemContainerComponent>();
+            i32 capacity = itemContainerComponent["Capacity"].as<i32>(20);
+            cc.Contents.SetCapacity(capacity);
+            TrySet(cc.IsShop, itemContainerComponent["IsShop"]);
+            TrySet(cc.LootTableID, itemContainerComponent["LootTableID"]);
+
+            if (auto items = itemContainerComponent["Items"]; items && items.IsSequence())
+            {
+                for (auto const& itemNode : items)
+                {
+                    ItemInstance item;
+                    item.InstanceID = itemNode["InstanceID"].as<u64>();
+                    item.ItemDefinitionID = itemNode["DefinitionID"].as<std::string>();
+                    TrySet(item.StackCount, itemNode["StackCount"]);
+
+                    i32 slot = itemNode["Slot"].as<i32>(0);
+                    cc.Contents.AddItemToSlot(slot, item);
+                }
+            }
+        }
     }
 
     SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -3618,6 +3708,117 @@ namespace OloEngine
             out << YAML::Key << "StateMachineAsset" << YAML::Value << smc.StateMachineAssetHandle;
 
             out << YAML::EndMap; // StateMachineComponent
+        }
+
+        if (entity.HasComponent<InventoryComponent>())
+        {
+            out << YAML::Key << "InventoryComponent";
+            out << YAML::BeginMap;
+
+            auto const& ic = entity.GetComponent<InventoryComponent>();
+            out << YAML::Key << "Capacity" << YAML::Value << ic.PlayerInventory.GetCapacity();
+            out << YAML::Key << "MaxWeight" << YAML::Value << ic.PlayerInventory.MaxWeight;
+            out << YAML::Key << "Currency" << YAML::Value << ic.Currency;
+
+            // Serialize inventory items
+            out << YAML::Key << "Items" << YAML::Value << YAML::BeginSeq;
+            for (i32 slot = 0; slot < ic.PlayerInventory.GetCapacity(); ++slot)
+            {
+                const auto* item = ic.PlayerInventory.GetItemAtSlot(slot);
+                if (item)
+                {
+                    out << YAML::BeginMap;
+                    out << YAML::Key << "Slot" << YAML::Value << slot;
+                    out << YAML::Key << "InstanceID" << YAML::Value << item->InstanceID;
+                    out << YAML::Key << "DefinitionID" << YAML::Value << item->ItemDefinitionID;
+                    out << YAML::Key << "StackCount" << YAML::Value << item->StackCount;
+                    out << YAML::Key << "Durability" << YAML::Value << item->Durability;
+                    out << YAML::Key << "MaxDurability" << YAML::Value << item->MaxDurability;
+
+                    if (!item->Affixes.empty())
+                    {
+                        out << YAML::Key << "Affixes" << YAML::Value << YAML::BeginSeq;
+                        for (auto const& affix : item->Affixes)
+                        {
+                            out << YAML::BeginMap;
+                            out << YAML::Key << "Name" << YAML::Value << affix.Name;
+                            out << YAML::Key << "Attribute" << YAML::Value << affix.Attribute;
+                            out << YAML::Key << "Value" << YAML::Value << affix.Value;
+                            out << YAML::EndMap;
+                        }
+                        out << YAML::EndSeq;
+                    }
+                    out << YAML::EndMap;
+                }
+            }
+            out << YAML::EndSeq;
+
+            // Serialize equipment
+            out << YAML::Key << "Equipment" << YAML::Value << YAML::BeginSeq;
+            for (i32 i = 0; i < EquipmentSlots::SlotCount; ++i)
+            {
+                auto slot = static_cast<EquipmentSlots::Slot>(i);
+                const auto* item = ic.Equipment.GetEquipped(slot);
+                if (item)
+                {
+                    out << YAML::BeginMap;
+                    out << YAML::Key << "Slot" << YAML::Value << EquipmentSlots::SlotToString(slot);
+                    out << YAML::Key << "InstanceID" << YAML::Value << item->InstanceID;
+                    out << YAML::Key << "DefinitionID" << YAML::Value << item->ItemDefinitionID;
+                    out << YAML::Key << "StackCount" << YAML::Value << item->StackCount;
+                    out << YAML::Key << "Durability" << YAML::Value << item->Durability;
+                    out << YAML::Key << "MaxDurability" << YAML::Value << item->MaxDurability;
+                    out << YAML::EndMap;
+                }
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::EndMap; // InventoryComponent
+        }
+
+        if (entity.HasComponent<ItemPickupComponent>())
+        {
+            out << YAML::Key << "ItemPickupComponent";
+            out << YAML::BeginMap;
+
+            auto const& pc = entity.GetComponent<ItemPickupComponent>();
+            out << YAML::Key << "InstanceID" << YAML::Value << pc.Item.InstanceID;
+            out << YAML::Key << "DefinitionID" << YAML::Value << pc.Item.ItemDefinitionID;
+            out << YAML::Key << "StackCount" << YAML::Value << pc.Item.StackCount;
+            out << YAML::Key << "PickupRadius" << YAML::Value << pc.PickupRadius;
+            out << YAML::Key << "AutoPickup" << YAML::Value << pc.AutoPickup;
+            out << YAML::Key << "DespawnTimer" << YAML::Value << pc.DespawnTimer;
+
+            out << YAML::EndMap; // ItemPickupComponent
+        }
+
+        if (entity.HasComponent<ItemContainerComponent>())
+        {
+            out << YAML::Key << "ItemContainerComponent";
+            out << YAML::BeginMap;
+
+            auto const& cc = entity.GetComponent<ItemContainerComponent>();
+            out << YAML::Key << "Capacity" << YAML::Value << cc.Contents.GetCapacity();
+            out << YAML::Key << "IsShop" << YAML::Value << cc.IsShop;
+            out << YAML::Key << "LootTableID" << YAML::Value << cc.LootTableID;
+
+            out << YAML::Key << "Items" << YAML::Value << YAML::BeginSeq;
+            for (i32 slot = 0; slot < cc.Contents.GetCapacity(); ++slot)
+            {
+                const auto* item = cc.Contents.GetItemAtSlot(slot);
+                if (item)
+                {
+                    out << YAML::BeginMap;
+                    out << YAML::Key << "Slot" << YAML::Value << slot;
+                    out << YAML::Key << "InstanceID" << YAML::Value << item->InstanceID;
+                    out << YAML::Key << "DefinitionID" << YAML::Value << item->ItemDefinitionID;
+                    out << YAML::Key << "StackCount" << YAML::Value << item->StackCount;
+                    out << YAML::EndMap;
+                }
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::EndMap; // ItemContainerComponent
         }
 
         out << YAML::EndMap; // Entity

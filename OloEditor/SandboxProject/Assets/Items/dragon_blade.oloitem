@@ -1,0 +1,26 @@
+ItemDefinition:
+  ItemID: dragon_blade
+  DisplayName: Dragon Blade
+  Description: A legendary blade imbued with dragon fire.
+  IconPath: ""
+  MeshAsset: ""
+  Category: Weapon
+  Rarity: Legendary
+  MaxStackSize: 1
+  Weight: 4.0
+  BuyPrice: 5000
+  SellPrice: 2500
+  IsQuestItem: false
+  IsConsumable: false
+  AttributeModifiers:
+    - Attribute: Attack
+      Value: 50.0
+    - Attribute: FireDamage
+      Value: 25.0
+    - Attribute: Speed
+      Value: 5.0
+  Tags:
+    - melee
+    - sword
+    - legendary
+    - fire

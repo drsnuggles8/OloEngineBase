@@ -56,6 +56,7 @@
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Navigation/NavigationSystem.h"
 #include "OloEngine/AI/AISystem.h"
+#include "OloEngine/Gameplay/Inventory/InventorySystem.h"
 
 #include <glm/glm.hpp>
 #include <ranges>
@@ -894,6 +895,9 @@ namespace OloEngine
 
             // Update AI (behavior trees and state machines)
             AISystem::OnUpdate(this, ts.GetSeconds());
+
+            // Update inventory system (pickups, despawn)
+            InventorySystem::OnUpdate(this, ts.GetSeconds());
 
             auto listenerView = m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>);
             for (auto&& [e, ac, tc] : listenerView.each())
@@ -3791,5 +3795,20 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::InstancePortalComponent>([[ma
 
 template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::NetworkLODComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::NetworkLODComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::InventoryComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::InventoryComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::ItemPickupComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::ItemPickupComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::ItemContainerComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::ItemContainerComponent& component)
 {
 }

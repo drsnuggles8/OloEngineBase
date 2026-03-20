@@ -1,0 +1,23 @@
+ItemDefinition:
+  ItemID: iron_sword
+  DisplayName: Iron Sword
+  Description: A sturdy sword forged from iron.
+  IconPath: ""
+  MeshAsset: ""
+  Category: Weapon
+  Rarity: Common
+  MaxStackSize: 1
+  Weight: 3.5
+  BuyPrice: 50
+  SellPrice: 25
+  IsQuestItem: false
+  IsConsumable: false
+  AttributeModifiers:
+    - Attribute: Attack
+      Value: 10.0
+    - Attribute: Speed
+      Value: -1.0
+  Tags:
+    - melee
+    - sword
+    - iron
