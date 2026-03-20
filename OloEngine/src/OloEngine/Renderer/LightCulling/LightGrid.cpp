@@ -66,6 +66,7 @@ namespace OloEngine
         if (!CreateBuffers())
         {
             OLO_CORE_ERROR("LightGrid::Resize: Failed to recreate GPU buffers");
+            m_Initialized = false;
             return;
         }
 

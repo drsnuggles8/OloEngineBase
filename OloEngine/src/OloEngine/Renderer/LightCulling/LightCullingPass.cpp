@@ -3,7 +3,6 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
-#include <glad/gl.h>
 
 namespace OloEngine
 {
@@ -77,7 +76,7 @@ namespace OloEngine
         grid.Bind();
 
         // Bind depth texture for tile frustum depth range extraction
-        glBindTextureUnit(0, depthTextureID);
+        RenderCommand::BindTexture(0, depthTextureID);
 
         // Bind and set uniforms on the compute shader
         m_CullingShader->Bind();

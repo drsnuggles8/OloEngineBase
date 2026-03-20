@@ -32,6 +32,11 @@ namespace OloEngine::Testing
         MockRendererAPI() = default;
         ~MockRendererAPI() override = default;
 
+        void SetMaxUniformBlockSize(u32 size)
+        {
+            m_MaxUniformBlockSize = size;
+        }
+
         // ----------------------------------------------------------------
         // Recording accessors
         // ----------------------------------------------------------------

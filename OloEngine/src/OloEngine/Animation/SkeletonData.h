@@ -59,11 +59,13 @@ namespace OloEngine
             const sizet boneCount = m_GlobalTransforms.size();
             if (m_LocalTransforms.size() != boneCount ||
                 m_BindPoseMatrices.size() != boneCount ||
-                m_InverseBindPoses.size() != boneCount)
+                m_InverseBindPoses.size() != boneCount ||
+                m_BindPoseLocalTransforms.size() != boneCount)
             {
                 m_BindPoseMatrices.resize(boneCount, glm::mat4(1.0f));
                 m_InverseBindPoses.resize(boneCount, glm::mat4(1.0f));
                 m_LocalTransforms.resize(boneCount, glm::mat4(1.0f));
+                m_BindPoseLocalTransforms.resize(boneCount, glm::mat4(1.0f));
             }
 
             m_BindPoseLocalTransforms = m_LocalTransforms;

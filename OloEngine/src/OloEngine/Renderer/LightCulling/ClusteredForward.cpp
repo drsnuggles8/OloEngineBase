@@ -208,12 +208,20 @@ namespace OloEngine
 
         if (tileSize != m_GridConfig.TileSizePixels && tileSize > 0)
         {
+            const auto oldConfig = m_GridConfig;
             m_GridConfig.TileSizePixels = tileSize;
             if (m_Initialized)
             {
                 m_LightGrid.Initialize(m_LightGrid.GetScreenWidth(),
                                        m_LightGrid.GetScreenHeight(),
                                        m_GridConfig);
+                if (!m_LightGrid.IsInitialized())
+                {
+                    OLO_CORE_ERROR("ClusteredForward::SetTileSize: Re-initialization failed, rolling back");
+                    m_GridConfig = oldConfig;
+                    m_Initialized = false;
+                    m_ActiveThisFrame = false;
+                }
             }
         }
     }
@@ -222,12 +230,20 @@ namespace OloEngine
     {
         if (slices != m_GridConfig.DepthSlices && slices > 0)
         {
+            const auto oldConfig = m_GridConfig;
             m_GridConfig.DepthSlices = slices;
             if (m_Initialized)
             {
                 m_LightGrid.Initialize(m_LightGrid.GetScreenWidth(),
                                        m_LightGrid.GetScreenHeight(),
                                        m_GridConfig);
+                if (!m_LightGrid.IsInitialized())
+                {
+                    OLO_CORE_ERROR("ClusteredForward::SetDepthSlices: Re-initialization failed, rolling back");
+                    m_GridConfig = oldConfig;
+                    m_Initialized = false;
+                    m_ActiveThisFrame = false;
+                }
             }
         }
     }
