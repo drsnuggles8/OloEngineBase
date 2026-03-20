@@ -498,9 +498,7 @@ namespace OloEngine
         // Water commands
         s_DispatchTable[static_cast<sizet>(CommandType::DrawWater)] = CommandDispatch::DrawWater;
 
-        s_Data.CurrentBoundShaderID = 0;
-        std::fill(s_Data.BoundTextureIDs.begin(), s_Data.BoundTextureIDs.end(), 0);
-        s_Data.Stats.Reset();
+        ResetState();
 
         // Register the dispatch resolver so CommandPacket::Execute() can look
         // up dispatch functions without a compile-time dependency on this TU.
@@ -1094,11 +1092,15 @@ namespace OloEngine
             ++s_Data.Stats.ShaderBinds;
         }
 
-        // Camera UBO: re-bind in case a prior pass (e.g. ShadowMap) overwrote
-        // the binding point.  Mirrors the logic in DrawMesh's color path.
+        // Camera + Lights UBOs: re-bind in case a prior pass (e.g. ShadowMap)
+        // overwrote the binding points.  Mirrors the logic in DrawMesh's color path.
         if (s_Data.CameraUBO)
         {
             BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
+        }
+        if (s_Data.LightUBO)
+        {
+            BindUBOIfNeeded(ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
         }
 
         // Material UBO + texture bindings (skipped when material unchanged)

@@ -488,6 +488,12 @@ namespace OloEngine
             m_BoneInfoMap[boneName] = boneInfo;
         }
 
+        // Capture the bind pose now that all local/global transforms are set.
+        // This enables AnimationSystem::Update() to reset bones to their rest
+        // pose each frame so non-animated bones (e.g. b_Root_00 in fox.gltf
+        // which carries a -90° X rotation) are never overwritten with identity.
+        m_Skeleton->SetBindPose();
+
         OLO_CORE_INFO("AnimatedModel::ProcessSkeleton: Created skeleton with {} bones", m_Skeleton->m_BoneNames.size());
     }
 

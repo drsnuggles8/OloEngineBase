@@ -345,8 +345,6 @@ namespace OloEngine
         // Allocate enough for the larger PBR layout (PBRMaterialUBO > MaterialUBO)
         constexpr u32 materialBufferSize = std::max(ShaderBindingLayout::MaterialUBO::GetSize(), ShaderBindingLayout::PBRMaterialUBO::GetSize());
         s_Data.MaterialUBO = UniformBuffer::Create(materialBufferSize, ShaderBindingLayout::UBO_MATERIAL);
-        s_Data.MultiLightBuffer = UniformBuffer::Create(ShaderBindingLayout::MultiLightUBO::GetSize(), ShaderBindingLayout::UBO_MULTI_LIGHTS);
-
         // Validate the MultiLightUBO fits within the GPU's uniform block size limit.
         // MAX_LIGHTS=256 produces ~20 KB which exceeds the GL spec minimum of 16 KB
         // but is within typical desktop GPU limits (64 KB+).
@@ -356,8 +354,12 @@ namespace OloEngine
             if (multiLightSize > maxUBOSize)
             {
                 OLO_CORE_ERROR("MultiLightUBO size ({} bytes) exceeds GL_MAX_UNIFORM_BLOCK_SIZE ({} bytes). "
-                               "Reduce MAX_LIGHTS or migrate to an SSBO.",
+                               "Reduce MAX_LIGHTS or migrate to an SSBO. Multi-light path disabled.",
                                multiLightSize, maxUBOSize);
+            }
+            else
+            {
+                s_Data.MultiLightBuffer = UniformBuffer::Create(multiLightSize, ShaderBindingLayout::UBO_MULTI_LIGHTS);
             }
         }
 
@@ -1726,7 +1728,19 @@ namespace OloEngine
             // Only upload header (16 bytes) + active lights to minimize CPU→GPU transfer
             constexpr u32 headerSize = 4 * sizeof(i32); // LightCount, MaxLights, ShadowCasterCount, DirectionalLightCount
             const u32 uploadSize = headerSize + static_cast<u32>(activeLightCount) * static_cast<u32>(sizeof(UBOStructures::MultiLightData));
-            s_Data.MultiLightBuffer->SetData(&data, uploadSize);
+
+            // Ensure the GPU header reflects the clamped count (the caller may
+            // have set data.LightCount to a value exceeding MAX_LIGHTS).
+            if (data.LightCount != activeLightCount)
+            {
+                UBOStructures::MultiLightUBO temp = data;
+                temp.LightCount = activeLightCount;
+                s_Data.MultiLightBuffer->SetData(&temp, uploadSize);
+            }
+            else
+            {
+                s_Data.MultiLightBuffer->SetData(&data, uploadSize);
+            }
         }
     }
 

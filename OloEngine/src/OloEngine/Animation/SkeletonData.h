@@ -48,7 +48,6 @@ namespace OloEngine
             m_FinalBoneMatrices.resize(boneCount, glm::mat4(1.0f));
             m_BindPoseMatrices.resize(boneCount, glm::mat4(1.0f));
             m_InverseBindPoses.resize(boneCount, glm::mat4(1.0f));
-            m_BindPoseLocalTransforms.resize(boneCount, glm::mat4(1.0f));
             m_BonePreTransforms.resize(boneCount, glm::mat4(1.0f));
         }
 
@@ -57,8 +56,18 @@ namespace OloEngine
          */
         void SetBindPose()
         {
+            const sizet boneCount = m_GlobalTransforms.size();
+            if (m_LocalTransforms.size() != boneCount ||
+                m_BindPoseMatrices.size() != boneCount ||
+                m_InverseBindPoses.size() != boneCount)
+            {
+                m_BindPoseMatrices.resize(boneCount, glm::mat4(1.0f));
+                m_InverseBindPoses.resize(boneCount, glm::mat4(1.0f));
+                m_LocalTransforms.resize(boneCount, glm::mat4(1.0f));
+            }
+
             m_BindPoseLocalTransforms = m_LocalTransforms;
-            for (sizet i = 0; i < m_GlobalTransforms.size(); ++i)
+            for (sizet i = 0; i < boneCount; ++i)
             {
                 m_BindPoseMatrices[i] = m_GlobalTransforms[i];
                 m_InverseBindPoses[i] = glm::inverse(m_GlobalTransforms[i]);

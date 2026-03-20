@@ -813,5 +813,13 @@ layout(std140, binding = 23) uniform WaterParams {
     vec4 u_VisualParams;    // x = FresnelPower, y = SpecularIntensity, z/w = unused
 };)";
         }
+
+        static const char* GetForwardPlusUBOLayout()
+        {
+            return R"(
+layout(std140, binding = 25) uniform ForwardPlusParams {
+    uvec4 fplus_Params; // x = TileSizePixels, y = TileCountX, z = Enabled (0/1), w = reserved
+};)";
+        }
     };
 } // namespace OloEngine

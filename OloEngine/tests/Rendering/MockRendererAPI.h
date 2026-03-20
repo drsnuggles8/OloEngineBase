@@ -342,7 +342,7 @@ namespace OloEngine::Testing
         }
         [[nodiscard("Store this!")]] u32 GetMaxUniformBlockSize() const override
         {
-            return 65536u; // Typical desktop GPU value
+            return m_MaxUniformBlockSize;
         }
         void SetBlendStateForAttachment(u32 /*attachment*/, bool /*enabled*/) override
         {
@@ -408,6 +408,7 @@ namespace OloEngine::Testing
         u32 m_BindCount = 0;
         u32 m_DrawCallCount = 0;
         u32 m_NextTextureID = 1;
+        u32 m_MaxUniformBlockSize = 65536u;
         Viewport m_Viewport{ 0, 0, 1920, 1080 };
         bool m_StencilEnabled = false;
     };

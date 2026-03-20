@@ -13,10 +13,6 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        m_GridConfig.TileSizePixels = 16;
-        m_GridConfig.MaxLightsPerTile = 256;
-        m_GridConfig.DepthSlices = 1;
-
         m_LightGrid.Initialize(screenWidth, screenHeight, m_GridConfig);
         m_LightBuffer.Initialize(1024, 256);
         m_CullingPass.Initialize();
@@ -50,6 +46,8 @@ namespace OloEngine
 
     void ClusteredForward::Resize(u32 screenWidth, u32 screenHeight)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_Initialized)
         {
             m_LightGrid.Resize(screenWidth, screenHeight);
@@ -138,6 +136,8 @@ namespace OloEngine
 
     void ClusteredForward::BindForShading()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_ActiveThisFrame)
         {
             return;
@@ -163,6 +163,8 @@ namespace OloEngine
 
     void ClusteredForward::UnbindAfterShading() const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_ActiveThisFrame)
         {
             return;
@@ -174,6 +176,8 @@ namespace OloEngine
 
     void ClusteredForward::UploadDisabledUBO()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_ForwardPlusUBO)
         {
             return;

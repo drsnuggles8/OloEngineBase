@@ -61,7 +61,7 @@ namespace OloEngine
         if (pointLightCount == 0 && spotLightCount == 0)
         {
             // Clear stale grid data from the previous frame
-            grid.GetLightGridSSBO()->ClearData();
+            grid.ClearLightGrid();
             grid.ResetAtomicCounter();
             return;
         }
@@ -70,7 +70,7 @@ namespace OloEngine
         grid.ResetAtomicCounter();
 
         // Clear the light grid (zero out all offset/count pairs)
-        grid.GetLightGridSSBO()->ClearData();
+        grid.ClearLightGrid();
 
         // Bind all SSBOs
         lightBuffer.Bind();

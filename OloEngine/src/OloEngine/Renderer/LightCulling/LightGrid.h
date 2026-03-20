@@ -41,6 +41,9 @@ namespace OloEngine
         // Reset the atomic counter before each culling dispatch
         void ResetAtomicCounter();
 
+        // Clear all (offset, count) pairs in the light grid SSBO
+        void ClearLightGrid();
+
         [[nodiscard]] u32 GetTileCountX() const
         {
             return m_TileCountX;
@@ -80,10 +83,6 @@ namespace OloEngine
             return m_LightIndexSSBO;
         }
         [[nodiscard]] const Ref<StorageBuffer>& GetLightGridSSBO() const
-        {
-            return m_LightGridSSBO;
-        }
-        [[nodiscard]] Ref<StorageBuffer>& GetLightGridSSBO()
         {
             return m_LightGridSSBO;
         }

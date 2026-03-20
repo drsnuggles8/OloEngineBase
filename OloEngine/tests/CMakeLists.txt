@@ -110,6 +110,7 @@ add_executable(OloEngine-Tests
 		HeadlessTest.cpp
 		# Animation State Machine & Blend Tree Tests
 		AnimationStateMachineTest.cpp
+		AnimationSystemTest.cpp
 		BlendTreeTest.cpp
 		# Morph Target Tests
 		MorphTargetTest.cpp

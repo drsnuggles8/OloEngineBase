@@ -107,6 +107,14 @@ namespace OloEngine
         }
     }
 
+    void LightGrid::ClearLightGrid()
+    {
+        if (m_LightGridSSBO)
+        {
+            m_LightGridSSBO->ClearData();
+        }
+    }
+
     bool LightGrid::CreateBuffers()
     {
         OLO_PROFILE_FUNCTION();

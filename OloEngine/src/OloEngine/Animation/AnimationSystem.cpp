@@ -15,7 +15,7 @@ namespace OloEngine::Animation
     {
 
         // Advance and loop animation time for current and next clips
-        auto LoopTime = [](float t, const Ref<AnimationClip>& clip) -> float
+        auto LoopTime = [](f32 t, const Ref<AnimationClip>& clip) -> f32
         {
             if (clip && clip->Duration > 0.0f)
             {
@@ -35,7 +35,7 @@ namespace OloEngine::Animation
             animState.m_BlendTime += deltaTime;
             animState.m_NextTime += deltaTime;
             animState.m_NextTime = LoopTime(animState.m_NextTime, animState.m_NextClip);
-            float blendAlpha = glm::clamp(animState.m_BlendTime / animState.m_BlendDuration, 0.0f, 1.0f);
+            f32 blendAlpha = glm::clamp(animState.m_BlendTime / animState.m_BlendDuration, 0.0f, 1.0f);
             animState.m_BlendFactor = blendAlpha;
             if (blendAlpha >= 1.0f)
             {
@@ -58,12 +58,13 @@ namespace OloEngine::Animation
         };
 
         // Helper lambda to sample a clip at a given time and return TRS components
-        auto SampleClipTRS = [](const Ref<AnimationClip>& clip, float time, const std::string& boneName) -> TRSFrame
+        auto SampleClipTRS = [](const Ref<AnimationClip>& clip, f32 time, const std::string& boneName,
+                                const BoneAnimation* cachedBoneAnim = nullptr) -> TRSFrame
         {
             TRSFrame result = { glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f) };
             if (!clip)
                 return result;
-            const auto* boneAnim = clip->FindBoneAnimation(boneName);
+            const auto* boneAnim = cachedBoneAnim ? cachedBoneAnim : clip->FindBoneAnimation(boneName);
             if (boneAnim)
             {
                 // Sample each channel separately using the new optimized functions
@@ -107,8 +108,8 @@ namespace OloEngine::Animation
 
                 if (boneAnimA && boneAnimB)
                 {
-                    TRSFrame trsA = SampleClipTRS(animState.m_CurrentClip, animState.m_CurrentTime, boneName);
-                    TRSFrame trsB = SampleClipTRS(animState.m_NextClip, animState.m_NextTime, boneName);
+                    TRSFrame trsA = SampleClipTRS(animState.m_CurrentClip, animState.m_CurrentTime, boneName, boneAnimA);
+                    TRSFrame trsB = SampleClipTRS(animState.m_NextClip, animState.m_NextTime, boneName, boneAnimB);
 
                     TRSFrame blendedTRS;
                     blendedTRS.translation = glm::mix(trsA.translation, trsB.translation, animState.m_BlendFactor);
@@ -119,21 +120,22 @@ namespace OloEngine::Animation
                 }
                 else if (boneAnimA)
                 {
-                    TRSFrame trs = SampleClipTRS(animState.m_CurrentClip, animState.m_CurrentTime, boneName);
+                    TRSFrame trs = SampleClipTRS(animState.m_CurrentClip, animState.m_CurrentTime, boneName, boneAnimA);
                     skeleton.m_LocalTransforms[i] = TRSToMatrix(trs);
                 }
                 else if (boneAnimB)
                 {
-                    TRSFrame trs = SampleClipTRS(animState.m_NextClip, animState.m_NextTime, boneName);
+                    TRSFrame trs = SampleClipTRS(animState.m_NextClip, animState.m_NextTime, boneName, boneAnimB);
                     skeleton.m_LocalTransforms[i] = TRSToMatrix(trs);
                 }
                 // else: neither clip animates this bone — keep bind-pose local transform
             }
             else if (animState.m_CurrentClip)
             {
-                if (animState.m_CurrentClip->FindBoneAnimation(boneName))
+                const auto* boneAnim = animState.m_CurrentClip->FindBoneAnimation(boneName);
+                if (boneAnim)
                 {
-                    TRSFrame trs = SampleClipTRS(animState.m_CurrentClip, animState.m_CurrentTime, boneName);
+                    TRSFrame trs = SampleClipTRS(animState.m_CurrentClip, animState.m_CurrentTime, boneName, boneAnim);
                     skeleton.m_LocalTransforms[i] = TRSToMatrix(trs);
                 }
                 // else: bone not animated in this clip — keep bind-pose local transform
@@ -148,7 +150,7 @@ namespace OloEngine::Animation
             const glm::mat4& preTransform = (i < skeleton.m_BonePreTransforms.size())
                                                 ? skeleton.m_BonePreTransforms[i]
                                                 : identityTransform;
-            int parent = skeleton.m_ParentIndices[i];
+            i32 parent = skeleton.m_ParentIndices[i];
             if (parent >= 0)
                 skeleton.m_GlobalTransforms[i] = skeleton.m_GlobalTransforms[parent] * preTransform * skeleton.m_LocalTransforms[i];
             else

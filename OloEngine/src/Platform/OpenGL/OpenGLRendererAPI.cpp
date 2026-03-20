@@ -806,6 +806,8 @@ namespace OloEngine
 
     u32 OpenGLRendererAPI::GetMaxUniformBlockSize() const
     {
+        OLO_PROFILE_FUNCTION();
+
         GLint size = 0;
         glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE, &size);
         return static_cast<u32>(size);
