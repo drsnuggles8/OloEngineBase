@@ -4690,6 +4690,15 @@ namespace OloEngine
                         std::string removeLabel = "X##removeAbility" + std::to_string(i);
                         if (ImGui::SmallButton(removeLabel.c_str()))
                         {
+                            // Cancel active ability and clean up tags before removal
+                            if (ability.IsActive)
+                            {
+                                for (auto const& tag : ability.Definition.ActivationGrantedTags.GetTags())
+                                {
+                                    component.OwnedTags.RemoveTag(tag);
+                                }
+                            }
+                            component.Cooldowns.ResetCooldown(ability.Definition.AbilityTag);
                             component.Abilities.erase(component.Abilities.begin() + static_cast<ptrdiff_t>(i));
                             ImGui::TreePop();
                             ImGui::TreePop();

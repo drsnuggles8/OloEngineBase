@@ -17,8 +17,8 @@ namespace OloEngine
         GameplayTag AbilityTag;
 
         // Tag requirements
-        GameplayTagContainer RequiredTags;  // Owner must have these to activate
-        GameplayTagContainer BlockedTags;   // Owner must NOT have these
+        GameplayTagContainer RequiredTags;          // Owner must have these to activate
+        GameplayTagContainer BlockedTags;           // Owner must NOT have these
         GameplayTagContainer ActivationGrantedTags; // Added to owner while active
 
         // Costs

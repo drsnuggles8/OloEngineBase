@@ -11,7 +11,7 @@ namespace OloEngine
 
     class CooldownManager
     {
-    public:
+      public:
         CooldownManager() = default;
 
         void StartCooldown(const GameplayTag& abilityTag, f32 duration);
@@ -26,7 +26,7 @@ namespace OloEngine
 
         auto operator==(const CooldownManager&) const -> bool = default;
 
-    private:
+      private:
         struct CooldownEntry
         {
             f32 Duration = 0.0f;

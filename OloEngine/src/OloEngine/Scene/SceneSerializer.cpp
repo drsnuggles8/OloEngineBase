@@ -2662,6 +2662,30 @@ namespace OloEngine
 
                             ge.MaxStacks = effectNode["MaxStacks"].as<i32>(1);
                             ge.RefreshDurationOnStack = effectNode["RefreshDurationOnStack"].as<bool>(true);
+
+                            // Effect-level tags
+                            if (auto grantedTags = effectNode["GrantedTags"]; grantedTags && grantedTags.IsSequence())
+                            {
+                                for (auto const& t : grantedTags)
+                                {
+                                    ge.GrantedTags.AddTag(GameplayTag(t.as<std::string>("")));
+                                }
+                            }
+                            if (auto reqTags = effectNode["RequiredTags"]; reqTags && reqTags.IsSequence())
+                            {
+                                for (auto const& t : reqTags)
+                                {
+                                    ge.RequiredTags.AddTag(GameplayTag(t.as<std::string>("")));
+                                }
+                            }
+                            if (auto blkTags = effectNode["BlockedTags"]; blkTags && blkTags.IsSequence())
+                            {
+                                for (auto const& t : blkTags)
+                                {
+                                    ge.BlockedTags.AddTag(GameplayTag(t.as<std::string>("")));
+                                }
+                            }
+
                             aa.Definition.ActivationEffects.push_back(std::move(ge));
                         }
                     }
@@ -4477,6 +4501,7 @@ namespace OloEngine
 
             // Serialize attributes
             auto attrNames = ac.Attributes.GetAttributeNames();
+            std::ranges::sort(attrNames);
             out << YAML::Key << "Attributes" << YAML::Value << YAML::BeginSeq;
             for (auto const& name : attrNames)
             {
@@ -4558,6 +4583,29 @@ namespace OloEngine
 
                     out << YAML::Key << "MaxStacks" << YAML::Value << effect.MaxStacks;
                     out << YAML::Key << "RefreshDurationOnStack" << YAML::Value << effect.RefreshDurationOnStack;
+
+                    // Effect-level tags
+                    out << YAML::Key << "GrantedTags" << YAML::Value << YAML::BeginSeq;
+                    for (auto const& t : effect.GrantedTags.GetTags())
+                    {
+                        out << t.GetTagString();
+                    }
+                    out << YAML::EndSeq;
+
+                    out << YAML::Key << "RequiredTags" << YAML::Value << YAML::BeginSeq;
+                    for (auto const& t : effect.RequiredTags.GetTags())
+                    {
+                        out << t.GetTagString();
+                    }
+                    out << YAML::EndSeq;
+
+                    out << YAML::Key << "BlockedTags" << YAML::Value << YAML::BeginSeq;
+                    for (auto const& t : effect.BlockedTags.GetTags())
+                    {
+                        out << t.GetTagString();
+                    }
+                    out << YAML::EndSeq;
+
                     out << YAML::EndMap;
                 }
                 out << YAML::EndSeq;

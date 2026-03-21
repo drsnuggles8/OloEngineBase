@@ -6,11 +6,19 @@ namespace OloEngine
 
     void CooldownManager::StartCooldown(const GameplayTag& abilityTag, f32 duration)
     {
+        if (duration <= 0.0f)
+        {
+            return;
+        }
         m_Cooldowns[abilityTag] = { duration, duration };
     }
 
     void CooldownManager::Tick(f32 dt)
     {
+        if (dt <= 0.0f)
+        {
+            return;
+        }
         for (auto it = m_Cooldowns.begin(); it != m_Cooldowns.end();)
         {
             it->second.Remaining -= dt;

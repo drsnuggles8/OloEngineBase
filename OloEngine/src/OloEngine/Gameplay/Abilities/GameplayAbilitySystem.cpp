@@ -112,7 +112,7 @@ namespace OloEngine
         // Commit: deduct cost
         if (def.ResourceCost > 0.0f && !def.CostAttribute.empty())
         {
-            f32 current = ac.Attributes.GetBaseValue(def.CostAttribute);
+            f32 current = ac.Attributes.GetCurrentValue(def.CostAttribute);
             ac.Attributes.SetBaseValue(def.CostAttribute, current - def.ResourceCost);
         }
 
@@ -177,17 +177,19 @@ namespace OloEngine
 
     void GameplayAbilitySystem::ApplyDamage(Scene* scene, const DamageEvent& event)
     {
-        if (!event.Target || !event.Target->HasComponent<AbilityComponent>())
+        Entity target = event.Target;
+        if (!target || !target.HasComponent<AbilityComponent>())
         {
             return;
         }
 
-        auto& targetAC = event.Target->GetComponent<AbilityComponent>();
+        auto& targetAC = target.GetComponent<AbilityComponent>();
 
         AttributeSet sourceAttribs;
-        if (event.Source && event.Source->HasComponent<AbilityComponent>())
+        Entity source = event.Source;
+        if (source && source.HasComponent<AbilityComponent>())
         {
-            sourceAttribs = event.Source->GetComponent<AbilityComponent>().Attributes;
+            sourceAttribs = source.GetComponent<AbilityComponent>().Attributes;
         }
 
         f32 finalDamage = DamageCalculation::Calculate(event, sourceAttribs, targetAC.Attributes);

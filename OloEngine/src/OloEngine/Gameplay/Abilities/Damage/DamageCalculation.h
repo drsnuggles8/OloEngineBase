@@ -11,7 +11,7 @@ namespace OloEngine
 
     class DamageCalculation
     {
-    public:
+      public:
         using CustomFormula = std::function<f32(const DamageEvent&, const AttributeSet&, const AttributeSet&)>;
 
         // Default pipeline: apply crit -> subtract armor -> apply resistance -> clamp to 0
@@ -20,7 +20,7 @@ namespace OloEngine
         static void SetCustomFormula(CustomFormula formula);
         static void ClearCustomFormula();
 
-    private:
+      private:
         static CustomFormula s_CustomFormula;
     };
 

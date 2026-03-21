@@ -17,13 +17,15 @@ namespace OloEngine
         f32 PeriodTimer = 0.0f;
         i32 CurrentStacks = 1;
         GameplayTag SourceTag; // Who applied this effect
+        bool ModifiersApplied = false;
+        bool TagsApplied = false;
 
         auto operator==(const ActiveEffect&) const -> bool = default;
     };
 
     class ActiveEffectsContainer
     {
-    public:
+      public:
         ActiveEffectsContainer() = default;
 
         // Returns true if the effect was successfully applied
@@ -34,12 +36,18 @@ namespace OloEngine
 
         void Tick(f32 dt, AttributeSet& attributes, GameplayTagContainer& ownerTags);
 
-        [[nodiscard]] const std::vector<ActiveEffect>& GetActiveEffects() const { return m_ActiveEffects; }
-        [[nodiscard]] bool HasAnyEffects() const { return !m_ActiveEffects.empty(); }
+        [[nodiscard]] const std::vector<ActiveEffect>& GetActiveEffects() const
+        {
+            return m_ActiveEffects;
+        }
+        [[nodiscard]] bool HasAnyEffects() const
+        {
+            return !m_ActiveEffects.empty();
+        }
 
         auto operator==(const ActiveEffectsContainer&) const -> bool = default;
 
-    private:
+      private:
         void ApplyInstantEffect(const GameplayEffect& effect, AttributeSet& attributes);
         void ApplyPeriodicTick(const ActiveEffect& ae, AttributeSet& attributes);
         void AddGrantedTags(const GameplayEffect& effect, GameplayTagContainer& ownerTags);

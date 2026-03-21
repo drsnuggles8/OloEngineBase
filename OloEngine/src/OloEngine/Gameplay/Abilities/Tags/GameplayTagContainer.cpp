@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Gameplay/Abilities/Tags/GameplayTagContainer.h"
 
+#include <algorithm>
+
 namespace OloEngine
 {
 
@@ -14,7 +16,8 @@ namespace OloEngine
 
     void GameplayTagContainer::RemoveTag(const GameplayTag& tag)
     {
-        std::erase_if(m_Tags, [&tag](const GameplayTag& t) { return t.MatchesExact(tag); });
+        std::erase_if(m_Tags, [&tag](const GameplayTag& t)
+                      { return t.MatchesExact(tag); });
     }
 
     void GameplayTagContainer::Clear()
@@ -24,22 +27,26 @@ namespace OloEngine
 
     bool GameplayTagContainer::HasTagExact(const GameplayTag& tag) const
     {
-        return std::ranges::any_of(m_Tags, [&tag](const GameplayTag& t) { return t.MatchesExact(tag); });
+        return std::ranges::any_of(m_Tags, [&tag](const GameplayTag& t)
+                                   { return t.MatchesExact(tag); });
     }
 
     bool GameplayTagContainer::HasTagPartial(const GameplayTag& parent) const
     {
-        return std::ranges::any_of(m_Tags, [&parent](const GameplayTag& t) { return t.MatchesPartial(parent); });
+        return std::ranges::any_of(m_Tags, [&parent](const GameplayTag& t)
+                                   { return t.MatchesPartial(parent); });
     }
 
     bool GameplayTagContainer::HasAll(const GameplayTagContainer& required) const
     {
-        return std::ranges::all_of(required.m_Tags, [this](const GameplayTag& t) { return HasTagExact(t); });
+        return std::ranges::all_of(required.m_Tags, [this](const GameplayTag& t)
+                                   { return HasTagExact(t); });
     }
 
     bool GameplayTagContainer::HasAny(const GameplayTagContainer& tags) const
     {
-        return std::ranges::any_of(tags.m_Tags, [this](const GameplayTag& t) { return HasTagExact(t); });
+        return std::ranges::any_of(tags.m_Tags, [this](const GameplayTag& t)
+                                   { return HasTagExact(t); });
     }
 
 } // namespace OloEngine

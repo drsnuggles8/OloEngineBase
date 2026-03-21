@@ -2,7 +2,6 @@
 
 #include "OloEngine/Gameplay/Abilities/Tags/GameplayTag.h"
 
-#include <algorithm>
 #include <vector>
 
 namespace OloEngine
@@ -10,7 +9,7 @@ namespace OloEngine
 
     class GameplayTagContainer
     {
-    public:
+      public:
         GameplayTagContainer() = default;
 
         void AddTag(const GameplayTag& tag);
@@ -21,13 +20,22 @@ namespace OloEngine
         [[nodiscard]] bool HasTagPartial(const GameplayTag& parent) const;
         [[nodiscard]] bool HasAll(const GameplayTagContainer& required) const;
         [[nodiscard]] bool HasAny(const GameplayTagContainer& tags) const;
-        [[nodiscard]] bool IsEmpty() const { return m_Tags.empty(); }
-        [[nodiscard]] std::size_t Count() const { return m_Tags.size(); }
-        [[nodiscard]] const std::vector<GameplayTag>& GetTags() const { return m_Tags; }
+        [[nodiscard]] bool IsEmpty() const
+        {
+            return m_Tags.empty();
+        }
+        [[nodiscard]] std::size_t Count() const
+        {
+            return m_Tags.size();
+        }
+        [[nodiscard]] const std::vector<GameplayTag>& GetTags() const
+        {
+            return m_Tags;
+        }
 
         auto operator==(const GameplayTagContainer&) const -> bool = default;
 
-    private:
+      private:
         std::vector<GameplayTag> m_Tags;
     };
 

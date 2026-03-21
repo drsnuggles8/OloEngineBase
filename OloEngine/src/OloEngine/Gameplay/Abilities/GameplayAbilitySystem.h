@@ -11,7 +11,7 @@ namespace OloEngine
 
     class GameplayAbilitySystem
     {
-    public:
+      public:
         static void OnUpdate(Scene* scene, f32 dt);
         static bool TryActivateAbility(Scene* scene, Entity owner, const GameplayTag& abilityTag);
         static void CancelAbility(Scene* scene, Entity owner, const GameplayTag& abilityTag);

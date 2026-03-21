@@ -150,16 +150,16 @@ namespace OloEngine
         {
             switch (mod.Op)
             {
-            case AttributeModifier::Operation::Add:
-                additive += mod.Magnitude;
-                break;
-            case AttributeModifier::Operation::Multiply:
-                multiplicative *= mod.Magnitude;
-                break;
-            case AttributeModifier::Operation::Override:
-                hasOverride = true;
-                overrideValue = mod.Magnitude;
-                break;
+                case AttributeModifier::Operation::Add:
+                    additive += mod.Magnitude;
+                    break;
+                case AttributeModifier::Operation::Multiply:
+                    multiplicative *= mod.Magnitude;
+                    break;
+                case AttributeModifier::Operation::Override:
+                    hasOverride = true;
+                    overrideValue = mod.Magnitude;
+                    break;
             }
         }
 

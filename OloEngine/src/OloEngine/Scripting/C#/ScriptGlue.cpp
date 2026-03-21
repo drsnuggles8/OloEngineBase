@@ -2927,6 +2927,10 @@ namespace OloEngine
     // AbilityComponent bindings
     static f32 AbilityComponent_GetAttribute(UUID entityID, MonoString* name)
     {
+        if (!name)
+        {
+            return 0.0f;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<AbilityComponent>());
         char* nameStr = mono_string_to_utf8(name);
@@ -2937,6 +2941,10 @@ namespace OloEngine
 
     static void AbilityComponent_SetAttribute(UUID entityID, MonoString* name, f32 value)
     {
+        if (!name)
+        {
+            return;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<AbilityComponent>());
         char* nameStr = mono_string_to_utf8(name);
@@ -2946,6 +2954,10 @@ namespace OloEngine
 
     static f32 AbilityComponent_GetCurrentAttribute(UUID entityID, MonoString* name)
     {
+        if (!name)
+        {
+            return 0.0f;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<AbilityComponent>());
         char* nameStr = mono_string_to_utf8(name);
@@ -2956,6 +2968,10 @@ namespace OloEngine
 
     static bool AbilityComponent_TryActivateAbility(UUID entityID, MonoString* abilityTag)
     {
+        if (!abilityTag)
+        {
+            return false;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<AbilityComponent>());
         char* tagStr = mono_string_to_utf8(abilityTag);
@@ -2978,6 +2994,10 @@ namespace OloEngine
 
     static bool AbilityComponent_HasTag(UUID entityID, MonoString* tag)
     {
+        if (!tag)
+        {
+            return false;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<AbilityComponent>());
         char* tagStr = mono_string_to_utf8(tag);
@@ -2988,6 +3008,10 @@ namespace OloEngine
 
     static void AbilityComponent_AddTag(UUID entityID, MonoString* tag)
     {
+        if (!tag)
+        {
+            return;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<AbilityComponent>());
         char* tagStr = mono_string_to_utf8(tag);
@@ -2997,6 +3021,10 @@ namespace OloEngine
 
     static void AbilityComponent_RemoveTag(UUID entityID, MonoString* tag)
     {
+        if (!tag)
+        {
+            return;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<AbilityComponent>());
         char* tagStr = mono_string_to_utf8(tag);

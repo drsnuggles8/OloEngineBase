@@ -4,16 +4,18 @@ Features that were planned or partially implemented but not yet wired up in the 
 
 ---
 
-## 1. Click-to-Move (Point & Click Pathfinding)
+## 1. Click-to-Move (Point-and-Click Pathfinding)
 
 **Goal:** Diablo / Warcraft 3 style movement — left-click on the ground, player walks there via NavMesh pathfinding.
 
 **What's needed:**
 - **Screen-to-world raycast** exposed to C# scripting. The engine has `Physics::Raycast` on the C++ side but no C# binding for it. Need an internal call like:
+
   ```csharp
   // In Input or Physics class
   static bool Raycast(Vector3 origin, Vector3 direction, float maxDistance, out Vector3 hitPoint);
   ```
+
 - **Mouse world position helper** — convenience method that takes screen coords (from `Input.GetMousePosition()`) and the camera's view-projection matrix to produce a ray.
 - **PlayerController update** — on left-click, raycast against ground, set `NavAgent.TargetPosition = hitPoint`.
 

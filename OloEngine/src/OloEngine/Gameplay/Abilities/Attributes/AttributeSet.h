@@ -13,7 +13,7 @@ namespace OloEngine
 
     class AttributeSet
     {
-    public:
+      public:
         AttributeSet() = default;
 
         void DefineAttribute(const std::string& name, f32 baseValue);
@@ -33,7 +33,7 @@ namespace OloEngine
 
         auto operator==(const AttributeSet& other) const -> bool;
 
-    private:
+      private:
         struct Attribute
         {
             f32 BaseValue = 0.0f;

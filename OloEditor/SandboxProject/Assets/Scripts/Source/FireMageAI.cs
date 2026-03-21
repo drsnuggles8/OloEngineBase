@@ -15,6 +15,7 @@ namespace Sandbox
 		private float m_ShieldTimer = 0.0f;
 		private float m_MoveSpeed = 2.5f;
 		private bool m_Logged = false;
+		private Entity m_Player = null;
 
 		void OnCreate()
 		{
@@ -31,12 +32,13 @@ namespace Sandbox
 			if (!m_Abilities.HasTag("State.Alive"))
 				return;
 
-			Entity player = FindEntityByName("Player");
-			if (player == null)
+			if (m_Player == null)
+				m_Player = FindEntityByName("Player");
+			if (m_Player == null)
 				return;
 
 			Vector3 myPos = m_Transform.Translation;
-			Vector3 playerPos = player.Translation;
+			Vector3 playerPos = m_Player.Translation;
 
 			float dx = playerPos.X - myPos.X;
 			float dz = playerPos.Z - myPos.Z;

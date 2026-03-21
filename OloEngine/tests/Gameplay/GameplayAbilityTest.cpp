@@ -333,7 +333,7 @@ TEST(ActiveEffectsContainerTest, InstantEffect)
     GameplayEffect healEffect;
     healEffect.Name = "Heal";
     healEffect.Policy.DurationType = GameplayEffectPolicy::Duration::Instant;
-    healEffect.Modifiers.push_back({"Health", AttributeModifier::Operation::Add, 20.0f});
+    healEffect.Modifiers.push_back({ "Health", AttributeModifier::Operation::Add, 20.0f });
 
     container.ApplyEffect(healEffect, tags, GameplayTag("Source.Potion"));
 
@@ -383,7 +383,7 @@ TEST(ActiveEffectsContainerTest, PeriodicEffect)
     dot.Policy.DurationSeconds = 5.0f;
     dot.Policy.IsPeriodic = true;
     dot.Policy.PeriodSeconds = 1.0f;
-    dot.Modifiers.push_back({"Health", AttributeModifier::Operation::Add, -5.0f});
+    dot.Modifiers.push_back({ "Health", AttributeModifier::Operation::Add, -5.0f });
 
     container.ApplyEffect(dot, tags, GameplayTag("Source.Enemy"));
 

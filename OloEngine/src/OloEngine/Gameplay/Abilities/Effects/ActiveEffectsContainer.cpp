@@ -61,13 +61,13 @@ namespace OloEngine
     void ActiveEffectsContainer::RemoveEffectsBySource(const GameplayTag& sourceTag)
     {
         std::erase_if(m_ActiveEffects, [&sourceTag](const ActiveEffect& ae)
-                       { return ae.SourceTag.MatchesExact(sourceTag); });
+                      { return ae.SourceTag.MatchesExact(sourceTag); });
     }
 
     void ActiveEffectsContainer::RemoveEffectByName(const std::string& effectName)
     {
         std::erase_if(m_ActiveEffects, [&effectName](const ActiveEffect& ae)
-                       { return ae.Definition.Name == effectName; });
+                      { return ae.Definition.Name == effectName; });
     }
 
     void ActiveEffectsContainer::Clear()
@@ -99,9 +99,26 @@ namespace OloEngine
                     ApplyPeriodicTick(ae, attributes);
                 }
             }
+            else if (!ae.ModifiersApplied)
+            {
+                // Non-periodic duration/infinite effects: apply modifiers once as persistent modifiers
+                for (auto const& mod : ae.Definition.Modifiers)
+                {
+                    AttributeModifier attrMod;
+                    attrMod.Op = mod.Op;
+                    attrMod.Magnitude = mod.Magnitude;
+                    attrMod.Source = ae.SourceTag;
+                    attributes.AddModifier(mod.AttributeName, attrMod);
+                }
+                ae.ModifiersApplied = true;
+            }
 
-            // Add granted tags
-            AddGrantedTags(ae.Definition, ownerTags);
+            // Add granted tags (only once)
+            if (!ae.TagsApplied)
+            {
+                AddGrantedTags(ae.Definition, ownerTags);
+                ae.TagsApplied = true;
+            }
 
             // Update duration for HasDuration effects
             if (ae.Definition.Policy.DurationType == GameplayEffectPolicy::Duration::HasDuration)

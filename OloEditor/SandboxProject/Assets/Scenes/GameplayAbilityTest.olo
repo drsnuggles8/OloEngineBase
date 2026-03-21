@@ -155,7 +155,7 @@ Entities:
           BaseValue: 150
         - Name: AttackPower
           BaseValue: 30
-        - Name: Armor
+        - Name: Defense
           BaseValue: 15
         - Name: CritChance
           BaseValue: 0.15
@@ -200,14 +200,14 @@ Entities:
           ChannelDuration: 0
           ActivationEffects:
             - Name: BurnDoT
-              Policy:
-                DurationType: 1
-                Duration: 4.0
-                Period: 1.0
+              DurationType: HasDuration
+              DurationSeconds: 4.0
+              IsPeriodic: true
+              PeriodSeconds: 1.0
               Modifiers:
-                - AttributeName: Health
-                  ModType: 0
-                  Value: -5
+                - Attribute: Health
+                  Operation: Add
+                  Magnitude: -5
               GrantedTags:
                 - Debuff.Burning
               RequiredTags: []
@@ -227,18 +227,15 @@ Entities:
           ChannelDuration: 0
           ActivationEffects:
             - Name: HealEffect
-              Policy:
-                DurationType: 0
-                Duration: 0
-                Period: 0
+              DurationType: Instant
+              DurationSeconds: 0
+              IsPeriodic: false
+              PeriodSeconds: 1.0
               Modifiers:
-                - AttributeName: Health
-                  ModType: 0
-                  Value: 50
-              GrantedTags: []
-              RequiredTags: []
-              BlockedTags: []
-              MaxStacks: 0
+                - Attribute: Health
+                  Operation: Add
+                  Magnitude: 50
+              MaxStacks: 1
               RefreshDurationOnStack: false
 
   # ══════════════════════════════════════
@@ -281,7 +278,7 @@ Entities:
           BaseValue: 60
         - Name: AttackPower
           BaseValue: 10
-        - Name: Armor
+        - Name: Defense
           BaseValue: 3
         - Name: CritChance
           BaseValue: 0.05
@@ -349,7 +346,7 @@ Entities:
           BaseValue: 80
         - Name: AttackPower
           BaseValue: 25
-        - Name: Armor
+        - Name: Defense
           BaseValue: 5
         - Name: CritChance
           BaseValue: 0.1
@@ -383,14 +380,14 @@ Entities:
           ChannelDuration: 0
           ActivationEffects:
             - Name: FireBoltBurn
-              Policy:
-                DurationType: 1
-                Duration: 3.0
-                Period: 1.0
+              DurationType: HasDuration
+              DurationSeconds: 3.0
+              IsPeriodic: true
+              PeriodSeconds: 1.0
               Modifiers:
-                - AttributeName: Health
-                  ModType: 0
-                  Value: -8
+                - Attribute: Health
+                  Operation: Add
+                  Magnitude: -8
               GrantedTags:
                 - Debuff.Burning
               RequiredTags: []
@@ -410,18 +407,16 @@ Entities:
           ChannelDuration: 0
           ActivationEffects:
             - Name: FireShieldBuff
-              Policy:
-                DurationType: 1
-                Duration: 8.0
-                Period: 0
+              DurationType: HasDuration
+              DurationSeconds: 8.0
+              IsPeriodic: false
+              PeriodSeconds: 1.0
               Modifiers:
-                - AttributeName: Armor
-                  ModType: 0
-                  Value: 20
+                - Attribute: Defense
+                  Operation: Add
+                  Magnitude: 20
               GrantedTags:
                 - Buff.FireShield
-              RequiredTags: []
-              BlockedTags: []
               MaxStacks: 1
               RefreshDurationOnStack: true
 

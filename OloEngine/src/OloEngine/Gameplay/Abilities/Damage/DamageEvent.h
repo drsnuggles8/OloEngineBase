@@ -2,18 +2,17 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Gameplay/Abilities/Tags/GameplayTag.h"
+#include "OloEngine/Scene/Entity.h"
 
-#include <functional>
 #include <glm/glm.hpp>
 
 namespace OloEngine
 {
-    class Entity;
 
     struct DamageEvent
     {
-        Entity* Source = nullptr;
-        Entity* Target = nullptr;
+        Entity Source{};
+        Entity Target{};
         f32 RawDamage = 0.0f;
         GameplayTag DamageType;
         bool IsCritical = false;
