@@ -10,6 +10,9 @@ namespace OloEngine
 		internal extern static bool Entity_HasComponent(ulong entityID, Type componentType);
 
 		[MethodImplAttribute(MethodImplOptions.InternalCall)]
+		internal extern static bool Entity_IsValid(ulong entityID);
+
+		[MethodImplAttribute(MethodImplOptions.InternalCall)]
 		internal extern static ulong Entity_FindEntityByName(string name);
 
 		[MethodImplAttribute(MethodImplOptions.InternalCall)]
@@ -758,6 +761,28 @@ namespace OloEngine
 		internal static extern void QuestJournalComponent_SetPlayerFaction(ulong entityID, string factionName);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern string QuestJournalComponent_GetPlayerFaction(ulong entityID);
+		#endregion
+
+		#region Logging
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Log_LogMessage(int level, string message);
+		#endregion
+
+		#region AbilityComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AbilityComponent_GetAttribute(ulong entityID, string name);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AbilityComponent_SetAttribute(ulong entityID, string name, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AbilityComponent_GetCurrentAttribute(ulong entityID, string name);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool AbilityComponent_TryActivateAbility(ulong entityID, string abilityTag);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool AbilityComponent_HasTag(ulong entityID, string tag);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AbilityComponent_AddTag(ulong entityID, string tag);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AbilityComponent_RemoveTag(ulong entityID, string tag);
 		#endregion
 	}
 }

@@ -1,4 +1,5 @@
 ﻿set(SOURCES
+		"OloEngine/Debug.cs"
 		"OloEngine/GamepadCodes.cs"
 		"OloEngine/Input.cs"
 		"OloEngine/InternalCalls.cs"

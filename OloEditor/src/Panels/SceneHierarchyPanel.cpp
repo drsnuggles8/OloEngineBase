@@ -23,6 +23,9 @@
 #include "OloEngine/Animation/MorphTargets/FacialExpressionLibrary.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
+#include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
+#include "OloEngine/Gameplay/Abilities/Effects/GameplayEffect.h"
+#include "OloEngine/Gameplay/Abilities/GameplayAbilitySystem.h"
 #include "../UndoRedo/EntityCommands.h"
 #include "../UndoRedo/ComponentCommands.h"
 #include "../UndoRedo/SpecializedCommands.h"
@@ -1730,6 +1733,11 @@ namespace OloEngine
             DisplayAddComponentEntry<QuestJournalComponent>("Quest Journal");
             DisplayAddComponentEntry<QuestGiverComponent>("Quest Giver");
 
+            ImGui::Separator();
+
+            // Gameplay Ability System
+            DisplayAddComponentEntry<AbilityComponent>("Gameplay Ability");
+
             ImGui::EndPopup();
         }
 
@@ -1824,15 +1832,36 @@ namespace OloEngine
                                        {
 			bool scriptClassExists = ScriptEngine::EntityClassExists(component.ClassName);
 
-			static char buffer[64];
-			::strcpy_s(buffer, sizeof(buffer), component.ClassName.c_str());
-
-			UI::ScopedStyleColor textColor(ImGuiCol_Text, ImVec4(0.9f, 0.2f, 0.3f, 1.0f), !scriptClassExists);
-
-			if (ImGui::InputText("Class", buffer, sizeof(buffer)))
+			// Dropdown picker from registered script classes
 			{
-				component.ClassName = buffer;
-				return;
+				const auto& entityClasses = ScriptEngine::GetEntityClasses();
+				static std::vector<std::string> cachedClassNames;
+				static size_t cachedSize = 0;
+				if (entityClasses.size() != cachedSize)
+				{
+					cachedClassNames.clear();
+					cachedClassNames.reserve(entityClasses.size());
+					for (const auto& [name, _] : entityClasses)
+						cachedClassNames.push_back(name);
+					std::ranges::sort(cachedClassNames);
+					cachedSize = entityClasses.size();
+				}
+
+				const char* currentItem = component.ClassName.c_str();
+				UI::ScopedStyleColor textColor(ImGuiCol_Text, ImVec4(0.9f, 0.2f, 0.3f, 1.0f), !scriptClassExists);
+
+				if (ImGui::BeginCombo("Class", currentItem))
+				{
+					for (const auto& name : cachedClassNames)
+					{
+						bool isSelected = (component.ClassName == name);
+						if (ImGui::Selectable(name.c_str(), isSelected))
+							component.ClassName = name;
+						if (isSelected)
+							ImGui::SetItemDefaultFocus();
+					}
+					ImGui::EndCombo();
+				}
 			}
 
 			// Fields
@@ -4545,6 +4574,284 @@ namespace OloEngine
                 if (ImGui::SmallButton("Add Turn-In Quest"))
                     component.TurnInQuestIDs.emplace_back();
                 ImGui::TreePop();
+            } });
+
+        DrawComponent<AbilityComponent>("Gameplay Ability", entity, [entity, scene = m_Context](auto& component) mutable
+                                        {
+            // Attributes section
+            if (ImGui::TreeNode("Attributes"))
+            {
+                auto attrNames = component.Attributes.GetAttributeNames();
+                for (auto const& name : attrNames)
+                {
+                    f32 baseVal = component.Attributes.GetBaseValue(name);
+                    f32 currentVal = component.Attributes.GetCurrentValue(name);
+
+                    ImGui::Text("%s", name.c_str());
+                    ImGui::SameLine(150.0f);
+
+                    std::string baseLabel = "##base_" + name;
+                    ImGui::SetNextItemWidth(80.0f);
+                    if (ImGui::DragFloat(baseLabel.c_str(), &baseVal, 0.1f))
+                    {
+                        component.Attributes.SetBaseValue(name, baseVal);
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Base Value");
+
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "= %.1f", currentVal);
+
+                    auto const& mods = component.Attributes.GetModifiers(name);
+                    if (!mods.empty() && ImGui::IsItemHovered())
+                    {
+                        ImGui::BeginTooltip();
+                        for (auto const& mod : mods)
+                        {
+                            const char* opStr = mod.Op == AttributeModifier::Operation::Add ? "+" :
+                                               mod.Op == AttributeModifier::Operation::Multiply ? "x" : "=";
+                            ImGui::Text("%s %.1f [%s]", opStr, mod.Magnitude, mod.Source.GetTagString().c_str());
+                        }
+                        ImGui::EndTooltip();
+                    }
+                }
+
+                // Add attribute
+                static char newAttrName[64] = "";
+                static f32 newAttrValue = 0.0f;
+                ImGui::Separator();
+                ImGui::SetNextItemWidth(100.0f);
+                ImGui::InputText("##newAttrName", newAttrName, 64);
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(60.0f);
+                ImGui::DragFloat("##newAttrValue", &newAttrValue, 0.1f);
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Add Attribute") && newAttrName[0] != '\0')
+                {
+                    component.Attributes.DefineAttribute(newAttrName, newAttrValue);
+                    newAttrName[0] = '\0';
+                    newAttrValue = 0.0f;
+                }
+                ImGui::TreePop();
+            }
+
+            // Tags section
+            if (ImGui::TreeNode("Owned Tags"))
+            {
+                for (auto const& tag : component.OwnedTags.GetTags())
+                {
+                    ImGui::Text("%s", tag.GetTagString().c_str());
+                }
+                static char newTag[128] = "";
+                ImGui::InputText("##newTag", newTag, 128);
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Add Tag") && newTag[0] != '\0')
+                {
+                    component.OwnedTags.AddTag(GameplayTag(std::string(newTag)));
+                    newTag[0] = '\0';
+                }
+                ImGui::TreePop();
+            }
+
+            // Abilities section
+            if (ImGui::TreeNode("Abilities"))
+            {
+                for (size_t i = 0; i < component.Abilities.size(); ++i)
+                {
+                    auto& ability = component.Abilities[i];
+                    auto const& def = ability.Definition;
+                    std::string label = def.Name.empty() ? ("Ability " + std::to_string(i)) : def.Name;
+                    if (ability.IsActive)
+                        label += " [ACTIVE]";
+
+                    if (ImGui::TreeNode(("##ability" + std::to_string(i)).c_str(), "%s", label.c_str()))
+                    {
+                        ImGui::InputText("Name", &ability.Definition.Name);
+
+                        static char tagBuf[128];
+                        std::string tagStr = def.AbilityTag.GetTagString();
+                        strncpy_s(tagBuf, tagStr.c_str(), sizeof(tagBuf) - 1);
+                        if (ImGui::InputText("Ability Tag", tagBuf, 128))
+                        {
+                            ability.Definition.AbilityTag = GameplayTag(std::string(tagBuf));
+                        }
+
+                        ImGui::DragFloat("Cooldown", &ability.Definition.CooldownDuration, 0.1f, 0.0f, 600.0f);
+                        ImGui::DragFloat("Resource Cost", &ability.Definition.ResourceCost, 0.1f, 0.0f, 10000.0f);
+                        ImGui::InputText("Cost Attribute", &ability.Definition.CostAttribute);
+                        ImGui::Checkbox("Channeled", &ability.Definition.IsChanneled);
+                        if (ability.Definition.IsChanneled)
+                        {
+                            ImGui::DragFloat("Channel Duration", &ability.Definition.ChannelDuration, 0.1f, 0.0f, 60.0f);
+                        }
+                        ImGui::Checkbox("Toggled", &ability.Definition.IsToggled);
+
+                        // Tag arrays
+                        auto drawTagList = [&](const char* label, GameplayTagContainer& tagContainer, const char* id)
+                        {
+                            std::string treeId = std::string(label) + "##" + id + std::to_string(i);
+                            if (ImGui::TreeNode(treeId.c_str(), "%s (%zu)", label, tagContainer.GetTags().size()))
+                            {
+                                auto const& tags = tagContainer.GetTags();
+                                for (size_t t = 0; t < tags.size(); ++t)
+                                {
+                                    ImGui::Text("  %s", tags[t].GetTagString().c_str());
+                                    ImGui::SameLine();
+                                    if (ImGui::SmallButton(("X##" + std::string(id) + std::to_string(i) + "_" + std::to_string(t)).c_str()))
+                                    {
+                                        tagContainer.RemoveTag(tags[t]);
+                                        ImGui::TreePop();
+                                        return;
+                                    }
+                                }
+                                static char newTagBuf[128] = {};
+                                ImGui::InputText(("##new" + std::string(id) + std::to_string(i)).c_str(), newTagBuf, 128);
+                                ImGui::SameLine();
+                                if (ImGui::SmallButton(("Add##" + std::string(id) + std::to_string(i)).c_str()) && newTagBuf[0] != '\0')
+                                {
+                                    tagContainer.AddTag(GameplayTag(std::string(newTagBuf)));
+                                    newTagBuf[0] = '\0';
+                                }
+                                ImGui::TreePop();
+                            }
+                        };
+                        drawTagList("Required Tags", ability.Definition.RequiredTags, "reqTag");
+                        drawTagList("Blocked Tags", ability.Definition.BlockedTags, "blkTag");
+                        drawTagList("Activation Granted Tags", ability.Definition.ActivationGrantedTags, "actTag");
+
+                        // Activation Effects
+                        std::string effectsTreeId = "Activation Effects##abilEffects" + std::to_string(i);
+                        if (ImGui::TreeNode(effectsTreeId.c_str(), "Activation Effects (%zu)", ability.Definition.ActivationEffects.size()))
+                        {
+                            for (size_t e = 0; e < ability.Definition.ActivationEffects.size(); ++e)
+                            {
+                                auto& effect = ability.Definition.ActivationEffects[e];
+                                std::string effLabel = effect.Name.empty() ? ("Effect " + std::to_string(e)) : effect.Name;
+                                std::string effId = "##abilEffect" + std::to_string(i) + "_" + std::to_string(e);
+                                if (ImGui::TreeNode(effId.c_str(), "%s", effLabel.c_str()))
+                                {
+                                    ImGui::InputText("Name", &effect.Name);
+                                    int durType = static_cast<int>(effect.Policy.DurationType);
+                                    const char* durTypes[] = { "Instant", "HasDuration", "Infinite" };
+                                    if (ImGui::Combo("Duration Type", &durType, durTypes, 3))
+                                    {
+                                        effect.Policy.DurationType = static_cast<GameplayEffectPolicy::Duration>(durType);
+                                    }
+                                    if (effect.Policy.DurationType == GameplayEffectPolicy::Duration::HasDuration)
+                                    {
+                                        ImGui::DragFloat("Duration", &effect.Policy.DurationSeconds, 0.1f, 0.0f, 600.0f);
+                                    }
+                                    ImGui::Checkbox("Periodic", &effect.Policy.IsPeriodic);
+                                    if (effect.Policy.IsPeriodic)
+                                    {
+                                        ImGui::DragFloat("Period", &effect.Policy.PeriodSeconds, 0.1f, 0.01f, 60.0f);
+                                    }
+                                    ImGui::DragInt("Max Stacks", &effect.MaxStacks, 1.0f, 1, 99);
+
+                                    // Modifiers
+                                    for (size_t m = 0; m < effect.Modifiers.size(); ++m)
+                                    {
+                                        auto& mod = effect.Modifiers[m];
+                                        ImGui::PushID(static_cast<int>(m));
+                                        ImGui::InputText("Attribute", &mod.AttributeName);
+                                        int op = static_cast<int>(mod.Op);
+                                        const char* ops[] = { "Add", "Multiply", "Override" };
+                                        ImGui::Combo("Op", &op, ops, 3);
+                                        mod.Op = static_cast<AttributeModifier::Operation>(op);
+                                        ImGui::DragFloat("Magnitude", &mod.Magnitude, 0.1f);
+                                        ImGui::SameLine();
+                                        if (ImGui::SmallButton("X"))
+                                        {
+                                            effect.Modifiers.erase(effect.Modifiers.begin() + static_cast<ptrdiff_t>(m));
+                                            ImGui::PopID();
+                                            break;
+                                        }
+                                        ImGui::PopID();
+                                    }
+                                    if (ImGui::SmallButton("Add Modifier"))
+                                    {
+                                        effect.Modifiers.emplace_back();
+                                    }
+
+                                    ImGui::SameLine();
+                                    if (ImGui::SmallButton(("Remove Effect##" + std::to_string(e)).c_str()))
+                                    {
+                                        ability.Definition.ActivationEffects.erase(ability.Definition.ActivationEffects.begin() + static_cast<ptrdiff_t>(e));
+                                        ImGui::TreePop();
+                                        ImGui::TreePop();
+                                        ImGui::TreePop();
+                                        ImGui::TreePop();
+                                        return;
+                                    }
+                                    ImGui::TreePop();
+                                }
+                            }
+                            if (ImGui::SmallButton("Add Effect"))
+                            {
+                                ability.Definition.ActivationEffects.emplace_back();
+                            }
+                            ImGui::TreePop();
+                        }
+
+                        // Show cooldown status
+                        if (component.Cooldowns.IsOnCooldown(def.AbilityTag))
+                        {
+                            f32 remaining = component.Cooldowns.GetRemainingCooldown(def.AbilityTag);
+                            f32 fraction = component.Cooldowns.GetCooldownFraction(def.AbilityTag);
+                            ImGui::ProgressBar(fraction, ImVec2(-1, 0), ("CD: " + std::to_string(remaining) + "s").c_str());
+                        }
+
+                        ImGui::SameLine();
+                        std::string removeLabel = "X##removeAbility" + std::to_string(i);
+                        if (ImGui::SmallButton(removeLabel.c_str()))
+                        {
+                            if (ability.IsActive)
+                            {
+                                GameplayAbilitySystem::CancelAbility(scene.get(), entity, ability.Definition.AbilityTag);
+                            }
+                            component.Cooldowns.ResetCooldown(ability.Definition.AbilityTag);
+                            component.Abilities.erase(component.Abilities.begin() + static_cast<ptrdiff_t>(i));
+                            ImGui::TreePop();
+                            ImGui::TreePop();
+                            return;
+                        }
+
+                        ImGui::TreePop();
+                    }
+                }
+                if (ImGui::SmallButton("Add Ability"))
+                {
+                    component.Abilities.emplace_back();
+                }
+                ImGui::TreePop();
+            }
+
+            // Active Effects section
+            if (ImGui::TreeNode("Active Effects"))
+            {
+                auto const& effects = component.ActiveEffects.GetActiveEffects();
+                if (effects.empty())
+                {
+                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No active effects");
+                }
+                for (auto const& ae : effects)
+                {
+                    std::string durStr;
+                    if (ae.Definition.Policy.DurationType == GameplayEffectPolicy::Duration::HasDuration)
+                        durStr = std::to_string(ae.RemainingDuration) + "s remaining";
+                    else if (ae.Definition.Policy.DurationType == GameplayEffectPolicy::Duration::Infinite)
+                        durStr = "Infinite";
+
+                    ImGui::Text("%s (x%d) %s", ae.Definition.Name.c_str(), ae.CurrentStacks, durStr.c_str());
+                }
+                ImGui::TreePop();
+            }
+
+            // Quick setup
+            ImGui::Separator();
+            if (ImGui::Button("Init Default RPG Attributes"))
+            {
+                component.InitializeDefaultRPGAttributes(100.0f, 50.0f, 10.0f, 5.0f);
             } });
     }
 

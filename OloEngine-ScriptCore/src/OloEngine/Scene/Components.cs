@@ -1471,4 +1471,49 @@ namespace OloEngine
 	}
 
 	public class QuestGiverComponent : Component { }
+
+	public class AbilityComponent : Component
+	{
+		public float GetAttribute(string name)
+		{
+			if (string.IsNullOrWhiteSpace(name)) return 0.0f;
+			return InternalCalls.AbilityComponent_GetAttribute(Entity.ID, name);
+		}
+
+		public void SetAttribute(string name, float value)
+		{
+			if (string.IsNullOrWhiteSpace(name)) return;
+			InternalCalls.AbilityComponent_SetAttribute(Entity.ID, name, value);
+		}
+
+		public float GetCurrentAttribute(string name)
+		{
+			if (string.IsNullOrWhiteSpace(name)) return 0.0f;
+			return InternalCalls.AbilityComponent_GetCurrentAttribute(Entity.ID, name);
+		}
+
+		public bool TryActivateAbility(string abilityTag)
+		{
+			if (string.IsNullOrWhiteSpace(abilityTag)) return false;
+			return InternalCalls.AbilityComponent_TryActivateAbility(Entity.ID, abilityTag);
+		}
+
+		public bool HasTag(string tag)
+		{
+			if (string.IsNullOrWhiteSpace(tag)) return false;
+			return InternalCalls.AbilityComponent_HasTag(Entity.ID, tag);
+		}
+
+		public void AddTag(string tag)
+		{
+			if (string.IsNullOrWhiteSpace(tag)) return;
+			InternalCalls.AbilityComponent_AddTag(Entity.ID, tag);
+		}
+
+		public void RemoveTag(string tag)
+		{
+			if (string.IsNullOrWhiteSpace(tag)) return;
+			InternalCalls.AbilityComponent_RemoveTag(Entity.ID, tag);
+		}
+	}
 }

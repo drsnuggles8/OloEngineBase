@@ -121,6 +121,8 @@ add_executable(OloEngine-Tests
 		InventoryTest.cpp
 		# Quest Tests
 		QuestSystemTest.cpp
+		# Gameplay Ability Tests
+		Gameplay/GameplayAbilityTest.cpp
 )
 target_link_libraries(OloEngine-Tests
 	OloEngine

@@ -25,6 +25,8 @@
 #include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestDatabase.h"
+#include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
+#include "OloEngine/Gameplay/Abilities/GameplayAbilitySystem.h"
 
 #include "mono/metadata/object.h"
 #include "mono/metadata/reflection.h"
@@ -53,6 +55,29 @@ namespace OloEngine
     {
         std::string str = Utils::MonoStringToString(string);
         std::cout << str << ", " << parameter << "\n";
+    }
+
+    static void Log_LogMessage(i32 level, MonoString* message)
+    {
+        std::string msg = Utils::MonoStringToString(message);
+        switch (level)
+        {
+            case 0:
+                OLO_TRACE("{}", msg);
+                break;
+            case 1:
+                OLO_INFO("{}", msg);
+                break;
+            case 2:
+                OLO_WARN("{}", msg);
+                break;
+            case 3:
+                OLO_ERROR("{}", msg);
+                break;
+            default:
+                OLO_INFO("{}", msg);
+                break;
+        }
     }
 
     static void NativeLog_Vector(glm::vec3 const* parameter, glm::vec3* outResult)
@@ -93,6 +118,13 @@ namespace OloEngine
         MonoType* managedType = ::mono_reflection_type_get_type(componentType);
         OLO_CORE_ASSERT(s_EntityHasComponentFuncs.contains(managedType));
         return s_EntityHasComponentFuncs.at(managedType)(entity);
+    }
+
+    static bool Entity_IsValid(UUID entityID)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        return scene->TryGetEntityWithUUID(entityID).has_value();
     }
 
     static u64 Entity_FindEntityByName(MonoString* name)
@@ -2899,6 +2931,104 @@ namespace OloEngine
         return ScriptEngine::CreateString(entity.GetComponent<QuestJournalComponent>().Journal.GetPlayerFaction().c_str());
     }
 
+    // AbilityComponent bindings
+    static f32 AbilityComponent_GetAttribute(UUID entityID, MonoString* name)
+    {
+        if (!name)
+        {
+            return 0.0f;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<AbilityComponent>());
+        char* nameStr = mono_string_to_utf8(name);
+        f32 result = entity.GetComponent<AbilityComponent>().Attributes.GetBaseValue(nameStr);
+        mono_free(nameStr);
+        return result;
+    }
+
+    static void AbilityComponent_SetAttribute(UUID entityID, MonoString* name, f32 value)
+    {
+        if (!name)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<AbilityComponent>());
+        char* nameStr = mono_string_to_utf8(name);
+        entity.GetComponent<AbilityComponent>().Attributes.SetBaseValue(nameStr, value);
+        mono_free(nameStr);
+    }
+
+    static f32 AbilityComponent_GetCurrentAttribute(UUID entityID, MonoString* name)
+    {
+        if (!name)
+        {
+            return 0.0f;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<AbilityComponent>());
+        char* nameStr = mono_string_to_utf8(name);
+        f32 result = entity.GetComponent<AbilityComponent>().Attributes.GetCurrentValue(nameStr);
+        mono_free(nameStr);
+        return result;
+    }
+
+    static bool AbilityComponent_TryActivateAbility(UUID entityID, MonoString* abilityTag)
+    {
+        if (!abilityTag)
+        {
+            return false;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<AbilityComponent>());
+        char* tagStr = mono_string_to_utf8(abilityTag);
+        GameplayTag tag(tagStr);
+        mono_free(tagStr);
+
+        Scene* scene = ScriptEngine::GetSceneContext();
+        return GameplayAbilitySystem::TryActivateAbility(scene, entity, tag);
+    }
+
+    static bool AbilityComponent_HasTag(UUID entityID, MonoString* tag)
+    {
+        if (!tag)
+        {
+            return false;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<AbilityComponent>());
+        char* tagStr = mono_string_to_utf8(tag);
+        bool result = entity.GetComponent<AbilityComponent>().OwnedTags.HasTagExact(GameplayTag(tagStr));
+        mono_free(tagStr);
+        return result;
+    }
+
+    static void AbilityComponent_AddTag(UUID entityID, MonoString* tag)
+    {
+        if (!tag)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<AbilityComponent>());
+        char* tagStr = mono_string_to_utf8(tag);
+        entity.GetComponent<AbilityComponent>().OwnedTags.AddTag(GameplayTag(tagStr));
+        mono_free(tagStr);
+    }
+
+    static void AbilityComponent_RemoveTag(UUID entityID, MonoString* tag)
+    {
+        if (!tag)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<AbilityComponent>());
+        char* tagStr = mono_string_to_utf8(tag);
+        entity.GetComponent<AbilityComponent>().OwnedTags.RemoveTag(GameplayTag(tagStr));
+        mono_free(tagStr);
+    }
+
     void ScriptGlue::RegisterComponents()
     {
         RegisterComponent(AllComponents{});
@@ -2909,10 +3039,12 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(NativeLog);
         OLO_ADD_INTERNAL_CALL(NativeLog_Vector);
         OLO_ADD_INTERNAL_CALL(NativeLog_VectorDot);
+        OLO_ADD_INTERNAL_CALL(Log_LogMessage);
 
         OLO_ADD_INTERNAL_CALL(GetScriptInstance);
 
         OLO_ADD_INTERNAL_CALL(Entity_HasComponent);
+        OLO_ADD_INTERNAL_CALL(Entity_IsValid);
         OLO_ADD_INTERNAL_CALL(Entity_FindEntityByName);
 
         OLO_ADD_INTERNAL_CALL(TransformComponent_GetTranslation);
@@ -3312,6 +3444,17 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(QuestJournalComponent_GetPlayerClass);
         OLO_ADD_INTERNAL_CALL(QuestJournalComponent_SetPlayerFaction);
         OLO_ADD_INTERNAL_CALL(QuestJournalComponent_GetPlayerFaction);
+
+        ///////////////////////////////////////////////////////////////
+        // AbilityComponent ///////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(AbilityComponent_GetAttribute);
+        OLO_ADD_INTERNAL_CALL(AbilityComponent_SetAttribute);
+        OLO_ADD_INTERNAL_CALL(AbilityComponent_GetCurrentAttribute);
+        OLO_ADD_INTERNAL_CALL(AbilityComponent_TryActivateAbility);
+        OLO_ADD_INTERNAL_CALL(AbilityComponent_HasTag);
+        OLO_ADD_INTERNAL_CALL(AbilityComponent_AddTag);
+        OLO_ADD_INTERNAL_CALL(AbilityComponent_RemoveTag);
     }
 
 } // namespace OloEngine
