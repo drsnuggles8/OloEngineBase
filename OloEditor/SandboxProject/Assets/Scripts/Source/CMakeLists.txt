@@ -1,7 +1,10 @@
 ﻿set(SOURCES
 		"Camera.cs"
+		"FireMageAI.cs"
 		"GamepadPlayer.cs"
+		"GoblinAI.cs"
 		"Player.cs"
+		"PlayerController.cs"
 )
 
 add_library("Sandbox-Scripting" SHARED

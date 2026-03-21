@@ -58,6 +58,7 @@
 #include "OloEngine/AI/AISystem.h"
 #include "OloEngine/Gameplay/Inventory/InventorySystem.h"
 #include "OloEngine/Gameplay/Quest/QuestSystem.h"
+#include "OloEngine/Gameplay/Abilities/GameplayAbilitySystem.h"
 
 #include <glm/glm.hpp>
 #include <ranges>
@@ -902,6 +903,9 @@ namespace OloEngine
 
             // Update quest system (timers, conditions)
             QuestSystem::OnUpdate(this, ts.GetSeconds());
+
+            // Update gameplay ability system (abilities, effects, cooldowns)
+            GameplayAbilitySystem::OnUpdate(this, ts.GetSeconds());
 
             auto listenerView = m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>);
             for (auto&& [e, ac, tc] : listenerView.each())
@@ -3824,5 +3828,10 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::QuestJournalComponent>([[mayb
 
 template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::QuestGiverComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::QuestGiverComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::AbilityComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::AbilityComponent& component)
 {
 }

@@ -1445,7 +1445,7 @@ namespace OloEngine
             return true;
         }
 
-        if ((e.GetMouseButton() == Mouse::ButtonLeft) && m_ViewportHovered && (!ImGuizmo::IsOver()) && (!Input::IsKeyPressed(Key::LeftAlt)))
+        if ((m_SceneState != SceneState::Play) && (e.GetMouseButton() == Mouse::ButtonLeft) && m_ViewportHovered && (!ImGuizmo::IsOver()) && (!Input::IsKeyPressed(Key::LeftAlt)))
         {
             m_SceneHierarchyPanel.SetSelectedEntity(m_HoveredEntity);
         }

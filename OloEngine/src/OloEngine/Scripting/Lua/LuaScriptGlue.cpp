@@ -25,6 +25,7 @@
 #include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestDatabase.h"
+#include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
 
 namespace OloEngine
 {
@@ -754,5 +755,16 @@ namespace OloEngine
                                               "questMarkerIcon", &QuestGiverComponent::QuestMarkerIcon,
                                               "offeredQuestIDs", &QuestGiverComponent::OfferedQuestIDs,
                                               "turnInQuestIDs", &QuestGiverComponent::TurnInQuestIDs);
+
+        // --- AbilityComponent ---
+        lua.new_usertype<AbilityComponent>("AbilityComponent", "GetAttribute", [](const AbilityComponent& comp, const std::string& name) -> f32
+                                           { return comp.Attributes.GetBaseValue(name); }, "SetAttribute", [](AbilityComponent& comp, const std::string& name, f32 value)
+                                           { comp.Attributes.SetBaseValue(name, value); }, "GetCurrentAttribute", [](const AbilityComponent& comp, const std::string& name) -> f32
+                                           { return comp.Attributes.GetCurrentValue(name); }, "HasTag", [](const AbilityComponent& comp, const std::string& tag) -> bool
+                                           { return comp.OwnedTags.HasTagExact(GameplayTag(tag)); }, "AddTag", [](AbilityComponent& comp, const std::string& tag)
+                                           { comp.OwnedTags.AddTag(GameplayTag(tag)); }, "RemoveTag", [](AbilityComponent& comp, const std::string& tag)
+                                           { comp.OwnedTags.RemoveTag(GameplayTag(tag)); }, "DefineAttribute", [](AbilityComponent& comp, const std::string& name, f32 baseValue)
+                                           { comp.Attributes.DefineAttribute(name, baseValue); }, "InitDefaultRPG", [](AbilityComponent& comp, f32 maxHP, f32 maxMana, f32 atk, f32 def)
+                                           { comp.InitializeDefaultRPGAttributes(maxHP, maxMana, atk, def); });
     }
 } // namespace OloEngine

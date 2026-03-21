@@ -28,6 +28,7 @@
 #include "OloEngine/AI/AIComponents.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
+#include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
 
 #include <box2d/id.h>
 
@@ -1474,5 +1475,6 @@ namespace OloEngine
         ItemPickupComponent,
         ItemContainerComponent,
         QuestJournalComponent,
-        QuestGiverComponent>;
+        QuestGiverComponent,
+        AbilityComponent>;
 } // namespace OloEngine

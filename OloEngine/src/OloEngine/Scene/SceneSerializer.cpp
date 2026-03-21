@@ -18,6 +18,8 @@
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestDatabase.h"
+#include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
+#include "OloEngine/Gameplay/Abilities/Effects/GameplayEffect.h"
 
 #include <fstream>
 #include <cmath>
@@ -2570,6 +2572,104 @@ namespace OloEngine
                 }
             }
         }
+
+        if (auto abilityComponentNode = entity["AbilityComponent"]; abilityComponentNode)
+        {
+            auto& ac = deserializedEntity.AddComponent<AbilityComponent>();
+
+            // Deserialize attributes
+            if (auto attributes = abilityComponentNode["Attributes"]; attributes && attributes.IsSequence())
+            {
+                for (auto const& attrNode : attributes)
+                {
+                    std::string name = attrNode["Name"].as<std::string>("");
+                    f32 baseValue = attrNode["BaseValue"].as<f32>(0.0f);
+                    ac.Attributes.DefineAttribute(name, baseValue);
+                }
+            }
+
+            // Deserialize owned tags
+            if (auto tags = abilityComponentNode["OwnedTags"]; tags && tags.IsSequence())
+            {
+                for (auto const& tagNode : tags)
+                {
+                    ac.OwnedTags.AddTag(GameplayTag(tagNode.as<std::string>("")));
+                }
+            }
+
+            // Deserialize abilities
+            if (auto abilities = abilityComponentNode["Abilities"]; abilities && abilities.IsSequence())
+            {
+                for (auto const& abilityNode : abilities)
+                {
+                    ActiveAbility aa;
+                    aa.Definition.Name = abilityNode["Name"].as<std::string>("");
+                    aa.Definition.AbilityTag = GameplayTag(abilityNode["AbilityTag"].as<std::string>(""));
+                    aa.Definition.CooldownDuration = abilityNode["CooldownDuration"].as<f32>(0.0f);
+                    aa.Definition.ResourceCost = abilityNode["ResourceCost"].as<f32>(0.0f);
+                    aa.Definition.CostAttribute = abilityNode["CostAttribute"].as<std::string>("Mana");
+                    aa.Definition.IsChanneled = abilityNode["IsChanneled"].as<bool>(false);
+                    aa.Definition.ChannelDuration = abilityNode["ChannelDuration"].as<f32>(0.0f);
+
+                    if (auto requiredTags = abilityNode["RequiredTags"]; requiredTags && requiredTags.IsSequence())
+                    {
+                        for (auto const& t : requiredTags)
+                        {
+                            aa.Definition.RequiredTags.AddTag(GameplayTag(t.as<std::string>("")));
+                        }
+                    }
+                    if (auto blockedTags = abilityNode["BlockedTags"]; blockedTags && blockedTags.IsSequence())
+                    {
+                        for (auto const& t : blockedTags)
+                        {
+                            aa.Definition.BlockedTags.AddTag(GameplayTag(t.as<std::string>("")));
+                        }
+                    }
+
+                    // Deserialize activation effects
+                    if (auto effects = abilityNode["ActivationEffects"]; effects && effects.IsSequence())
+                    {
+                        for (auto const& effectNode : effects)
+                        {
+                            GameplayEffect ge;
+                            ge.Name = effectNode["Name"].as<std::string>("");
+
+                            std::string durType = effectNode["DurationType"].as<std::string>("Instant");
+                            if (durType == "HasDuration")
+                                ge.Policy.DurationType = GameplayEffectPolicy::Duration::HasDuration;
+                            else if (durType == "Infinite")
+                                ge.Policy.DurationType = GameplayEffectPolicy::Duration::Infinite;
+
+                            ge.Policy.DurationSeconds = effectNode["DurationSeconds"].as<f32>(0.0f);
+                            ge.Policy.IsPeriodic = effectNode["IsPeriodic"].as<bool>(false);
+                            ge.Policy.PeriodSeconds = effectNode["PeriodSeconds"].as<f32>(1.0f);
+
+                            if (auto mods = effectNode["Modifiers"]; mods && mods.IsSequence())
+                            {
+                                for (auto const& modNode : mods)
+                                {
+                                    GameplayEffect::AttributeMod mod;
+                                    mod.AttributeName = modNode["Attribute"].as<std::string>("");
+                                    std::string op = modNode["Operation"].as<std::string>("Add");
+                                    if (op == "Multiply")
+                                        mod.Op = AttributeModifier::Operation::Multiply;
+                                    else if (op == "Override")
+                                        mod.Op = AttributeModifier::Operation::Override;
+                                    mod.Magnitude = modNode["Magnitude"].as<f32>(0.0f);
+                                    ge.Modifiers.push_back(mod);
+                                }
+                            }
+
+                            ge.MaxStacks = effectNode["MaxStacks"].as<i32>(1);
+                            ge.RefreshDurationOnStack = effectNode["RefreshDurationOnStack"].as<bool>(true);
+                            aa.Definition.ActivationEffects.push_back(std::move(ge));
+                        }
+                    }
+
+                    ac.Abilities.push_back(std::move(aa));
+                }
+            }
+        }
     }
 
     SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -4366,6 +4466,107 @@ namespace OloEngine
             out << YAML::EndSeq;
 
             out << YAML::EndMap; // QuestGiverComponent
+        }
+
+        if (entity.HasComponent<AbilityComponent>())
+        {
+            out << YAML::Key << "AbilityComponent";
+            out << YAML::BeginMap;
+
+            auto const& ac = entity.GetComponent<AbilityComponent>();
+
+            // Serialize attributes
+            auto attrNames = ac.Attributes.GetAttributeNames();
+            out << YAML::Key << "Attributes" << YAML::Value << YAML::BeginSeq;
+            for (auto const& name : attrNames)
+            {
+                out << YAML::BeginMap;
+                out << YAML::Key << "Name" << YAML::Value << name;
+                out << YAML::Key << "BaseValue" << YAML::Value << ac.Attributes.GetBaseValue(name);
+                out << YAML::EndMap;
+            }
+            out << YAML::EndSeq;
+
+            // Serialize owned tags
+            out << YAML::Key << "OwnedTags" << YAML::Value << YAML::BeginSeq;
+            for (auto const& tag : ac.OwnedTags.GetTags())
+            {
+                out << tag.GetTagString();
+            }
+            out << YAML::EndSeq;
+
+            // Serialize abilities
+            out << YAML::Key << "Abilities" << YAML::Value << YAML::BeginSeq;
+            for (auto const& ability : ac.Abilities)
+            {
+                auto const& def = ability.Definition;
+                out << YAML::BeginMap;
+                out << YAML::Key << "Name" << YAML::Value << def.Name;
+                out << YAML::Key << "AbilityTag" << YAML::Value << def.AbilityTag.GetTagString();
+                out << YAML::Key << "CooldownDuration" << YAML::Value << def.CooldownDuration;
+                out << YAML::Key << "ResourceCost" << YAML::Value << def.ResourceCost;
+                out << YAML::Key << "CostAttribute" << YAML::Value << def.CostAttribute;
+                out << YAML::Key << "IsChanneled" << YAML::Value << def.IsChanneled;
+                out << YAML::Key << "ChannelDuration" << YAML::Value << def.ChannelDuration;
+
+                out << YAML::Key << "RequiredTags" << YAML::Value << YAML::BeginSeq;
+                for (auto const& t : def.RequiredTags.GetTags())
+                {
+                    out << t.GetTagString();
+                }
+                out << YAML::EndSeq;
+
+                out << YAML::Key << "BlockedTags" << YAML::Value << YAML::BeginSeq;
+                for (auto const& t : def.BlockedTags.GetTags())
+                {
+                    out << t.GetTagString();
+                }
+                out << YAML::EndSeq;
+
+                // Serialize activation effects
+                out << YAML::Key << "ActivationEffects" << YAML::Value << YAML::BeginSeq;
+                for (auto const& effect : def.ActivationEffects)
+                {
+                    out << YAML::BeginMap;
+                    out << YAML::Key << "Name" << YAML::Value << effect.Name;
+
+                    std::string durType = "Instant";
+                    if (effect.Policy.DurationType == GameplayEffectPolicy::Duration::HasDuration)
+                        durType = "HasDuration";
+                    else if (effect.Policy.DurationType == GameplayEffectPolicy::Duration::Infinite)
+                        durType = "Infinite";
+                    out << YAML::Key << "DurationType" << YAML::Value << durType;
+                    out << YAML::Key << "DurationSeconds" << YAML::Value << effect.Policy.DurationSeconds;
+                    out << YAML::Key << "IsPeriodic" << YAML::Value << effect.Policy.IsPeriodic;
+                    out << YAML::Key << "PeriodSeconds" << YAML::Value << effect.Policy.PeriodSeconds;
+
+                    out << YAML::Key << "Modifiers" << YAML::Value << YAML::BeginSeq;
+                    for (auto const& mod : effect.Modifiers)
+                    {
+                        out << YAML::BeginMap;
+                        out << YAML::Key << "Attribute" << YAML::Value << mod.AttributeName;
+                        std::string op = "Add";
+                        if (mod.Op == AttributeModifier::Operation::Multiply)
+                            op = "Multiply";
+                        else if (mod.Op == AttributeModifier::Operation::Override)
+                            op = "Override";
+                        out << YAML::Key << "Operation" << YAML::Value << op;
+                        out << YAML::Key << "Magnitude" << YAML::Value << mod.Magnitude;
+                        out << YAML::EndMap;
+                    }
+                    out << YAML::EndSeq;
+
+                    out << YAML::Key << "MaxStacks" << YAML::Value << effect.MaxStacks;
+                    out << YAML::Key << "RefreshDurationOnStack" << YAML::Value << effect.RefreshDurationOnStack;
+                    out << YAML::EndMap;
+                }
+                out << YAML::EndSeq;
+
+                out << YAML::EndMap; // Ability
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::EndMap; // AbilityComponent
         }
 
         out << YAML::EndMap; // Entity
