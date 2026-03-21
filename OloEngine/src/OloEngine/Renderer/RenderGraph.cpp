@@ -111,35 +111,77 @@ namespace OloEngine
         {
             UpdateDependencyGraph();
             ResolveFinalPass();
+            RebuildExecutionCache();
             m_DependencyGraphDirty = false;
         }
 
         // First pass: Connect framebuffers between passes that use framebuffer piping
-        for (const auto& [outputPass, inputPasses] : m_FramebufferConnections)
+        for (const auto& pipe : m_CachedPipes)
         {
-            auto& outputPassRef = m_PassLookup[outputPass];
-            Ref<Framebuffer> outputFramebuffer = outputPassRef->GetTarget();
-
+            Ref<Framebuffer> outputFramebuffer = pipe.OutputPass->GetTarget();
             if (outputFramebuffer)
             {
-                for (const auto& inputPass : inputPasses)
+                for (auto* inputPass : pipe.InputPasses)
                 {
-                    auto& inputPassRef = m_PassLookup[inputPass];
-                    inputPassRef->SetInputFramebuffer(outputFramebuffer);
+                    inputPass->SetInputFramebuffer(outputFramebuffer);
                 }
-            }
-            else
-            {
-                OLO_CORE_WARN("RenderGraph::Execute: No output framebuffer available for pass {}", outputPass);
             }
         }
 
-        // Second pass: Execute passes in order
-        for (const auto& passName : m_PassOrder)
+        // Second pass: Execute passes in order (zero-overhead — no lookups, no branching)
+        for (auto* pass : m_CachedExecutionOrder)
         {
-            auto& pass = m_PassLookup[passName];
             pass->Execute();
         }
+    }
+
+    void RenderGraph::RebuildExecutionCache()
+    {
+        // Build framebuffer piping cache with validation
+        m_CachedPipes.clear();
+        for (const auto& [outputPassName, inputPassNames] : m_FramebufferConnections)
+        {
+            auto outputIt = m_PassLookup.find(outputPassName);
+            if (outputIt == m_PassLookup.end() || !outputIt->second)
+            {
+                OLO_CORE_ERROR("RenderGraph: Output pass '{}' not found or null in framebuffer piping — skipping connection", outputPassName);
+                continue;
+            }
+
+            FramebufferPipe pipe;
+            pipe.OutputPass = outputIt->second.Raw();
+
+            for (const auto& inputPassName : inputPassNames)
+            {
+                auto inputIt = m_PassLookup.find(inputPassName);
+                if (inputIt == m_PassLookup.end() || !inputIt->second)
+                {
+                    OLO_CORE_ERROR("RenderGraph: Input pass '{}' not found or null in framebuffer piping — skipping", inputPassName);
+                    continue;
+                }
+                pipe.InputPasses.push_back(inputIt->second.Raw());
+            }
+
+            m_CachedPipes.push_back(std::move(pipe));
+        }
+
+        // Build execution order cache with validation
+        m_CachedExecutionOrder.clear();
+        m_CachedExecutionOrder.reserve(m_PassOrder.size());
+
+        for (const auto& passName : m_PassOrder)
+        {
+            auto it = m_PassLookup.find(passName);
+            if (it == m_PassLookup.end() || !it->second)
+            {
+                OLO_CORE_ERROR("RenderGraph: Pass '{}' is null or missing from lookup — it will be skipped during execution!", passName);
+                continue;
+            }
+            m_CachedExecutionOrder.push_back(it->second.Raw());
+        }
+
+        OLO_CORE_INFO("RenderGraph: Execution cache rebuilt — {} passes, {} framebuffer pipes",
+                      m_CachedExecutionOrder.size(), m_CachedPipes.size());
     }
 
     void RenderGraph::Resize(u32 width, u32 height)

@@ -31,15 +31,20 @@ namespace OloEngine
             return { false, "No active project loaded", 0, 0, {} };
         }
 
-        auto assetManager = Project::GetAssetManager();
-        if (!assetManager)
+        // Load the asset registry from disk so we pack ALL registered assets,
+        // not just the ones currently cached in memory (GetLoadedAssets).
+        auto registryPath = Project::GetAssetRegistryPath();
+        if (!std::filesystem::exists(registryPath))
         {
-            OLO_CORE_ERROR("AssetPackBuilder::BuildFromActiveProject - No asset manager available");
-            return { false, "No asset manager available", 0, 0, {} };
+            OLO_CORE_ERROR("AssetPackBuilder::BuildFromActiveProject - Asset registry not found: {}", registryPath.string());
+            return { false, "Asset registry file not found: " + registryPath.string(), 0, 0, {} };
         }
 
-        OLO_CORE_INFO("AssetPackBuilder: Starting asset pack build from active project");
-        return BuildImpl(assetManager, settings, progress, cancelToken);
+        AssetRegistry registry;
+        registry.Deserialize(registryPath);
+
+        OLO_CORE_INFO("AssetPackBuilder: Starting asset pack build from active project ({} registered assets)", registry.GetAllAssets().size());
+        return BuildFromRegistry(registry, settings, progress, cancelToken);
     }
 
     AssetPackBuilder::BuildResult AssetPackBuilder::BuildFromRegistry(const AssetRegistry& assetRegistry, const BuildSettings& settings, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken)
@@ -223,6 +228,9 @@ namespace OloEngine
             // Initialize asset pack file structure
             AssetPackFile assetPackFile;
 
+            // The index table starts immediately after the header
+            assetPackFile.Header.IndexOffset = sizeof(AssetPackFile::FileHeader);
+
             // Serialize all assets
             OLO_CORE_INFO("AssetPackBuilder: Serializing assets...");
             if (!SerializeAllAssets(assetManager, assetPackFile, progress, cancelToken))
@@ -272,13 +280,13 @@ namespace OloEngine
             writer.WriteRaw(assetPackFile.Index.PackedAppBinaryOffset);
             writer.WriteRaw(assetPackFile.Index.PackedAppBinarySize);
 
-            // Write asset infos
+            // Write asset infos — field order must match AssetPack::Load read order
             for (const auto& assetInfo : assetPackFile.AssetInfos)
             {
                 writer.WriteRaw(assetInfo.Handle);
-                writer.WriteRaw(assetInfo.Type);
                 writer.WriteRaw(assetInfo.PackedOffset);
                 writer.WriteRaw(assetInfo.PackedSize);
+                writer.WriteRaw(assetInfo.Type);
                 writer.WriteRaw(assetInfo.Flags);
             }
 

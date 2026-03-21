@@ -16,6 +16,7 @@
 #include <spdlog/fmt/ostr.h>
 #include <spdlog/fmt/fmt.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/sinks/ringbuffer_sink.h>
 #pragma warning(pop)
 
 #if !defined(OLO_DIST) && defined(OLO_PLATFORM_WINDOWS)
@@ -84,6 +85,10 @@ namespace OloEngine
 
         static void SetDefaultTagSettings();
 
+        // Crash reporting: retrieve the last N formatted log messages from the ringbuffer
+        [[nodiscard]] static std::vector<std::string> GetRecentLogMessages(size_t count = 0);
+        [[nodiscard]] static std::shared_ptr<spdlog::sinks::ringbuffer_sink_mt> GetRingbufferSink();
+
         template<typename... Args>
         static void PrintMessage(Log::Type type, Log::Level level, const std::string& format, Args&&... args);
 
@@ -141,6 +146,7 @@ namespace OloEngine
         static std::shared_ptr<spdlog::logger> s_CoreLogger;
         static std::shared_ptr<spdlog::logger> s_ClientLogger;
         static std::shared_ptr<spdlog::logger> s_EditorConsoleLogger;
+        static std::shared_ptr<spdlog::sinks::ringbuffer_sink_mt> s_RingbufferSink;
 
         // lock-free storage
         static std::atomic<std::shared_ptr<TagMap>> s_Tags;

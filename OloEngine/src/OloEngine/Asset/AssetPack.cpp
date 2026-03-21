@@ -201,13 +201,9 @@ namespace OloEngine
             }
 
             // Validate SceneCount to prevent out-of-memory errors from corrupted/malicious files
+            // SceneCount == 0 is valid (pack may contain only resources like textures/meshes
+            // with scenes loaded separately from disk)
             static constexpr u32 MAX_SCENE_COUNT = 10000; // 10 thousand scenes maximum
-            if (m_AssetPackFile.Index.SceneCount == 0)
-            {
-                OLO_CORE_ERROR("AssetPack::Load - Scene count cannot be zero");
-                return AssetPackLoadResult(AssetPackLoadError::CorruptIndex,
-                                           "Scene count cannot be zero - invalid asset pack");
-            }
             if (m_AssetPackFile.Index.SceneCount > MAX_SCENE_COUNT)
             {
                 OLO_CORE_ERROR("AssetPack::Load - Scene count ({}) exceeds maximum allowed ({})",

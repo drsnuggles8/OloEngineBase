@@ -176,10 +176,29 @@ namespace OloEngine
             return;
         }
 
-        if (bool status = LoadAppAssembly("SandboxProject/Assets/Scripts/Binaries/Sandbox-Scripting.dll"); !status)
+        // Load project-specific app assembly
+        // In the editor this is under SandboxProject/; in runtime builds it may be
+        // in Resources/Scripts/ or absent entirely (Lua-only / no-script games).
+        const std::filesystem::path editorAppAssembly = "SandboxProject/Assets/Scripts/Binaries/Sandbox-Scripting.dll";
+        const std::filesystem::path runtimeAppAssembly = "Resources/Scripts/Sandbox-Scripting.dll";
+
+        if (std::filesystem::exists(editorAppAssembly))
         {
-            OLO_CORE_ERROR("[ScriptEngine] Could not load app assembly.");
-            return;
+            if (!LoadAppAssembly(editorAppAssembly))
+            {
+                OLO_CORE_ERROR("[ScriptEngine] Could not load app assembly: {}", editorAppAssembly.string());
+            }
+        }
+        else if (std::filesystem::exists(runtimeAppAssembly))
+        {
+            if (!LoadAppAssembly(runtimeAppAssembly))
+            {
+                OLO_CORE_ERROR("[ScriptEngine] Could not load app assembly: {}", runtimeAppAssembly.string());
+            }
+        }
+        else
+        {
+            OLO_CORE_WARN("[ScriptEngine] No app assembly found (C# scripting will be unavailable)");
         }
 
         LoadAssemblyClasses();
@@ -389,6 +408,12 @@ namespace OloEngine
     void ScriptEngine::LoadAssemblyClasses()
     {
         s_Data->EntityClasses.clear();
+
+        if (!s_Data->AppAssemblyImage)
+        {
+            OLO_CORE_WARN("[ScriptEngine] No app assembly loaded — skipping class discovery");
+            return;
+        }
 
         const MonoTableInfo* typeDefinitionsTable = ::mono_image_get_table_info(s_Data->AppAssemblyImage, MONO_TABLE_TYPEDEF);
         i32 numTypes = ::mono_table_info_get_rows(typeDefinitionsTable);

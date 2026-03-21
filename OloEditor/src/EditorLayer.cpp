@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "EditorLayer.h"
 #include "Panels/AssetPackBuilderPanel.h"
+#include "Panels/BuildGamePanel.h"
 #include "UndoRedo/EntityCommands.h"
 #include "UndoRedo/ComponentCommands.h"
 #include "OloEngine/Math/Math.h"
@@ -574,6 +575,13 @@ namespace OloEngine
                 // Toggle panel visibility
             }
 
+            ImGui::Separator();
+
+            if (ImGui::MenuItem("Build Game...", nullptr, &m_ShowBuildGame))
+            {
+                // Toggle Build Game panel
+            }
+
             ImGui::EndMenu();
         }
 
@@ -983,6 +991,14 @@ namespace OloEngine
         if (m_ShowAssetPackBuilder && m_AssetPackBuilderPanel)
         {
             m_AssetPackBuilderPanel->OnImGuiRender(m_ShowAssetPackBuilder);
+        }
+
+        // Build Game Panel
+        if (m_ShowBuildGame && m_BuildGamePanel)
+        {
+            m_BuildGamePanel->SetEditorScenePath(m_EditorScenePath);
+            m_BuildGamePanel->SetIs3DMode(m_Is3DMode);
+            m_BuildGamePanel->OnImGuiRender(m_ShowBuildGame);
         }
 
         // Animation Panel
@@ -1634,6 +1650,7 @@ namespace OloEngine
         m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
         BindContentBrowserSelectionCallback();
         m_AssetPackBuilderPanel = CreateScope<AssetPackBuilderPanel>();
+        m_BuildGamePanel = CreateScope<BuildGamePanel>();
     }
 
     bool EditorLayer::OpenProject()
@@ -1677,6 +1694,7 @@ namespace OloEngine
             m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
             BindContentBrowserSelectionCallback();
             m_AssetPackBuilderPanel = CreateScope<AssetPackBuilderPanel>();
+            m_BuildGamePanel = CreateScope<BuildGamePanel>();
 
             // Load input action map if one exists for this project
             auto inputMapPath = Project::GetInputActionMapPath();

@@ -81,5 +81,17 @@ namespace OloEngine
         std::vector<std::string> m_PassOrder;
         std::string m_FinalPassName;
         bool m_DependencyGraphDirty = false;
+
+        // Execution-ready cache — rebuilt when m_DependencyGraphDirty is set.
+        // Avoids per-frame hash lookups in Execute().
+        struct FramebufferPipe
+        {
+            RenderPass* OutputPass = nullptr;
+            std::vector<RenderPass*> InputPasses;
+        };
+        std::vector<FramebufferPipe> m_CachedPipes;
+        std::vector<RenderPass*> m_CachedExecutionOrder;
+
+        void RebuildExecutionCache();
     };
 } // namespace OloEngine

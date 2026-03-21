@@ -37,6 +37,7 @@ namespace OloEngine
 {
     class AssetReloadedEvent;
     class AssetPackBuilderPanel;
+    class BuildGamePanel;
 
     class EditorLayer : public Layer
     {
@@ -167,6 +168,7 @@ namespace OloEngine
         bool m_ShowRendererProfiler = false;
         bool m_ShowRenderGraphDebugger = false;
         bool m_ShowAssetPackBuilder = false;
+        bool m_ShowBuildGame = false;
 
         // Asset Pack Build Management
         AssetPackBuilder::BuildResult m_LastBuildResult{}; // Result from last build (accessed after m_BuildInProgress is false)
@@ -186,6 +188,7 @@ namespace OloEngine
         SceneHierarchyPanel m_SceneHierarchyPanel;
         Scope<ContentBrowserPanel> m_ContentBrowserPanel;
         Scope<AssetPackBuilderPanel> m_AssetPackBuilderPanel;
+        Scope<BuildGamePanel> m_BuildGamePanel;
         AnimationPanel m_AnimationPanel;
         PostProcessSettingsPanel m_PostProcessSettingsPanel;
         RendererSettingsPanel m_RendererSettingsPanel;

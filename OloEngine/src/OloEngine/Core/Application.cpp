@@ -5,6 +5,7 @@
 #include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Timer.h"
+#include "OloEngine/Debug/CrashReporter.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
@@ -44,6 +45,9 @@ namespace OloEngine
 
         // Start the task scheduler workers
         LowLevelTasks::FScheduler::Get().StartWorkers();
+
+        // Register the application name with the crash reporter
+        CrashReporter::SetApplicationInfo(m_Specification.Name, "1.0.0");
 
         try
         {

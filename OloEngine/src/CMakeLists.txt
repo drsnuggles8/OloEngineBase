@@ -98,6 +98,9 @@
 		"OloEngine/Asset/AssetPackBuilder.h"
 		"OloEngine/Asset/AssetPackBuilder.cpp"
 		"OloEngine/Asset/MeshColliderAsset.h"
+		"OloEngine/Build/GameBuildSettings.h"
+		"OloEngine/Build/GameBuildPipeline.h"
+		"OloEngine/Build/GameBuildPipeline.cpp"
 		"OloEngine/Asset/SoundGraphAsset.h"
 		"OloEngine/Asset/SoundGraphAsset.cpp"
 		"OloEngine/Asset/Serializers/MaterialSerializer.h"
@@ -239,6 +242,8 @@
 		"OloEngine/Debug/Profiler.h"
 		"OloEngine/Debug/AllocationTracker.cpp"
 		"OloEngine/Debug/AllocationTracker.h"
+		"OloEngine/Debug/CrashReporter.cpp"
+		"OloEngine/Debug/CrashReporter.h"
 
 		"OloEngine/Events/ApplicationEvent.h"
 		"OloEngine/Events/Event.cpp"
