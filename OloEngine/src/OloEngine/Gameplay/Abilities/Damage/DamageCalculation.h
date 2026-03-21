@@ -20,6 +20,19 @@ namespace OloEngine
         static void SetCustomFormula(CustomFormula formula);
         static void ClearCustomFormula();
 
+        // RAII guard: restores the previous formula on scope exit
+        class ScopedFormula
+        {
+          public:
+            explicit ScopedFormula(CustomFormula formula);
+            ~ScopedFormula();
+            ScopedFormula(const ScopedFormula&) = delete;
+            ScopedFormula& operator=(const ScopedFormula&) = delete;
+
+          private:
+            CustomFormula m_Previous;
+        };
+
       private:
         static CustomFormula s_CustomFormula;
     };

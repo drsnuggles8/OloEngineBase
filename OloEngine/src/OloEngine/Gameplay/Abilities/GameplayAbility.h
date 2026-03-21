@@ -31,6 +31,7 @@ namespace OloEngine
 
         // Whether this is a channeled/toggled ability
         bool IsChanneled = false;
+        bool IsToggled = false;
         f32 ChannelDuration = 0.0f;
 
         auto operator==(const GameplayAbilityDef&) const -> bool = default;

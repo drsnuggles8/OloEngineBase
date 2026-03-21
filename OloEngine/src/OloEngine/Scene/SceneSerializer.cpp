@@ -2583,7 +2583,12 @@ namespace OloEngine
                 for (auto const& attrNode : attributes)
                 {
                     std::string name = attrNode["Name"].as<std::string>("");
+                    if (name.empty())
+                    {
+                        continue;
+                    }
                     f32 baseValue = attrNode["BaseValue"].as<f32>(0.0f);
+                    SanitizeFloat(baseValue, -1e6f, 1e6f, 0.0f);
                     ac.Attributes.DefineAttribute(name, baseValue);
                 }
             }
@@ -2593,7 +2598,11 @@ namespace OloEngine
             {
                 for (auto const& tagNode : tags)
                 {
-                    ac.OwnedTags.AddTag(GameplayTag(tagNode.as<std::string>("")));
+                    std::string tagStr = tagNode.as<std::string>("");
+                    if (!tagStr.empty())
+                    {
+                        ac.OwnedTags.AddTag(GameplayTag(tagStr));
+                    }
                 }
             }
 
@@ -2609,7 +2618,11 @@ namespace OloEngine
                     aa.Definition.ResourceCost = abilityNode["ResourceCost"].as<f32>(0.0f);
                     aa.Definition.CostAttribute = abilityNode["CostAttribute"].as<std::string>("Mana");
                     aa.Definition.IsChanneled = abilityNode["IsChanneled"].as<bool>(false);
+                    aa.Definition.IsToggled = abilityNode["IsToggled"].as<bool>(false);
                     aa.Definition.ChannelDuration = abilityNode["ChannelDuration"].as<f32>(0.0f);
+                    SanitizeFloat(aa.Definition.CooldownDuration, 0.0f, 600.0f, 0.0f);
+                    SanitizeFloat(aa.Definition.ResourceCost, 0.0f, 10000.0f, 0.0f);
+                    SanitizeFloat(aa.Definition.ChannelDuration, 0.0f, 60.0f, 0.0f);
 
                     if (auto requiredTags = abilityNode["RequiredTags"]; requiredTags && requiredTags.IsSequence())
                     {
@@ -2643,6 +2656,8 @@ namespace OloEngine
                             ge.Policy.DurationSeconds = effectNode["DurationSeconds"].as<f32>(0.0f);
                             ge.Policy.IsPeriodic = effectNode["IsPeriodic"].as<bool>(false);
                             ge.Policy.PeriodSeconds = effectNode["PeriodSeconds"].as<f32>(1.0f);
+                            SanitizeFloat(ge.Policy.DurationSeconds, 0.0f, 600.0f, 0.0f);
+                            SanitizeFloat(ge.Policy.PeriodSeconds, 0.01f, 60.0f, 1.0f);
 
                             if (auto mods = effectNode["Modifiers"]; mods && mods.IsSequence())
                             {
@@ -4532,6 +4547,7 @@ namespace OloEngine
                 out << YAML::Key << "ResourceCost" << YAML::Value << def.ResourceCost;
                 out << YAML::Key << "CostAttribute" << YAML::Value << def.CostAttribute;
                 out << YAML::Key << "IsChanneled" << YAML::Value << def.IsChanneled;
+                out << YAML::Key << "IsToggled" << YAML::Value << def.IsToggled;
                 out << YAML::Key << "ChannelDuration" << YAML::Value << def.ChannelDuration;
 
                 out << YAML::Key << "RequiredTags" << YAML::Value << YAML::BeginSeq;

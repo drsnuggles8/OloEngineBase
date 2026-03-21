@@ -120,6 +120,13 @@ namespace OloEngine
         return s_EntityHasComponentFuncs.at(managedType)(entity);
     }
 
+    static bool Entity_IsValid(UUID entityID)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        return scene->TryGetEntityWithUUID(entityID).has_value();
+    }
+
     static u64 Entity_FindEntityByName(MonoString* name)
     {
         if (!name)
@@ -2975,21 +2982,11 @@ namespace OloEngine
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<AbilityComponent>());
         char* tagStr = mono_string_to_utf8(abilityTag);
-        auto& ac = entity.GetComponent<AbilityComponent>();
-
         GameplayTag tag(tagStr);
         mono_free(tagStr);
 
-        // Find and try to activate the ability
-        for (auto& ability : ac.Abilities)
-        {
-            if (ability.Definition.AbilityTag.MatchesExact(tag))
-            {
-                Scene* scene = ScriptEngine::GetSceneContext();
-                return GameplayAbilitySystem::TryActivateAbility(scene, entity, tag);
-            }
-        }
-        return false;
+        Scene* scene = ScriptEngine::GetSceneContext();
+        return GameplayAbilitySystem::TryActivateAbility(scene, entity, tag);
     }
 
     static bool AbilityComponent_HasTag(UUID entityID, MonoString* tag)
@@ -3047,6 +3044,7 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(GetScriptInstance);
 
         OLO_ADD_INTERNAL_CALL(Entity_HasComponent);
+        OLO_ADD_INTERNAL_CALL(Entity_IsValid);
         OLO_ADD_INTERNAL_CALL(Entity_FindEntityByName);
 
         OLO_ADD_INTERNAL_CALL(TransformComponent_GetTranslation);

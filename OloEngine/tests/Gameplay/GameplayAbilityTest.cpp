@@ -367,6 +367,7 @@ TEST(ActiveEffectsContainerTest, DurationEffect)
     // After expiration
     container.Tick(5.0f, attrs, tags);
     EXPECT_FALSE(container.HasAnyEffects());
+    EXPECT_FALSE(tags.HasTagExact(GameplayTag("Status.Buffed")));
 }
 
 TEST(ActiveEffectsContainerTest, PeriodicEffect)
@@ -448,6 +449,40 @@ TEST(ActiveEffectsContainerTest, BlockedTagsPrevents)
     effect.BlockedTags.AddTag(GameplayTag("Status.Immune"));
 
     EXPECT_FALSE(container.ApplyEffect(effect, tags, GameplayTag("Source.Enemy")));
+}
+
+TEST(ActiveEffectsContainerTest, RefCountedTags)
+{
+    ActiveEffectsContainer container;
+    AttributeSet attrs;
+    GameplayTagContainer tags;
+
+    // Two effects granting the same tag
+    GameplayEffect buffA;
+    buffA.Name = "BuffA";
+    buffA.Policy.DurationType = GameplayEffectPolicy::Duration::HasDuration;
+    buffA.Policy.DurationSeconds = 5.0f;
+    buffA.GrantedTags.AddTag(GameplayTag("Status.Empowered"));
+
+    GameplayEffect buffB;
+    buffB.Name = "BuffB";
+    buffB.Policy.DurationType = GameplayEffectPolicy::Duration::HasDuration;
+    buffB.Policy.DurationSeconds = 10.0f;
+    buffB.GrantedTags.AddTag(GameplayTag("Status.Empowered"));
+
+    container.ApplyEffect(buffA, tags, GameplayTag("Source.A"));
+    container.ApplyEffect(buffB, tags, GameplayTag("Source.B"));
+
+    container.Tick(0.01f, attrs, tags);
+    EXPECT_TRUE(tags.HasTagExact(GameplayTag("Status.Empowered")));
+
+    // Expire first effect — tag should persist (ref count > 0)
+    container.Tick(5.0f, attrs, tags);
+    EXPECT_TRUE(tags.HasTagExact(GameplayTag("Status.Empowered")));
+
+    // Expire second effect — tag should be removed
+    container.Tick(5.0f, attrs, tags);
+    EXPECT_FALSE(tags.HasTagExact(GameplayTag("Status.Empowered")));
 }
 
 // ============================================================================
@@ -544,6 +579,30 @@ TEST(DamageCalculationTest, CustomFormula)
     DamageCalculation::ClearCustomFormula();
 }
 
+TEST(DamageCalculationTest, ScopedFormula)
+{
+    DamageEvent event;
+    event.RawDamage = 10.0f;
+    event.DamageType = GameplayTag("Damage.Physical");
+
+    AttributeSet source;
+    source.DefineAttribute("AttackPower", 0.0f);
+    AttributeSet target;
+    target.DefineAttribute("Defense", 0.0f);
+
+    // Default formula: 10 + 0 - 0 = 10
+    EXPECT_FLOAT_EQ(DamageCalculation::Calculate(event, source, target), 10.0f);
+
+    {
+        DamageCalculation::ScopedFormula guard([](const DamageEvent& e, const AttributeSet&, const AttributeSet&) -> f32
+                                               { return e.RawDamage * 5.0f; });
+        EXPECT_FLOAT_EQ(DamageCalculation::Calculate(event, source, target), 50.0f);
+    }
+
+    // Reverts to default after scope exit
+    EXPECT_FLOAT_EQ(DamageCalculation::Calculate(event, source, target), 10.0f);
+}
+
 // ============================================================================
 // AbilityComponent Tests
 // ============================================================================
@@ -572,5 +631,20 @@ TEST(AbilityComponentTest, EqualityOperator)
     EXPECT_EQ(a, b);
 
     b.Attributes.SetBaseValue("Health", 80.0f);
+    EXPECT_NE(a, b);
+
+    // Reset and test OwnedTags divergence
+    b.Attributes.SetBaseValue("Health", 100.0f);
+    EXPECT_EQ(a, b);
+    b.OwnedTags.AddTag(GameplayTag("Status.Buffed"));
+    EXPECT_NE(a, b);
+
+    // Reset and test Abilities divergence
+    b.OwnedTags.RemoveTag(GameplayTag("Status.Buffed"));
+    EXPECT_EQ(a, b);
+    ActiveAbility aa;
+    aa.Definition.Name = "Slash";
+    aa.Definition.AbilityTag = GameplayTag("Ability.Melee.Slash");
+    b.Abilities.push_back(aa);
     EXPECT_NE(a, b);
 }

@@ -5,6 +5,7 @@
 #include "OloEngine/Gameplay/Abilities/Attributes/AttributeSet.h"
 #include "OloEngine/Gameplay/Abilities/Tags/GameplayTagContainer.h"
 
+#include <unordered_map>
 #include <vector>
 
 namespace OloEngine
@@ -54,6 +55,7 @@ namespace OloEngine
         void RemoveGrantedTags(const GameplayEffect& effect, GameplayTagContainer& ownerTags);
 
         std::vector<ActiveEffect> m_ActiveEffects;
+        std::unordered_map<GameplayTag, i32> m_TagGrantCounts; // Ref-counted tag grants
     };
 
 } // namespace OloEngine

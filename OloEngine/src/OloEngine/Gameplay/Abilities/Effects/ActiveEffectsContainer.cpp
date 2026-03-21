@@ -73,6 +73,7 @@ namespace OloEngine
     void ActiveEffectsContainer::Clear()
     {
         m_ActiveEffects.clear();
+        m_TagGrantCounts.clear();
     }
 
     void ActiveEffectsContainer::Tick(f32 dt, AttributeSet& attributes, GameplayTagContainer& ownerTags)
@@ -190,7 +191,10 @@ namespace OloEngine
     {
         for (auto const& tag : effect.GrantedTags.GetTags())
         {
-            ownerTags.AddTag(tag);
+            if (++m_TagGrantCounts[tag] == 1)
+            {
+                ownerTags.AddTag(tag);
+            }
         }
     }
 
@@ -198,7 +202,12 @@ namespace OloEngine
     {
         for (auto const& tag : effect.GrantedTags.GetTags())
         {
-            ownerTags.RemoveTag(tag);
+            auto it = m_TagGrantCounts.find(tag);
+            if (it != m_TagGrantCounts.end() && --it->second <= 0)
+            {
+                m_TagGrantCounts.erase(it);
+                ownerTags.RemoveTag(tag);
+            }
         }
     }
 

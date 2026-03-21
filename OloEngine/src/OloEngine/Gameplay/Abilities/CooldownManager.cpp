@@ -8,6 +8,7 @@ namespace OloEngine
     {
         if (duration <= 0.0f)
         {
+            m_Cooldowns.erase(abilityTag);
             return;
         }
         m_Cooldowns[abilityTag] = { duration, duration };

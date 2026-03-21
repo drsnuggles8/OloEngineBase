@@ -185,7 +185,18 @@ Entities:
             - State.Stunned
           IsChanneled: false
           ChannelDuration: 0
-          ActivationEffects: []
+          ActivationEffects:
+            - Name: SlashDamage
+              DurationType: Instant
+              DurationSeconds: 0
+              IsPeriodic: false
+              PeriodSeconds: 1.0
+              Modifiers:
+                - Attribute: Health
+                  Operation: Add
+                  Magnitude: -30
+              MaxStacks: 1
+              RefreshDurationOnStack: false
         - Name: Fireball
           AbilityTag: Ability.Spell.Fire.Fireball
           CooldownDuration: 3.0
@@ -304,7 +315,18 @@ Entities:
             - State.Stunned
           IsChanneled: false
           ChannelDuration: 0
-          ActivationEffects: []
+          ActivationEffects:
+            - Name: BiteDamage
+              DurationType: Instant
+              DurationSeconds: 0
+              IsPeriodic: false
+              PeriodSeconds: 1.0
+              Modifiers:
+                - Attribute: Health
+                  Operation: Add
+                  Magnitude: -10
+              MaxStacks: 1
+              RefreshDurationOnStack: false
 
   # ══════════════════════════════════════
   #  NPC 2 — Fire Mage (red, ranged hostile)

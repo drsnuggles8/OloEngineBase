@@ -60,6 +60,10 @@ namespace OloEngine
             it->second.BaseValue = value;
             it->second.Dirty = true;
         }
+        else
+        {
+            OLO_CORE_WARN("AttributeSet::SetBaseValue – attribute '{}' not defined", name);
+        }
     }
 
     void AttributeSet::AddModifier(const std::string& attribute, const AttributeModifier& modifier)

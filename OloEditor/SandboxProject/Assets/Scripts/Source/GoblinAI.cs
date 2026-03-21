@@ -31,7 +31,7 @@ namespace Sandbox
 			if (!m_Abilities.HasTag("State.Alive"))
 				return;
 
-			if (m_Player == null)
+			if (m_Player == null || m_Player.IsDestroyed)
 				m_Player = FindEntityByName("Player");
 			if (m_Player == null)
 				return;

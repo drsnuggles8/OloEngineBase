@@ -75,9 +75,14 @@ namespace OloEngine
 
         auto const& def = target->Definition;
 
-        // Already active?
+        // Already active? Toggled abilities can be deactivated by re-activating
         if (target->IsActive)
         {
+            if (def.IsToggled)
+            {
+                CancelAbility(scene, owner, abilityTag);
+                return true;
+            }
             return false;
         }
 
@@ -139,8 +144,8 @@ namespace OloEngine
             ac.ActiveEffects.ApplyEffect(effect, ac.OwnedTags, def.AbilityTag);
         }
 
-        // For non-channeled abilities, immediately deactivate
-        if (!def.IsChanneled)
+        // For non-channeled, non-toggled abilities, immediately deactivate
+        if (!def.IsChanneled && !def.IsToggled)
         {
             target->IsActive = false;
             for (auto const& tag : def.ActivationGrantedTags.GetTags())

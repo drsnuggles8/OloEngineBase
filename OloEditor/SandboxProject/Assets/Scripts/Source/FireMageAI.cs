@@ -32,7 +32,7 @@ namespace Sandbox
 			if (!m_Abilities.HasTag("State.Alive"))
 				return;
 
-			if (m_Player == null)
+			if (m_Player == null || m_Player.IsDestroyed)
 				m_Player = FindEntityByName("Player");
 			if (m_Player == null)
 				return;
@@ -68,6 +68,10 @@ namespace Sandbox
 					Debug.Log("[FireMage] Fire Shield!");
 					m_ShieldTimer = 15.0f;
 				}
+				else
+				{
+					m_ShieldTimer = 0.5f; // Throttle retries
+				}
 			}
 
 			// Movement via direct translation (no NavMesh needed)
@@ -97,6 +101,10 @@ namespace Sandbox
 				{
 					Debug.Log("[FireMage] Fire Bolt!");
 					m_CastTimer = 3.0f;
+				}
+				else
+				{
+					m_CastTimer = 0.5f; // Throttle retries
 				}
 			}
 		}

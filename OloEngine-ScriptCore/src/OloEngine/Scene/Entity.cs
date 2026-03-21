@@ -14,6 +14,9 @@ namespace OloEngine
 
 		public readonly ulong ID;
 
+		public bool IsValid => ID != 0 && InternalCalls.Entity_IsValid(ID);
+		public bool IsDestroyed => ID != 0 && !InternalCalls.Entity_IsValid(ID);
+
 		public Vector3 Translation
 		{
 			get

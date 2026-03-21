@@ -56,4 +56,15 @@ namespace OloEngine
         s_CustomFormula = nullptr;
     }
 
+    DamageCalculation::ScopedFormula::ScopedFormula(CustomFormula formula)
+        : m_Previous(std::move(s_CustomFormula))
+    {
+        s_CustomFormula = std::move(formula);
+    }
+
+    DamageCalculation::ScopedFormula::~ScopedFormula()
+    {
+        s_CustomFormula = std::move(m_Previous);
+    }
+
 } // namespace OloEngine

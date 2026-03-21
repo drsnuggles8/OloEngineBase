@@ -756,6 +756,16 @@ namespace OloEngine
                                               "offeredQuestIDs", &QuestGiverComponent::OfferedQuestIDs,
                                               "turnInQuestIDs", &QuestGiverComponent::TurnInQuestIDs);
 
+        // --- Entity utilities ---
+        auto entityUtilsTable = lua.create_named_table("entity_utils");
+        entityUtilsTable["is_valid"] = [](Entity* entity) -> bool
+        {
+            if (!entity)
+                return false;
+            Scene* scene = ScriptEngine::GetSceneContext();
+            return scene && scene->TryGetEntityWithUUID(entity->GetUUID()).has_value();
+        };
+
         // --- AbilityComponent ---
         lua.new_usertype<AbilityComponent>("AbilityComponent", "GetAttribute", [](const AbilityComponent& comp, const std::string& name) -> f32
                                            { return comp.Attributes.GetBaseValue(name); }, "SetAttribute", [](AbilityComponent& comp, const std::string& name, f32 value)
