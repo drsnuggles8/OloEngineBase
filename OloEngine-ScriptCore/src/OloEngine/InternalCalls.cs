@@ -56,6 +56,10 @@ namespace OloEngine
         #region Rigidbody2DComponent
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         internal extern static bool Input_IsKeyDown(KeyCode keycode);
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static bool Input_IsKeyJustPressed(KeyCode keycode);
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static bool Input_IsKeyJustReleased(KeyCode keycode);
         #endregion
 
         #region Gamepad

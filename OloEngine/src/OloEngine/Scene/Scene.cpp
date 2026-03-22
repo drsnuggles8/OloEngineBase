@@ -48,6 +48,7 @@
 #include "OloEngine/Terrain/Voxel/MarchingCubes.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/MouseCodes.h"
+#include "OloEngine/Navigation/NavMeshGenerator.h"
 #include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
@@ -420,6 +421,51 @@ namespace OloEngine
             config.MaxLoadedRegions = m_StreamingSettings.MaxLoadedRegions;
             config.RegionDirectory = m_StreamingSettings.RegionDirectory;
             m_SceneStreamer->Initialize(this, config);
+        }
+
+        // Auto-bake NavMesh if agents exist but no NavMesh is loaded
+        if (!m_NavMesh)
+        {
+            auto agentView = GetAllEntitiesWith<NavAgentComponent>();
+            if (agentView.begin() != agentView.end())
+            {
+                // Determine bounds from NavMeshBoundsComponent or use defaults
+                glm::vec3 boundsMin(-100.0f, -10.0f, -100.0f);
+                glm::vec3 boundsMax(100.0f, 50.0f, 100.0f);
+
+                auto boundsView = GetAllEntitiesWith<NavMeshBoundsComponent>();
+                bool firstBounds = true;
+                for (auto e : boundsView)
+                {
+                    auto& bounds = m_Registry.get<NavMeshBoundsComponent>(e);
+                    if (firstBounds)
+                    {
+                        boundsMin = bounds.m_Min;
+                        boundsMax = bounds.m_Max;
+                        firstBounds = false;
+                    }
+                    else
+                    {
+                        boundsMin = glm::min(boundsMin, bounds.m_Min);
+                        boundsMax = glm::max(boundsMax, bounds.m_Max);
+                    }
+                }
+
+                OLO_CORE_INFO("[Scene] Auto-baking NavMesh for {} agent(s)...",
+                              std::distance(agentView.begin(), agentView.end()));
+
+                NavMeshSettings settings;
+                auto navMesh = NavMeshGenerator::Generate(this, settings, boundsMin, boundsMax);
+                if (navMesh)
+                {
+                    SetNavMesh(navMesh);
+                    OLO_CORE_INFO("[Scene] NavMesh auto-baked: {} polys", navMesh->GetPolyCount());
+                }
+                else
+                {
+                    OLO_CORE_WARN("[Scene] NavMesh auto-bake failed — NavAgent pathfinding will not work");
+                }
+            }
         }
     }
 

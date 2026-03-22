@@ -33,6 +33,12 @@ namespace OloEngine
 
         void OnAttach() override
         {
+            // Show a loading screen immediately so the user doesn't see a blank white window
+            // while assets/shaders/scenes are being loaded.
+            RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
+            RenderCommand::Clear();
+            Application::Get().GetWindow().SwapBuffers();
+
             // Set up runtime asset manager with pack-based loading
             auto runtimeAssetManager = Ref<RuntimeAssetManager>::Create();
             Project::SetAssetManager(runtimeAssetManager);

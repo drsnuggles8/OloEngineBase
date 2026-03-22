@@ -7,6 +7,16 @@ namespace OloEngine
 			return InternalCalls.Input_IsKeyDown(keycode);
 		}
 
+		public static bool IsKeyJustPressed(KeyCode keycode)
+		{
+			return InternalCalls.Input_IsKeyJustPressed(keycode);
+		}
+
+		public static bool IsKeyJustReleased(KeyCode keycode)
+		{
+			return InternalCalls.Input_IsKeyJustReleased(keycode);
+		}
+
 		public static bool IsActionPressed(string actionName)
 		{
 			return InternalCalls.Input_IsActionPressed(actionName);

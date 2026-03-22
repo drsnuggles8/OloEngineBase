@@ -6,11 +6,46 @@
 
 namespace OloEngine
 {
+    // Track previous-frame key state for just-pressed / just-released detection
+    static constexpr i32 s_MaxKeys = GLFW_KEY_LAST + 1;
+    static bool s_CurrentKeys[s_MaxKeys]{};
+    static bool s_PreviousKeys[s_MaxKeys]{};
+
+    void Input::Update()
+    {
+        auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
+        std::memcpy(s_PreviousKeys, s_CurrentKeys, sizeof(s_CurrentKeys));
+        for (i32 key = 0; key < s_MaxKeys; ++key)
+        {
+            s_CurrentKeys[key] = (GLFWAPI::glfwGetKey(window, key) == GLFW_PRESS);
+        }
+    }
+
     bool Input::IsKeyPressed(const KeyCode key)
     {
         auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
         const auto state = GLFWAPI::glfwGetKey(window, static_cast<i32>(key));
         return GLFW_PRESS == state;
+    }
+
+    bool Input::IsKeyJustPressed(const KeyCode key)
+    {
+        const auto k = static_cast<i32>(key);
+        if (k < 0 || k >= s_MaxKeys)
+        {
+            return false;
+        }
+        return s_CurrentKeys[k] && !s_PreviousKeys[k];
+    }
+
+    bool Input::IsKeyJustReleased(const KeyCode key)
+    {
+        const auto k = static_cast<i32>(key);
+        if (k < 0 || k >= s_MaxKeys)
+        {
+            return false;
+        }
+        return !s_CurrentKeys[k] && s_PreviousKeys[k];
     }
 
     bool Input::IsMouseButtonPressed(const MouseCode button)

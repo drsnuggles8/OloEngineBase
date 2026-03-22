@@ -2,6 +2,7 @@
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Audio/AudioEngine.h"
 #include "OloEngine/Core/GamepadManager.h"
+#include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Timer.h"
@@ -244,6 +245,9 @@ namespace OloEngine
             {
                 break;
             }
+
+            // Snapshot raw keyboard state for just-pressed / just-released detection
+            Input::Update();
 
             // Update gamepad state (polls GLFW for gamepad button/axis states)
             OLO_PROFILE_FRAMEMARK_START("GamepadManager Update");

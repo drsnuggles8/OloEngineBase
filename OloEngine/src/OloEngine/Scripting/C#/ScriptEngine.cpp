@@ -13,6 +13,7 @@
 #include "mono/metadata/tabledefs.h"
 #include "mono/metadata/mono-debug.h"
 #include "mono/metadata/threads.h"
+#include <mono/utils/mono-logger.h>
 
 #ifdef _MSC_VER
 #pragma warning(push)
@@ -216,10 +217,25 @@ namespace OloEngine
         delete s_Data;
     }
 
+    static void MonoPrintCallback(const char* string, mono_bool is_stdout)
+    {
+        if (is_stdout)
+        {
+            OLO_CORE_INFO("[C#] {}", string);
+        }
+        else
+        {
+            OLO_CORE_ERROR("[C#] {}", string);
+        }
+    }
+
     void ScriptEngine::InitMono()
     {
         OLO_PROFILE_FUNCTION();
         ::mono_set_assemblies_path("mono/lib");
+
+        ::mono_trace_set_print_handler(MonoPrintCallback);
+        ::mono_trace_set_printerr_handler(MonoPrintCallback);
 
         if (s_Data->EnableDebugging)
         {

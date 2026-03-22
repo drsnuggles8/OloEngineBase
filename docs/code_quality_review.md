@@ -103,13 +103,13 @@ Several C# component classes exist but are empty bodies:
 - `ItemContainerComponent` — empty class body
 - `QuestGiverComponent` — empty class body
 
-### 3.3 Missing Physics.Raycast and Camera.ScreenToWorldRay
+### ~~3.3 Missing Physics.Raycast and Camera.ScreenToWorldRay~~ — **DONE**
 
-These are the most impactful missing bindings. The C++ side has full Jolt ray/shape casting, but no `InternalCall` bridge exists. Documented in `docs/gameplay_system_missing_features.md`.
+**Resolved.** `Physics.Raycast` and `Camera.ScreenToWorldRay` are now exposed to both C# (via Mono `InternalCall`) and Lua (via Sol2 bindings). Additionally, cross-entity damage routing (`ApplyDamageToTarget`, `TryActivateAbilityOnTarget`) has been added to both scripting languages.
 
-### 3.4 Mono stdout Not Redirected
+### ~~3.4 Mono stdout Not Redirected~~ — **DONE**
 
-`Console.WriteLine()` in C# goes to system stdout, not the editor's ConsolePanel. Only `Debug.Log()` routes properly. Documented as known issue; fix involves calling `mono_set_print_callback()` in `ScriptEngine::InitMono()`.
+**Resolved.** `mono_trace_set_print_handler()` and `mono_trace_set_printerr_handler()` are called in `ScriptEngine::InitMono()`, routing Mono stdout/stderr through `OLO_CLIENT_INFO` / `OLO_CLIENT_ERROR`. `Console.WriteLine()` now appears in the editor ConsolePanel.
 
 ---
 
@@ -117,10 +117,13 @@ These are the most impactful missing bindings. The C++ side has full Jolt ray/sh
 
 ### 4.1 No Install or Packaging Targets
 
-The CMake configuration has **no `install()` rules** and **no CPack configuration**. This means:
-- No `cmake --install` workflow for creating a deployable package
-- No automated creation of ZIP/MSI/NSIS installers
-- Assets, DLLs, and executables must be manually assembled for distribution
+The CMake configuration has **no `install()` rules** and **no CPack configuration**. However, the `GameBuildPipeline` (invoked from the editor’s `BuildGamePanel`) now handles standalone game assembly.
+
+Remaining gaps:
+- No `cmake --install` workflow for creating a deployable *engine/editor* package
+- No automated creation of ZIP/MSI/NSIS installers for the engine itself
+
+**Improvement (March 2026):** `add_dependencies(OloEditor OloRuntime)` ensures OloRuntime is always rebuilt alongside OloEditor, and `CopyRuntimeExecutable` now warns at build time if the OloRuntime binary is stale.
 
 ### 4.2 Dist Configuration Ambiguity
 
@@ -129,9 +132,9 @@ The `Dist` build type inherits from `Release` flags but:
 - No explicit symbol stripping configured for Dist
 - No documented difference between Release and Dist beyond the preprocessor define `OLO_DIST`
 
-### 4.3 VULKAN_SDK Environment Variable Required
+### ~~4.3 VULKAN_SDK Environment Variable Required~~ — **DONE**
 
-Shader compilation depends on `$ENV{VULKAN_SDK}/Lib/` for shaderc, SPIRV-Tools, and glslang libraries. If the environment variable is missing, the build fails without a clear CMake error message. No `find_package()` fallback or informative `message(FATAL_ERROR ...)`.
+**Resolved.** `OloEngine/CMakeLists.txt` now checks for `$ENV{VULKAN_SDK}` early and issues a clear `message(FATAL_ERROR ...)` with instructions to install the Vulkan SDK and set the environment variable.
 
 ### 4.4 Mono Libraries Checked-In
 

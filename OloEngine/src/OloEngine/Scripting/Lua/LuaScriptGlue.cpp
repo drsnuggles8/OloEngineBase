@@ -270,6 +270,14 @@ namespace OloEngine
         {
             return Input::IsKeyPressed(keycode);
         };
+        inputTable["IsKeyJustPressed"] = [](u16 keycode)
+        {
+            return Input::IsKeyJustPressed(static_cast<KeyCode>(keycode));
+        };
+        inputTable["IsKeyJustReleased"] = [](u16 keycode)
+        {
+            return Input::IsKeyJustReleased(static_cast<KeyCode>(keycode));
+        };
         inputTable["IsMouseButtonDown"] = [](u16 button)
         {
             return Input::IsMouseButtonPressed(button);

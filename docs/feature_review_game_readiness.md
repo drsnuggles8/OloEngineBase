@@ -9,7 +9,7 @@
 
 OloEngine has an **impressive and comprehensive feature set** across 40+ subsystems. The editor is polished for prototyping and iteration: play/pause/stop works, undo/redo is deep, 18 editor panels cover nearly every system, and the ECS with 60+ component types provides a rich vocabulary for game construction.
 
-However, **the engine is not yet ready to ship a game to Steam**. The critical gap is not in individual systems — most subsystems are well-built — but in the **end-to-end game development workflow**: specifically, builds cannot be exported as standalone executables, the C# scripting API is missing key gameplay bindings, and several systems that exist as C++ infrastructure lack the script-level wiring needed by a game developer working in the editor.
+The engine can now **export standalone game builds** via `OloRuntime.exe` + `GameBuildPipeline`, and the critical P0 scripting bindings (`Physics.Raycast`, `Camera.ScreenToWorldRay`, cross-entity damage routing) are in place. The **remaining gap** for shipping a game to Steam is the C# scripting API parity with Lua — many gameplay systems that work in C++ and have Lua bindings still lack C# wrappers.
 
 ---
 
@@ -39,8 +39,8 @@ However, **the engine is not yet ready to ship a game to Steam**. The critical g
 | Requirement | Status | Notes |
 |-------------|--------|-------|
 | First-person camera | ✅ Ready | RuntimeControl camera with fly speed |
-| 3D physics + raycasting | ✅ Ready (C++) | Jolt ray/shape casting, but C# `Physics.Raycast` binding missing |
-| Weapon system (hitscan) | ⚠️ Partial | Raycasting exists in C++ but not exposed to scripts |
+| 3D physics + raycasting | ✅ Ready | Jolt ray/shape casting with C# + Lua `Physics.Raycast` binding |
+| Weapon system (hitscan) | ✅ Ready | `Physics.Raycast` + `Camera.ScreenToWorldRay` exposed to scripts |
 | Multiplayer networking | ✅ Ready | Steam Networking Sockets, snapshots, prediction, rollback |
 | Client-side prediction | ✅ Ready | Built-in prediction + reconciliation system |
 | Lobby system | ✅ Ready | Create/Join/Leave/Start lobby messages |
@@ -49,7 +49,7 @@ However, **the engine is not yet ready to ship a game to Steam**. The critical g
 | **Matchmaking** | ❌ Missing | No matchmaking service integration |
 | **Standalone client build** | ✅ Ready | OloRuntime + BuildGamePanel |
 
-**Verdict: ~60% ready.** Strong networking, but missing C# raycast bindings, standalone client, and competitive infrastructure.
+**Verdict: ~70% ready.** Strong networking, missing competitive infrastructure (anti-cheat, matchmaking).
 
 ---
 
@@ -57,10 +57,10 @@ However, **the engine is not yet ready to ship a game to Steam**. The critical g
 
 | Requirement | Status | Notes |
 |-------------|--------|-------|
-| Click-to-move pathfinding | ❌ Blocked | `Physics.Raycast` + `Camera.ScreenToWorldRay` not in C# |
-| NavMesh pathfinding | ⚠️ Partial | Works in C++, NavMesh must be manually baked before play |
+| Click-to-move pathfinding | ✅ Ready | `Physics.Raycast` + `Camera.ScreenToWorldRay` now in C# + Lua |
+| NavMesh pathfinding | ✅ Ready | Auto-bakes on `OnRuntimeStart()` when `NavAgentComponent` entities exist |
 | Ability system (GAS) | ✅ Ready | Full Gameplay Ability System with cooldowns, resources, tags, effects |
-| Damage system | ⚠️ Partial | DamageCalculation + DamageEvent exist in C++ but no C# bindings for target entity application |
+| Damage system | ✅ Ready | `ApplyDamageToTarget` + `TryActivateAbilityOnTarget` in C# + Lua |
 | Inventory + loot | ✅ Ready | Full inventory, item pickups, containers, shops |
 | Skill trees / talent system | ❌ Missing | No skill tree data structure or UI |
 | Minimap | ❌ Missing | No minimap rendering system |
@@ -68,9 +68,9 @@ However, **the engine is not yet ready to ship a game to Steam**. The critical g
 | AI for enemies | ✅ Ready | BehaviorTree + FSM with blackboard |
 | Skeletal animation | ✅ Ready | AnimationGraph with blend trees, layers, transitions |
 | Particle effects | ✅ Ready | CPU + GPU particles with full module system |
-| **Standalone build** | ❌ Missing | |
+| **Standalone build** | ✅ Ready | OloRuntime + BuildGamePanel + GameBuildPipeline |
 
-**Verdict: ~55% ready.** Gameplay systems are strong but the critical click-to-move workflow is blocked by missing scripting bindings.
+**Verdict: ~70% ready.** Gameplay systems are strong; main gaps are skill trees, minimap, and RTS selection.
 
 ---
 
@@ -88,9 +88,9 @@ However, **the engine is not yet ready to ship a game to Steam**. The critical g
 | Auction house / economy | ❌ Missing | No economy/trading system |
 | PvP / PvE instancing | ✅ Ready | Instance portal + zone instancing in networking |
 | LOD + draw distance | ✅ Ready | LODGroup + terrain LOD quadtree |
-| **Standalone client** | ❌ Missing | |
+| **Standalone client** | ✅ Ready | OloRuntime + BuildGamePanel + GameBuildPipeline |
 
-**Verdict: ~50% ready.** Impressive server and streaming infrastructure, but missing social/economy systems and client packaging.
+**Verdict: ~55% ready.** Impressive server and streaming infrastructure, but missing social/economy systems.
 
 ---
 
@@ -119,7 +119,7 @@ However, **the engine is not yet ready to ship a game to Steam**. The critical g
 **Resolved.** `OloRuntime.exe` loads asset packs, deserializes scenes, and runs the game loop. The `BuildGamePanel` in OloEditor provides a GUI to configure and trigger game builds. The 9-step `GameBuildPipeline` assembles a standalone game directory with assets, scenes, shaders, fonts, textures, Mono runtime, script assemblies, and a `game.manifest` for configuration. The `CrashReporter` generates minidumps and crash reports for shipped games.
 
 **Known remaining issues:**
-- **Loading screen** — On first launch the runtime shows a white screen while shaders compile (especially in Debug builds). A proper loading screen with progress indication is needed.
+- ~~**Loading screen**~~ — **Mitigated.** The runtime now clears to a dark background and swaps buffers immediately on startup, eliminating the white flash. A full progress-bar loading screen could be added later.
 - **IBL cache** — The `IBLCache` system is not initialized in the runtime; IBL textures are regenerated each launch instead of being cached. This adds to startup time.
 - **Shader cache** — SPIR-V shader compilation should be cached to avoid recompilation across launches.
 
@@ -139,39 +139,36 @@ The C# scripting API (used by game developers) is significantly behind the Lua A
 | Dialogue (start, advance, select_choice) | ❌ | ✅ |
 | Navigation (NavAgent target, clearTarget) | ❌ | ✅ |
 | AI/Behavior (blackboard get/set) | ❌ | ✅ |
-| Physics.Raycast | ❌ | ❌ (both missing) |
-| Input.IsKeyJustPressed | ❌ | ❌ (both missing) |
+| Physics.Raycast | ✅ | ✅ |
+| Camera.ScreenToWorldRay | ✅ | ✅ |
+| Damage routing (ApplyDamageToTarget, TryActivateAbilityOnTarget) | ✅ | ✅ |
+| Input.IsKeyJustPressed | ✅ | ✅ |
 
 Since C# (Mono) is the primary user-facing scripting language and most example scripts are written in C#, these gaps directly block game development workflows.
 
 ---
 
-### 3. Physics Raycast Scripting Binding
+### ~~3. Physics Raycast Scripting Binding~~ — **DONE**
 
-`Physics::Raycast` exists in C++ (via Jolt) but has no C# or Lua binding. This blocks:
-- Click-to-move (ARPG, RTS)
-- Hitscan weapons (FPS)
-- Line-of-sight checks (AI)
-- Object interaction (adventure games)
-- Ground snapping (terrain tools)
+**Resolved.** `Physics.Raycast` is now exposed to both C# and Lua, returning hit position and entity ID. `Camera.ScreenToWorldRay` is also available for mouse-to-world conversion. This unblocks click-to-move, hitscan weapons, line-of-sight checks, object interaction, and ground snapping.
 
 ---
 
-### 4. NavMesh Auto-Bake on Play
+### ~~4. NavMesh Auto-Bake on Play~~ — **DONE**
 
-NavMesh must be manually baked via the editor panel before entering Play mode. If forgotten, all NavAgent pathfinding silently does nothing. This should auto-bake or auto-load on `OnRuntimeStart()`.
+**Resolved.** `Scene::OnRuntimeStart()` now auto-bakes the NavMesh when `NavAgentComponent` entities exist but no NavMesh is loaded. Bounds are collected from `NavMeshBoundsComponent` entities (defaulting to ±100).
 
 ---
 
 ## Important Missing Features (Per-Genre)
 
 ### For Any Game
-- **Input.IsKeyJustPressed(KeyCode)** — Raw keyboard one-shot detection. Currently only available via InputAction system (requires pre-registered action names).
-- **Console.WriteLine → Editor Console** — `Debug.Log()` works, but `Console.WriteLine()` goes to stdout, confusing developers.
+- ~~**Input.IsKeyJustPressed(KeyCode)**~~ — **DONE.** Raw keyboard one-shot detection now available in C++, C#, and Lua via per-key previous/current frame state tracking.
+- ~~**Console.WriteLine → Editor Console**~~ — **DONE.** Mono stdout/stderr redirected via `mono_trace_set_print_handler()`; `Console.WriteLine()` now appears in the editor console.
 
 ### For 3D Games (Most Genres)
-- **Screen-to-world ray** — `Camera.ScreenToWorldRay()` C# binding needed for mouse interaction in 3D.
-- **Damage routing between entities** — `DamageEvent` and `DamageCalculation` exist in C++ GAS but aren't wired for cross-entity application via script.
+- **Screen-to-world ray** — ~~`Camera.ScreenToWorldRay()` C# binding needed for mouse interaction in 3D.~~ **DONE**
+- **Damage routing between entities** — ~~`DamageEvent` and `DamageCalculation` exist in C++ GAS but aren't wired for cross-entity application via script.~~ **DONE**
 
 ### For Open World / MMO
 - **Character creation** — No built-in character customization system.
@@ -222,12 +219,12 @@ The following systems are production-quality and ready for game development:
 |----------|---------|-----------------|--------|
 | **P0** | ~~Standalone game runtime (`OloRuntime.exe`)~~ | ~~Large~~ | ✅ Done |
 | **P0** | ~~`RuntimeAssetManager::LoadAssetPack()` implementation~~ | ~~Medium~~ | ✅ Done |
-| **P0** | `Physics.Raycast` C# + Lua bindings | Small | Unblocks click-to-move, FPS, interactions |
-| **P0** | `Camera.ScreenToWorldRay` C# binding | Small | Unblocks mouse-to-world for all 3D games |
+| **P0** | ~~`Physics.Raycast` C# + Lua bindings~~ | ~~Small~~ | ✅ Done |
+| **P0** | ~~`Camera.ScreenToWorldRay` C# binding~~ | ~~Small~~ | ✅ Done |
 | **P1** | C# scripting parity with Lua (Animation, Quest, Inventory, Ability, AI) | Medium | Unblocks gameplay scripting |
-| **P1** | Auto-bake NavMesh on runtime start | Small | Unblocks AI pathfinding for play-test |
-| **P1** | `Input.IsKeyJustPressed(KeyCode)` C# binding | Small | Quality-of-life for all scripts |
-| **P1** | Damage routing between entities (GAS target application) | Medium | Unblocks combat gameplay |
+| **P1** | ~~Auto-bake NavMesh on runtime start~~ | ~~Small~~ | ✅ Done |
+| **P1** | ~~`Input.IsKeyJustPressed(KeyCode)` C# binding~~ | ~~Small~~ | ✅ Done |
+| **P1** | ~~Damage routing between entities (GAS target application)~~ | ~~Medium~~ | ✅ Done |
 | **P2** | Steam SDK integration (achievements, overlay, workshop) | Medium | Required for Steam release |
 | **P2** | Window config (title, icon, resolution, fullscreen) | Small | Required for polished release |
 | **P2** | Tilemap system (for 2D games) | Medium | Enables 2D game development |
@@ -241,6 +238,6 @@ The following systems are production-quality and ready for game development:
 
 OloEngine is a remarkably complete engine with deep subsystems covering rendering, physics, audio, AI, networking, gameplay, and editor tooling. The core architecture is solid and the level of integration between systems (e.g., wind field → foliage + particles + snow, gameplay ability system → quest → inventory) shows thoughtful design.
 
-The **single biggest gap** is the absence of a standalone game runtime — a way to export what you've built in the editor as a playable game. Combined with the C# scripting API gaps (particularly `Physics.Raycast` and gameplay system bindings), this means a game developer currently **cannot complete the development loop**: they can design and iterate in the editor, but they cannot ship.
+The **single biggest remaining gap** is the C# scripting API parity with Lua — many gameplay systems (Animation, Quest, Inventory, Dialogue, NavAgent, AI) have full Lua bindings but no C# wrappers. Since C# is the primary user-facing scripting language, this limits what game developers can build from the editor.
 
-Closing the P0 items (standalone runtime + asset packing + raycast binding) would make the engine viable for simple 3D games. Closing P0 + P1 items would make it viable for RPGs, action games, and multiplayer games. The engine is closer to "ready" than it might seem — the foundations are all there, and the remaining work is mostly about completing the pipeline from "editor prototype" to "shipped product."
+All P1 items except C# scripting parity are now resolved (NavMesh auto-bake, `Input.IsKeyJustPressed`, damage routing). Closing the remaining C# parity work would make the engine viable for RPGs, action games, and multiplayer titles. The engine is closer to "ready" than it might seem — the foundations are all there, and the remaining work is mostly about completing the C# binding layer to match what Lua already exposes.

@@ -128,6 +128,18 @@ target_link_libraries(OloEngine
 	Vulkan::Vulkan
 	Vulkan::glslang
 	Vulkan::SPIRV-Tools
+)
+
+# shaderc and spirv-cross are not available through find_package; link directly
+# from the Vulkan SDK installation.
+if(NOT DEFINED ENV{VULKAN_SDK})
+	message(FATAL_ERROR
+		"VULKAN_SDK environment variable is not set.\n"
+		"Install the Vulkan SDK from https://vulkan.lunarg.com/sdk/home and "
+		"ensure the VULKAN_SDK environment variable points to the installation directory.")
+endif()
+
+target_link_libraries(OloEngine
 	debug $ENV{VULKAN_SDK}/Lib/shaderc_sharedd.lib
 	debug $ENV{VULKAN_SDK}/Lib/spirv-cross-cored.lib
 	debug $ENV{VULKAN_SDK}/Lib/spirv-cross-glsld.lib

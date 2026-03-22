@@ -2124,6 +2124,16 @@ namespace OloEngine
         return Input::IsKeyPressed(keycode);
     }
 
+    static bool Input_IsKeyJustPressed(KeyCode keycode)
+    {
+        return Input::IsKeyJustPressed(keycode);
+    }
+
+    static bool Input_IsKeyJustReleased(KeyCode keycode)
+    {
+        return Input::IsKeyJustReleased(keycode);
+    }
+
     static bool Input_IsGamepadButtonPressed(u8 button, i32 gamepadIndex)
     {
         if (button >= Gamepad::ButtonCount)
@@ -3226,6 +3236,8 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(Rigidbody2DComponent_ApplyLinearImpulseToCenter);
 
         OLO_ADD_INTERNAL_CALL(Input_IsKeyDown);
+        OLO_ADD_INTERNAL_CALL(Input_IsKeyJustPressed);
+        OLO_ADD_INTERNAL_CALL(Input_IsKeyJustReleased);
 
         ///////////////////////////////////////////////////////////////
         // Gamepad ////////////////////////////////////////////////////
