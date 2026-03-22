@@ -4699,17 +4699,28 @@ namespace OloEngine
         }
 
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
+        // Collect entity handles and sort by UUID so the file order is
+        // deterministic regardless of EnTT's internal iteration order.
+        std::vector<entt::entity> sortedEntities;
         m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
-                                                      {
-				// SAFETY: m_Scene is const Ref<Scene>, but Entity requires non-const Scene*
-				// This is safe because serialization only reads entity data
-				Entity const entity = { entityID, const_cast<Scene*>(m_Scene.get()) };
-				if (!entity)
-				{
-					return;
-				}
+                                                      { sortedEntities.push_back(entityID); });
+        std::ranges::sort(sortedEntities, [&](entt::entity a, entt::entity b)
+                          {
+                              const u64 uuidA = m_Scene->m_Registry.get<IDComponent>(a).ID;
+                              const u64 uuidB = m_Scene->m_Registry.get<IDComponent>(b).ID;
+                              return uuidA < uuidB; });
+        for (auto entityID : sortedEntities)
+        {
+            // SAFETY: m_Scene is const Ref<Scene>, but Entity requires non-const Scene*
+            // This is safe because serialization only reads entity data
+            Entity const entity = { entityID, const_cast<Scene*>(m_Scene.get()) };
+            if (!entity)
+            {
+                continue;
+            }
 
-				SerializeEntity(out, entity); });
+            SerializeEntity(out, entity);
+        }
         out << YAML::EndSeq;
         out << YAML::EndMap;
 
@@ -4800,22 +4811,36 @@ namespace OloEngine
 
         if (const auto entities = data["Entities"]; entities)
         {
+            u32 entityCount = 0;
+            u32 failedCount = 0;
+
             for (auto entity : entities)
             {
-                auto uuid = entity["Entity"].as<u64>();
-
-                std::string name;
-                if (auto tagComponent = entity["TagComponent"]; tagComponent)
+                try
                 {
-                    name = tagComponent["Tag"].as<std::string>();
+                    auto uuid = entity["Entity"].as<u64>();
+
+                    std::string name;
+                    if (auto tagComponent = entity["TagComponent"]; tagComponent)
+                    {
+                        name = tagComponent["Tag"].as<std::string>();
+                    }
+
+                    OLO_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
+
+                    Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
+
+                    DeserializeEntityComponents(deserializedEntity, entity);
+                    ++entityCount;
                 }
-
-                OLO_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
-
-                Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
-
-                DeserializeEntityComponents(deserializedEntity, entity);
+                catch (const std::exception& e)
+                {
+                    OLO_CORE_ERROR("SceneSerializer: Failed to deserialize entity — {}", e.what());
+                    ++failedCount;
+                }
             }
+
+            OLO_CORE_INFO("SceneSerializer: Deserialized {} entities ({} failed)", entityCount, failedCount);
         }
         m_Scene->SetName(std::filesystem::path(filepath).filename().string());
 

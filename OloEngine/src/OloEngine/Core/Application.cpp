@@ -223,11 +223,15 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Seed the frame timer so the first iteration doesn't include
+        // the entire startup/attach time as one gigantic delta.
+        m_LastFrameTime = Time::GetTime();
+
         while (m_Running)
         {
 
             const auto timeNow = Time::GetTime();
-            const Timestep timestep = timeNow - m_LastFrameTime;
+            const Timestep timestep = std::min(timeNow - m_LastFrameTime, s_MaxTimestep);
             m_LastFrameTime = timeNow;
 
             // Poll OS events first so GLFW key state is fresh for this frame

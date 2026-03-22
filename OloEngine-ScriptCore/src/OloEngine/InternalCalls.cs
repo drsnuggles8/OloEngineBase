@@ -783,6 +783,20 @@ namespace OloEngine
 		internal static extern void AbilityComponent_AddTag(ulong entityID, string tag);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void AbilityComponent_RemoveTag(ulong entityID, string tag);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AbilityComponent_ApplyDamageToTarget(ulong sourceEntityID, ulong targetEntityID, float rawDamage, string damageTypeTag, bool isCritical);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool AbilityComponent_TryActivateAbilityOnTarget(ulong casterEntityID, string abilityTag, ulong targetEntityID);
+		#endregion
+
+		#region Physics
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool Physics_Raycast(ref Vector3 origin, ref Vector3 direction, float maxDistance, out Vector3 hitPosition, out Vector3 hitNormal, out float hitDistance, out ulong hitEntityID);
+		#endregion
+
+		#region Camera
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Camera_ScreenToWorldRay(ulong cameraEntityID, ref Vector2 screenPos, out Vector3 origin, out Vector3 direction);
 		#endregion
 	}
 }

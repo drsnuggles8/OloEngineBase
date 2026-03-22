@@ -6,6 +6,7 @@
 
 #include <array>
 #include <atomic>
+#include <functional>
 #include <thread>
 
 namespace OloEngine
@@ -40,7 +41,17 @@ namespace OloEngine
         void SetEditorScenePath(const std::filesystem::path& path);
 
         /// Set whether the editor is currently in 3D mode.
-        void SetIs3DMode(bool is3D) { m_Settings.Is3DMode = is3D; }
+        void SetIs3DMode(bool is3D)
+        {
+            m_Settings.Is3DMode = is3D;
+        }
+
+        /// Register a callback that saves the current editor scene to disk.
+        /// Called automatically before each build to ensure the latest version is packaged.
+        void SetSaveSceneCallback(std::function<bool()> callback)
+        {
+            m_SaveSceneCallback = std::move(callback);
+        }
 
       private:
         void RenderBuildSettings();
@@ -69,6 +80,7 @@ namespace OloEngine
 
         // Scene selection
         std::filesystem::path m_EditorScenePath; // currently open scene (absolute)
+        std::function<bool()> m_SaveSceneCallback;
 
         // Results
         GameBuildResult m_LastBuildResult;

@@ -106,6 +106,7 @@ namespace OloEngine
         bool m_Running = true;
         bool m_Minimized = false;
         LayerStack m_LayerStack;
+        static constexpr f32 s_MaxTimestep = 0.25f;
         f32 m_LastFrameTime = 0.0f;
 
       private:

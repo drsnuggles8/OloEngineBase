@@ -233,6 +233,15 @@ namespace OloEngine
 
     void BuildGamePanel::StartBuild()
     {
+        // Auto-save the current editor scene to ensure the build packages the latest version
+        if (m_SaveSceneCallback)
+        {
+            if (!m_SaveSceneCallback())
+            {
+                OLO_CORE_WARN("[GameBuild] Scene save failed — building with last-saved version");
+            }
+        }
+
         // Sync settings from UI
         m_Settings.GameName = m_GameNameBuffer.data();
         m_Settings.BuildConfiguration = s_ConfigOptions[m_ConfigIndex];
@@ -271,7 +280,7 @@ namespace OloEngine
         GameBuildSettings settings = m_Settings;
 
         m_BuildThread = std::jthread([this, settings](std::stop_token)
-        {
+                                     {
             std::atomic<f32> progress = 0.0f;
 
             // Launch a progress forwarding loop on this thread
@@ -286,8 +295,7 @@ namespace OloEngine
                 static_cast<i32>(progress.load(std::memory_order_relaxed) * 1000.0f),
                 std::memory_order_relaxed);
 
-            m_IsBuildInProgress.store(false, std::memory_order_release);
-        });
+            m_IsBuildInProgress.store(false, std::memory_order_release); });
     }
 
     void BuildGamePanel::CancelBuild()

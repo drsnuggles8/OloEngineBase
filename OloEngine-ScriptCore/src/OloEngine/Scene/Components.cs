@@ -1515,5 +1515,24 @@ namespace OloEngine
 			if (string.IsNullOrWhiteSpace(tag)) return;
 			InternalCalls.AbilityComponent_RemoveTag(Entity.ID, tag);
 		}
+
+		/// <summary>
+		/// Apply calculated damage from this entity to a target entity.
+		/// Uses the DamageCalculation pipeline (attack power, crit, defense, resistance).
+		/// Returns the final damage dealt after all calculations.
+		/// </summary>
+		public float ApplyDamageToTarget(ulong targetEntityID, float rawDamage, string damageType = "", bool isCritical = false)
+		{
+			return InternalCalls.AbilityComponent_ApplyDamageToTarget(Entity.ID, targetEntityID, rawDamage, damageType, isCritical);
+		}
+
+		/// <summary>
+		/// Activate an ability on this entity (checks cooldowns/costs) but apply its effects to the target.
+		/// </summary>
+		public bool TryActivateAbilityOnTarget(string abilityTag, ulong targetEntityID)
+		{
+			if (string.IsNullOrWhiteSpace(abilityTag)) return false;
+			return InternalCalls.AbilityComponent_TryActivateAbilityOnTarget(Entity.ID, abilityTag, targetEntityID);
+		}
 	}
 }

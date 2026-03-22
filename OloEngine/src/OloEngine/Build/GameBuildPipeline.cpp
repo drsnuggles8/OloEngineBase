@@ -233,6 +233,25 @@ namespace OloEngine
             }
         }
 
+        // Warn if OloRuntime.exe appears to be stale relative to OloEditor.exe.
+        // The CMake build ensures they stay in sync, but this catches manual or
+        // partial builds where only one target was rebuilt.
+        {
+            std::filesystem::path editorExe = engineRoot / "bin" / settings.BuildConfiguration / "OloEditor" / "OloEditor.exe";
+            if (std::filesystem::exists(editorExe))
+            {
+                std::error_code tsEc;
+                auto runtimeTime = std::filesystem::last_write_time(runtimeExe, tsEc);
+                auto editorTime = std::filesystem::last_write_time(editorExe, tsEc);
+                if (!tsEc && runtimeTime < editorTime)
+                {
+                    OLO_CORE_WARN("[GameBuild] OloRuntime.exe is older than OloEditor.exe — "
+                                  "it may be missing recent engine changes. "
+                                  "Rebuild the OloRuntime target to ensure the game binary is up-to-date.");
+                }
+            }
+        }
+
         // Copy and rename to the game name
         const std::filesystem::path destExe = outputDir / (settings.GameName + ".exe");
         std::error_code ec;
@@ -259,9 +278,9 @@ namespace OloEngine
 
         std::vector<std::string> requiredDlls = {
             "libpng16.dll",
-            "libpng16d.dll",  // Debug variant
+            "libpng16d.dll", // Debug variant
             "zlib.dll",
-            "zlibd.dll",      // Debug variant
+            "zlibd.dll", // Debug variant
         };
 
         sizet copiedCount = 0;
@@ -296,8 +315,7 @@ namespace OloEngine
     {
         // Engine resources are located relative to the editor working directory.
         // The build pipeline runs from OloEditor/ cwd.
-        const auto copyOpts = std::filesystem::copy_options::overwrite_existing
-                            | std::filesystem::copy_options::recursive;
+        const auto copyOpts = std::filesystem::copy_options::overwrite_existing | std::filesystem::copy_options::recursive;
         std::error_code ec;
 
         // --- Shaders (required — renderer will fail without them) ---

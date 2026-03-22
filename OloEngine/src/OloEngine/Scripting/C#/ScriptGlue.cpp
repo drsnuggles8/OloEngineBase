@@ -27,6 +27,10 @@
 #include "OloEngine/Gameplay/Quest/QuestDatabase.h"
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
 #include "OloEngine/Gameplay/Abilities/GameplayAbilitySystem.h"
+#include "OloEngine/Gameplay/Abilities/Damage/DamageCalculation.h"
+#include "OloEngine/Gameplay/Abilities/Damage/DamageEvent.h"
+#include "OloEngine/Physics3D/SceneQueries.h"
+#include "OloEngine/Physics3D/JoltScene.h"
 
 #include "mono/metadata/object.h"
 #include "mono/metadata/reflection.h"
@@ -3029,6 +3033,174 @@ namespace OloEngine
         mono_free(tagStr);
     }
 
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // Physics raycast ////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static bool Physics_Raycast(glm::vec3* origin, glm::vec3* direction, f32 maxDistance,
+                                glm::vec3* outHitPosition, glm::vec3* outHitNormal, f32* outDistance, u64* outEntityID)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+
+        JoltScene* joltScene = scene->GetJoltScene();
+        if (!joltScene)
+        {
+            return false;
+        }
+
+        RayCastInfo rayInfo(*origin, *direction, maxDistance);
+        SceneQueryHit hit;
+        if (!joltScene->CastRay(rayInfo, hit))
+        {
+            return false;
+        }
+
+        *outHitPosition = hit.m_Position;
+        *outHitNormal = hit.m_Normal;
+        *outDistance = hit.m_Distance;
+        *outEntityID = static_cast<u64>(hit.m_HitEntity);
+        return true;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // Camera.ScreenToWorldRay ////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static void Camera_ScreenToWorldRay(UUID cameraEntityID, glm::vec2* screenPos, glm::vec3* outOrigin, glm::vec3* outDirection)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+
+        Entity cameraEntity = scene->GetEntityByUUID(cameraEntityID);
+        if (!cameraEntity || !cameraEntity.HasComponent<CameraComponent>())
+        {
+            *outOrigin = glm::vec3(0.0f);
+            *outDirection = glm::vec3(0.0f, 0.0f, -1.0f);
+            return;
+        }
+
+        auto const& cameraComp = cameraEntity.GetComponent<CameraComponent>();
+        auto const& transform = cameraEntity.GetComponent<TransformComponent>();
+
+        // Build inverse view-projection matrix
+        glm::mat4 viewMatrix = glm::inverse(transform.GetTransform());
+        glm::mat4 projMatrix = cameraComp.Camera.GetProjection();
+        glm::mat4 invVP = glm::inverse(projMatrix * viewMatrix);
+
+        // Convert screen coords to NDC [-1, 1]
+        f32 ndcX = screenPos->x * 2.0f - 1.0f;
+        f32 ndcY = screenPos->y * 2.0f - 1.0f;
+
+        // Unproject near and far points
+        glm::vec4 nearPoint = invVP * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
+        glm::vec4 farPoint = invVP * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+
+        nearPoint /= nearPoint.w;
+        farPoint /= farPoint.w;
+
+        *outOrigin = glm::vec3(nearPoint);
+        *outDirection = glm::normalize(glm::vec3(farPoint - nearPoint));
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // Damage routing (cross-entity) //////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static f32 AbilityComponent_ApplyDamageToTarget(UUID sourceEntityID, UUID targetEntityID,
+                                                    f32 rawDamage, MonoString* damageTypeTag, bool isCritical)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+
+        Entity source = scene->GetEntityByUUID(sourceEntityID);
+        Entity target = scene->GetEntityByUUID(targetEntityID);
+        if (!source || !target)
+        {
+            return 0.0f;
+        }
+
+        if (!source.HasComponent<AbilityComponent>() || !target.HasComponent<AbilityComponent>())
+        {
+            return 0.0f;
+        }
+
+        auto const& sourceAC = source.GetComponent<AbilityComponent>();
+        auto& targetAC = target.GetComponent<AbilityComponent>();
+
+        DamageEvent event;
+        event.Source = source;
+        event.Target = target;
+        event.RawDamage = rawDamage;
+        event.IsCritical = isCritical;
+        event.CritMultiplier = sourceAC.Attributes.GetCurrentValue("CritMultiplier");
+
+        if (damageTypeTag)
+        {
+            char* tagStr = mono_string_to_utf8(damageTypeTag);
+            event.DamageType = GameplayTag(tagStr);
+            mono_free(tagStr);
+        }
+
+        f32 finalDamage = DamageCalculation::Calculate(event, sourceAC.Attributes, targetAC.Attributes);
+
+        // Apply the damage to the target's Health attribute
+        f32 currentHealth = targetAC.Attributes.GetCurrentValue("Health");
+        targetAC.Attributes.SetBaseValue("Health", std::max(currentHealth - finalDamage, 0.0f));
+
+        return finalDamage;
+    }
+
+    static bool AbilityComponent_TryActivateAbilityOnTarget(UUID casterEntityID, MonoString* abilityTag, UUID targetEntityID)
+    {
+        if (!abilityTag)
+        {
+            return false;
+        }
+
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+
+        Entity caster = scene->GetEntityByUUID(casterEntityID);
+        Entity target = scene->GetEntityByUUID(targetEntityID);
+        if (!caster || !target)
+        {
+            return false;
+        }
+
+        if (!caster.HasComponent<AbilityComponent>() || !target.HasComponent<AbilityComponent>())
+        {
+            return false;
+        }
+
+        char* tagStr = mono_string_to_utf8(abilityTag);
+        GameplayTag tag(tagStr);
+        mono_free(tagStr);
+
+        // Activate on the caster (checks cooldowns, costs, tags)
+        if (!GameplayAbilitySystem::TryActivateAbility(scene, caster, tag))
+        {
+            return false;
+        }
+
+        // Apply the ability's activation effects to the TARGET entity
+        auto& casterAC = caster.GetComponent<AbilityComponent>();
+        for (auto& ability : casterAC.Abilities)
+        {
+            if (ability.Definition.AbilityTag == tag)
+            {
+                auto& targetAC = target.GetComponent<AbilityComponent>();
+                for (auto const& effect : ability.Definition.ActivationEffects)
+                {
+                    targetAC.ActiveEffects.ApplyEffect(effect, targetAC.OwnedTags, tag);
+                }
+                break;
+            }
+        }
+
+        return true;
+    }
+
     void ScriptGlue::RegisterComponents()
     {
         RegisterComponent(AllComponents{});
@@ -3455,6 +3627,18 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(AbilityComponent_HasTag);
         OLO_ADD_INTERNAL_CALL(AbilityComponent_AddTag);
         OLO_ADD_INTERNAL_CALL(AbilityComponent_RemoveTag);
+        OLO_ADD_INTERNAL_CALL(AbilityComponent_ApplyDamageToTarget);
+        OLO_ADD_INTERNAL_CALL(AbilityComponent_TryActivateAbilityOnTarget);
+
+        ///////////////////////////////////////////////////////////////
+        // Physics ////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(Physics_Raycast);
+
+        ///////////////////////////////////////////////////////////////
+        // Camera /////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(Camera_ScreenToWorldRay);
     }
 
 } // namespace OloEngine

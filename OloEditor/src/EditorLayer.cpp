@@ -998,6 +998,8 @@ namespace OloEngine
         {
             m_BuildGamePanel->SetEditorScenePath(m_EditorScenePath);
             m_BuildGamePanel->SetIs3DMode(m_Is3DMode);
+            m_BuildGamePanel->SetSaveSceneCallback([this]()
+                                                   { return SaveScene(); });
             m_BuildGamePanel->OnImGuiRender(m_ShowBuildGame);
         }
 

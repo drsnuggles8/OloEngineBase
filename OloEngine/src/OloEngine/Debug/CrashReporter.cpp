@@ -44,27 +44,48 @@ namespace OloEngine
     {
         switch (code)
         {
-            case EXCEPTION_ACCESS_VIOLATION:         return "EXCEPTION_ACCESS_VIOLATION";
-            case EXCEPTION_ARRAY_BOUNDS_EXCEEDED:    return "EXCEPTION_ARRAY_BOUNDS_EXCEEDED";
-            case EXCEPTION_BREAKPOINT:               return "EXCEPTION_BREAKPOINT";
-            case EXCEPTION_DATATYPE_MISALIGNMENT:    return "EXCEPTION_DATATYPE_MISALIGNMENT";
-            case EXCEPTION_FLT_DENORMAL_OPERAND:     return "EXCEPTION_FLT_DENORMAL_OPERAND";
-            case EXCEPTION_FLT_DIVIDE_BY_ZERO:       return "EXCEPTION_FLT_DIVIDE_BY_ZERO";
-            case EXCEPTION_FLT_INEXACT_RESULT:       return "EXCEPTION_FLT_INEXACT_RESULT";
-            case EXCEPTION_FLT_INVALID_OPERATION:    return "EXCEPTION_FLT_INVALID_OPERATION";
-            case EXCEPTION_FLT_OVERFLOW:             return "EXCEPTION_FLT_OVERFLOW";
-            case EXCEPTION_FLT_STACK_CHECK:          return "EXCEPTION_FLT_STACK_CHECK";
-            case EXCEPTION_FLT_UNDERFLOW:            return "EXCEPTION_FLT_UNDERFLOW";
-            case EXCEPTION_ILLEGAL_INSTRUCTION:      return "EXCEPTION_ILLEGAL_INSTRUCTION";
-            case EXCEPTION_IN_PAGE_ERROR:            return "EXCEPTION_IN_PAGE_ERROR";
-            case EXCEPTION_INT_DIVIDE_BY_ZERO:       return "EXCEPTION_INT_DIVIDE_BY_ZERO";
-            case EXCEPTION_INT_OVERFLOW:             return "EXCEPTION_INT_OVERFLOW";
-            case EXCEPTION_INVALID_DISPOSITION:      return "EXCEPTION_INVALID_DISPOSITION";
-            case EXCEPTION_NONCONTINUABLE_EXCEPTION: return "EXCEPTION_NONCONTINUABLE_EXCEPTION";
-            case EXCEPTION_PRIV_INSTRUCTION:         return "EXCEPTION_PRIV_INSTRUCTION";
-            case EXCEPTION_SINGLE_STEP:              return "EXCEPTION_SINGLE_STEP";
-            case EXCEPTION_STACK_OVERFLOW:            return "EXCEPTION_STACK_OVERFLOW";
-            default:                                  return "UNKNOWN_EXCEPTION";
+            case EXCEPTION_ACCESS_VIOLATION:
+                return "EXCEPTION_ACCESS_VIOLATION";
+            case EXCEPTION_ARRAY_BOUNDS_EXCEEDED:
+                return "EXCEPTION_ARRAY_BOUNDS_EXCEEDED";
+            case EXCEPTION_BREAKPOINT:
+                return "EXCEPTION_BREAKPOINT";
+            case EXCEPTION_DATATYPE_MISALIGNMENT:
+                return "EXCEPTION_DATATYPE_MISALIGNMENT";
+            case EXCEPTION_FLT_DENORMAL_OPERAND:
+                return "EXCEPTION_FLT_DENORMAL_OPERAND";
+            case EXCEPTION_FLT_DIVIDE_BY_ZERO:
+                return "EXCEPTION_FLT_DIVIDE_BY_ZERO";
+            case EXCEPTION_FLT_INEXACT_RESULT:
+                return "EXCEPTION_FLT_INEXACT_RESULT";
+            case EXCEPTION_FLT_INVALID_OPERATION:
+                return "EXCEPTION_FLT_INVALID_OPERATION";
+            case EXCEPTION_FLT_OVERFLOW:
+                return "EXCEPTION_FLT_OVERFLOW";
+            case EXCEPTION_FLT_STACK_CHECK:
+                return "EXCEPTION_FLT_STACK_CHECK";
+            case EXCEPTION_FLT_UNDERFLOW:
+                return "EXCEPTION_FLT_UNDERFLOW";
+            case EXCEPTION_ILLEGAL_INSTRUCTION:
+                return "EXCEPTION_ILLEGAL_INSTRUCTION";
+            case EXCEPTION_IN_PAGE_ERROR:
+                return "EXCEPTION_IN_PAGE_ERROR";
+            case EXCEPTION_INT_DIVIDE_BY_ZERO:
+                return "EXCEPTION_INT_DIVIDE_BY_ZERO";
+            case EXCEPTION_INT_OVERFLOW:
+                return "EXCEPTION_INT_OVERFLOW";
+            case EXCEPTION_INVALID_DISPOSITION:
+                return "EXCEPTION_INVALID_DISPOSITION";
+            case EXCEPTION_NONCONTINUABLE_EXCEPTION:
+                return "EXCEPTION_NONCONTINUABLE_EXCEPTION";
+            case EXCEPTION_PRIV_INSTRUCTION:
+                return "EXCEPTION_PRIV_INSTRUCTION";
+            case EXCEPTION_SINGLE_STEP:
+                return "EXCEPTION_SINGLE_STEP";
+            case EXCEPTION_STACK_OVERFLOW:
+                return "EXCEPTION_STACK_OVERFLOW";
+            default:
+                return "UNKNOWN_EXCEPTION";
         }
     }
 
@@ -125,9 +146,9 @@ namespace OloEngine
             auto accessType = exceptionPointers->ExceptionRecord->ExceptionInformation[0];
             auto address = exceptionPointers->ExceptionRecord->ExceptionInformation[1];
             detail = fmt::format("{} at address 0x{:016X} ({})",
-                ExceptionCodeToString(code),
-                address,
-                accessType == 0 ? "read" : (accessType == 1 ? "write" : "execute"));
+                                 ExceptionCodeToString(code),
+                                 address,
+                                 accessType == 0 ? "read" : (accessType == 1 ? "write" : "execute"));
         }
         else
         {
@@ -369,10 +390,10 @@ namespace OloEngine
         using RtlGetVersionFn = LONG(WINAPI*)(PRTL_OSVERSIONINFOW);
         if (auto* const ntdll = GetModuleHandleW(L"ntdll.dll"))
         {
-            if (auto const rtlGetVersion = reinterpret_cast<RtlGetVersionFn>(  // NOLINT
+            if (auto const rtlGetVersion = reinterpret_cast<RtlGetVersionFn>( // NOLINT
                     GetProcAddress(ntdll, "RtlGetVersion")))
             {
-                rtlGetVersion(reinterpret_cast<PRTL_OSVERSIONINFOW>(&osvi));  // NOLINT
+                rtlGetVersion(reinterpret_cast<PRTL_OSVERSIONINFOW>(&osvi)); // NOLINT
             }
         }
         info << "OS: Windows " << osvi.dwMajorVersion << "." << osvi.dwMinorVersion
@@ -385,9 +406,15 @@ namespace OloEngine
         info << "CPU Architecture: ";
         switch (si.wProcessorArchitecture)
         {
-            case PROCESSOR_ARCHITECTURE_AMD64: info << "x64"; break;
-            case PROCESSOR_ARCHITECTURE_ARM64: info << "ARM64"; break;
-            default: info << "other (" << si.wProcessorArchitecture << ")"; break;
+            case PROCESSOR_ARCHITECTURE_AMD64:
+                info << "x64";
+                break;
+            case PROCESSOR_ARCHITECTURE_ARM64:
+                info << "ARM64";
+                break;
+            default:
+                info << "other (" << si.wProcessorArchitecture << ")";
+                break;
         }
         info << "\n";
 
@@ -423,7 +450,8 @@ namespace OloEngine
         const auto now = std::chrono::system_clock::now();
         const auto time = std::chrono::system_clock::to_time_t(now);
         const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now.time_since_epoch()) % 1000;
+                            now.time_since_epoch()) %
+                        1000;
 
         std::tm localTime{};
 #ifdef OLO_PLATFORM_WINDOWS
@@ -434,9 +462,9 @@ namespace OloEngine
 
         // Format: 20250321_143025_123
         return fmt::format("{:04}{:02}{:02}_{:02}{:02}{:02}_{:03}",
-            localTime.tm_year + 1900, localTime.tm_mon + 1, localTime.tm_mday,
-            localTime.tm_hour, localTime.tm_min, localTime.tm_sec,
-            ms.count());
+                           localTime.tm_year + 1900, localTime.tm_mon + 1, localTime.tm_mday,
+                           localTime.tm_hour, localTime.tm_min, localTime.tm_sec,
+                           ms.count());
     }
 
 } // namespace OloEngine

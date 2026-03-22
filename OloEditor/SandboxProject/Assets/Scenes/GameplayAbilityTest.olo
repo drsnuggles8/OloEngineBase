@@ -27,13 +27,142 @@ PostProcessSettings:
   SSAOIntensity: 1
   SSAOSamples: 16
   SSAODebugView: false
+SnowSettings:
+  Enabled: false
+  HeightStart: -5
+  HeightFull: 5
+  SlopeStart: 0.7
+  SlopeFull: 0.3
+  Albedo: [0.92, 0.93, 0.98]
+  Roughness: 0.65
+  SSSColor: [0.4, 0.6, 0.9]
+  SSSIntensity: 0.6
+  SparkleIntensity: 0.8
+  SparkleDensity: 80
+  SparkleScale: 1
+  NormalPerturbStrength: 0.25
+  WindDriftFactor: 0
+  SSSBlurEnabled: false
+  SSSBlurRadius: 2
+  SSSBlurFalloff: 1
+FogSettings:
+  Enabled: false
+  Mode: 2
+  Color: [0.5, 0.6, 0.7]
+  Density: 0.02
+  Start: 10
+  End: 300
+  HeightFalloff: 0.1
+  HeightOffset: 0
+  MaxOpacity: 1
+  EnableScattering: false
+  RayleighStrength: 1
+  MieStrength: 0.005
+  MieDirectionality: 0.76
+  RayleighColor: [0.27, 0.51, 0.83]
+  SunIntensity: 22
+  EnableVolumetric: false
+  VolumetricSamples: 32
+  AbsorptionCoefficient: 0.02
+  EnableNoise: false
+  NoiseScale: 0.01
+  NoiseSpeed: 0.1
+  NoiseIntensity: 0.3
+  EnableLightShafts: false
+  LightShaftIntensity: 1
+WindSettings:
+  Enabled: false
+  Direction: [1, 0, 0]
+  Speed: 5
+  GustStrength: 0.3
+  GustFrequency: 0.5
+  TurbulenceIntensity: 0.5
+  TurbulenceScale: 0.1
+  GridWorldSize: 200
+  GridResolution: 128
+SnowAccumulationSettings:
+  Enabled: false
+  AccumulationRate: 0.02
+  MaxDepth: 0.5
+  MeltRate: 0.005
+  RestorationRate: 0.01
+  DisplacementScale: 1
+  ClipmapResolution: 2048
+  ClipmapExtent: 128
+  NumClipmapRings: 3
+  SnowDensity: 0.3
+SnowEjectaSettings:
+  Enabled: false
+  ParticlesPerDeform: 8
+  EjectaSpeed: 2.5
+  SpeedVariance: 0.8
+  UpwardBias: 0.6
+  LifetimeMin: 0.4
+  LifetimeMax: 1.2
+  InitialSize: 0.04
+  SizeVariance: 0.02
+  GravityScale: 0.3
+  DragCoefficient: 2
+  Color: [0.95, 0.97, 1, 0.7]
+  VelocityThreshold: 0.1
+  MaxParticles: 8192
+  WindInfluence: 0.5
+  NoiseStrength: 0.3
+  NoiseFrequency: 2
+  GroundY: 0
+  CollisionBounce: 0
+  CollisionFriction: 1
+PrecipitationSettings:
+  Enabled: false
+  Type: 0
+  Intensity: 0.5
+  TransitionSpeed: 1
+  BaseEmissionRate: 4000
+  MaxParticlesNearField: 100000
+  MaxParticlesFarField: 200000
+  NearFieldExtent: [15, 20, 15]
+  NearFieldParticleSize: 0.04
+  NearFieldSizeVariance: 0.02
+  NearFieldSpeedMin: 0.8
+  NearFieldSpeedMax: 2
+  NearFieldLifetime: 10
+  FarFieldExtent: [60, 30, 60]
+  FarFieldParticleSize: 0.025
+  FarFieldSpeedMin: 0.5
+  FarFieldSpeedMax: 1.5
+  FarFieldLifetime: 15
+  FarFieldAlphaMultiplier: 0.5
+  GravityScale: 0.8
+  WindInfluence: 1
+  DragCoefficient: 0.3
+  TurbulenceStrength: 0.8
+  TurbulenceFrequency: 0.5
+  GroundCollisionEnabled: true
+  GroundY: 0
+  CollisionBounce: 0
+  CollisionFriction: 1
+  FeedAccumulation: true
+  AccumulationFeedRate: 0.0001
+  ScreenStreaksEnabled: true
+  ScreenStreakIntensity: 0.3
+  ScreenStreakLength: 0.15
+  LensImpactsEnabled: true
+  LensImpactRate: 3
+  LensImpactLifetime: 1.5
+  LensImpactSize: 0.03
+  LODNearDistance: 30
+  LODFarDistance: 120
+  FrameBudgetMs: 1
+  ParticleColor: [0.95, 0.97, 1, 0.85]
+  ColorVariance: 0.05
+  RotationSpeed: 30
+StreamingSettings:
+  Enabled: false
+  DefaultLoadRadius: 200
+  DefaultUnloadRadius: 250
+  MaxLoadedRegions: 16
+  RegionDirectory: ""
 Entities:
-
-  # ══════════════════════════════════════
-  #  Infrastructure
-  # ══════════════════════════════════════
-
-  # ── Camera ──
   - Entity: 830000000000001
     TagComponent:
       Tag: Camera
@@ -44,7 +173,7 @@ Entities:
     CameraComponent:
       Camera:
         ProjectionType: 0
-        PerspectiveFOV: 0.785398185
+        PerspectiveFOV: 0.7853982
         PerspectiveNear: 0.01
         PerspectiveFar: 1000
         OrthographicSize: 10
@@ -52,8 +181,8 @@ Entities:
         OrthographicFar: 1
       Primary: true
       FixedAspectRatio: false
-
-  # ── Skybox ──
+      RuntimeControl: false
+      FlySpeed: 5
   - Entity: 830000000000002
     TagComponent:
       Tag: Skybox
@@ -71,8 +200,6 @@ Entities:
       EnableIBL: true
       IBLIntensity: 1
       Tint: [1, 1, 1]
-
-  # ── Directional Light (sun) ──
   - Entity: 830000000000003
     TagComponent:
       Tag: Sun
@@ -89,8 +216,7 @@ Entities:
       ShadowNormalBias: 0.1
       MaxShadowDistance: 200
       CascadeSplitLambda: 0.95
-
-  # ── Ground Plane ──
+      CascadeDebugVisualization: false
   - Entity: 830000000000005
     TagComponent:
       Tag: Ground
@@ -104,8 +230,6 @@ Entities:
       AlbedoColor: [0.35, 0.35, 0.3]
       Metallic: 0
       Roughness: 0.95
-
-  # ── NavMesh Bounds (covers the arena) ──
   - Entity: 830000000000006
     TagComponent:
       Tag: NavMesh Bounds
@@ -116,11 +240,6 @@ Entities:
     NavMeshBoundsComponent:
       Min: [-15, -1, -15]
       Max: [15, 5, 15]
-
-  # ══════════════════════════════════════
-  #  PLAYER — Blue cube (WASD + click-to-move)
-  #  Abilities: Slash (1), Fireball (2), Heal (3)
-  # ══════════════════════════════════════
   - Entity: 830000000000010
     TagComponent:
       Tag: Player
@@ -128,6 +247,12 @@ Entities:
       Translation: [0, 0.75, 3]
       Rotation: [0, 0, 0]
       Scale: [0.7, 1.5, 0.7]
+    ScriptComponent:
+      ClassName: Sandbox.PlayerController
+      ScriptFields:
+        - Name: MoveSpeed
+          Type: Float
+          Data: 5
     MeshComponent:
       Primitive: 1
     MaterialComponent:
@@ -137,32 +262,26 @@ Entities:
     NavAgentComponent:
       Radius: 0.4
       Height: 1.5
-      MaxSpeed: 5.0
-      Acceleration: 10.0
+      MaxSpeed: 5
+      Acceleration: 10
       StoppingDistance: 0.2
       AvoidancePriority: 50
-    ScriptComponent:
-      ClassName: Sandbox.PlayerController
-      ScriptFields:
-        - Name: MoveSpeed
-          Type: Float
-          Data: 5.0
     AbilityComponent:
       Attributes:
-        - Name: Health
-          BaseValue: 150
-        - Name: MaxHealth
-          BaseValue: 150
         - Name: AttackPower
           BaseValue: 30
-        - Name: Defense
-          BaseValue: 15
         - Name: CritChance
           BaseValue: 0.15
         - Name: CritMultiplier
-          BaseValue: 2.0
+          BaseValue: 2
+        - Name: Defense
+          BaseValue: 15
+        - Name: Health
+          BaseValue: 150
         - Name: Mana
           BaseValue: 100
+        - Name: MaxHealth
+          BaseValue: 150
         - Name: MaxMana
           BaseValue: 100
         - Name: Resistance.Fire
@@ -176,89 +295,111 @@ Entities:
       Abilities:
         - Name: Slash
           AbilityTag: Ability.Melee.Slash
-          CooldownDuration: 1.0
+          CooldownDuration: 1
           ResourceCost: 0
           CostAttribute: Mana
+          IsChanneled: false
+          IsToggled: false
+          ChannelDuration: 0
           RequiredTags:
             - State.Alive
           BlockedTags:
             - State.Stunned
-          IsChanneled: false
-          ChannelDuration: 0
           ActivationEffects:
             - Name: SlashDamage
               DurationType: Instant
               DurationSeconds: 0
               IsPeriodic: false
-              PeriodSeconds: 1.0
+              PeriodSeconds: 1
               Modifiers:
                 - Attribute: Health
                   Operation: Add
                   Magnitude: -30
               MaxStacks: 1
               RefreshDurationOnStack: false
+              GrantedTags:
+                []
+              RequiredTags:
+                []
+              BlockedTags:
+                []
         - Name: Fireball
           AbilityTag: Ability.Spell.Fire.Fireball
-          CooldownDuration: 3.0
+          CooldownDuration: 3
           ResourceCost: 20
           CostAttribute: Mana
+          IsChanneled: false
+          IsToggled: false
+          ChannelDuration: 0
           RequiredTags:
             - State.Alive
           BlockedTags:
             - State.Stunned
             - State.Silenced
-          IsChanneled: false
-          ChannelDuration: 0
           ActivationEffects:
             - Name: BurnDoT
               DurationType: HasDuration
-              DurationSeconds: 4.0
+              DurationSeconds: 4
               IsPeriodic: true
-              PeriodSeconds: 1.0
+              PeriodSeconds: 1
               Modifiers:
                 - Attribute: Health
                   Operation: Add
                   Magnitude: -5
-              GrantedTags:
-                - Debuff.Burning
-              RequiredTags: []
-              BlockedTags:
-                - Buff.FireImmunity
               MaxStacks: 3
               RefreshDurationOnStack: true
+              GrantedTags:
+                - Debuff.Burning
+              RequiredTags:
+                []
+              BlockedTags:
+                - Buff.FireImmunity
         - Name: Heal
           AbilityTag: Ability.Spell.Heal
-          CooldownDuration: 8.0
+          CooldownDuration: 8
           ResourceCost: 30
           CostAttribute: Mana
+          IsChanneled: false
+          IsToggled: false
+          ChannelDuration: 0
           RequiredTags:
             - State.Alive
-          BlockedTags: []
-          IsChanneled: false
-          ChannelDuration: 0
+          BlockedTags:
+            []
           ActivationEffects:
             - Name: HealEffect
               DurationType: Instant
               DurationSeconds: 0
               IsPeriodic: false
-              PeriodSeconds: 1.0
+              PeriodSeconds: 1
               Modifiers:
                 - Attribute: Health
                   Operation: Add
                   Magnitude: 50
               MaxStacks: 1
               RefreshDurationOnStack: false
-
-  # ══════════════════════════════════════
-  #  NPC 1 — Goblin (green, melee hostile)
-  # ══════════════════════════════════════
+              GrantedTags:
+                []
+              RequiredTags:
+                []
+              BlockedTags:
+                []
   - Entity: 830000000000020
     TagComponent:
       Tag: Goblin
     TransformComponent:
       Translation: [-5, 0.5, -4]
       Rotation: [0, 0.6, 0]
-      Scale: [0.6, 1.0, 0.6]
+      Scale: [0.6, 1, 0.6]
+    ScriptComponent:
+      ClassName: Sandbox.GoblinAI
+      ScriptFields:
+        - Name: AggroRange
+          Type: Float
+          Data: 8
+        - Name: AttackRange
+          Type: Float
+          Data: 2
     MeshComponent:
       Primitive: 1
     MaterialComponent:
@@ -267,38 +408,29 @@ Entities:
       Roughness: 0.7
     NavAgentComponent:
       Radius: 0.35
-      Height: 1.0
-      MaxSpeed: 3.0
-      Acceleration: 6.0
+      Height: 1
+      MaxSpeed: 3
+      Acceleration: 6
       StoppingDistance: 1.5
       AvoidancePriority: 60
-    ScriptComponent:
-      ClassName: Sandbox.GoblinAI
-      ScriptFields:
-        - Name: AggroRange
-          Type: Float
-          Data: 8.0
-        - Name: AttackRange
-          Type: Float
-          Data: 2.0
     AbilityComponent:
       Attributes:
-        - Name: Health
-          BaseValue: 60
-        - Name: MaxHealth
-          BaseValue: 60
         - Name: AttackPower
           BaseValue: 10
-        - Name: Defense
-          BaseValue: 3
         - Name: CritChance
           BaseValue: 0.05
         - Name: CritMultiplier
           BaseValue: 1.5
-        - Name: Resistance.Physical
-          BaseValue: 0.0
+        - Name: Defense
+          BaseValue: 3
+        - Name: Health
+          BaseValue: 60
+        - Name: MaxHealth
+          BaseValue: 60
         - Name: Resistance.Fire
           BaseValue: -0.2
+        - Name: Resistance.Physical
+          BaseValue: 0
       OwnedTags:
         - Character.Enemy
         - Character.Type.Goblin
@@ -306,31 +438,34 @@ Entities:
       Abilities:
         - Name: Bite
           AbilityTag: Ability.Melee.Bite
-          CooldownDuration: 2.0
+          CooldownDuration: 2
           ResourceCost: 0
           CostAttribute: ""
+          IsChanneled: false
+          IsToggled: false
+          ChannelDuration: 0
           RequiredTags:
             - State.Alive
           BlockedTags:
             - State.Stunned
-          IsChanneled: false
-          ChannelDuration: 0
           ActivationEffects:
             - Name: BiteDamage
               DurationType: Instant
               DurationSeconds: 0
               IsPeriodic: false
-              PeriodSeconds: 1.0
+              PeriodSeconds: 1
               Modifiers:
                 - Attribute: Health
                   Operation: Add
                   Magnitude: -10
               MaxStacks: 1
               RefreshDurationOnStack: false
-
-  # ══════════════════════════════════════
-  #  NPC 2 — Fire Mage (red, ranged hostile)
-  # ══════════════════════════════════════
+              GrantedTags:
+                []
+              RequiredTags:
+                []
+              BlockedTags:
+                []
   - Entity: 830000000000030
     TagComponent:
       Tag: Fire Mage
@@ -338,6 +473,15 @@ Entities:
       Translation: [6, 0.65, -5]
       Rotation: [0, -0.5, 0]
       Scale: [0.6, 1.3, 0.5]
+    ScriptComponent:
+      ClassName: Sandbox.FireMageAI
+      ScriptFields:
+        - Name: AggroRange
+          Type: Float
+          Data: 10
+        - Name: CastRange
+          Type: Float
+          Data: 6
     MeshComponent:
       Primitive: 1
     MaterialComponent:
@@ -348,34 +492,25 @@ Entities:
       Radius: 0.35
       Height: 1.3
       MaxSpeed: 2.5
-      Acceleration: 5.0
-      StoppingDistance: 5.0
+      Acceleration: 5
+      StoppingDistance: 5
       AvoidancePriority: 60
-    ScriptComponent:
-      ClassName: Sandbox.FireMageAI
-      ScriptFields:
-        - Name: AggroRange
-          Type: Float
-          Data: 10.0
-        - Name: CastRange
-          Type: Float
-          Data: 6.0
     AbilityComponent:
       Attributes:
-        - Name: Health
-          BaseValue: 80
-        - Name: MaxHealth
-          BaseValue: 80
         - Name: AttackPower
           BaseValue: 25
-        - Name: Defense
-          BaseValue: 5
         - Name: CritChance
           BaseValue: 0.1
         - Name: CritMultiplier
-          BaseValue: 2.0
+          BaseValue: 2
+        - Name: Defense
+          BaseValue: 5
+        - Name: Health
+          BaseValue: 80
         - Name: Mana
           BaseValue: 100
+        - Name: MaxHealth
+          BaseValue: 80
         - Name: MaxMana
           BaseValue: 100
         - Name: Resistance.Fire
@@ -390,61 +525,65 @@ Entities:
       Abilities:
         - Name: Fire Bolt
           AbilityTag: Ability.Spell.Fire.FireBolt
-          CooldownDuration: 3.0
+          CooldownDuration: 3
           ResourceCost: 15
           CostAttribute: Mana
+          IsChanneled: false
+          IsToggled: false
+          ChannelDuration: 0
           RequiredTags:
             - State.Alive
           BlockedTags:
             - State.Stunned
             - State.Silenced
-          IsChanneled: false
-          ChannelDuration: 0
           ActivationEffects:
             - Name: FireBoltBurn
               DurationType: HasDuration
-              DurationSeconds: 3.0
+              DurationSeconds: 3
               IsPeriodic: true
-              PeriodSeconds: 1.0
+              PeriodSeconds: 1
               Modifiers:
                 - Attribute: Health
                   Operation: Add
                   Magnitude: -8
-              GrantedTags:
-                - Debuff.Burning
-              RequiredTags: []
-              BlockedTags:
-                - Buff.FireImmunity
               MaxStacks: 2
               RefreshDurationOnStack: true
+              GrantedTags:
+                - Debuff.Burning
+              RequiredTags:
+                []
+              BlockedTags:
+                - Buff.FireImmunity
         - Name: Fire Shield
           AbilityTag: Ability.Buff.FireShield
-          CooldownDuration: 15.0
+          CooldownDuration: 15
           ResourceCost: 25
           CostAttribute: Mana
+          IsChanneled: false
+          IsToggled: false
+          ChannelDuration: 0
           RequiredTags:
             - State.Alive
-          BlockedTags: []
-          IsChanneled: false
-          ChannelDuration: 0
+          BlockedTags:
+            []
           ActivationEffects:
             - Name: FireShieldBuff
               DurationType: HasDuration
-              DurationSeconds: 8.0
+              DurationSeconds: 8
               IsPeriodic: false
-              PeriodSeconds: 1.0
+              PeriodSeconds: 1
               Modifiers:
                 - Attribute: Defense
                   Operation: Add
                   Magnitude: 20
-              GrantedTags:
-                - Buff.FireShield
               MaxStacks: 1
               RefreshDurationOnStack: true
-
-  # ══════════════════════════════════════
-  #  Arena dressing
-  # ══════════════════════════════════════
+              GrantedTags:
+                - Buff.FireShield
+              RequiredTags:
+                []
+              BlockedTags:
+                []
   - Entity: 830000000000040
     TagComponent:
       Tag: Pillar Left
@@ -458,7 +597,6 @@ Entities:
       AlbedoColor: [0.5, 0.45, 0.4]
       Metallic: 0.1
       Roughness: 0.85
-
   - Entity: 830000000000041
     TagComponent:
       Tag: Pillar Right
