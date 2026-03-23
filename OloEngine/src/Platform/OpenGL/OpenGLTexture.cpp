@@ -122,6 +122,8 @@ namespace OloEngine
         // NOTE: Texture Filtering
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+        m_IsLoaded = true;
     }
 
     OpenGLTexture2D::OpenGLTexture2D(const std::string& path)

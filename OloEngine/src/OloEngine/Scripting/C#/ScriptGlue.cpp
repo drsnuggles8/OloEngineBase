@@ -108,7 +108,7 @@ namespace OloEngine
     Entity GetEntity(UUID entityID)
     {
         Scene* scene = ScriptEngine::GetSceneContext();
-        OLO_CORE_ASSERT(scene);
+        OLO_CORE_ASSERT(scene, "ScriptGlue::GetEntity - no active scene context");
         return scene->GetEntityByUUID(entityID);
     }
 
@@ -174,6 +174,26 @@ namespace OloEngine
         OLO_CORE_ASSERT(entity);
 
         entity.GetComponent<TransformComponent>().Translation = *translation;
+    }
+
+    static void TransformComponent_GetRotation(UUID entityID, glm::vec3* outRotation)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+
+        *outRotation = entity.GetComponent<TransformComponent>().Rotation;
+    }
+
+    static void TransformComponent_SetRotation(UUID entityID, glm::vec3 const* rotation)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+
+        entity.GetComponent<TransformComponent>().Rotation = *rotation;
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -1752,6 +1772,24 @@ namespace OloEngine
         }
     }
 
+    static void MaterialComponent_GetAlbedoColor(UUID entityID, glm::vec4* outColor)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        *outColor = entity.GetComponent<MaterialComponent>().m_Material.GetBaseColorFactor();
+    }
+
+    static void MaterialComponent_SetAlbedoColor(UUID entityID, glm::vec4 const* color)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        entity.GetComponent<MaterialComponent>().m_Material.SetBaseColorFactor(*color);
+    }
+
     ///////////////////////////////////////////////////////////////////////////////////////////
     // NavAgentComponent //////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -1772,6 +1810,7 @@ namespace OloEngine
         auto& agent = entity.GetComponent<NavAgentComponent>();
         agent.m_TargetPosition = *target;
         agent.m_HasTarget = true;
+        agent.m_HasPath = false;
     }
 
     static void NavAgentComponent_GetMaxSpeed(UUID entityID, f32* outSpeed)
@@ -2134,6 +2173,22 @@ namespace OloEngine
         return Input::IsKeyJustReleased(keycode);
     }
 
+    static void Input_GetMousePosition(glm::vec2* outPosition)
+    {
+        *outPosition = Input::GetMousePosition();
+    }
+
+    static void Input_GetWindowSize(glm::vec2* outSize)
+    {
+        auto& window = Application::Get().GetWindow();
+        *outSize = { static_cast<f32>(window.GetWidth()), static_cast<f32>(window.GetHeight()) };
+    }
+
+    static bool Input_IsMouseButtonDown(i32 button)
+    {
+        return Input::IsMouseButtonPressed(static_cast<MouseCode>(button));
+    }
+
     static bool Input_IsGamepadButtonPressed(u8 button, i32 gamepadIndex)
     {
         if (button >= Gamepad::ButtonCount)
@@ -2261,14 +2316,15 @@ namespace OloEngine
 			std::string_view typeName = typeid(Component).name();
 			sizet pos = typeName.find_last_of(':');
 			std::string_view structName = typeName.substr(pos + 1);
-			std::string managedTypename = fmt::format("OloEngine.{}", structName);
+			std::string structNameStr(structName);
 
-			MonoType* managedType = ::mono_reflection_type_from_name(managedTypename.data(), ScriptEngine::GetCoreAssemblyImage());
-			if (!managedType)
+			MonoClass* managedClass = ::mono_class_from_name(ScriptEngine::GetCoreAssemblyImage(), "OloEngine", structNameStr.c_str());
+			if (!managedClass)
 			{
-				OLO_CORE_ERROR("Could not find component type {}", managedTypename);
+				OLO_CORE_TRACE("No C# binding for component type OloEngine.{} (skipped)", structNameStr);
 				return;
 			}
+			MonoType* managedType = ::mono_class_get_type(managedClass);
 			s_EntityHasComponentFuncs[managedType] = [](Entity entity) { return entity.HasComponent<Component>(); }; }(), ...);
     }
 
@@ -3211,6 +3267,38 @@ namespace OloEngine
         return true;
     }
 
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // Application / Time /////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static f32 Application_GetTimeScale()
+    {
+        return Application::Get().GetTimeScale();
+    }
+
+    static void Application_SetTimeScale(f32 scale)
+    {
+        Application::Get().SetTimeScale(scale);
+    }
+
+    static void Application_QuitGame()
+    {
+        Application::Get().Close();
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // Scene //////////////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static void Scene_ReloadCurrentScene()
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        if (scene)
+        {
+            scene->SetPendingReload(true);
+        }
+    }
+
     void ScriptGlue::RegisterComponents()
     {
         RegisterComponent(AllComponents{});
@@ -3231,6 +3319,8 @@ namespace OloEngine
 
         OLO_ADD_INTERNAL_CALL(TransformComponent_GetTranslation);
         OLO_ADD_INTERNAL_CALL(TransformComponent_SetTranslation);
+        OLO_ADD_INTERNAL_CALL(TransformComponent_GetRotation);
+        OLO_ADD_INTERNAL_CALL(TransformComponent_SetRotation);
 
         OLO_ADD_INTERNAL_CALL(Rigidbody2DComponent_ApplyLinearImpulse);
         OLO_ADD_INTERNAL_CALL(Rigidbody2DComponent_ApplyLinearImpulseToCenter);
@@ -3651,6 +3741,31 @@ namespace OloEngine
         // Camera /////////////////////////////////////////////////////
         ///////////////////////////////////////////////////////////////
         OLO_ADD_INTERNAL_CALL(Camera_ScreenToWorldRay);
+
+        ///////////////////////////////////////////////////////////////
+        // Mouse Input ////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(Input_GetMousePosition);
+        OLO_ADD_INTERNAL_CALL(Input_GetWindowSize);
+        OLO_ADD_INTERNAL_CALL(Input_IsMouseButtonDown);
+
+        ///////////////////////////////////////////////////////////////
+        // MaterialComponent (extended) ///////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(MaterialComponent_GetAlbedoColor);
+        OLO_ADD_INTERNAL_CALL(MaterialComponent_SetAlbedoColor);
+
+        ///////////////////////////////////////////////////////////////
+        // Application / Time /////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(Application_GetTimeScale);
+        OLO_ADD_INTERNAL_CALL(Application_SetTimeScale);
+        OLO_ADD_INTERNAL_CALL(Application_QuitGame);
+
+        ///////////////////////////////////////////////////////////////
+        // Scene //////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(Scene_ReloadCurrentScene);
     }
 
 } // namespace OloEngine

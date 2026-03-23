@@ -1,5 +1,6 @@
 add_executable(OloRuntime
     OloRuntimeApp.cpp
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Resources/OloRuntime.rc"
 )
 
 # Post Build Commands - copy required DLLs

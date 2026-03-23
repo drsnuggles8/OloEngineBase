@@ -26,6 +26,19 @@ namespace OloEngine
 				InternalCalls.TransformComponent_SetTranslation(Entity.ID, ref value);
 			}
 		}
+
+		public Vector3 Rotation
+		{
+			get
+			{
+				InternalCalls.TransformComponent_GetRotation(Entity.ID, out Vector3 rotation);
+				return rotation;
+			}
+			set
+			{
+				InternalCalls.TransformComponent_SetRotation(Entity.ID, ref value);
+			}
+		}
 	}
 
 	public class Rigidbody2DComponent : Component
@@ -1116,6 +1129,16 @@ namespace OloEngine
 		{
 			get => InternalCalls.MaterialComponent_GetShaderGraphHandle(Entity.ID);
 			set => InternalCalls.MaterialComponent_SetShaderGraphHandle(Entity.ID, value);
+		}
+
+		public Vector4 AlbedoColor
+		{
+			get
+			{
+				InternalCalls.MaterialComponent_GetAlbedoColor(Entity.ID, out Vector4 color);
+				return color;
+			}
+			set => InternalCalls.MaterialComponent_SetAlbedoColor(Entity.ID, ref value);
 		}
 	}
 

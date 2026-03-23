@@ -24,6 +24,10 @@ namespace OloEngine
 		internal extern static void TransformComponent_GetTranslation(ulong entityID, out Vector3 translation);
 		[MethodImplAttribute(MethodImplOptions.InternalCall)]
 		internal extern static void TransformComponent_SetTranslation(ulong entityID, ref Vector3 translation);
+		[MethodImplAttribute(MethodImplOptions.InternalCall)]
+		internal extern static void TransformComponent_GetRotation(ulong entityID, out Vector3 rotation);
+		[MethodImplAttribute(MethodImplOptions.InternalCall)]
+		internal extern static void TransformComponent_SetRotation(ulong entityID, ref Vector3 rotation);
         #endregion
 
         #region Rigidbody2DComponent
@@ -60,6 +64,12 @@ namespace OloEngine
         internal extern static bool Input_IsKeyJustPressed(KeyCode keycode);
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         internal extern static bool Input_IsKeyJustReleased(KeyCode keycode);
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static void Input_GetMousePosition(out Vector2 position);
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static void Input_GetWindowSize(out Vector2 size);
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static bool Input_IsMouseButtonDown(int button);
         #endregion
 
         #region Gamepad
@@ -573,6 +583,10 @@ namespace OloEngine
 		internal static extern ulong MaterialComponent_GetShaderGraphHandle(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void MaterialComponent_SetShaderGraphHandle(ulong entityID, ulong handle);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void MaterialComponent_GetAlbedoColor(ulong entityID, out Vector4 color);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void MaterialComponent_SetAlbedoColor(ulong entityID, ref Vector4 color);
 		#endregion
 
 		#region NavAgentComponent
@@ -801,6 +815,20 @@ namespace OloEngine
 		#region Camera
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void Camera_ScreenToWorldRay(ulong cameraEntityID, ref Vector2 screenPos, out Vector3 origin, out Vector3 direction);
+		#endregion
+
+		#region Application
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float Application_GetTimeScale();
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Application_SetTimeScale(float scale);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Application_QuitGame();
+		#endregion
+
+		#region Scene
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Scene_ReloadCurrentScene();
 		#endregion
 	}
 }

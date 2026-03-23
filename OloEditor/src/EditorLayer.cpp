@@ -276,6 +276,14 @@ namespace OloEngine
                 m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
                 m_ActiveScene->OnUpdateRuntime(ts);
                 SaveGameManager::Tick(ts, *m_ActiveScene);
+
+                // Handle script-triggered scene reload
+                if (m_ActiveScene->GetPendingReload())
+                {
+                    m_ActiveScene->SetPendingReload(false);
+                    OnSceneStop();
+                    OnScenePlay();
+                }
                 break;
             }
         }
@@ -643,12 +651,23 @@ namespace OloEngine
         u64 textureID = 0;
         if (m_Is3DMode)
         {
-            // Use post-processed output (includes tone mapping for HDR→LDR)
-            if (auto postProcessPass = Renderer3D::GetPostProcessPass(); postProcessPass)
+            // Use UICompositePass output (post-processed scene + 2D overlays + UI)
+            if (auto uiPass = Renderer3D::GetUICompositePass(); uiPass)
             {
-                if (auto target = postProcessPass->GetTarget(); target)
+                if (auto target = uiPass->GetTarget(); target)
                 {
                     textureID = target->GetColorAttachmentRendererID(0);
+                }
+            }
+            // Fallback to post-process pass
+            if (textureID == 0)
+            {
+                if (auto postProcessPass = Renderer3D::GetPostProcessPass(); postProcessPass)
+                {
+                    if (auto target = postProcessPass->GetTarget(); target)
+                    {
+                        textureID = target->GetColorAttachmentRendererID(0);
+                    }
                 }
             }
             // Fallback to scene pass if post-process pass is not available
@@ -1937,7 +1956,8 @@ namespace OloEngine
     void EditorLayer::OnSceneStop()
     {
         using enum OloEngine::EditorLayer::SceneState;
-        OLO_CORE_ASSERT(m_SceneState == Play || m_SceneState == Simulate);
+        OLO_CORE_ASSERT(m_SceneState == Play || m_SceneState == Simulate,
+                        "OnSceneStop called with unexpected SceneState: {}", static_cast<int>(m_SceneState));
 
         if (m_SceneState == Play)
         {

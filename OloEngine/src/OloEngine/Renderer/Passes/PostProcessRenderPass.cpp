@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
+#include "OloEngine/Core/Application.h"
 
 namespace OloEngine
 {
@@ -24,21 +25,39 @@ namespace OloEngine
         CreatePingPongFramebuffers(spec.Width, spec.Height);
 
         // Load all effect shaders
+        u32 ppIdx = 0;
+        constexpr u32 totalPPShaders = 15;
+
         m_BloomThresholdShader = Shader::Create("assets/shaders/PostProcess_BloomThreshold.glsl");
+        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
         m_BloomDownsampleShader = Shader::Create("assets/shaders/PostProcess_BloomDownsample.glsl");
+        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
         m_BloomUpsampleShader = Shader::Create("assets/shaders/PostProcess_BloomUpsample.glsl");
+        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
         m_BloomCompositeShader = Shader::Create("assets/shaders/PostProcess_BloomComposite.glsl");
+        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
         m_VignetteShader = Shader::Create("assets/shaders/PostProcess_Vignette.glsl");
+        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
         m_ChromaticAberrationShader = Shader::Create("assets/shaders/PostProcess_ChromaticAberration.glsl");
+        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
         m_ColorGradingShader = Shader::Create("assets/shaders/PostProcess_ColorGrading.glsl");
+        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
         m_ToneMapShader = Shader::Create("assets/shaders/PostProcess_ToneMap.glsl");
+        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
         m_FXAAShader = Shader::Create("assets/shaders/PostProcess_FXAA.glsl");
+        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
         m_DOFShader = Shader::Create("assets/shaders/PostProcess_DOF.glsl");
+        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
         m_MotionBlurShader = Shader::Create("assets/shaders/PostProcess_MotionBlur.glsl");
+        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
         m_FogShader = Shader::Create("assets/shaders/PostProcess_Fog.glsl");
+        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
         m_FogUpsampleShader = Shader::Create("assets/shaders/PostProcess_FogUpsample.glsl");
+        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
         m_SSAOApplyShader = Shader::Create("assets/shaders/PostProcess_SSAOApply.glsl");
+        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
         m_PrecipitationShader = Shader::Create("assets/shaders/PostProcess_Precipitation.glsl");
+        Application::ReportLoadingProgress(totalPPShaders, totalPPShaders, "post-process shaders");
         m_PrecipitationScreenUBO = UniformBuffer::Create(PrecipitationScreenUBOData::GetSize(), ShaderBindingLayout::UBO_PRECIPITATION_SCREEN);
 
         // Create bloom mip chain

@@ -15,7 +15,7 @@ namespace OloEngine
     {
         auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
         std::memcpy(s_PreviousKeys, s_CurrentKeys, sizeof(s_CurrentKeys));
-        for (i32 key = 0; key < s_MaxKeys; ++key)
+        for (i32 key = GLFW_KEY_SPACE; key < s_MaxKeys; ++key)
         {
             s_CurrentKeys[key] = (GLFWAPI::glfwGetKey(window, key) == GLFW_PRESS);
         }

@@ -766,6 +766,18 @@ namespace OloEngine
         UIProgressBarComponent(const UIProgressBarComponent&) = default;
     };
 
+    // Anchors a UI element's screen position to a world-space entity.
+    // During layout resolution, the target entity's world position (+offset) is
+    // projected to screen coordinates and used as the UI element's position.
+    struct UIWorldAnchorComponent
+    {
+        UUID m_TargetEntity;
+        glm::vec3 m_WorldOffset = { 0.0f, 2.0f, 0.0f };
+
+        UIWorldAnchorComponent() = default;
+        UIWorldAnchorComponent(const UIWorldAnchorComponent&) = default;
+    };
+
     struct UIInputFieldComponent
     {
         std::string m_Text;
@@ -1397,6 +1409,24 @@ namespace OloEngine
         }
     };
 
+    // Renders a floating health/mana bar above an entity.
+    // Values are read automatically from AbilityComponent at render time.
+    struct NameplateComponent
+    {
+        bool m_Enabled = true;
+        bool m_ShowHealthBar = true;
+        bool m_ShowManaBar = false;
+        glm::vec3 m_WorldOffset = { 0.0f, 2.0f, 0.0f };
+        glm::vec2 m_BarSize = { 160.0f, 12.0f };
+        glm::vec4 m_HealthBarColor = { 0.2f, 0.8f, 0.2f, 1.0f };
+        glm::vec4 m_ManaBarColor = { 0.2f, 0.4f, 0.9f, 1.0f };
+        glm::vec4 m_BarBackgroundColor = { 0.15f, 0.15f, 0.15f, 0.85f };
+        f32 m_ManaBarGap = 2.0f; // pixels between HP and mana bar
+
+        NameplateComponent() = default;
+        NameplateComponent(const NameplateComponent&) = default;
+    };
+
     template<typename... Component>
     struct ComponentGroup
     {
@@ -1443,6 +1473,7 @@ namespace OloEngine
         UISliderComponent,
         UICheckboxComponent,
         UIProgressBarComponent,
+        UIWorldAnchorComponent,
         UIInputFieldComponent,
         UIScrollViewComponent,
         UIDropdownComponent,
@@ -1476,5 +1507,6 @@ namespace OloEngine
         ItemContainerComponent,
         QuestJournalComponent,
         QuestGiverComponent,
-        AbilityComponent>;
+        AbilityComponent,
+        NameplateComponent>;
 } // namespace OloEngine

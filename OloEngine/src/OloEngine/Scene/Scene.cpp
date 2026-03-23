@@ -1089,99 +1089,7 @@ namespace OloEngine
             }
         }
 
-        if (mainCamera && m_RenderingEnabled)
-        {
-            // Render 3D if 3D mode is enabled
-            if (m_Is3DModeEnabled)
-            {
-                RenderScene3D(*mainCamera, cameraTransform);
-            }
-
-            // Always render 2D (sprites, circles, text overlay on top of 3D)
-            // In 3D mode, re-bind ScenePass FB so 2D overlays composit into the same target
-            if (m_Is3DModeEnabled)
-            {
-                if (auto scenePass = Renderer3D::GetScenePass(); scenePass && scenePass->GetTarget())
-                {
-                    scenePass->GetTarget()->Bind();
-                }
-                RenderCommand::SetBlendState(true);
-                RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                RenderCommand::SetDepthTest(false);
-                RenderCommand::SetDepthMask(false);
-            }
-            Renderer2D::BeginScene(*mainCamera, cameraTransform);
-
-            // Draw sprites
-            {
-                for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
-                {
-                    const auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
-                    Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(entity));
-                }
-            }
-
-            // Draw circles
-            {
-                for (const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>(); const auto entity : view)
-                {
-                    const auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
-
-                    Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(entity));
-                }
-            }
-
-            // Draw text
-            {
-                for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
-                {
-                    const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
-
-                    Renderer2D::DrawString(text.TextString, transform.GetTransform(), text, static_cast<int>(entity));
-                }
-            }
-
-            // Draw 2D particles (3D particles are rendered by ParticleRenderPass)
-            {
-                if (!m_Is3DModeEnabled)
-                {
-                    for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
-                    {
-                        auto& psc = view.get<ParticleSystemComponent>(entity);
-                        auto& sys = psc.System;
-                        glm::vec3 offset = (sys.SimulationSpace == ParticleSpace::Local) ? sys.GetEmitterPosition() : glm::vec3(0.0f);
-
-                        const ModuleTextureSheetAnimation* sheet = sys.TextureSheetModule.Enabled ? &sys.TextureSheetModule : nullptr;
-
-                        SetParticleBlendMode(sys.BlendMode);
-                        ParticleRenderer::RenderParticles2D(sys.GetPool(), psc.Texture, offset, static_cast<int>(entity), nullptr, sheet);
-
-                        // Render child systems
-                        for (sizet c = 0; c < psc.ChildSystems.size(); ++c)
-                        {
-                            auto& childSys = psc.ChildSystems[c];
-                            SetParticleBlendMode(childSys.BlendMode);
-                            Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
-                            ParticleRenderer::RenderParticles2D(childSys.GetPool(), childTex, offset, static_cast<int>(entity), nullptr, nullptr);
-                        }
-
-                        RestoreDefaultBlendMode();
-                    }
-                }
-            }
-
-            Renderer2D::EndScene();
-
-            // Restore state after 2D overlay rendering in 3D mode
-            if (m_Is3DModeEnabled)
-            {
-                RenderCommand::SetDepthTest(true);
-                RenderCommand::SetDepthMask(true);
-                RenderCommand::BindDefaultFramebuffer();
-            }
-        }
-
-        // Process UI input during runtime
+        // Process UI input during runtime (before rendering so input is up to date)
         {
             const glm::vec2 mousePos = Input::GetMousePosition();
             const bool mouseDown = Input::IsMouseButtonPressed(Mouse::ButtonLeft);
@@ -1190,9 +1098,99 @@ namespace OloEngine
             UIInputSystem::ProcessInput(*this, mousePos, mouseDown, mousePressed);
         }
 
-        if (m_RenderingEnabled)
+        if (mainCamera && m_RenderingEnabled)
         {
-            RenderUIOverlay();
+            // Cache camera VP matrix for UI world-anchor projection
+            m_CameraViewProjection = mainCamera->GetProjection() * glm::inverse(cameraTransform);
+
+            if (m_Is3DModeEnabled)
+            {
+                // Set up the UICompositePass callback before the render graph executes.
+                // The callback runs during UICompositePass::Execute(), after the
+                // post-processed scene has been blitted as background.
+                if (auto uiPass = Renderer3D::GetUICompositePass())
+                {
+                    uiPass->SetRenderCallback([this, mainCamera, cameraTransform]()
+                                              {
+                        // World-space 2D overlays (sprites, circles, text)
+                        Renderer2D::BeginScene(*mainCamera, cameraTransform);
+
+                        for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
+                        {
+                            const auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
+                            Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(entity));
+                        }
+
+                        for (const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>(); const auto entity : view)
+                        {
+                            const auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
+                            Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(entity));
+                        }
+
+                        for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
+                        {
+                            const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
+                            Renderer2D::DrawString(text.TextString, transform.GetTransform(), text, static_cast<int>(entity));
+                        }
+
+                        Renderer2D::EndScene();
+
+                        // Screen-space UI overlay
+                        RenderUIOverlay(); });
+                }
+
+                RenderScene3D(*mainCamera, cameraTransform);
+            }
+            else
+            {
+                // 2D mode - render directly (no render graph)
+                Renderer2D::BeginScene(*mainCamera, cameraTransform);
+
+                for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
+                {
+                    const auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
+                    Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(entity));
+                }
+
+                for (const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>(); const auto entity : view)
+                {
+                    const auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
+                    Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(entity));
+                }
+
+                for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
+                {
+                    const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
+                    Renderer2D::DrawString(text.TextString, transform.GetTransform(), text, static_cast<int>(entity));
+                }
+
+                // 2D particles (3D particles are rendered by ParticleRenderPass)
+                for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
+                {
+                    auto& psc = view.get<ParticleSystemComponent>(entity);
+                    auto& sys = psc.System;
+                    glm::vec3 offset = (sys.SimulationSpace == ParticleSpace::Local) ? sys.GetEmitterPosition() : glm::vec3(0.0f);
+
+                    const ModuleTextureSheetAnimation* sheet = sys.TextureSheetModule.Enabled ? &sys.TextureSheetModule : nullptr;
+
+                    SetParticleBlendMode(sys.BlendMode);
+                    ParticleRenderer::RenderParticles2D(sys.GetPool(), psc.Texture, offset, static_cast<int>(entity), nullptr, sheet);
+
+                    for (sizet c = 0; c < psc.ChildSystems.size(); ++c)
+                    {
+                        auto& childSys = psc.ChildSystems[c];
+                        SetParticleBlendMode(childSys.BlendMode);
+                        Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
+                        ParticleRenderer::RenderParticles2D(childSys.GetPool(), childTex, offset, static_cast<int>(entity), nullptr, nullptr);
+                    }
+
+                    RestoreDefaultBlendMode();
+                }
+
+                Renderer2D::EndScene();
+
+                RenderUIOverlay();
+            }
         }
     }
 
@@ -1296,17 +1294,37 @@ namespace OloEngine
         // Render based on mode
         if (m_RenderingEnabled)
         {
+            // Cache editor camera VP for UI world-anchor projection (nameplates etc.)
+            m_CameraViewProjection = camera.GetViewProjection();
+
             if (m_Is3DModeEnabled)
             {
+                // Set up the UICompositePass callback for editor overlays.
+                // Renders text and UI into the UICompositePass FBO so the editor
+                // viewport (which reads UICompositePass output) shows them.
+                if (auto uiPass = Renderer3D::GetUICompositePass())
+                {
+                    uiPass->SetRenderCallback([this, &camera]()
+                                              {
+                        Renderer2D::BeginScene(camera);
+
+                        for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
+                        {
+                            const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
+                            Renderer2D::DrawString(text.TextString, transform.GetTransform(), text, static_cast<int>(entity));
+                        }
+
+                        Renderer2D::EndScene();
+
+                        RenderUIOverlay(); });
+                }
+
                 RenderScene3D(camera);
             }
             else
             {
                 RenderScene(camera);
             }
-
-            // UI overlay renders on top of both 2D and 3D scenes
-            RenderUIOverlay();
         }
     }
 
@@ -1760,10 +1778,17 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         if (m_ViewportWidth == 0 || m_ViewportHeight == 0)
         {
+            OLO_CORE_WARN("RenderUIOverlay: viewport is {}x{} — skipping", m_ViewportWidth, m_ViewportHeight);
             return;
         }
 
-        UILayoutSystem::ResolveLayout(*this, m_ViewportWidth, m_ViewportHeight);
+        // UI always renders on top of the scene — disable depth testing
+        RenderCommand::SetDepthTest(false);
+        RenderCommand::SetDepthMask(false);
+        RenderCommand::SetBlendState(true);
+        RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+        UILayoutSystem::ResolveLayout(*this, m_ViewportWidth, m_ViewportHeight, m_CameraViewProjection);
 
         glm::mat4 uiProjection = glm::ortho(0.0f, static_cast<f32>(m_ViewportWidth),
                                             static_cast<f32>(m_ViewportHeight), 0.0f,
@@ -1796,6 +1821,25 @@ namespace OloEngine
                       }
                       return static_cast<u32>(a) < static_cast<u32>(b);
                   });
+
+        // Diagnostic: log UI entity count once per scene (not every frame)
+        static sizet s_LastLoggedCount = SIZE_MAX;
+        if (uiEntities.size() != s_LastLoggedCount)
+        {
+            s_LastLoggedCount = uiEntities.size();
+            OLO_CORE_INFO("RenderUIOverlay: {} resolved UI entities, viewport {}x{}", uiEntities.size(), m_ViewportWidth, m_ViewportHeight);
+            for (const auto entity : uiEntities)
+            {
+                Entity ent{ entity, this };
+                auto& resolved = m_Registry.get<UIResolvedRectComponent>(entity);
+                bool hasPanel = m_Registry.all_of<UIPanelComponent>(entity);
+                bool hasText = m_Registry.all_of<UITextComponent>(entity);
+                bool hasProgress = m_Registry.all_of<UIProgressBarComponent>(entity);
+                OLO_CORE_INFO("  UI entity '{}': pos=({:.1f},{:.1f}) size=({:.1f},{:.1f}) panel={} text={} progress={}",
+                              ent.GetName(), resolved.m_Position.x, resolved.m_Position.y,
+                              resolved.m_Size.x, resolved.m_Size.y, hasPanel, hasText, hasProgress);
+            }
+        }
 
         for (const auto entity : uiEntities)
         {
@@ -1858,7 +1902,85 @@ namespace OloEngine
             }
         }
 
+        // Nameplate rendering pass: draw floating HP/Mana bars above entities
+        // with NameplateComponent.  Values are read from AbilityComponent.
+        {
+            auto nameplateView = GetAllEntitiesWith<NameplateComponent, TransformComponent>();
+            for (const auto entity : nameplateView)
+            {
+                const auto& nameplate = nameplateView.get<NameplateComponent>(entity);
+                if (!nameplate.m_Enabled)
+                {
+                    continue;
+                }
+
+                const auto& transform = nameplateView.get<TransformComponent>(entity);
+                const glm::vec3 worldPos = transform.Translation + nameplate.m_WorldOffset;
+
+                // Project world position to clip space
+                const glm::vec4 clipPos = m_CameraViewProjection * glm::vec4(worldPos, 1.0f);
+                if (clipPos.w <= 0.0f)
+                {
+                    continue; // Behind camera
+                }
+
+                const glm::vec3 ndc = glm::vec3(clipPos) / clipPos.w;
+                const f32 screenX = (ndc.x * 0.5f + 0.5f) * static_cast<f32>(m_ViewportWidth);
+                const f32 screenY = (1.0f - (ndc.y * 0.5f + 0.5f)) * static_cast<f32>(m_ViewportHeight);
+                const int eid = static_cast<int>(entity);
+
+                // Read health/mana from AbilityComponent
+                f32 hp = 0.0f;
+                f32 maxHp = 1.0f;
+                f32 mana = 0.0f;
+                f32 maxMana = 1.0f;
+                if (m_Registry.all_of<AbilityComponent>(entity))
+                {
+                    const auto& abilities = m_Registry.get<AbilityComponent>(entity);
+                    hp = abilities.Attributes.GetCurrentValue("Health");
+                    maxHp = std::max(abilities.Attributes.GetCurrentValue("MaxHealth"), 1.0f);
+                    mana = abilities.Attributes.GetCurrentValue("Mana");
+                    maxMana = std::max(abilities.Attributes.GetCurrentValue("MaxMana"), 1.0f);
+                }
+
+                f32 currentY = screenY;
+
+                // HP bar (bottom edge at projected point, bar extends upward)
+                if (nameplate.m_ShowHealthBar)
+                {
+                    currentY -= nameplate.m_BarSize.y;
+                    const glm::vec2 barPos = { screenX - nameplate.m_BarSize.x * 0.5f, currentY };
+                    UIRenderer::DrawRect(barPos, nameplate.m_BarSize, nameplate.m_BarBackgroundColor, eid);
+                    const f32 fill = glm::clamp(hp / maxHp, 0.0f, 1.0f);
+                    const glm::vec2 fillSize = { nameplate.m_BarSize.x * fill, nameplate.m_BarSize.y };
+                    if (fillSize.x > 0.0f)
+                    {
+                        UIRenderer::DrawRect(barPos, fillSize, nameplate.m_HealthBarColor, eid);
+                    }
+                }
+
+                // Mana bar below HP bar
+                if (nameplate.m_ShowManaBar)
+                {
+                    currentY += nameplate.m_BarSize.y + nameplate.m_ManaBarGap;
+                    const glm::vec2 manaSize = { nameplate.m_BarSize.x, nameplate.m_BarSize.y * 0.8f };
+                    const glm::vec2 barPos = { screenX - manaSize.x * 0.5f, currentY };
+                    UIRenderer::DrawRect(barPos, manaSize, nameplate.m_BarBackgroundColor, eid);
+                    const f32 fill = glm::clamp(mana / maxMana, 0.0f, 1.0f);
+                    const glm::vec2 fillSize = { manaSize.x * fill, manaSize.y };
+                    if (fillSize.x > 0.0f)
+                    {
+                        UIRenderer::DrawRect(barPos, fillSize, nameplate.m_ManaBarColor, eid);
+                    }
+                }
+            }
+        }
+
         UIRenderer::EndScene();
+
+        // Restore depth state
+        RenderCommand::SetDepthTest(true);
+        RenderCommand::SetDepthMask(true);
     }
 
     void Scene::RenderScene(EditorCamera const& camera)
@@ -3793,6 +3915,11 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::UIProgressBarComponent>([[may
 }
 
 template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::UIWorldAnchorComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIWorldAnchorComponent& component)
+{
+}
+
+template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::UIInputFieldComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIInputFieldComponent& component)
 {
 }
@@ -3879,5 +4006,10 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::QuestGiverComponent>([[maybe_
 
 template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::AbilityComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::AbilityComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::NameplateComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::NameplateComponent& component)
 {
 }

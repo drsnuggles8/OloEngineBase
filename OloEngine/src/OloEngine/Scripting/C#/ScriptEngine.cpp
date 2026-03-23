@@ -410,7 +410,7 @@ namespace OloEngine
 
     ScriptFieldMap& ScriptEngine::GetScriptFieldMap(Entity entity)
     {
-        OLO_CORE_ASSERT(entity);
+        OLO_CORE_ASSERT(entity, "ScriptEngine::GetScriptFieldMap called with invalid entity");
 
         UUID entityID = entity.GetUUID();
         return s_Data->EntityScriptFields[entityID];

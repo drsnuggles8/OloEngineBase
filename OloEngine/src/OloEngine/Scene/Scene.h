@@ -105,6 +105,15 @@ namespace OloEngine
             m_IsPaused = paused;
         }
 
+        [[nodiscard("Store this!")]] bool GetPendingReload() const
+        {
+            return m_PendingReload;
+        }
+        void SetPendingReload(bool pending)
+        {
+            m_PendingReload = pending;
+        }
+
         void Step(int frames = 1);
 
         void SetName(std::string_view name);
@@ -376,8 +385,10 @@ namespace OloEngine
         entt::registry m_Registry;
         u32 m_ViewportWidth = 0;
         u32 m_ViewportHeight = 0;
+        glm::mat4 m_CameraViewProjection{ 1.0f }; // Cached for UI world-anchor projection
         bool m_IsRunning = false;
         bool m_IsPaused = false;
+        bool m_PendingReload = false;
         int m_StepFrames = 0;
         u64 m_TerrainFrameCounter = 0;
         u64 m_StreamingFrameCounter = 0;

@@ -305,6 +305,10 @@ namespace OloEngine::Testing
             Record("BindDefaultFramebuffer");
             m_BindCount++;
         }
+        void BlitFramebufferToDefault(u32 /*srcFboID*/, u32 /*width*/, u32 /*height*/) override
+        {
+            Record("BlitFramebufferToDefault");
+        }
         void BindTexture(u32 slot, u32 texID) override
         {
             RecordedCall c{ "BindTexture" };

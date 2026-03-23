@@ -283,35 +283,63 @@ namespace OloEngine
             s_Data.FullscreenQuadVAO->AddVertexBuffer(quadVBO);
         }
 
-        m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
-        m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
-        m_ShaderLibrary.Load("assets/shaders/SkinnedLighting3D_Simple.glsl");
-        m_ShaderLibrary.Load("assets/shaders/Renderer3D_Quad.glsl");
-        m_ShaderLibrary.Load("assets/shaders/PBR.glsl");
-        m_ShaderLibrary.Load("assets/shaders/PBR_Skinned.glsl");
-        m_ShaderLibrary.Load("assets/shaders/PBR_MultiLight.glsl");
-        m_ShaderLibrary.Load("assets/shaders/PBR_MultiLight_Skinned.glsl");
-        m_ShaderLibrary.Load("assets/shaders/EquirectangularToCubemap.glsl");
-        m_ShaderLibrary.Load("assets/shaders/IrradianceConvolution.glsl");
-        m_ShaderLibrary.Load("assets/shaders/IBLPrefilter.glsl");
-        m_ShaderLibrary.Load("assets/shaders/BRDFLutGeneration.glsl");
-        m_ShaderLibrary.Load("assets/shaders/Skybox.glsl");
-        m_ShaderLibrary.Load("assets/shaders/InfiniteGrid.glsl");
-        m_ShaderLibrary.Load("assets/shaders/ShadowDepth.glsl");
-        m_ShaderLibrary.Load("assets/shaders/ShadowDepthSkinned.glsl");
-        m_ShaderLibrary.Load("assets/shaders/ShadowDepthPoint.glsl");
-        m_ShaderLibrary.Load("assets/shaders/ShadowDepthPointSkinned.glsl");
+        u32 shaderIdx = 0;
+        constexpr u32 totalShaders3D = 26;
 
+        m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
+        m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
+        m_ShaderLibrary.Load("assets/shaders/SkinnedLighting3D_Simple.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
+        m_ShaderLibrary.Load("assets/shaders/Renderer3D_Quad.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
+        m_ShaderLibrary.Load("assets/shaders/PBR.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
+        m_ShaderLibrary.Load("assets/shaders/PBR_Skinned.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
+        m_ShaderLibrary.Load("assets/shaders/PBR_MultiLight.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
+        m_ShaderLibrary.Load("assets/shaders/PBR_MultiLight_Skinned.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
+        m_ShaderLibrary.Load("assets/shaders/EquirectangularToCubemap.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
+        m_ShaderLibrary.Load("assets/shaders/IrradianceConvolution.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
+        m_ShaderLibrary.Load("assets/shaders/IBLPrefilter.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
+        m_ShaderLibrary.Load("assets/shaders/BRDFLutGeneration.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
+        m_ShaderLibrary.Load("assets/shaders/Skybox.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
+        m_ShaderLibrary.Load("assets/shaders/InfiniteGrid.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
+        m_ShaderLibrary.Load("assets/shaders/ShadowDepth.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
+        m_ShaderLibrary.Load("assets/shaders/ShadowDepthSkinned.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
+        m_ShaderLibrary.Load("assets/shaders/ShadowDepthPoint.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
+        m_ShaderLibrary.Load("assets/shaders/ShadowDepthPointSkinned.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
         m_ShaderLibrary.Load("assets/shaders/Terrain_PBR.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
         m_ShaderLibrary.Load("assets/shaders/Terrain_Depth.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
         m_ShaderLibrary.Load("assets/shaders/Terrain_Voxel.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
         m_ShaderLibrary.Load("assets/shaders/Terrain_VoxelDepth.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
         m_ShaderLibrary.Load("assets/shaders/Foliage_Instance.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
         m_ShaderLibrary.Load("assets/shaders/Foliage_Depth.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
         m_ShaderLibrary.Load("assets/shaders/Water.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
         m_ShaderLibrary.Load("assets/shaders/Decal.glsl");
         m_ShaderLibrary.Load("assets/shaders/OcclusionProxy.glsl");
         m_ShaderLibrary.Load("assets/shaders/ForwardPlusDebug.glsl");
+        Application::ReportLoadingProgress(totalShaders3D, totalShaders3D, "shaders");
 
         s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
         s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
@@ -2507,6 +2535,10 @@ namespace OloEngine
         s_Data.PostProcessPass->Init(finalPassSpec);
         s_Data.PostProcessPass->SetSceneDepthFramebuffer(s_Data.ScenePass->GetTarget());
 
+        s_Data.UICompositePass = Ref<UICompositeRenderPass>::Create();
+        s_Data.UICompositePass->SetName("UICompositePass");
+        s_Data.UICompositePass->Init(finalPassSpec);
+
         s_Data.FinalPass = Ref<FinalRenderPass>::Create();
         s_Data.FinalPass->SetName("FinalPass");
         s_Data.FinalPass->Init(finalPassSpec);
@@ -2520,6 +2552,7 @@ namespace OloEngine
         s_Data.RGraph->AddPass(s_Data.ParticlePass);
         s_Data.RGraph->AddPass(s_Data.SSSPass);
         s_Data.RGraph->AddPass(s_Data.PostProcessPass);
+        s_Data.RGraph->AddPass(s_Data.UICompositePass);
         s_Data.RGraph->AddPass(s_Data.FinalPass);
 
         // ShadowPass -> ScenePass: ordering only (shadow textures are bound via UBO/texture slots)
@@ -2536,17 +2569,18 @@ namespace OloEngine
         s_Data.RGraph->AddExecutionDependency("SSAOPass", "ParticlePass");
         // ParticlePass -> SSSPass: framebuffer piping (SSS reads scene color via SetInputFramebuffer)
         s_Data.RGraph->ConnectPass("ParticlePass", "SSSPass");
-        // Graph connections: SSSPass -> PostProcessPass -> FinalPass use SetInputFramebuffer
-        // via the graph's Execute() piping. No manual calls needed for these.
+        // Graph connections: SSSPass -> PostProcessPass -> UICompositePass -> FinalPass
+        // use SetInputFramebuffer via the graph's Execute() piping.
         s_Data.RGraph->ConnectPass("SSSPass", "PostProcessPass");
-        s_Data.RGraph->ConnectPass("PostProcessPass", "FinalPass");
+        s_Data.RGraph->ConnectPass("PostProcessPass", "UICompositePass");
+        s_Data.RGraph->ConnectPass("UICompositePass", "FinalPass");
 
         // PostProcessPass needs the scene depth for DOF/MotionBlur (not piped by graph).
         s_Data.PostProcessPass->SetSceneDepthFramebuffer(s_Data.ScenePass->GetTarget());
         // PostProcessPass initial input is the scene FB (overridden by graph's SSSPass -> PostProcessPass
         // piping each frame, which passes SSSPass::GetTarget() = scene FB when SSS is disabled).
         s_Data.PostProcessPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
-        OLO_CORE_INFO("Renderer3D: Render graph: ShadowPass -> ScenePass -> FoliagePass -> WaterPass -> DecalPass -> SSAOPass -> ParticlePass -> SSSPass -> PostProcessPass -> FinalPass");
+        OLO_CORE_INFO("Renderer3D: Render graph: Shadow -> Scene -> Foliage -> Water -> Decal -> SSAO -> Particle -> SSS -> PostProcess -> UIComposite -> Final");
 
         s_Data.RGraph->SetFinalPass("FinalPass");
     }
@@ -2556,7 +2590,20 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Renderer3D::OnWindowResize: Resizing to {}x{}", width, height);
 
-        if (s_Data.RGraph)
+        if (width == 0 || height == 0)
+        {
+            return;
+        }
+
+        // If render graph exists but passes were never created (Init ran with 0x0 window),
+        // create them now that we have valid dimensions.
+        if (s_Data.RGraph && !s_Data.ScenePass)
+        {
+            OLO_CORE_INFO("Renderer3D::OnWindowResize: ScenePass missing — running deferred SetupRenderGraph");
+            SetupRenderGraph(width, height);
+            s_Data.ForwardPlus.Initialize(width, height);
+        }
+        else if (s_Data.RGraph)
         {
             s_Data.RGraph->Resize(width, height);
         }

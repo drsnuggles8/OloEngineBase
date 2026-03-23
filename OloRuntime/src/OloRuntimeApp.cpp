@@ -13,6 +13,7 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 
 #include <filesystem>
+#include <imgui.h>
 #include <yaml-cpp/yaml.h>
 
 namespace OloEngine
@@ -71,6 +72,7 @@ namespace OloEngine
             }
 
             OLO_CORE_INFO("[Runtime] Loading start scene: {}", startScenePath.string());
+            m_ScenePath = startScenePath;
 
             m_ActiveScene = Ref<Scene>::Create();
             SceneSerializer serializer(m_ActiveScene);
@@ -156,6 +158,13 @@ namespace OloEngine
 
             // Update the scene (physics, scripts, rendering)
             m_ActiveScene->OnUpdateRuntime(ts);
+
+            // Handle script-triggered scene reload (e.g., death/respawn)
+            if (m_ActiveScene->GetPendingReload())
+            {
+                m_ActiveScene->SetPendingReload(false);
+                ReloadScene();
+            }
         }
 
         void OnEvent(Event& e) override
@@ -287,9 +296,41 @@ namespace OloEngine
 
       private:
         Ref<Scene> m_ActiveScene;
+        std::filesystem::path m_ScenePath;
         bool m_Is3DMode = true;
         u32 m_ViewportWidth = 0;
         u32 m_ViewportHeight = 0;
+
+        void ReloadScene()
+        {
+            OLO_CORE_INFO("[Runtime] Reloading scene: {}", m_ScenePath.string());
+
+            // Reset time scale in case we were paused
+            Application::Get().SetTimeScale(1.0f);
+
+            m_ActiveScene->OnRuntimeStop();
+
+            m_ActiveScene = Ref<Scene>::Create();
+            SceneSerializer serializer(m_ActiveScene);
+            if (!serializer.Deserialize(m_ScenePath.string()))
+            {
+                OLO_CORE_ERROR("[Runtime] Failed to reload scene");
+                Application::Get().Close();
+                return;
+            }
+
+            m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
+
+            auto& window = Application::Get().GetWindow();
+            u32 w = window.GetFramebufferWidth();
+            u32 h = window.GetFramebufferHeight();
+            if (w > 0 && h > 0)
+            {
+                m_ActiveScene->OnViewportResize(w, h);
+            }
+
+            m_ActiveScene->OnRuntimeStart();
+        }
     };
 
     /**
@@ -304,6 +345,10 @@ namespace OloEngine
         explicit OloGameRuntime(const ApplicationSpecification& spec)
             : Application(spec)
         {
+            // Disable ImGui ini persistence — the runtime doesn't need it and
+            // loading the editor's imgui.ini from CWD would cause stale state.
+            ImGui::GetIO().IniFilename = nullptr;
+
             PushLayer(new RuntimeLayer());
         }
 

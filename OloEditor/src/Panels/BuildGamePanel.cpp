@@ -149,6 +149,37 @@ namespace OloEngine
         ImGui::Separator();
         ImGui::Spacing();
 
+        // Game icon selection
+        ImGui::Text("Game Icon");
+        ImGui::Spacing();
+
+        std::string iconDisplay = m_IconPath.empty()
+                                      ? "(default OloEngine icon)"
+                                      : m_IconPath.filename().string();
+        ImGui::Text("Icon: %s", iconDisplay.c_str());
+        ImGui::SameLine();
+        if (ImGui::Button("Browse##Icon"))
+        {
+            std::filesystem::path selected = FileDialogs::OpenFile(
+                "Icon Files (*.ico)\0*.ico\0");
+            if (!selected.empty())
+            {
+                m_IconPath = selected;
+            }
+        }
+        if (!m_IconPath.empty())
+        {
+            ImGui::SameLine();
+            if (ImGui::Button("Clear##Icon"))
+            {
+                m_IconPath.clear();
+            }
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
         ImGui::Checkbox("Compress Assets", &m_Settings.CompressAssets);
         ImGui::Checkbox("Include Script Module", &m_Settings.IncludeScriptModule);
         ImGui::Checkbox("Validate Assets", &m_Settings.ValidateAssets);
@@ -270,6 +301,9 @@ namespace OloEngine
                 m_Settings.StartScene = m_EditorScenePath;
             }
         }
+
+        // Set custom icon path
+        m_Settings.IconPath = m_IconPath;
 
         m_IsBuildInProgress.store(true, std::memory_order_release);
         m_HasBuildResult.store(false, std::memory_order_release);

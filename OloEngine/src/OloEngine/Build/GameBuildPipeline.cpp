@@ -26,7 +26,7 @@ namespace OloEngine
         progress = 0.0f;
 
         // Step 1: Validate project (5%)
-        OLO_CORE_INFO("[GameBuild] Step 1/8: Validating project...");
+        OLO_CORE_INFO("[GameBuild] Step 1/9: Validating project...");
         if (!ValidateProject(result.ErrorMessage))
         {
             return result;
@@ -56,7 +56,7 @@ namespace OloEngine
         result.OutputPath = outputDir;
 
         // Step 2: Build asset pack (5% -> 55%)
-        OLO_CORE_INFO("[GameBuild] Step 2/8: Building asset pack...");
+        OLO_CORE_INFO("[GameBuild] Step 2/9: Building asset pack...");
         if (!BuildAssetPack(settings, outputDir, result.AssetCount, result.SceneCount, progress, cancelToken))
         {
             if (result.ErrorMessage.empty())
@@ -73,11 +73,24 @@ namespace OloEngine
             return result;
         }
 
-        // Step 3: Copy runtime executable (55% -> 62%)
-        OLO_CORE_INFO("[GameBuild] Step 3/8: Copying runtime executable...");
+        // Step 3: Copy runtime executable (55% -> 60%)
+        OLO_CORE_INFO("[GameBuild] Step 3/9: Copying runtime executable...");
         if (!CopyRuntimeExecutable(settings, outputDir, result.ErrorMessage))
         {
             return result;
+        }
+        progress = 0.60f;
+
+        // Step 3b: Embed custom icon if specified (non-fatal)
+        if (!settings.IconPath.empty())
+        {
+            OLO_CORE_INFO("[GameBuild] Embedding custom icon...");
+            std::string iconError;
+            const std::filesystem::path destExe = outputDir / (settings.GameName + ".exe");
+            if (!EmbedCustomIcon(destExe, settings.IconPath, iconError))
+            {
+                OLO_CORE_WARN("[GameBuild] Custom icon embedding failed (non-fatal): {}", iconError);
+            }
         }
         progress = 0.62f;
 
@@ -88,7 +101,7 @@ namespace OloEngine
         }
 
         // Step 4: Copy dependency DLLs (62% -> 68%)
-        OLO_CORE_INFO("[GameBuild] Step 4/8: Copying dependency DLLs...");
+        OLO_CORE_INFO("[GameBuild] Step 4/9: Copying dependency DLLs...");
         if (!CopyDependencyDLLs(settings, outputDir, result.ErrorMessage))
         {
             return result;
@@ -96,7 +109,7 @@ namespace OloEngine
         progress = 0.68f;
 
         // Step 5: Copy engine resources — shaders, fonts (68% -> 80%)
-        OLO_CORE_INFO("[GameBuild] Step 5/8: Copying engine resources...");
+        OLO_CORE_INFO("[GameBuild] Step 5/9: Copying engine resources...");
         if (!CopyEngineResources(outputDir, result.ErrorMessage))
         {
             return result;
@@ -104,7 +117,7 @@ namespace OloEngine
         progress = 0.80f;
 
         // Step 6: Copy Mono runtime (80% -> 88%)
-        OLO_CORE_INFO("[GameBuild] Step 6/8: Copying Mono runtime...");
+        OLO_CORE_INFO("[GameBuild] Step 6/9: Copying Mono runtime...");
         if (!CopyMonoRuntime(outputDir, result.ErrorMessage))
         {
             return result;
@@ -633,5 +646,132 @@ namespace OloEngine
         }
         return totalSize;
     }
+
+#ifdef _WIN32
+    bool GameBuildPipeline::EmbedCustomIcon(
+        const std::filesystem::path& exePath,
+        const std::filesystem::path& iconPath,
+        std::string& errorMessage)
+    {
+        if (!std::filesystem::exists(iconPath))
+        {
+            errorMessage = "Icon file not found: " + iconPath.string();
+            return false;
+        }
+
+        // Read the entire .ico file into memory
+        std::ifstream icoFile(iconPath, std::ios::binary | std::ios::ate);
+        if (!icoFile.is_open())
+        {
+            errorMessage = "Failed to open icon file: " + iconPath.string();
+            return false;
+        }
+
+        const auto fileSize = icoFile.tellg();
+        if (fileSize < 6) // Minimum ICO header size
+        {
+            errorMessage = "Icon file is too small or corrupt";
+            return false;
+        }
+        icoFile.seekg(0);
+
+        std::vector<u8> icoData(static_cast<sizet>(fileSize));
+        icoFile.read(reinterpret_cast<char*>(icoData.data()), fileSize);
+        icoFile.close();
+
+        // Parse ICO header: 6 bytes header + 16 bytes per entry
+        // ICONDIR: Reserved(2) + Type(2) + Count(2)
+        if (icoData.size() < 6)
+        {
+            errorMessage = "Invalid ICO file format";
+            return false;
+        }
+
+        u16 imageCount = *reinterpret_cast<const u16*>(&icoData[4]);
+        if (imageCount == 0 || icoData.size() < static_cast<sizet>(6 + imageCount * 16))
+        {
+            errorMessage = "Invalid ICO file: no images or truncated directory";
+            return false;
+        }
+
+        // Open the executable for resource updates
+        HANDLE hUpdate = ::BeginUpdateResourceW(exePath.wstring().c_str(), FALSE);
+        if (!hUpdate)
+        {
+            errorMessage = "BeginUpdateResource failed (error " + std::to_string(::GetLastError()) + ")";
+            return false;
+        }
+
+        // Build the RT_GROUP_ICON directory that references individual RT_ICON entries.
+        // GRPICONDIR: Reserved(2) + Type(2) + Count(2) + GRPICONDIRENTRY[Count]
+        // Each GRPICONDIRENTRY is 14 bytes (same as ICONDIRENTRY but with nID instead of dwImageOffset)
+        const sizet grpSize = 6 + imageCount * 14;
+        std::vector<u8> grpData(grpSize);
+        std::memcpy(grpData.data(), icoData.data(), 6); // Copy header
+
+        bool anyFailed = false;
+        for (u16 i = 0; i < imageCount; ++i)
+        {
+            const sizet entryOffset = 6 + static_cast<sizet>(i) * 16;
+            const u8* entry = &icoData[entryOffset];
+
+            // ICONDIRENTRY: Width(1) Height(1) ColorCount(1) Reserved(1)
+            //               Planes(2) BitCount(2) BytesInRes(4) ImageOffset(4)
+            u32 bytesInRes = *reinterpret_cast<const u32*>(&entry[8]);
+            u32 imageOffset = *reinterpret_cast<const u32*>(&entry[12]);
+
+            if (static_cast<sizet>(imageOffset) + bytesInRes > icoData.size())
+            {
+                anyFailed = true;
+                continue;
+            }
+
+            // Write individual RT_ICON resource (1-indexed ID)
+            u16 iconId = static_cast<u16>(i + 1);
+            if (!::UpdateResourceW(hUpdate, MAKEINTRESOURCEW(3), MAKEINTRESOURCEW(iconId),
+                                   MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL),
+                                   const_cast<u8*>(&icoData[imageOffset]), bytesInRes))
+            {
+                anyFailed = true;
+            }
+
+            // Build GRPICONDIRENTRY: copy first 12 bytes from ICONDIRENTRY, then nID(2)
+            const sizet grpEntryOffset = 6 + static_cast<sizet>(i) * 14;
+            std::memcpy(&grpData[grpEntryOffset], entry, 12);
+            *reinterpret_cast<u16*>(&grpData[grpEntryOffset + 12]) = iconId;
+        }
+
+        // Write RT_GROUP_ICON resource (ID 1 — matches the .rc resource ID)
+        if (!::UpdateResourceW(hUpdate, MAKEINTRESOURCEW(14), MAKEINTRESOURCEW(1),
+                               MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL),
+                               grpData.data(), static_cast<DWORD>(grpData.size())))
+        {
+            anyFailed = true;
+        }
+
+        if (!::EndUpdateResourceW(hUpdate, FALSE))
+        {
+            errorMessage = "EndUpdateResource failed (error " + std::to_string(::GetLastError()) + ")";
+            return false;
+        }
+
+        if (anyFailed)
+        {
+            OLO_CORE_WARN("[GameBuild] Some icon entries could not be embedded");
+        }
+
+        OLO_CORE_INFO("[GameBuild] Custom icon embedded: {} ({} image(s))", iconPath.filename().string(), imageCount);
+        return true;
+    }
+#else
+    bool GameBuildPipeline::EmbedCustomIcon(
+        const std::filesystem::path&,
+        const std::filesystem::path&,
+        std::string& errorMessage)
+    {
+        errorMessage = "Icon embedding is only supported on Windows";
+        return false;
+    }
+#endif
 
 } // namespace OloEngine

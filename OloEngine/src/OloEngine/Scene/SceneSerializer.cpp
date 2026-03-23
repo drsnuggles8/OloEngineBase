@@ -1812,6 +1812,13 @@ namespace OloEngine
             TrySet(progress.m_FillColor, uiProgressBarComponent["FillColor"]);
         }
 
+        if (auto uiWorldAnchorComponent = entity["UIWorldAnchorComponent"]; uiWorldAnchorComponent)
+        {
+            auto& anchor = deserializedEntity.AddComponent<UIWorldAnchorComponent>();
+            TrySet(anchor.m_TargetEntity, uiWorldAnchorComponent["TargetEntity"]);
+            TrySet(anchor.m_WorldOffset, uiWorldAnchorComponent["WorldOffset"]);
+        }
+
         if (auto uiInputFieldComponent = entity["UIInputFieldComponent"]; uiInputFieldComponent)
         {
             auto& input = deserializedEntity.AddComponent<UIInputFieldComponent>();
@@ -2709,6 +2716,20 @@ namespace OloEngine
                 }
             }
         }
+
+        if (auto nameplateNode = entity["NameplateComponent"]; nameplateNode)
+        {
+            auto& nc = deserializedEntity.AddComponent<NameplateComponent>();
+            TrySet(nc.m_Enabled, nameplateNode["Enabled"]);
+            TrySet(nc.m_ShowHealthBar, nameplateNode["ShowHealthBar"]);
+            TrySet(nc.m_ShowManaBar, nameplateNode["ShowManaBar"]);
+            TrySet(nc.m_WorldOffset, nameplateNode["WorldOffset"]);
+            TrySet(nc.m_BarSize, nameplateNode["BarSize"]);
+            TrySet(nc.m_HealthBarColor, nameplateNode["HealthBarColor"]);
+            TrySet(nc.m_ManaBarColor, nameplateNode["ManaBarColor"]);
+            TrySet(nc.m_BarBackgroundColor, nameplateNode["BarBackgroundColor"]);
+            TrySet(nc.m_ManaBarGap, nameplateNode["ManaBarGap"]);
+        }
     }
 
     SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -3444,6 +3465,18 @@ namespace OloEngine
             out << YAML::Key << "FillColor" << YAML::Value << progress.m_FillColor;
 
             out << YAML::EndMap; // UIProgressBarComponent
+        }
+
+        if (entity.HasComponent<UIWorldAnchorComponent>())
+        {
+            out << YAML::Key << "UIWorldAnchorComponent";
+            out << YAML::BeginMap; // UIWorldAnchorComponent
+
+            auto const& anchor = entity.GetComponent<UIWorldAnchorComponent>();
+            out << YAML::Key << "TargetEntity" << YAML::Value << anchor.m_TargetEntity;
+            out << YAML::Key << "WorldOffset" << YAML::Value << anchor.m_WorldOffset;
+
+            out << YAML::EndMap; // UIWorldAnchorComponent
         }
 
         if (entity.HasComponent<UIInputFieldComponent>())
@@ -4631,6 +4664,25 @@ namespace OloEngine
             out << YAML::EndSeq;
 
             out << YAML::EndMap; // AbilityComponent
+        }
+
+        if (entity.HasComponent<NameplateComponent>())
+        {
+            out << YAML::Key << "NameplateComponent";
+            out << YAML::BeginMap;
+
+            auto const& nc = entity.GetComponent<NameplateComponent>();
+            out << YAML::Key << "Enabled" << YAML::Value << nc.m_Enabled;
+            out << YAML::Key << "ShowHealthBar" << YAML::Value << nc.m_ShowHealthBar;
+            out << YAML::Key << "ShowManaBar" << YAML::Value << nc.m_ShowManaBar;
+            out << YAML::Key << "WorldOffset" << YAML::Value << nc.m_WorldOffset;
+            out << YAML::Key << "BarSize" << YAML::Value << nc.m_BarSize;
+            out << YAML::Key << "HealthBarColor" << YAML::Value << nc.m_HealthBarColor;
+            out << YAML::Key << "ManaBarColor" << YAML::Value << nc.m_ManaBarColor;
+            out << YAML::Key << "BarBackgroundColor" << YAML::Value << nc.m_BarBackgroundColor;
+            out << YAML::Key << "ManaBarGap" << YAML::Value << nc.m_ManaBarGap;
+
+            out << YAML::EndMap; // NameplateComponent
         }
 
         out << YAML::EndMap; // Entity

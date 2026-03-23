@@ -16,6 +16,7 @@
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Passes/PostProcessRenderPass.h"
+#include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
@@ -641,6 +642,11 @@ namespace OloEngine
             return s_Data.PostProcessPass;
         }
 
+        static const Ref<UICompositeRenderPass>& GetUICompositePass()
+        {
+            return s_Data.UICompositePass;
+        }
+
         static ShadowMap& GetShadowMap()
         {
             return s_Data.Shadow;
@@ -961,6 +967,7 @@ namespace OloEngine
             Ref<ParticleRenderPass> ParticlePass;
             Ref<SSSRenderPass> SSSPass;
             Ref<PostProcessRenderPass> PostProcessPass;
+            Ref<UICompositeRenderPass> UICompositePass;
             Ref<FinalRenderPass> FinalPass;
 
             // Shadow mapping

@@ -3,6 +3,8 @@
 
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/Font.h"
+#include "OloEngine/Renderer/MSDFData.h"
 #include "OloEngine/Scene/Components.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -198,67 +200,191 @@ namespace OloEngine
         {
             DrawRect(position, size, panel.m_BackgroundTexture, panel.m_BackgroundColor, entityID);
         }
-        else
+        else if (panel.m_BackgroundColor.a > 0.0f)
         {
             DrawRect(position, size, panel.m_BackgroundColor, entityID);
         }
     }
 
+    // Measure the width of a single line of text in local (pre-transform) coordinates.
+    // Mirrors the advancement logic from Renderer2D::DrawString.
+    static f32 MeasureLineWidth(std::string_view line, const msdf_atlas::FontGeometry& fontGeometry,
+                                double fsScale, f32 kerning)
+    {
+        if (line.empty())
+        {
+            return 0.0f;
+        }
+
+        double x = 0.0;
+        const auto* spaceGlyph = fontGeometry.getGlyph(' ');
+        const f32 spaceAdvance = spaceGlyph ? static_cast<f32>(spaceGlyph->getAdvance()) : 0.0f;
+
+        for (sizet i = 0; i < line.size(); i++)
+        {
+            const char ch = line[i];
+            if (ch == '\r')
+            {
+                continue;
+            }
+
+            if (ch == ' ')
+            {
+                f32 advance = spaceAdvance;
+                if (i < line.size() - 1)
+                {
+                    double dAdvance{};
+                    fontGeometry.getAdvance(dAdvance, ch, line[i + 1]);
+                    advance = static_cast<f32>(dAdvance);
+                }
+                x += fsScale * advance + kerning;
+                continue;
+            }
+
+            if (ch == '\t')
+            {
+                x += 4.0 * (fsScale * spaceAdvance + kerning);
+                continue;
+            }
+
+            auto* glyph = fontGeometry.getGlyph(ch);
+            if (!glyph)
+            {
+                glyph = fontGeometry.getGlyph('?');
+            }
+            if (!glyph)
+            {
+                continue;
+            }
+
+            double advance = glyph->getAdvance();
+            if (i < line.size() - 1)
+            {
+                fontGeometry.getAdvance(advance, ch, line[i + 1]);
+            }
+            x += fsScale * advance + kerning;
+        }
+
+        return static_cast<f32>(x);
+    }
+
     void UIRenderer::DrawUIText(const glm::vec2& position, const glm::vec2& size, const UITextComponent& text, int entityID)
     {
-        if (text.m_Text.empty() || !text.m_FontAsset)
+        if (text.m_Text.empty())
         {
             return;
         }
 
-        // Font size scaling: DrawString uses a 1:1 world-unit = pixel mapping,
-        // so we scale the transform by fontSize to get the desired pixel size.
-        const f32 scale = text.m_FontSize / 48.0f; // Default font metrics assume ~48 unit em
-
-        glm::vec2 textOrigin = position;
-
-        // Horizontal alignment
-        switch (text.m_Alignment)
+        // Use default font as fallback when the component's font failed to load
+        Ref<Font> fontAsset = text.m_FontAsset;
+        if (!fontAsset)
         {
-            case UITextAlignment::TopCenter:
-            case UITextAlignment::MiddleCenter:
-            case UITextAlignment::BottomCenter:
-                textOrigin.x += size.x * 0.5f;
-                break;
-            case UITextAlignment::TopRight:
-            case UITextAlignment::MiddleRight:
-            case UITextAlignment::BottomRight:
-                textOrigin.x += size.x;
-                break;
-            default:
-                break;
+            fontAsset = Font::GetDefault();
+        }
+        if (!fontAsset)
+        {
+            return;
         }
 
-        // Vertical alignment
-        switch (text.m_Alignment)
+        const auto& fontGeometry = fontAsset->GetMSDFData()->FontGeometry;
+        const auto& metrics = fontGeometry.getMetrics();
+        const double fsScale = 1.0 / (metrics.ascenderY - metrics.descenderY);
+
+        // Font size scaling: after fsScale normalization, the full ascender-to-descender
+        // range is 1.0 local unit. Multiplying by fontSize gives fontSize pixels in the
+        // screen-space ortho projection (1 unit = 1 pixel).
+        const f32 scale = text.m_FontSize;
+
+        // Line height in local space (pre-transform) and screen space.
+        // m_LineSpacing is added in pixels (post-scale) so small values like 2.0
+        // translate directly to 2 extra pixels between lines.
+        const f32 lineHeightLocal = static_cast<f32>(fsScale * metrics.lineHeight);
+        const f32 lineHeightScreen = lineHeightLocal * scale + text.m_LineSpacing;
+
+        // Split text into lines and measure each line's width
+        std::vector<std::string> lines;
+        std::vector<f32> lineWidths;
         {
-            case UITextAlignment::MiddleLeft:
-            case UITextAlignment::MiddleCenter:
-            case UITextAlignment::MiddleRight:
-                textOrigin.y += size.y * 0.5f;
-                break;
-            case UITextAlignment::BottomLeft:
-            case UITextAlignment::BottomCenter:
-            case UITextAlignment::BottomRight:
-                textOrigin.y += size.y;
-                break;
-            default:
-                break;
+            std::string_view sv(text.m_Text);
+            sizet start = 0;
+            while (start <= sv.size())
+            {
+                sizet end = sv.find('\n', start);
+                if (end == std::string_view::npos)
+                {
+                    end = sv.size();
+                }
+                auto line = sv.substr(start, end - start);
+                // Remove \r if present
+                if (!line.empty() && line.back() == '\r')
+                {
+                    line = line.substr(0, line.size() - 1);
+                }
+                lines.emplace_back(line);
+                lineWidths.push_back(MeasureLineWidth(line, fontGeometry, fsScale, text.m_Kerning) * scale);
+                start = end + 1;
+            }
         }
 
-        glm::mat4 transform = glm::translate(glm::mat4(1.0f), { textOrigin.x, textOrigin.y, 0.0f }) * glm::scale(glm::mat4(1.0f), { scale, scale, 1.0f });
+        const f32 totalHeight = static_cast<f32>(lines.size()) * lineHeightScreen;
+
+        // Compute vertical start of text block
+        f32 blockY = position.y;
+        using enum UITextAlignment;
+        switch (text.m_Alignment)
+        {
+            case MiddleLeft:
+            case MiddleCenter:
+            case MiddleRight:
+                blockY += (size.y - totalHeight) * 0.5f;
+                break;
+            case BottomLeft:
+            case BottomCenter:
+            case BottomRight:
+                blockY += size.y - totalHeight;
+                break;
+            default:
+                break; // Top: starts at position.y
+        }
+
+        const bool isCenter = text.m_Alignment == TopCenter || text.m_Alignment == MiddleCenter || text.m_Alignment == BottomCenter;
+        const bool isRight = text.m_Alignment == TopRight || text.m_Alignment == MiddleRight || text.m_Alignment == BottomRight;
 
         Renderer2D::TextParams params;
         params.Color = text.m_Color;
         params.Kerning = text.m_Kerning;
         params.LineSpacing = text.m_LineSpacing;
 
-        Renderer2D::DrawString(text.m_Text, text.m_FontAsset, transform, params, entityID);
+        // DrawString emits quads in Y-up local space (ascender is positive Y).
+        // The UI ortho projection is Y-down (0 at top, height at bottom).
+        // Negate Y scale so the font's Y-up becomes Y-down in screen space.
+        // Offset lineY by the ascender so the top of the glyph aligns with the
+        // intended top of each line.
+        const f32 ascenderScreen = static_cast<f32>(metrics.ascenderY * fsScale) * scale;
+
+        for (sizet i = 0; i < lines.size(); i++)
+        {
+            if (lines[i].empty())
+            {
+                continue; // Skip empty lines (vertical space is still accounted for by blockY + i * lineHeight)
+            }
+
+            f32 lineX = position.x;
+            if (isCenter)
+            {
+                lineX += (size.x - lineWidths[i]) * 0.5f;
+            }
+            else if (isRight)
+            {
+                lineX += size.x - lineWidths[i];
+            }
+
+            const f32 lineY = blockY + static_cast<f32>(i) * lineHeightScreen + ascenderScreen;
+
+            glm::mat4 transform = glm::translate(glm::mat4(1.0f), { lineX, lineY, 0.0f }) * glm::scale(glm::mat4(1.0f), { scale, -scale, 1.0f });
+
+            Renderer2D::DrawString(lines[i], fontAsset, transform, params, entityID);
+        }
     }
 
     void UIRenderer::DrawButton(const glm::vec2& position, const glm::vec2& size, const UIButtonComponent& button, int entityID)

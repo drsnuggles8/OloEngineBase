@@ -130,7 +130,19 @@ namespace OloEngine
         m_DataFormat = Utils::OloEngineImageFormatToGLDataFormat(m_CubemapSpecification.Format);
 
         glCreateTextures(GL_TEXTURE_CUBE_MAP, 1, &m_RendererID);
-        glTextureStorage2D(m_RendererID, m_CubemapSpecification.GenerateMips ? 4 : 1, m_InternalFormat,
+
+        u32 mipLevels = 1;
+        if (m_CubemapSpecification.GenerateMips)
+        {
+            u32 maxDim = std::max(m_Width, m_Height);
+            while (maxDim > 1)
+            {
+                maxDim >>= 1;
+                mipLevels++;
+            }
+        }
+
+        glTextureStorage2D(m_RendererID, static_cast<GLsizei>(mipLevels), m_InternalFormat,
                            static_cast<int>(m_Width), static_cast<int>(m_Height));
 
         // Set texture parameters appropriate for cubemaps
@@ -250,8 +262,17 @@ namespace OloEngine
                 m_Specification.Format = m_CubemapSpecification.Format;
                 m_Specification.GenerateMips = true;
 
-                // Allocate storage for the cubemap
-                glTextureStorage2D(m_RendererID, 4, m_InternalFormat, width, height);
+                // Allocate storage for the cubemap (full mip chain)
+                u32 mipLevels = 1;
+                {
+                    u32 maxDim = std::max(m_Width, m_Height);
+                    while (maxDim > 1)
+                    {
+                        maxDim >>= 1;
+                        mipLevels++;
+                    }
+                }
+                glTextureStorage2D(m_RendererID, static_cast<GLsizei>(mipLevels), m_InternalFormat, width, height);
             }
             else if (static_cast<u32>(width) != m_Width || static_cast<u32>(height) != m_Height)
             {

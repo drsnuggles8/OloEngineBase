@@ -157,6 +157,17 @@ namespace OloEngine
             std::string& errorMessage);
 
         /**
+         * @brief Embed a custom icon into the game executable using Windows resource APIs
+         *
+         * Replaces the default icon resource (ID 1) in the copied executable with
+         * the user-selected .ico file. Non-fatal — returns false but lets the build continue.
+         */
+        static bool EmbedCustomIcon(
+            const std::filesystem::path& exePath,
+            const std::filesystem::path& iconPath,
+            std::string& errorMessage);
+
+        /**
          * @brief Calculate total size of the output directory
          */
         static sizet CalculateDirectorySize(const std::filesystem::path& directory);

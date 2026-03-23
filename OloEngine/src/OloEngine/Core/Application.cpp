@@ -63,7 +63,9 @@ namespace OloEngine
                 OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger initialized before Renderer");
 #endif
 
+                m_Window->SetTitle(m_Specification.Name + " — Loading shaders...");
                 Renderer::Init(m_Specification.PreferredRenderer);
+                m_Window->SetTitle(m_Specification.Name);
 
                 if (!AudioEngine::Init())
                 {
@@ -156,6 +158,25 @@ namespace OloEngine
         Tasks::FNamedThreadManager::Get().DetachFromThread(Tasks::ENamedThread::GameThread);
     }
 
+    void Application::KeepWindowAlive()
+    {
+        if (s_Instance && s_Instance->m_Window)
+        {
+            s_Instance->m_Window->PollEvents();
+        }
+    }
+
+    void Application::ReportLoadingProgress(u32 current, u32 total, std::string_view label)
+    {
+        if (s_Instance && s_Instance->m_Window)
+        {
+            std::string title = s_Instance->m_Specification.Name + " — Loading " +
+                                std::string(label) + " (" + std::to_string(current) + "/" + std::to_string(total) + ")";
+            s_Instance->m_Window->SetTitle(title);
+            s_Instance->m_Window->PollEvents();
+        }
+    }
+
     void Application::PushLayer(Layer* const layer)
     {
         OLO_PROFILE_FUNCTION();
@@ -232,7 +253,7 @@ namespace OloEngine
         {
 
             const auto timeNow = Time::GetTime();
-            const Timestep timestep = std::min(timeNow - m_LastFrameTime, s_MaxTimestep);
+            const Timestep timestep = std::min(timeNow - m_LastFrameTime, s_MaxTimestep) * m_TimeScale;
             m_LastFrameTime = timeNow;
 
             // Poll OS events first so GLFW key state is fresh for this frame

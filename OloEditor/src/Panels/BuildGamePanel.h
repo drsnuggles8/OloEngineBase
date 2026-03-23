@@ -82,6 +82,9 @@ namespace OloEngine
         std::filesystem::path m_EditorScenePath; // currently open scene (absolute)
         std::function<bool()> m_SaveSceneCallback;
 
+        // Icon
+        std::filesystem::path m_IconPath;
+
         // Results
         GameBuildResult m_LastBuildResult;
         std::atomic<bool> m_HasBuildResult{ false };

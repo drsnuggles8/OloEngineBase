@@ -40,7 +40,7 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("Submesh index {} out of range! MeshSource has {} submeshes.",
                            submeshIndex, m_MeshSource->GetSubmeshes().Num());
-            OLO_CORE_ASSERT(false);
+            OLO_CORE_ASSERT(false, "Submesh index {} out of range", submeshIndex);
         }
         m_SubmeshIndex = submeshIndex;
     }

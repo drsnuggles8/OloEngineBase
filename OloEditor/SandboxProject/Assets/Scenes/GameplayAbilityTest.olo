@@ -183,6 +183,18 @@ Entities:
       FixedAspectRatio: false
       RuntimeControl: false
       FlySpeed: 5
+    ScriptComponent:
+      ClassName: Sandbox.CameraFollow
+      ScriptFields:
+        - Name: OffsetY
+          Type: Float
+          Data: 12
+        - Name: OffsetZ
+          Type: Float
+          Data: 12
+        - Name: SmoothSpeed
+          Type: Float
+          Data: 5
   - Entity: 830000000000002
     TagComponent:
       Tag: Skybox
@@ -230,6 +242,19 @@ Entities:
       AlbedoColor: [0.35, 0.35, 0.3]
       Metallic: 0
       Roughness: 0.95
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 0
+      LinearDrag: 0
+      AngularDrag: 0
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [15, 0.05, 15]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.6
+      Restitution: 0.1
   - Entity: 830000000000006
     TagComponent:
       Tag: NavMesh Bounds
@@ -384,6 +409,16 @@ Entities:
                 []
               BlockedTags:
                 []
+    NameplateComponent:
+      Enabled: true
+      ShowHealthBar: true
+      ShowManaBar: true
+      WorldOffset: [0, 2, 0]
+      BarSize: [200, 15]
+      HealthBarColor: [0.2, 0.8, 0.2, 1]
+      ManaBarColor: [0.2, 0.4, 0.9, 1]
+      BarBackgroundColor: [0.15, 0.15, 0.15, 0.85]
+      ManaBarGap: 2
   - Entity: 830000000000020
     TagComponent:
       Tag: Goblin
@@ -466,6 +501,16 @@ Entities:
                 []
               BlockedTags:
                 []
+    NameplateComponent:
+      Enabled: true
+      ShowHealthBar: true
+      ShowManaBar: false
+      WorldOffset: [0, 1.6, 0]
+      BarSize: [160, 12]
+      HealthBarColor: [0.8, 0.2, 0.2, 1]
+      ManaBarColor: [0.2, 0.4, 0.9, 1]
+      BarBackgroundColor: [0.15, 0.15, 0.15, 0.85]
+      ManaBarGap: 2
   - Entity: 830000000000030
     TagComponent:
       Tag: Fire Mage
@@ -584,6 +629,16 @@ Entities:
                 []
               BlockedTags:
                 []
+    NameplateComponent:
+      Enabled: true
+      ShowHealthBar: true
+      ShowManaBar: true
+      WorldOffset: [0, 1.8, 0]
+      BarSize: [160, 12]
+      HealthBarColor: [0.8, 0.2, 0.2, 1]
+      ManaBarColor: [0.2, 0.4, 0.9, 1]
+      BarBackgroundColor: [0.15, 0.15, 0.15, 0.85]
+      ManaBarGap: 2
   - Entity: 830000000000040
     TagComponent:
       Tag: Pillar Left
@@ -597,6 +652,19 @@ Entities:
       AlbedoColor: [0.5, 0.45, 0.4]
       Metallic: 0.1
       Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 0
+      LinearDrag: 0
+      AngularDrag: 0
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.4, 1.5, 0.4]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.5
+      DynamicFriction: 0.4
+      Restitution: 0.1
   - Entity: 830000000000041
     TagComponent:
       Tag: Pillar Right
@@ -610,3 +678,469 @@ Entities:
       AlbedoColor: [0.5, 0.45, 0.4]
       Metallic: 0.1
       Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 0
+      LinearDrag: 0
+      AngularDrag: 0
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.4, 1.5, 0.4]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.5
+      DynamicFriction: 0.4
+      Restitution: 0.1
+  - Entity: 830000000000060
+    TagComponent:
+      Tag: Slash VFX
+    TransformComponent:
+      Translation: [0, 1, 3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ParticleSystemComponent:
+      MaxParticles: 200
+      Playing: false
+      Looping: false
+      Duration: 0.3
+      PlaybackSpeed: 1
+      SimulationSpace: 0
+      RateOverTime: 0
+      InitialSpeed: 4
+      SpeedVariance: 1.5
+      LifetimeMin: 0.1
+      LifetimeMax: 0.25
+      InitialSize: 0.15
+      SizeVariance: 0.05
+      InitialRotation: 0
+      RotationVariance: 180
+      InitialColor: [1, 1, 0.4, 1]
+      EmissionShapeType: 1
+      Bursts:
+        - Time: 0
+          Count: 40
+          Probability: 1
+      EmissionSphereRadius: 0.5
+      GravityEnabled: false
+      Gravity: [0, 0, 0]
+      DragEnabled: true
+      DragCoefficient: 3
+      ColorOverLifetimeEnabled: true
+      ColorCurve:
+        R:
+          KeyCount: 2
+          Keys:
+            - Time: 0
+              Value: 1
+            - Time: 1
+              Value: 1
+        G:
+          KeyCount: 2
+          Keys:
+            - Time: 0
+              Value: 1
+            - Time: 1
+              Value: 1
+        B:
+          KeyCount: 2
+          Keys:
+            - Time: 0
+              Value: 1
+            - Time: 1
+              Value: 1
+        A:
+          KeyCount: 2
+          Keys:
+            - Time: 0
+              Value: 1
+            - Time: 1
+              Value: 0
+      SizeOverLifetimeEnabled: true
+      SizeCurve:
+        KeyCount: 2
+        Keys:
+          - Time: 0
+            Value: 1
+          - Time: 1
+            Value: 0
+      RotationOverLifetimeEnabled: false
+      AngularVelocity: 0
+      VelocityOverLifetimeEnabled: false
+      LinearAcceleration: [0, 0, 0]
+      SpeedMultiplier: 1
+      SpeedCurve:
+        KeyCount: 2
+        Keys:
+          - Time: 0
+            Value: 1
+          - Time: 1
+            Value: 1
+      NoiseEnabled: false
+      NoiseStrength: 0
+      NoiseFrequency: 0
+      CollisionEnabled: false
+      CollisionMode: 0
+      CollisionPlaneNormal: [0, 1, 0]
+      CollisionPlaneOffset: 0
+      CollisionBounce: 0.5
+      CollisionLifetimeLoss: 0
+      CollisionKillOnCollide: false
+      ForceFields:
+        []
+      TrailEnabled: false
+      TrailMaxPoints: 50
+      TrailLifetime: 0.5
+      TrailMinVertexDistance: 0.1
+      TrailWidthStart: 0.1
+      TrailWidthEnd: 0
+      TrailColorStart: [1, 1, 1, 1]
+      TrailColorEnd: [1, 1, 1, 0]
+      SubEmitterEnabled: false
+      LODDistance1: 30
+      LODMaxDistance: 100
+      WarmUpTime: 0
+      BlendMode: 0
+      RenderMode: 0
+      DepthSortEnabled: false
+      UseGPU: false
+      SoftParticlesEnabled: false
+      SoftParticleDistance: 1
+      VelocityInheritance: 0
+      WindInfluence: 0
+      GPUNoiseStrength: 0
+      GPUNoiseFrequency: 0
+      GPUGroundCollision: false
+      GPUGroundY: 0
+      GPUCollisionBounce: 0.5
+      GPUCollisionFriction: 0.5
+      TextureSheetEnabled: false
+      TextureSheetGridX: 1
+      TextureSheetGridY: 1
+      TextureSheetTotalFrames: 1
+      TextureSheetMode: 0
+      TextureSheetSpeedRange: 10
+  - Entity: 830000000000061
+    TagComponent:
+      Tag: Fireball VFX
+    TransformComponent:
+      Translation: [0, 1, 3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ParticleSystemComponent:
+      MaxParticles: 300
+      Playing: false
+      Looping: false
+      Duration: 0.5
+      PlaybackSpeed: 1
+      SimulationSpace: 0
+      RateOverTime: 0
+      InitialSpeed: 3
+      SpeedVariance: 1
+      LifetimeMin: 0.2
+      LifetimeMax: 0.5
+      InitialSize: 0.2
+      SizeVariance: 0.08
+      InitialRotation: 0
+      RotationVariance: 180
+      InitialColor: [1, 0.4, 0.1, 1]
+      EmissionShapeType: 1
+      Bursts:
+        - Time: 0
+          Count: 50
+          Probability: 1
+      EmissionSphereRadius: 0.3
+      GravityEnabled: true
+      Gravity: [0, 2, 0]
+      DragEnabled: true
+      DragCoefficient: 2
+      ColorOverLifetimeEnabled: true
+      ColorCurve:
+        R:
+          KeyCount: 2
+          Keys:
+            - Time: 0
+              Value: 1
+            - Time: 1
+              Value: 1
+        G:
+          KeyCount: 2
+          Keys:
+            - Time: 0
+              Value: 1
+            - Time: 1
+              Value: 1
+        B:
+          KeyCount: 2
+          Keys:
+            - Time: 0
+              Value: 1
+            - Time: 1
+              Value: 1
+        A:
+          KeyCount: 2
+          Keys:
+            - Time: 0
+              Value: 1
+            - Time: 1
+              Value: 0
+      SizeOverLifetimeEnabled: true
+      SizeCurve:
+        KeyCount: 2
+        Keys:
+          - Time: 0
+            Value: 1
+          - Time: 1
+            Value: 0
+      RotationOverLifetimeEnabled: false
+      AngularVelocity: 0
+      VelocityOverLifetimeEnabled: false
+      LinearAcceleration: [0, 0, 0]
+      SpeedMultiplier: 1
+      SpeedCurve:
+        KeyCount: 2
+        Keys:
+          - Time: 0
+            Value: 1
+          - Time: 1
+            Value: 1
+      NoiseEnabled: true
+      NoiseStrength: 0.5
+      NoiseFrequency: 2
+      CollisionEnabled: false
+      CollisionMode: 0
+      CollisionPlaneNormal: [0, 1, 0]
+      CollisionPlaneOffset: 0
+      CollisionBounce: 0.5
+      CollisionLifetimeLoss: 0
+      CollisionKillOnCollide: false
+      ForceFields:
+        []
+      TrailEnabled: false
+      TrailMaxPoints: 50
+      TrailLifetime: 0.5
+      TrailMinVertexDistance: 0.1
+      TrailWidthStart: 0.1
+      TrailWidthEnd: 0
+      TrailColorStart: [1, 1, 1, 1]
+      TrailColorEnd: [1, 1, 1, 0]
+      SubEmitterEnabled: false
+      LODDistance1: 30
+      LODMaxDistance: 100
+      WarmUpTime: 0
+      BlendMode: 0
+      RenderMode: 0
+      DepthSortEnabled: false
+      UseGPU: false
+      SoftParticlesEnabled: false
+      SoftParticleDistance: 1
+      VelocityInheritance: 0
+      WindInfluence: 0
+      GPUNoiseStrength: 0
+      GPUNoiseFrequency: 0
+      GPUGroundCollision: false
+      GPUGroundY: 0
+      GPUCollisionBounce: 0.5
+      GPUCollisionFriction: 0.5
+      TextureSheetEnabled: false
+      TextureSheetGridX: 1
+      TextureSheetGridY: 1
+      TextureSheetTotalFrames: 1
+      TextureSheetMode: 0
+      TextureSheetSpeedRange: 10
+  - Entity: 830000000000062
+    TagComponent:
+      Tag: Heal VFX
+    TransformComponent:
+      Translation: [0, 1, 3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ParticleSystemComponent:
+      MaxParticles: 250
+      Playing: false
+      Looping: false
+      Duration: 0.6
+      PlaybackSpeed: 1
+      SimulationSpace: 0
+      RateOverTime: 0
+      InitialSpeed: 2
+      SpeedVariance: 0.8
+      LifetimeMin: 0.3
+      LifetimeMax: 0.6
+      InitialSize: 0.12
+      SizeVariance: 0.04
+      InitialRotation: 0
+      RotationVariance: 180
+      InitialColor: [0.3, 1, 0.3, 1]
+      EmissionShapeType: 1
+      Bursts:
+        - Time: 0
+          Count: 40
+          Probability: 1
+      EmissionSphereRadius: 0.6
+      GravityEnabled: true
+      Gravity: [0, 3, 0]
+      DragEnabled: true
+      DragCoefficient: 2.5
+      ColorOverLifetimeEnabled: true
+      ColorCurve:
+        R:
+          KeyCount: 2
+          Keys:
+            - Time: 0
+              Value: 1
+            - Time: 1
+              Value: 1
+        G:
+          KeyCount: 2
+          Keys:
+            - Time: 0
+              Value: 1
+            - Time: 1
+              Value: 1
+        B:
+          KeyCount: 2
+          Keys:
+            - Time: 0
+              Value: 1
+            - Time: 1
+              Value: 1
+        A:
+          KeyCount: 2
+          Keys:
+            - Time: 0
+              Value: 1
+            - Time: 1
+              Value: 0
+      SizeOverLifetimeEnabled: true
+      SizeCurve:
+        KeyCount: 2
+        Keys:
+          - Time: 0
+            Value: 1
+          - Time: 1
+            Value: 0
+      RotationOverLifetimeEnabled: false
+      AngularVelocity: 0
+      VelocityOverLifetimeEnabled: false
+      LinearAcceleration: [0, 0, 0]
+      SpeedMultiplier: 1
+      SpeedCurve:
+        KeyCount: 2
+        Keys:
+          - Time: 0
+            Value: 1
+          - Time: 1
+            Value: 1
+      NoiseEnabled: false
+      NoiseStrength: 0
+      NoiseFrequency: 0
+      CollisionEnabled: false
+      CollisionMode: 0
+      CollisionPlaneNormal: [0, 1, 0]
+      CollisionPlaneOffset: 0
+      CollisionBounce: 0.5
+      CollisionLifetimeLoss: 0
+      CollisionKillOnCollide: false
+      ForceFields:
+        []
+      TrailEnabled: false
+      TrailMaxPoints: 50
+      TrailLifetime: 0.5
+      TrailMinVertexDistance: 0.1
+      TrailWidthStart: 0.1
+      TrailWidthEnd: 0
+      TrailColorStart: [1, 1, 1, 1]
+      TrailColorEnd: [1, 1, 1, 0]
+      SubEmitterEnabled: false
+      LODDistance1: 30
+      LODMaxDistance: 100
+      WarmUpTime: 0
+      BlendMode: 0
+      RenderMode: 0
+      DepthSortEnabled: false
+      UseGPU: false
+      SoftParticlesEnabled: false
+      SoftParticleDistance: 1
+      VelocityInheritance: 0
+      WindInfluence: 0
+      GPUNoiseStrength: 0
+      GPUNoiseFrequency: 0
+      GPUGroundCollision: false
+      GPUGroundY: 0
+      GPUCollisionBounce: 0.5
+      GPUCollisionFriction: 0.5
+      TextureSheetEnabled: false
+      TextureSheetGridX: 1
+      TextureSheetGridY: 1
+      TextureSheetTotalFrames: 1
+      TextureSheetMode: 0
+      TextureSheetSpeedRange: 10
+  - Entity: 830000000000070
+    TagComponent:
+      Tag: Pause Overlay
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UICanvasComponent:
+      RenderMode: 0
+      ScaleMode: 0
+      SortOrder: 100
+      ReferenceResolution: [1920, 1080]
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      AnchoredPosition: [0, 0]
+      SizeDelta: [0, 0]
+      Pivot: [0.5, 0.5]
+      Rotation: 0
+      Scale: [1, 1]
+    UIPanelComponent:
+      BackgroundColor: [0, 0, 0, 0]
+    UITextComponent:
+      Text: ""
+      FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
+      FontSize: 48
+      Color: [1, 1, 0.5, 0]
+      Alignment: 4
+      Kerning: 0
+      LineSpacing: 1.5
+  - Entity: 830000000000071
+    TagComponent:
+      Tag: Death Overlay
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UICanvasComponent:
+      RenderMode: 0
+      ScaleMode: 0
+      SortOrder: 101
+      ReferenceResolution: [1920, 1080]
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      AnchoredPosition: [0, 0]
+      SizeDelta: [0, 0]
+      Pivot: [0.5, 0.5]
+      Rotation: 0
+      Scale: [1, 1]
+    UIPanelComponent:
+      BackgroundColor: [0.15, 0, 0, 0]
+    UITextComponent:
+      Text: ""
+      FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
+      FontSize: 56
+      Color: [1, 0.2, 0.2, 0]
+      Alignment: 4
+      Kerning: 0
+      LineSpacing: 1.5
+  - Entity: 830000000000080
+    TagComponent:
+      Tag: GameManager
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ScriptComponent:
+      ClassName: Sandbox.GameManager

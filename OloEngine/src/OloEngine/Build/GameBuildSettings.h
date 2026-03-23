@@ -43,6 +43,10 @@ namespace OloEngine
         /// Whether the game uses 3D rendering (true) or 2D-only (false).
         /// Controls which renderer the runtime initialises at startup.
         bool Is3DMode = true;
+
+        /// Optional path to a custom .ico file for the game executable.
+        /// If empty, the default OloEngine icon is used.
+        std::filesystem::path IconPath;
     };
 
 } // namespace OloEngine

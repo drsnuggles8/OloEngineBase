@@ -17,6 +17,23 @@ namespace OloEngine
 			return InternalCalls.Input_IsKeyJustReleased(keycode);
 		}
 
+		public static Vector2 GetMousePosition()
+		{
+			InternalCalls.Input_GetMousePosition(out Vector2 position);
+			return position;
+		}
+
+		public static bool IsMouseButtonDown(int button)
+		{
+			return InternalCalls.Input_IsMouseButtonDown(button);
+		}
+
+        public static Vector2 GetWindowSize()
+        {
+            InternalCalls.Input_GetWindowSize(out Vector2 size);
+            return size;
+        }
+
 		public static bool IsActionPressed(string actionName)
 		{
 			return InternalCalls.Input_IsActionPressed(actionName);

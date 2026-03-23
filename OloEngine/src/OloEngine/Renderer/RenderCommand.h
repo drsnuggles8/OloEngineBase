@@ -213,6 +213,11 @@ namespace OloEngine
             s_RendererAPI->BindDefaultFramebuffer();
         }
 
+        static void BlitFramebufferToDefault(u32 srcFboID, u32 width, u32 height)
+        {
+            s_RendererAPI->BlitFramebufferToDefault(srcFboID, width, height);
+        }
+
         static void BindTexture(u32 slot, u32 textureID)
         {
             s_RendererAPI->BindTexture(slot, textureID);

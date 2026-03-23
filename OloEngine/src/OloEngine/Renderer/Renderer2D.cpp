@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/MSDFData.h"
+#include "OloEngine/Core/Application.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -233,10 +234,15 @@ namespace OloEngine
         }
 
         m_ShaderLibrary.Load("assets/shaders/Renderer2D_Quad.glsl");
+        Application::ReportLoadingProgress(1, 5, "2D shaders");
         m_ShaderLibrary.Load("assets/shaders/Renderer2D_Polygon.glsl");
+        Application::ReportLoadingProgress(2, 5, "2D shaders");
         m_ShaderLibrary.Load("assets/shaders/Renderer2D_Circle.glsl");
+        Application::ReportLoadingProgress(3, 5, "2D shaders");
         m_ShaderLibrary.Load("assets/shaders/Renderer2D_Line.glsl");
+        Application::ReportLoadingProgress(4, 5, "2D shaders");
         m_ShaderLibrary.Load("assets/shaders/Renderer2D_Text.glsl");
+        Application::ReportLoadingProgress(5, 5, "2D shaders");
 
         s_Data.QuadShader = m_ShaderLibrary.Get("Renderer2D_Quad");
         s_Data.PolygonShader = m_ShaderLibrary.Get("Renderer2D_Polygon");
@@ -278,6 +284,9 @@ namespace OloEngine
         s_Data.CameraBuffer.ViewProjection = camera.GetViewProjectionMatrix();
         UniformData data = { &s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData), 0 };
         s_Data.CameraUniformBuffer->SetData(data);
+        // Re-bind to ensure this UBO is active at binding point 0.
+        // Renderer3D binds its own camera UBO to the same slot, overwriting the binding.
+        s_Data.CameraUniformBuffer->Bind();
 
         StartBatch();
     }
@@ -289,6 +298,7 @@ namespace OloEngine
         s_Data.CameraBuffer.ViewProjection = camera.GetProjection() * glm::inverse(transform);
         UniformData data = { &s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData), 0 };
         s_Data.CameraUniformBuffer->SetData(data);
+        s_Data.CameraUniformBuffer->Bind();
 
         StartBatch();
     }
@@ -300,6 +310,7 @@ namespace OloEngine
         s_Data.CameraBuffer.ViewProjection = camera.GetViewProjection();
         UniformData data = { &s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData), 0 };
         s_Data.CameraUniformBuffer->SetData(data);
+        s_Data.CameraUniformBuffer->Bind();
 
         StartBatch();
     }

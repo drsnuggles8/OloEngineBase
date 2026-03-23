@@ -284,6 +284,14 @@ namespace OloEngine
                 canvasEnt.GetComponent<UICanvasComponent>().m_SortOrder = 100;
             }
         }
+        if (static_cast<u64>(m_PanelEntity) != 0)
+        {
+            Entity panelEnt = scene.GetEntityByUUID(m_PanelEntity);
+            if (panelEnt && panelEnt.HasComponent<UIPanelComponent>())
+            {
+                panelEnt.GetComponent<UIPanelComponent>().m_BackgroundColor.a = 0.85f;
+            }
+        }
         m_IsVisible = true;
     }
 
@@ -297,6 +305,14 @@ namespace OloEngine
             if (canvasEnt && canvasEnt.HasComponent<UICanvasComponent>())
             {
                 canvasEnt.GetComponent<UICanvasComponent>().m_SortOrder = -9999;
+            }
+        }
+        if (static_cast<u64>(m_PanelEntity) != 0)
+        {
+            Entity panelEnt = scene.GetEntityByUUID(m_PanelEntity);
+            if (panelEnt && panelEnt.HasComponent<UIPanelComponent>())
+            {
+                panelEnt.GetComponent<UIPanelComponent>().m_BackgroundColor.a = 0.0f;
             }
         }
         m_IsVisible = false;

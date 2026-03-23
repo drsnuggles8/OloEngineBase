@@ -482,6 +482,16 @@ namespace OloEngine
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
+    void OpenGLRendererAPI::BlitFramebufferToDefault(u32 srcFboID, u32 width, u32 height)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glBlitNamedFramebuffer(srcFboID, 0,
+                               0, 0, static_cast<GLint>(width), static_cast<GLint>(height),
+                               0, 0, static_cast<GLint>(width), static_cast<GLint>(height),
+                               GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    }
+
     void OpenGLRendererAPI::BindTexture(u32 slot, u32 textureID)
     {
         OLO_PROFILE_FUNCTION();
