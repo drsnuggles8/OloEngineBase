@@ -28,11 +28,11 @@ namespace OloEngine
 			return InternalCalls.Input_IsMouseButtonDown(button);
 		}
 
-        public static Vector2 GetWindowSize()
-        {
-            InternalCalls.Input_GetWindowSize(out Vector2 size);
-            return size;
-        }
+		public static Vector2 GetWindowSize()
+		{
+			InternalCalls.Input_GetWindowSize(out Vector2 size);
+			return size;
+		}
 
 		public static bool IsActionPressed(string actionName)
 		{

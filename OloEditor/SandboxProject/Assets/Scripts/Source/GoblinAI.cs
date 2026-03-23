@@ -7,7 +7,7 @@ namespace Sandbox
 	{
 		private TransformComponent m_Transform;
 		private AbilityComponent m_Abilities;
-		private MaterialComponent m_Material;
+		private DamageFlashHelper m_DamageFlash;
 
 		public float AggroRange = 8.0f;
 		public float AttackRange = 2.0f;
@@ -17,21 +17,15 @@ namespace Sandbox
 		private bool m_Logged = false;
 		private Entity m_Player = null;
 
-		// Color flash
-		private Vector4 m_OriginalColor;
-		private float m_FlashTimer = 0.0f;
-		private float m_LastHealth = -1.0f;
-
 		void OnCreate()
 		{
 			m_Transform = GetComponent<TransformComponent>();
 			m_Abilities = GetComponent<AbilityComponent>();
 
+			MaterialComponent material = null;
 			if (HasComponent<MaterialComponent>())
-			{
-				m_Material = GetComponent<MaterialComponent>();
-				m_OriginalColor = m_Material.AlbedoColor;
-			}
+				material = GetComponent<MaterialComponent>();
+			m_DamageFlash = new DamageFlashHelper(material);
 
 			Debug.Log("[GoblinAI] Spawned - lurking...");
 		}
@@ -45,20 +39,7 @@ namespace Sandbox
 				return;
 
 			// Damage flash detection
-			float curHealth = m_Abilities.GetCurrentAttribute("Health");
-			if (m_LastHealth >= 0.0f && curHealth < m_LastHealth && m_Material != null)
-			{
-				m_Material.AlbedoColor = new Vector4(1.0f, 0.3f, 0.3f, 1.0f);
-				m_FlashTimer = 0.15f;
-			}
-			m_LastHealth = curHealth;
-
-			if (m_FlashTimer > 0.0f && m_Material != null)
-			{
-				m_FlashTimer -= ts;
-				if (m_FlashTimer <= 0.0f)
-					m_Material.AlbedoColor = m_OriginalColor;
-			}
+			m_DamageFlash.Update(ts, m_Abilities.GetCurrentAttribute("Health"));
 
 			if (m_Player == null || m_Player.IsDestroyed)
 				m_Player = FindEntityByName("Player");

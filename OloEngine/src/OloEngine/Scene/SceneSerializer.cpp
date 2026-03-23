@@ -4882,7 +4882,16 @@ namespace OloEngine
 
                     Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
 
-                    DeserializeEntityComponents(deserializedEntity, entity);
+                    try
+                    {
+                        DeserializeEntityComponents(deserializedEntity, entity);
+                    }
+                    catch (...)
+                    {
+                        // Remove the half-initialized entity so the scene stays consistent
+                        m_Scene->DestroyEntity(deserializedEntity);
+                        throw;
+                    }
                     ++entityCount;
                 }
                 catch (const std::exception& e)
@@ -4969,17 +4978,27 @@ namespace OloEngine
         }
 
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
+        // Sort by UUID for deterministic output matching Serialize()
+        std::vector<entt::entity> sortedEntities;
         m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
-                                                      {
-				// SAFETY: m_Scene is const Ref<Scene>, but Entity requires non-const Scene*
-				// This is safe because serialization only reads entity data
-				Entity const entity = { entityID, const_cast<Scene*>(m_Scene.get()) };
-				if (!entity)
-				{
-					return;
-				}
+                                                      { sortedEntities.push_back(entityID); });
+        std::ranges::sort(sortedEntities, [&](entt::entity a, entt::entity b)
+                          {
+                              const u64 uuidA = m_Scene->m_Registry.get<IDComponent>(a).ID;
+                              const u64 uuidB = m_Scene->m_Registry.get<IDComponent>(b).ID;
+                              return uuidA < uuidB; });
+        for (auto entityID : sortedEntities)
+        {
+            // SAFETY: m_Scene is const Ref<Scene>, but Entity requires non-const Scene*
+            // This is safe because serialization only reads entity data
+            Entity const entity = { entityID, const_cast<Scene*>(m_Scene.get()) };
+            if (!entity)
+            {
+                continue;
+            }
 
-				SerializeEntity(out, entity); });
+            SerializeEntity(out, entity);
+        }
         out << YAML::EndSeq;
         out << YAML::EndMap;
 

@@ -64,11 +64,6 @@ namespace OloEngine
         return {};
     }
 
-    std::shared_ptr<spdlog::sinks::ringbuffer_sink_mt> Log::GetRingbufferSink()
-    {
-        return s_RingbufferSink;
-    }
-
     void Log::SetDefaultTagSettings()
     {
         auto tags = std::make_shared<TagMap>();

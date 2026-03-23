@@ -178,6 +178,24 @@
 			"problemMatcher": [
 				"$msCompile"
 			]
+		},
+		{
+			"label": "build-oloruntime-dist",
+			"type": "shell",
+			"command": "cmake",
+			"args": [
+				"--build",
+				"${workspaceFolder}/build",
+				"--target",
+				"OloRuntime",
+				"--config",
+				"Dist",
+				"--parallel"
+			],
+			"group": "build",
+			"problemMatcher": [
+				"$msCompile"
+			]
 		}
 	]
 }

@@ -152,7 +152,7 @@ namespace OloEngine
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
-        // Calculate memory usage based on format and dimensions
+        // Calculate memory usage for all mip levels across 6 faces
         auto formatInfo = Utils::GetFormatInfo(m_Specification.Format);
         if (formatInfo.BytesPerPixel == 0)
         {
@@ -161,7 +161,17 @@ namespace OloEngine
             m_RendererID = 0;
             return;
         }
-        sizet cubemapMemory = static_cast<sizet>(m_Width) * m_Height * formatInfo.BytesPerPixel * 6; // 6 faces
+        sizet cubemapMemory = 0;
+        {
+            u32 mipW = m_Width;
+            u32 mipH = m_Height;
+            for (u32 mip = 0; mip < mipLevels; ++mip)
+            {
+                cubemapMemory += static_cast<sizet>(mipW) * mipH * formatInfo.BytesPerPixel * 6;
+                mipW = std::max(1u, mipW >> 1);
+                mipH = std::max(1u, mipH >> 1);
+            }
+        }
 
         // Track GPU memory allocation
         OLO_TRACK_GPU_ALLOC(this,

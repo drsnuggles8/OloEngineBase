@@ -82,7 +82,7 @@ class AssetPackTest : public ::testing::Test
         ASSERT_TRUE(writer.IsStreamGood());
     }
 
-    std::filesystem::path m_TempPath = std::filesystem::temp_directory_path() / "olo_test_assetpack.olopack";
+    std::filesystem::path m_TempPath = std::filesystem::temp_directory_path() / ("olo_test_assetpack_" + std::to_string(::GetCurrentProcessId()) + ".olopack");
 };
 
 // ============================================================================

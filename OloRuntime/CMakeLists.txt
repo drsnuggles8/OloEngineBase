@@ -22,7 +22,7 @@ set_target_properties(OloRuntime PROPERTIES FOLDER "Applications")
 
 # In Dist (distribution) builds, hide the console window — players should only
 # see the game window.  We keep the standard main() entry point via /ENTRY.
-if(WIN32)
+if(WIN32 AND MSVC)
     target_link_options(OloRuntime PRIVATE
         $<$<CONFIG:Dist>:/SUBSYSTEM:WINDOWS>
         $<$<CONFIG:Dist>:/ENTRY:mainCRTStartup>

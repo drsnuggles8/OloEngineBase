@@ -305,9 +305,13 @@ namespace OloEngine::Testing
             Record("BindDefaultFramebuffer");
             m_BindCount++;
         }
-        void BlitFramebufferToDefault(u32 /*srcFboID*/, u32 /*width*/, u32 /*height*/) override
+        void BlitFramebufferToDefault(u32 srcFboID, u32 width, u32 height) override
         {
-            Record("BlitFramebufferToDefault");
+            RecordedCall c{ "BlitFramebufferToDefault" };
+            c.ParamU32_0 = srcFboID;
+            c.ParamU32_1 = width;
+            c.ParamU32_2 = height;
+            m_Calls.push_back(c);
         }
         void BindTexture(u32 slot, u32 texID) override
         {

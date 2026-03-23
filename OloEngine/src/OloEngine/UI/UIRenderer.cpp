@@ -270,6 +270,8 @@ namespace OloEngine
 
     void UIRenderer::DrawUIText(const glm::vec2& position, const glm::vec2& size, const UITextComponent& text, int entityID)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (text.m_Text.empty())
         {
             return;
@@ -326,7 +328,8 @@ namespace OloEngine
             }
         }
 
-        const f32 totalHeight = static_cast<f32>(lines.size()) * lineHeightScreen;
+        // Total height: N lines × lineHeightScreen minus the trailing spacing after the last line
+        const f32 totalHeight = static_cast<f32>(lines.size()) * lineHeightScreen - text.m_LineSpacing;
 
         // Compute vertical start of text block
         f32 blockY = position.y;

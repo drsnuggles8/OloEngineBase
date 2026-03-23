@@ -137,6 +137,8 @@ namespace OloEngine
 
     void RenderGraph::RebuildExecutionCache()
     {
+        OLO_PROFILE_FUNCTION();
+
         // Build framebuffer piping cache with validation
         m_CachedPipes.clear();
         for (const auto& [outputPassName, inputPassNames] : m_FramebufferConnections)

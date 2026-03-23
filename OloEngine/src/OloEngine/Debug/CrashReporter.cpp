@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Debug/CrashReporter.h"
 
+#include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Base.h"
 
@@ -361,15 +362,18 @@ namespace OloEngine
         OLO_CORE_FATAL("Crash report written to: {}", reportPath.string());
 
 #ifdef OLO_PLATFORM_WINDOWS
-        // Show a message box so the user knows something went wrong
-        const std::string msg = fmt::format(
-            "{} has crashed.\n\n"
-            "Error: {}\n\n"
-            "A crash report has been saved to:\n{}\n\n"
-            "Please send this file (and the .dmp file if present) to the developers.",
-            s_AppName, exceptionDetail, reportPath.string());
+        // Show a message box so the user knows something went wrong — only in interactive mode
+        if (!Application::Get().IsHeadless())
+        {
+            const std::string msg = fmt::format(
+                "{} has crashed.\n\n"
+                "Error: {}\n\n"
+                "A crash report has been saved to:\n{}\n\n"
+                "Please send this file (and the .dmp file if present) to the developers.",
+                s_AppName, exceptionDetail, reportPath.string());
 
-        MessageBoxA(nullptr, msg.c_str(), "Crash Report", MB_OK | MB_ICONERROR | MB_TASKMODAL);
+            MessageBoxA(nullptr, msg.c_str(), "Crash Report", MB_OK | MB_ICONERROR | MB_TASKMODAL);
+        }
 #endif
     }
 

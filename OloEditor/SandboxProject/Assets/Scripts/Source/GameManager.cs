@@ -40,8 +40,20 @@ namespace Sandbox
 
 		void OnUpdate(float ts)
 		{
+			// ── Death screen (checked first — takes priority over pause) ──
+			if (m_IsPlayerDead)
+			{
+				if (Input.IsKeyJustPressed(KeyCode.R))
+				{
+					Debug.Log("[Game] Restarting scene...");
+					GameApplication.TimeScale = 1.0f;
+					SceneManager.ReloadCurrentScene();
+				}
+				return;
+			}
+
 			// ── Escape → toggle pause ──
-			if (Input.IsKeyJustPressed(KeyCode.Escape) && !m_IsPlayerDead)
+			if (Input.IsKeyJustPressed(KeyCode.Escape))
 			{
 				m_IsPaused = !m_IsPaused;
 
@@ -67,18 +79,6 @@ namespace Sandbox
 				{
 					Debug.Log("[Game] Quitting...");
 					GameApplication.Quit();
-				}
-				return;
-			}
-
-			// ── Death screen ──
-			if (m_IsPlayerDead)
-			{
-				if (Input.IsKeyJustPressed(KeyCode.R))
-				{
-					Debug.Log("[Game] Restarting scene...");
-					GameApplication.TimeScale = 1.0f;
-					SceneManager.ReloadCurrentScene();
 				}
 				return;
 			}

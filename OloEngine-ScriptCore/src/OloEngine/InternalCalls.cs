@@ -612,6 +612,52 @@ namespace OloEngine
 		internal static extern void NavAgentComponent_ClearTarget(ulong entityID);
 		#endregion
 
+		#region UIWorldAnchorComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern ulong UIWorldAnchorComponent_GetTargetEntity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void UIWorldAnchorComponent_SetTargetEntity(ulong entityID, ulong targetEntityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void UIWorldAnchorComponent_GetWorldOffset(ulong entityID, out Vector3 offset);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void UIWorldAnchorComponent_SetWorldOffset(ulong entityID, ref Vector3 offset);
+		#endregion
+
+		#region NameplateComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool NameplateComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_SetEnabled(ulong entityID, bool enabled);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool NameplateComponent_GetShowHealthBar(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_SetShowHealthBar(ulong entityID, bool show);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool NameplateComponent_GetShowManaBar(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_SetShowManaBar(ulong entityID, bool show);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_GetWorldOffset(ulong entityID, out Vector3 offset);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_SetWorldOffset(ulong entityID, ref Vector3 offset);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_GetBarSize(ulong entityID, out Vector2 size);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_SetBarSize(ulong entityID, ref Vector2 size);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_GetHealthBarColor(ulong entityID, out Vector4 color);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_SetHealthBarColor(ulong entityID, ref Vector4 color);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_GetManaBarColor(ulong entityID, out Vector4 color);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_SetManaBarColor(ulong entityID, ref Vector4 color);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_GetBarBackgroundColor(ulong entityID, out Vector4 color);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_SetBarBackgroundColor(ulong entityID, ref Vector4 color);
+		#endregion
+
 		#region AnimationGraphComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void AnimationGraphComponent_SetFloat(ulong entityID, string paramName, float value);

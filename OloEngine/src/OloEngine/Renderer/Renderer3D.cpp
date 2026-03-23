@@ -284,7 +284,7 @@ namespace OloEngine
         }
 
         u32 shaderIdx = 0;
-        constexpr u32 totalShaders3D = 26;
+        constexpr u32 totalShaders3D = 28;
 
         m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
         Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
@@ -337,9 +337,11 @@ namespace OloEngine
         m_ShaderLibrary.Load("assets/shaders/Water.glsl");
         Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
         m_ShaderLibrary.Load("assets/shaders/Decal.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
         m_ShaderLibrary.Load("assets/shaders/OcclusionProxy.glsl");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
         m_ShaderLibrary.Load("assets/shaders/ForwardPlusDebug.glsl");
-        Application::ReportLoadingProgress(totalShaders3D, totalShaders3D, "shaders");
+        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
 
         s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
         s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
@@ -530,6 +532,7 @@ namespace OloEngine
         s_Data.ParticlePass.Reset();
         s_Data.SSSPass.Reset();
         s_Data.PostProcessPass.Reset();
+        s_Data.UICompositePass.Reset();
         s_Data.FinalPass.Reset();
         s_Data.FoliagePass.Reset();
         s_Data.WaterPass.Reset();

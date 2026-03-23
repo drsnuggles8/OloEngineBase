@@ -1089,8 +1089,11 @@ namespace OloEngine
             }
         }
 
-        // Process UI input during runtime (before rendering so input is up to date)
+        // Process UI input during runtime (resolve layout first so hit-rects are current)
+        if (m_ViewportWidth > 0 && m_ViewportHeight > 0)
         {
+            UILayoutSystem::ResolveLayout(*this, m_ViewportWidth, m_ViewportHeight, m_CameraViewProjection);
+
             const glm::vec2 mousePos = Input::GetMousePosition();
             const bool mouseDown = Input::IsMouseButtonPressed(Mouse::ButtonLeft);
             const bool mousePressed = mouseDown && !m_PreviousMouseButtonDown;
@@ -1260,6 +1263,7 @@ namespace OloEngine
             else
             {
                 RenderScene(camera);
+                RenderUIOverlay();
             }
         }
     }
@@ -1324,6 +1328,7 @@ namespace OloEngine
             else
             {
                 RenderScene(camera);
+                RenderUIOverlay();
             }
         }
     }
@@ -1821,25 +1826,6 @@ namespace OloEngine
                       }
                       return static_cast<u32>(a) < static_cast<u32>(b);
                   });
-
-        // Diagnostic: log UI entity count once per scene (not every frame)
-        static sizet s_LastLoggedCount = SIZE_MAX;
-        if (uiEntities.size() != s_LastLoggedCount)
-        {
-            s_LastLoggedCount = uiEntities.size();
-            OLO_CORE_INFO("RenderUIOverlay: {} resolved UI entities, viewport {}x{}", uiEntities.size(), m_ViewportWidth, m_ViewportHeight);
-            for (const auto entity : uiEntities)
-            {
-                Entity ent{ entity, this };
-                auto& resolved = m_Registry.get<UIResolvedRectComponent>(entity);
-                bool hasPanel = m_Registry.all_of<UIPanelComponent>(entity);
-                bool hasText = m_Registry.all_of<UITextComponent>(entity);
-                bool hasProgress = m_Registry.all_of<UIProgressBarComponent>(entity);
-                OLO_CORE_INFO("  UI entity '{}': pos=({:.1f},{:.1f}) size=({:.1f},{:.1f}) panel={} text={} progress={}",
-                              ent.GetName(), resolved.m_Position.x, resolved.m_Position.y,
-                              resolved.m_Size.x, resolved.m_Size.y, hasPanel, hasText, hasProgress);
-            }
-        }
 
         for (const auto entity : uiEntities)
         {

@@ -89,11 +89,11 @@ Only ~10 component types have C# wrappers in `OloEngine-ScriptCore/src/OloEngine
 - InventoryComponent (AddItem, RemoveItem, HasItem, CountItem)
 - AbilityComponent (GetAttribute, SetAttribute, HasTag, abilities)
 - DialogueComponent (start, advance, select_choice)
-- NavAgentComponent (target position, clearTarget)
 - BehaviorTreeComponent / StateMachineComponent (blackboard operations)
-- MaterialComponent (shader graph access)
 - All lighting components (DirectionalLight, PointLight, SpotLight)
 - All 3D physics querying from script
+
+**Now implemented:** NavAgentComponent and MaterialComponent have C# wrappers and are used in gameplay scripts (e.g., `PlayerController.cs`).
 
 ### 3.2 Stub Component Wrappers in C#
 
@@ -252,7 +252,6 @@ The codebase has ~30+ TODO comments. Most significant:
 - `Framebuffer.h` — `BindColorAttachment`, `BindDepthAttachment` methods not added
 - `IBLPrecompute.cpp` — Parallel face rendering and quality-based optimizations pending
 - `ShaderDebugger.cpp` — Shader reload trigger incomplete
-- `ScriptEngine.cpp` — Mono stdout redirection incomplete
 
 **Low Priority:**
 - `Snow_Accumulate.comp` — Slope-aware deformation and wind field sampling TODOs

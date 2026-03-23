@@ -331,7 +331,7 @@ namespace OloEngine
 
             while (accumulator >= tickInterval)
             {
-                const Timestep timestep(tickInterval);
+                const Timestep timestep(tickInterval * m_TimeScale);
 
                 // Process tasks targeted at the Game Thread
                 Tasks::FNamedThreadManager::Get().ProcessTasks(true);

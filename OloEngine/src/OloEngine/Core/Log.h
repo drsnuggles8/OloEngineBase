@@ -87,7 +87,6 @@ namespace OloEngine
 
         // Crash reporting: retrieve the last N formatted log messages from the ringbuffer
         [[nodiscard]] static std::vector<std::string> GetRecentLogMessages(size_t count = 0);
-        [[nodiscard]] static std::shared_ptr<spdlog::sinks::ringbuffer_sink_mt> GetRingbufferSink();
 
         template<typename... Args>
         static void PrintMessage(Log::Type type, Log::Level level, const std::string& format, Args&&... args);

@@ -207,7 +207,8 @@ namespace OloEngine
 
     void OpenGLFramebuffer::ClearAttachment(const u32 attachmentIndex, const glm::vec4& value)
     {
-        OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
+        OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size(),
+                        "ClearAttachment: attachment index {} >= count {}", attachmentIndex, m_ColorAttachments.size());
 
         // Use glClearBufferfv to clear a specific color buffer
         glClearBufferfv(GL_COLOR, static_cast<GLint>(attachmentIndex), glm::value_ptr(value));

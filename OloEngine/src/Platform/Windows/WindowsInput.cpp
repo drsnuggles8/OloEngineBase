@@ -13,7 +13,11 @@ namespace OloEngine
 
     void Input::Update()
     {
-        auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
+        auto* const nativeWindow = Application::Get().GetWindow().GetNativeWindow();
+        if (!nativeWindow)
+            return;
+
+        auto* const window = static_cast<GLFWwindow*>(nativeWindow);
         std::memcpy(s_PreviousKeys, s_CurrentKeys, sizeof(s_CurrentKeys));
         for (i32 key = GLFW_KEY_SPACE; key < s_MaxKeys; ++key)
         {

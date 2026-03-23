@@ -41,7 +41,10 @@ namespace OloEngine
             const glm::vec2 offsetMax = rt.m_AnchoredPosition + rt.m_SizeDelta * (glm::vec2(1.0f) - rt.m_Pivot);
             resolvedPos = anchorMinPos + offsetMin;
             const glm::vec2 resolvedMax = anchorMaxPos + offsetMax;
-            resolvedSize = (resolvedMax - resolvedPos) * rt.m_Scale;
+            const glm::vec2 unscaledSize = resolvedMax - resolvedPos;
+            resolvedSize = unscaledSize * rt.m_Scale;
+            // Scale around pivot, not min edge
+            resolvedPos += (unscaledSize - resolvedSize) * rt.m_Pivot;
         }
 
         // Write transient resolved rect (add or replace to avoid assertion on duplicate)
@@ -253,6 +256,13 @@ namespace OloEngine
 
             // Perspective divide → NDC [-1, 1]
             const glm::vec3 ndc = glm::vec3(clipPos) / clipPos.w;
+
+            // Cull if beyond the far plane
+            if (ndc.z > 1.0f)
+            {
+                resolved.m_Position = { -10000.0f, -10000.0f };
+                continue;
+            }
 
             // NDC → screen coordinates (Y-down: NDC y=+1 is screen top y=0)
             const f32 screenX = (ndc.x * 0.5f + 0.5f) * static_cast<f32>(viewportWidth);

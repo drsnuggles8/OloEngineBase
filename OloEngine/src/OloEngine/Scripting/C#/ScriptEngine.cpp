@@ -178,19 +178,20 @@ namespace OloEngine
         }
 
         // Load project-specific app assembly
-        // In the editor this is under SandboxProject/; in runtime builds it may be
-        // in Resources/Scripts/ or absent entirely (Lua-only / no-script games).
-        const std::filesystem::path editorAppAssembly = "SandboxProject/Assets/Scripts/Binaries/Sandbox-Scripting.dll";
+        // Runtime builds place the DLL in Resources/Scripts/; in the editor it
+        // lives under SandboxProject/.  Prefer the runtime path when present so
+        // that packaged games always use the shipped assembly.
         const std::filesystem::path runtimeAppAssembly = "Resources/Scripts/Sandbox-Scripting.dll";
+        const std::filesystem::path editorAppAssembly = "SandboxProject/Assets/Scripts/Binaries/Sandbox-Scripting.dll";
 
-        if (std::filesystem::exists(editorAppAssembly))
+        if (std::filesystem::exists(runtimeAppAssembly))
         {
-            if (!LoadAppAssembly(editorAppAssembly))
+            if (!LoadAppAssembly(runtimeAppAssembly))
             {
-                OLO_CORE_ERROR("[ScriptEngine] Could not load app assembly: {}", editorAppAssembly.string());
+                OLO_CORE_ERROR("[ScriptEngine] Could not load app assembly: {}", runtimeAppAssembly.string());
             }
         }
-        else if (std::filesystem::exists(runtimeAppAssembly))
+        else if (std::filesystem::exists(editorAppAssembly))
         {
             if (!LoadAppAssembly(runtimeAppAssembly))
             {
@@ -315,6 +316,11 @@ namespace OloEngine
         ::mono_domain_set(::mono_get_root_domain(), false);
 
         ::mono_domain_unload(s_Data->AppDomain);
+
+        // Reset stale image pointers before loading — LoadAssembly/LoadAppAssembly
+        // will set fresh ones.  Without this, a failed reload leaves dangling pointers.
+        s_Data->CoreAssemblyImage = nullptr;
+        s_Data->AppAssemblyImage = nullptr;
 
         LoadAssembly(s_Data->CoreAssemblyFilepath);
         LoadAppAssembly(s_Data->AppAssemblyFilepath);

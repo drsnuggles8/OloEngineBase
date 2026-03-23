@@ -1,6 +1,7 @@
 ﻿set(SOURCES
 		"Camera.cs"
 		"CameraFollow.cs"
+		"DamageFlashHelper.cs"
 		"FireMageAI.cs"
 		"GameManager.cs"
 		"GamepadPlayer.cs"

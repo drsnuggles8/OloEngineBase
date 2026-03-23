@@ -1882,6 +1882,154 @@ namespace OloEngine
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
+    // UIWorldAnchorComponent /////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static u64 UIWorldAnchorComponent_GetTargetEntity(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<UIWorldAnchorComponent>());
+        return static_cast<u64>(entity.GetComponent<UIWorldAnchorComponent>().m_TargetEntity);
+    }
+
+    static void UIWorldAnchorComponent_SetTargetEntity(UUID entityID, u64 targetEntityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<UIWorldAnchorComponent>());
+        entity.GetComponent<UIWorldAnchorComponent>().m_TargetEntity = UUID(targetEntityID);
+    }
+
+    static void UIWorldAnchorComponent_GetWorldOffset(UUID entityID, glm::vec3* out)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<UIWorldAnchorComponent>());
+        *out = entity.GetComponent<UIWorldAnchorComponent>().m_WorldOffset;
+    }
+
+    static void UIWorldAnchorComponent_SetWorldOffset(UUID entityID, glm::vec3 const* v)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<UIWorldAnchorComponent>());
+        entity.GetComponent<UIWorldAnchorComponent>().m_WorldOffset = *v;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // NameplateComponent /////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static bool NameplateComponent_GetEnabled(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        return entity.GetComponent<NameplateComponent>().m_Enabled;
+    }
+
+    static void NameplateComponent_SetEnabled(UUID entityID, bool enabled)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        entity.GetComponent<NameplateComponent>().m_Enabled = enabled;
+    }
+
+    static bool NameplateComponent_GetShowHealthBar(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        return entity.GetComponent<NameplateComponent>().m_ShowHealthBar;
+    }
+
+    static void NameplateComponent_SetShowHealthBar(UUID entityID, bool show)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        entity.GetComponent<NameplateComponent>().m_ShowHealthBar = show;
+    }
+
+    static bool NameplateComponent_GetShowManaBar(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        return entity.GetComponent<NameplateComponent>().m_ShowManaBar;
+    }
+
+    static void NameplateComponent_SetShowManaBar(UUID entityID, bool show)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        entity.GetComponent<NameplateComponent>().m_ShowManaBar = show;
+    }
+
+    static void NameplateComponent_GetWorldOffset(UUID entityID, glm::vec3* out)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        *out = entity.GetComponent<NameplateComponent>().m_WorldOffset;
+    }
+
+    static void NameplateComponent_SetWorldOffset(UUID entityID, glm::vec3 const* v)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        entity.GetComponent<NameplateComponent>().m_WorldOffset = *v;
+    }
+
+    static void NameplateComponent_GetBarSize(UUID entityID, glm::vec2* out)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        *out = entity.GetComponent<NameplateComponent>().m_BarSize;
+    }
+
+    static void NameplateComponent_SetBarSize(UUID entityID, glm::vec2 const* v)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        entity.GetComponent<NameplateComponent>().m_BarSize = *v;
+    }
+
+    static void NameplateComponent_GetHealthBarColor(UUID entityID, glm::vec4* out)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        *out = entity.GetComponent<NameplateComponent>().m_HealthBarColor;
+    }
+
+    static void NameplateComponent_SetHealthBarColor(UUID entityID, glm::vec4 const* v)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        entity.GetComponent<NameplateComponent>().m_HealthBarColor = *v;
+    }
+
+    static void NameplateComponent_GetManaBarColor(UUID entityID, glm::vec4* out)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        *out = entity.GetComponent<NameplateComponent>().m_ManaBarColor;
+    }
+
+    static void NameplateComponent_SetManaBarColor(UUID entityID, glm::vec4 const* v)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        entity.GetComponent<NameplateComponent>().m_ManaBarColor = *v;
+    }
+
+    static void NameplateComponent_GetBarBackgroundColor(UUID entityID, glm::vec4* out)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        *out = entity.GetComponent<NameplateComponent>().m_BarBackgroundColor;
+    }
+
+    static void NameplateComponent_SetBarBackgroundColor(UUID entityID, glm::vec4 const* v)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        entity.GetComponent<NameplateComponent>().m_BarBackgroundColor = *v;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
     // Dialogue ///////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -3106,6 +3254,12 @@ namespace OloEngine
     static bool Physics_Raycast(glm::vec3* origin, glm::vec3* direction, f32 maxDistance,
                                 glm::vec3* outHitPosition, glm::vec3* outHitNormal, f32* outDistance, u64* outEntityID)
     {
+        // Zero-init out params so managed code never sees garbage on early return
+        *outHitPosition = {};
+        *outHitNormal = {};
+        *outDistance = 0.0f;
+        *outEntityID = 0;
+
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
 
@@ -3243,13 +3397,18 @@ namespace OloEngine
         GameplayTag tag(tagStr);
         mono_free(tagStr);
 
-        // Activate on the caster (checks cooldowns, costs, tags)
+        // Activate on the caster (checks cooldowns, costs, tags).
+        // Note: TryActivateAbility also applies ActivationEffects to the caster.
+        // For targeted abilities, we redirect effects to the target below.
         if (!GameplayAbilitySystem::TryActivateAbility(scene, caster, tag))
         {
             return false;
         }
 
-        // Apply the ability's activation effects to the TARGET entity
+        // Apply the ability's activation effects to the TARGET entity.
+        // This intentionally duplicates onto target — self-buff + target-debuff is
+        // valid game design for some abilities.  If the ability should ONLY affect
+        // the target, its ActivationEffects should use target-only effect types.
         auto& casterAC = caster.GetComponent<AbilityComponent>();
         for (auto& ability : casterAC.Abilities)
         {
@@ -3283,6 +3442,7 @@ namespace OloEngine
 
     static void Application_QuitGame()
     {
+        OLO_CORE_INFO("[ScriptGlue] Application_QuitGame requested from script");
         Application::Get().Close();
     }
 
@@ -3620,6 +3780,34 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(NavAgentComponent_SetStoppingDistance);
         OLO_ADD_INTERNAL_CALL(NavAgentComponent_HasPath);
         OLO_ADD_INTERNAL_CALL(NavAgentComponent_ClearTarget);
+
+        ///////////////////////////////////////////////////////////////
+        // UIWorldAnchorComponent ////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(UIWorldAnchorComponent_GetTargetEntity);
+        OLO_ADD_INTERNAL_CALL(UIWorldAnchorComponent_SetTargetEntity);
+        OLO_ADD_INTERNAL_CALL(UIWorldAnchorComponent_GetWorldOffset);
+        OLO_ADD_INTERNAL_CALL(UIWorldAnchorComponent_SetWorldOffset);
+
+        ///////////////////////////////////////////////////////////////
+        // NameplateComponent ////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetEnabled);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetEnabled);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetShowHealthBar);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetShowHealthBar);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetShowManaBar);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetShowManaBar);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetWorldOffset);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetWorldOffset);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetBarSize);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetBarSize);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetHealthBarColor);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetHealthBarColor);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetManaBarColor);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetManaBarColor);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetBarBackgroundColor);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetBarBackgroundColor);
 
         ///////////////////////////////////////////////////////////////
         // AnimationGraphComponent ////////////////////////////////////

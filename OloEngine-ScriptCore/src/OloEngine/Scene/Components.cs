@@ -1189,6 +1189,96 @@ namespace OloEngine
 		public void ClearTarget() => InternalCalls.NavAgentComponent_ClearTarget(Entity.ID);
 	}
 
+	public class UIWorldAnchorComponent : Component
+	{
+		public ulong TargetEntity
+		{
+			get => InternalCalls.UIWorldAnchorComponent_GetTargetEntity(Entity.ID);
+			set => InternalCalls.UIWorldAnchorComponent_SetTargetEntity(Entity.ID, value);
+		}
+
+		public Vector3 WorldOffset
+		{
+			get
+			{
+				InternalCalls.UIWorldAnchorComponent_GetWorldOffset(Entity.ID, out Vector3 v);
+				return v;
+			}
+			set => InternalCalls.UIWorldAnchorComponent_SetWorldOffset(Entity.ID, ref value);
+		}
+	}
+
+	public class NameplateComponent : Component
+	{
+		public bool Enabled
+		{
+			get => InternalCalls.NameplateComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.NameplateComponent_SetEnabled(Entity.ID, value);
+		}
+
+		public bool ShowHealthBar
+		{
+			get => InternalCalls.NameplateComponent_GetShowHealthBar(Entity.ID);
+			set => InternalCalls.NameplateComponent_SetShowHealthBar(Entity.ID, value);
+		}
+
+		public bool ShowManaBar
+		{
+			get => InternalCalls.NameplateComponent_GetShowManaBar(Entity.ID);
+			set => InternalCalls.NameplateComponent_SetShowManaBar(Entity.ID, value);
+		}
+
+		public Vector3 WorldOffset
+		{
+			get
+			{
+				InternalCalls.NameplateComponent_GetWorldOffset(Entity.ID, out Vector3 v);
+				return v;
+			}
+			set => InternalCalls.NameplateComponent_SetWorldOffset(Entity.ID, ref value);
+		}
+
+		public Vector2 BarSize
+		{
+			get
+			{
+				InternalCalls.NameplateComponent_GetBarSize(Entity.ID, out Vector2 v);
+				return v;
+			}
+			set => InternalCalls.NameplateComponent_SetBarSize(Entity.ID, ref value);
+		}
+
+		public Vector4 HealthBarColor
+		{
+			get
+			{
+				InternalCalls.NameplateComponent_GetHealthBarColor(Entity.ID, out Vector4 v);
+				return v;
+			}
+			set => InternalCalls.NameplateComponent_SetHealthBarColor(Entity.ID, ref value);
+		}
+
+		public Vector4 ManaBarColor
+		{
+			get
+			{
+				InternalCalls.NameplateComponent_GetManaBarColor(Entity.ID, out Vector4 v);
+				return v;
+			}
+			set => InternalCalls.NameplateComponent_SetManaBarColor(Entity.ID, ref value);
+		}
+
+		public Vector4 BarBackgroundColor
+		{
+			get
+			{
+				InternalCalls.NameplateComponent_GetBarBackgroundColor(Entity.ID, out Vector4 v);
+				return v;
+			}
+			set => InternalCalls.NameplateComponent_SetBarBackgroundColor(Entity.ID, ref value);
+		}
+	}
+
 	public class AnimationGraphComponent : Component
 	{
 		public void SetFloat(string paramName, float value)
@@ -1544,9 +1634,9 @@ namespace OloEngine
 		/// Uses the DamageCalculation pipeline (attack power, crit, defense, resistance).
 		/// Returns the final damage dealt after all calculations.
 		/// </summary>
-		public float ApplyDamageToTarget(ulong targetEntityID, float rawDamage, string damageType = "", bool isCritical = false)
+		public float ApplyDamageToTarget(ulong targetEntityID, float rawDamage, string damageType = null, bool isCritical = false)
 		{
-			return InternalCalls.AbilityComponent_ApplyDamageToTarget(Entity.ID, targetEntityID, rawDamage, damageType, isCritical);
+			return InternalCalls.AbilityComponent_ApplyDamageToTarget(Entity.ID, targetEntityID, rawDamage, damageType ?? "Physical", isCritical);
 		}
 
 		/// <summary>

@@ -222,6 +222,25 @@ namespace OloEngine
                                                     "dirty", &LightProbeVolumeComponent::m_Dirty,
                                                     "getTotalProbeCount", &LightProbeVolumeComponent::GetTotalProbeCount);
 
+        // --- UIWorldAnchorComponent ---
+        lua.new_usertype<UIWorldAnchorComponent>("UIWorldAnchorComponent",
+                                                 "targetEntity", sol::property([](const UIWorldAnchorComponent& c)
+                                                                               { return static_cast<u64>(c.m_TargetEntity); }, [](UIWorldAnchorComponent& c, u64 id)
+                                                                               { c.m_TargetEntity = UUID(id); }),
+                                                 "worldOffset", &UIWorldAnchorComponent::m_WorldOffset);
+
+        // --- NameplateComponent ---
+        lua.new_usertype<NameplateComponent>("NameplateComponent",
+                                             "enabled", &NameplateComponent::m_Enabled,
+                                             "showHealthBar", &NameplateComponent::m_ShowHealthBar,
+                                             "showManaBar", &NameplateComponent::m_ShowManaBar,
+                                             "worldOffset", &NameplateComponent::m_WorldOffset,
+                                             "barSize", &NameplateComponent::m_BarSize,
+                                             "healthBarColor", &NameplateComponent::m_HealthBarColor,
+                                             "manaBarColor", &NameplateComponent::m_ManaBarColor,
+                                             "barBackgroundColor", &NameplateComponent::m_BarBackgroundColor,
+                                             "manaBarGap", &NameplateComponent::m_ManaBarGap);
+
         // --- WindSettings (scene-level) ---
         lua.new_usertype<WindSettings>("WindSettings",
                                        "enabled", &WindSettings::Enabled,
@@ -852,7 +871,7 @@ namespace OloEngine
 
         // --- Damage routing (cross-entity, uses scene context) ---
         auto damageTable = lua.create_named_table("Damage");
-        damageTable["ApplyToTarget"] = [](u64 sourceID, u64 targetID, f32 rawDamage, const std::string& damageType, bool isCritical) -> f32
+        damageTable["ApplyToTarget"] = [](u64 sourceID, u64 targetID, f32 rawDamage, sol::optional<std::string> damageType, sol::optional<bool> isCritical) -> f32
         {
             Scene* scene = ScriptEngine::GetSceneContext();
             if (!scene)
@@ -873,10 +892,11 @@ namespace OloEngine
             event.Source = source;
             event.Target = target;
             event.RawDamage = rawDamage;
-            event.IsCritical = isCritical;
+            event.IsCritical = isCritical.value_or(false);
             event.CritMultiplier = sourceAC.Attributes.GetCurrentValue("CritMultiplier");
-            if (!damageType.empty())
-                event.DamageType = GameplayTag(damageType);
+            const std::string dt = damageType.value_or("");
+            if (!dt.empty())
+                event.DamageType = GameplayTag(dt);
 
             f32 finalDamage = DamageCalculation::Calculate(event, sourceAC.Attributes, targetAC.Attributes);
 

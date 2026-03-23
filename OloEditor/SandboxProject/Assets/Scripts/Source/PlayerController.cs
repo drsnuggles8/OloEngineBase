@@ -8,14 +8,9 @@ namespace Sandbox
 		private TransformComponent m_Transform;
 		private AbilityComponent m_Abilities;
 		private NavAgentComponent m_NavAgent;
-		private MaterialComponent m_Material;
+		private DamageFlashHelper m_DamageFlash;
 
 		public float MoveSpeed = 5.0f;
-
-		// Color flash state
-		private Vector4 m_OriginalColor;
-		private float m_FlashTimer = 0.0f;
-		private const float FlashDuration = 0.15f;
 
 		// Click-to-move state
 		private bool m_IsNavigating = false;
@@ -37,11 +32,11 @@ namespace Sandbox
 
 			if (HasComponent<NavAgentComponent>())
 				m_NavAgent = GetComponent<NavAgentComponent>();
+
+			MaterialComponent material = null;
 			if (HasComponent<MaterialComponent>())
-			{
-				m_Material = GetComponent<MaterialComponent>();
-				m_OriginalColor = m_Material.AlbedoColor;
-			}
+				material = GetComponent<MaterialComponent>();
+			m_DamageFlash = new DamageFlashHelper(material);
 
 			m_SlashVFX = FindEntityByName("Slash VFX");
 			m_FireballVFX = FindEntityByName("Fireball VFX");
@@ -136,7 +131,7 @@ namespace Sandbox
 				{
 					Debug.Log("[Player] Slash!");
 					TriggerVFX(m_SlashVFX, 0.3f);
-					FlashColor(new Vector4(1.0f, 1.0f, 0.3f, 1.0f));
+					m_DamageFlash.Flash(new Vector4(1.0f, 1.0f, 0.3f, 1.0f));
 				}
 			}
 
@@ -146,7 +141,7 @@ namespace Sandbox
 				{
 					Debug.Log("[Player] Fireball!");
 					TriggerVFX(m_FireballVFX, 0.5f);
-					FlashColor(new Vector4(1.0f, 0.4f, 0.1f, 1.0f));
+					m_DamageFlash.Flash(new Vector4(1.0f, 0.4f, 0.1f, 1.0f));
 				}
 			}
 
@@ -156,7 +151,7 @@ namespace Sandbox
 				{
 					Debug.Log("[Player] Heal!");
 					TriggerVFX(m_HealVFX, 0.6f);
-					FlashColor(new Vector4(0.3f, 1.0f, 0.3f, 1.0f));
+					m_DamageFlash.Flash(new Vector4(0.3f, 1.0f, 0.3f, 1.0f));
 				}
 			}
 
@@ -173,27 +168,20 @@ namespace Sandbox
 			}
 
 			// ── Color flash lerp back ──
-			if (m_FlashTimer > 0.0f && m_Material != null)
-			{
-				m_FlashTimer -= ts;
-				if (m_FlashTimer <= 0.0f)
-					m_Material.AlbedoColor = m_OriginalColor;
-			}
-		}
-
-		private void FlashColor(Vector4 flashColor)
-		{
-			if (m_Material != null)
-			{
-				m_Material.AlbedoColor = flashColor;
-				m_FlashTimer = FlashDuration;
-			}
+			m_DamageFlash.Update(ts, m_Abilities.GetCurrentAttribute("Health"));
 		}
 
 		private void TriggerVFX(Entity vfxEntity, float duration)
 		{
 			if (vfxEntity == null)
 				return;
+
+			// Stop previous VFX if still playing
+			if (m_ActiveVFX != null && m_ActiveVFX != vfxEntity)
+			{
+				if (m_ActiveVFX.HasComponent<ParticleSystemComponent>())
+					m_ActiveVFX.GetComponent<ParticleSystemComponent>().Playing = false;
+			}
 
 			// Position VFX at player
 			if (vfxEntity.HasComponent<TransformComponent>())

@@ -161,6 +161,8 @@ namespace OloEngine
         }
 
         auto newFont = Ref<Font>::Create(font);
+        if (!newFont->GetAtlasTexture())
+            return newFont; // don't cache a font that failed to load
         s_FontCache[canonical] = newFont;
         return newFont;
     }
