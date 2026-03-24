@@ -198,6 +198,8 @@ void main()
 
     void ShaderWarmup::Init()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (s_BootShader)
             return;
 
@@ -207,8 +209,10 @@ void main()
     }
 
     void ShaderWarmup::RenderProgressFrame(const f32 progress, Window& window, const std::string_view label,
-                                            const i32 current, const i32 total, const i32 phase)
+                                           const i32 current, const i32 total, const i32 phase)
     {
+        OLO_PROFILE_FUNCTION();
+
         OLO_CORE_TRACE("RenderProgressFrame: progress={:.2f}, label='{}', bootShader={}, bootReady={}, bootStatus={}",
                        progress, label, s_BootShader != nullptr, s_BootShader ? s_BootShader->IsReady() : false,
                        s_BootShader ? static_cast<int>(s_BootShader->GetCompilationStatus()) : -1);
@@ -246,6 +250,8 @@ void main()
 
     void ShaderWarmup::RunWarmupScreen(ShaderLibrary& library, Window& window)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!s_BootShader || !s_BootShader->IsReady())
         {
             OLO_CORE_WARN("ShaderWarmup: Boot shader not available — flushing synchronously");
@@ -278,6 +284,8 @@ void main()
 
     void ShaderWarmup::Shutdown()
     {
+        OLO_PROFILE_FUNCTION();
+
         s_BootUBO.Reset();
         s_BootShader.Reset();
     }

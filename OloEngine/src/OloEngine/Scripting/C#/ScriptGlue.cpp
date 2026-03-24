@@ -1797,6 +1797,8 @@ namespace OloEngine
 
     static bool ShaderLibrary_LoadShader(MonoString* monoFilepath)
     {
+        if (!monoFilepath)
+            return false;
         auto const filepath = Utils::MonoStringToString(monoFilepath);
         auto& library = Renderer3D::GetShaderLibrary();
         auto shader = library.Load(filepath);
@@ -1805,12 +1807,16 @@ namespace OloEngine
 
     static bool ShaderLibrary_Exists(MonoString* monoName)
     {
+        if (!monoName)
+            return false;
         auto const name = Utils::MonoStringToString(monoName);
         return Renderer3D::GetShaderLibrary().Exists(name);
     }
 
     static MonoString* ShaderLibrary_GetShaderName(MonoString* monoName)
     {
+        if (!monoName)
+            return ScriptEngine::CreateString("");
         auto const name = Utils::MonoStringToString(monoName);
         auto& library = Renderer3D::GetShaderLibrary();
         if (!library.Exists(name))
@@ -1828,6 +1834,8 @@ namespace OloEngine
 
     static void ShaderLibrary_ReloadShader(MonoString* monoName)
     {
+        if (!monoName)
+            return;
         auto const name = Utils::MonoStringToString(monoName);
         auto& library = Renderer3D::GetShaderLibrary();
         if (library.Exists(name))

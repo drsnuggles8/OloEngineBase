@@ -1,5 +1,9 @@
 #pragma once
 
+#include "OloEngine/Core/Base.h"
+
+#include <string_view>
+
 namespace OloEngine
 {
     class Window;

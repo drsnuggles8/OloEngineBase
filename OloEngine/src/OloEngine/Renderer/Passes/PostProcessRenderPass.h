@@ -57,6 +57,9 @@ namespace OloEngine
             m_PrecipitationScreenEffectsEnabled = enabled;
         }
 
+        // Hot-reload a post-process shader by name (stem, e.g. "PostProcess_Bloom_Threshold")
+        void ReloadShader(const std::string& name);
+
       private:
         void CreatePingPongFramebuffers(u32 width, u32 height);
         void CreateBloomMipChain(u32 width, u32 height);

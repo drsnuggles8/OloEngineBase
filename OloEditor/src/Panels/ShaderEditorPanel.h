@@ -1,7 +1,5 @@
 #pragma once
 
-#include "OloEngine/Renderer/Shader.h"
-
 #include <filesystem>
 #include <string>
 

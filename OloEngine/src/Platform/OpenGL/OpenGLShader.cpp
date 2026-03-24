@@ -330,6 +330,14 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Clean up pending shader objects if never finalized
+        for (const auto id : m_PendingShaderIDs)
+        {
+            glDetachShader(m_RendererID, id);
+            glDeleteShader(id);
+        }
+        m_PendingShaderIDs.clear();
+
         // Unregister the resource registry from Renderer3D
         if (m_RendererID != 0)
         {
@@ -1051,10 +1059,11 @@ namespace OloEngine
             glDeleteShader(id);
         }
 
-        // Save program binary to cache
+        FinalizeProgram(program, m_OpenGLSPIRV);
+
+        // Save program binary to cache (after FinalizeProgram so m_RendererID is set)
         SaveProgramBinaryCache();
 
-        FinalizeProgram(program, m_OpenGLSPIRV);
         m_CompilationStatus = ShaderCompilationStatus::Ready;
     }
 
@@ -1064,6 +1073,8 @@ namespace OloEngine
 
     void OpenGLShader::SaveProgramBinaryCache() const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (Utils::IsShaderCacheDisabled() || m_RendererID == 0)
             return;
 
@@ -1099,6 +1110,8 @@ namespace OloEngine
 
     void OpenGLShader::FinalizeAfterLink()
     {
+        OLO_PROFILE_FUNCTION();
+
         OLO_CORE_TRACE("FinalizeAfterLink: Checking link status for '{}' (ID {})", m_Name, m_RendererID);
         // Check link status (driver should be done by now)
         GLint isLinked = 0;
@@ -1128,16 +1141,18 @@ namespace OloEngine
             return;
         }
 
-        OLO_CORE_TRACE("FinalizeAfterLink: Saving cache for '{}'...", m_Name);
-        SaveProgramBinaryCache();
         OLO_CORE_TRACE("FinalizeAfterLink: Calling FinalizeProgram for '{}'...", m_Name);
         FinalizeProgram(m_RendererID, m_OpenGLSPIRV);
+        OLO_CORE_TRACE("FinalizeAfterLink: Saving cache for '{}'...", m_Name);
+        SaveProgramBinaryCache();
         m_CompilationStatus = ShaderCompilationStatus::Ready;
         OLO_CORE_TRACE("FinalizeAfterLink: Shader '{}' is Ready", m_Name);
     }
 
     bool OpenGLShader::PollCompilationStatus()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_CompilationStatus != ShaderCompilationStatus::Compiling)
             return m_CompilationStatus == ShaderCompilationStatus::Ready || m_CompilationStatus == ShaderCompilationStatus::Failed;
 
@@ -1156,6 +1171,14 @@ namespace OloEngine
 
     void OpenGLShader::EnsureLinked()
     {
+        OLO_PROFILE_FUNCTION();
+
+        if (m_CompilationStatus == ShaderCompilationStatus::Failed)
+        {
+            glUseProgram(0);
+            return;
+        }
+
         if (m_CompilationStatus != ShaderCompilationStatus::Compiling)
             return;
 
@@ -1369,7 +1392,6 @@ namespace OloEngine
         ProcessIncludes(source, "", m_IncludedFilePaths);
         auto shaderSources = PreProcess(source);
 
-        bool success = true;
         try
         {
             CompileOrGetVulkanBinaries(shaderSources);
@@ -1391,14 +1413,14 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("Shader reload failed for '{}': {}", m_Name, e.what());
             m_CompilationStatus = ShaderCompilationStatus::Failed;
-            success = false;
         }
         catch (...)
         {
             OLO_CORE_ERROR("Shader reload failed for '{}': unknown error", m_Name);
             m_CompilationStatus = ShaderCompilationStatus::Failed;
-            success = false;
         }
+
+        const bool success = (m_CompilationStatus == ShaderCompilationStatus::Ready);
         OLO_SHADER_RELOAD_END(m_RendererID, success);
     }
 

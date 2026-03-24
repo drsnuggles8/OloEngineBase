@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "ShaderEditorPanel.h"
+#include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 
 #include <imgui.h>
@@ -37,19 +38,47 @@ namespace OloEngine
                 {
                     if (m_Dirty)
                     {
-                        Save();
+                        if (!Save())
+                        {
+                            ImGui::EndMenu();
+                            ImGui::EndMenuBar();
+                            ImGui::End();
+                            return;
+                        }
                     }
                     auto shaderName = m_CurrentFilePath.stem().string();
-                    auto& library = Renderer3D::GetShaderLibrary();
-                    if (library.Exists(shaderName))
+
+                    bool reloaded = false;
+
+                    // Reload in Renderer3D's library
+                    auto& library3D = Renderer3D::GetShaderLibrary();
+                    if (library3D.Exists(shaderName))
                     {
-                        library.Get(shaderName)->Reload();
+                        library3D.Get(shaderName)->Reload();
+                        reloaded = true;
+                    }
+
+                    // Reload in Renderer2D's library
+                    auto& library2D = Renderer2D::GetShaderLibrary();
+                    if (library2D.Exists(shaderName))
+                    {
+                        library2D.Get(shaderName)->Reload();
+                        reloaded = true;
+                    }
+
+                    // Reload matching post-process shader
+                    if (auto ppPass = Renderer3D::GetPostProcessPass(); ppPass)
+                    {
+                        ppPass->ReloadShader(shaderName);
+                    }
+
+                    if (reloaded)
+                    {
                         m_CompileOutput = "Recompiled '" + shaderName + "' successfully.";
                     }
                     else
                     {
-                        m_CompileOutput = "Shader '" + shaderName + "' not found in library. Reloading all shaders.";
-                        library.ReloadShaders();
+                        m_CompileOutput = "Shader '" + shaderName + "' not found in any library.";
                     }
                 }
                 ImGui::EndMenu();
@@ -111,6 +140,17 @@ namespace OloEngine
         {
             return; // Already open
         }
+
+        // Guard against clobbering unsaved edits when switching files
+        if (m_Dirty && m_FileLoaded)
+        {
+            // Auto-save before switching to a different file
+            if (!Save())
+            {
+                return; // Save failed — keep the current file open
+            }
+        }
+
         LoadFileContents(filepath);
     }
 

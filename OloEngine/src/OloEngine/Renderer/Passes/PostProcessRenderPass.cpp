@@ -543,6 +543,36 @@ namespace OloEngine
         }
     }
 
+    void PostProcessRenderPass::ReloadShader(const std::string& name)
+    {
+        Ref<Shader>* shaders[] = {
+            &m_BloomThresholdShader,
+            &m_BloomDownsampleShader,
+            &m_BloomUpsampleShader,
+            &m_BloomCompositeShader,
+            &m_VignetteShader,
+            &m_ChromaticAberrationShader,
+            &m_ColorGradingShader,
+            &m_ToneMapShader,
+            &m_FXAAShader,
+            &m_DOFShader,
+            &m_MotionBlurShader,
+            &m_FogShader,
+            &m_FogUpsampleShader,
+            &m_SSAOApplyShader,
+            &m_PrecipitationShader,
+        };
+
+        for (auto* shaderRef : shaders)
+        {
+            if (*shaderRef && (*shaderRef)->GetName() == name)
+            {
+                (*shaderRef)->Reload();
+                return;
+            }
+        }
+    }
+
     void PostProcessRenderPass::CreateBloomMipChain(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();

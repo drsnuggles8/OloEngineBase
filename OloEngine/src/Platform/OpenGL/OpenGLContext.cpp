@@ -50,6 +50,8 @@ namespace OloEngine
 
     void OpenGLContext::DetectParallelShaderCompile()
     {
+        OLO_PROFILE_FUNCTION();
+
         GLint numExtensions = 0;
         glGetIntegerv(GL_NUM_EXTENSIONS, &numExtensions);
 

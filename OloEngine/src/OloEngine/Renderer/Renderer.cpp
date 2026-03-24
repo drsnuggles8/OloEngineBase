@@ -41,6 +41,8 @@ namespace OloEngine
     }
     void Renderer::Shutdown()
     {
+        OLO_PROFILE_FUNCTION();
+
         // Renderer3D may have been lazily initialized (e.g. EditorLayer 3D mode)
         // regardless of the preferred renderer type — always shut it down if active.
         if (Renderer3D::IsInitialized())

@@ -98,6 +98,17 @@ namespace OloEngine
                     }
                 }
             }
+            // Catch shaders that became Ready outside the library (e.g. via EnsureLinked/Bind)
+            // but whose registry was never initialized.
+            else if (shader->IsReady())
+            {
+                if (auto* reg = shader->GetResourceRegistry(); reg && !reg->IsInitialized())
+                {
+                    auto* glShader = static_cast<OpenGLShader*>(shader.get());
+                    glShader->InitializeResourceRegistry(shader);
+                    ++completed;
+                }
+            }
         }
         return completed;
     }
@@ -110,6 +121,15 @@ namespace OloEngine
             {
                 shader->EnsureLinked();
                 if (shader->IsReady())
+                {
+                    auto* glShader = static_cast<OpenGLShader*>(shader.get());
+                    glShader->InitializeResourceRegistry(shader);
+                }
+            }
+            // Same guard as PollPendingShaders — catch ready-but-uninitialized.
+            else if (shader->IsReady())
+            {
+                if (auto* reg = shader->GetResourceRegistry(); reg && !reg->IsInitialized())
                 {
                     auto* glShader = static_cast<OpenGLShader*>(shader.get());
                     glShader->InitializeResourceRegistry(shader);
@@ -173,11 +193,15 @@ void main()
     static constexpr const char* s_FallbackFragmentSrc = R"glsl(
 #version 450 core
 layout(location = 0) out vec4 o_Color;
+layout(location = 1) out int o_EntityID;
+layout(location = 2) out vec2 o_ViewNormal;
 
 void main()
 {
     // Magenta — instantly recognizable as "shader not ready"
     o_Color = vec4(1.0, 0.0, 1.0, 1.0);
+    o_EntityID = -1;
+    o_ViewNormal = vec2(0.0);
 }
 )glsl";
 

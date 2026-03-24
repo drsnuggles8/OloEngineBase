@@ -562,6 +562,8 @@ namespace OloEngine
                     return name.contains("ShaderGraph") || name.contains("shaderGraph");
                 case UBO_FORWARD_PLUS:
                     return name.contains("ForwardPlus") || name.contains("forwardPlus");
+                case UBO_BOOT:
+                    return name.contains("Boot") || name.contains("boot");
                 default:
                     return false;
             }

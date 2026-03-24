@@ -300,62 +300,43 @@ namespace OloEngine
         // GL_LINK_STATUS. When GL_ARB_parallel_shader_compile is available the
         // driver links them all in parallel. Status is checked later via
         // PollPendingShaders() each frame in BeginSceneCommon().
-        m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/SkinnedLighting3D_Simple.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/Renderer3D_Quad.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/PBR.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/PBR_Skinned.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/PBR_MultiLight.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/PBR_MultiLight_Skinned.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/EquirectangularToCubemap.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/IrradianceConvolution.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/IBLPrefilter.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/BRDFLutGeneration.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/Skybox.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/InfiniteGrid.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/ShadowDepth.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/ShadowDepthSkinned.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/ShadowDepthPoint.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/ShadowDepthPointSkinned.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/Terrain_PBR.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/Terrain_Depth.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/Terrain_Voxel.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/Terrain_VoxelDepth.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/Foliage_Instance.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/Foliage_Depth.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/Water.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/Decal.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/OcclusionProxy.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        m_ShaderLibrary.Load("assets/shaders/ForwardPlusDebug.glsl");
-        ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
+        static constexpr std::array s_ShaderPaths = {
+            "assets/shaders/LightCube.glsl",
+            "assets/shaders/Lighting3D.glsl",
+            "assets/shaders/SkinnedLighting3D_Simple.glsl",
+            "assets/shaders/Renderer3D_Quad.glsl",
+            "assets/shaders/PBR.glsl",
+            "assets/shaders/PBR_Skinned.glsl",
+            "assets/shaders/PBR_MultiLight.glsl",
+            "assets/shaders/PBR_MultiLight_Skinned.glsl",
+            "assets/shaders/EquirectangularToCubemap.glsl",
+            "assets/shaders/IrradianceConvolution.glsl",
+            "assets/shaders/IBLPrefilter.glsl",
+            "assets/shaders/BRDFLutGeneration.glsl",
+            "assets/shaders/Skybox.glsl",
+            "assets/shaders/InfiniteGrid.glsl",
+            "assets/shaders/ShadowDepth.glsl",
+            "assets/shaders/ShadowDepthSkinned.glsl",
+            "assets/shaders/ShadowDepthPoint.glsl",
+            "assets/shaders/ShadowDepthPointSkinned.glsl",
+            "assets/shaders/Terrain_PBR.glsl",
+            "assets/shaders/Terrain_Depth.glsl",
+            "assets/shaders/Terrain_Voxel.glsl",
+            "assets/shaders/Terrain_VoxelDepth.glsl",
+            "assets/shaders/Foliage_Instance.glsl",
+            "assets/shaders/Foliage_Depth.glsl",
+            "assets/shaders/Water.glsl",
+            "assets/shaders/Decal.glsl",
+            "assets/shaders/OcclusionProxy.glsl",
+            "assets/shaders/ForwardPlusDebug.glsl",
+        };
+        static_assert(s_ShaderPaths.size() == totalShaders3D);
+
+        for (const auto* path : s_ShaderPaths)
+        {
+            m_ShaderLibrary.Load(path);
+            ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
+        }
 
         // Log how many shaders are still compiling asynchronously
         if (const u32 pending = m_ShaderLibrary.GetPendingCount(); pending > 0)
@@ -589,9 +570,8 @@ namespace OloEngine
         FrameResourceManager::Get().Shutdown();
         FrameDataBufferManager::Shutdown();
 
-        // Shutdown boot/fallback shaders after all other shaders are released
-        ShaderWarmup::Shutdown();
-        ShaderLibrary::ShutdownFallbackShader();
+        // Boot/fallback shader shutdown is handled by Renderer::Shutdown()
+        // (both are idempotent, but no need to call them twice).
 
         RendererProfiler::GetInstance().Shutdown();
 
