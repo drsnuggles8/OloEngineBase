@@ -44,7 +44,7 @@ namespace OloEngine
         m_Path = filepath.string();
 
         msdfgen::FreetypeHandle* ft = msdfgen::initializeFreetype();
-        OLO_CORE_ASSERT(ft);
+        OLO_CORE_ASSERT(ft, "Failed to initialize FreeType library");
 
         std::string fileString = filepath.string();
 
@@ -90,7 +90,7 @@ namespace OloEngine
         atlasPacker.setSpacing(0);
         atlasPacker.setScale(emSize);
         int remaining = atlasPacker.pack(m_Data->Glyphs.data(), (int)m_Data->Glyphs.size());
-        OLO_CORE_ASSERT(remaining == 0);
+        OLO_CORE_ASSERT(remaining == 0, "MSDF atlas packing failed — {} glyphs did not fit", remaining);
 
         int width{};
         int height{};
@@ -149,6 +149,29 @@ namespace OloEngine
 
     Ref<Font> Font::Create(const std::filesystem::path& font)
     {
-        return Ref<Font>::Create(font);
+        auto canonical = std::filesystem::weakly_canonical(font).string();
+        static std::unordered_map<std::string, WeakRef<Font>> s_FontCache;
+        static std::mutex s_FontCacheMutex;
+
+        {
+            std::lock_guard lock(s_FontCacheMutex);
+            auto it = s_FontCache.find(canonical);
+            if (it != s_FontCache.end())
+            {
+                if (auto cached = it->second.Lock())
+                    return cached;
+                s_FontCache.erase(it);
+            }
+        }
+
+        auto newFont = Ref<Font>::Create(canonical);
+        if (!newFont->GetAtlasTexture())
+            return newFont; // don't cache a font that failed to load
+
+        {
+            std::lock_guard lock(s_FontCacheMutex);
+            s_FontCache[canonical] = newFont;
+        }
+        return newFont;
     }
 } // namespace OloEngine

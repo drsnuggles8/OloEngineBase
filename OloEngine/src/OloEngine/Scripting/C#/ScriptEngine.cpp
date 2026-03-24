@@ -13,6 +13,7 @@
 #include "mono/metadata/tabledefs.h"
 #include "mono/metadata/mono-debug.h"
 #include "mono/metadata/threads.h"
+#include <mono/utils/mono-logger.h>
 
 #ifdef _MSC_VER
 #pragma warning(push)
@@ -176,10 +177,30 @@ namespace OloEngine
             return;
         }
 
-        if (bool status = LoadAppAssembly("SandboxProject/Assets/Scripts/Binaries/Sandbox-Scripting.dll"); !status)
+        // Load project-specific app assembly
+        // Runtime builds place the DLL in Resources/Scripts/; in the editor it
+        // lives under SandboxProject/.  Prefer the runtime path when present so
+        // that packaged games always use the shipped assembly.
+        const std::filesystem::path runtimeAppAssembly = "Resources/Scripts/Sandbox-Scripting.dll";
+        const std::filesystem::path editorAppAssembly = "SandboxProject/Assets/Scripts/Binaries/Sandbox-Scripting.dll";
+
+        if (std::filesystem::exists(runtimeAppAssembly))
         {
-            OLO_CORE_ERROR("[ScriptEngine] Could not load app assembly.");
-            return;
+            if (!LoadAppAssembly(runtimeAppAssembly))
+            {
+                OLO_CORE_ERROR("[ScriptEngine] Could not load app assembly: {}", runtimeAppAssembly.string());
+            }
+        }
+        else if (std::filesystem::exists(editorAppAssembly))
+        {
+            if (!LoadAppAssembly(editorAppAssembly))
+            {
+                OLO_CORE_ERROR("[ScriptEngine] Could not load app assembly: {}", editorAppAssembly.string());
+            }
+        }
+        else
+        {
+            OLO_CORE_WARN("[ScriptEngine] No app assembly found (C# scripting will be unavailable)");
         }
 
         LoadAssemblyClasses();
@@ -197,10 +218,25 @@ namespace OloEngine
         delete s_Data;
     }
 
+    static void MonoPrintCallback(const char* string, mono_bool is_stdout)
+    {
+        if (is_stdout)
+        {
+            OLO_CORE_INFO("[C#] {}", string);
+        }
+        else
+        {
+            OLO_CORE_ERROR("[C#] {}", string);
+        }
+    }
+
     void ScriptEngine::InitMono()
     {
         OLO_PROFILE_FUNCTION();
         ::mono_set_assemblies_path("mono/lib");
+
+        ::mono_trace_set_print_handler(MonoPrintCallback);
+        ::mono_trace_set_printerr_handler(MonoPrintCallback);
 
         if (s_Data->EnableDebugging)
         {
@@ -281,8 +317,17 @@ namespace OloEngine
 
         ::mono_domain_unload(s_Data->AppDomain);
 
+        // Reset stale image pointers before loading — LoadAssembly/LoadAppAssembly
+        // will set fresh ones.  Without this, a failed reload leaves dangling pointers.
+        s_Data->CoreAssemblyImage = nullptr;
+        s_Data->AppAssemblyImage = nullptr;
+
         LoadAssembly(s_Data->CoreAssemblyFilepath);
-        LoadAppAssembly(s_Data->AppAssemblyFilepath);
+        if (!LoadAppAssembly(s_Data->AppAssemblyFilepath))
+        {
+            OLO_CORE_ERROR("[ScriptEngine] Failed to reload app assembly: {}", s_Data->AppAssemblyFilepath.string());
+            return;
+        }
         LoadAssemblyClasses();
 
         ScriptGlue::RegisterComponents();
@@ -375,7 +420,7 @@ namespace OloEngine
 
     ScriptFieldMap& ScriptEngine::GetScriptFieldMap(Entity entity)
     {
-        OLO_CORE_ASSERT(entity);
+        OLO_CORE_ASSERT(entity, "ScriptEngine::GetScriptFieldMap called with invalid entity");
 
         UUID entityID = entity.GetUUID();
         return s_Data->EntityScriptFields[entityID];
@@ -389,6 +434,12 @@ namespace OloEngine
     void ScriptEngine::LoadAssemblyClasses()
     {
         s_Data->EntityClasses.clear();
+
+        if (!s_Data->AppAssemblyImage)
+        {
+            OLO_CORE_WARN("[ScriptEngine] No app assembly loaded — skipping class discovery");
+            return;
+        }
 
         const MonoTableInfo* typeDefinitionsTable = ::mono_image_get_table_info(s_Data->AppAssemblyImage, MONO_TABLE_TYPEDEF);
         i32 numTypes = ::mono_table_info_get_rows(typeDefinitionsTable);

@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLContext.h"
 
+#include "OloEngine/Debug/CrashReporter.h"
+
 #include <GLFW/glfw3.h>
 #include <glad/gl.h>
 
@@ -29,6 +31,9 @@ namespace OloEngine
         OLO_CORE_INFO("  Vendor: {0}", vendor);
         OLO_CORE_INFO("  Renderer: {0}", renderer);
         OLO_CORE_INFO("  Version: {0}", glVersion);
+
+        // Provide GPU info to the crash reporter for diagnostics
+        CrashReporter::SetGPUInfo(fmt::format("{} — {} ({})", renderer, glVersion, vendor));
 
         OLO_CORE_ASSERT(GLAD_VERSION_MAJOR(version) == 4 && GLAD_VERSION_MINOR(version) >= 5, "OloEngine requires at least OpenGL version 4.5!");
     }

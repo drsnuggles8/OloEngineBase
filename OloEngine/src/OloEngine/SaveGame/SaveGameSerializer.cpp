@@ -235,7 +235,7 @@ namespace OloEngine
             glm::vec3 AngularVelocity;
         };
         std::vector<Rigidbody3DVelocityBackup> rb3dBackups;
-        if (auto* joltScene = scene.GetJoltScene(); joltScene && joltScene->IsInitialized())
+        if (auto* joltScene = scene.GetPhysicsScene(); joltScene && joltScene->IsInitialized())
         {
             auto rb3dView = scene.m_Registry.view<Rigidbody3DComponent>();
             for (auto e : rb3dView)

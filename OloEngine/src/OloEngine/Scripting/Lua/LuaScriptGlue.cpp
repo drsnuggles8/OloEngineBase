@@ -9,6 +9,7 @@
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Core/Input.h"
+#include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/Gamepad.h"
 #include "OloEngine/Core/GamepadManager.h"
@@ -26,6 +27,11 @@
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestDatabase.h"
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
+#include "OloEngine/Gameplay/Abilities/GameplayAbilitySystem.h"
+#include "OloEngine/Gameplay/Abilities/Damage/DamageCalculation.h"
+#include "OloEngine/Gameplay/Abilities/Damage/DamageEvent.h"
+#include "OloEngine/Physics3D/SceneQueries.h"
+#include "OloEngine/Physics3D/JoltScene.h"
 
 namespace OloEngine
 {
@@ -217,6 +223,25 @@ namespace OloEngine
                                                     "dirty", &LightProbeVolumeComponent::m_Dirty,
                                                     "getTotalProbeCount", &LightProbeVolumeComponent::GetTotalProbeCount);
 
+        // --- UIWorldAnchorComponent ---
+        lua.new_usertype<UIWorldAnchorComponent>("UIWorldAnchorComponent",
+                                                 "targetEntity", sol::property([](const UIWorldAnchorComponent& c)
+                                                                               { return static_cast<u64>(c.m_TargetEntity); }, [](UIWorldAnchorComponent& c, u64 id)
+                                                                               { c.m_TargetEntity = UUID(id); }),
+                                                 "worldOffset", &UIWorldAnchorComponent::m_WorldOffset);
+
+        // --- NameplateComponent ---
+        lua.new_usertype<NameplateComponent>("NameplateComponent",
+                                             "enabled", &NameplateComponent::m_Enabled,
+                                             "showHealthBar", &NameplateComponent::m_ShowHealthBar,
+                                             "showManaBar", &NameplateComponent::m_ShowManaBar,
+                                             "worldOffset", &NameplateComponent::m_WorldOffset,
+                                             "barSize", &NameplateComponent::m_BarSize,
+                                             "healthBarColor", &NameplateComponent::m_HealthBarColor,
+                                             "manaBarColor", &NameplateComponent::m_ManaBarColor,
+                                             "barBackgroundColor", &NameplateComponent::m_BarBackgroundColor,
+                                             "manaBarGap", &NameplateComponent::m_ManaBarGap);
+
         // --- WindSettings (scene-level) ---
         lua.new_usertype<WindSettings>("WindSettings",
                                        "enabled", &WindSettings::Enabled,
@@ -265,6 +290,14 @@ namespace OloEngine
         {
             return Input::IsKeyPressed(keycode);
         };
+        inputTable["IsKeyJustPressed"] = [](u16 keycode)
+        {
+            return Input::IsKeyJustPressed(static_cast<KeyCode>(keycode));
+        };
+        inputTable["IsKeyJustReleased"] = [](u16 keycode)
+        {
+            return Input::IsKeyJustReleased(static_cast<KeyCode>(keycode));
+        };
         inputTable["IsMouseButtonDown"] = [](u16 button)
         {
             return Input::IsMouseButtonPressed(button);
@@ -284,6 +317,20 @@ namespace OloEngine
         inputTable["GetActionAxisValue"] = [](const std::string& name)
         {
             return InputActionManager::GetActionAxisValue(name);
+        };
+        inputTable["GetMousePosition"] = []() -> std::tuple<f32, f32>
+        {
+            auto pos = Input::GetMousePosition();
+            if (Scene* scene = ScriptEngine::GetSceneContext(); scene)
+                pos -= scene->GetViewportOffset();
+            return { pos.x, pos.y };
+        };
+        inputTable["GetWindowSize"] = []() -> std::tuple<f32, f32>
+        {
+            if (Scene* scene = ScriptEngine::GetSceneContext(); scene && scene->GetViewportWidth() > 0)
+                return { static_cast<f32>(scene->GetViewportWidth()), static_cast<f32>(scene->GetViewportHeight()) };
+            auto& window = Application::Get().GetWindow();
+            return { static_cast<f32>(window.GetWidth()), static_cast<f32>(window.GetHeight()) };
         };
 
         // --- Gamepad functions (raw access) ---
@@ -448,6 +495,7 @@ namespace OloEngine
                                                     a.m_CurrentCornerIndex = 0; }),
                                             "hasTarget", sol::readonly(&NavAgentComponent::m_HasTarget),
                                             "hasPath", sol::readonly(&NavAgentComponent::m_HasPath),
+                                            "lockYAxis", &NavAgentComponent::m_LockYAxis,
                                             "clearTarget", [](NavAgentComponent& agent)
                                             {
                                                 agent.m_HasTarget = false;
@@ -766,6 +814,79 @@ namespace OloEngine
             return scene && scene->TryGetEntityWithUUID(entity->GetUUID()).has_value();
         };
 
+        // --- Physics (raycast) ---
+        auto physicsTable = lua.create_named_table("Physics");
+        physicsTable["Raycast"] = [](const glm::vec3& origin, const glm::vec3& direction, f32 maxDistance, sol::this_state s) -> sol::object
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return sol::make_object(s, sol::nil);
+
+            JoltScene* joltScene = scene->GetPhysicsScene();
+            if (!joltScene)
+                return sol::make_object(s, sol::nil);
+
+            RayCastInfo rayInfo(origin, direction, maxDistance);
+            SceneQueryHit hit;
+            if (!joltScene->CastRay(rayInfo, hit))
+                return sol::make_object(s, sol::nil);
+
+            sol::state_view lua(s);
+            sol::table result = lua.create_table(0, 4);
+            result["position"] = hit.m_Position;
+            result["normal"] = hit.m_Normal;
+            result["distance"] = hit.m_Distance;
+            result["entityID"] = static_cast<u64>(hit.m_HitEntity);
+            return result;
+        };
+
+        // --- Camera (screen-to-world) ---
+        auto cameraTable = lua.create_named_table("Camera");
+        cameraTable["ScreenToWorldRay"] = [](u64 cameraEntityID, const glm::vec2& screenPos, sol::this_state s) -> sol::object
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return sol::make_object(s, sol::nil);
+
+            auto cameraOpt = scene->TryGetEntityWithUUID(UUID(cameraEntityID));
+            if (!cameraOpt)
+                return sol::make_object(s, sol::nil);
+            Entity cameraEntity{ static_cast<entt::entity>(*cameraOpt), scene };
+            if (!cameraEntity.HasComponent<CameraComponent>() || !cameraEntity.HasComponent<TransformComponent>())
+                return sol::make_object(s, sol::nil);
+
+            auto const& cameraComp = cameraEntity.GetComponent<CameraComponent>();
+            auto const& transform = cameraEntity.GetComponent<TransformComponent>();
+
+            glm::mat4 viewMatrix = glm::inverse(transform.GetTransform());
+            glm::mat4 projMatrix = cameraComp.Camera.GetProjection();
+            glm::mat4 invVP = glm::inverse(projMatrix * viewMatrix);
+
+            // screenPos is in pixels (from Input.GetMousePosition); normalise to [0,1]
+            auto& window = Application::Get().GetWindow();
+            const f32 winW = static_cast<f32>(window.GetWidth());
+            const f32 winH = static_cast<f32>(window.GetHeight());
+            if (winW <= 0.0f || winH <= 0.0f)
+                return sol::make_object(s, sol::nil);
+
+            const f32 normX = screenPos.x / winW;
+            const f32 normY = screenPos.y / winH;
+
+            f32 ndcX = normX * 2.0f - 1.0f;
+            f32 ndcY = 1.0f - normY * 2.0f; // Flip Y: screen top-left origin → NDC bottom-left origin
+
+            glm::vec4 nearPoint = invVP * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
+            glm::vec4 farPoint = invVP * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+            nearPoint /= nearPoint.w;
+            farPoint /= farPoint.w;
+
+            sol::state_view lua(s);
+            sol::table result = lua.create_table(0, 2);
+            result["origin"] = glm::vec3(nearPoint);
+            result["direction"] = glm::normalize(glm::vec3(farPoint - nearPoint));
+            return result;
+        };
+
         // --- AbilityComponent ---
         lua.new_usertype<AbilityComponent>("AbilityComponent", "GetAttribute", [](const AbilityComponent& comp, const std::string& name) -> f32
                                            { return comp.Attributes.GetBaseValue(name); }, "SetAttribute", [](AbilityComponent& comp, const std::string& name, f32 value)
@@ -776,5 +897,90 @@ namespace OloEngine
                                            { comp.OwnedTags.RemoveTag(GameplayTag(tag)); }, "DefineAttribute", [](AbilityComponent& comp, const std::string& name, f32 baseValue)
                                            { comp.Attributes.DefineAttribute(name, baseValue); }, "InitDefaultRPG", [](AbilityComponent& comp, f32 maxHP, f32 maxMana, f32 atk, f32 def)
                                            { comp.InitializeDefaultRPGAttributes(maxHP, maxMana, atk, def); });
+
+        // --- Damage routing (cross-entity, uses scene context) ---
+        auto damageTable = lua.create_named_table("Damage");
+        damageTable["ApplyToTarget"] = [](u64 sourceID, u64 targetID, f32 rawDamage, sol::optional<std::string> damageType, sol::optional<bool> isCritical) -> f32
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return 0.0f;
+
+            auto sourceOpt = scene->TryGetEntityWithUUID(UUID(sourceID));
+            auto targetOpt = scene->TryGetEntityWithUUID(UUID(targetID));
+            if (!sourceOpt || !targetOpt)
+                return 0.0f;
+            Entity source{ static_cast<entt::entity>(*sourceOpt), scene };
+            Entity target{ static_cast<entt::entity>(*targetOpt), scene };
+
+            if (!source.HasComponent<AbilityComponent>() || !target.HasComponent<AbilityComponent>())
+                return 0.0f;
+
+            auto const& sourceAC = source.GetComponent<AbilityComponent>();
+            auto& targetAC = target.GetComponent<AbilityComponent>();
+
+            DamageEvent event;
+            event.Source = source;
+            event.Target = target;
+            event.RawDamage = rawDamage;
+            event.IsCritical = isCritical.value_or(false);
+            event.CritMultiplier = sourceAC.Attributes.GetCurrentValue("CritMultiplier");
+            const std::string dt = damageType.value_or("Physical");
+            event.DamageType = GameplayTag(dt);
+
+            f32 finalDamage = DamageCalculation::Calculate(event, sourceAC.Attributes, targetAC.Attributes);
+
+            f32 currentHealth = targetAC.Attributes.GetCurrentValue("Health");
+            targetAC.Attributes.SetBaseValue("Health", std::max(currentHealth - finalDamage, 0.0f));
+
+            return finalDamage;
+        };
+
+        damageTable["TryActivateAbilityOnTarget"] = [](u64 casterID, const std::string& abilityTag, u64 targetID) -> bool
+        {
+            if (abilityTag.empty())
+                return false;
+
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return false;
+
+            auto casterOpt = scene->TryGetEntityWithUUID(UUID(casterID));
+            auto targetOpt = scene->TryGetEntityWithUUID(UUID(targetID));
+            if (!casterOpt || !targetOpt)
+                return false;
+            Entity caster{ static_cast<entt::entity>(*casterOpt), scene };
+            Entity target{ static_cast<entt::entity>(*targetOpt), scene };
+
+            if (!caster.HasComponent<AbilityComponent>() || !target.HasComponent<AbilityComponent>())
+                return false;
+
+            GameplayTag tag(abilityTag);
+            // Activate on the caster (checks cooldowns, costs, tags).
+            // TryActivateAbility also applies ActivationEffects to the caster;
+            // for targeted abilities we additionally redirect effects to the
+            // target below (intentional self+target duplication — see C# mirror).
+            if (!GameplayAbilitySystem::TryActivateAbility(scene, caster, tag))
+                return false;
+
+            auto& casterAC = caster.GetComponent<AbilityComponent>();
+            for (auto& ability : casterAC.Abilities)
+            {
+                if (ability.Definition.AbilityTag == tag)
+                {
+                    if (!ability.Definition.TargetActivationEffects.empty())
+                    {
+                        auto& targetAC = target.GetComponent<AbilityComponent>();
+                        for (auto const& effect : ability.Definition.TargetActivationEffects)
+                        {
+                            targetAC.ActiveEffects.ApplyEffect(effect, targetAC.OwnedTags, tag);
+                        }
+                    }
+                    break;
+                }
+            }
+
+            return true;
+        };
     }
 } // namespace OloEngine

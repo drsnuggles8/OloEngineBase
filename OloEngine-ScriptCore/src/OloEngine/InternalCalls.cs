@@ -24,6 +24,10 @@ namespace OloEngine
 		internal extern static void TransformComponent_GetTranslation(ulong entityID, out Vector3 translation);
 		[MethodImplAttribute(MethodImplOptions.InternalCall)]
 		internal extern static void TransformComponent_SetTranslation(ulong entityID, ref Vector3 translation);
+		[MethodImplAttribute(MethodImplOptions.InternalCall)]
+		internal extern static void TransformComponent_GetRotation(ulong entityID, out Vector3 rotation);
+		[MethodImplAttribute(MethodImplOptions.InternalCall)]
+		internal extern static void TransformComponent_SetRotation(ulong entityID, ref Vector3 rotation);
         #endregion
 
         #region Rigidbody2DComponent
@@ -56,6 +60,16 @@ namespace OloEngine
         #region Rigidbody2DComponent
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         internal extern static bool Input_IsKeyDown(KeyCode keycode);
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static bool Input_IsKeyJustPressed(KeyCode keycode);
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static bool Input_IsKeyJustReleased(KeyCode keycode);
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static void Input_GetMousePosition(out Vector2 position);
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static void Input_GetWindowSize(out Vector2 size);
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static bool Input_IsMouseButtonDown(int button);
         #endregion
 
         #region Gamepad
@@ -569,6 +583,10 @@ namespace OloEngine
 		internal static extern ulong MaterialComponent_GetShaderGraphHandle(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void MaterialComponent_SetShaderGraphHandle(ulong entityID, ulong handle);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void MaterialComponent_GetAlbedoColor(ulong entityID, out Vector4 color);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void MaterialComponent_SetAlbedoColor(ulong entityID, ref Vector4 color);
 		#endregion
 
 		#region NavAgentComponent
@@ -592,6 +610,60 @@ namespace OloEngine
 		internal static extern bool NavAgentComponent_HasPath(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void NavAgentComponent_ClearTarget(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool NavAgentComponent_GetLockYAxis(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NavAgentComponent_SetLockYAxis(ulong entityID, bool lockY);
+		#endregion
+
+		#region UIWorldAnchorComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern ulong UIWorldAnchorComponent_GetTargetEntity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void UIWorldAnchorComponent_SetTargetEntity(ulong entityID, ulong targetEntityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void UIWorldAnchorComponent_GetWorldOffset(ulong entityID, out Vector3 offset);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void UIWorldAnchorComponent_SetWorldOffset(ulong entityID, ref Vector3 offset);
+		#endregion
+
+		#region NameplateComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool NameplateComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_SetEnabled(ulong entityID, bool enabled);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool NameplateComponent_GetShowHealthBar(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_SetShowHealthBar(ulong entityID, bool show);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool NameplateComponent_GetShowManaBar(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_SetShowManaBar(ulong entityID, bool show);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_GetWorldOffset(ulong entityID, out Vector3 offset);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_SetWorldOffset(ulong entityID, ref Vector3 offset);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_GetBarSize(ulong entityID, out Vector2 size);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_SetBarSize(ulong entityID, ref Vector2 size);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_GetHealthBarColor(ulong entityID, out Vector4 color);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_SetHealthBarColor(ulong entityID, ref Vector4 color);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_GetManaBarColor(ulong entityID, out Vector4 color);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_SetManaBarColor(ulong entityID, ref Vector4 color);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_GetBarBackgroundColor(ulong entityID, out Vector4 color);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_SetBarBackgroundColor(ulong entityID, ref Vector4 color);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float NameplateComponent_GetManaBarGap(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_SetManaBarGap(ulong entityID, float gap);
 		#endregion
 
 		#region AnimationGraphComponent
@@ -783,6 +855,34 @@ namespace OloEngine
 		internal static extern void AbilityComponent_AddTag(ulong entityID, string tag);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void AbilityComponent_RemoveTag(ulong entityID, string tag);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AbilityComponent_ApplyDamageToTarget(ulong sourceEntityID, ulong targetEntityID, float rawDamage, string damageTypeTag, bool isCritical);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool AbilityComponent_TryActivateAbilityOnTarget(ulong casterEntityID, string abilityTag, ulong targetEntityID);
+		#endregion
+
+		#region Physics
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool Physics_Raycast(ref Vector3 origin, ref Vector3 direction, float maxDistance, out Vector3 hitPosition, out Vector3 hitNormal, out float hitDistance, out ulong hitEntityID);
+		#endregion
+
+		#region Camera
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool Camera_ScreenToWorldRay(ulong cameraEntityID, ref Vector2 screenPos, out Vector3 origin, out Vector3 direction);
+		#endregion
+
+		#region Application
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float Application_GetTimeScale();
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Application_SetTimeScale(float scale);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Application_QuitGame();
+		#endregion
+
+		#region Scene
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Scene_ReloadCurrentScene();
 		#endregion
 	}
 }

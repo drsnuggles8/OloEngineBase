@@ -27,6 +27,10 @@
 #include "OloEngine/Gameplay/Quest/QuestDatabase.h"
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
 #include "OloEngine/Gameplay/Abilities/GameplayAbilitySystem.h"
+#include "OloEngine/Gameplay/Abilities/Damage/DamageCalculation.h"
+#include "OloEngine/Gameplay/Abilities/Damage/DamageEvent.h"
+#include "OloEngine/Physics3D/SceneQueries.h"
+#include "OloEngine/Physics3D/JoltScene.h"
 
 #include "mono/metadata/object.h"
 #include "mono/metadata/reflection.h"
@@ -104,7 +108,7 @@ namespace OloEngine
     Entity GetEntity(UUID entityID)
     {
         Scene* scene = ScriptEngine::GetSceneContext();
-        OLO_CORE_ASSERT(scene);
+        OLO_CORE_ASSERT(scene, "ScriptGlue::GetEntity - no active scene context");
         return scene->GetEntityByUUID(entityID);
     }
 
@@ -170,6 +174,26 @@ namespace OloEngine
         OLO_CORE_ASSERT(entity);
 
         entity.GetComponent<TransformComponent>().Translation = *translation;
+    }
+
+    static void TransformComponent_GetRotation(UUID entityID, glm::vec3* outRotation)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+
+        *outRotation = entity.GetComponent<TransformComponent>().Rotation;
+    }
+
+    static void TransformComponent_SetRotation(UUID entityID, glm::vec3 const* rotation)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+
+        entity.GetComponent<TransformComponent>().Rotation = *rotation;
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -1748,6 +1772,24 @@ namespace OloEngine
         }
     }
 
+    static void MaterialComponent_GetAlbedoColor(UUID entityID, glm::vec4* outColor)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        *outColor = entity.GetComponent<MaterialComponent>().m_Material.GetBaseColorFactor();
+    }
+
+    static void MaterialComponent_SetAlbedoColor(UUID entityID, glm::vec4 const* color)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        entity.GetComponent<MaterialComponent>().m_Material.SetBaseColorFactor(*color);
+    }
+
     ///////////////////////////////////////////////////////////////////////////////////////////
     // NavAgentComponent //////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -1768,6 +1810,7 @@ namespace OloEngine
         auto& agent = entity.GetComponent<NavAgentComponent>();
         agent.m_TargetPosition = *target;
         agent.m_HasTarget = true;
+        agent.m_HasPath = false;
     }
 
     static void NavAgentComponent_GetMaxSpeed(UUID entityID, f32* outSpeed)
@@ -1836,6 +1879,182 @@ namespace OloEngine
         agent.m_HasPath = false;
         agent.m_PathCorners.clear();
         agent.m_CurrentCornerIndex = 0;
+    }
+
+    static bool NavAgentComponent_GetLockYAxis(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
+        return entity.GetComponent<NavAgentComponent>().m_LockYAxis;
+    }
+
+    static void NavAgentComponent_SetLockYAxis(UUID entityID, bool lock)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
+        entity.GetComponent<NavAgentComponent>().m_LockYAxis = lock;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // UIWorldAnchorComponent /////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static u64 UIWorldAnchorComponent_GetTargetEntity(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<UIWorldAnchorComponent>());
+        return static_cast<u64>(entity.GetComponent<UIWorldAnchorComponent>().m_TargetEntity);
+    }
+
+    static void UIWorldAnchorComponent_SetTargetEntity(UUID entityID, u64 targetEntityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<UIWorldAnchorComponent>());
+        entity.GetComponent<UIWorldAnchorComponent>().m_TargetEntity = UUID(targetEntityID);
+    }
+
+    static void UIWorldAnchorComponent_GetWorldOffset(UUID entityID, glm::vec3* out)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<UIWorldAnchorComponent>());
+        *out = entity.GetComponent<UIWorldAnchorComponent>().m_WorldOffset;
+    }
+
+    static void UIWorldAnchorComponent_SetWorldOffset(UUID entityID, glm::vec3 const* v)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<UIWorldAnchorComponent>());
+        entity.GetComponent<UIWorldAnchorComponent>().m_WorldOffset = *v;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // NameplateComponent /////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static bool NameplateComponent_GetEnabled(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        return entity.GetComponent<NameplateComponent>().m_Enabled;
+    }
+
+    static void NameplateComponent_SetEnabled(UUID entityID, bool enabled)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        entity.GetComponent<NameplateComponent>().m_Enabled = enabled;
+    }
+
+    static bool NameplateComponent_GetShowHealthBar(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        return entity.GetComponent<NameplateComponent>().m_ShowHealthBar;
+    }
+
+    static void NameplateComponent_SetShowHealthBar(UUID entityID, bool show)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        entity.GetComponent<NameplateComponent>().m_ShowHealthBar = show;
+    }
+
+    static bool NameplateComponent_GetShowManaBar(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        return entity.GetComponent<NameplateComponent>().m_ShowManaBar;
+    }
+
+    static void NameplateComponent_SetShowManaBar(UUID entityID, bool show)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        entity.GetComponent<NameplateComponent>().m_ShowManaBar = show;
+    }
+
+    static void NameplateComponent_GetWorldOffset(UUID entityID, glm::vec3* out)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        *out = entity.GetComponent<NameplateComponent>().m_WorldOffset;
+    }
+
+    static void NameplateComponent_SetWorldOffset(UUID entityID, glm::vec3 const* v)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        entity.GetComponent<NameplateComponent>().m_WorldOffset = *v;
+    }
+
+    static void NameplateComponent_GetBarSize(UUID entityID, glm::vec2* out)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        *out = entity.GetComponent<NameplateComponent>().m_BarSize;
+    }
+
+    static void NameplateComponent_SetBarSize(UUID entityID, glm::vec2 const* v)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        entity.GetComponent<NameplateComponent>().m_BarSize = *v;
+    }
+
+    static void NameplateComponent_GetHealthBarColor(UUID entityID, glm::vec4* out)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        *out = entity.GetComponent<NameplateComponent>().m_HealthBarColor;
+    }
+
+    static void NameplateComponent_SetHealthBarColor(UUID entityID, glm::vec4 const* v)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        entity.GetComponent<NameplateComponent>().m_HealthBarColor = *v;
+    }
+
+    static void NameplateComponent_GetManaBarColor(UUID entityID, glm::vec4* out)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        *out = entity.GetComponent<NameplateComponent>().m_ManaBarColor;
+    }
+
+    static void NameplateComponent_SetManaBarColor(UUID entityID, glm::vec4 const* v)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        entity.GetComponent<NameplateComponent>().m_ManaBarColor = *v;
+    }
+
+    static void NameplateComponent_GetBarBackgroundColor(UUID entityID, glm::vec4* out)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        *out = entity.GetComponent<NameplateComponent>().m_BarBackgroundColor;
+    }
+
+    static void NameplateComponent_SetBarBackgroundColor(UUID entityID, glm::vec4 const* v)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        entity.GetComponent<NameplateComponent>().m_BarBackgroundColor = *v;
+    }
+
+    static f32 NameplateComponent_GetManaBarGap(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        return entity.GetComponent<NameplateComponent>().m_ManaBarGap;
+    }
+
+    static void NameplateComponent_SetManaBarGap(UUID entityID, f32 gap)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        entity.GetComponent<NameplateComponent>().m_ManaBarGap = gap;
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -2120,6 +2339,47 @@ namespace OloEngine
         return Input::IsKeyPressed(keycode);
     }
 
+    static bool Input_IsKeyJustPressed(KeyCode keycode)
+    {
+        return Input::IsKeyJustPressed(keycode);
+    }
+
+    static bool Input_IsKeyJustReleased(KeyCode keycode)
+    {
+        return Input::IsKeyJustReleased(keycode);
+    }
+
+    static void Input_GetMousePosition(glm::vec2* outPosition)
+    {
+        glm::vec2 raw = Input::GetMousePosition();
+        // In the editor the game viewport is an ImGui sub-window; subtract its
+        // origin so scripts see coordinates relative to the viewport — matching
+        // the size returned by Input_GetWindowSize.
+        if (Scene* scene = ScriptEngine::GetSceneContext(); scene)
+        {
+            raw -= scene->GetViewportOffset();
+        }
+        *outPosition = raw;
+    }
+
+    static void Input_GetWindowSize(glm::vec2* outSize)
+    {
+        // Return the game viewport size (not the host window), so scripts
+        // normalising mouse coordinates work in both editor PIE and standalone.
+        if (Scene* scene = ScriptEngine::GetSceneContext(); scene && scene->GetViewportWidth() > 0)
+        {
+            *outSize = { static_cast<f32>(scene->GetViewportWidth()), static_cast<f32>(scene->GetViewportHeight()) };
+            return;
+        }
+        auto& window = Application::Get().GetWindow();
+        *outSize = { static_cast<f32>(window.GetWidth()), static_cast<f32>(window.GetHeight()) };
+    }
+
+    static bool Input_IsMouseButtonDown(i32 button)
+    {
+        return Input::IsMouseButtonPressed(static_cast<MouseCode>(button));
+    }
+
     static bool Input_IsGamepadButtonPressed(u8 button, i32 gamepadIndex)
     {
         if (button >= Gamepad::ButtonCount)
@@ -2247,14 +2507,15 @@ namespace OloEngine
 			std::string_view typeName = typeid(Component).name();
 			sizet pos = typeName.find_last_of(':');
 			std::string_view structName = typeName.substr(pos + 1);
-			std::string managedTypename = fmt::format("OloEngine.{}", structName);
+			std::string structNameStr(structName);
 
-			MonoType* managedType = ::mono_reflection_type_from_name(managedTypename.data(), ScriptEngine::GetCoreAssemblyImage());
-			if (!managedType)
+			MonoClass* managedClass = ::mono_class_from_name(ScriptEngine::GetCoreAssemblyImage(), "OloEngine", structNameStr.c_str());
+			if (!managedClass)
 			{
-				OLO_CORE_ERROR("Could not find component type {}", managedTypename);
+				OLO_CORE_TRACE("No C# binding for component type OloEngine.{} (skipped)", structNameStr);
 				return;
 			}
+			MonoType* managedType = ::mono_class_get_type(managedClass);
 			s_EntityHasComponentFuncs[managedType] = [](Entity entity) { return entity.HasComponent<Component>(); }; }(), ...);
     }
 
@@ -3029,6 +3290,234 @@ namespace OloEngine
         mono_free(tagStr);
     }
 
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // Physics raycast ////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static bool Physics_Raycast(glm::vec3* origin, glm::vec3* direction, f32 maxDistance,
+                                glm::vec3* outHitPosition, glm::vec3* outHitNormal, f32* outDistance, u64* outEntityID)
+    {
+        // Zero-init out params so managed code never sees garbage on early return
+        *outHitPosition = {};
+        *outHitNormal = {};
+        *outDistance = 0.0f;
+        *outEntityID = 0;
+
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+
+        JoltScene* joltScene = scene->GetPhysicsScene();
+        if (!joltScene)
+        {
+            return false;
+        }
+
+        RayCastInfo rayInfo(*origin, *direction, maxDistance);
+        SceneQueryHit hit;
+        if (!joltScene->CastRay(rayInfo, hit))
+        {
+            return false;
+        }
+
+        *outHitPosition = hit.m_Position;
+        *outHitNormal = hit.m_Normal;
+        *outDistance = hit.m_Distance;
+        *outEntityID = static_cast<u64>(hit.m_HitEntity);
+        return true;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // Camera.ScreenToWorldRay ////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static bool Camera_ScreenToWorldRay(UUID cameraEntityID, glm::vec2* screenPos, glm::vec3* outOrigin, glm::vec3* outDirection)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+
+        Entity cameraEntity = scene->GetEntityByUUID(cameraEntityID);
+        if (!cameraEntity || !cameraEntity.HasComponent<CameraComponent>())
+        {
+            *outOrigin = glm::vec3(0.0f);
+            *outDirection = glm::vec3(0.0f, 0.0f, -1.0f);
+            return false;
+        }
+
+        auto const& cameraComp = cameraEntity.GetComponent<CameraComponent>();
+        auto const& transform = cameraEntity.GetComponent<TransformComponent>();
+
+        // Build inverse view-projection matrix
+        glm::mat4 viewMatrix = glm::inverse(transform.GetTransform());
+        glm::mat4 projMatrix = cameraComp.Camera.GetProjection();
+        glm::mat4 invVP = glm::inverse(projMatrix * viewMatrix);
+
+        // Convert screen coords to NDC [-1, 1]
+        f32 ndcX = screenPos->x * 2.0f - 1.0f;
+        f32 ndcY = screenPos->y * 2.0f - 1.0f;
+
+        // Unproject near and far points
+        glm::vec4 nearPoint = invVP * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
+        glm::vec4 farPoint = invVP * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+
+        nearPoint /= nearPoint.w;
+        farPoint /= farPoint.w;
+
+        *outOrigin = glm::vec3(nearPoint);
+        *outDirection = glm::normalize(glm::vec3(farPoint - nearPoint));
+        return true;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // Damage routing (cross-entity) //////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static f32 AbilityComponent_ApplyDamageToTarget(UUID sourceEntityID, UUID targetEntityID,
+                                                    f32 rawDamage, MonoString* damageTypeTag, bool isCritical)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+
+        Entity source = scene->GetEntityByUUID(sourceEntityID);
+        Entity target = scene->GetEntityByUUID(targetEntityID);
+        if (!source || !target)
+        {
+            return 0.0f;
+        }
+
+        if (!source.HasComponent<AbilityComponent>() || !target.HasComponent<AbilityComponent>())
+        {
+            return 0.0f;
+        }
+
+        auto const& sourceAC = source.GetComponent<AbilityComponent>();
+        auto& targetAC = target.GetComponent<AbilityComponent>();
+
+        DamageEvent event;
+        event.Source = source;
+        event.Target = target;
+        event.RawDamage = rawDamage;
+        event.IsCritical = isCritical;
+        event.CritMultiplier = sourceAC.Attributes.GetCurrentValue("CritMultiplier");
+        if (isCritical && event.CritMultiplier <= 0.0f)
+        {
+            event.CritMultiplier = 2.0f;
+        }
+
+        if (damageTypeTag)
+        {
+            char* tagStr = mono_string_to_utf8(damageTypeTag);
+            event.DamageType = GameplayTag(tagStr);
+            mono_free(tagStr);
+        }
+
+        f32 finalDamage = DamageCalculation::Calculate(event, sourceAC.Attributes, targetAC.Attributes);
+
+        // Apply the damage to the target's Health attribute
+        f32 currentHealth = targetAC.Attributes.GetCurrentValue("Health");
+        targetAC.Attributes.SetBaseValue("Health", std::max(currentHealth - finalDamage, 0.0f));
+
+        return finalDamage;
+    }
+
+    static bool AbilityComponent_TryActivateAbilityOnTarget(UUID casterEntityID, MonoString* abilityTag, UUID targetEntityID)
+    {
+        if (!abilityTag)
+        {
+            return false;
+        }
+
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+
+        Entity caster = scene->GetEntityByUUID(casterEntityID);
+        Entity target = scene->GetEntityByUUID(targetEntityID);
+        if (!caster || !target)
+        {
+            return false;
+        }
+
+        if (!caster.HasComponent<AbilityComponent>() || !target.HasComponent<AbilityComponent>())
+        {
+            return false;
+        }
+
+        char* tagStr = mono_string_to_utf8(abilityTag);
+        GameplayTag tag(tagStr);
+        mono_free(tagStr);
+
+        // Activate on the caster (checks cooldowns, costs, tags).
+        // Note: TryActivateAbility also applies ActivationEffects to the caster.
+        // For targeted abilities, we redirect effects to the target below.
+        if (!GameplayAbilitySystem::TryActivateAbility(scene, caster, tag))
+        {
+            return false;
+        }
+
+        // Apply TargetActivationEffects to the TARGET entity.
+        // ActivationEffects were already applied to the caster by TryActivateAbility;
+        // only the explicit target-specific effects list goes to the target.
+        auto& casterAC = caster.GetComponent<AbilityComponent>();
+        for (auto& ability : casterAC.Abilities)
+        {
+            if (ability.Definition.AbilityTag == tag)
+            {
+                if (!ability.Definition.TargetActivationEffects.empty())
+                {
+                    auto& targetAC = target.GetComponent<AbilityComponent>();
+                    for (auto const& effect : ability.Definition.TargetActivationEffects)
+                    {
+                        targetAC.ActiveEffects.ApplyEffect(effect, targetAC.OwnedTags, tag);
+                    }
+                }
+                break;
+            }
+        }
+
+        return true;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // Application / Time /////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static f32 Application_GetTimeScale()
+    {
+        return Application::Get().GetTimeScale();
+    }
+
+    static void Application_SetTimeScale(f32 scale)
+    {
+        Application::Get().SetTimeScale(scale);
+    }
+
+    static void Application_QuitGame()
+    {
+        auto& app = Application::Get();
+        if (app.GetSpecification().IsEditor)
+        {
+            // In the editor, QuitGame() is a no-op — use the Stop button instead.
+            OLO_CORE_WARN("[ScriptGlue] Application_QuitGame ignored in editor. "
+                          "Use the editor Stop button or call SceneManager.ReloadCurrentScene() to restart.");
+            return;
+        }
+
+        OLO_CORE_INFO("[ScriptGlue] Application_QuitGame — shutting down (standalone)");
+        app.Close();
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // Scene //////////////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static void Scene_ReloadCurrentScene()
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        if (scene)
+        {
+            scene->SetPendingReload(true);
+        }
+    }
+
     void ScriptGlue::RegisterComponents()
     {
         RegisterComponent(AllComponents{});
@@ -3049,11 +3538,15 @@ namespace OloEngine
 
         OLO_ADD_INTERNAL_CALL(TransformComponent_GetTranslation);
         OLO_ADD_INTERNAL_CALL(TransformComponent_SetTranslation);
+        OLO_ADD_INTERNAL_CALL(TransformComponent_GetRotation);
+        OLO_ADD_INTERNAL_CALL(TransformComponent_SetRotation);
 
         OLO_ADD_INTERNAL_CALL(Rigidbody2DComponent_ApplyLinearImpulse);
         OLO_ADD_INTERNAL_CALL(Rigidbody2DComponent_ApplyLinearImpulseToCenter);
 
         OLO_ADD_INTERNAL_CALL(Input_IsKeyDown);
+        OLO_ADD_INTERNAL_CALL(Input_IsKeyJustPressed);
+        OLO_ADD_INTERNAL_CALL(Input_IsKeyJustReleased);
 
         ///////////////////////////////////////////////////////////////
         // Gamepad ////////////////////////////////////////////////////
@@ -3346,6 +3839,38 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(NavAgentComponent_SetStoppingDistance);
         OLO_ADD_INTERNAL_CALL(NavAgentComponent_HasPath);
         OLO_ADD_INTERNAL_CALL(NavAgentComponent_ClearTarget);
+        OLO_ADD_INTERNAL_CALL(NavAgentComponent_GetLockYAxis);
+        OLO_ADD_INTERNAL_CALL(NavAgentComponent_SetLockYAxis);
+
+        ///////////////////////////////////////////////////////////////
+        // UIWorldAnchorComponent ////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(UIWorldAnchorComponent_GetTargetEntity);
+        OLO_ADD_INTERNAL_CALL(UIWorldAnchorComponent_SetTargetEntity);
+        OLO_ADD_INTERNAL_CALL(UIWorldAnchorComponent_GetWorldOffset);
+        OLO_ADD_INTERNAL_CALL(UIWorldAnchorComponent_SetWorldOffset);
+
+        ///////////////////////////////////////////////////////////////
+        // NameplateComponent ////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetEnabled);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetEnabled);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetShowHealthBar);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetShowHealthBar);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetShowManaBar);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetShowManaBar);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetWorldOffset);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetWorldOffset);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetBarSize);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetBarSize);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetHealthBarColor);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetHealthBarColor);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetManaBarColor);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetManaBarColor);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetBarBackgroundColor);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetBarBackgroundColor);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetManaBarGap);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetManaBarGap);
 
         ///////////////////////////////////////////////////////////////
         // AnimationGraphComponent ////////////////////////////////////
@@ -3455,6 +3980,43 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(AbilityComponent_HasTag);
         OLO_ADD_INTERNAL_CALL(AbilityComponent_AddTag);
         OLO_ADD_INTERNAL_CALL(AbilityComponent_RemoveTag);
+        OLO_ADD_INTERNAL_CALL(AbilityComponent_ApplyDamageToTarget);
+        OLO_ADD_INTERNAL_CALL(AbilityComponent_TryActivateAbilityOnTarget);
+
+        ///////////////////////////////////////////////////////////////
+        // Physics ////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(Physics_Raycast);
+
+        ///////////////////////////////////////////////////////////////
+        // Camera /////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(Camera_ScreenToWorldRay);
+
+        ///////////////////////////////////////////////////////////////
+        // Mouse Input ////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(Input_GetMousePosition);
+        OLO_ADD_INTERNAL_CALL(Input_GetWindowSize);
+        OLO_ADD_INTERNAL_CALL(Input_IsMouseButtonDown);
+
+        ///////////////////////////////////////////////////////////////
+        // MaterialComponent (extended) ///////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(MaterialComponent_GetAlbedoColor);
+        OLO_ADD_INTERNAL_CALL(MaterialComponent_SetAlbedoColor);
+
+        ///////////////////////////////////////////////////////////////
+        // Application / Time /////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(Application_GetTimeScale);
+        OLO_ADD_INTERNAL_CALL(Application_SetTimeScale);
+        OLO_ADD_INTERNAL_CALL(Application_QuitGame);
+
+        ///////////////////////////////////////////////////////////////
+        // Scene //////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(Scene_ReloadCurrentScene);
     }
 
 } // namespace OloEngine

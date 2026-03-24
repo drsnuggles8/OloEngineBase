@@ -44,6 +44,7 @@ namespace OloEngine
         ApplicationCommandLineArgs CommandLineArgs;
         RendererType PreferredRenderer = RendererType::Renderer2D;
         bool IsHeadless = false;
+        bool IsEditor = false;
         u32 HeadlessTickRate = 60; // Hz — only used when IsHeadless == true
     };
 
@@ -93,6 +94,26 @@ namespace OloEngine
             return s_StartupWorkingDirectory;
         }
 
+        [[nodiscard("Store this!")]] f32 GetTimeScale() const
+        {
+            return m_TimeScale;
+        }
+        void SetTimeScale(f32 scale)
+        {
+            if (!std::isfinite(scale))
+            {
+                scale = 1.0f;
+            }
+            m_TimeScale = std::max(0.0f, scale);
+        }
+
+        // Keep the window responsive during long-running init tasks (e.g. shader compilation).
+        // Safe to call even if no window exists yet.
+        static void KeepWindowAlive();
+
+        // Call during loading to poll events and show progress in the title bar.
+        static void ReportLoadingProgress(u32 current, u32 total, std::string_view label);
+
       private:
         void Run();
         void RunHeadless();
@@ -106,7 +127,9 @@ namespace OloEngine
         bool m_Running = true;
         bool m_Minimized = false;
         LayerStack m_LayerStack;
+        static constexpr f32 s_MaxTimestep = 0.25f;
         f32 m_LastFrameTime = 0.0f;
+        f32 m_TimeScale = 1.0f;
 
       private:
         static Application* s_Instance;

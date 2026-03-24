@@ -4231,6 +4231,7 @@ namespace OloEngine
             ImGui::DragFloat("Acceleration", &component.m_Acceleration, 0.1f, 0.0f, 1000.0f);
             ImGui::DragFloat("Stopping Distance", &component.m_StoppingDistance, 0.01f, 0.0f, 100.0f);
             ImGui::DragInt("Avoidance Priority", &component.m_AvoidancePriority, 1, 0, 100);
+            ImGui::Checkbox("Lock Y Axis", &component.m_LockYAxis);
 
             if (component.m_HasPath)
             {
@@ -4789,6 +4790,81 @@ namespace OloEngine
                             if (ImGui::SmallButton("Add Effect"))
                             {
                                 ability.Definition.ActivationEffects.emplace_back();
+                            }
+                            ImGui::TreePop();
+                        }
+
+                        // Target Activation Effects
+                        std::string targetEffectsTreeId = "Target Effects##abilTargetEffects" + std::to_string(i);
+                        if (ImGui::TreeNode(targetEffectsTreeId.c_str(), "Target Effects (%zu)", ability.Definition.TargetActivationEffects.size()))
+                        {
+                            ImGui::TextDisabled("Applied to the target (via TryActivateAbilityOnTarget).");
+                            ImGui::TextDisabled("If empty, ActivationEffects are used instead.");
+                            for (size_t e = 0; e < ability.Definition.TargetActivationEffects.size(); ++e)
+                            {
+                                auto& effect = ability.Definition.TargetActivationEffects[e];
+                                std::string effLabel = effect.Name.empty() ? ("Effect " + std::to_string(e)) : effect.Name;
+                                std::string effId = "##abilTargetEffect" + std::to_string(i) + "_" + std::to_string(e);
+                                if (ImGui::TreeNode(effId.c_str(), "%s", effLabel.c_str()))
+                                {
+                                    ImGui::InputText("Name", &effect.Name);
+                                    int durType = static_cast<int>(effect.Policy.DurationType);
+                                    const char* durTypes[] = { "Instant", "HasDuration", "Infinite" };
+                                    if (ImGui::Combo("Duration Type", &durType, durTypes, 3))
+                                    {
+                                        effect.Policy.DurationType = static_cast<GameplayEffectPolicy::Duration>(durType);
+                                    }
+                                    if (effect.Policy.DurationType == GameplayEffectPolicy::Duration::HasDuration)
+                                    {
+                                        ImGui::DragFloat("Duration", &effect.Policy.DurationSeconds, 0.1f, 0.0f, 600.0f);
+                                    }
+                                    ImGui::Checkbox("Periodic", &effect.Policy.IsPeriodic);
+                                    if (effect.Policy.IsPeriodic)
+                                    {
+                                        ImGui::DragFloat("Period", &effect.Policy.PeriodSeconds, 0.1f, 0.01f, 60.0f);
+                                    }
+                                    ImGui::DragInt("Max Stacks", &effect.MaxStacks, 1.0f, 1, 99);
+
+                                    for (size_t m = 0; m < effect.Modifiers.size(); ++m)
+                                    {
+                                        auto& mod = effect.Modifiers[m];
+                                        ImGui::PushID(static_cast<int>(m));
+                                        ImGui::InputText("Attribute", &mod.AttributeName);
+                                        int op = static_cast<int>(mod.Op);
+                                        const char* ops[] = { "Add", "Multiply", "Override" };
+                                        ImGui::Combo("Op", &op, ops, 3);
+                                        mod.Op = static_cast<AttributeModifier::Operation>(op);
+                                        ImGui::DragFloat("Magnitude", &mod.Magnitude, 0.1f);
+                                        ImGui::SameLine();
+                                        if (ImGui::SmallButton("X"))
+                                        {
+                                            effect.Modifiers.erase(effect.Modifiers.begin() + static_cast<ptrdiff_t>(m));
+                                            ImGui::PopID();
+                                            break;
+                                        }
+                                        ImGui::PopID();
+                                    }
+                                    if (ImGui::SmallButton("Add Modifier"))
+                                    {
+                                        effect.Modifiers.emplace_back();
+                                    }
+
+                                    ImGui::SameLine();
+                                    if (ImGui::SmallButton(("Remove Effect##t" + std::to_string(e)).c_str()))
+                                    {
+                                        ability.Definition.TargetActivationEffects.erase(ability.Definition.TargetActivationEffects.begin() + static_cast<ptrdiff_t>(e));
+                                        ImGui::TreePop();
+                                        ImGui::TreePop();
+                                        ImGui::TreePop();
+                                        ImGui::TreePop();
+                                        return;
+                                    }
+                                    ImGui::TreePop();
+                                }
+                            }
+                            if (ImGui::SmallButton("Add Target Effect"))
+                            {
+                                ability.Definition.TargetActivationEffects.emplace_back();
                             }
                             ImGui::TreePop();
                         }

@@ -4,6 +4,7 @@
 #include "OloEngine/Core/UUID.h"
 
 #include <filesystem>
+#include <functional>
 #include <vector>
 
 #include <yaml-cpp/yaml.h>
@@ -33,6 +34,14 @@ namespace OloEngine
         static void SerializeEntity(YAML::Emitter& out, Entity entity);
 
       private:
+        // Collect all entities sorted by UUID for deterministic serialization order.
+        void ForEachEntitySorted(const std::function<void(Entity)>& fn) const;
+
+        // Create entity with UUID + name, deserialize all components, and roll back
+        // on failure (destroy the half-initialized entity).  Returns the new Entity
+        // on success, or an invalid (null) Entity on failure.
+        Entity DeserializeEntity(u64 uuid, const std::string& name, const YAML::Node& entityNode);
+
         Ref<Scene> m_Scene;
     };
 } // namespace OloEngine

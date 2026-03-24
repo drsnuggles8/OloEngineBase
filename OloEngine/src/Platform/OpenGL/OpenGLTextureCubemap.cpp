@@ -130,7 +130,10 @@ namespace OloEngine
         m_DataFormat = Utils::OloEngineImageFormatToGLDataFormat(m_CubemapSpecification.Format);
 
         glCreateTextures(GL_TEXTURE_CUBE_MAP, 1, &m_RendererID);
-        glTextureStorage2D(m_RendererID, m_CubemapSpecification.GenerateMips ? 4 : 1, m_InternalFormat,
+
+        const u32 mipLevels = GetMipLevelCount();
+
+        glTextureStorage2D(m_RendererID, static_cast<GLsizei>(mipLevels), m_InternalFormat,
                            static_cast<int>(m_Width), static_cast<int>(m_Height));
 
         // Set texture parameters appropriate for cubemaps
@@ -140,7 +143,7 @@ namespace OloEngine
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
-        // Calculate memory usage based on format and dimensions
+        // Calculate memory usage for all mip levels across 6 faces
         auto formatInfo = Utils::GetFormatInfo(m_Specification.Format);
         if (formatInfo.BytesPerPixel == 0)
         {
@@ -149,7 +152,7 @@ namespace OloEngine
             m_RendererID = 0;
             return;
         }
-        sizet cubemapMemory = static_cast<sizet>(m_Width) * m_Height * formatInfo.BytesPerPixel * 6; // 6 faces
+        const sizet cubemapMemory = CalculateCubemapMemory(formatInfo.BytesPerPixel, mipLevels);
 
         // Track GPU memory allocation
         OLO_TRACK_GPU_ALLOC(this,
@@ -250,8 +253,9 @@ namespace OloEngine
                 m_Specification.Format = m_CubemapSpecification.Format;
                 m_Specification.GenerateMips = true;
 
-                // Allocate storage for the cubemap
-                glTextureStorage2D(m_RendererID, 4, m_InternalFormat, width, height);
+                // Allocate storage for the cubemap (full mip chain)
+                const u32 mipLevels = GetMipLevelCount();
+                glTextureStorage2D(m_RendererID, static_cast<GLsizei>(mipLevels), m_InternalFormat, width, height);
             }
             else if (static_cast<u32>(width) != m_Width || static_cast<u32>(height) != m_Height)
             {
@@ -299,9 +303,14 @@ namespace OloEngine
         // Generate mipmaps
         glGenerateTextureMipmap(m_RendererID);
 
-        // Calculate memory usage
-        u32 bytesPerPixel = channels;                                                     // Use actual channels from loaded images
-        sizet cubemapMemory = static_cast<sizet>(m_Width) * m_Height * bytesPerPixel * 6; // 6 faces
+        // Calculate memory usage including all mip levels across 6 faces
+        auto formatInfo = Utils::GetFormatInfo(m_CubemapSpecification.Format);
+        if (formatInfo.BytesPerPixel == 0)
+        {
+            OLO_CORE_ERROR("OpenGLTextureCubemap: Unsupported image format during LoadFromFileArray");
+            return;
+        }
+        const sizet cubemapMemory = CalculateCubemapMemory(formatInfo.BytesPerPixel, GetMipLevelCount());
 
         // Track GPU memory allocation
         OLO_TRACK_GPU_ALLOC(this,
@@ -484,6 +493,20 @@ namespace OloEngine
         }
 
         return true;
+    }
+
+    sizet OpenGLTextureCubemap::CalculateCubemapMemory(u32 bytesPerPixel, u32 mipLevels) const
+    {
+        sizet total = 0;
+        u32 mipW = m_Width;
+        u32 mipH = m_Height;
+        for (u32 mip = 0; mip < mipLevels; ++mip)
+        {
+            total += static_cast<sizet>(mipW) * mipH * bytesPerPixel * 6;
+            mipW = std::max(1u, mipW >> 1);
+            mipH = std::max(1u, mipH >> 1);
+        }
+        return total;
     }
 
 } // namespace OloEngine

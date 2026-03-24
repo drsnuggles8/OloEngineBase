@@ -7,6 +7,7 @@ namespace Sandbox
 	{
 		private TransformComponent m_Transform;
 		private AbilityComponent m_Abilities;
+		private DamageFlashHelper m_DamageFlash;
 
 		public float AggroRange = 10.0f;
 		public float CastRange = 6.0f;
@@ -21,6 +22,12 @@ namespace Sandbox
 		{
 			m_Transform = GetComponent<TransformComponent>();
 			m_Abilities = GetComponent<AbilityComponent>();
+
+			MaterialComponent material = null;
+			if (HasComponent<MaterialComponent>())
+				material = GetComponent<MaterialComponent>();
+			m_DamageFlash = new DamageFlashHelper(material);
+
 			Debug.Log("[FireMageAI] Spawned - watching...");
 		}
 
@@ -31,6 +38,9 @@ namespace Sandbox
 
 			if (!m_Abilities.HasTag("State.Alive"))
 				return;
+
+			// Damage flash detection
+			m_DamageFlash.Update(ts, m_Abilities.GetCurrentAttribute("Health"));
 
 			if (m_Player == null || m_Player.IsDestroyed)
 				m_Player = FindEntityByName("Player");
@@ -97,7 +107,7 @@ namespace Sandbox
 			m_CastTimer -= ts;
 			if (dist <= CastRange && m_CastTimer <= 0.0f)
 			{
-				if (m_Abilities.TryActivateAbility("Ability.Spell.Fire.FireBolt"))
+				if (m_Abilities.TryActivateAbilityOnTarget("Ability.Spell.Fire.FireBolt", m_Player.ID))
 				{
 					Debug.Log("[FireMage] Fire Bolt!");
 					m_CastTimer = 3.0f;
@@ -107,6 +117,7 @@ namespace Sandbox
 					m_CastTimer = 0.5f; // Throttle retries
 				}
 			}
+
 		}
 	}
 }

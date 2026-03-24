@@ -66,6 +66,7 @@ namespace OloEngine
         void MemoryBarrier(MemoryBarrierFlags flags) override;
 
         void BindDefaultFramebuffer() override;
+        void BlitFramebufferToDefault(u32 srcFboID, u32 width, u32 height) override;
         void BindTexture(u32 slot, u32 textureID) override;
         void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer, GLenum access, GLenum format) override;
 

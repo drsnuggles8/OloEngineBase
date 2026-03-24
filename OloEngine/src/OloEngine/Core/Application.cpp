@@ -2,9 +2,11 @@
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Audio/AudioEngine.h"
 #include "OloEngine/Core/GamepadManager.h"
+#include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Timer.h"
+#include "OloEngine/Debug/CrashReporter.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
@@ -45,6 +47,10 @@ namespace OloEngine
         // Start the task scheduler workers
         LowLevelTasks::FScheduler::Get().StartWorkers();
 
+        // Register the application name with the crash reporter
+        CrashReporter::SetApplicationInfo(m_Specification.Name, OLO_ENGINE_VERSION);
+        CrashReporter::SetHeadless(m_Specification.IsHeadless);
+
         try
         {
             if (!m_Specification.IsHeadless)
@@ -58,7 +64,9 @@ namespace OloEngine
                 OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger initialized before Renderer");
 #endif
 
+                m_Window->SetTitle(m_Specification.Name + " — Loading shaders...");
                 Renderer::Init(m_Specification.PreferredRenderer);
+                m_Window->SetTitle(m_Specification.Name);
 
                 if (!AudioEngine::Init())
                 {
@@ -151,6 +159,25 @@ namespace OloEngine
         Tasks::FNamedThreadManager::Get().DetachFromThread(Tasks::ENamedThread::GameThread);
     }
 
+    void Application::KeepWindowAlive()
+    {
+        if (s_Instance && s_Instance->m_Window)
+        {
+            s_Instance->m_Window->PollEvents();
+        }
+    }
+
+    void Application::ReportLoadingProgress(u32 current, u32 total, std::string_view label)
+    {
+        if (s_Instance && s_Instance->m_Window)
+        {
+            std::string title = s_Instance->m_Specification.Name + " — Loading " +
+                                std::string(label) + " (" + std::to_string(current) + "/" + std::to_string(total) + ")";
+            s_Instance->m_Window->SetTitle(title);
+            s_Instance->m_Window->PollEvents();
+        }
+    }
+
     void Application::PushLayer(Layer* const layer)
     {
         OLO_PROFILE_FUNCTION();
@@ -219,11 +246,15 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Seed the frame timer so the first iteration doesn't include
+        // the entire startup/attach time as one gigantic delta.
+        m_LastFrameTime = Time::GetTime();
+
         while (m_Running)
         {
 
             const auto timeNow = Time::GetTime();
-            const Timestep timestep = timeNow - m_LastFrameTime;
+            const Timestep timestep = std::min(timeNow - m_LastFrameTime, s_MaxTimestep) * m_TimeScale;
             m_LastFrameTime = timeNow;
 
             // Poll OS events first so GLFW key state is fresh for this frame
@@ -236,6 +267,9 @@ namespace OloEngine
             {
                 break;
             }
+
+            // Snapshot raw keyboard state for just-pressed / just-released detection
+            Input::Update();
 
             // Update gamepad state (polls GLFW for gamepad button/axis states)
             OLO_PROFILE_FRAMEMARK_START("GamepadManager Update");
@@ -298,7 +332,7 @@ namespace OloEngine
 
             while (accumulator >= tickInterval)
             {
-                const Timestep timestep(tickInterval);
+                const Timestep timestep(tickInterval * m_TimeScale);
 
                 // Process tasks targeted at the Game Thread
                 Tasks::FNamedThreadManager::Get().ProcessTasks(true);

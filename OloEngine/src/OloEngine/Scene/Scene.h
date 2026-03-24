@@ -68,6 +68,24 @@ namespace OloEngine
         void OnUpdateEditor(Timestep ts, EditorCamera const& camera);
         void OnViewportResize(u32 width, u32 height);
 
+        [[nodiscard]] u32 GetViewportWidth() const
+        {
+            return m_ViewportWidth;
+        }
+        [[nodiscard]] u32 GetViewportHeight() const
+        {
+            return m_ViewportHeight;
+        }
+
+        void SetViewportOffset(glm::vec2 offset)
+        {
+            m_ViewportOffset = offset;
+        }
+        [[nodiscard]] glm::vec2 GetViewportOffset() const
+        {
+            return m_ViewportOffset;
+        }
+
         [[nodiscard]] Entity DuplicateEntity(Entity entity);
 
         [[nodiscard("Store this!")]] Entity FindEntityByName(std::string_view name);
@@ -105,6 +123,15 @@ namespace OloEngine
             m_IsPaused = paused;
         }
 
+        [[nodiscard("Store this!")]] bool GetPendingReload() const
+        {
+            return m_PendingReload;
+        }
+        void SetPendingReload(bool pending)
+        {
+            m_PendingReload = pending;
+        }
+
         void Step(int frames = 1);
 
         void SetName(std::string_view name);
@@ -126,7 +153,7 @@ namespace OloEngine
         }
 
         // Physics access
-        JoltScene* GetJoltScene() const
+        JoltScene* GetPhysicsScene() const
         {
             return m_JoltScene.get();
         }
@@ -376,8 +403,11 @@ namespace OloEngine
         entt::registry m_Registry;
         u32 m_ViewportWidth = 0;
         u32 m_ViewportHeight = 0;
+        glm::vec2 m_ViewportOffset{ 0.0f, 0.0f };
+        glm::mat4 m_CameraViewProjection{ 1.0f }; // Cached for UI world-anchor projection
         bool m_IsRunning = false;
         bool m_IsPaused = false;
+        bool m_PendingReload = false;
         int m_StepFrames = 0;
         u64 m_TerrainFrameCounter = 0;
         u64 m_StreamingFrameCounter = 0;
@@ -387,6 +417,7 @@ namespace OloEngine
         bool m_ShowLightGizmos = true;                         // Light gizmo visibility
         f32 m_GridSpacing = 1.0f;                              // Viewport grid spacing
         bool m_PreviousMouseButtonDown = false;                // Track mouse state for UI input
+        bool m_UILayoutResolvedThisFrame = false;              // Guard against double ResolveLayout per frame
         glm::vec2 m_RuntimeCameraLastMouse{ 0.0f, 0.0f };      // FPS fly-camera mouse tracking
         SkeletonVisualizationSettings m_SkeletonVisualization; // Editor skeleton visualization
         PostProcessSettings m_PostProcessSettings;             // Post-processing settings

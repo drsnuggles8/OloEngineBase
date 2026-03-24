@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "EditorLayer.h"
 #include "Panels/AssetPackBuilderPanel.h"
+#include "Panels/BuildGamePanel.h"
 #include "UndoRedo/EntityCommands.h"
 #include "UndoRedo/ComponentCommands.h"
 #include "OloEngine/Math/Math.h"
@@ -119,6 +120,14 @@ namespace OloEngine
     void EditorLayer::OnDetach()
     {
         OLO_PROFILE_FUNCTION();
+
+        // Properly stop the scene if still in play/simulate mode
+        // (e.g., user closed the window while playing)
+        if (m_SceneState == SceneState::Play || m_SceneState == SceneState::Simulate)
+        {
+            OnSceneStop();
+        }
+
         ShutdownEntityPicking();
         SaveGameManager::Shutdown();
     }
@@ -157,6 +166,7 @@ namespace OloEngine
         AssetManager::SyncWithAssetThread();
 
         m_ActiveScene->OnViewportResize(static_cast<u32>(m_ViewportSize.x), static_cast<u32>(m_ViewportSize.y));
+        m_ActiveScene->SetViewportOffset(m_ViewportBounds[0]);
 
         const f64 epsilon = 1e-5;
 
@@ -275,6 +285,14 @@ namespace OloEngine
                 m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
                 m_ActiveScene->OnUpdateRuntime(ts);
                 SaveGameManager::Tick(ts, *m_ActiveScene);
+
+                // Handle script-triggered scene reload
+                if (m_ActiveScene->GetPendingReload())
+                {
+                    m_ActiveScene->SetPendingReload(false);
+                    OnSceneStop();
+                    OnScenePlay();
+                }
                 break;
             }
         }
@@ -574,6 +592,13 @@ namespace OloEngine
                 // Toggle panel visibility
             }
 
+            ImGui::Separator();
+
+            if (ImGui::MenuItem("Build Game...", nullptr, &m_ShowBuildGame))
+            {
+                // Toggle Build Game panel
+            }
+
             ImGui::EndMenu();
         }
 
@@ -635,12 +660,23 @@ namespace OloEngine
         u64 textureID = 0;
         if (m_Is3DMode)
         {
-            // Use post-processed output (includes tone mapping for HDR→LDR)
-            if (auto postProcessPass = Renderer3D::GetPostProcessPass(); postProcessPass)
+            // Use UICompositePass output (post-processed scene + 2D overlays + UI)
+            if (auto uiPass = Renderer3D::GetUICompositePass(); uiPass)
             {
-                if (auto target = postProcessPass->GetTarget(); target)
+                if (auto target = uiPass->GetTarget(); target)
                 {
                     textureID = target->GetColorAttachmentRendererID(0);
+                }
+            }
+            // Fallback to post-process pass
+            if (textureID == 0)
+            {
+                if (auto postProcessPass = Renderer3D::GetPostProcessPass(); postProcessPass)
+                {
+                    if (auto target = postProcessPass->GetTarget(); target)
+                    {
+                        textureID = target->GetColorAttachmentRendererID(0);
+                    }
                 }
             }
             // Fallback to scene pass if post-process pass is not available
@@ -983,6 +1019,14 @@ namespace OloEngine
         if (m_ShowAssetPackBuilder && m_AssetPackBuilderPanel)
         {
             m_AssetPackBuilderPanel->OnImGuiRender(m_ShowAssetPackBuilder);
+        }
+
+        // Build Game Panel
+        if (m_ShowBuildGame && m_BuildGamePanel)
+        {
+            m_BuildGamePanel->SetEditorScenePath(m_EditorScenePath);
+            m_BuildGamePanel->SetIs3DMode(m_Is3DMode);
+            m_BuildGamePanel->OnImGuiRender(m_ShowBuildGame);
         }
 
         // Animation Panel
@@ -1634,6 +1678,9 @@ namespace OloEngine
         m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
         BindContentBrowserSelectionCallback();
         m_AssetPackBuilderPanel = CreateScope<AssetPackBuilderPanel>();
+        m_BuildGamePanel = CreateScope<BuildGamePanel>();
+        m_BuildGamePanel->SetSaveSceneCallback([this]()
+                                               { return SaveScene(); });
     }
 
     bool EditorLayer::OpenProject()
@@ -1677,6 +1724,9 @@ namespace OloEngine
             m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
             BindContentBrowserSelectionCallback();
             m_AssetPackBuilderPanel = CreateScope<AssetPackBuilderPanel>();
+            m_BuildGamePanel = CreateScope<BuildGamePanel>();
+            m_BuildGamePanel->SetSaveSceneCallback([this]()
+                                                   { return SaveScene(); });
 
             // Load input action map if one exists for this project
             auto inputMapPath = Project::GetInputActionMapPath();
@@ -1917,7 +1967,8 @@ namespace OloEngine
     void EditorLayer::OnSceneStop()
     {
         using enum OloEngine::EditorLayer::SceneState;
-        OLO_CORE_ASSERT(m_SceneState == Play || m_SceneState == Simulate);
+        OLO_CORE_ASSERT(m_SceneState == Play || m_SceneState == Simulate,
+                        "OnSceneStop called with unexpected SceneState: {}", static_cast<int>(m_SceneState));
 
         if (m_SceneState == Play)
         {
@@ -1932,6 +1983,7 @@ namespace OloEngine
 
         // Reset hovered entity before changing scenes to prevent accessing stale registry
         m_HoveredEntity = Entity();
+        m_PickingReadPending = false; // Discard stale PBO data from the old scene
 
         m_ActiveScene = m_EditorScene;
 

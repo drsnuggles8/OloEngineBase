@@ -139,6 +139,137 @@ namespace OloEngine
         }
     }
 
+    static void SerializeEffectList(YAML::Emitter& out, const char* key, const std::vector<GameplayEffect>& effects)
+    {
+        out << YAML::Key << key << YAML::Value << YAML::BeginSeq;
+        for (auto const& effect : effects)
+        {
+            out << YAML::BeginMap;
+            out << YAML::Key << "Name" << YAML::Value << effect.Name;
+
+            std::string durType = "Instant";
+            if (effect.Policy.DurationType == GameplayEffectPolicy::Duration::HasDuration)
+                durType = "HasDuration";
+            else if (effect.Policy.DurationType == GameplayEffectPolicy::Duration::Infinite)
+                durType = "Infinite";
+            out << YAML::Key << "DurationType" << YAML::Value << durType;
+            out << YAML::Key << "DurationSeconds" << YAML::Value << effect.Policy.DurationSeconds;
+            out << YAML::Key << "IsPeriodic" << YAML::Value << effect.Policy.IsPeriodic;
+            out << YAML::Key << "PeriodSeconds" << YAML::Value << effect.Policy.PeriodSeconds;
+
+            out << YAML::Key << "Modifiers" << YAML::Value << YAML::BeginSeq;
+            for (auto const& mod : effect.Modifiers)
+            {
+                out << YAML::BeginMap;
+                out << YAML::Key << "Attribute" << YAML::Value << mod.AttributeName;
+                std::string op = "Add";
+                if (mod.Op == AttributeModifier::Operation::Multiply)
+                    op = "Multiply";
+                else if (mod.Op == AttributeModifier::Operation::Override)
+                    op = "Override";
+                out << YAML::Key << "Operation" << YAML::Value << op;
+                out << YAML::Key << "Magnitude" << YAML::Value << mod.Magnitude;
+                out << YAML::EndMap;
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::Key << "MaxStacks" << YAML::Value << effect.MaxStacks;
+            out << YAML::Key << "RefreshDurationOnStack" << YAML::Value << effect.RefreshDurationOnStack;
+
+            out << YAML::Key << "GrantedTags" << YAML::Value << YAML::BeginSeq;
+            for (auto const& t : effect.GrantedTags.GetTags())
+            {
+                out << t.GetTagString();
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::Key << "RequiredTags" << YAML::Value << YAML::BeginSeq;
+            for (auto const& t : effect.RequiredTags.GetTags())
+            {
+                out << t.GetTagString();
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::Key << "BlockedTags" << YAML::Value << YAML::BeginSeq;
+            for (auto const& t : effect.BlockedTags.GetTags())
+            {
+                out << t.GetTagString();
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::EndMap;
+        }
+        out << YAML::EndSeq;
+    }
+
+    static void DeserializeEffectList(const YAML::Node& node, const char* key, std::vector<GameplayEffect>& effects)
+    {
+        auto effectsNode = node[key];
+        if (!effectsNode || !effectsNode.IsSequence())
+            return;
+
+        for (auto const& effectNode : effectsNode)
+        {
+            GameplayEffect ge;
+            ge.Name = effectNode["Name"].as<std::string>("");
+
+            std::string durType = effectNode["DurationType"].as<std::string>("Instant");
+            if (durType == "HasDuration")
+                ge.Policy.DurationType = GameplayEffectPolicy::Duration::HasDuration;
+            else if (durType == "Infinite")
+                ge.Policy.DurationType = GameplayEffectPolicy::Duration::Infinite;
+
+            ge.Policy.DurationSeconds = effectNode["DurationSeconds"].as<f32>(0.0f);
+            ge.Policy.IsPeriodic = effectNode["IsPeriodic"].as<bool>(false);
+            ge.Policy.PeriodSeconds = effectNode["PeriodSeconds"].as<f32>(1.0f);
+            SanitizeFloat(ge.Policy.DurationSeconds, 0.0f, 600.0f, 0.0f);
+            SanitizeFloat(ge.Policy.PeriodSeconds, 0.01f, 60.0f, 1.0f);
+
+            if (auto mods = effectNode["Modifiers"]; mods && mods.IsSequence())
+            {
+                for (auto const& modNode : mods)
+                {
+                    GameplayEffect::AttributeMod mod;
+                    mod.AttributeName = modNode["Attribute"].as<std::string>("");
+                    std::string op = modNode["Operation"].as<std::string>("Add");
+                    if (op == "Multiply")
+                        mod.Op = AttributeModifier::Operation::Multiply;
+                    else if (op == "Override")
+                        mod.Op = AttributeModifier::Operation::Override;
+                    mod.Magnitude = modNode["Magnitude"].as<f32>(0.0f);
+                    ge.Modifiers.push_back(mod);
+                }
+            }
+
+            ge.MaxStacks = effectNode["MaxStacks"].as<i32>(1);
+            ge.RefreshDurationOnStack = effectNode["RefreshDurationOnStack"].as<bool>(true);
+
+            if (auto grantedTags = effectNode["GrantedTags"]; grantedTags && grantedTags.IsSequence())
+            {
+                for (auto const& t : grantedTags)
+                {
+                    ge.GrantedTags.AddTag(GameplayTag(t.as<std::string>("")));
+                }
+            }
+            if (auto reqTags = effectNode["RequiredTags"]; reqTags && reqTags.IsSequence())
+            {
+                for (auto const& t : reqTags)
+                {
+                    ge.RequiredTags.AddTag(GameplayTag(t.as<std::string>("")));
+                }
+            }
+            if (auto blkTags = effectNode["BlockedTags"]; blkTags && blkTags.IsSequence())
+            {
+                for (auto const& t : blkTags)
+                {
+                    ge.BlockedTags.AddTag(GameplayTag(t.as<std::string>("")));
+                }
+            }
+
+            effects.push_back(std::move(ge));
+        }
+    }
+
     static void SerializeSnowSettings(YAML::Emitter& out, const SnowSettings& snow)
     {
         out << YAML::Key << "SnowSettings";
@@ -1812,6 +1943,13 @@ namespace OloEngine
             TrySet(progress.m_FillColor, uiProgressBarComponent["FillColor"]);
         }
 
+        if (auto uiWorldAnchorComponent = entity["UIWorldAnchorComponent"]; uiWorldAnchorComponent)
+        {
+            auto& anchor = deserializedEntity.AddComponent<UIWorldAnchorComponent>();
+            TrySet(anchor.m_TargetEntity, uiWorldAnchorComponent["TargetEntity"]);
+            TrySet(anchor.m_WorldOffset, uiWorldAnchorComponent["WorldOffset"]);
+        }
+
         if (auto uiInputFieldComponent = entity["UIInputFieldComponent"]; uiInputFieldComponent)
         {
             auto& input = deserializedEntity.AddComponent<UIInputFieldComponent>();
@@ -2191,6 +2329,7 @@ namespace OloEngine
             TrySet(nac.m_StoppingDistance, navAgentComponent["StoppingDistance"]);
             SanitizeFloat(nac.m_StoppingDistance, 0.0f, 100.0f, 0.1f);
             TrySet(nac.m_AvoidancePriority, navAgentComponent["AvoidancePriority"]);
+            TrySet(nac.m_LockYAxis, navAgentComponent["LockYAxis"]);
         }
 
         if (auto behaviorTreeComponent = entity["BehaviorTreeComponent"]; behaviorTreeComponent)
@@ -2640,74 +2779,28 @@ namespace OloEngine
                     }
 
                     // Deserialize activation effects
-                    if (auto effects = abilityNode["ActivationEffects"]; effects && effects.IsSequence())
-                    {
-                        for (auto const& effectNode : effects)
-                        {
-                            GameplayEffect ge;
-                            ge.Name = effectNode["Name"].as<std::string>("");
+                    DeserializeEffectList(abilityNode, "ActivationEffects", aa.Definition.ActivationEffects);
 
-                            std::string durType = effectNode["DurationType"].as<std::string>("Instant");
-                            if (durType == "HasDuration")
-                                ge.Policy.DurationType = GameplayEffectPolicy::Duration::HasDuration;
-                            else if (durType == "Infinite")
-                                ge.Policy.DurationType = GameplayEffectPolicy::Duration::Infinite;
-
-                            ge.Policy.DurationSeconds = effectNode["DurationSeconds"].as<f32>(0.0f);
-                            ge.Policy.IsPeriodic = effectNode["IsPeriodic"].as<bool>(false);
-                            ge.Policy.PeriodSeconds = effectNode["PeriodSeconds"].as<f32>(1.0f);
-                            SanitizeFloat(ge.Policy.DurationSeconds, 0.0f, 600.0f, 0.0f);
-                            SanitizeFloat(ge.Policy.PeriodSeconds, 0.01f, 60.0f, 1.0f);
-
-                            if (auto mods = effectNode["Modifiers"]; mods && mods.IsSequence())
-                            {
-                                for (auto const& modNode : mods)
-                                {
-                                    GameplayEffect::AttributeMod mod;
-                                    mod.AttributeName = modNode["Attribute"].as<std::string>("");
-                                    std::string op = modNode["Operation"].as<std::string>("Add");
-                                    if (op == "Multiply")
-                                        mod.Op = AttributeModifier::Operation::Multiply;
-                                    else if (op == "Override")
-                                        mod.Op = AttributeModifier::Operation::Override;
-                                    mod.Magnitude = modNode["Magnitude"].as<f32>(0.0f);
-                                    ge.Modifiers.push_back(mod);
-                                }
-                            }
-
-                            ge.MaxStacks = effectNode["MaxStacks"].as<i32>(1);
-                            ge.RefreshDurationOnStack = effectNode["RefreshDurationOnStack"].as<bool>(true);
-
-                            // Effect-level tags
-                            if (auto grantedTags = effectNode["GrantedTags"]; grantedTags && grantedTags.IsSequence())
-                            {
-                                for (auto const& t : grantedTags)
-                                {
-                                    ge.GrantedTags.AddTag(GameplayTag(t.as<std::string>("")));
-                                }
-                            }
-                            if (auto reqTags = effectNode["RequiredTags"]; reqTags && reqTags.IsSequence())
-                            {
-                                for (auto const& t : reqTags)
-                                {
-                                    ge.RequiredTags.AddTag(GameplayTag(t.as<std::string>("")));
-                                }
-                            }
-                            if (auto blkTags = effectNode["BlockedTags"]; blkTags && blkTags.IsSequence())
-                            {
-                                for (auto const& t : blkTags)
-                                {
-                                    ge.BlockedTags.AddTag(GameplayTag(t.as<std::string>("")));
-                                }
-                            }
-
-                            aa.Definition.ActivationEffects.push_back(std::move(ge));
-                        }
-                    }
+                    // Deserialize target activation effects (optional, backwards-compatible)
+                    DeserializeEffectList(abilityNode, "TargetActivationEffects", aa.Definition.TargetActivationEffects);
 
                     ac.Abilities.push_back(std::move(aa));
                 }
             }
+        }
+
+        if (auto nameplateNode = entity["NameplateComponent"]; nameplateNode)
+        {
+            auto& nc = deserializedEntity.AddComponent<NameplateComponent>();
+            TrySet(nc.m_Enabled, nameplateNode["Enabled"]);
+            TrySet(nc.m_ShowHealthBar, nameplateNode["ShowHealthBar"]);
+            TrySet(nc.m_ShowManaBar, nameplateNode["ShowManaBar"]);
+            TrySet(nc.m_WorldOffset, nameplateNode["WorldOffset"]);
+            TrySet(nc.m_BarSize, nameplateNode["BarSize"]);
+            TrySet(nc.m_HealthBarColor, nameplateNode["HealthBarColor"]);
+            TrySet(nc.m_ManaBarColor, nameplateNode["ManaBarColor"]);
+            TrySet(nc.m_BarBackgroundColor, nameplateNode["BarBackgroundColor"]);
+            TrySet(nc.m_ManaBarGap, nameplateNode["ManaBarGap"]);
         }
     }
 
@@ -3446,6 +3539,18 @@ namespace OloEngine
             out << YAML::EndMap; // UIProgressBarComponent
         }
 
+        if (entity.HasComponent<UIWorldAnchorComponent>())
+        {
+            out << YAML::Key << "UIWorldAnchorComponent";
+            out << YAML::BeginMap; // UIWorldAnchorComponent
+
+            auto const& anchor = entity.GetComponent<UIWorldAnchorComponent>();
+            out << YAML::Key << "TargetEntity" << YAML::Value << anchor.m_TargetEntity;
+            out << YAML::Key << "WorldOffset" << YAML::Value << anchor.m_WorldOffset;
+
+            out << YAML::EndMap; // UIWorldAnchorComponent
+        }
+
         if (entity.HasComponent<UIInputFieldComponent>())
         {
             out << YAML::Key << "UIInputFieldComponent";
@@ -4104,6 +4209,7 @@ namespace OloEngine
             out << YAML::Key << "Acceleration" << YAML::Value << nac.m_Acceleration;
             out << YAML::Key << "StoppingDistance" << YAML::Value << nac.m_StoppingDistance;
             out << YAML::Key << "AvoidancePriority" << YAML::Value << nac.m_AvoidancePriority;
+            out << YAML::Key << "LockYAxis" << YAML::Value << nac.m_LockYAxis;
 
             out << YAML::EndMap; // NavAgentComponent
         }
@@ -4565,72 +4671,38 @@ namespace OloEngine
                 out << YAML::EndSeq;
 
                 // Serialize activation effects
-                out << YAML::Key << "ActivationEffects" << YAML::Value << YAML::BeginSeq;
-                for (auto const& effect : def.ActivationEffects)
+                SerializeEffectList(out, "ActivationEffects", def.ActivationEffects);
+
+                // Serialize target activation effects (only written when non-empty)
+                if (!def.TargetActivationEffects.empty())
                 {
-                    out << YAML::BeginMap;
-                    out << YAML::Key << "Name" << YAML::Value << effect.Name;
-
-                    std::string durType = "Instant";
-                    if (effect.Policy.DurationType == GameplayEffectPolicy::Duration::HasDuration)
-                        durType = "HasDuration";
-                    else if (effect.Policy.DurationType == GameplayEffectPolicy::Duration::Infinite)
-                        durType = "Infinite";
-                    out << YAML::Key << "DurationType" << YAML::Value << durType;
-                    out << YAML::Key << "DurationSeconds" << YAML::Value << effect.Policy.DurationSeconds;
-                    out << YAML::Key << "IsPeriodic" << YAML::Value << effect.Policy.IsPeriodic;
-                    out << YAML::Key << "PeriodSeconds" << YAML::Value << effect.Policy.PeriodSeconds;
-
-                    out << YAML::Key << "Modifiers" << YAML::Value << YAML::BeginSeq;
-                    for (auto const& mod : effect.Modifiers)
-                    {
-                        out << YAML::BeginMap;
-                        out << YAML::Key << "Attribute" << YAML::Value << mod.AttributeName;
-                        std::string op = "Add";
-                        if (mod.Op == AttributeModifier::Operation::Multiply)
-                            op = "Multiply";
-                        else if (mod.Op == AttributeModifier::Operation::Override)
-                            op = "Override";
-                        out << YAML::Key << "Operation" << YAML::Value << op;
-                        out << YAML::Key << "Magnitude" << YAML::Value << mod.Magnitude;
-                        out << YAML::EndMap;
-                    }
-                    out << YAML::EndSeq;
-
-                    out << YAML::Key << "MaxStacks" << YAML::Value << effect.MaxStacks;
-                    out << YAML::Key << "RefreshDurationOnStack" << YAML::Value << effect.RefreshDurationOnStack;
-
-                    // Effect-level tags
-                    out << YAML::Key << "GrantedTags" << YAML::Value << YAML::BeginSeq;
-                    for (auto const& t : effect.GrantedTags.GetTags())
-                    {
-                        out << t.GetTagString();
-                    }
-                    out << YAML::EndSeq;
-
-                    out << YAML::Key << "RequiredTags" << YAML::Value << YAML::BeginSeq;
-                    for (auto const& t : effect.RequiredTags.GetTags())
-                    {
-                        out << t.GetTagString();
-                    }
-                    out << YAML::EndSeq;
-
-                    out << YAML::Key << "BlockedTags" << YAML::Value << YAML::BeginSeq;
-                    for (auto const& t : effect.BlockedTags.GetTags())
-                    {
-                        out << t.GetTagString();
-                    }
-                    out << YAML::EndSeq;
-
-                    out << YAML::EndMap;
+                    SerializeEffectList(out, "TargetActivationEffects", def.TargetActivationEffects);
                 }
-                out << YAML::EndSeq;
 
                 out << YAML::EndMap; // Ability
             }
             out << YAML::EndSeq;
 
             out << YAML::EndMap; // AbilityComponent
+        }
+
+        if (entity.HasComponent<NameplateComponent>())
+        {
+            out << YAML::Key << "NameplateComponent";
+            out << YAML::BeginMap;
+
+            auto const& nc = entity.GetComponent<NameplateComponent>();
+            out << YAML::Key << "Enabled" << YAML::Value << nc.m_Enabled;
+            out << YAML::Key << "ShowHealthBar" << YAML::Value << nc.m_ShowHealthBar;
+            out << YAML::Key << "ShowManaBar" << YAML::Value << nc.m_ShowManaBar;
+            out << YAML::Key << "WorldOffset" << YAML::Value << nc.m_WorldOffset;
+            out << YAML::Key << "BarSize" << YAML::Value << nc.m_BarSize;
+            out << YAML::Key << "HealthBarColor" << YAML::Value << nc.m_HealthBarColor;
+            out << YAML::Key << "ManaBarColor" << YAML::Value << nc.m_ManaBarColor;
+            out << YAML::Key << "BarBackgroundColor" << YAML::Value << nc.m_BarBackgroundColor;
+            out << YAML::Key << "ManaBarGap" << YAML::Value << nc.m_ManaBarGap;
+
+            out << YAML::EndMap; // NameplateComponent
         }
 
         out << YAML::EndMap; // Entity
@@ -4699,17 +4771,8 @@ namespace OloEngine
         }
 
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
-        m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
-                                                      {
-				// SAFETY: m_Scene is const Ref<Scene>, but Entity requires non-const Scene*
-				// This is safe because serialization only reads entity data
-				Entity const entity = { entityID, const_cast<Scene*>(m_Scene.get()) };
-				if (!entity)
-				{
-					return;
-				}
-
-				SerializeEntity(out, entity); });
+        ForEachEntitySorted([&](Entity entity)
+                            { SerializeEntity(out, entity); });
         out << YAML::EndSeq;
         out << YAML::EndMap;
 
@@ -4721,6 +4784,46 @@ namespace OloEngine
     {
         // Not implemented
         OLO_CORE_ASSERT(false);
+    }
+
+    void SceneSerializer::ForEachEntitySorted(const std::function<void(Entity)>& fn) const
+    {
+        std::vector<entt::entity> sortedEntities;
+        m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
+                                                      { sortedEntities.push_back(entityID); });
+        std::ranges::sort(sortedEntities, [&](entt::entity a, entt::entity b)
+                          {
+                              const u64 uuidA = m_Scene->m_Registry.get<IDComponent>(a).ID;
+                              const u64 uuidB = m_Scene->m_Registry.get<IDComponent>(b).ID;
+                              return uuidA < uuidB; });
+        for (auto entityID : sortedEntities)
+        {
+            // SAFETY: m_Scene is const Ref<Scene>, but Entity requires non-const Scene*
+            // This is safe because serialization only reads entity data
+            Entity const entity = { entityID, const_cast<Scene*>(m_Scene.get()) };
+            if (!entity)
+            {
+                continue;
+            }
+
+            fn(entity);
+        }
+    }
+
+    Entity SceneSerializer::DeserializeEntity(u64 uuid, const std::string& name, const YAML::Node& entityNode)
+    {
+        Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
+        try
+        {
+            DeserializeEntityComponents(deserializedEntity, entityNode);
+        }
+        catch (...)
+        {
+            // Remove the half-initialized entity so the scene stays consistent
+            m_Scene->DestroyEntity(deserializedEntity);
+            throw;
+        }
+        return deserializedEntity;
     }
 
     bool SceneSerializer::Deserialize(const std::filesystem::path& filepath)
@@ -4800,23 +4903,42 @@ namespace OloEngine
 
         if (const auto entities = data["Entities"]; entities)
         {
+            u32 entityCount = 0;
+            u32 failedCount = 0;
+
             for (auto entity : entities)
             {
-                auto uuid = entity["Entity"].as<u64>();
-
-                std::string name;
-                if (auto tagComponent = entity["TagComponent"]; tagComponent)
+                try
                 {
-                    name = tagComponent["Tag"].as<std::string>();
+                    auto uuid = entity["Entity"].as<u64>();
+
+                    std::string name;
+                    if (auto tagComponent = entity["TagComponent"]; tagComponent)
+                    {
+                        name = tagComponent["Tag"].as<std::string>();
+                    }
+
+                    OLO_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
+
+                    DeserializeEntity(uuid, name, entity);
+                    ++entityCount;
                 }
+                catch (const std::exception& e)
+                {
+                    OLO_CORE_ERROR("SceneSerializer: Failed to deserialize entity — {}", e.what());
+                    ++failedCount;
+                }
+            }
 
-                OLO_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
+            OLO_CORE_INFO("SceneSerializer: Deserialized {} entities ({} failed)", entityCount, failedCount);
 
-                Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
-
-                DeserializeEntityComponents(deserializedEntity, entity);
+            if (failedCount > 0)
+            {
+                OLO_CORE_ERROR("SceneSerializer: {} entities failed to deserialize — aborting", failedCount);
+                return false;
             }
         }
+
         m_Scene->SetName(std::filesystem::path(filepath).filename().string());
 
         return true;
@@ -4892,17 +5014,8 @@ namespace OloEngine
         }
 
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
-        m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
-                                                      {
-				// SAFETY: m_Scene is const Ref<Scene>, but Entity requires non-const Scene*
-				// This is safe because serialization only reads entity data
-				Entity const entity = { entityID, const_cast<Scene*>(m_Scene.get()) };
-				if (!entity)
-				{
-					return;
-				}
-
-				SerializeEntity(out, entity); });
+        ForEachEntitySorted([&](Entity entity)
+                            { SerializeEntity(out, entity); });
         out << YAML::EndSeq;
         out << YAML::EndMap;
 
@@ -4993,20 +5106,31 @@ namespace OloEngine
         {
             for (auto entity : entities)
             {
-                u64 uuid = entity["Entity"].as<u64>();
-
-                std::string name;
-                auto tagComponent = entity["TagComponent"];
-                if (tagComponent)
+                try
                 {
-                    name = tagComponent["Tag"].as<std::string>();
+                    u64 uuid = entity["Entity"].as<u64>();
+
+                    std::string name;
+                    auto tagComponent = entity["TagComponent"];
+                    if (tagComponent)
+                    {
+                        name = tagComponent["Tag"].as<std::string>();
+                    }
+
+                    OLO_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
+
+                    DeserializeEntity(uuid, name, entity);
                 }
-
-                OLO_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
-
-                Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
-
-                DeserializeEntityComponents(deserializedEntity, entity);
+                catch (const std::exception& e)
+                {
+                    OLO_CORE_ERROR("SceneSerializer::DeserializeFromYAML: Failed to deserialize entity — {}", e.what());
+                    return false;
+                }
+                catch (...)
+                {
+                    OLO_CORE_ERROR("SceneSerializer::DeserializeFromYAML: Failed to deserialize entity (unknown exception)");
+                    return false;
+                }
             }
         }
 
@@ -5028,30 +5152,40 @@ namespace OloEngine
 
         for (auto entity : entitiesNode)
         {
-            if (!entity["Entity"])
+            try
             {
-                OLO_CORE_WARN("DeserializeAdditive: skipping entity node without 'Entity' key");
-                continue;
-            }
-            auto uuid = entity["Entity"].as<u64>();
+                if (!entity["Entity"])
+                {
+                    OLO_CORE_WARN("DeserializeAdditive: skipping entity node without 'Entity' key");
+                    continue;
+                }
+                auto uuid = entity["Entity"].as<u64>();
 
-            // Skip if entity already exists in the scene
-            if (m_Scene->m_EntityMap.Contains(uuid))
+                // Skip if entity already exists in the scene
+                if (m_Scene->m_EntityMap.Contains(uuid))
+                {
+                    continue;
+                }
+
+                std::string name;
+                if (auto tagComponent = entity["TagComponent"]; tagComponent)
+                {
+                    name = tagComponent["Tag"].as<std::string>();
+                }
+
+                OLO_CORE_TRACE("Additive deserialized entity with ID = {0}, name = {1}", uuid, name);
+
+                DeserializeEntity(uuid, name, entity);
+                createdUUIDs.emplace_back(uuid);
+            }
+            catch (const std::exception& e)
             {
-                continue;
+                OLO_CORE_ERROR("DeserializeAdditive: Failed to deserialize entity — {}", e.what());
             }
-
-            std::string name;
-            if (auto tagComponent = entity["TagComponent"]; tagComponent)
+            catch (...)
             {
-                name = tagComponent["Tag"].as<std::string>();
+                OLO_CORE_ERROR("DeserializeAdditive: Failed to deserialize entity (unknown exception)");
             }
-
-            OLO_CORE_TRACE("Additive deserialized entity with ID = {0}, name = {1}", uuid, name);
-
-            Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
-            DeserializeEntityComponents(deserializedEntity, entity);
-            createdUUIDs.emplace_back(uuid);
         }
 
         return createdUUIDs;

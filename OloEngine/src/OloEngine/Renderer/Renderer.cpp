@@ -23,6 +23,9 @@ namespace OloEngine
                 Renderer2D::Init();
                 break;
             case RendererType::Renderer3D:
+                // Scene always uses Renderer2D for 2D sprite/text overlays even
+                // in 3D mode, so both renderers must be available.
+                Renderer2D::Init();
                 Renderer3D::Init();
                 break;
         }
@@ -34,15 +37,9 @@ namespace OloEngine
         if (Renderer3D::IsInitialized())
             Renderer3D::Shutdown();
 
-        switch (s_RendererType)
-        {
-            case RendererType::Renderer2D:
-                Renderer2D::Shutdown();
-                break;
-            case RendererType::Renderer3D:
-                // Already shut down above
-                break;
-        }
+        // Renderer2D is always initialized (either as the preferred renderer, or
+        // alongside Renderer3D for 2D overlay support). Shut it down unconditionally.
+        Renderer2D::Shutdown();
 
         // Shutdown shared framebuffer resources (post-process shader)
         OpenGLFramebuffer::ShutdownSharedResources();

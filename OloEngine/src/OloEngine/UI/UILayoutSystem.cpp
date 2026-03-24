@@ -7,6 +7,34 @@
 
 namespace OloEngine
 {
+    // Recursively offset all descendant UIResolvedRectComponents by a delta.
+    // Used after a world-anchor override repositions a parent.
+    static void OffsetSubtree(Scene& scene, entt::entity entity, const glm::vec2& delta)
+    {
+        Entity ent{ entity, &scene };
+        if (!ent.HasComponent<RelationshipComponent>())
+        {
+            return;
+        }
+
+        for (const UUID childUUID : ent.GetComponent<RelationshipComponent>().m_Children)
+        {
+            auto childOpt = scene.TryGetEntityWithUUID(childUUID);
+            if (!childOpt)
+            {
+                continue;
+            }
+
+            Entity childEnt{ static_cast<entt::entity>(*childOpt), &scene };
+            if (childEnt.HasComponent<UIResolvedRectComponent>())
+            {
+                childEnt.GetComponent<UIResolvedRectComponent>().m_Position += delta;
+            }
+
+            OffsetSubtree(scene, static_cast<entt::entity>(*childOpt), delta);
+        }
+    }
+
     static void ResolveRect(Scene& scene, entt::entity entity, const glm::vec2& parentPos, const glm::vec2& parentSize)
     {
         OLO_PROFILE_FUNCTION();
@@ -28,15 +56,23 @@ namespace OloEngine
         if (glm::abs(rt.m_AnchorMin.x - rt.m_AnchorMax.x) < 1e-5f &&
             glm::abs(rt.m_AnchorMin.y - rt.m_AnchorMax.y) < 1e-5f)
         {
-            // Non-stretched: size comes from SizeDelta
+            // Non-stretched: size comes from SizeDelta, pivot offsets from anchor point
             resolvedSize = rt.m_SizeDelta * rt.m_Scale;
             resolvedPos = anchorMinPos + rt.m_AnchoredPosition - rt.m_Pivot * resolvedSize;
         }
         else
         {
-            // Stretched: SizeDelta acts as inset adjustment
-            resolvedSize = (anchorSize + rt.m_SizeDelta) * rt.m_Scale;
-            resolvedPos = anchorMinPos + rt.m_AnchoredPosition - rt.m_Pivot * resolvedSize;
+            // Stretched: Unity-style offset calculation.
+            // offsetMin/offsetMax encode the inset from each anchor edge,
+            // derived from AnchoredPosition + SizeDelta + Pivot.
+            const glm::vec2 offsetMin = rt.m_AnchoredPosition - rt.m_SizeDelta * rt.m_Pivot;
+            const glm::vec2 offsetMax = rt.m_AnchoredPosition + rt.m_SizeDelta * (glm::vec2(1.0f) - rt.m_Pivot);
+            resolvedPos = anchorMinPos + offsetMin;
+            const glm::vec2 resolvedMax = anchorMaxPos + offsetMax;
+            const glm::vec2 unscaledSize = resolvedMax - resolvedPos;
+            resolvedSize = unscaledSize * rt.m_Scale;
+            // Scale around pivot, not min edge
+            resolvedPos += (unscaledSize - resolvedSize) * rt.m_Pivot;
         }
 
         // Write transient resolved rect (add or replace to avoid assertion on duplicate)
@@ -151,7 +187,8 @@ namespace OloEngine
         }
     }
 
-    void UILayoutSystem::ResolveLayout(Scene& scene, u32 viewportWidth, u32 viewportHeight)
+    void UILayoutSystem::ResolveLayout(Scene& scene, u32 viewportWidth, u32 viewportHeight,
+                                       const glm::mat4& cameraVP)
     {
         OLO_PROFILE_FUNCTION();
         const glm::vec2 viewport{ static_cast<f32>(viewportWidth), static_cast<f32>(viewportHeight) };
@@ -211,6 +248,74 @@ namespace OloEngine
                     }
                 }
             }
+        }
+
+        // World-anchor override pass: project entities with UIWorldAnchorComponent
+        // from world space to screen coordinates and center their resolved rect.
+        auto anchorView = scene.GetAllEntitiesWith<UIWorldAnchorComponent, UIResolvedRectComponent>();
+        for (const auto entity : anchorView)
+        {
+            auto& anchor = anchorView.get<UIWorldAnchorComponent>(entity);
+            auto& resolved = anchorView.get<UIResolvedRectComponent>(entity);
+
+            // Find the target entity's world position
+            auto targetOpt = scene.TryGetEntityWithUUID(anchor.m_TargetEntity);
+            if (!targetOpt)
+            {
+                // Target entity was destroyed — hide this widget and its subtree
+                const glm::vec2 oldPos = resolved.m_Position;
+                resolved.m_Position = { -10000.0f, -10000.0f };
+                OffsetSubtree(scene, entity, resolved.m_Position - oldPos);
+                continue;
+            }
+
+            Entity targetEntity{ static_cast<entt::entity>(*targetOpt), &scene };
+            if (!targetEntity.HasComponent<TransformComponent>())
+            {
+                // Target has no spatial data — hide this widget and its subtree
+                const glm::vec2 oldPos = resolved.m_Position;
+                resolved.m_Position = { -10000.0f, -10000.0f };
+                OffsetSubtree(scene, entity, resolved.m_Position - oldPos);
+                continue;
+            }
+
+            const glm::vec3 worldPos = targetEntity.GetComponent<TransformComponent>().Translation + anchor.m_WorldOffset;
+
+            // Project world position to clip space
+            const glm::vec4 clipPos = cameraVP * glm::vec4(worldPos, 1.0f);
+            if (clipPos.w <= 0.0f)
+            {
+                // Behind camera — hide by moving off screen
+                const glm::vec2 oldPos = resolved.m_Position;
+                resolved.m_Position = { -10000.0f, -10000.0f };
+                OffsetSubtree(scene, entity, resolved.m_Position - oldPos);
+                continue;
+            }
+
+            // Perspective divide \u2192 NDC [-1, 1]
+            const glm::vec3 ndc = glm::vec3(clipPos) / clipPos.w;
+
+            // Cull if beyond the far plane or in front of the near plane
+            if (ndc.z > 1.0f || ndc.z < -1.0f)
+            {
+                const glm::vec2 oldPos = resolved.m_Position;
+                resolved.m_Position = { -10000.0f, -10000.0f };
+                OffsetSubtree(scene, entity, resolved.m_Position - oldPos);
+                continue;
+            }
+
+            // NDC → screen coordinates (Y-down: NDC y=+1 is screen top y=0)
+            const f32 screenX = (ndc.x * 0.5f + 0.5f) * static_cast<f32>(viewportWidth);
+            const f32 screenY = (1.0f - (ndc.y * 0.5f + 0.5f)) * static_cast<f32>(viewportHeight);
+
+            // Center the resolved rect at the projected screen position
+            const glm::vec2 oldPosition = resolved.m_Position;
+            resolved.m_Position = { screenX - resolved.m_Size.x * 0.5f, screenY - resolved.m_Size.y };
+
+            // Propagate the position change to any children already resolved
+            // during the canvas tree walk
+            const glm::vec2 delta = resolved.m_Position - oldPosition;
+            OffsetSubtree(scene, entity, delta);
         }
     }
 } // namespace OloEngine

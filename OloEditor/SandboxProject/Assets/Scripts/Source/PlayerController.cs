@@ -7,29 +7,132 @@ namespace Sandbox
 	{
 		private TransformComponent m_Transform;
 		private AbilityComponent m_Abilities;
+		private NavAgentComponent m_NavAgent;
+		private DamageFlashHelper m_DamageFlash;
 
 		public float MoveSpeed = 5.0f;
 
-		// One-shot key tracking
-		private bool m_Key1Was = false;
-		private bool m_Key2Was = false;
-		private bool m_Key3Was = false;
-		private bool m_KeyTabWas = false;
+		// Click-to-move state
+		private bool m_IsNavigating = false;
+		private bool m_WasMouseDown = false; // Track mouse state for single-click detection
+
+		// VFX entity references (found by name)
+		private Entity m_SlashVFX;
+		private Entity m_FireballVFX;
+		private Entity m_HealVFX;
+		private float m_VFXTimer = 0.0f;
+		private Entity m_ActiveVFX = null;
+
+		// Death state
+		private bool m_IsDead = false;
+
+		// Known enemy entities for targeting
+		private Entity[] m_Enemies;
+		private float m_MeleeRange = 3.0f;
+		private float m_SpellRange = 10.0f;
 
 		void OnCreate()
 		{
 			m_Transform = GetComponent<TransformComponent>();
 			m_Abilities = GetComponent<AbilityComponent>();
 
-			Debug.Log("[PlayerController] Ready - WASD to move, 1=Slash, 2=Fireball, 3=Heal, Tab=Stats");
+			if (HasComponent<NavAgentComponent>())
+			{
+				m_NavAgent = GetComponent<NavAgentComponent>();
+				m_NavAgent.LockYAxis = true; // Top-down game: move on XZ only
+			}
+
+			MaterialComponent material = null;
+			if (HasComponent<MaterialComponent>())
+				material = GetComponent<MaterialComponent>();
+			m_DamageFlash = new DamageFlashHelper(material);
+
+			m_SlashVFX = FindEntityByName("Slash VFX");
+			m_FireballVFX = FindEntityByName("Fireball VFX");
+			m_HealVFX = FindEntityByName("Heal VFX");
+
+			// Gather known enemies for targeting
+			m_Enemies = new Entity[]
+			{
+				FindEntityByName("Goblin"),
+				FindEntityByName("Fire Mage")
+			};
+
+			Debug.Log("[Player] Ready - WASD/Click to move, 1=Slash, 2=Fireball, 3=Heal");
 		}
 
 		void OnUpdate(float ts)
 		{
-			if (m_Transform == null)
+			if (m_Transform == null || m_Abilities == null)
 				return;
 
-			// ── WASD direct movement ──
+			// Death check
+			if (!m_IsDead && m_Abilities.GetCurrentAttribute("Health") <= 0.0f)
+			{
+				m_IsDead = true;
+				m_Abilities.RemoveTag("State.Alive");
+
+				// Stop any active VFX
+				if (m_ActiveVFX != null)
+				{
+					if (m_ActiveVFX.HasComponent<ParticleSystemComponent>())
+						m_ActiveVFX.GetComponent<ParticleSystemComponent>().Playing = false;
+					m_ActiveVFX = null;
+					m_VFXTimer = 0.0f;
+				}
+
+				Debug.Log("[Player] Died!");
+
+				// Notify GameManager
+				Entity gm = FindEntityByName("GameManager");
+				if (gm != null)
+				{
+					var gmScript = gm.As<GameManager>();
+					if (gmScript != null)
+						gmScript.OnPlayerDeath();
+				}
+				return;
+			}
+
+			if (m_IsDead)
+				return;
+
+			// Skip gameplay input while paused
+			if (GameApplication.TimeScale == 0.0f)
+				return;
+
+			// ── Click-to-move (triggers once per click, not every held frame) ──
+			bool mouseDown = Input.IsMouseButtonDown(0);
+			bool mouseJustPressed = mouseDown && !m_WasMouseDown;
+			m_WasMouseDown = mouseDown;
+
+			if (mouseJustPressed)
+			{
+				Vector2 mousePos = Input.GetMousePosition();
+				Entity cameraEntity = FindEntityByName("Camera");
+				if (cameraEntity != null)
+				{
+					// Convert screen position to normalized [0,1] coordinates
+					Vector2 windowSize = Input.GetWindowSize();
+					if (windowSize.X > 0.0f && windowSize.Y > 0.0f)
+					{
+						Vector2 screenNorm = new Vector2(mousePos.X / windowSize.X, 1.0f - mousePos.Y / windowSize.Y);
+						if (OloEngine.Camera.ScreenToWorldRay(cameraEntity.ID, screenNorm, out Vector3 origin, out Vector3 direction))
+						{
+							// Raycast to find ground hit
+							RaycastHit hitResult;
+							bool didHit = Physics.Raycast(origin, direction, 500.0f, out hitResult);
+							if (didHit && m_NavAgent != null)
+							{
+								m_NavAgent.TargetPosition = hitResult.Position;
+								m_IsNavigating = true;
+							}
+						}
+					}
+				}
+			}
+
+			// ── WASD override (cancels navigation) ──
 			float dx = 0.0f;
 			float dz = 0.0f;
 
@@ -41,6 +144,13 @@ namespace Sandbox
 			float dirLenSq = dx * dx + dz * dz;
 			if (dirLenSq > 0.01f)
 			{
+				// WASD pressed — cancel nav and move directly
+				if (m_IsNavigating && m_NavAgent != null)
+				{
+					m_NavAgent.ClearTarget();
+					m_IsNavigating = false;
+				}
+
 				float invLen = 1.0f / (float)Math.Sqrt(dirLenSq);
 				dx *= invLen;
 				dz *= invLen;
@@ -51,53 +161,116 @@ namespace Sandbox
 				m_Transform.Translation = pos;
 			}
 
-			// ── Ability hotkeys (one-shot: fires once per key press) ──
-			if (m_Abilities != null)
+			// ── Ability hotkeys (one-shot) ──
+			if (Input.IsKeyJustPressed(KeyCode.D1))
 			{
-				bool key1 = Input.IsKeyDown(KeyCode.D1);
-				bool key2 = Input.IsKeyDown(KeyCode.D2);
-				bool key3 = Input.IsKeyDown(KeyCode.D3);
-				bool keyTab = Input.IsKeyDown(KeyCode.Tab);
-
-				if (key1 && !m_Key1Was)
+				Entity target = FindNearestEnemy(m_MeleeRange);
+				if (target != null && m_Abilities.TryActivateAbilityOnTarget("Ability.Melee.Slash", target.ID))
 				{
-					if (m_Abilities.TryActivateAbility("Ability.Melee.Slash"))
-						Debug.Log("[Player] Slash!");
-					else
-						Debug.Log("[Player] Slash on cooldown");
+					Debug.Log("[Player] Slash!");
+					TriggerVFX(m_SlashVFX, 0.3f);
+					m_DamageFlash.Flash(new Vector4(1.0f, 1.0f, 0.3f, 1.0f));
 				}
-
-				if (key2 && !m_Key2Was)
-				{
-					if (m_Abilities.TryActivateAbility("Ability.Spell.Fire.Fireball"))
-						Debug.Log("[Player] Fireball!");
-					else
-						Debug.Log("[Player] Fireball - cooldown or not enough mana");
-				}
-
-				if (key3 && !m_Key3Was)
-				{
-					if (m_Abilities.TryActivateAbility("Ability.Spell.Heal"))
-						Debug.Log("[Player] Heal!");
-					else
-						Debug.Log("[Player] Heal - cooldown or not enough mana");
-				}
-
-				if (keyTab && !m_KeyTabWas)
-				{
-					float hp = m_Abilities.GetCurrentAttribute("Health");
-					float maxHp = m_Abilities.GetCurrentAttribute("MaxHealth");
-					float mana = m_Abilities.GetCurrentAttribute("Mana");
-					float maxMana = m_Abilities.GetCurrentAttribute("MaxMana");
-					float armor = m_Abilities.GetCurrentAttribute("Armor");
-					Debug.Log($"[Player] HP: {hp:F0}/{maxHp:F0}  Mana: {mana:F0}/{maxMana:F0}  Armor: {armor:F0}");
-				}
-
-				m_Key1Was = key1;
-				m_Key2Was = key2;
-				m_Key3Was = key3;
-				m_KeyTabWas = keyTab;
 			}
+
+			if (Input.IsKeyJustPressed(KeyCode.D2))
+			{
+				Entity target = FindNearestEnemy(m_SpellRange);
+				if (target != null && m_Abilities.TryActivateAbilityOnTarget("Ability.Spell.Fire.Fireball", target.ID))
+				{
+					Debug.Log("[Player] Fireball!");
+					TriggerVFX(m_FireballVFX, 0.5f);
+					m_DamageFlash.Flash(new Vector4(1.0f, 0.4f, 0.1f, 1.0f));
+				}
+			}
+
+			if (Input.IsKeyJustPressed(KeyCode.D3))
+			{
+				if (m_Abilities.TryActivateAbility("Ability.Spell.Heal"))
+				{
+					Debug.Log("[Player] Heal!");
+					TriggerVFX(m_HealVFX, 0.6f);
+					m_DamageFlash.Flash(new Vector4(0.3f, 1.0f, 0.3f, 1.0f));
+				}
+			}
+
+			// ── Update VFX timer ──
+			if (m_ActiveVFX != null)
+			{
+				m_VFXTimer -= ts;
+				if (m_VFXTimer <= 0.0f)
+				{
+					if (m_ActiveVFX.HasComponent<ParticleSystemComponent>())
+						m_ActiveVFX.GetComponent<ParticleSystemComponent>().Playing = false;
+					m_ActiveVFX = null;
+				}
+			}
+
+			// ── Color flash lerp back ──
+			m_DamageFlash.Update(ts, m_Abilities.GetCurrentAttribute("Health"));
+		}
+
+		private void TriggerVFX(Entity vfxEntity, float duration)
+		{
+			if (vfxEntity == null)
+				return;
+
+			// Stop previous VFX if still playing
+			if (m_ActiveVFX != null && m_ActiveVFX != vfxEntity)
+			{
+				if (m_ActiveVFX.HasComponent<ParticleSystemComponent>())
+					m_ActiveVFX.GetComponent<ParticleSystemComponent>().Playing = false;
+			}
+
+			// Position VFX at player
+			if (vfxEntity.HasComponent<TransformComponent>())
+			{
+				var vfxTransform = vfxEntity.GetComponent<TransformComponent>();
+				Vector3 pos = m_Transform.Translation;
+				pos.Y += 1.0f; // Offset up
+				vfxTransform.Translation = pos;
+			}
+
+			if (vfxEntity.HasComponent<ParticleSystemComponent>())
+			{
+				vfxEntity.GetComponent<ParticleSystemComponent>().Playing = true;
+				m_ActiveVFX = vfxEntity;
+				m_VFXTimer = duration;
+			}
+		}
+
+		private Entity FindNearestEnemy(float maxRange)
+		{
+			Vector3 myPos = m_Transform.Translation;
+			Entity closest = null;
+			float closestDistSq = maxRange * maxRange;
+
+			for (int i = 0; i < m_Enemies.Length; i++)
+			{
+				Entity e = m_Enemies[i];
+				if (e == null || e.IsDestroyed)
+					continue;
+
+				// Only target living enemies
+				if (!e.HasComponent<AbilityComponent>())
+					continue;
+				var ac = e.GetComponent<AbilityComponent>();
+				if (!ac.HasTag("State.Alive"))
+					continue;
+
+				Vector3 ePos = e.Translation;
+				float dx = ePos.X - myPos.X;
+				float dz = ePos.Z - myPos.Z;
+				float distSq = dx * dx + dz * dz;
+
+				if (distSq < closestDistSq)
+				{
+					closestDistSq = distSq;
+					closest = e;
+				}
+			}
+
+			return closest;
 		}
 	}
 }

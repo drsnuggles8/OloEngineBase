@@ -185,7 +185,8 @@ namespace OloEngine
 
     int OpenGLFramebuffer::ReadPixel(const u32 attachmentIndex, const int x, const int y)
     {
-        OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
+        OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size(),
+                        "ReadPixel: attachment index {} >= count {}", attachmentIndex, m_ColorAttachments.size());
 
         glBindFramebuffer(GL_READ_FRAMEBUFFER, m_RendererID);
         glReadBuffer(GL_COLOR_ATTACHMENT0 + attachmentIndex);
@@ -197,7 +198,8 @@ namespace OloEngine
 
     void OpenGLFramebuffer::ClearAttachment(const u32 attachmentIndex, const int value)
     {
-        OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
+        OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size(),
+                        "ClearAttachment: attachment index {} >= count {}", attachmentIndex, m_ColorAttachments.size());
 
         auto const& spec = m_ColorAttachmentSpecifications[attachmentIndex];
         glClearTexImage(m_ColorAttachments[attachmentIndex], 0, Utils::OloFBTextureFormatToGL(spec.TextureFormat), GL_INT, &value);
@@ -205,7 +207,8 @@ namespace OloEngine
 
     void OpenGLFramebuffer::ClearAttachment(const u32 attachmentIndex, const glm::vec4& value)
     {
-        OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
+        OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size(),
+                        "ClearAttachment: attachment index {} >= count {}", attachmentIndex, m_ColorAttachments.size());
 
         // Use glClearBufferfv to clear a specific color buffer
         glClearBufferfv(GL_COLOR, static_cast<GLint>(attachmentIndex), glm::value_ptr(value));
@@ -233,10 +236,18 @@ namespace OloEngine
 
     void OpenGLFramebuffer::ClearAllAttachments(const glm::vec4& clearColor, int entityIdClear)
     {
-        // Clear depth and stencil first (these work with regular glClear)
-        glClearDepth(1.0);
-        glClearStencil(0);
-        glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+        // Only clear depth/stencil if this FBO actually has a depth attachment
+        if (m_DepthAttachmentSpecification.TextureFormat != FramebufferTextureFormat::None)
+        {
+            GLbitfield clearBits = GL_DEPTH_BUFFER_BIT;
+            if (m_DepthAttachmentSpecification.TextureFormat == FramebufferTextureFormat::DEPTH24STENCIL8)
+            {
+                clearBits |= GL_STENCIL_BUFFER_BIT;
+                glClearStencil(0);
+            }
+            glClearDepth(1.0);
+            glClear(clearBits);
+        }
 
         // Clear each color attachment based on its type
         for (sizet i = 0; i < m_ColorAttachmentSpecifications.size(); ++i)

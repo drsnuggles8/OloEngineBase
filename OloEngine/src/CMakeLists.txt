@@ -109,6 +109,10 @@
 		"OloEngine/Asset/Serializers/TextureSerializer.h"
 		"OloEngine/Asset/Serializers/TextureSerializer.cpp"
 		"OloEngine/Asset/Serializers/LightProbeVolumeSerializer.cpp"
+		# Build pipeline
+		"OloEngine/Build/GameBuildSettings.h"
+		"OloEngine/Build/GameBuildPipeline.h"
+		"OloEngine/Build/GameBuildPipeline.cpp"
 		"OloEngine/Serialization/AssetPackFile.h"
 		"OloEngine/Serialization/FileStream.h"
 		"OloEngine/Serialization/FileStream.cpp"
@@ -239,6 +243,8 @@
 		"OloEngine/Debug/Profiler.h"
 		"OloEngine/Debug/AllocationTracker.cpp"
 		"OloEngine/Debug/AllocationTracker.h"
+		"OloEngine/Debug/CrashReporter.cpp"
+		"OloEngine/Debug/CrashReporter.h"
 
 		"OloEngine/Events/ApplicationEvent.h"
 		"OloEngine/Events/Event.cpp"
@@ -530,6 +536,8 @@
 		"OloEngine/Renderer/Passes/SSAORenderPass.cpp"
 		"OloEngine/Renderer/Passes/SSSRenderPass.h"
 		"OloEngine/Renderer/Passes/SSSRenderPass.cpp"
+		"OloEngine/Renderer/Passes/UICompositeRenderPass.h"
+		"OloEngine/Renderer/Passes/UICompositeRenderPass.cpp"
 		"OloEngine/Renderer/PostProcessSettings.h"
 		"OloEngine/Renderer/Shadow/ShadowMap.h"
 		"OloEngine/Renderer/Shadow/ShadowMap.cpp"

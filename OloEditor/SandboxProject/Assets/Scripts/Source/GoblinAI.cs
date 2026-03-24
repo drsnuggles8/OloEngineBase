@@ -7,6 +7,7 @@ namespace Sandbox
 	{
 		private TransformComponent m_Transform;
 		private AbilityComponent m_Abilities;
+		private DamageFlashHelper m_DamageFlash;
 
 		public float AggroRange = 8.0f;
 		public float AttackRange = 2.0f;
@@ -20,6 +21,12 @@ namespace Sandbox
 		{
 			m_Transform = GetComponent<TransformComponent>();
 			m_Abilities = GetComponent<AbilityComponent>();
+
+			MaterialComponent material = null;
+			if (HasComponent<MaterialComponent>())
+				material = GetComponent<MaterialComponent>();
+			m_DamageFlash = new DamageFlashHelper(material);
+
 			Debug.Log("[GoblinAI] Spawned - lurking...");
 		}
 
@@ -30,6 +37,9 @@ namespace Sandbox
 
 			if (!m_Abilities.HasTag("State.Alive"))
 				return;
+
+			// Damage flash detection
+			m_DamageFlash.Update(ts, m_Abilities.GetCurrentAttribute("Health"));
 
 			if (m_Player == null || m_Player.IsDestroyed)
 				m_Player = FindEntityByName("Player");
@@ -69,7 +79,7 @@ namespace Sandbox
 					m_AttackTimer -= ts;
 					if (m_AttackTimer <= 0.0f)
 					{
-						if (m_Abilities.TryActivateAbility("Ability.Melee.Bite"))
+						if (m_Abilities.TryActivateAbilityOnTarget("Ability.Melee.Bite", m_Player.ID))
 						{
 							Debug.Log("[Goblin] Bite!");
 							m_AttackTimer = 2.0f;
@@ -81,6 +91,7 @@ namespace Sandbox
 			{
 				m_Logged = false;
 			}
+
 		}
 	}
 }

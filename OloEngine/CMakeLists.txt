@@ -66,6 +66,7 @@ target_compile_definitions(OloEngine PRIVATE
 						_CRT_SECURE_NO_WARNINGS
 						GLFW_INCLUDE_NONE
 						YAML_CPP_STATIC_DEFINE
+						OLO_ENGINE_VERSION="${CMAKE_PROJECT_VERSION}"
 )
 olo_set_common_definitions(OloEngine)
 
@@ -128,6 +129,18 @@ target_link_libraries(OloEngine
 	Vulkan::Vulkan
 	Vulkan::glslang
 	Vulkan::SPIRV-Tools
+)
+
+# shaderc and spirv-cross are not available through find_package; link directly
+# from the Vulkan SDK installation.
+if(NOT DEFINED ENV{VULKAN_SDK})
+	message(FATAL_ERROR
+		"VULKAN_SDK environment variable is not set.\n"
+		"Install the Vulkan SDK from https://vulkan.lunarg.com/sdk/home and "
+		"ensure the VULKAN_SDK environment variable points to the installation directory.")
+endif()
+
+target_link_libraries(OloEngine
 	debug $ENV{VULKAN_SDK}/Lib/shaderc_sharedd.lib
 	debug $ENV{VULKAN_SDK}/Lib/spirv-cross-cored.lib
 	debug $ENV{VULKAN_SDK}/Lib/spirv-cross-glsld.lib
@@ -137,6 +150,7 @@ target_link_libraries(OloEngine
 	debug ${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Debug/libmono-static-sgen.lib
 	optimized ${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Release/libmono-static-sgen.lib
 	BCrypt
+	DbgHelp.lib
 	dwmapi
 	Synchronization
 	Version

@@ -26,6 +26,19 @@ namespace OloEngine
 				InternalCalls.TransformComponent_SetTranslation(Entity.ID, ref value);
 			}
 		}
+
+		public Vector3 Rotation
+		{
+			get
+			{
+				InternalCalls.TransformComponent_GetRotation(Entity.ID, out Vector3 rotation);
+				return rotation;
+			}
+			set
+			{
+				InternalCalls.TransformComponent_SetRotation(Entity.ID, ref value);
+			}
+		}
 	}
 
 	public class Rigidbody2DComponent : Component
@@ -1117,6 +1130,16 @@ namespace OloEngine
 			get => InternalCalls.MaterialComponent_GetShaderGraphHandle(Entity.ID);
 			set => InternalCalls.MaterialComponent_SetShaderGraphHandle(Entity.ID, value);
 		}
+
+		public Vector4 AlbedoColor
+		{
+			get
+			{
+				InternalCalls.MaterialComponent_GetAlbedoColor(Entity.ID, out Vector4 color);
+				return color;
+			}
+			set => InternalCalls.MaterialComponent_SetAlbedoColor(Entity.ID, ref value);
+		}
 	}
 
 	public class NavAgentComponent : Component
@@ -1163,7 +1186,109 @@ namespace OloEngine
 
 		public bool HasPath => InternalCalls.NavAgentComponent_HasPath(Entity.ID);
 
+		public bool LockYAxis
+		{
+			get => InternalCalls.NavAgentComponent_GetLockYAxis(Entity.ID);
+			set => InternalCalls.NavAgentComponent_SetLockYAxis(Entity.ID, value);
+		}
+
 		public void ClearTarget() => InternalCalls.NavAgentComponent_ClearTarget(Entity.ID);
+	}
+
+	public class UIWorldAnchorComponent : Component
+	{
+		public ulong TargetEntity
+		{
+			get => InternalCalls.UIWorldAnchorComponent_GetTargetEntity(Entity.ID);
+			set => InternalCalls.UIWorldAnchorComponent_SetTargetEntity(Entity.ID, value);
+		}
+
+		public Vector3 WorldOffset
+		{
+			get
+			{
+				InternalCalls.UIWorldAnchorComponent_GetWorldOffset(Entity.ID, out Vector3 v);
+				return v;
+			}
+			set => InternalCalls.UIWorldAnchorComponent_SetWorldOffset(Entity.ID, ref value);
+		}
+	}
+
+	public class NameplateComponent : Component
+	{
+		public bool Enabled
+		{
+			get => InternalCalls.NameplateComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.NameplateComponent_SetEnabled(Entity.ID, value);
+		}
+
+		public bool ShowHealthBar
+		{
+			get => InternalCalls.NameplateComponent_GetShowHealthBar(Entity.ID);
+			set => InternalCalls.NameplateComponent_SetShowHealthBar(Entity.ID, value);
+		}
+
+		public bool ShowManaBar
+		{
+			get => InternalCalls.NameplateComponent_GetShowManaBar(Entity.ID);
+			set => InternalCalls.NameplateComponent_SetShowManaBar(Entity.ID, value);
+		}
+
+		public Vector3 WorldOffset
+		{
+			get
+			{
+				InternalCalls.NameplateComponent_GetWorldOffset(Entity.ID, out Vector3 v);
+				return v;
+			}
+			set => InternalCalls.NameplateComponent_SetWorldOffset(Entity.ID, ref value);
+		}
+
+		public Vector2 BarSize
+		{
+			get
+			{
+				InternalCalls.NameplateComponent_GetBarSize(Entity.ID, out Vector2 v);
+				return v;
+			}
+			set => InternalCalls.NameplateComponent_SetBarSize(Entity.ID, ref value);
+		}
+
+		public Vector4 HealthBarColor
+		{
+			get
+			{
+				InternalCalls.NameplateComponent_GetHealthBarColor(Entity.ID, out Vector4 v);
+				return v;
+			}
+			set => InternalCalls.NameplateComponent_SetHealthBarColor(Entity.ID, ref value);
+		}
+
+		public Vector4 ManaBarColor
+		{
+			get
+			{
+				InternalCalls.NameplateComponent_GetManaBarColor(Entity.ID, out Vector4 v);
+				return v;
+			}
+			set => InternalCalls.NameplateComponent_SetManaBarColor(Entity.ID, ref value);
+		}
+
+		public Vector4 BarBackgroundColor
+		{
+			get
+			{
+				InternalCalls.NameplateComponent_GetBarBackgroundColor(Entity.ID, out Vector4 v);
+				return v;
+			}
+			set => InternalCalls.NameplateComponent_SetBarBackgroundColor(Entity.ID, ref value);
+		}
+
+		public float ManaBarGap
+		{
+			get => InternalCalls.NameplateComponent_GetManaBarGap(Entity.ID);
+			set => InternalCalls.NameplateComponent_SetManaBarGap(Entity.ID, value);
+		}
 	}
 
 	public class AnimationGraphComponent : Component
@@ -1514,6 +1639,25 @@ namespace OloEngine
 		{
 			if (string.IsNullOrWhiteSpace(tag)) return;
 			InternalCalls.AbilityComponent_RemoveTag(Entity.ID, tag);
+		}
+
+		/// <summary>
+		/// Apply calculated damage from this entity to a target entity.
+		/// Uses the DamageCalculation pipeline (attack power, crit, defense, resistance).
+		/// Returns the final damage dealt after all calculations.
+		/// </summary>
+		public float ApplyDamageToTarget(ulong targetEntityID, float rawDamage, string damageType = null, bool isCritical = false)
+		{
+			return InternalCalls.AbilityComponent_ApplyDamageToTarget(Entity.ID, targetEntityID, rawDamage, string.IsNullOrWhiteSpace(damageType) ? "Physical" : damageType, isCritical);
+		}
+
+		/// <summary>
+		/// Activate an ability on this entity (checks cooldowns/costs) but apply its effects to the target.
+		/// </summary>
+		public bool TryActivateAbilityOnTarget(string abilityTag, ulong targetEntityID)
+		{
+			if (string.IsNullOrWhiteSpace(abilityTag)) return false;
+			return InternalCalls.AbilityComponent_TryActivateAbilityOnTarget(Entity.ID, abilityTag, targetEntityID);
 		}
 	}
 }

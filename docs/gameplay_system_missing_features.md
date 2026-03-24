@@ -4,41 +4,19 @@ Features that were planned or partially implemented but not yet wired up in the 
 
 ---
 
-## 1. Click-to-Move (Point-and-Click Pathfinding)
+## ~~1. Click-to-Move (Point-and-Click Pathfinding)~~ — **DONE**
 
-**Goal:** Diablo / Warcraft 3 style movement — left-click on the ground, player walks there via NavMesh pathfinding.
+**Goal:** Diablo / Warcraft 3-style movement — left-click on the ground, player walks there via NavMesh pathfinding.
 
-**What's needed:**
-- **Screen-to-world raycast** exposed to C# scripting. The engine has `Physics::Raycast` on the C++ side but no C# binding for it. Need an internal call like:
-
-  ```csharp
-  // In Input or Physics class
-  static bool Raycast(Vector3 origin, Vector3 direction, float maxDistance, out Vector3 hitPoint);
-  ```
-
-- **Mouse world position helper** — convenience method that takes screen coords (from `Input.GetMousePosition()`) and the camera's view-projection matrix to produce a ray.
-- **PlayerController update** — on left-click, raycast against ground, set `NavAgent.TargetPosition = hitPoint`.
-
-**Blocked by:** No `Physics.Raycast` or `Camera.ScreenToWorldRay` C# binding exists yet.
+**Resolved.** Both `Physics.Raycast` and `Camera.ScreenToWorldRay` are now exposed to C# and Lua scripting. `PlayerController.cs` uses click-to-move via `Camera.ScreenToWorldRay` -> `Physics.Raycast` -> `NavAgent.TargetPosition`.
 
 ---
 
-## 2. NavMesh Baking at Runtime Start
+## ~~2. NavMesh Baking at Runtime Start~~ — **DONE**
 
 **Goal:** NPCs use `NavAgentComponent` with proper pathfinding instead of direct translation movement.
 
-**Current state:**
-- `NavigationSystem::OnUpdate` correctly moves entities along NavMesh paths every frame.
-- `NavMeshBoundsComponent` defines the bake area.
-- NavMesh baking works from the editor's NavMeshPanel ("Bake NavMesh" button).
-- **Problem:** `Scene::OnRuntimeStart()` does NOT auto-bake or load a NavMesh. If you haven't manually baked in the editor before hitting Play, `m_NavMesh` is null and all NavAgent pathfinding silently does nothing.
-
-**What's needed:**
-- Auto-bake NavMesh in `Scene::OnRuntimeStart()` if a `NavMeshBoundsComponent` exists and no NavMesh is loaded, OR
-- Serialize the baked NavMesh to disk and reload it on Play, OR
-- At minimum, log a warning when NavAgentComponents exist but no NavMesh is available.
-
-**Workaround:** Manually click "Bake NavMesh" in the editor panel before entering Play mode. The NPC scripts (`GoblinAI.cs`, `FireMageAI.cs`) currently use direct translation to avoid this issue.
+**Resolved.** `Scene::OnRuntimeStart()` now auto-bakes the NavMesh when `NavAgentComponent` entities exist but no NavMesh is loaded. It collects bounds from `NavMeshBoundsComponent` entities (defaulting to ±100 if none exist) and calls `NavMeshGenerator::Generate()` with default `NavMeshSettings`. The baked NavMesh is set via `SetNavMesh()` and immediately available for pathfinding.
 
 ---
 
@@ -55,45 +33,53 @@ Features that were planned or partially implemented but not yet wired up in the 
 
 ---
 
-## 4. One-Shot Keyboard Input API
+## ~~4. One-Shot Keyboard Input API~~ — **DONE**
 
 **Goal:** `Input.IsKeyJustPressed(KeyCode)` for single-fire key detection.
 
-**Current state:** `Input.IsKeyDown()` maps to GLFW's `glfwGetKey()` which is continuous (true every frame while held). The test scripts manually track previous-frame state for one-shot behavior.
+**Resolved.** Per-key previous/current frame state tracking added to `WindowsInput.cpp` (via `s_CurrentKeys[]` / `s_PreviousKeys[]` arrays, updated each frame by `Input::Update()`). The following APIs are now available:
 
-**What exists already:**
-- `Input.IsActionJustPressed(string actionName)` — works for action-mapped input (requires registering action names).
-- `Input.IsGamepadButtonJustPressed()` — works for gamepad.
-- No raw keyboard one-shot equivalent.
+```csharp
+// C# API
+bool justPressed = Input.IsKeyJustPressed(KeyCode.E);
+bool justReleased = Input.IsKeyJustReleased(KeyCode.E);
+```
 
-**What's needed:**
-- Add `Input_IsKeyJustPressed` / `Input_IsKeyJustReleased` internal calls that track per-key previous-frame state in C++.
-- Expose as `Input.IsKeyJustPressed(KeyCode)` in C#.
+```lua
+-- Lua API
+local justPressed = Input.IsKeyJustPressed(KeyCode.E)
+local justReleased = Input.IsKeyJustReleased(KeyCode.E)
+```
 
----
-
-## 5. Console.WriteLine → Editor Console
-
-**Status: PARTIALLY FIXED.**
-
-- `Debug.Log()` / `Debug.LogWarning()` / `Debug.LogError()` now route through spdlog's client logger → editor ConsolePanel.
-- `Console.WriteLine()` still goes to system stdout only (not captured by editor). This is because Mono's stdout is not redirected.
-
-**Optional improvement:**
-- Call `mono_trace_set_print_handler()` or `mono_set_print_callback()` in `ScriptEngine::InitMono()` to redirect Mono's stdout/stderr into spdlog. Then even `Console.WriteLine` would appear in the editor console.
+Exposed through `ScriptGlue.cpp` (C# InternalCalls) and `LuaScriptGlue.cpp` (Sol2 bindings).
 
 ---
 
-## 6. Damage Application Between Entities
+## ~~5. Console.WriteLine → Editor Console~~ — **DONE**
+
+**Resolved.** `mono_trace_set_print_handler()` and `mono_trace_set_printerr_handler()` are now called in `ScriptEngine::InitMono()`, routing Mono's stdout and stderr through `OLO_CLIENT_INFO` / `OLO_CLIENT_ERROR` respectively. Both `Console.WriteLine()` and `Debug.Log()` output now appears in the editor's ConsolePanel (prefixed with `[C#]`).
+
+---
+
+## ~~6. Damage Application Between Entities~~ — **DONE**
 
 **Goal:** When the Goblin uses Bite or the Fire Mage uses Fire Bolt, the target entity actually takes damage.
 
-**Current state:** `TryActivateAbility` activates the ability on the *caster's own* AbilityComponent. Effects (like BurnDoT) are applied to the caster, not to a target entity. There is no target selection or damage routing yet.
+**Resolved.** Two new C# and Lua bindings enable cross-entity damage:
 
-**What's needed:**
-- A `TryActivateAbilityOnTarget(string abilityTag, ulong targetEntityID)` C# binding that applies the ability's effects to the target entity's AbilityComponent instead of the caster's.
-- Alternatively, a `DamageEvent` dispatch system: caster creates a DamageEvent, damage calculation resolves it (armor, resistance, crit), and the result is applied to the target's Health attribute.
-- The C++ `DamageCalculation` and `DamageEvent` classes already exist in the GAS implementation — they just need C# bindings and script-level wiring.
+```csharp
+// C# API
+AbilityComponent.ApplyDamageToTarget(targetEntityID, baseDamage);        // raw damage
+AbilityComponent.TryActivateAbilityOnTarget(abilityTag, targetEntityID); // ability + effects on target
+```
+
+```lua
+-- Lua API
+Damage.ApplyToTarget(casterEntityID, targetEntityID, baseDamage)
+Damage.TryActivateAbilityOnTarget(casterEntityID, abilityTag, targetEntityID)
+```
+
+The C++ `DamageCalculation` and `DamageEvent` are now wired through `ScriptGlue.cpp` and `LuaScriptGlue.cpp`. NPC scripts (`GoblinAI.cs`, `FireMageAI.cs`) can use these to apply damage/effects to the player or other entities.
 
 ---
 

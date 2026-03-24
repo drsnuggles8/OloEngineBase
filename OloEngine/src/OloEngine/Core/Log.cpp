@@ -3,20 +3,27 @@
 
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/ringbuffer_sink.h>
 
 namespace OloEngine
 {
     std::shared_ptr<spdlog::logger> Log::s_CoreLogger;
     std::shared_ptr<spdlog::logger> Log::s_ClientLogger;
     std::shared_ptr<spdlog::logger> Log::s_EditorConsoleLogger;
+    std::shared_ptr<spdlog::sinks::ringbuffer_sink<std::mutex>> Log::s_RingbufferSink;
     std::unordered_map<std::string, Log::TagDetails> Log::s_DefaultTagDetails;
     std::atomic<std::shared_ptr<Log::TagMap>> Log::s_Tags{ nullptr };
 
     void Log::Init()
     {
+        // Create the ringbuffer sink (keeps last 200 messages for crash reports)
+        s_RingbufferSink = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(200);
+        s_RingbufferSink->set_pattern("[%T] [%l] %n: %v");
+
         std::vector<spdlog::sink_ptr> logSinks;
         logSinks.emplace_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
         logSinks.emplace_back(std::make_shared<spdlog::sinks::basic_file_sink_mt>("OloEngine.log", true));
+        logSinks.emplace_back(s_RingbufferSink);
 
         logSinks[0]->set_pattern("%^[%T] %n: %v%$");
         logSinks[1]->set_pattern("[%T] [%l] %n: %v");
@@ -43,8 +50,18 @@ namespace OloEngine
     void Log::Shutdown()
     {
         spdlog::shutdown();
+        s_RingbufferSink.reset();
         // release tags explicitly
         s_Tags.store(nullptr, std::memory_order_release);
+    }
+
+    std::vector<std::string> Log::GetRecentLogMessages(size_t const count)
+    {
+        if (s_RingbufferSink)
+        {
+            return s_RingbufferSink->last_formatted(count);
+        }
+        return {};
     }
 
     void Log::SetDefaultTagSettings()

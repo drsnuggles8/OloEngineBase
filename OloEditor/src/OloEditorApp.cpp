@@ -24,6 +24,7 @@ namespace OloEngine
     {
         ApplicationSpecification spec;
         spec.Name = "OloEditor";
+        spec.IsEditor = true;
         spec.CommandLineArgs = args;
 
         return new OloEngineEditor(spec);

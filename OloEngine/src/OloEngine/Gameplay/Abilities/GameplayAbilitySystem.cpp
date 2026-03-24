@@ -45,6 +45,13 @@ namespace OloEngine
 
             // Tick active effects (duration, periodic application)
             ac.ActiveEffects.Tick(dt, ac.Attributes, ac.OwnedTags);
+
+            // Death state: when Health drops to 0, remove State.Alive and add State.Dead
+            if (ac.Attributes.HasAttribute("Health") && ac.Attributes.GetCurrentValue("Health") <= 0.0f && ac.OwnedTags.HasTagExact(GameplayTag("State.Alive")))
+            {
+                ac.OwnedTags.RemoveTag(GameplayTag("State.Alive"));
+                ac.OwnedTags.AddTag(GameplayTag("State.Dead"));
+            }
         }
     }
 
