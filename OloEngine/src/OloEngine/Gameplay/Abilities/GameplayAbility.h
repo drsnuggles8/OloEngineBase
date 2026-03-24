@@ -26,8 +26,12 @@ namespace OloEngine
         f32 ResourceCost = 0.0f;
         std::string CostAttribute = "Mana";
 
-        // Effects applied on activation
+        // Effects applied on activation (to the caster)
         std::vector<GameplayEffect> ActivationEffects;
+
+        // Effects applied to the target when using TryActivateAbilityOnTarget.
+        // If empty, ActivationEffects are used for the target as well (legacy behavior).
+        std::vector<GameplayEffect> TargetActivationEffects;
 
         // Whether this is a channeled/toggled ability
         bool IsChanneled = false;

@@ -35,7 +35,11 @@ namespace OloEngine
             {
                 glm::vec3 pos;
                 if (crowdMgr->GetAgentPosition(agent.m_CrowdAgentId, pos))
+                {
+                    if (agent.m_LockYAxis)
+                        pos.y = transform.Translation.y;
                     transform.Translation = pos;
+                }
                 continue;
             }
 
@@ -51,9 +55,11 @@ namespace OloEngine
             if (!agent.m_HasPath || agent.m_PathCorners.empty())
                 continue;
 
-            // Move toward current corner (full 3D)
+            // Move toward current corner (full 3D, or XZ-only when LockYAxis)
             const glm::vec3& target = agent.m_PathCorners[agent.m_CurrentCornerIndex];
             glm::vec3 toTarget = target - transform.Translation;
+            if (agent.m_LockYAxis)
+                toTarget.y = 0.0f;
             f32 dist = glm::length(toTarget);
 
             constexpr f32 EPSILON = 1e-4f;

@@ -166,6 +166,7 @@ namespace OloEngine
         AssetManager::SyncWithAssetThread();
 
         m_ActiveScene->OnViewportResize(static_cast<u32>(m_ViewportSize.x), static_cast<u32>(m_ViewportSize.y));
+        m_ActiveScene->SetViewportOffset(m_ViewportBounds[0]);
 
         const f64 epsilon = 1e-5;
 

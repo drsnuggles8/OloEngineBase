@@ -1347,6 +1347,7 @@ namespace OloEngine
         f32 m_Acceleration = 8.0f;
         f32 m_StoppingDistance = 0.1f;
         i32 m_AvoidancePriority = 50;
+        bool m_LockYAxis = false; // When true, navigation only moves on XZ plane
 
         // Runtime state (not serialized)
         glm::vec3 m_TargetPosition = { 0.0f, 0.0f, 0.0f };
@@ -1360,7 +1361,7 @@ namespace OloEngine
         NavAgentComponent(const NavAgentComponent& other)
             : m_Radius(other.m_Radius), m_Height(other.m_Height), m_MaxSpeed(other.m_MaxSpeed),
               m_Acceleration(other.m_Acceleration), m_StoppingDistance(other.m_StoppingDistance),
-              m_AvoidancePriority(other.m_AvoidancePriority)
+              m_AvoidancePriority(other.m_AvoidancePriority), m_LockYAxis(other.m_LockYAxis)
         {
         }
         NavAgentComponent& operator=(const NavAgentComponent& other)
@@ -1373,6 +1374,7 @@ namespace OloEngine
                 m_Acceleration = other.m_Acceleration;
                 m_StoppingDistance = other.m_StoppingDistance;
                 m_AvoidancePriority = other.m_AvoidancePriority;
+                m_LockYAxis = other.m_LockYAxis;
                 m_TargetPosition = {};
                 m_HasTarget = false;
                 m_HasPath = false;
@@ -1385,7 +1387,7 @@ namespace OloEngine
         NavAgentComponent(NavAgentComponent&& other) noexcept
             : m_Radius(other.m_Radius), m_Height(other.m_Height), m_MaxSpeed(other.m_MaxSpeed),
               m_Acceleration(other.m_Acceleration), m_StoppingDistance(other.m_StoppingDistance),
-              m_AvoidancePriority(other.m_AvoidancePriority)
+              m_AvoidancePriority(other.m_AvoidancePriority), m_LockYAxis(other.m_LockYAxis)
         {
         }
         NavAgentComponent& operator=(NavAgentComponent&& other) noexcept
@@ -1398,6 +1400,7 @@ namespace OloEngine
                 m_Acceleration = other.m_Acceleration;
                 m_StoppingDistance = other.m_StoppingDistance;
                 m_AvoidancePriority = other.m_AvoidancePriority;
+                m_LockYAxis = other.m_LockYAxis;
                 m_TargetPosition = {};
                 m_HasTarget = false;
                 m_HasPath = false;

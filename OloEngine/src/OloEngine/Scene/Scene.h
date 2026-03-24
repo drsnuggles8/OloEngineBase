@@ -77,6 +77,15 @@ namespace OloEngine
             return m_ViewportHeight;
         }
 
+        void SetViewportOffset(glm::vec2 offset)
+        {
+            m_ViewportOffset = offset;
+        }
+        [[nodiscard]] glm::vec2 GetViewportOffset() const
+        {
+            return m_ViewportOffset;
+        }
+
         [[nodiscard]] Entity DuplicateEntity(Entity entity);
 
         [[nodiscard("Store this!")]] Entity FindEntityByName(std::string_view name);
@@ -394,6 +403,7 @@ namespace OloEngine
         entt::registry m_Registry;
         u32 m_ViewportWidth = 0;
         u32 m_ViewportHeight = 0;
+        glm::vec2 m_ViewportOffset{ 0.0f, 0.0f };
         glm::mat4 m_CameraViewProjection{ 1.0f }; // Cached for UI world-anchor projection
         bool m_IsRunning = false;
         bool m_IsPaused = false;

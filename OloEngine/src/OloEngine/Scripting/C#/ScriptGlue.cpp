@@ -1881,6 +1881,20 @@ namespace OloEngine
         agent.m_CurrentCornerIndex = 0;
     }
 
+    static bool NavAgentComponent_GetLockYAxis(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
+        return entity.GetComponent<NavAgentComponent>().m_LockYAxis;
+    }
+
+    static void NavAgentComponent_SetLockYAxis(UUID entityID, bool lock)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
+        entity.GetComponent<NavAgentComponent>().m_LockYAxis = lock;
+    }
+
     ///////////////////////////////////////////////////////////////////////////////////////////
     // UIWorldAnchorComponent /////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -2337,7 +2351,15 @@ namespace OloEngine
 
     static void Input_GetMousePosition(glm::vec2* outPosition)
     {
-        *outPosition = Input::GetMousePosition();
+        glm::vec2 raw = Input::GetMousePosition();
+        // In the editor the game viewport is an ImGui sub-window; subtract its
+        // origin so scripts see coordinates relative to the viewport — matching
+        // the size returned by Input_GetWindowSize.
+        if (Scene* scene = ScriptEngine::GetSceneContext(); scene)
+        {
+            raw -= scene->GetViewportOffset();
+        }
+        *outPosition = raw;
     }
 
     static void Input_GetWindowSize(glm::vec2* outSize)
@@ -3431,17 +3453,19 @@ namespace OloEngine
             return false;
         }
 
-        // Apply the ability's activation effects to the TARGET entity.
-        // This intentionally duplicates onto target — self-buff + target-debuff is
-        // valid game design for some abilities.  If the ability should ONLY affect
-        // the target, its ActivationEffects should use target-only effect types.
+        // Apply effects to the TARGET entity.
+        // If the ability defines TargetActivationEffects, use those; otherwise
+        // fall back to ActivationEffects (legacy behavior).
         auto& casterAC = caster.GetComponent<AbilityComponent>();
         for (auto& ability : casterAC.Abilities)
         {
             if (ability.Definition.AbilityTag == tag)
             {
                 auto& targetAC = target.GetComponent<AbilityComponent>();
-                for (auto const& effect : ability.Definition.ActivationEffects)
+                auto const& effects = ability.Definition.TargetActivationEffects.empty()
+                                          ? ability.Definition.ActivationEffects
+                                          : ability.Definition.TargetActivationEffects;
+                for (auto const& effect : effects)
                 {
                     targetAC.ActiveEffects.ApplyEffect(effect, targetAC.OwnedTags, tag);
                 }
@@ -3468,11 +3492,17 @@ namespace OloEngine
 
     static void Application_QuitGame()
     {
-        // In editor mode this shuts down the whole app — acceptable for the
-        // standalone runtime where Close() == quit game.  If an in-editor
-        // "stop play mode" API is added later, prefer that here.
-        OLO_CORE_INFO("[ScriptGlue] Application_QuitGame requested from script");
-        Application::Get().Close();
+        auto& app = Application::Get();
+        if (app.GetSpecification().IsEditor)
+        {
+            // In the editor, QuitGame() is a no-op — use the Stop button instead.
+            OLO_CORE_WARN("[ScriptGlue] Application_QuitGame ignored in editor. "
+                          "Use the editor Stop button or call SceneManager.ReloadCurrentScene() to restart.");
+            return;
+        }
+
+        OLO_CORE_INFO("[ScriptGlue] Application_QuitGame — shutting down (standalone)");
+        app.Close();
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -3809,6 +3839,8 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(NavAgentComponent_SetStoppingDistance);
         OLO_ADD_INTERNAL_CALL(NavAgentComponent_HasPath);
         OLO_ADD_INTERNAL_CALL(NavAgentComponent_ClearTarget);
+        OLO_ADD_INTERNAL_CALL(NavAgentComponent_GetLockYAxis);
+        OLO_ADD_INTERNAL_CALL(NavAgentComponent_SetLockYAxis);
 
         ///////////////////////////////////////////////////////////////
         // UIWorldAnchorComponent ////////////////////////////////////

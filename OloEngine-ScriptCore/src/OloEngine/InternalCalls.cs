@@ -610,6 +610,10 @@ namespace OloEngine
 		internal static extern bool NavAgentComponent_HasPath(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void NavAgentComponent_ClearTarget(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool NavAgentComponent_GetLockYAxis(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NavAgentComponent_SetLockYAxis(ulong entityID, bool lockY);
 		#endregion
 
 		#region UIWorldAnchorComponent

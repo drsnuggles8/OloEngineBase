@@ -320,11 +320,15 @@ namespace OloEngine
         };
         inputTable["GetMousePosition"] = []() -> std::tuple<f32, f32>
         {
-            const auto pos = Input::GetMousePosition();
+            auto pos = Input::GetMousePosition();
+            if (Scene* scene = ScriptEngine::GetSceneContext(); scene)
+                pos -= scene->GetViewportOffset();
             return { pos.x, pos.y };
         };
         inputTable["GetWindowSize"] = []() -> std::tuple<f32, f32>
         {
+            if (Scene* scene = ScriptEngine::GetSceneContext(); scene && scene->GetViewportWidth() > 0)
+                return { static_cast<f32>(scene->GetViewportWidth()), static_cast<f32>(scene->GetViewportHeight()) };
             auto& window = Application::Get().GetWindow();
             return { static_cast<f32>(window.GetWidth()), static_cast<f32>(window.GetHeight()) };
         };
@@ -491,6 +495,7 @@ namespace OloEngine
                                                     a.m_CurrentCornerIndex = 0; }),
                                             "hasTarget", sol::readonly(&NavAgentComponent::m_HasTarget),
                                             "hasPath", sol::readonly(&NavAgentComponent::m_HasPath),
+                                            "lockYAxis", &NavAgentComponent::m_LockYAxis,
                                             "clearTarget", [](NavAgentComponent& agent)
                                             {
                                                 agent.m_HasTarget = false;
@@ -964,7 +969,10 @@ namespace OloEngine
                 if (ability.Definition.AbilityTag == tag)
                 {
                     auto& targetAC = target.GetComponent<AbilityComponent>();
-                    for (auto const& effect : ability.Definition.ActivationEffects)
+                    auto const& effects = ability.Definition.TargetActivationEffects.empty()
+                                              ? ability.Definition.ActivationEffects
+                                              : ability.Definition.TargetActivationEffects;
+                    for (auto const& effect : effects)
                     {
                         targetAC.ActiveEffects.ApplyEffect(effect, targetAC.OwnedTags, tag);
                     }

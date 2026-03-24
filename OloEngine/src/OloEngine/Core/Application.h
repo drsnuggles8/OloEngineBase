@@ -44,6 +44,7 @@ namespace OloEngine
         ApplicationCommandLineArgs CommandLineArgs;
         RendererType PreferredRenderer = RendererType::Renderer2D;
         bool IsHeadless = false;
+        bool IsEditor = false;
         u32 HeadlessTickRate = 60; // Hz — only used when IsHeadless == true
     };
 

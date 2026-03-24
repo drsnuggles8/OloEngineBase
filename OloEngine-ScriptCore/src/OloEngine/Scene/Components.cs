@@ -1186,6 +1186,12 @@ namespace OloEngine
 
 		public bool HasPath => InternalCalls.NavAgentComponent_HasPath(Entity.ID);
 
+		public bool LockYAxis
+		{
+			get => InternalCalls.NavAgentComponent_GetLockYAxis(Entity.ID);
+			set => InternalCalls.NavAgentComponent_SetLockYAxis(Entity.ID, value);
+		}
+
 		public void ClearTarget() => InternalCalls.NavAgentComponent_ClearTarget(Entity.ID);
 	}
 

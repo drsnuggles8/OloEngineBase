@@ -139,6 +139,137 @@ namespace OloEngine
         }
     }
 
+    static void SerializeEffectList(YAML::Emitter& out, const char* key, const std::vector<GameplayEffect>& effects)
+    {
+        out << YAML::Key << key << YAML::Value << YAML::BeginSeq;
+        for (auto const& effect : effects)
+        {
+            out << YAML::BeginMap;
+            out << YAML::Key << "Name" << YAML::Value << effect.Name;
+
+            std::string durType = "Instant";
+            if (effect.Policy.DurationType == GameplayEffectPolicy::Duration::HasDuration)
+                durType = "HasDuration";
+            else if (effect.Policy.DurationType == GameplayEffectPolicy::Duration::Infinite)
+                durType = "Infinite";
+            out << YAML::Key << "DurationType" << YAML::Value << durType;
+            out << YAML::Key << "DurationSeconds" << YAML::Value << effect.Policy.DurationSeconds;
+            out << YAML::Key << "IsPeriodic" << YAML::Value << effect.Policy.IsPeriodic;
+            out << YAML::Key << "PeriodSeconds" << YAML::Value << effect.Policy.PeriodSeconds;
+
+            out << YAML::Key << "Modifiers" << YAML::Value << YAML::BeginSeq;
+            for (auto const& mod : effect.Modifiers)
+            {
+                out << YAML::BeginMap;
+                out << YAML::Key << "Attribute" << YAML::Value << mod.AttributeName;
+                std::string op = "Add";
+                if (mod.Op == AttributeModifier::Operation::Multiply)
+                    op = "Multiply";
+                else if (mod.Op == AttributeModifier::Operation::Override)
+                    op = "Override";
+                out << YAML::Key << "Operation" << YAML::Value << op;
+                out << YAML::Key << "Magnitude" << YAML::Value << mod.Magnitude;
+                out << YAML::EndMap;
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::Key << "MaxStacks" << YAML::Value << effect.MaxStacks;
+            out << YAML::Key << "RefreshDurationOnStack" << YAML::Value << effect.RefreshDurationOnStack;
+
+            out << YAML::Key << "GrantedTags" << YAML::Value << YAML::BeginSeq;
+            for (auto const& t : effect.GrantedTags.GetTags())
+            {
+                out << t.GetTagString();
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::Key << "RequiredTags" << YAML::Value << YAML::BeginSeq;
+            for (auto const& t : effect.RequiredTags.GetTags())
+            {
+                out << t.GetTagString();
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::Key << "BlockedTags" << YAML::Value << YAML::BeginSeq;
+            for (auto const& t : effect.BlockedTags.GetTags())
+            {
+                out << t.GetTagString();
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::EndMap;
+        }
+        out << YAML::EndSeq;
+    }
+
+    static void DeserializeEffectList(const YAML::Node& node, const char* key, std::vector<GameplayEffect>& effects)
+    {
+        auto effectsNode = node[key];
+        if (!effectsNode || !effectsNode.IsSequence())
+            return;
+
+        for (auto const& effectNode : effectsNode)
+        {
+            GameplayEffect ge;
+            ge.Name = effectNode["Name"].as<std::string>("");
+
+            std::string durType = effectNode["DurationType"].as<std::string>("Instant");
+            if (durType == "HasDuration")
+                ge.Policy.DurationType = GameplayEffectPolicy::Duration::HasDuration;
+            else if (durType == "Infinite")
+                ge.Policy.DurationType = GameplayEffectPolicy::Duration::Infinite;
+
+            ge.Policy.DurationSeconds = effectNode["DurationSeconds"].as<f32>(0.0f);
+            ge.Policy.IsPeriodic = effectNode["IsPeriodic"].as<bool>(false);
+            ge.Policy.PeriodSeconds = effectNode["PeriodSeconds"].as<f32>(1.0f);
+            SanitizeFloat(ge.Policy.DurationSeconds, 0.0f, 600.0f, 0.0f);
+            SanitizeFloat(ge.Policy.PeriodSeconds, 0.01f, 60.0f, 1.0f);
+
+            if (auto mods = effectNode["Modifiers"]; mods && mods.IsSequence())
+            {
+                for (auto const& modNode : mods)
+                {
+                    GameplayEffect::AttributeMod mod;
+                    mod.AttributeName = modNode["Attribute"].as<std::string>("");
+                    std::string op = modNode["Operation"].as<std::string>("Add");
+                    if (op == "Multiply")
+                        mod.Op = AttributeModifier::Operation::Multiply;
+                    else if (op == "Override")
+                        mod.Op = AttributeModifier::Operation::Override;
+                    mod.Magnitude = modNode["Magnitude"].as<f32>(0.0f);
+                    ge.Modifiers.push_back(mod);
+                }
+            }
+
+            ge.MaxStacks = effectNode["MaxStacks"].as<i32>(1);
+            ge.RefreshDurationOnStack = effectNode["RefreshDurationOnStack"].as<bool>(true);
+
+            if (auto grantedTags = effectNode["GrantedTags"]; grantedTags && grantedTags.IsSequence())
+            {
+                for (auto const& t : grantedTags)
+                {
+                    ge.GrantedTags.AddTag(GameplayTag(t.as<std::string>("")));
+                }
+            }
+            if (auto reqTags = effectNode["RequiredTags"]; reqTags && reqTags.IsSequence())
+            {
+                for (auto const& t : reqTags)
+                {
+                    ge.RequiredTags.AddTag(GameplayTag(t.as<std::string>("")));
+                }
+            }
+            if (auto blkTags = effectNode["BlockedTags"]; blkTags && blkTags.IsSequence())
+            {
+                for (auto const& t : blkTags)
+                {
+                    ge.BlockedTags.AddTag(GameplayTag(t.as<std::string>("")));
+                }
+            }
+
+            effects.push_back(std::move(ge));
+        }
+    }
+
     static void SerializeSnowSettings(YAML::Emitter& out, const SnowSettings& snow)
     {
         out << YAML::Key << "SnowSettings";
@@ -2198,6 +2329,7 @@ namespace OloEngine
             TrySet(nac.m_StoppingDistance, navAgentComponent["StoppingDistance"]);
             SanitizeFloat(nac.m_StoppingDistance, 0.0f, 100.0f, 0.1f);
             TrySet(nac.m_AvoidancePriority, navAgentComponent["AvoidancePriority"]);
+            TrySet(nac.m_LockYAxis, navAgentComponent["LockYAxis"]);
         }
 
         if (auto behaviorTreeComponent = entity["BehaviorTreeComponent"]; behaviorTreeComponent)
@@ -2647,70 +2779,10 @@ namespace OloEngine
                     }
 
                     // Deserialize activation effects
-                    if (auto effects = abilityNode["ActivationEffects"]; effects && effects.IsSequence())
-                    {
-                        for (auto const& effectNode : effects)
-                        {
-                            GameplayEffect ge;
-                            ge.Name = effectNode["Name"].as<std::string>("");
+                    DeserializeEffectList(abilityNode, "ActivationEffects", aa.Definition.ActivationEffects);
 
-                            std::string durType = effectNode["DurationType"].as<std::string>("Instant");
-                            if (durType == "HasDuration")
-                                ge.Policy.DurationType = GameplayEffectPolicy::Duration::HasDuration;
-                            else if (durType == "Infinite")
-                                ge.Policy.DurationType = GameplayEffectPolicy::Duration::Infinite;
-
-                            ge.Policy.DurationSeconds = effectNode["DurationSeconds"].as<f32>(0.0f);
-                            ge.Policy.IsPeriodic = effectNode["IsPeriodic"].as<bool>(false);
-                            ge.Policy.PeriodSeconds = effectNode["PeriodSeconds"].as<f32>(1.0f);
-                            SanitizeFloat(ge.Policy.DurationSeconds, 0.0f, 600.0f, 0.0f);
-                            SanitizeFloat(ge.Policy.PeriodSeconds, 0.01f, 60.0f, 1.0f);
-
-                            if (auto mods = effectNode["Modifiers"]; mods && mods.IsSequence())
-                            {
-                                for (auto const& modNode : mods)
-                                {
-                                    GameplayEffect::AttributeMod mod;
-                                    mod.AttributeName = modNode["Attribute"].as<std::string>("");
-                                    std::string op = modNode["Operation"].as<std::string>("Add");
-                                    if (op == "Multiply")
-                                        mod.Op = AttributeModifier::Operation::Multiply;
-                                    else if (op == "Override")
-                                        mod.Op = AttributeModifier::Operation::Override;
-                                    mod.Magnitude = modNode["Magnitude"].as<f32>(0.0f);
-                                    ge.Modifiers.push_back(mod);
-                                }
-                            }
-
-                            ge.MaxStacks = effectNode["MaxStacks"].as<i32>(1);
-                            ge.RefreshDurationOnStack = effectNode["RefreshDurationOnStack"].as<bool>(true);
-
-                            // Effect-level tags
-                            if (auto grantedTags = effectNode["GrantedTags"]; grantedTags && grantedTags.IsSequence())
-                            {
-                                for (auto const& t : grantedTags)
-                                {
-                                    ge.GrantedTags.AddTag(GameplayTag(t.as<std::string>("")));
-                                }
-                            }
-                            if (auto reqTags = effectNode["RequiredTags"]; reqTags && reqTags.IsSequence())
-                            {
-                                for (auto const& t : reqTags)
-                                {
-                                    ge.RequiredTags.AddTag(GameplayTag(t.as<std::string>("")));
-                                }
-                            }
-                            if (auto blkTags = effectNode["BlockedTags"]; blkTags && blkTags.IsSequence())
-                            {
-                                for (auto const& t : blkTags)
-                                {
-                                    ge.BlockedTags.AddTag(GameplayTag(t.as<std::string>("")));
-                                }
-                            }
-
-                            aa.Definition.ActivationEffects.push_back(std::move(ge));
-                        }
-                    }
+                    // Deserialize target activation effects (optional, backwards-compatible)
+                    DeserializeEffectList(abilityNode, "TargetActivationEffects", aa.Definition.TargetActivationEffects);
 
                     ac.Abilities.push_back(std::move(aa));
                 }
@@ -4137,6 +4209,7 @@ namespace OloEngine
             out << YAML::Key << "Acceleration" << YAML::Value << nac.m_Acceleration;
             out << YAML::Key << "StoppingDistance" << YAML::Value << nac.m_StoppingDistance;
             out << YAML::Key << "AvoidancePriority" << YAML::Value << nac.m_AvoidancePriority;
+            out << YAML::Key << "LockYAxis" << YAML::Value << nac.m_LockYAxis;
 
             out << YAML::EndMap; // NavAgentComponent
         }
@@ -4598,66 +4671,13 @@ namespace OloEngine
                 out << YAML::EndSeq;
 
                 // Serialize activation effects
-                out << YAML::Key << "ActivationEffects" << YAML::Value << YAML::BeginSeq;
-                for (auto const& effect : def.ActivationEffects)
+                SerializeEffectList(out, "ActivationEffects", def.ActivationEffects);
+
+                // Serialize target activation effects (only written when non-empty)
+                if (!def.TargetActivationEffects.empty())
                 {
-                    out << YAML::BeginMap;
-                    out << YAML::Key << "Name" << YAML::Value << effect.Name;
-
-                    std::string durType = "Instant";
-                    if (effect.Policy.DurationType == GameplayEffectPolicy::Duration::HasDuration)
-                        durType = "HasDuration";
-                    else if (effect.Policy.DurationType == GameplayEffectPolicy::Duration::Infinite)
-                        durType = "Infinite";
-                    out << YAML::Key << "DurationType" << YAML::Value << durType;
-                    out << YAML::Key << "DurationSeconds" << YAML::Value << effect.Policy.DurationSeconds;
-                    out << YAML::Key << "IsPeriodic" << YAML::Value << effect.Policy.IsPeriodic;
-                    out << YAML::Key << "PeriodSeconds" << YAML::Value << effect.Policy.PeriodSeconds;
-
-                    out << YAML::Key << "Modifiers" << YAML::Value << YAML::BeginSeq;
-                    for (auto const& mod : effect.Modifiers)
-                    {
-                        out << YAML::BeginMap;
-                        out << YAML::Key << "Attribute" << YAML::Value << mod.AttributeName;
-                        std::string op = "Add";
-                        if (mod.Op == AttributeModifier::Operation::Multiply)
-                            op = "Multiply";
-                        else if (mod.Op == AttributeModifier::Operation::Override)
-                            op = "Override";
-                        out << YAML::Key << "Operation" << YAML::Value << op;
-                        out << YAML::Key << "Magnitude" << YAML::Value << mod.Magnitude;
-                        out << YAML::EndMap;
-                    }
-                    out << YAML::EndSeq;
-
-                    out << YAML::Key << "MaxStacks" << YAML::Value << effect.MaxStacks;
-                    out << YAML::Key << "RefreshDurationOnStack" << YAML::Value << effect.RefreshDurationOnStack;
-
-                    // Effect-level tags
-                    out << YAML::Key << "GrantedTags" << YAML::Value << YAML::BeginSeq;
-                    for (auto const& t : effect.GrantedTags.GetTags())
-                    {
-                        out << t.GetTagString();
-                    }
-                    out << YAML::EndSeq;
-
-                    out << YAML::Key << "RequiredTags" << YAML::Value << YAML::BeginSeq;
-                    for (auto const& t : effect.RequiredTags.GetTags())
-                    {
-                        out << t.GetTagString();
-                    }
-                    out << YAML::EndSeq;
-
-                    out << YAML::Key << "BlockedTags" << YAML::Value << YAML::BeginSeq;
-                    for (auto const& t : effect.BlockedTags.GetTags())
-                    {
-                        out << t.GetTagString();
-                    }
-                    out << YAML::EndSeq;
-
-                    out << YAML::EndMap;
+                    SerializeEffectList(out, "TargetActivationEffects", def.TargetActivationEffects);
                 }
-                out << YAML::EndSeq;
 
                 out << YAML::EndMap; // Ability
             }

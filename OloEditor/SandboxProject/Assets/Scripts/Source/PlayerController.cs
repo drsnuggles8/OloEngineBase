@@ -14,6 +14,7 @@ namespace Sandbox
 
 		// Click-to-move state
 		private bool m_IsNavigating = false;
+		private bool m_WasMouseDown = false; // Track mouse state for single-click detection
 
 		// VFX entity references (found by name)
 		private Entity m_SlashVFX;
@@ -31,7 +32,10 @@ namespace Sandbox
 			m_Abilities = GetComponent<AbilityComponent>();
 
 			if (HasComponent<NavAgentComponent>())
+			{
 				m_NavAgent = GetComponent<NavAgentComponent>();
+				m_NavAgent.LockYAxis = true; // Top-down game: move on XZ only
+			}
 
 			MaterialComponent material = null;
 			if (HasComponent<MaterialComponent>())
@@ -85,8 +89,12 @@ namespace Sandbox
 			if (GameApplication.TimeScale == 0.0f)
 				return;
 
-			// ── Click-to-move ──
-			if (Input.IsMouseButtonDown(0)) // Left click
+			// ── Click-to-move (triggers once per click, not every held frame) ──
+			bool mouseDown = Input.IsMouseButtonDown(0);
+			bool mouseJustPressed = mouseDown && !m_WasMouseDown;
+			m_WasMouseDown = mouseDown;
+
+			if (mouseJustPressed)
 			{
 				Vector2 mousePos = Input.GetMousePosition();
 				Entity cameraEntity = FindEntityByName("Camera");
