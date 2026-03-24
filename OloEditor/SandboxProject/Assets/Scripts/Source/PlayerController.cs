@@ -26,6 +26,11 @@ namespace Sandbox
 		// Death state
 		private bool m_IsDead = false;
 
+		// Known enemy entities for targeting
+		private Entity[] m_Enemies;
+		private float m_MeleeRange = 3.0f;
+		private float m_SpellRange = 10.0f;
+
 		void OnCreate()
 		{
 			m_Transform = GetComponent<TransformComponent>();
@@ -45,6 +50,13 @@ namespace Sandbox
 			m_SlashVFX = FindEntityByName("Slash VFX");
 			m_FireballVFX = FindEntityByName("Fireball VFX");
 			m_HealVFX = FindEntityByName("Heal VFX");
+
+			// Gather known enemies for targeting
+			m_Enemies = new Entity[]
+			{
+				FindEntityByName("Goblin"),
+				FindEntityByName("Fire Mage")
+			};
 
 			Debug.Log("[Player] Ready - WASD/Click to move, 1=Slash, 2=Fireball, 3=Heal");
 		}
@@ -152,7 +164,8 @@ namespace Sandbox
 			// ── Ability hotkeys (one-shot) ──
 			if (Input.IsKeyJustPressed(KeyCode.D1))
 			{
-				if (m_Abilities.TryActivateAbility("Ability.Melee.Slash"))
+				Entity target = FindNearestEnemy(m_MeleeRange);
+				if (target != null && m_Abilities.TryActivateAbilityOnTarget("Ability.Melee.Slash", target.ID))
 				{
 					Debug.Log("[Player] Slash!");
 					TriggerVFX(m_SlashVFX, 0.3f);
@@ -162,7 +175,8 @@ namespace Sandbox
 
 			if (Input.IsKeyJustPressed(KeyCode.D2))
 			{
-				if (m_Abilities.TryActivateAbility("Ability.Spell.Fire.Fireball"))
+				Entity target = FindNearestEnemy(m_SpellRange);
+				if (target != null && m_Abilities.TryActivateAbilityOnTarget("Ability.Spell.Fire.Fireball", target.ID))
 				{
 					Debug.Log("[Player] Fireball!");
 					TriggerVFX(m_FireballVFX, 0.5f);
@@ -223,6 +237,40 @@ namespace Sandbox
 				m_ActiveVFX = vfxEntity;
 				m_VFXTimer = duration;
 			}
+		}
+
+		private Entity FindNearestEnemy(float maxRange)
+		{
+			Vector3 myPos = m_Transform.Translation;
+			Entity closest = null;
+			float closestDistSq = maxRange * maxRange;
+
+			for (int i = 0; i < m_Enemies.Length; i++)
+			{
+				Entity e = m_Enemies[i];
+				if (e == null || e.IsDestroyed)
+					continue;
+
+				// Only target living enemies
+				if (!e.HasComponent<AbilityComponent>())
+					continue;
+				var ac = e.GetComponent<AbilityComponent>();
+				if (!ac.HasTag("State.Alive"))
+					continue;
+
+				Vector3 ePos = e.Translation;
+				float dx = ePos.X - myPos.X;
+				float dz = ePos.Z - myPos.Z;
+				float distSq = dx * dx + dz * dz;
+
+				if (distSq < closestDistSq)
+				{
+					closestDistSq = distSq;
+					closest = e;
+				}
+			}
+
+			return closest;
 		}
 	}
 }

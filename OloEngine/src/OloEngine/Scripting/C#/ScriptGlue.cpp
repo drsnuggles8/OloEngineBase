@@ -3453,21 +3453,21 @@ namespace OloEngine
             return false;
         }
 
-        // Apply effects to the TARGET entity.
-        // If the ability defines TargetActivationEffects, use those; otherwise
-        // fall back to ActivationEffects (legacy behavior).
+        // Apply TargetActivationEffects to the TARGET entity.
+        // ActivationEffects were already applied to the caster by TryActivateAbility;
+        // only the explicit target-specific effects list goes to the target.
         auto& casterAC = caster.GetComponent<AbilityComponent>();
         for (auto& ability : casterAC.Abilities)
         {
             if (ability.Definition.AbilityTag == tag)
             {
-                auto& targetAC = target.GetComponent<AbilityComponent>();
-                auto const& effects = ability.Definition.TargetActivationEffects.empty()
-                                          ? ability.Definition.ActivationEffects
-                                          : ability.Definition.TargetActivationEffects;
-                for (auto const& effect : effects)
+                if (!ability.Definition.TargetActivationEffects.empty())
                 {
-                    targetAC.ActiveEffects.ApplyEffect(effect, targetAC.OwnedTags, tag);
+                    auto& targetAC = target.GetComponent<AbilityComponent>();
+                    for (auto const& effect : ability.Definition.TargetActivationEffects)
+                    {
+                        targetAC.ActiveEffects.ApplyEffect(effect, targetAC.OwnedTags, tag);
+                    }
                 }
                 break;
             }

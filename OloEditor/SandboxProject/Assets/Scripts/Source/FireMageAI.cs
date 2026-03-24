@@ -107,7 +107,7 @@ namespace Sandbox
 			m_CastTimer -= ts;
 			if (dist <= CastRange && m_CastTimer <= 0.0f)
 			{
-				if (m_Abilities.TryActivateAbility("Ability.Spell.Fire.FireBolt"))
+				if (m_Abilities.TryActivateAbilityOnTarget("Ability.Spell.Fire.FireBolt", m_Player.ID))
 				{
 					Debug.Log("[FireMage] Fire Bolt!");
 					m_CastTimer = 3.0f;

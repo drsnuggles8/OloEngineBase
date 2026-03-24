@@ -79,7 +79,7 @@ namespace Sandbox
 					m_AttackTimer -= ts;
 					if (m_AttackTimer <= 0.0f)
 					{
-						if (m_Abilities.TryActivateAbility("Ability.Melee.Bite"))
+						if (m_Abilities.TryActivateAbilityOnTarget("Ability.Melee.Bite", m_Player.ID))
 						{
 							Debug.Log("[Goblin] Bite!");
 							m_AttackTimer = 2.0f;

@@ -331,6 +331,8 @@ Entities:
           BlockedTags:
             - State.Stunned
           ActivationEffects:
+            []
+          TargetActivationEffects:
             - Name: SlashDamage
               DurationType: Instant
               DurationSeconds: 0
@@ -362,6 +364,8 @@ Entities:
             - State.Stunned
             - State.Silenced
           ActivationEffects:
+            []
+          TargetActivationEffects:
             - Name: BurnDoT
               DurationType: HasDuration
               DurationSeconds: 4
@@ -484,6 +488,8 @@ Entities:
           BlockedTags:
             - State.Stunned
           ActivationEffects:
+            []
+          TargetActivationEffects:
             - Name: BiteDamage
               DurationType: Instant
               DurationSeconds: 0
@@ -582,6 +588,8 @@ Entities:
             - State.Stunned
             - State.Silenced
           ActivationEffects:
+            []
+          TargetActivationEffects:
             - Name: FireBoltBurn
               DurationType: HasDuration
               DurationSeconds: 3
@@ -1132,6 +1140,36 @@ Entities:
       FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
       FontSize: 56
       Color: [1, 0.2, 0.2, 0]
+      Alignment: 4
+      Kerning: 0
+      LineSpacing: 1.5
+  - Entity: 830000000000072
+    TagComponent:
+      Tag: Victory Overlay
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UICanvasComponent:
+      RenderMode: 0
+      ScaleMode: 0
+      SortOrder: 102
+      ReferenceResolution: [1920, 1080]
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      AnchoredPosition: [0, 0]
+      SizeDelta: [0, 0]
+      Pivot: [0.5, 0.5]
+      Rotation: 0
+      Scale: [1, 1]
+    UIPanelComponent:
+      BackgroundColor: [0, 0, 0, 0]
+    UITextComponent:
+      Text: ""
+      FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
+      FontSize: 56
+      Color: [0.3, 1, 0.3, 0]
       Alignment: 4
       Kerning: 0
       LineSpacing: 1.5

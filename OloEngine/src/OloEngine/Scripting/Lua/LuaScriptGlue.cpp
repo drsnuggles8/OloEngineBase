@@ -968,13 +968,13 @@ namespace OloEngine
             {
                 if (ability.Definition.AbilityTag == tag)
                 {
-                    auto& targetAC = target.GetComponent<AbilityComponent>();
-                    auto const& effects = ability.Definition.TargetActivationEffects.empty()
-                                              ? ability.Definition.ActivationEffects
-                                              : ability.Definition.TargetActivationEffects;
-                    for (auto const& effect : effects)
+                    if (!ability.Definition.TargetActivationEffects.empty())
                     {
-                        targetAC.ActiveEffects.ApplyEffect(effect, targetAC.OwnedTags, tag);
+                        auto& targetAC = target.GetComponent<AbilityComponent>();
+                        for (auto const& effect : ability.Definition.TargetActivationEffects)
+                        {
+                            targetAC.ActiveEffects.ApplyEffect(effect, targetAC.OwnedTags, tag);
+                        }
                     }
                     break;
                 }
