@@ -7,6 +7,34 @@
 
 namespace OloEngine
 {
+    // Recursively offset all descendant UIResolvedRectComponents by a delta.
+    // Used after a world-anchor override repositions a parent.
+    static void OffsetSubtree(Scene& scene, entt::entity entity, const glm::vec2& delta)
+    {
+        Entity ent{ entity, &scene };
+        if (!ent.HasComponent<RelationshipComponent>())
+        {
+            return;
+        }
+
+        for (const UUID childUUID : ent.GetComponent<RelationshipComponent>().m_Children)
+        {
+            auto childOpt = scene.TryGetEntityWithUUID(childUUID);
+            if (!childOpt)
+            {
+                continue;
+            }
+
+            Entity childEnt{ static_cast<entt::entity>(*childOpt), &scene };
+            if (childEnt.HasComponent<UIResolvedRectComponent>())
+            {
+                childEnt.GetComponent<UIResolvedRectComponent>().m_Position += delta;
+            }
+
+            OffsetSubtree(scene, static_cast<entt::entity>(*childOpt), delta);
+        }
+    }
+
     static void ResolveRect(Scene& scene, entt::entity entity, const glm::vec2& parentPos, const glm::vec2& parentSize)
     {
         OLO_PROFILE_FUNCTION();
@@ -257,8 +285,8 @@ namespace OloEngine
             // Perspective divide → NDC [-1, 1]
             const glm::vec3 ndc = glm::vec3(clipPos) / clipPos.w;
 
-            // Cull if beyond the far plane
-            if (ndc.z > 1.0f)
+            // Cull if beyond the far plane or in front of the near plane
+            if (ndc.z > 1.0f || ndc.z < -1.0f)
             {
                 resolved.m_Position = { -10000.0f, -10000.0f };
                 continue;
@@ -269,7 +297,13 @@ namespace OloEngine
             const f32 screenY = (1.0f - (ndc.y * 0.5f + 0.5f)) * static_cast<f32>(viewportHeight);
 
             // Center the resolved rect at the projected screen position
+            const glm::vec2 oldPosition = resolved.m_Position;
             resolved.m_Position = { screenX - resolved.m_Size.x * 0.5f, screenY - resolved.m_Size.y };
+
+            // Propagate the position change to any children already resolved
+            // during the canvas tree walk
+            const glm::vec2 delta = resolved.m_Position - oldPosition;
+            OffsetSubtree(scene, entity, delta);
         }
     }
 } // namespace OloEngine

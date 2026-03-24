@@ -1277,6 +1277,12 @@ namespace OloEngine
 			}
 			set => InternalCalls.NameplateComponent_SetBarBackgroundColor(Entity.ID, ref value);
 		}
+
+		public float ManaBarGap
+		{
+			get => InternalCalls.NameplateComponent_GetManaBarGap(Entity.ID);
+			set => InternalCalls.NameplateComponent_SetManaBarGap(Entity.ID, value);
+		}
 	}
 
 	public class AnimationGraphComponent : Component
@@ -1636,7 +1642,7 @@ namespace OloEngine
 		/// </summary>
 		public float ApplyDamageToTarget(ulong targetEntityID, float rawDamage, string damageType = null, bool isCritical = false)
 		{
-			return InternalCalls.AbilityComponent_ApplyDamageToTarget(Entity.ID, targetEntityID, rawDamage, damageType ?? "Physical", isCritical);
+			return InternalCalls.AbilityComponent_ApplyDamageToTarget(Entity.ID, targetEntityID, rawDamage, string.IsNullOrWhiteSpace(damageType) ? "Physical" : damageType, isCritical);
 		}
 
 		/// <summary>

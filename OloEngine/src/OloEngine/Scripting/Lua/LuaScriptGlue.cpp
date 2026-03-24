@@ -9,6 +9,7 @@
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Core/Input.h"
+#include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/Gamepad.h"
 #include "OloEngine/Core/GamepadManager.h"
@@ -316,6 +317,16 @@ namespace OloEngine
         inputTable["GetActionAxisValue"] = [](const std::string& name)
         {
             return InputActionManager::GetActionAxisValue(name);
+        };
+        inputTable["GetMousePosition"] = []() -> std::tuple<f32, f32>
+        {
+            const auto pos = Input::GetMousePosition();
+            return { pos.x, pos.y };
+        };
+        inputTable["GetWindowSize"] = []() -> std::tuple<f32, f32>
+        {
+            auto& window = Application::Get().GetWindow();
+            return { static_cast<f32>(window.GetWidth()), static_cast<f32>(window.GetHeight()) };
         };
 
         // --- Gamepad functions (raw access) ---
@@ -806,7 +817,7 @@ namespace OloEngine
             if (!scene)
                 return sol::make_object(s, sol::nil);
 
-            JoltScene* joltScene = scene->GetJoltScene();
+            JoltScene* joltScene = scene->GetPhysicsScene();
             if (!joltScene)
                 return sol::make_object(s, sol::nil);
 

@@ -2029,6 +2029,20 @@ namespace OloEngine
         entity.GetComponent<NameplateComponent>().m_BarBackgroundColor = *v;
     }
 
+    static f32 NameplateComponent_GetManaBarGap(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        return entity.GetComponent<NameplateComponent>().m_ManaBarGap;
+    }
+
+    static void NameplateComponent_SetManaBarGap(UUID entityID, f32 gap)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
+        entity.GetComponent<NameplateComponent>().m_ManaBarGap = gap;
+    }
+
     ///////////////////////////////////////////////////////////////////////////////////////////
     // Dialogue ///////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -3263,7 +3277,7 @@ namespace OloEngine
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
 
-        JoltScene* joltScene = scene->GetJoltScene();
+        JoltScene* joltScene = scene->GetPhysicsScene();
         if (!joltScene)
         {
             return false;
@@ -3287,7 +3301,7 @@ namespace OloEngine
     // Camera.ScreenToWorldRay ////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
 
-    static void Camera_ScreenToWorldRay(UUID cameraEntityID, glm::vec2* screenPos, glm::vec3* outOrigin, glm::vec3* outDirection)
+    static bool Camera_ScreenToWorldRay(UUID cameraEntityID, glm::vec2* screenPos, glm::vec3* outOrigin, glm::vec3* outDirection)
     {
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
@@ -3297,7 +3311,7 @@ namespace OloEngine
         {
             *outOrigin = glm::vec3(0.0f);
             *outDirection = glm::vec3(0.0f, 0.0f, -1.0f);
-            return;
+            return false;
         }
 
         auto const& cameraComp = cameraEntity.GetComponent<CameraComponent>();
@@ -3321,6 +3335,7 @@ namespace OloEngine
 
         *outOrigin = glm::vec3(nearPoint);
         *outDirection = glm::normalize(glm::vec3(farPoint - nearPoint));
+        return true;
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -3354,6 +3369,10 @@ namespace OloEngine
         event.RawDamage = rawDamage;
         event.IsCritical = isCritical;
         event.CritMultiplier = sourceAC.Attributes.GetCurrentValue("CritMultiplier");
+        if (isCritical && event.CritMultiplier <= 0.0f)
+        {
+            event.CritMultiplier = 2.0f;
+        }
 
         if (damageTypeTag)
         {
@@ -3808,6 +3827,8 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(NameplateComponent_SetManaBarColor);
         OLO_ADD_INTERNAL_CALL(NameplateComponent_GetBarBackgroundColor);
         OLO_ADD_INTERNAL_CALL(NameplateComponent_SetBarBackgroundColor);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetManaBarGap);
+        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetManaBarGap);
 
         ///////////////////////////////////////////////////////////////
         // AnimationGraphComponent ////////////////////////////////////

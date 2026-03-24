@@ -656,6 +656,10 @@ namespace OloEngine
 		internal static extern void NameplateComponent_GetBarBackgroundColor(ulong entityID, out Vector4 color);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void NameplateComponent_SetBarBackgroundColor(ulong entityID, ref Vector4 color);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float NameplateComponent_GetManaBarGap(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NameplateComponent_SetManaBarGap(ulong entityID, float gap);
 		#endregion
 
 		#region AnimationGraphComponent
@@ -860,7 +864,7 @@ namespace OloEngine
 
 		#region Camera
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void Camera_ScreenToWorldRay(ulong cameraEntityID, ref Vector2 screenPos, out Vector3 origin, out Vector3 direction);
+		internal static extern bool Camera_ScreenToWorldRay(ulong cameraEntityID, ref Vector2 screenPos, out Vector3 origin, out Vector3 direction);
 		#endregion
 
 		#region Application

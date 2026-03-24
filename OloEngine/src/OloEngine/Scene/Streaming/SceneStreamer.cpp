@@ -237,7 +237,7 @@ namespace OloEngine
 
         // Physics bodies must be destroyed BEFORE entity destruction
         // 3D (Jolt)
-        if (auto* jolt = m_Scene->GetJoltScene(); jolt)
+        if (auto* jolt = m_Scene->GetPhysicsScene(); jolt)
         {
             for (auto uuid : region->m_EntityUUIDs)
             {
@@ -480,7 +480,7 @@ namespace OloEngine
             // 3D (Jolt)
             if (entity.HasComponent<Rigidbody3DComponent>())
             {
-                if (auto* jolt = m_Scene->GetJoltScene(); jolt)
+                if (auto* jolt = m_Scene->GetPhysicsScene(); jolt)
                 {
                     jolt->CreateBody(entity);
                 }

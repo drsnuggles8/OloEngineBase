@@ -1089,6 +1089,13 @@ namespace OloEngine
             }
         }
 
+        // Update camera VP matrix before resolving UI layout so world-anchor
+        // projections use the current frame's camera, not the previous one.
+        if (mainCamera)
+        {
+            m_CameraViewProjection = mainCamera->GetProjection() * glm::inverse(cameraTransform);
+        }
+
         // Process UI input during runtime (resolve layout first so hit-rects are current)
         if (m_ViewportWidth > 0 && m_ViewportHeight > 0)
         {
@@ -1103,9 +1110,6 @@ namespace OloEngine
 
         if (mainCamera && m_RenderingEnabled)
         {
-            // Cache camera VP matrix for UI world-anchor projection
-            m_CameraViewProjection = mainCamera->GetProjection() * glm::inverse(cameraTransform);
-
             if (m_Is3DModeEnabled)
             {
                 // Set up the UICompositePass callback before the render graph executes.

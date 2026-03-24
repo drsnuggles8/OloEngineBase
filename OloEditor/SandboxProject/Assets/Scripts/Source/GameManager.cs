@@ -93,6 +93,14 @@ namespace Sandbox
 				return;
 
 			m_IsPlayerDead = true;
+
+			// Clear pause state if paused when death occurs
+			if (m_IsPaused)
+			{
+				m_IsPaused = false;
+				SetOverlayVisible(m_PauseOverlay, false);
+			}
+
 			GameApplication.TimeScale = 0.0f;
 
 			SetUIText(m_DeathOverlay, "YOU DIED\n\nPress R to Restart");

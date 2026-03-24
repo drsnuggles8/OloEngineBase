@@ -66,6 +66,7 @@ target_compile_definitions(OloEngine PRIVATE
 						_CRT_SECURE_NO_WARNINGS
 						GLFW_INCLUDE_NONE
 						YAML_CPP_STATIC_DEFINE
+						OLO_ENGINE_VERSION="${CMAKE_PROJECT_VERSION}"
 )
 olo_set_common_definitions(OloEngine)
 

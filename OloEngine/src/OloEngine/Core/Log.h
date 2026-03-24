@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <atomic>
+#include <mutex>
 
 #include "OloEngine/Core/Base.h"
 
@@ -16,8 +17,14 @@
 #include <spdlog/fmt/ostr.h>
 #include <spdlog/fmt/fmt.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
-#include <spdlog/sinks/ringbuffer_sink.h>
 #pragma warning(pop)
+
+// Forward-declare to avoid exposing spdlog sink internals in the public header
+namespace spdlog::sinks
+{
+    template<typename Mutex>
+    class ringbuffer_sink;
+}
 
 #if !defined(OLO_DIST) && defined(OLO_PLATFORM_WINDOWS)
 #define OLO_ASSERT_MESSAGE_BOX 1
@@ -145,7 +152,7 @@ namespace OloEngine
         static std::shared_ptr<spdlog::logger> s_CoreLogger;
         static std::shared_ptr<spdlog::logger> s_ClientLogger;
         static std::shared_ptr<spdlog::logger> s_EditorConsoleLogger;
-        static std::shared_ptr<spdlog::sinks::ringbuffer_sink_mt> s_RingbufferSink;
+        static std::shared_ptr<spdlog::sinks::ringbuffer_sink<std::mutex>> s_RingbufferSink;
 
         // lock-free storage
         static std::atomic<std::shared_ptr<TagMap>> s_Tags;

@@ -33,6 +33,7 @@ namespace OloEngine
     static std::string s_AppVersion = "0.0.0";
     static std::string s_GPUInfo;
     static bool s_Initialized = false;
+    static bool s_IsHeadless = false;
 
 #ifdef OLO_PLATFORM_WINDOWS
     static LPTOP_LEVEL_EXCEPTION_FILTER s_PreviousFilter = nullptr;
@@ -221,6 +222,10 @@ namespace OloEngine
         // Ensure the crash report directory exists
         std::error_code ec;
         std::filesystem::create_directories(s_CrashReportDir, ec);
+        if (ec)
+        {
+            OLO_CORE_ERROR("[CrashReporter] Failed to create crash report directory '{}': {}", s_CrashReportDir.string(), ec.message());
+        }
 
         InstallPlatformHandlers();
         s_Initialized = true;
@@ -243,6 +248,11 @@ namespace OloEngine
     {
         s_AppName = name;
         s_AppVersion = version;
+    }
+
+    void CrashReporter::SetHeadless(bool headless)
+    {
+        s_IsHeadless = headless;
     }
 
     void CrashReporter::SetGPUInfo(const std::string& info)
@@ -363,7 +373,7 @@ namespace OloEngine
 
 #ifdef OLO_PLATFORM_WINDOWS
         // Show a message box so the user knows something went wrong — only in interactive mode
-        if (!Application::Get().IsHeadless())
+        if (!s_IsHeadless)
         {
             const std::string msg = fmt::format(
                 "{} has crashed.\n\n"

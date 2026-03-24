@@ -19,6 +19,9 @@ namespace OloEngine
         /// Set identifiers shown in crash reports (e.g. from game.manifest).
         static void SetApplicationInfo(const std::string& name, const std::string& version);
 
+        /// Cache whether the application runs in headless mode (no message boxes on crash).
+        static void SetHeadless(bool headless);
+
         /// Store the GPU renderer string for inclusion in crash reports.
         static void SetGPUInfo(const std::string& info);
 

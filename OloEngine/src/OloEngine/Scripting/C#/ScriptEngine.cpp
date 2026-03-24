@@ -193,9 +193,9 @@ namespace OloEngine
         }
         else if (std::filesystem::exists(editorAppAssembly))
         {
-            if (!LoadAppAssembly(runtimeAppAssembly))
+            if (!LoadAppAssembly(editorAppAssembly))
             {
-                OLO_CORE_ERROR("[ScriptEngine] Could not load app assembly: {}", runtimeAppAssembly.string());
+                OLO_CORE_ERROR("[ScriptEngine] Could not load app assembly: {}", editorAppAssembly.string());
             }
         }
         else
@@ -323,7 +323,11 @@ namespace OloEngine
         s_Data->AppAssemblyImage = nullptr;
 
         LoadAssembly(s_Data->CoreAssemblyFilepath);
-        LoadAppAssembly(s_Data->AppAssemblyFilepath);
+        if (!LoadAppAssembly(s_Data->AppAssemblyFilepath))
+        {
+            OLO_CORE_ERROR("[ScriptEngine] Failed to reload app assembly: {}", s_Data->AppAssemblyFilepath.string());
+            return;
+        }
         LoadAssemblyClasses();
 
         ScriptGlue::RegisterComponents();

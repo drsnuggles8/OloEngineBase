@@ -15,7 +15,11 @@ namespace OloEngine
     {
         auto* const nativeWindow = Application::Get().GetWindow().GetNativeWindow();
         if (!nativeWindow)
+        {
+            std::memcpy(s_PreviousKeys, s_CurrentKeys, sizeof(s_CurrentKeys));
+            std::memset(s_CurrentKeys, 0, sizeof(s_CurrentKeys));
             return;
+        }
 
         auto* const window = static_cast<GLFWwindow*>(nativeWindow);
         std::memcpy(s_PreviousKeys, s_CurrentKeys, sizeof(s_CurrentKeys));

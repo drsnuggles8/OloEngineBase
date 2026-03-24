@@ -55,6 +55,16 @@ namespace Sandbox
 			{
 				m_IsDead = true;
 				m_Abilities.RemoveTag("State.Alive");
+
+				// Stop any active VFX
+				if (m_ActiveVFX != null)
+				{
+					if (m_ActiveVFX.HasComponent<ParticleSystemComponent>())
+						m_ActiveVFX.GetComponent<ParticleSystemComponent>().Playing = false;
+					m_ActiveVFX = null;
+					m_VFXTimer = 0.0f;
+				}
+
 				Debug.Log("[Player] Died!");
 
 				// Notify GameManager

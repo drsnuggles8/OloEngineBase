@@ -135,7 +135,7 @@ namespace OloEngine
         }
 
         // Physics access
-        JoltScene* GetJoltScene() const
+        JoltScene* GetPhysicsScene() const
         {
             return m_JoltScene.get();
         }

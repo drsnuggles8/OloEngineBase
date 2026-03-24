@@ -48,7 +48,8 @@ namespace OloEngine
         LowLevelTasks::FScheduler::Get().StartWorkers();
 
         // Register the application name with the crash reporter
-        CrashReporter::SetApplicationInfo(m_Specification.Name, "1.0.0");
+        CrashReporter::SetApplicationInfo(m_Specification.Name, OLO_ENGINE_VERSION);
+        CrashReporter::SetHeadless(m_Specification.IsHeadless);
 
         try
         {

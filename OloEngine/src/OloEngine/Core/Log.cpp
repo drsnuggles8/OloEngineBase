@@ -10,7 +10,7 @@ namespace OloEngine
     std::shared_ptr<spdlog::logger> Log::s_CoreLogger;
     std::shared_ptr<spdlog::logger> Log::s_ClientLogger;
     std::shared_ptr<spdlog::logger> Log::s_EditorConsoleLogger;
-    std::shared_ptr<spdlog::sinks::ringbuffer_sink_mt> Log::s_RingbufferSink;
+    std::shared_ptr<spdlog::sinks::ringbuffer_sink<std::mutex>> Log::s_RingbufferSink;
     std::unordered_map<std::string, Log::TagDetails> Log::s_DefaultTagDetails;
     std::atomic<std::shared_ptr<Log::TagMap>> Log::s_Tags{ nullptr };
 

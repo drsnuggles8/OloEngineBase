@@ -4786,6 +4786,22 @@ namespace OloEngine
         OLO_CORE_ASSERT(false);
     }
 
+    Entity SceneSerializer::DeserializeEntity(u64 uuid, const std::string& name, const YAML::Node& entityNode)
+    {
+        Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
+        try
+        {
+            DeserializeEntityComponents(deserializedEntity, entityNode);
+        }
+        catch (...)
+        {
+            // Remove the half-initialized entity so the scene stays consistent
+            m_Scene->DestroyEntity(deserializedEntity);
+            throw;
+        }
+        return deserializedEntity;
+    }
+
     bool SceneSerializer::Deserialize(const std::filesystem::path& filepath)
     {
         OLO_PROFILE_FUNCTION();
@@ -4880,18 +4896,7 @@ namespace OloEngine
 
                     OLO_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
 
-                    Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
-
-                    try
-                    {
-                        DeserializeEntityComponents(deserializedEntity, entity);
-                    }
-                    catch (...)
-                    {
-                        // Remove the half-initialized entity so the scene stays consistent
-                        m_Scene->DestroyEntity(deserializedEntity);
-                        throw;
-                    }
+                    DeserializeEntity(uuid, name, entity);
                     ++entityCount;
                 }
                 catch (const std::exception& e)
@@ -5100,9 +5105,7 @@ namespace OloEngine
 
                 OLO_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
 
-                Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
-
-                DeserializeEntityComponents(deserializedEntity, entity);
+                DeserializeEntity(uuid, name, entity);
             }
         }
 
@@ -5145,8 +5148,7 @@ namespace OloEngine
 
             OLO_CORE_TRACE("Additive deserialized entity with ID = {0}, name = {1}", uuid, name);
 
-            Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
-            DeserializeEntityComponents(deserializedEntity, entity);
+            DeserializeEntity(uuid, name, entity);
             createdUUIDs.emplace_back(uuid);
         }
 

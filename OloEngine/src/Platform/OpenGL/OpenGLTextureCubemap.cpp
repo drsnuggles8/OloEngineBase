@@ -131,16 +131,7 @@ namespace OloEngine
 
         glCreateTextures(GL_TEXTURE_CUBE_MAP, 1, &m_RendererID);
 
-        u32 mipLevels = 1;
-        if (m_CubemapSpecification.GenerateMips)
-        {
-            u32 maxDim = std::max(m_Width, m_Height);
-            while (maxDim > 1)
-            {
-                maxDim >>= 1;
-                mipLevels++;
-            }
-        }
+        const u32 mipLevels = GetMipLevelCount();
 
         glTextureStorage2D(m_RendererID, static_cast<GLsizei>(mipLevels), m_InternalFormat,
                            static_cast<int>(m_Width), static_cast<int>(m_Height));
@@ -273,15 +264,7 @@ namespace OloEngine
                 m_Specification.GenerateMips = true;
 
                 // Allocate storage for the cubemap (full mip chain)
-                u32 mipLevels = 1;
-                {
-                    u32 maxDim = std::max(m_Width, m_Height);
-                    while (maxDim > 1)
-                    {
-                        maxDim >>= 1;
-                        mipLevels++;
-                    }
-                }
+                const u32 mipLevels = GetMipLevelCount();
                 glTextureStorage2D(m_RendererID, static_cast<GLsizei>(mipLevels), m_InternalFormat, width, height);
             }
             else if (static_cast<u32>(width) != m_Width || static_cast<u32>(height) != m_Height)
@@ -330,9 +313,20 @@ namespace OloEngine
         // Generate mipmaps
         glGenerateTextureMipmap(m_RendererID);
 
-        // Calculate memory usage
-        u32 bytesPerPixel = channels;                                                     // Use actual channels from loaded images
-        sizet cubemapMemory = static_cast<sizet>(m_Width) * m_Height * bytesPerPixel * 6; // 6 faces
+        // Calculate memory usage including all mip levels across 6 faces
+        auto formatInfo = Utils::GetFormatInfo(m_CubemapSpecification.Format);
+        sizet cubemapMemory = 0;
+        {
+            const u32 mipLevels = GetMipLevelCount();
+            u32 mipW = m_Width;
+            u32 mipH = m_Height;
+            for (u32 mip = 0; mip < mipLevels; ++mip)
+            {
+                cubemapMemory += static_cast<sizet>(mipW) * mipH * formatInfo.BytesPerPixel * 6;
+                mipW = std::max(1u, mipW >> 1);
+                mipH = std::max(1u, mipH >> 1);
+            }
+        }
 
         // Track GPU memory allocation
         OLO_TRACK_GPU_ALLOC(this,
