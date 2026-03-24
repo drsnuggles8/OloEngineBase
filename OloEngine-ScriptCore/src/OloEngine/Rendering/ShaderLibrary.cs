@@ -51,6 +51,7 @@ namespace OloEngine
 	/// <summary>
 	/// Backward-compatible alias — forwards to <see cref="ShaderLibrary3D"/>.
 	/// </summary>
+	[System.Obsolete("Use ShaderLibrary3D or ShaderLibrary2D instead.")]
 	public static class ShaderLibrary
 	{
 		public static bool LoadShader(string filepath) => ShaderLibrary3D.LoadShader(filepath);

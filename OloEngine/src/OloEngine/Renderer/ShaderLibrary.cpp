@@ -151,6 +151,13 @@ namespace OloEngine
             {
                 ++count;
             }
+            else if (shader->IsReady())
+            {
+                if (auto const* reg = shader->GetResourceRegistry(); reg && !reg->IsInitialized())
+                {
+                    ++count;
+                }
+            }
         }
         return count;
     }
@@ -162,6 +169,11 @@ namespace OloEngine
             auto status = shader->GetCompilationStatus();
             if (status == ShaderCompilationStatus::Compiling || status == ShaderCompilationStatus::Pending)
                 return true;
+            if (shader->IsReady())
+            {
+                if (auto const* reg = shader->GetResourceRegistry(); reg && !reg->IsInitialized())
+                    return true;
+            }
         }
         return false;
     }
@@ -182,15 +194,19 @@ layout(std140, binding = 0) uniform CameraMatrices
     vec4 u_CameraPosition;
 };
 
-layout(std140, binding = 4) uniform ModelMatrix
+layout(std140, binding = 3) uniform ModelMatrices
 {
-    mat4 u_ModelMatrix;
-    mat4 u_NormalMatrix;
+    mat4 u_Model;
+    mat4 u_Normal;
+    int u_EntityID;
+    int _paddingEntity0;
+    int _paddingEntity1;
+    int _paddingEntity2;
 };
 
 void main()
 {
-    gl_Position = u_ViewProjectionMatrix * u_ModelMatrix * vec4(a_Position, 1.0);
+    gl_Position = u_ViewProjectionMatrix * u_Model * vec4(a_Position, 1.0);
 }
 )glsl";
 
@@ -199,6 +215,16 @@ void main()
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
 layout(location = 2) out vec2 o_ViewNormal;
+
+layout(std140, binding = 3) uniform ModelMatrices
+{
+    mat4 u_Model;
+    mat4 u_Normal;
+    int u_EntityIDIn;
+    int _paddingEntity0;
+    int _paddingEntity1;
+    int _paddingEntity2;
+};
 
 // Octahedral encoding: maps a unit normal to [0,1]^2
 vec2 octEncode(vec3 n)
@@ -215,7 +241,7 @@ void main()
 {
     // Magenta — instantly recognizable as "shader not ready"
     o_Color = vec4(1.0, 0.0, 1.0, 1.0);
-    o_EntityID = -1;
+    o_EntityID = u_EntityIDIn;
     o_ViewNormal = octEncode(vec3(0.0, 0.0, 1.0));
 }
 )glsl";

@@ -1843,6 +1843,10 @@ namespace OloEngine
         {
             library.Get(name)->Reload();
         }
+        if (auto ppPass = Renderer3D::GetPostProcessPass())
+        {
+            ppPass->ReloadShader(name);
+        }
     }
 
     static u32 ShaderLibrary3D_GetShaderCount()

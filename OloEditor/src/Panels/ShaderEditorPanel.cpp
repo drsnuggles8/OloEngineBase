@@ -199,10 +199,19 @@ namespace OloEngine
 
         auto const size = in.tellg();
         in.seekg(0);
-        m_SourceCode.resize(static_cast<size_t>(size));
-        in.read(m_SourceCode.data(), size);
+
+        // Read into a temporary so panel state stays consistent on failure
+        std::string tmp(static_cast<size_t>(size), '\0');
+        if (!in.read(tmp.data(), size))
+        {
+            m_CompileOutput = "ERROR: Read failed for " + filepath.string();
+            m_FileLoaded = false;
+            return;
+        }
         in.close();
 
+        // Commit — all panel state updated together
+        m_SourceCode = std::move(tmp);
         // Reserve extra capacity for editing
         m_SourceCode.reserve(m_SourceCode.size() + 4096);
 

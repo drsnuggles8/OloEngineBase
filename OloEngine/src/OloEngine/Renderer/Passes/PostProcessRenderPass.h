@@ -65,6 +65,7 @@ namespace OloEngine
         void CreateBloomMipChain(u32 width, u32 height);
         void ExecuteBloom(Ref<Framebuffer> sceneColorFB);
         void DrawFullscreenTriangle();
+        std::vector<Ref<Shader>*> GetAllShaderRefs();
 
         // Runs a single fullscreen shader pass: binds srcFB color 0 as texture, renders to dstFB
         void RunEffect(const Ref<Shader>& shader, Ref<Framebuffer> srcFB, Ref<Framebuffer> dstFB);

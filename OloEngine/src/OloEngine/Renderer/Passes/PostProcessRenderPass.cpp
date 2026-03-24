@@ -10,6 +10,26 @@
 
 namespace OloEngine
 {
+    std::vector<Ref<Shader>*> PostProcessRenderPass::GetAllShaderRefs()
+    {
+        return {
+            &m_BloomThresholdShader,
+            &m_BloomDownsampleShader,
+            &m_BloomUpsampleShader,
+            &m_BloomCompositeShader,
+            &m_VignetteShader,
+            &m_ChromaticAberrationShader,
+            &m_ColorGradingShader,
+            &m_ToneMapShader,
+            &m_FXAAShader,
+            &m_DOFShader,
+            &m_MotionBlurShader,
+            &m_FogShader,
+            &m_FogUpsampleShader,
+            &m_SSAOApplyShader,
+            &m_PrecipitationShader,
+        };
+    }
     PostProcessRenderPass::PostProcessRenderPass()
     {
         SetName("PostProcessPass");
@@ -29,32 +49,36 @@ namespace OloEngine
         struct ShaderEntry
         {
             const char* path;
-            Ref<Shader>& target;
+            Ref<Shader>* target;
         };
-        ShaderEntry shaderTable[] = {
-            { "assets/shaders/PostProcess_BloomThreshold.glsl", m_BloomThresholdShader },
-            { "assets/shaders/PostProcess_BloomDownsample.glsl", m_BloomDownsampleShader },
-            { "assets/shaders/PostProcess_BloomUpsample.glsl", m_BloomUpsampleShader },
-            { "assets/shaders/PostProcess_BloomComposite.glsl", m_BloomCompositeShader },
-            { "assets/shaders/PostProcess_Vignette.glsl", m_VignetteShader },
-            { "assets/shaders/PostProcess_ChromaticAberration.glsl", m_ChromaticAberrationShader },
-            { "assets/shaders/PostProcess_ColorGrading.glsl", m_ColorGradingShader },
-            { "assets/shaders/PostProcess_ToneMap.glsl", m_ToneMapShader },
-            { "assets/shaders/PostProcess_FXAA.glsl", m_FXAAShader },
-            { "assets/shaders/PostProcess_DOF.glsl", m_DOFShader },
-            { "assets/shaders/PostProcess_MotionBlur.glsl", m_MotionBlurShader },
-            { "assets/shaders/PostProcess_Fog.glsl", m_FogShader },
-            { "assets/shaders/PostProcess_FogUpsample.glsl", m_FogUpsampleShader },
-            { "assets/shaders/PostProcess_SSAOApply.glsl", m_SSAOApplyShader },
-            { "assets/shaders/PostProcess_Precipitation.glsl", m_PrecipitationShader },
+
+        static constexpr const char* s_ShaderPaths[] = {
+            "assets/shaders/PostProcess_BloomThreshold.glsl",
+            "assets/shaders/PostProcess_BloomDownsample.glsl",
+            "assets/shaders/PostProcess_BloomUpsample.glsl",
+            "assets/shaders/PostProcess_BloomComposite.glsl",
+            "assets/shaders/PostProcess_Vignette.glsl",
+            "assets/shaders/PostProcess_ChromaticAberration.glsl",
+            "assets/shaders/PostProcess_ColorGrading.glsl",
+            "assets/shaders/PostProcess_ToneMap.glsl",
+            "assets/shaders/PostProcess_FXAA.glsl",
+            "assets/shaders/PostProcess_DOF.glsl",
+            "assets/shaders/PostProcess_MotionBlur.glsl",
+            "assets/shaders/PostProcess_Fog.glsl",
+            "assets/shaders/PostProcess_FogUpsample.glsl",
+            "assets/shaders/PostProcess_SSAOApply.glsl",
+            "assets/shaders/PostProcess_Precipitation.glsl",
         };
-        const u32 totalPPShaders = static_cast<u32>(std::size(shaderTable));
+
+        auto shaderRefs = GetAllShaderRefs();
+        OLO_CORE_ASSERT(shaderRefs.size() == std::size(s_ShaderPaths), "Shader path/ref count mismatch");
+
+        const u32 totalPPShaders = static_cast<u32>(shaderRefs.size());
         Window& window = Application::Get().GetWindow();
-        u32 ppIdx = 0;
-        for (auto& [path, target] : shaderTable)
+        for (u32 ppIdx = 0; ppIdx < totalPPShaders; ++ppIdx)
         {
-            target = Shader::Create(path);
-            ShaderWarmup::RenderProgressFrame(static_cast<f32>(++ppIdx) / static_cast<f32>(totalPPShaders), window, "post-process shaders", static_cast<i32>(ppIdx), static_cast<i32>(totalPPShaders), 2);
+            *shaderRefs[ppIdx] = Shader::Create(s_ShaderPaths[ppIdx]);
+            ShaderWarmup::RenderProgressFrame(static_cast<f32>(ppIdx + 1) / static_cast<f32>(totalPPShaders), window, "post-process shaders", static_cast<i32>(ppIdx + 1), static_cast<i32>(totalPPShaders), 2);
         }
         m_PrecipitationScreenUBO = UniformBuffer::Create(PrecipitationScreenUBOData::GetSize(), ShaderBindingLayout::UBO_PRECIPITATION_SCREEN);
 
@@ -547,25 +571,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        Ref<Shader>* shaders[] = {
-            &m_BloomThresholdShader,
-            &m_BloomDownsampleShader,
-            &m_BloomUpsampleShader,
-            &m_BloomCompositeShader,
-            &m_VignetteShader,
-            &m_ChromaticAberrationShader,
-            &m_ColorGradingShader,
-            &m_ToneMapShader,
-            &m_FXAAShader,
-            &m_DOFShader,
-            &m_MotionBlurShader,
-            &m_FogShader,
-            &m_FogUpsampleShader,
-            &m_SSAOApplyShader,
-            &m_PrecipitationShader,
-        };
-
-        for (auto* shaderRef : shaders)
+        for (auto* shaderRef : GetAllShaderRefs())
         {
             if (*shaderRef && (*shaderRef)->GetName() == name)
             {
