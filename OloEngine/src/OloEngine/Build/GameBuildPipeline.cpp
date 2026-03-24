@@ -25,6 +25,22 @@ namespace OloEngine
         GameBuildResult result;
         progress = 0.0f;
 
+        // Validate and sanitize GameName before using it to build paths
+        {
+            const auto& gameName = settings.GameName;
+            if (gameName.empty())
+            {
+                result.ErrorMessage = "GameName cannot be empty";
+                return result;
+            }
+            std::filesystem::path nameAsPath(gameName);
+            if (nameAsPath.is_absolute() || gameName.find("..") != std::string::npos || gameName.find('/') != std::string::npos || gameName.find('\\') != std::string::npos || nameAsPath.filename().string() != gameName)
+            {
+                result.ErrorMessage = "GameName contains invalid characters or path separators: " + gameName;
+                return result;
+            }
+        }
+
         // Step 1: Validate project (5%)
         OLO_CORE_INFO("[GameBuild] Step 1/9: Validating project...");
         if (!ValidateProject(result.ErrorMessage))
@@ -39,9 +55,18 @@ namespace OloEngine
             return result;
         }
 
-        // Create output directory structure
+        // Create output directory structure (clean staging)
         const std::filesystem::path outputDir = settings.OutputDirectory / settings.GameName;
         std::error_code ec;
+        if (std::filesystem::exists(outputDir, ec))
+        {
+            std::filesystem::remove_all(outputDir, ec);
+            if (ec)
+            {
+                result.ErrorMessage = "Failed to clean existing output directory: " + ec.message();
+                return result;
+            }
+        }
         std::filesystem::create_directories(outputDir, ec);
         if (ec)
         {
@@ -167,6 +192,8 @@ namespace OloEngine
 
     bool GameBuildPipeline::ValidateProject(std::string& errorMessage)
     {
+        OLO_PROFILE_FUNCTION();
+
         auto project = Project::GetActive();
         if (!project)
         {
@@ -192,6 +219,8 @@ namespace OloEngine
         std::atomic<f32>& progress,
         const std::atomic<bool>* cancelToken)
     {
+        OLO_PROFILE_FUNCTION();
+
         AssetPackBuilder::BuildSettings packSettings;
         packSettings.m_OutputPath = outputDir / "Assets" / "AssetPack.olopack";
         packSettings.m_CompressAssets = settings.CompressAssets;
@@ -225,6 +254,8 @@ namespace OloEngine
         const std::filesystem::path& outputDir,
         std::string& errorMessage)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Locate the OloRuntime executable based on build configuration
         // The binary is at: bin/{Config}/OloRuntime/OloRuntime.exe
         const auto& startupDir = Application::GetStartupWorkingDirectory();
@@ -285,9 +316,18 @@ namespace OloEngine
         const std::filesystem::path& outputDir,
         std::string& errorMessage)
     {
-        // DLLs live next to OloRuntime.exe in bin/{Config}/OloRuntime/
+        OLO_PROFILE_FUNCTION();
+
+        // Resolve the runtime binary directory using the same logic as CopyRuntimeExecutable
         const auto& startupDir = Application::GetStartupWorkingDirectory();
-        std::filesystem::path runtimeBinDir = startupDir.parent_path() / "bin" / settings.BuildConfiguration / "OloRuntime";
+        std::filesystem::path engineRoot = startupDir.parent_path();
+
+        std::filesystem::path runtimeBinDir = engineRoot / "bin" / settings.BuildConfiguration / "OloRuntime";
+        if (!std::filesystem::exists(runtimeBinDir))
+        {
+            // Fallback: editor runs from OloEditor/, engine root is one level up
+            runtimeBinDir = engineRoot / ".." / "bin" / settings.BuildConfiguration / "OloRuntime";
+        }
 
         std::vector<std::string> requiredDlls = {
             "libpng16.dll",
@@ -326,6 +366,8 @@ namespace OloEngine
         const std::filesystem::path& outputDir,
         std::string& errorMessage)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Engine resources are located relative to the editor working directory.
         // The build pipeline runs from OloEditor/ cwd.
         const auto copyOpts = std::filesystem::copy_options::overwrite_existing | std::filesystem::copy_options::recursive;
@@ -401,6 +443,8 @@ namespace OloEngine
         const std::filesystem::path& outputDir,
         std::string& errorMessage)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Mono runtime is expected relative to the working directory
         // In development: OloEditor/mono/
         const std::filesystem::path monoSrcDir = "mono";
@@ -408,7 +452,6 @@ namespace OloEngine
         if (!std::filesystem::exists(monoSrcDir))
         {
             OLO_CORE_WARN("[GameBuild] Mono runtime directory not found at: {}", monoSrcDir.string());
-            errorMessage = "Mono runtime not found. C# scripting may not work in the built game.";
             return true; // Non-fatal — game might not use C# scripts
         }
 
@@ -450,6 +493,8 @@ namespace OloEngine
         const std::filesystem::path& outputDir,
         std::string& errorMessage)
     {
+        OLO_PROFILE_FUNCTION();
+
         // The ScriptCore DLL is at Resources/Scripts/OloEngine-ScriptCore.dll
         const std::filesystem::path scriptCoreSrc = "Resources/Scripts/OloEngine-ScriptCore.dll";
 
@@ -502,6 +547,8 @@ namespace OloEngine
         const std::filesystem::path& outputDir,
         std::string& errorMessage)
     {
+        OLO_PROFILE_FUNCTION();
+
         auto project = Project::GetActive();
         if (!project)
         {
@@ -533,7 +580,7 @@ namespace OloEngine
 
             // Preserve relative path from asset directory
             auto relativePath = std::filesystem::relative(entry.path(), assetDir, ec);
-            auto destPath = outputDir / relativePath;
+            auto destPath = sceneOutputDir / relativePath;
 
             std::filesystem::create_directories(destPath.parent_path(), ec);
             std::filesystem::copy_file(entry.path(), destPath,
@@ -571,6 +618,8 @@ namespace OloEngine
         const std::filesystem::path& outputDir,
         std::string& errorMessage)
     {
+        OLO_PROFILE_FUNCTION();
+
         const std::filesystem::path manifestPath = outputDir / "game.manifest";
 
         YAML::Emitter out;
@@ -635,6 +684,8 @@ namespace OloEngine
 
     sizet GameBuildPipeline::CalculateDirectorySize(const std::filesystem::path& directory)
     {
+        OLO_PROFILE_FUNCTION();
+
         sizet totalSize = 0;
         std::error_code ec;
         for (const auto& entry : std::filesystem::recursive_directory_iterator(directory, ec))
@@ -653,6 +704,8 @@ namespace OloEngine
         const std::filesystem::path& iconPath,
         std::string& errorMessage)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!std::filesystem::exists(iconPath))
         {
             errorMessage = "Icon file not found: " + iconPath.string();

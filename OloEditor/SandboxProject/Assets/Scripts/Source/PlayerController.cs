@@ -81,6 +81,10 @@ namespace Sandbox
 			if (m_IsDead)
 				return;
 
+			// Skip gameplay input while paused
+			if (GameApplication.TimeScale == 0.0f)
+				return;
+
 			// ── Click-to-move ──
 			if (Input.IsMouseButtonDown(0)) // Left click
 			{

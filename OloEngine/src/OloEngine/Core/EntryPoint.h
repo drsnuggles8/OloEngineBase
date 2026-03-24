@@ -15,15 +15,19 @@ int main(int argc, char** argv)
 
     int exitCode = EXIT_SUCCESS;
     OloEngine::Application* app = nullptr;
+    bool profileSessionActive = false;
 
     try
     {
         OLO_PROFILE_BEGIN_SESSION("Startup", "OloProfile-Startup.json");
+        profileSessionActive = true;
         app = OloEngine::CreateApplication({ argc, argv });
         OLO_CORE_ASSERT(app, "Client application is null!");
         OLO_PROFILE_END_SESSION();
+        profileSessionActive = false;
 
         OLO_PROFILE_BEGIN_SESSION("Runtime", "OloProfile-Runtime.json");
+        profileSessionActive = true;
 #ifdef OLO_HEADLESS
         app->RunHeadless();
 #else
@@ -37,16 +41,25 @@ int main(int argc, char** argv)
         }
 #endif
         OLO_PROFILE_END_SESSION();
+        profileSessionActive = false;
     }
     catch (const std::exception& e)
     {
-        OLO_PROFILE_END_SESSION();
+        if (profileSessionActive)
+        {
+            OLO_PROFILE_END_SESSION();
+            profileSessionActive = false;
+        }
         OloEngine::CrashReporter::ReportCaughtException(e);
         exitCode = EXIT_FAILURE;
     }
     catch (...)
     {
-        OLO_PROFILE_END_SESSION();
+        if (profileSessionActive)
+        {
+            OLO_PROFILE_END_SESSION();
+            profileSessionActive = false;
+        }
         OloEngine::CrashReporter::ReportFatalError("Unknown exception caught in main loop");
         exitCode = EXIT_FAILURE;
     }

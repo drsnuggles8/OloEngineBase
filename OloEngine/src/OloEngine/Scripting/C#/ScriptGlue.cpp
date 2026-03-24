@@ -3461,6 +3461,9 @@ namespace OloEngine
 
     static void Application_QuitGame()
     {
+        // In editor mode this shuts down the whole app — acceptable for the
+        // standalone runtime where Close() == quit game.  If an in-editor
+        // "stop play mode" API is added later, prefer that here.
         OLO_CORE_INFO("[ScriptGlue] Application_QuitGame requested from script");
         Application::Get().Close();
     }

@@ -423,8 +423,8 @@ namespace OloEngine
             m_SceneStreamer->Initialize(this, config);
         }
 
-        // Auto-bake NavMesh if agents exist but no NavMesh is loaded
-        if (!m_NavMesh)
+        // Auto-bake NavMesh if agents exist but no valid NavMesh is loaded
+        if (!m_NavMesh || !m_NavMesh->IsValid())
         {
             auto agentView = GetAllEntitiesWith<NavAgentComponent>();
             if (agentView.begin() != agentView.end())
@@ -1094,6 +1094,11 @@ namespace OloEngine
         if (mainCamera)
         {
             m_CameraViewProjection = mainCamera->GetProjection() * glm::inverse(cameraTransform);
+        }
+        else
+        {
+            // No camera — reset to identity so world-anchored UI doesn't use stale matrices
+            m_CameraViewProjection = glm::mat4(1.0f);
         }
 
         // Process UI input during runtime (resolve layout first so hit-rects are current)

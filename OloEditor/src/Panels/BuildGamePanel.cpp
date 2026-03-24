@@ -36,11 +36,8 @@ namespace OloEngine
 
     BuildGamePanel::~BuildGamePanel()
     {
-        if (m_BuildThread.joinable())
-        {
-            m_CancelRequested.store(true, std::memory_order_release);
-            m_BuildThread.request_stop();
-        }
+        m_CancelRequested.store(true, std::memory_order_release);
+        // jthread destructor handles request_stop() + join()
     }
 
     void BuildGamePanel::OnImGuiRender(bool& isOpen)
@@ -225,8 +222,7 @@ namespace OloEngine
         ImGui::Separator();
         ImGui::Text("Building...");
 
-        i32 permille = m_BuildProgressPermille.load(std::memory_order_relaxed);
-        f32 fraction = static_cast<f32>(permille) / 1000.0f;
+        f32 fraction = m_BuildProgress.load(std::memory_order_relaxed);
         ImGui::ProgressBar(fraction, ImVec2(-1, 0), nullptr);
     }
 
@@ -244,13 +240,13 @@ namespace OloEngine
                         static_cast<f64>(m_LastBuildResult.TotalSizeBytes) / (1024.0 * 1024.0));
             ImGui::Text("Build Time: %.1f seconds", m_LastBuildResult.BuildTimeSeconds);
 
+#ifdef _WIN32
             if (ImGui::Button("Open Output Folder"))
             {
-#ifdef _WIN32
                 auto absPath = std::filesystem::absolute(m_LastBuildResult.OutputPath);
                 ShellExecuteW(nullptr, L"explore", absPath.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-#endif
             }
+#endif
         }
         else
         {
@@ -315,18 +311,15 @@ namespace OloEngine
 
         m_BuildThread = std::jthread([this, settings](std::stop_token)
                                      {
-            std::atomic<f32> progress = 0.0f;
-
-            // Launch a progress forwarding loop on this thread
-            // (GameBuildPipeline::Build does its own work inline)
-            auto result = GameBuildPipeline::Build(settings, progress, &m_CancelRequested);
+            // Use the member atomic directly so the UI thread can read real-time progress
+            auto result = GameBuildPipeline::Build(settings, m_BuildProgress, &m_CancelRequested);
 
             // Store result
             m_LastBuildResult = result;
 
             // Final progress update
             m_BuildProgressPermille.store(
-                static_cast<i32>(progress.load(std::memory_order_relaxed) * 1000.0f),
+                static_cast<i32>(m_BuildProgress.load(std::memory_order_relaxed) * 1000.0f),
                 std::memory_order_relaxed);
 
             m_IsBuildInProgress.store(false, std::memory_order_release); });

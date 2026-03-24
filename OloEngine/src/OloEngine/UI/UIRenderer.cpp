@@ -207,7 +207,8 @@ namespace OloEngine
     }
 
     // Measure the width of a single line of text in local (pre-transform) coordinates.
-    // Mirrors the advancement logic from Renderer2D::DrawString.
+    // Mirrors the advancement logic from Renderer2D::DrawString — keep in sync.
+    // TODO: Extract shared glyph-advancement logic into a Font utility to avoid drift.
     static f32 MeasureLineWidth(std::string_view line, const msdf_atlas::FontGeometry& fontGeometry,
                                 double fsScale, f32 kerning)
     {

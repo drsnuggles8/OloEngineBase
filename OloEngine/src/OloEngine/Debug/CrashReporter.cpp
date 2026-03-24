@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Debug/Profiler.h"
 
 #include <chrono>
 #include <ctime>
@@ -114,13 +115,20 @@ namespace OloEngine
         // MiniDumpWithDataSegs gives us global variables which is useful for debugging
         const auto dumpType = static_cast<MINIDUMP_TYPE>(MiniDumpNormal | MiniDumpWithDataSegs | MiniDumpWithThreadInfo);
 
-        MiniDumpWriteDump(
+        BOOL dumpResult = MiniDumpWriteDump(
             GetCurrentProcess(),
             GetCurrentProcessId(),
             hFile,
             dumpType,
             exceptionPointers ? &mdei : nullptr,
             nullptr, nullptr);
+
+        if (!dumpResult)
+        {
+            // Log failure — disk full, permissions, etc.
+            DWORD err = GetLastError();
+            OutputDebugStringA(("[CrashReporter] MiniDumpWriteDump failed, error: " + std::to_string(err) + "\n").c_str());
+        }
 
         CloseHandle(hFile);
     }
@@ -212,6 +220,8 @@ namespace OloEngine
 
     void CrashReporter::Init(const std::filesystem::path& crashReportDir)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (s_Initialized)
         {
             return;
@@ -357,14 +367,30 @@ namespace OloEngine
         report << "========================================\n";
 
         // Write the report file
-        std::error_code ec;
-        std::filesystem::create_directories(s_CrashReportDir, ec);
-
         std::ofstream file(reportPath, std::ios::out | std::ios::trunc);
         if (file.is_open())
         {
             file << report.str();
+            file.flush();
+            if (file.fail())
+            {
+                // Partial write — fall back to stderr
+                std::cerr << "[CrashReporter] Failed to write crash report to: " << reportPath.string() << "\n";
+                std::cerr << report.str() << std::flush;
+#ifdef OLO_PLATFORM_WINDOWS
+                OutputDebugStringA(report.str().c_str());
+#endif
+            }
             file.close();
+        }
+        else
+        {
+            // Cannot open file — emit to stderr as fallback
+            std::cerr << "[CrashReporter] Could not open crash report file: " << reportPath.string() << "\n";
+            std::cerr << report.str() << std::flush;
+#ifdef OLO_PLATFORM_WINDOWS
+            OutputDebugStringA(report.str().c_str());
+#endif
         }
 
         // Also log the crash (this goes to OloEngine.log and console)

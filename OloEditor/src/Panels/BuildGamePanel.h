@@ -73,6 +73,7 @@ namespace OloEngine
         int m_ConfigIndex = 2; // 0=Debug, 1=Release, 2=Dist
 
         // Build tracking
+        std::atomic<f32> m_BuildProgress{ 0.0f }; // 0.0-1.0 real progress written by GameBuildPipeline
         std::atomic<i32> m_BuildProgressPermille{ 0 };
         std::atomic<bool> m_IsBuildInProgress{ false };
         std::atomic<bool> m_CancelRequested{ false };

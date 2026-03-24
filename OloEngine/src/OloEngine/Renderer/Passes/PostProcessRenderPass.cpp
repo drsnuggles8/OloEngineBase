@@ -57,7 +57,7 @@ namespace OloEngine
         m_SSAOApplyShader = Shader::Create("assets/shaders/PostProcess_SSAOApply.glsl");
         Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
         m_PrecipitationShader = Shader::Create("assets/shaders/PostProcess_Precipitation.glsl");
-        Application::ReportLoadingProgress(totalPPShaders, totalPPShaders, "post-process shaders");
+        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
         m_PrecipitationScreenUBO = UniformBuffer::Create(PrecipitationScreenUBOData::GetSize(), ShaderBindingLayout::UBO_PRECIPITATION_SCREEN);
 
         // Create bloom mip chain

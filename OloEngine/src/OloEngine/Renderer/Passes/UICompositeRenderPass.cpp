@@ -91,6 +91,12 @@ namespace OloEngine
 
             m_RenderCallback();
 
+            // Restore GL state so later passes don't inherit altered state
+            RenderCommand::SetBlendState(false);
+            RenderCommand::SetBlendFunc(GL_ONE, GL_ZERO);
+            RenderCommand::SetDepthTest(true);
+            RenderCommand::SetDepthMask(true);
+
             // One-shot: clear for next frame
             m_RenderCallback = nullptr;
         }

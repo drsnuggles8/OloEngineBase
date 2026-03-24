@@ -84,6 +84,11 @@ namespace OloEngine
 
         // Execution-ready cache — rebuilt when m_DependencyGraphDirty is set.
         // Avoids per-frame hash lookups in Execute().
+        //
+        // Lifetime: FramebufferPipe and its RenderPass* members are non-owning raw
+        // pointers into m_PassLookup.  They must remain valid until
+        // RebuildExecutionCache() is called.  Do not remove or destroy passes from
+        // m_PassLookup while the cache is in use.
         struct FramebufferPipe
         {
             RenderPass* OutputPass = nullptr;

@@ -843,8 +843,11 @@ namespace OloEngine
             if (!scene)
                 return sol::make_object(s, sol::nil);
 
-            Entity cameraEntity = scene->GetEntityByUUID(UUID(cameraEntityID));
-            if (!cameraEntity || !cameraEntity.HasComponent<CameraComponent>())
+            auto cameraOpt = scene->TryGetEntityWithUUID(UUID(cameraEntityID));
+            if (!cameraOpt)
+                return sol::make_object(s, sol::nil);
+            Entity cameraEntity{ static_cast<entt::entity>(*cameraOpt), scene };
+            if (!cameraEntity.HasComponent<CameraComponent>())
                 return sol::make_object(s, sol::nil);
 
             auto const& cameraComp = cameraEntity.GetComponent<CameraComponent>();
@@ -854,8 +857,13 @@ namespace OloEngine
             glm::mat4 projMatrix = cameraComp.Camera.GetProjection();
             glm::mat4 invVP = glm::inverse(projMatrix * viewMatrix);
 
-            f32 ndcX = screenPos.x * 2.0f - 1.0f;
-            f32 ndcY = screenPos.y * 2.0f - 1.0f;
+            // screenPos is in pixels (from Input.GetMousePosition); normalise to [0,1]
+            auto& window = Application::Get().GetWindow();
+            const f32 normX = screenPos.x / static_cast<f32>(window.GetWidth());
+            const f32 normY = screenPos.y / static_cast<f32>(window.GetHeight());
+
+            f32 ndcX = normX * 2.0f - 1.0f;
+            f32 ndcY = normY * 2.0f - 1.0f;
 
             glm::vec4 nearPoint = invVP * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
             glm::vec4 farPoint = invVP * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
@@ -888,10 +896,12 @@ namespace OloEngine
             if (!scene)
                 return 0.0f;
 
-            Entity source = scene->GetEntityByUUID(UUID(sourceID));
-            Entity target = scene->GetEntityByUUID(UUID(targetID));
-            if (!source || !target)
+            auto sourceOpt = scene->TryGetEntityWithUUID(UUID(sourceID));
+            auto targetOpt = scene->TryGetEntityWithUUID(UUID(targetID));
+            if (!sourceOpt || !targetOpt)
                 return 0.0f;
+            Entity source{ static_cast<entt::entity>(*sourceOpt), scene };
+            Entity target{ static_cast<entt::entity>(*targetOpt), scene };
 
             if (!source.HasComponent<AbilityComponent>() || !target.HasComponent<AbilityComponent>())
                 return 0.0f;
@@ -905,9 +915,8 @@ namespace OloEngine
             event.RawDamage = rawDamage;
             event.IsCritical = isCritical.value_or(false);
             event.CritMultiplier = sourceAC.Attributes.GetCurrentValue("CritMultiplier");
-            const std::string dt = damageType.value_or("");
-            if (!dt.empty())
-                event.DamageType = GameplayTag(dt);
+            const std::string dt = damageType.value_or("Physical");
+            event.DamageType = GameplayTag(dt);
 
             f32 finalDamage = DamageCalculation::Calculate(event, sourceAC.Attributes, targetAC.Attributes);
 
@@ -926,15 +935,21 @@ namespace OloEngine
             if (!scene)
                 return false;
 
-            Entity caster = scene->GetEntityByUUID(UUID(casterID));
-            Entity target = scene->GetEntityByUUID(UUID(targetID));
-            if (!caster || !target)
+            auto casterOpt = scene->TryGetEntityWithUUID(UUID(casterID));
+            auto targetOpt = scene->TryGetEntityWithUUID(UUID(targetID));
+            if (!casterOpt || !targetOpt)
                 return false;
+            Entity caster{ static_cast<entt::entity>(*casterOpt), scene };
+            Entity target{ static_cast<entt::entity>(*targetOpt), scene };
 
             if (!caster.HasComponent<AbilityComponent>() || !target.HasComponent<AbilityComponent>())
                 return false;
 
             GameplayTag tag(abilityTag);
+            // Activate on the caster (checks cooldowns, costs, tags).
+            // TryActivateAbility also applies ActivationEffects to the caster;
+            // for targeted abilities we additionally redirect effects to the
+            // target below (intentional self+target duplication — see C# mirror).
             if (!GameplayAbilitySystem::TryActivateAbility(scene, caster, tag))
                 return false;
 

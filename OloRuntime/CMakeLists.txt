@@ -7,10 +7,6 @@ add_subdirectory(src)
 # Configure the OloRuntime target using our common properties
 olo_configure_app(OloRuntime NO_PCH)
 
-add_dependencies(OloRuntime
-                OloEngine
-)
-
 # Set up common include directories
 olo_set_common_include_directories(OloRuntime)
 

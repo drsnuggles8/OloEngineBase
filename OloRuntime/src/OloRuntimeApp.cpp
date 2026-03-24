@@ -174,7 +174,7 @@ namespace OloEngine
         }
 
       private:
-        bool OnWindowResize(WindowResizeEvent const& e)
+        bool OnWindowResize([[maybe_unused]] WindowResizeEvent const& e)
         {
             // Event carries logical pixels; query real framebuffer size
             auto& window = Application::Get().GetWindow();
@@ -249,7 +249,7 @@ namespace OloEngine
             return FindFirstSceneInDirectory("Scenes");
         }
 
-        /// Scan a directory recursively for the first .olo scene file
+        /// Scan a directory recursively for the first .olo scene file (sorted for determinism)
         [[nodiscard]] static std::filesystem::path FindFirstSceneInDirectory(const std::filesystem::path& directory)
         {
             std::error_code ec;
@@ -258,15 +258,22 @@ namespace OloEngine
                 return {};
             }
 
+            std::vector<std::filesystem::path> scenes;
             for (const auto& entry : std::filesystem::recursive_directory_iterator(directory, ec))
             {
                 if (entry.is_regular_file() && entry.path().extension() == ".olo")
                 {
-                    return entry.path();
+                    scenes.push_back(entry.path());
                 }
             }
 
-            return {};
+            if (scenes.empty())
+            {
+                return {};
+            }
+
+            std::ranges::sort(scenes);
+            return scenes.front();
         }
 
         /// Read the Is3DMode flag from game.manifest. Defaults to true if missing.

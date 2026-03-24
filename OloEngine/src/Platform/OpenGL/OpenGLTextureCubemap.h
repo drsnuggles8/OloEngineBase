@@ -65,6 +65,7 @@ namespace OloEngine
 
       private:
         void LoadFaces(const std::vector<std::string>& facePaths);
+        [[nodiscard]] sizet CalculateCubemapMemory(u32 bytesPerPixel, u32 mipLevels) const;
 
       private:
         TextureSpecification m_Specification;

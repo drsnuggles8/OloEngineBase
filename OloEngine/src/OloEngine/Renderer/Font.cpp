@@ -151,19 +151,27 @@ namespace OloEngine
     {
         auto canonical = std::filesystem::weakly_canonical(font).string();
         static std::unordered_map<std::string, WeakRef<Font>> s_FontCache;
+        static std::mutex s_FontCacheMutex;
 
-        auto it = s_FontCache.find(canonical);
-        if (it != s_FontCache.end())
         {
-            if (auto cached = it->second.Lock())
-                return cached;
-            s_FontCache.erase(it);
+            std::lock_guard lock(s_FontCacheMutex);
+            auto it = s_FontCache.find(canonical);
+            if (it != s_FontCache.end())
+            {
+                if (auto cached = it->second.Lock())
+                    return cached;
+                s_FontCache.erase(it);
+            }
         }
 
-        auto newFont = Ref<Font>::Create(font);
+        auto newFont = Ref<Font>::Create(canonical);
         if (!newFont->GetAtlasTexture())
             return newFont; // don't cache a font that failed to load
-        s_FontCache[canonical] = newFont;
+
+        {
+            std::lock_guard lock(s_FontCacheMutex);
+            s_FontCache[canonical] = newFont;
+        }
         return newFont;
     }
 } // namespace OloEngine

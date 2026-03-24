@@ -8,28 +8,7 @@ Features that were planned or partially implemented but not yet wired up in the 
 
 **Goal:** Diablo / Warcraft 3 style movement — left-click on the ground, player walks there via NavMesh pathfinding.
 
-**Resolved.** Both `Physics.Raycast` and `Camera.ScreenToWorldRay` are now exposed to C# and Lua scripting:
-
-```csharp
-// C# API
-bool hit = Physics.Raycast(origin, direction, maxDistance, out Vector3 hitPoint, out ulong hitEntityID);
-(Vector3 origin, Vector3 direction) = Camera.ScreenToWorldRay(screenX, screenY);
-```
-
-```lua
--- Lua API (returns table or nil)
-local result = Physics.Raycast(origin, direction, maxDistance)
-if result then
-    -- result.position, result.normal, result.distance, result.entityID
-end
-
-local ray = Camera.ScreenToWorldRay(cameraEntityID, screenPos)
-if ray then
-    -- ray.origin, ray.direction
-end
-```
-
-**Remaining work:** Update `PlayerController.cs` to use click-to-move: on left-click, `Camera.ScreenToWorldRay` → `Physics.Raycast` against ground → set `NavAgent.TargetPosition = hitPoint`.
+**Resolved.** Both `Physics.Raycast` and `Camera.ScreenToWorldRay` are now exposed to C# and Lua scripting. `PlayerController.cs` uses click-to-move via `Camera.ScreenToWorldRay` -> `Physics.Raycast` -> `NavAgent.TargetPosition`.
 
 ---
 

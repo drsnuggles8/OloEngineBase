@@ -262,12 +262,20 @@ namespace OloEngine
             auto targetOpt = scene.TryGetEntityWithUUID(anchor.m_TargetEntity);
             if (!targetOpt)
             {
+                // Target entity was destroyed — hide this widget and its subtree
+                const glm::vec2 oldPos = resolved.m_Position;
+                resolved.m_Position = { -10000.0f, -10000.0f };
+                OffsetSubtree(scene, entity, resolved.m_Position - oldPos);
                 continue;
             }
 
             Entity targetEntity{ static_cast<entt::entity>(*targetOpt), &scene };
             if (!targetEntity.HasComponent<TransformComponent>())
             {
+                // Target has no spatial data — hide this widget and its subtree
+                const glm::vec2 oldPos = resolved.m_Position;
+                resolved.m_Position = { -10000.0f, -10000.0f };
+                OffsetSubtree(scene, entity, resolved.m_Position - oldPos);
                 continue;
             }
 

@@ -152,17 +152,7 @@ namespace OloEngine
             m_RendererID = 0;
             return;
         }
-        sizet cubemapMemory = 0;
-        {
-            u32 mipW = m_Width;
-            u32 mipH = m_Height;
-            for (u32 mip = 0; mip < mipLevels; ++mip)
-            {
-                cubemapMemory += static_cast<sizet>(mipW) * mipH * formatInfo.BytesPerPixel * 6;
-                mipW = std::max(1u, mipW >> 1);
-                mipH = std::max(1u, mipH >> 1);
-            }
-        }
+        const sizet cubemapMemory = CalculateCubemapMemory(formatInfo.BytesPerPixel, mipLevels);
 
         // Track GPU memory allocation
         OLO_TRACK_GPU_ALLOC(this,
@@ -315,18 +305,7 @@ namespace OloEngine
 
         // Calculate memory usage including all mip levels across 6 faces
         auto formatInfo = Utils::GetFormatInfo(m_CubemapSpecification.Format);
-        sizet cubemapMemory = 0;
-        {
-            const u32 mipLevels = GetMipLevelCount();
-            u32 mipW = m_Width;
-            u32 mipH = m_Height;
-            for (u32 mip = 0; mip < mipLevels; ++mip)
-            {
-                cubemapMemory += static_cast<sizet>(mipW) * mipH * formatInfo.BytesPerPixel * 6;
-                mipW = std::max(1u, mipW >> 1);
-                mipH = std::max(1u, mipH >> 1);
-            }
-        }
+        const sizet cubemapMemory = CalculateCubemapMemory(formatInfo.BytesPerPixel, GetMipLevelCount());
 
         // Track GPU memory allocation
         OLO_TRACK_GPU_ALLOC(this,
@@ -509,6 +488,20 @@ namespace OloEngine
         }
 
         return true;
+    }
+
+    sizet OpenGLTextureCubemap::CalculateCubemapMemory(u32 bytesPerPixel, u32 mipLevels) const
+    {
+        sizet total = 0;
+        u32 mipW = m_Width;
+        u32 mipH = m_Height;
+        for (u32 mip = 0; mip < mipLevels; ++mip)
+        {
+            total += static_cast<sizet>(mipW) * mipH * bytesPerPixel * 6;
+            mipW = std::max(1u, mipW >> 1);
+            mipH = std::max(1u, mipH >> 1);
+        }
+        return total;
     }
 
 } // namespace OloEngine

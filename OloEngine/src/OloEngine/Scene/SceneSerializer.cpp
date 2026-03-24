@@ -4751,8 +4751,23 @@ namespace OloEngine
         }
 
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
-        // Collect entity handles and sort by UUID so the file order is
-        // deterministic regardless of EnTT's internal iteration order.
+        ForEachEntitySorted([&](Entity entity)
+                            { SerializeEntity(out, entity); });
+        out << YAML::EndSeq;
+        out << YAML::EndMap;
+
+        std::ofstream fout(filepath);
+        fout << out.c_str();
+    }
+
+    [[maybe_unused]] void SceneSerializer::SerializeRuntime([[maybe_unused]] const std::filesystem::path& filepath) const
+    {
+        // Not implemented
+        OLO_CORE_ASSERT(false);
+    }
+
+    void SceneSerializer::ForEachEntitySorted(const std::function<void(Entity)>& fn) const
+    {
         std::vector<entt::entity> sortedEntities;
         m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
                                                       { sortedEntities.push_back(entityID); });
@@ -4771,19 +4786,8 @@ namespace OloEngine
                 continue;
             }
 
-            SerializeEntity(out, entity);
+            fn(entity);
         }
-        out << YAML::EndSeq;
-        out << YAML::EndMap;
-
-        std::ofstream fout(filepath);
-        fout << out.c_str();
-    }
-
-    [[maybe_unused]] void SceneSerializer::SerializeRuntime([[maybe_unused]] const std::filesystem::path& filepath) const
-    {
-        // Not implemented
-        OLO_CORE_ASSERT(false);
     }
 
     Entity SceneSerializer::DeserializeEntity(u64 uuid, const std::string& name, const YAML::Node& entityNode)
@@ -4983,27 +4987,8 @@ namespace OloEngine
         }
 
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
-        // Sort by UUID for deterministic output matching Serialize()
-        std::vector<entt::entity> sortedEntities;
-        m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
-                                                      { sortedEntities.push_back(entityID); });
-        std::ranges::sort(sortedEntities, [&](entt::entity a, entt::entity b)
-                          {
-                              const u64 uuidA = m_Scene->m_Registry.get<IDComponent>(a).ID;
-                              const u64 uuidB = m_Scene->m_Registry.get<IDComponent>(b).ID;
-                              return uuidA < uuidB; });
-        for (auto entityID : sortedEntities)
-        {
-            // SAFETY: m_Scene is const Ref<Scene>, but Entity requires non-const Scene*
-            // This is safe because serialization only reads entity data
-            Entity const entity = { entityID, const_cast<Scene*>(m_Scene.get()) };
-            if (!entity)
-            {
-                continue;
-            }
-
-            SerializeEntity(out, entity);
-        }
+        ForEachEntitySorted([&](Entity entity)
+                            { SerializeEntity(out, entity); });
         out << YAML::EndSeq;
         out << YAML::EndMap;
 

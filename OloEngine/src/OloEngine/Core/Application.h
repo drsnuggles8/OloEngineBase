@@ -99,6 +99,10 @@ namespace OloEngine
         }
         void SetTimeScale(f32 scale)
         {
+            if (!std::isfinite(scale))
+            {
+                scale = 1.0f;
+            }
             m_TimeScale = std::max(0.0f, scale);
         }
 

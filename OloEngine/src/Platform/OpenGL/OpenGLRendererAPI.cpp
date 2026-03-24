@@ -486,7 +486,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges);
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
 
         glBlitNamedFramebuffer(srcFboID, 0,
                                0, 0, static_cast<GLint>(width), static_cast<GLint>(height),

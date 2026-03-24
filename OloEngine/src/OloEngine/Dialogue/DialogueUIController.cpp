@@ -9,6 +9,8 @@
 
 namespace OloEngine
 {
+    static constexpr f32 kDialoguePanelAlpha = 0.85f;
+
     void DialogueUIController::Initialize(Scene& scene)
     {
         OLO_PROFILE_FUNCTION();
@@ -38,7 +40,7 @@ namespace OloEngine
             rect.m_AnchoredPosition = { 0.0f, 20.0f };
 
             auto& panel = panelEntity.AddComponent<UIPanelComponent>();
-            panel.m_BackgroundColor = { 0.1f, 0.1f, 0.15f, 0.85f };
+            panel.m_BackgroundColor = { 0.1f, 0.1f, 0.15f, kDialoguePanelAlpha };
 
             // Parent to canvas
             auto& rel = panelEntity.AddComponent<RelationshipComponent>();
@@ -289,7 +291,7 @@ namespace OloEngine
             Entity panelEnt = scene.GetEntityByUUID(m_PanelEntity);
             if (panelEnt && panelEnt.HasComponent<UIPanelComponent>())
             {
-                panelEnt.GetComponent<UIPanelComponent>().m_BackgroundColor.a = 0.85f;
+                panelEnt.GetComponent<UIPanelComponent>().m_BackgroundColor.a = kDialoguePanelAlpha;
             }
         }
         m_IsVisible = true;
