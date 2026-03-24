@@ -2342,6 +2342,13 @@ namespace OloEngine
 
     static void Input_GetWindowSize(glm::vec2* outSize)
     {
+        // Return the game viewport size (not the host window), so scripts
+        // normalising mouse coordinates work in both editor PIE and standalone.
+        if (Scene* scene = ScriptEngine::GetSceneContext(); scene && scene->GetViewportWidth() > 0)
+        {
+            *outSize = { static_cast<f32>(scene->GetViewportWidth()), static_cast<f32>(scene->GetViewportHeight()) };
+            return;
+        }
         auto& window = Application::Get().GetWindow();
         *outSize = { static_cast<f32>(window.GetWidth()), static_cast<f32>(window.GetHeight()) };
     }

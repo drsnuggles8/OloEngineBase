@@ -68,6 +68,15 @@ namespace OloEngine
         void OnUpdateEditor(Timestep ts, EditorCamera const& camera);
         void OnViewportResize(u32 width, u32 height);
 
+        [[nodiscard]] u32 GetViewportWidth() const
+        {
+            return m_ViewportWidth;
+        }
+        [[nodiscard]] u32 GetViewportHeight() const
+        {
+            return m_ViewportHeight;
+        }
+
         [[nodiscard]] Entity DuplicateEntity(Entity entity);
 
         [[nodiscard("Store this!")]] Entity FindEntityByName(std::string_view name);
@@ -398,6 +407,7 @@ namespace OloEngine
         bool m_ShowLightGizmos = true;                         // Light gizmo visibility
         f32 m_GridSpacing = 1.0f;                              // Viewport grid spacing
         bool m_PreviousMouseButtonDown = false;                // Track mouse state for UI input
+        bool m_UILayoutResolvedThisFrame = false;              // Guard against double ResolveLayout per frame
         glm::vec2 m_RuntimeCameraLastMouse{ 0.0f, 0.0f };      // FPS fly-camera mouse tracking
         SkeletonVisualizationSettings m_SkeletonVisualization; // Editor skeleton visualization
         PostProcessSettings m_PostProcessSettings;             // Post-processing settings

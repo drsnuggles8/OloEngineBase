@@ -286,17 +286,21 @@ namespace OloEngine
             if (clipPos.w <= 0.0f)
             {
                 // Behind camera — hide by moving off screen
+                const glm::vec2 oldPos = resolved.m_Position;
                 resolved.m_Position = { -10000.0f, -10000.0f };
+                OffsetSubtree(scene, entity, resolved.m_Position - oldPos);
                 continue;
             }
 
-            // Perspective divide → NDC [-1, 1]
+            // Perspective divide \u2192 NDC [-1, 1]
             const glm::vec3 ndc = glm::vec3(clipPos) / clipPos.w;
 
             // Cull if beyond the far plane or in front of the near plane
             if (ndc.z > 1.0f || ndc.z < -1.0f)
             {
+                const glm::vec2 oldPos = resolved.m_Position;
                 resolved.m_Position = { -10000.0f, -10000.0f };
+                OffsetSubtree(scene, entity, resolved.m_Position - oldPos);
                 continue;
             }
 

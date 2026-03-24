@@ -6,7 +6,7 @@ Features that were planned or partially implemented but not yet wired up in the 
 
 ## ~~1. Click-to-Move (Point-and-Click Pathfinding)~~ — **DONE**
 
-**Goal:** Diablo / Warcraft 3 style movement — left-click on the ground, player walks there via NavMesh pathfinding.
+**Goal:** Diablo / Warcraft 3-style movement — left-click on the ground, player walks there via NavMesh pathfinding.
 
 **Resolved.** Both `Physics.Raycast` and `Camera.ScreenToWorldRay` are now exposed to C# and Lua scripting. `PlayerController.cs` uses click-to-move via `Camera.ScreenToWorldRay` -> `Physics.Raycast` -> `NavAgent.TargetPosition`.
 

@@ -1982,6 +1982,7 @@ namespace OloEngine
 
         // Reset hovered entity before changing scenes to prevent accessing stale registry
         m_HoveredEntity = Entity();
+        m_PickingReadPending = false; // Discard stale PBO data from the old scene
 
         m_ActiveScene = m_EditorScene;
 

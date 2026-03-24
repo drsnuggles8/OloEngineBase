@@ -2567,6 +2567,8 @@ namespace OloEngine
         s_Data.RGraph->AddExecutionDependency("FoliagePass", "DecalPass");
         // DecalPass -> WaterPass: ordering (water blends over decals and opaque geometry)
         s_Data.RGraph->AddExecutionDependency("DecalPass", "WaterPass");
+        // WaterPass -> SSAOPass: ordering (water must complete before SSAO reads depth/normals)
+        s_Data.RGraph->AddExecutionDependency("WaterPass", "SSAOPass");
         // DecalPass -> SSAOPass: ordering (SSAO reads scene depth/normals via texture slots)
         s_Data.RGraph->AddExecutionDependency("DecalPass", "SSAOPass");
         // SSAOPass -> ParticlePass: ordering (SSAO must complete before particles render into scene FB)
@@ -2606,6 +2608,7 @@ namespace OloEngine
             OLO_CORE_INFO("Renderer3D::OnWindowResize: ScenePass missing — running deferred SetupRenderGraph");
             SetupRenderGraph(width, height);
             s_Data.ForwardPlus.Initialize(width, height);
+            return; // Initialize already configured for width x height
         }
         else if (s_Data.RGraph)
         {

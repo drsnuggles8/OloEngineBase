@@ -847,7 +847,7 @@ namespace OloEngine
             if (!cameraOpt)
                 return sol::make_object(s, sol::nil);
             Entity cameraEntity{ static_cast<entt::entity>(*cameraOpt), scene };
-            if (!cameraEntity.HasComponent<CameraComponent>())
+            if (!cameraEntity.HasComponent<CameraComponent>() || !cameraEntity.HasComponent<TransformComponent>())
                 return sol::make_object(s, sol::nil);
 
             auto const& cameraComp = cameraEntity.GetComponent<CameraComponent>();
@@ -859,11 +859,16 @@ namespace OloEngine
 
             // screenPos is in pixels (from Input.GetMousePosition); normalise to [0,1]
             auto& window = Application::Get().GetWindow();
-            const f32 normX = screenPos.x / static_cast<f32>(window.GetWidth());
-            const f32 normY = screenPos.y / static_cast<f32>(window.GetHeight());
+            const f32 winW = static_cast<f32>(window.GetWidth());
+            const f32 winH = static_cast<f32>(window.GetHeight());
+            if (winW <= 0.0f || winH <= 0.0f)
+                return sol::make_object(s, sol::nil);
+
+            const f32 normX = screenPos.x / winW;
+            const f32 normY = screenPos.y / winH;
 
             f32 ndcX = normX * 2.0f - 1.0f;
-            f32 ndcY = normY * 2.0f - 1.0f;
+            f32 ndcY = 1.0f - normY * 2.0f; // Flip Y: screen top-left origin → NDC bottom-left origin
 
             glm::vec4 nearPoint = invVP * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
             glm::vec4 farPoint = invVP * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);

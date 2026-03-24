@@ -118,6 +118,15 @@ namespace OloEngine
 
             // Start the runtime (physics, scripts, audio, animations)
             m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
+            {
+                auto& win = Application::Get().GetWindow();
+                u32 vpW = win.GetFramebufferWidth();
+                u32 vpH = win.GetFramebufferHeight();
+                if (vpW > 0 && vpH > 0)
+                {
+                    m_ActiveScene->OnViewportResize(vpW, vpH);
+                }
+            }
             m_ActiveScene->OnRuntimeStart();
 
             OLO_CORE_INFO("[Runtime] Game started successfully");

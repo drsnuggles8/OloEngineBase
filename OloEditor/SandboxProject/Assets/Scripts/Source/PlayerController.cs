@@ -94,17 +94,20 @@ namespace Sandbox
 				{
 					// Convert screen position to normalized [0,1] coordinates
 					Vector2 windowSize = Input.GetWindowSize();
-					Vector2 screenNorm = new Vector2(mousePos.X / windowSize.X, 1.0f - mousePos.Y / windowSize.Y);
-					Vector3 origin, direction;
-					OloEngine.Camera.ScreenToWorldRay(cameraEntity.ID, screenNorm, out origin, out direction);
-
-					// Raycast to find ground hit
-					RaycastHit hitResult;
-					bool didHit = Physics.Raycast(origin, direction, 500.0f, out hitResult);
-					if (didHit && m_NavAgent != null)
+					if (windowSize.X > 0.0f && windowSize.Y > 0.0f)
 					{
-						m_NavAgent.TargetPosition = hitResult.Position;
-						m_IsNavigating = true;
+						Vector2 screenNorm = new Vector2(mousePos.X / windowSize.X, 1.0f - mousePos.Y / windowSize.Y);
+						if (OloEngine.Camera.ScreenToWorldRay(cameraEntity.ID, screenNorm, out Vector3 origin, out Vector3 direction))
+						{
+							// Raycast to find ground hit
+							RaycastHit hitResult;
+							bool didHit = Physics.Raycast(origin, direction, 500.0f, out hitResult);
+							if (didHit && m_NavAgent != null)
+							{
+								m_NavAgent.TargetPosition = hitResult.Position;
+								m_IsNavigating = true;
+							}
+						}
 					}
 				}
 			}

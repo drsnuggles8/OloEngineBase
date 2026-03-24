@@ -4911,7 +4911,14 @@ namespace OloEngine
             }
 
             OLO_CORE_INFO("SceneSerializer: Deserialized {} entities ({} failed)", entityCount, failedCount);
+
+            if (failedCount > 0)
+            {
+                OLO_CORE_ERROR("SceneSerializer: {} entities failed to deserialize — aborting", failedCount);
+                return false;
+            }
         }
+
         m_Scene->SetName(std::filesystem::path(filepath).filename().string());
 
         return true;
@@ -5079,18 +5086,31 @@ namespace OloEngine
         {
             for (auto entity : entities)
             {
-                u64 uuid = entity["Entity"].as<u64>();
-
-                std::string name;
-                auto tagComponent = entity["TagComponent"];
-                if (tagComponent)
+                try
                 {
-                    name = tagComponent["Tag"].as<std::string>();
+                    u64 uuid = entity["Entity"].as<u64>();
+
+                    std::string name;
+                    auto tagComponent = entity["TagComponent"];
+                    if (tagComponent)
+                    {
+                        name = tagComponent["Tag"].as<std::string>();
+                    }
+
+                    OLO_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
+
+                    DeserializeEntity(uuid, name, entity);
                 }
-
-                OLO_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
-
-                DeserializeEntity(uuid, name, entity);
+                catch (const std::exception& e)
+                {
+                    OLO_CORE_ERROR("SceneSerializer::DeserializeFromYAML: Failed to deserialize entity — {}", e.what());
+                    return false;
+                }
+                catch (...)
+                {
+                    OLO_CORE_ERROR("SceneSerializer::DeserializeFromYAML: Failed to deserialize entity (unknown exception)");
+                    return false;
+                }
             }
         }
 
@@ -5112,29 +5132,40 @@ namespace OloEngine
 
         for (auto entity : entitiesNode)
         {
-            if (!entity["Entity"])
+            try
             {
-                OLO_CORE_WARN("DeserializeAdditive: skipping entity node without 'Entity' key");
-                continue;
-            }
-            auto uuid = entity["Entity"].as<u64>();
+                if (!entity["Entity"])
+                {
+                    OLO_CORE_WARN("DeserializeAdditive: skipping entity node without 'Entity' key");
+                    continue;
+                }
+                auto uuid = entity["Entity"].as<u64>();
 
-            // Skip if entity already exists in the scene
-            if (m_Scene->m_EntityMap.Contains(uuid))
+                // Skip if entity already exists in the scene
+                if (m_Scene->m_EntityMap.Contains(uuid))
+                {
+                    continue;
+                }
+
+                std::string name;
+                if (auto tagComponent = entity["TagComponent"]; tagComponent)
+                {
+                    name = tagComponent["Tag"].as<std::string>();
+                }
+
+                OLO_CORE_TRACE("Additive deserialized entity with ID = {0}, name = {1}", uuid, name);
+
+                DeserializeEntity(uuid, name, entity);
+                createdUUIDs.emplace_back(uuid);
+            }
+            catch (const std::exception& e)
             {
-                continue;
+                OLO_CORE_ERROR("DeserializeAdditive: Failed to deserialize entity — {}", e.what());
             }
-
-            std::string name;
-            if (auto tagComponent = entity["TagComponent"]; tagComponent)
+            catch (...)
             {
-                name = tagComponent["Tag"].as<std::string>();
+                OLO_CORE_ERROR("DeserializeAdditive: Failed to deserialize entity (unknown exception)");
             }
-
-            OLO_CORE_TRACE("Additive deserialized entity with ID = {0}, name = {1}", uuid, name);
-
-            DeserializeEntity(uuid, name, entity);
-            createdUUIDs.emplace_back(uuid);
         }
 
         return createdUUIDs;

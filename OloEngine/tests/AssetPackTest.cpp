@@ -7,7 +7,20 @@
 
 #include <filesystem>
 #include <fstream>
+
+#ifdef _WIN32
 #include <process.h> // _getpid()
+inline int OloGetPid()
+{
+    return _getpid();
+}
+#else
+#include <unistd.h>
+inline int OloGetPid()
+{
+    return static_cast<int>(getpid());
+}
+#endif
 
 using namespace OloEngine;
 
@@ -83,7 +96,7 @@ class AssetPackTest : public ::testing::Test
         ASSERT_TRUE(writer.IsStreamGood());
     }
 
-    std::filesystem::path m_TempPath = std::filesystem::temp_directory_path() / ("olo_test_assetpack_" + std::to_string(_getpid()) + ".olopack");
+    std::filesystem::path m_TempPath = std::filesystem::temp_directory_path() / ("olo_test_assetpack_" + std::to_string(OloGetPid()) + ".olopack");
 };
 
 // ============================================================================

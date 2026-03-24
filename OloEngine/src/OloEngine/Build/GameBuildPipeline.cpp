@@ -740,7 +740,8 @@ namespace OloEngine
             return false;
         }
 
-        u16 imageCount = *reinterpret_cast<const u16*>(&icoData[4]);
+        u16 imageCount{};
+        std::memcpy(&imageCount, &icoData[4], sizeof(u16));
         if (imageCount == 0 || icoData.size() < static_cast<sizet>(6 + imageCount * 16))
         {
             errorMessage = "Invalid ICO file: no images or truncated directory";
@@ -770,8 +771,10 @@ namespace OloEngine
 
             // ICONDIRENTRY: Width(1) Height(1) ColorCount(1) Reserved(1)
             //               Planes(2) BitCount(2) BytesInRes(4) ImageOffset(4)
-            u32 bytesInRes = *reinterpret_cast<const u32*>(&entry[8]);
-            u32 imageOffset = *reinterpret_cast<const u32*>(&entry[12]);
+            u32 bytesInRes{};
+            u32 imageOffset{};
+            std::memcpy(&bytesInRes, &entry[8], sizeof(u32));
+            std::memcpy(&imageOffset, &entry[12], sizeof(u32));
 
             if (static_cast<sizet>(imageOffset) + bytesInRes > icoData.size())
             {
@@ -791,7 +794,7 @@ namespace OloEngine
             // Build GRPICONDIRENTRY: copy first 12 bytes from ICONDIRENTRY, then nID(2)
             const sizet grpEntryOffset = 6 + static_cast<sizet>(i) * 14;
             std::memcpy(&grpData[grpEntryOffset], entry, 12);
-            *reinterpret_cast<u16*>(&grpData[grpEntryOffset + 12]) = iconId;
+            std::memcpy(&grpData[grpEntryOffset + 12], &iconId, sizeof(u16));
         }
 
         // Write RT_GROUP_ICON resource (ID 1 — matches the .rc resource ID)

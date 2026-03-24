@@ -305,6 +305,11 @@ namespace OloEngine
 
         // Calculate memory usage including all mip levels across 6 faces
         auto formatInfo = Utils::GetFormatInfo(m_CubemapSpecification.Format);
+        if (formatInfo.BytesPerPixel == 0)
+        {
+            OLO_CORE_ERROR("OpenGLTextureCubemap: Unsupported image format during LoadFromFileArray");
+            return;
+        }
         const sizet cubemapMemory = CalculateCubemapMemory(formatInfo.BytesPerPixel, GetMipLevelCount());
 
         // Track GPU memory allocation

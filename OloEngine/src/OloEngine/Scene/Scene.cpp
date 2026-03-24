@@ -1102,9 +1102,11 @@ namespace OloEngine
         }
 
         // Process UI input during runtime (resolve layout first so hit-rects are current)
+        m_UILayoutResolvedThisFrame = false;
         if (m_ViewportWidth > 0 && m_ViewportHeight > 0)
         {
             UILayoutSystem::ResolveLayout(*this, m_ViewportWidth, m_ViewportHeight, m_CameraViewProjection);
+            m_UILayoutResolvedThisFrame = true;
 
             const glm::vec2 mousePos = Input::GetMousePosition();
             const bool mouseDown = Input::IsMouseButtonPressed(Mouse::ButtonLeft);
@@ -1802,7 +1804,10 @@ namespace OloEngine
         RenderCommand::SetBlendState(true);
         RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-        UILayoutSystem::ResolveLayout(*this, m_ViewportWidth, m_ViewportHeight, m_CameraViewProjection);
+        if (!m_UILayoutResolvedThisFrame)
+        {
+            UILayoutSystem::ResolveLayout(*this, m_ViewportWidth, m_ViewportHeight, m_CameraViewProjection);
+        }
 
         glm::mat4 uiProjection = glm::ortho(0.0f, static_cast<f32>(m_ViewportWidth),
                                             static_cast<f32>(m_ViewportHeight), 0.0f,
@@ -1954,10 +1959,13 @@ namespace OloEngine
                     }
                 }
 
-                // Mana bar below HP bar
+                // Mana bar below HP bar (gap only applies when health bar is visible)
                 if (nameplate.m_ShowManaBar)
                 {
-                    currentY += nameplate.m_BarSize.y + nameplate.m_ManaBarGap;
+                    if (nameplate.m_ShowHealthBar)
+                    {
+                        currentY += nameplate.m_BarSize.y + nameplate.m_ManaBarGap;
+                    }
                     const glm::vec2 manaSize = { nameplate.m_BarSize.x, nameplate.m_BarSize.y * 0.8f };
                     const glm::vec2 barPos = { screenX - manaSize.x * 0.5f, currentY };
                     UIRenderer::DrawRect(barPos, manaSize, nameplate.m_BarBackgroundColor, eid);

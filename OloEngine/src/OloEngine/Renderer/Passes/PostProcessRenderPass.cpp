@@ -24,40 +24,36 @@ namespace OloEngine
         // Create ping-pong framebuffers (RGBA16F, no depth)
         CreatePingPongFramebuffers(spec.Width, spec.Height);
 
-        // Load all effect shaders
+        // Load all effect shaders via table-driven approach
+        struct ShaderEntry
+        {
+            const char* path;
+            Ref<Shader>& target;
+        };
+        ShaderEntry shaderTable[] = {
+            { "assets/shaders/PostProcess_BloomThreshold.glsl", m_BloomThresholdShader },
+            { "assets/shaders/PostProcess_BloomDownsample.glsl", m_BloomDownsampleShader },
+            { "assets/shaders/PostProcess_BloomUpsample.glsl", m_BloomUpsampleShader },
+            { "assets/shaders/PostProcess_BloomComposite.glsl", m_BloomCompositeShader },
+            { "assets/shaders/PostProcess_Vignette.glsl", m_VignetteShader },
+            { "assets/shaders/PostProcess_ChromaticAberration.glsl", m_ChromaticAberrationShader },
+            { "assets/shaders/PostProcess_ColorGrading.glsl", m_ColorGradingShader },
+            { "assets/shaders/PostProcess_ToneMap.glsl", m_ToneMapShader },
+            { "assets/shaders/PostProcess_FXAA.glsl", m_FXAAShader },
+            { "assets/shaders/PostProcess_DOF.glsl", m_DOFShader },
+            { "assets/shaders/PostProcess_MotionBlur.glsl", m_MotionBlurShader },
+            { "assets/shaders/PostProcess_Fog.glsl", m_FogShader },
+            { "assets/shaders/PostProcess_FogUpsample.glsl", m_FogUpsampleShader },
+            { "assets/shaders/PostProcess_SSAOApply.glsl", m_SSAOApplyShader },
+            { "assets/shaders/PostProcess_Precipitation.glsl", m_PrecipitationShader },
+        };
+        const u32 totalPPShaders = static_cast<u32>(std::size(shaderTable));
         u32 ppIdx = 0;
-        constexpr u32 totalPPShaders = 15;
-
-        m_BloomThresholdShader = Shader::Create("assets/shaders/PostProcess_BloomThreshold.glsl");
-        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
-        m_BloomDownsampleShader = Shader::Create("assets/shaders/PostProcess_BloomDownsample.glsl");
-        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
-        m_BloomUpsampleShader = Shader::Create("assets/shaders/PostProcess_BloomUpsample.glsl");
-        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
-        m_BloomCompositeShader = Shader::Create("assets/shaders/PostProcess_BloomComposite.glsl");
-        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
-        m_VignetteShader = Shader::Create("assets/shaders/PostProcess_Vignette.glsl");
-        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
-        m_ChromaticAberrationShader = Shader::Create("assets/shaders/PostProcess_ChromaticAberration.glsl");
-        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
-        m_ColorGradingShader = Shader::Create("assets/shaders/PostProcess_ColorGrading.glsl");
-        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
-        m_ToneMapShader = Shader::Create("assets/shaders/PostProcess_ToneMap.glsl");
-        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
-        m_FXAAShader = Shader::Create("assets/shaders/PostProcess_FXAA.glsl");
-        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
-        m_DOFShader = Shader::Create("assets/shaders/PostProcess_DOF.glsl");
-        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
-        m_MotionBlurShader = Shader::Create("assets/shaders/PostProcess_MotionBlur.glsl");
-        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
-        m_FogShader = Shader::Create("assets/shaders/PostProcess_Fog.glsl");
-        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
-        m_FogUpsampleShader = Shader::Create("assets/shaders/PostProcess_FogUpsample.glsl");
-        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
-        m_SSAOApplyShader = Shader::Create("assets/shaders/PostProcess_SSAOApply.glsl");
-        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
-        m_PrecipitationShader = Shader::Create("assets/shaders/PostProcess_Precipitation.glsl");
-        Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
+        for (auto& [path, target] : shaderTable)
+        {
+            target = Shader::Create(path);
+            Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
+        }
         m_PrecipitationScreenUBO = UniformBuffer::Create(PrecipitationScreenUBOData::GetSize(), ShaderBindingLayout::UBO_PRECIPITATION_SCREEN);
 
         // Create bloom mip chain

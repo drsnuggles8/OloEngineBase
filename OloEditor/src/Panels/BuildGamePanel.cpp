@@ -290,7 +290,16 @@ namespace OloEngine
             {
                 std::error_code ec;
                 auto relative = std::filesystem::relative(m_EditorScenePath, Project::GetAssetDirectory(), ec);
-                m_Settings.StartScene = ec ? m_EditorScenePath : relative;
+                if (ec || relative.string().starts_with(".."))
+                {
+                    OLO_CORE_ERROR("[BuildGame] StartScene '{}' is outside the asset directory — ignoring",
+                                   m_EditorScenePath.string());
+                    m_Settings.StartScene.clear();
+                }
+                else
+                {
+                    m_Settings.StartScene = relative;
+                }
             }
             else
             {
@@ -305,6 +314,7 @@ namespace OloEngine
         m_HasBuildResult.store(false, std::memory_order_release);
         m_CancelRequested.store(false, std::memory_order_release);
         m_BuildProgressPermille.store(0, std::memory_order_relaxed);
+        m_BuildProgress.store(0.0f, std::memory_order_relaxed);
 
         // Capture settings by value for the build thread
         GameBuildSettings settings = m_Settings;

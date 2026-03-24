@@ -234,13 +234,18 @@ namespace OloEngine
         std::filesystem::create_directories(s_CrashReportDir, ec);
         if (ec)
         {
-            OLO_CORE_ERROR("[CrashReporter] Failed to create crash report directory '{}': {}", s_CrashReportDir.string(), ec.message());
+            OLO_CORE_ERROR("[CrashReporter] Failed to create crash report directory '{}': {} — crash reports will fallback to stderr",
+                           s_CrashReportDir.string(), ec.message());
+            // Continue in degraded mode — WriteCrashReport will fallback to stderr
         }
 
         InstallPlatformHandlers();
         s_Initialized = true;
 
-        OLO_CORE_INFO("[CrashReporter] Initialized — reports will be written to: {}", s_CrashReportDir.string());
+        if (!ec)
+        {
+            OLO_CORE_INFO("[CrashReporter] Initialized — reports will be written to: {}", s_CrashReportDir.string());
+        }
     }
 
     void CrashReporter::Shutdown()
@@ -395,7 +400,10 @@ namespace OloEngine
 
         // Also log the crash (this goes to OloEngine.log and console)
         OLO_CORE_FATAL("=== CRASH: {} — {} ===", exceptionType, exceptionDetail);
-        OLO_CORE_FATAL("Crash report written to: {}", reportPath.string());
+        if (file.is_open() && !file.fail())
+        {
+            OLO_CORE_FATAL("Crash report written to: {}", reportPath.string());
+        }
 
 #ifdef OLO_PLATFORM_WINDOWS
         // Show a message box so the user knows something went wrong — only in interactive mode
