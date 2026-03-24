@@ -2,8 +2,10 @@
 #include "ShaderEditorPanel.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Utils/PlatformUtils.h"
 
 #include <imgui.h>
+#include <misc/cpp/imgui_stdlib.h>
 
 #include <fstream>
 
@@ -28,6 +30,33 @@ namespace OloEngine
                 }
                 if (ImGui::MenuItem("Reload from Disk", nullptr, false, m_FileLoaded))
                 {
+                    if (m_Dirty)
+                    {
+                        auto const result = MessagePrompt::YesNoCancel(
+                            "Unsaved Shader",
+                            "The current shader has unsaved changes. Save before reloading?");
+
+                        switch (result)
+                        {
+                            case MessagePromptResult::Yes:
+                                if (!Save())
+                                {
+                                    ImGui::EndMenu();
+                                    ImGui::EndMenuBar();
+                                    ImGui::End();
+                                    return;
+                                }
+                                break;
+                            case MessagePromptResult::Cancel:
+                                ImGui::EndMenu();
+                                ImGui::EndMenuBar();
+                                ImGui::End();
+                                return;
+                            case MessagePromptResult::No:
+                            default:
+                                break;
+                        }
+                    }
                     LoadFileContents(m_CurrentFilePath);
                 }
                 ImGui::EndMenu();
@@ -108,25 +137,9 @@ namespace OloEngine
             ImGui::Separator();
         }
 
-        // Text editor area — use InputTextMultiline for in-place editing
+        // Text editor area — use InputTextMultiline with std::string overload (imgui_stdlib)
         ImVec2 const availSize = ImGui::GetContentRegionAvail();
-        if (ImGui::InputTextMultiline(
-                "##ShaderSource",
-                m_SourceCode.data(),
-                m_SourceCode.capacity() + 1,
-                availSize,
-                ImGuiInputTextFlags_CallbackResize,
-                [](ImGuiInputTextCallbackData* data) -> int
-                {
-                    if (data->EventFlag == ImGuiInputTextFlags_CallbackResize)
-                    {
-                        auto* str = static_cast<std::string*>(data->UserData);
-                        str->resize(static_cast<size_t>(data->BufTextLen));
-                        data->Buf = str->data();
-                    }
-                    return 0;
-                },
-                &m_SourceCode))
+        if (ImGui::InputTextMultiline("##ShaderSource", &m_SourceCode, availSize))
         {
             m_Dirty = true;
         }

@@ -14,6 +14,7 @@
 #include "OloEngine/Scene/Streaming/SceneStreamer.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Dialogue/DialogueSystem.h"
@@ -1792,10 +1793,10 @@ namespace OloEngine
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
-    // ShaderLibrary //////////////////////////////////////////////////////////////////////////
+    // ShaderLibrary3D /////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
 
-    static bool ShaderLibrary_LoadShader(MonoString* monoFilepath)
+    static bool ShaderLibrary3D_LoadShader(MonoString* monoFilepath)
     {
         if (!monoFilepath)
             return false;
@@ -1805,7 +1806,7 @@ namespace OloEngine
         return shader != nullptr;
     }
 
-    static bool ShaderLibrary_Exists(MonoString* monoName)
+    static bool ShaderLibrary3D_Exists(MonoString* monoName)
     {
         if (!monoName)
             return false;
@@ -1813,7 +1814,7 @@ namespace OloEngine
         return Renderer3D::GetShaderLibrary().Exists(name);
     }
 
-    static MonoString* ShaderLibrary_GetShaderName(MonoString* monoName)
+    static MonoString* ShaderLibrary3D_GetShaderName(MonoString* monoName)
     {
         if (!monoName)
             return ScriptEngine::CreateString("");
@@ -1827,12 +1828,12 @@ namespace OloEngine
         return ScriptEngine::CreateString(shader->GetName().c_str());
     }
 
-    static void ShaderLibrary_ReloadAll()
+    static void ShaderLibrary3D_ReloadAll()
     {
         Renderer3D::GetShaderLibrary().ReloadShaders();
     }
 
-    static void ShaderLibrary_ReloadShader(MonoString* monoName)
+    static void ShaderLibrary3D_ReloadShader(MonoString* monoName)
     {
         if (!monoName)
             return;
@@ -1844,9 +1845,66 @@ namespace OloEngine
         }
     }
 
-    static u32 ShaderLibrary_GetShaderCount()
+    static u32 ShaderLibrary3D_GetShaderCount()
     {
         return Renderer3D::GetShaderLibrary().GetTotalCount();
+    }
+
+    // ShaderLibrary2D /////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static bool ShaderLibrary2D_LoadShader(MonoString* monoFilepath)
+    {
+        if (!monoFilepath)
+            return false;
+        auto const filepath = Utils::MonoStringToString(monoFilepath);
+        auto& library = Renderer2D::GetShaderLibrary();
+        auto shader = library.Load(filepath);
+        return shader != nullptr;
+    }
+
+    static bool ShaderLibrary2D_Exists(MonoString* monoName)
+    {
+        if (!monoName)
+            return false;
+        auto const name = Utils::MonoStringToString(monoName);
+        return Renderer2D::GetShaderLibrary().Exists(name);
+    }
+
+    static MonoString* ShaderLibrary2D_GetShaderName(MonoString* monoName)
+    {
+        if (!monoName)
+            return ScriptEngine::CreateString("");
+        auto const name = Utils::MonoStringToString(monoName);
+        auto& library = Renderer2D::GetShaderLibrary();
+        if (!library.Exists(name))
+        {
+            return ScriptEngine::CreateString("");
+        }
+        auto shader = library.Get(name);
+        return ScriptEngine::CreateString(shader->GetName().c_str());
+    }
+
+    static void ShaderLibrary2D_ReloadAll()
+    {
+        Renderer2D::GetShaderLibrary().ReloadShaders();
+    }
+
+    static void ShaderLibrary2D_ReloadShader(MonoString* monoName)
+    {
+        if (!monoName)
+            return;
+        auto const name = Utils::MonoStringToString(monoName);
+        auto& library = Renderer2D::GetShaderLibrary();
+        if (library.Exists(name))
+        {
+            library.Get(name)->Reload();
+        }
+    }
+
+    static u32 ShaderLibrary2D_GetShaderCount()
+    {
+        return Renderer2D::GetShaderLibrary().GetTotalCount();
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -4066,14 +4124,24 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(MaterialComponent_SetAlbedoColor);
 
         ///////////////////////////////////////////////////////////////
-        // ShaderLibrary /////////////////////////////////////////////
+        // ShaderLibrary3D ///////////////////////////////////////////
         ///////////////////////////////////////////////////////////////
-        OLO_ADD_INTERNAL_CALL(ShaderLibrary_LoadShader);
-        OLO_ADD_INTERNAL_CALL(ShaderLibrary_Exists);
-        OLO_ADD_INTERNAL_CALL(ShaderLibrary_GetShaderName);
-        OLO_ADD_INTERNAL_CALL(ShaderLibrary_ReloadAll);
-        OLO_ADD_INTERNAL_CALL(ShaderLibrary_ReloadShader);
-        OLO_ADD_INTERNAL_CALL(ShaderLibrary_GetShaderCount);
+        OLO_ADD_INTERNAL_CALL(ShaderLibrary3D_LoadShader);
+        OLO_ADD_INTERNAL_CALL(ShaderLibrary3D_Exists);
+        OLO_ADD_INTERNAL_CALL(ShaderLibrary3D_GetShaderName);
+        OLO_ADD_INTERNAL_CALL(ShaderLibrary3D_ReloadAll);
+        OLO_ADD_INTERNAL_CALL(ShaderLibrary3D_ReloadShader);
+        OLO_ADD_INTERNAL_CALL(ShaderLibrary3D_GetShaderCount);
+
+        ///////////////////////////////////////////////////////////////
+        // ShaderLibrary2D ///////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(ShaderLibrary2D_LoadShader);
+        OLO_ADD_INTERNAL_CALL(ShaderLibrary2D_Exists);
+        OLO_ADD_INTERNAL_CALL(ShaderLibrary2D_GetShaderName);
+        OLO_ADD_INTERNAL_CALL(ShaderLibrary2D_ReloadAll);
+        OLO_ADD_INTERNAL_CALL(ShaderLibrary2D_ReloadShader);
+        OLO_ADD_INTERNAL_CALL(ShaderLibrary2D_GetShaderCount);
 
         ///////////////////////////////////////////////////////////////
         // Application / Time /////////////////////////////////////////

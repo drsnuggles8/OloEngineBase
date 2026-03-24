@@ -2128,6 +2128,31 @@ namespace OloEngine
             }
         }
 
+        // Check shader editor unsaved changes
+        if (m_ShaderEditorPanel.HasUnsavedChanges())
+        {
+            auto const result = MessagePrompt::YesNoCancel(
+                "Unsaved Shader",
+                "The current shader has unsaved changes. Do you want to save before closing?");
+
+            switch (result)
+            {
+                case MessagePromptResult::Yes:
+                    if (!m_ShaderEditorPanel.Save())
+                    {
+                        Application::Get().CancelClose();
+                        return true;
+                    }
+                    break;
+                case MessagePromptResult::Cancel:
+                    Application::Get().CancelClose();
+                    return true;
+                case MessagePromptResult::No:
+                default:
+                    break;
+            }
+        }
+
         if (!ConfirmDiscardChanges())
         {
             Application::Get().CancelClose();

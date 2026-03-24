@@ -82,6 +82,8 @@ namespace OloEngine
 
     u32 ShaderLibrary::PollPendingShaders()
     {
+        OLO_PROFILE_FUNCTION();
+
         u32 completed = 0;
         for (auto& [name, shader] : m_Shaders)
         {
@@ -115,6 +117,8 @@ namespace OloEngine
 
     void ShaderLibrary::FlushPendingShaders()
     {
+        OLO_PROFILE_FUNCTION();
+
         for (auto& [name, shader] : m_Shaders)
         {
             if (shader->GetCompilationStatus() == ShaderCompilationStatus::Compiling)
@@ -172,9 +176,9 @@ layout(location = 0) in vec3 a_Position;
 
 layout(std140, binding = 0) uniform CameraMatrices
 {
+    mat4 u_ViewProjectionMatrix;
     mat4 u_ViewMatrix;
     mat4 u_ProjectionMatrix;
-    mat4 u_ViewProjectionMatrix;
     vec4 u_CameraPosition;
 };
 
@@ -196,12 +200,23 @@ layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
 layout(location = 2) out vec2 o_ViewNormal;
 
+// Octahedral encoding: maps a unit normal to [0,1]^2
+vec2 octEncode(vec3 n)
+{
+    n /= (abs(n.x) + abs(n.y) + abs(n.z));
+    if (n.z < 0.0)
+    {
+        n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
+    }
+    return n.xy * 0.5 + 0.5;
+}
+
 void main()
 {
     // Magenta — instantly recognizable as "shader not ready"
     o_Color = vec4(1.0, 0.0, 1.0, 1.0);
     o_EntityID = -1;
-    o_ViewNormal = vec2(0.0);
+    o_ViewNormal = octEncode(vec3(0.0, 0.0, 1.0));
 }
 )glsl";
 

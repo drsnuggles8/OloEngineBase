@@ -545,6 +545,8 @@ namespace OloEngine
 
     void PostProcessRenderPass::ReloadShader(const std::string& name)
     {
+        OLO_PROFILE_FUNCTION();
+
         Ref<Shader>* shaders[] = {
             &m_BloomThresholdShader,
             &m_BloomDownsampleShader,
@@ -571,6 +573,8 @@ namespace OloEngine
                 return;
             }
         }
+
+        OLO_CORE_WARN("PostProcessRenderPass::ReloadShader: no shader matched name '{}'", name);
     }
 
     void PostProcessRenderPass::CreateBloomMipChain(u32 width, u32 height)

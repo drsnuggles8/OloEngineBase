@@ -57,7 +57,7 @@ namespace OloEngine
             m_PrecipitationScreenEffectsEnabled = enabled;
         }
 
-        // Hot-reload a post-process shader by name (stem, e.g. "PostProcess_Bloom_Threshold")
+        // Hot-reload a post-process shader by name (stem, e.g. "PostProcess_BloomThreshold")
         void ReloadShader(const std::string& name);
 
       private:
