@@ -31,6 +31,11 @@ namespace Sandbox
 			m_HUD = FindEntityByName("HUD");
 			m_Player = FindEntityByName("Player");
 
+			WarnIfMissing(m_PauseOverlay, "Pause Overlay");
+			WarnIfMissing(m_DeathOverlay, "Death Overlay");
+			WarnIfMissing(m_HUD, "HUD");
+			WarnIfMissing(m_Player, "Player");
+
 			// Hide overlays at start
 			SetOverlayVisible(m_PauseOverlay, false);
 			SetOverlayVisible(m_DeathOverlay, false);
@@ -137,6 +142,12 @@ namespace Sandbox
 
 			if (entity.HasComponent<UITextComponent>())
 				entity.GetComponent<UITextComponent>().Text = text;
+		}
+
+		private static void WarnIfMissing(Entity entity, string name)
+		{
+			if (entity == null)
+				Debug.LogWarning($"[GameManager] Entity '{name}' not found — overlay/UI ops will no-op");
 		}
 	}
 }

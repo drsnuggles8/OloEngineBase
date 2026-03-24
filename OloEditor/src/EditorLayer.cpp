@@ -1025,8 +1025,6 @@ namespace OloEngine
         {
             m_BuildGamePanel->SetEditorScenePath(m_EditorScenePath);
             m_BuildGamePanel->SetIs3DMode(m_Is3DMode);
-            m_BuildGamePanel->SetSaveSceneCallback([this]()
-                                                   { return SaveScene(); });
             m_BuildGamePanel->OnImGuiRender(m_ShowBuildGame);
         }
 
@@ -1680,6 +1678,8 @@ namespace OloEngine
         BindContentBrowserSelectionCallback();
         m_AssetPackBuilderPanel = CreateScope<AssetPackBuilderPanel>();
         m_BuildGamePanel = CreateScope<BuildGamePanel>();
+        m_BuildGamePanel->SetSaveSceneCallback([this]()
+                                               { return SaveScene(); });
     }
 
     bool EditorLayer::OpenProject()
@@ -1724,6 +1724,8 @@ namespace OloEngine
             BindContentBrowserSelectionCallback();
             m_AssetPackBuilderPanel = CreateScope<AssetPackBuilderPanel>();
             m_BuildGamePanel = CreateScope<BuildGamePanel>();
+            m_BuildGamePanel->SetSaveSceneCallback([this]()
+                                                   { return SaveScene(); });
 
             // Load input action map if one exists for this project
             auto inputMapPath = Project::GetInputActionMapPath();

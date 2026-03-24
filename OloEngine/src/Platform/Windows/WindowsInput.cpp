@@ -31,7 +31,13 @@ namespace OloEngine
 
     bool Input::IsKeyPressed(const KeyCode key)
     {
-        auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
+        auto* const nativeWindow = Application::Get().GetWindow().GetNativeWindow();
+        if (!nativeWindow)
+        {
+            const auto k = static_cast<i32>(key);
+            return (k >= 0 && k < s_MaxKeys) && s_CurrentKeys[k];
+        }
+        auto* const window = static_cast<GLFWwindow*>(nativeWindow);
         const auto state = GLFWAPI::glfwGetKey(window, static_cast<i32>(key));
         return GLFW_PRESS == state;
     }
@@ -58,14 +64,24 @@ namespace OloEngine
 
     bool Input::IsMouseButtonPressed(const MouseCode button)
     {
-        auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
+        auto* const nativeWindow = Application::Get().GetWindow().GetNativeWindow();
+        if (!nativeWindow)
+        {
+            return false;
+        }
+        auto* const window = static_cast<GLFWwindow*>(nativeWindow);
         const auto state = GLFWAPI::glfwGetMouseButton(window, static_cast<i32>(button));
         return GLFW_PRESS == state;
     }
 
     glm::vec2 Input::GetMousePosition()
     {
-        auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
+        auto* const nativeWindow = Application::Get().GetWindow().GetNativeWindow();
+        if (!nativeWindow)
+        {
+            return { 0.0f, 0.0f };
+        }
+        auto* const window = static_cast<GLFWwindow*>(nativeWindow);
         f64 xpos{};
         f64 ypos{};
         GLFWAPI::glfwGetCursorPos(window, &xpos, &ypos);
