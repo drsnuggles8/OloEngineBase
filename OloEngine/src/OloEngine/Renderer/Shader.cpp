@@ -18,8 +18,11 @@ namespace OloEngine
             case RendererAPI::API::OpenGL:
             {
                 auto shader = Ref<OpenGLShader>::Create(filepath);
-                // Initialize the resource registry after construction
-                static_cast<OpenGLShader*>(shader.get())->InitializeResourceRegistry(shader);
+                // Initialize the resource registry after construction — only if
+                // the shader is already fully linked (sync path or cache hit).
+                // For async shaders, this is deferred to PollPendingShaders().
+                if (shader->IsReady())
+                    static_cast<OpenGLShader*>(shader.get())->InitializeResourceRegistry(shader);
                 return shader;
             }
         }
@@ -41,7 +44,8 @@ namespace OloEngine
             {
                 auto shader = Ref<OpenGLShader>::Create(name, vertexSrc, fragmentSrc);
                 // Initialize the resource registry after construction
-                static_cast<OpenGLShader*>(shader.get())->InitializeResourceRegistry(shader);
+                if (shader->IsReady())
+                    static_cast<OpenGLShader*>(shader.get())->InitializeResourceRegistry(shader);
                 return shader;
             }
         }

@@ -244,7 +244,7 @@ namespace OloEngine
 
         if (!ec)
         {
-            OLO_CORE_INFO("[CrashReporter] Initialized — reports will be written to: {}", s_CrashReportDir.string());
+            OLO_CORE_INFO("[CrashReporter] Initialized. Reports will be written to: {}", s_CrashReportDir.string());
         }
     }
 

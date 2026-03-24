@@ -589,6 +589,36 @@ namespace OloEngine
 		internal static extern void MaterialComponent_SetAlbedoColor(ulong entityID, ref Vector4 color);
 		#endregion
 
+		#region ShaderLibrary3D
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool ShaderLibrary3D_LoadShader(string filepath);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool ShaderLibrary3D_Exists(string name);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string ShaderLibrary3D_GetShaderName(string name);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ShaderLibrary3D_ReloadAll();
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ShaderLibrary3D_ReloadShader(string name);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint ShaderLibrary3D_GetShaderCount();
+		#endregion
+
+		#region ShaderLibrary2D
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool ShaderLibrary2D_LoadShader(string filepath);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool ShaderLibrary2D_Exists(string name);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string ShaderLibrary2D_GetShaderName(string name);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ShaderLibrary2D_ReloadAll();
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ShaderLibrary2D_ReloadShader(string name);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint ShaderLibrary2D_GetShaderCount();
+		#endregion
+
 		#region NavAgentComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void NavAgentComponent_GetTargetPosition(ulong entityID, out Vector3 target);

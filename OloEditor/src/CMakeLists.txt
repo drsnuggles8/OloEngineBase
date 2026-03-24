@@ -52,6 +52,8 @@
 		"Panels/FSMEditorPanel.h"
 		"Panels/BuildGamePanel.cpp"
 		"Panels/BuildGamePanel.h"
+		"Panels/ShaderEditorPanel.cpp"
+		"Panels/ShaderEditorPanel.h"
 )
 
 file(GLOB_RECURSE GLSL_SOURCE_FILES "../assets/shaders/*.glsl")

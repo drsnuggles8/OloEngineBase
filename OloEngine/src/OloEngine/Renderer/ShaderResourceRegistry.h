@@ -71,6 +71,12 @@ namespace OloEngine
         void Initialize();
         void Shutdown();
 
+        // @brief Check if this registry has been initialized
+        [[nodiscard]] bool IsInitialized() const
+        {
+            return m_Initialized;
+        }
+
         // @brief Set the associated shader for this registry
         void SetShader(const Ref<Shader>& shader)
         {

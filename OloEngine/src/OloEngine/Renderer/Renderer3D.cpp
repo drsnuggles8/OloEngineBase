@@ -45,6 +45,7 @@
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
+#include "OloEngine/Renderer/ShaderWarmup.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -287,62 +288,65 @@ namespace OloEngine
         // NOTE: Keep totalShaders3D in sync with the number of Load() calls below.
         constexpr u32 totalShaders3D = 28;
 
-        m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/SkinnedLighting3D_Simple.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/Renderer3D_Quad.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/PBR.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/PBR_Skinned.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/PBR_MultiLight.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/PBR_MultiLight_Skinned.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/EquirectangularToCubemap.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/IrradianceConvolution.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/IBLPrefilter.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/BRDFLutGeneration.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/Skybox.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/InfiniteGrid.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/ShadowDepth.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/ShadowDepthSkinned.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/ShadowDepthPoint.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/ShadowDepthPointSkinned.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/Terrain_PBR.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/Terrain_Depth.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/Terrain_Voxel.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/Terrain_VoxelDepth.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/Foliage_Instance.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/Foliage_Depth.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/Water.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/Decal.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/OcclusionProxy.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
-        m_ShaderLibrary.Load("assets/shaders/ForwardPlusDebug.glsl");
-        Application::ReportLoadingProgress(++shaderIdx, totalShaders3D, "shaders");
+        // Boot + fallback are idempotent — no-ops when already initialized by
+        // Renderer::Init().  Needed here for the lazy-init path (EditorLayer
+        // calls Renderer3D::Init() directly without going through Renderer::Init).
+        ShaderWarmup::Init();
+        ShaderLibrary::InitFallbackShader();
+
+        Window& window = Application::Get().GetWindow();
+
+        // All Load() calls issue glLinkProgram() back-to-back WITHOUT checking
+        // GL_LINK_STATUS. When GL_ARB_parallel_shader_compile is available the
+        // driver links them all in parallel. Status is checked later via
+        // PollPendingShaders() each frame in BeginSceneCommon().
+        static constexpr std::array s_ShaderPaths = {
+            "assets/shaders/LightCube.glsl",
+            "assets/shaders/Lighting3D.glsl",
+            "assets/shaders/SkinnedLighting3D_Simple.glsl",
+            "assets/shaders/Renderer3D_Quad.glsl",
+            "assets/shaders/PBR.glsl",
+            "assets/shaders/PBR_Skinned.glsl",
+            "assets/shaders/PBR_MultiLight.glsl",
+            "assets/shaders/PBR_MultiLight_Skinned.glsl",
+            "assets/shaders/EquirectangularToCubemap.glsl",
+            "assets/shaders/IrradianceConvolution.glsl",
+            "assets/shaders/IBLPrefilter.glsl",
+            "assets/shaders/BRDFLutGeneration.glsl",
+            "assets/shaders/Skybox.glsl",
+            "assets/shaders/InfiniteGrid.glsl",
+            "assets/shaders/ShadowDepth.glsl",
+            "assets/shaders/ShadowDepthSkinned.glsl",
+            "assets/shaders/ShadowDepthPoint.glsl",
+            "assets/shaders/ShadowDepthPointSkinned.glsl",
+            "assets/shaders/Terrain_PBR.glsl",
+            "assets/shaders/Terrain_Depth.glsl",
+            "assets/shaders/Terrain_Voxel.glsl",
+            "assets/shaders/Terrain_VoxelDepth.glsl",
+            "assets/shaders/Foliage_Instance.glsl",
+            "assets/shaders/Foliage_Depth.glsl",
+            "assets/shaders/Water.glsl",
+            "assets/shaders/Decal.glsl",
+            "assets/shaders/OcclusionProxy.glsl",
+            "assets/shaders/ForwardPlusDebug.glsl",
+        };
+        static_assert(s_ShaderPaths.size() == totalShaders3D);
+
+        for (const auto* path : s_ShaderPaths)
+        {
+            m_ShaderLibrary.Load(path);
+            ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
+        }
+
+        // Log how many shaders are still compiling asynchronously
+        if (const u32 pending = m_ShaderLibrary.GetPendingCount(); pending > 0)
+        {
+            OLO_CORE_INFO("{} of {} shaders issued for async linking", pending, totalShaders3D);
+        }
+
+        // Display a loading screen with progress bar while shaders finish linking.
+        // This blocks here until ALL shaders are Ready, keeping the window responsive.
+        ShaderWarmup::RunWarmupScreen(m_ShaderLibrary, window);
 
         s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
         s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
@@ -445,7 +449,6 @@ namespace OloEngine
 
         s_Data.Stats.Reset();
 
-        Window& window = Application::Get().GetWindow();
         s_Data.RGraph = Ref<RenderGraph>::Create();
         SetupRenderGraph(window.GetFramebufferWidth(), window.GetFramebufferHeight());
 
@@ -486,6 +489,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Shutting down Renderer3D.");
+
+        // Flush any shaders still compiling asynchronously
+        m_ShaderLibrary.FlushPendingShaders();
 
         ParticleBatchRenderer::Shutdown();
 
@@ -564,6 +570,9 @@ namespace OloEngine
         FrameResourceManager::Get().Shutdown();
         FrameDataBufferManager::Shutdown();
 
+        // Boot/fallback shader shutdown is handled by Renderer::Shutdown()
+        // (both are idempotent, but no need to call them twice).
+
         RendererProfiler::GetInstance().Shutdown();
 
         OLO_CORE_INFO("Renderer3D shutdown complete.");
@@ -602,6 +611,18 @@ namespace OloEngine
 
         // Process any pending GPU resource creation commands from async loaders
         GPUResourceQueue::ProcessAll();
+
+        // Poll shaders that are still being linked asynchronously by the driver
+        // (GL_ARB_parallel_shader_compile). Finalize any that are done.
+        if (m_ShaderLibrary.HasPendingShaders())
+        {
+            const u32 completed = m_ShaderLibrary.PollPendingShaders();
+            if (completed > 0)
+            {
+                OLO_CORE_TRACE("{} shader(s) finished async linking ({} still pending)",
+                               completed, m_ShaderLibrary.GetPendingCount());
+            }
+        }
 
         // Begin new frame for double-buffered resources
         FrameResourceManager::Get().BeginFrame();
