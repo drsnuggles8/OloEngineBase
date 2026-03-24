@@ -14,6 +14,15 @@ namespace OloEngine
     // Forward declaration
     class ShaderResourceRegistry;
 
+    // Tracks the lifecycle of a shader through async compilation
+    enum class ShaderCompilationStatus : u8
+    {
+        Pending,   // CPU work not yet started
+        Compiling, // GPU link issued, waiting for driver
+        Ready,     // Fully linked & finalized — safe to bind
+        Failed     // Compilation or link error
+    };
+
     class Shader : public RendererResource
     {
       public:
@@ -36,6 +45,26 @@ namespace OloEngine
         [[nodiscard("Store this!")]] virtual const std::string& GetFilePath() const = 0;
 
         virtual void Reload() = 0;
+
+        // --- Async compilation status ---
+        [[nodiscard]] virtual ShaderCompilationStatus GetCompilationStatus() const
+        {
+            return ShaderCompilationStatus::Ready;
+        }
+        [[nodiscard]] virtual bool IsReady() const
+        {
+            return GetCompilationStatus() == ShaderCompilationStatus::Ready;
+        }
+
+        // Poll driver for link completion (call once per frame for pending shaders).
+        // Returns true when the shader transitions to Ready or Failed.
+        virtual bool PollCompilationStatus()
+        {
+            return true;
+        }
+
+        // Block until the shader is fully linked (lazy finalization on first Bind).
+        virtual void EnsureLinked() {}
 
         // Resource registry access (safe interface)
         virtual ShaderResourceRegistry* GetResourceRegistry() = 0;

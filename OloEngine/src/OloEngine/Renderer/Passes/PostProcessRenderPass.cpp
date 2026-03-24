@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/ShaderWarmup.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 #include "OloEngine/Core/Application.h"
 
@@ -48,11 +49,12 @@ namespace OloEngine
             { "assets/shaders/PostProcess_Precipitation.glsl", m_PrecipitationShader },
         };
         const u32 totalPPShaders = static_cast<u32>(std::size(shaderTable));
+        Window& window = Application::Get().GetWindow();
         u32 ppIdx = 0;
         for (auto& [path, target] : shaderTable)
         {
             target = Shader::Create(path);
-            Application::ReportLoadingProgress(++ppIdx, totalPPShaders, "post-process shaders");
+            ShaderWarmup::RenderProgressFrame(static_cast<f32>(++ppIdx) / static_cast<f32>(totalPPShaders), window, "post-process shaders", static_cast<i32>(ppIdx), static_cast<i32>(totalPPShaders), 2);
         }
         m_PrecipitationScreenUBO = UniformBuffer::Create(PrecipitationScreenUBOData::GetSize(), ShaderBindingLayout::UBO_PRECIPITATION_SCREEN);
 

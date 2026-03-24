@@ -20,6 +20,7 @@
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 #include "OloEngine/AI/AIComponents.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
@@ -981,6 +982,44 @@ namespace OloEngine
             }
 
             return true;
+        };
+
+        // --- ShaderLibrary (global table) ---
+        auto shaderLib = lua.create_named_table("ShaderLibrary");
+        shaderLib["Load"] = [](const std::string& filepath) -> bool
+        {
+            auto shader = Renderer3D::GetShaderLibrary().Load(filepath);
+            return shader != nullptr;
+        };
+        shaderLib["Exists"] = [](const std::string& name) -> bool
+        {
+            return Renderer3D::GetShaderLibrary().Exists(name);
+        };
+        shaderLib["ReloadAll"] = []()
+        {
+            Renderer3D::GetShaderLibrary().ReloadShaders();
+        };
+        shaderLib["Reload"] = [](const std::string& name)
+        {
+            auto& library = Renderer3D::GetShaderLibrary();
+            if (library.Exists(name))
+            {
+                library.Get(name)->Reload();
+            }
+        };
+        shaderLib["GetShaderCount"] = []() -> u32
+        {
+            return Renderer3D::GetShaderLibrary().GetTotalCount();
+        };
+        shaderLib["GetAllNames"] = [&lua]() -> sol::table
+        {
+            auto names = Renderer3D::GetShaderLibrary().GetAllShaderNames();
+            sol::table result = lua.create_table(static_cast<int>(names.size()), 0);
+            for (size_t i = 0; i < names.size(); ++i)
+            {
+                result[static_cast<int>(i) + 1] = names[i];
+            }
+            return result;
         };
     }
 } // namespace OloEngine

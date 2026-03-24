@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/MSDFData.h"
+#include "OloEngine/Renderer/ShaderWarmup.h"
 #include "OloEngine/Core/Application.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -144,6 +145,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        Window& window = Application::Get().GetWindow();
+
         s_Data.QuadVertexArray = VertexArray::Create();
 
         s_Data.QuadVertexBuffer = VertexBuffer::Create(OloEngine::Renderer2DData::MaxVertices * sizeof(QuadVertex));
@@ -233,16 +236,29 @@ namespace OloEngine
             samplers[i] = i;
         }
 
+        OLO_CORE_INFO("Renderer2D::Init: Loading Renderer2D_Quad...");
         m_ShaderLibrary.Load("assets/shaders/Renderer2D_Quad.glsl");
-        Application::ReportLoadingProgress(1, 5, "2D shaders");
+        OLO_CORE_INFO("Renderer2D::Init: Renderer2D_Quad loaded, calling RenderProgressFrame(1/5)");
+        ShaderWarmup::RenderProgressFrame(1.0f / 5.0f, window, "2D shaders", 1, 5, 0);
+        OLO_CORE_INFO("Renderer2D::Init: Loading Renderer2D_Polygon...");
         m_ShaderLibrary.Load("assets/shaders/Renderer2D_Polygon.glsl");
-        Application::ReportLoadingProgress(2, 5, "2D shaders");
+        OLO_CORE_INFO("Renderer2D::Init: Renderer2D_Polygon loaded, calling RenderProgressFrame(2/5)");
+        ShaderWarmup::RenderProgressFrame(2.0f / 5.0f, window, "2D shaders", 2, 5, 0);
+        OLO_CORE_INFO("Renderer2D::Init: Loading Renderer2D_Circle...");
         m_ShaderLibrary.Load("assets/shaders/Renderer2D_Circle.glsl");
-        Application::ReportLoadingProgress(3, 5, "2D shaders");
+        OLO_CORE_INFO("Renderer2D::Init: Renderer2D_Circle loaded, calling RenderProgressFrame(3/5)");
+        ShaderWarmup::RenderProgressFrame(3.0f / 5.0f, window, "2D shaders", 3, 5, 0);
+        OLO_CORE_INFO("Renderer2D::Init: Loading Renderer2D_Line...");
         m_ShaderLibrary.Load("assets/shaders/Renderer2D_Line.glsl");
-        Application::ReportLoadingProgress(4, 5, "2D shaders");
+        OLO_CORE_INFO("Renderer2D::Init: Renderer2D_Line loaded, calling RenderProgressFrame(4/5)");
+        ShaderWarmup::RenderProgressFrame(4.0f / 5.0f, window, "2D shaders", 4, 5, 0);
+        OLO_CORE_INFO("Renderer2D::Init: Loading Renderer2D_Text...");
         m_ShaderLibrary.Load("assets/shaders/Renderer2D_Text.glsl");
-        Application::ReportLoadingProgress(5, 5, "2D shaders");
+        OLO_CORE_INFO("Renderer2D::Init: Renderer2D_Text loaded, calling RenderProgressFrame(5/5)");
+        ShaderWarmup::RenderProgressFrame(5.0f / 5.0f, window, "2D shaders", 5, 5, 0);
+
+        // Wait for any remaining async GPU links before resolving shader refs.
+        ShaderWarmup::RunWarmupScreen(m_ShaderLibrary, window);
 
         s_Data.QuadShader = m_ShaderLibrary.Get("Renderer2D_Quad");
         s_Data.PolygonShader = m_ShaderLibrary.Get("Renderer2D_Polygon");

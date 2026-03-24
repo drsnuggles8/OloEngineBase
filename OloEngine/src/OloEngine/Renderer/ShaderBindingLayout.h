@@ -412,6 +412,7 @@ namespace OloEngine
         static constexpr u32 UBO_WATER = 23;                // Water surface rendering parameters
         static constexpr u32 UBO_SHADER_GRAPH = 24;         // Shader graph user parameters
         static constexpr u32 UBO_FORWARD_PLUS = 25;         // Forward+ tile-based culling parameters
+        static constexpr u32 UBO_BOOT = 26;                 // Boot/warmup shader progress data
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS

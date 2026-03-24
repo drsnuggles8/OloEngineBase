@@ -3,6 +3,8 @@
 
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/ShaderWarmup.h"
+#include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "Platform/OpenGL/OpenGLFramebuffer.h"
 
@@ -17,6 +19,13 @@ namespace OloEngine
 
         RenderCommand::Init();
         s_RendererType = type;
+
+        // Initialize boot + fallback shaders BEFORE any renderer loads shaders.
+        // This ensures the warmup progress bar is available during all shader
+        // compilation — 2D and 3D alike.
+        ShaderWarmup::Init();
+        ShaderLibrary::InitFallbackShader();
+
         switch (type)
         {
             case RendererType::Renderer2D:
@@ -43,6 +52,12 @@ namespace OloEngine
 
         // Shutdown shared framebuffer resources (post-process shader)
         OpenGLFramebuffer::ShutdownSharedResources();
+
+        // Boot + fallback shaders were initialized in Renderer::Init() before
+        // any sub-renderer. Shut them down after all renderers are gone.
+        // (Idempotent — safe even if Renderer3D::Shutdown already called these.)
+        ShaderWarmup::Shutdown();
+        ShaderLibrary::ShutdownFallbackShader();
 
         // Shutdown memory tracker after all renderers are shut down
         RendererMemoryTracker::GetInstance().Shutdown();

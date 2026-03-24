@@ -589,6 +589,21 @@ namespace OloEngine
 		internal static extern void MaterialComponent_SetAlbedoColor(ulong entityID, ref Vector4 color);
 		#endregion
 
+		#region ShaderLibrary
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool ShaderLibrary_LoadShader(string filepath);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool ShaderLibrary_Exists(string name);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string ShaderLibrary_GetShaderName(string name);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ShaderLibrary_ReloadAll();
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ShaderLibrary_ReloadShader(string name);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint ShaderLibrary_GetShaderCount();
+		#endregion
+
 		#region NavAgentComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void NavAgentComponent_GetTargetPosition(ulong entityID, out Vector3 target);

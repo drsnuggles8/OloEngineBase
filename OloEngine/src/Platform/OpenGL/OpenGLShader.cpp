@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLShader.h"
+#include "Platform/OpenGL/OpenGLContext.h"
 #include "OloEngine/Core/Timer.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
@@ -22,6 +23,11 @@
 #include <chrono>
 
 #include <atomic>
+
+// GL_COMPLETION_STATUS_ARB / KHR — same token value
+#ifndef GL_COMPLETION_STATUS_ARB
+#define GL_COMPLETION_STATUS_ARB 0x91B1
+#endif
 
 namespace OloEngine
 {
@@ -197,6 +203,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        m_CompilationStatus = ShaderCompilationStatus::Pending;
+
         Utils::CreateCacheDirectoryIfNeeded();
         const std::string source = ReadFile(filepath);
 
@@ -220,6 +228,7 @@ namespace OloEngine
         OLO_SHADER_COMPILATION_START(m_Name, filepath);
         const Timer timer;
 
+        OLO_CORE_INFO("Compiling shader '{}' from '{}'", m_Name, filepath);
         CompileOrGetVulkanBinaries(shaderSources);
 
         if (Utils::IsAmdGpu())
@@ -259,16 +268,27 @@ namespace OloEngine
             CreateProgram();
         }
         const f64 compilationTime = timer.ElapsedMillis();
-        OLO_CORE_INFO("Shader creation took {0} ms", compilationTime);
+
+        // If the shader is still Compiling (async path), report that; otherwise it's Ready/Failed
+        if (m_CompilationStatus == ShaderCompilationStatus::Compiling)
+        {
+            OLO_CORE_INFO("Shader '{}' link issued asynchronously ({:.1f} ms CPU work)", m_Name, compilationTime);
+        }
+        else
+        {
+            OLO_CORE_INFO("Shader creation took {0} ms", compilationTime);
+        }
 
         // Register with shader debugger and report compilation
         OLO_SHADER_COMPILATION_END(m_RendererID, m_RendererID != 0, "", compilationTime);
     }
 
     OpenGLShader::OpenGLShader(std::string name, std::string_view vertexSrc, std::string_view fragmentSrc)
-        : m_Name(std::move(name))
+        : m_Name(std::move(name)), m_FilePath(m_Name) // Use name as pseudo-path so shaderc message parser has a valid filename
     {
         OLO_PROFILE_FUNCTION();
+
+        m_CompilationStatus = ShaderCompilationStatus::Pending;
 
         std::unordered_map<GLenum, std::string> sources;
         sources[GL_VERTEX_SHADER] = vertexSrc;
@@ -276,16 +296,31 @@ namespace OloEngine
 
         OLO_SHADER_COMPILATION_START(m_Name, "runtime_source");
 
-        CompileOrGetVulkanBinaries(sources);
         if (Utils::IsAmdGpu())
         {
+            // AMD path: compile GLSL source strings directly (no SPIR-V)
+            m_OriginalSourceCode = sources;
+            CompileOrGetVulkanBinaries(sources);
             CreateProgramForAmd();
         }
         else
         {
+            CompileOrGetVulkanBinaries(sources);
             CompileOrGetOpenGLBinaries();
             CreateProgram();
         }
+
+        // Source-string shaders (boot/fallback) must be ready immediately —
+        // the boot shader is needed to render the warmup progress bar, and
+        // the fallback shader is needed for substitution. Force-complete
+        // any async link now (safe: we're not inside any ShaderDebugger lock).
+        if (m_CompilationStatus == ShaderCompilationStatus::Compiling)
+        {
+            EnsureLinked();
+        }
+
+        OLO_CORE_INFO("Source-string shader '{}' constructor done, status={}, rendererID={}",
+                      m_Name, static_cast<int>(m_CompilationStatus), m_RendererID);
 
         // Register compilation completion
         OLO_SHADER_COMPILATION_END(m_RendererID, m_RendererID != 0, "", 0.0);
@@ -583,6 +618,10 @@ namespace OloEngine
                     }
                 }
 
+                // Log before compilation so crashes leave a breadcrumb
+                OLO_CORE_TRACE("[Vulkan SPIR-V] Compiling '{}' stage {}",
+                               m_FilePath, Utils::GLShaderStageToString(stage));
+
                 // Compile the shader - each thread creates its own compiler and options
                 // (shaderc is thread-safe but options are not shared)
                 shaderc::Compiler compiler;
@@ -592,6 +631,10 @@ namespace OloEngine
                 options.SetAutoBindUniforms(false);
                 options.SetGenerateDebugInfo();
                 options.SetOptimizationLevel(shaderc_optimization_level_performance);
+                // Suppress warnings: shaderc's message parser asserts on malformed
+                // glslang warning strings (message.cc line 240).  Warnings are
+                // informational and must not crash the engine.
+                options.SetSuppressWarnings();
 
                 shaderc::SpvCompilationResult spirvModule = compiler.CompileGlslToSpv(
                     source, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str(), options);
@@ -600,6 +643,8 @@ namespace OloEngine
                 {
                     result.Success = false;
                     result.ErrorMessage = spirvModule.GetErrorMessage();
+                    OLO_CORE_ERROR("[Vulkan SPIR-V] Compilation FAILED for '{}' stage {}: {}",
+                                   m_FilePath, Utils::GLShaderStageToString(stage), result.ErrorMessage);
                     hasError.store(true, std::memory_order_relaxed);
                     return;
                 }
@@ -745,11 +790,20 @@ namespace OloEngine
 
                 result.GlslSource = glslCompiler.compile();
 
+                // Log before compilation so crashes leave a breadcrumb
+                OLO_CORE_TRACE("[OpenGL SPIR-V] Compiling '{}' stage {} ({} lines of cross-compiled GLSL)",
+                               m_FilePath, Utils::GLShaderStageToString(stage),
+                               std::count(result.GlslSource.begin(), result.GlslSource.end(), '\n'));
+
                 // Compile GLSL to OpenGL SPIR-V
                 shaderc::Compiler compiler;
                 shaderc::CompileOptions options;
                 options.SetTargetEnvironment(shaderc_target_env_opengl, shaderc_env_version_opengl_4_5);
                 options.SetPreserveBindings(true);
+                // Suppress warnings: cross-compiled GLSL from spirv-cross can
+                // trigger glslang warnings whose format crashes shaderc's
+                // message parser (assertion in message.cc).
+                options.SetSuppressWarnings();
 
                 shaderc::SpvCompilationResult spirvModule = compiler.CompileGlslToSpv(
                     result.GlslSource, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str(), options);
@@ -758,6 +812,17 @@ namespace OloEngine
                 {
                     result.Success = false;
                     result.ErrorMessage = spirvModule.GetErrorMessage();
+                    OLO_CORE_ERROR("[OpenGL SPIR-V] Cross-compilation FAILED for '{}' stage {}: {}",
+                                   m_FilePath, Utils::GLShaderStageToString(stage), result.ErrorMessage);
+
+                    // Dump the generated GLSL to a temp file for post-mortem debugging
+                    auto const dumpPath = cacheDirectory / (shaderFilePath.filename().string() + Utils::GLShaderStageCachedOpenGLFileExtension(stage) + ".failed.glsl");
+                    if (std::ofstream dump(dumpPath); dump.is_open())
+                    {
+                        dump << result.GlslSource;
+                        OLO_CORE_ERROR("  Cross-compiled GLSL source dumped to: {}", dumpPath.string());
+                    }
+
                     hasError.store(true, std::memory_order_relaxed);
                     return;
                 }
@@ -801,6 +866,7 @@ namespace OloEngine
 
     void OpenGLShader::FinalizeProgram(GLenum const& program, const std::unordered_map<GLenum, std::vector<u32>>& spirvMap)
     {
+        OLO_CORE_TRACE("FinalizeProgram: '{}' program={}, spirvMap stages={}", m_Name, program, spirvMap.size());
         m_RendererID = program;
 
         // Compute estimated memory from the appropriate SPIR-V map
@@ -817,13 +883,17 @@ namespace OloEngine
                             RendererMemoryTracker::ResourceType::Shader,
                             m_Name.empty() ? "OpenGL Shader" : m_Name);
 
+        OLO_CORE_TRACE("FinalizeProgram: '{}' registering shader...", m_Name);
         // Register shader
         OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
         OloEngine::Renderer3D::RegisterShaderRegistry(m_RendererID, &m_ResourceRegistry);
 
+        OLO_CORE_TRACE("FinalizeProgram: '{}' decompiling SPIR-V for debugger...", m_Name);
         // Store shader source code in debugger
         for (const auto& [stage, spirv] : spirvMap)
         {
+            OLO_CORE_TRACE("FinalizeProgram: '{}' decompiling stage {} ({} words)...",
+                           m_Name, Utils::GLShaderStageToString(stage), spirv.size());
             spirv_cross::CompilerGLSL glslCompiler(spirv);
             const std::string generatedGLSL = glslCompiler.compile();
 
@@ -841,6 +911,7 @@ namespace OloEngine
             OLO_SHADER_SET_SOURCE(m_RendererID, GLStageToShaderStage(stage),
                                   originalSource, generatedGLSL, spirvBytes);
         }
+        OLO_CORE_TRACE("FinalizeProgram: '{}' complete", m_Name);
     }
 
     void OpenGLShader::CreateProgram()
@@ -906,6 +977,7 @@ namespace OloEngine
                             if (isLinked == GL_TRUE)
                             {
                                 FinalizeProgram(program, m_OpenGLSPIRV);
+                                m_CompilationStatus = ShaderCompilationStatus::Ready;
                                 OLO_CORE_TRACE("Loaded shader program from binary cache: {0}", m_FilePath);
                                 return;
                             }
@@ -937,6 +1009,19 @@ namespace OloEngine
 
         glLinkProgram(program);
 
+        // ---- Async path: if GL_ARB/KHR_parallel_shader_compile is available,
+        //      do NOT check GL_LINK_STATUS now. The driver links in background.
+        //      We'll poll GL_COMPLETION_STATUS_ARB later via PollCompilationStatus().
+        if (OpenGLContext::HasParallelShaderCompile())
+        {
+            // Store the program handle and keep shader objects alive until finalization
+            m_RendererID = program;
+            m_PendingShaderIDs = std::move(shaderIDs);
+            m_CompilationStatus = ShaderCompilationStatus::Compiling;
+            return;
+        }
+
+        // ---- Synchronous fallback: no parallel compile extension ----------
         GLint isLinked{};
         glGetProgramiv(program, GL_LINK_STATUS, &isLinked);
         if (GL_FALSE == isLinked)
@@ -955,6 +1040,7 @@ namespace OloEngine
             {
                 glDeleteShader(id);
             }
+            m_CompilationStatus = ShaderCompilationStatus::Failed;
             return;
         }
 
@@ -966,35 +1052,117 @@ namespace OloEngine
         }
 
         // Save program binary to cache
-        if (!disableCache)
-        {
-            GLint formats = 0;
-            glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &formats);
-            if (formats > 0)
-            {
-                Utils::CreateCacheDirectoryIfNeeded();
-                GLint length = 0;
-                glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH, &length);
-                if (length > 0)
-                {
-                    auto shaderData = std::vector<char>(length);
-                    u32 format = 0;
-                    glGetProgramBinary(program, length, nullptr, &format, shaderData.data());
-
-                    std::ofstream out(cachedPath, std::ios::out | std::ios::binary);
-                    if (out.is_open())
-                    {
-                        out.write(reinterpret_cast<char*>(&format), sizeof(u32));
-                        out.write(shaderData.data(), static_cast<std::streamsize>(shaderData.size()));
-                        out.flush();
-                        out.close();
-                        OLO_CORE_TRACE("Saved shader program binary to cache: {0}", cachedPath.string());
-                    }
-                }
-            }
-        }
+        SaveProgramBinaryCache();
 
         FinalizeProgram(program, m_OpenGLSPIRV);
+        m_CompilationStatus = ShaderCompilationStatus::Ready;
+    }
+
+    // ========================================================================
+    // Async link helpers
+    // ========================================================================
+
+    void OpenGLShader::SaveProgramBinaryCache() const
+    {
+        if (Utils::IsShaderCacheDisabled() || m_RendererID == 0)
+            return;
+
+        GLint formats = 0;
+        glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &formats);
+        if (formats <= 0)
+            return;
+
+        Utils::CreateCacheDirectoryIfNeeded();
+        GLint length = 0;
+        glGetProgramiv(m_RendererID, GL_PROGRAM_BINARY_LENGTH, &length);
+        if (length <= 0)
+            return;
+
+        auto shaderData = std::vector<char>(length);
+        u32 format = 0;
+        glGetProgramBinary(m_RendererID, length, nullptr, &format, shaderData.data());
+
+        const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
+        const std::filesystem::path shaderFilePath = m_FilePath;
+        const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + ".cached_opengl.pgr");
+
+        std::ofstream out(cachedPath, std::ios::out | std::ios::binary);
+        if (out.is_open())
+        {
+            out.write(reinterpret_cast<char*>(&format), sizeof(u32));
+            out.write(shaderData.data(), static_cast<std::streamsize>(shaderData.size()));
+            out.flush();
+            out.close();
+            OLO_CORE_TRACE("Saved shader program binary to cache: {0}", cachedPath.string());
+        }
+    }
+
+    void OpenGLShader::FinalizeAfterLink()
+    {
+        OLO_CORE_TRACE("FinalizeAfterLink: Checking link status for '{}' (ID {})", m_Name, m_RendererID);
+        // Check link status (driver should be done by now)
+        GLint isLinked = 0;
+        glGetProgramiv(m_RendererID, GL_LINK_STATUS, &isLinked);
+        OLO_CORE_TRACE("FinalizeAfterLink: '{}' link status = {}", m_Name, isLinked);
+
+        // Clean up individual shader objects regardless of success
+        for (const auto id : m_PendingShaderIDs)
+        {
+            glDetachShader(m_RendererID, id);
+            glDeleteShader(id);
+        }
+        m_PendingShaderIDs.clear();
+
+        if (GL_FALSE == isLinked)
+        {
+            GLint maxLength = 0;
+            glGetProgramiv(m_RendererID, GL_INFO_LOG_LENGTH, &maxLength);
+
+            std::vector<GLchar> infoLog(maxLength);
+            glGetProgramInfoLog(m_RendererID, maxLength, &maxLength, infoLog.data());
+            OLO_CORE_CRITICAL("[OpenGL] Async shader linking failed for '{}':\n{}", m_FilePath, infoLog.data());
+
+            glDeleteProgram(m_RendererID);
+            m_RendererID = 0;
+            m_CompilationStatus = ShaderCompilationStatus::Failed;
+            return;
+        }
+
+        OLO_CORE_TRACE("FinalizeAfterLink: Saving cache for '{}'...", m_Name);
+        SaveProgramBinaryCache();
+        OLO_CORE_TRACE("FinalizeAfterLink: Calling FinalizeProgram for '{}'...", m_Name);
+        FinalizeProgram(m_RendererID, m_OpenGLSPIRV);
+        m_CompilationStatus = ShaderCompilationStatus::Ready;
+        OLO_CORE_TRACE("FinalizeAfterLink: Shader '{}' is Ready", m_Name);
+    }
+
+    bool OpenGLShader::PollCompilationStatus()
+    {
+        if (m_CompilationStatus != ShaderCompilationStatus::Compiling)
+            return m_CompilationStatus == ShaderCompilationStatus::Ready || m_CompilationStatus == ShaderCompilationStatus::Failed;
+
+        // Poll the driver — GL_COMPLETION_STATUS_ARB is non-blocking
+        GLint complete = GL_FALSE;
+        glGetProgramiv(m_RendererID, GL_COMPLETION_STATUS_ARB, &complete);
+
+        if (complete == GL_TRUE)
+        {
+            FinalizeAfterLink();
+            return true;
+        }
+
+        return false; // Still compiling
+    }
+
+    void OpenGLShader::EnsureLinked()
+    {
+        if (m_CompilationStatus != ShaderCompilationStatus::Compiling)
+            return;
+
+        OLO_CORE_INFO("EnsureLinked: Force-completing shader '{}' (ID {})", m_Name, m_RendererID);
+        // Force-complete: check link status (this blocks until the driver finishes)
+        FinalizeAfterLink();
+        OLO_CORE_INFO("EnsureLinked: Completed shader '{}', status={}", m_Name, static_cast<int>(m_CompilationStatus));
     }
 
     static bool VerifyProgramLink(GLenum const& program, const std::string& filePath)
@@ -1042,6 +1210,7 @@ namespace OloEngine
                 if (VerifyProgramLink(program, m_FilePath))
                 {
                     FinalizeProgram(program, m_VulkanSPIRV);
+                    m_CompilationStatus = ShaderCompilationStatus::Ready;
                     return;
                 }
 
@@ -1066,6 +1235,7 @@ namespace OloEngine
                 glDetachShader(program, id);
             }
             glDeleteProgram(program);
+            m_CompilationStatus = ShaderCompilationStatus::Failed;
             return;
         }
 
@@ -1099,6 +1269,7 @@ namespace OloEngine
         }
 
         FinalizeProgram(program, m_VulkanSPIRV);
+        m_CompilationStatus = ShaderCompilationStatus::Ready;
     }
 
     void OpenGLShader::CompileOpenGLBinariesForAmd(GLenum const& program, std::array<u32, 2>& glShadersIDs) const
@@ -1192,6 +1363,8 @@ namespace OloEngine
     {
         OLO_SHADER_RELOAD_START(m_RendererID);
 
+        m_CompilationStatus = ShaderCompilationStatus::Pending;
+
         std::string source = ReadFile(m_FilePath);
         ProcessIncludes(source, "", m_IncludedFilePaths);
         auto shaderSources = PreProcess(source);
@@ -1209,15 +1382,21 @@ namespace OloEngine
                 CompileOrGetOpenGLBinaries();
                 CreateProgram();
             }
+
+            // For hot-reload we want synchronous completion so the new shader
+            // is immediately usable — force-finish any async link.
+            EnsureLinked();
         }
         catch (const std::exception& e)
         {
             OLO_CORE_ERROR("Shader reload failed for '{}': {}", m_Name, e.what());
+            m_CompilationStatus = ShaderCompilationStatus::Failed;
             success = false;
         }
         catch (...)
         {
             OLO_CORE_ERROR("Shader reload failed for '{}': unknown error", m_Name);
+            m_CompilationStatus = ShaderCompilationStatus::Failed;
             success = false;
         }
         OLO_SHADER_RELOAD_END(m_RendererID, success);
@@ -1226,6 +1405,16 @@ namespace OloEngine
     void OpenGLShader::Bind() const
     {
         OLO_PROFILE_FUNCTION();
+
+        // Lazy finalization: if the shader is still being linked asynchronously,
+        // force-complete it now (one-time micro-stall on first bind).
+        if (m_CompilationStatus == ShaderCompilationStatus::Compiling)
+        {
+            const_cast<OpenGLShader*>(this)->EnsureLinked();
+        }
+
+        if (m_CompilationStatus != ShaderCompilationStatus::Ready)
+            return;
 
         glUseProgram(m_RendererID);
 

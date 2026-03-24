@@ -632,6 +632,7 @@ namespace OloEngine
             ImGui::MenuItem("Animation Graph Editor", nullptr, &m_ShowAnimationGraphEditor);
             ImGui::MenuItem("Save Game Panel", nullptr, &m_ShowSaveGamePanel);
             ImGui::MenuItem("Gamepad Debug", nullptr, &m_ShowGamepadDebug);
+            ImGui::MenuItem("Shader Editor", nullptr, &m_ShowShaderEditor);
 
             ImGui::EndMenu();
         }
@@ -1124,6 +1125,12 @@ namespace OloEngine
         if (m_ShowGamepadDebug)
         {
             m_GamepadDebugPanel.OnImGuiRender(&m_ShowGamepadDebug);
+        }
+
+        // Shader Editor Panel
+        if (m_ShowShaderEditor)
+        {
+            m_ShaderEditorPanel.OnImGuiRender(&m_ShowShaderEditor);
         }
 
         // Console Panel
@@ -1650,6 +1657,11 @@ namespace OloEngine
                 }
                 m_ShaderGraphEditorPanel.OpenShaderGraph(path);
                 m_ShowShaderGraphEditor = true;
+            }
+            else if (type == ContentFileType::Shader)
+            {
+                m_ShaderEditorPanel.OpenFile(path);
+                m_ShowShaderEditor = true;
             }
             else if (type == ContentFileType::Scene)
             {

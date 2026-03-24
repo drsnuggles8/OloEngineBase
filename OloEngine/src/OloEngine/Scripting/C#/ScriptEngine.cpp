@@ -214,8 +214,15 @@ namespace OloEngine
     void ScriptEngine::Shutdown()
     {
         OLO_CORE_TRACE("[ScriptEngine] Shutting down.");
+        if (!s_Data || !s_Data->RootDomain)
+        {
+            delete s_Data;
+            s_Data = nullptr;
+            return;
+        }
         ShutdownMono();
         delete s_Data;
+        s_Data = nullptr;
     }
 
     static void MonoPrintCallback(const char* string, mono_bool is_stdout)

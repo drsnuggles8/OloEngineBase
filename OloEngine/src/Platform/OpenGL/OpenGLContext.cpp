@@ -8,6 +8,13 @@
 
 namespace OloEngine
 {
+// GL_COMPLETION_STATUS_ARB / GL_COMPLETION_STATUS_KHR — same value (0x91B1)
+#ifndef GL_COMPLETION_STATUS_ARB
+#define GL_COMPLETION_STATUS_ARB 0x91B1
+#endif
+
+    ParallelShaderCompileSupport OpenGLContext::s_ParallelShaderCompile = ParallelShaderCompileSupport::None;
+
     OpenGLContext::OpenGLContext(GLFWwindow* const windowHandle)
         : m_WindowHandle(windowHandle)
     {
@@ -36,6 +43,57 @@ namespace OloEngine
         CrashReporter::SetGPUInfo(fmt::format("{} — {} ({})", renderer, glVersion, vendor));
 
         OLO_CORE_ASSERT(GLAD_VERSION_MAJOR(version) == 4 && GLAD_VERSION_MINOR(version) >= 5, "OloEngine requires at least OpenGL version 4.5!");
+
+        // Detect GL_ARB/KHR_parallel_shader_compile and configure max threads
+        DetectParallelShaderCompile();
+    }
+
+    void OpenGLContext::DetectParallelShaderCompile()
+    {
+        GLint numExtensions = 0;
+        glGetIntegerv(GL_NUM_EXTENSIONS, &numExtensions);
+
+        bool hasARB = false;
+        bool hasKHR = false;
+        for (GLint i = 0; i < numExtensions; ++i)
+        {
+            const char* ext = reinterpret_cast<const char*>(glGetStringi(GL_EXTENSIONS, i));
+            if (!ext)
+                continue;
+            if (std::string_view(ext) == "GL_ARB_parallel_shader_compile")
+                hasARB = true;
+            else if (std::string_view(ext) == "GL_KHR_parallel_shader_compile")
+                hasKHR = true;
+        }
+
+        if (hasARB)
+        {
+            s_ParallelShaderCompile = ParallelShaderCompileSupport::ARB;
+
+            // glMaxShaderCompilerThreadsARB(0xFFFFFFFF) = implementation max
+            auto fn = reinterpret_cast<void(GLAD_API_PTR*)(GLuint)>(
+                GLFWAPI::glfwGetProcAddress("glMaxShaderCompilerThreadsARB"));
+            if (fn)
+                fn(0xFFFFFFFF);
+
+            OLO_CORE_INFO("  GL_ARB_parallel_shader_compile: SUPPORTED (async linking enabled)");
+        }
+        else if (hasKHR)
+        {
+            s_ParallelShaderCompile = ParallelShaderCompileSupport::KHR;
+
+            auto fn = reinterpret_cast<void(GLAD_API_PTR*)(GLuint)>(
+                GLFWAPI::glfwGetProcAddress("glMaxShaderCompilerThreadsKHR"));
+            if (fn)
+                fn(0xFFFFFFFF);
+
+            OLO_CORE_INFO("  GL_KHR_parallel_shader_compile: SUPPORTED (async linking enabled)");
+        }
+        else
+        {
+            s_ParallelShaderCompile = ParallelShaderCompileSupport::None;
+            OLO_CORE_INFO("  Parallel shader compile: NOT AVAILABLE (using batched fallback)");
+        }
     }
 
     void OpenGLContext::SwapBuffers()

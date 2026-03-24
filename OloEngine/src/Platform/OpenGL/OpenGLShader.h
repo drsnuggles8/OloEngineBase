@@ -29,6 +29,13 @@ namespace OloEngine
 
         [[nodiscard]] u32 GetRendererID() const override
         {
+            // If async link hasn't completed yet, block-finalize before returning the ID.
+            // This protects code paths (e.g. command dispatch) that use the raw program ID
+            // without going through Bind().
+            if (m_CompilationStatus == ShaderCompilationStatus::Compiling)
+            {
+                const_cast<OpenGLShader*>(this)->EnsureLinked();
+            }
             return m_RendererID;
         }
         [[nodiscard("Store this!")]] const std::string& GetName() const override
@@ -41,6 +48,18 @@ namespace OloEngine
         }
 
         void Reload() override;
+
+        // --- Async compilation status (override base class) ---
+        [[nodiscard]] ShaderCompilationStatus GetCompilationStatus() const override
+        {
+            return m_CompilationStatus;
+        }
+        [[nodiscard]] bool IsReady() const override
+        {
+            return m_CompilationStatus == ShaderCompilationStatus::Ready;
+        }
+        bool PollCompilationStatus() override;
+        void EnsureLinked() override;
 
         // Resource registry access (override base class virtual methods)
         ShaderResourceRegistry* GetResourceRegistry() override
@@ -98,10 +117,14 @@ namespace OloEngine
         // Helper to finalize a compiled shader program with registration, memory tracking, and SPIR-V decompilation
         void FinalizeProgram(GLenum const& program, const std::unordered_map<GLenum, std::vector<u32>>& spirvMap);
 
+        // Async link helpers — called after glLinkProgram() returns (non-blocking with extension)
+        void FinalizeAfterLink();            // Check link status, cache binary, call FinalizeProgram()
+        void SaveProgramBinaryCache() const; // Extract & save program binary to disk cache
+
       private:
         u32 m_RendererID{};
-        std::string m_FilePath;
         std::string m_Name;
+        std::string m_FilePath;
         std::unordered_map<GLenum, std::vector<u32>> m_VulkanSPIRV;
         std::unordered_map<GLenum, std::vector<u32>> m_OpenGLSPIRV;
 
@@ -118,6 +141,12 @@ namespace OloEngine
 
         // Resource registry for automatic resource management
         ShaderResourceRegistry m_ResourceRegistry;
+
+        // --- Async compilation state ---
+        ShaderCompilationStatus m_CompilationStatus = ShaderCompilationStatus::Ready;
+
+        // Shader stage IDs kept alive until link completes (then detached/deleted)
+        std::vector<u32> m_PendingShaderIDs;
     };
 
 } // namespace OloEngine

@@ -13,6 +13,7 @@
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Streaming/SceneStreamer.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Dialogue/DialogueSystem.h"
@@ -1788,6 +1789,56 @@ namespace OloEngine
         Entity entity = scene->GetEntityByUUID(entityID);
         OLO_CORE_ASSERT(entity);
         entity.GetComponent<MaterialComponent>().m_Material.SetBaseColorFactor(*color);
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // ShaderLibrary //////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static bool ShaderLibrary_LoadShader(MonoString* monoFilepath)
+    {
+        auto const filepath = Utils::MonoStringToString(monoFilepath);
+        auto& library = Renderer3D::GetShaderLibrary();
+        auto shader = library.Load(filepath);
+        return shader != nullptr;
+    }
+
+    static bool ShaderLibrary_Exists(MonoString* monoName)
+    {
+        auto const name = Utils::MonoStringToString(monoName);
+        return Renderer3D::GetShaderLibrary().Exists(name);
+    }
+
+    static MonoString* ShaderLibrary_GetShaderName(MonoString* monoName)
+    {
+        auto const name = Utils::MonoStringToString(monoName);
+        auto& library = Renderer3D::GetShaderLibrary();
+        if (!library.Exists(name))
+        {
+            return ScriptEngine::CreateString("");
+        }
+        auto shader = library.Get(name);
+        return ScriptEngine::CreateString(shader->GetName().c_str());
+    }
+
+    static void ShaderLibrary_ReloadAll()
+    {
+        Renderer3D::GetShaderLibrary().ReloadShaders();
+    }
+
+    static void ShaderLibrary_ReloadShader(MonoString* monoName)
+    {
+        auto const name = Utils::MonoStringToString(monoName);
+        auto& library = Renderer3D::GetShaderLibrary();
+        if (library.Exists(name))
+        {
+            library.Get(name)->Reload();
+        }
+    }
+
+    static u32 ShaderLibrary_GetShaderCount()
+    {
+        return Renderer3D::GetShaderLibrary().GetTotalCount();
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -4005,6 +4056,16 @@ namespace OloEngine
         ///////////////////////////////////////////////////////////////
         OLO_ADD_INTERNAL_CALL(MaterialComponent_GetAlbedoColor);
         OLO_ADD_INTERNAL_CALL(MaterialComponent_SetAlbedoColor);
+
+        ///////////////////////////////////////////////////////////////
+        // ShaderLibrary /////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(ShaderLibrary_LoadShader);
+        OLO_ADD_INTERNAL_CALL(ShaderLibrary_Exists);
+        OLO_ADD_INTERNAL_CALL(ShaderLibrary_GetShaderName);
+        OLO_ADD_INTERNAL_CALL(ShaderLibrary_ReloadAll);
+        OLO_ADD_INTERNAL_CALL(ShaderLibrary_ReloadShader);
+        OLO_ADD_INTERNAL_CALL(ShaderLibrary_GetShaderCount);
 
         ///////////////////////////////////////////////////////////////
         // Application / Time /////////////////////////////////////////
