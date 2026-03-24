@@ -120,6 +120,14 @@ namespace OloEngine
     void EditorLayer::OnDetach()
     {
         OLO_PROFILE_FUNCTION();
+
+        // Properly stop the scene if still in play/simulate mode
+        // (e.g., user closed the window while playing)
+        if (m_SceneState == SceneState::Play || m_SceneState == SceneState::Simulate)
+        {
+            OnSceneStop();
+        }
+
         ShutdownEntityPicking();
         SaveGameManager::Shutdown();
     }

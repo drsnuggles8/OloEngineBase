@@ -19,9 +19,9 @@ namespace Sandbox
 
 		// Colors
 		private static readonly Vector4 Hidden = new Vector4(0, 0, 0, 0);
-		private static readonly Vector4 PausePanelColor = new Vector4(0.0f, 0.0f, 0.0f, 0.7f);
+		private static readonly Vector4 PausePanelColor = new Vector4(0.0f, 0.0f, 0.05f, 0.85f);
 		private static readonly Vector4 PauseTextColor = new Vector4(1.0f, 1.0f, 0.5f, 1.0f);
-		private static readonly Vector4 DeathPanelColor = new Vector4(0.15f, 0.0f, 0.0f, 0.8f);
+		private static readonly Vector4 DeathPanelColor = new Vector4(0.15f, 0.0f, 0.0f, 0.85f);
 		private static readonly Vector4 DeathTextColor = new Vector4(1.0f, 0.2f, 0.2f, 1.0f);
 
 		void OnCreate()
