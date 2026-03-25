@@ -333,6 +333,24 @@ namespace OloEngine
                 return static_cast<u32>(sizeof(ForwardPlusUBO));
             }
         };
+        // @brief Selection outline parameters for editor entity highlighting
+        struct SelectionOutlineUBO
+        {
+            glm::vec4 OutlineColor{ 1.0f, 0.5f, 0.0f, 0.8f }; // rgb = color, a = opacity
+            glm::vec4 TexelSize{ 0.0f };                      // xy = 1/width, 1/height, zw = unused
+            i32 SelectedCount = 0;                            // Number of selected entities
+            i32 OutlineWidth = 1;                             // Outline width in texels
+            i32 _pad0 = 0;
+            i32 _pad1 = 0;
+            glm::ivec4 SelectedIDs[16]{}; // 64 entity IDs packed as ivec4 (4 per vec)
+
+            static constexpr u32 MaxSelectedEntities = 64;
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(SelectionOutlineUBO);
+            }
+        };
     } // namespace UBOStructures
 
     // =============================================================================
@@ -375,6 +393,8 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::ForwardPlusUBO) == 16, "ForwardPlusUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::PBRMaterialUBO) % 16 == 0, "PBRMaterialUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::PBRMaterialUBO) == 96, "PBRMaterialUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::SelectionOutlineUBO) % 16 == 0, "SelectionOutlineUBO size must be 16-byte aligned for std140");
+    static_assert(sizeof(UBOStructures::SelectionOutlineUBO) == 304, "SelectionOutlineUBO unexpected size — update GLSL layout");
 
     // Standardized shader binding layout for consistent resource sharing
     // across all shaders in the engine. This ensures efficient data sharing
@@ -413,6 +433,7 @@ namespace OloEngine
         static constexpr u32 UBO_SHADER_GRAPH = 24;         // Shader graph user parameters
         static constexpr u32 UBO_FORWARD_PLUS = 25;         // Forward+ tile-based culling parameters
         static constexpr u32 UBO_BOOT = 26;                 // Boot/warmup shader progress data
+        static constexpr u32 UBO_SELECTION_OUTLINE = 27;    // Selection outline parameters (editor)
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS

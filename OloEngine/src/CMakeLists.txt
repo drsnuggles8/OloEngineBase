@@ -540,6 +540,8 @@
 		"OloEngine/Renderer/Passes/SSSRenderPass.cpp"
 		"OloEngine/Renderer/Passes/UICompositeRenderPass.h"
 		"OloEngine/Renderer/Passes/UICompositeRenderPass.cpp"
+		"OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
+		"OloEngine/Renderer/Passes/SelectionOutlineRenderPass.cpp"
 		"OloEngine/Renderer/PostProcessSettings.h"
 		"OloEngine/Renderer/Shadow/ShadowMap.h"
 		"OloEngine/Renderer/Shadow/ShadowMap.cpp"

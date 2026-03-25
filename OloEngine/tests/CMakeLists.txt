@@ -59,6 +59,7 @@ add_executable(OloEngine-Tests
 		Rendering/OcclusionIntegrationTest.cpp
 		Rendering/WaterRenderingTest.cpp
 		Rendering/RenderingRegressionTest.cpp
+		Rendering/SelectionOutlineTest.cpp
 		Streaming/SceneStreamingTest.cpp
 		InputActionTest.cpp
 		GamepadTest.cpp

@@ -249,6 +249,25 @@ namespace OloEngine
             }
         }
 
+        // Feed selected entity IDs to the selection outline pass (editor-only, 3D mode)
+        if (m_Is3DMode && m_SceneState == SceneState::Edit)
+        {
+            if (auto outlinePass = Renderer3D::GetSelectionOutlinePass(); outlinePass)
+            {
+                auto& selectedEntities = m_SceneHierarchyPanel.GetSelectedEntities();
+                std::vector<i32> ids;
+                ids.reserve(selectedEntities.size());
+                for (auto& entity : selectedEntities)
+                {
+                    if (entity)
+                    {
+                        ids.push_back(static_cast<i32>(static_cast<u32>(entity)));
+                    }
+                }
+                outlinePass->SetSelectedEntityIDs(ids);
+            }
+        }
+
         // Camera updates always run so the editor stays responsive even when
         // scene rendering is throttled.
         switch (m_SceneState)
@@ -1498,7 +1517,14 @@ namespace OloEngine
 
         if ((m_SceneState != SceneState::Play) && (e.GetMouseButton() == Mouse::ButtonLeft) && m_ViewportHovered && (!ImGuizmo::IsOver()) && (!Input::IsKeyPressed(Key::LeftAlt)))
         {
-            m_SceneHierarchyPanel.SetSelectedEntity(m_HoveredEntity);
+            if (Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl))
+            {
+                m_SceneHierarchyPanel.ToggleEntitySelection(m_HoveredEntity);
+            }
+            else
+            {
+                m_SceneHierarchyPanel.SetSelectedEntity(m_HoveredEntity);
+            }
         }
         return false;
     }
