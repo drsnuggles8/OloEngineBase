@@ -30,6 +30,12 @@ namespace OloEngine
 
     void SelectionOutlineRenderPass::CreateFramebuffer(u32 width, u32 height)
     {
+        if (width == 0 || height == 0)
+        {
+            OLO_CORE_WARN("SelectionOutlineRenderPass::CreateFramebuffer: Invalid dimensions {}x{}", width, height);
+            return;
+        }
+
         FramebufferSpecification fbSpec;
         fbSpec.Width = width;
         fbSpec.Height = height;
@@ -45,7 +51,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_Target || !m_InputFramebuffer)
+        if (!m_Target || !m_InputFramebuffer || !m_SceneFramebuffer)
         {
             return;
         }
@@ -66,6 +72,8 @@ namespace OloEngine
             auto va = MeshPrimitives::GetFullscreenTriangle();
             va->Bind();
             RenderCommand::DrawIndexed(va);
+
+            RenderCommand::SetDepthTest(true);
             return;
         }
 
@@ -88,11 +96,8 @@ namespace OloEngine
         RenderCommand::BindTexture(0, colorAttachment);
 
         // Bind entity ID texture (from ScenePass attachment 1) to slot 1
-        if (m_SceneFramebuffer)
-        {
-            u32 entityIDAttachment = m_SceneFramebuffer->GetColorAttachmentRendererID(1);
-            RenderCommand::BindTexture(1, entityIDAttachment);
-        }
+        u32 entityIDAttachment = m_SceneFramebuffer->GetColorAttachmentRendererID(1);
+        RenderCommand::BindTexture(1, entityIDAttachment);
 
         m_OutlineShader->Bind();
         m_OutlineShader->SetInt("u_SceneColor", 0);

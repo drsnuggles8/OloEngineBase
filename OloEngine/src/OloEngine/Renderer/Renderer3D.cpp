@@ -539,6 +539,7 @@ namespace OloEngine
         s_Data.ParticlePass.Reset();
         s_Data.SSSPass.Reset();
         s_Data.PostProcessPass.Reset();
+        s_Data.SelectionOutlinePass.Reset();
         s_Data.UICompositePass.Reset();
         s_Data.FinalPass.Reset();
         s_Data.FoliagePass.Reset();
@@ -2614,7 +2615,7 @@ namespace OloEngine
         // PostProcessPass initial input is the scene FB (overridden by graph's SSSPass -> PostProcessPass
         // piping each frame, which passes SSSPass::GetTarget() = scene FB when SSS is disabled).
         s_Data.PostProcessPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
-        OLO_CORE_INFO("Renderer3D: Render graph: Shadow -> Scene -> Foliage -> Water -> Decal -> SSAO -> Particle -> SSS -> PostProcess -> SelectionOutline -> UIComposite -> Final");
+        OLO_CORE_INFO("Renderer3D: Render graph: Shadow -> Scene -> Foliage -> Decal -> Water -> SSAO -> Particle -> SSS -> PostProcess -> SelectionOutline -> UIComposite -> Final");
 
         s_Data.RGraph->SetFinalPass("FinalPass");
     }

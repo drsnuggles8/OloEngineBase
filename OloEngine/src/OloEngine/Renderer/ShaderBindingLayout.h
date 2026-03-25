@@ -585,6 +585,8 @@ namespace OloEngine
                     return name.contains("ForwardPlus") || name.contains("forwardPlus");
                 case UBO_BOOT:
                     return name.contains("Boot") || name.contains("boot");
+                case UBO_SELECTION_OUTLINE:
+                    return name.contains("SelectionOutline") || name.contains("selectionOutline");
                 default:
                     return false;
             }

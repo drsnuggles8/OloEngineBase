@@ -117,6 +117,7 @@ TEST(SelectionOutlineUBO, SelectedIDsDefaultToZero)
 TEST(SelectionOutlineUBO, BindingSlotIs27)
 {
     EXPECT_EQ(ShaderBindingLayout::UBO_SELECTION_OUTLINE, 27u);
+    EXPECT_TRUE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_SELECTION_OUTLINE, "SelectionOutlineUBO"));
 }
 
 // =============================================================================
