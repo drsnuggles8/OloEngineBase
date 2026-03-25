@@ -1,0 +1,157 @@
+#version 460 core
+
+// =============================================================================
+// HZB.comp — Hierarchical Z-Buffer depth pyramid generation (compute)
+//
+// Builds a max-depth mip chain from the scene depth buffer.
+// Processes 4 mip levels per dispatch using shared memory reduction.
+// 8x8 workgroups → first mip covers 8x8 texels, then 4x4, 2x2, 1x1.
+//
+// Adapted from Unreal Engine 4 / Hazel HZB approach.
+// =============================================================================
+
+#define MAX_MIP_BATCH_SIZE 4
+#define LOCAL_SIZE 8
+
+layout(local_size_x = LOCAL_SIZE, local_size_y = LOCAL_SIZE, local_size_z = 1) in;
+
+// ---------------------------------------------------------------------------
+// Push-constant–style uniforms (cheaper than a full UBO for small data)
+// ---------------------------------------------------------------------------
+uniform vec2 u_DispatchThreadIdToBufferUV;  // 1.0 / dstMip0Size
+uniform vec2 u_InputViewportMaxBound;       // (srcSize - 0.5) / srcSize  (clamp bound)
+uniform vec2 u_InvSize;                     // 1.0 / srcMipSize
+uniform int  u_FirstLod;                    // Starting destination mip level
+uniform int  u_IsFirstPass;                 // 1 = read from scene depth, 0 = read from HZB
+
+// ---------------------------------------------------------------------------
+// Resources
+// ---------------------------------------------------------------------------
+layout(binding = 0, r32f) writeonly uniform image2D o_HZB_Mip0;
+layout(binding = 1, r32f) writeonly uniform image2D o_HZB_Mip1;
+layout(binding = 2, r32f) writeonly uniform image2D o_HZB_Mip2;
+layout(binding = 3, r32f) writeonly uniform image2D o_HZB_Mip3;
+layout(binding = 4) uniform sampler2D u_InputDepth;
+
+// ---------------------------------------------------------------------------
+// Shared memory for cross-thread reduction
+// ---------------------------------------------------------------------------
+shared float s_ClosestDepth[LOCAL_SIZE * LOCAL_SIZE];
+
+// ---------------------------------------------------------------------------
+// Gather 2x2 texels and return max (conservative depth for occlusion culling)
+// ---------------------------------------------------------------------------
+vec4 Gather4(sampler2D tex, vec2 bufferUV, float lod)
+{
+    vec2 offsets[4] = vec2[4](
+        vec2(-0.5, -0.5),
+        vec2( 0.5, -0.5),
+        vec2(-0.5,  0.5),
+        vec2( 0.5,  0.5)
+    );
+
+    vec4 depth;
+    for (int i = 0; i < 4; i++)
+    {
+        vec2 uv = min(bufferUV + offsets[i] * u_InvSize, u_InputViewportMaxBound);
+        depth[i] = textureLod(tex, uv, lod).r;
+    }
+    return depth;
+}
+
+// ---------------------------------------------------------------------------
+// Z-order (Morton / interleaved) mapping for optimal shared memory access
+// ---------------------------------------------------------------------------
+ivec2 InitialTilePixelPosition(uint sharedIdx)
+{
+    const uint tileSizeLog2 = uint(MAX_MIP_BATCH_SIZE - 1); // log2(8) = 3
+    uint x = 0u;
+    uint y = 0u;
+    for (uint i = 0u; i < tileSizeLog2; i++)
+    {
+        uint destBitId = tileSizeLog2 - 1u - i;
+        uint destBitMask = 1u << destBitId;
+
+        // Extract interleaved bits from sharedIdx
+        uint srcBitEven = (i * 2u + 0u);
+        uint srcBitOdd  = (i * 2u + 1u);
+
+        int shiftX = int(destBitId) - int(srcBitEven);
+        int shiftY = int(destBitId) - int(srcBitOdd);
+
+        x |= destBitMask & ((shiftX >= 0) ? (sharedIdx << uint(shiftX)) : (sharedIdx >> uint(-shiftX)));
+        y |= destBitMask & ((shiftY >= 0) ? (sharedIdx << uint(shiftY)) : (sharedIdx >> uint(-shiftY)));
+    }
+    return ivec2(x, y);
+}
+
+// ---------------------------------------------------------------------------
+// Helper: write to the correct mip image binding
+// ---------------------------------------------------------------------------
+void WriteMip(int localMip, ivec2 pos, float depth)
+{
+    switch (localMip)
+    {
+        case 0: imageStore(o_HZB_Mip0, pos, vec4(depth)); break;
+        case 1: imageStore(o_HZB_Mip1, pos, vec4(depth)); break;
+        case 2: imageStore(o_HZB_Mip2, pos, vec4(depth)); break;
+        case 3: imageStore(o_HZB_Mip3, pos, vec4(depth)); break;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+void main()
+{
+    // Map thread to tile-local position using Z-order curve
+    ivec2 groupThreadId = InitialTilePixelPosition(gl_LocalInvocationIndex);
+    ivec2 dispatchThreadId = ivec2(LOCAL_SIZE) * ivec2(gl_WorkGroupID.xy) + groupThreadId;
+
+    // UV of center of this texel in the destination mip
+    vec2 bufferUV = (vec2(dispatchThreadId) + vec2(0.5)) * u_DispatchThreadIdToBufferUV;
+
+    // Sample 2x2 from parent mip (or scene depth on first pass)
+    vec4 deviceZ = Gather4(u_InputDepth, bufferUV, float(u_FirstLod - 1));
+    float closestDepth = max(max(deviceZ.x, deviceZ.y), max(deviceZ.z, deviceZ.w));
+
+    // Mip 0 of this batch: first pass copies scene depth directly, subsequent max-reduce
+    if (u_IsFirstPass != 0)
+    {
+        WriteMip(0, dispatchThreadId, textureLod(u_InputDepth, bufferUV, 0.0).r);
+    }
+    else
+    {
+        WriteMip(0, dispatchThreadId, closestDepth);
+    }
+
+    // Store to shared for reduction
+    s_ClosestDepth[gl_LocalInvocationIndex] = closestDepth;
+    barrier();
+
+    // Reduce remaining 3 mips via shared memory
+    for (int mipLevel = 1; mipLevel < MAX_MIP_BATCH_SIZE; mipLevel++)
+    {
+        int tileSize = LOCAL_SIZE / (1 << mipLevel);
+        int reduceBankSize = tileSize * tileSize;
+
+        if (gl_LocalInvocationIndex < uint(reduceBankSize))
+        {
+            // Gather 4 values from shared memory
+            vec4 parentDepth;
+            parentDepth.x = closestDepth;
+            for (uint i = 1u; i < 4u; i++)
+            {
+                parentDepth[i] = s_ClosestDepth[gl_LocalInvocationIndex + i * uint(reduceBankSize)];
+            }
+
+            closestDepth = max(max(parentDepth.x, parentDepth.y), max(parentDepth.z, parentDepth.w));
+            ivec2 outputPos = dispatchThreadId >> ivec2(mipLevel);
+
+            s_ClosestDepth[gl_LocalInvocationIndex] = closestDepth;
+            WriteMip(mipLevel, outputPos, closestDepth);
+        }
+
+        barrier();
+    }
+}

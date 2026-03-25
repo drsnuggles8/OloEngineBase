@@ -171,9 +171,12 @@ void main()
         float sinN = sin(normalAngle);
         float cosN = cos(normalAngle);
 
-        // March in both directions along the slice to find max horizon angles
-        float h1 = -HALF_PI; // Horizon angle in negative direction
-        float h2 = -HALF_PI; // Horizon angle in positive direction
+        // March in both directions along the slice to find max horizon angles.
+        // h1 (negative direction): starts at -π/2 (unoccluded), pushed toward 0 by occluders.
+        // h2 (positive direction): starts at +π/2 (unoccluded), pushed toward 0 by occluders.
+        // The integrateArc formula requires h1 < 0 and h2 > 0, spanning opposite sides of the view dir.
+        float h1 = -HALF_PI;
+        float h2 = HALF_PI;
 
         for (int step = 1; step <= stepsPerSlice; ++step)
         {
@@ -193,13 +196,12 @@ void main()
                         float horizonLen = length(horizonVec);
                         if (horizonLen > 0.001)
                         {
-                            float angle = atan(horizonVec.z / max(length(horizonVec.xy), 0.0001));
-                            // Apply thickness bias to prevent self-occlusion
-                            angle -= u_Bias;
-                            // Range attenuation: reduce contribution for distant samples
+                            float elevAngle = atan(horizonVec.z / max(length(horizonVec.xy), 0.0001));
+                            elevAngle -= u_Bias;
                             float rangeAtten = 1.0 - smoothstep(u_Radius * 0.8, u_Radius, horizonLen);
-                            // Keep maximum horizon angle (weighted by attenuation)
-                            h2 = max(h2, mix(h2, angle, rangeAtten));
+                            // Convert elevation to h2 convention: π/2 - elevation (higher elevation → lower h2 → more occlusion)
+                            float candidateH = HALF_PI - elevAngle;
+                            h2 = min(h2, mix(h2, candidateH, rangeAtten));
                         }
                     }
                 }
@@ -218,19 +220,21 @@ void main()
                         float horizonLen = length(horizonVec);
                         if (horizonLen > 0.001)
                         {
-                            float angle = atan(horizonVec.z / max(length(horizonVec.xy), 0.0001));
-                            angle -= u_Bias;
+                            float elevAngle = atan(horizonVec.z / max(length(horizonVec.xy), 0.0001));
+                            elevAngle -= u_Bias;
                             float rangeAtten = 1.0 - smoothstep(u_Radius * 0.8, u_Radius, horizonLen);
-                            h1 = max(h1, mix(h1, angle, rangeAtten));
+                            // Convert elevation to h1 convention: elevation - π/2 (higher elevation → higher h1 → more occlusion)
+                            float candidateH = elevAngle - HALF_PI;
+                            h1 = max(h1, mix(h1, candidateH, rangeAtten));
                         }
                     }
                 }
             }
         }
 
-        // Clamp horizon angles to hemisphere
-        h1 = clamp(h1, -HALF_PI, HALF_PI);
-        h2 = clamp(h2, -HALF_PI, HALF_PI);
+        // Clamp horizon angles to hemisphere centered on the projected normal
+        h1 = clamp(h1, normalAngle - HALF_PI, normalAngle + HALF_PI);
+        h2 = clamp(h2, normalAngle - HALF_PI, normalAngle + HALF_PI);
 
         // Integrate visibility over the arc defined by the two horizon angles
         float sliceAO = integrateArc(h1, h2, sinN, cosN);

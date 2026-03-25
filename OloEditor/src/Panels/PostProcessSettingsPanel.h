@@ -32,7 +32,7 @@ namespace OloEngine
         void DrawFXAASection();
         void DrawDOFSection();
         void DrawMotionBlurSection();
-        void DrawSSAOSection();
+        void DrawAOSection();
         void DrawSnowSection();
         void DrawWindSection();
         void DrawSnowAccumulationSection();

@@ -220,13 +220,13 @@ layout(std140, binding = 3) uniform ModelMatrices
 {
     mat4 u_Model;
     mat4 u_Normal;
-    int u_EntityIDIn;
+    int u_EntityID;
     int _paddingEntity0;
     int _paddingEntity1;
     int _paddingEntity2;
 };
 
-// Octahedral encoding: maps a unit normal to [0,1]^2
+// Octahedral encoding: maps a unit normal to [-1,1]^2
 vec2 octEncode(vec3 n)
 {
     n /= (abs(n.x) + abs(n.y) + abs(n.z));
@@ -234,14 +234,14 @@ vec2 octEncode(vec3 n)
     {
         n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
     }
-    return n.xy * 0.5 + 0.5;
+    return n.xy;
 }
 
 void main()
 {
     // Magenta — instantly recognizable as "shader not ready"
     o_Color = vec4(1.0, 0.0, 1.0, 1.0);
-    o_EntityID = u_EntityIDIn;
+    o_EntityID = u_EntityID;
     o_ViewNormal = octEncode(vec3(0.0, 0.0, 1.0));
 }
 )glsl";

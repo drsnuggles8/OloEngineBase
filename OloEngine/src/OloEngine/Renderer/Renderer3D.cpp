@@ -406,6 +406,7 @@ namespace OloEngine
         s_Data.PostProcessUBO = UniformBuffer::Create(PostProcessUBOData::GetSize(), ShaderBindingLayout::UBO_USER_0);
         s_Data.MotionBlurUBO = UniformBuffer::Create(MotionBlurUBOData::GetSize(), ShaderBindingLayout::UBO_USER_1);
         s_Data.SSAOUBO = UniformBuffer::Create(SSAOUBOData::GetSize(), ShaderBindingLayout::UBO_SSAO);
+        s_Data.GTAOUBO = UniformBuffer::Create(UBOStructures::GTAOUBO::GetSize(), ShaderBindingLayout::UBO_GTAO);
         s_Data.SnowUBO = UniformBuffer::Create(SnowUBOData::GetSize(), ShaderBindingLayout::UBO_SNOW);
         s_Data.SSSUBO = UniformBuffer::Create(SSSUBOData::GetSize(), ShaderBindingLayout::UBO_SSS);
         s_Data.FogUBO = UniformBuffer::Create(FogUBOData::GetSize(), ShaderBindingLayout::UBO_FOG);
@@ -536,6 +537,7 @@ namespace OloEngine
         s_Data.ShadowPass.Reset();
         s_Data.ScenePass.Reset();
         s_Data.SSAOPass.Reset();
+        s_Data.GTAOPass.Reset();
         s_Data.ParticlePass.Reset();
         s_Data.SSSPass.Reset();
         s_Data.PostProcessPass.Reset();
@@ -1045,6 +1047,22 @@ namespace OloEngine
             s_Data.SSAOGPUData.InverseProjection = glm::inverse(s_Data.ProjectionMatrix);
             s_Data.SSAOGPUData.DebugView = s_Data.PostProcess.SSAODebugView ? 1 : 0;
         }
+        if (s_Data.GTAOPass)
+        {
+            s_Data.GTAOPass->SetSettings(s_Data.PostProcess);
+            s_Data.GTAOPass->SetProjectionMatrix(s_Data.ProjectionMatrix);
+
+            // When GTAO is active, override the SSAO UBO debug/intensity fields
+            // so the PostProcess_SSAOApply shader reads correct values for GTAO,
+            // and upload the UBO since SSAORenderPass::Execute() is skipped.
+            if (s_Data.PostProcess.ActiveAOTechnique == AOTechnique::GTAO && s_Data.PostProcess.GTAOEnabled)
+            {
+                s_Data.SSAOGPUData.DebugView = s_Data.PostProcess.GTAODebugView ? 1 : 0;
+                // GTAO power is baked in compute; intensity=1 for the apply pass
+                s_Data.SSAOGPUData.Intensity = 1.0f;
+                s_Data.SSAOUBO->SetData(&s_Data.SSAOGPUData, SSAOUBOData::GetSize());
+            }
+        }
         if (s_Data.SSSPass)
         {
             s_Data.SSSPass->SetSettings(s_Data.Snow);
@@ -1059,10 +1077,14 @@ namespace OloEngine
                 (s_Data.Precipitation.ScreenStreaksEnabled || s_Data.Precipitation.LensImpactsEnabled));
             s_Data.PostProcessPass->SetShadowMapCSMTextureID(s_Data.Shadow.GetCSMRendererID());
 
-            // Pass SSAO texture to PostProcessPass for application
-            if (s_Data.SSAOPass && s_Data.PostProcess.SSAOEnabled)
+            // Pass AO texture to PostProcessPass based on active technique
+            if (s_Data.PostProcess.ActiveAOTechnique == AOTechnique::SSAO && s_Data.SSAOPass && s_Data.PostProcess.SSAOEnabled)
             {
                 s_Data.PostProcessPass->SetSSAOTexture(s_Data.SSAOPass->GetSSAOTextureID());
+            }
+            else if (s_Data.PostProcess.ActiveAOTechnique == AOTechnique::GTAO && s_Data.GTAOPass && s_Data.PostProcess.GTAOEnabled)
+            {
+                s_Data.PostProcessPass->SetSSAOTexture(s_Data.GTAOPass->GetGTAOTextureID());
             }
             else
             {
@@ -2553,6 +2575,12 @@ namespace OloEngine
         s_Data.SSAOPass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
         s_Data.SSAOPass->SetSSAOUBO(s_Data.SSAOUBO, &s_Data.SSAOGPUData);
 
+        s_Data.GTAOPass = Ref<GTAORenderPass>::Create();
+        s_Data.GTAOPass->SetName("GTAOPass");
+        s_Data.GTAOPass->Init(scenePassSpec);
+        s_Data.GTAOPass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
+        s_Data.GTAOPass->SetGTAOUBO(s_Data.GTAOUBO, &s_Data.GTAOGPUData);
+
         s_Data.SSSPass = Ref<SSSRenderPass>::Create();
         s_Data.SSSPass->SetName("SSSPass");
         s_Data.SSSPass->Init(finalPassSpec);
@@ -2586,6 +2614,7 @@ namespace OloEngine
         s_Data.RGraph->AddPass(s_Data.WaterPass);
         s_Data.RGraph->AddPass(s_Data.DecalPass);
         s_Data.RGraph->AddPass(s_Data.SSAOPass);
+        s_Data.RGraph->AddPass(s_Data.GTAOPass);
         s_Data.RGraph->AddPass(s_Data.ParticlePass);
         s_Data.RGraph->AddPass(s_Data.SSSPass);
         s_Data.RGraph->AddPass(s_Data.PostProcessPass);
@@ -2610,6 +2639,12 @@ namespace OloEngine
         s_Data.RGraph->AddExecutionDependency("DecalPass", "SSAOPass");
         // SSAOPass -> ParticlePass: ordering (SSAO must complete before particles render into scene FB)
         s_Data.RGraph->AddExecutionDependency("SSAOPass", "ParticlePass");
+        // WaterPass -> GTAOPass: ordering (water must complete before GTAO reads depth/normals)
+        s_Data.RGraph->AddExecutionDependency("WaterPass", "GTAOPass");
+        // DecalPass -> GTAOPass: ordering (GTAO reads scene depth/normals via texture slots)
+        s_Data.RGraph->AddExecutionDependency("DecalPass", "GTAOPass");
+        // GTAOPass -> ParticlePass: ordering (GTAO must complete before particles render into scene FB)
+        s_Data.RGraph->AddExecutionDependency("GTAOPass", "ParticlePass");
         // ParticlePass -> SSSPass: framebuffer piping (SSS reads scene color via SetInputFramebuffer)
         s_Data.RGraph->ConnectPass("ParticlePass", "SSSPass");
         // Graph connections: SSSPass -> PostProcessPass -> UICompositePass -> FinalPass

@@ -24,7 +24,7 @@ namespace OloEngine
         }
 
         DrawToneMappingSection();
-        DrawSSAOSection();
+        DrawAOSection();
         DrawSnowSection();
         DrawWindSection();
         DrawSnowAccumulationSection();
@@ -222,23 +222,61 @@ namespace OloEngine
         }
     }
 
-    void PostProcessSettingsPanel::DrawSSAOSection()
+    void PostProcessSettingsPanel::DrawAOSection()
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
-        if (ImGui::CollapsingHeader("SSAO"))
+        if (ImGui::CollapsingHeader("Ambient Occlusion"))
         {
             ImGui::Indent();
 
-            ImGui::Checkbox("Enable##SSAO", &settings.SSAOEnabled);
-
-            if (settings.SSAOEnabled)
+            // AO Technique selector
+            static constexpr const char* aoTechniqueNames[] = { "None", "SSAO", "GTAO" };
+            int currentTechnique = static_cast<int>(settings.ActiveAOTechnique);
+            if (ImGui::Combo("Technique##AO", &currentTechnique, aoTechniqueNames, IM_ARRAYSIZE(aoTechniqueNames)))
             {
-                ImGui::DragFloat("Radius##SSAO", &settings.SSAORadius, 0.01f, 0.01f, 5.0f, "%.2f");
-                ImGui::DragFloat("Bias##SSAO", &settings.SSAOBias, 0.001f, 0.0f, 0.1f, "%.3f");
-                ImGui::DragFloat("Intensity##SSAO", &settings.SSAOIntensity, 0.01f, 0.0f, 3.0f, "%.2f");
-                ImGui::SliderInt("Samples##SSAO", &settings.SSAOSamples, 4, 64);
-                ImGui::Checkbox("Show AO Only##SSAO", &settings.SSAODebugView);
+                settings.ActiveAOTechnique = static_cast<AOTechnique>(currentTechnique);
+            }
+
+            // SSAO settings
+            if (settings.ActiveAOTechnique == AOTechnique::SSAO)
+            {
+                ImGui::Checkbox("Enable##SSAO", &settings.SSAOEnabled);
+
+                if (settings.SSAOEnabled)
+                {
+                    ImGui::DragFloat("Radius##SSAO", &settings.SSAORadius, 0.01f, 0.01f, 5.0f, "%.2f");
+                    ImGui::DragFloat("Bias##SSAO", &settings.SSAOBias, 0.001f, 0.0f, 0.1f, "%.3f");
+                    ImGui::DragFloat("Intensity##SSAO", &settings.SSAOIntensity, 0.01f, 0.0f, 3.0f, "%.2f");
+                    ImGui::SliderInt("Samples##SSAO", &settings.SSAOSamples, 4, 64);
+                    ImGui::Checkbox("Show AO Only##SSAO", &settings.SSAODebugView);
+                }
+            }
+
+            // GTAO settings
+            if (settings.ActiveAOTechnique == AOTechnique::GTAO)
+            {
+                ImGui::Checkbox("Enable##GTAO", &settings.GTAOEnabled);
+
+                if (settings.GTAOEnabled)
+                {
+                    ImGui::DragFloat("Radius##GTAO", &settings.GTAORadius, 0.01f, 0.01f, 5.0f, "%.2f");
+                    ImGui::DragFloat("Power##GTAO", &settings.GTAOPower, 0.01f, 0.1f, 10.0f, "%.2f");
+                    ImGui::DragFloat("Falloff Range##GTAO", &settings.GTAOFalloffRange, 0.01f, 0.01f, 1.0f, "%.3f");
+                    ImGui::DragFloat("Sample Distribution##GTAO", &settings.GTAOSampleDistribution, 0.01f, 1.0f, 5.0f, "%.2f");
+                    ImGui::DragFloat("Thin Compensation##GTAO", &settings.GTAOThinCompensation, 0.01f, 0.0f, 1.0f, "%.2f");
+                    ImGui::DragFloat("Depth Mip Offset##GTAO", &settings.GTAODepthMipOffset, 0.1f, 0.0f, 10.0f, "%.1f");
+
+                    ImGui::Separator();
+                    ImGui::Checkbox("Denoise##GTAO", &settings.GTAODenoiseEnabled);
+                    if (settings.GTAODenoiseEnabled)
+                    {
+                        ImGui::SliderInt("Denoise Passes##GTAO", &settings.GTAODenoisePasses, 1, 8);
+                        ImGui::DragFloat("Denoise Beta##GTAO", &settings.GTAODenoiseBeta, 0.01f, 0.1f, 5.0f, "%.2f");
+                    }
+
+                    ImGui::Checkbox("Show AO Only##GTAO", &settings.GTAODebugView);
+                }
             }
 
             ImGui::Unindent();

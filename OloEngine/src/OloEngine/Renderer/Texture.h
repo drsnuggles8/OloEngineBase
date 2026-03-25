@@ -13,6 +13,8 @@ namespace OloEngine
     {
         None = 0,
         R8,
+        R8UI,
+        R16UI,
         RGB8,
         RGBA8,
         RGBA32F, // Unsupported
@@ -28,6 +30,8 @@ namespace OloEngine
         u32 Height = 1;
         ImageFormat Format = ImageFormat::RGBA8;
         bool GenerateMips = true;
+        // Explicit mip level count. 0 = auto (1 if !GenerateMips, full chain if GenerateMips).
+        u32 MipLevels = 0;
     };
 
     class Texture : public RendererResource
@@ -77,6 +81,12 @@ namespace OloEngine
     {
       public:
         virtual void SubImage(u32 x, u32 y, u32 width, u32 height, const void* data, u32 dataSize) = 0;
+
+        [[nodiscard("Store this!")]] virtual u32 GetMipLevelCount() const = 0;
+
+        // Recreate the texture with new dimensions (same spec otherwise).
+        // Needed because glTextureStorage2D allocates immutable storage.
+        virtual void Resize(u32 width, u32 height) = 0;
 
         static Ref<Texture2D> Create(const TextureSpecification& specification);
         static Ref<Texture2D> Create(const std::string& path);

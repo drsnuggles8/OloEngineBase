@@ -53,8 +53,17 @@ namespace OloEngine
 
         bool GetData(std::vector<u8>& outData, u32 mipLevel = 0) const override;
 
+        [[nodiscard("Store this!")]] u32 GetMipLevelCount() const override
+        {
+            return m_MipLevels;
+        }
+
+        void Resize(u32 width, u32 height) override;
+
       private:
         void InvalidateImpl(std::string_view path, u32 width, u32 height, const void* data, u32 channels);
+        void CreateStorage();
+        [[nodiscard]] static u32 CalculateFullMipCount(u32 width, u32 height);
 
       private:
         TextureSpecification m_Specification;
@@ -63,6 +72,7 @@ namespace OloEngine
         bool m_IsLoaded = false;
         u32 m_Width{};
         u32 m_Height{};
+        u32 m_MipLevels = 1;
         u32 m_RendererID{};
         GLenum m_InternalFormat{};
         GLenum m_DataFormat{};

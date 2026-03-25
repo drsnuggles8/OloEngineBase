@@ -14,6 +14,14 @@ namespace OloEngine
         Uncharted2 = 3
     };
 
+    // AO technique selector
+    enum class AOTechnique : i32
+    {
+        None = 0,
+        SSAO = 1,
+        GTAO = 2
+    };
+
     struct PostProcessSettings
     {
         // Tone mapping (always active)
@@ -53,6 +61,9 @@ namespace OloEngine
         // Color Grading
         bool ColorGradingEnabled = false;
 
+        // AO technique (None/SSAO/GTAO)
+        AOTechnique ActiveAOTechnique = AOTechnique::SSAO;
+
         // SSAO
         bool SSAOEnabled = false;
         f32 SSAORadius = 0.5f;
@@ -60,6 +71,19 @@ namespace OloEngine
         f32 SSAOIntensity = 1.0f;
         i32 SSAOSamples = 32;
         bool SSAODebugView = false;
+
+        // GTAO
+        bool GTAOEnabled = false;
+        f32 GTAORadius = 0.5f;             // World-space AO radius
+        f32 GTAOPower = 2.2f;              // AO contrast curve
+        f32 GTAOFalloffRange = 0.615f;     // Relative falloff distance
+        f32 GTAOSampleDistribution = 2.0f; // Sample distance distribution power
+        f32 GTAOThinCompensation = 0.0f;   // Thin occluder compensation
+        f32 GTAODepthMipOffset = 3.3f;     // HZB mip selection offset
+        bool GTAODenoiseEnabled = true;
+        i32 GTAODenoisePasses = 4;  // Bilateral blur pass count
+        f32 GTAODenoiseBeta = 1.2f; // Edge sensitivity
+        bool GTAODebugView = false;
 
         bool operator==(const PostProcessSettings&) const = default;
     };

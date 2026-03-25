@@ -90,7 +90,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_Settings.SSAOEnabled || !m_SceneFramebuffer || !m_SSAOShader || !m_SSAOBlurShader || !m_SSAOFramebuffer || !m_BlurFramebuffer)
+        if (!m_Settings.SSAOEnabled || m_Settings.ActiveAOTechnique != AOTechnique::SSAO || !m_SceneFramebuffer || !m_SSAOShader || !m_SSAOBlurShader || !m_SSAOFramebuffer || !m_BlurFramebuffer)
         {
             return;
         }

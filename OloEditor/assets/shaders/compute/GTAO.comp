@@ -1,0 +1,300 @@
+#version 460 core
+
+// =============================================================================
+// GTAO.comp — Ground Truth Ambient Occlusion (XeGTAO) compute shader
+//
+// 16x16 workgroups. Each thread computes AO for one pixel using:
+//   - 9 angular slices around the pixel
+//   - 3 depth samples per slice (R1 quasi-random distance distribution)
+//   - Adaptive HZB mip sampling for efficient depth lookups
+//   - Cosine-weighted horizon angle integration
+//
+// Inputs:  HZB depth pyramid (sampler2D), view-space normals (sampler2D)
+// Outputs: R8 AO term (image2D), R8 edge weights (image2D)
+//
+// Based on Intel XeGTAO / Hazel Engine implementation.
+// =============================================================================
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+// ---------------------------------------------------------------------------
+// UBO: GTAO parameters (binding 28, must match C++ GTAOUBO in ShaderBindingLayout.h)
+// ---------------------------------------------------------------------------
+layout(std140, binding = 28) uniform GTAOParams
+{
+    vec2  u_NDCToViewMul;
+    vec2  u_NDCToViewAdd;
+
+    vec2  u_NDCToViewMul_x_PixelSize;
+    float u_EffectRadius;
+    float u_EffectFalloffRange;
+
+    float u_RadiusMultiplier;
+    float u_FinalValuePower;
+    float u_DenoiseBlurBeta;
+    float u_SampleDistributionPower;
+
+    float u_ThinOccluderCompensation;
+    float u_DepthMIPSamplingOffset;
+    int   u_NoiseIndex;
+    float u_DepthLinearizeA;
+
+    vec2  u_HZBUVFactor;
+    int   u_ScreenWidth;
+    int   u_ScreenHeight;
+
+    int   u_DenoiseEnabled;
+    int   u_DenoisePasses;
+    float u_DepthLinearizeB;
+    int   u_DebugView;
+};
+
+// ---------------------------------------------------------------------------
+// Resources
+// ---------------------------------------------------------------------------
+layout(binding = 0, r8) writeonly uniform image2D o_AOTerm;
+layout(binding = 1, r8) writeonly uniform image2D o_Edges;
+
+layout(binding = 33) uniform sampler2D u_HZBDepth;       // HZB depth pyramid
+layout(binding = 22) uniform sampler2D u_ViewNormals;     // Octahedral-encoded view normals
+
+layout(binding = 36) uniform usampler2D u_HilbertLUT;    // 64x64 R16UI Hilbert curve index
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+#define XE_GTAO_SLICE_COUNT         9
+#define XE_GTAO_STEPS_PER_SLICE     3
+#define XE_GTAO_DEPTH_MIP_LEVELS    5
+#define XE_GTAO_PI                  3.14159265358979
+#define XE_GTAO_HALF_PI             1.57079632679490
+
+// ---------------------------------------------------------------------------
+// Octahedral decode (must match the encoder in forward shaders)
+// Normals are stored in RG16F with range [-1,1] — no remapping needed.
+// ---------------------------------------------------------------------------
+vec3 OctDecode(vec2 f)
+{
+    vec3 n = vec3(f.xy, 1.0 - abs(f.x) - abs(f.y));
+    float t = max(-n.z, 0.0);
+    n.x += (n.x >= 0.0) ? -t : t;
+    n.y += (n.y >= 0.0) ? -t : t;
+    return normalize(n);
+}
+
+// ---------------------------------------------------------------------------
+// Linearize depth from [0,1] device-Z to positive view-space distance.
+// Standard OpenGL projection: z_view = proj[3][2] / (deviceZ * 2.0 - 1.0 + proj[2][2])
+// Returns positive distance (negated view-space Z).
+// ---------------------------------------------------------------------------
+float LinearizeDepth(float deviceZ)
+{
+    float ndc = deviceZ * 2.0 - 1.0;
+    return -u_DepthLinearizeB / (ndc + u_DepthLinearizeA);
+}
+
+// ---------------------------------------------------------------------------
+// Compute view-space position from screen position and depth
+// ---------------------------------------------------------------------------
+vec3 ComputeViewspacePosition(vec2 screenPos, float viewspaceDepth)
+{
+    vec3 ret;
+    ret.xy = (u_NDCToViewMul * screenPos + u_NDCToViewAdd) * viewspaceDepth;
+    ret.z = -viewspaceDepth;
+    return ret;
+}
+
+// ---------------------------------------------------------------------------
+// R1 quasi-random sequence (spatiotemporal noise via Hilbert LUT)
+// ---------------------------------------------------------------------------
+float SpatioTemporalNoise(ivec2 pixCoord)
+{
+    uint idx = texelFetch(u_HilbertLUT, pixCoord & ivec2(63), 0).r;
+    return float((idx + u_NoiseIndex) & 0xFFu) / 256.0;
+}
+
+// ---------------------------------------------------------------------------
+// Edge detection from depth (4 neighbours vs center)
+// Packed into [0,1] for denoise edge-aware weighting.
+// ---------------------------------------------------------------------------
+float CalculateEdges(float centerZ, float leftZ, float rightZ, float topZ, float bottomZ)
+{
+    vec4 edgesLRTB = vec4(leftZ, rightZ, topZ, bottomZ) - centerZ;
+    vec4 edgesLRTBSlopeAdjusted = edgesLRTB + edgesLRTB.yxwz;
+    edgesLRTB = min(abs(edgesLRTB), abs(edgesLRTBSlopeAdjusted));
+    vec4 threshold = vec4(centerZ) * 0.02;
+    return dot(vec4(greaterThan(edgesLRTB, threshold)), vec4(0.25));
+}
+
+// ---------------------------------------------------------------------------
+// Main AO computation
+// ---------------------------------------------------------------------------
+void main()
+{
+    ivec2 pixCoord = ivec2(gl_GlobalInvocationID.xy);
+
+    if (pixCoord.x >= u_ScreenWidth || pixCoord.y >= u_ScreenHeight)
+    {
+        return;
+    }
+
+    vec2 pixelSize = vec2(1.0) / vec2(u_ScreenWidth, u_ScreenHeight);
+    vec2 normalizedScreenPos = (vec2(pixCoord) + 0.5) * pixelSize;
+
+    // Sample depth from HZB mip 0 (HZB maps scene UV [0,1] to full texture)
+    float deviceZ = textureLod(u_HZBDepth, normalizedScreenPos, 0.0).r;
+
+    if (deviceZ <= 0.0 || deviceZ >= 1.0)
+    {
+        imageStore(o_AOTerm, pixCoord, vec4(1.0));
+        imageStore(o_Edges, pixCoord, vec4(0.0));
+        return;
+    }
+
+    float viewspaceZ = LinearizeDepth(deviceZ);
+
+    // Neighbour depths for edge detection
+    float pixLZ = LinearizeDepth(textureLod(u_HZBDepth, (vec2(pixCoord) + vec2(-1.0, 0.0) + 0.5) * pixelSize, 0.0).r);
+    float pixRZ = LinearizeDepth(textureLod(u_HZBDepth, (vec2(pixCoord) + vec2( 1.0, 0.0) + 0.5) * pixelSize, 0.0).r);
+    float pixTZ = LinearizeDepth(textureLod(u_HZBDepth, (vec2(pixCoord) + vec2( 0.0,-1.0) + 0.5) * pixelSize, 0.0).r);
+    float pixBZ = LinearizeDepth(textureLod(u_HZBDepth, (vec2(pixCoord) + vec2( 0.0, 1.0) + 0.5) * pixelSize, 0.0).r);
+
+    // Edge weight for denoise
+    float edgeWeight = CalculateEdges(viewspaceZ, pixLZ, pixRZ, pixTZ, pixBZ);
+
+    // Reconstruct view-space position
+    vec3 pixCenterPos = ComputeViewspacePosition(normalizedScreenPos, viewspaceZ);
+
+    // Decode view-space normal (already in correct view-space, no flip needed)
+    vec2 encodedNormal = texelFetch(u_ViewNormals, pixCoord, 0).rg;
+    vec3 viewNormal = OctDecode(encodedNormal);
+
+    // Noise for slice rotation
+    float noiseSlice = SpatioTemporalNoise(pixCoord);
+    float noiseSample = fract(noiseSlice * 0.6180339887498949); // Golden ratio
+
+    // World-space AO radius → pixel radius on screen
+    // proj[0][0] = 2 / NDCToViewMul.x, half-screen in pixels = screenWidth / 2
+    // pixelRadius = radius * proj[0][0] * (screenWidth / 2) / |z_view|
+    float projScale = 1.0 / u_NDCToViewMul.x; // = proj[0][0] / 2
+    float pixelRadius = u_EffectRadius * projScale * float(u_ScreenWidth) / abs(pixCenterPos.z);
+
+    // Too small to matter — skip
+    if (pixelRadius < 2.0)
+    {
+        imageStore(o_AOTerm, pixCoord, vec4(1.0));
+        imageStore(o_Edges, pixCoord, vec4(edgeWeight));
+        return;
+    }
+
+    // =======================================================================
+    // XeGTAO: Slice-based horizon integration
+    // =======================================================================
+    float visibility = 0.0;
+
+    for (int slice = 0; slice < XE_GTAO_SLICE_COUNT; slice++)
+    {
+        float sliceAngle = (float(slice) + noiseSlice) * (XE_GTAO_PI / float(XE_GTAO_SLICE_COUNT));
+        vec2 omega = vec2(cos(sliceAngle), sin(sliceAngle));
+
+        // Direction in view-space (projected onto the tangent plane)
+        vec3 directionVS = vec3(omega.x, omega.y, 0.0);
+        vec3 orthoDirectionVS = directionVS - dot(directionVS, viewNormal) * viewNormal;
+        vec3 axisVS = normalize(cross(directionVS, viewNormal));
+        vec3 projectedNormal = viewNormal - axisVS * dot(viewNormal, axisVS);
+        float projectedNormalLen = length(projectedNormal);
+
+        float signN = sign(dot(orthoDirectionVS, projectedNormal));
+        float cosN = clamp(dot(projectedNormal, viewNormal) / projectedNormalLen, 0.0, 1.0);
+        float n = signN * acos(cosN);
+
+        // Horizon angles (initialize to below horizon)
+        float horizonCos0 = cos(n + XE_GTAO_HALF_PI);
+        float horizonCos1 = cos(n - XE_GTAO_HALF_PI);
+
+        // March along the slice direction
+        for (int step = 0; step < XE_GTAO_STEPS_PER_SLICE; step++)
+        {
+            float stepBaseNoise = float(step) + noiseSample;
+            float stepNoise = pow(stepBaseNoise / float(XE_GTAO_STEPS_PER_SLICE), u_SampleDistributionPower);
+
+            // Sample offset in pixels, then convert to UV
+            float sampleOffsetPixels = max(stepNoise * pixelRadius, 1.0);
+
+            // Adaptive mip level from pixel distance
+            float mipLevel = clamp(log2(sampleOffsetPixels) - u_DepthMIPSamplingOffset, 0.0, float(XE_GTAO_DEPTH_MIP_LEVELS));
+
+            vec2 sampleOffset = round(omega * sampleOffsetPixels) * pixelSize;
+
+            // Positive direction
+            vec2 sampleScreenPos0 = normalizedScreenPos + sampleOffset;
+            float SZ0 = LinearizeDepth(textureLod(u_HZBDepth, sampleScreenPos0, mipLevel).r);
+            vec3 samplePos0 = ComputeViewspacePosition(sampleScreenPos0, SZ0);
+
+            // Negative direction
+            vec2 sampleScreenPos1 = normalizedScreenPos - sampleOffset;
+            float SZ1 = LinearizeDepth(textureLod(u_HZBDepth, sampleScreenPos1, mipLevel).r);
+            vec3 samplePos1 = ComputeViewspacePosition(sampleScreenPos1, SZ1);
+
+            // Horizon angle updates
+            vec3 sampleDelta0 = samplePos0 - pixCenterPos;
+            vec3 sampleDelta1 = samplePos1 - pixCenterPos;
+            float dist0 = length(sampleDelta0);
+            float dist1 = length(sampleDelta1);
+
+            vec3 sampleHorizon0 = sampleDelta0 / max(dist0, 1e-6);
+            vec3 sampleHorizon1 = sampleDelta1 / max(dist1, 1e-6);
+
+            // Falloff based on distance relative to effect radius
+            float falloffBase0 = dist0 / u_EffectRadius;
+            float falloffBase1 = dist1 / u_EffectRadius;
+            float falloffRange = u_EffectFalloffRange;
+            float weight0 = clamp(1.0 - (falloffBase0 - (1.0 - falloffRange)) / falloffRange, 0.0, 1.0);
+            float weight1 = clamp(1.0 - (falloffBase1 - (1.0 - falloffRange)) / falloffRange, 0.0, 1.0);
+
+            // Update horizon cosines (max with existing, weighted by falloff)
+            float newHorizonCos0 = dot(sampleHorizon0, viewNormal);
+            float newHorizonCos1 = dot(sampleHorizon1, viewNormal);
+
+            // Thin occluder compensation
+            if (u_ThinOccluderCompensation > 0.0)
+            {
+                float thinComp0 = horizonCos0 * u_ThinOccluderCompensation;
+                float thinComp1 = horizonCos1 * u_ThinOccluderCompensation;
+                horizonCos0 = max(horizonCos0 - thinComp0, mix(horizonCos0, newHorizonCos0, weight0));
+                horizonCos1 = max(horizonCos1 - thinComp1, mix(horizonCos1, newHorizonCos1, weight1));
+            }
+            else
+            {
+                horizonCos0 = max(horizonCos0, mix(horizonCos0, newHorizonCos0, weight0));
+                horizonCos1 = max(horizonCos1, mix(horizonCos1, newHorizonCos1, weight1));
+            }
+        }
+
+        // Integrate visibility from horizon angles
+        // Clamp to the normal hemisphere
+        horizonCos0 = clamp(horizonCos0, -1.0, 1.0);
+        horizonCos1 = clamp(horizonCos1, -1.0, 1.0);
+
+        float h0 = n + max(-acos(horizonCos0) - n, -XE_GTAO_HALF_PI);
+        float h1 = n + min( acos(horizonCos1) - n,  XE_GTAO_HALF_PI);
+
+        // Inner integral: 0.25 * (cos(2h-n) + 2h*sin(n) + cos(n))
+        float iarc0 = -cos(2.0 * h0 - n) + cos(n) + 2.0 * h0 * sin(n);
+        float iarc1 = -cos(2.0 * h1 - n) + cos(n) + 2.0 * h1 * sin(n);
+        float localVisibility = 0.25 * (iarc0 + iarc1) * projectedNormalLen;
+
+        visibility += localVisibility;
+    }
+
+    // Normalize across slices
+    visibility /= float(XE_GTAO_SLICE_COUNT);
+    visibility = clamp(visibility, 0.03, 1.0); // Prevent total blackness
+
+    // Apply power curve for contrast
+    visibility = pow(visibility, u_FinalValuePower);
+
+    // Store results
+    imageStore(o_AOTerm, pixCoord, vec4(visibility));
+    imageStore(o_Edges, pixCoord, vec4(edgeWeight));
+}

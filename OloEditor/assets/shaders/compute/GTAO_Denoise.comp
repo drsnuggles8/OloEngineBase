@@ -1,0 +1,111 @@
+#version 460 core
+
+// =============================================================================
+// GTAO_Denoise.comp — Edge-aware bilateral spatial denoise for GTAO
+//
+// 8x8 workgroups. Uses edge weights from GTAO pass to preserve geometry
+// boundaries while smoothing AO noise. Designed for ping-pong operation:
+// run multiple passes alternating between two R8 textures.
+//
+// Based on XeGTAO denoise approach.
+// =============================================================================
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// ---------------------------------------------------------------------------
+// UBO: GTAO parameters (binding 28, shares with GTAO.comp)
+// ---------------------------------------------------------------------------
+layout(std140, binding = 28) uniform GTAOParams
+{
+    vec2  u_NDCToViewMul;
+    vec2  u_NDCToViewAdd;
+
+    vec2  u_NDCToViewMul_x_PixelSize;
+    float u_EffectRadius;
+    float u_EffectFalloffRange;
+
+    float u_RadiusMultiplier;
+    float u_FinalValuePower;
+    float u_DenoiseBlurBeta;
+    float u_SampleDistributionPower;
+
+    float u_ThinOccluderCompensation;
+    float u_DepthMIPSamplingOffset;
+    int   u_NoiseIndex;
+    float u_DepthLinearizeA;
+
+    vec2  u_HZBUVFactor;
+    int   u_ScreenWidth;
+    int   u_ScreenHeight;
+
+    int   u_DenoiseEnabled;
+    int   u_DenoisePasses;
+    float u_DepthLinearizeB;
+    int   u_DebugView;
+};
+
+// ---------------------------------------------------------------------------
+// Resources
+// ---------------------------------------------------------------------------
+layout(binding = 0, r8) readonly  uniform image2D i_AOInput;
+layout(binding = 1, r8) writeonly uniform image2D o_AOOutput;
+layout(binding = 2, r8) readonly  uniform image2D i_Edges;
+
+// Per-pass direction uniform (avoids needing separate shaders)
+uniform int u_BlurHorizontal; // 1 = horizontal, 0 = vertical
+
+// ---------------------------------------------------------------------------
+// Bilateral blur kernel
+// ---------------------------------------------------------------------------
+void main()
+{
+    ivec2 pixCoord = ivec2(gl_GlobalInvocationID.xy);
+
+    if (pixCoord.x >= u_ScreenWidth || pixCoord.y >= u_ScreenHeight)
+    {
+        return;
+    }
+
+    float centerAO = imageLoad(i_AOInput, pixCoord).r;
+    float centerEdge = imageLoad(i_Edges, pixCoord).r;
+
+    // Edge-aware bilateral blur
+    // Higher edge values = harder edges = less blurring
+    float weightSum = 1.0;
+    float aoSum = centerAO;
+
+    // 4-tap kernel in the blur direction
+    ivec2 step = (u_BlurHorizontal != 0) ? ivec2(1, 0) : ivec2(0, 1);
+
+    for (int i = -2; i <= 2; i++)
+    {
+        if (i == 0) continue;
+
+        ivec2 sampleCoord = pixCoord + step * i;
+
+        // Bounds check
+        if (sampleCoord.x < 0 || sampleCoord.x >= u_ScreenWidth ||
+            sampleCoord.y < 0 || sampleCoord.y >= u_ScreenHeight)
+        {
+            continue;
+        }
+
+        float sampleAO = imageLoad(i_AOInput, sampleCoord).r;
+        float sampleEdge = imageLoad(i_Edges, sampleCoord).r;
+
+        // Distance weight (Gaussian-like)
+        float spatialWeight = exp(-float(i * i) * 0.5);
+
+        // Edge weight: reduce blur across edges
+        // Beta controls sensitivity: higher = more edge-preserving
+        float edgeDiff = abs(centerEdge - sampleEdge);
+        float edgeWeight = exp(-edgeDiff * u_DenoiseBlurBeta * 10.0);
+
+        float weight = spatialWeight * edgeWeight;
+        aoSum += sampleAO * weight;
+        weightSum += weight;
+    }
+
+    float result = aoSum / max(weightSum, 1e-6);
+    imageStore(o_AOOutput, pixCoord, vec4(result));
+}

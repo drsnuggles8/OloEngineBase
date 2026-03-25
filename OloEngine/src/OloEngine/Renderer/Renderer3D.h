@@ -19,6 +19,7 @@
 #include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
+#include "OloEngine/Renderer/Passes/GTAORenderPass.h"
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
@@ -936,6 +937,7 @@ namespace OloEngine
             Ref<UniformBuffer> PostProcessUBO;
             Ref<UniformBuffer> MotionBlurUBO;
             Ref<UniformBuffer> SSAOUBO;
+            Ref<UniformBuffer> GTAOUBO;
             Ref<UniformBuffer> TerrainUBO;
             Ref<UniformBuffer> FoliageUBO;
             Ref<UniformBuffer> WaterUBO;
@@ -980,6 +982,7 @@ namespace OloEngine
             Ref<WaterRenderPass> WaterPass;
             Ref<DecalRenderPass> DecalPass;
             Ref<SSAORenderPass> SSAOPass;
+            Ref<GTAORenderPass> GTAOPass;
             Ref<ParticleRenderPass> ParticlePass;
             Ref<SSSRenderPass> SSSPass;
             Ref<PostProcessRenderPass> PostProcessPass;
@@ -1014,6 +1017,7 @@ namespace OloEngine
             PostProcessUBOData PostProcessGPUData;
             MotionBlurUBOData MotionBlurGPUData;
             SSAOUBOData SSAOGPUData;
+            UBOStructures::GTAOUBO GTAOGPUData;
             SnowSettings Snow;
             SnowUBOData SnowGPUData;
             SSSUBOData SSSGPUData;

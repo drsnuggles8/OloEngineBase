@@ -141,8 +141,8 @@ namespace OloEngine
         };
 
         // === Effect chain order ===
-        // 0. SSAO Apply (modulate scene color by AO factor)
-        if (m_Settings.SSAOEnabled && m_SSAOApplyShader && m_SSAOTextureID != 0)
+        // 0. AO Apply (modulate scene color by AO factor from SSAO or GTAO)
+        if (m_SSAOApplyShader && m_SSAOTextureID != 0)
         {
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();

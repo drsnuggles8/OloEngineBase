@@ -368,6 +368,41 @@ namespace OloEngine
                 return sizeof(SelectionOutlineUBO);
             }
         };
+        // @brief GTAO (Ground Truth Ambient Occlusion) parameters
+        // XeGTAO-based compute AO with HZB depth pyramid
+        struct GTAOUBO
+        {
+            glm::vec2 NDCToViewMul; // Projection unpack (2/proj[0][0], -2/proj[1][1])
+            glm::vec2 NDCToViewAdd; // Projection unpack (-1/proj[0][0], 1/proj[1][1])
+
+            glm::vec2 NDCToViewMul_x_PixelSize; // NDCToViewMul * (1/width, 1/height)
+            f32 EffectRadius = 0.5f;            // World-space AO radius
+            f32 EffectFalloffRange = 0.615f;    // Relative falloff distance
+
+            f32 RadiusMultiplier = 1.457f;      // Internal radius scaling
+            f32 FinalValuePower = 2.2f;         // AO contrast curve
+            f32 DenoiseBlurBeta = 1.2f;         // Edge-sensitivity for denoise
+            f32 SampleDistributionPower = 2.0f; // Sample distance distribution curve
+
+            f32 ThinOccluderCompensation = 0.0f; // Compensate thin geometry halos
+            f32 DepthMIPSamplingOffset = 3.3f;   // HZB mip selection offset
+            i32 NoiseIndex = 0;                  // Temporal noise frame index
+            f32 DepthLinearizeA = 0.0f;          // proj[2][2]: depth linearization coeff A
+
+            glm::vec2 HZBUVFactor{ 1.0f }; // viewportSize / hzbSize
+            i32 ScreenWidth = 0;
+            i32 ScreenHeight = 0;
+
+            i32 DenoiseEnabled = 1;     // Enable/disable spatial denoise
+            i32 DenoisePasses = 4;      // Number of bilateral blur passes
+            f32 DepthLinearizeB = 0.0f; // proj[3][2]: depth linearization coeff B
+            i32 DebugView = 0;          // 0 = off, 1 = AO only
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(GTAOUBO);
+            }
+        };
     } // namespace UBOStructures
 
     // =============================================================================
@@ -412,6 +447,8 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::PBRMaterialUBO) == 96, "PBRMaterialUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::SelectionOutlineUBO) % 16 == 0, "SelectionOutlineUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::SelectionOutlineUBO) == 304, "SelectionOutlineUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::GTAOUBO) % 16 == 0, "GTAOUBO size must be 16-byte aligned for std140");
+    static_assert(sizeof(UBOStructures::GTAOUBO) == 96, "GTAOUBO unexpected size — update GLSL layout");
 
     // Standardized shader binding layout for consistent resource sharing
     // across all shaders in the engine. This ensures efficient data sharing
@@ -451,6 +488,7 @@ namespace OloEngine
         static constexpr u32 UBO_FORWARD_PLUS = 25;         // Forward+ tile-based culling parameters
         static constexpr u32 UBO_BOOT = 26;                 // Boot/warmup shader progress data
         static constexpr u32 UBO_SELECTION_OUTLINE = 27;    // Selection outline parameters (editor)
+        static constexpr u32 UBO_GTAO = 28;                 // GTAO (Ground Truth AO) parameters
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -489,9 +527,13 @@ namespace OloEngine
         static constexpr u32 TEX_SNOW_DEPTH = 30;           // Snow accumulation depth map (sampler2D, R32F)
         static constexpr u32 TEX_PRECIPITATION_NOISE = 31;  // Precipitation streak/lens noise (sampler2D)
         static constexpr u32 TEX_SHADER_GRAPH_0 = 32;       // First shader graph user texture slot
+        static constexpr u32 TEX_HZB = 33;                  // Hierarchical Z-Buffer depth pyramid
+        static constexpr u32 TEX_GTAO_OUTPUT = 34;          // GTAO raw/denoised AO output
+        static constexpr u32 TEX_GTAO_EDGES = 35;           // GTAO edge-detection texture
+        static constexpr u32 TEX_HILBERT_LUT = 36;          // Hilbert curve LUT for GTAO spatial noise
 
         // Ensure all texture slots fit within the GL 4.6 minimum guarantee (80 combined units).
-        static_assert(TEX_SHADER_GRAPH_0 < 80, "Texture slot exceeds GL 4.6 minimum GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS");
+        static_assert(TEX_HILBERT_LUT < 80, "Texture slot exceeds GL 4.6 minimum GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS");
 
         // =============================================================================
         // SHADER STORAGE BUFFER OBJECT (SSBO) BINDINGS
@@ -534,6 +576,7 @@ namespace OloEngine
         using FoliageUBO = UBOStructures::FoliageUBO;
         using DecalUBO = UBOStructures::DecalUBO;
         using WaterUBO = UBOStructures::WaterUBO;
+        using GTAOUBO = UBOStructures::GTAOUBO;
 
         // =============================================================================
         // BINDING NAME VALIDATION
@@ -604,6 +647,8 @@ namespace OloEngine
                     return name.contains("Boot") || name.contains("boot");
                 case UBO_SELECTION_OUTLINE:
                     return name.contains("SelectionOutline") || name.contains("selectionOutline");
+                case UBO_GTAO:
+                    return name.contains("GTAO") || name.contains("gtao");
                 default:
                     return false;
             }
@@ -656,9 +701,9 @@ namespace OloEngine
                     return name.contains("Precipitation") || name.contains("precipitation") ||
                            name.contains("StreakNoise") || name.contains("streakNoise");
                 default:
-                    // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_PRECIPITATION_NOISE, i.e. 10–31)
+                    // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_HILBERT_LUT, i.e. 10–36)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)
-                    return (binding >= TEX_USER_0 && binding <= TEX_PRECIPITATION_NOISE) ||
+                    return (binding >= TEX_USER_0 && binding <= TEX_HILBERT_LUT) ||
                            (binding >= TEX_SHADER_GRAPH_0 && binding < 80);
             }
         }

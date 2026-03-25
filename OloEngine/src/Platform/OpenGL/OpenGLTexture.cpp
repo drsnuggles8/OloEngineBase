@@ -18,6 +18,10 @@ namespace OloEngine
             {
                 case ImageFormat::R8:
                     return GL_RED;
+                case ImageFormat::R8UI:
+                    return GL_RED_INTEGER;
+                case ImageFormat::R16UI:
+                    return GL_RED_INTEGER;
                 case ImageFormat::RGB8:
                     return GL_RGB;
                 case ImageFormat::RGBA8:
@@ -44,6 +48,10 @@ namespace OloEngine
             {
                 case ImageFormat::R8:
                     return GL_R8;
+                case ImageFormat::R8UI:
+                    return GL_R8UI;
+                case ImageFormat::R16UI:
+                    return GL_R16UI;
                 case ImageFormat::RGB8:
                     return GL_RGB8;
                 case ImageFormat::RGBA8:
@@ -66,6 +74,17 @@ namespace OloEngine
 
     } // namespace Utils
 
+    u32 OpenGLTexture2D::CalculateFullMipCount(u32 width, u32 height)
+    {
+        return static_cast<u32>(std::floor(std::log2(static_cast<f64>(std::max(width, height))))) + 1;
+    }
+
+    void OpenGLTexture2D::CreateStorage()
+    {
+        glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
+        glTextureStorage2D(m_RendererID, static_cast<GLsizei>(m_MipLevels), m_InternalFormat, static_cast<int>(m_Width), static_cast<int>(m_Height));
+    }
+
     OpenGLTexture2D::OpenGLTexture2D(const TextureSpecification& specification)
         : m_Specification(specification), m_Width(m_Specification.Width), m_Height(m_Specification.Height)
     {
@@ -73,15 +92,32 @@ namespace OloEngine
 
         m_InternalFormat = Utils::OloEngineImageFormatToGLInternalFormat(m_Specification.Format);
         m_DataFormat = Utils::OloEngineImageFormatToGLDataFormat(m_Specification.Format);
-        glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
-        glTextureStorage2D(m_RendererID, 1, m_InternalFormat, static_cast<int>(m_Width), static_cast<int>(m_Height));
+
+        if (m_Specification.MipLevels > 0)
+        {
+            m_MipLevels = m_Specification.MipLevels;
+        }
+        else if (m_Specification.GenerateMips)
+        {
+            m_MipLevels = CalculateFullMipCount(m_Width, m_Height);
+        }
+        else
+        {
+            m_MipLevels = 1;
+        }
+
+        CreateStorage();
 
         // Calculate memory usage based on format and dimensions
         u32 bytesPerPixel = 4; // Default to RGBA
         switch (m_Specification.Format)
         {
             case ImageFormat::R8:
+            case ImageFormat::R8UI:
                 bytesPerPixel = 1;
+                break;
+            case ImageFormat::R16UI:
+                bytesPerPixel = 2;
                 break;
             case ImageFormat::RGB8:
                 bytesPerPixel = 3;
@@ -163,6 +199,90 @@ namespace OloEngine
         glDeleteTextures(1, &m_RendererID);
     }
 
+    void OpenGLTexture2D::Resize(u32 width, u32 height)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (width == 0 || height == 0)
+        {
+            OLO_CORE_WARN("OpenGLTexture2D::Resize: Invalid dimensions {}x{}", width, height);
+            return;
+        }
+
+        // Dealloc old
+        OLO_TRACK_DEALLOC(this);
+        GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
+        glDeleteTextures(1, &m_RendererID);
+
+        m_Width = width;
+        m_Height = height;
+        m_Specification.Width = width;
+        m_Specification.Height = height;
+
+        // Recalculate mip count if auto
+        if (m_Specification.MipLevels > 0)
+        {
+            m_MipLevels = m_Specification.MipLevels;
+        }
+        else if (m_Specification.GenerateMips)
+        {
+            m_MipLevels = CalculateFullMipCount(m_Width, m_Height);
+        }
+        else
+        {
+            m_MipLevels = 1;
+        }
+
+        CreateStorage();
+
+        // Re-track
+        u32 bytesPerPixel = 4;
+        switch (m_Specification.Format)
+        {
+            case ImageFormat::R8:
+            case ImageFormat::R8UI:
+                bytesPerPixel = 1;
+                break;
+            case ImageFormat::R16UI:
+                bytesPerPixel = 2;
+                break;
+            case ImageFormat::R32F:
+                bytesPerPixel = 4;
+                break;
+            case ImageFormat::RG32F:
+                bytesPerPixel = 8;
+                break;
+            case ImageFormat::RGB8:
+                bytesPerPixel = 3;
+                break;
+            case ImageFormat::RGBA8:
+                bytesPerPixel = 4;
+                break;
+            case ImageFormat::RGB32F:
+                bytesPerPixel = 12;
+                break;
+            case ImageFormat::RGBA32F:
+                bytesPerPixel = 16;
+                break;
+            case ImageFormat::DEPTH24STENCIL8:
+                bytesPerPixel = 4;
+                break;
+            default:
+                break;
+        }
+        sizet textureMemory = static_cast<sizet>(m_Width) * m_Height * bytesPerPixel;
+        OLO_TRACK_GPU_ALLOC(this, textureMemory, RendererMemoryTracker::ResourceType::Texture2D, "OpenGL Texture2D (resized)");
+        GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, "Texture2D (resized)", "Texture2D");
+
+        // Reapply sampler state
+        glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, m_MipLevels > 1 ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
+        glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+        m_IsLoaded = true;
+    }
+
     void OpenGLTexture2D::SetData(void* const data, const u32 size)
     {
         OLO_PROFILE_FUNCTION();
@@ -176,6 +296,14 @@ namespace OloEngine
             case ImageFormat::R8:
                 bpp = 1;
                 dataType = GL_UNSIGNED_BYTE;
+                break;
+            case ImageFormat::R8UI:
+                bpp = 1;
+                dataType = GL_UNSIGNED_BYTE;
+                break;
+            case ImageFormat::R16UI:
+                bpp = 2;
+                dataType = GL_UNSIGNED_SHORT;
                 break;
             case ImageFormat::RGB8:
                 bpp = 3;
@@ -226,6 +354,9 @@ namespace OloEngine
         GLenum dataType = GL_UNSIGNED_BYTE;
         switch (m_Specification.Format)
         {
+            case ImageFormat::R16UI:
+                dataType = GL_UNSIGNED_SHORT;
+                break;
             case ImageFormat::R32F:
             case ImageFormat::RG32F:
             case ImageFormat::RGB32F:
@@ -350,8 +481,13 @@ namespace OloEngine
         switch (m_Specification.Format)
         {
             case ImageFormat::R8:
+            case ImageFormat::R8UI:
                 bytesPerPixel = 1;
                 dataType = GL_UNSIGNED_BYTE;
+                break;
+            case ImageFormat::R16UI:
+                bytesPerPixel = 2;
+                dataType = GL_UNSIGNED_SHORT;
                 break;
             case ImageFormat::RGB8:
                 bytesPerPixel = 3;
