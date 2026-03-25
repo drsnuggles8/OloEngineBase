@@ -249,6 +249,29 @@ namespace OloEngine
             }
         }
 
+        // Feed selected entity IDs to the selection outline pass (editor-only, 3D Edit mode)
+        if (auto outlinePass = Renderer3D::GetSelectionOutlinePass(); outlinePass)
+        {
+            if (m_Is3DMode && m_SceneState == SceneState::Edit)
+            {
+                auto& selectedEntities = m_SceneHierarchyPanel.GetSelectedEntities();
+                std::vector<i32> ids;
+                ids.reserve(selectedEntities.size());
+                for (auto& entity : selectedEntities)
+                {
+                    if (entity)
+                    {
+                        ids.push_back(static_cast<i32>(static_cast<u32>(entity)));
+                    }
+                }
+                outlinePass->SetSelectedEntityIDs(ids);
+            }
+            else
+            {
+                outlinePass->SetSelectedEntityIDs({});
+            }
+        }
+
         // Camera updates always run so the editor stays responsive even when
         // scene rendering is throttled.
         switch (m_SceneState)
@@ -1175,6 +1198,7 @@ namespace OloEngine
         OLO_PROFILE_SCOPE("EditorLayer::TryInitialize3DMode");
         OLO_PROFILE_RENDERER_SCOPE("3DInit");
         OLO_CORE_INFO("Initializing Renderer3D for 3D mode...");
+        Renderer3D::SetSelectionOutlineEnabled(true);
         Renderer3D::Init();
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
 
@@ -1498,7 +1522,14 @@ namespace OloEngine
 
         if ((m_SceneState != SceneState::Play) && (e.GetMouseButton() == Mouse::ButtonLeft) && m_ViewportHovered && (!ImGuizmo::IsOver()) && (!Input::IsKeyPressed(Key::LeftAlt)))
         {
-            m_SceneHierarchyPanel.SetSelectedEntity(m_HoveredEntity);
+            if (Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl))
+            {
+                m_SceneHierarchyPanel.ToggleEntitySelection(m_HoveredEntity);
+            }
+            else
+            {
+                m_SceneHierarchyPanel.SetSelectedEntity(m_HoveredEntity);
+            }
         }
         return false;
     }

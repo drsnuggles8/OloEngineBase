@@ -17,6 +17,7 @@
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Passes/PostProcessRenderPass.h"
 #include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
+#include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
@@ -647,6 +648,21 @@ namespace OloEngine
             return s_Data.UICompositePass;
         }
 
+        static const Ref<SelectionOutlineRenderPass>& GetSelectionOutlinePass()
+        {
+            return s_Data.SelectionOutlinePass;
+        }
+
+        static void SetSelectionOutlineEnabled(bool enabled)
+        {
+            s_Data.EnableSelectionOutline = enabled;
+        }
+
+        static bool IsSelectionOutlineEnabled()
+        {
+            return s_Data.EnableSelectionOutline;
+        }
+
         static ShadowMap& GetShadowMap()
         {
             return s_Data.Shadow;
@@ -967,6 +983,7 @@ namespace OloEngine
             Ref<ParticleRenderPass> ParticlePass;
             Ref<SSSRenderPass> SSSPass;
             Ref<PostProcessRenderPass> PostProcessPass;
+            Ref<SelectionOutlineRenderPass> SelectionOutlinePass;
             Ref<UICompositeRenderPass> UICompositePass;
             Ref<FinalRenderPass> FinalPass;
 
@@ -1028,6 +1045,9 @@ namespace OloEngine
 
             // Global renderer settings (path selection, culling toggles, etc.)
             RendererSettings Settings;
+
+            // Editor-only features gated behind opt-in flags
+            bool EnableSelectionOutline = false;
         };
 
         static Renderer3DData s_Data;

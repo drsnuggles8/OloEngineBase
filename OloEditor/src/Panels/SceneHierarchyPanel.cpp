@@ -321,6 +321,25 @@ namespace OloEngine
         m_SelectedEntities.clear();
     }
 
+    void SceneHierarchyPanel::ToggleEntitySelection(Entity entity)
+    {
+        if (!entity)
+        {
+            return;
+        }
+
+        if (auto it = std::ranges::find(m_SelectedEntities, entity); it != m_SelectedEntities.end())
+        {
+            m_SelectedEntities.erase(it);
+            m_SelectionContext = m_SelectedEntities.empty() ? Entity{} : m_SelectedEntities.back();
+        }
+        else
+        {
+            m_SelectedEntities.push_back(entity);
+            m_SelectionContext = entity;
+        }
+    }
+
     void SceneHierarchyPanel::DeleteSelectedEntities()
     {
         if (m_SelectedEntities.empty())
@@ -461,17 +480,7 @@ namespace OloEngine
 
             if (ctrl)
             {
-                // Ctrl+click: toggle entity in multi-selection
-                if (auto it = std::ranges::find(m_SelectedEntities, entity); it != m_SelectedEntities.end())
-                {
-                    m_SelectedEntities.erase(it);
-                    m_SelectionContext = m_SelectedEntities.empty() ? Entity{} : m_SelectedEntities.back();
-                }
-                else
-                {
-                    m_SelectedEntities.push_back(entity);
-                    m_SelectionContext = entity;
-                }
+                ToggleEntitySelection(entity);
             }
             else if (shift && m_SelectionContext)
             {

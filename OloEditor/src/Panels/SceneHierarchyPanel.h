@@ -37,6 +37,7 @@ namespace OloEngine
             return m_SelectedEntities;
         }
         void ClearSelection();
+        void ToggleEntitySelection(Entity entity);
         void DeleteSelectedEntities();
 
       private:
