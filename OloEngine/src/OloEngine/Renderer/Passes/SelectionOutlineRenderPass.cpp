@@ -33,6 +33,7 @@ namespace OloEngine
         if (width == 0 || height == 0)
         {
             OLO_CORE_WARN("SelectionOutlineRenderPass::CreateFramebuffer: Invalid dimensions {}x{}", width, height);
+            m_Target = nullptr;
             return;
         }
 
@@ -142,6 +143,10 @@ namespace OloEngine
         if (m_Target)
         {
             m_Target->Resize(width, height);
+        }
+        else
+        {
+            CreateFramebuffer(width, height);
         }
     }
 
