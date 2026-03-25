@@ -342,7 +342,24 @@ namespace OloEngine
             i32 OutlineWidth = 1;                             // Outline width in texels
             i32 _pad0 = 0;
             i32 _pad1 = 0;
-            glm::ivec4 SelectedIDs[16]{}; // 64 entity IDs packed as ivec4 (4 per vec)
+            glm::ivec4 SelectedIDs[16] = {
+                glm::ivec4{ -1 },
+                glm::ivec4{ -1 },
+                glm::ivec4{ -1 },
+                glm::ivec4{ -1 },
+                glm::ivec4{ -1 },
+                glm::ivec4{ -1 },
+                glm::ivec4{ -1 },
+                glm::ivec4{ -1 },
+                glm::ivec4{ -1 },
+                glm::ivec4{ -1 },
+                glm::ivec4{ -1 },
+                glm::ivec4{ -1 },
+                glm::ivec4{ -1 },
+                glm::ivec4{ -1 },
+                glm::ivec4{ -1 },
+                glm::ivec4{ -1 },
+            }; // 64 entity IDs packed as ivec4 (4 per vec), -1 = no entity sentinel
 
             static constexpr u32 MaxSelectedEntities = 64;
 

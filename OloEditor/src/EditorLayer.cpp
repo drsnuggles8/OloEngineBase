@@ -249,10 +249,10 @@ namespace OloEngine
             }
         }
 
-        // Feed selected entity IDs to the selection outline pass (editor-only, 3D mode)
-        if (m_Is3DMode && m_SceneState == SceneState::Edit)
+        // Feed selected entity IDs to the selection outline pass (editor-only, 3D Edit mode)
+        if (auto outlinePass = Renderer3D::GetSelectionOutlinePass(); outlinePass)
         {
-            if (auto outlinePass = Renderer3D::GetSelectionOutlinePass(); outlinePass)
+            if (m_Is3DMode && m_SceneState == SceneState::Edit)
             {
                 auto& selectedEntities = m_SceneHierarchyPanel.GetSelectedEntities();
                 std::vector<i32> ids;
@@ -265,6 +265,10 @@ namespace OloEngine
                     }
                 }
                 outlinePass->SetSelectedEntityIDs(ids);
+            }
+            else
+            {
+                outlinePass->SetSelectedEntityIDs({});
             }
         }
 
@@ -1194,6 +1198,7 @@ namespace OloEngine
         OLO_PROFILE_SCOPE("EditorLayer::TryInitialize3DMode");
         OLO_PROFILE_RENDERER_SCOPE("3DInit");
         OLO_CORE_INFO("Initializing Renderer3D for 3D mode...");
+        Renderer3D::SetSelectionOutlineEnabled(true);
         Renderer3D::Init();
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
 

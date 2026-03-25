@@ -22,9 +22,6 @@ Hazel generates an HZB (mip-chain of the depth buffer via compute) used for both
 
 Hazel supports per-spot-light shadow maps (`SpotShadowMapPass`, `m_SpotShadowPassPipeline`, `UBSpotShadowData` with 1000 shadow matrices). OloEngine only has cascaded directional shadows. Spot shadow maps would significantly improve indoor/architectural lighting.
 
-### 1.4 Selection Outline via Jump Flood
-
-Hazel has a GPU-accelerated entity selection outline using Jump Flood Algorithm + edge detection pass. OloEditor currently has no visual selection highlighting beyond gizmos. This is a high-visibility editor UX improvement.
 
 **Key Hazel references:** `JumpFloodPass()`, `EdgeDetectionPass()`, `SceneRendererSpecification::EnableEdgeOutlineEffect`.
 
@@ -97,7 +94,7 @@ Hazelnut has a 4-tab statistics panel: Renderer, Audio, Performance (per-functio
 
 ### 4.5 Entity Selection Outline
 
-As mentioned in 1.4 — the visual feedback when selecting entities is a major UX gap. Hazelnut renders a clear outline around selected entities, while OloEditor relies on gizmos and hierarchy highlighting only.
+OloEditor now has 2D selection outlines (via `Renderer2D::DrawRect`) and a new 3D entity-ID edge-detection pass (`SelectionOutlineRenderPass`). A follow-up could upgrade the 3D pass to a Jump Flood-based approach (see §1.4) for smoother, higher-quality outlines matching Hazelnut's implementation.
 
 ---
 

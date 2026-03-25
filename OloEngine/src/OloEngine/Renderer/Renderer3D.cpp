@@ -539,7 +539,10 @@ namespace OloEngine
         s_Data.ParticlePass.Reset();
         s_Data.SSSPass.Reset();
         s_Data.PostProcessPass.Reset();
-        s_Data.SelectionOutlinePass.Reset();
+        if (s_Data.SelectionOutlinePass)
+        {
+            s_Data.SelectionOutlinePass.Reset();
+        }
         s_Data.UICompositePass.Reset();
         s_Data.FinalPass.Reset();
         s_Data.FoliagePass.Reset();
@@ -2561,10 +2564,13 @@ namespace OloEngine
         s_Data.PostProcessPass->Init(finalPassSpec);
         s_Data.PostProcessPass->SetSceneDepthFramebuffer(s_Data.ScenePass->GetTarget());
 
-        s_Data.SelectionOutlinePass = Ref<SelectionOutlineRenderPass>::Create();
-        s_Data.SelectionOutlinePass->SetName("SelectionOutlinePass");
-        s_Data.SelectionOutlinePass->Init(finalPassSpec);
-        s_Data.SelectionOutlinePass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
+        if (s_Data.EnableSelectionOutline)
+        {
+            s_Data.SelectionOutlinePass = Ref<SelectionOutlineRenderPass>::Create();
+            s_Data.SelectionOutlinePass->SetName("SelectionOutlinePass");
+            s_Data.SelectionOutlinePass->Init(finalPassSpec);
+            s_Data.SelectionOutlinePass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
+        }
 
         s_Data.UICompositePass = Ref<UICompositeRenderPass>::Create();
         s_Data.UICompositePass->SetName("UICompositePass");
@@ -2583,7 +2589,10 @@ namespace OloEngine
         s_Data.RGraph->AddPass(s_Data.ParticlePass);
         s_Data.RGraph->AddPass(s_Data.SSSPass);
         s_Data.RGraph->AddPass(s_Data.PostProcessPass);
-        s_Data.RGraph->AddPass(s_Data.SelectionOutlinePass);
+        if (s_Data.EnableSelectionOutline)
+        {
+            s_Data.RGraph->AddPass(s_Data.SelectionOutlinePass);
+        }
         s_Data.RGraph->AddPass(s_Data.UICompositePass);
         s_Data.RGraph->AddPass(s_Data.FinalPass);
 
@@ -2606,8 +2615,15 @@ namespace OloEngine
         // Graph connections: SSSPass -> PostProcessPass -> UICompositePass -> FinalPass
         // use SetInputFramebuffer via the graph's Execute() piping.
         s_Data.RGraph->ConnectPass("SSSPass", "PostProcessPass");
-        s_Data.RGraph->ConnectPass("PostProcessPass", "SelectionOutlinePass");
-        s_Data.RGraph->ConnectPass("SelectionOutlinePass", "UICompositePass");
+        if (s_Data.EnableSelectionOutline)
+        {
+            s_Data.RGraph->ConnectPass("PostProcessPass", "SelectionOutlinePass");
+            s_Data.RGraph->ConnectPass("SelectionOutlinePass", "UICompositePass");
+        }
+        else
+        {
+            s_Data.RGraph->ConnectPass("PostProcessPass", "UICompositePass");
+        }
         s_Data.RGraph->ConnectPass("UICompositePass", "FinalPass");
 
         // PostProcessPass needs the scene depth for DOF/MotionBlur (not piped by graph).
@@ -2615,7 +2631,14 @@ namespace OloEngine
         // PostProcessPass initial input is the scene FB (overridden by graph's SSSPass -> PostProcessPass
         // piping each frame, which passes SSSPass::GetTarget() = scene FB when SSS is disabled).
         s_Data.PostProcessPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
-        OLO_CORE_INFO("Renderer3D: Render graph: Shadow -> Scene -> Foliage -> Decal -> Water -> SSAO -> Particle -> SSS -> PostProcess -> SelectionOutline -> UIComposite -> Final");
+        if (s_Data.EnableSelectionOutline)
+        {
+            OLO_CORE_INFO("Renderer3D: Render graph: Shadow -> Scene -> Foliage -> Decal -> Water -> SSAO -> Particle -> SSS -> PostProcess -> SelectionOutline -> UIComposite -> Final");
+        }
+        else
+        {
+            OLO_CORE_INFO("Renderer3D: Render graph: Shadow -> Scene -> Foliage -> Decal -> Water -> SSAO -> Particle -> SSS -> PostProcess -> UIComposite -> Final");
+        }
 
         s_Data.RGraph->SetFinalPass("FinalPass");
     }

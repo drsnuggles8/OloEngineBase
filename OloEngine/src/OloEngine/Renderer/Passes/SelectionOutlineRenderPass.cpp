@@ -52,13 +52,13 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_Target || !m_InputFramebuffer || !m_SceneFramebuffer)
+        if (!m_Target || !m_InputFramebuffer)
         {
             return;
         }
 
-        // Early-out: no selection or disabled — blit input straight through
-        if (!m_Enabled || m_UBOData.SelectedCount == 0)
+        // Early-out: no selection, disabled, or no scene FB — blit input straight through
+        if (!m_Enabled || m_UBOData.SelectedCount == 0 || !m_SceneFramebuffer)
         {
             m_Target->Bind();
             RenderCommand::SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);

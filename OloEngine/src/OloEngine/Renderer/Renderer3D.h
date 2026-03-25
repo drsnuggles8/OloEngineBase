@@ -653,6 +653,16 @@ namespace OloEngine
             return s_Data.SelectionOutlinePass;
         }
 
+        static void SetSelectionOutlineEnabled(bool enabled)
+        {
+            s_Data.EnableSelectionOutline = enabled;
+        }
+
+        static bool IsSelectionOutlineEnabled()
+        {
+            return s_Data.EnableSelectionOutline;
+        }
+
         static ShadowMap& GetShadowMap()
         {
             return s_Data.Shadow;
@@ -1035,6 +1045,9 @@ namespace OloEngine
 
             // Global renderer settings (path selection, culling toggles, etc.)
             RendererSettings Settings;
+
+            // Editor-only features gated behind opt-in flags
+            bool EnableSelectionOutline = false;
         };
 
         static Renderer3DData s_Data;

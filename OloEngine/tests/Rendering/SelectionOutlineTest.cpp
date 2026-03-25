@@ -100,13 +100,13 @@ TEST(SelectionOutlineUBO, DefaultOutlineWidthIsOne)
     EXPECT_EQ(ubo.OutlineWidth, 1);
 }
 
-TEST(SelectionOutlineUBO, SelectedIDsDefaultToZero)
+TEST(SelectionOutlineUBO, SelectedIDsDefaultToNegativeOneSentinel)
 {
     UBOStructures::SelectionOutlineUBO ubo;
 
     for (int i = 0; i < 16; ++i)
     {
-        EXPECT_EQ(ubo.SelectedIDs[i], glm::ivec4(0));
+        EXPECT_EQ(ubo.SelectedIDs[i], glm::ivec4(-1));
     }
 }
 
