@@ -1,5 +1,7 @@
 #include "OloEnginePCH.h"
 #include "RendererSettingsPanel.h"
+#include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/QualityTiering.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 
 #include <imgui.h>
@@ -12,12 +14,127 @@ namespace OloEngine
 
         ImGui::Begin("Renderer Settings", p_open);
 
+        DrawQualityTieringSection();
         DrawRenderingPathSection();
         DrawCullingSection();
         DrawForwardPlusSection();
         DrawDebugSection();
 
         ImGui::End();
+    }
+
+    void RendererSettingsPanel::DrawQualityTieringSection()
+    {
+        auto project = Project::GetActive();
+        if (!project)
+        {
+            return;
+        }
+
+        auto& qt = project->GetConfig().QualityTiering;
+
+        if (ImGui::CollapsingHeader("Quality Preset", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::Indent();
+
+            // Preset dropdown
+            static const char* presetItems[] = { "Low", "Medium", "High", "Ultra", "Custom" };
+            int currentPreset = static_cast<int>(qt.Preset);
+            if (ImGui::Combo("Preset", &currentPreset, presetItems, IM_ARRAYSIZE(presetItems)))
+            {
+                auto selected = static_cast<QualityPreset>(currentPreset);
+                if (selected != QualityPreset::Custom)
+                {
+                    qt = GetPresetSettings(selected);
+                    ApplyTieringToSettings(qt, Renderer3D::GetPostProcessSettings(), Renderer3D::GetShadowMap().GetSettingsMutable());
+                }
+                else
+                {
+                    qt.Preset = QualityPreset::Custom;
+                }
+            }
+
+            ImGui::Separator();
+
+            // Individual overrides — any change marks Custom
+            bool changed = false;
+
+            // Shadow
+            ImGui::TextDisabled("Shadows");
+            changed |= ImGui::Checkbox("Shadow Enabled##qt", &qt.ShadowEnabled);
+
+            int shadowRes = static_cast<int>(qt.ShadowResolution);
+            static const char* shadowResItems[] = { "512", "1024", "2048", "4096" };
+            static const int shadowResValues[] = { 512, 1024, 2048, 4096 };
+            int shadowResIdx = 3;
+            for (int i = 0; i < 4; ++i)
+            {
+                if (shadowResValues[i] == shadowRes)
+                {
+                    shadowResIdx = i;
+                    break;
+                }
+            }
+            if (ImGui::Combo("Shadow Resolution##qt", &shadowResIdx, shadowResItems, IM_ARRAYSIZE(shadowResItems)))
+            {
+                qt.ShadowResolution = static_cast<u32>(shadowResValues[shadowResIdx]);
+                changed = true;
+            }
+            changed |= ImGui::SliderFloat("Shadow Softness##qt", &qt.ShadowSoftness, 0.0f, 2.0f);
+
+            // AO
+            ImGui::Spacing();
+            ImGui::TextDisabled("Ambient Occlusion");
+            static const char* aoItems[] = { "None", "SSAO", "GTAO" };
+            int aoIdx = static_cast<int>(qt.AO);
+            if (ImGui::Combo("AO Technique##qt", &aoIdx, aoItems, IM_ARRAYSIZE(aoItems)))
+            {
+                qt.AO = static_cast<AOTechnique>(aoIdx);
+                changed = true;
+            }
+            if (qt.AO == AOTechnique::SSAO)
+            {
+                changed |= ImGui::SliderInt("SSAO Samples##qt", &qt.SSAOSamples, 8, 64);
+            }
+            if (qt.AO == AOTechnique::GTAO)
+            {
+                changed |= ImGui::SliderFloat("GTAO Radius##qt", &qt.GTAORadius, 0.1f, 2.0f);
+                changed |= ImGui::SliderInt("GTAO Denoise Passes##qt", &qt.GTAODenoisePasses, 1, 8);
+            }
+
+            // Post-process toggles
+            ImGui::Spacing();
+            ImGui::TextDisabled("Post-Processing");
+            changed |= ImGui::Checkbox("Bloom##qt", &qt.BloomEnabled);
+            if (qt.BloomEnabled)
+            {
+                changed |= ImGui::SliderInt("Bloom Iterations##qt", &qt.BloomIterations, 1, 10);
+            }
+            changed |= ImGui::Checkbox("FXAA##qt", &qt.FXAAEnabled);
+            changed |= ImGui::Checkbox("Depth of Field##qt", &qt.DOFEnabled);
+            changed |= ImGui::Checkbox("Motion Blur##qt", &qt.MotionBlurEnabled);
+            changed |= ImGui::Checkbox("Vignette##qt", &qt.VignetteEnabled);
+            changed |= ImGui::Checkbox("Chromatic Aberration##qt", &qt.ChromaticAberrationEnabled);
+
+            if (changed)
+            {
+                qt.Preset = QualityPreset::Custom;
+                ApplyTieringToSettings(qt, Renderer3D::GetPostProcessSettings(), Renderer3D::GetShadowMap().GetSettingsMutable());
+            }
+
+            // Reset button when Custom
+            if (qt.Preset == QualityPreset::Custom)
+            {
+                ImGui::Spacing();
+                if (ImGui::Button("Reset to High Preset"))
+                {
+                    qt = GetPresetSettings(QualityPreset::High);
+                    ApplyTieringToSettings(qt, Renderer3D::GetPostProcessSettings(), Renderer3D::GetShadowMap().GetSettingsMutable());
+                }
+            }
+
+            ImGui::Unindent();
+        }
     }
 
     void RendererSettingsPanel::DrawRenderingPathSection()

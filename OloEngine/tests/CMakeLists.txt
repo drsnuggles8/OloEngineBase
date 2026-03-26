@@ -127,6 +127,10 @@ add_executable(OloEngine-Tests
 		QuestSystemTest.cpp
 		# Auto-Save Tests
 		AutoSaveTest.cpp
+		# Quality Tiering Tests
+		QualityTieringTest.cpp
+		# TransformComponent Tests
+		TransformComponentTest.cpp
 		# Gameplay Ability Tests
 		Gameplay/GameplayAbilityTest.cpp
 )

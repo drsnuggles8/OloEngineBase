@@ -912,7 +912,11 @@ namespace OloEngine
 
                     transform.Translation.x = position.x;
                     transform.Translation.y = position.y;
-                    transform.Rotation.z = b2Rot_GetAngle(rotation);
+                    {
+                        glm::vec3 euler = transform.GetRotationEuler();
+                        euler.z = b2Rot_GetAngle(rotation);
+                        transform.SetRotationEuler(euler);
+                    }
                 }
 
                 // Retrieve transforms from Jolt 3D physics
@@ -932,7 +936,7 @@ namespace OloEngine
                             auto rot = body->GetRotation();
 
                             transform.Translation = pos;
-                            transform.Rotation = glm::eulerAngles(rot);
+                            transform.SetRotation(rot);
                         }
                     }
                 }
@@ -1008,7 +1012,7 @@ namespace OloEngine
                         parentVelocity = (transform.Translation - psc.System.GetEmitterPosition()) / static_cast<f32>(ts);
                     }
 
-                    psc.System.Update(ts, transform.Translation, parentVelocity, glm::quat(transform.Rotation));
+                    psc.System.Update(ts, transform.Translation, parentVelocity, transform.GetRotation());
 
                     // Process sub-emitter triggers for child systems
                     ProcessChildSubEmitters(psc, ts, transform.Translation);
@@ -1040,13 +1044,15 @@ namespace OloEngine
                         // Mouse look — pitch (X rotation) and yaw (Y rotation)
                         if (Input::IsMouseButtonPressed(Mouse::ButtonRight))
                         {
-                            transform.Rotation.y -= delta.x * 0.8f;
-                            transform.Rotation.x -= delta.y * 0.8f;
-                            transform.Rotation.x = glm::clamp(transform.Rotation.x, glm::radians(-89.0f), glm::radians(89.0f));
+                            glm::vec3 euler = transform.GetRotationEuler();
+                            euler.y -= delta.x * 0.8f;
+                            euler.x -= delta.y * 0.8f;
+                            euler.x = glm::clamp(euler.x, glm::radians(-89.0f), glm::radians(89.0f));
+                            transform.SetRotationEuler(euler);
                         }
 
                         // WASD + QE movement (always active)
-                        const glm::quat orientation = glm::quat(transform.Rotation);
+                        const glm::quat orientation = transform.GetRotation();
                         const glm::vec3 forward = glm::rotate(orientation, glm::vec3(0.0f, 0.0f, -1.0f));
                         const glm::vec3 right = glm::rotate(orientation, glm::vec3(1.0f, 0.0f, 0.0f));
 
@@ -1237,7 +1243,11 @@ namespace OloEngine
 
                     transform.Translation.x = position.x;
                     transform.Translation.y = position.y;
-                    transform.Rotation.z = b2Rot_GetAngle(rotation);
+                    {
+                        glm::vec3 euler = transform.GetRotationEuler();
+                        euler.z = b2Rot_GetAngle(rotation);
+                        transform.SetRotationEuler(euler);
+                    }
                 }
 
                 // Retrieve transforms from Jolt 3D physics
@@ -1257,7 +1267,7 @@ namespace OloEngine
                             auto rot = body->GetRotation();
 
                             transform.Translation = pos;
-                            transform.Rotation = glm::eulerAngles(rot);
+                            transform.SetRotation(rot);
                         }
                     }
                 }
@@ -1296,7 +1306,7 @@ namespace OloEngine
                 auto& transform = view.get<TransformComponent>(entity);
                 auto& psc = view.get<ParticleSystemComponent>(entity);
                 psc.System.UpdateLOD(camPos, transform.Translation);
-                psc.System.Update(ts, transform.Translation, glm::vec3(0.0f), glm::quat(transform.Rotation));
+                psc.System.Update(ts, transform.Translation, glm::vec3(0.0f), transform.GetRotation());
 
                 // Process sub-emitter triggers for child systems
                 ProcessChildSubEmitters(psc, ts, transform.Translation);
@@ -1612,7 +1622,7 @@ namespace OloEngine
             b2BodyDef bodyDef = b2DefaultBodyDef();
             bodyDef.type = Rigidbody2DTypeToBox2DBody(rb2d.Type);
             bodyDef.position = { transform.Translation.x, transform.Translation.y };
-            bodyDef.rotation = b2MakeRot(transform.Rotation.z);
+            bodyDef.rotation = b2MakeRot(transform.GetRotationEuler().z);
 
             b2BodyId body = b2CreateBody(m_PhysicsWorld, &bodyDef);
             b2Body_SetFixedRotation(body, rb2d.FixedRotation);
@@ -3367,7 +3377,7 @@ namespace OloEngine
                 }
 
                 glm::vec3 gizmoColor = fogVol.m_Color * 0.8f + glm::vec3(0.2f); // Brightened fog color for visibility
-                glm::quat rotation = glm::quat(tc.Rotation);
+                glm::quat rotation = tc.GetRotation();
 
                 switch (fogVol.m_Shape)
                 {
@@ -3526,7 +3536,7 @@ namespace OloEngine
             {
                 const auto& [tc, boxCollider] = boxView.get<TransformComponent, BoxCollider3DComponent>(entity);
                 glm::vec3 position = tc.Translation + boxCollider.m_Offset;
-                glm::quat rotation = glm::quat(tc.Rotation);
+                glm::quat rotation = tc.GetRotation();
                 Renderer3D::DrawBoxColliderGizmo(position, boxCollider.m_HalfExtents, rotation);
             }
 
@@ -3545,7 +3555,7 @@ namespace OloEngine
             {
                 const auto& [tc, capsuleCollider] = capsuleView.get<TransformComponent, CapsuleCollider3DComponent>(entity);
                 glm::vec3 position = tc.Translation + capsuleCollider.m_Offset;
-                glm::quat rotation = glm::quat(tc.Rotation);
+                glm::quat rotation = tc.GetRotation();
                 Renderer3D::DrawCapsuleColliderGizmo(position, capsuleCollider.m_Radius, capsuleCollider.m_HalfHeight, rotation);
             }
         }

@@ -864,7 +864,7 @@ namespace OloEngine
     {
         // Get transform
         glm::vec3 position = transformComponent.Translation;
-        glm::quat rotation = glm::quat(transformComponent.Rotation);
+        glm::quat rotation = transformComponent.GetRotation();
 
         // Convert body type
         EBodyType bodyType = static_cast<EBodyType>(rigidBodyComponent.m_Type);

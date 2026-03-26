@@ -62,7 +62,7 @@ TEST_F(SaveGameIntegrationTest, CaptureAndRestoreWithEntities)
     Entity e1 = m_Scene->CreateEntity("Player");
     auto& transform = e1.GetComponent<TransformComponent>();
     transform.Translation = { 10.0f, 20.0f, 30.0f };
-    transform.Rotation = { 0.1f, 0.2f, 0.3f };
+    transform.SetRotationEuler({ 0.1f, 0.2f, 0.3f });
     transform.Scale = { 2.0f, 2.0f, 2.0f };
 
     Entity e2 = m_Scene->CreateEntity("Camera");
@@ -102,9 +102,9 @@ TEST_F(SaveGameIntegrationTest, CaptureAndRestoreWithEntities)
             EXPECT_NEAR(t.Translation.x, 10.0f, 0.001f);
             EXPECT_NEAR(t.Translation.y, 20.0f, 0.001f);
             EXPECT_NEAR(t.Translation.z, 30.0f, 0.001f);
-            EXPECT_NEAR(t.Rotation.x, 0.1f, 0.001f);
-            EXPECT_NEAR(t.Rotation.y, 0.2f, 0.001f);
-            EXPECT_NEAR(t.Rotation.z, 0.3f, 0.001f);
+            EXPECT_NEAR(t.GetRotationEuler().x, 0.1f, 0.001f);
+            EXPECT_NEAR(t.GetRotationEuler().y, 0.2f, 0.001f);
+            EXPECT_NEAR(t.GetRotationEuler().z, 0.3f, 0.001f);
             EXPECT_NEAR(t.Scale.x, 2.0f, 0.001f);
             EXPECT_NEAR(t.Scale.y, 2.0f, 0.001f);
             EXPECT_NEAR(t.Scale.z, 2.0f, 0.001f);

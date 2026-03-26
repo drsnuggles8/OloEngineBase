@@ -19,7 +19,7 @@ static std::vector<u8> MakeSnapshot(u64 uuid, const glm::vec3& translation)
 
     TransformComponent t;
     t.Translation = translation;
-    t.Rotation = { 0.0f, 0.0f, 0.0f };
+    t.SetRotationEuler({ 0.0f, 0.0f, 0.0f });
     t.Scale = { 1.0f, 1.0f, 1.0f };
     ComponentReplicator::Serialize(writer, t);
 

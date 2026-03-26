@@ -43,7 +43,7 @@ TEST(DeltaSnapshotTest, IdenticalSnapshotsProduceEmptyDelta)
 
     TransformComponent t;
     t.Translation = { 1.0f, 2.0f, 3.0f };
-    t.Rotation = { 0.0f, 0.0f, 0.0f };
+    t.SetRotationEuler({ 0.0f, 0.0f, 0.0f });
     t.Scale = { 1.0f, 1.0f, 1.0f };
 
     auto snap1 = MakeSnapshotEntry(100, t);
@@ -60,12 +60,12 @@ TEST(DeltaSnapshotTest, DifferentTranslationProducesDifference)
 
     TransformComponent t1;
     t1.Translation = { 1.0f, 2.0f, 3.0f };
-    t1.Rotation = { 0.0f, 0.0f, 0.0f };
+    t1.SetRotationEuler({ 0.0f, 0.0f, 0.0f });
     t1.Scale = { 1.0f, 1.0f, 1.0f };
 
     TransformComponent t2;
     t2.Translation = { 10.0f, 20.0f, 30.0f }; // changed
-    t2.Rotation = { 0.0f, 0.0f, 0.0f };
+    t2.SetRotationEuler({ 0.0f, 0.0f, 0.0f });
     t2.Scale = { 1.0f, 1.0f, 1.0f };
 
     auto snap1 = MakeSnapshotEntry(100, t1);
@@ -85,7 +85,7 @@ TEST(DeltaSnapshotTest, DeltaFormatSameAsFullFormat)
 
     TransformComponent t;
     t.Translation = { 5.0f, 6.0f, 7.0f };
-    t.Rotation = { 0.1f, 0.2f, 0.3f };
+    t.SetRotationEuler({ 0.1f, 0.2f, 0.3f });
     t.Scale = { 2.0f, 2.0f, 2.0f };
 
     auto entry = MakeSnapshotEntry(42, t);
@@ -117,17 +117,17 @@ TEST(DeltaSnapshotTest, MultiEntityDeltaFiltering)
 
     TransformComponent tA;
     tA.Translation = { 1.0f, 0.0f, 0.0f };
-    tA.Rotation = { 0.0f, 0.0f, 0.0f };
+    tA.SetRotationEuler({ 0.0f, 0.0f, 0.0f });
     tA.Scale = { 1.0f, 1.0f, 1.0f };
 
     TransformComponent tB;
     tB.Translation = { 2.0f, 0.0f, 0.0f };
-    tB.Rotation = { 0.0f, 0.0f, 0.0f };
+    tB.SetRotationEuler({ 0.0f, 0.0f, 0.0f });
     tB.Scale = { 1.0f, 1.0f, 1.0f };
 
     TransformComponent tC;
     tC.Translation = { 3.0f, 0.0f, 0.0f };
-    tC.Rotation = { 0.0f, 0.0f, 0.0f };
+    tC.SetRotationEuler({ 0.0f, 0.0f, 0.0f });
     tC.Scale = { 1.0f, 1.0f, 1.0f };
 
     auto baseA = MakeSnapshotEntry(1, tA);
@@ -139,7 +139,7 @@ TEST(DeltaSnapshotTest, MultiEntityDeltaFiltering)
     // Now simulate current state: A and C unchanged, B moved
     TransformComponent tBnew;
     tBnew.Translation = { 99.0f, 0.0f, 0.0f }; // changed
-    tBnew.Rotation = { 0.0f, 0.0f, 0.0f };
+    tBnew.SetRotationEuler({ 0.0f, 0.0f, 0.0f });
     tBnew.Scale = { 1.0f, 1.0f, 1.0f };
 
     auto newB = MakeSnapshotEntry(2, tBnew);

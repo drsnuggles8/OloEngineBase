@@ -18,7 +18,7 @@ TEST(EntitySnapshotTest, ManualCaptureApplyRoundtrip)
     // Simulate what Capture does: write UUID + transform
     TransformComponent original;
     original.Translation = { 10.0f, 20.0f, 30.0f };
-    original.Rotation = { 0.0f, 0.0f, 0.0f };
+    original.SetRotationEuler({ 0.0f, 0.0f, 0.0f });
     original.Scale = { 1.0f, 1.0f, 1.0f };
 
     u64 entityUUID = 12345;
@@ -74,13 +74,13 @@ TEST(EntitySnapshotTest, MultipleEntitiesRoundtrip)
     u64 uuid1 = 111;
     TransformComponent t1;
     t1.Translation = { 1.0f, 2.0f, 3.0f };
-    t1.Rotation = { 0.0f, 0.0f, 0.0f };
+    t1.SetRotationEuler({ 0.0f, 0.0f, 0.0f });
     t1.Scale = { 1.0f, 1.0f, 1.0f };
 
     u64 uuid2 = 222;
     TransformComponent t2;
     t2.Translation = { 4.0f, 5.0f, 6.0f };
-    t2.Rotation = { 0.0f, 0.0f, 0.0f };
+    t2.SetRotationEuler({ 0.0f, 0.0f, 0.0f });
     t2.Scale = { 2.0f, 2.0f, 2.0f };
 
     writer << uuid1;
@@ -123,7 +123,7 @@ TEST(EntitySnapshotTest, OnlyReplicatedEntities)
     net1.IsReplicated = true;
     TransformComponent t1;
     t1.Translation = { 1.0f, 2.0f, 3.0f };
-    t1.Rotation = { 0.0f, 0.0f, 0.0f };
+    t1.SetRotationEuler({ 0.0f, 0.0f, 0.0f });
     t1.Scale = { 1.0f, 1.0f, 1.0f };
     u64 uuid1 = 100;
 
@@ -131,7 +131,7 @@ TEST(EntitySnapshotTest, OnlyReplicatedEntities)
     net2.IsReplicated = false; // should be excluded
     TransformComponent t2;
     t2.Translation = { 9.0f, 9.0f, 9.0f };
-    t2.Rotation = { 0.0f, 0.0f, 0.0f };
+    t2.SetRotationEuler({ 0.0f, 0.0f, 0.0f });
     t2.Scale = { 1.0f, 1.0f, 1.0f };
     u64 uuid2 = 200;
 

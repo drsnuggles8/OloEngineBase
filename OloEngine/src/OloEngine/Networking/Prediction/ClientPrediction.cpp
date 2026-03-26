@@ -54,7 +54,7 @@ namespace OloEngine
                 if (entityOpt.has_value() && entityOpt->HasComponent<TransformComponent>())
                 {
                     auto const& tc = entityOpt->GetComponent<TransformComponent>();
-                    preReconcileTransforms[input->EntityUUID] = { tc.Translation, tc.Rotation, tc.Scale };
+                    preReconcileTransforms[input->EntityUUID] = { tc.Translation, tc.GetRotationEuler(), tc.Scale };
                 }
             }
 
@@ -80,7 +80,7 @@ namespace OloEngine
                             continue;
                         }
                         transform.Translation = glm::mix(preTransform.Translation, transform.Translation, m_SmoothingRate);
-                        transform.Rotation = glm::mix(preTransform.Rotation, transform.Rotation, m_SmoothingRate);
+                        transform.SetRotationEuler(glm::mix(preTransform.Rotation, transform.GetRotationEuler(), m_SmoothingRate));
                         transform.Scale = glm::mix(preTransform.Scale, transform.Scale, m_SmoothingRate);
                     }
                 }

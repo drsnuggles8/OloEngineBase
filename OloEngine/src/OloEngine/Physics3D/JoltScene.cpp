@@ -732,7 +732,7 @@ namespace OloEngine
         // Update entity transform
         auto& transform = entity.GetComponent<TransformComponent>();
         transform.Translation = position;
-        transform.Rotation = glm::eulerAngles(rotation);
+        transform.SetRotation(rotation);
     }
 
     void JoltScene::InitializeJolt()

@@ -3,6 +3,7 @@
 #include "OloEngine/Project/ProjectSerializer.h"
 #include "OloEngine/Physics3D/Physics3DSystem.h"
 #include "OloEngine/Physics3D/PhysicsLayer.h"
+#include "OloEngine/Renderer/QualityTiering.h"
 
 #include <fstream>
 #include <yaml-cpp/yaml.h>
@@ -252,6 +253,29 @@ namespace OloEngine
                 out << YAML::Key << "EnableAutoSave" << YAML::Value << config.EnableAutoSave;
                 out << YAML::Key << "AutoSaveIntervalSeconds" << YAML::Value << config.AutoSaveIntervalSeconds;
                 out << YAML::EndMap; // Project
+            }
+
+            // Quality tiering serialization
+            out << YAML::Key << "QualityTiering" << YAML::Value;
+            {
+                out << YAML::BeginMap;
+                const auto& qt = config.QualityTiering;
+                out << YAML::Key << "Preset" << YAML::Value << std::string(QualityPresetToString(qt.Preset));
+                out << YAML::Key << "ShadowResolution" << YAML::Value << qt.ShadowResolution;
+                out << YAML::Key << "ShadowSoftness" << YAML::Value << qt.ShadowSoftness;
+                out << YAML::Key << "ShadowEnabled" << YAML::Value << qt.ShadowEnabled;
+                out << YAML::Key << "AO" << YAML::Value << static_cast<i32>(qt.AO);
+                out << YAML::Key << "SSAOSamples" << YAML::Value << qt.SSAOSamples;
+                out << YAML::Key << "GTAODenoisePasses" << YAML::Value << qt.GTAODenoisePasses;
+                out << YAML::Key << "GTAORadius" << YAML::Value << qt.GTAORadius;
+                out << YAML::Key << "BloomEnabled" << YAML::Value << qt.BloomEnabled;
+                out << YAML::Key << "BloomIterations" << YAML::Value << qt.BloomIterations;
+                out << YAML::Key << "FXAAEnabled" << YAML::Value << qt.FXAAEnabled;
+                out << YAML::Key << "DOFEnabled" << YAML::Value << qt.DOFEnabled;
+                out << YAML::Key << "MotionBlurEnabled" << YAML::Value << qt.MotionBlurEnabled;
+                out << YAML::Key << "VignetteEnabled" << YAML::Value << qt.VignetteEnabled;
+                out << YAML::Key << "ChromaticAberrationEnabled" << YAML::Value << qt.ChromaticAberrationEnabled;
+                out << YAML::EndMap;
             }
 
             // Physics settings serialization
@@ -540,6 +564,72 @@ namespace OloEngine
         if (auto intervalNode = projectNode["AutoSaveIntervalSeconds"]; intervalNode && intervalNode.IsScalar())
         {
             config.AutoSaveIntervalSeconds = std::clamp(intervalNode.as<int>(config.AutoSaveIntervalSeconds), 10, 7200);
+        }
+
+        // Quality tiering deserialization (optional, defaults apply if absent)
+        if (auto tieringNode = data["QualityTiering"]; tieringNode && tieringNode.IsMap())
+        {
+            auto& qt = config.QualityTiering;
+            if (auto presetNode = tieringNode["Preset"]; presetNode && presetNode.IsScalar())
+            {
+                qt.Preset = QualityPresetFromString(presetNode.as<std::string>("High"));
+            }
+            if (auto n = tieringNode["ShadowResolution"]; n && n.IsScalar())
+            {
+                qt.ShadowResolution = n.as<u32>(qt.ShadowResolution);
+            }
+            if (auto n = tieringNode["ShadowSoftness"]; n && n.IsScalar())
+            {
+                qt.ShadowSoftness = n.as<f32>(qt.ShadowSoftness);
+            }
+            if (auto n = tieringNode["ShadowEnabled"]; n && n.IsScalar())
+            {
+                qt.ShadowEnabled = n.as<bool>(qt.ShadowEnabled);
+            }
+            if (auto n = tieringNode["AO"]; n && n.IsScalar())
+            {
+                qt.AO = static_cast<AOTechnique>(n.as<i32>(static_cast<i32>(qt.AO)));
+            }
+            if (auto n = tieringNode["SSAOSamples"]; n && n.IsScalar())
+            {
+                qt.SSAOSamples = n.as<i32>(qt.SSAOSamples);
+            }
+            if (auto n = tieringNode["GTAODenoisePasses"]; n && n.IsScalar())
+            {
+                qt.GTAODenoisePasses = n.as<i32>(qt.GTAODenoisePasses);
+            }
+            if (auto n = tieringNode["GTAORadius"]; n && n.IsScalar())
+            {
+                qt.GTAORadius = n.as<f32>(qt.GTAORadius);
+            }
+            if (auto n = tieringNode["BloomEnabled"]; n && n.IsScalar())
+            {
+                qt.BloomEnabled = n.as<bool>(qt.BloomEnabled);
+            }
+            if (auto n = tieringNode["BloomIterations"]; n && n.IsScalar())
+            {
+                qt.BloomIterations = n.as<i32>(qt.BloomIterations);
+            }
+            if (auto n = tieringNode["FXAAEnabled"]; n && n.IsScalar())
+            {
+                qt.FXAAEnabled = n.as<bool>(qt.FXAAEnabled);
+            }
+            if (auto n = tieringNode["DOFEnabled"]; n && n.IsScalar())
+            {
+                qt.DOFEnabled = n.as<bool>(qt.DOFEnabled);
+            }
+            if (auto n = tieringNode["MotionBlurEnabled"]; n && n.IsScalar())
+            {
+                qt.MotionBlurEnabled = n.as<bool>(qt.MotionBlurEnabled);
+            }
+            if (auto n = tieringNode["VignetteEnabled"]; n && n.IsScalar())
+            {
+                qt.VignetteEnabled = n.as<bool>(qt.VignetteEnabled);
+            }
+            if (auto n = tieringNode["ChromaticAberrationEnabled"]; n && n.IsScalar())
+            {
+                qt.ChromaticAberrationEnabled = n.as<bool>(qt.ChromaticAberrationEnabled);
+            }
         }
 
         // Physics settings deserialization

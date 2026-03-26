@@ -540,7 +540,12 @@ namespace OloEngine
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, TransformComponent& c)
     {
-        ar << c.Translation << c.Rotation << c.Scale;
+        glm::vec3 euler = c.GetRotationEuler();
+        ar << c.Translation << euler << c.Scale;
+        if (ar.IsLoading())
+        {
+            c.SetRotationEuler(euler);
+        }
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, RelationshipComponent& c)

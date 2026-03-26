@@ -570,6 +570,8 @@
 		"OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 		"OloEngine/Renderer/Passes/SelectionOutlineRenderPass.cpp"
 		"OloEngine/Renderer/PostProcessSettings.h"
+		"OloEngine/Renderer/QualityTiering.h"
+		"OloEngine/Renderer/QualityTiering.cpp"
 		"OloEngine/Renderer/Shadow/ShadowMap.h"
 		"OloEngine/Renderer/Shadow/ShadowMap.cpp"
 		"OloEngine/Renderer/Texture2DArray.h"
