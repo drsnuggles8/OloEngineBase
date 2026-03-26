@@ -1275,9 +1275,9 @@ namespace OloEngine
 
         if (auto const project = Project::GetActive())
         {
-            auto& cfg = project->GetConfig();
+            auto const& cfg = project->GetConfig();
             m_Prefs.EnableAutoSave = cfg.EnableAutoSave;
-            m_Prefs.AutoSaveIntervalSeconds = cfg.AutoSaveIntervalSeconds;
+            m_Prefs.AutoSaveIntervalSeconds = std::clamp(cfg.AutoSaveIntervalSeconds, 10, 7200);
         }
     }
 
@@ -1995,6 +1995,25 @@ namespace OloEngine
         serializer.Serialize(path);
     }
 
+    bool EditorLayer::LoadSceneInternal(const std::filesystem::path& scenePath)
+    {
+        Ref<Scene> const newScene = Ref<Scene>::Create();
+        if (SceneSerializer serializer(newScene); !serializer.Deserialize(scenePath.string()))
+        {
+            OLO_CORE_ERROR("Failed to deserialize scene '{}'", scenePath.string());
+            return false;
+        }
+        SetEditorScene(newScene);
+        Renderer3D::GetPostProcessSettings() = newScene->GetPostProcessSettings();
+        Renderer3D::GetSnowSettings() = newScene->GetSnowSettings();
+        Renderer3D::GetWindSettings() = newScene->GetWindSettings();
+        Renderer3D::GetSnowAccumulationSettings() = newScene->GetSnowAccumulationSettings();
+        Renderer3D::GetSnowEjectaSettings() = newScene->GetSnowEjectaSettings();
+        Renderer3D::GetPrecipitationSettings() = newScene->GetPrecipitationSettings();
+        Renderer3D::GetFogSettings() = newScene->GetFogSettings();
+        return true;
+    }
+
     void EditorLayer::AutoSaveScene()
     {
         if (m_EditorScenePath.empty())
@@ -2057,65 +2076,47 @@ namespace OloEngine
 
             if (ImGui::Button("Load Auto-Save", ImVec2(140, 0)))
             {
-                // Load the auto-saved version
-                Ref<Scene> const newScene = Ref<Scene>::Create();
-                if (SceneSerializer serializer(newScene); serializer.Deserialize(m_PendingRecoveryAutoPath.string()))
+                if (LoadSceneInternal(m_PendingRecoveryAutoPath))
                 {
-                    SetEditorScene(newScene);
                     m_EditorScenePath = m_PendingRecoveryScenePath;
-                    Renderer3D::GetPostProcessSettings() = newScene->GetPostProcessSettings();
-                    Renderer3D::GetSnowSettings() = newScene->GetSnowSettings();
-                    Renderer3D::GetWindSettings() = newScene->GetWindSettings();
-                    Renderer3D::GetSnowAccumulationSettings() = newScene->GetSnowAccumulationSettings();
-                    Renderer3D::GetSnowEjectaSettings() = newScene->GetSnowEjectaSettings();
-                    Renderer3D::GetPrecipitationSettings() = newScene->GetPrecipitationSettings();
-                    Renderer3D::GetFogSettings() = newScene->GetFogSettings();
+                    m_TimeSinceLastAutoSave = 0.0f;
+                    ImGui::CloseCurrentPopup();
                 }
-                m_TimeSinceLastAutoSave = 0.0f;
-                ImGui::CloseCurrentPopup();
+                else
+                {
+                    OLO_CORE_ERROR("Auto-save recovery failed: could not deserialize '{}'", m_PendingRecoveryAutoPath.string());
+                }
             }
             ImGui::SameLine();
             if (ImGui::Button("Load Original", ImVec2(140, 0)))
             {
-                // Load the original scene and keep the .auto file for now
-                Ref<Scene> const newScene = Ref<Scene>::Create();
-                if (SceneSerializer serializer(newScene); serializer.Deserialize(m_PendingRecoveryScenePath.string()))
+                if (LoadSceneInternal(m_PendingRecoveryScenePath))
                 {
-                    SetEditorScene(newScene);
                     m_EditorScenePath = m_PendingRecoveryScenePath;
-                    Renderer3D::GetPostProcessSettings() = newScene->GetPostProcessSettings();
-                    Renderer3D::GetSnowSettings() = newScene->GetSnowSettings();
-                    Renderer3D::GetWindSettings() = newScene->GetWindSettings();
-                    Renderer3D::GetSnowAccumulationSettings() = newScene->GetSnowAccumulationSettings();
-                    Renderer3D::GetSnowEjectaSettings() = newScene->GetSnowEjectaSettings();
-                    Renderer3D::GetPrecipitationSettings() = newScene->GetPrecipitationSettings();
-                    Renderer3D::GetFogSettings() = newScene->GetFogSettings();
+                    m_TimeSinceLastAutoSave = 0.0f;
+                    ImGui::CloseCurrentPopup();
                 }
-                m_TimeSinceLastAutoSave = 0.0f;
-                ImGui::CloseCurrentPopup();
+                else
+                {
+                    OLO_CORE_ERROR("Auto-save recovery failed: could not deserialize '{}'", m_PendingRecoveryScenePath.string());
+                }
             }
             ImGui::SameLine();
             if (ImGui::Button("Discard Auto-Save", ImVec2(140, 0)))
             {
-                // Load original and delete the auto-save file
                 std::error_code ec;
                 std::filesystem::remove(m_PendingRecoveryAutoPath, ec);
 
-                Ref<Scene> const newScene = Ref<Scene>::Create();
-                if (SceneSerializer serializer(newScene); serializer.Deserialize(m_PendingRecoveryScenePath.string()))
+                if (LoadSceneInternal(m_PendingRecoveryScenePath))
                 {
-                    SetEditorScene(newScene);
                     m_EditorScenePath = m_PendingRecoveryScenePath;
-                    Renderer3D::GetPostProcessSettings() = newScene->GetPostProcessSettings();
-                    Renderer3D::GetSnowSettings() = newScene->GetSnowSettings();
-                    Renderer3D::GetWindSettings() = newScene->GetWindSettings();
-                    Renderer3D::GetSnowAccumulationSettings() = newScene->GetSnowAccumulationSettings();
-                    Renderer3D::GetSnowEjectaSettings() = newScene->GetSnowEjectaSettings();
-                    Renderer3D::GetPrecipitationSettings() = newScene->GetPrecipitationSettings();
-                    Renderer3D::GetFogSettings() = newScene->GetFogSettings();
+                    m_TimeSinceLastAutoSave = 0.0f;
+                    ImGui::CloseCurrentPopup();
                 }
-                m_TimeSinceLastAutoSave = 0.0f;
-                ImGui::CloseCurrentPopup();
+                else
+                {
+                    OLO_CORE_ERROR("Auto-save recovery failed: could not deserialize '{}'", m_PendingRecoveryScenePath.string());
+                }
             }
 
             ImGui::EndPopup();

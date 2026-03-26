@@ -78,6 +78,7 @@ namespace OloEngine
         void AutoSaveScene();
         void UI_AutoSaveRecoveryModal();
         void DeleteAutoSaveFile();
+        bool LoadSceneInternal(const std::filesystem::path& scenePath);
 
         void OnScenePlay();
         void OnSceneSimulate();
