@@ -11,82 +11,81 @@ namespace OloEngine::Audio::DSP
 {
     // Speaker direction vectors for each miniaudio channel position
     constexpr glm::vec3 g_maChannelDirections[MA_CHANNEL_POSITION_COUNT] = {
-        { 0.0f,     0.0f,    -1.0f    },  // MA_CHANNEL_NONE
-        { 0.0f,     0.0f,    -1.0f    },  // MA_CHANNEL_MONO
-        {-0.7071f,  0.0f,    -0.7071f },  // MA_CHANNEL_FRONT_LEFT
-        {+0.7071f,  0.0f,    -0.7071f },  // MA_CHANNEL_FRONT_RIGHT
-        { 0.0f,     0.0f,    -1.0f    },  // MA_CHANNEL_FRONT_CENTER
-        { 0.0f,     0.0f,    -1.0f    },  // MA_CHANNEL_LFE
-        {-0.7071f,  0.0f,    +0.7071f },  // MA_CHANNEL_BACK_LEFT
-        {+0.7071f,  0.0f,    +0.7071f },  // MA_CHANNEL_BACK_RIGHT
-        {-0.3162f,  0.0f,    -0.9487f },  // MA_CHANNEL_FRONT_LEFT_CENTER
-        {+0.3162f,  0.0f,    -0.9487f },  // MA_CHANNEL_FRONT_RIGHT_CENTER
-        { 0.0f,     0.0f,    +1.0f    },  // MA_CHANNEL_BACK_CENTER
-        {-1.0f,     0.0f,     0.0f    },  // MA_CHANNEL_SIDE_LEFT
-        {+1.0f,     0.0f,     0.0f    },  // MA_CHANNEL_SIDE_RIGHT
-        { 0.0f,    +1.0f,     0.0f    },  // MA_CHANNEL_TOP_CENTER
-        {-0.5774f, +0.5774f, -0.5774f },  // MA_CHANNEL_TOP_FRONT_LEFT
-        { 0.0f,    +0.7071f, -0.7071f },  // MA_CHANNEL_TOP_FRONT_CENTER
-        {+0.5774f, +0.5774f, -0.5774f },  // MA_CHANNEL_TOP_FRONT_RIGHT
-        {-0.5774f, +0.5774f, +0.5774f },  // MA_CHANNEL_TOP_BACK_LEFT
-        { 0.0f,    +0.7071f, +0.7071f },  // MA_CHANNEL_TOP_BACK_CENTER
-        {+0.5774f, +0.5774f, +0.5774f },  // MA_CHANNEL_TOP_BACK_RIGHT
-        { 0.0f,     0.0f,    -1.0f    },  // MA_CHANNEL_AUX_0 .. AUX_31
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
-        { 0.0f,     0.0f,    -1.0f    },
+        { 0.0f, 0.0f, -1.0f },            // MA_CHANNEL_NONE
+        { 0.0f, 0.0f, -1.0f },            // MA_CHANNEL_MONO
+        { -0.7071f, 0.0f, -0.7071f },     // MA_CHANNEL_FRONT_LEFT
+        { +0.7071f, 0.0f, -0.7071f },     // MA_CHANNEL_FRONT_RIGHT
+        { 0.0f, 0.0f, -1.0f },            // MA_CHANNEL_FRONT_CENTER
+        { 0.0f, 0.0f, -1.0f },            // MA_CHANNEL_LFE
+        { -0.7071f, 0.0f, +0.7071f },     // MA_CHANNEL_BACK_LEFT
+        { +0.7071f, 0.0f, +0.7071f },     // MA_CHANNEL_BACK_RIGHT
+        { -0.3162f, 0.0f, -0.9487f },     // MA_CHANNEL_FRONT_LEFT_CENTER
+        { +0.3162f, 0.0f, -0.9487f },     // MA_CHANNEL_FRONT_RIGHT_CENTER
+        { 0.0f, 0.0f, +1.0f },            // MA_CHANNEL_BACK_CENTER
+        { -1.0f, 0.0f, 0.0f },            // MA_CHANNEL_SIDE_LEFT
+        { +1.0f, 0.0f, 0.0f },            // MA_CHANNEL_SIDE_RIGHT
+        { 0.0f, +1.0f, 0.0f },            // MA_CHANNEL_TOP_CENTER
+        { -0.5774f, +0.5774f, -0.5774f }, // MA_CHANNEL_TOP_FRONT_LEFT
+        { 0.0f, +0.7071f, -0.7071f },     // MA_CHANNEL_TOP_FRONT_CENTER
+        { +0.5774f, +0.5774f, -0.5774f }, // MA_CHANNEL_TOP_FRONT_RIGHT
+        { -0.5774f, +0.5774f, +0.5774f }, // MA_CHANNEL_TOP_BACK_LEFT
+        { 0.0f, +0.7071f, +0.7071f },     // MA_CHANNEL_TOP_BACK_CENTER
+        { +0.5774f, +0.5774f, +0.5774f }, // MA_CHANNEL_TOP_BACK_RIGHT
+        { 0.0f, 0.0f, -1.0f },            // MA_CHANNEL_AUX_0 .. AUX_31
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, 0.0f, -1.0f },
     };
 
     //==============================================================================
     // Constructors
 
     VBAP::VirtualSource::VirtualSource(u32 numberOfOutputChannels, float angle)
-        : Angle(angle)
-        , Channel(0)
-        , NumOutputChannels(numberOfOutputChannels)
-        , Gains{}
+        : Angle(angle), Channel(0), NumOutputChannels(numberOfOutputChannels), Gains{}
     {
     }
 
     VBAP::ChannelGroup::ChannelGroup() = default;
 
     VBAP::ChannelGroup::ChannelGroup(u32 numberOfOutputChannels, u32 channel, float angle)
-        : Angle(angle)
-        , Channel(channel)
+        : Angle(angle), Channel(channel)
     {
         u32 gainSmoothTimeInFrames = 360; // ~7.5ms at 48kHz
         ma_gainer_config gainerConfig = ma_gainer_config_init(numberOfOutputChannels, gainSmoothTimeInFrames);
         ma_result result = ma_gainer_init(&gainerConfig, nullptr, &Gainer);
-        OLO_CORE_ASSERT(result == MA_SUCCESS);
-        (void)result;
+        if (result != MA_SUCCESS)
+        {
+            OLO_CORE_ERROR("[VBAP] ma_gainer_init failed: {}", static_cast<int>(result));
+            return;
+        }
 
         for (u32 iChannel = 0; iChannel < Gainer.config.channels; ++iChannel)
         {
@@ -95,31 +94,15 @@ namespace OloEngine::Audio::DSP
         }
     }
 
-    VBAP::ChannelGroup::ChannelGroup(const ChannelGroup& other)
-        : Angle(other.Angle)
-        , Channel(other.Channel)
-        , VirtualSourceIDs(other.VirtualSourceIDs)
-        , Gainer(other.Gainer)
-    {
-    }
-
-    VBAP::ChannelGroup& VBAP::ChannelGroup::operator=(const ChannelGroup& other)
-    {
-        if (this != &other)
-        {
-            Angle = other.Angle;
-            Channel = other.Channel;
-            VirtualSourceIDs = other.VirtualSourceIDs;
-            Gainer = other.Gainer;
-        }
-        return *this;
-    }
+    // ChannelGroup copy operations intentionally omitted — ma_gainer contains
+    // internal heap pointers that cannot be trivially shallow-copied.
+    // Vector resize uses the move constructor path via default move ops.
 
     //==============================================================================
     // VBAP Algorithm
 
     bool VBAP::InitVBAP(VBAPData* vbap, u32 numOfInputs, u32 numOfOutputs, const ma_channel* sourceChannelMap,
-                         const ma_channel* outputChannelMap)
+                        const ma_channel* outputChannelMap)
     {
         OLO_CORE_ASSERT(numOfInputs > 0 && numOfOutputs > 0);
 
@@ -210,7 +193,7 @@ namespace OloEngine::Audio::DSP
                 vsID++;
             }
 
-            vbap->ChannelGroups[id] = channelGroup;
+            vbap->ChannelGroups[id] = std::move(channelGroup);
         }
 
         return true;
@@ -219,11 +202,16 @@ namespace OloEngine::Audio::DSP
     void VBAP::ClearVBAP(VBAPData* vbap)
     {
         OLO_CORE_ASSERT(vbap != nullptr);
+        // Uninitialize gainers before clearing to avoid leaking internal allocations
+        for (auto& chg : vbap->ChannelGroups)
+        {
+            ma_gainer_uninit(&chg.Gainer, nullptr);
+        }
         *vbap = VBAPData();
     }
 
     void VBAP::UpdateVBAP(VBAPData* vbap, const PositionUpdateData& positionData,
-                           const ma_channel_converter& converter, bool isInitialPosition)
+                          const ma_channel_converter& converter, bool isInitialPosition)
     {
         OLO_CORE_ASSERT(!vbap->VirtualSources.empty());
 
@@ -274,7 +262,7 @@ namespace OloEngine::Audio::DSP
     }
 
     void VBAP::SortChannelLayout(const std::vector<glm::vec2>& speakerVectors,
-                                  std::vector<std::pair<glm::vec2, u32>>& sorted)
+                                 std::vector<std::pair<glm::vec2, u32>>& sorted)
     {
         for (sizet i = 0; i < speakerVectors.size(); i++)
         {
@@ -355,7 +343,7 @@ namespace OloEngine::Audio::DSP
     }
 
     bool VBAP::FindActiveArch(const VBAPData* vbap, float azimuthRadians, std::pair<i32, i32>& outSpeakerIndexes,
-                               std::pair<float, float>& outGains)
+                              std::pair<float, float>& outGains)
     {
         float powr;
         float ref = 0.0f;

@@ -154,7 +154,8 @@ TEST_F(VBAPTest, UpdateProducesNonZeroGains)
     ma_channel_converter_config convConfig = ma_channel_converter_config_init(
         ma_format_f32, 4, outputMap, 4, outputMap, ma_channel_mix_mode_rectangular);
     ma_channel_converter converter;
-    ma_channel_converter_init(&convConfig, nullptr, &converter);
+    ma_result convResult = ma_channel_converter_init(&convConfig, nullptr, &converter);
+    ASSERT_EQ(convResult, MA_SUCCESS);
 
     VBAP::PositionUpdateData updateData{ 0.0f, 1.0f, 1.0f, 1.0f };
     VBAP::UpdateVBAP(&vbapData, updateData, converter, true);
@@ -183,7 +184,8 @@ TEST_F(VBAPTest, GainSumApproximatelyOne)
     ma_channel_converter_config convConfig = ma_channel_converter_config_init(
         ma_format_f32, 4, outputMap, 4, outputMap, ma_channel_mix_mode_rectangular);
     ma_channel_converter converter;
-    ma_channel_converter_init(&convConfig, nullptr, &converter);
+    ma_result convResult = ma_channel_converter_init(&convConfig, nullptr, &converter);
+    ASSERT_EQ(convResult, MA_SUCCESS);
 
     // Test at multiple angles
     for (float angleDeg = -180.0f; angleDeg <= 180.0f; angleDeg += 45.0f)

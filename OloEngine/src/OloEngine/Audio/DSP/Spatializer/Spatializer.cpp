@@ -29,8 +29,7 @@ namespace OloEngine::Audio::DSP
                 {
                     return 1.0f;
                 }
-                return minDistance
-                       / (minDistance + rolloff * (std::clamp(distance, minDistance, maxDistance) - minDistance));
+                return minDistance / (minDistance + rolloff * (std::clamp(distance, minDistance, maxDistance) - minDistance));
             }
             case AttenuationModelType::Linear:
             {
@@ -38,9 +37,7 @@ namespace OloEngine::Audio::DSP
                 {
                     return 1.0f;
                 }
-                return 1.0f
-                       - rolloff * (std::clamp(distance, minDistance, maxDistance) - minDistance)
-                             / (maxDistance - minDistance);
+                return 1.0f - rolloff * (std::clamp(distance, minDistance, maxDistance) - minDistance) / (maxDistance - minDistance);
             }
             case AttenuationModelType::Exponential:
             {
@@ -155,17 +152,10 @@ namespace OloEngine::Audio::DSP
     //==============================================================================
     // Spatializer node vtable + helpers
 
-    static ma_node_vtable s_SpatializerNodeVtable = { spatializer_node_process_pcm_frames, nullptr, 1, 1, 0 };
+    static const ma_node_vtable s_SpatializerNodeVtable = { spatializer_node_process_pcm_frames, nullptr, 1, 1, 0 };
 
-    Spatializer::spatializer_node::spatializer_node(const spatializer_node& other)
-        : base(other.base)
-        , channelsIn(other.channelsIn)
-        , channelsOut(other.channelsOut)
-        , targetEngineNode(other.targetEngineNode)
-        , DopplerPitch(other.DopplerPitch.load())
-    {
-        vbap.reset(other.vbap.get());
-    }
+    // Copy constructor deleted — spatializer_node owns a Scope<VBAPData> and
+    // contains miniaudio node state that cannot be trivially deep-copied.
 
     Spatializer::~Spatializer()
     {
@@ -283,9 +273,8 @@ namespace OloEngine::Audio::DSP
         // Cone angle attenuation
         if (distance > 0.0f)
         {
-            float angleAttenuation
-                = ProcessAngularAttenuation(glm::vec3(0.0f, 0.0f, -1.0f), relativeDir, source.ConeInnerAngle,
-                                            source.ConeOuterAngle, source.ConeOuterGain);
+            float angleAttenuation = ProcessAngularAttenuation(glm::vec3(0.0f, 0.0f, -1.0f), relativeDir, source.ConeInnerAngle,
+                                                               source.ConeOuterAngle, source.ConeOuterGain);
 
             if (listener != nullptr && listener->config.coneInnerAngleInRadians < 6.283185f)
             {
@@ -316,8 +305,7 @@ namespace OloEngine::Audio::DSP
         {
             ma_vec3f lpos = ma_spatializer_listener_get_position(listener);
             glm::vec3 lp(lpos.x, lpos.y, lpos.z);
-            source.SpatializerNode.DopplerPitch
-                = ProcessDopplerPitch(lp - position, velocity, listenerVel, SPEED_OF_SOUND, source.DopplerFactor);
+            source.SpatializerNode.DopplerPitch = ProcessDopplerPitch(lp - position, velocity, listenerVel, SPEED_OF_SOUND, source.DopplerFactor);
             pEngineNode->spatializer.dopplerPitch = source.SpatializerNode.DopplerPitch;
         }
         else
@@ -346,7 +334,7 @@ namespace OloEngine::Audio::DSP
     {
         OLO_CORE_ASSERT(m_Sources.find(sourceID) == m_Sources.end());
 
-        auto [it, success] = m_Sources.emplace(sourceID, Source());
+        auto [it, success] = m_Sources.try_emplace(sourceID);
         auto& source = it->second;
 
         auto abortIfFailed = [&](ma_result result, const char* errorMessage)
@@ -423,9 +411,8 @@ namespace OloEngine::Audio::DSP
 
         // Initialize VBAP
         source.SpatializerNode.vbap = CreateScope<VBAPData>();
-        bool res
-            = VBAP::InitVBAP(source.SpatializerNode.vbap.get(), sourceChannels, source.InternalChannelCount,
-                             source.SourceChannelMap, source.InternalChannelMap);
+        bool res = VBAP::InitVBAP(source.SpatializerNode.vbap.get(), sourceChannels, source.InternalChannelCount,
+                                  source.SourceChannelMap, source.InternalChannelMap);
         if (abortIfFailed(res ? MA_SUCCESS : MA_INVALID_ARGS, "VBAP init failed"))
         {
             return false;
@@ -530,8 +517,8 @@ namespace OloEngine::Audio::DSP
 
         if (distance < 1e-6f)
         {
-            relativePos.z = -0.001f;
-            return;
+            // Source is essentially at the listener — use forward direction and minimal distance
+            relativePos = glm::vec3(0.0f, 0.0f, -0.001f);
         }
 
         float azimuth = VectorAngle(glm::normalize(relativePos));

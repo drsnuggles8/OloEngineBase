@@ -109,7 +109,7 @@ namespace OloEngine
         // DSP chain (lazily initialized when parameters change from defaults)
         Scope<Audio::DSP::LowPassFilter> m_LowPassFilter;
         Scope<Audio::DSP::HighPassFilter> m_HighPassFilter;
-        void* m_SplitterNode = nullptr; // Reverb send bus (ma_splitter_node*, 2 outputs: dry + FX send)
+        void* m_SplitterNode = nullptr; // ma_splitter_node* — type-erased because ma_splitter_node is an anonymous struct typedef in miniaudio, cannot forward-declare
         bool m_DSPInitialized = false;
     };
 } // namespace OloEngine

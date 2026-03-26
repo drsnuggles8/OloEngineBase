@@ -104,7 +104,7 @@ namespace OloEngine::Audio::DSP
         }
     }
 
-    void ReverbModel::ProcessReplace(const float* inputL, const float* inputR, float* outputL, float* outputR, long numSamples, int skip)
+    void ReverbModel::ProcessReplace(const float* inputL, const float* inputR, float* outputL, float* outputR, i64 numSamples, int skip)
     {
         float outL;
         float outR;

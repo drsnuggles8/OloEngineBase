@@ -47,8 +47,10 @@ namespace OloEngine::Audio::DSP
 
         struct ReverbNode; // Defined in .cpp — embeds ma_node_base by value
 
+        static constexpr float kMaxPreDelayMs = 1000.0f;
+
         bool m_Initialized = false;
-        float m_MaxPreDelay = 1000.0f;
+        float m_MaxPreDelay = kMaxPreDelayMs;
         ReverbNode* m_Node = nullptr;
         std::unique_ptr<ReverbModel> m_RevModel;
         std::unique_ptr<DelayLine> m_DelayLine;

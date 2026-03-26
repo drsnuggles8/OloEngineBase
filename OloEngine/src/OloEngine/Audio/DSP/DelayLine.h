@@ -22,12 +22,7 @@ namespace OloEngine::Audio::DSP
         void SetDelay(float newDelayInSamples)
         {
             auto upperLimit = static_cast<float>(m_TotalSize - 1);
-            if (newDelayInSamples <= 0.0f)
-            {
-                newDelayInSamples = 1.0f;
-            }
-            assert(newDelayInSamples > 0.0f && newDelayInSamples < upperLimit);
-            m_Delay = std::clamp(newDelayInSamples, 0.0f, upperLimit);
+            m_Delay = std::clamp(newDelayInSamples, 1.0f, upperLimit);
             m_DelayInt = static_cast<int>(std::floor(m_Delay));
         }
 
@@ -75,18 +70,25 @@ namespace OloEngine::Audio::DSP
 
         void PushSample(int channel, float sample)
         {
+            assert(channel >= 0 && channel < static_cast<int>(m_BufferData.size()));
             m_BufferData[channel][m_WritePos[channel]] = sample;
             m_WritePos[channel] = (m_WritePos[channel] + m_TotalSize - 1) % m_TotalSize;
         }
 
         float PopSample(int channel, float delayInSamples = -1.0f, bool updateReadPointer = true)
         {
+            assert(channel >= 0 && channel < static_cast<int>(m_BufferData.size()));
+
+            // Compute delay locally to avoid mutating shared m_Delay/m_DelayInt
+            int delayInt = m_DelayInt;
             if (delayInSamples >= 0.0f)
             {
-                SetDelay(delayInSamples);
+                auto upperLimit = static_cast<float>(m_TotalSize - 1);
+                float clamped = std::clamp(delayInSamples, 1.0f, upperLimit);
+                delayInt = static_cast<int>(std::floor(clamped));
             }
 
-            int index = (m_ReadPos[channel] + m_DelayInt) % m_TotalSize;
+            int index = (m_ReadPos[channel] + delayInt) % m_TotalSize;
             float result = m_BufferData[channel][index];
 
             if (updateReadPointer)

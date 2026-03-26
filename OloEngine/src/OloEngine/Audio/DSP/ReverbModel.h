@@ -21,7 +21,7 @@ namespace OloEngine::Audio::DSP
         void Mute();
 
         // Process numSamples frames, replacing output
-        void ProcessReplace(const float* inputL, const float* inputR, float* outputL, float* outputR, long numSamples, int skip);
+        void ProcessReplace(const float* inputL, const float* inputR, float* outputL, float* outputR, i64 numSamples, int skip);
 
         void SetRoomSize(float value);
         [[nodiscard]] float GetRoomSize() const;

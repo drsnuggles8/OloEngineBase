@@ -34,6 +34,27 @@ namespace OloEngine::Audio::DSP
             m_Buffers[1].fill(0.0f);
         }
 
+        RealtimeGains(const RealtimeGains&) = delete;
+        RealtimeGains& operator=(const RealtimeGains&) = delete;
+
+        RealtimeGains(RealtimeGains&& other) noexcept
+            : m_ActiveIndex(other.m_ActiveIndex.load(std::memory_order_acquire))
+        {
+            m_Buffers[0] = other.m_Buffers[0];
+            m_Buffers[1] = other.m_Buffers[1];
+        }
+
+        RealtimeGains& operator=(RealtimeGains&& other) noexcept
+        {
+            if (this != &other)
+            {
+                m_Buffers[0] = other.m_Buffers[0];
+                m_Buffers[1] = other.m_Buffers[1];
+                m_ActiveIndex.store(other.m_ActiveIndex.load(std::memory_order_acquire), std::memory_order_release);
+            }
+            return *this;
+        }
+
         // Write new gains from the non-realtime thread and publish atomically
         void Write(const ChannelGains& gains)
         {
@@ -88,8 +109,10 @@ namespace OloEngine::Audio::DSP
 
             ChannelGroup();
             ChannelGroup(u32 numberOfOutputChannels, u32 channel, float angle = 0.0f);
-            ChannelGroup(const ChannelGroup& other);
-            ChannelGroup& operator=(const ChannelGroup& other);
+            ChannelGroup(const ChannelGroup&) = delete;
+            ChannelGroup& operator=(const ChannelGroup&) = delete;
+            ChannelGroup(ChannelGroup&&) = default;
+            ChannelGroup& operator=(ChannelGroup&&) = default;
         };
 
       public:
@@ -128,12 +151,12 @@ namespace OloEngine::Audio::DSP
         if (x == 0.0f)
         {
             return glm::radians((y < 0.0f) ? 0.0f : (y == 0.0f) ? 0.0f
-                                                                  : 180.0f);
+                                                                : 180.0f);
         }
         if (y == 0.0f)
         {
             return glm::radians((x > 0.0f) ? 90.0f : (x < 0.0f) ? -90.0f
-                                                                  : 0.0f);
+                                                                : 0.0f);
         }
 
         float ret = glm::degrees(atanf(x / y));
@@ -159,12 +182,12 @@ namespace OloEngine::Audio::DSP
         if (x == 0.0f)
         {
             return glm::radians((y < 0.0f) ? 0.0f : (y == 0.0f) ? 0.0f
-                                                                  : 180.0f);
+                                                                : 180.0f);
         }
         if (y == 0.0f)
         {
             return glm::radians((x > 0.0f) ? 90.0f : (x < 0.0f) ? -90.0f
-                                                                  : 0.0f);
+                                                                : 0.0f);
         }
 
         float ret = glm::degrees(atanf(x / y));

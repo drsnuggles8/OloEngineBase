@@ -5,6 +5,7 @@
 // Adapted for OloEngine with modern C++ style.
 
 #include "OloEngine/Audio/DSP/Denormals.h"
+#include <algorithm>
 #include <vector>
 
 namespace OloEngine::Audio::DSP
@@ -14,6 +15,7 @@ namespace OloEngine::Audio::DSP
       public:
         AllpassFilter() = default;
 
+        // Non-owning: caller must keep `buffer` alive for the lifetime of this filter.
         void SetBuffer(std::vector<float>& buffer)
         {
             m_Buffer = buffer.data();
@@ -31,9 +33,9 @@ namespace OloEngine::Audio::DSP
 
         void Mute()
         {
-            for (int i = 0; i < m_BufferSize; ++i)
+            if (m_Buffer)
             {
-                m_Buffer[i] = 0.0f;
+                std::fill(m_Buffer, m_Buffer + m_BufferSize, 0.0f);
             }
         }
 

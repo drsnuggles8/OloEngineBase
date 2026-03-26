@@ -1408,6 +1408,13 @@ namespace OloEngine
             TrySet(src.Config.HighPassCutoff, audioSourceComponent["HighPassCutoff"]);
             TrySet(src.Config.ReverbSend, audioSourceComponent["ReverbSend"]);
 
+            // Clamp DSP parameters to valid ranges
+            src.Config.Spread = std::clamp(src.Config.Spread, 0.0f, 1.0f);
+            src.Config.Focus = std::clamp(src.Config.Focus, 0.0f, 1.0f);
+            src.Config.LowPassCutoff = std::clamp(src.Config.LowPassCutoff, 0.0f, 1.0f);
+            src.Config.HighPassCutoff = std::clamp(src.Config.HighPassCutoff, 0.0f, 1.0f);
+            src.Config.ReverbSend = std::clamp(src.Config.ReverbSend, 0.0f, 1.0f);
+
             if (!audioFilepath.empty())
             {
                 std::filesystem::path path = audioFilepath.c_str();

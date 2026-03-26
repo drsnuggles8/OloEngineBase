@@ -107,19 +107,10 @@ namespace OloEngine
             ::ma_sound_set_attenuation_model(sound, ma_attenuation_model_none);
         }
 
-        // DSP filter parameters
-        if (config.LowPassCutoff < 1.0f)
-        {
-            SetLowPassCutoff(config.LowPassCutoff);
-        }
-        if (config.HighPassCutoff > 0.0f)
-        {
-            SetHighPassCutoff(config.HighPassCutoff);
-        }
-        if (config.ReverbSend > 0.0f)
-        {
-            SetReverbSend(config.ReverbSend);
-        }
+        // DSP filter parameters — always apply so defaults can be restored
+        SetLowPassCutoff(config.LowPassCutoff);
+        SetHighPassCutoff(config.HighPassCutoff);
+        SetReverbSend(config.ReverbSend);
     }
 
     void AudioSource::SetVolume(const f32 volume) const
@@ -266,11 +257,17 @@ namespace OloEngine
 
             // Splitter bus 0 (dry) → old destination
             result = ma_node_attach_output_bus(m_SplitterNode, 0, oldOutput, 0);
-            OLO_CORE_ASSERT(result == MA_SUCCESS);
+            if (result != MA_SUCCESS)
+            {
+                OLO_CORE_ERROR("[AudioSource] Splitter dry-bus attach failed for: {}", m_Path);
+            }
 
             // chainTail → splitter input
             result = ma_node_attach_output_bus(chainTail, 0, m_SplitterNode, 0);
-            OLO_CORE_ASSERT(result == MA_SUCCESS);
+            if (result != MA_SUCCESS)
+            {
+                OLO_CORE_ERROR("[AudioSource] Chain-to-splitter attach failed for: {}", m_Path);
+            }
 
             // Bus 0 volume = 1.0 (main output)
             ma_node_set_output_bus_volume(m_SplitterNode, 0, 1.0f);

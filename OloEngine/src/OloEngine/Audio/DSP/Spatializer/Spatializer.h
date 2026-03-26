@@ -74,10 +74,16 @@ namespace OloEngine::Audio::DSP
             std::atomic<float> DopplerPitch{ 1.0f };
 
             std::atomic_flag fGainsUpToDate;
-            bool IsDirty() { return !fGainsUpToDate.test_and_set(); }
+            bool IsDirty()
+            {
+                return !fGainsUpToDate.test_and_set();
+            }
 
             spatializer_node() = default;
-            spatializer_node(const spatializer_node& other);
+            spatializer_node(const spatializer_node&) = delete;
+            spatializer_node& operator=(const spatializer_node&) = delete;
+            spatializer_node(spatializer_node&&) = delete;
+            spatializer_node& operator=(spatializer_node&&) = delete;
         };
 
         struct Source

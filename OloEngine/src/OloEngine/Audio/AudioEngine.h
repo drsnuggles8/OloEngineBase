@@ -33,7 +33,7 @@ namespace OloEngine
         [[nodiscard("Store this!")]] static Audio::DSP::Spatializer* GetSpatializer();
 
         // Audio thread utilities
-        [[nodiscard("Store this!")]] static bool IsAudioThread();
+        static bool IsAudioThread();
 
       private:
         static void AudioThreadFunc();

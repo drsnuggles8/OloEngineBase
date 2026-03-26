@@ -36,7 +36,16 @@ namespace OloEngine::Audio::DSP
         float* pFramesOut0 = ppFramesOut[0];
 
         u32 channels = ma_node_get_input_channels(pNodeBase, 0);
-        OLO_CORE_ASSERT(channels == 2);
+        if (channels != 2)
+        {
+            // Only stereo is supported — silence output for unsupported channel counts
+            for (u32 oBus = 0; oBus < outBuses; ++oBus)
+            {
+                ma_silence_pcm_frames(ppFramesOut[oBus], *pFrameCountOut, ma_format_f32,
+                                      ma_node_get_output_channels(pNodeBase, oBus));
+            }
+            return;
+        }
 
         // 1. Feed through pre-delay
         auto* delay = node->delayLine;
@@ -63,10 +72,10 @@ namespace OloEngine::Audio::DSP
 
         // 2. Process delayed signal through reverb
         node->reverb->ProcessReplace(pFramesOut0, &pFramesOut0[1], pFramesOut0, &pFramesOut0[1],
-                                     static_cast<long>(*pFrameCountIn), static_cast<int>(channels));
+                                     static_cast<i64>(*pFrameCountIn), static_cast<int>(channels));
     }
 
-    static ma_node_vtable s_ReverbVtable = {
+    static const ma_node_vtable s_ReverbVtable = {
         [](ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
         {
             ReverbNodeProcessPcmFrames(pNode, ppFramesIn, pFrameCountIn, ppFramesOut, pFrameCountOut);
@@ -95,6 +104,11 @@ namespace OloEngine::Audio::DSP
 
         double sampleRate = ma_engine_get_sample_rate(engine);
         u8 numChannels = static_cast<u8>(ma_node_get_output_channels(nodeToAttachTo, 0));
+        if (numChannels != 2)
+        {
+            OLO_CORE_ERROR("[Reverb] Only stereo (2 channels) is supported, got {}", numChannels);
+            return false;
+        }
 
         m_DelayLine = std::make_unique<DelayLine>(static_cast<int>(sampleRate) + 1);
         m_RevModel = std::make_unique<ReverbModel>(sampleRate);
@@ -107,6 +121,11 @@ namespace OloEngine::Audio::DSP
         nodeConfig.pOutputChannels = outChannels;
         nodeConfig.initialState = ma_node_state_started;
 
+        if (!engine->pResourceManager)
+        {
+            OLO_CORE_ERROR("[Reverb] Engine has no resource manager");
+            return false;
+        }
         ma_allocation_callbacks allocationCallbacks = engine->pResourceManager->config.allocationCallbacks;
 
         ma_result result = ma_node_init(&engine->nodeGraph, &nodeConfig, &allocationCallbacks, m_Node);
@@ -156,7 +175,7 @@ namespace OloEngine::Audio::DSP
         switch (parameter)
         {
             case ReverbParameter::PreDelay:
-                OLO_CORE_ASSERT(value <= m_MaxPreDelay);
+                value = std::clamp(value, 0.0f, m_MaxPreDelay);
                 m_DelayLine->SetDelayMs(static_cast<u32>(value));
                 break;
             case ReverbParameter::Mode:

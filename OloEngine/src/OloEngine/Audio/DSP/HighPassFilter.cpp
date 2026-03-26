@@ -11,12 +11,35 @@ namespace OloEngine::Audio::DSP
     };
 
     static constexpr u32 FilterOrder = 2;
+    static constexpr double MinFrequencyHz = 20.0;
+    static constexpr double MaxFrequencyHz = 20000.0;
 
     HighPassFilter::HighPassFilter() = default;
 
     HighPassFilter::~HighPassFilter()
     {
         Uninitialize();
+    }
+
+    HighPassFilter::HighPassFilter(HighPassFilter&& other) noexcept
+        : m_Initialized(other.m_Initialized), m_Channels(other.m_Channels), m_SampleRate(other.m_SampleRate), m_CutoffFrequency(other.m_CutoffFrequency.load()), m_Impl(std::move(other.m_Impl))
+    {
+        other.m_Initialized = false;
+    }
+
+    HighPassFilter& HighPassFilter::operator=(HighPassFilter&& other) noexcept
+    {
+        if (this != &other)
+        {
+            Uninitialize();
+            m_Initialized = other.m_Initialized;
+            m_Channels = other.m_Channels;
+            m_SampleRate = other.m_SampleRate;
+            m_CutoffFrequency.store(other.m_CutoffFrequency.load());
+            m_Impl = std::move(other.m_Impl);
+            other.m_Initialized = false;
+        }
+        return *this;
     }
 
     bool HighPassFilter::Initialize(ma_engine* engine, ma_node_base* nodeToInsertAfter)
@@ -26,14 +49,14 @@ namespace OloEngine::Audio::DSP
         m_SampleRate = ma_engine_get_sample_rate(engine);
         m_Channels = ma_node_get_output_channels(nodeToInsertAfter, 0);
 
-        m_Impl = new Impl();
+        m_Impl = std::make_unique<Impl>();
 
         // Initialize with a safe default frequency (20 Hz) to avoid div-by-zero;
         // the caller will set the actual cutoff via SetCutoffFrequency right after.
         double initCutoff = m_CutoffFrequency.load();
         if (initCutoff <= 0.0)
         {
-            initCutoff = 20.0;
+            initCutoff = MinFrequencyHz;
         }
 
         ma_hpf_node_config config = ma_hpf_node_config_init(
@@ -43,7 +66,6 @@ namespace OloEngine::Audio::DSP
         if (result != MA_SUCCESS)
         {
             OLO_CORE_ERROR("[HighPassFilter] Node init failed: {}", static_cast<int>(result));
-            delete m_Impl;
             m_Impl = nullptr;
             return false;
         }
@@ -78,7 +100,6 @@ namespace OloEngine::Audio::DSP
         {
             ma_hpf_node_uninit(&m_Impl->node, nullptr);
         }
-        delete m_Impl;
         m_Impl = nullptr;
         m_Initialized = false;
     }
@@ -100,13 +121,17 @@ namespace OloEngine::Audio::DSP
         {
             ma_hpf_config config = ma_hpf_config_init(
                 ma_format_f32, m_Channels, static_cast<ma_uint32>(m_SampleRate), frequency, FilterOrder);
-            ma_hpf_node_reinit(&config, &m_Impl->node);
+            ma_result result = ma_hpf_node_reinit(&config, &m_Impl->node);
+            if (result != MA_SUCCESS)
+            {
+                OLO_CORE_ERROR("[HighPassFilter] Reinit failed: {}", static_cast<int>(result));
+            }
         }
     }
 
     void HighPassFilter::SetCutoffValue(double cutoffNormalized)
     {
-        double cutoffFrequency = cutoffNormalized * 20000.0;
+        double cutoffFrequency = MinFrequencyHz + cutoffNormalized * (MaxFrequencyHz - MinFrequencyHz);
         SetCutoffFrequency(cutoffFrequency);
     }
 } // namespace OloEngine::Audio::DSP

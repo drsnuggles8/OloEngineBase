@@ -4,6 +4,7 @@
 // Inserts into the audio graph between a source node and the endpoint.
 
 #include <atomic>
+#include <memory>
 
 struct ma_engine;
 struct ma_node_base;
@@ -18,6 +19,8 @@ namespace OloEngine::Audio::DSP
 
         HighPassFilter(const HighPassFilter&) = delete;
         HighPassFilter& operator=(const HighPassFilter&) = delete;
+        HighPassFilter(HighPassFilter&&) noexcept;
+        HighPassFilter& operator=(HighPassFilter&&) noexcept;
 
         bool Initialize(ma_engine* engine, ma_node_base* nodeToInsertAfter);
         void Uninitialize();
@@ -39,6 +42,6 @@ namespace OloEngine::Audio::DSP
         u32 m_Channels = 0;
         double m_SampleRate = 0.0;
         std::atomic<double> m_CutoffFrequency = 0.0;
-        Impl* m_Impl = nullptr;
+        std::unique_ptr<Impl> m_Impl;
     };
 } // namespace OloEngine::Audio::DSP

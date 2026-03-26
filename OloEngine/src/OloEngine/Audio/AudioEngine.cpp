@@ -53,7 +53,7 @@ namespace OloEngine
             s_MasterReverb = new Audio::DSP::Reverb();
             if (!s_MasterReverb->Initialize(s_Engine, &s_Engine->nodeGraph.endpoint))
             {
-                OLO_CORE_ERROR("[AudioEngine] Failed to initialize master reverb bus!");
+                OLO_CORE_WARN("[AudioEngine] Failed to initialize master reverb bus — reverb unavailable.");
                 delete s_MasterReverb;
                 s_MasterReverb = nullptr;
             }
@@ -66,7 +66,7 @@ namespace OloEngine
             s_Spatializer = new Audio::DSP::Spatializer();
             if (!s_Spatializer->Initialize(s_Engine))
             {
-                OLO_CORE_ERROR("[AudioEngine] Failed to initialize spatializer!");
+                OLO_CORE_WARN("[AudioEngine] Failed to initialize spatializer — 3D audio unavailable.");
                 delete s_Spatializer;
                 s_Spatializer = nullptr;
             }
