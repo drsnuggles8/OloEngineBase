@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Audio/DSP/HighPassFilter.h"
 
+#include <cmath>
 #include <miniaudio.h>
 
 namespace OloEngine::Audio::DSP
@@ -131,7 +132,8 @@ namespace OloEngine::Audio::DSP
 
     void HighPassFilter::SetCutoffValue(double cutoffNormalized)
     {
-        double cutoffFrequency = MinFrequencyHz + cutoffNormalized * (MaxFrequencyHz - MinFrequencyHz);
+        double clamped = std::clamp(cutoffNormalized, 0.0, 1.0);
+        double cutoffFrequency = std::exp(std::log(MinFrequencyHz) + clamped * (std::log(MaxFrequencyHz) - std::log(MinFrequencyHz)));
         SetCutoffFrequency(cutoffFrequency);
     }
 } // namespace OloEngine::Audio::DSP

@@ -104,8 +104,8 @@ namespace OloEngine::Audio::DSP
         std::vector<std::vector<float>> m_BufferData;
         std::vector<int> m_WritePos;
         std::vector<int> m_ReadPos;
-        float m_Delay = 0.0f;
-        int m_DelayInt = 0;
+        float m_Delay = 1.0f;
+        int m_DelayInt = 1;
         int m_TotalSize = 4;
     };
 } // namespace OloEngine::Audio::DSP

@@ -6,6 +6,7 @@
 
 #include "OloEngine/Audio/DSP/Denormals.h"
 #include <algorithm>
+#include <cassert>
 #include <vector>
 
 namespace OloEngine::Audio::DSP
@@ -64,6 +65,7 @@ namespace OloEngine::Audio::DSP
     // Inlined for performance — called per-sample in the reverb inner loop.
     inline float CombFilter::Process(float input)
     {
+        assert(m_Buffer);
         float output = m_Buffer[m_BufferIndex];
         Undenormalize(output);
 

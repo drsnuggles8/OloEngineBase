@@ -260,28 +260,42 @@ namespace OloEngine
             if (result != MA_SUCCESS)
             {
                 OLO_CORE_ERROR("[AudioSource] Splitter dry-bus attach failed for: {}", m_Path);
+                ma_splitter_node_uninit(AsSplitter(m_SplitterNode),
+                                        &engine->pResourceManager->config.allocationCallbacks);
+                delete AsSplitter(m_SplitterNode);
+                m_SplitterNode = nullptr;
             }
 
-            // chainTail → splitter input
-            result = ma_node_attach_output_bus(chainTail, 0, m_SplitterNode, 0);
-            if (result != MA_SUCCESS)
+            if (m_SplitterNode)
             {
-                OLO_CORE_ERROR("[AudioSource] Chain-to-splitter attach failed for: {}", m_Path);
-            }
-
-            // Bus 0 volume = 1.0 (main output)
-            ma_node_set_output_bus_volume(m_SplitterNode, 0, 1.0f);
-            // Bus 1 volume = 0.0 (muted until reverb send is set)
-            ma_node_set_output_bus_volume(m_SplitterNode, 1, 0.0f);
-
-            // Connect bus 1 to master reverb if available
-            auto* masterReverb = AudioEngine::GetMasterReverb();
-            if (masterReverb && masterReverb->GetNode())
-            {
-                result = ma_node_attach_output_bus(m_SplitterNode, 1, masterReverb->GetNode(), 0);
+                // chainTail → splitter input
+                result = ma_node_attach_output_bus(chainTail, 0, m_SplitterNode, 0);
                 if (result != MA_SUCCESS)
                 {
-                    OLO_CORE_WARN("[AudioSource] Failed to attach reverb send for: {}", m_Path);
+                    OLO_CORE_ERROR("[AudioSource] Chain-to-splitter attach failed for: {}", m_Path);
+                    ma_splitter_node_uninit(AsSplitter(m_SplitterNode),
+                                            &engine->pResourceManager->config.allocationCallbacks);
+                    delete AsSplitter(m_SplitterNode);
+                    m_SplitterNode = nullptr;
+                }
+            }
+
+            if (m_SplitterNode)
+            {
+                // Bus 0 volume = 1.0 (main output)
+                ma_node_set_output_bus_volume(m_SplitterNode, 0, 1.0f);
+                // Bus 1 volume = 0.0 (muted until reverb send is set)
+                ma_node_set_output_bus_volume(m_SplitterNode, 1, 0.0f);
+
+                // Connect bus 1 to master reverb if available
+                auto* masterReverb = AudioEngine::GetMasterReverb();
+                if (masterReverb && masterReverb->GetNode())
+                {
+                    result = ma_node_attach_output_bus(m_SplitterNode, 1, masterReverb->GetNode(), 0);
+                    if (result != MA_SUCCESS)
+                    {
+                        OLO_CORE_WARN("[AudioSource] Failed to attach reverb send for: {}", m_Path);
+                    }
                 }
             }
         }

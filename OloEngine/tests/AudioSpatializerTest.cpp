@@ -175,6 +175,7 @@ TEST_F(VBAPTest, UpdateProducesNonZeroGains)
         }
     }
     EXPECT_TRUE(anyNonZero);
+    ma_channel_converter_uninit(&converter, nullptr);
 }
 
 TEST_F(VBAPTest, GainSumApproximatelyOne)
@@ -207,6 +208,7 @@ TEST_F(VBAPTest, GainSumApproximatelyOne)
             EXPECT_LE(sumSq, 1.5f) << "At angle " << angleDeg;
         }
     }
+    ma_channel_converter_uninit(&converter, nullptr);
 }
 
 //==============================================================================
