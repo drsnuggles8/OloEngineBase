@@ -249,6 +249,8 @@ namespace OloEngine
                 out << YAML::Key << "StartScene" << YAML::Value << config.StartScene.string();
                 out << YAML::Key << "AssetDirectory" << YAML::Value << config.AssetDirectory.string();
                 out << YAML::Key << "ScriptModulePath" << YAML::Value << config.ScriptModulePath.string();
+                out << YAML::Key << "EnableAutoSave" << YAML::Value << config.EnableAutoSave;
+                out << YAML::Key << "AutoSaveIntervalSeconds" << YAML::Value << config.AutoSaveIntervalSeconds;
                 out << YAML::EndMap; // Project
             }
 
@@ -528,6 +530,16 @@ namespace OloEngine
             config.StartScene = std::move(startScene);
             config.AssetDirectory = std::move(assetDirectory);
             config.ScriptModulePath = std::move(scriptModulePath);
+        }
+
+        // Auto-save settings (optional, defaults apply if absent)
+        if (auto autoSaveNode = projectNode["EnableAutoSave"]; autoSaveNode && autoSaveNode.IsScalar())
+        {
+            config.EnableAutoSave = autoSaveNode.as<bool>(config.EnableAutoSave);
+        }
+        if (auto intervalNode = projectNode["AutoSaveIntervalSeconds"]; intervalNode && intervalNode.IsScalar())
+        {
+            config.AutoSaveIntervalSeconds = std::clamp(intervalNode.as<int>(config.AutoSaveIntervalSeconds), 10, 7200);
         }
 
         // Physics settings deserialization

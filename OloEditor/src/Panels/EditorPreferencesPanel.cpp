@@ -115,6 +115,21 @@ namespace OloEngine
         ImGui::DragFloat("Translate Snap", &m_Draft.TranslateSnap, 0.05f, 0.01f, 100.0f, "%.2f");
         ImGui::DragFloat("Rotate Snap", &m_Draft.RotateSnap, 1.0f, 1.0f, 180.0f, "%.1f deg");
         ImGui::DragFloat("Scale Snap", &m_Draft.ScaleSnap, 0.05f, 0.01f, 10.0f, "%.2f");
+
+        ImGui::Spacing();
+        ImGui::Text("Auto-Save");
+        ImGui::Separator();
+        ImGui::Checkbox("Enable Auto-Save", &m_Draft.EnableAutoSave);
+        if (m_Draft.EnableAutoSave)
+        {
+            ImGui::SliderInt("Interval (seconds)", &m_Draft.AutoSaveIntervalSeconds, 10, 7200, "%d s");
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Auto-saves the scene every N seconds while in Edit mode.\nRequires a prior manual save (scene must have a file path).\nRange: 10 s – 7200 s (2 hours).");
+            }
+        }
     }
 
     void EditorPreferencesPanel::DrawCameraTab()
@@ -230,6 +245,8 @@ namespace OloEngine
         out << YAML::Key << "ThrottleEditMode" << YAML::Value << prefs.ThrottleEditMode;
         out << YAML::Key << "ThrottlePlayMode" << YAML::Value << prefs.ThrottlePlayMode;
         out << YAML::Key << "RenderBudgetMs" << YAML::Value << prefs.RenderBudgetMs;
+        out << YAML::Key << "EnableAutoSave" << YAML::Value << prefs.EnableAutoSave;
+        out << YAML::Key << "AutoSaveIntervalSeconds" << YAML::Value << prefs.AutoSaveIntervalSeconds;
 
         // Camera bookmarks
         out << YAML::Key << "Bookmarks" << YAML::Value << YAML::BeginSeq;
@@ -322,6 +339,10 @@ namespace OloEngine
                 prefs.ThrottlePlayMode = node["ThrottlePlayMode"].as<bool>();
             if (node["RenderBudgetMs"])
                 prefs.RenderBudgetMs = std::clamp(node["RenderBudgetMs"].as<f32>(), 8.0f, 100.0f);
+            if (node["EnableAutoSave"])
+                prefs.EnableAutoSave = node["EnableAutoSave"].as<bool>();
+            if (node["AutoSaveIntervalSeconds"])
+                prefs.AutoSaveIntervalSeconds = std::clamp(node["AutoSaveIntervalSeconds"].as<int>(), 10, 7200);
 
             // Camera bookmarks
             if (auto bookmarks = node["Bookmarks"])

@@ -74,6 +74,11 @@ namespace OloEngine
 
         void SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const;
 
+        // Auto-save
+        void AutoSaveScene();
+        void UI_AutoSaveRecoveryModal();
+        void DeleteAutoSaveFile();
+
         void OnScenePlay();
         void OnSceneSimulate();
         void OnSceneStop();
@@ -253,6 +258,12 @@ namespace OloEngine
         f32 m_RenderBudgetMs = 33.3f; // Skip if last frame > ~30 FPS
         f32 m_LastFrameTimeMs = 0.0f;
         bool m_ViewportRenderSkipped = false;
+
+        // Auto-save
+        f32 m_TimeSinceLastAutoSave = 0.0f;
+        bool m_ShowAutoSaveRecovery = false;
+        std::filesystem::path m_PendingRecoveryScenePath;
+        std::filesystem::path m_PendingRecoveryAutoPath;
 
         // Editor resources
         Ref<Texture2D> m_IconPlay;

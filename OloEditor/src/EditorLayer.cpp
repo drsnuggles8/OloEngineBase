@@ -16,6 +16,7 @@
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Scene/Prefab.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Asset/AssetManager.h"
@@ -290,6 +291,16 @@ namespace OloEngine
                 m_ActiveScene->SetGridSpacing(m_GridSpacing);
                 m_ActiveScene->SetLightGizmosVisible(m_ShowLightGizmos);
                 m_ActiveScene->OnUpdateEditor(ts, m_EditorCamera);
+
+                // Auto-save timer
+                if (auto const project = Project::GetActive(); project && project->GetConfig().EnableAutoSave && !m_EditorScenePath.empty())
+                {
+                    m_TimeSinceLastAutoSave += ts;
+                    if (m_TimeSinceLastAutoSave >= static_cast<f32>(project->GetConfig().AutoSaveIntervalSeconds))
+                    {
+                        AutoSaveScene();
+                    }
+                }
                 break;
             }
             case SceneState::Simulate:
@@ -472,6 +483,7 @@ namespace OloEngine
         UI_Viewport();
         UI_DebugTools();
         UI_ChildPanels();
+        UI_AutoSaveRecoveryModal();
 
         ImGui::End();
     }
@@ -1232,6 +1244,13 @@ namespace OloEngine
         auto& physicsSettings = Physics3DSystem::GetSettings();
         physicsSettings.m_CaptureOnPlay = m_Prefs.CapturePhysicsOnPlay;
 
+        if (auto project = Project::GetActive())
+        {
+            auto& cfg = project->GetConfig();
+            cfg.EnableAutoSave = m_Prefs.EnableAutoSave;
+            cfg.AutoSaveIntervalSeconds = std::clamp(m_Prefs.AutoSaveIntervalSeconds, 10, 7200);
+        }
+
         if (m_Is3DMode && !Renderer3D::IsInitialized())
         {
             TryInitialize3DMode();
@@ -1253,6 +1272,13 @@ namespace OloEngine
         m_Prefs.ThrottleEditMode = m_ThrottleEditMode;
         m_Prefs.ThrottlePlayMode = m_ThrottlePlayMode;
         m_Prefs.RenderBudgetMs = m_RenderBudgetMs;
+
+        if (auto const project = Project::GetActive())
+        {
+            auto& cfg = project->GetConfig();
+            m_Prefs.EnableAutoSave = cfg.EnableAutoSave;
+            m_Prefs.AutoSaveIntervalSeconds = cfg.AutoSaveIntervalSeconds;
+        }
     }
 
     void EditorLayer::UI_DebugTools()
@@ -1863,6 +1889,17 @@ namespace OloEngine
             return false;
         }
 
+        // Check for a newer auto-save file
+        auto autoPath = path;
+        autoPath += ".auto";
+        if (FileSystem::IsNewer(autoPath, path))
+        {
+            m_PendingRecoveryScenePath = path;
+            m_PendingRecoveryAutoPath = autoPath;
+            m_ShowAutoSaveRecovery = true;
+            return true; // The modal will handle loading
+        }
+
         Ref<Scene> const newScene = Ref<Scene>::Create();
         if (SceneSerializer serializer(newScene); !serializer.Deserialize(path.string()))
         {
@@ -1877,6 +1914,7 @@ namespace OloEngine
         Renderer3D::GetSnowEjectaSettings() = newScene->GetSnowEjectaSettings();
         Renderer3D::GetPrecipitationSettings() = newScene->GetPrecipitationSettings();
         Renderer3D::GetFogSettings() = newScene->GetFogSettings();
+        m_TimeSinceLastAutoSave = 0.0f;
         return true;
     }
 
@@ -1901,6 +1939,10 @@ namespace OloEngine
             {
                 m_EditorPreferencesPanel.Save(m_Prefs, Project::GetProjectDirectory());
             }
+
+            // Clean up auto-save file on manual save
+            DeleteAutoSaveFile();
+            m_TimeSinceLastAutoSave = 0.0f;
             return true;
         }
 
@@ -1940,6 +1982,10 @@ namespace OloEngine
         {
             m_EditorPreferencesPanel.Save(m_Prefs, Project::GetProjectDirectory());
         }
+
+        // Clean up auto-save file on manual save
+        DeleteAutoSaveFile();
+        m_TimeSinceLastAutoSave = 0.0f;
         return true;
     }
 
@@ -1947,6 +1993,133 @@ namespace OloEngine
     {
         const SceneSerializer serializer(scene);
         serializer.Serialize(path);
+    }
+
+    void EditorLayer::AutoSaveScene()
+    {
+        if (m_EditorScenePath.empty())
+        {
+            return;
+        }
+
+        auto autoPath = m_EditorScenePath;
+        autoPath += ".auto";
+
+        // Sync renderer settings into scene before saving
+        m_EditorScene->SetPostProcessSettings(Renderer3D::GetPostProcessSettings());
+        m_EditorScene->SetSnowSettings(Renderer3D::GetSnowSettings());
+        m_EditorScene->SetWindSettings(Renderer3D::GetWindSettings());
+        m_EditorScene->SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());
+        m_EditorScene->SetSnowEjectaSettings(Renderer3D::GetSnowEjectaSettings());
+        m_EditorScene->SetPrecipitationSettings(Renderer3D::GetPrecipitationSettings());
+        m_EditorScene->SetFogSettings(Renderer3D::GetFogSettings());
+        SerializeScene(m_EditorScene, autoPath);
+
+        // Also save editor preferences alongside
+        SyncPrefsFromMembers();
+        if (Project::GetActive())
+        {
+            m_EditorPreferencesPanel.Save(m_Prefs, Project::GetProjectDirectory());
+        }
+
+        m_TimeSinceLastAutoSave = 0.0f;
+        OLO_CORE_INFO("Auto-saved scene to '{0}'", autoPath.string());
+    }
+
+    void EditorLayer::DeleteAutoSaveFile()
+    {
+        std::error_code ec;
+        if (!m_EditorScenePath.empty())
+        {
+            auto autoPath = m_EditorScenePath;
+            autoPath += ".auto";
+            std::filesystem::remove(autoPath, ec);
+        }
+    }
+
+    void EditorLayer::UI_AutoSaveRecoveryModal()
+    {
+        if (m_ShowAutoSaveRecovery)
+        {
+            ImGui::OpenPopup("Recover Auto-Save?");
+            m_ShowAutoSaveRecovery = false; // Only open once; the popup stays open until user picks
+        }
+
+        ImGui::SetNextWindowSize(ImVec2(480, 0), ImGuiCond_FirstUseEver);
+        if (ImGui::BeginPopupModal("Recover Auto-Save?", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse))
+        {
+            ImGui::TextWrapped("An auto-save file was found that is newer than the saved scene:");
+            ImGui::Spacing();
+            ImGui::TextWrapped("%s", m_PendingRecoveryAutoPath.filename().string().c_str());
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            if (ImGui::Button("Load Auto-Save", ImVec2(140, 0)))
+            {
+                // Load the auto-saved version
+                Ref<Scene> const newScene = Ref<Scene>::Create();
+                if (SceneSerializer serializer(newScene); serializer.Deserialize(m_PendingRecoveryAutoPath.string()))
+                {
+                    SetEditorScene(newScene);
+                    m_EditorScenePath = m_PendingRecoveryScenePath;
+                    Renderer3D::GetPostProcessSettings() = newScene->GetPostProcessSettings();
+                    Renderer3D::GetSnowSettings() = newScene->GetSnowSettings();
+                    Renderer3D::GetWindSettings() = newScene->GetWindSettings();
+                    Renderer3D::GetSnowAccumulationSettings() = newScene->GetSnowAccumulationSettings();
+                    Renderer3D::GetSnowEjectaSettings() = newScene->GetSnowEjectaSettings();
+                    Renderer3D::GetPrecipitationSettings() = newScene->GetPrecipitationSettings();
+                    Renderer3D::GetFogSettings() = newScene->GetFogSettings();
+                }
+                m_TimeSinceLastAutoSave = 0.0f;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Load Original", ImVec2(140, 0)))
+            {
+                // Load the original scene and keep the .auto file for now
+                Ref<Scene> const newScene = Ref<Scene>::Create();
+                if (SceneSerializer serializer(newScene); serializer.Deserialize(m_PendingRecoveryScenePath.string()))
+                {
+                    SetEditorScene(newScene);
+                    m_EditorScenePath = m_PendingRecoveryScenePath;
+                    Renderer3D::GetPostProcessSettings() = newScene->GetPostProcessSettings();
+                    Renderer3D::GetSnowSettings() = newScene->GetSnowSettings();
+                    Renderer3D::GetWindSettings() = newScene->GetWindSettings();
+                    Renderer3D::GetSnowAccumulationSettings() = newScene->GetSnowAccumulationSettings();
+                    Renderer3D::GetSnowEjectaSettings() = newScene->GetSnowEjectaSettings();
+                    Renderer3D::GetPrecipitationSettings() = newScene->GetPrecipitationSettings();
+                    Renderer3D::GetFogSettings() = newScene->GetFogSettings();
+                }
+                m_TimeSinceLastAutoSave = 0.0f;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Discard Auto-Save", ImVec2(140, 0)))
+            {
+                // Load original and delete the auto-save file
+                std::error_code ec;
+                std::filesystem::remove(m_PendingRecoveryAutoPath, ec);
+
+                Ref<Scene> const newScene = Ref<Scene>::Create();
+                if (SceneSerializer serializer(newScene); serializer.Deserialize(m_PendingRecoveryScenePath.string()))
+                {
+                    SetEditorScene(newScene);
+                    m_EditorScenePath = m_PendingRecoveryScenePath;
+                    Renderer3D::GetPostProcessSettings() = newScene->GetPostProcessSettings();
+                    Renderer3D::GetSnowSettings() = newScene->GetSnowSettings();
+                    Renderer3D::GetWindSettings() = newScene->GetWindSettings();
+                    Renderer3D::GetSnowAccumulationSettings() = newScene->GetSnowAccumulationSettings();
+                    Renderer3D::GetSnowEjectaSettings() = newScene->GetSnowEjectaSettings();
+                    Renderer3D::GetPrecipitationSettings() = newScene->GetPrecipitationSettings();
+                    Renderer3D::GetFogSettings() = newScene->GetFogSettings();
+                }
+                m_TimeSinceLastAutoSave = 0.0f;
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
+        }
     }
 
     void EditorLayer::OnScenePlay()

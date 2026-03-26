@@ -17,6 +17,10 @@ namespace OloEngine
 
         std::filesystem::path AssetDirectory;
         std::filesystem::path ScriptModulePath;
+
+        // Auto-save
+        bool EnableAutoSave = true;
+        int AutoSaveIntervalSeconds = 300; // 5 minutes
     };
 
     class Project : public RefCounted
@@ -59,6 +63,11 @@ namespace OloEngine
         }
 
         ProjectConfig& GetConfig()
+        {
+            return m_Config;
+        }
+
+        const ProjectConfig& GetConfig() const
         {
             return m_Config;
         }

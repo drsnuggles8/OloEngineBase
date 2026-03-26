@@ -52,4 +52,27 @@ namespace OloEngine
         return result;
     }
 
+    bool FileSystem::IsNewer(const std::filesystem::path& pathA, const std::filesystem::path& pathB)
+    {
+        std::error_code ec;
+        if (!std::filesystem::exists(pathA, ec) || !std::filesystem::exists(pathB, ec))
+        {
+            return false;
+        }
+
+        auto const timeA = std::filesystem::last_write_time(pathA, ec);
+        if (ec)
+        {
+            return false;
+        }
+
+        auto const timeB = std::filesystem::last_write_time(pathB, ec);
+        if (ec)
+        {
+            return false;
+        }
+
+        return timeA > timeB;
+    }
+
 } // namespace OloEngine

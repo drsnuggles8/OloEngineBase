@@ -125,6 +125,8 @@ add_executable(OloEngine-Tests
 		InventoryTest.cpp
 		# Quest Tests
 		QuestSystemTest.cpp
+		# Auto-Save Tests
+		AutoSaveTest.cpp
 		# Gameplay Ability Tests
 		Gameplay/GameplayAbilityTest.cpp
 )

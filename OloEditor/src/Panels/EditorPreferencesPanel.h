@@ -48,6 +48,10 @@ namespace OloEngine
 
         // Physics debug
         bool CapturePhysicsOnPlay = false;
+
+        // Auto-save (synced with ProjectConfig)
+        bool EnableAutoSave = true;
+        int AutoSaveIntervalSeconds = 300;
     };
 
     class EditorPreferencesPanel
