@@ -205,7 +205,8 @@ TEST_F(VBAPTest, GainSumApproximatelyOne)
                 sumSq += gains[i] * gains[i];
             }
             // RMS-normalized overall gain at full attenuation should be <= 1
-            EXPECT_LE(sumSq, 1.5f) << "At angle " << angleDeg;
+            constexpr float kGainSumEpsilon = 1e-2f;
+            EXPECT_LE(sumSq, 1.0f + kGainSumEpsilon) << "At angle " << angleDeg;
         }
     }
     ma_channel_converter_uninit(&converter, nullptr);

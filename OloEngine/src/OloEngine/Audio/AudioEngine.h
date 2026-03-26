@@ -2,6 +2,7 @@
 
 #include "OloEngine/HAL/Thread.h"
 #include <atomic>
+#include <optional>
 
 struct ma_engine;
 
@@ -27,7 +28,7 @@ namespace OloEngine
         // Master reverb bus
         [[nodiscard("Store this!")]] static Audio::DSP::Reverb* GetMasterReverb();
         static void SetMasterReverbParameter(Audio::DSP::ReverbParameter parameter, float value);
-        [[nodiscard("Store this!")]] static float GetMasterReverbParameter(Audio::DSP::ReverbParameter parameter);
+        [[nodiscard("Store this!")]] static std::optional<float> GetMasterReverbParameter(Audio::DSP::ReverbParameter parameter);
 
         // 3D spatializer
         [[nodiscard("Store this!")]] static Audio::DSP::Spatializer* GetSpatializer();

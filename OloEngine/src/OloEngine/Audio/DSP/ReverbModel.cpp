@@ -5,6 +5,8 @@ namespace OloEngine::Audio::DSP
 {
     ReverbModel::ReverbModel(double sampleRate)
     {
+        OLO_CORE_ASSERT(sampleRate > 0.0, "ReverbModel: sampleRate must be positive, got {}", sampleRate);
+
         // Scale buffer sizes from 44100 Hz reference to the actual sample rate
         const double srCoef = 44100.0 / sampleRate;
 

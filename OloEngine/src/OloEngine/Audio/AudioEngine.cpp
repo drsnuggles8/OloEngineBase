@@ -119,12 +119,14 @@ namespace OloEngine
                 s_Spatializer = nullptr;
             }
 
-            // Uninitialize master reverb before engine teardown
+            // Uninitialize master reverb before engine teardown.
+            // Null out pointer first so concurrent AudioSource access sees null.
             if (s_MasterReverb)
             {
-                s_MasterReverb->Uninitialize();
-                delete s_MasterReverb;
+                auto* reverbToDelete = s_MasterReverb;
                 s_MasterReverb = nullptr;
+                reverbToDelete->Uninitialize();
+                delete reverbToDelete;
             }
 
             ::ma_engine_uninit(s_Engine);
@@ -153,13 +155,13 @@ namespace OloEngine
         }
     }
 
-    float AudioEngine::GetMasterReverbParameter(Audio::DSP::ReverbParameter parameter)
+    std::optional<float> AudioEngine::GetMasterReverbParameter(Audio::DSP::ReverbParameter parameter)
     {
         if (s_MasterReverb)
         {
             return s_MasterReverb->GetParameter(parameter);
         }
-        return 0.0f;
+        return std::nullopt;
     }
 
     Audio::DSP::Spatializer* AudioEngine::GetSpatializer()

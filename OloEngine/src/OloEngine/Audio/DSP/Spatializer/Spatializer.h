@@ -50,7 +50,7 @@ namespace OloEngine::Audio::DSP
         struct Source;
 
         static float GetSpreadFromSourceSize(float sourceSize, float distance);
-        static void UpdatePositionalData(Source& source, const ma_spatializer_listener* listener);
+        static void UpdatePositionalData(Source& source, const ma_spatializer_listener* listener, glm::vec3 listenerVelocity);
         static void UpdateVBAP(Source& source, bool isInitialPosition = false);
         static void FlagRealtimeForUpdate(Source& source);
 
@@ -126,6 +126,9 @@ namespace OloEngine::Audio::DSP
             glm::vec3 RelativeDir{ 0.0f, 0.0f, -1.0f };
 
             glm::vec3 Velocity{ 0.0f };
+
+            // Original downstream input bus index, captured during InitSource
+            ma_uint8 DownstreamInputBus = 0;
         };
 
         std::unordered_map<u32, Source> m_Sources;

@@ -22,7 +22,7 @@ namespace OloEngine::Audio::DSP
         void SetDelay(float newDelayInSamples)
         {
             auto upperLimit = static_cast<float>(m_TotalSize - 1);
-            m_Delay = std::clamp(newDelayInSamples, 1.0f, upperLimit);
+            m_Delay = std::clamp(newDelayInSamples, 0.0f, upperLimit);
             m_DelayInt = static_cast<int>(std::floor(m_Delay));
         }
 
@@ -84,7 +84,7 @@ namespace OloEngine::Audio::DSP
             if (delayInSamples >= 0.0f)
             {
                 auto upperLimit = static_cast<float>(m_TotalSize - 1);
-                float clamped = std::clamp(delayInSamples, 1.0f, upperLimit);
+                float clamped = std::clamp(delayInSamples, 0.0f, upperLimit);
                 delayInt = static_cast<int>(std::floor(clamped));
             }
 
@@ -104,8 +104,8 @@ namespace OloEngine::Audio::DSP
         std::vector<std::vector<float>> m_BufferData;
         std::vector<int> m_WritePos;
         std::vector<int> m_ReadPos;
-        float m_Delay = 1.0f;
-        int m_DelayInt = 1;
+        float m_Delay = 0.0f;
+        int m_DelayInt = 0;
         int m_TotalSize = 4;
     };
 } // namespace OloEngine::Audio::DSP

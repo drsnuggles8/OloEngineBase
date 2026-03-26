@@ -1402,18 +1402,18 @@ namespace OloEngine
             TrySet(src.Config.ConeOuterAngle, audioSourceComponent["ConeOuterAngle"]);
             TrySet(src.Config.ConeOuterGain, audioSourceComponent["ConeOuterGain"]);
             TrySet(src.Config.DopplerFactor, audioSourceComponent["DopplerFactor"]);
-            TrySet(src.Config.Spread, audioSourceComponent["Spread"]);
-            TrySet(src.Config.Focus, audioSourceComponent["Focus"]);
-            TrySet(src.Config.LowPassCutoff, audioSourceComponent["LowPassCutoff"]);
-            TrySet(src.Config.HighPassCutoff, audioSourceComponent["HighPassCutoff"]);
-            TrySet(src.Config.ReverbSend, audioSourceComponent["ReverbSend"]);
 
-            // Sanitize DSP parameters (handles NaN/Inf from corrupt scene files)
-            SanitizeFloat(src.Config.Spread, 0.0f, 1.0f, 1.0f);
-            SanitizeFloat(src.Config.Focus, 0.0f, 1.0f, 1.0f);
-            SanitizeFloat(src.Config.LowPassCutoff, 0.0f, 1.0f, 1.0f);
-            SanitizeFloat(src.Config.HighPassCutoff, 0.0f, 1.0f, 0.0f);
-            SanitizeFloat(src.Config.ReverbSend, 0.0f, 1.0f, 0.0f);
+            // DSP parameters: load + sanitize in one step to prevent drift
+            auto TrySetDsp = [&](f32& field, const char* key, f32 lo, f32 hi, f32 fallback)
+            {
+                TrySet(field, audioSourceComponent[key]);
+                SanitizeFloat(field, lo, hi, fallback);
+            };
+            TrySetDsp(src.Config.Spread, "Spread", 0.0f, 1.0f, 1.0f);
+            TrySetDsp(src.Config.Focus, "Focus", 0.0f, 1.0f, 1.0f);
+            TrySetDsp(src.Config.LowPassCutoff, "LowPassCutoff", 0.0f, 1.0f, 1.0f);
+            TrySetDsp(src.Config.HighPassCutoff, "HighPassCutoff", 0.0f, 1.0f, 0.0f);
+            TrySetDsp(src.Config.ReverbSend, "ReverbSend", 0.0f, 1.0f, 0.0f);
 
             if (!audioFilepath.empty())
             {

@@ -33,6 +33,19 @@ namespace OloEngine::Audio::DSP
         }
 
         const float* pFramesIn0 = ppFramesIn[0];
+
+        // With MA_NODE_FLAG_ALLOW_NULL_INPUT, ppFramesIn may be non-null
+        // but individual bus pointers can still be null for disconnected buses.
+        if (pFramesIn0 == nullptr)
+        {
+            for (u32 oBus = 0; oBus < outBuses; ++oBus)
+            {
+                ma_silence_pcm_frames(ppFramesOut[oBus], *pFrameCountOut, ma_format_f32,
+                                      ma_node_get_output_channels(pNodeBase, oBus));
+            }
+            return;
+        }
+
         float* pFramesOut0 = ppFramesOut[0];
 
         u32 channels = ma_node_get_input_channels(pNodeBase, 0);
@@ -81,7 +94,7 @@ namespace OloEngine::Audio::DSP
             ReverbNodeProcessPcmFrames(pNode, ppFramesIn, pFrameCountIn, ppFramesOut, pFrameCountOut);
         },
         nullptr,
-        2, // 2 input buses (1 audio + 1 unused/modulator)
+        1, // 1 input bus (audio)
         1, // 1 output bus
         MA_NODE_FLAG_CONTINUOUS_PROCESSING | MA_NODE_FLAG_ALLOW_NULL_INPUT
     };
@@ -113,7 +126,7 @@ namespace OloEngine::Audio::DSP
         m_DelayLine = std::make_unique<DelayLine>(static_cast<int>(sampleRate) + 1);
         m_RevModel = std::make_unique<ReverbModel>(sampleRate);
 
-        ma_uint32 inChannels[2]{ numChannels, numChannels };
+        ma_uint32 inChannels[1]{ numChannels };
         ma_uint32 outChannels[1]{ numChannels };
         ma_node_config nodeConfig = ma_node_config_init();
         nodeConfig.vtable = &s_ReverbVtable;

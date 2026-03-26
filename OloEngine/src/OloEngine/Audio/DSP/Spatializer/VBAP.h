@@ -11,8 +11,12 @@
 
 #include <array>
 #include <atomic>
+#include <cmath>
+#include <utility>
 #include <vector>
 
+#include <glm/geometric.hpp>
+#include <glm/trigonometric.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 #include <glm/mat2x2.hpp>
@@ -63,8 +67,8 @@ namespace OloEngine::Audio::DSP
             m_ActiveIndex.store(writeIdx, std::memory_order_release);
         }
 
-        // Read the latest gains from the realtime thread (lockfree)
-        [[nodiscard]] const ChannelGains& Read() const
+        // Read the latest gains from the realtime thread (lockfree, returns snapshot by value)
+        [[nodiscard]] ChannelGains Read() const
         {
             return m_Buffers[m_ActiveIndex.load(std::memory_order_acquire)];
         }
@@ -141,67 +145,28 @@ namespace OloEngine::Audio::DSP
         std::vector<VBAP::ChannelGroup> ChannelGroups;
     };
 
-    // Calculate angle in XZ where -Z is forward direction
+    // Calculate angle in XZ where -Z is forward direction.
+    // Uses atan2 for quadrant safety; zero-length vectors return 0 (forward).
     inline float VectorAngle(const glm::vec3& vec)
     {
-        glm::vec3 norm = glm::normalize(vec);
-        float x = norm.x;
-        float y = norm.z;
-
-        if (x == 0.0f)
+        float x = vec.x;
+        float y = vec.z;
+        if (x == 0.0f && y == 0.0f)
         {
-            return glm::radians((y < 0.0f) ? 0.0f : (y == 0.0f) ? 0.0f
-                                                                : 180.0f);
+            return 0.0f;
         }
-        if (y == 0.0f)
-        {
-            return glm::radians((x > 0.0f) ? 90.0f : (x < 0.0f) ? -90.0f
-                                                                : 0.0f);
-        }
-
-        float ret = glm::degrees(atanf(x / y));
-
-        if (x < 0.0f && y < 0.0f)
-            ret *= -1.0f;
-        else if (x < 0.0f)
-            ret = (180.0f + ret) * -1.0f;
-        else if (y < 0)
-            ret *= -1.0f;
-        else
-            ret = 180.0f - ret;
-
-        return glm::radians(ret);
+        return std::atan2(x, -y);
     }
 
     inline float VectorAngle(const glm::vec2& vec)
     {
-        glm::vec2 norm = glm::normalize(vec);
-        float x = norm.x;
-        float y = norm.y;
-
-        if (x == 0.0f)
+        float x = vec.x;
+        float y = vec.y;
+        if (x == 0.0f && y == 0.0f)
         {
-            return glm::radians((y < 0.0f) ? 0.0f : (y == 0.0f) ? 0.0f
-                                                                : 180.0f);
+            return 0.0f;
         }
-        if (y == 0.0f)
-        {
-            return glm::radians((x > 0.0f) ? 90.0f : (x < 0.0f) ? -90.0f
-                                                                : 0.0f);
-        }
-
-        float ret = glm::degrees(atanf(x / y));
-
-        if (x < 0.0f && y < 0.0f)
-            ret *= -1.0f;
-        else if (x < 0.0f)
-            ret = (180.0f + ret) * -1.0f;
-        else if (y < 0)
-            ret *= -1.0f;
-        else
-            ret = 180.0f - ret;
-
-        return glm::radians(ret);
+        return std::atan2(x, -y);
     }
 
 } // namespace OloEngine::Audio::DSP

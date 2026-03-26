@@ -256,7 +256,7 @@ namespace OloEngine::Audio::DSP
         return degreeSpread / 180.0f;
     }
 
-    void Spatializer::UpdatePositionalData(Source& source, const ma_spatializer_listener* listener)
+    void Spatializer::UpdatePositionalData(Source& source, const ma_spatializer_listener* listener, glm::vec3 listenerVelocity)
     {
         auto* pEngineNode = source.SpatializerNode.targetEngineNode;
         const float distance = source.Distance;
@@ -293,12 +293,11 @@ namespace OloEngine::Audio::DSP
 
         gainAttenuation = std::clamp(gainAttenuation, source.MinGain, source.MaxGain);
 
-        glm::vec3 listenerVel(0.0f);
-        if (listener)
-        {
-            ma_vec3f vel = ma_spatializer_listener_get_velocity(listener);
-            listenerVel = glm::vec3{ vel.x, vel.y, vel.z };
-        }
+        // Store clamped combined attenuation for VBAP
+        source.DistanceAttenuationFactor = gainAttenuation;
+        source.AngleAttenuationFactor = 1.0f; // Already folded into clamped gainAttenuation
+
+        glm::vec3 listenerVel = listenerVelocity;
 
         // Doppler effect
         if (source.DopplerFactor > 0.0f && listener != nullptr)
@@ -420,8 +419,9 @@ namespace OloEngine::Audio::DSP
 
         // Routing: insert spatializer between nodeToInsertAfter and its current output
         auto* output = nodeToInsertAfter->baseNode.pOutputBuses->pInputNode;
+        ma_uint8 downstreamInputBus = nodeToInsertAfter->baseNode.pOutputBuses->inputNodeInputBusIndex;
 
-        result = ma_node_attach_output_bus(&source.SpatializerNode, 0, output, 0);
+        result = ma_node_attach_output_bus(&source.SpatializerNode, 0, output, downstreamInputBus);
         if (abortIfFailed(result, "Spatializer output attach failed"))
         {
             return false;
@@ -435,6 +435,7 @@ namespace OloEngine::Audio::DSP
 
         source.SourceID = sourceID;
         source.bInitialized = true;
+        source.DownstreamInputBus = downstreamInputBus;
 
         return true;
     }
@@ -455,22 +456,25 @@ namespace OloEngine::Audio::DSP
             auto* output = source.SpatializerNode.base.pOutputBuses->pInputNode;
             auto* input = source.SpatializerNode.targetEngineNode;
 
-            ma_result result = ma_node_attach_output_bus(input, 0, output, 0);
+            ma_result result = ma_node_attach_output_bus(input, 0, output, source.DownstreamInputBus);
             if (result != MA_SUCCESS)
             {
                 OLO_CORE_ASSERT(false, "Node reattach failed during ReleaseSource");
             }
+        }
 
-            if (((ma_node_base*)&source.SpatializerNode)->vtable != nullptr)
+        // Always clean up the node if it was initialized (vtable set)
+        if (((ma_node_base*)&source.SpatializerNode)->vtable != nullptr)
+        {
+            ma_node_set_state(&source.SpatializerNode, ma_node_state_stopped);
+
+            auto* allocationCallbacks = &m_Engine->pResourceManager->config.allocationCallbacks;
+            if (!allocationCallbacks->onFree)
             {
-                auto* allocationCallbacks = &m_Engine->pResourceManager->config.allocationCallbacks;
-                if (!allocationCallbacks->onFree)
-                {
-                    allocationCallbacks = nullptr;
-                }
-                ma_node_uninit(&source.SpatializerNode, allocationCallbacks);
-                source.SpatializerNode.targetEngineNode = nullptr;
+                allocationCallbacks = nullptr;
             }
+            ma_node_uninit(&source.SpatializerNode, allocationCallbacks);
+            source.SpatializerNode.targetEngineNode = nullptr;
         }
 
         VBAP::ClearVBAP(source.SpatializerNode.vbap.get());
@@ -537,7 +541,7 @@ namespace OloEngine::Audio::DSP
             source.Spread = GetSpreadFromSourceSize(source.SourceSize, distance);
         }
 
-        UpdatePositionalData(source, &m_Engine->listeners[0]);
+        UpdatePositionalData(source, &m_Engine->listeners[0], m_ListenerVelocity);
         UpdateVBAP(source, !source.bInitialPositionSet);
 
         // Start audio callback after first position update (prevents volume spike)
@@ -573,6 +577,12 @@ namespace OloEngine::Audio::DSP
             glm::vec3 relativeDir = glm::normalize(lookatMR * glm::vec4(lp, 1.0f));
 
             const float distance = glm::length(relativePos);
+
+            if (distance < 1e-6f)
+            {
+                relativePos = glm::vec3(0.0f, 0.0f, -0.001f);
+            }
+
             float azimuth = VectorAngle(glm::normalize(relativePos));
 
             source.Distance = distance;
@@ -591,7 +601,7 @@ namespace OloEngine::Audio::DSP
                       [&](std::pair<const u32, Source>& pair)
                       {
                           auto& source = pair.second;
-                          UpdatePositionalData(source, &m_Engine->listeners[0]);
+                          UpdatePositionalData(source, &m_Engine->listeners[0], m_ListenerVelocity);
                           UpdateVBAP(source);
                           FlagRealtimeForUpdate(source);
                       });

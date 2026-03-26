@@ -107,10 +107,27 @@ namespace OloEngine
             ::ma_sound_set_attenuation_model(sound, ma_attenuation_model_none);
         }
 
-        // DSP filter parameters — always apply so defaults can be restored
-        SetLowPassCutoff(config.LowPassCutoff);
-        SetHighPassCutoff(config.HighPassCutoff);
-        SetReverbSend(config.ReverbSend);
+        // DSP filter parameters — only init chain if parameters deviate from bypass defaults
+        if (config.LowPassCutoff < 1.0f)
+        {
+            SetLowPassCutoff(config.LowPassCutoff);
+        }
+        if (config.HighPassCutoff > 0.0f)
+        {
+            SetHighPassCutoff(config.HighPassCutoff);
+        }
+        if (config.ReverbSend > 0.0f)
+        {
+            SetReverbSend(config.ReverbSend);
+        }
+
+        // If DSP is already initialized, always push current values
+        if (m_DSPInitialized)
+        {
+            SetLowPassCutoff(config.LowPassCutoff);
+            SetHighPassCutoff(config.HighPassCutoff);
+            SetReverbSend(config.ReverbSend);
+        }
     }
 
     void AudioSource::SetVolume(const f32 volume) const
@@ -209,7 +226,7 @@ namespace OloEngine
             return;
         }
 
-        auto* soundNode = reinterpret_cast<ma_node_base*>(m_Sound.get());
+        auto* soundNode = &m_Sound->engineNode.baseNode;
 
         // Insert LPF after the sound node
         m_LowPassFilter = CreateScope<Audio::DSP::LowPassFilter>();
@@ -235,6 +252,7 @@ namespace OloEngine
                                             : soundNode;
 
         u32 numChannels = ma_node_get_output_channels(chainTail, 0);
+        numChannels = std::max(numChannels, 2u); // Ensure at least stereo for reverb send
         ma_splitter_node_config splitterConfig = ma_splitter_node_config_init(numChannels);
 
         m_SplitterNode = new ma_splitter_node();
@@ -254,9 +272,10 @@ namespace OloEngine
         {
             // Store the node that chainTail was connected to (the endpoint)
             auto* oldOutput = chainTail->pOutputBuses[0].pInputNode;
+            ma_uint8 oldInputBus = chainTail->pOutputBuses[0].inputNodeInputBusIndex;
 
             // Splitter bus 0 (dry) → old destination
-            result = ma_node_attach_output_bus(m_SplitterNode, 0, oldOutput, 0);
+            result = ma_node_attach_output_bus(m_SplitterNode, 0, oldOutput, oldInputBus);
             if (result != MA_SUCCESS)
             {
                 OLO_CORE_ERROR("[AudioSource] Splitter dry-bus attach failed for: {}", m_Path);
@@ -360,6 +379,7 @@ namespace OloEngine
         }
         if (m_SplitterNode)
         {
+            sendLevel = std::clamp(sendLevel, 0.0f, 1.0f);
             ma_node_set_output_bus_volume(m_SplitterNode, 1, sendLevel);
         }
     }

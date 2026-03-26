@@ -293,8 +293,11 @@ namespace OloEngine::Audio::DSP
         switch (converter.conversionPath)
         {
             case ma_channel_conversion_path_passthrough:
-                std::memcpy(pFramesOutF32, pFramesInF32, sizeof(float) * channelGainsIn.size());
+            {
+                u32 count = std::min(converter.channelsIn, converter.channelsOut);
+                std::memcpy(pFramesOutF32, pFramesInF32, sizeof(float) * count);
                 break;
+            }
 
             case ma_channel_conversion_path_shuffle:
                 for (ma_uint32 iChannelIn = 0; iChannelIn < converter.channelsIn; ++iChannelIn)
@@ -311,7 +314,14 @@ namespace OloEngine::Audio::DSP
                 break;
 
             case ma_channel_conversion_path_mono_out:
-                pFramesOutF32[0] = (pFramesInF32[0] + pFramesInF32[1]) * 0.5f;
+                if (converter.channelsIn >= 2)
+                {
+                    pFramesOutF32[0] = (pFramesInF32[0] + pFramesInF32[1]) * 0.5f;
+                }
+                else
+                {
+                    pFramesOutF32[0] = pFramesInF32[0];
+                }
                 break;
 
             case ma_channel_conversion_path_weights:

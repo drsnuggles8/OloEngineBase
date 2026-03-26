@@ -106,6 +106,24 @@ namespace OloEngine
         ar << c.DopplerFactor;
         ar << c.Spread << c.Focus;
         ar << c.LowPassCutoff << c.HighPassCutoff << c.ReverbSend;
+
+        if (ar.IsLoading())
+        {
+            auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                {
+                    v = fallback;
+                    return;
+                }
+                v = std::clamp(v, lo, hi);
+            };
+            sanitize(c.Spread, 0.0f, 1.0f, 1.0f);
+            sanitize(c.Focus, 0.0f, 1.0f, 1.0f);
+            sanitize(c.LowPassCutoff, 0.0f, 1.0f, 1.0f);
+            sanitize(c.HighPassCutoff, 0.0f, 1.0f, 0.0f);
+            sanitize(c.ReverbSend, 0.0f, 1.0f, 0.0f);
+        }
     }
 
     static void SerializeAudioListenerConfig(FArchive& ar, AudioListenerConfig& c)

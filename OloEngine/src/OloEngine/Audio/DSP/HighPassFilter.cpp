@@ -52,13 +52,13 @@ namespace OloEngine::Audio::DSP
 
         m_Impl = std::make_unique<Impl>();
 
-        // Initialize with a safe default frequency (20 Hz) to avoid div-by-zero;
-        // the caller will set the actual cutoff via SetCutoffFrequency right after.
         double initCutoff = m_CutoffFrequency.load();
         if (initCutoff <= 0.0)
         {
             initCutoff = MinFrequencyHz;
         }
+        double nyquist = m_SampleRate / 2.0;
+        initCutoff = std::min(initCutoff, nyquist);
 
         ma_hpf_node_config config = ma_hpf_node_config_init(
             m_Channels, static_cast<ma_uint32>(m_SampleRate), initCutoff, FilterOrder);
@@ -70,6 +70,9 @@ namespace OloEngine::Audio::DSP
             m_Impl = nullptr;
             return false;
         }
+
+        // Mark initialized early so Uninitialize() can clean up the node if attach fails
+        m_Initialized = true;
 
         // Insert into the graph: source -> [this filter] -> destination
         auto* destination = nodeToInsertAfter->pOutputBuses[0].pInputNode;
@@ -91,7 +94,6 @@ namespace OloEngine::Audio::DSP
             return false;
         }
 
-        m_Initialized = true;
         return true;
     }
 
@@ -120,8 +122,10 @@ namespace OloEngine::Audio::DSP
 
         if (m_Impl)
         {
+            double nyquist = m_SampleRate / 2.0;
+            double clampedFreq = std::min(frequency, nyquist);
             ma_hpf_config config = ma_hpf_config_init(
-                ma_format_f32, m_Channels, static_cast<ma_uint32>(m_SampleRate), frequency, FilterOrder);
+                ma_format_f32, m_Channels, static_cast<ma_uint32>(m_SampleRate), clampedFreq, FilterOrder);
             ma_result result = ma_hpf_node_reinit(&config, &m_Impl->node);
             if (result != MA_SUCCESS)
             {

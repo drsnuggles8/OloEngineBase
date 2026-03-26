@@ -56,8 +56,11 @@ namespace OloEngine::Audio::DSP
 
         m_Impl = std::make_unique<Impl>();
 
+        double nyquist = m_SampleRate / 2.0;
+        double initCutoff = std::min(m_CutoffFrequency.load(), nyquist);
+
         ma_lpf_node_config config = ma_lpf_node_config_init(
-            m_Channels, static_cast<ma_uint32>(m_SampleRate), m_CutoffFrequency.load(), FilterOrder);
+            m_Channels, static_cast<ma_uint32>(m_SampleRate), initCutoff, FilterOrder);
 
         ma_result result = ma_lpf_node_init(&engine->nodeGraph, &config, nullptr, &m_Impl->node);
         if (result != MA_SUCCESS)
@@ -66,6 +69,9 @@ namespace OloEngine::Audio::DSP
             m_Impl = nullptr;
             return false;
         }
+
+        // Mark initialized early so Uninitialize() can clean up the node if attach fails
+        m_Initialized = true;
 
         // Insert into the graph: source -> [this filter] -> destination
         auto* destination = nodeToInsertAfter->pOutputBuses[0].pInputNode;
@@ -87,7 +93,6 @@ namespace OloEngine::Audio::DSP
             return false;
         }
 
-        m_Initialized = true;
         return true;
     }
 
@@ -116,8 +121,10 @@ namespace OloEngine::Audio::DSP
 
         if (m_Impl)
         {
+            double nyquist = m_SampleRate / 2.0;
+            double clampedFreq = std::min(frequency, nyquist);
             ma_lpf_config config = ma_lpf_config_init(
-                ma_format_f32, m_Channels, static_cast<ma_uint32>(m_SampleRate), frequency, FilterOrder);
+                ma_format_f32, m_Channels, static_cast<ma_uint32>(m_SampleRate), clampedFreq, FilterOrder);
             ma_result result = ma_lpf_node_reinit(&config, &m_Impl->node);
             if (result != MA_SUCCESS)
             {
