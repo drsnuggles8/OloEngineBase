@@ -49,6 +49,7 @@ namespace OloEngine::Audio::DSP
                 std::fill(m_Buffer, m_Buffer + m_BufferSize, 0.0f);
             }
             m_FilterStore = 0.0f;
+            m_BufferIndex = 0;
         }
 
         inline float Process(float input);

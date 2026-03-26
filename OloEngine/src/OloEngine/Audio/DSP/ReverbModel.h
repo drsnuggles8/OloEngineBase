@@ -9,6 +9,7 @@
 #include "OloEngine/Audio/DSP/AllpassFilter.h"
 #include "OloEngine/Audio/DSP/CombFilter.h"
 #include "OloEngine/Audio/DSP/Tuning.h"
+#include <atomic>
 #include <vector>
 
 namespace OloEngine::Audio::DSP
@@ -39,14 +40,25 @@ namespace OloEngine::Audio::DSP
       private:
         void Update();
 
-        float m_Gain = 0.0f;
+        // Thread-safe parameter block: Update() writes to inactive slot, then swaps.
+        // ProcessReplace() reads from active slot without locks.
+        struct ParamBlock
+        {
+            float Gain = 0.0f;
+            float RoomSize1 = 0.0f;
+            float Damp1 = 0.0f;
+            float Wet1 = 0.0f;
+            float Wet2 = 0.0f;
+            float Dry = 0.0f;
+        };
+
+        ParamBlock m_Params[2]{};
+        std::atomic<int> m_ActiveParamIndex{ 0 };
+
+        // Authoring-side state (only modified by game thread via setters)
         float m_RoomSize = 0.0f;
-        float m_RoomSize1 = 0.0f;
         float m_Damp = 0.0f;
-        float m_Damp1 = 0.0f;
         float m_Wet = 0.0f;
-        float m_Wet1 = 0.0f;
-        float m_Wet2 = 0.0f;
         float m_Dry = 0.0f;
         float m_Width = 0.0f;
         float m_Mode = 0.0f;

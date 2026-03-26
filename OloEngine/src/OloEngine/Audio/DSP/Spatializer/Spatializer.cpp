@@ -41,7 +41,7 @@ namespace OloEngine::Audio::DSP
             }
             case AttenuationModelType::Exponential:
             {
-                if (minDistance >= maxDistance)
+                if (minDistance <= 0.0f || minDistance >= maxDistance)
                 {
                     return 1.0f;
                 }
@@ -69,7 +69,12 @@ namespace OloEngine::Audio::DSP
             }
             if (d > cutoffOuter)
             {
-                return std::lerp(coneOuterGain, 1.0f, (d - cutoffOuter) / (cutoffInner - cutoffOuter));
+                float range = cutoffInner - cutoffOuter;
+                if (std::abs(range) < 1e-6f)
+                {
+                    return 1.0f;
+                }
+                return std::lerp(coneOuterGain, 1.0f, (d - cutoffOuter) / range);
             }
             return coneOuterGain;
         }
@@ -513,13 +518,21 @@ namespace OloEngine::Audio::DSP
         const glm::mat4 lookatM = glm::lookAt(lp, lp + lr, lup);
         glm::vec3 relativePos = lookatM * glm::vec4(position, 1.0f);
 
-        // Direction from source to listener in source's space
-        const glm::mat4 lookatMR = glm::lookAt(position, position + orientation, sourceUp);
-        glm::vec3 relativeDir = glm::normalize(lookatMR * glm::vec4(lp, 1.0f));
-
         const float distance = glm::length(relativePos);
 
-        if (distance < 1e-6f)
+        // Direction from source to listener in source's space
+        glm::vec3 relativeDir(0.0f, 0.0f, -1.0f);
+        if (distance >= 1e-6f)
+        {
+            const glm::mat4 lookatMR = glm::lookAt(position, position + orientation, sourceUp);
+            glm::vec3 rawDir = lookatMR * glm::vec4(lp, 1.0f);
+            float rawLen = glm::length(rawDir);
+            if (rawLen > 1e-6f)
+            {
+                relativeDir = rawDir / rawLen;
+            }
+        }
+        else
         {
             // Source is essentially at the listener — use forward direction and minimal distance
             relativePos = glm::vec3(0.0f, 0.0f, -0.001f);
@@ -573,12 +586,20 @@ namespace OloEngine::Audio::DSP
             const glm::mat4 lookatM = glm::lookAt(lp, lp + lr, lup);
             glm::vec3 relativePos = lookatM * glm::vec4(sp, 1.0f);
 
-            const glm::mat4 lookatMR = glm::lookAt(sp, sp + sr, sup);
-            glm::vec3 relativeDir = glm::normalize(lookatMR * glm::vec4(lp, 1.0f));
-
             const float distance = glm::length(relativePos);
 
-            if (distance < 1e-6f)
+            glm::vec3 relativeDir(0.0f, 0.0f, -1.0f);
+            if (distance >= 1e-6f)
+            {
+                const glm::mat4 lookatMR = glm::lookAt(sp, sp + sr, sup);
+                glm::vec3 rawDir = lookatMR * glm::vec4(lp, 1.0f);
+                float rawLen = glm::length(rawDir);
+                if (rawLen > 1e-6f)
+                {
+                    relativeDir = rawDir / rawLen;
+                }
+            }
+            else
             {
                 relativePos = glm::vec3(0.0f, 0.0f, -0.001f);
             }

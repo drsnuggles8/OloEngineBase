@@ -108,6 +108,13 @@ namespace OloEngine::Audio::DSP
 
     void ReverbModel::ProcessReplace(const float* inputL, const float* inputR, float* outputL, float* outputR, i64 numSamples, int skip)
     {
+        // Snapshot parameters once per buffer from the active (published) slot
+        const auto& p = m_Params[m_ActiveParamIndex.load(std::memory_order_acquire)];
+        const float gain = p.Gain;
+        const float wet1 = p.Wet1;
+        const float wet2 = p.Wet2;
+        const float dry = p.Dry;
+
         float outL;
         float outR;
         float input;
@@ -115,7 +122,7 @@ namespace OloEngine::Audio::DSP
         while (numSamples-- > 0)
         {
             outL = outR = 0.0f;
-            input = (*inputL + *inputR) * m_Gain;
+            input = (*inputL + *inputR) * gain;
 
             // Accumulate comb filters in parallel
             for (int i = 0; i < NumCombs; ++i)
@@ -132,8 +139,8 @@ namespace OloEngine::Audio::DSP
             }
 
             // Replace output
-            *outputL = outL * m_Wet1 + outR * m_Wet2 + *inputL * m_Dry;
-            *outputR = outR * m_Wet1 + outL * m_Wet2 + *inputR * m_Dry;
+            *outputL = outL * wet1 + outR * wet2 + *inputL * dry;
+            *outputR = outR * wet1 + outL * wet2 + *inputR * dry;
 
             inputL += skip;
             inputR += skip;
@@ -144,28 +151,39 @@ namespace OloEngine::Audio::DSP
 
     void ReverbModel::Update()
     {
-        m_Wet1 = m_Wet * (m_Width / 2.0f + 0.5f);
-        m_Wet2 = m_Wet * ((1.0f - m_Width) / 2.0f);
+        // Compute derived parameters
+        float wet1 = m_Wet * (m_Width / 2.0f + 0.5f);
+        float wet2 = m_Wet * ((1.0f - m_Width) / 2.0f);
+
+        float roomSize1;
+        float damp1;
+        float gain;
 
         if (m_Mode >= FreezeMode)
         {
-            m_RoomSize1 = 1.0f;
-            m_Damp1 = 0.0f;
-            m_Gain = Muted;
+            roomSize1 = 1.0f;
+            damp1 = 0.0f;
+            gain = Muted;
         }
         else
         {
-            m_RoomSize1 = m_RoomSize;
-            m_Damp1 = m_Damp;
-            m_Gain = FixedGain;
+            roomSize1 = m_RoomSize;
+            damp1 = m_Damp;
+            gain = FixedGain;
         }
 
+        // Write to inactive param slot, then publish atomically
+        int writeIdx = 1 - m_ActiveParamIndex.load(std::memory_order_relaxed);
+        m_Params[writeIdx] = { gain, roomSize1, damp1, wet1, wet2, m_Dry };
+        m_ActiveParamIndex.store(writeIdx, std::memory_order_release);
+
+        // Update per-filter coefficients (CombFilter::SetFeedback/SetDamp are simple float assignments)
         for (int i = 0; i < NumCombs; ++i)
         {
-            m_CombL[i].SetFeedback(m_RoomSize1);
-            m_CombR[i].SetFeedback(m_RoomSize1);
-            m_CombL[i].SetDamp(m_Damp1);
-            m_CombR[i].SetDamp(m_Damp1);
+            m_CombL[i].SetFeedback(roomSize1);
+            m_CombR[i].SetFeedback(roomSize1);
+            m_CombL[i].SetDamp(damp1);
+            m_CombR[i].SetDamp(damp1);
         }
     }
 
@@ -205,6 +223,7 @@ namespace OloEngine::Audio::DSP
     void ReverbModel::SetDry(float value)
     {
         m_Dry = value * ScaleDry;
+        Update();
     }
 
     float ReverbModel::GetDry() const

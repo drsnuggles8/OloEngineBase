@@ -132,7 +132,7 @@ namespace OloEngine::Audio::DSP
         nodeConfig.vtable = &s_ReverbVtable;
         nodeConfig.pInputChannels = inChannels;
         nodeConfig.pOutputChannels = outChannels;
-        nodeConfig.initialState = ma_node_state_started;
+        nodeConfig.initialState = ma_node_state_stopped;
 
         if (!engine->pResourceManager)
         {
@@ -151,6 +151,7 @@ namespace OloEngine::Audio::DSP
         m_DelayLine->SetConfig(ma_node_get_input_channels(&m_Node->base, 0), sampleRate);
         m_DelayLine->SetDelayMs(50); // Default 50ms pre-delay
 
+        // Assign pointers before starting the node so the audio callback never sees nulls
         m_Node->delayLine = m_DelayLine.get();
         m_Node->reverb = m_RevModel.get();
 
@@ -161,6 +162,9 @@ namespace OloEngine::Audio::DSP
             ma_node_uninit(m_Node, nullptr);
             return false;
         }
+
+        // Start processing now that pointers and routing are fully set up
+        ma_node_set_state(m_Node, ma_node_state_started);
 
         m_Initialized = true;
         return true;
