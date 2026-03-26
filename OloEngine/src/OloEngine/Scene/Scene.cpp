@@ -936,7 +936,7 @@ namespace OloEngine
                             auto rot = body->GetRotation();
 
                             transform.Translation = pos;
-                            transform.SetRotation(rot);
+                            transform.SetRotation(glm::normalize(rot));
                         }
                     }
                 }
@@ -1267,7 +1267,7 @@ namespace OloEngine
                             auto rot = body->GetRotation();
 
                             transform.Translation = pos;
-                            transform.SetRotation(rot);
+                            transform.SetRotation(glm::normalize(rot));
                         }
                     }
                 }

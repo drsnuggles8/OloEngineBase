@@ -889,9 +889,8 @@ namespace OloEngine
                 glm::vec3 scale;
                 Math::DecomposeTransform(transform, translation, rotation, scale);
 
-                glm::vec3 const deltaRotation = rotation - tc.GetRotationEuler();
                 tc.Translation = translation;
-                tc.SetRotationEuler(tc.GetRotationEuler() + deltaRotation);
+                tc.SetRotation(glm::quat(rotation));
                 tc.Scale = scale;
             }
 
@@ -1252,7 +1251,9 @@ namespace OloEngine
             cfg.AutoSaveIntervalSeconds = std::clamp(m_Prefs.AutoSaveIntervalSeconds, 10, 7200);
 
             // Apply quality tiering to renderer settings
-            ApplyTieringToSettings(cfg.QualityTiering, Renderer3D::GetPostProcessSettings(), Renderer3D::GetShadowMap().GetSettingsMutable());
+            ShadowSettings shadowCopy = Renderer3D::GetShadowMap().GetSettings();
+            ApplyTieringToSettings(cfg.QualityTiering, Renderer3D::GetPostProcessSettings(), shadowCopy);
+            Renderer3D::GetShadowMap().SetSettings(shadowCopy);
         }
 
         if (m_Is3DMode && !Renderer3D::IsInitialized())
@@ -1918,6 +1919,15 @@ namespace OloEngine
         Renderer3D::GetSnowEjectaSettings() = newScene->GetSnowEjectaSettings();
         Renderer3D::GetPrecipitationSettings() = newScene->GetPrecipitationSettings();
         Renderer3D::GetFogSettings() = newScene->GetFogSettings();
+
+        // Reapply quality tiering over scene-loaded settings
+        if (auto project = Project::GetActive())
+        {
+            ShadowSettings shadowCopy = Renderer3D::GetShadowMap().GetSettings();
+            ApplyTieringToSettings(project->GetConfig().QualityTiering, Renderer3D::GetPostProcessSettings(), shadowCopy);
+            Renderer3D::GetShadowMap().SetSettings(shadowCopy);
+        }
+
         m_TimeSinceLastAutoSave = 0.0f;
         return true;
     }
@@ -2015,6 +2025,15 @@ namespace OloEngine
         Renderer3D::GetSnowEjectaSettings() = newScene->GetSnowEjectaSettings();
         Renderer3D::GetPrecipitationSettings() = newScene->GetPrecipitationSettings();
         Renderer3D::GetFogSettings() = newScene->GetFogSettings();
+
+        // Reapply quality tiering over scene-loaded settings
+        if (auto project = Project::GetActive())
+        {
+            ShadowSettings shadowCopy = Renderer3D::GetShadowMap().GetSettings();
+            ApplyTieringToSettings(project->GetConfig().QualityTiering, Renderer3D::GetPostProcessSettings(), shadowCopy);
+            Renderer3D::GetShadowMap().SetSettings(shadowCopy);
+        }
+
         return true;
     }
 

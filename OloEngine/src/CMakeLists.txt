@@ -705,6 +705,7 @@
 		"OloEngine/Terrain/Foliage/FoliageRenderer.cpp"
 
 		"OloEngine/Scene/Components.h"
+		"OloEngine/Scene/TransformComponent.cpp"
 		"OloEngine/Scene/Entity.cpp"
 		"OloEngine/Scene/Entity.h"
 		"OloEngine/Scene/Prefab.cpp"

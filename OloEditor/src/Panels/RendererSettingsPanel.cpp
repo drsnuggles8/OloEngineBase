@@ -46,7 +46,9 @@ namespace OloEngine
                 if (selected != QualityPreset::Custom)
                 {
                     qt = GetPresetSettings(selected);
-                    ApplyTieringToSettings(qt, Renderer3D::GetPostProcessSettings(), Renderer3D::GetShadowMap().GetSettingsMutable());
+                    ShadowSettings shadowCopy = Renderer3D::GetShadowMap().GetSettings();
+                    ApplyTieringToSettings(qt, Renderer3D::GetPostProcessSettings(), shadowCopy);
+                    Renderer3D::GetShadowMap().SetSettings(shadowCopy);
                 }
                 else
                 {
@@ -86,7 +88,7 @@ namespace OloEngine
             ImGui::Spacing();
             ImGui::TextDisabled("Ambient Occlusion");
             static const char* aoItems[] = { "None", "SSAO", "GTAO" };
-            int aoIdx = static_cast<int>(qt.AO);
+            int aoIdx = std::clamp(static_cast<int>(qt.AO), 0, 2);
             if (ImGui::Combo("AO Technique##qt", &aoIdx, aoItems, IM_ARRAYSIZE(aoItems)))
             {
                 qt.AO = static_cast<AOTechnique>(aoIdx);
@@ -119,7 +121,9 @@ namespace OloEngine
             if (changed)
             {
                 qt.Preset = QualityPreset::Custom;
-                ApplyTieringToSettings(qt, Renderer3D::GetPostProcessSettings(), Renderer3D::GetShadowMap().GetSettingsMutable());
+                ShadowSettings shadowCopy = Renderer3D::GetShadowMap().GetSettings();
+                ApplyTieringToSettings(qt, Renderer3D::GetPostProcessSettings(), shadowCopy);
+                Renderer3D::GetShadowMap().SetSettings(shadowCopy);
             }
 
             // Reset button when Custom
@@ -129,7 +133,9 @@ namespace OloEngine
                 if (ImGui::Button("Reset to High Preset"))
                 {
                     qt = GetPresetSettings(QualityPreset::High);
-                    ApplyTieringToSettings(qt, Renderer3D::GetPostProcessSettings(), Renderer3D::GetShadowMap().GetSettingsMutable());
+                    ShadowSettings shadowCopy = Renderer3D::GetShadowMap().GetSettings();
+                    ApplyTieringToSettings(qt, Renderer3D::GetPostProcessSettings(), shadowCopy);
+                    Renderer3D::GetShadowMap().SetSettings(shadowCopy);
                 }
             }
 

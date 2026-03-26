@@ -154,6 +154,9 @@ TEST_F(ComponentRegistryTest, RegisteredTransformSerializerWorks)
     EXPECT_FLOAT_EQ(loaded.Translation.x, 7.0f);
     EXPECT_FLOAT_EQ(loaded.Translation.y, 8.0f);
     EXPECT_FLOAT_EQ(loaded.Translation.z, 9.0f);
+    EXPECT_NEAR(loaded.GetRotationEuler().x, 0.5f, 1e-4f);
+    EXPECT_NEAR(loaded.GetRotationEuler().y, 0.6f, 1e-4f);
+    EXPECT_NEAR(loaded.GetRotationEuler().z, 0.7f, 1e-4f);
     EXPECT_FLOAT_EQ(loaded.Scale.x, 2.0f);
     EXPECT_FLOAT_EQ(loaded.Scale.y, 3.0f);
     EXPECT_FLOAT_EQ(loaded.Scale.z, 4.0f);

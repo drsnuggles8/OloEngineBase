@@ -132,10 +132,6 @@ namespace OloEngine
         {
             return m_Settings;
         }
-        [[nodiscard]] ShadowSettings& GetSettingsMutable()
-        {
-            return m_Settings;
-        }
         void SetSettings(const ShadowSettings& settings);
 
         [[nodiscard]] bool IsEnabled() const

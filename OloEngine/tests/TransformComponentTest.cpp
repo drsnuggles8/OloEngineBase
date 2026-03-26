@@ -64,7 +64,7 @@ TEST(TransformComponent, SetRotationQuaternionUpdatesEuler)
 
     // Euler should produce the same quaternion when converted back
     glm::quat fromEuler = glm::quat(tc.GetRotationEuler());
-    EXPECT_NEAR(glm::dot(fromEuler, q), 1.0f, 1e-4f);
+    EXPECT_NEAR(std::abs(glm::dot(fromEuler, q)), 1.0f, 1e-4f);
 }
 
 // =============================================================================
@@ -102,9 +102,7 @@ TEST(TransformComponent, GetTransformUsesQuaternion)
     tc.Scale = { 1.0f, 1.0f, 1.0f };
 
     glm::mat4 m = tc.GetTransform();
-    glm::mat4 expected = glm::translate(glm::mat4(1.0f), tc.Translation)
-                       * glm::toMat4(tc.GetRotation())
-                       * glm::scale(glm::mat4(1.0f), tc.Scale);
+    glm::mat4 expected = glm::translate(glm::mat4(1.0f), tc.Translation) * glm::toMat4(tc.GetRotation()) * glm::scale(glm::mat4(1.0f), tc.Scale);
 
     for (int col = 0; col < 4; ++col)
     {

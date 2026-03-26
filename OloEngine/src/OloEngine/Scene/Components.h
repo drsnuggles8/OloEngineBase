@@ -1,7 +1,6 @@
 #pragma once
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Core/UUID.h"
-#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Font.h"
@@ -37,6 +36,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
+#include <glm/gtx/norm.hpp>
 
 #include <string>
 #include <unordered_set>
@@ -176,13 +176,21 @@ namespace OloEngine
 
         void SetRotation(const glm::quat& quat)
         {
+            f32 const len2 = glm::dot(quat, quat);
+            if (len2 < 1e-12f)
+            {
+                Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+                RotationEuler = glm::vec3(0.0f);
+                return;
+            }
+
             auto wrapToPi = [](glm::vec3 v)
             {
                 return glm::mod(v + glm::pi<float>(), 2.0f * glm::pi<float>()) - glm::pi<float>();
             };
 
             auto originalEuler = RotationEuler;
-            Rotation = quat;
+            Rotation = glm::normalize(quat);
             RotationEuler = glm::eulerAngles(Rotation);
 
             glm::vec3 alternate1 = { RotationEuler.x - glm::pi<float>(), glm::pi<float>() - RotationEuler.y, RotationEuler.z - glm::pi<float>() };
@@ -221,12 +229,7 @@ namespace OloEngine
             RotationEuler = wrapToPi(RotationEuler);
         }
 
-        void SetTransform(const glm::mat4& transform)
-        {
-            glm::vec3 euler{};
-            Math::DecomposeTransform(transform, Translation, euler, Scale);
-            SetRotationEuler(euler);
-        }
+        void SetTransform(const glm::mat4& transform);
 
         [[nodiscard("Store this!")]] glm::mat4 GetTransform() const
         {

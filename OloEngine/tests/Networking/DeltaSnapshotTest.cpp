@@ -104,6 +104,9 @@ TEST(DeltaSnapshotTest, DeltaFormatSameAsFullFormat)
     EXPECT_FLOAT_EQ(loaded.Translation.x, 5.0f);
     EXPECT_FLOAT_EQ(loaded.Translation.y, 6.0f);
     EXPECT_FLOAT_EQ(loaded.Translation.z, 7.0f);
+    EXPECT_NEAR(loaded.GetRotationEuler().x, 0.1f, 1e-4f);
+    EXPECT_NEAR(loaded.GetRotationEuler().y, 0.2f, 1e-4f);
+    EXPECT_NEAR(loaded.GetRotationEuler().z, 0.3f, 1e-4f);
     EXPECT_FLOAT_EQ(loaded.Scale.x, 2.0f);
     EXPECT_FALSE(reader.IsError());
 }

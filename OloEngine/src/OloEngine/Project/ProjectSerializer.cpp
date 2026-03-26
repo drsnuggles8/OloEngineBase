@@ -576,7 +576,17 @@ namespace OloEngine
             }
             if (auto n = tieringNode["ShadowResolution"]; n && n.IsScalar())
             {
-                qt.ShadowResolution = n.as<u32>(qt.ShadowResolution);
+                auto raw = n.as<u32>(qt.ShadowResolution);
+                // Clamp to supported values
+                if (raw <= 512)
+                    raw = 512;
+                else if (raw <= 1024)
+                    raw = 1024;
+                else if (raw <= 2048)
+                    raw = 2048;
+                else
+                    raw = 4096;
+                qt.ShadowResolution = raw;
             }
             if (auto n = tieringNode["ShadowSoftness"]; n && n.IsScalar())
             {
@@ -588,19 +598,20 @@ namespace OloEngine
             }
             if (auto n = tieringNode["AO"]; n && n.IsScalar())
             {
-                qt.AO = static_cast<AOTechnique>(n.as<i32>(static_cast<i32>(qt.AO)));
+                auto raw = n.as<i32>(static_cast<i32>(qt.AO));
+                qt.AO = static_cast<AOTechnique>(std::clamp(raw, 0, 2));
             }
             if (auto n = tieringNode["SSAOSamples"]; n && n.IsScalar())
             {
-                qt.SSAOSamples = n.as<i32>(qt.SSAOSamples);
+                qt.SSAOSamples = std::clamp(n.as<i32>(qt.SSAOSamples), 8, 64);
             }
             if (auto n = tieringNode["GTAODenoisePasses"]; n && n.IsScalar())
             {
-                qt.GTAODenoisePasses = n.as<i32>(qt.GTAODenoisePasses);
+                qt.GTAODenoisePasses = std::clamp(n.as<i32>(qt.GTAODenoisePasses), 1, 8);
             }
             if (auto n = tieringNode["GTAORadius"]; n && n.IsScalar())
             {
-                qt.GTAORadius = n.as<f32>(qt.GTAORadius);
+                qt.GTAORadius = std::clamp(n.as<f32>(qt.GTAORadius), 0.1f, 2.0f);
             }
             if (auto n = tieringNode["BloomEnabled"]; n && n.IsScalar())
             {
@@ -608,7 +619,7 @@ namespace OloEngine
             }
             if (auto n = tieringNode["BloomIterations"]; n && n.IsScalar())
             {
-                qt.BloomIterations = n.as<i32>(qt.BloomIterations);
+                qt.BloomIterations = std::clamp(n.as<i32>(qt.BloomIterations), 1, 10);
             }
             if (auto n = tieringNode["FXAAEnabled"]; n && n.IsScalar())
             {
