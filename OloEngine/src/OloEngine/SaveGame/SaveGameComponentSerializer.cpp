@@ -104,6 +104,8 @@ namespace OloEngine
         ar << c.MinDistance << c.MaxDistance;
         ar << c.ConeInnerAngle << c.ConeOuterAngle << c.ConeOuterGain;
         ar << c.DopplerFactor;
+        ar << c.Spread << c.Focus;
+        ar << c.LowPassCutoff << c.HighPassCutoff << c.ReverbSend;
     }
 
     static void SerializeAudioListenerConfig(FArchive& ar, AudioListenerConfig& c)

@@ -20,8 +20,14 @@ namespace OloEngine::Audio::DSP
             m_BufferSize = static_cast<int>(buffer.size());
         }
 
-        void SetFeedback(float val) { m_Feedback = val; }
-        [[nodiscard]] float GetFeedback() const { return m_Feedback; }
+        void SetFeedback(float val)
+        {
+            m_Feedback = val;
+        }
+        [[nodiscard]] float GetFeedback() const
+        {
+            return m_Feedback;
+        }
 
         void Mute()
         {

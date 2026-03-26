@@ -7,6 +7,13 @@ struct ma_engine;
 
 namespace OloEngine
 {
+    namespace Audio::DSP
+    {
+        class Reverb;
+        class Spatializer;
+        enum class ReverbParameter : u8;
+    } // namespace Audio::DSP
+
     using AudioEngineInternal = void*;
 
     class AudioEngine
@@ -15,7 +22,18 @@ namespace OloEngine
         static bool Init();
         static void Shutdown();
 
-        static AudioEngineInternal GetEngine();
+        [[nodiscard("Store this!")]] static AudioEngineInternal GetEngine();
+
+        // Master reverb bus
+        [[nodiscard("Store this!")]] static Audio::DSP::Reverb* GetMasterReverb();
+        static void SetMasterReverbParameter(Audio::DSP::ReverbParameter parameter, float value);
+        [[nodiscard("Store this!")]] static float GetMasterReverbParameter(Audio::DSP::ReverbParameter parameter);
+
+        // 3D spatializer
+        [[nodiscard("Store this!")]] static Audio::DSP::Spatializer* GetSpatializer();
+
+        // Audio thread utilities
+        [[nodiscard("Store this!")]] static bool IsAudioThread();
 
       private:
         static void AudioThreadFunc();
@@ -24,5 +42,7 @@ namespace OloEngine
         static ma_engine* s_Engine;
         static FThread s_AudioThread;
         static std::atomic<bool> s_AudioThreadRunning;
+        static Audio::DSP::Reverb* s_MasterReverb;
+        static Audio::DSP::Spatializer* s_Spatializer;
     };
 } // namespace OloEngine

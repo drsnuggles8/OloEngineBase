@@ -25,10 +25,19 @@ namespace OloEngine::Audio::DSP
             m_Damp1 = val;
             m_Damp2 = 1.0f - val;
         }
-        [[nodiscard]] float GetDamp() const { return m_Damp1; }
+        [[nodiscard]] float GetDamp() const
+        {
+            return m_Damp1;
+        }
 
-        void SetFeedback(float val) { m_Feedback = val; }
-        [[nodiscard]] float GetFeedback() const { return m_Feedback; }
+        void SetFeedback(float val)
+        {
+            m_Feedback = val;
+        }
+        [[nodiscard]] float GetFeedback() const
+        {
+            return m_Feedback;
+        }
 
         void Mute()
         {

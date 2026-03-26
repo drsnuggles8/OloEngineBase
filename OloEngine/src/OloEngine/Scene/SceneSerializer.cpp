@@ -1402,6 +1402,8 @@ namespace OloEngine
             TrySet(src.Config.ConeOuterAngle, audioSourceComponent["ConeOuterAngle"]);
             TrySet(src.Config.ConeOuterGain, audioSourceComponent["ConeOuterGain"]);
             TrySet(src.Config.DopplerFactor, audioSourceComponent["DopplerFactor"]);
+            TrySet(src.Config.Spread, audioSourceComponent["Spread"]);
+            TrySet(src.Config.Focus, audioSourceComponent["Focus"]);
             TrySet(src.Config.LowPassCutoff, audioSourceComponent["LowPassCutoff"]);
             TrySet(src.Config.HighPassCutoff, audioSourceComponent["HighPassCutoff"]);
             TrySet(src.Config.ReverbSend, audioSourceComponent["ReverbSend"]);
@@ -2950,6 +2952,8 @@ namespace OloEngine
             out << YAML::Key << "ConeOuterAngle" << YAML::Value << audioSourceComponent.Config.ConeOuterAngle;
             out << YAML::Key << "ConeOuterGain" << YAML::Value << audioSourceComponent.Config.ConeOuterGain;
             out << YAML::Key << "DopplerFactor" << YAML::Value << audioSourceComponent.Config.DopplerFactor;
+            out << YAML::Key << "Spread" << YAML::Value << audioSourceComponent.Config.Spread;
+            out << YAML::Key << "Focus" << YAML::Value << audioSourceComponent.Config.Focus;
             out << YAML::Key << "LowPassCutoff" << YAML::Value << audioSourceComponent.Config.LowPassCutoff;
             out << YAML::Key << "HighPassCutoff" << YAML::Value << audioSourceComponent.Config.HighPassCutoff;
             out << YAML::Key << "ReverbSend" << YAML::Value << audioSourceComponent.Config.ReverbSend;

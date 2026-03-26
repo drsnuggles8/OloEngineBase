@@ -6,9 +6,14 @@
 #include "AudioEngine.h"
 #include "OloEngine/Audio/DSP/LowPassFilter.h"
 #include "OloEngine/Audio/DSP/HighPassFilter.h"
+#include "OloEngine/Audio/DSP/Reverb.h"
 
 namespace OloEngine
 {
+    static ma_splitter_node* AsSplitter(void* p)
+    {
+        return static_cast<ma_splitter_node*>(p);
+    }
     AudioSource::AudioSource(const char* filepath)
         : m_Path(filepath)
     {
@@ -110,6 +115,10 @@ namespace OloEngine
         if (config.HighPassCutoff > 0.0f)
         {
             SetHighPassCutoff(config.HighPassCutoff);
+        }
+        if (config.ReverbSend > 0.0f)
+        {
+            SetReverbSend(config.ReverbSend);
         }
     }
 
@@ -228,6 +237,58 @@ namespace OloEngine
             m_HighPassFilter = nullptr;
         }
 
+        // Insert splitter after the last filter for reverb send routing
+        // Chain: Sound → LPF → HPF → Splitter → Bus 0 (endpoint), Bus 1 (master reverb)
+        auto* chainTail = m_HighPassFilter  ? m_HighPassFilter->GetNode()
+                          : m_LowPassFilter ? m_LowPassFilter->GetNode()
+                                            : soundNode;
+
+        u32 numChannels = ma_node_get_output_channels(chainTail, 0);
+        ma_splitter_node_config splitterConfig = ma_splitter_node_config_init(numChannels);
+
+        m_SplitterNode = new ma_splitter_node();
+        ma_result result = ma_splitter_node_init(
+            chainTail->pNodeGraph,
+            &splitterConfig,
+            &engine->pResourceManager->config.allocationCallbacks,
+            AsSplitter(m_SplitterNode));
+
+        if (result != MA_SUCCESS)
+        {
+            OLO_CORE_ERROR("[AudioSource] Failed to init splitter node for: {}", m_Path);
+            delete AsSplitter(m_SplitterNode);
+            m_SplitterNode = nullptr;
+        }
+        else
+        {
+            // Store the node that chainTail was connected to (the endpoint)
+            auto* oldOutput = chainTail->pOutputBuses[0].pInputNode;
+
+            // Splitter bus 0 (dry) → old destination
+            result = ma_node_attach_output_bus(m_SplitterNode, 0, oldOutput, 0);
+            OLO_CORE_ASSERT(result == MA_SUCCESS);
+
+            // chainTail → splitter input
+            result = ma_node_attach_output_bus(chainTail, 0, m_SplitterNode, 0);
+            OLO_CORE_ASSERT(result == MA_SUCCESS);
+
+            // Bus 0 volume = 1.0 (main output)
+            ma_node_set_output_bus_volume(m_SplitterNode, 0, 1.0f);
+            // Bus 1 volume = 0.0 (muted until reverb send is set)
+            ma_node_set_output_bus_volume(m_SplitterNode, 1, 0.0f);
+
+            // Connect bus 1 to master reverb if available
+            auto* masterReverb = AudioEngine::GetMasterReverb();
+            if (masterReverb && masterReverb->GetNode())
+            {
+                result = ma_node_attach_output_bus(m_SplitterNode, 1, masterReverb->GetNode(), 0);
+                if (result != MA_SUCCESS)
+                {
+                    OLO_CORE_WARN("[AudioSource] Failed to attach reverb send for: {}", m_Path);
+                }
+            }
+        }
+
         m_DSPInitialized = true;
         OLO_CORE_TRACE("[AudioSource] DSP chain initialized for: {}", m_Path);
     }
@@ -235,6 +296,14 @@ namespace OloEngine
     void AudioSource::UninitializeDSP()
     {
         // Uninitialize in reverse order
+        if (m_SplitterNode)
+        {
+            auto* engine = static_cast<ma_engine*>(AudioEngine::GetEngine());
+            ma_splitter_node_uninit(AsSplitter(m_SplitterNode),
+                                    engine ? &engine->pResourceManager->config.allocationCallbacks : nullptr);
+            delete AsSplitter(m_SplitterNode);
+            m_SplitterNode = nullptr;
+        }
         if (m_HighPassFilter)
         {
             m_HighPassFilter->Uninitialize();
@@ -272,11 +341,15 @@ namespace OloEngine
         }
     }
 
-    void AudioSource::SetReverbSend([[maybe_unused]] f32 sendLevel)
+    void AudioSource::SetReverbSend(f32 sendLevel)
     {
-        // TODO: Reverb is a global bus effect; per-source send level requires
-        // a mixer node or volume adjustment on a dedicated reverb send bus.
-        // For now this stores the value in config for serialization;
-        // the master reverb is initialized in AudioEngine.
+        if (!m_DSPInitialized)
+        {
+            InitializeDSP();
+        }
+        if (m_SplitterNode)
+        {
+            ma_node_set_output_bus_volume(m_SplitterNode, 1, sendLevel);
+        }
     }
 } // namespace OloEngine

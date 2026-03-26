@@ -27,7 +27,10 @@ namespace OloEngine::Audio::DSP
         void SetCutoffValue(double cutoffNormalized);
         // Set cutoff directly in Hz
         void SetCutoffFrequency(double frequency);
-        [[nodiscard]] double GetCutoffFrequency() const { return m_CutoffFrequency.load(); }
+        [[nodiscard]] double GetCutoffFrequency() const
+        {
+            return m_CutoffFrequency.load();
+        }
 
       private:
         struct Impl; // Wraps ma_lpf_node (hidden from header)

@@ -2837,6 +2837,13 @@ namespace OloEngine
                 ImGui::DragFloat("Outer Angle##AudioSource", &component.Config.ConeOuterAngle, 1.0f, 0.0f, 360.0f);
                 ImGui::DragFloat("Outer Gain##AudioSource", &component.Config.ConeOuterGain, 0.01f, 0.0f, 1.0f);
                 ImGui::DragFloat("Doppler Factor##AudioSource", &component.Config.DopplerFactor, 0.1f, 0.0f, 10.0f);
+
+                ImGui::Separator();
+                ImGui::Text("VBAP Panning");
+                ImGui::SliderFloat("Spread##AudioSource", &component.Config.Spread, 0.0f, 1.0f, "%.3f");
+                ImGui::SetItemTooltip("Virtual source spread [0..1]. 1.0 = full spread");
+                ImGui::SliderFloat("Focus##AudioSource", &component.Config.Focus, 0.0f, 1.0f, "%.3f");
+                ImGui::SetItemTooltip("Channel focus [0..1]. 1.0 = fully focused");
             }
 
             ImGui::Separator();

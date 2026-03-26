@@ -12,6 +12,7 @@ namespace OloEngine
         class LowPassFilter;
         class HighPassFilter;
         class Reverb;
+        class Spatializer;
     } // namespace Audio::DSP
 
     enum class AttenuationModelType
@@ -42,6 +43,10 @@ namespace OloEngine
         f32 ConeOuterGain = 0.0f;
 
         f32 DopplerFactor = 1.0f;
+
+        // VBAP spatialization parameters
+        f32 Spread = 1.0f; // VBAP virtual source spread [0,1]
+        f32 Focus = 1.0f;  // VBAP channel focus [0,1]
 
         // DSP filter parameters
         f32 LowPassCutoff = 1.0f;  // Normalized [0,1], 1.0 = 20 kHz (bypassed)
@@ -104,6 +109,7 @@ namespace OloEngine
         // DSP chain (lazily initialized when parameters change from defaults)
         Scope<Audio::DSP::LowPassFilter> m_LowPassFilter;
         Scope<Audio::DSP::HighPassFilter> m_HighPassFilter;
+        void* m_SplitterNode = nullptr; // Reverb send bus (ma_splitter_node*, 2 outputs: dry + FX send)
         bool m_DSPInitialized = false;
     };
 } // namespace OloEngine
