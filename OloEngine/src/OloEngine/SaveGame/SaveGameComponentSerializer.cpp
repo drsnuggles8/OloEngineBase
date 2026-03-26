@@ -104,6 +104,43 @@ namespace OloEngine
         ar << c.MinDistance << c.MaxDistance;
         ar << c.ConeInnerAngle << c.ConeOuterAngle << c.ConeOuterGain;
         ar << c.DopplerFactor;
+        ar << c.Spread << c.Focus;
+        ar << c.LowPassCutoff << c.HighPassCutoff << c.ReverbSend;
+
+        if (ar.IsLoading())
+        {
+            auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                {
+                    v = fallback;
+                    return;
+                }
+                v = std::clamp(v, lo, hi);
+            };
+            sanitize(c.Spread, 0.0f, 1.0f, 1.0f);
+            sanitize(c.Focus, 0.0f, 1.0f, 1.0f);
+            sanitize(c.LowPassCutoff, 0.0f, 1.0f, 1.0f);
+            sanitize(c.HighPassCutoff, 0.0f, 1.0f, 0.0f);
+            sanitize(c.ReverbSend, 0.0f, 1.0f, 0.0f);
+
+            // Non-DSP fields
+            sanitize(c.VolumeMultiplier, 0.0f, 10.0f, 1.0f);
+            sanitize(c.PitchMultiplier, 0.0f, 10.0f, 1.0f);
+            sanitize(c.RollOff, 0.0f, 100.0f, 1.0f);
+            sanitize(c.MinGain, 0.0f, 1.0f, 0.0f);
+            sanitize(c.MaxGain, 0.0f, 1.0f, 1.0f);
+            sanitize(c.MinDistance, 0.0f, 1e6f, 0.3f);
+            sanitize(c.MaxDistance, 0.0f, 1e6f, 1000.0f);
+            if (c.MinDistance > c.MaxDistance)
+            {
+                c.MinDistance = c.MaxDistance;
+            }
+            sanitize(c.ConeInnerAngle, 0.0f, glm::radians(360.0f), glm::radians(360.0f));
+            sanitize(c.ConeOuterAngle, 0.0f, glm::radians(360.0f), glm::radians(360.0f));
+            sanitize(c.ConeOuterGain, 0.0f, 1.0f, 0.0f);
+            sanitize(c.DopplerFactor, 0.0f, 10.0f, 1.0f);
+        }
     }
 
     static void SerializeAudioListenerConfig(FArchive& ar, AudioListenerConfig& c)

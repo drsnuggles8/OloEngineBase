@@ -146,6 +146,29 @@
 		"OloEngine/Audio/AudioSource.h"
 		"OloEngine/Audio/AudioLoader.cpp"
 		"OloEngine/Audio/AudioLoader.h"
+		"OloEngine/Audio/AudioTransform.h"
+		"OloEngine/Audio/SampleBufferOperations.h"
+
+		# DSP
+		"OloEngine/Audio/DSP/Denormals.h"
+		"OloEngine/Audio/DSP/Tuning.h"
+		"OloEngine/Audio/DSP/AllpassFilter.h"
+		"OloEngine/Audio/DSP/CombFilter.h"
+		"OloEngine/Audio/DSP/DelayLine.h"
+		"OloEngine/Audio/DSP/ReverbModel.h"
+		"OloEngine/Audio/DSP/ReverbModel.cpp"
+		"OloEngine/Audio/DSP/Reverb.h"
+		"OloEngine/Audio/DSP/Reverb.cpp"
+		"OloEngine/Audio/DSP/LowPassFilter.h"
+		"OloEngine/Audio/DSP/LowPassFilter.cpp"
+		"OloEngine/Audio/DSP/HighPassFilter.h"
+		"OloEngine/Audio/DSP/HighPassFilter.cpp"
+
+		# DSP Spatializer
+		"OloEngine/Audio/DSP/Spatializer/VBAP.h"
+		"OloEngine/Audio/DSP/Spatializer/VBAP.cpp"
+		"OloEngine/Audio/DSP/Spatializer/Spatializer.h"
+		"OloEngine/Audio/DSP/Spatializer/Spatializer.cpp"
 		
 		# SoundGraph Nodes
 		"OloEngine/Audio/SoundGraph/Nodes/ArrayNodes.h"

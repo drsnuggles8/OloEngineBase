@@ -1403,6 +1403,18 @@ namespace OloEngine
             TrySet(src.Config.ConeOuterGain, audioSourceComponent["ConeOuterGain"]);
             TrySet(src.Config.DopplerFactor, audioSourceComponent["DopplerFactor"]);
 
+            // DSP parameters: load + sanitize in one step to prevent drift
+            auto TrySetDsp = [&](f32& field, const char* key, f32 lo, f32 hi, f32 fallback)
+            {
+                TrySet(field, audioSourceComponent[key]);
+                SanitizeFloat(field, lo, hi, fallback);
+            };
+            TrySetDsp(src.Config.Spread, "Spread", 0.0f, 1.0f, 1.0f);
+            TrySetDsp(src.Config.Focus, "Focus", 0.0f, 1.0f, 1.0f);
+            TrySetDsp(src.Config.LowPassCutoff, "LowPassCutoff", 0.0f, 1.0f, 1.0f);
+            TrySetDsp(src.Config.HighPassCutoff, "HighPassCutoff", 0.0f, 1.0f, 0.0f);
+            TrySetDsp(src.Config.ReverbSend, "ReverbSend", 0.0f, 1.0f, 0.0f);
+
             if (!audioFilepath.empty())
             {
                 std::filesystem::path path = audioFilepath.c_str();
@@ -2947,6 +2959,11 @@ namespace OloEngine
             out << YAML::Key << "ConeOuterAngle" << YAML::Value << audioSourceComponent.Config.ConeOuterAngle;
             out << YAML::Key << "ConeOuterGain" << YAML::Value << audioSourceComponent.Config.ConeOuterGain;
             out << YAML::Key << "DopplerFactor" << YAML::Value << audioSourceComponent.Config.DopplerFactor;
+            out << YAML::Key << "Spread" << YAML::Value << audioSourceComponent.Config.Spread;
+            out << YAML::Key << "Focus" << YAML::Value << audioSourceComponent.Config.Focus;
+            out << YAML::Key << "LowPassCutoff" << YAML::Value << audioSourceComponent.Config.LowPassCutoff;
+            out << YAML::Key << "HighPassCutoff" << YAML::Value << audioSourceComponent.Config.HighPassCutoff;
+            out << YAML::Key << "ReverbSend" << YAML::Value << audioSourceComponent.Config.ReverbSend;
 
             out << YAML::EndMap; // AudioSourceComponent
         }

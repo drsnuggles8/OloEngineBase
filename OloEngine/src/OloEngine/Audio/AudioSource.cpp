@@ -4,9 +4,16 @@
 #include "miniaudio.h"
 
 #include "AudioEngine.h"
+#include "OloEngine/Audio/DSP/LowPassFilter.h"
+#include "OloEngine/Audio/DSP/HighPassFilter.h"
+#include "OloEngine/Audio/DSP/Reverb.h"
 
 namespace OloEngine
 {
+    static ma_splitter_node* AsSplitter(void* p)
+    {
+        return static_cast<ma_splitter_node*>(p);
+    }
     AudioSource::AudioSource(const char* filepath)
         : m_Path(filepath)
     {
@@ -21,6 +28,7 @@ namespace OloEngine
 
     AudioSource::~AudioSource()
     {
+        UninitializeDSP();
         ::ma_sound_uninit(m_Sound.get());
         m_Sound = nullptr;
     }
@@ -97,6 +105,28 @@ namespace OloEngine
         else
         {
             ::ma_sound_set_attenuation_model(sound, ma_attenuation_model_none);
+        }
+
+        // DSP filter parameters — only init chain if parameters deviate from bypass defaults
+        if (config.LowPassCutoff < 1.0f)
+        {
+            SetLowPassCutoff(config.LowPassCutoff);
+        }
+        if (config.HighPassCutoff > 0.0f)
+        {
+            SetHighPassCutoff(config.HighPassCutoff);
+        }
+        if (config.ReverbSend > 0.0f)
+        {
+            SetReverbSend(config.ReverbSend);
+        }
+
+        // If DSP is already initialized, always push current values
+        if (m_DSPInitialized)
+        {
+            SetLowPassCutoff(config.LowPassCutoff);
+            SetHighPassCutoff(config.HighPassCutoff);
+            SetReverbSend(config.ReverbSend);
         }
     }
 
@@ -181,5 +211,176 @@ namespace OloEngine
     void AudioSource::SetVelocity(const glm::vec3& velocity) const
     {
         ::ma_sound_set_velocity(m_Sound.get(), velocity.x, velocity.y, velocity.z);
+    }
+
+    void AudioSource::InitializeDSP()
+    {
+        if (m_DSPInitialized)
+        {
+            return;
+        }
+
+        auto* engine = static_cast<ma_engine*>(AudioEngine::GetEngine());
+        if (!engine)
+        {
+            return;
+        }
+
+        auto* soundNode = &m_Sound->engineNode.baseNode;
+
+        // Insert LPF after the sound node
+        m_LowPassFilter = CreateScope<Audio::DSP::LowPassFilter>();
+        if (!m_LowPassFilter->Initialize(engine, soundNode))
+        {
+            OLO_CORE_ERROR("[AudioSource] Failed to initialize low-pass filter for: {}", m_Path);
+            m_LowPassFilter = nullptr;
+        }
+
+        // Insert HPF after LPF (or after sound if LPF failed)
+        auto* insertAfter = m_LowPassFilter ? m_LowPassFilter->GetNode() : soundNode;
+        m_HighPassFilter = CreateScope<Audio::DSP::HighPassFilter>();
+        if (!m_HighPassFilter->Initialize(engine, insertAfter))
+        {
+            OLO_CORE_ERROR("[AudioSource] Failed to initialize high-pass filter for: {}", m_Path);
+            m_HighPassFilter = nullptr;
+        }
+
+        // Insert splitter after the last filter for reverb send routing
+        // Chain: Sound → LPF → HPF → Splitter → Bus 0 (endpoint), Bus 1 (master reverb)
+        auto* chainTail = m_HighPassFilter  ? m_HighPassFilter->GetNode()
+                          : m_LowPassFilter ? m_LowPassFilter->GetNode()
+                                            : soundNode;
+
+        u32 numChannels = ma_node_get_output_channels(chainTail, 0);
+        numChannels = std::max(numChannels, 2u); // Ensure at least stereo for reverb send
+        ma_splitter_node_config splitterConfig = ma_splitter_node_config_init(numChannels);
+
+        m_SplitterNode = new ma_splitter_node();
+        ma_result result = ma_splitter_node_init(
+            chainTail->pNodeGraph,
+            &splitterConfig,
+            &engine->pResourceManager->config.allocationCallbacks,
+            AsSplitter(m_SplitterNode));
+
+        if (result != MA_SUCCESS)
+        {
+            OLO_CORE_ERROR("[AudioSource] Failed to init splitter node for: {}", m_Path);
+            delete AsSplitter(m_SplitterNode);
+            m_SplitterNode = nullptr;
+        }
+        else
+        {
+            // Store the node that chainTail was connected to (the endpoint)
+            auto* oldOutput = chainTail->pOutputBuses[0].pInputNode;
+            ma_uint8 oldInputBus = chainTail->pOutputBuses[0].inputNodeInputBusIndex;
+
+            // Splitter bus 0 (dry) → old destination
+            result = ma_node_attach_output_bus(m_SplitterNode, 0, oldOutput, oldInputBus);
+            if (result != MA_SUCCESS)
+            {
+                OLO_CORE_ERROR("[AudioSource] Splitter dry-bus attach failed for: {}", m_Path);
+                ma_splitter_node_uninit(AsSplitter(m_SplitterNode),
+                                        &engine->pResourceManager->config.allocationCallbacks);
+                delete AsSplitter(m_SplitterNode);
+                m_SplitterNode = nullptr;
+            }
+
+            if (m_SplitterNode)
+            {
+                // chainTail → splitter input
+                result = ma_node_attach_output_bus(chainTail, 0, m_SplitterNode, 0);
+                if (result != MA_SUCCESS)
+                {
+                    OLO_CORE_ERROR("[AudioSource] Chain-to-splitter attach failed for: {}", m_Path);
+                    ma_splitter_node_uninit(AsSplitter(m_SplitterNode),
+                                            &engine->pResourceManager->config.allocationCallbacks);
+                    delete AsSplitter(m_SplitterNode);
+                    m_SplitterNode = nullptr;
+                }
+            }
+
+            if (m_SplitterNode)
+            {
+                // Bus 0 volume = 1.0 (main output)
+                ma_node_set_output_bus_volume(m_SplitterNode, 0, 1.0f);
+                // Bus 1 volume = 0.0 (muted until reverb send is set)
+                ma_node_set_output_bus_volume(m_SplitterNode, 1, 0.0f);
+
+                // Connect bus 1 to master reverb if available
+                auto* masterReverb = AudioEngine::GetMasterReverb();
+                if (masterReverb && masterReverb->GetNode())
+                {
+                    result = ma_node_attach_output_bus(m_SplitterNode, 1, masterReverb->GetNode(), 0);
+                    if (result != MA_SUCCESS)
+                    {
+                        OLO_CORE_WARN("[AudioSource] Failed to attach reverb send for: {}", m_Path);
+                    }
+                }
+            }
+        }
+
+        m_DSPInitialized = true;
+        OLO_CORE_TRACE("[AudioSource] DSP chain initialized for: {}", m_Path);
+    }
+
+    void AudioSource::UninitializeDSP()
+    {
+        // Uninitialize in reverse order
+        if (m_SplitterNode)
+        {
+            auto* engine = static_cast<ma_engine*>(AudioEngine::GetEngine());
+            ma_splitter_node_uninit(AsSplitter(m_SplitterNode),
+                                    engine ? &engine->pResourceManager->config.allocationCallbacks : nullptr);
+            delete AsSplitter(m_SplitterNode);
+            m_SplitterNode = nullptr;
+        }
+        if (m_HighPassFilter)
+        {
+            m_HighPassFilter->Uninitialize();
+            m_HighPassFilter = nullptr;
+        }
+        if (m_LowPassFilter)
+        {
+            m_LowPassFilter->Uninitialize();
+            m_LowPassFilter = nullptr;
+        }
+        m_DSPInitialized = false;
+    }
+
+    void AudioSource::SetLowPassCutoff(f32 normalizedCutoff)
+    {
+        if (!m_DSPInitialized)
+        {
+            InitializeDSP();
+        }
+        if (m_LowPassFilter)
+        {
+            m_LowPassFilter->SetCutoffValue(static_cast<double>(normalizedCutoff));
+        }
+    }
+
+    void AudioSource::SetHighPassCutoff(f32 normalizedCutoff)
+    {
+        if (!m_DSPInitialized)
+        {
+            InitializeDSP();
+        }
+        if (m_HighPassFilter)
+        {
+            m_HighPassFilter->SetCutoffValue(static_cast<double>(normalizedCutoff));
+        }
+    }
+
+    void AudioSource::SetReverbSend(f32 sendLevel)
+    {
+        if (!m_DSPInitialized)
+        {
+            InitializeDSP();
+        }
+        if (m_SplitterNode)
+        {
+            sendLevel = std::clamp(sendLevel, 0.0f, 1.0f);
+            ma_node_set_output_bus_volume(m_SplitterNode, 1, sendLevel);
+        }
     }
 } // namespace OloEngine

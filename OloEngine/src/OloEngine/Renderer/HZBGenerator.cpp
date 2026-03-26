@@ -92,7 +92,7 @@ namespace OloEngine
         m_MipCount = m_HZBTexture->GetMipLevelCount();
 
         OLO_CORE_INFO("HZBGenerator: Resized to {}x{} ({} mips), viewport {}x{}, UVFactor ({:.3f}, {:.3f})",
-                       hzbW, hzbH, m_MipCount, viewportWidth, viewportHeight, m_UVFactor.x, m_UVFactor.y);
+                      hzbW, hzbH, m_MipCount, viewportWidth, viewportHeight, m_UVFactor.x, m_UVFactor.y);
     }
 
     void HZBGenerator::Generate(u32 sceneDepthTextureID)
@@ -161,20 +161,20 @@ namespace OloEngine
         if (isFirstPass)
         {
             m_HZBShader->SetFloat2("u_DispatchThreadIdToBufferUV",
-                                    glm::vec2(1.0f / static_cast<f32>(dstW), 1.0f / static_cast<f32>(dstH)));
+                                   glm::vec2(1.0f / static_cast<f32>(dstW), 1.0f / static_cast<f32>(dstH)));
             m_HZBShader->SetFloat2("u_InputViewportMaxBound",
-                                    glm::vec2((static_cast<f32>(srcW) - 0.5f) / static_cast<f32>(srcW),
-                                              (static_cast<f32>(srcH) - 0.5f) / static_cast<f32>(srcH)));
+                                   glm::vec2((static_cast<f32>(srcW) - 0.5f) / static_cast<f32>(srcW),
+                                             (static_cast<f32>(srcH) - 0.5f) / static_cast<f32>(srcH)));
         }
         else
         {
             m_HZBShader->SetFloat2("u_DispatchThreadIdToBufferUV",
-                                    glm::vec2(2.0f / static_cast<f32>(srcW), 2.0f / static_cast<f32>(srcH)));
+                                   glm::vec2(2.0f / static_cast<f32>(srcW), 2.0f / static_cast<f32>(srcH)));
             m_HZBShader->SetFloat2("u_InputViewportMaxBound", glm::vec2(1.0f));
         }
 
         m_HZBShader->SetFloat2("u_InvSize",
-                                glm::vec2(1.0f / static_cast<f32>(srcW), 1.0f / static_cast<f32>(srcH)));
+                               glm::vec2(1.0f / static_cast<f32>(srcW), 1.0f / static_cast<f32>(srcH)));
         m_HZBShader->SetInt("u_FirstLod", static_cast<int>(startMip));
         m_HZBShader->SetInt("u_IsFirstPass", isFirstPass ? 1 : 0);
 

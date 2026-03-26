@@ -1,0 +1,129 @@
+Scene: AudioDSPTest.olo
+Entities:
+  - Entity: 8800000000000000001
+    TagComponent:
+      Tag: LowPass Sound
+      Layer: 0
+      Enabled: true
+    TransformComponent:
+      Translation: [-3, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpriteRendererComponent:
+      Color: [0.2, 0.6, 1, 1]
+      SortingOrder: 0
+      TilingFactor: 1
+      TexturePath: ""
+    AudioSourceComponent:
+      Filepath: Audio\ding.wav
+      VolumeMultiplier: 1
+      PitchMultiplier: 1
+      PlayOnAwake: true
+      Looping: true
+      Spatialization: false
+      AttenuationModel: 0
+      RollOff: 1
+      MinGain: 0
+      MaxGain: 1
+      MinDistance: 0.300000012
+      MaxDistance: 1000
+      ConeInnerAngle: 360
+      ConeOuterAngle: 360
+      ConeOuterGain: 0
+      DopplerFactor: 1
+      LowPassCutoff: 0.25
+      HighPassCutoff: 0
+      ReverbSend: 0
+  - Entity: 8800000000000000002
+    TagComponent:
+      Tag: HighPass Sound
+      Layer: 0
+      Enabled: true
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpriteRendererComponent:
+      Color: [1, 0.4, 0.2, 1]
+      SortingOrder: 0
+      TilingFactor: 1
+      TexturePath: ""
+    AudioSourceComponent:
+      Filepath: Audio\ding.wav
+      VolumeMultiplier: 1
+      PitchMultiplier: 1
+      PlayOnAwake: true
+      Looping: true
+      Spatialization: false
+      AttenuationModel: 0
+      RollOff: 1
+      MinGain: 0
+      MaxGain: 1
+      MinDistance: 0.300000012
+      MaxDistance: 1000
+      ConeInnerAngle: 360
+      ConeOuterAngle: 360
+      ConeOuterGain: 0
+      DopplerFactor: 1
+      LowPassCutoff: 1
+      HighPassCutoff: 0.3
+      ReverbSend: 0
+  - Entity: 8800000000000000003
+    TagComponent:
+      Tag: Both Filters Sound
+      Layer: 0
+      Enabled: true
+    TransformComponent:
+      Translation: [3, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpriteRendererComponent:
+      Color: [0.8, 0.2, 0.8, 1]
+      SortingOrder: 0
+      TilingFactor: 1
+      TexturePath: ""
+    AudioSourceComponent:
+      Filepath: Audio\ding.wav
+      VolumeMultiplier: 0.800000012
+      PitchMultiplier: 1
+      PlayOnAwake: true
+      Looping: true
+      Spatialization: false
+      AttenuationModel: 0
+      RollOff: 1
+      MinGain: 0
+      MaxGain: 1
+      MinDistance: 0.300000012
+      MaxDistance: 1000
+      ConeInnerAngle: 360
+      ConeOuterAngle: 360
+      ConeOuterGain: 0
+      DopplerFactor: 1
+      LowPassCutoff: 0.5
+      HighPassCutoff: 0.1
+      ReverbSend: 0.5
+  - Entity: 8800000000000000004
+    TagComponent:
+      Tag: Camera
+      Layer: 0
+      Enabled: true
+    TransformComponent:
+      Translation: [0, 0, 5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 1
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.00999999978
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+    AudioListenerComponent:
+      Active: true
+      ConeInnerAngle: 360
+      ConeOuterAngle: 360
+      ConeOuterGain: 0
