@@ -33,8 +33,14 @@ namespace OloEngine
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
 
-        void SetSceneFramebuffer(const Ref<Framebuffer>& sceneFB) { m_SceneFramebuffer = sceneFB; }
-        void SetSettings(const PostProcessSettings& settings) { m_Settings = settings; }
+        void SetSceneFramebuffer(const Ref<Framebuffer>& sceneFB)
+        {
+            m_SceneFramebuffer = sceneFB;
+        }
+        void SetSettings(const PostProcessSettings& settings)
+        {
+            m_Settings = settings;
+        }
         void SetGTAOUBO(Ref<UniformBuffer> ubo, UBOStructures::GTAOUBO* gpuData)
         {
             m_GTAOUBO = ubo;
@@ -42,13 +48,22 @@ namespace OloEngine
         }
 
         // Projection matrix needed for NDCToView calculations
-        void SetProjectionMatrix(const glm::mat4& projection) { m_Projection = projection; }
+        void SetProjectionMatrix(const glm::mat4& projection)
+        {
+            m_Projection = projection;
+        }
 
         [[nodiscard]] u32 GetGTAOTextureID() const;
 
         // Expose HZB for future SSR
-        [[nodiscard]] HZBGenerator& GetHZBGenerator() { return m_HZBGenerator; }
-        [[nodiscard]] const HZBGenerator& GetHZBGenerator() const { return m_HZBGenerator; }
+        [[nodiscard]] HZBGenerator& GetHZBGenerator()
+        {
+            return m_HZBGenerator;
+        }
+        [[nodiscard]] const HZBGenerator& GetHZBGenerator() const
+        {
+            return m_HZBGenerator;
+        }
 
       private:
         void CreateGTAOTextures(u32 width, u32 height);

@@ -4,6 +4,8 @@
 #include "miniaudio.h"
 
 #include "AudioEngine.h"
+#include "OloEngine/Audio/DSP/LowPassFilter.h"
+#include "OloEngine/Audio/DSP/HighPassFilter.h"
 
 namespace OloEngine
 {
@@ -21,6 +23,7 @@ namespace OloEngine
 
     AudioSource::~AudioSource()
     {
+        UninitializeDSP();
         ::ma_sound_uninit(m_Sound.get());
         m_Sound = nullptr;
     }
@@ -97,6 +100,16 @@ namespace OloEngine
         else
         {
             ::ma_sound_set_attenuation_model(sound, ma_attenuation_model_none);
+        }
+
+        // DSP filter parameters
+        if (config.LowPassCutoff < 1.0f)
+        {
+            SetLowPassCutoff(config.LowPassCutoff);
+        }
+        if (config.HighPassCutoff > 0.0f)
+        {
+            SetHighPassCutoff(config.HighPassCutoff);
         }
     }
 
@@ -181,5 +194,89 @@ namespace OloEngine
     void AudioSource::SetVelocity(const glm::vec3& velocity) const
     {
         ::ma_sound_set_velocity(m_Sound.get(), velocity.x, velocity.y, velocity.z);
+    }
+
+    void AudioSource::InitializeDSP()
+    {
+        if (m_DSPInitialized)
+        {
+            return;
+        }
+
+        auto* engine = static_cast<ma_engine*>(AudioEngine::GetEngine());
+        if (!engine)
+        {
+            return;
+        }
+
+        auto* soundNode = reinterpret_cast<ma_node_base*>(m_Sound.get());
+
+        // Insert LPF after the sound node
+        m_LowPassFilter = CreateScope<Audio::DSP::LowPassFilter>();
+        if (!m_LowPassFilter->Initialize(engine, soundNode))
+        {
+            OLO_CORE_ERROR("[AudioSource] Failed to initialize low-pass filter for: {}", m_Path);
+            m_LowPassFilter = nullptr;
+        }
+
+        // Insert HPF after LPF (or after sound if LPF failed)
+        auto* insertAfter = m_LowPassFilter ? m_LowPassFilter->GetNode() : soundNode;
+        m_HighPassFilter = CreateScope<Audio::DSP::HighPassFilter>();
+        if (!m_HighPassFilter->Initialize(engine, insertAfter))
+        {
+            OLO_CORE_ERROR("[AudioSource] Failed to initialize high-pass filter for: {}", m_Path);
+            m_HighPassFilter = nullptr;
+        }
+
+        m_DSPInitialized = true;
+        OLO_CORE_TRACE("[AudioSource] DSP chain initialized for: {}", m_Path);
+    }
+
+    void AudioSource::UninitializeDSP()
+    {
+        // Uninitialize in reverse order
+        if (m_HighPassFilter)
+        {
+            m_HighPassFilter->Uninitialize();
+            m_HighPassFilter = nullptr;
+        }
+        if (m_LowPassFilter)
+        {
+            m_LowPassFilter->Uninitialize();
+            m_LowPassFilter = nullptr;
+        }
+        m_DSPInitialized = false;
+    }
+
+    void AudioSource::SetLowPassCutoff(f32 normalizedCutoff)
+    {
+        if (!m_DSPInitialized)
+        {
+            InitializeDSP();
+        }
+        if (m_LowPassFilter)
+        {
+            m_LowPassFilter->SetCutoffValue(static_cast<double>(normalizedCutoff));
+        }
+    }
+
+    void AudioSource::SetHighPassCutoff(f32 normalizedCutoff)
+    {
+        if (!m_DSPInitialized)
+        {
+            InitializeDSP();
+        }
+        if (m_HighPassFilter)
+        {
+            m_HighPassFilter->SetCutoffValue(static_cast<double>(normalizedCutoff));
+        }
+    }
+
+    void AudioSource::SetReverbSend([[maybe_unused]] f32 sendLevel)
+    {
+        // TODO: Reverb is a global bus effect; per-source send level requires
+        // a mixer node or volume adjustment on a dedicated reverb send bus.
+        // For now this stores the value in config for serialization;
+        // the master reverb is initialized in AudioEngine.
     }
 } // namespace OloEngine

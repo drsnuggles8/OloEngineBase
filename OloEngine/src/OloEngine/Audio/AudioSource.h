@@ -7,6 +7,13 @@ struct ma_sound;
 
 namespace OloEngine
 {
+    namespace Audio::DSP
+    {
+        class LowPassFilter;
+        class HighPassFilter;
+        class Reverb;
+    } // namespace Audio::DSP
+
     enum class AttenuationModelType
     {
         None = 0,
@@ -35,6 +42,11 @@ namespace OloEngine
         f32 ConeOuterGain = 0.0f;
 
         f32 DopplerFactor = 1.0f;
+
+        // DSP filter parameters
+        f32 LowPassCutoff = 1.0f;  // Normalized [0,1], 1.0 = 20 kHz (bypassed)
+        f32 HighPassCutoff = 0.0f; // Normalized [0,1], 0.0 = 20 Hz (bypassed)
+        f32 ReverbSend = 0.0f;     // Reverb send level [0,1], 0.0 = no reverb
     };
 
     class AudioSource : public RefCounted
@@ -76,9 +88,22 @@ namespace OloEngine
         void SetDirection(const glm::vec3& forward) const;
         void SetVelocity(const glm::vec3& velocity) const;
 
+        // DSP controls
+        void SetLowPassCutoff(f32 normalizedCutoff);
+        void SetHighPassCutoff(f32 normalizedCutoff);
+        void SetReverbSend(f32 sendLevel);
+
+        void InitializeDSP();
+        void UninitializeDSP();
+
       private:
         std::string m_Path;
         Scope<ma_sound> m_Sound;
         bool m_Spatialization = false;
+
+        // DSP chain (lazily initialized when parameters change from defaults)
+        Scope<Audio::DSP::LowPassFilter> m_LowPassFilter;
+        Scope<Audio::DSP::HighPassFilter> m_HighPassFilter;
+        bool m_DSPInitialized = false;
     };
 } // namespace OloEngine

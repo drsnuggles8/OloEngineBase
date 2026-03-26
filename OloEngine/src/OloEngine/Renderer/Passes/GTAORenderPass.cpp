@@ -122,9 +122,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_Settings.GTAOEnabled
-            || m_Settings.ActiveAOTechnique != AOTechnique::GTAO
-            || !m_SceneFramebuffer || !m_GTAOShader || !m_GTAOShader->IsValid())
+        if (!m_Settings.GTAOEnabled || m_Settings.ActiveAOTechnique != AOTechnique::GTAO || !m_SceneFramebuffer || !m_GTAOShader || !m_GTAOShader->IsValid())
         {
             return;
         }

@@ -43,7 +43,10 @@ namespace OloEngine
 
         // UV factor to map viewport coordinates to HZB coordinates:
         // hzbUV = screenUV * UVFactor
-        [[nodiscard]] glm::vec2 GetUVFactor() const { return m_UVFactor; }
+        [[nodiscard]] glm::vec2 GetUVFactor() const
+        {
+            return m_UVFactor;
+        }
 
       private:
         [[nodiscard]] static u32 NextPowerOfTwo(u32 v);

@@ -22,6 +22,7 @@ add_executable(OloEngine-Tests
 		LightCullingTest.cpp
 		SoundGraphBasicTest.cpp
 		AudioEventQueueTest.cpp
+		AudioDSPTest.cpp
 		SphericalHarmonicsTest.cpp
 
 		Async/ParkingLotTest.cpp
