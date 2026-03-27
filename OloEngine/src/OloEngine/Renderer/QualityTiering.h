@@ -43,6 +43,9 @@ namespace OloEngine
         bool MotionBlurEnabled = false;
         bool VignetteEnabled = true;
         bool ChromaticAberrationEnabled = false;
+
+        // Canonical High-preset defaults (single source of truth for struct initializers).
+        [[nodiscard]] static QualityTieringSettings HighDefaults();
     };
 
     // Return the canonical preset values for a named tier (Custom returns High defaults).
@@ -50,6 +53,9 @@ namespace OloEngine
 
     // Write tiering values into the runtime structs.
     void ApplyTieringToSettings(const QualityTieringSettings& tiering, PostProcessSettings& pp, ShadowSettings& shadow);
+
+    // Copy tier-owned PP fields from tiering into pp (single mapping used by Apply and Strip).
+    void CopyTierPPFields(const QualityTieringSettings& tiering, PostProcessSettings& pp);
 
     // Build a saveable PP by taking user-edited non-tier fields from rendererPP
     // while preserving tier-owned fields from scenePP (the un-tiered original).

@@ -603,7 +603,7 @@ namespace OloEngine
             }
             if (auto n = tieringNode["ShadowSoftness"]; n && n.IsScalar())
             {
-                qt.ShadowSoftness = n.as<f32>(qt.ShadowSoftness);
+                qt.ShadowSoftness = std::clamp(n.as<f32>(qt.ShadowSoftness), 0.0f, 2.0f);
             }
             if (auto n = tieringNode["ShadowEnabled"]; n && n.IsScalar())
             {

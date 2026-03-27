@@ -3,8 +3,15 @@
 
 namespace OloEngine
 {
+    QualityTieringSettings QualityTieringSettings::HighDefaults()
+    {
+        return GetPresetSettings(QualityPreset::High);
+    }
+
     QualityTieringSettings GetPresetSettings(QualityPreset preset)
     {
+        OLO_PROFILE_FUNCTION();
+
         QualityTieringSettings s{};
         s.Preset = preset;
 
@@ -102,13 +109,8 @@ namespace OloEngine
         return s;
     }
 
-    void ApplyTieringToSettings(const QualityTieringSettings& tiering, PostProcessSettings& pp, ShadowSettings& shadow)
+    void CopyTierPPFields(const QualityTieringSettings& tiering, PostProcessSettings& pp)
     {
-        // Shadows
-        shadow.Resolution = tiering.ShadowResolution;
-        shadow.Softness = tiering.ShadowSoftness;
-        shadow.Enabled = tiering.ShadowEnabled;
-
         // AO technique
         pp.ActiveAOTechnique = tiering.AO;
         pp.SSAOEnabled = (tiering.AO == AOTechnique::SSAO);
@@ -130,8 +132,22 @@ namespace OloEngine
         pp.ChromaticAberrationEnabled = tiering.ChromaticAberrationEnabled;
     }
 
+    void ApplyTieringToSettings(const QualityTieringSettings& tiering, PostProcessSettings& pp, ShadowSettings& shadow)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Shadows
+        shadow.Resolution = tiering.ShadowResolution;
+        shadow.Softness = tiering.ShadowSoftness;
+        shadow.Enabled = tiering.ShadowEnabled;
+
+        CopyTierPPFields(tiering, pp);
+    }
+
     std::string_view QualityPresetToString(QualityPreset preset)
     {
+        OLO_PROFILE_FUNCTION();
+
         switch (preset)
         {
             case QualityPreset::Low:
@@ -145,11 +161,15 @@ namespace OloEngine
             case QualityPreset::Custom:
                 return "Custom";
         }
+        OLO_CORE_WARN("QualityPresetToString: unrecognized preset value {}, defaulting to \"High\"",
+                      static_cast<int>(preset));
         return "High";
     }
 
     QualityPreset QualityPresetFromString(std::string_view str)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (str == "Low")
             return QualityPreset::Low;
         if (str == "Medium")
@@ -160,33 +180,36 @@ namespace OloEngine
             return QualityPreset::Ultra;
         if (str == "Custom")
             return QualityPreset::Custom;
+        OLO_CORE_WARN("QualityPresetFromString: unrecognized preset \"{}\", defaulting to High", str);
         return QualityPreset::High;
     }
 
     PostProcessSettings StripTieringOverlay(const PostProcessSettings& rendererPP, const PostProcessSettings& scenePP)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Start with the renderer's PP (has user edits to non-tier fields + tiering overlay).
         // Replace tier-owned fields with the scene's stored (un-tiered) values.
         PostProcessSettings result = rendererPP;
 
-        result.ActiveAOTechnique = scenePP.ActiveAOTechnique;
-        result.SSAOEnabled = scenePP.SSAOEnabled;
-        result.GTAOEnabled = scenePP.GTAOEnabled;
-        result.SSAOSamples = scenePP.SSAOSamples;
-        result.SSAORadius = scenePP.SSAORadius;
-        result.SSAOBias = scenePP.SSAOBias;
-        result.GTAODenoisePasses = scenePP.GTAODenoisePasses;
-        result.GTAORadius = scenePP.GTAORadius;
-        result.GTAOPower = scenePP.GTAOPower;
+        // Build a pseudo-tiering struct from the scene's PP to reuse the shared mapping.
+        QualityTieringSettings sceneTier{};
+        sceneTier.AO = scenePP.ActiveAOTechnique;
+        sceneTier.SSAOSamples = scenePP.SSAOSamples;
+        sceneTier.SSAORadius = scenePP.SSAORadius;
+        sceneTier.SSAOBias = scenePP.SSAOBias;
+        sceneTier.GTAODenoisePasses = scenePP.GTAODenoisePasses;
+        sceneTier.GTAORadius = scenePP.GTAORadius;
+        sceneTier.GTAOPower = scenePP.GTAOPower;
+        sceneTier.BloomEnabled = scenePP.BloomEnabled;
+        sceneTier.BloomIterations = scenePP.BloomIterations;
+        sceneTier.FXAAEnabled = scenePP.FXAAEnabled;
+        sceneTier.DOFEnabled = scenePP.DOFEnabled;
+        sceneTier.MotionBlurEnabled = scenePP.MotionBlurEnabled;
+        sceneTier.VignetteEnabled = scenePP.VignetteEnabled;
+        sceneTier.ChromaticAberrationEnabled = scenePP.ChromaticAberrationEnabled;
 
-        result.BloomEnabled = scenePP.BloomEnabled;
-        result.BloomIterations = scenePP.BloomIterations;
-        result.FXAAEnabled = scenePP.FXAAEnabled;
-        result.DOFEnabled = scenePP.DOFEnabled;
-        result.MotionBlurEnabled = scenePP.MotionBlurEnabled;
-        result.VignetteEnabled = scenePP.VignetteEnabled;
-        result.ChromaticAberrationEnabled = scenePP.ChromaticAberrationEnabled;
-
+        CopyTierPPFields(sceneTier, result);
         return result;
     }
 

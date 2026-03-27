@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Renderer/QualityTiering.h"
+
 namespace OloEngine
 {
     // @brief Editor panel for global renderer settings:
@@ -18,5 +20,12 @@ namespace OloEngine
         void DrawCullingSection();
         void DrawForwardPlusSection();
         void DrawDebugSection();
+
+        // Quality-tiering helpers
+        static void ApplyQualityTieringToRuntime(const QualityTieringSettings& qt);
+        static void DrawPresetControls(QualityTieringSettings& qt);
+        static void DrawShadowControls(QualityTieringSettings& qt, bool& changed);
+        static void DrawAOControls(QualityTieringSettings& qt, bool& changed);
+        static void DrawPostProcessControls(QualityTieringSettings& qt, bool& changed);
     };
 } // namespace OloEngine
