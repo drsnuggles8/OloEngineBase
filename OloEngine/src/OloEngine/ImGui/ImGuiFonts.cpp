@@ -20,7 +20,7 @@ namespace OloEngine::UI
         imguiFontConfig.MergeMode = config.MergeWithLast;
         auto& io = ImGui::GetIO();
         ImFont* font = io.Fonts->AddFontFromFileTTF(
-            config.FilePath.data(),
+            config.FilePath.c_str(),
             config.Size,
             &imguiFontConfig,
             config.GlyphRanges == nullptr ? io.Fonts->GetGlyphRangesDefault() : config.GlyphRanges);
@@ -35,21 +35,23 @@ namespace OloEngine::UI
 
     ImFont* Fonts::Get(const std::string& fontName)
     {
-        OLO_CORE_VERIFY(s_Fonts.contains(fontName), "Failed to find font with name '{}'!", fontName);
-        return s_Fonts.at(fontName);
+        auto it = s_Fonts.find(fontName);
+        OLO_CORE_VERIFY(it != s_Fonts.end(), "Failed to find font with name '{}'!", fontName);
+        return it->second;
     }
 
     void Fonts::PushFont(const std::string& fontName)
     {
         const auto& io = ImGui::GetIO();
+        auto it = s_Fonts.find(fontName);
 
-        if (!s_Fonts.contains(fontName))
+        if (it == s_Fonts.end())
         {
             ImGui::PushFont(io.FontDefault);
             return;
         }
 
-        ImGui::PushFont(s_Fonts.at(fontName));
+        ImGui::PushFont(it->second);
     }
 
     void Fonts::PopFont()

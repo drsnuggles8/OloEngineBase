@@ -5,6 +5,11 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <algorithm>
+#include <string>
+#include <string_view>
+#include <utility>
+
 namespace OloEngine::UI
 {
     //=========================================================================================
@@ -211,9 +216,9 @@ namespace OloEngine::UI
     //=========================================================================================
     /// Hover / Tooltip helpers
 
-    inline bool IsItemHovered(float delayInSeconds = 0.1f)
+    inline bool IsItemHovered(float delayInSeconds = 0.1f, ImGuiHoveredFlags flags = 0)
     {
-        return ImGui::IsItemHovered() && GImGui->HoveredIdTimer > delayInSeconds;
+        return ImGui::IsItemHovered(flags) && GImGui->HoveredIdTimer > delayInSeconds;
     }
 
     inline void SetTooltip(
@@ -223,11 +228,12 @@ namespace OloEngine::UI
         ImVec2 padding = ImVec2(5, 5))
     {
         ImGuiHoveredFlags flags = allowWhenDisabled ? ImGuiHoveredFlags_AllowWhenDisabled : 0;
-        if (IsItemHovered(delayInSeconds))
+        if (IsItemHovered(delayInSeconds, flags))
         {
             ScopedStyle tooltipPadding(ImGuiStyleVar_WindowPadding, padding);
             ScopedStyleColor textCol(ImGuiCol_Text, Colors::Theme::textBrighter);
-            ImGui::SetTooltip("%s", text.data());
+            std::string nullTerminated(text);
+            ImGui::SetTooltip("%s", nullTerminated.c_str());
         }
     }
 

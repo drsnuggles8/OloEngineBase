@@ -3,14 +3,13 @@
 #include <imgui.h>
 
 #include <string>
-#include <string_view>
 
 namespace OloEngine::UI
 {
     struct FontConfiguration
     {
         std::string FontName;
-        std::string_view FilePath;
+        std::string FilePath;
         float Size = 16.0f;
         const ImWchar* GlyphRanges = nullptr;
         bool MergeWithLast = false;
