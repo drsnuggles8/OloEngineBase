@@ -226,7 +226,16 @@ namespace OloEngine
                 RotationEuler = alternate4;
             }
 
-            RotationEuler = wrapToPi(RotationEuler);
+            // Unwrap each axis to be within ±π of the original Euler to maintain continuity
+            auto constexpr twoPi = 2.0f * glm::pi<float>();
+            for (int i = 0; i < 3; ++i)
+            {
+                float diff = RotationEuler[i] - originalEuler[i];
+                if (diff > glm::pi<float>())
+                    RotationEuler[i] -= twoPi;
+                else if (diff < -glm::pi<float>())
+                    RotationEuler[i] += twoPi;
+            }
         }
 
         void SetTransform(const glm::mat4& transform);

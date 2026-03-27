@@ -266,8 +266,11 @@ namespace OloEngine
                 out << YAML::Key << "ShadowEnabled" << YAML::Value << qt.ShadowEnabled;
                 out << YAML::Key << "AO" << YAML::Value << static_cast<i32>(qt.AO);
                 out << YAML::Key << "SSAOSamples" << YAML::Value << qt.SSAOSamples;
+                out << YAML::Key << "SSAORadius" << YAML::Value << qt.SSAORadius;
+                out << YAML::Key << "SSAOBias" << YAML::Value << qt.SSAOBias;
                 out << YAML::Key << "GTAODenoisePasses" << YAML::Value << qt.GTAODenoisePasses;
                 out << YAML::Key << "GTAORadius" << YAML::Value << qt.GTAORadius;
+                out << YAML::Key << "GTAOPower" << YAML::Value << qt.GTAOPower;
                 out << YAML::Key << "BloomEnabled" << YAML::Value << qt.BloomEnabled;
                 out << YAML::Key << "BloomIterations" << YAML::Value << qt.BloomIterations;
                 out << YAML::Key << "FXAAEnabled" << YAML::Value << qt.FXAAEnabled;
@@ -574,6 +577,16 @@ namespace OloEngine
             {
                 qt.Preset = QualityPresetFromString(presetNode.as<std::string>("High"));
             }
+
+            // Seed from the canonical preset so fields not overridden in YAML get correct values
+            if (qt.Preset != QualityPreset::Custom)
+            {
+                auto seeded = GetPresetSettings(qt.Preset);
+                seeded.Preset = qt.Preset;
+                qt = seeded;
+            }
+
+            // Per-field overrides from YAML (only relevant for Custom, but harmless for named presets)
             if (auto n = tieringNode["ShadowResolution"]; n && n.IsScalar())
             {
                 auto raw = n.as<u32>(qt.ShadowResolution);
@@ -605,6 +618,14 @@ namespace OloEngine
             {
                 qt.SSAOSamples = std::clamp(n.as<i32>(qt.SSAOSamples), 8, 64);
             }
+            if (auto n = tieringNode["SSAORadius"]; n && n.IsScalar())
+            {
+                qt.SSAORadius = std::clamp(n.as<f32>(qt.SSAORadius), 0.1f, 2.0f);
+            }
+            if (auto n = tieringNode["SSAOBias"]; n && n.IsScalar())
+            {
+                qt.SSAOBias = std::clamp(n.as<f32>(qt.SSAOBias), 0.001f, 0.1f);
+            }
             if (auto n = tieringNode["GTAODenoisePasses"]; n && n.IsScalar())
             {
                 qt.GTAODenoisePasses = std::clamp(n.as<i32>(qt.GTAODenoisePasses), 1, 8);
@@ -612,6 +633,10 @@ namespace OloEngine
             if (auto n = tieringNode["GTAORadius"]; n && n.IsScalar())
             {
                 qt.GTAORadius = std::clamp(n.as<f32>(qt.GTAORadius), 0.1f, 2.0f);
+            }
+            if (auto n = tieringNode["GTAOPower"]; n && n.IsScalar())
+            {
+                qt.GTAOPower = std::clamp(n.as<f32>(qt.GTAOPower), 0.5f, 5.0f);
             }
             if (auto n = tieringNode["BloomEnabled"]; n && n.IsScalar())
             {

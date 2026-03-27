@@ -884,14 +884,7 @@ namespace OloEngine
 
             if (isUsing)
             {
-                glm::vec3 translation;
-                glm::vec3 rotation;
-                glm::vec3 scale;
-                Math::DecomposeTransform(transform, translation, rotation, scale);
-
-                tc.Translation = translation;
-                tc.SetRotation(glm::quat(rotation));
-                tc.Scale = scale;
+                tc.SetTransform(transform);
             }
 
             // Push undo command when gizmo interaction ends
@@ -1936,7 +1929,9 @@ namespace OloEngine
     {
         if (!m_EditorScenePath.empty())
         {
-            m_EditorScene->SetPostProcessSettings(Renderer3D::GetPostProcessSettings());
+            // Strip tiering overlay so scene stores un-tiered base settings
+            m_EditorScene->SetPostProcessSettings(
+                StripTieringOverlay(Renderer3D::GetPostProcessSettings(), m_EditorScene->GetPostProcessSettings()));
             m_EditorScene->SetSnowSettings(Renderer3D::GetSnowSettings());
             m_EditorScene->SetWindSettings(Renderer3D::GetWindSettings());
             m_EditorScene->SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());
@@ -1979,7 +1974,9 @@ namespace OloEngine
         m_EditorScene->SetName(filepath.stem().string());
         m_EditorScenePath = filepath;
 
-        m_EditorScene->SetPostProcessSettings(Renderer3D::GetPostProcessSettings());
+        // Strip tiering overlay so scene stores un-tiered base settings
+        m_EditorScene->SetPostProcessSettings(
+            StripTieringOverlay(Renderer3D::GetPostProcessSettings(), m_EditorScene->GetPostProcessSettings()));
         m_EditorScene->SetSnowSettings(Renderer3D::GetSnowSettings());
         m_EditorScene->SetWindSettings(Renderer3D::GetWindSettings());
         m_EditorScene->SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());
@@ -2048,7 +2045,8 @@ namespace OloEngine
         autoPath += ".auto";
 
         // Sync renderer settings into scene before saving
-        m_EditorScene->SetPostProcessSettings(Renderer3D::GetPostProcessSettings());
+        m_EditorScene->SetPostProcessSettings(
+            StripTieringOverlay(Renderer3D::GetPostProcessSettings(), m_EditorScene->GetPostProcessSettings()));
         m_EditorScene->SetSnowSettings(Renderer3D::GetSnowSettings());
         m_EditorScene->SetWindSettings(Renderer3D::GetWindSettings());
         m_EditorScene->SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());

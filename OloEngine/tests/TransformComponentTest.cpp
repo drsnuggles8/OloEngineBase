@@ -90,6 +90,27 @@ TEST(TransformComponent, SetRotationPreventsFlips)
     EXPECT_NEAR(resultEuler.z, slightlyDifferent.z, 0.1f);
 }
 
+TEST(TransformComponent, SetRotationContinuousAcrossPiBoundary)
+{
+    TransformComponent tc;
+    // Start near +pi
+    float nearPi = glm::pi<float>() - 0.05f;
+    tc.SetRotationEuler({ nearPi, 0.0f, 0.0f });
+
+    glm::vec3 eulerBefore = tc.GetRotationEuler();
+
+    // Apply a small quaternion delta that nudges past the +pi boundary
+    float pastPi = glm::pi<float>() + 0.05f;
+    glm::quat q = glm::quat(glm::vec3(pastPi, 0.0f, 0.0f));
+    tc.SetRotation(q);
+
+    glm::vec3 eulerAfter = tc.GetRotationEuler();
+
+    // The x-angle should stay continuous: no large jump (~2*pi or ~pi)
+    float delta = std::abs(eulerAfter.x - eulerBefore.x);
+    EXPECT_LT(delta, 0.5f) << "Euler x jumped by " << delta << " across pi boundary";
+}
+
 // =============================================================================
 // GetTransform / SetTransform round-trip
 // =============================================================================

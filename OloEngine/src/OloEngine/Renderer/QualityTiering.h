@@ -29,8 +29,11 @@ namespace OloEngine
         // AO
         AOTechnique AO = AOTechnique::GTAO;
         i32 SSAOSamples = 32;
+        f32 SSAORadius = 0.5f;
+        f32 SSAOBias = 0.025f;
         i32 GTAODenoisePasses = 3;
         f32 GTAORadius = 0.5f;
+        f32 GTAOPower = 2.2f;
 
         // Post-process toggles
         bool BloomEnabled = true;
@@ -47,6 +50,10 @@ namespace OloEngine
 
     // Write tiering values into the runtime structs.
     void ApplyTieringToSettings(const QualityTieringSettings& tiering, PostProcessSettings& pp, ShadowSettings& shadow);
+
+    // Build a saveable PP by taking user-edited non-tier fields from rendererPP
+    // while preserving tier-owned fields from scenePP (the un-tiered original).
+    [[nodiscard]] PostProcessSettings StripTieringOverlay(const PostProcessSettings& rendererPP, const PostProcessSettings& scenePP);
 
     // String conversions
     [[nodiscard]] std::string_view QualityPresetToString(QualityPreset preset);

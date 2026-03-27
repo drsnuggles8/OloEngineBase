@@ -16,8 +16,11 @@ namespace OloEngine
                 s.ShadowEnabled = false;
                 s.AO = AOTechnique::None;
                 s.SSAOSamples = 16;
+                s.SSAORadius = 0.3f;
+                s.SSAOBias = 0.025f;
                 s.GTAODenoisePasses = 2;
                 s.GTAORadius = 0.5f;
+                s.GTAOPower = 2.2f;
                 s.BloomEnabled = false;
                 s.BloomIterations = 3;
                 s.FXAAEnabled = false;
@@ -33,8 +36,11 @@ namespace OloEngine
                 s.ShadowEnabled = true;
                 s.AO = AOTechnique::SSAO;
                 s.SSAOSamples = 16;
+                s.SSAORadius = 0.5f;
+                s.SSAOBias = 0.025f;
                 s.GTAODenoisePasses = 3;
                 s.GTAORadius = 0.5f;
+                s.GTAOPower = 2.2f;
                 s.BloomEnabled = true;
                 s.BloomIterations = 3;
                 s.FXAAEnabled = false;
@@ -50,8 +56,11 @@ namespace OloEngine
                 s.ShadowEnabled = true;
                 s.AO = AOTechnique::GTAO;
                 s.SSAOSamples = 32;
+                s.SSAORadius = 0.5f;
+                s.SSAOBias = 0.025f;
                 s.GTAODenoisePasses = 3;
                 s.GTAORadius = 0.5f;
+                s.GTAOPower = 2.2f;
                 s.BloomEnabled = true;
                 s.BloomIterations = 5;
                 s.FXAAEnabled = true;
@@ -67,8 +76,11 @@ namespace OloEngine
                 s.ShadowEnabled = true;
                 s.AO = AOTechnique::GTAO;
                 s.SSAOSamples = 64;
+                s.SSAORadius = 0.5f;
+                s.SSAOBias = 0.025f;
                 s.GTAODenoisePasses = 4;
                 s.GTAORadius = 0.5f;
+                s.GTAOPower = 2.2f;
                 s.BloomEnabled = true;
                 s.BloomIterations = 7;
                 s.FXAAEnabled = true;
@@ -102,8 +114,11 @@ namespace OloEngine
         pp.SSAOEnabled = (tiering.AO == AOTechnique::SSAO);
         pp.GTAOEnabled = (tiering.AO == AOTechnique::GTAO);
         pp.SSAOSamples = tiering.SSAOSamples;
+        pp.SSAORadius = tiering.SSAORadius;
+        pp.SSAOBias = tiering.SSAOBias;
         pp.GTAODenoisePasses = tiering.GTAODenoisePasses;
         pp.GTAORadius = tiering.GTAORadius;
+        pp.GTAOPower = tiering.GTAOPower;
 
         // Post-process toggles
         pp.BloomEnabled = tiering.BloomEnabled;
@@ -146,6 +161,33 @@ namespace OloEngine
         if (str == "Custom")
             return QualityPreset::Custom;
         return QualityPreset::High;
+    }
+
+    PostProcessSettings StripTieringOverlay(const PostProcessSettings& rendererPP, const PostProcessSettings& scenePP)
+    {
+        // Start with the renderer's PP (has user edits to non-tier fields + tiering overlay).
+        // Replace tier-owned fields with the scene's stored (un-tiered) values.
+        PostProcessSettings result = rendererPP;
+
+        result.ActiveAOTechnique = scenePP.ActiveAOTechnique;
+        result.SSAOEnabled = scenePP.SSAOEnabled;
+        result.GTAOEnabled = scenePP.GTAOEnabled;
+        result.SSAOSamples = scenePP.SSAOSamples;
+        result.SSAORadius = scenePP.SSAORadius;
+        result.SSAOBias = scenePP.SSAOBias;
+        result.GTAODenoisePasses = scenePP.GTAODenoisePasses;
+        result.GTAORadius = scenePP.GTAORadius;
+        result.GTAOPower = scenePP.GTAOPower;
+
+        result.BloomEnabled = scenePP.BloomEnabled;
+        result.BloomIterations = scenePP.BloomIterations;
+        result.FXAAEnabled = scenePP.FXAAEnabled;
+        result.DOFEnabled = scenePP.DOFEnabled;
+        result.MotionBlurEnabled = scenePP.MotionBlurEnabled;
+        result.VignetteEnabled = scenePP.VignetteEnabled;
+        result.ChromaticAberrationEnabled = scenePP.ChromaticAberrationEnabled;
+
+        return result;
     }
 
 } // namespace OloEngine

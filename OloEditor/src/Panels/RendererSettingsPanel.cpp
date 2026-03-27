@@ -63,7 +63,8 @@ namespace OloEngine
 
             // Shadow
             ImGui::TextDisabled("Shadows");
-            changed |= ImGui::Checkbox("Shadow Enabled##qt", &qt.ShadowEnabled);
+            if (ImGui::Checkbox("Shadow Enabled##qt", &qt.ShadowEnabled))
+                changed = true;
 
             int shadowRes = static_cast<int>(qt.ShadowResolution);
             static const char* shadowResItems[] = { "512", "1024", "2048", "4096" };
@@ -82,7 +83,8 @@ namespace OloEngine
                 qt.ShadowResolution = static_cast<u32>(shadowResValues[shadowResIdx]);
                 changed = true;
             }
-            changed |= ImGui::SliderFloat("Shadow Softness##qt", &qt.ShadowSoftness, 0.0f, 2.0f);
+            if (ImGui::SliderFloat("Shadow Softness##qt", &qt.ShadowSoftness, 0.0f, 2.0f))
+                changed = true;
 
             // AO
             ImGui::Spacing();
@@ -96,27 +98,43 @@ namespace OloEngine
             }
             if (qt.AO == AOTechnique::SSAO)
             {
-                changed |= ImGui::SliderInt("SSAO Samples##qt", &qt.SSAOSamples, 8, 64);
+                if (ImGui::SliderInt("SSAO Samples##qt", &qt.SSAOSamples, 8, 64))
+                    changed = true;
+                if (ImGui::SliderFloat("SSAO Radius##qt", &qt.SSAORadius, 0.1f, 2.0f))
+                    changed = true;
+                if (ImGui::SliderFloat("SSAO Bias##qt", &qt.SSAOBias, 0.001f, 0.1f))
+                    changed = true;
             }
             if (qt.AO == AOTechnique::GTAO)
             {
-                changed |= ImGui::SliderFloat("GTAO Radius##qt", &qt.GTAORadius, 0.1f, 2.0f);
-                changed |= ImGui::SliderInt("GTAO Denoise Passes##qt", &qt.GTAODenoisePasses, 1, 8);
+                if (ImGui::SliderFloat("GTAO Radius##qt", &qt.GTAORadius, 0.1f, 2.0f))
+                    changed = true;
+                if (ImGui::SliderInt("GTAO Denoise Passes##qt", &qt.GTAODenoisePasses, 1, 8))
+                    changed = true;
+                if (ImGui::SliderFloat("GTAO Power##qt", &qt.GTAOPower, 0.5f, 5.0f))
+                    changed = true;
             }
 
             // Post-process toggles
             ImGui::Spacing();
             ImGui::TextDisabled("Post-Processing");
-            changed |= ImGui::Checkbox("Bloom##qt", &qt.BloomEnabled);
+            if (ImGui::Checkbox("Bloom##qt", &qt.BloomEnabled))
+                changed = true;
             if (qt.BloomEnabled)
             {
-                changed |= ImGui::SliderInt("Bloom Iterations##qt", &qt.BloomIterations, 1, 10);
+                if (ImGui::SliderInt("Bloom Iterations##qt", &qt.BloomIterations, 1, 10))
+                    changed = true;
             }
-            changed |= ImGui::Checkbox("FXAA##qt", &qt.FXAAEnabled);
-            changed |= ImGui::Checkbox("Depth of Field##qt", &qt.DOFEnabled);
-            changed |= ImGui::Checkbox("Motion Blur##qt", &qt.MotionBlurEnabled);
-            changed |= ImGui::Checkbox("Vignette##qt", &qt.VignetteEnabled);
-            changed |= ImGui::Checkbox("Chromatic Aberration##qt", &qt.ChromaticAberrationEnabled);
+            if (ImGui::Checkbox("FXAA##qt", &qt.FXAAEnabled))
+                changed = true;
+            if (ImGui::Checkbox("Depth of Field##qt", &qt.DOFEnabled))
+                changed = true;
+            if (ImGui::Checkbox("Motion Blur##qt", &qt.MotionBlurEnabled))
+                changed = true;
+            if (ImGui::Checkbox("Vignette##qt", &qt.VignetteEnabled))
+                changed = true;
+            if (ImGui::Checkbox("Chromatic Aberration##qt", &qt.ChromaticAberrationEnabled))
+                changed = true;
 
             if (changed)
             {

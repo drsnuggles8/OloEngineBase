@@ -1,11 +1,14 @@
 #include "OloEnginePCH.h"
 #include "Components.h"
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Debug/Instrumentor.h"
 
 namespace OloEngine
 {
     void TransformComponent::SetTransform(const glm::mat4& transform)
     {
+        OLO_PROFILE_FUNCTION();
+
         glm::vec3 translation;
         glm::vec3 euler;
         glm::vec3 scale;
