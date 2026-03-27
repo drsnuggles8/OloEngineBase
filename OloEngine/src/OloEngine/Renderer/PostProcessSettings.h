@@ -38,7 +38,7 @@ namespace OloEngine
         // Vignette
         bool VignetteEnabled = false;
         f32 VignetteIntensity = 0.3f;
-        f32 VignetteSmoothness = 0.5f;
+        f32 VignetteSmoothness = 0.15f;
 
         // Chromatic Aberration
         bool ChromaticAberrationEnabled = false;
@@ -98,7 +98,7 @@ namespace OloEngine
 
         f32 BloomIntensity = 0.5f;
         f32 VignetteIntensity = 0.3f;
-        f32 VignetteSmoothness = 0.5f;
+        f32 VignetteSmoothness = 0.15f;
         f32 ChromaticAberrationIntensity = 0.005f;
 
         f32 DOFFocusDistance = 10.0f;
