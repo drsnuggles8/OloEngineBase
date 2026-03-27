@@ -22,6 +22,7 @@ namespace OloEngine::UI
         static void PushFont(const std::string& fontName);
         static void PopFont();
         static ImFont* Get(const std::string& fontName);
+        static void ClearFonts();
     };
 
 } // namespace OloEngine::UI

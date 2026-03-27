@@ -134,13 +134,9 @@ namespace OloEngine::UI
         template<typename ColorType, typename... OtherColors>
         void PushColor(ImGuiCol colorID, ColorType color, OtherColors&&... otherColorPairs)
         {
-            if constexpr (sizeof...(otherColorPairs) == 0)
+            ImGui::PushStyleColor(colorID, ImColor(color).Value);
+            if constexpr (sizeof...(otherColorPairs) != 0)
             {
-                ImGui::PushStyleColor(colorID, ImColor(color).Value);
-            }
-            else
-            {
-                ImGui::PushStyleColor(colorID, ImColor(color).Value);
                 PushColor(std::forward<OtherColors>(otherColorPairs)...);
             }
         }
@@ -174,13 +170,9 @@ namespace OloEngine::UI
         template<typename ValueType, typename... OtherStylePairs>
         void PushStyle(ImGuiStyleVar styleVar, ValueType value, OtherStylePairs&&... otherStylePairs)
         {
-            if constexpr (sizeof...(otherStylePairs) == 0)
+            ImGui::PushStyleVar(styleVar, value);
+            if constexpr (sizeof...(otherStylePairs) != 0)
             {
-                ImGui::PushStyleVar(styleVar, value);
-            }
-            else
-            {
-                ImGui::PushStyleVar(styleVar, value);
                 PushStyle(std::forward<OtherStylePairs>(otherStylePairs)...);
             }
         }

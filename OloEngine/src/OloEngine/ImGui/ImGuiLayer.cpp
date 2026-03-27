@@ -119,6 +119,7 @@ namespace OloEngine
 
         ::ImGui_ImplOpenGL3_Shutdown();
         ::ImGui_ImplGlfw_Shutdown();
+        UI::Fonts::ClearFonts();
         ImGui::DestroyContext();
     }
 

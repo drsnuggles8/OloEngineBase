@@ -59,4 +59,9 @@ namespace OloEngine::UI
         ImGui::PopFont();
     }
 
+    void Fonts::ClearFonts()
+    {
+        s_Fonts.clear();
+    }
+
 } // namespace OloEngine::UI
