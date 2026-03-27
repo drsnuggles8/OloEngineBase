@@ -5,6 +5,7 @@
 #include "UndoRedo/EntityCommands.h"
 #include "UndoRedo/ComponentCommands.h"
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Renderer/QualityTiering.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
@@ -877,21 +878,13 @@ namespace OloEngine
             if (isUsing && !m_GizmoWasUsing)
             {
                 m_GizmoStartTranslation = tc.Translation;
-                m_GizmoStartRotation = tc.Rotation;
+                m_GizmoStartRotation = tc.GetRotationEuler();
                 m_GizmoStartScale = tc.Scale;
             }
 
             if (isUsing)
             {
-                glm::vec3 translation;
-                glm::vec3 rotation;
-                glm::vec3 scale;
-                Math::DecomposeTransform(transform, translation, rotation, scale);
-
-                glm::vec3 const deltaRotation = rotation - tc.Rotation;
-                tc.Translation = translation;
-                tc.Rotation += deltaRotation;
-                tc.Scale = scale;
+                tc.SetTransform(transform);
             }
 
             // Push undo command when gizmo interaction ends
@@ -900,7 +893,7 @@ namespace OloEngine
                 m_CommandHistory.PushAlreadyExecuted(std::make_unique<TransformChangeCommand>(
                     m_EditorScene, selectedEntity.GetUUID(),
                     m_GizmoStartTranslation, m_GizmoStartRotation, m_GizmoStartScale,
-                    tc.Translation, tc.Rotation, tc.Scale));
+                    tc.Translation, tc.GetRotationEuler(), tc.Scale));
             }
 
             m_GizmoWasUsing = isUsing;
@@ -1249,6 +1242,11 @@ namespace OloEngine
             auto& cfg = project->GetConfig();
             cfg.EnableAutoSave = m_Prefs.EnableAutoSave;
             cfg.AutoSaveIntervalSeconds = std::clamp(m_Prefs.AutoSaveIntervalSeconds, 10, 7200);
+
+            // Apply quality tiering to renderer settings
+            ShadowSettings shadowCopy = Renderer3D::GetShadowMap().GetSettings();
+            ApplyTieringToSettings(cfg.QualityTiering, Renderer3D::GetPostProcessSettings(), shadowCopy);
+            Renderer3D::GetShadowMap().SetSettings(shadowCopy);
         }
 
         if (m_Is3DMode && !Renderer3D::IsInitialized())
@@ -1598,7 +1596,7 @@ namespace OloEngine
 
                 if (selection.HasComponent<CircleRendererComponent>())
                 {
-                    glm::mat4 transform = glm::translate(glm::mat4(1.0f), tc.Translation) * glm::toMat4(glm::quat(tc.Rotation)) * glm::scale(glm::mat4(1.0f), tc.Scale + 0.03f);
+                    glm::mat4 transform = glm::translate(glm::mat4(1.0f), tc.Translation) * glm::toMat4(tc.GetRotation()) * glm::scale(glm::mat4(1.0f), tc.Scale + 0.03f);
                     Renderer2D::DrawCircle(transform, glm::vec4(1, 1, 1, 1), 0.03f);
                 }
 
@@ -1608,7 +1606,7 @@ namespace OloEngine
 
                     if (cc.Camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
                     {
-                        glm::mat4 transform = glm::translate(glm::mat4(1.0f), tc.Translation) * glm::toMat4(glm::quat(tc.Rotation)) * glm::scale(glm::mat4(1.0f), glm::vec3(cc.Camera.GetOrthographicSize(), cc.Camera.GetOrthographicSize(), 1.0f) + glm::vec3(0.03f));
+                        glm::mat4 transform = glm::translate(glm::mat4(1.0f), tc.Translation) * glm::toMat4(tc.GetRotation()) * glm::scale(glm::mat4(1.0f), glm::vec3(cc.Camera.GetOrthographicSize(), cc.Camera.GetOrthographicSize(), 1.0f) + glm::vec3(0.03f));
                         Renderer2D::DrawRect(transform, glm::vec4(1, 1, 1, 1));
                     }
                     else if (cc.Camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective)
@@ -1642,7 +1640,7 @@ namespace OloEngine
                     const glm::vec3 translation = tc.Translation + glm::vec3(bc2d.Offset, -projectionCollider.z);
                     const glm::vec3 scale = tc.Scale * glm::vec3(bc2d.Size * 2.0f, 1.0f);
 
-                    glm::mat4 transform = glm::translate(glm::mat4(1.0f), tc.Translation) * glm::rotate(glm::mat4(1.0f), tc.Rotation.z, glm::vec3(0.0f, 0.0f, 1.0f)) * glm::translate(glm::mat4(1.0f), glm::vec3(bc2d.Offset, 0.001f)) * glm::scale(glm::mat4(1.0f), scale);
+                    glm::mat4 transform = glm::translate(glm::mat4(1.0f), tc.Translation) * glm::rotate(glm::mat4(1.0f), tc.GetRotationEuler().z, glm::vec3(0.0f, 0.0f, 1.0f)) * glm::translate(glm::mat4(1.0f), glm::vec3(bc2d.Offset, 0.001f)) * glm::scale(glm::mat4(1.0f), scale);
 
                     Renderer2D::DrawRect(transform, glm::vec4(0, 1, 0, 1));
                 }
@@ -1914,6 +1912,15 @@ namespace OloEngine
         Renderer3D::GetSnowEjectaSettings() = newScene->GetSnowEjectaSettings();
         Renderer3D::GetPrecipitationSettings() = newScene->GetPrecipitationSettings();
         Renderer3D::GetFogSettings() = newScene->GetFogSettings();
+
+        // Reapply quality tiering over scene-loaded settings
+        if (auto project = Project::GetActive())
+        {
+            ShadowSettings shadowCopy = Renderer3D::GetShadowMap().GetSettings();
+            ApplyTieringToSettings(project->GetConfig().QualityTiering, Renderer3D::GetPostProcessSettings(), shadowCopy);
+            Renderer3D::GetShadowMap().SetSettings(shadowCopy);
+        }
+
         m_TimeSinceLastAutoSave = 0.0f;
         return true;
     }
@@ -1922,7 +1929,9 @@ namespace OloEngine
     {
         if (!m_EditorScenePath.empty())
         {
-            m_EditorScene->SetPostProcessSettings(Renderer3D::GetPostProcessSettings());
+            // Strip tiering overlay so scene stores un-tiered base settings
+            m_EditorScene->SetPostProcessSettings(
+                StripTieringOverlay(Renderer3D::GetPostProcessSettings(), m_EditorScene->GetPostProcessSettings()));
             m_EditorScene->SetSnowSettings(Renderer3D::GetSnowSettings());
             m_EditorScene->SetWindSettings(Renderer3D::GetWindSettings());
             m_EditorScene->SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());
@@ -1965,7 +1974,9 @@ namespace OloEngine
         m_EditorScene->SetName(filepath.stem().string());
         m_EditorScenePath = filepath;
 
-        m_EditorScene->SetPostProcessSettings(Renderer3D::GetPostProcessSettings());
+        // Strip tiering overlay so scene stores un-tiered base settings
+        m_EditorScene->SetPostProcessSettings(
+            StripTieringOverlay(Renderer3D::GetPostProcessSettings(), m_EditorScene->GetPostProcessSettings()));
         m_EditorScene->SetSnowSettings(Renderer3D::GetSnowSettings());
         m_EditorScene->SetWindSettings(Renderer3D::GetWindSettings());
         m_EditorScene->SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());
@@ -2011,6 +2022,15 @@ namespace OloEngine
         Renderer3D::GetSnowEjectaSettings() = newScene->GetSnowEjectaSettings();
         Renderer3D::GetPrecipitationSettings() = newScene->GetPrecipitationSettings();
         Renderer3D::GetFogSettings() = newScene->GetFogSettings();
+
+        // Reapply quality tiering over scene-loaded settings
+        if (auto project = Project::GetActive())
+        {
+            ShadowSettings shadowCopy = Renderer3D::GetShadowMap().GetSettings();
+            ApplyTieringToSettings(project->GetConfig().QualityTiering, Renderer3D::GetPostProcessSettings(), shadowCopy);
+            Renderer3D::GetShadowMap().SetSettings(shadowCopy);
+        }
+
         return true;
     }
 
@@ -2025,7 +2045,8 @@ namespace OloEngine
         autoPath += ".auto";
 
         // Sync renderer settings into scene before saving
-        m_EditorScene->SetPostProcessSettings(Renderer3D::GetPostProcessSettings());
+        m_EditorScene->SetPostProcessSettings(
+            StripTieringOverlay(Renderer3D::GetPostProcessSettings(), m_EditorScene->GetPostProcessSettings()));
         m_EditorScene->SetSnowSettings(Renderer3D::GetSnowSettings());
         m_EditorScene->SetWindSettings(Renderer3D::GetWindSettings());
         m_EditorScene->SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());

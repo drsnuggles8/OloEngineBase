@@ -25,7 +25,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         auto& tc = entity.GetComponent<TransformComponent>();
-        return glm::translate(glm::mat4(1.0f), tc.Translation) * glm::toMat4(glm::quat(tc.Rotation)) * glm::scale(glm::mat4(1.0f), tc.Scale);
+        return glm::translate(glm::mat4(1.0f), tc.Translation) * glm::toMat4(tc.GetRotation()) * glm::scale(glm::mat4(1.0f), tc.Scale);
     }
 
     // Append local-space vertices transformed to world-space and return the baseVertex index

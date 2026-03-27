@@ -266,7 +266,7 @@ namespace UndoTest
                 return;
             auto& tc = e->GetComponent<TransformComponent>();
             tc.Translation = t;
-            tc.Rotation = r;
+            tc.SetRotationEuler(r);
             tc.Scale = s;
         }
 
@@ -1007,7 +1007,7 @@ TEST(TransformChangeCommand, ChangesAndRestoresTransform)
 
     auto& tc = entity.GetComponent<TransformComponent>();
     glm::vec3 oldT = tc.Translation;
-    glm::vec3 oldR = tc.Rotation;
+    glm::vec3 oldR = tc.GetRotationEuler();
     glm::vec3 oldS = tc.Scale;
 
     glm::vec3 newT(10.0f, 20.0f, 30.0f);
@@ -1019,12 +1019,12 @@ TEST(TransformChangeCommand, ChangesAndRestoresTransform)
         scene, uuid, oldT, oldR, oldS, newT, newR, newS));
 
     EXPECT_EQ(tc.Translation, newT);
-    EXPECT_EQ(tc.Rotation, newR);
+    EXPECT_EQ(tc.GetRotationEuler(), newR);
     EXPECT_EQ(tc.Scale, newS);
 
     history.Undo();
     EXPECT_EQ(tc.Translation, oldT);
-    EXPECT_EQ(tc.Rotation, oldR);
+    EXPECT_EQ(tc.GetRotationEuler(), oldR);
     EXPECT_EQ(tc.Scale, oldS);
 }
 

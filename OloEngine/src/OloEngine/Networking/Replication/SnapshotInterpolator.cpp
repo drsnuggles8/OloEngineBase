@@ -141,10 +141,10 @@ namespace OloEngine
                 // Lerp translation
                 transform.Translation = glm::mix(tb.Translation, ta.Translation, alpha);
                 // Slerp rotation via quaternion for correct spherical interpolation
-                glm::quat const qBefore = glm::quat(tb.Rotation);
-                glm::quat const qAfter = glm::quat(ta.Rotation);
+                glm::quat const qBefore = tb.GetRotation();
+                glm::quat const qAfter = ta.GetRotation();
                 glm::quat const qInterp = glm::slerp(qBefore, qAfter, alpha);
-                transform.Rotation = glm::eulerAngles(qInterp);
+                transform.SetRotation(qInterp);
                 // Lerp scale
                 transform.Scale = glm::mix(tb.Scale, ta.Scale, alpha);
             }
@@ -153,7 +153,7 @@ namespace OloEngine
                 // Entity only exists in the newer snapshot — snap to it
                 auto& transform = entity.GetComponent<TransformComponent>();
                 transform.Translation = itAfter->second.Translation;
-                transform.Rotation = itAfter->second.Rotation;
+                transform.SetRotationEuler(itAfter->second.GetRotationEuler());
                 transform.Scale = itAfter->second.Scale;
             }
         }

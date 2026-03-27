@@ -185,7 +185,7 @@ namespace OloEngine
         Entity entity = scene->GetEntityByUUID(entityID);
         OLO_CORE_ASSERT(entity);
 
-        *outRotation = entity.GetComponent<TransformComponent>().Rotation;
+        *outRotation = entity.GetComponent<TransformComponent>().GetRotationEuler();
     }
 
     static void TransformComponent_SetRotation(UUID entityID, glm::vec3 const* rotation)
@@ -195,7 +195,7 @@ namespace OloEngine
         Entity entity = scene->GetEntityByUUID(entityID);
         OLO_CORE_ASSERT(entity);
 
-        entity.GetComponent<TransformComponent>().Rotation = *rotation;
+        entity.GetComponent<TransformComponent>().SetRotationEuler(*rotation);
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////

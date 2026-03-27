@@ -10,7 +10,12 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         ar << component.Translation.x << component.Translation.y << component.Translation.z;
-        ar << component.Rotation.x << component.Rotation.y << component.Rotation.z;
+        glm::vec3 euler = component.GetRotationEuler();
+        ar << euler.x << euler.y << euler.z;
+        if (ar.IsLoading())
+        {
+            component.SetRotationEuler(euler);
+        }
         ar << component.Scale.x << component.Scale.y << component.Scale.z;
     }
 

@@ -495,7 +495,7 @@ namespace OloEngine
                 b2BodyDef bodyDef = b2DefaultBodyDef();
                 bodyDef.type = ToBox2DBodyType(rb2d.Type);
                 bodyDef.position = { transform.Translation.x, transform.Translation.y };
-                bodyDef.rotation = b2MakeRot(transform.Rotation.z);
+                bodyDef.rotation = b2MakeRot(transform.GetRotationEuler().z);
 
                 b2BodyId body = b2CreateBody(m_Scene->m_PhysicsWorld, &bodyDef);
                 b2Body_SetFixedRotation(body, rb2d.FixedRotation);

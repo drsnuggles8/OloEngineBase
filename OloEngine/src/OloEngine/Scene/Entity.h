@@ -108,7 +108,7 @@ namespace OloEngine
         [[nodiscard("Store this!")]] glm::mat4 GetLocalTransform() const
         {
             const auto& transform = GetTransform();
-            return glm::translate(glm::mat4(1.0f), transform.Translation) * glm::toMat4(glm::quat(transform.Rotation)) * glm::scale(glm::mat4(1.0f), transform.Scale);
+            return glm::translate(glm::mat4(1.0f), transform.Translation) * glm::toMat4(transform.GetRotation()) * glm::scale(glm::mat4(1.0f), transform.Scale);
         }
 
         [[nodiscard("Store this!")]] UUID GetUUID() const

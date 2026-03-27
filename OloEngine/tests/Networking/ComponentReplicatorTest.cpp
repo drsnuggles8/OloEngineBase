@@ -11,7 +11,7 @@ TEST(ComponentReplicatorTest, TransformRoundtrip)
 
     TransformComponent original;
     original.Translation = { 1.0f, 2.0f, 3.0f };
-    original.Rotation = { 0.1f, 0.2f, 0.3f };
+    original.SetRotationEuler({ 0.1f, 0.2f, 0.3f });
     original.Scale = { 4.0f, 5.0f, 6.0f };
 
     // Serialize
@@ -29,9 +29,9 @@ TEST(ComponentReplicatorTest, TransformRoundtrip)
     EXPECT_FLOAT_EQ(loaded.Translation.x, 1.0f);
     EXPECT_FLOAT_EQ(loaded.Translation.y, 2.0f);
     EXPECT_FLOAT_EQ(loaded.Translation.z, 3.0f);
-    EXPECT_FLOAT_EQ(loaded.Rotation.x, 0.1f);
-    EXPECT_FLOAT_EQ(loaded.Rotation.y, 0.2f);
-    EXPECT_FLOAT_EQ(loaded.Rotation.z, 0.3f);
+    EXPECT_FLOAT_EQ(loaded.GetRotationEuler().x, 0.1f);
+    EXPECT_FLOAT_EQ(loaded.GetRotationEuler().y, 0.2f);
+    EXPECT_FLOAT_EQ(loaded.GetRotationEuler().z, 0.3f);
     EXPECT_FLOAT_EQ(loaded.Scale.x, 4.0f);
     EXPECT_FLOAT_EQ(loaded.Scale.y, 5.0f);
     EXPECT_FLOAT_EQ(loaded.Scale.z, 6.0f);
@@ -138,7 +138,7 @@ TEST_F(ComponentRegistryTest, RegisteredTransformSerializerWorks)
 
     TransformComponent original;
     original.Translation = { 7.0f, 8.0f, 9.0f };
-    original.Rotation = { 0.5f, 0.6f, 0.7f };
+    original.SetRotationEuler({ 0.5f, 0.6f, 0.7f });
     original.Scale = { 2.0f, 3.0f, 4.0f };
 
     std::vector<u8> buffer;
@@ -154,6 +154,9 @@ TEST_F(ComponentRegistryTest, RegisteredTransformSerializerWorks)
     EXPECT_FLOAT_EQ(loaded.Translation.x, 7.0f);
     EXPECT_FLOAT_EQ(loaded.Translation.y, 8.0f);
     EXPECT_FLOAT_EQ(loaded.Translation.z, 9.0f);
+    EXPECT_NEAR(loaded.GetRotationEuler().x, 0.5f, 1e-4f);
+    EXPECT_NEAR(loaded.GetRotationEuler().y, 0.6f, 1e-4f);
+    EXPECT_NEAR(loaded.GetRotationEuler().z, 0.7f, 1e-4f);
     EXPECT_FLOAT_EQ(loaded.Scale.x, 2.0f);
     EXPECT_FLOAT_EQ(loaded.Scale.y, 3.0f);
     EXPECT_FLOAT_EQ(loaded.Scale.z, 4.0f);

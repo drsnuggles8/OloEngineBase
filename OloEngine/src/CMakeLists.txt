@@ -570,6 +570,8 @@
 		"OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 		"OloEngine/Renderer/Passes/SelectionOutlineRenderPass.cpp"
 		"OloEngine/Renderer/PostProcessSettings.h"
+		"OloEngine/Renderer/QualityTiering.h"
+		"OloEngine/Renderer/QualityTiering.cpp"
 		"OloEngine/Renderer/Shadow/ShadowMap.h"
 		"OloEngine/Renderer/Shadow/ShadowMap.cpp"
 		"OloEngine/Renderer/Texture2DArray.h"
@@ -703,6 +705,7 @@
 		"OloEngine/Terrain/Foliage/FoliageRenderer.cpp"
 
 		"OloEngine/Scene/Components.h"
+		"OloEngine/Scene/TransformComponent.cpp"
 		"OloEngine/Scene/Entity.cpp"
 		"OloEngine/Scene/Entity.h"
 		"OloEngine/Scene/Prefab.cpp"

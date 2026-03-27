@@ -45,7 +45,7 @@ namespace OloEngine
 
             auto& tc = entityOpt->GetComponent<TransformComponent>();
             tc.Translation = translation;
-            tc.Rotation = rotation;
+            tc.SetRotationEuler(rotation);
             tc.Scale = scale;
         }
 

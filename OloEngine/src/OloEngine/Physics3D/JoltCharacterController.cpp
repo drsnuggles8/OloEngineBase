@@ -386,7 +386,7 @@ namespace OloEngine
         {
             auto& transform = m_Entity.GetComponent<TransformComponent>();
             position = transform.Translation;
-            rotation = glm::quat(transform.Rotation);
+            rotation = transform.GetRotation();
         }
 
         // Create the character controller with proper physics system integration

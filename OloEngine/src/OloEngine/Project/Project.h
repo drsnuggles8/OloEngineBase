@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Asset/AssetManager/AssetManagerBase.h"
+#include "OloEngine/Renderer/QualityTiering.h"
 
 #include <string>
 #include <filesystem>
@@ -21,6 +22,9 @@ namespace OloEngine
         // Auto-save
         bool EnableAutoSave = true;
         int AutoSaveIntervalSeconds = 300; // 5 minutes
+
+        // Quality tiering
+        QualityTieringSettings QualityTiering;
     };
 
     class Project : public RefCounted
