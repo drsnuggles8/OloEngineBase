@@ -41,7 +41,7 @@ namespace OloEngine
         bool FXAAEnabled = true;
         bool DOFEnabled = false;
         bool MotionBlurEnabled = false;
-        bool VignetteEnabled = true;
+        bool VignetteEnabled = false;
         bool ChromaticAberrationEnabled = false;
 
         // Canonical High-preset defaults (single source of truth for struct initializers).

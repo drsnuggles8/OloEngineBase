@@ -276,7 +276,11 @@
 		"OloEngine/Events/KeyEvent.h"
 		"OloEngine/Events/MouseEvent.h"
 
+		"OloEngine/ImGui/Colors.h"
+		"OloEngine/ImGui/FontAwesome.h"
 		"OloEngine/ImGui/ImGuiBuild.cpp"
+		"OloEngine/ImGui/ImGuiFonts.cpp"
+		"OloEngine/ImGui/ImGuiFonts.h"
 		"OloEngine/ImGui/ImGuiLayer.cpp"
 		"OloEngine/ImGui/ImGuiLayer.h"
 
@@ -873,6 +877,7 @@
 		"OloEngine/Networking/Persistence/WorldPersistenceManager.h"
 		"OloEngine/Networking/Persistence/WorldPersistenceManager.cpp"
 
+		"OloEngine/UI/UI.cpp"
 		"OloEngine/UI/UI.h"
 		"OloEngine/UI/UILayoutSystem.h"
 		"OloEngine/UI/UILayoutSystem.cpp"

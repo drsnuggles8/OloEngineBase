@@ -73,7 +73,7 @@ namespace OloEngine
                 s.FXAAEnabled = true;
                 s.DOFEnabled = false;
                 s.MotionBlurEnabled = false;
-                s.VignetteEnabled = true;
+                s.VignetteEnabled = false;
                 s.ChromaticAberrationEnabled = false;
                 break;
 
@@ -93,7 +93,7 @@ namespace OloEngine
                 s.FXAAEnabled = true;
                 s.DOFEnabled = true;
                 s.MotionBlurEnabled = true;
-                s.VignetteEnabled = true;
+                s.VignetteEnabled = false;
                 s.ChromaticAberrationEnabled = true;
                 break;
 
