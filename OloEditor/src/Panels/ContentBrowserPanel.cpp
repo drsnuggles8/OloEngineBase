@@ -743,11 +743,17 @@ namespace OloEngine
     void ContentBrowserPanel::OpenInExplorer([[maybe_unused]] const std::filesystem::path& path)
     {
 #ifdef OLO_PLATFORM_WINDOWS
-        std::error_code ec;
-        auto canonical = std::filesystem::canonical(path, ec);
-        if (ec || !std::filesystem::exists(canonical, ec))
+        std::error_code ecCanonical;
+        auto canonical = std::filesystem::canonical(path, ecCanonical);
+        if (ecCanonical)
         {
-            OLO_CORE_ERROR("OpenInExplorer: invalid path '{}': {}", path.string(), ec.message());
+            OLO_CORE_ERROR("OpenInExplorer: canonical failed for '{}': {}", path.string(), ecCanonical.message());
+            return;
+        }
+        std::error_code ecExists;
+        if (!std::filesystem::exists(canonical, ecExists))
+        {
+            OLO_CORE_ERROR("OpenInExplorer: path does not exist '{}': {}", canonical.string(), ecExists.message());
             return;
         }
         std::wstring args = L"/select,\"" + canonical.wstring() + L"\"";
@@ -758,11 +764,17 @@ namespace OloEngine
     void ContentBrowserPanel::OpenExternally([[maybe_unused]] const std::filesystem::path& path)
     {
 #ifdef OLO_PLATFORM_WINDOWS
-        std::error_code ec;
-        auto canonical = std::filesystem::canonical(path, ec);
-        if (ec || !std::filesystem::is_regular_file(canonical, ec))
+        std::error_code ecCanonical;
+        auto canonical = std::filesystem::canonical(path, ecCanonical);
+        if (ecCanonical)
         {
-            OLO_CORE_ERROR("OpenExternally: invalid path '{}': {}", path.string(), ec.message());
+            OLO_CORE_ERROR("OpenExternally: canonical failed for '{}': {}", path.string(), ecCanonical.message());
+            return;
+        }
+        std::error_code ecIsFile;
+        if (!std::filesystem::is_regular_file(canonical, ecIsFile))
+        {
+            OLO_CORE_ERROR("OpenExternally: not a regular file '{}': {}", canonical.string(), ecIsFile.message());
             return;
         }
         ShellExecuteW(nullptr, L"open", canonical.c_str(), nullptr, nullptr, SW_SHOWNORMAL);

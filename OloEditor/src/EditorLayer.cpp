@@ -42,6 +42,17 @@
 #include <algorithm>
 #include <thread>
 
+namespace
+{
+    // Interprets ImGui drag-drop payload bytes as a UTF-8 path.
+    [[nodiscard]] std::filesystem::path PathFromUtf8Payload(const ImGuiPayload& payload)
+    {
+        auto const* data = static_cast<char const*>(payload.Data);
+        auto const* u8data = reinterpret_cast<char8_t const*>(data);
+        return std::filesystem::path(std::u8string_view(u8data));
+    }
+} // namespace
+
 namespace OloEngine
 {
     EditorLayer::EditorLayer()
@@ -759,7 +770,7 @@ namespace OloEngine
             // Accept scene files (typed payload from content browser)
             if (const ImGuiPayload* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_SCENE"))
             {
-                std::filesystem::path path(static_cast<const char*>(payload->Data));
+                std::filesystem::path path = PathFromUtf8Payload(*payload);
                 if (ConfirmDiscardChanges())
                 {
                     m_HoveredEntity = Entity();
@@ -770,7 +781,7 @@ namespace OloEngine
             // Accept generic items (images, prefabs, and legacy scene drops)
             if (const ImGuiPayload* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
             {
-                std::filesystem::path path(static_cast<const char*>(payload->Data));
+                std::filesystem::path path = PathFromUtf8Payload(*payload);
 
                 if (path.extension() == ".olo") // Legacy: scene via generic payload
                 {

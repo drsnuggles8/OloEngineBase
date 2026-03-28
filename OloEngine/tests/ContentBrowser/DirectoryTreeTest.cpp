@@ -6,6 +6,11 @@
 #include <filesystem>
 #include <fstream>
 #include <thread>
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 using namespace OloEngine; // NOLINT
 
@@ -19,7 +24,12 @@ namespace
         TempDirectoryFixture()
         {
             auto tid = std::hash<std::thread::id>{}(std::this_thread::get_id());
-            Root = std::filesystem::temp_directory_path() / ("OloEngine_DirTreeTest_" + std::to_string(tid));
+#ifdef _WIN32
+            auto pid = static_cast<unsigned>(_getpid());
+#else
+            auto pid = static_cast<unsigned>(getpid());
+#endif
+            Root = std::filesystem::temp_directory_path() / ("OloEngine_DirTreeTest_" + std::to_string(tid) + "_" + std::to_string(pid));
             std::filesystem::remove_all(Root);
 
             // Create a small directory tree:

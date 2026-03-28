@@ -45,7 +45,11 @@ namespace OloEngine
         // Also returns directory paths whose name matches.
         [[nodiscard]] std::vector<std::filesystem::path> Search(const std::string& query) const;
 
-        [[nodiscard]] DirectoryInfo* GetRoot() const
+        [[nodiscard]] DirectoryInfo* GetRoot()
+        {
+            return m_Root.get();
+        }
+        [[nodiscard]] const DirectoryInfo* GetRoot() const
         {
             return m_Root.get();
         }

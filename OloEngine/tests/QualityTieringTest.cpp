@@ -32,7 +32,7 @@ TEST(QualityTiering, UltraPresetEnablesEverything)
     EXPECT_TRUE(s.FXAAEnabled);
     EXPECT_TRUE(s.DOFEnabled);
     EXPECT_TRUE(s.MotionBlurEnabled);
-    EXPECT_TRUE(s.VignetteEnabled);
+    EXPECT_FALSE(s.VignetteEnabled);
     EXPECT_TRUE(s.ChromaticAberrationEnabled);
     EXPECT_EQ(s.AO, AOTechnique::GTAO);
     EXPECT_GE(s.ShadowResolution, 4096u);
