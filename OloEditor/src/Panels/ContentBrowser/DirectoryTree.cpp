@@ -97,23 +97,33 @@ namespace OloEngine
         if (!std::filesystem::exists(absolutePath, ec) || !std::filesystem::is_directory(absolutePath, ec))
             return;
 
-        for (const auto& entry : std::filesystem::directory_iterator(absolutePath, ec))
+        auto end = std::filesystem::directory_iterator();
+        for (auto it = std::filesystem::directory_iterator(absolutePath, ec); !ec && it != end; it.increment(ec))
         {
+            bool isDir = it->is_directory(ec);
             if (ec)
-                break;
+            {
+                ec.clear();
+                continue;
+            }
 
-            if (entry.is_directory())
+            if (isDir)
             {
                 auto child = std::make_unique<DirectoryInfo>();
-                child->RelativePath = std::filesystem::relative(entry.path(), m_AssetRoot, ec);
-                child->Name = entry.path().filename().string();
+                child->RelativePath = std::filesystem::relative(it->path(), m_AssetRoot, ec);
+                if (ec)
+                {
+                    ec.clear();
+                    continue;
+                }
+                child->Name = it->path().filename().string();
                 child->Parent = &dir;
                 ScanDirectory(*child);
                 dir.SubDirectories.push_back(std::move(child));
             }
             else
             {
-                dir.Files.push_back(entry.path());
+                dir.Files.push_back(it->path());
             }
         }
 

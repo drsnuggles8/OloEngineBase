@@ -48,7 +48,7 @@ namespace
     {
         auto const* data = static_cast<char const*>(payload.Data);
         auto const* u8data = reinterpret_cast<char8_t const*>(data);
-        return std::filesystem::path(std::u8string_view(u8data));
+        return std::filesystem::path(std::u8string_view(u8data, static_cast<size_t>(payload.DataSize)));
     }
 } // namespace
 

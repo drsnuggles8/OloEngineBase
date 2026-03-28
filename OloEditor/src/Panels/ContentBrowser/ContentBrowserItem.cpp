@@ -150,8 +150,12 @@ namespace OloEngine
 
     ContentBrowserItem::ContentBrowserItem(const std::filesystem::path& absolutePath, ContentFileType type,
                                            const Ref<Texture2D>& icon)
-        : m_Path(absolutePath), m_DisplayName(absolutePath.filename().string()), m_Type(type), m_Icon(icon)
+        : m_Path(absolutePath), m_Type(type), m_Icon(icon)
     {
+        // Store display name as UTF-8
+        auto u8name = absolutePath.filename().u8string();
+        m_DisplayName.assign(u8name.begin(), u8name.end());
+
         // Pre-fill rename buffer
         std::string name = m_DisplayName;
         size_t len = std::min(name.size(), sizeof(m_RenameBuffer) - 1);
@@ -307,6 +311,7 @@ namespace OloEngine
         OLO_CORE_INFO("ContentBrowser: Renamed '{}' -> '{}'", m_DisplayName, newName);
         m_Path = newPath;
         m_DisplayName = newName;
+        m_Type = GetFileTypeFromExtension(m_Path);
         return true;
     }
 
@@ -324,7 +329,8 @@ namespace OloEngine
 
         if (ImGui::MenuItem("Copy Path"))
         {
-            ImGui::SetClipboardText(m_Path.string().c_str());
+            auto u8path = m_Path.u8string();
+            ImGui::SetClipboardText(reinterpret_cast<char const*>(u8path.c_str()));
         }
 
         ImGui::Separator();

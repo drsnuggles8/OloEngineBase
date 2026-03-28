@@ -52,6 +52,17 @@ namespace OloEngine
         m_DirectoryIcon = Texture2D::Create("Resources/Icons/ContentBrowser/DirectoryIcon.png");
         m_FileIcon = Texture2D::Create("Resources/Icons/ContentBrowser/FileIcon.png");
 
+        if (!m_DirectoryIcon || !m_DirectoryIcon->IsLoaded())
+        {
+            OLO_CORE_ERROR("ContentBrowser: Failed to load DirectoryIcon — creating 1x1 fallback");
+            m_DirectoryIcon = Texture2D::Create(TextureSpecification{});
+        }
+        if (!m_FileIcon || !m_FileIcon->IsLoaded())
+        {
+            OLO_CORE_ERROR("ContentBrowser: Failed to load FileIcon — creating 1x1 fallback");
+            m_FileIcon = Texture2D::Create(TextureSpecification{});
+        }
+
         // Load specialized icons (fallback to file icon if not found)
         auto loadIcon = [this](const char* path) -> Ref<Texture2D>
         {
@@ -519,7 +530,7 @@ namespace OloEngine
             m_CurrentDirectory = m_CurrentDirectory->Parent;
             m_RenamingItem.clear();
             DeselectAll();
-            RebuildItemList();
+            ClearSearch();
             RebuildBreadcrumbs();
         }
     }
@@ -532,7 +543,7 @@ namespace OloEngine
             m_ForwardDirectory = nullptr;
             m_RenamingItem.clear();
             DeselectAll();
-            RebuildItemList();
+            ClearSearch();
             RebuildBreadcrumbs();
         }
     }
@@ -1212,9 +1223,9 @@ namespace OloEngine
 
         f32 value = 0.0f;
         if (std::sscanf(line, "ThumbnailSize=%f", &value) == 1)
-            panel->m_ThumbnailSize = value;
+            panel->m_ThumbnailSize = std::clamp(value, 48.0f, 256.0f);
         else if (std::sscanf(line, "Padding=%f", &value) == 1)
-            panel->m_Padding = value;
+            panel->m_Padding = std::clamp(value, 0.0f, 32.0f);
     }
 
     void ContentBrowserPanel::SettingsHandler_WriteAll(ImGuiContext*, ImGuiSettingsHandler* handler, ImGuiTextBuffer* buf)
