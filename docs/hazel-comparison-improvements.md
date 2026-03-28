@@ -33,18 +33,11 @@ Hazel supports per-spot-light shadow maps (`SpotShadowMapPass`, `m_SpotShadowPas
 
 Hazel separates game logic from GPU submission via a `RenderThread` class with `SingleThreaded`/`MultiThreaded` policies. Commands are queued as lambdas (`Renderer::Submit()`), double-buffered, and executed on a dedicated thread. OloEngine's OpenGL context is single-threaded. While OpenGL doesn't support true multi-threaded command recording, the **command queue double-buffering pattern** (main thread populates frame N+1 while render thread executes frame N) could still be applied to OpenGL to reduce frame latency and decouple simulation from rendering.
 
-### 2.2 Abstract GPU Resource Interfaces
-
-Hazel's `Pipeline`, `RenderPass`, `ComputePass`, `Material`, `Framebuffer`, etc. are all **pure virtual interfaces** with Vulkan implementations behind them. OloEngine's classes are concrete OpenGL types (`OpenGLFramebuffer`, `OpenGLShader`). Even without switching APIs, abstracting these into interfaces would:
-- Enable a future WebGPU/Metal/DX12 backend path
-- Make unit testing renderable code possible (mock backends)
-- Clean up the include graph (headers don't need GL types)
-
-### 2.3 Resource Lifetime Management
+### 2.2 Resource Lifetime Management
 
 Hazel has `Renderer::SubmitResourceFree()` which defers GPU resource destruction to after the current frame finishes rendering (frame-indexed release queues). This avoids use-after-free when resources are destroyed while still referenced by in-flight commands. OloEngine should audit whether any similar deferred-destruction pattern exists, and add one if not.
 
-### 2.4 Quality Tiering System
+### 2.3 Quality Tiering System
 
 Hazel has `TieringSettings` (environment map resolution, irradiance samples, etc.) that can be swapped per quality preset. OloEngine exposes many settings in the Renderer Settings panel but lacks a formal tiering/preset system to bundle them. A simple preset struct (Low/Medium/High/Ultra) mapping to existing settings would improve usability.
 
@@ -86,7 +79,7 @@ Hazelnut's content browser has:
 - **Breadcrumb navigation** with back/forward history
 - **Recent projects** (last 10, sorted by date)
 
-OloEditor's content browser has basic icon display, categories, and drag-drop, but could benefit from the search, thumbnails, and multi-select features.
+OloEditor's content browser now matches Hazelnut's feature set: dual-pane layout (tree + grid), real-time search, multi-select with Ctrl/Shift, breadcrumb navigation with back/forward, settings persistence via imgui.ini, and typed drag-drop payloads for scenes/models/scripts.
 
 ### 4.4 Statistics Panel Depth
 
@@ -149,20 +142,19 @@ Hazel's animation system includes specialized graph nodes: `IKNodes` (inverse ki
 
 ## Priority Ranking
 
-| Priority | Item | Effort | Impact |
-|----------|------|--------|--------|
-| **High** | 4.5 Selection outline (Jump Flood) | Medium | Major editor UX |
-| **High** | 1.1 GTAO replacing SSAO | Medium | Visual quality leap |
-| **High** | 3.1 Audio DSP (at least reverb + spatial) | Medium | Audio is unusable without it |
-| **High** | 4.2 Auto-save with recovery | Low | Prevents data loss |
-| **Medium** | 1.3 Spot light shadows | Medium | Lighting quality |
-| **Medium** | 1.2 HZB for SSR + occlusion | Medium | Performance + SSR quality |
-| **Medium** | 4.3 Content browser search + thumbnails | Medium | Editor workflow |
-| **Medium** | 2.4 Quality tiering presets | Low | Usability |
-| **Medium** | 6.1 Dependency-aware hot reload | Low-Med | Asset iteration speed |
-| **Medium** | 5.4 Quaternion/Euler sync in Transform | Low | Prevents rotation bugs |
-| **Lower** | 2.2 Abstract GPU interfaces | High | Future-proofing |
-| **Lower** | 4.1 Dual viewport | Medium | Nice to have |
-| **Lower** | 7 Type reflection | High | Long-term architecture |
-| **Lower** | 6.2 Shader packs | Medium | Distribution builds |
-| **Lower** | 5.2 Compound colliders | Low | Physics completeness |
+| Priority | Item | Effort | Impact | Status |
+|----------|------|--------|--------|--------|
+| **High** | 4.5 Selection outline (Jump Flood) | Medium | Major editor UX | Basic done (edge-detect); JF follow-up |
+| **High** | 1.1 GTAO replacing SSAO | Medium | Visual quality leap | ✅ Done |
+| **High** | 3.1 Audio DSP (at least reverb + spatial) | Medium | Audio is unusable without it | ✅ Done |
+| **High** | 4.2 Auto-save with recovery | Low | Prevents data loss | ✅ Done |
+| **Medium** | 1.3 Spot light shadows | Medium | Lighting quality | ✅ Done |
+| **Medium** | 1.2 HZB for SSR + occlusion | Medium | Performance + SSR quality | ✅ Done |
+| **Medium** | 4.3 Content browser search + thumbnails | Medium | Editor workflow | ✅ Done |
+| **Medium** | 2.3 Quality tiering presets | Low | Usability | ✅ Done |
+| **Medium** | 6.1 Dependency-aware hot reload | Low-Med | Asset iteration speed | ✅ Done |
+| **Medium** | 5.4 Quaternion/Euler sync in Transform | Low | Prevents rotation bugs | ✅ Done |
+| **Lower** | 4.1 Dual viewport | Medium | Nice to have | |
+| **Lower** | 7 Type reflection | High | Long-term architecture | |
+| **Lower** | 6.2 Shader packs | Medium | Distribution builds | |
+| **Lower** | 5.2 Compound colliders | Low | Physics completeness | ✅ Done |

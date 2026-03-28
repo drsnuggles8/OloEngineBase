@@ -42,6 +42,31 @@
 #include <algorithm>
 #include <thread>
 
+namespace
+{
+    // Interprets ImGui drag-drop payload bytes as a UTF-8 path.
+    [[nodiscard]] std::filesystem::path PathFromUtf8Payload(const ImGuiPayload& payload)
+    {
+        auto const* data = static_cast<char const*>(payload.Data);
+        auto const* u8data = reinterpret_cast<char8_t const*>(data);
+        // Strip trailing NUL if the sender included it in DataSize
+        size_t len = static_cast<size_t>(payload.DataSize);
+        if (len > 0 && data[len - 1] == '\0')
+            --len;
+        return std::filesystem::path(std::u8string_view(u8data, len));
+    }
+
+    // Returns the file extension lowercased for case-insensitive comparison.
+    [[nodiscard]] std::string LowercaseExtension(const std::filesystem::path& p)
+    {
+        std::string ext = p.extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(),
+                       [](unsigned char c)
+                       { return static_cast<char>(std::tolower(c)); });
+        return ext;
+    }
+} // namespace
+
 namespace OloEngine
 {
     EditorLayer::EditorLayer()
@@ -756,11 +781,24 @@ namespace OloEngine
 
         if (ImGui::BeginDragDropTarget())
         {
+            // Accept scene files (typed payload from content browser)
+            if (const ImGuiPayload* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_SCENE"))
+            {
+                std::filesystem::path path = PathFromUtf8Payload(*payload);
+                if (ConfirmDiscardChanges())
+                {
+                    m_HoveredEntity = Entity();
+                    OpenScene(path);
+                }
+            }
+
+            // Accept generic items (images, prefabs, and legacy scene drops)
             if (const ImGuiPayload* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
             {
-                std::filesystem::path path = (const wchar_t*)payload->Data;
+                std::filesystem::path path = PathFromUtf8Payload(*payload);
 
-                if (path.extension() == ".olo") // Load scene
+                auto const ext = LowercaseExtension(path);
+                if (ext == ".olo" || ext == ".scene") // Legacy: scene via generic payload
                 {
                     if (ConfirmDiscardChanges())
                     {
@@ -768,7 +806,8 @@ namespace OloEngine
                         OpenScene(path);
                     }
                 }
-                else if (m_SceneState == SceneState::Edit && ((path.extension() == ".png") || (path.extension() == ".jpeg")) && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
+                else if (m_SceneState == SceneState::Edit && [&ext]
+                         { static constexpr std::string_view kImageExts[] = {".png", ".jpeg", ".jpg"}; return std::ranges::find(kImageExts, ext) != std::ranges::end(kImageExts); }() && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
                 {
                     const Ref<Texture2D> texture = Texture2D::Create(path.string());
                     if (texture->IsLoaded())
@@ -785,7 +824,7 @@ namespace OloEngine
                         OLO_WARN("Could not load texture {0}", path.filename().string());
                     }
                 }
-                else if (m_SceneState == SceneState::Edit && path.extension() == ".oloprefab") // Instantiate prefab
+                else if (m_SceneState == SceneState::Edit && LowercaseExtension(path) == ".oloprefab") // Instantiate prefab
                 {
                     auto* editorManager = static_cast<EditorAssetManager*>(
                         Project::GetActive()->GetAssetManager().get());
@@ -1867,7 +1906,7 @@ namespace OloEngine
                              ? Project::GetAssetDirectory().string()
                              : std::filesystem::current_path(ec).string();
         const char* initialDir = ec ? nullptr : dir.c_str();
-        std::string const filepath = FileDialogs::OpenFile("OloEditor Scene (*.olo)\0*.olo\0", initialDir);
+        std::string const filepath = FileDialogs::OpenFile("OloEditor Scene (*.olo;*.scene)\0*.olo;*.scene\0", initialDir);
         if (!filepath.empty())
         {
             OpenScene(filepath);
@@ -1881,7 +1920,8 @@ namespace OloEngine
             OnSceneStop();
         }
 
-        if (path.extension().string() != ".olo")
+        auto const ext = LowercaseExtension(path);
+        if (ext != ".olo" && ext != ".scene")
         {
             OLO_WARN("Could not load {0} - not a scene file", path.filename().string());
             return false;
