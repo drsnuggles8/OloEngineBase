@@ -6,6 +6,7 @@
 #include "Prefab.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Light.h"
@@ -646,6 +647,8 @@ namespace OloEngine
 
     void Scene::OnUpdateRuntime(Timestep const ts)
     {
+        auto* perfProfiler = Application::Get().GetPerformanceProfiler();
+        OLO_PERF_SCOPE("Scene::OnUpdateRuntime", perfProfiler);
         // Scene streaming update (runs even when paused to finish pending loads)
         if (m_SceneStreamer)
         {
@@ -1216,6 +1219,8 @@ namespace OloEngine
 
     void Scene::OnUpdateSimulation(const Timestep ts, EditorCamera const& camera)
     {
+        auto* perfProfiler = Application::Get().GetPerformanceProfiler();
+        OLO_PERF_SCOPE("Scene::OnUpdateSimulation", perfProfiler);
         if (!m_IsPaused || m_StepFrames-- > 0)
         {
 
@@ -1291,6 +1296,8 @@ namespace OloEngine
 
     void Scene::OnUpdateEditor([[maybe_unused]] Timestep const ts, EditorCamera const& camera)
     {
+        auto* perfProfiler = Application::Get().GetPerformanceProfiler();
+        OLO_PERF_SCOPE("Scene::OnUpdateEditor", perfProfiler);
         // Scene streaming update (editor preview)
         if (m_SceneStreamer)
         {

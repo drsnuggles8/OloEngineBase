@@ -169,6 +169,19 @@ namespace OloEngine
         return s_Spatializer;
     }
 
+    AudioStats AudioEngine::GetStats()
+    {
+        AudioStats stats;
+        if (s_Engine)
+        {
+            stats.SampleRate = ::ma_engine_get_sample_rate(s_Engine);
+        }
+        stats.ReverbAvailable = (s_MasterReverb != nullptr);
+        stats.SpatializerAvailable = (s_Spatializer != nullptr);
+        stats.AudioThreadRunning = s_AudioThreadRunning.load(std::memory_order_relaxed);
+        return stats;
+    }
+
     bool AudioEngine::IsAudioThread()
     {
         return Tasks::FNamedThreadManager::Get().GetCurrentThreadIfKnown() == Tasks::ENamedThread::AudioThread;

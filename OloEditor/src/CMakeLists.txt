@@ -22,6 +22,8 @@
 		"Panels/ConsolePanel.h"
 		"Panels/SceneStatisticsPanel.cpp"
 		"Panels/SceneStatisticsPanel.h"
+		"Panels/StatisticsPanel.cpp"
+		"Panels/StatisticsPanel.h"
 		"Panels/EditorPreferencesPanel.cpp"
 		"Panels/EditorPreferencesPanel.h"
 		"Panels/DialogueEditorPanel.cpp"
