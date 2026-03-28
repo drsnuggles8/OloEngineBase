@@ -1528,7 +1528,7 @@ namespace OloEngine
             ImGui::Button("Assign Mesh", ImVec2(100.0f, 0.0f));
             if (ImGui::BeginDragDropTarget())
             {
-                if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_MODEL"))
                 {
                     std::filesystem::path meshPath = PathFromUtf8Payload(*payload);
                     auto model = Ref<Model>::Create(meshPath.string());

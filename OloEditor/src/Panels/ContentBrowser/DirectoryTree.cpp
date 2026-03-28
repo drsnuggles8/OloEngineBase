@@ -44,17 +44,20 @@ namespace OloEngine
         }
         else if (m_Root)
         {
-            // If we can't find the specific directory, mark the parent
-            auto parentPath = relativePath.parent_path();
-            if (auto* parent = FindDirectory(parentPath))
+            // Directory not in tree — find the closest known ancestor and mark it + all ancestors dirty
+            bool anyFound = false;
+            for (auto ancestor = relativePath.parent_path(); !ancestor.empty() && ancestor != "."; ancestor = ancestor.parent_path())
             {
-                parent->NeedsRefresh = true;
+                if (auto* dir = FindDirectory(ancestor))
+                {
+                    for (auto* d = dir; d != nullptr; d = d->Parent)
+                        d->NeedsRefresh = true;
+                    anyFound = true;
+                    break;
+                }
             }
-            else
-            {
-                // Fallback: mark root dirty
+            if (!anyFound)
                 m_Root->NeedsRefresh = true;
-            }
         }
     }
 

@@ -46,6 +46,8 @@ namespace OloEngine
         void RebuildItemList();
         void RebuildBreadcrumbs();
         void RefreshIfDirty();
+        void RefreshVisibleItems();
+        void SafeRefreshSubtree(DirectoryInfo* node);
 
         // Search
         void UpdateSearchResults();

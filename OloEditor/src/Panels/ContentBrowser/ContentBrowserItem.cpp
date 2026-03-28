@@ -163,7 +163,7 @@ namespace OloEngine
     {
         CBActionResult result = 0;
 
-        ImGui::PushID(m_DisplayName.c_str());
+        ImGui::PushID(m_Path.string().c_str());
         ImGui::BeginGroup();
 
         // Selection highlight
@@ -187,9 +187,9 @@ namespace OloEngine
         // Drag-drop source
         if (ImGui::BeginDragDropSource())
         {
-            std::string itemPathUtf8 = m_Path.string();
+            auto itemPathU8 = m_Path.u8string();
             const char* payloadType = GetDragDropPayloadType(m_Type);
-            ImGui::SetDragDropPayload(payloadType, itemPathUtf8.c_str(), itemPathUtf8.size() + 1);
+            ImGui::SetDragDropPayload(payloadType, itemPathU8.c_str(), itemPathU8.size() + 1);
             ImGui::Text("%s", m_DisplayName.c_str());
             ImGui::EndDragDropSource();
         }
@@ -280,6 +280,13 @@ namespace OloEngine
     {
         if (newName.empty() || newName == m_DisplayName)
             return false;
+
+        // Reject names with path separators, traversal, or directory components
+        if (newName.find('/') != std::string::npos || newName.find('\\') != std::string::npos || newName == "." || newName == ".." || std::filesystem::path(newName).filename().string() != newName)
+        {
+            OLO_CORE_WARN("ContentBrowser: Invalid rename — '{}' contains path components", newName);
+            return false;
+        }
 
         std::filesystem::path newPath = m_Path.parent_path() / newName;
 

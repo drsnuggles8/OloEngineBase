@@ -21,6 +21,23 @@
 #include <shellapi.h>
 #endif
 
+namespace
+{
+    // Validates that a user-provided name is a safe leaf filename
+    // (no path separators, no traversal components, no empty strings).
+    bool IsValidLeafName(const char* name)
+    {
+        if (!name || name[0] == '\0')
+            return false;
+        std::string_view sv(name);
+        if (sv == "." || sv == "..")
+            return false;
+        if (sv.find('/') != std::string_view::npos || sv.find('\\') != std::string_view::npos)
+            return false;
+        return std::filesystem::path(sv).filename().string() == sv;
+    }
+} // namespace
+
 namespace OloEngine
 {
     ContentBrowserPanel::ContentBrowserPanel()
@@ -184,8 +201,8 @@ namespace OloEngine
         // Refresh button
         if (ImGui::Button("R"))
         {
-            m_DirectoryTree.RefreshSubtree(m_CurrentDirectory);
-            RebuildItemList();
+            SafeRefreshSubtree(m_CurrentDirectory);
+            RefreshVisibleItems();
         }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Refresh (F5)");
@@ -382,10 +399,14 @@ namespace OloEngine
                     if (newName != item.GetDisplayName())
                     {
                         auto& mutableItem = m_Items[i];
+                        auto parentPath = std::filesystem::relative(mutableItem.GetPath().parent_path(), m_DirectoryTree.GetAssetRoot());
                         mutableItem.CommitRename(newName);
-                        m_DirectoryTree.RefreshSubtree(m_CurrentDirectory);
+                        if (auto* parentDir = m_DirectoryTree.FindDirectory(parentPath))
+                            SafeRefreshSubtree(parentDir);
+                        else
+                            SafeRefreshSubtree(m_CurrentDirectory);
                         m_RenamingItem.clear();
-                        RebuildItemList();
+                        RefreshVisibleItems();
                         break; // Items changed, exit loop
                     }
                     m_RenamingItem.clear();
@@ -560,9 +581,37 @@ namespace OloEngine
     {
         if (m_CurrentDirectory && m_CurrentDirectory->NeedsRefresh)
         {
-            m_DirectoryTree.RefreshSubtree(m_CurrentDirectory);
-            RebuildItemList();
+            SafeRefreshSubtree(m_CurrentDirectory);
+            RefreshVisibleItems();
         }
+    }
+
+    void ContentBrowserPanel::RefreshVisibleItems()
+    {
+        if (m_IsSearchActive)
+            UpdateSearchResults();
+        else
+            RebuildItemList();
+    }
+
+    void ContentBrowserPanel::SafeRefreshSubtree(DirectoryInfo* node)
+    {
+        // Save relative paths before refresh (which destroys child nodes)
+        auto savedCurrentPath = m_CurrentDirectory ? m_CurrentDirectory->RelativePath : std::filesystem::path{};
+        std::optional<std::filesystem::path> savedForwardPath;
+        if (m_ForwardDirectory)
+            savedForwardPath = m_ForwardDirectory->RelativePath;
+
+        m_DirectoryTree.RefreshSubtree(node);
+
+        // Re-resolve pointers from the rebuilt tree
+        m_CurrentDirectory = m_DirectoryTree.FindDirectory(savedCurrentPath);
+        if (!m_CurrentDirectory)
+            m_CurrentDirectory = m_DirectoryTree.GetRoot();
+
+        m_ForwardDirectory = savedForwardPath ? m_DirectoryTree.FindDirectory(*savedForwardPath) : nullptr;
+
+        RebuildBreadcrumbs();
     }
 
     // =========================================================================
@@ -663,8 +712,27 @@ namespace OloEngine
         }
 
         DeselectAll();
-        m_DirectoryTree.RefreshSubtree(m_CurrentDirectory);
-        RebuildItemList();
+
+        // Resolve a surviving directory — m_CurrentDirectory may have been deleted
+        auto* resolved = m_CurrentDirectory;
+        while (resolved)
+        {
+            std::error_code ec;
+            auto absPath = m_DirectoryTree.GetAssetRoot() / resolved->RelativePath;
+            if (std::filesystem::exists(absPath, ec) && std::filesystem::is_directory(absPath, ec))
+                break;
+            resolved = resolved->Parent;
+        }
+        if (!resolved)
+            resolved = m_DirectoryTree.GetRoot();
+
+        SafeRefreshSubtree(resolved);
+        // m_CurrentDirectory may have been re-resolved by SafeRefreshSubtree;
+        // if the original was deleted, point to the surviving ancestor.
+        if (resolved->RelativePath != (m_CurrentDirectory ? m_CurrentDirectory->RelativePath : std::filesystem::path{}))
+            m_CurrentDirectory = m_DirectoryTree.FindDirectory(resolved->RelativePath);
+        RebuildBreadcrumbs();
+        RefreshVisibleItems();
     }
 
     void ContentBrowserPanel::HandleKeyboardShortcuts()
@@ -675,6 +743,10 @@ namespace OloEngine
 
         auto& io = ImGui::GetIO();
 
+        // Don't process shortcuts while a text input owns the keyboard
+        if (io.WantTextInput)
+            return;
+
         // Ctrl+F: focus search
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_F))
         {
@@ -684,8 +756,8 @@ namespace OloEngine
         // F5: refresh
         if (ImGui::IsKeyPressed(ImGuiKey_F5))
         {
-            m_DirectoryTree.RefreshSubtree(m_CurrentDirectory);
-            RebuildItemList();
+            SafeRefreshSubtree(m_CurrentDirectory);
+            RefreshVisibleItems();
         }
 
         // F2: rename selected (single)
@@ -801,7 +873,7 @@ namespace OloEngine
                 if (m_ImageIcons.size() < 200)
                 {
                     auto imageIcon = Texture2D::Create(filepath.string());
-                    if (imageIcon->IsLoaded())
+                    if (imageIcon && imageIcon->IsLoaded())
                     {
                         auto& icon = m_ImageIcons[filepath] = imageIcon;
                         return icon;
@@ -848,11 +920,18 @@ namespace OloEngine
                 ImGui::InputText("Name", folderName, sizeof(folderName));
                 if (ImGui::Button("Create##Folder"))
                 {
-                    std::filesystem::path newFolder =
-                        (m_DirectoryTree.GetAssetRoot() / (m_CurrentDirectory ? m_CurrentDirectory->RelativePath : "")) / folderName;
-                    std::filesystem::create_directories(newFolder);
-                    m_DirectoryTree.RefreshSubtree(m_CurrentDirectory);
-                    RebuildItemList();
+                    if (IsValidLeafName(folderName))
+                    {
+                        std::filesystem::path newFolder =
+                            (m_DirectoryTree.GetAssetRoot() / (m_CurrentDirectory ? m_CurrentDirectory->RelativePath : "")) / folderName;
+                        std::filesystem::create_directories(newFolder);
+                        SafeRefreshSubtree(m_CurrentDirectory);
+                        RebuildItemList();
+                    }
+                    else
+                    {
+                        OLO_CORE_WARN("ContentBrowser: Invalid folder name '{}'", folderName);
+                    }
                     ImGui::CloseCurrentPopup();
                 }
                 ImGui::EndMenu();
@@ -885,6 +964,13 @@ namespace OloEngine
                 ImGui::InputText("Name", matName, sizeof(matName));
                 if (ImGui::Button("Create##Material"))
                 {
+                    if (!IsValidLeafName(matName))
+                    {
+                        OLO_CORE_WARN("ContentBrowser: Invalid material name '{}'", matName);
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        return;
+                    }
                     std::filesystem::path currentDir =
                         m_DirectoryTree.GetAssetRoot() / (m_CurrentDirectory ? m_CurrentDirectory->RelativePath : "");
                     std::filesystem::path matPath = currentDir / (std::string(matName) + ".material");
@@ -910,7 +996,7 @@ namespace OloEngine
                     fout.close();
 
                     OLO_CORE_INFO("Created material: {}", matPath.string());
-                    m_DirectoryTree.RefreshSubtree(m_CurrentDirectory);
+                    SafeRefreshSubtree(m_CurrentDirectory);
                     RebuildItemList();
                     ImGui::CloseCurrentPopup();
                 }
@@ -923,6 +1009,13 @@ namespace OloEngine
                 ImGui::InputText("Name", dialogueName, sizeof(dialogueName));
                 if (ImGui::Button("Create##DialogueTree"))
                 {
+                    if (!IsValidLeafName(dialogueName))
+                    {
+                        OLO_CORE_WARN("ContentBrowser: Invalid dialogue name '{}'", dialogueName);
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        return;
+                    }
                     std::filesystem::path currentDir =
                         m_DirectoryTree.GetAssetRoot() / (m_CurrentDirectory ? m_CurrentDirectory->RelativePath : "");
                     std::string baseName = dialogueName;
@@ -953,7 +1046,7 @@ namespace OloEngine
                     serializer.Serialize(metadata, dialogueAsset);
 
                     OLO_CORE_INFO("Created dialogue tree: {}", dialoguePath.string());
-                    m_DirectoryTree.RefreshSubtree(m_CurrentDirectory);
+                    SafeRefreshSubtree(m_CurrentDirectory);
                     RebuildItemList();
                     ImGui::CloseCurrentPopup();
                 }
@@ -966,6 +1059,13 @@ namespace OloEngine
                 ImGui::InputText("Name", shaderGraphName, sizeof(shaderGraphName));
                 if (ImGui::Button("Create##ShaderGraph"))
                 {
+                    if (!IsValidLeafName(shaderGraphName))
+                    {
+                        OLO_CORE_WARN("ContentBrowser: Invalid shader graph name '{}'", shaderGraphName);
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        return;
+                    }
                     std::filesystem::path currentDir =
                         m_DirectoryTree.GetAssetRoot() / (m_CurrentDirectory ? m_CurrentDirectory->RelativePath : "");
                     std::string baseName = shaderGraphName;
@@ -996,7 +1096,7 @@ namespace OloEngine
                     serializer.Serialize(metadata, sgAsset);
 
                     OLO_CORE_INFO("Created shader graph: {}", sgPath.string());
-                    m_DirectoryTree.RefreshSubtree(m_CurrentDirectory);
+                    SafeRefreshSubtree(m_CurrentDirectory);
                     RebuildItemList();
                     ImGui::CloseCurrentPopup();
                 }
@@ -1068,7 +1168,7 @@ namespace OloEngine
         fout.close();
 
         OLO_CORE_INFO("Created primitive: {}", filePath.string());
-        m_DirectoryTree.RefreshSubtree(m_CurrentDirectory);
+        SafeRefreshSubtree(m_CurrentDirectory);
         RebuildItemList();
     }
 

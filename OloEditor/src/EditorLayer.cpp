@@ -1890,7 +1890,7 @@ namespace OloEngine
                              ? Project::GetAssetDirectory().string()
                              : std::filesystem::current_path(ec).string();
         const char* initialDir = ec ? nullptr : dir.c_str();
-        std::string const filepath = FileDialogs::OpenFile("OloEditor Scene (*.olo)\0*.olo\0", initialDir);
+        std::string const filepath = FileDialogs::OpenFile("OloEditor Scene (*.olo;*.scene)\0*.olo;*.scene\0", initialDir);
         if (!filepath.empty())
         {
             OpenScene(filepath);
@@ -1904,7 +1904,8 @@ namespace OloEngine
             OnSceneStop();
         }
 
-        if (path.extension().string() != ".olo")
+        std::string const ext = path.extension().string();
+        if (ext != ".olo" && ext != ".scene")
         {
             OLO_WARN("Could not load {0} - not a scene file", path.filename().string());
             return false;

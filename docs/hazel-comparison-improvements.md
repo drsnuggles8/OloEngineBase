@@ -144,14 +144,14 @@ Hazel's animation system includes specialized graph nodes: `IKNodes` (inverse ki
 
 | Priority | Item | Effort | Impact | Status |
 |----------|------|--------|--------|--------|
-| **High** | 4.5 Selection outline (Jump Flood) | Medium | Major editor UX | ✅ Done |
+| **High** | 4.5 Selection outline (Jump Flood) | Medium | Major editor UX | Basic done (edge-detect); JF follow-up |
 | **High** | 1.1 GTAO replacing SSAO | Medium | Visual quality leap | ✅ Done |
 | **High** | 3.1 Audio DSP (at least reverb + spatial) | Medium | Audio is unusable without it | ✅ Done |
 | **High** | 4.2 Auto-save with recovery | Low | Prevents data loss | ✅ Done |
 | **Medium** | 1.3 Spot light shadows | Medium | Lighting quality | ✅ Done |
 | **Medium** | 1.2 HZB for SSR + occlusion | Medium | Performance + SSR quality | ✅ Done |
 | **Medium** | 4.3 Content browser search + thumbnails | Medium | Editor workflow | ✅ Done |
-| **Medium** | 2.4 Quality tiering presets | Low | Usability | ✅ Done |
+| **Medium** | 2.3 Quality tiering presets | Low | Usability | ✅ Done |
 | **Medium** | 6.1 Dependency-aware hot reload | Low-Med | Asset iteration speed | ✅ Done |
 | **Medium** | 5.4 Quaternion/Euler sync in Transform | Low | Prevents rotation bugs | ✅ Done |
 | **Lower** | 4.1 Dual viewport | Medium | Nice to have | |
