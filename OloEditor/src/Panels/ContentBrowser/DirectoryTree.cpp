@@ -92,10 +92,7 @@ namespace OloEngine
         if (!m_Root || query.empty())
             return results;
 
-        std::string queryLower = query;
-        std::transform(queryLower.begin(), queryLower.end(), queryLower.begin(),
-                       [](unsigned char c)
-                       { return static_cast<char>(std::tolower(c)); });
+        std::string queryLower = ToLowerCopy(query);
 
         SearchRecursive(*m_Root, queryLower, results);
         return results;

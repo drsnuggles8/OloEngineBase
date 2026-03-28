@@ -806,7 +806,8 @@ namespace OloEngine
                         OpenScene(path);
                     }
                 }
-                else if (m_SceneState == SceneState::Edit && (LowercaseExtension(path) == ".png" || LowercaseExtension(path) == ".jpeg") && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
+                else if (m_SceneState == SceneState::Edit && [&ext]
+                         { static constexpr std::string_view kImageExts[] = {".png", ".jpeg", ".jpg"}; return std::ranges::find(kImageExts, ext) != std::ranges::end(kImageExts); }() && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
                 {
                     const Ref<Texture2D> texture = Texture2D::Create(path.string());
                     if (texture->IsLoaded())
@@ -1919,7 +1920,7 @@ namespace OloEngine
             OnSceneStop();
         }
 
-        std::string const ext = path.extension().string();
+        auto const ext = LowercaseExtension(path);
         if (ext != ".olo" && ext != ".scene")
         {
             OLO_WARN("Could not load {0} - not a scene file", path.filename().string());

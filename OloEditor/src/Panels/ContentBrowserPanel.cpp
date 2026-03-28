@@ -83,6 +83,20 @@ namespace OloEngine
         m_DialogueIcon = loadIcon("Resources/Icons/ContentBrowser/DialogueIcon.png");
         m_SaveGameIcon = loadIcon("Resources/Icons/ContentBrowser/SaveGameIcon.png");
 
+        // Build file-type → icon lookup (Image handled separately in GetFileIcon)
+        m_FileTypeIconMap = {
+            { ContentFileType::Model3D, &m_ModelIcon },
+            { ContentFileType::Scene, &m_SceneIcon },
+            { ContentFileType::Script, &m_ScriptIcon },
+            { ContentFileType::Audio, &m_AudioIcon },
+            { ContentFileType::Material, &m_MaterialIcon },
+            { ContentFileType::Shader, &m_ShaderIcon },
+            { ContentFileType::StreamingRegion, &m_SceneIcon },
+            { ContentFileType::Dialogue, &m_DialogueIcon },
+            { ContentFileType::SaveGame, &m_SaveGameIcon },
+            { ContentFileType::ShaderGraph, &m_ShaderIcon },
+        };
+
         RebuildItemList();
         RebuildBreadcrumbs();
 
@@ -520,7 +534,6 @@ namespace OloEngine
         m_RenamingItem.clear();
         DeselectAll();
         ClearSearch();
-        RebuildItemList();
         RebuildBreadcrumbs();
     }
 
@@ -843,6 +856,8 @@ namespace OloEngine
         }
         std::wstring args = L"/select,\"" + canonical.wstring() + L"\"";
         ShellExecuteW(nullptr, L"open", L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL);
+#else
+        OLO_CORE_WARN("OpenInExplorer: not supported on this platform (path: '{}')", path.string());
 #endif
     }
 
@@ -863,6 +878,8 @@ namespace OloEngine
             return;
         }
         ShellExecuteW(nullptr, L"open", canonical.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+#else
+        OLO_CORE_WARN("OpenExternally: not supported on this platform (path: '{}')", path.string());
 #endif
     }
 
@@ -878,45 +895,23 @@ namespace OloEngine
 
         ContentFileType fileType = GetFileTypeFromExtension(filepath);
 
-        switch (fileType)
+        // Image type has special thumbnail caching logic
+        if (fileType == ContentFileType::Image)
         {
-            case ContentFileType::Image:
+            if (m_ImageIcons.size() < 200)
             {
-                // Limit thumbnail cache to avoid unbounded growth
-                if (m_ImageIcons.size() < 200)
+                auto imageIcon = Texture2D::Create(filepath.string());
+                if (imageIcon && imageIcon->IsLoaded())
                 {
-                    auto imageIcon = Texture2D::Create(filepath.string());
-                    if (imageIcon && imageIcon->IsLoaded())
-                    {
-                        auto& icon = m_ImageIcons[filepath] = imageIcon;
-                        return icon;
-                    }
+                    auto& icon = m_ImageIcons[filepath] = imageIcon;
+                    return icon;
                 }
-                return m_FileIcon;
             }
-            case ContentFileType::Model3D:
-                return m_ModelIcon;
-            case ContentFileType::Scene:
-                return m_SceneIcon;
-            case ContentFileType::Script:
-                return m_ScriptIcon;
-            case ContentFileType::Audio:
-                return m_AudioIcon;
-            case ContentFileType::Material:
-                return m_MaterialIcon;
-            case ContentFileType::Shader:
-                return m_ShaderIcon;
-            case ContentFileType::StreamingRegion:
-                return m_SceneIcon;
-            case ContentFileType::Dialogue:
-                return m_DialogueIcon;
-            case ContentFileType::SaveGame:
-                return m_SaveGameIcon;
-            case ContentFileType::ShaderGraph:
-                return m_ShaderIcon;
-            default:
-                return m_FileIcon;
+            return m_FileIcon;
         }
+
+        auto it = m_FileTypeIconMap.find(fileType);
+        return (it != m_FileTypeIconMap.end()) ? *it->second : m_FileIcon;
     }
 
     // =========================================================================

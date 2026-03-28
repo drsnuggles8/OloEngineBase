@@ -188,6 +188,42 @@ namespace OloEngine
                            { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
         ImGui::PopStyleColor();
 
+        // Label or rename input
+        if (isRenaming)
+        {
+            ImGui::SetNextItemWidth(thumbnailSize);
+            if (ImGui::InputText("##rename", m_RenameBuffer, sizeof(m_RenameBuffer),
+                                 ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll))
+            {
+                SetAction(result, ContentBrowserAction::Renamed);
+            }
+
+            // Auto-focus the rename field on first frame
+            if (m_WantRenameFocus)
+            {
+                ImGui::SetKeyboardFocusHere(-1);
+                m_WantRenameFocus = false;
+            }
+
+            // Escape cancels rename
+            if (ImGui::IsKeyPressed(ImGuiKey_Escape))
+            {
+                // Restore original name
+                std::string name = m_DisplayName;
+                size_t len = std::min(name.size(), sizeof(m_RenameBuffer) - 1);
+                std::memcpy(m_RenameBuffer, name.c_str(), len);
+                m_RenameBuffer[len] = '\0';
+                SetAction(result, ContentBrowserAction::Renamed); // exit rename mode
+            }
+        }
+        else
+        {
+            ImGui::TextWrapped("%s", m_DisplayName.c_str());
+        }
+
+        ImGui::EndGroup();
+
+        // Interaction checks apply to the full group (thumbnail + label)
         // Drag-drop source
         if (ImGui::BeginDragDropSource())
         {
@@ -241,40 +277,6 @@ namespace OloEngine
             DrawFileTypeTooltip(m_DisplayName, m_Type);
         }
 
-        // Label or rename input
-        if (isRenaming)
-        {
-            ImGui::SetNextItemWidth(thumbnailSize);
-            if (ImGui::InputText("##rename", m_RenameBuffer, sizeof(m_RenameBuffer),
-                                 ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll))
-            {
-                SetAction(result, ContentBrowserAction::Renamed);
-            }
-
-            // Auto-focus the rename field on first frame
-            if (m_WantRenameFocus)
-            {
-                ImGui::SetKeyboardFocusHere(-1);
-                m_WantRenameFocus = false;
-            }
-
-            // Escape cancels rename
-            if (ImGui::IsKeyPressed(ImGuiKey_Escape))
-            {
-                // Restore original name
-                std::string name = m_DisplayName;
-                size_t len = std::min(name.size(), sizeof(m_RenameBuffer) - 1);
-                std::memcpy(m_RenameBuffer, name.c_str(), len);
-                m_RenameBuffer[len] = '\0';
-                SetAction(result, ContentBrowserAction::Renamed); // exit rename mode
-            }
-        }
-        else
-        {
-            ImGui::TextWrapped("%s", m_DisplayName.c_str());
-        }
-
-        ImGui::EndGroup();
         ImGui::PopID();
 
         return result;
@@ -285,14 +287,18 @@ namespace OloEngine
         if (newName.empty() || newName == m_DisplayName)
             return false;
 
+        // Convert newName (UTF-8 from ImGui) once for both validation and path construction
+        auto requestedU8 = std::u8string(newName.begin(), newName.end());
+        std::filesystem::path requestedPath(requestedU8);
+
         // Reject names with path separators, traversal, or directory components
-        if (newName.find('/') != std::string::npos || newName.find('\\') != std::string::npos || newName == "." || newName == ".." || std::filesystem::path(newName).filename().string() != newName)
+        if (newName.find('/') != std::string::npos || newName.find('\\') != std::string::npos || newName == "." || newName == ".." || requestedPath.filename().u8string() != requestedU8)
         {
             OLO_CORE_WARN("ContentBrowser: Invalid rename — '{}' contains path components", newName);
             return false;
         }
 
-        std::filesystem::path newPath = m_Path.parent_path() / std::filesystem::path(std::u8string(newName.begin(), newName.end()));
+        std::filesystem::path newPath = m_Path.parent_path() / requestedPath;
 
         std::error_code ec;
         if (std::filesystem::exists(newPath, ec) && !std::filesystem::equivalent(m_Path, newPath, ec))
@@ -322,7 +328,7 @@ namespace OloEngine
             SetAction(result, ContentBrowserAction::ShowInExplorer);
         }
 
-        if (ImGui::MenuItem("Open Externally") && !IsDirectory())
+        if (ImGui::MenuItem("Open Externally", nullptr, false, !IsDirectory()))
         {
             SetAction(result, ContentBrowserAction::OpenExternal);
         }

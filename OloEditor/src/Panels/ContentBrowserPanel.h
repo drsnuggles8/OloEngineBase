@@ -128,6 +128,7 @@ namespace OloEngine
         Ref<Texture2D> m_DialogueIcon;
         Ref<Texture2D> m_SaveGameIcon;
         std::unordered_map<std::filesystem::path, Ref<Texture2D>> m_ImageIcons;
+        std::unordered_map<ContentFileType, Ref<Texture2D>*> m_FileTypeIconMap;
 
         AssetSelectedCallback m_AssetSelectedCallback;
     };
