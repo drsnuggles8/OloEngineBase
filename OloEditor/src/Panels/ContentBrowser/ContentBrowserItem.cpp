@@ -235,7 +235,7 @@ namespace OloEngine
         }
 
         // Context menu
-        if (ImGui::BeginPopupContextItem())
+        if (ImGui::BeginPopupContextItem("##CBItemCtx"))
         {
             RenderContextMenu(result);
             ImGui::EndPopup();

@@ -535,7 +535,8 @@ namespace OloEngine
 
         bool entityDeleted = false;
         bool deleteAll = false;
-        if (ImGui::BeginPopupContextItem())
+        ImGui::PushID(static_cast<int>(static_cast<u32>(entity)));
+        if (ImGui::BeginPopupContextItem("##EntityCtx"))
         {
             if (ImGui::MenuItem("Rename"))
             {
@@ -675,6 +676,7 @@ namespace OloEngine
 
             ImGui::EndPopup();
         }
+        ImGui::PopID();
 
         // Drag-and-Drop: source
         if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
