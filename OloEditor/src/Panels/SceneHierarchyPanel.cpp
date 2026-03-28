@@ -1490,7 +1490,7 @@ namespace OloEngine
         {
             if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
             {
-                auto* const path = static_cast<wchar_t*>(payload->Data);
+                auto const* const path = static_cast<char const*>(payload->Data);
                 std::filesystem::path texturePath(path);
                 Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
                 if (texture->IsLoaded())
@@ -1522,7 +1522,7 @@ namespace OloEngine
             {
                 if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
                 {
-                    auto* const path = static_cast<wchar_t*>(payload->Data);
+                    auto const* const path = static_cast<char const*>(payload->Data);
                     std::filesystem::path meshPath(path);
                     auto model = Ref<Model>::Create(meshPath.string());
                     if (model && model->GetMeshCount() > 0)
@@ -1966,9 +1966,9 @@ namespace OloEngine
 			ImGui::Button("Texture", ImVec2(100.0f, 0.0f));
 			if (ImGui::BeginDragDropTarget())
 			{
-				if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+			if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
 				{
-					auto* const path = static_cast<wchar_t*>(payload->Data);
+					auto const* const path = static_cast<char const*>(payload->Data);
 					std::filesystem::path texturePath(path);
 					Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
 					if (texture->IsLoaded())
@@ -2329,7 +2329,7 @@ namespace OloEngine
                 {
                     if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_MODEL"))
                     {
-                        auto const* const path = static_cast<wchar_t const*>(payload->Data);
+                        auto const* const path = static_cast<char const*>(payload->Data);
                         std::filesystem::path meshPath(path);
                         auto assetManager = Project::GetAssetManager().As<EditorAssetManager>();
                         if (assetManager)
@@ -2481,7 +2481,7 @@ namespace OloEngine
                 {
                     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_SHADERGRAPH"))
                     {
-                        auto const* const path = static_cast<wchar_t const*>(payload->Data);
+                        auto const* const path = static_cast<char const*>(payload->Data);
                         std::filesystem::path assetPath(path);
                         auto assetManager = Project::GetAssetManager().As<EditorAssetManager>();
                         if (assetManager)
@@ -3045,7 +3045,7 @@ namespace OloEngine
             {
                 if (auto const* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
                 {
-                    auto const* path = static_cast<wchar_t const*>(payload->Data);
+                    auto const* path = static_cast<char const*>(payload->Data);
                     std::filesystem::path texturePath(path);
                     Ref<Texture2D> texture = Texture2D::Create(texturePath.string());
                     if (texture->IsLoaded())
@@ -3986,7 +3986,7 @@ namespace OloEngine
                 {
                     if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
                     {
-                        auto const* const path = static_cast<wchar_t const*>(payload->Data);
+                        auto const* const path = static_cast<char const*>(payload->Data);
                         std::filesystem::path texturePath(path);
                         Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
                         if (texture->IsLoaded())
@@ -4108,7 +4108,7 @@ namespace OloEngine
             {
                 if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_REGION"))
                 {
-                    auto const* const path = static_cast<wchar_t const*>(payload->Data);
+                    auto const* const path = static_cast<char const*>(payload->Data);
                     std::filesystem::path regionPath(path);
                     auto data = StreamingRegionSerializer::ParseRegionFile(regionPath);
                     if (data && data["RegionID"])
@@ -4203,7 +4203,7 @@ namespace OloEngine
             {
                 if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
                 {
-                    auto* const path = static_cast<wchar_t*>(payload->Data);
+                    auto const* const path = static_cast<char const*>(payload->Data);
                     std::filesystem::path assetPath(path);
                     if (assetPath.extension() == ".olodialogue")
                     {

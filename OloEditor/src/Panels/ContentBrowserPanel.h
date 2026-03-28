@@ -18,6 +18,7 @@ namespace OloEngine
     {
       public:
         ContentBrowserPanel();
+        ~ContentBrowserPanel();
 
         void OnImGuiRender();
 
@@ -76,6 +77,10 @@ namespace OloEngine
         static void SettingsHandler_WriteAll(ImGuiContext*, ImGuiSettingsHandler* handler, ImGuiTextBuffer* buf);
         void RegisterSettingsHandler();
 
+        // Singleton instance pointer used by ImGui settings handler callbacks
+        // (SettingsHandler_ReadOpen/ReadLine/WriteAll). Set in the constructor,
+        // cleared in the destructor. Only one ContentBrowserPanel should exist
+        // at a time. Not thread-safe — all access is on the main/UI thread.
         static ContentBrowserPanel* s_Instance;
 
       private:

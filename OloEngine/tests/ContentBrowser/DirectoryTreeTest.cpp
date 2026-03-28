@@ -5,6 +5,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <thread>
 
 using namespace OloEngine; // NOLINT
 
@@ -17,7 +18,8 @@ namespace
 
         TempDirectoryFixture()
         {
-            Root = std::filesystem::temp_directory_path() / "OloEngine_DirTreeTest";
+            auto tid = std::hash<std::thread::id>{}(std::this_thread::get_id());
+            Root = std::filesystem::temp_directory_path() / ("OloEngine_DirTreeTest_" + std::to_string(tid));
             std::filesystem::remove_all(Root);
 
             // Create a small directory tree:
@@ -33,7 +35,8 @@ namespace
             std::filesystem::create_directories(Root / "textures");
             std::filesystem::create_directories(Root / "models" / "hero");
 
-            auto touch = [](const std::filesystem::path& p) { std::ofstream f(p); };
+            auto touch = [](const std::filesystem::path& p)
+            { std::ofstream f(p); };
             touch(Root / "textures" / "sky.png");
             touch(Root / "textures" / "ground.png");
             touch(Root / "models" / "hero" / "hero.obj");

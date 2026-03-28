@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace OloEngine
 {
@@ -78,12 +79,31 @@ namespace OloEngine
         // Apply a committed rename. Returns true on success.
         bool CommitRename(const std::string& newName);
 
-        [[nodiscard]] const std::filesystem::path& GetPath() const { return m_Path; }
-        [[nodiscard]] ContentFileType GetType() const { return m_Type; }
-        [[nodiscard]] const std::string& GetDisplayName() const { return m_DisplayName; }
-        [[nodiscard]] bool IsDirectory() const { return m_Type == ContentFileType::Directory; }
+        [[nodiscard]] const std::filesystem::path& GetPath() const
+        {
+            return m_Path;
+        }
+        [[nodiscard]] ContentFileType GetType() const
+        {
+            return m_Type;
+        }
+        [[nodiscard]] const std::string& GetDisplayName() const
+        {
+            return m_DisplayName;
+        }
+        [[nodiscard]] bool IsDirectory() const
+        {
+            return m_Type == ContentFileType::Directory;
+        }
 
-        char* GetRenameBuffer() { return m_RenameBuffer; }
+        char* GetRenameBuffer()
+        {
+            return m_RenameBuffer;
+        }
+        void SetWantRenameFocus()
+        {
+            m_WantRenameFocus = true;
+        }
 
       private:
         void RenderContextMenu(CBActionResult& result);
@@ -93,6 +113,7 @@ namespace OloEngine
         ContentFileType m_Type;
         Ref<Texture2D> m_Icon;
         char m_RenameBuffer[256] = {};
+        bool m_WantRenameFocus = false;
     };
 
     // Sorts items: directories first, then alphabetical by display name (case-insensitive).

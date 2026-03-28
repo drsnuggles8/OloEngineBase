@@ -59,6 +59,12 @@ namespace OloEngine
         RegisterSettingsHandler();
     }
 
+    ContentBrowserPanel::~ContentBrowserPanel()
+    {
+        if (s_Instance == this)
+            s_Instance = nullptr;
+    }
+
     // =========================================================================
     // Main Render
     // =========================================================================
@@ -108,6 +114,23 @@ namespace OloEngine
 
         if (ImGui::BeginPopupModal("Delete Items?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
         {
+            // Count directories in selection
+            size_t dirCount = 0;
+            for (auto& path : m_SelectedItems)
+            {
+                std::error_code ec;
+                if (std::filesystem::is_directory(path, ec))
+                    ++dirCount;
+            }
+
+            if (dirCount > 0)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                                   "WARNING: %zu director%s will be RECURSIVELY deleted!",
+                                   dirCount, dirCount == 1 ? "y" : "ies");
+                ImGui::Spacing();
+            }
+
             ImGui::Text("Delete %zu item(s)?", m_SelectedItems.size());
 
             // Show first few filenames
@@ -348,6 +371,7 @@ namespace OloEngine
             if (HasAction(actions, ContentBrowserAction::StartRenaming))
             {
                 m_RenamingItem = item.GetPath();
+                m_Items[i].SetWantRenameFocus();
             }
 
             if (HasAction(actions, ContentBrowserAction::Renamed))
@@ -605,9 +629,13 @@ namespace OloEngine
 
     void ContentBrowserPanel::SelectRange(size_t fromIndex, size_t toIndex)
     {
+        if (m_Items.empty())
+            return;
+
         if (fromIndex > toIndex)
             std::swap(fromIndex, toIndex);
 
+        fromIndex = std::min(fromIndex, m_Items.size() - 1);
         toIndex = std::min(toIndex, m_Items.size() - 1);
 
         for (size_t i = fromIndex; i <= toIndex; ++i)
@@ -664,6 +692,14 @@ namespace OloEngine
         if (ImGui::IsKeyPressed(ImGuiKey_F2) && m_SelectedItems.size() == 1)
         {
             m_RenamingItem = m_SelectedItems[0];
+            for (auto& item : m_Items)
+            {
+                if (item.GetPath() == m_RenamingItem)
+                {
+                    item.SetWantRenameFocus();
+                    break;
+                }
+            }
         }
 
         // Delete: delete selected
@@ -707,7 +743,14 @@ namespace OloEngine
     void ContentBrowserPanel::OpenInExplorer([[maybe_unused]] const std::filesystem::path& path)
     {
 #ifdef OLO_PLATFORM_WINDOWS
-        std::wstring args = L"/select,\"" + path.wstring() + L"\"";
+        std::error_code ec;
+        auto canonical = std::filesystem::canonical(path, ec);
+        if (ec || !std::filesystem::exists(canonical, ec))
+        {
+            OLO_CORE_ERROR("OpenInExplorer: invalid path '{}': {}", path.string(), ec.message());
+            return;
+        }
+        std::wstring args = L"/select,\"" + canonical.wstring() + L"\"";
         ShellExecuteW(nullptr, L"open", L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL);
 #endif
     }
@@ -715,7 +758,14 @@ namespace OloEngine
     void ContentBrowserPanel::OpenExternally([[maybe_unused]] const std::filesystem::path& path)
     {
 #ifdef OLO_PLATFORM_WINDOWS
-        ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        std::error_code ec;
+        auto canonical = std::filesystem::canonical(path, ec);
+        if (ec || !std::filesystem::is_regular_file(canonical, ec))
+        {
+            OLO_CORE_ERROR("OpenExternally: invalid path '{}': {}", path.string(), ec.message());
+            return;
+        }
+        ShellExecuteW(nullptr, L"open", canonical.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 #endif
     }
 
@@ -1020,13 +1070,21 @@ namespace OloEngine
     {
         s_Instance = this;
 
+        // Guard against double-registration
+        auto* ctx = ImGui::GetCurrentContext();
+        for (auto& h : ctx->SettingsHandlers)
+        {
+            if (h.TypeHash == ImHashStr("ContentBrowser"))
+                return;
+        }
+
         ImGuiSettingsHandler handler{};
         handler.TypeName = "ContentBrowser";
         handler.TypeHash = ImHashStr("ContentBrowser");
         handler.ReadOpenFn = SettingsHandler_ReadOpen;
         handler.ReadLineFn = SettingsHandler_ReadLine;
         handler.WriteAllFn = SettingsHandler_WriteAll;
-        ImGui::GetCurrentContext()->SettingsHandlers.push_back(handler);
+        ctx->SettingsHandlers.push_back(handler);
     }
 
     void* ContentBrowserPanel::SettingsHandler_ReadOpen(ImGuiContext*, ImGuiSettingsHandler*, const char*)

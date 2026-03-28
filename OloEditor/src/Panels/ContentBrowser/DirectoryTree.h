@@ -38,21 +38,27 @@ namespace OloEngine
 
         // Find a DirectoryInfo by its relative path (e.g. "textures/characters").
         // Returns nullptr if not found.
-        [[nodiscard]] DirectoryInfo* FindDirectory(const std::filesystem::path& relativePath) const;
+        [[nodiscard]] DirectoryInfo* FindDirectory(const std::filesystem::path& relativePath);
 
         // Recursive substring search across the entire tree.
         // Returns file paths whose filename contains 'query' (case-insensitive).
         // Also returns directory paths whose name matches.
         [[nodiscard]] std::vector<std::filesystem::path> Search(const std::string& query) const;
 
-        [[nodiscard]] DirectoryInfo* GetRoot() const { return m_Root.get(); }
-        [[nodiscard]] const std::filesystem::path& GetAssetRoot() const { return m_AssetRoot; }
+        [[nodiscard]] DirectoryInfo* GetRoot() const
+        {
+            return m_Root.get();
+        }
+        [[nodiscard]] const std::filesystem::path& GetAssetRoot() const
+        {
+            return m_AssetRoot;
+        }
 
       private:
         void ScanDirectory(DirectoryInfo& dir) const;
         void SearchRecursive(const DirectoryInfo& dir, const std::string& queryLower,
                              std::vector<std::filesystem::path>& results) const;
-        DirectoryInfo* FindRecursive(DirectoryInfo* node, const std::filesystem::path& relativePath) const;
+        DirectoryInfo* FindRecursive(DirectoryInfo* node, const std::filesystem::path& relativePath);
 
         std::filesystem::path m_AssetRoot;
         std::unique_ptr<DirectoryInfo> m_Root;

@@ -759,7 +759,7 @@ namespace OloEngine
             // Accept scene files (typed payload from content browser)
             if (const ImGuiPayload* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_SCENE"))
             {
-                std::filesystem::path path = (const wchar_t*)payload->Data;
+                std::filesystem::path path(static_cast<const char*>(payload->Data));
                 if (ConfirmDiscardChanges())
                 {
                     m_HoveredEntity = Entity();
@@ -770,7 +770,7 @@ namespace OloEngine
             // Accept generic items (images, prefabs, and legacy scene drops)
             if (const ImGuiPayload* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
             {
-                std::filesystem::path path = (const wchar_t*)payload->Data;
+                std::filesystem::path path(static_cast<const char*>(payload->Data));
 
                 if (path.extension() == ".olo") // Legacy: scene via generic payload
                 {

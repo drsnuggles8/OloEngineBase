@@ -58,12 +58,12 @@ namespace OloEngine
         }
     }
 
-    DirectoryInfo* DirectoryTree::FindDirectory(const std::filesystem::path& relativePath) const
+    DirectoryInfo* DirectoryTree::FindDirectory(const std::filesystem::path& relativePath)
     {
         if (!m_Root)
             return nullptr;
 
-        if (relativePath.empty() || relativePath == "." || relativePath == "")
+        if (relativePath.empty() || relativePath == ".")
             return m_Root.get();
 
         return FindRecursive(m_Root.get(), relativePath);
@@ -79,7 +79,8 @@ namespace OloEngine
 
         std::string queryLower = query;
         std::transform(queryLower.begin(), queryLower.end(), queryLower.begin(),
-                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                       [](unsigned char c)
+                       { return static_cast<char>(std::tolower(c)); });
 
         SearchRecursive(*m_Root, queryLower, results);
         return results;
@@ -120,9 +121,11 @@ namespace OloEngine
                       std::string aLower = a->Name;
                       std::string bLower = b->Name;
                       std::transform(aLower.begin(), aLower.end(), aLower.begin(),
-                                     [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                                     [](unsigned char c)
+                                     { return static_cast<char>(std::tolower(c)); });
                       std::transform(bLower.begin(), bLower.end(), bLower.begin(),
-                                     [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                                     [](unsigned char c)
+                                     { return static_cast<char>(std::tolower(c)); });
                       return aLower < bLower;
                   });
 
@@ -133,9 +136,11 @@ namespace OloEngine
                       std::string aName = a.filename().string();
                       std::string bName = b.filename().string();
                       std::transform(aName.begin(), aName.end(), aName.begin(),
-                                     [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                                     [](unsigned char c)
+                                     { return static_cast<char>(std::tolower(c)); });
                       std::transform(bName.begin(), bName.end(), bName.begin(),
-                                     [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                                     [](unsigned char c)
+                                     { return static_cast<char>(std::tolower(c)); });
                       return aName < bName;
                   });
     }
@@ -148,7 +153,8 @@ namespace OloEngine
         {
             std::string nameLower = subDir->Name;
             std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(),
-                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                           [](unsigned char c)
+                           { return static_cast<char>(std::tolower(c)); });
 
             if (nameLower.find(queryLower) != std::string::npos)
                 results.push_back(m_AssetRoot / subDir->RelativePath);
@@ -162,14 +168,15 @@ namespace OloEngine
         {
             std::string nameLower = file.filename().string();
             std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(),
-                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                           [](unsigned char c)
+                           { return static_cast<char>(std::tolower(c)); });
 
             if (nameLower.find(queryLower) != std::string::npos)
                 results.push_back(file);
         }
     }
 
-    DirectoryInfo* DirectoryTree::FindRecursive(DirectoryInfo* node, const std::filesystem::path& relativePath) const
+    DirectoryInfo* DirectoryTree::FindRecursive(DirectoryInfo* node, const std::filesystem::path& relativePath)
     {
         if (node->RelativePath == relativePath)
             return node;

@@ -61,12 +61,14 @@ namespace OloEngine
 
     ContentFileType GetFileTypeFromExtension(const std::filesystem::path& filepath)
     {
-        if (std::filesystem::is_directory(filepath))
+        std::error_code ec;
+        if (std::filesystem::is_directory(filepath, ec))
             return ContentFileType::Directory;
 
         std::string ext = filepath.extension().string();
         std::transform(ext.begin(), ext.end(), ext.begin(),
-                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                       [](unsigned char c)
+                       { return static_cast<char>(std::tolower(c)); });
 
         auto it = s_ExtensionToFileType.find(ext);
         if (it != s_ExtensionToFileType.end())
@@ -148,10 +150,7 @@ namespace OloEngine
 
     ContentBrowserItem::ContentBrowserItem(const std::filesystem::path& absolutePath, ContentFileType type,
                                            const Ref<Texture2D>& icon)
-        : m_Path(absolutePath)
-        , m_DisplayName(absolutePath.filename().string())
-        , m_Type(type)
-        , m_Icon(icon)
+        : m_Path(absolutePath), m_DisplayName(absolutePath.filename().string()), m_Type(type), m_Icon(icon)
     {
         // Pre-fill rename buffer
         std::string name = m_DisplayName;
@@ -188,9 +187,9 @@ namespace OloEngine
         // Drag-drop source
         if (ImGui::BeginDragDropSource())
         {
-            wchar_t const* const itemPath = m_Path.c_str();
+            std::string itemPathUtf8 = m_Path.string();
             const char* payloadType = GetDragDropPayloadType(m_Type);
-            ImGui::SetDragDropPayload(payloadType, itemPath, (std::wcslen(itemPath) + 1) * sizeof(wchar_t));
+            ImGui::SetDragDropPayload(payloadType, itemPathUtf8.c_str(), itemPathUtf8.size() + 1);
             ImGui::Text("%s", m_DisplayName.c_str());
             ImGui::EndDragDropSource();
         }
@@ -249,8 +248,11 @@ namespace OloEngine
             }
 
             // Auto-focus the rename field on first frame
-            if (!ImGui::IsItemActive())
+            if (m_WantRenameFocus)
+            {
                 ImGui::SetKeyboardFocusHere(-1);
+                m_WantRenameFocus = false;
+            }
 
             // Escape cancels rename
             if (ImGui::IsKeyPressed(ImGuiKey_Escape))
@@ -344,9 +346,11 @@ namespace OloEngine
                       std::string aName = a.GetDisplayName();
                       std::string bName = b.GetDisplayName();
                       std::transform(aName.begin(), aName.end(), aName.begin(),
-                                     [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                                     [](unsigned char c)
+                                     { return static_cast<char>(std::tolower(c)); });
                       std::transform(bName.begin(), bName.end(), bName.begin(),
-                                     [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                                     [](unsigned char c)
+                                     { return static_cast<char>(std::tolower(c)); });
                       return aName < bName;
                   });
     }
