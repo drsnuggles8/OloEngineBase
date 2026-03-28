@@ -310,6 +310,9 @@ namespace OloEngine
             OLO_PROFILE_FRAMEMARK_START("Window SwapBuffers");
             m_Window->SwapBuffers();
             OLO_PROFILE_FRAMEMARK_END("Window SwapBuffers");
+
+            // Snapshot per-function performance data for this frame
+            m_PerformanceProfiler.EndFrame();
         }
     }
 
@@ -355,6 +358,8 @@ namespace OloEngine
 
                 accumulator -= tickInterval;
             }
+
+            m_PerformanceProfiler.EndFrame();
 
             // Sleep remaining time to avoid spinning the CPU
             const f32 sleepTime = tickInterval - accumulator;
