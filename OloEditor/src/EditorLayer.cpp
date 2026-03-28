@@ -32,6 +32,7 @@
 #include "OloEngine/SaveGame/SaveGameManager.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 #include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
+#include "OloEngine/Core/PerformanceProfiler.h"
 
 #include <imgui.h>
 #include <ImGuizmo.h>
@@ -186,6 +187,8 @@ namespace OloEngine
     void EditorLayer::OnUpdate(Timestep const ts)
     {
         OLO_PROFILE_FUNCTION();
+        auto* perfProfiler = Application::Get().GetPerformanceProfiler();
+        OLO_PERF_SCOPE("EditorLayer::OnUpdate", perfProfiler);
 
         m_LastFrameTimeMs = ts.GetMilliseconds();
 
@@ -441,6 +444,8 @@ namespace OloEngine
     void EditorLayer::OnImGuiRender()
     {
         OLO_PROFILE_FUNCTION();
+        auto* perfProfiler = Application::Get().GetPerformanceProfiler();
+        OLO_PERF_SCOPE("EditorLayer::OnImGuiRender", perfProfiler);
 
         // Update window title when dirty state changes (covers panel edits via CommandHistory)
         if (bool const dirty = m_CommandHistory.IsDirty(); dirty != m_LastKnownDirtyState)
@@ -677,7 +682,7 @@ namespace OloEngine
         if (ImGui::BeginMenu("Window"))
         {
             ImGui::MenuItem("Console", nullptr, &m_ShowConsolePanel);
-            ImGui::MenuItem("Scene Statistics", nullptr, &m_ShowSceneStatistics);
+            ImGui::MenuItem("Statistics", nullptr, &m_ShowStatistics);
             ImGui::MenuItem("Animation Panel", nullptr, &m_ShowAnimationPanel);
             ImGui::MenuItem("Post Process Settings", nullptr, &m_ShowPostProcessSettings);
             ImGui::MenuItem("Renderer Settings", nullptr, &m_ShowRendererSettings);
@@ -1207,10 +1212,10 @@ namespace OloEngine
         }
 
         // Scene Statistics Panel
-        if (m_ShowSceneStatistics)
+        if (m_ShowStatistics)
         {
-            m_SceneStatisticsPanel.SetHoveredEntity(m_HoveredEntity);
-            m_SceneStatisticsPanel.OnImGuiRender(&m_ShowSceneStatistics);
+            m_StatisticsPanel.SetHoveredEntity(m_HoveredEntity);
+            m_StatisticsPanel.OnImGuiRender(&m_ShowStatistics);
         }
 
         // Editor Preferences Dialog
@@ -2229,7 +2234,7 @@ namespace OloEngine
         m_StreamingPanel.SetContext(m_ActiveScene);
         m_SaveGamePanel.SetContext(m_ActiveScene, m_Framebuffer);
         m_StreamingPanel.SetCommandHistory(nullptr);
-        m_SceneStatisticsPanel.SetContext(m_ActiveScene);
+        m_StatisticsPanel.SetContext(m_ActiveScene);
         m_NavMeshPanel.SetContext(m_ActiveScene);
         m_BehaviorTreeEditorPanel.SetContext(m_ActiveScene);
         m_FSMEditorPanel.SetContext(m_ActiveScene);
@@ -2255,7 +2260,7 @@ namespace OloEngine
         m_AnimationGraphEditorPanel.SetCommandHistory(nullptr);
         m_StreamingPanel.SetContext(m_ActiveScene);
         m_StreamingPanel.SetCommandHistory(nullptr);
-        m_SceneStatisticsPanel.SetContext(m_ActiveScene);
+        m_StatisticsPanel.SetContext(m_ActiveScene);
         m_NavMeshPanel.SetContext(m_ActiveScene);
         m_BehaviorTreeEditorPanel.SetContext(m_ActiveScene);
         m_FSMEditorPanel.SetContext(m_ActiveScene);
@@ -2293,7 +2298,7 @@ namespace OloEngine
         m_StreamingPanel.SetContext(m_ActiveScene);
         m_SaveGamePanel.SetContext(nullptr, nullptr);
         m_StreamingPanel.SetCommandHistory(&m_CommandHistory);
-        m_SceneStatisticsPanel.SetContext(m_ActiveScene);
+        m_StatisticsPanel.SetContext(m_ActiveScene);
         m_NavMeshPanel.SetContext(m_ActiveScene);
         m_BehaviorTreeEditorPanel.SetContext(m_ActiveScene);
         m_FSMEditorPanel.SetContext(m_ActiveScene);
@@ -2316,7 +2321,7 @@ namespace OloEngine
         m_TerrainEditorPanel.SetCommandHistory(&m_CommandHistory);
         m_StreamingPanel.SetContext(m_EditorScene);
         m_StreamingPanel.SetCommandHistory(&m_CommandHistory);
-        m_SceneStatisticsPanel.SetContext(m_EditorScene);
+        m_StatisticsPanel.SetContext(m_EditorScene);
         m_NavMeshPanel.SetContext(m_EditorScene);
         m_BehaviorTreeEditorPanel.SetContext(m_EditorScene);
         m_FSMEditorPanel.SetContext(m_EditorScene);

@@ -81,9 +81,9 @@ Hazelnut's content browser has:
 
 OloEditor's content browser now matches Hazelnut's feature set: dual-pane layout (tree + grid), real-time search, multi-select with Ctrl/Shift, breadcrumb navigation with back/forward, settings persistence via imgui.ini, and typed drag-drop payloads for scenes/models/scripts.
 
-### 4.4 Statistics Panel Depth
+### 4.4 Statistics Panel Depth ✅
 
-Hazelnut has a 4-tab statistics panel: Renderer, Audio, Performance (per-function timings with sample counts), Memory. OloEditor has a Scene Statistics panel. The per-function performance tab with sample counts would be particularly useful for profiling.
+OloEditor now has a 4-tab Statistics panel (Renderer, Audio, Performance, Memory) replacing the old flat Scene Statistics panel. Includes `PerformanceProfiler` for per-function per-frame timing with sample counts (instrumented on EditorLayer and Scene update methods), `AudioStats` query, `RendererMemoryTracker` summary, GPU info via `glGetString`, and VSync toggle.
 
 ### 4.5 Entity Selection Outline
 

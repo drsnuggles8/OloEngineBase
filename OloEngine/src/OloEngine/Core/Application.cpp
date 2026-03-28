@@ -310,6 +310,9 @@ namespace OloEngine
             OLO_PROFILE_FRAMEMARK_START("Window SwapBuffers");
             m_Window->SwapBuffers();
             OLO_PROFILE_FRAMEMARK_END("Window SwapBuffers");
+
+            // Snapshot per-function performance data for this frame
+            m_PerformanceProfiler.EndFrame();
         }
     }
 

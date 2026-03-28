@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/LayerStack.h"
+#include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Events/Event.h"
 #include "OloEngine/Events/ApplicationEvent.h"
@@ -98,6 +99,16 @@ namespace OloEngine
         {
             return m_TimeScale;
         }
+
+        [[nodiscard("Store this!")]] PerformanceProfiler* GetPerformanceProfiler()
+        {
+            return &m_PerformanceProfiler;
+        }
+
+        [[nodiscard("Store this!")]] const std::unordered_map<std::string, PerFrameData>& GetProfilerPreviousFrameData() const
+        {
+            return m_PerformanceProfiler.GetPreviousFrameData();
+        }
         void SetTimeScale(f32 scale)
         {
             if (!std::isfinite(scale))
@@ -130,6 +141,7 @@ namespace OloEngine
         static constexpr f32 s_MaxTimestep = 0.25f;
         f32 m_LastFrameTime = 0.0f;
         f32 m_TimeScale = 1.0f;
+        PerformanceProfiler m_PerformanceProfiler;
 
       private:
         static Application* s_Instance;

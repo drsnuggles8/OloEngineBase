@@ -17,6 +17,14 @@ namespace OloEngine
 
     using AudioEngineInternal = void*;
 
+    struct AudioStats
+    {
+        u32 SampleRate = 0;
+        bool ReverbAvailable = false;
+        bool SpatializerAvailable = false;
+        bool AudioThreadRunning = false;
+    };
+
     class AudioEngine
     {
       public:
@@ -32,6 +40,9 @@ namespace OloEngine
 
         // 3D spatializer
         [[nodiscard("Store this!")]] static Audio::DSP::Spatializer* GetSpatializer();
+
+        // Statistics
+        [[nodiscard("Store this!")]] static AudioStats GetStats();
 
         // Audio thread utilities
         static bool IsAudioThread();

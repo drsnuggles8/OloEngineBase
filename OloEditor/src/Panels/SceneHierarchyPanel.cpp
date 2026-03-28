@@ -535,7 +535,7 @@ namespace OloEngine
 
         bool entityDeleted = false;
         bool deleteAll = false;
-        if (ImGui::BeginPopupContextItem())
+        if (ImGui::BeginPopupContextItem("##EntityCtx"))
         {
             if (ImGui::MenuItem("Rename"))
             {

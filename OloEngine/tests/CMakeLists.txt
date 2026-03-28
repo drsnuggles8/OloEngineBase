@@ -129,6 +129,8 @@ add_executable(OloEngine-Tests
 		AutoSaveTest.cpp
 		# Quality Tiering Tests
 		QualityTieringTest.cpp
+		# PerformanceProfiler Tests
+		PerformanceProfilerTest.cpp
 		# TransformComponent Tests
 		TransformComponentTest.cpp
 		# Gameplay Ability Tests
