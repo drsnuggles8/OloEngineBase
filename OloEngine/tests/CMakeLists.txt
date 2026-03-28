@@ -133,6 +133,11 @@ add_executable(OloEngine-Tests
 		TransformComponentTest.cpp
 		# Gameplay Ability Tests
 		Gameplay/GameplayAbilityTest.cpp
+		# Content Browser Tests
+		ContentBrowser/DirectoryTreeTest.cpp
+		ContentBrowser/ContentBrowserItemTest.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser/DirectoryTree.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser/ContentBrowserItem.cpp
 )
 target_link_libraries(OloEngine-Tests
 	OloEngine
@@ -148,6 +153,7 @@ target_include_directories(OloEngine-Tests PRIVATE
 	${CMAKE_SOURCE_DIR}/OloEngine/vendor/atomic_queue-src/include
 	${CMAKE_SOURCE_DIR}/OloEngine/vendor/spdlog-src/include
 	${CMAKE_CURRENT_SOURCE_DIR}/Rendering
+	${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser
 )
 
 # Copy required shared library DLLs next to the test executable

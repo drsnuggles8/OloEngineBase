@@ -756,11 +756,23 @@ namespace OloEngine
 
         if (ImGui::BeginDragDropTarget())
         {
+            // Accept scene files (typed payload from content browser)
+            if (const ImGuiPayload* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_SCENE"))
+            {
+                std::filesystem::path path = (const wchar_t*)payload->Data;
+                if (ConfirmDiscardChanges())
+                {
+                    m_HoveredEntity = Entity();
+                    OpenScene(path);
+                }
+            }
+
+            // Accept generic items (images, prefabs, and legacy scene drops)
             if (const ImGuiPayload* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
             {
                 std::filesystem::path path = (const wchar_t*)payload->Data;
 
-                if (path.extension() == ".olo") // Load scene
+                if (path.extension() == ".olo") // Legacy: scene via generic payload
                 {
                     if (ConfirmDiscardChanges())
                     {
