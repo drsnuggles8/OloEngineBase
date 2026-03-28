@@ -117,9 +117,9 @@ Hazel's `TransformComponent` stores **both** quaternion and Euler, kept in sync 
 
 Hazel's `Asset` base class has `virtual void OnDependencyUpdated(AssetHandle handle)`. When a texture changes, any material referencing it gets notified and can refresh. OloEngine has hot-reload via `AssetReloadedEvent`, but it's worth auditing whether dependent assets cascade properly (e.g., does changing a texture auto-update all materials using it?).
 
-### 6.2 Shader Packs
+### 6.2 Shader Packs — ✅ Done
 
-Hazel can pre-compile all shaders into a pack file (`ShaderPack`, `RendererConfig::ShaderPackPath`). This eliminates runtime shader compilation stalls in shipped builds. OloEngine compiles shaders on load (with SPIR-V caching). A pack/bundle format for distribution builds would improve load times.
+Hazel can pre-compile all shaders into a pack file (`ShaderPack`, `RendererConfig::ShaderPackPath`). This eliminates runtime shader compilation stalls in shipped builds. OloEngine now has a `ShaderPack` class with `.osp` binary format ("OLSP" magic) that bundles both Vulkan and OpenGL SPIR-V. The editor Build menu has "Build Shader Pack", and `ShaderLibrary` transparently loads from pack when available. 11 unit tests cover the binary format round-trip.
 
 ---
 
@@ -156,5 +156,5 @@ Hazel's animation system includes specialized graph nodes: `IKNodes` (inverse ki
 | **Medium** | 5.4 Quaternion/Euler sync in Transform | Low | Prevents rotation bugs | ✅ Done |
 | **Lower** | 4.1 Dual viewport | Medium | Nice to have | | Skip, too much work for too little benefit
 | **Lower** | 7 Type reflection | High | Long-term architecture | |
-| **Lower** | 6.2 Shader packs | Medium | Distribution builds | |
+| **Lower** | 6.2 Shader packs | Medium | Distribution builds | ✅ Done |
 | **Lower** | 5.2 Compound colliders | Low | Physics completeness | ✅ Done |

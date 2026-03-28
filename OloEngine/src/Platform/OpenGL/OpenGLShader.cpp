@@ -326,6 +326,52 @@ namespace OloEngine
         OLO_SHADER_COMPILATION_END(m_RendererID, m_RendererID != 0, "", 0.0);
     }
 
+    Ref<Shader> OpenGLShader::CreateFromPackData(
+        const std::string& name,
+        const std::string& filepath,
+        std::unordered_map<GLenum, std::vector<u32>> vulkanSPIRV,
+        std::unordered_map<GLenum, std::vector<u32>> openGLSPIRV)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto* raw = new OpenGLShader(PackDataTag{},
+                                     name, filepath,
+                                     std::move(vulkanSPIRV),
+                                     std::move(openGLSPIRV));
+        return Ref<Shader>(raw);
+    }
+
+    OpenGLShader::OpenGLShader(PackDataTag,
+                               const std::string& name,
+                               const std::string& filepath,
+                               std::unordered_map<GLenum, std::vector<u32>> vulkanSPIRV,
+                               std::unordered_map<GLenum, std::vector<u32>> openGLSPIRV)
+        : m_Name(name), m_FilePath(filepath)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        m_CompilationStatus = ShaderCompilationStatus::Pending;
+        m_VulkanSPIRV = std::move(vulkanSPIRV);
+        m_OpenGLSPIRV = std::move(openGLSPIRV);
+
+        // Run reflection on Vulkan SPIR-V (extracts UBO/texture bindings)
+        for (auto&& [stage, data] : m_VulkanSPIRV)
+        {
+            Reflect(stage, data);
+        }
+
+        // Create GL program from OpenGL SPIR-V (may go async)
+        CreateProgram();
+
+        // Force synchronous link — pack-loaded shaders should be instantly usable
+        if (m_CompilationStatus == ShaderCompilationStatus::Compiling)
+        {
+            EnsureLinked();
+        }
+
+        OLO_CORE_INFO("[ShaderPack] Created shader '{}' from pack data", m_Name);
+    }
+
     OpenGLShader::~OpenGLShader()
     {
         OLO_PROFILE_FUNCTION();

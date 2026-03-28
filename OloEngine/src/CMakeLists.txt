@@ -446,6 +446,8 @@
 		"OloEngine/Renderer/Shader.h"
 		"OloEngine/Renderer/ShaderLibrary.cpp"
 		"OloEngine/Renderer/ShaderLibrary.h"
+		"OloEngine/Renderer/ShaderPack.cpp"
+		"OloEngine/Renderer/ShaderPack.h"
 		"OloEngine/Renderer/ShaderWarmup.cpp"
 		"OloEngine/Renderer/ShaderWarmup.h"
 		"OloEngine/Renderer/Texture.cpp"

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <filesystem>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -7,12 +9,22 @@
 
 namespace OloEngine
 {
-    // Forward declaration of Shader class
+    // Forward declarations
     class Shader;
+    class ShaderPack;
 
     class ShaderLibrary
     {
       public:
+        ShaderLibrary();
+        ~ShaderLibrary();
+
+        ShaderLibrary(ShaderLibrary&&) noexcept;
+        auto operator=(ShaderLibrary&&) noexcept -> ShaderLibrary&;
+
+        ShaderLibrary(const ShaderLibrary&) = delete;
+        auto operator=(const ShaderLibrary&) -> ShaderLibrary& = delete;
+
         void Add(const std::string& name, const Ref<Shader>& shader);
         void Add(const Ref<Shader>& shader);
         Ref<Shader> Load(const std::string& filepath);
@@ -26,6 +38,14 @@ namespace OloEngine
 
         // Enumerate all loaded shader names (for editor/scripting)
         [[nodiscard]] std::vector<std::string> GetAllShaderNames() const;
+
+        // --- Shader Pack support ---
+
+        // Load a shader pack file. Future Load() calls will try the pack first.
+        void LoadShaderPack(const std::filesystem::path& path);
+
+        // Check whether a shader pack is loaded
+        [[nodiscard]] bool HasShaderPack() const;
 
         // --- Async shader compilation support ---
 
@@ -50,7 +70,12 @@ namespace OloEngine
         [[nodiscard]] static Ref<Shader> GetFallbackShader();
 
       private:
+        // Try to create a shader from the loaded shader pack.
+        // Returns nullptr if no pack or shader not in pack.
+        Ref<Shader> TryLoadFromPack(const std::string& filepath);
+
         std::unordered_map<std::string, Ref<Shader>> m_Shaders;
+        std::unique_ptr<ShaderPack> m_ShaderPack;
 
         static Ref<Shader> s_FallbackShader;
     };

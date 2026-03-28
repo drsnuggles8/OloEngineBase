@@ -47,6 +47,7 @@ add_executable(OloEngine-Tests
 		Rendering/LODTest.cpp
 		Rendering/PODCommandTest.cpp
 		Rendering/ShaderBindingLayoutTest.cpp
+		Rendering/ShaderPackTest.cpp
 		Rendering/FrameDataBufferTest.cpp
 		Rendering/CommandPacketTest.cpp
 		Rendering/CommandAllocatorTest.cpp

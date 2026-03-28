@@ -6,7 +6,9 @@
 #include "UndoRedo/ComponentCommands.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/QualityTiering.h"
+#include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/ShaderPack.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
@@ -647,6 +649,11 @@ namespace OloEngine
             if (ImGui::MenuItem("Build Asset Pack..."))
             {
                 BuildAssetPack();
+            }
+
+            if (ImGui::MenuItem("Build Shader Pack"))
+            {
+                BuildShaderPack();
             }
 
             ImGui::Separator();
@@ -2884,6 +2891,26 @@ namespace OloEngine
             } }, Tasks::ETaskPriority::BackgroundNormal);
 
         OLO_CORE_INFO("Asset Pack build started asynchronously...");
+    }
+
+    void EditorLayer::BuildShaderPack()
+    {
+        const std::filesystem::path outputPath = "assets/ShaderPack.osp";
+        OLO_CORE_INFO("Building Shader Pack to '{}'...", outputPath.string());
+
+        bool success = ShaderPack::CreateFromLibraries(
+            Renderer2D::GetShaderLibrary(),
+            Renderer3D::GetShaderLibrary(),
+            outputPath);
+
+        if (success)
+        {
+            OLO_CORE_INFO("Shader Pack built successfully: {}", outputPath.string());
+        }
+        else
+        {
+            OLO_CORE_ERROR("Shader Pack build failed");
+        }
     }
 
 } // namespace OloEngine

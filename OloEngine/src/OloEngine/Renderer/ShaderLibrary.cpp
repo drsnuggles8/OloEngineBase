@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/ShaderPack.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
 #include "Platform/OpenGL/OpenGLShader.h"
@@ -8,6 +9,11 @@
 namespace OloEngine
 {
     Ref<Shader> ShaderLibrary::s_FallbackShader = nullptr;
+
+    ShaderLibrary::ShaderLibrary() = default;
+    ShaderLibrary::~ShaderLibrary() = default;
+    ShaderLibrary::ShaderLibrary(ShaderLibrary&&) noexcept = default;
+    auto ShaderLibrary::operator=(ShaderLibrary&&) noexcept -> ShaderLibrary& = default;
 
     void ShaderLibrary::Add(const std::string& name, const Ref<Shader>& shader)
     {
@@ -34,6 +40,13 @@ namespace OloEngine
 
     Ref<Shader> ShaderLibrary::Load(const std::string& filepath)
     {
+        // Try shader pack first (pre-compiled SPIR-V)
+        if (auto shader = TryLoadFromPack(filepath))
+        {
+            Add(shader);
+            return shader;
+        }
+
         auto shader = Shader::Create(filepath);
         Add(shader);
         return shader;
@@ -41,6 +54,12 @@ namespace OloEngine
 
     Ref<Shader> ShaderLibrary::Load(const std::string& name, const std::string& filepath)
     {
+        if (auto shader = TryLoadFromPack(filepath))
+        {
+            Add(name, shader);
+            return shader;
+        }
+
         auto shader = Shader::Create(filepath);
         Add(name, shader);
         return shader;
@@ -263,5 +282,82 @@ void main()
     Ref<Shader> ShaderLibrary::GetFallbackShader()
     {
         return s_FallbackShader;
+    }
+
+    // ====================================================================
+    // Shader Pack support
+    // ====================================================================
+
+    void ShaderLibrary::LoadShaderPack(const std::filesystem::path& path)
+    {
+        m_ShaderPack = std::make_unique<ShaderPack>(path);
+        if (!m_ShaderPack->IsLoaded())
+        {
+            OLO_CORE_WARN("[ShaderLibrary] Shader pack failed to load: {}", path.string());
+            m_ShaderPack.reset();
+        }
+    }
+
+    bool ShaderLibrary::HasShaderPack() const
+    {
+        return m_ShaderPack && m_ShaderPack->IsLoaded();
+    }
+
+    Ref<Shader> ShaderLibrary::TryLoadFromPack(const std::string& filepath)
+    {
+        if (!m_ShaderPack || !m_ShaderPack->IsLoaded())
+        {
+            return nullptr;
+        }
+
+        if (!m_ShaderPack->Contains(filepath))
+        {
+            return nullptr;
+        }
+
+        auto entry = m_ShaderPack->LoadEntry(filepath);
+        if (!entry || entry->Stages.empty())
+        {
+            OLO_CORE_WARN("[ShaderLibrary] Pack entry '{}' loaded but empty", filepath);
+            return nullptr;
+        }
+
+        // Convert pack stage data (u8-encoded stages) back to GLenum-keyed maps
+        std::unordered_map<unsigned int, std::vector<u32>> vulkanSPIRV;
+        std::unordered_map<unsigned int, std::vector<u32>> openGLSPIRV;
+
+        for (auto& stageData : entry->Stages)
+        {
+            unsigned int glStage = 0;
+            switch (stageData.Stage)
+            {
+                case 1:
+                    glStage = 0x8B31;
+                    break; // GL_VERTEX_SHADER
+                case 2:
+                    glStage = 0x8B30;
+                    break; // GL_FRAGMENT_SHADER
+                case 3:
+                    glStage = 0x8E88;
+                    break; // GL_TESS_CONTROL_SHADER
+                case 4:
+                    glStage = 0x8E87;
+                    break; // GL_TESS_EVALUATION_SHADER
+                case 5:
+                    glStage = 0x91B9;
+                    break; // GL_COMPUTE_SHADER
+                default:
+                    OLO_CORE_ERROR("[ShaderLibrary] Unknown stage {} in pack entry '{}'", stageData.Stage, filepath);
+                    return nullptr;
+            }
+
+            vulkanSPIRV[glStage] = std::move(stageData.VulkanSPIRV);
+            openGLSPIRV[glStage] = std::move(stageData.OpenGLSPIRV);
+        }
+
+        OLO_CORE_TRACE("[ShaderLibrary] Loading '{}' from shader pack", filepath);
+        return OpenGLShader::CreateFromPackData(entry->Name, filepath,
+                                                std::move(vulkanSPIRV),
+                                                std::move(openGLSPIRV));
     }
 } // namespace OloEngine

@@ -96,11 +96,41 @@ namespace OloEngine
             return m_ResourceRegistry.SetResource(name, input);
         }
 
+        // SPIR-V data access (for shader pack serialization)
+        [[nodiscard]] const std::unordered_map<GLenum, std::vector<u32>>& GetVulkanSPIRV() const
+        {
+            return m_VulkanSPIRV;
+        }
+        [[nodiscard]] const std::unordered_map<GLenum, std::vector<u32>>& GetOpenGLSPIRV() const
+        {
+            return m_OpenGLSPIRV;
+        }
+
         // Include processing — public so compute shaders can reuse it
         static std::string ProcessIncludes(const std::string& source, const std::string& directory = "");
         static std::string ProcessIncludes(const std::string& source, const std::string& directory, std::vector<std::string>& outIncludePaths);
 
+        // Create a shader from pre-compiled SPIR-V data (loaded from a shader pack).
+        // Skips file I/O, preprocessing, and SPIR-V compilation entirely.
+        static Ref<Shader> CreateFromPackData(
+            const std::string& name,
+            const std::string& filepath,
+            std::unordered_map<GLenum, std::vector<u32>> vulkanSPIRV,
+            std::unordered_map<GLenum, std::vector<u32>> openGLSPIRV);
+
       private:
+        // Tag type for the pack-data constructor (internal only)
+        struct PackDataTag
+        {
+        };
+
+        // Private constructor — creates a shader from pre-compiled SPIR-V (no file I/O or compilation)
+        OpenGLShader(PackDataTag,
+                     const std::string& name,
+                     const std::string& filepath,
+                     std::unordered_map<GLenum, std::vector<u32>> vulkanSPIRV,
+                     std::unordered_map<GLenum, std::vector<u32>> openGLSPIRV);
+
         static std::string ReadFile(const std::string& filepath);
         static std::string ProcessIncludesInternal(const std::string& source, const std::string& directory, std::unordered_set<std::string>& includedFiles);
         static std::unordered_map<GLenum, std::string> PreProcess(std::string_view source);

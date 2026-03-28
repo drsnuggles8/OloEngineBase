@@ -93,6 +93,10 @@ namespace OloEngine
         // Initiates an asynchronous build process for packaging project assets
         void BuildAssetPack();
 
+        // Shader Pack Building
+        // Bundles all compiled SPIR-V into a single binary file for distribution builds
+        void BuildShaderPack();
+
         // Build status and progress queries
         bool IsBuildInProgress() const
         {
