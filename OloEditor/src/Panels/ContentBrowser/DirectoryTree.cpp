@@ -3,6 +3,18 @@
 
 #include <algorithm>
 
+namespace
+{
+    // Returns a lowercased copy of the input string for case-insensitive comparison.
+    std::string ToLowerCopy(std::string s)
+    {
+        std::transform(s.begin(), s.end(), s.begin(),
+                       [](unsigned char c)
+                       { return static_cast<char>(std::tolower(c)); });
+        return s;
+    }
+} // namespace
+
 namespace OloEngine
 {
     void DirectoryTree::Build(const std::filesystem::path& assetRoot)
@@ -130,32 +142,12 @@ namespace OloEngine
         // Sort subdirectories alphabetically (case-insensitive)
         std::sort(dir.SubDirectories.begin(), dir.SubDirectories.end(),
                   [](const std::unique_ptr<DirectoryInfo>& a, const std::unique_ptr<DirectoryInfo>& b)
-                  {
-                      std::string aLower = a->Name;
-                      std::string bLower = b->Name;
-                      std::transform(aLower.begin(), aLower.end(), aLower.begin(),
-                                     [](unsigned char c)
-                                     { return static_cast<char>(std::tolower(c)); });
-                      std::transform(bLower.begin(), bLower.end(), bLower.begin(),
-                                     [](unsigned char c)
-                                     { return static_cast<char>(std::tolower(c)); });
-                      return aLower < bLower;
-                  });
+                  { return ToLowerCopy(a->Name) < ToLowerCopy(b->Name); });
 
         // Sort files alphabetically (case-insensitive, by filename)
         std::sort(dir.Files.begin(), dir.Files.end(),
                   [](const std::filesystem::path& a, const std::filesystem::path& b)
-                  {
-                      std::string aName = a.filename().string();
-                      std::string bName = b.filename().string();
-                      std::transform(aName.begin(), aName.end(), aName.begin(),
-                                     [](unsigned char c)
-                                     { return static_cast<char>(std::tolower(c)); });
-                      std::transform(bName.begin(), bName.end(), bName.begin(),
-                                     [](unsigned char c)
-                                     { return static_cast<char>(std::tolower(c)); });
-                      return aName < bName;
-                  });
+                  { return ToLowerCopy(a.filename().string()) < ToLowerCopy(b.filename().string()); });
     }
 
     void DirectoryTree::SearchRecursive(const DirectoryInfo& dir, const std::string& queryLower,
@@ -164,10 +156,7 @@ namespace OloEngine
         // Check subdirectories
         for (const auto& subDir : dir.SubDirectories)
         {
-            std::string nameLower = subDir->Name;
-            std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(),
-                           [](unsigned char c)
-                           { return static_cast<char>(std::tolower(c)); });
+            std::string nameLower = ToLowerCopy(subDir->Name);
 
             if (nameLower.find(queryLower) != std::string::npos)
                 results.push_back(m_AssetRoot / subDir->RelativePath);
@@ -179,10 +168,7 @@ namespace OloEngine
         // Check files
         for (const auto& file : dir.Files)
         {
-            std::string nameLower = file.filename().string();
-            std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(),
-                           [](unsigned char c)
-                           { return static_cast<char>(std::tolower(c)); });
+            std::string nameLower = ToLowerCopy(file.filename().string());
 
             if (nameLower.find(queryLower) != std::string::npos)
                 results.push_back(file);

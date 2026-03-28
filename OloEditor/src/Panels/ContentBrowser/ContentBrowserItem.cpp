@@ -292,10 +292,10 @@ namespace OloEngine
             return false;
         }
 
-        std::filesystem::path newPath = m_Path.parent_path() / newName;
+        std::filesystem::path newPath = m_Path.parent_path() / std::filesystem::path(std::u8string(newName.begin(), newName.end()));
 
         std::error_code ec;
-        if (std::filesystem::exists(newPath, ec))
+        if (std::filesystem::exists(newPath, ec) && !std::filesystem::equivalent(m_Path, newPath, ec))
         {
             OLO_CORE_WARN("ContentBrowser: Cannot rename — '{}' already exists", newPath.string());
             return false;

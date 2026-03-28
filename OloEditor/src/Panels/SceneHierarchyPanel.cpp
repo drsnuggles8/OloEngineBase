@@ -48,7 +48,11 @@ namespace
     {
         auto const* data = static_cast<char const*>(payload.Data);
         auto const* u8data = reinterpret_cast<char8_t const*>(data);
-        return std::filesystem::path(std::u8string_view(u8data, static_cast<size_t>(payload.DataSize)));
+        // Strip trailing NUL if the sender included it in DataSize
+        size_t len = static_cast<size_t>(payload.DataSize);
+        if (len > 0 && data[len - 1] == '\0')
+            --len;
+        return std::filesystem::path(std::u8string_view(u8data, len));
     }
 } // namespace
 

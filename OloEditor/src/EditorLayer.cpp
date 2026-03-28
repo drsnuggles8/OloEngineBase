@@ -49,7 +49,21 @@ namespace
     {
         auto const* data = static_cast<char const*>(payload.Data);
         auto const* u8data = reinterpret_cast<char8_t const*>(data);
-        return std::filesystem::path(std::u8string_view(u8data, static_cast<size_t>(payload.DataSize)));
+        // Strip trailing NUL if the sender included it in DataSize
+        size_t len = static_cast<size_t>(payload.DataSize);
+        if (len > 0 && data[len - 1] == '\0')
+            --len;
+        return std::filesystem::path(std::u8string_view(u8data, len));
+    }
+
+    // Returns the file extension lowercased for case-insensitive comparison.
+    [[nodiscard]] std::string LowercaseExtension(const std::filesystem::path& p)
+    {
+        std::string ext = p.extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(),
+                       [](unsigned char c)
+                       { return static_cast<char>(std::tolower(c)); });
+        return ext;
     }
 } // namespace
 
@@ -783,7 +797,7 @@ namespace OloEngine
             {
                 std::filesystem::path path = PathFromUtf8Payload(*payload);
 
-                auto const ext = path.extension();
+                auto const ext = LowercaseExtension(path);
                 if (ext == ".olo" || ext == ".scene") // Legacy: scene via generic payload
                 {
                     if (ConfirmDiscardChanges())
@@ -792,7 +806,7 @@ namespace OloEngine
                         OpenScene(path);
                     }
                 }
-                else if (m_SceneState == SceneState::Edit && ((path.extension() == ".png") || (path.extension() == ".jpeg")) && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
+                else if (m_SceneState == SceneState::Edit && (LowercaseExtension(path) == ".png" || LowercaseExtension(path) == ".jpeg") && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
                 {
                     const Ref<Texture2D> texture = Texture2D::Create(path.string());
                     if (texture->IsLoaded())
@@ -809,7 +823,7 @@ namespace OloEngine
                         OLO_WARN("Could not load texture {0}", path.filename().string());
                     }
                 }
-                else if (m_SceneState == SceneState::Edit && path.extension() == ".oloprefab") // Instantiate prefab
+                else if (m_SceneState == SceneState::Edit && LowercaseExtension(path) == ".oloprefab") // Instantiate prefab
                 {
                     auto* editorManager = static_cast<EditorAssetManager*>(
                         Project::GetActive()->GetAssetManager().get());

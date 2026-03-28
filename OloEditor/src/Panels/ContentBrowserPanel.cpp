@@ -42,6 +42,8 @@ namespace OloEngine
 {
     ContentBrowserPanel::ContentBrowserPanel()
     {
+        OLO_CORE_ASSERT(!s_Instance, "ContentBrowserPanel already exists! Only one instance is supported.");
+
         auto assetDir = Project::GetAssetDirectory();
 
         // Build cached directory tree
@@ -938,6 +940,7 @@ namespace OloEngine
                         std::filesystem::create_directories(newFolder);
                         SafeRefreshSubtree(m_CurrentDirectory);
                         RebuildItemList();
+                        std::snprintf(folderName, sizeof(folderName), "New Folder");
                     }
                     else
                     {
