@@ -7,15 +7,18 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <glm/glm.hpp>
+#include <array>
 #include <span>
 
 namespace OloEngine
 {
     // @brief Render pass that draws selection outlines around selected entities.
     //
-    // Uses entity-ID edge detection: samples the ScenePass entity-ID attachment
-    // and draws outline pixels where the ID transitions between selected and
-    // non-selected entities. Single fullscreen pass, no geometry re-rendering.
+    // Uses the Jump Flood Algorithm (JFA) to produce smooth, anti-aliased outlines
+    // from the ScenePass entity-ID attachment. Multi-pass pipeline:
+    //   1. JFA Init  — reads entity IDs, outputs seed distance field
+    //   2. JFA Flood — N ping-pong passes propagating nearest seeds
+    //   3. JFA Composite — converts distance field to anti-aliased outline
     //
     // Sits between PostProcessPass and UICompositePass in the render graph:
     //   PostProcess -> SelectionOutline -> UIComposite -> Final
@@ -43,16 +46,52 @@ namespace OloEngine
         void SetOutlineWidth(i32 width);
         void SetEnabled(bool enabled);
 
+        // JFA-specific configuration
+        void SetOutlineThickness(f32 inner, f32 outer);
+        void SetJFAPassCount(i32 count);
+
+        // Fixed-capacity result for ComputeJFASteps (no heap allocation).
+        static constexpr i32 MaxJFAPasses = 4;
+        struct JFAStepSequence
+        {
+            std::array<i32, MaxJFAPasses> Steps{};
+            i32 Count = 0;
+
+            [[nodiscard]] auto begin() const
+            {
+                return Steps.begin();
+            }
+            [[nodiscard]] auto end() const
+            {
+                return Steps.begin() + Count;
+            }
+        };
+
+        // Compute the JFA flood step sequence for a given pass count.
+        // Clamps passCount to [1, 4], returns descending powers-of-two: {2^(n-1), ..., 2, 1}.
+        [[nodiscard]] static JFAStepSequence ComputeJFASteps(i32 passCount);
+
       private:
         void CreateFramebuffer(u32 width, u32 height);
+        void CreateJFAFramebuffers(u32 width, u32 height);
 
         Ref<Framebuffer> m_InputFramebuffer;
         Ref<Framebuffer> m_SceneFramebuffer;
         Ref<Shader> m_BlitShader;
-        Ref<Shader> m_OutlineShader;
-        Ref<UniformBuffer> m_OutlineUBO;
 
+        // Selection ID UBO (binding 27) — shared with JFA Init for entity ID lookup
+        Ref<UniformBuffer> m_OutlineUBO;
         UBOStructures::SelectionOutlineUBO m_UBOData;
+
+        // JFA pipeline
+        Ref<Shader> m_JFAInitShader;
+        Ref<Shader> m_JFAPassShader;
+        Ref<Shader> m_JFACompositeShader;
+        Ref<Framebuffer> m_JFAFramebuffers[2]; // ping-pong RGBA32F
+        Ref<UniformBuffer> m_JFAUbo;
+        UBOStructures::JumpFloodUBO m_JFAUboData;
+        i32 m_JFAPassCount = 2; // Number of flood passes (1–4)
+
         bool m_Enabled = true;
     };
 } // namespace OloEngine
