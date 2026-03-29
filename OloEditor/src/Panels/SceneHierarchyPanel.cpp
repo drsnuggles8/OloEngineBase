@@ -2505,29 +2505,36 @@ namespace OloEngine
             ImGui::Separator();
 
             // Per-cell material ID editor
-            if (!component.MaterialIDs.empty() && ImGui::TreeNode("Tile Grid"))
+            sizet expectedSize = static_cast<sizet>(component.Width) * component.Height;
+            if (!component.Materials.empty() && component.Width > 0 && component.Height > 0
+                && component.MaterialIDs.size() == expectedSize && ImGui::TreeNode("Tile Grid"))
             {
-                u8 maxIdx = static_cast<u8>(component.Materials.size() - 1);
-                for (u32 row = 0; row < component.Height; ++row)
+                u8 maxIdx = static_cast<u8>(std::min<sizet>(component.Materials.size() - 1, 255));
+                ImGuiListClipper clipper;
+                clipper.Begin(static_cast<int>(component.Height));
+                while (clipper.Step())
                 {
-                    ImGui::PushID(static_cast<int>(row));
-                    for (u32 col = 0; col < component.Width; ++col)
+                    for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row)
                     {
-                        if (col > 0)
-                            ImGui::SameLine();
-
-                        sizet idx = static_cast<sizet>(row) * component.Width + col;
-                        i32 matId = component.MaterialIDs[idx];
-                        ImGui::PushID(static_cast<int>(col));
-                        ImGui::SetNextItemWidth(30.0f);
-                        if (ImGui::DragInt("##cell", &matId, 1.0f, 0, static_cast<i32>(maxIdx)))
+                        ImGui::PushID(row);
+                        for (u32 col = 0; col < component.Width; ++col)
                         {
-                            component.MaterialIDs[idx] = static_cast<u8>(
-                                std::clamp(matId, 0, static_cast<i32>(maxIdx)));
+                            if (col > 0)
+                                ImGui::SameLine();
+
+                            sizet idx = static_cast<sizet>(row) * component.Width + col;
+                            i32 matId = component.MaterialIDs[idx];
+                            ImGui::PushID(static_cast<int>(col));
+                            ImGui::SetNextItemWidth(30.0f);
+                            if (ImGui::DragInt("##cell", &matId, 1.0f, 0, static_cast<i32>(maxIdx)))
+                            {
+                                component.MaterialIDs[idx] = static_cast<u8>(
+                                    std::clamp(matId, 0, static_cast<i32>(maxIdx)));
+                            }
+                            ImGui::PopID();
                         }
                         ImGui::PopID();
                     }
-                    ImGui::PopID();
                 }
                 ImGui::TreePop();
             } });

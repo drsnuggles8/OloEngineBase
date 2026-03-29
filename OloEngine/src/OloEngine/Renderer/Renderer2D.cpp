@@ -875,6 +875,7 @@ namespace OloEngine
 
         // First pass: compute word-wrap line breaks when MaxWidth > 0
         std::vector<sizet> wrapBreaks;
+        std::vector<bool> wrapIsMidWord;
         if (textParams.MaxWidth > 0.0f)
         {
             double x = 0.0;
@@ -926,11 +927,13 @@ namespace OloEngine
                     {
                         i = lastSpace;
                         wrapBreaks.push_back(lastSpace);
+                        wrapIsMidWord.push_back(false);
                     }
                     else
                     {
                         // Single word exceeds MaxWidth — break at current character
                         wrapBreaks.push_back(i);
+                        wrapIsMidWord.push_back(true);
                     }
                     lastSpace = std::string::npos;
                     x = 0.0;
@@ -958,8 +961,11 @@ namespace OloEngine
             {
                 x = 0;
                 y -= (fsScale * metrics.lineHeight) + textParams.LineSpacing;
+                bool midWord = wrapIsMidWord[wrapIdx];
                 ++wrapIdx;
-                continue;
+                // Space breaks: skip the space character; mid-word breaks: render the character on the new line
+                if (!midWord)
+                    continue;
             }
 
             if (character == '\r')
@@ -1030,6 +1036,10 @@ namespace OloEngine
             f32 texelHeight = 1.0f / static_cast<f32>(fontAtlas->GetHeight());
             texCoordMin *= glm::vec2(texelWidth, texelHeight);
             texCoordMax *= glm::vec2(texelWidth, texelHeight);
+
+            // Flush text batch if full
+            if (s_Data.TextIndexCount + 6 > Renderer2DData::MaxIndices)
+                NextBatch();
 
             // render here
             s_Data.TextVertexBufferPtr->Position = transform * glm::vec4(quadMin, 0.0f, 1.0f);

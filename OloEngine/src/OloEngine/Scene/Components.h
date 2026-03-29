@@ -489,6 +489,8 @@ namespace OloEngine
         bool DropShadow = false;
         f32 ShadowDistance = 0.02f;
         glm::vec4 ShadowColor{ 0.0f, 0.0f, 0.0f, 1.0f };
+
+        auto operator==(const TextComponent&) const -> bool = default;
     };
 
     struct ScriptComponent
@@ -1320,6 +1322,26 @@ namespace OloEngine
             Width = newWidth;
             Height = newHeight;
             MaterialIDs = std::move(newIDs);
+        }
+
+        // Manual operator== for undo tracking (Material lacks defaulted ==).
+        auto operator==(const TileRendererComponent& other) const -> bool
+        {
+            if (TileMesh != other.TileMesh || Width != other.Width ||
+                Height != other.Height || TileSize != other.TileSize ||
+                MaterialIDs != other.MaterialIDs)
+                return false;
+            if (Materials.size() != other.Materials.size())
+                return false;
+            for (sizet i = 0; i < Materials.size(); ++i)
+            {
+                if (Materials[i].GetBaseColorFactor() != other.Materials[i].GetBaseColorFactor() ||
+                    Materials[i].GetMetallicFactor() != other.Materials[i].GetMetallicFactor() ||
+                    Materials[i].GetRoughnessFactor() != other.Materials[i].GetRoughnessFactor() ||
+                    Materials[i].GetFlags() != other.Materials[i].GetFlags())
+                    return false;
+            }
+            return true;
         }
     };
 

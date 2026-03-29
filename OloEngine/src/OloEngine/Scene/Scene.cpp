@@ -74,6 +74,16 @@
 
 namespace OloEngine
 {
+    static void DrawTextWithShadow(const TextComponent& text, const TransformComponent& transform, int entityID)
+    {
+        if (text.DropShadow)
+        {
+            glm::mat4 shadowTransform = glm::translate(transform.GetTransform(), glm::vec3(text.ShadowDistance, -text.ShadowDistance, 0.0f));
+            Renderer2D::DrawString(text.TextString, text.FontAsset, shadowTransform, { text.ShadowColor, text.Kerning, text.LineSpacing, text.MaxWidth }, entityID);
+        }
+        Renderer2D::DrawString(text.TextString, transform.GetTransform(), text, entityID);
+    }
+
     [[nodiscard("Store this!")]] static b2BodyType Rigidbody2DTypeToBox2DBody(const Rigidbody2DComponent::BodyType bodyType)
     {
         switch (bodyType)
@@ -1157,13 +1167,7 @@ namespace OloEngine
                         for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
                         {
                             const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
-                            const int eid = static_cast<int>(entity);
-                            if (text.DropShadow)
-                            {
-                                glm::mat4 shadowTransform = glm::translate(transform.GetTransform(), glm::vec3(text.ShadowDistance, -text.ShadowDistance, 0.0f));
-                                Renderer2D::DrawString(text.TextString, text.FontAsset, shadowTransform, { text.ShadowColor, text.Kerning, text.LineSpacing, text.MaxWidth }, eid);
-                            }
-                            Renderer2D::DrawString(text.TextString, transform.GetTransform(), text, eid);
+                            DrawTextWithShadow(text, transform, static_cast<int>(entity));
                         }
 
                         Renderer2D::EndScene();
@@ -1194,13 +1198,7 @@ namespace OloEngine
                 for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
                 {
                     const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
-                    const int eid = static_cast<int>(entity);
-                    if (text.DropShadow)
-                    {
-                        glm::mat4 shadowTransform = glm::translate(transform.GetTransform(), glm::vec3(text.ShadowDistance, -text.ShadowDistance, 0.0f));
-                        Renderer2D::DrawString(text.TextString, text.FontAsset, shadowTransform, { text.ShadowColor, text.Kerning, text.LineSpacing, text.MaxWidth }, eid);
-                    }
-                    Renderer2D::DrawString(text.TextString, transform.GetTransform(), text, eid);
+                    DrawTextWithShadow(text, transform, static_cast<int>(entity));
                 }
 
                 // 2D particles (3D particles are rendered by ParticleRenderPass)
@@ -1367,13 +1365,7 @@ namespace OloEngine
                         for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
                         {
                             const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
-                            const int eid = static_cast<int>(entity);
-                            if (text.DropShadow)
-                            {
-                                glm::mat4 shadowTransform = glm::translate(transform.GetTransform(), glm::vec3(text.ShadowDistance, -text.ShadowDistance, 0.0f));
-                                Renderer2D::DrawString(text.TextString, text.FontAsset, shadowTransform, { text.ShadowColor, text.Kerning, text.LineSpacing, text.MaxWidth }, eid);
-                            }
-                            Renderer2D::DrawString(text.TextString, transform.GetTransform(), text, eid);
+                            DrawTextWithShadow(text, transform, static_cast<int>(entity));
                         }
 
                         Renderer2D::EndScene();
@@ -2064,13 +2056,7 @@ namespace OloEngine
             for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
             {
                 const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
-                const int eid = static_cast<int>(entity);
-                if (text.DropShadow)
-                {
-                    glm::mat4 shadowTransform = glm::translate(transform.GetTransform(), glm::vec3(text.ShadowDistance, -text.ShadowDistance, 0.0f));
-                    Renderer2D::DrawString(text.TextString, text.FontAsset, shadowTransform, { text.ShadowColor, text.Kerning, text.LineSpacing, text.MaxWidth }, eid);
-                }
-                Renderer2D::DrawString(text.TextString, transform.GetTransform(), text, eid);
+                DrawTextWithShadow(text, transform, static_cast<int>(entity));
             }
         }
 
@@ -3352,7 +3338,7 @@ namespace OloEngine
                             Renderer3D::SubmitPacket(packet);
 
                         // Shadow caster for this tile
-                        if (meshHasActiveShadows)
+                        if (meshHasActiveShadows && !material.GetFlag(MaterialFlag::DisableShadowCasting))
                         {
                             auto va = tileComp.TileMesh->GetVertexArray();
                             if (va)

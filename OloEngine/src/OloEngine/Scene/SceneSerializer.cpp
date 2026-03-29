@@ -1625,7 +1625,17 @@ namespace OloEngine
                     {
                         submeshIdx = tileRendererComponent["SubmeshIndex"].as<u32>();
                     }
-                    tileComp.TileMesh = Ref<Mesh>::Create(meshSource, submeshIdx);
+                    if (submeshIdx < static_cast<u32>(meshSource->GetSubmeshes().Num()))
+                    {
+                        tileComp.TileMesh = Ref<Mesh>::Create(meshSource, submeshIdx);
+                    }
+                    else
+                    {
+                        OLO_CORE_WARN("TileRendererComponent: SubmeshIndex {} out of range (mesh has {} submeshes), using 0",
+                                      submeshIdx, meshSource->GetSubmeshes().Num());
+                        if (meshSource->GetSubmeshes().Num() > 0)
+                            tileComp.TileMesh = Ref<Mesh>::Create(meshSource, 0);
+                    }
                 }
             }
             if (tileRendererComponent["Width"])
@@ -1667,9 +1677,10 @@ namespace OloEngine
             if (tileRendererComponent["MaterialIDs"])
             {
                 tileComp.MaterialIDs.clear();
-                u8 maxMatIdx = tileComp.Materials.empty()
-                                   ? static_cast<u8>(0)
-                                   : static_cast<u8>(tileComp.Materials.size() - 1);
+                sizet maxIndex = tileComp.Materials.empty()
+                                     ? 0
+                                     : std::min(tileComp.Materials.size() - 1, static_cast<sizet>(std::numeric_limits<u8>::max()));
+                u8 maxMatIdx = static_cast<u8>(maxIndex);
                 for (auto idNode : tileRendererComponent["MaterialIDs"])
                 {
                     i32 raw = idNode.as<i32>();
