@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLVertexArray.h"
+#include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 
 #include <glad/gl.h>
@@ -52,7 +53,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        glDeleteVertexArrays(1, &m_RendererID);
+        u32 id = m_RendererID;
+        FrameResourceManager::Get().SubmitForDeletion([id]()
+                                                      { glDeleteVertexArrays(1, &id); });
     }
     void OpenGLVertexArray::Bind() const
     {

@@ -484,6 +484,10 @@ namespace OloEngine
         glm::vec4 Color{ 1.0f };
         f32 Kerning = 0.0f;
         f32 LineSpacing = 0.0f;
+        f32 MaxWidth = 0.0f; // 0 = no wrapping
+        bool DropShadow = false;
+        f32 ShadowDistance = 0.02f;
+        glm::vec4 ShadowColor{ 0.0f, 0.0f, 0.0f, 1.0f };
     };
 
     struct ScriptComponent
@@ -1276,6 +1280,25 @@ namespace OloEngine
         LODGroupComponent& operator=(const LODGroupComponent&) = default;
         LODGroupComponent(LODGroupComponent&&) noexcept = default;
         LODGroupComponent& operator=(LODGroupComponent&&) noexcept = default;
+    };
+
+    // ── Tile Renderer ────────────────────────────────────────────────────
+
+    struct TileRendererComponent
+    {
+        Ref<Mesh> TileMesh;
+        u32 Width = 16;
+        u32 Height = 16;
+        f32 TileSize = 1.0f;
+        std::vector<Material> Materials;
+        std::vector<u8> MaterialIDs;
+
+        TileRendererComponent()
+        {
+            MaterialIDs.resize(Width * Height, 0);
+            Materials.emplace_back();
+        }
+        TileRendererComponent(const TileRendererComponent&) = default;
     };
 
     // ── Networking ───────────────────────────────────────────────────────

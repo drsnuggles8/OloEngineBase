@@ -1621,6 +1621,7 @@ namespace OloEngine
             DisplayAddComponentEntry<ModelComponent>("Model (with Materials)");
             DisplayAddComponentEntry<MaterialComponent>("Material");
             DisplayAddComponentEntry<LODGroupComponent>("LOD Group");
+            DisplayAddComponentEntry<TileRendererComponent>("Tile Renderer");
             DisplayAddComponentEntry<DirectionalLightComponent>("Directional Light");
             DisplayAddComponentEntry<PointLightComponent>("Point Light");
             DisplayAddComponentEntry<SpotLightComponent>("Spot Light");
@@ -2051,7 +2052,14 @@ namespace OloEngine
 			ImGui::InputTextMultiline("Text String", &component.TextString);
 			ImGui::ColorEdit4("Color", glm::value_ptr(component.Color));
 			ImGui::DragFloat("Kerning", &component.Kerning, 0.025f);
-			ImGui::DragFloat("Line Spacing", &component.LineSpacing, 0.025f); });
+			ImGui::DragFloat("Line Spacing", &component.LineSpacing, 0.025f);
+			ImGui::DragFloat("Max Width", &component.MaxWidth, 0.1f, 0.0f, 100.0f);
+			ImGui::Checkbox("Drop Shadow", &component.DropShadow);
+			if (component.DropShadow)
+			{
+				ImGui::DragFloat("Shadow Distance", &component.ShadowDistance, 0.001f, 0.0f, 1.0f);
+				ImGui::ColorEdit4("Shadow Color", glm::value_ptr(component.ShadowColor));
+			} });
 
         // 3D Components
         DrawComponent<MeshComponent>("Mesh", entity, [entity, scene = m_Context](auto& component) mutable
@@ -2387,6 +2395,119 @@ namespace OloEngine
                     ? 50.0f
                     : component.m_LODGroup.Levels.back().MaxDistance + 50.0f;
                 component.m_LODGroup.Levels.emplace_back(AssetHandle{0}, nextDistance);
+            } });
+
+        DrawComponent<TileRendererComponent>("Tile Renderer", entity, [](auto& component)
+                                             {
+            // Tile mesh info
+            ImGui::Text("Tile Mesh: %s", component.TileMesh ? "Assigned" : "None");
+
+            // Drag-drop target for tile mesh
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_MODEL"))
+                {
+                    std::filesystem::path meshPath = PathFromUtf8Payload(*payload);
+                    auto model = Ref<Model>::Create(meshPath.string());
+                    if (model && model->GetMeshCount() > 0)
+                    {
+                        auto combinedMeshSource = model->CreateCombinedMeshSource();
+                        if (combinedMeshSource)
+                        {
+                            component.TileMesh = Ref<Mesh>::Create(combinedMeshSource, 0);
+                        }
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+
+            if (component.TileMesh && ImGui::Button("Clear Mesh"))
+            {
+                component.TileMesh = nullptr;
+            }
+
+            ImGui::Separator();
+
+            // Grid dimensions
+            i32 width = static_cast<i32>(component.Width);
+            i32 height = static_cast<i32>(component.Height);
+            bool gridChanged = false;
+
+            if (ImGui::DragInt("Width", &width, 1.0f, 1, 256))
+            {
+                component.Width = static_cast<u32>(std::max(1, width));
+                gridChanged = true;
+            }
+            if (ImGui::DragInt("Height", &height, 1.0f, 1, 256))
+            {
+                component.Height = static_cast<u32>(std::max(1, height));
+                gridChanged = true;
+            }
+            if (gridChanged)
+            {
+                component.MaterialIDs.resize(static_cast<sizet>(component.Width) * component.Height, 0);
+            }
+
+            ImGui::DragFloat("Tile Size", &component.TileSize, 0.1f, 0.01f, 100.0f, "%.2f");
+
+            ImGui::Separator();
+
+            // Material palette
+            ImGui::Text("Materials: %zu", component.Materials.size());
+
+            i32 removeIdx = -1;
+            for (sizet i = 0; i < component.Materials.size(); ++i)
+            {
+                auto& mat = component.Materials[i];
+                ImGui::PushID(static_cast<int>(i));
+
+                ImGui::Text("Material %zu", i);
+                ImGui::SameLine(ImGui::GetContentRegionAvail().x - 20.0f);
+                if (component.Materials.size() > 1 && ImGui::Button("X"))
+                {
+                    removeIdx = static_cast<i32>(i);
+                }
+
+                auto baseColor = mat.GetBaseColorFactor();
+                glm::vec3 albedo(baseColor.r, baseColor.g, baseColor.b);
+                if (ImGui::ColorEdit3("Albedo", glm::value_ptr(albedo)))
+                {
+                    mat.SetBaseColorFactor(glm::vec4(albedo, 1.0f));
+                }
+
+                f32 metallic = mat.GetMetallicFactor();
+                if (ImGui::DragFloat("Metallic", &metallic, 0.01f, 0.0f, 1.0f, "%.2f"))
+                {
+                    mat.SetMetallicFactor(metallic);
+                }
+
+                f32 roughness = mat.GetRoughnessFactor();
+                if (ImGui::DragFloat("Roughness", &roughness, 0.01f, 0.0f, 1.0f, "%.2f"))
+                {
+                    mat.SetRoughnessFactor(roughness);
+                }
+
+                ImGui::PopID();
+                ImGui::Separator();
+            }
+
+            if (removeIdx >= 0)
+            {
+                u8 removedIdx = static_cast<u8>(removeIdx);
+                component.Materials.erase(component.Materials.begin() + removeIdx);
+                // Remap MaterialIDs: shift indices down, clamp deleted references
+                for (auto& id : component.MaterialIDs)
+                {
+                    if (id == removedIdx)
+                        id = 0;
+                    else if (id > removedIdx)
+                        --id;
+                }
+            }
+
+            if (component.Materials.size() < 255 && ImGui::Button("Add Material"))
+            {
+                component.Materials.emplace_back();
             } });
 
         DrawComponent<MaterialComponent>("Material", entity, [](auto& component)

@@ -869,15 +869,91 @@ namespace OloEngine
 
         s_Data.FontAtlasTexture = fontAtlas;
 
-        double x = 0.0;
         double fsScale = 1.0 / (metrics.ascenderY - metrics.descenderY);
-        double y = 0.0;
 
         const auto spaceGlyphAdvance = static_cast<f32>(fontGeometry.getGlyph(' ')->getAdvance());
+
+        // First pass: compute word-wrap line breaks when MaxWidth > 0
+        std::vector<sizet> wrapBreaks;
+        if (textParams.MaxWidth > 0.0f)
+        {
+            double x = 0.0;
+            sizet lastSpace = std::string::npos;
+            for (sizet i = 0; i < string.size(); i++)
+            {
+                char character = string[i];
+                if (character == '\n' || character == '\r')
+                {
+                    x = 0.0;
+                    lastSpace = std::string::npos;
+                    continue;
+                }
+
+                if (character == ' ')
+                {
+                    lastSpace = i;
+                    double advance = spaceGlyphAdvance;
+                    if (i < string.size() - 1)
+                    {
+                        double dAdv{};
+                        fontGeometry.getAdvance(dAdv, character, string[i + 1]);
+                        advance = dAdv;
+                    }
+                    x += (fsScale * advance) + textParams.Kerning;
+                    continue;
+                }
+
+                if (character == '\t')
+                {
+                    lastSpace = i;
+                    x += 4.0 * ((fsScale * spaceGlyphAdvance) + textParams.Kerning);
+                    continue;
+                }
+
+                auto* glyph = fontGeometry.getGlyph(character);
+                if (!glyph)
+                    glyph = fontGeometry.getGlyph('?');
+                if (!glyph)
+                    continue;
+
+                double pl{}, pb{}, pr{}, pt{};
+                glyph->getQuadPlaneBounds(pl, pb, pr, pt);
+                f32 quadMaxX = static_cast<f32>(pr) * static_cast<f32>(fsScale) + static_cast<f32>(x);
+
+                if (quadMaxX > textParams.MaxWidth && lastSpace != std::string::npos)
+                {
+                    i = lastSpace;
+                    wrapBreaks.push_back(lastSpace);
+                    lastSpace = std::string::npos;
+                    x = 0.0;
+                    continue;
+                }
+
+                double advance = glyph->getAdvance();
+                if (i < string.size() - 1)
+                    fontGeometry.getAdvance(advance, character, string[i + 1]);
+                x += (fsScale * advance) + textParams.Kerning;
+            }
+        }
+
+        // Second pass: render with wrap breaks
+        sizet wrapIdx = 0;
+        double x = 0.0;
+        double y = 0.0;
 
         for (sizet i = 0; i < string.size(); i++)
         {
             char character = string[i];
+
+            // Check if this index is a wrap break point
+            if (wrapIdx < wrapBreaks.size() && i == wrapBreaks[wrapIdx])
+            {
+                x = 0;
+                y -= (fsScale * metrics.lineHeight) + textParams.LineSpacing;
+                ++wrapIdx;
+                continue;
+            }
+
             if (character == '\r')
             {
                 continue;
@@ -907,7 +983,6 @@ namespace OloEngine
 
             if (character == '\t')
             {
-                // NOTE(Yan): is this right?
                 x += 4.0f * ((fsScale * spaceGlyphAdvance) + textParams.Kerning);
                 continue;
             }
@@ -989,7 +1064,7 @@ namespace OloEngine
 
     void Renderer2D::DrawString(const std::string& string, const glm::mat4& transform, const TextComponent& component, int entityID)
     {
-        DrawString(string, component.FontAsset, transform, { component.Color, component.Kerning, component.LineSpacing }, entityID);
+        DrawString(string, component.FontAsset, transform, { component.Color, component.Kerning, component.LineSpacing, component.MaxWidth }, entityID);
     }
 
     f32 Renderer2D::GetLineWidth()

@@ -2,6 +2,7 @@
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "Platform/OpenGL/OpenGLContext.h"
 #include "OloEngine/Core/Timer.h"
+#include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
@@ -377,6 +378,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Clean up pending shader objects if never finalized
+        // These are intermediate compile artifacts, safe to delete immediately
         for (const auto id : m_PendingShaderIDs)
         {
             glDetachShader(m_RendererID, id);
@@ -399,7 +401,9 @@ namespace OloEngine
         // Track GPU memory deallocation
         OLO_TRACK_DEALLOC(this);
 
-        glDeleteProgram(m_RendererID);
+        u32 programId = m_RendererID;
+        FrameResourceManager::Get().SubmitForDeletion([programId]()
+                                                      { glDeleteProgram(programId); });
     }
 
     void OpenGLShader::InitializeResourceRegistry(const Ref<Shader>& shaderRef)

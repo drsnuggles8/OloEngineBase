@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLTexture2DArray.h"
+#include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 
 #include <glad/gl.h>
@@ -93,7 +94,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         OLO_TRACK_DEALLOC(this);
-        glDeleteTextures(1, &m_RendererID);
+
+        u32 id = m_RendererID;
+        FrameResourceManager::Get().SubmitForDeletion([id]()
+                                                      { glDeleteTextures(1, &id); });
     }
 
     void OpenGLTexture2DArray::Bind(u32 slot) const

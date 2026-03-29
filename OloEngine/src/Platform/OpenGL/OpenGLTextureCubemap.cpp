@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLTextureCubemap.h"
+#include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 
@@ -187,7 +188,9 @@ namespace OloEngine
         // Unregister from GPU Resource Inspector
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 
-        glDeleteTextures(1, &m_RendererID);
+        u32 id = m_RendererID;
+        FrameResourceManager::Get().SubmitForDeletion([id]()
+                                                      { glDeleteTextures(1, &id); });
     }
 
     void OpenGLTextureCubemap::LoadFaces(const std::vector<std::string>& facePaths)

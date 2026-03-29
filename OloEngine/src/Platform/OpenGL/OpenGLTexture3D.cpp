@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLTexture3D.h"
+#include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Renderer.h"
@@ -69,7 +70,10 @@ namespace OloEngine
         {
             OLO_TRACK_DEALLOC(this);
         }
-        glDeleteTextures(1, &m_RendererID);
+
+        u32 id = m_RendererID;
+        FrameResourceManager::Get().SubmitForDeletion([id]()
+                                                      { glDeleteTextures(1, &id); });
     }
 
     void OpenGLTexture3D::Bind(u32 slot) const

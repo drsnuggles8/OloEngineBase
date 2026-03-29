@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLFramebuffer.h"
 #include "Platform/OpenGL/OpenGLUtilities.h"
+#include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
@@ -53,9 +54,15 @@ namespace OloEngine
         // Unregister from GPU Resource Inspector
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 
-        glDeleteFramebuffers(1, &m_RendererID);
-        glDeleteTextures(static_cast<GLsizei>(m_ColorAttachments.size()), m_ColorAttachments.data());
-        glDeleteTextures(1, &m_DepthAttachment);
+        u32 fboId = m_RendererID;
+        std::vector<u32> colorIds(m_ColorAttachments);
+        u32 depthId = m_DepthAttachment;
+        FrameResourceManager::Get().SubmitForDeletion([fboId, colorIds = std::move(colorIds), depthId]()
+                                                      {
+            glDeleteFramebuffers(1, &fboId);
+            if (!colorIds.empty())
+                glDeleteTextures(static_cast<GLsizei>(colorIds.size()), colorIds.data());
+            glDeleteTextures(1, &depthId); });
     }
 
     void OpenGLFramebuffer::Invalidate()
@@ -69,9 +76,15 @@ namespace OloEngine
             // Unregister from GPU Resource Inspector for existing framebuffer
             GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 
-            glDeleteFramebuffers(1, &m_RendererID);
-            glDeleteTextures(static_cast<GLsizei>(m_ColorAttachments.size()), m_ColorAttachments.data());
-            glDeleteTextures(1, &m_DepthAttachment);
+            u32 oldFboId = m_RendererID;
+            std::vector<u32> oldColorIds(m_ColorAttachments);
+            u32 oldDepthId = m_DepthAttachment;
+            FrameResourceManager::Get().SubmitForDeletion([oldFboId, oldColorIds = std::move(oldColorIds), oldDepthId]()
+                                                          {
+                glDeleteFramebuffers(1, &oldFboId);
+                if (!oldColorIds.empty())
+                    glDeleteTextures(static_cast<GLsizei>(oldColorIds.size()), oldColorIds.data());
+                glDeleteTextures(1, &oldDepthId); });
 
             m_ColorAttachments.clear();
             m_DepthAttachment = 0;

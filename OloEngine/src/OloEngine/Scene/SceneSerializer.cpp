@@ -1495,6 +1495,10 @@ namespace OloEngine
             tc.Color = textComponent["Color"].as<glm::vec4>();
             tc.Kerning = textComponent["Kerning"].as<float>();
             tc.LineSpacing = textComponent["LineSpacing"].as<float>();
+            TrySet(tc.MaxWidth, textComponent["MaxWidth"]);
+            TrySet(tc.DropShadow, textComponent["DropShadow"]);
+            TrySet(tc.ShadowDistance, textComponent["ShadowDistance"]);
+            TrySet(tc.ShadowColor, textComponent["ShadowColor"]);
         }
 
         if (auto meshComponent = entity["MeshComponent"]; meshComponent)
@@ -1596,6 +1600,69 @@ namespace OloEngine
                           [](const LODLevel& a, const LODLevel& b)
                           { return a.MaxDistance < b.MaxDistance; });
             }
+        }
+
+        if (auto tileRendererComponent = entity["TileRendererComponent"]; tileRendererComponent)
+        {
+            auto& tileComp = deserializedEntity.AddComponent<TileRendererComponent>();
+            if (tileRendererComponent["MeshSourceHandle"])
+            {
+                u64 handle = tileRendererComponent["MeshSourceHandle"].as<u64>();
+                auto meshSource = AssetManager::GetAsset<MeshSource>(handle);
+                if (meshSource)
+                {
+                    u32 submeshIdx = 0;
+                    if (tileRendererComponent["SubmeshIndex"])
+                    {
+                        submeshIdx = tileRendererComponent["SubmeshIndex"].as<u32>();
+                    }
+                    tileComp.TileMesh = Ref<Mesh>::Create(meshSource, submeshIdx);
+                }
+            }
+            if (tileRendererComponent["Width"])
+            {
+                tileComp.Width = tileRendererComponent["Width"].as<u32>();
+            }
+            if (tileRendererComponent["Height"])
+            {
+                tileComp.Height = tileRendererComponent["Height"].as<u32>();
+            }
+            if (tileRendererComponent["TileSize"])
+            {
+                tileComp.TileSize = tileRendererComponent["TileSize"].as<f32>();
+            }
+            if (tileRendererComponent["Materials"])
+            {
+                tileComp.Materials.clear();
+                for (auto matNode : tileRendererComponent["Materials"])
+                {
+                    Material mat;
+                    if (matNode["AlbedoColor"])
+                    {
+                        auto albedo = matNode["AlbedoColor"].as<glm::vec3>();
+                        mat.SetBaseColorFactor(glm::vec4(albedo, 1.0f));
+                    }
+                    if (matNode["Metallic"])
+                    {
+                        mat.SetMetallicFactor(matNode["Metallic"].as<f32>());
+                    }
+                    if (matNode["Roughness"])
+                    {
+                        mat.SetRoughnessFactor(matNode["Roughness"].as<f32>());
+                    }
+                    tileComp.Materials.push_back(std::move(mat));
+                }
+            }
+            if (tileRendererComponent["MaterialIDs"])
+            {
+                tileComp.MaterialIDs.clear();
+                for (auto idNode : tileRendererComponent["MaterialIDs"])
+                {
+                    tileComp.MaterialIDs.push_back(static_cast<u8>(idNode.as<i32>()));
+                }
+            }
+            // Ensure MaterialIDs matches grid size
+            tileComp.MaterialIDs.resize(static_cast<sizet>(tileComp.Width) * tileComp.Height, 0);
         }
 
         if (auto materialComponent = entity["MaterialComponent"]; materialComponent)
@@ -3069,6 +3136,10 @@ namespace OloEngine
             out << YAML::Key << "Color" << YAML::Value << textComponent.Color;
             out << YAML::Key << "Kerning" << YAML::Value << textComponent.Kerning;
             out << YAML::Key << "LineSpacing" << YAML::Value << textComponent.LineSpacing;
+            out << YAML::Key << "MaxWidth" << YAML::Value << textComponent.MaxWidth;
+            out << YAML::Key << "DropShadow" << YAML::Value << textComponent.DropShadow;
+            out << YAML::Key << "ShadowDistance" << YAML::Value << textComponent.ShadowDistance;
+            out << YAML::Key << "ShadowColor" << YAML::Value << textComponent.ShadowColor;
 
             out << YAML::EndMap; // TextComponent
         }
@@ -3126,6 +3197,43 @@ namespace OloEngine
             out << YAML::EndSeq;
 
             out << YAML::EndMap; // LODGroupComponent
+        }
+
+        if (entity.HasComponent<TileRendererComponent>())
+        {
+            out << YAML::Key << "TileRendererComponent";
+            out << YAML::BeginMap; // TileRendererComponent
+
+            auto const& tileComp = entity.GetComponent<TileRendererComponent>();
+            if (tileComp.TileMesh && tileComp.TileMesh->GetMeshSource() && tileComp.TileMesh->GetMeshSource()->GetHandle() != 0)
+            {
+                out << YAML::Key << "MeshSourceHandle" << YAML::Value << static_cast<u64>(tileComp.TileMesh->GetMeshSource()->GetHandle());
+                out << YAML::Key << "SubmeshIndex" << YAML::Value << tileComp.TileMesh->GetSubmeshIndex();
+            }
+            out << YAML::Key << "Width" << YAML::Value << tileComp.Width;
+            out << YAML::Key << "Height" << YAML::Value << tileComp.Height;
+            out << YAML::Key << "TileSize" << YAML::Value << tileComp.TileSize;
+
+            out << YAML::Key << "Materials" << YAML::Value << YAML::BeginSeq;
+            for (const auto& mat : tileComp.Materials)
+            {
+                out << YAML::BeginMap;
+                auto baseColor = mat.GetBaseColorFactor();
+                out << YAML::Key << "AlbedoColor" << YAML::Value << glm::vec3(baseColor.r, baseColor.g, baseColor.b);
+                out << YAML::Key << "Metallic" << YAML::Value << mat.GetMetallicFactor();
+                out << YAML::Key << "Roughness" << YAML::Value << mat.GetRoughnessFactor();
+                out << YAML::EndMap;
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::Key << "MaterialIDs" << YAML::Value << YAML::Flow << YAML::BeginSeq;
+            for (u8 id : tileComp.MaterialIDs)
+            {
+                out << static_cast<i32>(id);
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::EndMap; // TileRendererComponent
         }
 
         if (entity.HasComponent<MaterialComponent>())

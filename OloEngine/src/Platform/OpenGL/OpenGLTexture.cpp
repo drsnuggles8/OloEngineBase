@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLTexture.h"
+#include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
@@ -196,7 +197,9 @@ namespace OloEngine
         // Unregister from GPU Resource Inspector
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 
-        glDeleteTextures(1, &m_RendererID);
+        u32 id = m_RendererID;
+        FrameResourceManager::Get().SubmitForDeletion([id]()
+                                                      { glDeleteTextures(1, &id); });
     }
 
     void OpenGLTexture2D::Resize(u32 width, u32 height)
@@ -212,7 +215,10 @@ namespace OloEngine
         // Dealloc old
         OLO_TRACK_DEALLOC(this);
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
-        glDeleteTextures(1, &m_RendererID);
+
+        u32 oldId = m_RendererID;
+        FrameResourceManager::Get().SubmitForDeletion([oldId]()
+                                                      { glDeleteTextures(1, &oldId); });
 
         m_Width = width;
         m_Height = height;
