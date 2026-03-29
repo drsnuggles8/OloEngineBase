@@ -920,10 +920,18 @@ namespace OloEngine
                 glyph->getQuadPlaneBounds(pl, pb, pr, pt);
                 f32 quadMaxX = static_cast<f32>(pr) * static_cast<f32>(fsScale) + static_cast<f32>(x);
 
-                if (quadMaxX > textParams.MaxWidth && lastSpace != std::string::npos)
+                if (quadMaxX > textParams.MaxWidth)
                 {
-                    i = lastSpace;
-                    wrapBreaks.push_back(lastSpace);
+                    if (lastSpace != std::string::npos)
+                    {
+                        i = lastSpace;
+                        wrapBreaks.push_back(lastSpace);
+                    }
+                    else
+                    {
+                        // Single word exceeds MaxWidth — break at current character
+                        wrapBreaks.push_back(i);
+                    }
                     lastSpace = std::string::npos;
                     x = 0.0;
                     continue;

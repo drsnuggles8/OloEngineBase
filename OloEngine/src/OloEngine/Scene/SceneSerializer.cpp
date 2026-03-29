@@ -1496,9 +1496,18 @@ namespace OloEngine
             tc.Kerning = textComponent["Kerning"].as<float>();
             tc.LineSpacing = textComponent["LineSpacing"].as<float>();
             TrySet(tc.MaxWidth, textComponent["MaxWidth"]);
+            if (!std::isfinite(tc.MaxWidth) || tc.MaxWidth < 0.0f)
+                tc.MaxWidth = 0.0f;
             TrySet(tc.DropShadow, textComponent["DropShadow"]);
             TrySet(tc.ShadowDistance, textComponent["ShadowDistance"]);
+            if (!std::isfinite(tc.ShadowDistance))
+                tc.ShadowDistance = 0.02f;
             TrySet(tc.ShadowColor, textComponent["ShadowColor"]);
+            for (int ci = 0; ci < 4; ++ci)
+            {
+                if (!std::isfinite(tc.ShadowColor[ci]))
+                    tc.ShadowColor[ci] = (ci == 3) ? 1.0f : 0.0f;
+            }
         }
 
         if (auto meshComponent = entity["MeshComponent"]; meshComponent)
@@ -1621,11 +1630,13 @@ namespace OloEngine
             }
             if (tileRendererComponent["Width"])
             {
-                tileComp.Width = tileRendererComponent["Width"].as<u32>();
+                tileComp.Width = std::clamp(tileRendererComponent["Width"].as<u32>(),
+                                            1u, TileRendererComponent::MaxGridDimension);
             }
             if (tileRendererComponent["Height"])
             {
-                tileComp.Height = tileRendererComponent["Height"].as<u32>();
+                tileComp.Height = std::clamp(tileRendererComponent["Height"].as<u32>(),
+                                             1u, TileRendererComponent::MaxGridDimension);
             }
             if (tileRendererComponent["TileSize"])
             {
@@ -1656,9 +1667,14 @@ namespace OloEngine
             if (tileRendererComponent["MaterialIDs"])
             {
                 tileComp.MaterialIDs.clear();
+                u8 maxMatIdx = tileComp.Materials.empty()
+                                   ? static_cast<u8>(0)
+                                   : static_cast<u8>(tileComp.Materials.size() - 1);
                 for (auto idNode : tileRendererComponent["MaterialIDs"])
                 {
-                    tileComp.MaterialIDs.push_back(static_cast<u8>(idNode.as<i32>()));
+                    i32 raw = idNode.as<i32>();
+                    tileComp.MaterialIDs.push_back(
+                        static_cast<u8>(std::clamp(raw, 0, static_cast<i32>(maxMatIdx))));
                 }
             }
             // Ensure MaterialIDs matches grid size

@@ -3350,6 +3350,18 @@ namespace OloEngine
                         auto* packet = Renderer3D::DrawMesh(tileComp.TileMesh, tileTransform, material, true, entityID, nullptr);
                         if (packet)
                             Renderer3D::SubmitPacket(packet);
+
+                        // Shadow caster for this tile
+                        if (meshHasActiveShadows)
+                        {
+                            auto va = tileComp.TileMesh->GetVertexArray();
+                            if (va)
+                            {
+                                meshShadowPass->AddMeshCaster(
+                                    va->GetRendererID(), tileComp.TileMesh->GetIndexCount(),
+                                    tileTransform);
+                            }
+                        }
                     }
                 }
             }

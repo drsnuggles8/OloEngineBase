@@ -32,6 +32,7 @@
 
 #include <box2d/id.h>
 
+#include <cstring>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
@@ -1286,6 +1287,8 @@ namespace OloEngine
 
     struct TileRendererComponent
     {
+        static constexpr u32 MaxGridDimension = 256;
+
         Ref<Mesh> TileMesh;
         u32 Width = 16;
         u32 Height = 16;
@@ -1299,6 +1302,25 @@ namespace OloEngine
             Materials.emplace_back();
         }
         TileRendererComponent(const TileRendererComponent&) = default;
+
+        // Resize grid preserving existing cell data at their (row, column) positions.
+        void ResizeGrid(u32 newWidth, u32 newHeight)
+        {
+            newWidth = std::clamp(newWidth, 1u, MaxGridDimension);
+            newHeight = std::clamp(newHeight, 1u, MaxGridDimension);
+            if (newWidth == Width && newHeight == Height)
+                return;
+
+            std::vector<u8> newIDs(static_cast<sizet>(newWidth) * newHeight, 0);
+            u32 copyW = std::min(Width, newWidth);
+            u32 copyH = std::min(Height, newHeight);
+            for (u32 row = 0; row < copyH; ++row)
+                std::memcpy(&newIDs[row * newWidth], &MaterialIDs[row * Width], copyW);
+
+            Width = newWidth;
+            Height = newHeight;
+            MaterialIDs = std::move(newIDs);
+        }
     };
 
     // ── Networking ───────────────────────────────────────────────────────
@@ -1613,6 +1635,7 @@ namespace OloEngine
         MorphTargetComponent,
         BehaviorTreeComponent,
         StateMachineComponent,
+        TileRendererComponent,
         InventoryComponent,
         ItemPickupComponent,
         ItemContainerComponent,

@@ -239,6 +239,14 @@ namespace OloEngine
 
     void FrameResourceManager::SubmitForDeletion(std::function<void()>&& deletionFunc)
     {
+        if (!m_Initialized)
+        {
+            // After shutdown (or before init), execute immediately — the deferred
+            // queue will never be drained and the GL context may still be alive
+            // during teardown.
+            deletionFunc();
+            return;
+        }
         u32 currentIndex = m_CurrentFrameIndex.load(std::memory_order_acquire);
         m_FrameResources[currentIndex].DeletionQueue.push_back(std::move(deletionFunc));
     }
