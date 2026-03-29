@@ -7,8 +7,8 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <glm/glm.hpp>
+#include <array>
 #include <span>
-#include <vector>
 
 namespace OloEngine
 {
@@ -50,9 +50,26 @@ namespace OloEngine
         void SetOutlineThickness(f32 inner, f32 outer);
         void SetJFAPassCount(i32 count);
 
+        // Fixed-capacity result for ComputeJFASteps (no heap allocation).
+        static constexpr i32 MaxJFAPasses = 4;
+        struct JFAStepSequence
+        {
+            std::array<i32, MaxJFAPasses> Steps{};
+            i32 Count = 0;
+
+            [[nodiscard]] auto begin() const
+            {
+                return Steps.begin();
+            }
+            [[nodiscard]] auto end() const
+            {
+                return Steps.begin() + Count;
+            }
+        };
+
         // Compute the JFA flood step sequence for a given pass count.
         // Clamps passCount to [1, 4], returns descending powers-of-two: {2^(n-1), ..., 2, 1}.
-        [[nodiscard]] static std::vector<i32> ComputeJFASteps(i32 passCount);
+        [[nodiscard]] static JFAStepSequence ComputeJFASteps(i32 passCount);
 
       private:
         void CreateFramebuffer(u32 width, u32 height);

@@ -286,6 +286,14 @@ namespace OloEngine
     void SelectionOutlineRenderPass::SetOutlineWidth(i32 width)
     {
         m_UBOData.OutlineWidth = std::max(1, width);
+
+        // Translate integer pixel width into JFA smoothstep thickness.
+        // Inner/outer define the anti-aliased band in normalized screen distance.
+        constexpr f32 baseInner = 0.002f;
+        constexpr f32 baseOuter = 0.004f;
+        f32 scale = static_cast<f32>(m_UBOData.OutlineWidth);
+        m_JFAUboData.OutlineThicknessInner = baseInner * scale;
+        m_JFAUboData.OutlineThicknessOuter = baseOuter * scale;
     }
 
     void SelectionOutlineRenderPass::SetEnabled(bool enabled)
@@ -311,15 +319,14 @@ namespace OloEngine
         m_JFAPassCount = std::clamp(count, 1, 4);
     }
 
-    std::vector<i32> SelectionOutlineRenderPass::ComputeJFASteps(i32 passCount)
+    SelectionOutlineRenderPass::JFAStepSequence SelectionOutlineRenderPass::ComputeJFASteps(i32 passCount)
     {
-        passCount = std::clamp(passCount, 1, 4);
-        std::vector<i32> steps;
-        steps.reserve(static_cast<size_t>(passCount));
+        passCount = std::clamp(passCount, 1, MaxJFAPasses);
+        JFAStepSequence seq;
         for (i32 step = 1 << (passCount - 1); step >= 1; step >>= 1)
         {
-            steps.push_back(step);
+            seq.Steps[static_cast<size_t>(seq.Count++)] = step;
         }
-        return steps;
+        return seq;
     }
 } // namespace OloEngine

@@ -8,7 +8,6 @@
 
 #include <glm/glm.hpp>
 #include <cstring>
-#include <vector>
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 
@@ -293,69 +292,70 @@ TEST(JumpFloodUBO, DefaultStepIsOne)
 
 TEST(JFAStepSequence, PassCount1ProducesSingleStep)
 {
-    auto steps = SelectionOutlineRenderPass::ComputeJFASteps(1);
-    ASSERT_EQ(steps.size(), 1u);
-    EXPECT_EQ(steps[0], 1);
+    auto seq = SelectionOutlineRenderPass::ComputeJFASteps(1);
+    ASSERT_EQ(seq.Count, 1);
+    EXPECT_EQ(seq.Steps[0], 1);
 }
 
 TEST(JFAStepSequence, PassCount2ProducesCorrectSteps)
 {
-    auto steps = SelectionOutlineRenderPass::ComputeJFASteps(2);
-    ASSERT_EQ(steps.size(), 2u);
-    EXPECT_EQ(steps[0], 2);
-    EXPECT_EQ(steps[1], 1);
+    auto seq = SelectionOutlineRenderPass::ComputeJFASteps(2);
+    ASSERT_EQ(seq.Count, 2);
+    EXPECT_EQ(seq.Steps[0], 2);
+    EXPECT_EQ(seq.Steps[1], 1);
 }
 
 TEST(JFAStepSequence, PassCount3ProducesCorrectSteps)
 {
-    auto steps = SelectionOutlineRenderPass::ComputeJFASteps(3);
-    ASSERT_EQ(steps.size(), 3u);
-    EXPECT_EQ(steps[0], 4);
-    EXPECT_EQ(steps[1], 2);
-    EXPECT_EQ(steps[2], 1);
+    auto seq = SelectionOutlineRenderPass::ComputeJFASteps(3);
+    ASSERT_EQ(seq.Count, 3);
+    EXPECT_EQ(seq.Steps[0], 4);
+    EXPECT_EQ(seq.Steps[1], 2);
+    EXPECT_EQ(seq.Steps[2], 1);
 }
 
 TEST(JFAStepSequence, PassCount4ProducesCorrectSteps)
 {
-    auto steps = SelectionOutlineRenderPass::ComputeJFASteps(4);
-    ASSERT_EQ(steps.size(), 4u);
-    EXPECT_EQ(steps[0], 8);
-    EXPECT_EQ(steps[1], 4);
-    EXPECT_EQ(steps[2], 2);
-    EXPECT_EQ(steps[3], 1);
+    auto seq = SelectionOutlineRenderPass::ComputeJFASteps(4);
+    ASSERT_EQ(seq.Count, 4);
+    EXPECT_EQ(seq.Steps[0], 8);
+    EXPECT_EQ(seq.Steps[1], 4);
+    EXPECT_EQ(seq.Steps[2], 2);
+    EXPECT_EQ(seq.Steps[3], 1);
 }
 
 TEST(JFAStepSequence, PassCount0ClampsTo1)
 {
-    auto steps = SelectionOutlineRenderPass::ComputeJFASteps(0);
-    ASSERT_EQ(steps.size(), 1u);
-    EXPECT_EQ(steps[0], 1);
+    auto seq = SelectionOutlineRenderPass::ComputeJFASteps(0);
+    ASSERT_EQ(seq.Count, 1);
+    EXPECT_EQ(seq.Steps[0], 1);
 }
 
 TEST(JFAStepSequence, PassCount5ClampsTo4)
 {
-    auto steps = SelectionOutlineRenderPass::ComputeJFASteps(5);
-    ASSERT_EQ(steps.size(), 4u);
-    EXPECT_EQ(steps[0], 8);
-    EXPECT_EQ(steps[1], 4);
-    EXPECT_EQ(steps[2], 2);
-    EXPECT_EQ(steps[3], 1);
+    auto seq = SelectionOutlineRenderPass::ComputeJFASteps(5);
+    ASSERT_EQ(seq.Count, 4);
+    EXPECT_EQ(seq.Steps[0], 8);
+    EXPECT_EQ(seq.Steps[1], 4);
+    EXPECT_EQ(seq.Steps[2], 2);
+    EXPECT_EQ(seq.Steps[3], 1);
 }
 
 TEST(JFAStepSequence, NegativePassCountClampsTo1)
 {
-    auto steps = SelectionOutlineRenderPass::ComputeJFASteps(-3);
-    ASSERT_EQ(steps.size(), 1u);
-    EXPECT_EQ(steps[0], 1);
+    auto seq = SelectionOutlineRenderPass::ComputeJFASteps(-3);
+    ASSERT_EQ(seq.Count, 1);
+    EXPECT_EQ(seq.Steps[0], 1);
 }
 
 TEST(JFAStepSequence, AllStepsArePowersOfTwo)
 {
     for (i32 passCount = 1; passCount <= 4; ++passCount)
     {
-        auto steps = SelectionOutlineRenderPass::ComputeJFASteps(passCount);
-        for (i32 s : steps)
+        auto seq = SelectionOutlineRenderPass::ComputeJFASteps(passCount);
+        for (i32 i = 0; i < seq.Count; ++i)
         {
+            i32 s = seq.Steps[static_cast<size_t>(i)];
             EXPECT_GT(s, 0);
             EXPECT_EQ(s & (s - 1), 0) << "Step " << s << " is not a power of two (passCount=" << passCount << ")";
         }
