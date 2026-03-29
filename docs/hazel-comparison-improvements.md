@@ -87,7 +87,7 @@ OloEditor now has a 4-tab Statistics panel (Renderer, Audio, Performance, Memory
 
 ### 4.5 Entity Selection Outline
 
-OloEditor now has 2D selection outlines (via `Renderer2D::DrawRect`) and a new 3D entity-ID edge-detection pass (`SelectionOutlineRenderPass`). A follow-up could upgrade the 3D pass to a Jump Flood-based approach (see §1.4) for smoother, higher-quality outlines matching Hazelnut's implementation.
+OloEditor now has 2D selection outlines (via `Renderer2D::DrawRect`) and a 3D Jump Flood Algorithm (JFA) outline pass (`SelectionOutlineRenderPass`). The JFA pipeline seeds a distance field from the ScenePass entity-ID attachment, propagates it via configurable ping-pong flood passes, and composites a smooth anti-aliased outline over the scene. Matches Hazelnut's approach without the extra SelectedGeometry re-render pass (reuses existing entity IDs instead).
 
 ---
 
@@ -144,7 +144,7 @@ Hazel's animation system includes specialized graph nodes: `IKNodes` (inverse ki
 
 | Priority | Item | Effort | Impact | Status |
 |----------|------|--------|--------|--------|
-| **High** | 4.5 Selection outline (Jump Flood) | Medium | Major editor UX | Basic done (edge-detect); JF follow-up |
+| **High** | 4.5 Selection outline (Jump Flood) | Medium | Major editor UX | ✅ Done |
 | **High** | 1.1 GTAO replacing SSAO | Medium | Visual quality leap | ✅ Done |
 | **High** | 3.1 Audio DSP (at least reverb + spatial) | Medium | Audio is unusable without it | ✅ Done |
 | **High** | 4.2 Auto-save with recovery | Low | Prevents data loss | ✅ Done |

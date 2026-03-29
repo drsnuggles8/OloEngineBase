@@ -18,12 +18,18 @@ namespace OloEngine
         {
             switch (glStage)
             {
-                case 0x8B31: return 1; // GL_VERTEX_SHADER
-                case 0x8B30: return 2; // GL_FRAGMENT_SHADER
-                case 0x8E88: return 3; // GL_TESS_CONTROL_SHADER
-                case 0x8E87: return 4; // GL_TESS_EVALUATION_SHADER
-                case 0x91B9: return 5; // GL_COMPUTE_SHADER
-                default: return 0;
+                case 0x8B31:
+                    return 1; // GL_VERTEX_SHADER
+                case 0x8B30:
+                    return 2; // GL_FRAGMENT_SHADER
+                case 0x8E88:
+                    return 3; // GL_TESS_CONTROL_SHADER
+                case 0x8E87:
+                    return 4; // GL_TESS_EVALUATION_SHADER
+                case 0x91B9:
+                    return 5; // GL_COMPUTE_SHADER
+                default:
+                    return 0;
             }
         }
 
@@ -31,12 +37,18 @@ namespace OloEngine
         {
             switch (packed)
             {
-                case 1: return 0x8B31; // GL_VERTEX_SHADER
-                case 2: return 0x8B30; // GL_FRAGMENT_SHADER
-                case 3: return 0x8E88; // GL_TESS_CONTROL_SHADER
-                case 4: return 0x8E87; // GL_TESS_EVALUATION_SHADER
-                case 5: return 0x91B9; // GL_COMPUTE_SHADER
-                default: return 0;
+                case 1:
+                    return 0x8B31; // GL_VERTEX_SHADER
+                case 2:
+                    return 0x8B30; // GL_FRAGMENT_SHADER
+                case 3:
+                    return 0x8E88; // GL_TESS_CONTROL_SHADER
+                case 4:
+                    return 0x8E87; // GL_TESS_EVALUATION_SHADER
+                case 5:
+                    return 0x91B9; // GL_COMPUTE_SHADER
+                default:
+                    return 0;
             }
         }
     } // namespace
@@ -48,7 +60,7 @@ namespace OloEngine
     {
         struct FileHeader
         {
-            char Magic[4] = {'O', 'L', 'S', 'P'};
+            char Magic[4] = { 'O', 'L', 'S', 'P' };
             u32 Version = SHADER_PACK_VERSION;
             u32 ShaderCount = 0;
             // Padding to 16 bytes for alignment
@@ -319,11 +331,9 @@ namespace OloEngine
                 }
 
                 auto* glShader = static_cast<OpenGLShader*>(shader.get());
-                shaders.push_back({
-                    shader->GetFilePath(),
-                    &glShader->GetVulkanSPIRV(),
-                    &glShader->GetOpenGLSPIRV()
-                });
+                shaders.push_back({ shader->GetFilePath(),
+                                    &glShader->GetVulkanSPIRV(),
+                                    &glShader->GetOpenGLSPIRV() });
             }
         };
 
@@ -351,7 +361,7 @@ namespace OloEngine
         for (const auto& info : shaders)
         {
             indexSize += sizeof(u32) + info.Name.size(); // name
-            indexSize += sizeof(u32);                     // stageCount
+            indexSize += sizeof(u32);                    // stageCount
             u32 stageCount = static_cast<u32>(info.VulkanSPIRV->size());
             indexSize += stageCount * (sizeof(u8) + 4 * sizeof(u64)); // per-stage refs
         }
@@ -441,8 +451,8 @@ namespace OloEngine
 
         const auto fileSize = std::filesystem::file_size(outputPath);
         OLO_CORE_INFO("[ShaderPack] Created '{}' — {} shaders, {:.1f} KB",
-                       outputPath.string(), shaders.size(),
-                       static_cast<f64>(fileSize) / 1024.0);
+                      outputPath.string(), shaders.size(),
+                      static_cast<f64>(fileSize) / 1024.0);
 
         return true;
     }

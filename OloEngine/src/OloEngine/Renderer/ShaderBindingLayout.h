@@ -403,6 +403,22 @@ namespace OloEngine
                 return sizeof(GTAOUBO);
             }
         };
+        // @brief Jump Flood Algorithm parameters for selection outline rendering
+        // Used by JFA init, propagation, and composite passes
+        struct JumpFloodUBO
+        {
+            glm::vec4 TexelSize{ 0.0f };                      // xy = 1/width, 1/height
+            glm::vec4 OutlineColor{ 1.0f, 0.5f, 0.0f, 0.8f }; // rgb = color, a = opacity
+            f32 OutlineThicknessInner = 0.002f;               // smoothstep inner edge
+            f32 OutlineThicknessOuter = 0.004f;               // smoothstep outer edge
+            i32 Step = 1;                                     // current JFA step size
+            i32 _pad0 = 0;
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(JumpFloodUBO);
+            }
+        };
     } // namespace UBOStructures
 
     // =============================================================================
@@ -449,6 +465,8 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::SelectionOutlineUBO) == 304, "SelectionOutlineUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::GTAOUBO) % 16 == 0, "GTAOUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::GTAOUBO) == 96, "GTAOUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::JumpFloodUBO) % 16 == 0, "JumpFloodUBO size must be 16-byte aligned for std140");
+    static_assert(sizeof(UBOStructures::JumpFloodUBO) == 48, "JumpFloodUBO unexpected size — update GLSL layout");
 
     // Standardized shader binding layout for consistent resource sharing
     // across all shaders in the engine. This ensures efficient data sharing
@@ -489,6 +507,7 @@ namespace OloEngine
         static constexpr u32 UBO_BOOT = 26;                 // Boot/warmup shader progress data
         static constexpr u32 UBO_SELECTION_OUTLINE = 27;    // Selection outline parameters (editor)
         static constexpr u32 UBO_GTAO = 28;                 // GTAO (Ground Truth AO) parameters
+        static constexpr u32 UBO_JUMP_FLOOD = 29;           // Jump Flood Algorithm parameters (editor)
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -649,6 +668,8 @@ namespace OloEngine
                     return name.contains("SelectionOutline") || name.contains("selectionOutline");
                 case UBO_GTAO:
                     return name.contains("GTAO") || name.contains("gtao");
+                case UBO_JUMP_FLOOD:
+                    return name.contains("JumpFlood") || name.contains("jumpFlood");
                 default:
                     return false;
             }

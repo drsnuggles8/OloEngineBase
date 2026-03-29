@@ -231,3 +231,122 @@ TEST(SelectionOutlineUBO, Pack64EntityIDs)
         EXPECT_EQ(ubo.SelectedIDs[vecIndex][compIndex], i + 100);
     }
 }
+
+// =============================================================================
+// JumpFloodUBO Layout Tests
+// =============================================================================
+
+TEST(JumpFloodUBO, SizeIs48Bytes)
+{
+    EXPECT_EQ(UBOStructures::JumpFloodUBO::GetSize(), 48u);
+    EXPECT_EQ(sizeof(UBOStructures::JumpFloodUBO), 48u);
+}
+
+TEST(JumpFloodUBO, SizeIs16ByteAligned)
+{
+    EXPECT_EQ(sizeof(UBOStructures::JumpFloodUBO) % 16, 0u);
+}
+
+TEST(JumpFloodUBO, BindingSlotIs29)
+{
+    EXPECT_EQ(ShaderBindingLayout::UBO_JUMP_FLOOD, 29u);
+    EXPECT_TRUE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_JUMP_FLOOD, "JumpFloodUBO"));
+}
+
+TEST(JumpFloodUBO, FieldOffsets_Std140Compatible)
+{
+    EXPECT_EQ(offsetof(UBOStructures::JumpFloodUBO, TexelSize), 0u);
+    EXPECT_EQ(offsetof(UBOStructures::JumpFloodUBO, OutlineColor), 16u);
+    EXPECT_EQ(offsetof(UBOStructures::JumpFloodUBO, OutlineThicknessInner), 32u);
+    EXPECT_EQ(offsetof(UBOStructures::JumpFloodUBO, OutlineThicknessOuter), 36u);
+    EXPECT_EQ(offsetof(UBOStructures::JumpFloodUBO, Step), 40u);
+}
+
+TEST(JumpFloodUBO, DefaultOutlineColorIsOrange)
+{
+    UBOStructures::JumpFloodUBO ubo;
+
+    EXPECT_FLOAT_EQ(ubo.OutlineColor.r, 1.0f);
+    EXPECT_FLOAT_EQ(ubo.OutlineColor.g, 0.5f);
+    EXPECT_FLOAT_EQ(ubo.OutlineColor.b, 0.0f);
+    EXPECT_FLOAT_EQ(ubo.OutlineColor.a, 0.8f);
+}
+
+TEST(JumpFloodUBO, DefaultThicknessValues)
+{
+    UBOStructures::JumpFloodUBO ubo;
+
+    EXPECT_FLOAT_EQ(ubo.OutlineThicknessInner, 0.002f);
+    EXPECT_FLOAT_EQ(ubo.OutlineThicknessOuter, 0.004f);
+}
+
+TEST(JumpFloodUBO, DefaultStepIsOne)
+{
+    UBOStructures::JumpFloodUBO ubo;
+    EXPECT_EQ(ubo.Step, 1);
+}
+
+// =============================================================================
+// JFA Step Sequence Tests
+// =============================================================================
+
+TEST(JFAStepSequence, PassCount2ProducesCorrectSteps)
+{
+    // step = round(pow(passCount - 1, 2)) = round(pow(1, 2)) = 1
+    // iteration: step=1 → step/2=0 → done (1 flood iteration)
+    i32 passCount = 2;
+    i32 step = static_cast<i32>(std::round(std::pow(passCount - 1, 2)));
+    ASSERT_GE(step, 1);
+
+    std::vector<i32> steps;
+    while (step != 0)
+    {
+        steps.push_back(step);
+        step /= 2;
+    }
+
+    ASSERT_EQ(steps.size(), 1u);
+    EXPECT_EQ(steps[0], 1);
+}
+
+TEST(JFAStepSequence, PassCount3ProducesCorrectSteps)
+{
+    // step = round(pow(2, 2)) = 4
+    // iterations: 4, 2, 1
+    i32 passCount = 3;
+    i32 step = static_cast<i32>(std::round(std::pow(passCount - 1, 2)));
+    ASSERT_GE(step, 1);
+
+    std::vector<i32> steps;
+    while (step != 0)
+    {
+        steps.push_back(step);
+        step /= 2;
+    }
+
+    ASSERT_EQ(steps.size(), 3u);
+    EXPECT_EQ(steps[0], 4);
+    EXPECT_EQ(steps[1], 2);
+    EXPECT_EQ(steps[2], 1);
+}
+
+TEST(JFAStepSequence, PassCount1FallsBackToStep1)
+{
+    // step = round(pow(0, 2)) = 0 → clamp to 1
+    i32 passCount = 1;
+    i32 step = static_cast<i32>(std::round(std::pow(passCount - 1, 2)));
+    if (step < 1)
+    {
+        step = 1;
+    }
+
+    std::vector<i32> steps;
+    while (step != 0)
+    {
+        steps.push_back(step);
+        step /= 2;
+    }
+
+    ASSERT_EQ(steps.size(), 1u);
+    EXPECT_EQ(steps[0], 1);
+}

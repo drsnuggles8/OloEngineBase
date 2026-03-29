@@ -13,7 +13,7 @@ namespace
     // Helpers to create a dummy .osp file on disk for testing the reader
     struct FileHeader
     {
-        char Magic[4] = {'O', 'L', 'S', 'P'};
+        char Magic[4] = { 'O', 'L', 'S', 'P' };
         u32 Version = SHADER_PACK_VERSION;
         u32 ShaderCount = 0;
         u32 Reserved = 0;
@@ -43,10 +43,10 @@ namespace
         auto path = dir / "test.osp";
 
         // Fake SPIR-V data (just recognizable u32 patterns)
-        std::vector<u32> fakeVulkanVert = {0x07230203, 0x00010000, 1, 2, 3}; // SPIR-V magic + dummy
-        std::vector<u32> fakeOpenGLVert = {0x07230203, 0x00010000, 10, 20, 30};
-        std::vector<u32> fakeVulkanFrag = {0x07230203, 0x00010000, 4, 5, 6, 7};
-        std::vector<u32> fakeOpenGLFrag = {0x07230203, 0x00010000, 40, 50, 60, 70};
+        std::vector<u32> fakeVulkanVert = { 0x07230203, 0x00010000, 1, 2, 3 }; // SPIR-V magic + dummy
+        std::vector<u32> fakeOpenGLVert = { 0x07230203, 0x00010000, 10, 20, 30 };
+        std::vector<u32> fakeVulkanFrag = { 0x07230203, 0x00010000, 4, 5, 6, 7 };
+        std::vector<u32> fakeOpenGLFrag = { 0x07230203, 0x00010000, 40, 50, 60, 70 };
 
         std::ofstream out(path, std::ios::binary);
 

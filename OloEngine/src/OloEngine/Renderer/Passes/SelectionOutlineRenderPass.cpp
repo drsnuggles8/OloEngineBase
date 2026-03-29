@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace OloEngine
 {
@@ -20,12 +21,20 @@ namespace OloEngine
         m_FramebufferSpec = spec;
 
         m_BlitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
-        m_OutlineShader = Shader::Create("assets/shaders/PostProcess_SelectionOutline.glsl");
+
+        // JFA shaders
+        m_JFAInitShader = Shader::Create("assets/shaders/JumpFlood_Init.glsl");
+        m_JFAPassShader = Shader::Create("assets/shaders/JumpFlood_Pass.glsl");
+        m_JFACompositeShader = Shader::Create("assets/shaders/JumpFlood_Composite.glsl");
+
+        // UBOs
         m_OutlineUBO = UniformBuffer::Create(UBOStructures::SelectionOutlineUBO::GetSize(), ShaderBindingLayout::UBO_SELECTION_OUTLINE);
+        m_JFAUbo = UniformBuffer::Create(UBOStructures::JumpFloodUBO::GetSize(), ShaderBindingLayout::UBO_JUMP_FLOOD);
 
         CreateFramebuffer(spec.Width, spec.Height);
+        CreateJFAFramebuffers(spec.Width, spec.Height);
 
-        OLO_CORE_INFO("SelectionOutlineRenderPass: Initialized {}x{}", spec.Width, spec.Height);
+        OLO_CORE_INFO("SelectionOutlineRenderPass: Initialized {}x{} (JFA, {} passes)", spec.Width, spec.Height, m_JFAPassCount);
     }
 
     void SelectionOutlineRenderPass::CreateFramebuffer(u32 width, u32 height)
@@ -48,6 +57,28 @@ namespace OloEngine
         m_Target = Framebuffer::Create(fbSpec);
     }
 
+    void SelectionOutlineRenderPass::CreateJFAFramebuffers(u32 width, u32 height)
+    {
+        if (width == 0 || height == 0)
+        {
+            m_JFAFramebuffers[0] = nullptr;
+            m_JFAFramebuffers[1] = nullptr;
+            return;
+        }
+
+        for (auto& fb : m_JFAFramebuffers)
+        {
+            FramebufferSpecification fbSpec;
+            fbSpec.Width = width;
+            fbSpec.Height = height;
+            fbSpec.Samples = 1;
+            fbSpec.Attachments = {
+                FramebufferTextureFormat::RGBA32F // Distance field (xy=offset, z=sqDist, w=flag)
+            };
+            fb = Framebuffer::Create(fbSpec);
+        }
+    }
+
     void SelectionOutlineRenderPass::Execute()
     {
         OLO_PROFILE_FUNCTION();
@@ -56,6 +87,8 @@ namespace OloEngine
         {
             return;
         }
+
+        auto va = MeshPrimitives::GetFullscreenTriangle();
 
         // Early-out: no selection, disabled, or no scene FB — blit input straight through
         if (!m_Enabled || m_UBOData.SelectedCount == 0 || !m_SceneFramebuffer)
@@ -66,11 +99,9 @@ namespace OloEngine
             RenderCommand::SetDepthTest(false);
 
             m_BlitShader->Bind();
-            u32 colorAttachment = m_InputFramebuffer->GetColorAttachmentRendererID(0);
-            RenderCommand::BindTexture(0, colorAttachment);
+            RenderCommand::BindTexture(0, m_InputFramebuffer->GetColorAttachmentRendererID(0));
             m_BlitShader->SetInt("u_Texture", 0);
 
-            auto va = MeshPrimitives::GetFullscreenTriangle();
             va->Bind();
             RenderCommand::DrawIndexed(va);
 
@@ -78,33 +109,88 @@ namespace OloEngine
             return;
         }
 
-        m_Target->Bind();
-        RenderCommand::SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
-        RenderCommand::SetBlendState(false);
-        RenderCommand::SetDepthTest(false);
+        const u32 w = m_FramebufferSpec.Width;
+        const u32 h = m_FramebufferSpec.Height;
+        const glm::vec4 texelSize(1.0f / static_cast<f32>(w), 1.0f / static_cast<f32>(h), 0.0f, 0.0f);
 
-        // Update texel size for the current resolution
-        m_UBOData.TexelSize = glm::vec4(
-            1.0f / static_cast<f32>(m_FramebufferSpec.Width),
-            1.0f / static_cast<f32>(m_FramebufferSpec.Height),
-            0.0f, 0.0f);
-
-        // Upload UBO data
+        // Upload SelectionOutlineUBO (entity IDs for Init pass)
+        m_UBOData.TexelSize = texelSize;
         m_OutlineUBO->SetData(&m_UBOData, UBOStructures::SelectionOutlineUBO::GetSize());
 
-        // Bind scene color (from PostProcessPass) to slot 0
-        u32 colorAttachment = m_InputFramebuffer->GetColorAttachmentRendererID(0);
-        RenderCommand::BindTexture(0, colorAttachment);
+        // =====================================================================
+        // Pass 1: JFA Init — entity IDs → distance field seed
+        // =====================================================================
+        m_JFAFramebuffers[0]->Bind();
+        RenderCommand::SetViewport(0, 0, w, h);
+        RenderCommand::SetBlendState(false);
+        RenderCommand::SetDepthTest(false);
+        RenderCommand::Clear();
 
-        // Bind entity ID texture (from ScenePass attachment 1) to slot 1
-        u32 entityIDAttachment = m_SceneFramebuffer->GetColorAttachmentRendererID(1);
-        RenderCommand::BindTexture(1, entityIDAttachment);
+        // Bind entity ID texture from ScenePass attachment 1
+        RenderCommand::BindTexture(0, m_SceneFramebuffer->GetColorAttachmentRendererID(1));
 
-        m_OutlineShader->Bind();
-        m_OutlineShader->SetInt("u_SceneColor", 0);
-        m_OutlineShader->SetInt("u_EntityID", 1);
+        m_JFAInitShader->Bind();
+        m_JFAInitShader->SetInt("u_EntityID", 0);
 
-        auto va = MeshPrimitives::GetFullscreenTriangle();
+        va->Bind();
+        RenderCommand::DrawIndexed(va);
+
+        // =====================================================================
+        // Pass 2: JFA Flood — ping-pong propagation passes
+        // =====================================================================
+        i32 step = static_cast<i32>(std::round(std::pow(m_JFAPassCount - 1, 2)));
+        if (step < 1)
+        {
+            step = 1;
+        }
+        i32 readIndex = 0;
+
+        while (step != 0)
+        {
+            i32 writeIndex = (readIndex + 1) % 2;
+
+            // Update JFA UBO with current step
+            m_JFAUboData.TexelSize = texelSize;
+            m_JFAUboData.Step = step;
+            m_JFAUbo->SetData(&m_JFAUboData, UBOStructures::JumpFloodUBO::GetSize());
+
+            m_JFAFramebuffers[writeIndex]->Bind();
+            RenderCommand::SetViewport(0, 0, w, h);
+            RenderCommand::Clear();
+
+            // Bind previous JFA result
+            RenderCommand::BindTexture(0, m_JFAFramebuffers[readIndex]->GetColorAttachmentRendererID(0));
+
+            m_JFAPassShader->Bind();
+            m_JFAPassShader->SetInt("u_Texture", 0);
+
+            va->Bind();
+            RenderCommand::DrawIndexed(va);
+
+            readIndex = writeIndex;
+            step /= 2;
+        }
+
+        // =====================================================================
+        // Pass 3: JFA Composite — distance field → anti-aliased outline
+        // =====================================================================
+        // Upload final JFA UBO with outline parameters
+        m_JFAUboData.TexelSize = texelSize;
+        m_JFAUboData.Step = 0; // Not used in composite
+        m_JFAUbo->SetData(&m_JFAUboData, UBOStructures::JumpFloodUBO::GetSize());
+
+        m_Target->Bind();
+        RenderCommand::SetViewport(0, 0, w, h);
+
+        // Slot 0: scene color from PostProcessPass
+        RenderCommand::BindTexture(0, m_InputFramebuffer->GetColorAttachmentRendererID(0));
+        // Slot 1: final JFA distance field
+        RenderCommand::BindTexture(1, m_JFAFramebuffers[readIndex]->GetColorAttachmentRendererID(0));
+
+        m_JFACompositeShader->Bind();
+        m_JFACompositeShader->SetInt("u_SceneColor", 0);
+        m_JFACompositeShader->SetInt("u_JFAResult", 1);
+
         va->Bind();
         RenderCommand::DrawIndexed(va);
 
@@ -125,6 +211,7 @@ namespace OloEngine
         m_FramebufferSpec.Height = height;
 
         CreateFramebuffer(width, height);
+        CreateJFAFramebuffers(width, height);
     }
 
     void SelectionOutlineRenderPass::ResizeFramebuffer(u32 width, u32 height)
@@ -148,6 +235,9 @@ namespace OloEngine
         {
             CreateFramebuffer(width, height);
         }
+
+        // Recreate JFA framebuffers (RGBA32F can't always resize in place)
+        CreateJFAFramebuffers(width, height);
     }
 
     void SelectionOutlineRenderPass::OnReset()
@@ -157,6 +247,7 @@ namespace OloEngine
         if (m_FramebufferSpec.Width > 0 && m_FramebufferSpec.Height > 0)
         {
             CreateFramebuffer(m_FramebufferSpec.Width, m_FramebufferSpec.Height);
+            CreateJFAFramebuffers(m_FramebufferSpec.Width, m_FramebufferSpec.Height);
         }
     }
 
@@ -195,6 +286,7 @@ namespace OloEngine
     void SelectionOutlineRenderPass::SetOutlineColor(const glm::vec4& color)
     {
         m_UBOData.OutlineColor = color;
+        m_JFAUboData.OutlineColor = color;
     }
 
     void SelectionOutlineRenderPass::SetOutlineWidth(i32 width)
@@ -205,5 +297,16 @@ namespace OloEngine
     void SelectionOutlineRenderPass::SetEnabled(bool enabled)
     {
         m_Enabled = enabled;
+    }
+
+    void SelectionOutlineRenderPass::SetOutlineThickness(f32 inner, f32 outer)
+    {
+        m_JFAUboData.OutlineThicknessInner = inner;
+        m_JFAUboData.OutlineThicknessOuter = outer;
+    }
+
+    void SelectionOutlineRenderPass::SetJFAPassCount(i32 count)
+    {
+        m_JFAPassCount = std::clamp(count, 1, 4);
     }
 } // namespace OloEngine
