@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 
 #include <glm/glm.hpp>
 #include <cstring>
@@ -287,66 +288,76 @@ TEST(JumpFloodUBO, DefaultStepIsOne)
 }
 
 // =============================================================================
-// JFA Step Sequence Tests
+// JFA Step Sequence Tests (via ComputeJFASteps helper)
 // =============================================================================
 
-TEST(JFAStepSequence, PassCount2ProducesCorrectSteps)
+TEST(JFAStepSequence, PassCount1ProducesSingleStep)
 {
-    // step = round(pow(passCount - 1, 2)) = round(pow(1, 2)) = 1
-    // iteration: step=1 → step/2=0 → done (1 flood iteration)
-    i32 passCount = 2;
-    i32 step = static_cast<i32>(std::round(std::pow(passCount - 1, 2)));
-    ASSERT_GE(step, 1);
-
-    std::vector<i32> steps;
-    while (step != 0)
-    {
-        steps.push_back(step);
-        step /= 2;
-    }
-
+    auto steps = SelectionOutlineRenderPass::ComputeJFASteps(1);
     ASSERT_EQ(steps.size(), 1u);
     EXPECT_EQ(steps[0], 1);
 }
 
+TEST(JFAStepSequence, PassCount2ProducesCorrectSteps)
+{
+    auto steps = SelectionOutlineRenderPass::ComputeJFASteps(2);
+    ASSERT_EQ(steps.size(), 2u);
+    EXPECT_EQ(steps[0], 2);
+    EXPECT_EQ(steps[1], 1);
+}
+
 TEST(JFAStepSequence, PassCount3ProducesCorrectSteps)
 {
-    // step = round(pow(2, 2)) = 4
-    // iterations: 4, 2, 1
-    i32 passCount = 3;
-    i32 step = static_cast<i32>(std::round(std::pow(passCount - 1, 2)));
-    ASSERT_GE(step, 1);
-
-    std::vector<i32> steps;
-    while (step != 0)
-    {
-        steps.push_back(step);
-        step /= 2;
-    }
-
+    auto steps = SelectionOutlineRenderPass::ComputeJFASteps(3);
     ASSERT_EQ(steps.size(), 3u);
     EXPECT_EQ(steps[0], 4);
     EXPECT_EQ(steps[1], 2);
     EXPECT_EQ(steps[2], 1);
 }
 
-TEST(JFAStepSequence, PassCount1FallsBackToStep1)
+TEST(JFAStepSequence, PassCount4ProducesCorrectSteps)
 {
-    // step = round(pow(0, 2)) = 0 → clamp to 1
-    i32 passCount = 1;
-    i32 step = static_cast<i32>(std::round(std::pow(passCount - 1, 2)));
-    if (step < 1)
-    {
-        step = 1;
-    }
+    auto steps = SelectionOutlineRenderPass::ComputeJFASteps(4);
+    ASSERT_EQ(steps.size(), 4u);
+    EXPECT_EQ(steps[0], 8);
+    EXPECT_EQ(steps[1], 4);
+    EXPECT_EQ(steps[2], 2);
+    EXPECT_EQ(steps[3], 1);
+}
 
-    std::vector<i32> steps;
-    while (step != 0)
-    {
-        steps.push_back(step);
-        step /= 2;
-    }
-
+TEST(JFAStepSequence, PassCount0ClampsTo1)
+{
+    auto steps = SelectionOutlineRenderPass::ComputeJFASteps(0);
     ASSERT_EQ(steps.size(), 1u);
     EXPECT_EQ(steps[0], 1);
+}
+
+TEST(JFAStepSequence, PassCount5ClampsTo4)
+{
+    auto steps = SelectionOutlineRenderPass::ComputeJFASteps(5);
+    ASSERT_EQ(steps.size(), 4u);
+    EXPECT_EQ(steps[0], 8);
+    EXPECT_EQ(steps[1], 4);
+    EXPECT_EQ(steps[2], 2);
+    EXPECT_EQ(steps[3], 1);
+}
+
+TEST(JFAStepSequence, NegativePassCountClampsTo1)
+{
+    auto steps = SelectionOutlineRenderPass::ComputeJFASteps(-3);
+    ASSERT_EQ(steps.size(), 1u);
+    EXPECT_EQ(steps[0], 1);
+}
+
+TEST(JFAStepSequence, AllStepsArePowersOfTwo)
+{
+    for (i32 passCount = 1; passCount <= 4; ++passCount)
+    {
+        auto steps = SelectionOutlineRenderPass::ComputeJFASteps(passCount);
+        for (i32 s : steps)
+        {
+            EXPECT_GT(s, 0);
+            EXPECT_EQ(s & (s - 1), 0) << "Step " << s << " is not a power of two (passCount=" << passCount << ")";
+        }
+    }
 }

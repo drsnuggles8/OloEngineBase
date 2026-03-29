@@ -5,7 +5,6 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 
 #include <algorithm>
-#include <cmath>
 
 namespace OloEngine
 {
@@ -138,14 +137,10 @@ namespace OloEngine
         // =====================================================================
         // Pass 2: JFA Flood — ping-pong propagation passes
         // =====================================================================
-        i32 step = static_cast<i32>(std::round(std::pow(m_JFAPassCount - 1, 2)));
-        if (step < 1)
-        {
-            step = 1;
-        }
+        auto const jfaSteps = ComputeJFASteps(m_JFAPassCount);
         i32 readIndex = 0;
 
-        while (step != 0)
+        for (i32 step : jfaSteps)
         {
             i32 writeIndex = (readIndex + 1) % 2;
 
@@ -168,7 +163,6 @@ namespace OloEngine
             RenderCommand::DrawIndexed(va);
 
             readIndex = writeIndex;
-            step /= 2;
         }
 
         // =====================================================================
@@ -301,6 +295,13 @@ namespace OloEngine
 
     void SelectionOutlineRenderPass::SetOutlineThickness(f32 inner, f32 outer)
     {
+        if (inner < 0.0f || outer < 0.0f || inner >= outer)
+        {
+            OLO_CORE_ERROR("SelectionOutlineRenderPass::SetOutlineThickness: invalid values (inner={}, outer={}). "
+                           "Requires inner >= 0, outer >= 0, inner < outer.",
+                           inner, outer);
+            return;
+        }
         m_JFAUboData.OutlineThicknessInner = inner;
         m_JFAUboData.OutlineThicknessOuter = outer;
     }
@@ -308,5 +309,17 @@ namespace OloEngine
     void SelectionOutlineRenderPass::SetJFAPassCount(i32 count)
     {
         m_JFAPassCount = std::clamp(count, 1, 4);
+    }
+
+    std::vector<i32> SelectionOutlineRenderPass::ComputeJFASteps(i32 passCount)
+    {
+        passCount = std::clamp(passCount, 1, 4);
+        std::vector<i32> steps;
+        steps.reserve(static_cast<size_t>(passCount));
+        for (i32 step = 1 << (passCount - 1); step >= 1; step >>= 1)
+        {
+            steps.push_back(step);
+        }
+        return steps;
     }
 } // namespace OloEngine
