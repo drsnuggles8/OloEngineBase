@@ -1656,8 +1656,11 @@ namespace OloEngine
             if (tileRendererComponent["Materials"])
             {
                 tileComp.Materials.clear();
+                constexpr sizet maxMaterials = static_cast<sizet>(std::numeric_limits<u8>::max()) + 1;
                 for (auto matNode : tileRendererComponent["Materials"])
                 {
+                    if (tileComp.Materials.size() >= maxMaterials)
+                        break;
                     Material mat;
                     if (matNode["AlbedoColor"])
                     {

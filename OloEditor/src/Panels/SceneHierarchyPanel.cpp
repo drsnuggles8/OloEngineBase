@@ -2433,11 +2433,11 @@ namespace OloEngine
             i32 height = static_cast<i32>(component.Height);
             if (ImGui::DragInt("Width", &width, 1.0f, 1, 256))
             {
-                component.ResizeGrid(static_cast<u32>(std::max(1, width)), component.Height);
+                component.ResizeGrid(static_cast<u32>(std::clamp(width, 1, 256)), component.Height);
             }
             if (ImGui::DragInt("Height", &height, 1.0f, 1, 256))
             {
-                component.ResizeGrid(component.Width, static_cast<u32>(std::max(1, height)));
+                component.ResizeGrid(component.Width, static_cast<u32>(std::clamp(height, 1, 256)));
             }
 
             ImGui::DragFloat("Tile Size", &component.TileSize, 0.1f, 0.01f, 100.0f, "%.2f");
@@ -2524,6 +2524,9 @@ namespace OloEngine
                 {
                     colOffset = 0;
                 }
+                // Clamp colOffset so it stays valid after grid resize
+                u32 maxColOffset = (component.Width > visibleCols) ? (component.Width - visibleCols) : 0;
+                colOffset = std::min(colOffset, maxColOffset);
                 u32 colEnd = std::min(colOffset + visibleCols, component.Width);
 
                 ImGuiListClipper clipper;
