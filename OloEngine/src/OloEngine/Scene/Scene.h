@@ -373,6 +373,12 @@ namespace OloEngine
             return m_CrowdManager.get();
         }
 
+        // Audio Events
+        [[nodiscard]] Audio::AudioCommandRegistry* GetAudioCommandRegistry()
+        {
+            return m_AudioCommandRegistry.get();
+        }
+
         // Editor-mode streamer management (allows streaming preview without entering Play mode)
         void InitializeEditorStreamer();
         void ShutdownEditorStreamer();
@@ -451,8 +457,8 @@ namespace OloEngine
         std::unique_ptr<CrowdManager> m_CrowdManager;
 
         // Audio Events
-        std::unique_ptr<Audio::AudioEventsManager> m_AudioEventsManager;
         std::unique_ptr<Audio::AudioCommandRegistry> m_AudioCommandRegistry;
+        std::unique_ptr<Audio::AudioEventsManager> m_AudioEventsManager;
 
         // Entity UUID -> entt::entity lookup map
         // Using TMap for O(1) lookup with better cache locality

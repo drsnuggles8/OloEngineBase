@@ -5,6 +5,7 @@
 #include "OloEngine/Core/Timestep.h"
 
 #include <functional>
+#include <glm/vec3.hpp>
 #include <unordered_map>
 #include <vector>
 
@@ -69,7 +70,13 @@ namespace OloEngine::Audio
         {
             u64 EventID = 0;
             u64 ObjectID = 0;
-            std::vector<Ref<AudioSource>> Sources;
+
+            struct SourceEntry
+            {
+                std::string Filepath; // Relative asset path used to create the source
+                Ref<AudioSource> Source;
+            };
+            std::vector<SourceEntry> Sources;
         };
         std::unordered_map<u64, ActiveEvent> m_ActiveEvents;
 

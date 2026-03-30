@@ -586,7 +586,11 @@ namespace OloEngine
         auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
         if (component.UseEventSystem && component.StartCommandID.IsValid())
         {
-            component.ActiveEventID = Audio::AudioPlayback::PostTriggerByName(component.StartEvent, entityID);
+            if (component.ActiveEventID != 0)
+            {
+                Audio::AudioPlayback::StopEvent(component.ActiveEventID);
+            }
+            component.ActiveEventID = Audio::AudioPlayback::PostTrigger(component.StartCommandID, entityID);
             return;
         }
         if (component.Source)
@@ -597,7 +601,12 @@ namespace OloEngine
 
     void AudioSourceComponent_Pause(u64 entityID)
     {
-        const auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+        auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+        if (component.UseEventSystem && component.ActiveEventID != 0)
+        {
+            Audio::AudioPlayback::PauseEvent(component.ActiveEventID);
+            return;
+        }
         if (component.Source)
         {
             component.Source->Pause();
@@ -606,7 +615,12 @@ namespace OloEngine
 
     void AudioSourceComponent_UnPause(u64 entityID)
     {
-        const auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+        auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+        if (component.UseEventSystem && component.ActiveEventID != 0)
+        {
+            Audio::AudioPlayback::ResumeEvent(component.ActiveEventID);
+            return;
+        }
         if (component.Source)
         {
             component.Source->UnPause();

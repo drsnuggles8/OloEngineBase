@@ -1,10 +1,46 @@
 #include <gtest/gtest.h>
 #include "OloEngine/Audio/AudioEvents/AudioCommandRegistry.h"
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 using namespace OloEngine::Audio;
+
+namespace
+{
+    /// RAII helper: creates a unique temp file path and removes it on destruction.
+    struct ScopedTempFile
+    {
+        std::filesystem::path Path;
+
+        explicit ScopedTempFile(std::string_view testName)
+        {
+            auto pid = static_cast<u32>(
+#ifdef _WIN32
+                _getpid()
+#else
+                getpid()
+#endif
+            );
+            auto name = std::string("olo_test_") + std::string(testName) + "_" + std::to_string(pid) + ".yaml";
+            Path = std::filesystem::temp_directory_path() / name;
+        }
+
+        ~ScopedTempFile()
+        {
+            std::filesystem::remove(Path);
+        }
+
+        ScopedTempFile(const ScopedTempFile&) = delete;
+        auto operator=(const ScopedTempFile&) -> ScopedTempFile& = delete;
+    };
+} // namespace
 
 class AudioCommandRegistryTest : public ::testing::Test
 {
@@ -102,11 +138,11 @@ TEST_F(AudioCommandRegistryTest, SerializeDeserializeRoundTrip)
     action.Looping = true;
     m_Registry.AddAction(id, action);
 
-    auto tempPath = std::filesystem::temp_directory_path() / "test_audio_events.yaml";
-    m_Registry.Serialize(tempPath);
+    ScopedTempFile tmp("RoundTrip");
+    ASSERT_TRUE(m_Registry.Serialize(tmp.Path));
 
     AudioCommandRegistry loaded;
-    ASSERT_TRUE(loaded.Deserialize(tempPath));
+    ASSERT_TRUE(loaded.Deserialize(tmp.Path));
 
     EXPECT_EQ(loaded.GetTriggerCount(), 1u);
     EXPECT_TRUE(loaded.Contains(id));
@@ -121,8 +157,6 @@ TEST_F(AudioCommandRegistryTest, SerializeDeserializeRoundTrip)
     EXPECT_FLOAT_EQ(cmd->Actions[0].VolumeMultiplier, 0.9f);
     EXPECT_FLOAT_EQ(cmd->Actions[0].PitchMultiplier, 1.1f);
     EXPECT_TRUE(cmd->Actions[0].Looping);
-
-    std::filesystem::remove(tempPath);
 }
 
 TEST_F(AudioCommandRegistryTest, DeserializeNonExistentFile)
@@ -136,12 +170,63 @@ TEST_F(AudioCommandRegistryTest, MultipleTriggersRoundTrip)
     m_Registry.AddTrigger("Stop_Music");
     m_Registry.AddTrigger("Pause_Ambience");
 
-    auto tempPath = std::filesystem::temp_directory_path() / "test_multi_triggers.yaml";
-    m_Registry.Serialize(tempPath);
+    ScopedTempFile tmp("MultiTriggers");
+    ASSERT_TRUE(m_Registry.Serialize(tmp.Path));
 
     AudioCommandRegistry loaded;
-    ASSERT_TRUE(loaded.Deserialize(tempPath));
+    ASSERT_TRUE(loaded.Deserialize(tmp.Path));
     EXPECT_EQ(loaded.GetTriggerCount(), 3u);
+}
 
-    std::filesystem::remove(tempPath);
+TEST_F(AudioCommandRegistryTest, DeserializeSanitizesInvalidMultipliers)
+{
+    // Write a YAML fixture with NaN/inf/extreme values for multipliers
+    ScopedTempFile tmp("SanitizeMultipliers");
+    {
+        std::ofstream fout(tmp.Path);
+        fout << "AudioEvents:\n"
+             << "  Triggers:\n"
+             << "    - Name: BadValues\n"
+             << "      Actions:\n"
+             << "        - Type: Play\n"
+             << "          AudioFilepath: audio/test.wav\n"
+             << "          Context: GameObject\n"
+             << "          VolumeMultiplier: .nan\n"
+             << "          PitchMultiplier: .inf\n"
+             << "          Looping: false\n"
+             << "        - Type: Play\n"
+             << "          AudioFilepath: audio/test2.wav\n"
+             << "          Context: GameObject\n"
+             << "          VolumeMultiplier: 999.0\n"
+             << "          PitchMultiplier: -5.0\n"
+             << "          Looping: false\n";
+    }
+
+    AudioCommandRegistry loaded;
+    ASSERT_TRUE(loaded.Deserialize(tmp.Path));
+    ASSERT_EQ(loaded.GetTriggerCount(), 1u);
+
+    auto id = CommandID::FromString("BadValues");
+    const auto* cmd = loaded.GetTrigger(id);
+    ASSERT_NE(cmd, nullptr);
+    ASSERT_EQ(cmd->Actions.size(), 2u);
+
+    // NaN/inf should be sanitized to defaults (1.0)
+    EXPECT_TRUE(std::isfinite(cmd->Actions[0].VolumeMultiplier));
+    EXPECT_FLOAT_EQ(cmd->Actions[0].VolumeMultiplier, 1.0f);
+    EXPECT_TRUE(std::isfinite(cmd->Actions[0].PitchMultiplier));
+    EXPECT_FLOAT_EQ(cmd->Actions[0].PitchMultiplier, 1.0f);
+
+    // Out-of-range should also be sanitized to defaults (1.0)
+    EXPECT_TRUE(std::isfinite(cmd->Actions[1].VolumeMultiplier));
+    EXPECT_FLOAT_EQ(cmd->Actions[1].VolumeMultiplier, 1.0f);
+    EXPECT_TRUE(std::isfinite(cmd->Actions[1].PitchMultiplier));
+    EXPECT_FLOAT_EQ(cmd->Actions[1].PitchMultiplier, 1.0f);
+}
+
+TEST_F(AudioCommandRegistryTest, SerializeReturnsFalseOnBadPath)
+{
+    m_Registry.AddTrigger("Test");
+    // Try to write to an invalid path
+    EXPECT_FALSE(m_Registry.Serialize("Z:/nonexistent_drive_12345/impossible.yaml"));
 }

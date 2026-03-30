@@ -411,7 +411,7 @@ namespace OloEngine
                 if (ac.UseEventSystem && ac.StartCommandID.IsValid() && ac.Config.PlayOnAwake)
                 {
                     Entity entity(e, this);
-                    Audio::AudioPlayback::PostTrigger(ac.StartCommandID, static_cast<u64>(entity.GetUUID()));
+                    ac.ActiveEventID = Audio::AudioPlayback::PostTrigger(ac.StartCommandID, static_cast<u64>(entity.GetUUID()));
                     continue;
                 }
 
@@ -544,6 +544,7 @@ namespace OloEngine
         {
             if (ac.Source)
                 ac.Source->Stop();
+            ac.ActiveEventID = 0;
         }
 
         // Shut down audio events system

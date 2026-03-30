@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 
 #include <array>
+#include <compare>
 #include <string_view>
 
 namespace OloEngine::Audio

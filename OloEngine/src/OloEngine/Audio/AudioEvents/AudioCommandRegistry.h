@@ -3,6 +3,7 @@
 #include "OloEngine/Audio/AudioEvents/AudioCommands.h"
 
 #include <filesystem>
+#include <string>
 #include <unordered_map>
 
 namespace OloEngine::Audio
@@ -45,8 +46,8 @@ namespace OloEngine::Audio
             return m_Triggers.size();
         }
 
-        /// Serialize the entire registry to a YAML file.
-        void Serialize(const std::filesystem::path& filepath) const;
+        /// Serialize the entire registry to a YAML file. Returns true on success.
+        [[nodiscard]] bool Serialize(const std::filesystem::path& filepath) const;
 
         /// Deserialize from a YAML file. Returns true on success.
         bool Deserialize(const std::filesystem::path& filepath);

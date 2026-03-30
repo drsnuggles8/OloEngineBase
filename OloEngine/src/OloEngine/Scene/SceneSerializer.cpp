@@ -1421,6 +1421,10 @@ namespace OloEngine
             {
                 src.StartCommandID = Audio::CommandID(cmdIDNode.as<u32>(0));
             }
+            if (!src.StartCommandID.IsValid() && !src.StartEvent.empty())
+            {
+                src.StartCommandID = Audio::CommandID::FromString(src.StartEvent);
+            }
 
             if (!audioFilepath.empty())
             {

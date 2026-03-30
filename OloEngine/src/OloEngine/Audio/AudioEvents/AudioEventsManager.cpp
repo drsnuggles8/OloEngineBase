@@ -67,7 +67,8 @@ namespace OloEngine::Audio
                 continue;
             }
 
-            ActiveEvent active;
+            // Ensure an ActiveEvent entry exists so ExecuteAction can find it
+            auto& active = m_ActiveEvents[eventInfo.EventID];
             active.EventID = eventInfo.EventID;
             active.ObjectID = eventInfo.ObjectID;
 
@@ -93,7 +94,7 @@ namespace OloEngine::Audio
                         }
 
                         source->Play();
-                        active.Sources.push_back(std::move(source));
+                        active.Sources.push_back({ action.AudioFilepath, std::move(source) });
                     }
                     else
                     {
@@ -102,11 +103,10 @@ namespace OloEngine::Audio
                 }
             }
 
-            // Only track if there are active sources to manage
-            if (!active.Sources.empty())
+            // Remove entry if no sources were created (Stop-only triggers, etc.)
+            if (active.Sources.empty())
             {
-                auto eid = active.EventID;
-                m_ActiveEvents.emplace(eid, std::move(active));
+                m_ActiveEvents.erase(eventInfo.EventID);
             }
         }
 
@@ -121,9 +121,9 @@ namespace OloEngine::Audio
                 }
                 if (glm::vec3 pos{}; m_PositionResolver(active.ObjectID, pos))
                 {
-                    for (const auto& src : active.Sources)
+                    for (const auto& entry : active.Sources)
                     {
-                        src->SetPosition(pos);
+                        entry.Source->SetPosition(pos);
                     }
                 }
             }
@@ -133,9 +133,9 @@ namespace OloEngine::Audio
         std::erase_if(m_ActiveEvents, [](auto& pair)
                       {
             auto& active = pair.second;
-            std::erase_if(active.Sources, [](const Ref<AudioSource>& src)
+            std::erase_if(active.Sources, [](const auto& entry)
             {
-                return !src->IsPlaying();
+                return !entry.Source->IsPlaying();
             });
             return active.Sources.empty(); });
     }
@@ -150,16 +150,19 @@ namespace OloEngine::Audio
 
             case ActionType::Stop:
             {
-                // Stop all active sources matching the audio filepath (Global context)
                 for (auto& [id, active] : m_ActiveEvents)
                 {
                     if (action.Context == ActionContext::GameObject && active.ObjectID != objectID)
                     {
                         continue;
                     }
-                    for (const auto& src : active.Sources)
+                    for (const auto& entry : active.Sources)
                     {
-                        src->Stop();
+                        if (!action.AudioFilepath.empty() && entry.Filepath != action.AudioFilepath)
+                        {
+                            continue;
+                        }
+                        entry.Source->Stop();
                     }
                 }
                 break;
@@ -173,9 +176,13 @@ namespace OloEngine::Audio
                     {
                         continue;
                     }
-                    for (const auto& src : active.Sources)
+                    for (const auto& entry : active.Sources)
                     {
-                        src->Pause();
+                        if (!action.AudioFilepath.empty() && entry.Filepath != action.AudioFilepath)
+                        {
+                            continue;
+                        }
+                        entry.Source->Pause();
                     }
                 }
                 break;
@@ -189,9 +196,13 @@ namespace OloEngine::Audio
                     {
                         continue;
                     }
-                    for (const auto& src : active.Sources)
+                    for (const auto& entry : active.Sources)
                     {
-                        src->UnPause();
+                        if (!action.AudioFilepath.empty() && entry.Filepath != action.AudioFilepath)
+                        {
+                            continue;
+                        }
+                        entry.Source->UnPause();
                     }
                 }
                 break;
@@ -203,9 +214,9 @@ namespace OloEngine::Audio
     {
         if (auto it = m_ActiveEvents.find(eventID); it != m_ActiveEvents.end())
         {
-            for (const auto& src : it->second.Sources)
+            for (const auto& entry : it->second.Sources)
             {
-                src->Stop();
+                entry.Source->Stop();
             }
             m_ActiveEvents.erase(it);
         }
@@ -215,9 +226,9 @@ namespace OloEngine::Audio
     {
         if (auto it = m_ActiveEvents.find(eventID); it != m_ActiveEvents.end())
         {
-            for (const auto& src : it->second.Sources)
+            for (const auto& entry : it->second.Sources)
             {
-                src->Pause();
+                entry.Source->Pause();
             }
         }
     }
@@ -226,9 +237,9 @@ namespace OloEngine::Audio
     {
         if (auto it = m_ActiveEvents.find(eventID); it != m_ActiveEvents.end())
         {
-            for (const auto& src : it->second.Sources)
+            for (const auto& entry : it->second.Sources)
             {
-                src->UnPause();
+                entry.Source->UnPause();
             }
         }
     }
@@ -237,9 +248,9 @@ namespace OloEngine::Audio
     {
         for (auto& [id, active] : m_ActiveEvents)
         {
-            for (const auto& src : active.Sources)
+            for (const auto& entry : active.Sources)
             {
-                src->Stop();
+                entry.Source->Stop();
             }
         }
         m_ActiveEvents.clear();

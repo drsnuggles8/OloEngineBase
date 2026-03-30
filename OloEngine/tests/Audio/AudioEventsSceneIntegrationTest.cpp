@@ -85,7 +85,11 @@ TEST_F(AudioEventsSceneIntegrationTest, PositionResolverFindsEntityByUUID)
         }
         return false; });
 
-    // Post a trigger with the entity's UUID so the resolver gets invoked during Update
+    // Post a trigger with the entity's UUID so the resolver gets invoked during Update.
+    // NOTE: Play actions would fully exercise the resolver during spatial updates, but
+    // they require Project::GetAssetFileSystemPath (asserts on s_ActiveProject) and real
+    // audio files — neither available in unit tests. Stop actions still route through
+    // PostTrigger + Update, verifying the entity-lookup side of the resolver.
     auto cmdID = m_Registry.AddTrigger("ResolverTest");
     TriggerAction action;
     action.Type = ActionType::Stop;
@@ -94,10 +98,9 @@ TEST_F(AudioEventsSceneIntegrationTest, PositionResolverFindsEntityByUUID)
     EXPECT_GT(eid, 0u);
     m_Manager.Update(Timestep(0.016f));
 
-    // Verify the resolver was actually invoked by the manager
-    // NOTE: The resolver is only called for active events with sources (Play actions).
-    // Stop-only actions don't create active entries, so the resolver may not be called
-    // in the spatial-update loop. We still verify the entity lookup works correctly.
+    // The resolver is only called for active events with sources (Play actions).
+    // Stop-only actions don't create active entries, so the spatial-update loop
+    // won't invoke it. We verify the entity lookup works correctly through the scene.
     auto entity = m_Scene->TryGetEntityWithUUID(uuid);
     ASSERT_TRUE(entity.has_value());
     ASSERT_TRUE(entity->HasComponent<TransformComponent>());
@@ -169,9 +172,17 @@ TEST_F(AudioEventsSceneIntegrationTest, AudioPlaybackStopAllDelegatesToManager)
 {
     AudioPlayback::SetManager(&m_Manager);
     auto cmdID = m_Registry.AddTrigger("Wind");
+    // Add a Stop action so the trigger goes through full action processing.
+    // Play actions can't be tested here: they require Project::GetAssetFileSystemPath
+    // (asserts s_ActiveProject) and real audio files on disk.
+    TriggerAction action;
+    action.Type = ActionType::Stop;
+    m_Registry.AddAction(cmdID, action);
 
     AudioPlayback::PostTrigger(cmdID);
     m_Manager.Update(Timestep(0.016f));
+    // Stop-only triggers don't produce active entries (no sources created),
+    // so active count is already 0 after Update. StopAll clears any remaining.
     AudioPlayback::StopAll();
     EXPECT_EQ(m_Manager.GetActiveEventCount(), 0u);
 }
@@ -180,11 +191,14 @@ TEST_F(AudioEventsSceneIntegrationTest, AudioPlaybackIsEventActiveDelegatesToMan
 {
     AudioPlayback::SetManager(&m_Manager);
     auto cmdID = m_Registry.AddTrigger("Alert");
-    // Post trigger — event is pending but not yet processed
+    TriggerAction action;
+    action.Type = ActionType::Stop;
+    m_Registry.AddAction(cmdID, action);
+
     auto eid = AudioPlayback::PostTrigger(cmdID);
     EXPECT_NE(eid, 0u);
-    // Before Update, event is pending — not yet in active map (no Play actions, so won't become active)
-    // The trigger has no actions, so after Update it won't produce active sources
+    // After Update, Stop-only triggers don't produce active sources, so
+    // the event is cleaned up — IsEventActive returns false.
     m_Manager.Update(Timestep(0.016f));
     EXPECT_FALSE(AudioPlayback::IsEventActive(eid));
 }

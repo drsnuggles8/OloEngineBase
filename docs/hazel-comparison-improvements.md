@@ -53,9 +53,9 @@ Hazel has a full DSP chain under `Audio/DSP/`: reverb (Freeverb model with allpa
 
 Hazel's `SoundGraph/` implements a node-based audio processing graph — essentially audio shader graphs. This allows designers to create complex audio behaviors visually. OloEngine has `SoundGraph` types registered with backend infrastructure ~70% complete (DSP nodes, graph evaluation, connection system). Remaining work: additional node types (oscillators, envelopes, mixers) and an editor UI (node canvas with drag-and-drop connections). Worth revisiting once core audio features are stable.
 
-### 3.3 Audio Events System
+### 3.3 Audio Events System — **Done**
 
-Hazel uses an event-driven audio model (`AudioEventsManager`, `AudioCommands`, `CommandID`, `SoundBank`) where gameplay triggers named events rather than directly playing sounds. This decouples game logic from audio assets and enables sound designers to remap audio without code changes. OloEngine's audio appears to use direct play-on-source, which is simpler but less flexible.
+Hazel uses an event-driven audio model (`AudioEventsManager`, `AudioCommands`, `CommandID`, `SoundBank`) where gameplay triggers named events rather than directly playing sounds. This decouples game logic from audio assets and enables sound designers to remap audio without code changes. OloEngine now implements this pattern: `AudioCommandRegistry` stores trigger definitions in YAML, `AudioEventsManager` dispatches events at runtime, `CommandID` provides deterministic CRC32 hashing, and `AudioPlayback` offers a static convenience API. Both C# and Lua scripting expose the full event API (PostTrigger, StopEvent, PauseEvent, ResumeEvent, StopAll, IsEventActive). The `AudioSourceComponent` supports dual-mode playback (direct or event-driven via `UseEventSystem` flag).
 
 ---
 
@@ -163,5 +163,5 @@ Hazel's animation system includes specialized graph nodes: `IKNodes` (inverse ki
 | **Lower** | 5.2 Compound colliders | Low | Physics completeness | ✅ Done |
 | **Lower** | 2.1 Dedicated render thread | High | Perf (limited by single-threaded GL) | Skip — unfinished in Hazel, wrong arch for single-threaded GL |
 | **Lower** | 3.2 Sound graphs (node-based audio) | Medium | Audio designer workflow | Skip — backend 70% done, missing only node types + editor UI |
-| **Lower** | 3.3 Audio events system | Medium | Audio architecture | |
+| **Lower** | 3.3 Audio events system | Medium | Audio architecture | ✅ Done |
 | **Lower** | 8 Animation graph nodes (IK, etc.) | Medium | Animation completeness | |

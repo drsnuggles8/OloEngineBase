@@ -9,10 +9,17 @@ namespace OloEngine
 {
     void AudioEventsPanel::LoadRegistry(const std::filesystem::path& filepath)
     {
-        m_RegistryPath = filepath;
-        m_Registry.Clear();
-        m_Registry.Deserialize(filepath);
-        m_Dirty = false;
+        Audio::AudioCommandRegistry tmp;
+        if (tmp.Deserialize(filepath))
+        {
+            m_Registry = std::move(tmp);
+            m_RegistryPath = filepath;
+            m_Dirty = false;
+        }
+        else
+        {
+            OLO_CORE_ERROR("AudioEventsPanel: Failed to load registry from '{}'", filepath.string());
+        }
     }
 
     void AudioEventsPanel::SaveRegistry()
@@ -35,7 +42,21 @@ namespace OloEngine
             std::filesystem::create_directories(parent);
         }
 
-        m_Registry.Serialize(m_RegistryPath);
+        if (!m_Registry.Serialize(m_RegistryPath))
+        {
+            return;
+        }
+
+        // Sync the runtime registry if the scene is running
+        if (m_ActiveScene && m_ActiveScene->IsRunning())
+        {
+            if (auto* reg = m_ActiveScene->GetAudioCommandRegistry())
+            {
+                reg->Clear();
+                reg->Deserialize(m_RegistryPath);
+            }
+        }
+
         m_Dirty = false;
     }
 

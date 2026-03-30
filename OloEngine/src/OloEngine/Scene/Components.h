@@ -516,7 +516,31 @@ namespace OloEngine
         u64 ActiveEventID = 0;           // Runtime handle from AudioPlayback::PostTrigger
 
         AudioSourceComponent() = default;
-        AudioSourceComponent(const AudioSourceComponent&) = default;
+
+        AudioSourceComponent(const AudioSourceComponent& other)
+            : Config(other.Config), Source(other.Source), StartEvent(other.StartEvent), StartCommandID(other.StartCommandID), UseEventSystem(other.UseEventSystem)
+        {
+        }
+
+        auto operator=(const AudioSourceComponent& other) -> AudioSourceComponent&
+        {
+            if (this != &other)
+            {
+                Config = other.Config;
+                Source = other.Source;
+                StartEvent = other.StartEvent;
+                StartCommandID = other.StartCommandID;
+                UseEventSystem = other.UseEventSystem;
+                ActiveEventID = 0;
+            }
+            return *this;
+        }
+
+        // Equality for undo/redo — compares serialized/editor-visible fields only
+        auto operator==(const AudioSourceComponent& other) const -> bool
+        {
+            return StartEvent == other.StartEvent && StartCommandID == other.StartCommandID && UseEventSystem == other.UseEventSystem;
+        }
     };
 
     struct AudioListenerComponent

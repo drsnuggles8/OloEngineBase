@@ -1,6 +1,7 @@
 #include "SceneHierarchyPanel.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Prefab.h"
+#include "OloEngine/Audio/AudioEvents/AudioCommandRegistry.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/UI/UI.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -2981,7 +2982,7 @@ namespace OloEngine
             ImGui::Checkbox("Control Rotation In Air##CharacterController3D", &component.m_ControlRotationInAir); });
 
         // Audio Components
-        DrawComponent<AudioSourceComponent>("Audio Source", entity, [](auto& component)
+        DrawComponent<AudioSourceComponent>("Audio Source", entity, [this](auto& component)
                                             {
             ImGui::Text("Audio Source: %s", component.Source ? "Loaded" : "None");
             if (component.Source)
@@ -3053,7 +3054,26 @@ namespace OloEngine
                     component.StartEvent = eventBuf;
                     component.StartCommandID = Audio::CommandID::FromString(component.StartEvent);
                 }
-                ImGui::Text("CommandID: %u", component.StartCommandID.ID);
+
+                // Validate against registry if available
+                bool validated = false;
+                if (auto* reg = m_Context->GetAudioCommandRegistry(); reg && component.StartCommandID.IsValid())
+                {
+                    validated = reg->Contains(component.StartCommandID);
+                }
+
+                if (component.StartEvent.empty())
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "No event name set");
+                }
+                else if (component.StartCommandID.IsValid() && !validated && m_Context->IsRunning())
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "CommandID: %u (not found in registry)", component.StartCommandID.ID);
+                }
+                else
+                {
+                    ImGui::Text("CommandID: %u", component.StartCommandID.ID);
+                }
             } });
 
         DrawComponent<AudioListenerComponent>("Audio Listener", entity, [](auto& component)

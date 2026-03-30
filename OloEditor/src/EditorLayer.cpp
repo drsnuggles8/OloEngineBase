@@ -2250,6 +2250,7 @@ namespace OloEngine
         m_NavMeshPanel.SetContext(m_ActiveScene);
         m_BehaviorTreeEditorPanel.SetContext(m_ActiveScene);
         m_FSMEditorPanel.SetContext(m_ActiveScene);
+        m_AudioEventsPanel.SetActiveScene(m_ActiveScene);
     }
 
     void EditorLayer::OnSceneSimulate()
@@ -2276,6 +2277,7 @@ namespace OloEngine
         m_NavMeshPanel.SetContext(m_ActiveScene);
         m_BehaviorTreeEditorPanel.SetContext(m_ActiveScene);
         m_FSMEditorPanel.SetContext(m_ActiveScene);
+        m_AudioEventsPanel.SetActiveScene(m_ActiveScene);
     }
 
     void EditorLayer::OnSceneStop()
@@ -2314,6 +2316,7 @@ namespace OloEngine
         m_NavMeshPanel.SetContext(m_ActiveScene);
         m_BehaviorTreeEditorPanel.SetContext(m_ActiveScene);
         m_FSMEditorPanel.SetContext(m_ActiveScene);
+        m_AudioEventsPanel.SetActiveScene(m_ActiveScene);
     }
 
     void EditorLayer::SetEditorScene(const Ref<Scene>& scene)

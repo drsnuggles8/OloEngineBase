@@ -317,8 +317,12 @@ namespace OloEngine
                                                {
                 if (c.UseEventSystem && c.StartCommandID.IsValid())
                 {
+                    if (c.ActiveEventID != 0)
+                    {
+                        Audio::AudioPlayback::StopEvent(c.ActiveEventID);
+                    }
                     u64 objectID = ownerUUID.value_or(0);
-                    c.ActiveEventID = Audio::AudioPlayback::PostTriggerByName(c.StartEvent, objectID);
+                    c.ActiveEventID = Audio::AudioPlayback::PostTrigger(c.StartCommandID, objectID);
                     return;
                 }
                 if (c.Source) { c.Source->Play(); } }, "Stop", [](AudioSourceComponent& c)
@@ -331,8 +335,18 @@ namespace OloEngine
                 }
                 if (c.Source) { c.Source->Stop(); } }, "Pause", [](AudioSourceComponent& c)
                                                {
+                if (c.UseEventSystem && c.ActiveEventID != 0)
+                {
+                    Audio::AudioPlayback::PauseEvent(c.ActiveEventID);
+                    return;
+                }
                 if (c.Source) { c.Source->Pause(); } }, "UnPause", [](AudioSourceComponent& c)
                                                {
+                if (c.UseEventSystem && c.ActiveEventID != 0)
+                {
+                    Audio::AudioPlayback::ResumeEvent(c.ActiveEventID);
+                    return;
+                }
                 if (c.Source) { c.Source->UnPause(); } });
 
         // --- AudioListenerComponent ---

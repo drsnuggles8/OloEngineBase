@@ -133,7 +133,7 @@ namespace OloEngine::Audio
         return ActionContext::GameObject;
     }
 
-    void AudioCommandRegistry::Serialize(const std::filesystem::path& filepath) const
+    bool AudioCommandRegistry::Serialize(const std::filesystem::path& filepath) const
     {
         YAML::Emitter out;
         out << YAML::BeginMap;
@@ -173,15 +173,16 @@ namespace OloEngine::Audio
         if (!fout.is_open())
         {
             OLO_CORE_ERROR("AudioCommandRegistry: Failed to open '{}' for writing", filepath.string());
-            return;
+            return false;
         }
         fout << out.c_str();
         fout.flush();
         if (fout.fail())
         {
             OLO_CORE_ERROR("AudioCommandRegistry: Failed to write '{}'", filepath.string());
-            return;
+            return false;
         }
+        return true;
     }
 
     bool AudioCommandRegistry::Deserialize(const std::filesystem::path& filepath)

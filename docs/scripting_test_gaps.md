@@ -69,7 +69,7 @@ The Lua bindings are **not yet at parity with C#**. The following components/API
 
 ### AudioEvents API in Lua
 
-The `AudioPlayback` table is bound with `PostTrigger`, `PostTriggerByName`, `StopEvent`, `PauseEvent`, `ResumeEvent`, `StopAll`, `IsEventActive`. This is at parity with C#.
+The `AudioEvents` table is bound with `PostTrigger`, `StopEvent`, `PauseEvent`, `ResumeEvent`, `StopAll`, `IsEventActive`. Note: `PostTrigger` accepts a name string (internally calls `PostTriggerByName`). This is at parity with C#.
 
 ## Recommended Approach
 
