@@ -3078,7 +3078,7 @@ namespace OloEngine
             out << YAML::Key << "StartEvent" << YAML::Value << audioSourceComponent.StartEvent;
             // Derive CommandID from StartEvent to keep YAML consistent
             auto derivedCmdID = audioSourceComponent.StartEvent.empty()
-                                    ? Audio::CommandID{}
+                                    ? audioSourceComponent.StartCommandID
                                     : Audio::CommandID::FromString(audioSourceComponent.StartEvent);
             out << YAML::Key << "StartCommandID" << YAML::Value << derivedCmdID.ID;
 

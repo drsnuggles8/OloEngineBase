@@ -211,6 +211,8 @@ TEST_F(AudioEventsSceneIntegrationTest, AudioPlaybackStopAllOnEmptyActiveSetDele
     m_Manager.Update(Timestep(0.016f));
     // Stop-only triggers don't produce active entries (no sources created),
     // so active count is already 0 after Update. StopAll clears any remaining.
+    // TODO: Add functional StopAll coverage with mock AudioSource when available
+    //       (AudioPlayback::PostTrigger with Play + AudioPlayback::StopAll + assert count 0).
     AudioPlayback::StopAll();
     EXPECT_EQ(m_Manager.GetActiveEventCount(), 0u);
 }

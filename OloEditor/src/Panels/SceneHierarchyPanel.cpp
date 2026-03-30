@@ -3083,11 +3083,21 @@ namespace OloEngine
                     }
                 }
 
-                // Validate against registry if available
+                // Validate against registry if available; re-resolve stale IDs
                 bool validated = false;
-                if (auto* reg = m_Context->GetAudioCommandRegistry(); reg && component.StartCommandID.IsValid())
+                if (auto* reg = m_Context->GetAudioCommandRegistry())
                 {
-                    validated = reg->Contains(component.StartCommandID);
+                    if (!component.StartEvent.empty() && !component.StartCommandID.IsValid())
+                    {
+                        if (auto resolved = Audio::CommandID::FromString(component.StartEvent); reg->Contains(resolved))
+                        {
+                            component.StartCommandID = resolved;
+                        }
+                    }
+                    if (component.StartCommandID.IsValid())
+                    {
+                        validated = reg->Contains(component.StartCommandID);
+                    }
                 }
 
                 if (component.StartEvent.empty())

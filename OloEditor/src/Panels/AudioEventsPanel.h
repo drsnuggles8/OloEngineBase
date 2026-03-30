@@ -37,6 +37,9 @@ namespace OloEngine
         }
 
       private:
+        void RenderTriggerList();
+        void RenderActionEditor();
+
         Audio::AudioCommandRegistry m_Registry;
         std::filesystem::path m_RegistryPath;
         Ref<Scene> m_ActiveScene;

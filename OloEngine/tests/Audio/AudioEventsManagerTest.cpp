@@ -31,7 +31,7 @@ TEST_F(AudioEventsManagerTest, PostTriggerReturnsUniqueIDs)
     EXPECT_GT(eid2, 0u);
 }
 
-TEST_F(AudioEventsManagerTest, UpdateProcessesPendingEvents)
+TEST_F(AudioEventsManagerTest, StopActionDoesNotCreateActiveEvent)
 {
     auto id = m_Registry.AddTrigger("TestEvent");
     // Add a Stop action (no audio file needed, won't crash)
@@ -94,5 +94,5 @@ TEST_F(AudioEventsManagerTest, ShutdownOnProcessedEmptySetDoesNotCrash)
 // exercised when std::filesystem::exists(path) returns true and
 // Ref<AudioSource>::Create succeeds. A full integration test with a test .wav
 // or a mock AudioSource factory would be needed to verify the Play→StopAll
-// cleanup codepath end-to-end. The existing StopAllClearsActiveEvents test
+// cleanup codepath end-to-end. The existing StopAllOnEmptyActiveSetDoesNotCrash test
 // validates the StopAll logic itself (on an empty active set).
