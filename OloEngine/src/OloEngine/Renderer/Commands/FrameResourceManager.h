@@ -5,7 +5,9 @@
 #include "CommandBucket.h"
 #include <array>
 #include <atomic>
+#include <functional>
 #include <memory>
+#include <vector>
 
 namespace OloEngine
 {
@@ -44,6 +46,9 @@ namespace OloEngine
             // GPU fence for synchronization
             u64 FenceId = 0;
             bool FenceSignaled = true;
+
+            // Deferred GPU resource deletion queue
+            std::vector<std::function<void()>> DeletionQueue;
 
             void Reset()
             {
@@ -102,6 +107,13 @@ namespace OloEngine
 
         // Wait for a specific frame to complete on GPU
         void WaitForFrame(u32 frameIndex);
+
+        // Defer a GPU resource deletion until the GPU has finished using it.
+        // The lambda should capture resource IDs by value and call glDelete*.
+        void SubmitForDeletion(std::function<void()>&& deletionFunc);
+
+        // Execute all pending deletion queues immediately (used during shutdown).
+        void FlushAllDeletionQueues();
 
       private:
         FrameResourceManager() = default;

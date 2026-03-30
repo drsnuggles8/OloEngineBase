@@ -869,15 +869,106 @@ namespace OloEngine
 
         s_Data.FontAtlasTexture = fontAtlas;
 
-        double x = 0.0;
         double fsScale = 1.0 / (metrics.ascenderY - metrics.descenderY);
-        double y = 0.0;
 
         const auto spaceGlyphAdvance = static_cast<f32>(fontGeometry.getGlyph(' ')->getAdvance());
+
+        // First pass: compute word-wrap line breaks when MaxWidth > 0
+        std::vector<sizet> wrapBreaks;
+        std::vector<bool> wrapIsMidWord;
+        if (textParams.MaxWidth > 0.0f)
+        {
+            double x = 0.0;
+            sizet lastSpace = std::string::npos;
+            for (sizet i = 0; i < string.size(); i++)
+            {
+                char character = string[i];
+                if (character == '\n' || character == '\r')
+                {
+                    x = 0.0;
+                    lastSpace = std::string::npos;
+                    continue;
+                }
+
+                if (character == ' ')
+                {
+                    lastSpace = i;
+                    double advance = spaceGlyphAdvance;
+                    if (i < string.size() - 1)
+                    {
+                        double dAdv{};
+                        fontGeometry.getAdvance(dAdv, character, string[i + 1]);
+                        advance = dAdv;
+                    }
+                    x += (fsScale * advance) + textParams.Kerning;
+                    continue;
+                }
+
+                if (character == '\t')
+                {
+                    lastSpace = i;
+                    x += 4.0 * ((fsScale * spaceGlyphAdvance) + textParams.Kerning);
+                    continue;
+                }
+
+                auto* glyph = fontGeometry.getGlyph(character);
+                if (!glyph)
+                    glyph = fontGeometry.getGlyph('?');
+                if (!glyph)
+                    continue;
+
+                double pl{}, pb{}, pr{}, pt{};
+                glyph->getQuadPlaneBounds(pl, pb, pr, pt);
+                f32 quadMaxX = static_cast<f32>(pr) * static_cast<f32>(fsScale) + static_cast<f32>(x);
+
+                if (quadMaxX > textParams.MaxWidth)
+                {
+                    if (lastSpace != std::string::npos)
+                    {
+                        i = lastSpace;
+                        wrapBreaks.push_back(lastSpace);
+                        wrapIsMidWord.push_back(false);
+                        lastSpace = std::string::npos;
+                        x = 0.0;
+                        continue;
+                    }
+
+                    // Single word exceeds MaxWidth — break at current character
+                    wrapBreaks.push_back(i);
+                    wrapIsMidWord.push_back(true);
+                    lastSpace = std::string::npos;
+                    x = 0.0;
+                    // Fall through to measure this glyph's advance on the new line
+                }
+
+                double advance = glyph->getAdvance();
+                if (i < string.size() - 1)
+                    fontGeometry.getAdvance(advance, character, string[i + 1]);
+                x += (fsScale * advance) + textParams.Kerning;
+            }
+        }
+
+        // Second pass: render with wrap breaks
+        sizet wrapIdx = 0;
+        double x = 0.0;
+        double y = 0.0;
 
         for (sizet i = 0; i < string.size(); i++)
         {
             char character = string[i];
+
+            // Check if this index is a wrap break point
+            if (wrapIdx < wrapBreaks.size() && i == wrapBreaks[wrapIdx])
+            {
+                x = 0;
+                y -= (fsScale * metrics.lineHeight) + textParams.LineSpacing;
+                bool midWord = wrapIsMidWord[wrapIdx];
+                ++wrapIdx;
+                // Space breaks: skip the space character; mid-word breaks: render the character on the new line
+                if (!midWord)
+                    continue;
+            }
+
             if (character == '\r')
             {
                 continue;
@@ -907,7 +998,6 @@ namespace OloEngine
 
             if (character == '\t')
             {
-                // NOTE(Yan): is this right?
                 x += 4.0f * ((fsScale * spaceGlyphAdvance) + textParams.Kerning);
                 continue;
             }
@@ -947,6 +1037,10 @@ namespace OloEngine
             f32 texelHeight = 1.0f / static_cast<f32>(fontAtlas->GetHeight());
             texCoordMin *= glm::vec2(texelWidth, texelHeight);
             texCoordMax *= glm::vec2(texelWidth, texelHeight);
+
+            // Flush text batch if full
+            if (s_Data.TextIndexCount + 6 > Renderer2DData::MaxIndices)
+                NextBatch();
 
             // render here
             s_Data.TextVertexBufferPtr->Position = transform * glm::vec4(quadMin, 0.0f, 1.0f);
@@ -989,7 +1083,7 @@ namespace OloEngine
 
     void Renderer2D::DrawString(const std::string& string, const glm::mat4& transform, const TextComponent& component, int entityID)
     {
-        DrawString(string, component.FontAsset, transform, { component.Color, component.Kerning, component.LineSpacing }, entityID);
+        DrawString(string, component.FontAsset, transform, { component.Color, component.Kerning, component.LineSpacing, component.MaxWidth }, entityID);
     }
 
     f32 Renderer2D::GetLineWidth()

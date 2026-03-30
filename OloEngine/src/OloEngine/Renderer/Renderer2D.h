@@ -58,6 +58,7 @@ namespace OloEngine
             glm::vec4 Color{ 1.0f };
             f32 Kerning = 0.0f;
             f32 LineSpacing = 0.0f;
+            f32 MaxWidth = 0.0f; // 0 = no wrapping
         };
         static void DrawString(const std::string& string, Ref<Font> font, const glm::mat4& transform, const TextParams& textParams, int entityID = -1);
         static void DrawString(const std::string& string, const glm::mat4& transform, const TextComponent& component, int entityID = -1);

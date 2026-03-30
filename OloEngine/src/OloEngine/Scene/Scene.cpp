@@ -74,6 +74,16 @@
 
 namespace OloEngine
 {
+    static void DrawTextWithShadow(const TextComponent& text, const TransformComponent& transform, int entityID)
+    {
+        if (text.DropShadow)
+        {
+            glm::mat4 shadowTransform = glm::translate(transform.GetTransform(), glm::vec3(text.ShadowDistance, -text.ShadowDistance, 0.0f));
+            Renderer2D::DrawString(text.TextString, text.FontAsset, shadowTransform, { text.ShadowColor, text.Kerning, text.LineSpacing, text.MaxWidth }, entityID);
+        }
+        Renderer2D::DrawString(text.TextString, transform.GetTransform(), text, entityID);
+    }
+
     [[nodiscard("Store this!")]] static b2BodyType Rigidbody2DTypeToBox2DBody(const Rigidbody2DComponent::BodyType bodyType)
     {
         switch (bodyType)
@@ -1157,7 +1167,7 @@ namespace OloEngine
                         for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
                         {
                             const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
-                            Renderer2D::DrawString(text.TextString, transform.GetTransform(), text, static_cast<int>(entity));
+                            DrawTextWithShadow(text, transform, static_cast<int>(entity));
                         }
 
                         Renderer2D::EndScene();
@@ -1188,7 +1198,7 @@ namespace OloEngine
                 for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
                 {
                     const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
-                    Renderer2D::DrawString(text.TextString, transform.GetTransform(), text, static_cast<int>(entity));
+                    DrawTextWithShadow(text, transform, static_cast<int>(entity));
                 }
 
                 // 2D particles (3D particles are rendered by ParticleRenderPass)
@@ -1355,7 +1365,7 @@ namespace OloEngine
                         for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
                         {
                             const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
-                            Renderer2D::DrawString(text.TextString, transform.GetTransform(), text, static_cast<int>(entity));
+                            DrawTextWithShadow(text, transform, static_cast<int>(entity));
                         }
 
                         Renderer2D::EndScene();
@@ -1527,6 +1537,8 @@ namespace OloEngine
     void Scene::OnComponentAdded<BehaviorTreeComponent>(Entity, BehaviorTreeComponent&) {}
     template<>
     void Scene::OnComponentAdded<StateMachineComponent>(Entity, StateMachineComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<TileRendererComponent>(Entity, TileRendererComponent&) {}
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name)
     {
@@ -2044,7 +2056,7 @@ namespace OloEngine
             for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
             {
                 const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
-                Renderer2D::DrawString(text.TextString, transform.GetTransform(), text, static_cast<int>(entity));
+                DrawTextWithShadow(text, transform, static_cast<int>(entity));
             }
         }
 
@@ -3285,6 +3297,58 @@ namespace OloEngine
                         m_SkeletonVisualization.ShowJoints,
                         m_SkeletonVisualization.JointSize,
                         m_SkeletonVisualization.BoneThickness);
+                }
+            }
+        }
+
+        // Draw tile renderer entities (grid of instanced mesh tiles)
+        {
+            auto view = m_Registry.view<TransformComponent, TileRendererComponent>();
+            for (auto entity : view)
+            {
+                const auto [transform, tileComp] = view.get<TransformComponent, TileRendererComponent>(entity);
+
+                if (!tileComp.TileMesh || !tileComp.TileMesh->IsValid())
+                {
+                    continue;
+                }
+
+                i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+                glm::mat4 baseTransform = transform.GetTransform();
+
+                for (u32 z = 0; z < tileComp.Height; ++z)
+                {
+                    for (u32 x = 0; x < tileComp.Width; ++x)
+                    {
+                        u32 cellIndex = z * tileComp.Width + x;
+                        u8 matIdx = (cellIndex < tileComp.MaterialIDs.size())
+                                        ? tileComp.MaterialIDs[cellIndex]
+                                        : static_cast<u8>(0);
+
+                        const Material& material = (matIdx < tileComp.Materials.size())
+                                                       ? tileComp.Materials[matIdx]
+                                                       : GetDefaultMaterial();
+
+                        glm::mat4 tileTransform = glm::translate(
+                            baseTransform,
+                            glm::vec3(static_cast<f32>(x) * tileComp.TileSize, 0.0f, static_cast<f32>(z) * tileComp.TileSize));
+
+                        auto* packet = Renderer3D::DrawMesh(tileComp.TileMesh, tileTransform, material, true, entityID, nullptr);
+                        if (packet)
+                            Renderer3D::SubmitPacket(packet);
+
+                        // Shadow caster for this tile
+                        if (meshHasActiveShadows && !material.GetFlag(MaterialFlag::DisableShadowCasting))
+                        {
+                            auto va = tileComp.TileMesh->GetVertexArray();
+                            if (va)
+                            {
+                                meshShadowPass->AddMeshCaster(
+                                    va->GetRendererID(), tileComp.TileMesh->GetIndexCount(),
+                                    tileTransform);
+                            }
+                        }
+                    }
                 }
             }
         }

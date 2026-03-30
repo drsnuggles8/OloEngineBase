@@ -33,9 +33,9 @@ Hazel supports per-spot-light shadow maps (`SpotShadowMapPass`, `m_SpotShadowPas
 
 Hazel separates game logic from GPU submission via a `RenderThread` class with `SingleThreaded`/`MultiThreaded` policies. Commands are queued as lambdas (`Renderer::Submit()`), double-buffered, and executed on a dedicated thread. OloEngine's OpenGL context is single-threaded. While OpenGL doesn't support true multi-threaded command recording, the **command queue double-buffering pattern** (main thread populates frame N+1 while render thread executes frame N) could still be applied to OpenGL to reduce frame latency and decouple simulation from rendering.
 
-### 2.2 Resource Lifetime Management
+### 2.2 Resource Lifetime Management — **Done**
 
-Hazel has `Renderer::SubmitResourceFree()` which defers GPU resource destruction to after the current frame finishes rendering (frame-indexed release queues). This avoids use-after-free when resources are destroyed while still referenced by in-flight commands. OloEngine should audit whether any similar deferred-destruction pattern exists, and add one if not.
+Hazel has `Renderer::SubmitResourceFree()` which defers GPU resource destruction to after the current frame finishes rendering (frame-indexed release queues). OloEngine now has `FrameResourceManager::SubmitForDeletion()` with per-frame deletion queues drained after GPU fence sync in `BeginFrame()`. All 12 OpenGL resource types defer destruction through this system. See `docs/deferred_gpu_resource_deletion.md`.
 
 ### 2.3 Quality Tiering System
 
@@ -93,17 +93,17 @@ OloEditor now has 2D selection outlines (via `Renderer2D::DrawRect`) and a 3D Ju
 
 ## 5. Scene / Components
 
-### 5.1 Rich Text Component
+### 5.1 Rich Text Component — **Done**
 
-Hazel's `TextComponent` supports: font asset handles, kerning, line spacing, max width, screen-space mode, **drop shadows** (distance + color). If OloEngine has a text component, it should be audited against this feature set.
+Hazel's `TextComponent` supports: font asset handles, kerning, line spacing, max width, screen-space mode, **drop shadows** (distance + color). OloEngine's `TextComponent` now has `MaxWidth` (two-pass word wrapping in `Renderer2D::DrawString`), `DropShadow`, `ShadowDistance`, `ShadowColor` with full serialization and editor UI. See `docs/rich_text_component.md`.
 
 ### 5.2 Compound Colliders
 
 Hazel has `CompoundColliderComponent` which aggregates multiple child colliders into a single physics shape (with `IncludeStaticChildColliders` and `IsImmutable` flags). OloEngine has individual collider types but no compound aggregation. This is useful for complex static geometry.
 
-### 5.3 Tile Renderer
+### 5.3 Tile Renderer — **Done**
 
-Hazel has `TileRendererComponent` for grid-based tile rendering (width × height grid, per-cell material IDs). If OloEngine targets 2D or top-down 3D games, this is a useful built-in.
+Hazel has `TileRendererComponent` for grid-based tile rendering (width × height grid, per-cell material IDs). OloEngine now has `TileRendererComponent` with `TileMesh`, `Width`/`Height` grid, `TileSize`, material palette (`vector<Material>`), per-cell `MaterialIDs`, full 3D rendering via `Renderer3D::DrawMesh`, serialization, and editor panel with drag-drop mesh assignment and material palette editing. See `docs/tile_renderer_component.md`.
 
 ### 5.4 Transform Component — Quaternion/Euler Sync
 
@@ -154,7 +154,14 @@ Hazel's animation system includes specialized graph nodes: `IKNodes` (inverse ki
 | **Medium** | 2.3 Quality tiering presets | Low | Usability | ✅ Done |
 | **Medium** | 6.1 Dependency-aware hot reload | Low-Med | Asset iteration speed | ✅ Done |
 | **Medium** | 5.4 Quaternion/Euler sync in Transform | Low | Prevents rotation bugs | ✅ Done |
-| **Lower** | 4.1 Dual viewport | Medium | Nice to have | | Skip, too much work for too little benefit
+| **Medium** | 2.2 Resource lifetime management | Low-Med | Correctness hardening | ✅ Done |
+| **Medium** | 5.1 Rich text component | Low-Med | Text rendering completeness | ✅ Done |
+| **Medium** | 5.3 Tile renderer | Low-Med | Grid-based game support | ✅ Done |
+| **Lower** | 4.1 Dual viewport | Medium | Nice to have | Skip |
 | **Lower** | 7 Type reflection | High | Long-term architecture | |
 | **Lower** | 6.2 Shader packs | Medium | Distribution builds | ✅ Done |
 | **Lower** | 5.2 Compound colliders | Low | Physics completeness | ✅ Done |
+| **Lower** | 2.1 Dedicated render thread | High | Perf (limited by single-threaded GL) | |
+| **Lower** | 3.2 Sound graphs (node-based audio) | Medium | Audio designer workflow | |
+| **Lower** | 3.3 Audio events system | Medium | Audio architecture | |
+| **Lower** | 8 Animation graph nodes (IK, etc.) | Medium | Animation completeness | |

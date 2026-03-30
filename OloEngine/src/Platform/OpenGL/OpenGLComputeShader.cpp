@@ -2,6 +2,7 @@
 #include "Platform/OpenGL/OpenGLComputeShader.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "OloEngine/Core/FileSystem.h"
+#include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
@@ -67,7 +68,10 @@ namespace OloEngine
             OLO_TRACK_DEALLOC(this);
         }
         OLO_SHADER_UNREGISTER(m_RendererID);
-        glDeleteProgram(m_RendererID);
+
+        u32 programId = m_RendererID;
+        FrameResourceManager::Get().SubmitForDeletion([programId]()
+                                                      { glDeleteProgram(programId); });
     }
 
     void OpenGLComputeShader::Compile(const std::string& source)
@@ -231,7 +235,11 @@ namespace OloEngine
             OLO_TRACK_DEALLOC(this);
         }
         OLO_SHADER_UNREGISTER(m_RendererID);
-        glDeleteProgram(m_RendererID);
+
+        u32 oldProgramId = m_RendererID;
+        FrameResourceManager::Get().SubmitForDeletion([oldProgramId]()
+                                                      { glDeleteProgram(oldProgramId); });
+
         m_RendererID = 0;
         m_IsValid = false;
         m_UniformLocationCache.clear();

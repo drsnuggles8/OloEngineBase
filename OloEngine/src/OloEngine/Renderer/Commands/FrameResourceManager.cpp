@@ -62,6 +62,9 @@ namespace OloEngine
             }
         }
 
+        // Drain all pending deletion queues before GL context is destroyed
+        FlushAllDeletionQueues();
+
         m_Initialized = false;
         OLO_CORE_INFO("FrameResourceManager: Shutdown complete");
     }
@@ -95,6 +98,15 @@ namespace OloEngine
         // Reset ALL allocators (main + workers) for this frame
         m_FrameResources[currentIndex].Reset();
         m_FrameResources[currentIndex].FenceSignaled = false;
+
+        // Execute deferred deletions queued during the frame that last used this slot.
+        // Safe: the GPU fence for that frame has been waited on above.
+        {
+            auto& deletionQueue = m_FrameResources[currentIndex].DeletionQueue;
+            for (auto& fn : deletionQueue)
+                fn();
+            deletionQueue.clear();
+        }
 
         return currentIndex;
     }
@@ -223,6 +235,31 @@ namespace OloEngine
     u32 FrameResourceManager::GetCurrentFrameIndex() const
     {
         return m_CurrentFrameIndex.load(std::memory_order_acquire);
+    }
+
+    void FrameResourceManager::SubmitForDeletion(std::function<void()>&& deletionFunc)
+    {
+        if (!m_Initialized)
+        {
+            // After shutdown (or before init), execute immediately — the deferred
+            // queue will never be drained and the GL context may still be alive
+            // during teardown.
+            deletionFunc();
+            return;
+        }
+        u32 currentIndex = m_CurrentFrameIndex.load(std::memory_order_acquire);
+        m_FrameResources[currentIndex].DeletionQueue.push_back(std::move(deletionFunc));
+    }
+
+    void FrameResourceManager::FlushAllDeletionQueues()
+    {
+        for (u32 i = 0; i < NUM_BUFFERED_FRAMES; ++i)
+        {
+            auto& deletionQueue = m_FrameResources[i].DeletionQueue;
+            for (auto& fn : deletionQueue)
+                fn();
+            deletionQueue.clear();
+        }
     }
 
     // ========================================================================
