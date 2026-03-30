@@ -70,11 +70,15 @@ TEST_F(AudioEventsSceneIntegrationTest, PositionResolverFindsEntityByUUID)
     glm::vec3 expected{ 10.0f, 20.0f, 30.0f };
     CreateEntityAt(uuid, expected);
 
-    // Install a test resolver that records whether it was invoked and what position it resolved
+    // Store the resolver locally so we can invoke it directly in addition to
+    // registering it with the manager. Play actions (which exercise the resolver
+    // during spatial updates) require Project::GetAssetFileSystemPath and real
+    // audio files — neither available in unit tests. Direct invocation lets us
+    // verify resolver correctness without a running audio backend.
     bool resolverCalled = false;
     glm::vec3 resolvedPos{};
-    m_Manager.SetPositionResolver([this, &resolverCalled, &resolvedPos](u64 objectID, glm::vec3& outPos) -> bool
-                                  {
+    AudioEventsManager::PositionResolver resolver = [this, &resolverCalled, &resolvedPos](u64 objectID, glm::vec3& outPos) -> bool
+    {
         auto entity = m_Scene->TryGetEntityWithUUID(UUID(objectID));
         if (entity && entity->HasComponent<TransformComponent>())
         {
@@ -83,13 +87,19 @@ TEST_F(AudioEventsSceneIntegrationTest, PositionResolverFindsEntityByUUID)
             resolvedPos = outPos;
             return true;
         }
-        return false; });
+        return false;
+    };
+    m_Manager.SetPositionResolver(resolver);
 
-    // Post a trigger with the entity's UUID so the resolver gets invoked during Update.
-    // NOTE: Play actions would fully exercise the resolver during spatial updates, but
-    // they require Project::GetAssetFileSystemPath (asserts on s_ActiveProject) and real
-    // audio files — neither available in unit tests. Stop actions still route through
-    // PostTrigger + Update, verifying the entity-lookup side of the resolver.
+    // Directly invoke the resolver to verify it resolves the entity correctly
+    glm::vec3 directPos{};
+    EXPECT_TRUE(resolver(static_cast<u64>(uuid), directPos));
+    EXPECT_TRUE(resolverCalled);
+    EXPECT_FLOAT_EQ(directPos.x, expected.x);
+    EXPECT_FLOAT_EQ(directPos.y, expected.y);
+    EXPECT_FLOAT_EQ(directPos.z, expected.z);
+
+    // Also exercise through PostTrigger + Update to verify no crashes
     auto cmdID = m_Registry.AddTrigger("ResolverTest");
     TriggerAction action;
     action.Type = ActionType::Stop;
@@ -97,17 +107,6 @@ TEST_F(AudioEventsSceneIntegrationTest, PositionResolverFindsEntityByUUID)
     auto eid = m_Manager.PostTrigger(cmdID, static_cast<u64>(uuid));
     EXPECT_GT(eid, 0u);
     m_Manager.Update(Timestep(0.016f));
-
-    // The resolver is only called for active events with sources (Play actions).
-    // Stop-only actions don't create active entries, so the spatial-update loop
-    // won't invoke it. We verify the entity lookup works correctly through the scene.
-    auto entity = m_Scene->TryGetEntityWithUUID(uuid);
-    ASSERT_TRUE(entity.has_value());
-    ASSERT_TRUE(entity->HasComponent<TransformComponent>());
-    auto pos = entity->GetComponent<TransformComponent>().Translation;
-    EXPECT_FLOAT_EQ(pos.x, expected.x);
-    EXPECT_FLOAT_EQ(pos.y, expected.y);
-    EXPECT_FLOAT_EQ(pos.z, expected.z);
 }
 
 TEST_F(AudioEventsSceneIntegrationTest, PositionResolverReturnsFalseForMissingEntity)
@@ -210,6 +209,33 @@ TEST_F(AudioEventsSceneIntegrationTest, AudioPlaybackWithNullManagerReturnsDefau
     auto eid = AudioPlayback::PostTrigger(CommandID::FromString("Anything"));
     EXPECT_EQ(eid, 0u);
     EXPECT_FALSE(AudioPlayback::IsEventActive(1));
+}
+
+TEST_F(AudioEventsSceneIntegrationTest, StopEventCancelsPendingBeforeUpdate)
+{
+    AudioPlayback::SetManager(&m_Manager);
+    auto cmdID = m_Registry.AddTrigger("CancelMe");
+    TriggerAction action;
+    action.Type = ActionType::Stop;
+    m_Registry.AddAction(cmdID, action);
+
+    // Post and immediately cancel before Update processes it
+    auto eid = AudioPlayback::PostTrigger(cmdID);
+    EXPECT_GT(eid, 0u);
+    AudioPlayback::StopEvent(eid);
+    // Update should not process the cancelled event
+    m_Manager.Update(Timestep(0.016f));
+    EXPECT_FALSE(AudioPlayback::IsEventActive(eid));
+    EXPECT_EQ(m_Manager.GetActiveEventCount(), 0u);
+}
+
+TEST_F(AudioEventsSceneIntegrationTest, PostTriggerRejectsUnknownCommandID)
+{
+    AudioPlayback::SetManager(&m_Manager);
+    // Don't register this in the registry
+    auto unknownCmd = CommandID::FromString("UnregisteredEvent");
+    auto eid = AudioPlayback::PostTrigger(unknownCmd);
+    EXPECT_EQ(eid, 0u);
 }
 
 // ---------------------------------------------------------------------------

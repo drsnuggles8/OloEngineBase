@@ -161,7 +161,8 @@ TEST_F(AudioCommandRegistryTest, SerializeDeserializeRoundTrip)
 
 TEST_F(AudioCommandRegistryTest, DeserializeNonExistentFile)
 {
-    EXPECT_FALSE(m_Registry.Deserialize("nonexistent_file_12345.yaml"));
+    auto missing = std::filesystem::temp_directory_path() / "olo_test_nonexistent_dir_8f3a1b" / "missing.yaml";
+    EXPECT_FALSE(m_Registry.Deserialize(missing));
 }
 
 TEST_F(AudioCommandRegistryTest, MultipleTriggersRoundTrip)
@@ -227,6 +228,7 @@ TEST_F(AudioCommandRegistryTest, DeserializeSanitizesInvalidMultipliers)
 TEST_F(AudioCommandRegistryTest, SerializeReturnsFalseOnBadPath)
 {
     m_Registry.AddTrigger("Test");
-    // Try to write to an invalid path
-    EXPECT_FALSE(m_Registry.Serialize("Z:/nonexistent_drive_12345/impossible.yaml"));
+    // Construct a guaranteed-missing directory under temp
+    auto badPath = std::filesystem::temp_directory_path() / "olo_test_nonexistent_dir_8f3a1b" / "impossible.yaml";
+    EXPECT_FALSE(m_Registry.Serialize(badPath));
 }

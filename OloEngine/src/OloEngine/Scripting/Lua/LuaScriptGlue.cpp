@@ -353,6 +353,33 @@ namespace OloEngine
         lua.new_usertype<AudioListenerComponent>("AudioListenerComponent",
                                                  "active", &AudioListenerComponent::Active);
 
+        // --- AudioEvents (global table) ---
+        auto audioEventsTable = lua.create_named_table("AudioEvents");
+        audioEventsTable["PostTrigger"] = [](const std::string& eventName, u64 objectID) -> u64
+        {
+            return Audio::AudioPlayback::PostTriggerByName(eventName, objectID);
+        };
+        audioEventsTable["StopEvent"] = [](u64 eventID)
+        {
+            Audio::AudioPlayback::StopEvent(eventID);
+        };
+        audioEventsTable["PauseEvent"] = [](u64 eventID)
+        {
+            Audio::AudioPlayback::PauseEvent(eventID);
+        };
+        audioEventsTable["ResumeEvent"] = [](u64 eventID)
+        {
+            Audio::AudioPlayback::ResumeEvent(eventID);
+        };
+        audioEventsTable["StopAll"] = []()
+        {
+            Audio::AudioPlayback::StopAll();
+        };
+        audioEventsTable["IsEventActive"] = [](u64 eventID) -> bool
+        {
+            return Audio::AudioPlayback::IsEventActive(eventID);
+        };
+
         // --- NetworkManager (static functions as table) ---
         auto networkTable = lua.create_named_table("Network");
         networkTable.set_function("isServer", &NetworkManager::IsServer);
@@ -1064,33 +1091,6 @@ namespace OloEngine
 
         // --- ShaderLibrary3D (global table) ---
         auto shaderLib3D = lua.create_named_table("ShaderLibrary3D");
-
-        // --- AudioEvents (global table) ---
-        auto audioEventsTable = lua.create_named_table("AudioEvents");
-        audioEventsTable["PostTrigger"] = [](const std::string& eventName, u64 objectID) -> u64
-        {
-            return Audio::AudioPlayback::PostTriggerByName(eventName, objectID);
-        };
-        audioEventsTable["StopEvent"] = [](u64 eventID)
-        {
-            Audio::AudioPlayback::StopEvent(eventID);
-        };
-        audioEventsTable["PauseEvent"] = [](u64 eventID)
-        {
-            Audio::AudioPlayback::PauseEvent(eventID);
-        };
-        audioEventsTable["ResumeEvent"] = [](u64 eventID)
-        {
-            Audio::AudioPlayback::ResumeEvent(eventID);
-        };
-        audioEventsTable["StopAll"] = []()
-        {
-            Audio::AudioPlayback::StopAll();
-        };
-        audioEventsTable["IsEventActive"] = [](u64 eventID) -> bool
-        {
-            return Audio::AudioPlayback::IsEventActive(eventID);
-        };
 
         shaderLib3D["Load"] = [](const std::string& filepath) -> bool
         {

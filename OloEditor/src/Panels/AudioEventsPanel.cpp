@@ -5,6 +5,9 @@
 
 #include <imgui.h>
 
+#include <algorithm>
+#include <cstring>
+
 namespace OloEngine
 {
     void AudioEventsPanel::LoadRegistry(const std::filesystem::path& filepath)
@@ -229,7 +232,10 @@ namespace OloEngine
                     {
                         const auto* path = static_cast<const wchar_t*>(payload->Data);
                         std::filesystem::path audioPath(path);
-                        if (auto ext = audioPath.extension().string(); ext == ".wav" || ext == ".mp3" || ext == ".ogg" || ext == ".flac")
+                        auto ext = audioPath.extension().string();
+                        std::ranges::transform(ext, ext.begin(), [](unsigned char c)
+                                               { return static_cast<char>(std::tolower(c)); });
+                        if (ext == ".wav" || ext == ".mp3" || ext == ".ogg" || ext == ".flac")
                         {
                             action.AudioFilepath = Project::GetAssetRelativeFileSystemPath(audioPath).string();
                             m_Dirty = true;

@@ -3042,7 +3042,22 @@ namespace OloEngine
             {
                 if (component.UseEventSystem && !prev)
                 {
-                    component.StartCommandID = Audio::CommandID::FromString(component.StartEvent);
+                    // Resolve against registry; only set CommandID if the name exists
+                    if (auto* reg = m_Context->GetAudioCommandRegistry())
+                    {
+                        if (auto resolved = Audio::CommandID::FromString(component.StartEvent); reg->Contains(resolved))
+                        {
+                            component.StartCommandID = resolved;
+                        }
+                        else
+                        {
+                            component.StartCommandID = {};
+                        }
+                    }
+                    else
+                    {
+                        component.StartCommandID = Audio::CommandID::FromString(component.StartEvent);
+                    }
                 }
             }
             if (component.UseEventSystem)
@@ -3052,7 +3067,22 @@ namespace OloEngine
                 if (ImGui::InputText("Start Event##AudioSource", eventBuf, sizeof(eventBuf)))
                 {
                     component.StartEvent = eventBuf;
-                    component.StartCommandID = Audio::CommandID::FromString(component.StartEvent);
+                    // Resolve against registry; clear CommandID if not found
+                    if (auto* reg = m_Context->GetAudioCommandRegistry())
+                    {
+                        if (auto resolved = Audio::CommandID::FromString(component.StartEvent); reg->Contains(resolved))
+                        {
+                            component.StartCommandID = resolved;
+                        }
+                        else
+                        {
+                            component.StartCommandID = {};
+                        }
+                    }
+                    else
+                    {
+                        component.StartCommandID = Audio::CommandID::FromString(component.StartEvent);
+                    }
                 }
 
                 // Validate against registry if available

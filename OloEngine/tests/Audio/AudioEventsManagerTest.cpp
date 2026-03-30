@@ -46,13 +46,12 @@ TEST_F(AudioEventsManagerTest, UpdateProcessesPendingEvents)
     EXPECT_FALSE(m_Manager.IsEventActive(eid));
 }
 
-TEST_F(AudioEventsManagerTest, PostTriggerWithUnknownCommandStillReturnsID)
+TEST_F(AudioEventsManagerTest, PostTriggerWithUnknownCommandReturnsZero)
 {
     CommandID unknown(99999u);
     auto eid = m_Manager.PostTrigger(unknown);
-    EXPECT_GT(eid, 0u);
-    // Update should handle gracefully (no crash)
-    m_Manager.Update(OloEngine::Timestep(0.016f));
+    // Unknown commands are rejected — no event ID allocated
+    EXPECT_EQ(eid, 0u);
 }
 
 TEST_F(AudioEventsManagerTest, StopAllClearsActiveEvents)

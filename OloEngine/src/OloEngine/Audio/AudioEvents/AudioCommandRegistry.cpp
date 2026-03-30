@@ -2,6 +2,7 @@
 #include "OloEngine/Audio/AudioEvents/AudioCommandRegistry.h"
 
 #include <yaml-cpp/yaml.h>
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 
@@ -142,14 +143,25 @@ namespace OloEngine::Audio
 
         out << YAML::Key << "Triggers" << YAML::Value;
         out << YAML::BeginSeq;
+
+        // Sort by DebugName for deterministic YAML output (m_Triggers is unordered_map)
+        std::vector<const TriggerCommand*> sorted;
+        sorted.reserve(m_Triggers.size());
         for (const auto& [id, cmd] : m_Triggers)
         {
+            sorted.push_back(&cmd);
+        }
+        std::sort(sorted.begin(), sorted.end(), [](const auto* a, const auto* b)
+                  { return a->DebugName < b->DebugName; });
+
+        for (const auto* cmd : sorted)
+        {
             out << YAML::BeginMap;
-            out << YAML::Key << "Name" << YAML::Value << cmd.DebugName;
+            out << YAML::Key << "Name" << YAML::Value << cmd->DebugName;
 
             out << YAML::Key << "Actions" << YAML::Value;
             out << YAML::BeginSeq;
-            for (const auto& action : cmd.Actions)
+            for (const auto& action : cmd->Actions)
             {
                 out << YAML::BeginMap;
                 out << YAML::Key << "Type" << YAML::Value << ActionTypeToString(action.Type);

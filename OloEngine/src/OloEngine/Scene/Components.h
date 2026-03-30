@@ -539,7 +539,7 @@ namespace OloEngine
         // Equality for undo/redo — compares serialized/editor-visible fields only
         auto operator==(const AudioSourceComponent& other) const -> bool
         {
-            return StartEvent == other.StartEvent && StartCommandID == other.StartCommandID && UseEventSystem == other.UseEventSystem;
+            return std::memcmp(&Config, &other.Config, sizeof(Config)) == 0 && StartEvent == other.StartEvent && StartCommandID == other.StartCommandID && UseEventSystem == other.UseEventSystem;
         }
     };
 

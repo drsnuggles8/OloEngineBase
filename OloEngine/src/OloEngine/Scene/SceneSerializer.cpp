@@ -1417,13 +1417,14 @@ namespace OloEngine
 
             TrySet(src.UseEventSystem, audioSourceComponent["UseEventSystem"]);
             TrySet(src.StartEvent, audioSourceComponent["StartEvent"]);
-            if (const auto cmdIDNode = audioSourceComponent["StartCommandID"])
+            if (!src.StartEvent.empty())
+            {
+                // Always derive CommandID from StartEvent — StartEvent is the single source of truth
+                src.StartCommandID = Audio::CommandID::FromString(src.StartEvent);
+            }
+            else if (const auto cmdIDNode = audioSourceComponent["StartCommandID"])
             {
                 src.StartCommandID = Audio::CommandID(cmdIDNode.as<u32>(0));
-            }
-            if (!src.StartCommandID.IsValid() && !src.StartEvent.empty())
-            {
-                src.StartCommandID = Audio::CommandID::FromString(src.StartEvent);
             }
 
             if (!audioFilepath.empty())

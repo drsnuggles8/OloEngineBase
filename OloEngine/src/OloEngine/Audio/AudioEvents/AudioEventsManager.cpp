@@ -42,6 +42,12 @@ namespace OloEngine::Audio
             return 0;
         }
 
+        if (!m_Registry->Contains(command))
+        {
+            OLO_CORE_WARN("AudioEventsManager: CommandID {} not found in registry", command.ID);
+            return 0;
+        }
+
         u64 eventID = m_NextEventID++;
         m_PendingEvents.push_back({ eventID, command, objectID });
         return eventID;
@@ -212,6 +218,10 @@ namespace OloEngine::Audio
 
     void AudioEventsManager::StopEvent(u64 eventID)
     {
+        // Cancel pending events before they fire in Update()
+        std::erase_if(m_PendingEvents, [eventID](const EventInfo& info)
+                      { return info.EventID == eventID; });
+
         if (auto it = m_ActiveEvents.find(eventID); it != m_ActiveEvents.end())
         {
             for (const auto& entry : it->second.Sources)

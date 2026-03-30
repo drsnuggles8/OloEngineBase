@@ -2344,6 +2344,7 @@ namespace OloEngine
         m_AnimationGraphEditorPanel.SetContext(m_EditorScene);
         m_AnimationGraphEditorPanel.SetCommandHistory(&m_CommandHistory);
         m_InputSettingsPanel.SetCommandHistory(&m_CommandHistory);
+        m_AudioEventsPanel.SetActiveScene(m_EditorScene);
 
         m_ActiveScene = m_EditorScene;
 
