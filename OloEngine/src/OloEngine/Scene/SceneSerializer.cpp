@@ -1650,7 +1650,8 @@ namespace OloEngine
             }
             if (tileRendererComponent["TileSize"])
             {
-                tileComp.TileSize = tileRendererComponent["TileSize"].as<f32>();
+                f32 tileSize = tileRendererComponent["TileSize"].as<f32>();
+                tileComp.TileSize = (std::isfinite(tileSize) && tileSize > 0.0f) ? tileSize : 1.0f;
             }
             if (tileRendererComponent["Materials"])
             {

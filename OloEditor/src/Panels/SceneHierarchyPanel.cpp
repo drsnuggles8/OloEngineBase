@@ -2448,7 +2448,8 @@ namespace OloEngine
             ImGui::Text("Materials: %zu", component.Materials.size());
 
             i32 removeIdx = -1;
-            for (sizet i = 0; i < component.Materials.size(); ++i)
+            auto materialCount = component.Materials.size();
+            for (sizet i = 0; i < materialCount; ++i)
             {
                 auto& mat = component.Materials[i];
                 ImGui::PushID(static_cast<int>(i));
@@ -2467,14 +2468,12 @@ namespace OloEngine
                     mat.SetBaseColorFactor(glm::vec4(albedo, 1.0f));
                 }
 
-                f32 metallic = mat.GetMetallicFactor();
-                if (ImGui::DragFloat("Metallic", &metallic, 0.01f, 0.0f, 1.0f, "%.2f"))
+                if (auto metallic = mat.GetMetallicFactor(); ImGui::DragFloat("Metallic", &metallic, 0.01f, 0.0f, 1.0f, "%.2f"))
                 {
                     mat.SetMetallicFactor(metallic);
                 }
 
-                f32 roughness = mat.GetRoughnessFactor();
-                if (ImGui::DragFloat("Roughness", &roughness, 0.01f, 0.0f, 1.0f, "%.2f"))
+                if (auto roughness = mat.GetRoughnessFactor(); ImGui::DragFloat("Roughness", &roughness, 0.01f, 0.0f, 1.0f, "%.2f"))
                 {
                     mat.SetRoughnessFactor(roughness);
                 }
@@ -2505,11 +2504,28 @@ namespace OloEngine
             ImGui::Separator();
 
             // Per-cell material ID editor
-            sizet expectedSize = static_cast<sizet>(component.Width) * component.Height;
+            auto expectedSize = static_cast<sizet>(component.Width) * component.Height;
             if (!component.Materials.empty() && component.Width > 0 && component.Height > 0
                 && component.MaterialIDs.size() == expectedSize && ImGui::TreeNode("Tile Grid"))
             {
-                u8 maxIdx = static_cast<u8>(std::min<sizet>(component.Materials.size() - 1, 255));
+                auto maxIdx = static_cast<u8>(std::min<sizet>(component.Materials.size() - 1, 255));
+
+                // Compute visible column range to avoid creating hundreds of off-screen widgets
+                constexpr f32 cellWidgetWidth = 34.0f; // 30px widget + ~4px spacing
+                auto visibleCols = std::max(1u, static_cast<u32>(ImGui::GetContentRegionAvail().x / cellWidgetWidth));
+                static u32 colOffset = 0;
+                if (visibleCols < component.Width)
+                {
+                    i32 off = static_cast<i32>(colOffset);
+                    ImGui::SliderInt("Col Offset", &off, 0, static_cast<i32>(component.Width - visibleCols));
+                    colOffset = static_cast<u32>(std::max(0, off));
+                }
+                else
+                {
+                    colOffset = 0;
+                }
+                u32 colEnd = std::min(colOffset + visibleCols, component.Width);
+
                 ImGuiListClipper clipper;
                 clipper.Begin(static_cast<int>(component.Height));
                 while (clipper.Step())
@@ -2517,12 +2533,12 @@ namespace OloEngine
                     for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row)
                     {
                         ImGui::PushID(row);
-                        for (u32 col = 0; col < component.Width; ++col)
+                        for (u32 col = colOffset; col < colEnd; ++col)
                         {
-                            if (col > 0)
+                            if (col > colOffset)
                                 ImGui::SameLine();
 
-                            sizet idx = static_cast<sizet>(row) * component.Width + col;
+                            auto idx = static_cast<sizet>(row) * component.Width + col;
                             i32 matId = component.MaterialIDs[idx];
                             ImGui::PushID(static_cast<int>(col));
                             ImGui::SetNextItemWidth(30.0f);

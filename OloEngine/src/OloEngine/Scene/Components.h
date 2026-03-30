@@ -32,6 +32,7 @@
 
 #include <box2d/id.h>
 
+#include <algorithm>
 #include <cstring>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -1317,7 +1318,13 @@ namespace OloEngine
             u32 copyW = std::min(Width, newWidth);
             u32 copyH = std::min(Height, newHeight);
             for (u32 row = 0; row < copyH; ++row)
-                std::memcpy(&newIDs[row * newWidth], &MaterialIDs[row * Width], copyW);
+            {
+                sizet srcRowStart = static_cast<sizet>(row) * Width;
+                sizet available = (srcRowStart < MaterialIDs.size()) ? (MaterialIDs.size() - srcRowStart) : 0;
+                sizet bytesToCopy = std::min<sizet>(copyW, available);
+                if (bytesToCopy > 0)
+                    std::memcpy(&newIDs[row * newWidth], &MaterialIDs[srcRowStart], bytesToCopy);
+            }
 
             Width = newWidth;
             Height = newHeight;
@@ -1325,20 +1332,31 @@ namespace OloEngine
         }
 
         // Manual operator== for undo tracking (Material lacks defaulted ==).
+        // Uses bitwise comparison for floats (intentional: detect any change for undo).
         auto operator==(const TileRendererComponent& other) const -> bool
         {
             if (TileMesh != other.TileMesh || Width != other.Width ||
-                Height != other.Height || TileSize != other.TileSize ||
-                MaterialIDs != other.MaterialIDs)
+                Height != other.Height || MaterialIDs != other.MaterialIDs)
+                return false;
+            if (std::memcmp(&TileSize, &other.TileSize, sizeof(f32)) != 0)
                 return false;
             if (Materials.size() != other.Materials.size())
                 return false;
             for (sizet i = 0; i < Materials.size(); ++i)
             {
-                if (Materials[i].GetBaseColorFactor() != other.Materials[i].GetBaseColorFactor() ||
-                    Materials[i].GetMetallicFactor() != other.Materials[i].GetMetallicFactor() ||
-                    Materials[i].GetRoughnessFactor() != other.Materials[i].GetRoughnessFactor() ||
-                    Materials[i].GetFlags() != other.Materials[i].GetFlags())
+                auto lhs = Materials[i].GetBaseColorFactor();
+                auto rhs = other.Materials[i].GetBaseColorFactor();
+                if (std::memcmp(&lhs, &rhs, sizeof(lhs)) != 0)
+                    return false;
+                auto lm = Materials[i].GetMetallicFactor();
+                auto rm = other.Materials[i].GetMetallicFactor();
+                if (std::memcmp(&lm, &rm, sizeof(lm)) != 0)
+                    return false;
+                auto lr = Materials[i].GetRoughnessFactor();
+                auto rr = other.Materials[i].GetRoughnessFactor();
+                if (std::memcmp(&lr, &rr, sizeof(lr)) != 0)
+                    return false;
+                if (Materials[i].GetFlags() != other.Materials[i].GetFlags())
                     return false;
             }
             return true;

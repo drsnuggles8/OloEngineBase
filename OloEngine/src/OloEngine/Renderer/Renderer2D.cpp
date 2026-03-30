@@ -928,16 +928,17 @@ namespace OloEngine
                         i = lastSpace;
                         wrapBreaks.push_back(lastSpace);
                         wrapIsMidWord.push_back(false);
+                        lastSpace = std::string::npos;
+                        x = 0.0;
+                        continue;
                     }
-                    else
-                    {
-                        // Single word exceeds MaxWidth — break at current character
-                        wrapBreaks.push_back(i);
-                        wrapIsMidWord.push_back(true);
-                    }
+
+                    // Single word exceeds MaxWidth — break at current character
+                    wrapBreaks.push_back(i);
+                    wrapIsMidWord.push_back(true);
                     lastSpace = std::string::npos;
                     x = 0.0;
-                    continue;
+                    // Fall through to measure this glyph's advance on the new line
                 }
 
                 double advance = glyph->getAdvance();
