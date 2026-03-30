@@ -111,16 +111,34 @@ TEST_F(AudioEventsSceneIntegrationTest, PositionResolverFindsEntityByUUID)
 
 TEST_F(AudioEventsSceneIntegrationTest, PositionResolverReturnsFalseForMissingEntity)
 {
-    InstallPositionResolver();
+    // Store the resolver locally so we can invoke it directly to verify it
+    // returns false for a non-existent entity UUID.
+    bool resolverCalled = false;
+    AudioEventsManager::PositionResolver resolver = [this, &resolverCalled](u64 objectID, glm::vec3& outPos) -> bool
+    {
+        auto entity = m_Scene->TryGetEntityWithUUID(UUID(objectID));
+        if (entity && entity->HasComponent<TransformComponent>())
+        {
+            outPos = entity->GetComponent<TransformComponent>().Translation;
+            resolverCalled = true;
+            return true;
+        }
+        return false;
+    };
+    m_Manager.SetPositionResolver(resolver);
 
-    // Post a trigger with an objectID that doesn't exist in the scene
+    // Directly invoke — entity 99999 doesn't exist, should return false
+    glm::vec3 pos{};
+    EXPECT_FALSE(resolver(99999, pos));
+    EXPECT_FALSE(resolverCalled);
+
+    // Also exercise through manager to verify no crash
     auto cmdID = m_Registry.AddTrigger("MissingEntityTest");
     TriggerAction action;
     action.Type = ActionType::Stop;
     m_Registry.AddAction(cmdID, action);
     auto eid = m_Manager.PostTrigger(cmdID, 99999);
     EXPECT_GT(eid, 0u);
-    // Update should not crash even though entity 99999 doesn't exist
     m_Manager.Update(Timestep(0.016f));
 
     // Verify the entity truly doesn't exist
@@ -132,20 +150,31 @@ TEST_F(AudioEventsSceneIntegrationTest, PositionResolverReflectsMovedEntity)
 {
     UUID uuid;
     auto entity = CreateEntityAt(uuid, { 1.0f, 2.0f, 3.0f });
-    InstallPositionResolver();
+
+    // Store resolver locally to invoke directly and verify updated position
+    AudioEventsManager::PositionResolver resolver = [this](u64 objectID, glm::vec3& outPos) -> bool
+    {
+        auto e = m_Scene->TryGetEntityWithUUID(UUID(objectID));
+        if (e && e->HasComponent<TransformComponent>())
+        {
+            outPos = e->GetComponent<TransformComponent>().Translation;
+            return true;
+        }
+        return false;
+    };
+    m_Manager.SetPositionResolver(resolver);
 
     // Move the entity
     entity.GetComponent<TransformComponent>().Translation = { 100.0f, 200.0f, 300.0f };
 
-    // Verify via scene lookup that the resolver would return updated position
-    auto found = m_Scene->TryGetEntityWithUUID(uuid);
-    ASSERT_TRUE(found.has_value());
-    auto pos = found->GetComponent<TransformComponent>().Translation;
+    // Directly invoke resolver to verify it returns the updated coordinates
+    glm::vec3 pos{};
+    EXPECT_TRUE(resolver(static_cast<u64>(uuid), pos));
     EXPECT_FLOAT_EQ(pos.x, 100.0f);
     EXPECT_FLOAT_EQ(pos.y, 200.0f);
     EXPECT_FLOAT_EQ(pos.z, 300.0f);
 
-    // Exercise through manager to verify no crash
+    // Also exercise through manager to verify no crash
     auto cmdID = m_Registry.AddTrigger("MoveTest");
     TriggerAction action;
     action.Type = ActionType::Stop;
@@ -167,13 +196,13 @@ TEST_F(AudioEventsSceneIntegrationTest, AudioPlaybackPostTriggerDelegatesToManag
     EXPECT_GT(eid, 0u);
 }
 
-TEST_F(AudioEventsSceneIntegrationTest, AudioPlaybackStopAllDelegatesToManager)
+TEST_F(AudioEventsSceneIntegrationTest, AudioPlaybackStopAllOnEmptyActiveSetDelegates)
 {
     AudioPlayback::SetManager(&m_Manager);
     auto cmdID = m_Registry.AddTrigger("Wind");
-    // Add a Stop action so the trigger goes through full action processing.
-    // Play actions can't be tested here: they require Project::GetAssetFileSystemPath
-    // (asserts s_ActiveProject) and real audio files on disk.
+    // Stop actions don't create active sources. Play actions require
+    // Project::GetAssetFileSystemPath (asserts s_ActiveProject) and real audio files.
+    // This test verifies StopAll delegates to the manager without crashing on an empty set.
     TriggerAction action;
     action.Type = ActionType::Stop;
     m_Registry.AddAction(cmdID, action);
@@ -186,7 +215,7 @@ TEST_F(AudioEventsSceneIntegrationTest, AudioPlaybackStopAllDelegatesToManager)
     EXPECT_EQ(m_Manager.GetActiveEventCount(), 0u);
 }
 
-TEST_F(AudioEventsSceneIntegrationTest, AudioPlaybackIsEventActiveDelegatesToManager)
+TEST_F(AudioEventsSceneIntegrationTest, AudioPlaybackIsEventActiveReturnsFalseForStopOnlyTrigger)
 {
     AudioPlayback::SetManager(&m_Manager);
     auto cmdID = m_Registry.AddTrigger("Alert");
@@ -271,17 +300,26 @@ TEST_F(AudioEventsSceneIntegrationTest, FullLifecycleInitUpdateShutdown)
 
 TEST_F(AudioEventsSceneIntegrationTest, ShutdownClearsPositionResolver)
 {
-    InstallPositionResolver();
+    // Install a resolver that tracks invocations
+    bool resolverCalled = false;
+    m_Manager.SetPositionResolver([&resolverCalled](u64 /*objectID*/, glm::vec3& /*outPos*/) -> bool
+                                  {
+        resolverCalled = true;
+        return false; });
+
     m_Manager.Shutdown();
 
-    // Re-init without resolver — should not crash
+    // Re-init without reinstalling the resolver
     m_Manager.Init(&m_Registry);
-    auto cmdID = m_Registry.AddTrigger("TestEvent");
+    auto cmdID = m_Registry.AddTrigger("PostShutdownTest");
     TriggerAction action;
     action.Type = ActionType::Stop;
     m_Registry.AddAction(cmdID, action);
     m_Manager.PostTrigger(cmdID, 12345);
-    m_Manager.Update(Timestep(0.016f)); // No crash
+    m_Manager.Update(Timestep(0.016f));
+
+    // The old resolver should NOT have been invoked after Shutdown + re-Init
+    EXPECT_FALSE(resolverCalled);
 }
 
 // ---------------------------------------------------------------------------

@@ -4,7 +4,10 @@
 #include <yaml-cpp/yaml.h>
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
+#include <optional>
+#include <vector>
 
 namespace OloEngine::Audio
 {
@@ -101,18 +104,20 @@ namespace OloEngine::Audio
             case ActionType::Resume:
                 return "Resume";
         }
-        return "Play";
+        return "Unknown";
     }
 
-    static ActionType StringToActionType(const std::string& str)
+    static std::optional<ActionType> StringToActionType(const std::string& str)
     {
+        if (str == "Play")
+            return ActionType::Play;
         if (str == "Stop")
             return ActionType::Stop;
         if (str == "Pause")
             return ActionType::Pause;
         if (str == "Resume")
             return ActionType::Resume;
-        return ActionType::Play;
+        return std::nullopt;
     }
 
     static const char* ActionContextToString(ActionContext ctx)
@@ -124,14 +129,16 @@ namespace OloEngine::Audio
             case ActionContext::Global:
                 return "Global";
         }
-        return "GameObject";
+        return "Unknown";
     }
 
-    static ActionContext StringToActionContext(const std::string& str)
+    static std::optional<ActionContext> StringToActionContext(const std::string& str)
     {
+        if (str == "GameObject")
+            return ActionContext::GameObject;
         if (str == "Global")
             return ActionContext::Global;
-        return ActionContext::GameObject;
+        return std::nullopt;
     }
 
     bool AudioCommandRegistry::Serialize(const std::filesystem::path& filepath) const
@@ -209,9 +216,9 @@ namespace OloEngine::Audio
         {
             data = YAML::LoadFile(filepath.string());
         }
-        catch (const YAML::ParserException& e)
+        catch (const YAML::Exception& e)
         {
-            OLO_CORE_ERROR("AudioCommandRegistry: Failed to parse '{}': {}", filepath.string(), e.what());
+            OLO_CORE_ERROR("AudioCommandRegistry: Failed to load '{}': {}", filepath.string(), e.what());
             return false;
         }
 
@@ -247,10 +254,25 @@ namespace OloEngine::Audio
             {
                 for (const auto& actionNode : actionsNode)
                 {
+                    auto typeStr = actionNode["Type"].as<std::string>("Play");
+                    auto typeOpt = StringToActionType(typeStr);
+                    if (!typeOpt)
+                    {
+                        OLO_CORE_WARN("AudioCommandRegistry: Unknown ActionType '{}' in trigger '{}', skipping action", typeStr, name);
+                        continue;
+                    }
+                    auto ctxStr = actionNode["Context"].as<std::string>("GameObject");
+                    auto ctxOpt = StringToActionContext(ctxStr);
+                    if (!ctxOpt)
+                    {
+                        OLO_CORE_WARN("AudioCommandRegistry: Unknown ActionContext '{}' in trigger '{}', skipping action", ctxStr, name);
+                        continue;
+                    }
+
                     TriggerAction action;
-                    action.Type = StringToActionType(actionNode["Type"].as<std::string>("Play"));
+                    action.Type = *typeOpt;
                     action.AudioFilepath = actionNode["AudioFilepath"].as<std::string>("");
-                    action.Context = StringToActionContext(actionNode["Context"].as<std::string>("GameObject"));
+                    action.Context = *ctxOpt;
                     action.VolumeMultiplier = actionNode["VolumeMultiplier"].as<f32>(1.0f);
                     if (!std::isfinite(action.VolumeMultiplier) || action.VolumeMultiplier < 0.0f || action.VolumeMultiplier > 10.0f)
                     {

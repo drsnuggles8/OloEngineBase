@@ -6,7 +6,23 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
+
+namespace
+{
+    // Interprets ImGui drag-drop payload bytes as a UTF-8 path.
+    [[nodiscard]] std::filesystem::path PathFromUtf8Payload(const ImGuiPayload& payload)
+    {
+        auto const* data = static_cast<char const*>(payload.Data);
+        auto const* u8data = reinterpret_cast<char8_t const*>(data);
+        // Strip trailing NUL if the sender included it in DataSize
+        size_t len = static_cast<size_t>(payload.DataSize);
+        if (len > 0 && data[len - 1] == '\0')
+            --len;
+        return std::filesystem::path(std::u8string_view(u8data, len));
+    }
+} // namespace
 
 namespace OloEngine
 {
@@ -230,8 +246,7 @@ namespace OloEngine
                 {
                     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
                     {
-                        const auto* path = static_cast<const wchar_t*>(payload->Data);
-                        std::filesystem::path audioPath(path);
+                        std::filesystem::path audioPath = PathFromUtf8Payload(*payload);
                         auto ext = audioPath.extension().string();
                         std::ranges::transform(ext, ext.begin(), [](unsigned char c)
                                                { return static_cast<char>(std::tolower(c)); });

@@ -213,6 +213,11 @@ namespace OloEngine::Audio
                 }
                 break;
             }
+
+            default:
+                OLO_CORE_WARN("AudioEventsManager::ExecuteAction: Unknown ActionType {} for objectID={}, eventID={}",
+                              static_cast<int>(action.Type), objectID, eventID);
+                break;
         }
     }
 

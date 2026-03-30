@@ -54,10 +54,10 @@ TEST_F(AudioEventsManagerTest, PostTriggerWithUnknownCommandReturnsZero)
     EXPECT_EQ(eid, 0u);
 }
 
-TEST_F(AudioEventsManagerTest, StopAllClearsActiveEvents)
+TEST_F(AudioEventsManagerTest, StopAllOnEmptyActiveSetDoesNotCrash)
 {
     auto id = m_Registry.AddTrigger("TestEvent");
-    // Add a Stop action — Stop actions don't create active sources (no audio file),
+    // Stop actions don't create active sources (no audio file),
     // so we verify StopAll doesn't crash on an empty active set after processing.
     TriggerAction action;
     action.Type = ActionType::Stop;
@@ -76,7 +76,7 @@ TEST_F(AudioEventsManagerTest, IsEventActiveReturnsFalseForInvalidID)
     EXPECT_FALSE(m_Manager.IsEventActive(999999));
 }
 
-TEST_F(AudioEventsManagerTest, ShutdownClearsEverything)
+TEST_F(AudioEventsManagerTest, ShutdownOnProcessedEmptySetDoesNotCrash)
 {
     auto id = m_Registry.AddTrigger("TestEvent");
     m_Manager.PostTrigger(id);

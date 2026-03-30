@@ -3042,7 +3042,6 @@ namespace OloEngine
             {
                 if (component.UseEventSystem && !prev)
                 {
-                    // Resolve against registry; only set CommandID if the name exists
                     if (auto* reg = m_Context->GetAudioCommandRegistry())
                     {
                         if (auto resolved = Audio::CommandID::FromString(component.StartEvent); reg->Contains(resolved))
@@ -3056,7 +3055,7 @@ namespace OloEngine
                     }
                     else
                     {
-                        component.StartCommandID = Audio::CommandID::FromString(component.StartEvent);
+                        component.StartCommandID = {};
                     }
                 }
             }
@@ -3067,7 +3066,6 @@ namespace OloEngine
                 if (ImGui::InputText("Start Event##AudioSource", eventBuf, sizeof(eventBuf)))
                 {
                     component.StartEvent = eventBuf;
-                    // Resolve against registry; clear CommandID if not found
                     if (auto* reg = m_Context->GetAudioCommandRegistry())
                     {
                         if (auto resolved = Audio::CommandID::FromString(component.StartEvent); reg->Contains(resolved))
@@ -3081,7 +3079,7 @@ namespace OloEngine
                     }
                     else
                     {
-                        component.StartCommandID = Audio::CommandID::FromString(component.StartEvent);
+                        component.StartCommandID = {};
                     }
                 }
 
@@ -3096,7 +3094,11 @@ namespace OloEngine
                 {
                     ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "No event name set");
                 }
-                else if (component.StartCommandID.IsValid() && !validated && m_Context->IsRunning())
+                else if (!component.StartCommandID.IsValid())
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "Unresolved start event");
+                }
+                else if (!validated && m_Context->IsRunning())
                 {
                     ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "CommandID: %u (not found in registry)", component.StartCommandID.ID);
                 }

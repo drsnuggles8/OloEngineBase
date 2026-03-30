@@ -3076,7 +3076,11 @@ namespace OloEngine
             out << YAML::Key << "ReverbSend" << YAML::Value << audioSourceComponent.Config.ReverbSend;
             out << YAML::Key << "UseEventSystem" << YAML::Value << audioSourceComponent.UseEventSystem;
             out << YAML::Key << "StartEvent" << YAML::Value << audioSourceComponent.StartEvent;
-            out << YAML::Key << "StartCommandID" << YAML::Value << audioSourceComponent.StartCommandID.ID;
+            // Derive CommandID from StartEvent to keep YAML consistent
+            auto derivedCmdID = audioSourceComponent.StartEvent.empty()
+                                    ? Audio::CommandID{}
+                                    : Audio::CommandID::FromString(audioSourceComponent.StartEvent);
+            out << YAML::Key << "StartCommandID" << YAML::Value << derivedCmdID.ID;
 
             out << YAML::EndMap; // AudioSourceComponent
         }

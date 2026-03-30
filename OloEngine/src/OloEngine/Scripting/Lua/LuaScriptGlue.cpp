@@ -37,6 +37,9 @@
 #include "OloEngine/Audio/AudioEvents/AudioPlayback.h"
 #include "OloEngine/Audio/AudioEvents/CommandID.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace OloEngine
 {
     namespace Scripting
@@ -282,11 +285,15 @@ namespace OloEngine
         lua.new_usertype<AudioSourceComponent>("AudioSourceComponent", "volume", sol::property([](const AudioSourceComponent& c)
                                                                                                { return c.Config.VolumeMultiplier; }, [](AudioSourceComponent& c, f32 v)
                                                                                                {
+                    if (!std::isfinite(v)) v = 1.0f;
+                    v = std::clamp(v, 0.0f, 2.0f);
                     c.Config.VolumeMultiplier = v;
                     if (c.Source) { c.Source->SetVolume(v); } }),
                                                "pitch", sol::property([](const AudioSourceComponent& c)
                                                                       { return c.Config.PitchMultiplier; }, [](AudioSourceComponent& c, f32 v)
                                                                       {
+                    if (!std::isfinite(v)) v = 1.0f;
+                    v = std::clamp(v, 0.1f, 3.0f);
                     c.Config.PitchMultiplier = v;
                     if (c.Source) { c.Source->SetPitch(v); } }),
                                                "playOnAwake", sol::property([](const AudioSourceComponent& c)
