@@ -34,6 +34,12 @@ namespace OloEngine
     class SceneStreamer;
     class DialogueSystem;
 
+    namespace Audio
+    {
+        class AudioEventsManager;
+        class AudioCommandRegistry;
+    } // namespace Audio
+
     class Scene : public Asset
     {
       public:
@@ -443,6 +449,10 @@ namespace OloEngine
         Ref<NavMesh> m_NavMesh;
         std::unique_ptr<NavMeshQuery> m_NavMeshQuery;
         std::unique_ptr<CrowdManager> m_CrowdManager;
+
+        // Audio Events
+        std::unique_ptr<Audio::AudioEventsManager> m_AudioEventsManager;
+        std::unique_ptr<Audio::AudioCommandRegistry> m_AudioCommandRegistry;
 
         // Entity UUID -> entt::entity lookup map
         // Using TMap for O(1) lookup with better cache locality

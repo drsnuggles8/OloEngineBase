@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Audio/AudioListener.h"
+#include "OloEngine/Audio/AudioEvents/CommandID.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
@@ -507,6 +508,11 @@ namespace OloEngine
         AudioSourceConfig Config;
 
         Ref<AudioSource> Source = nullptr;
+
+        // Event-driven audio
+        std::string StartEvent;          // Event name, e.g. "PlayFootsteps"
+        Audio::CommandID StartCommandID; // CRC32 of StartEvent (cached)
+        bool UseEventSystem = false;     // If true, uses events instead of direct play
 
         AudioSourceComponent() = default;
         AudioSourceComponent(const AudioSourceComponent&) = default;

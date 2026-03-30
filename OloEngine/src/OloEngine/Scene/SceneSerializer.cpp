@@ -1415,6 +1415,13 @@ namespace OloEngine
             TrySetDsp(src.Config.HighPassCutoff, "HighPassCutoff", 0.0f, 1.0f, 0.0f);
             TrySetDsp(src.Config.ReverbSend, "ReverbSend", 0.0f, 1.0f, 0.0f);
 
+            TrySet(src.UseEventSystem, audioSourceComponent["UseEventSystem"]);
+            TrySet(src.StartEvent, audioSourceComponent["StartEvent"]);
+            if (const auto cmdIDNode = audioSourceComponent["StartCommandID"])
+            {
+                src.StartCommandID = Audio::CommandID(cmdIDNode.as<u32>(0));
+            }
+
             if (!audioFilepath.empty())
             {
                 std::filesystem::path path = audioFilepath.c_str();
@@ -3062,6 +3069,9 @@ namespace OloEngine
             out << YAML::Key << "LowPassCutoff" << YAML::Value << audioSourceComponent.Config.LowPassCutoff;
             out << YAML::Key << "HighPassCutoff" << YAML::Value << audioSourceComponent.Config.HighPassCutoff;
             out << YAML::Key << "ReverbSend" << YAML::Value << audioSourceComponent.Config.ReverbSend;
+            out << YAML::Key << "UseEventSystem" << YAML::Value << audioSourceComponent.UseEventSystem;
+            out << YAML::Key << "StartEvent" << YAML::Value << audioSourceComponent.StartEvent;
+            out << YAML::Key << "StartCommandID" << YAML::Value << audioSourceComponent.StartCommandID.ID;
 
             out << YAML::EndMap; // AudioSourceComponent
         }

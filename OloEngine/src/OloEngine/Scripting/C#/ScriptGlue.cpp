@@ -33,6 +33,8 @@
 #include "OloEngine/Gameplay/Abilities/Damage/DamageEvent.h"
 #include "OloEngine/Physics3D/SceneQueries.h"
 #include "OloEngine/Physics3D/JoltScene.h"
+#include "OloEngine/Audio/AudioEvents/AudioPlayback.h"
+#include "OloEngine/Audio/AudioEvents/CommandID.h"
 
 #include "mono/metadata/object.h"
 #include "mono/metadata/reflection.h"
@@ -354,7 +356,7 @@ namespace OloEngine
         component.Config.PitchMultiplier = *pitch;
         if (component.Source)
         {
-            component.Source->SetVolume(*pitch);
+            component.Source->SetPitch(*pitch);
         }
     }
 
@@ -609,6 +611,43 @@ namespace OloEngine
         {
             component.Source->Stop();
         }
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // Audio Events ///////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static u32 AudioEvents_PostTrigger(MonoString* eventName, u64 objectID)
+    {
+        char* name = mono_string_to_utf8(eventName);
+        u32 eventID = Audio::AudioPlayback::PostTriggerByName(name, objectID);
+        mono_free(name);
+        return eventID;
+    }
+
+    static void AudioEvents_StopEvent(u32 eventID)
+    {
+        Audio::AudioPlayback::StopEvent(eventID);
+    }
+
+    static void AudioEvents_PauseEvent(u32 eventID)
+    {
+        Audio::AudioPlayback::PauseEvent(eventID);
+    }
+
+    static void AudioEvents_ResumeEvent(u32 eventID)
+    {
+        Audio::AudioPlayback::ResumeEvent(eventID);
+    }
+
+    static void AudioEvents_StopAll()
+    {
+        Audio::AudioPlayback::StopAll();
+    }
+
+    static bool AudioEvents_IsEventActive(u32 eventID)
+    {
+        return Audio::AudioPlayback::IsEventActive(eventID);
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -3739,6 +3778,16 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(AudioSourceComponent_Pause);
         OLO_ADD_INTERNAL_CALL(AudioSourceComponent_UnPause);
         OLO_ADD_INTERNAL_CALL(AudioSourceComponent_Stop);
+
+        ///////////////////////////////////////////////////////////////
+        // Audio Events ///////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(AudioEvents_PostTrigger);
+        OLO_ADD_INTERNAL_CALL(AudioEvents_StopEvent);
+        OLO_ADD_INTERNAL_CALL(AudioEvents_PauseEvent);
+        OLO_ADD_INTERNAL_CALL(AudioEvents_ResumeEvent);
+        OLO_ADD_INTERNAL_CALL(AudioEvents_StopAll);
+        OLO_ADD_INTERNAL_CALL(AudioEvents_IsEventActive);
 
         ///////////////////////////////////////////////////////////////
         // UI Components //////////////////////////////////////////////

@@ -3033,7 +3033,22 @@ namespace OloEngine
             ImGui::SliderFloat("High-Pass Cutoff##AudioSource", &component.Config.HighPassCutoff, 0.0f, 1.0f, "%.3f");
             ImGui::SetItemTooltip("Normalized cutoff [0..1]. 0.0 = 20 Hz (bypassed)");
             ImGui::SliderFloat("Reverb Send##AudioSource", &component.Config.ReverbSend, 0.0f, 1.0f, "%.3f");
-            ImGui::SetItemTooltip("Reverb send level [0..1]"); });
+            ImGui::SetItemTooltip("Reverb send level [0..1]");
+
+            ImGui::Separator();
+            ImGui::Text("Event System");
+            ImGui::Checkbox("Use Event System##AudioSource", &component.UseEventSystem);
+            if (component.UseEventSystem)
+            {
+                char eventBuf[256] = {};
+                std::strncpy(eventBuf, component.StartEvent.c_str(), sizeof(eventBuf) - 1);
+                if (ImGui::InputText("Start Event##AudioSource", eventBuf, sizeof(eventBuf)))
+                {
+                    component.StartEvent = eventBuf;
+                    component.StartCommandID = Audio::CommandID::FromString(component.StartEvent);
+                }
+                ImGui::Text("CommandID: %u", component.StartCommandID.ID);
+            } });
 
         DrawComponent<AudioListenerComponent>("Audio Listener", entity, [](auto& component)
                                               {

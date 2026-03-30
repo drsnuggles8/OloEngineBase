@@ -704,6 +704,7 @@ namespace OloEngine
             ImGui::MenuItem("Save Game Panel", nullptr, &m_ShowSaveGamePanel);
             ImGui::MenuItem("Gamepad Debug", nullptr, &m_ShowGamepadDebug);
             ImGui::MenuItem("Shader Editor", nullptr, &m_ShowShaderEditor);
+            ImGui::MenuItem("Audio Events", nullptr, &m_ShowAudioEventsPanel);
 
             ImGui::EndMenu();
         }
@@ -1208,6 +1209,12 @@ namespace OloEngine
         if (m_ShowShaderEditor)
         {
             m_ShaderEditorPanel.OnImGuiRender(&m_ShowShaderEditor);
+        }
+
+        // Audio Events Panel
+        if (m_ShowAudioEventsPanel)
+        {
+            m_AudioEventsPanel.OnImGuiRender(&m_ShowAudioEventsPanel);
         }
 
         // Console Panel

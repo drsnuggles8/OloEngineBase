@@ -158,10 +158,10 @@ Hazel's animation system includes specialized graph nodes: `IKNodes` (inverse ki
 | **Medium** | 5.1 Rich text component | Low-Med | Text rendering completeness | ✅ Done |
 | **Medium** | 5.3 Tile renderer | Low-Med | Grid-based game support | ✅ Done |
 | **Lower** | 4.1 Dual viewport | Medium | Nice to have | Skip |
-| **Lower** | 7 Type reflection | High | Long-term architecture | |
+| **Lower** | 7 Type reflection | High | Long-term architecture | Skip |
 | **Lower** | 6.2 Shader packs | Medium | Distribution builds | ✅ Done |
 | **Lower** | 5.2 Compound colliders | Low | Physics completeness | ✅ Done |
-| **Lower** | 2.1 Dedicated render thread | High | Perf (limited by single-threaded GL) | |
-| **Lower** | 3.2 Sound graphs (node-based audio) | Medium | Audio designer workflow | |
+| **Lower** | 2.1 Dedicated render thread | High | Perf (limited by single-threaded GL) | Skip — unfinished in Hazel, wrong arch for single-threaded GL |
+| **Lower** | 3.2 Sound graphs (node-based audio) | Medium | Audio designer workflow | Skip — backend 70% done, missing only node types + editor UI |
 | **Lower** | 3.3 Audio events system | Medium | Audio architecture | |
 | **Lower** | 8 Animation graph nodes (IK, etc.) | Medium | Animation completeness | |

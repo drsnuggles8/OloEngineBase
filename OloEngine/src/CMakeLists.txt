@@ -149,6 +149,17 @@
 		"OloEngine/Audio/AudioTransform.h"
 		"OloEngine/Audio/SampleBufferOperations.h"
 
+		# Audio Events
+		"OloEngine/Audio/AudioEvents/CommandID.h"
+		"OloEngine/Audio/AudioEvents/CommandID.cpp"
+		"OloEngine/Audio/AudioEvents/AudioCommands.h"
+		"OloEngine/Audio/AudioEvents/AudioCommandRegistry.h"
+		"OloEngine/Audio/AudioEvents/AudioCommandRegistry.cpp"
+		"OloEngine/Audio/AudioEvents/AudioEventsManager.h"
+		"OloEngine/Audio/AudioEvents/AudioEventsManager.cpp"
+		"OloEngine/Audio/AudioEvents/AudioPlayback.h"
+		"OloEngine/Audio/AudioEvents/AudioPlayback.cpp"
+
 		# DSP
 		"OloEngine/Audio/DSP/Denormals.h"
 		"OloEngine/Audio/DSP/Tuning.h"
