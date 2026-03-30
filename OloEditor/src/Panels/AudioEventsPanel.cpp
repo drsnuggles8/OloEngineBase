@@ -67,8 +67,7 @@ namespace OloEngine
                 }
                 else
                 {
-                    m_Registry.Clear();
-                    m_Registry.Deserialize(m_RegistryPath);
+                    LoadRegistry(m_RegistryPath);
                 }
             }
         }
@@ -79,9 +78,7 @@ namespace OloEngine
             ImGui::Separator();
             if (ImGui::Button("Discard & Reload", ImVec2(160, 0)))
             {
-                m_Registry.Clear();
-                m_Registry.Deserialize(m_RegistryPath);
-                m_Dirty = false;
+                LoadRegistry(m_RegistryPath);
                 m_ShowReloadConfirm = false;
                 ImGui::CloseCurrentPopup();
             }

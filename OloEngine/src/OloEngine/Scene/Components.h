@@ -513,6 +513,7 @@ namespace OloEngine
         std::string StartEvent;          // Event name, e.g. "PlayFootsteps"
         Audio::CommandID StartCommandID; // CRC32 of StartEvent (cached)
         bool UseEventSystem = false;     // If true, uses events instead of direct play
+        u64 ActiveEventID = 0;           // Runtime handle from AudioPlayback::PostTrigger
 
         AudioSourceComponent() = default;
         AudioSourceComponent(const AudioSourceComponent&) = default;

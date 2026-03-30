@@ -308,18 +308,25 @@ namespace OloEngine
                     c.StartEvent = v;
                     c.StartCommandID = Audio::CommandID::FromString(v); }),
                                                "isPlaying", [](const AudioSourceComponent& c) -> bool
-                                               { return c.Source && c.Source->IsPlaying(); }, "Play", [](AudioSourceComponent& c)
+                                               {
+                if (c.UseEventSystem && c.ActiveEventID != 0)
+                {
+                    return Audio::AudioPlayback::IsEventActive(c.ActiveEventID);
+                }
+                return c.Source && c.Source->IsPlaying(); }, "Play", [](AudioSourceComponent& c, sol::optional<u64> ownerUUID)
                                                {
                 if (c.UseEventSystem && c.StartCommandID.IsValid())
                 {
-                    Audio::AudioPlayback::PostTriggerByName(c.StartEvent, 0);
+                    u64 objectID = ownerUUID.value_or(0);
+                    c.ActiveEventID = Audio::AudioPlayback::PostTriggerByName(c.StartEvent, objectID);
                     return;
                 }
                 if (c.Source) { c.Source->Play(); } }, "Stop", [](AudioSourceComponent& c)
                                                {
-                if (c.UseEventSystem)
+                if (c.UseEventSystem && c.ActiveEventID != 0)
                 {
-                    Audio::AudioPlayback::StopAll();
+                    Audio::AudioPlayback::StopEvent(c.ActiveEventID);
+                    c.ActiveEventID = 0;
                     return;
                 }
                 if (c.Source) { c.Source->Stop(); } }, "Pause", [](AudioSourceComponent& c)

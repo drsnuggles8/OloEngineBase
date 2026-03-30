@@ -88,3 +88,12 @@ TEST_F(AudioEventsManagerTest, ShutdownClearsEverything)
     // Re-init for TearDown's Shutdown call to be safe
     m_Manager.Init(&m_Registry);
 }
+
+// NOTE: Play actions with real audio files cannot be unit-tested here because
+// AudioSource::Create requires an actual file on disk and the test environment
+// does not provide one. The Update() → m_ActiveEvents population path is only
+// exercised when std::filesystem::exists(path) returns true and
+// Ref<AudioSource>::Create succeeds. A full integration test with a test .wav
+// or a mock AudioSource factory would be needed to verify the Play→StopAll
+// cleanup codepath end-to-end. The existing StopAllClearsActiveEvents test
+// validates the StopAll logic itself (on an empty active set).

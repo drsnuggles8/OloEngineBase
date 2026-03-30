@@ -3,7 +3,6 @@
 
 #include <yaml-cpp/yaml.h>
 #include <cmath>
-#include <cstring>
 #include <fstream>
 
 namespace OloEngine::Audio
@@ -180,8 +179,7 @@ namespace OloEngine::Audio
         fout.flush();
         if (fout.fail())
         {
-            OLO_CORE_ERROR("AudioCommandRegistry: Failed to write '{}': {}", filepath.string(), std::strerror(errno));
-            fout.close();
+            OLO_CORE_ERROR("AudioCommandRegistry: Failed to write '{}'", filepath.string());
             return;
         }
     }

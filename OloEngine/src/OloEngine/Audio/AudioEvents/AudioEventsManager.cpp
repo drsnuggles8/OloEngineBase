@@ -207,6 +207,7 @@ namespace OloEngine::Audio
             {
                 src->Stop();
             }
+            m_ActiveEvents.erase(it);
         }
     }
 
