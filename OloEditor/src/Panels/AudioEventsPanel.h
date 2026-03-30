@@ -33,6 +33,7 @@ namespace OloEngine
         Audio::AudioCommandRegistry m_Registry;
         std::filesystem::path m_RegistryPath;
         bool m_Dirty = false;
+        bool m_ShowReloadConfirm = false;
 
         // UI state
         Audio::CommandID m_SelectedTrigger;

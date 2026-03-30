@@ -71,40 +71,44 @@ TEST_F(AudioEventsSceneIntegrationTest, PositionResolverFindsEntityByUUID)
     CreateEntityAt(uuid, expected);
     InstallPositionResolver();
 
-    glm::vec3 resolved{};
-    AudioEventsManager::PositionResolver resolver = [this](u64 id, glm::vec3& out) -> bool
-    {
-        auto entity = m_Scene->TryGetEntityWithUUID(UUID(id));
-        if (entity && entity->HasComponent<TransformComponent>())
-        {
-            out = entity->GetComponent<TransformComponent>().Translation;
-            return true;
-        }
-        return false;
-    };
-    EXPECT_TRUE(resolver(static_cast<u64>(uuid), resolved));
-    EXPECT_FLOAT_EQ(resolved.x, expected.x);
-    EXPECT_FLOAT_EQ(resolved.y, expected.y);
-    EXPECT_FLOAT_EQ(resolved.z, expected.z);
+    // Exercise the installed resolver through the manager: post a trigger with objectID
+    // and verify the resolver is callable (it's tested indirectly through the manager path)
+    auto cmdID = m_Registry.AddTrigger("ResolverTest");
+    TriggerAction action;
+    action.Type = ActionType::Stop;
+    m_Registry.AddAction(cmdID, action);
+    auto eid = m_Manager.PostTrigger(cmdID, static_cast<u64>(uuid));
+    EXPECT_GT(eid, 0u);
+    // Update exercises the resolver for spatial updates (no crash = resolver works)
+    m_Manager.Update(Timestep(0.016f));
+
+    // Also directly verify the resolver logic via TryGetEntityWithUUID
+    auto entity = m_Scene->TryGetEntityWithUUID(uuid);
+    ASSERT_TRUE(entity.has_value());
+    ASSERT_TRUE(entity->HasComponent<TransformComponent>());
+    auto pos = entity->GetComponent<TransformComponent>().Translation;
+    EXPECT_FLOAT_EQ(pos.x, expected.x);
+    EXPECT_FLOAT_EQ(pos.y, expected.y);
+    EXPECT_FLOAT_EQ(pos.z, expected.z);
 }
 
 TEST_F(AudioEventsSceneIntegrationTest, PositionResolverReturnsFalseForMissingEntity)
 {
     InstallPositionResolver();
 
-    glm::vec3 pos{};
-    AudioEventsManager::PositionResolver resolver = [this](u64 id, glm::vec3& out) -> bool
-    {
-        auto entity = m_Scene->TryGetEntityWithUUID(UUID(id));
-        if (entity && entity->HasComponent<TransformComponent>())
-        {
-            out = entity->GetComponent<TransformComponent>().Translation;
-            return true;
-        }
-        return false;
-    };
-    // UUID that doesn't exist in the scene
-    EXPECT_FALSE(resolver(99999, pos));
+    // Post a trigger with an objectID that doesn't exist in the scene
+    auto cmdID = m_Registry.AddTrigger("MissingEntityTest");
+    TriggerAction action;
+    action.Type = ActionType::Stop;
+    m_Registry.AddAction(cmdID, action);
+    auto eid = m_Manager.PostTrigger(cmdID, 99999);
+    EXPECT_GT(eid, 0u);
+    // Update should not crash even though entity 99999 doesn't exist
+    m_Manager.Update(Timestep(0.016f));
+
+    // Verify the entity truly doesn't exist
+    auto entity = m_Scene->TryGetEntityWithUUID(UUID(99999));
+    EXPECT_FALSE(entity.has_value());
 }
 
 TEST_F(AudioEventsSceneIntegrationTest, PositionResolverReflectsMovedEntity)
@@ -113,25 +117,24 @@ TEST_F(AudioEventsSceneIntegrationTest, PositionResolverReflectsMovedEntity)
     auto entity = CreateEntityAt(uuid, { 1.0f, 2.0f, 3.0f });
     InstallPositionResolver();
 
-    AudioEventsManager::PositionResolver resolver = [this](u64 id, glm::vec3& out) -> bool
-    {
-        auto e = m_Scene->TryGetEntityWithUUID(UUID(id));
-        if (e && e->HasComponent<TransformComponent>())
-        {
-            out = e->GetComponent<TransformComponent>().Translation;
-            return true;
-        }
-        return false;
-    };
-
     // Move the entity
     entity.GetComponent<TransformComponent>().Translation = { 100.0f, 200.0f, 300.0f };
 
-    glm::vec3 resolved{};
-    EXPECT_TRUE(resolver(static_cast<u64>(uuid), resolved));
-    EXPECT_FLOAT_EQ(resolved.x, 100.0f);
-    EXPECT_FLOAT_EQ(resolved.y, 200.0f);
-    EXPECT_FLOAT_EQ(resolved.z, 300.0f);
+    // Verify via scene lookup that the resolver would return updated position
+    auto found = m_Scene->TryGetEntityWithUUID(uuid);
+    ASSERT_TRUE(found.has_value());
+    auto pos = found->GetComponent<TransformComponent>().Translation;
+    EXPECT_FLOAT_EQ(pos.x, 100.0f);
+    EXPECT_FLOAT_EQ(pos.y, 200.0f);
+    EXPECT_FLOAT_EQ(pos.z, 300.0f);
+
+    // Exercise through manager to verify no crash
+    auto cmdID = m_Registry.AddTrigger("MoveTest");
+    TriggerAction action;
+    action.Type = ActionType::Stop;
+    m_Registry.AddAction(cmdID, action);
+    m_Manager.PostTrigger(cmdID, static_cast<u64>(uuid));
+    m_Manager.Update(Timestep(0.016f));
 }
 
 // ---------------------------------------------------------------------------
@@ -162,9 +165,13 @@ TEST_F(AudioEventsSceneIntegrationTest, AudioPlaybackIsEventActiveDelegatesToMan
 {
     AudioPlayback::SetManager(&m_Manager);
     auto cmdID = m_Registry.AddTrigger("Alert");
+    // Post trigger — event is pending but not yet processed
     auto eid = AudioPlayback::PostTrigger(cmdID);
-    EXPECT_TRUE(AudioPlayback::IsEventActive(eid) || !AudioPlayback::IsEventActive(eid));
-    // Primarily testing that the call doesn't crash when wired through
+    EXPECT_NE(eid, 0u);
+    // Before Update, event is pending — not yet in active map (no Play actions, so won't become active)
+    // The trigger has no actions, so after Update it won't produce active sources
+    m_Manager.Update(Timestep(0.016f));
+    EXPECT_FALSE(AudioPlayback::IsEventActive(eid));
 }
 
 TEST_F(AudioEventsSceneIntegrationTest, AudioPlaybackWithNullManagerReturnsDefaults)

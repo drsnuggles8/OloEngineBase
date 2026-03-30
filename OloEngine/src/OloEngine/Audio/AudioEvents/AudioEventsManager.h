@@ -5,6 +5,7 @@
 #include "OloEngine/Core/Timestep.h"
 
 #include <functional>
+#include <unordered_map>
 #include <vector>
 
 namespace OloEngine::Audio
@@ -70,7 +71,7 @@ namespace OloEngine::Audio
             u64 ObjectID = 0;
             std::vector<Ref<AudioSource>> Sources;
         };
-        std::vector<ActiveEvent> m_ActiveEvents;
+        std::unordered_map<u64, ActiveEvent> m_ActiveEvents;
 
         u64 m_NextEventID = 1;
     };

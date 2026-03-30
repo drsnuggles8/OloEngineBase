@@ -2,6 +2,8 @@
 #include "OloEngine/Audio/AudioEvents/AudioCommandRegistry.h"
 
 #include <yaml-cpp/yaml.h>
+#include <cmath>
+#include <cstring>
 #include <fstream>
 
 namespace OloEngine::Audio
@@ -175,6 +177,13 @@ namespace OloEngine::Audio
             return;
         }
         fout << out.c_str();
+        fout.flush();
+        if (fout.fail())
+        {
+            OLO_CORE_ERROR("AudioCommandRegistry: Failed to write '{}': {}", filepath.string(), std::strerror(errno));
+            fout.close();
+            return;
+        }
     }
 
     bool AudioCommandRegistry::Deserialize(const std::filesystem::path& filepath)
@@ -232,7 +241,17 @@ namespace OloEngine::Audio
                     action.AudioFilepath = actionNode["AudioFilepath"].as<std::string>("");
                     action.Context = StringToActionContext(actionNode["Context"].as<std::string>("GameObject"));
                     action.VolumeMultiplier = actionNode["VolumeMultiplier"].as<f32>(1.0f);
+                    if (!std::isfinite(action.VolumeMultiplier) || action.VolumeMultiplier < 0.0f || action.VolumeMultiplier > 10.0f)
+                    {
+                        OLO_CORE_WARN("AudioCommandRegistry: Invalid VolumeMultiplier {:.4f} in '{}', using 1.0", action.VolumeMultiplier, name);
+                        action.VolumeMultiplier = 1.0f;
+                    }
                     action.PitchMultiplier = actionNode["PitchMultiplier"].as<f32>(1.0f);
+                    if (!std::isfinite(action.PitchMultiplier) || action.PitchMultiplier < 0.01f || action.PitchMultiplier > 4.0f)
+                    {
+                        OLO_CORE_WARN("AudioCommandRegistry: Invalid PitchMultiplier {:.4f} in '{}', using 1.0", action.PitchMultiplier, name);
+                        action.PitchMultiplier = 1.0f;
+                    }
                     action.Looping = actionNode["Looping"].as<bool>(false);
 
                     AddAction(id, action);

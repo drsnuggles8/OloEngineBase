@@ -302,11 +302,26 @@ namespace OloEngine
                                                                                {
                     c.Config.Spatialization = v;
                     if (c.Source) { c.Source->SetSpatialization(v); } }),
+                                               "useEventSystem", &AudioSourceComponent::UseEventSystem, "startEvent", sol::property([](const AudioSourceComponent& c)
+                                                                                                                                    { return c.StartEvent; }, [](AudioSourceComponent& c, const std::string& v)
+                                                                                                                                    {
+                    c.StartEvent = v;
+                    c.StartCommandID = Audio::CommandID::FromString(v); }),
                                                "isPlaying", [](const AudioSourceComponent& c) -> bool
                                                { return c.Source && c.Source->IsPlaying(); }, "Play", [](AudioSourceComponent& c)
                                                {
+                if (c.UseEventSystem && c.StartCommandID.IsValid())
+                {
+                    Audio::AudioPlayback::PostTriggerByName(c.StartEvent, 0);
+                    return;
+                }
                 if (c.Source) { c.Source->Play(); } }, "Stop", [](AudioSourceComponent& c)
                                                {
+                if (c.UseEventSystem)
+                {
+                    Audio::AudioPlayback::StopAll();
+                    return;
+                }
                 if (c.Source) { c.Source->Stop(); } }, "Pause", [](AudioSourceComponent& c)
                                                {
                 if (c.Source) { c.Source->Pause(); } }, "UnPause", [](AudioSourceComponent& c)
@@ -1031,19 +1046,19 @@ namespace OloEngine
 
         // --- AudioEvents (global table) ---
         auto audioEventsTable = lua.create_named_table("AudioEvents");
-        audioEventsTable["PostTrigger"] = [](const std::string& eventName, u64 objectID) -> u32
+        audioEventsTable["PostTrigger"] = [](const std::string& eventName, u64 objectID) -> u64
         {
             return Audio::AudioPlayback::PostTriggerByName(eventName, objectID);
         };
-        audioEventsTable["StopEvent"] = [](u32 eventID)
+        audioEventsTable["StopEvent"] = [](u64 eventID)
         {
             Audio::AudioPlayback::StopEvent(eventID);
         };
-        audioEventsTable["PauseEvent"] = [](u32 eventID)
+        audioEventsTable["PauseEvent"] = [](u64 eventID)
         {
             Audio::AudioPlayback::PauseEvent(eventID);
         };
-        audioEventsTable["ResumeEvent"] = [](u32 eventID)
+        audioEventsTable["ResumeEvent"] = [](u64 eventID)
         {
             Audio::AudioPlayback::ResumeEvent(eventID);
         };
@@ -1051,7 +1066,7 @@ namespace OloEngine
         {
             Audio::AudioPlayback::StopAll();
         };
-        audioEventsTable["IsEventActive"] = [](u32 eventID) -> bool
+        audioEventsTable["IsEventActive"] = [](u64 eventID) -> bool
         {
             return Audio::AudioPlayback::IsEventActive(eventID);
         };

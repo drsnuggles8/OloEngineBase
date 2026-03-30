@@ -51,7 +51,7 @@ Hazel has a full DSP chain under `Audio/DSP/`: reverb (Freeverb model with allpa
 
 ### 3.2 Sound Graphs (Node-Based Audio)
 
-Hazel's `SoundGraph/` implements a node-based audio processing graph — essentially audio shader graphs. This allows designers to create complex audio behaviors visually. OloEngine has `SoundGraph` types registered but the implementation depth is unclear. Worth auditing whether it's functional or stub.
+Hazel's `SoundGraph/` implements a node-based audio processing graph — essentially audio shader graphs. This allows designers to create complex audio behaviors visually. OloEngine has `SoundGraph` types registered with backend infrastructure ~70% complete (DSP nodes, graph evaluation, connection system). Remaining work: additional node types (oscillators, envelopes, mixers) and an editor UI (node canvas with drag-and-drop connections). Worth revisiting once core audio features are stable.
 
 ### 3.3 Audio Events System
 
@@ -157,8 +157,8 @@ Hazel's animation system includes specialized graph nodes: `IKNodes` (inverse ki
 | **Medium** | 2.2 Resource lifetime management | Low-Med | Correctness hardening | ✅ Done |
 | **Medium** | 5.1 Rich text component | Low-Med | Text rendering completeness | ✅ Done |
 | **Medium** | 5.3 Tile renderer | Low-Med | Grid-based game support | ✅ Done |
-| **Lower** | 4.1 Dual viewport | Medium | Nice to have | Skip |
-| **Lower** | 7 Type reflection | High | Long-term architecture | Skip |
+| **Lower** | 4.1 Dual viewport | Medium | Nice to have | Skip — low priority, single viewport sufficient for current workflow |
+| **Lower** | 7 Type reflection | High | Long-term architecture | Skip — high architectural effort for lower priority feature |
 | **Lower** | 6.2 Shader packs | Medium | Distribution builds | ✅ Done |
 | **Lower** | 5.2 Compound colliders | Low | Physics completeness | ✅ Done |
 | **Lower** | 2.1 Dedicated render thread | High | Perf (limited by single-threaded GL) | Skip — unfinished in Hazel, wrong arch for single-threaded GL |

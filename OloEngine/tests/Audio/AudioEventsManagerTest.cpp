@@ -58,8 +58,15 @@ TEST_F(AudioEventsManagerTest, PostTriggerWithUnknownCommandStillReturnsID)
 TEST_F(AudioEventsManagerTest, StopAllClearsActiveEvents)
 {
     auto id = m_Registry.AddTrigger("TestEvent");
+    // Add a Stop action — Stop actions don't create active sources (no audio file),
+    // so we verify StopAll doesn't crash on an empty active set after processing.
+    TriggerAction action;
+    action.Type = ActionType::Stop;
+    m_Registry.AddAction(id, action);
+
     m_Manager.PostTrigger(id);
     m_Manager.Update(OloEngine::Timestep(0.016f));
+    // StopAll should complete without error even with zero active events
     m_Manager.StopAllEvents();
     EXPECT_EQ(m_Manager.GetActiveEventCount(), 0u);
 }
@@ -74,6 +81,10 @@ TEST_F(AudioEventsManagerTest, ShutdownClearsEverything)
 {
     auto id = m_Registry.AddTrigger("TestEvent");
     m_Manager.PostTrigger(id);
+    // Process the pending event before shutdown so we test cleanup of processed state
+    m_Manager.Update(OloEngine::Timestep(0.016f));
     m_Manager.Shutdown();
     EXPECT_EQ(m_Manager.GetActiveEventCount(), 0u);
+    // Re-init for TearDown's Shutdown call to be safe
+    m_Manager.Init(&m_Registry);
 }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Core/Base.h"
+
 #include <array>
 #include <string_view>
 

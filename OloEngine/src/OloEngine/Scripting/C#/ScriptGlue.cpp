@@ -617,25 +617,29 @@ namespace OloEngine
     // Audio Events ///////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
 
-    static u32 AudioEvents_PostTrigger(MonoString* eventName, u64 objectID)
+    static u64 AudioEvents_PostTrigger(MonoString* eventName, u64 objectID)
     {
+        if (!eventName)
+        {
+            return 0;
+        }
         char* name = mono_string_to_utf8(eventName);
-        u32 eventID = Audio::AudioPlayback::PostTriggerByName(name, objectID);
+        u64 eventID = Audio::AudioPlayback::PostTriggerByName(name, objectID);
         mono_free(name);
         return eventID;
     }
 
-    static void AudioEvents_StopEvent(u32 eventID)
+    static void AudioEvents_StopEvent(u64 eventID)
     {
         Audio::AudioPlayback::StopEvent(eventID);
     }
 
-    static void AudioEvents_PauseEvent(u32 eventID)
+    static void AudioEvents_PauseEvent(u64 eventID)
     {
         Audio::AudioPlayback::PauseEvent(eventID);
     }
 
-    static void AudioEvents_ResumeEvent(u32 eventID)
+    static void AudioEvents_ResumeEvent(u64 eventID)
     {
         Audio::AudioPlayback::ResumeEvent(eventID);
     }
@@ -645,7 +649,7 @@ namespace OloEngine
         Audio::AudioPlayback::StopAll();
     }
 
-    static bool AudioEvents_IsEventActive(u32 eventID)
+    static bool AudioEvents_IsEventActive(u64 eventID)
     {
         return Audio::AudioPlayback::IsEventActive(eventID);
     }

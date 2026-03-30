@@ -105,14 +105,15 @@ namespace OloEngine::Audio
             // Only track if there are active sources to manage
             if (!active.Sources.empty())
             {
-                m_ActiveEvents.push_back(std::move(active));
+                auto eid = active.EventID;
+                m_ActiveEvents.emplace(eid, std::move(active));
             }
         }
 
         // Update spatial positions for active event sources
         if (m_PositionResolver)
         {
-            for (auto& active : m_ActiveEvents)
+            for (auto& [id, active] : m_ActiveEvents)
             {
                 if (active.ObjectID == 0)
                 {
@@ -129,8 +130,9 @@ namespace OloEngine::Audio
         }
 
         // Clean up finished events (non-looping sources that finished playing)
-        std::erase_if(m_ActiveEvents, [](ActiveEvent& active)
+        std::erase_if(m_ActiveEvents, [](auto& pair)
                       {
+            auto& active = pair.second;
             std::erase_if(active.Sources, [](const Ref<AudioSource>& src)
             {
                 return !src->IsPlaying();
@@ -149,7 +151,7 @@ namespace OloEngine::Audio
             case ActionType::Stop:
             {
                 // Stop all active sources matching the audio filepath (Global context)
-                for (auto& active : m_ActiveEvents)
+                for (auto& [id, active] : m_ActiveEvents)
                 {
                     if (action.Context == ActionContext::GameObject && active.ObjectID != objectID)
                     {
@@ -165,7 +167,7 @@ namespace OloEngine::Audio
 
             case ActionType::Pause:
             {
-                for (auto& active : m_ActiveEvents)
+                for (auto& [id, active] : m_ActiveEvents)
                 {
                     if (action.Context == ActionContext::GameObject && active.ObjectID != objectID)
                     {
@@ -181,7 +183,7 @@ namespace OloEngine::Audio
 
             case ActionType::Resume:
             {
-                for (auto& active : m_ActiveEvents)
+                for (auto& [id, active] : m_ActiveEvents)
                 {
                     if (action.Context == ActionContext::GameObject && active.ObjectID != objectID)
                     {
@@ -199,52 +201,40 @@ namespace OloEngine::Audio
 
     void AudioEventsManager::StopEvent(u64 eventID)
     {
-        for (auto& active : m_ActiveEvents)
+        if (auto it = m_ActiveEvents.find(eventID); it != m_ActiveEvents.end())
         {
-            if (active.EventID == eventID)
+            for (const auto& src : it->second.Sources)
             {
-                for (const auto& src : active.Sources)
-                {
-                    src->Stop();
-                }
-                break;
+                src->Stop();
             }
         }
     }
 
     void AudioEventsManager::PauseEvent(u64 eventID)
     {
-        for (auto& active : m_ActiveEvents)
+        if (auto it = m_ActiveEvents.find(eventID); it != m_ActiveEvents.end())
         {
-            if (active.EventID == eventID)
+            for (const auto& src : it->second.Sources)
             {
-                for (const auto& src : active.Sources)
-                {
-                    src->Pause();
-                }
-                break;
+                src->Pause();
             }
         }
     }
 
     void AudioEventsManager::ResumeEvent(u64 eventID)
     {
-        for (auto& active : m_ActiveEvents)
+        if (auto it = m_ActiveEvents.find(eventID); it != m_ActiveEvents.end())
         {
-            if (active.EventID == eventID)
+            for (const auto& src : it->second.Sources)
             {
-                for (const auto& src : active.Sources)
-                {
-                    src->UnPause();
-                }
-                break;
+                src->UnPause();
             }
         }
     }
 
     void AudioEventsManager::StopAllEvents()
     {
-        for (auto& active : m_ActiveEvents)
+        for (auto& [id, active] : m_ActiveEvents)
         {
             for (const auto& src : active.Sources)
             {
@@ -257,8 +247,7 @@ namespace OloEngine::Audio
 
     bool AudioEventsManager::IsEventActive(u64 eventID) const
     {
-        return std::ranges::any_of(m_ActiveEvents, [eventID](const ActiveEvent& e)
-                                   { return e.EventID == eventID; });
+        return m_ActiveEvents.contains(eventID);
     }
 
     u32 AudioEventsManager::GetActiveEventCount() const

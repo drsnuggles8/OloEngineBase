@@ -3037,7 +3037,13 @@ namespace OloEngine
 
             ImGui::Separator();
             ImGui::Text("Event System");
-            ImGui::Checkbox("Use Event System##AudioSource", &component.UseEventSystem);
+            if (auto prev = component.UseEventSystem; ImGui::Checkbox("Use Event System##AudioSource", &component.UseEventSystem))
+            {
+                if (component.UseEventSystem && !prev)
+                {
+                    component.StartCommandID = Audio::CommandID::FromString(component.StartEvent);
+                }
+            }
             if (component.UseEventSystem)
             {
                 char eventBuf[256] = {};

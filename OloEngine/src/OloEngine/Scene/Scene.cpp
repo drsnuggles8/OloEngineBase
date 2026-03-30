@@ -383,9 +383,9 @@ namespace OloEngine
             m_AudioEventsManager->Init(m_AudioCommandRegistry.get());
             m_AudioEventsManager->SetPositionResolver([this](u64 objectID, glm::vec3& outPos) -> bool
                                                       {
-                if (auto entity = GetEntityByUUID(UUID(objectID)); entity && entity.HasComponent<TransformComponent>())
+                if (auto entity = TryGetEntityWithUUID(UUID(objectID)); entity && entity->HasComponent<TransformComponent>())
                 {
-                    outPos = entity.GetComponent<TransformComponent>().Translation;
+                    outPos = entity->GetComponent<TransformComponent>().Translation;
                     return true;
                 }
                 return false; });

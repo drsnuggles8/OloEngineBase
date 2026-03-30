@@ -181,17 +181,17 @@ namespace OloEngine
 
 		#region AudioEvents
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern uint AudioEvents_PostTrigger(string eventName, ulong objectID);
+		internal static extern ulong AudioEvents_PostTrigger(string eventName, ulong objectID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioEvents_StopEvent(uint eventID);
+		internal static extern void AudioEvents_StopEvent(ulong eventID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioEvents_PauseEvent(uint eventID);
+		internal static extern void AudioEvents_PauseEvent(ulong eventID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioEvents_ResumeEvent(uint eventID);
+		internal static extern void AudioEvents_ResumeEvent(ulong eventID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void AudioEvents_StopAll();
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern bool AudioEvents_IsEventActive(uint eventID);
+		internal static extern bool AudioEvents_IsEventActive(ulong eventID);
 		#endregion
 
 		#region UICanvasComponent

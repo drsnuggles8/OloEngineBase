@@ -60,10 +60,38 @@ namespace OloEngine
         {
             if (!m_RegistryPath.empty())
             {
+                if (m_Dirty)
+                {
+                    m_ShowReloadConfirm = true;
+                    ImGui::OpenPopup("Confirm Reload");
+                }
+                else
+                {
+                    m_Registry.Clear();
+                    m_Registry.Deserialize(m_RegistryPath);
+                }
+            }
+        }
+
+        if (ImGui::BeginPopupModal("Confirm Reload", &m_ShowReloadConfirm, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::Text("You have unsaved changes. Reload will discard them.");
+            ImGui::Separator();
+            if (ImGui::Button("Discard & Reload", ImVec2(160, 0)))
+            {
                 m_Registry.Clear();
                 m_Registry.Deserialize(m_RegistryPath);
                 m_Dirty = false;
+                m_ShowReloadConfirm = false;
+                ImGui::CloseCurrentPopup();
             }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(100, 0)))
+            {
+                m_ShowReloadConfirm = false;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
         }
         ImGui::SameLine();
         if (m_Dirty)
