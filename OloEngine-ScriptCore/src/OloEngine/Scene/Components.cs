@@ -117,13 +117,13 @@ namespace OloEngine
 		{
 			get
 			{
-				InternalCalls.AudioSource_GetVolume(Entity.ID, out float v);
+				InternalCalls.AudioSourceComponent_GetVolume(Entity.ID, out float v);
 				return v;
 			}
 
 			set
 			{
-				InternalCalls.AudioSource_SetVolume(Entity.ID, ref value);
+				InternalCalls.AudioSourceComponent_SetVolume(Entity.ID, ref value);
 			}
 		}
 
@@ -134,12 +134,12 @@ namespace OloEngine
 		{
 			get
 			{
-				InternalCalls.AudioSource_GetPitch(Entity.ID, out float v);
+				InternalCalls.AudioSourceComponent_GetPitch(Entity.ID, out float v);
 				return v;
 			}
 			set
 			{
-				InternalCalls.AudioSource_SetPitch(Entity.ID, ref value);
+				InternalCalls.AudioSourceComponent_SetPitch(Entity.ID, ref value);
 			}
 		}
 
@@ -150,12 +150,12 @@ namespace OloEngine
 		{
 			get
 			{
-				InternalCalls.AudioSource_GetPlayOnAwake(Entity.ID, out bool v);
+				InternalCalls.AudioSourceComponent_GetPlayOnAwake(Entity.ID, out bool v);
 				return v;
 			}
 			set
 			{
-				InternalCalls.AudioSource_SetPlayOnAwake(Entity.ID, ref value);
+				InternalCalls.AudioSourceComponent_SetPlayOnAwake(Entity.ID, ref value);
 			}
 		}
 
@@ -166,12 +166,12 @@ namespace OloEngine
 		{
 			get
 			{
-				InternalCalls.AudioSource_GetLooping(Entity.ID, out bool v);
+				InternalCalls.AudioSourceComponent_GetLooping(Entity.ID, out bool v);
 				return v;
 			}
 			set
 			{
-				InternalCalls.AudioSource_SetLooping(Entity.ID, ref value);
+				InternalCalls.AudioSourceComponent_SetLooping(Entity.ID, ref value);
 			}
 		}
 
@@ -182,12 +182,12 @@ namespace OloEngine
 		{
 			get
 			{
-				InternalCalls.AudioSource_GetSpatialization(Entity.ID, out bool v);
+				InternalCalls.AudioSourceComponent_GetSpatialization(Entity.ID, out bool v);
 				return v;
 			}
 			set
 			{
-				InternalCalls.AudioSource_SetSpatialization(Entity.ID, ref value);
+				InternalCalls.AudioSourceComponent_SetSpatialization(Entity.ID, ref value);
 			}
 		}
 
@@ -198,13 +198,13 @@ namespace OloEngine
 		{
 			get
 			{
-				InternalCalls.AudioSource_GetAttenuationModel(Entity.ID, out int v);
+				InternalCalls.AudioSourceComponent_GetAttenuationModel(Entity.ID, out int v);
 				return (AttenuationModelType)v;
 			}
 			set
 			{
 				int v = (int)value;
-				InternalCalls.AudioSource_SetAttenuationModel(Entity.ID, ref v);
+				InternalCalls.AudioSourceComponent_SetAttenuationModel(Entity.ID, ref v);
 			}
 		}
 
@@ -215,12 +215,12 @@ namespace OloEngine
 		{
 			get
 			{
-				InternalCalls.AudioSource_GetRollOff(Entity.ID, out float v);
+				InternalCalls.AudioSourceComponent_GetRollOff(Entity.ID, out float v);
 				return v;
 			}
 			set
 			{
-				InternalCalls.AudioSource_SetRollOff(Entity.ID, ref value);
+				InternalCalls.AudioSourceComponent_SetRollOff(Entity.ID, ref value);
 			}
 		}
 
@@ -231,12 +231,12 @@ namespace OloEngine
 		{
 			get
 			{
-				InternalCalls.AudioSource_GetMinGain(Entity.ID, out float v);
+				InternalCalls.AudioSourceComponent_GetMinGain(Entity.ID, out float v);
 				return v;
 			}
 			set
 			{
-				InternalCalls.AudioSource_SetMinGain(Entity.ID, ref value);
+				InternalCalls.AudioSourceComponent_SetMinGain(Entity.ID, ref value);
 			}
 		}
 
@@ -247,12 +247,12 @@ namespace OloEngine
 		{
 			get
 			{
-				InternalCalls.AudioSource_GetMaxGain(Entity.ID, out float v);
+				InternalCalls.AudioSourceComponent_GetMaxGain(Entity.ID, out float v);
 				return v;
 			}
 			set
 			{
-				InternalCalls.AudioSource_SetMaxGain(Entity.ID, ref value);
+				InternalCalls.AudioSourceComponent_SetMaxGain(Entity.ID, ref value);
 			}
 		}
 
@@ -263,12 +263,12 @@ namespace OloEngine
 		{
 			get
 			{
-				InternalCalls.AudioSource_GetMinDistance(Entity.ID, out float v);
+				InternalCalls.AudioSourceComponent_GetMinDistance(Entity.ID, out float v);
 				return v;
 			}
 			set
 			{
-				InternalCalls.AudioSource_SetMinDistance(Entity.ID, ref value);
+				InternalCalls.AudioSourceComponent_SetMinDistance(Entity.ID, ref value);
 			}
 		}
 
@@ -279,12 +279,12 @@ namespace OloEngine
 		{
 			get
 			{
-				InternalCalls.AudioSource_GetMaxDistance(Entity.ID, out float v);
+				InternalCalls.AudioSourceComponent_GetMaxDistance(Entity.ID, out float v);
 				return v;
 			}
 			set
 			{
-				InternalCalls.AudioSource_SetMaxDistance(Entity.ID, ref value);
+				InternalCalls.AudioSourceComponent_SetMaxDistance(Entity.ID, ref value);
 			}
 		}
 
@@ -295,12 +295,12 @@ namespace OloEngine
 		{
 			get
 			{
-				InternalCalls.AudioSource_GetConeInnerAngle(Entity.ID, out float v);
+				InternalCalls.AudioSourceComponent_GetConeInnerAngle(Entity.ID, out float v);
 				return v;
 			}
 			set
 			{
-				InternalCalls.AudioSource_SetConeInnerAngle(Entity.ID, ref value);
+				InternalCalls.AudioSourceComponent_SetConeInnerAngle(Entity.ID, ref value);
 			}
 		}
 
@@ -311,12 +311,12 @@ namespace OloEngine
 		{
 			get
 			{
-				InternalCalls.AudioSource_GetConeOuterAngle(Entity.ID, out float v);
+				InternalCalls.AudioSourceComponent_GetConeOuterAngle(Entity.ID, out float v);
 				return v;
 			}
 			set
 			{
-				InternalCalls.AudioSource_SetConeOuterAngle(Entity.ID, ref value);
+				InternalCalls.AudioSourceComponent_SetConeOuterAngle(Entity.ID, ref value);
 			}
 		}
 
@@ -327,12 +327,12 @@ namespace OloEngine
 		{
 			get
 			{
-				InternalCalls.AudioSource_GetConeOuterGain(Entity.ID, out float v);
+				InternalCalls.AudioSourceComponent_GetConeOuterGain(Entity.ID, out float v);
 				return v;
 			}
 			set
 			{
-				InternalCalls.AudioSource_SetConeOuterGain(Entity.ID, ref value);
+				InternalCalls.AudioSourceComponent_SetConeOuterGain(Entity.ID, ref value);
 			}
 		}
 
@@ -343,12 +343,12 @@ namespace OloEngine
 		{
 			get
 			{
-				InternalCalls.AudioSource_GetDopplerFactor(Entity.ID, out float v);
+				InternalCalls.AudioSourceComponent_GetDopplerFactor(Entity.ID, out float v);
 				return v;
 			}
 			set
 			{
-				InternalCalls.AudioSource_SetDopplerFactor(Entity.ID, ref value);
+				InternalCalls.AudioSourceComponent_SetDopplerFactor(Entity.ID, ref value);
 			}
 		}
 
@@ -358,7 +358,7 @@ namespace OloEngine
 		/// <returns>Playing status</returns>
 		public bool IsPlaying()
 		{
-			InternalCalls.AudioSource_IsPlaying(Entity.ID, out bool v);
+			InternalCalls.AudioSourceComponent_IsPlaying(Entity.ID, out bool v);
 			return v;
 		}
 
@@ -367,7 +367,7 @@ namespace OloEngine
 		/// </summary>
 		public void Play()
 		{
-			InternalCalls.AudioSource_Play(Entity.ID);
+			InternalCalls.AudioSourceComponent_Play(Entity.ID);
 		}
 
 		/// <summary>
@@ -375,7 +375,7 @@ namespace OloEngine
 		/// </summary>
 		public void Pause()
 		{
-			InternalCalls.AudioSource_Pause(Entity.ID);
+			InternalCalls.AudioSourceComponent_Pause(Entity.ID);
 		}
 
 		/// <summary>
@@ -383,7 +383,7 @@ namespace OloEngine
 		/// </summary>
 		public void UnPause()
 		{
-			InternalCalls.AudioSource_UnPause(Entity.ID);
+			InternalCalls.AudioSourceComponent_UnPause(Entity.ID);
 		}
 
 		/// <summary>
@@ -391,7 +391,7 @@ namespace OloEngine
 		/// </summary>
 		public void Stop()
 		{
-			InternalCalls.AudioSource_Stop(Entity.ID);
+			InternalCalls.AudioSourceComponent_Stop(Entity.ID);
 		}
 	}
 

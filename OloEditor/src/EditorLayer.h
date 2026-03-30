@@ -22,6 +22,7 @@
 #include "Panels/EditorPreferencesPanel.h"
 #include "Panels/GamepadDebugPanel.h"
 #include "Panels/ShaderEditorPanel.h"
+#include "Panels/AudioEventsPanel.h"
 
 #include "UndoRedo/EditorCommand.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
@@ -238,6 +239,8 @@ namespace OloEngine
         bool m_ShowGamepadDebug = false;
         ShaderEditorPanel m_ShaderEditorPanel;
         bool m_ShowShaderEditor = false;
+        AudioEventsPanel m_AudioEventsPanel;
+        bool m_ShowAudioEventsPanel = false;
 
         // Undo/Redo
         CommandHistory m_CommandHistory;

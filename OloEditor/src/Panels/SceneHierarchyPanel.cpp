@@ -1,6 +1,7 @@
 #include "SceneHierarchyPanel.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Prefab.h"
+#include "OloEngine/Audio/AudioEvents/AudioCommandRegistry.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/UI/UI.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -2981,7 +2982,7 @@ namespace OloEngine
             ImGui::Checkbox("Control Rotation In Air##CharacterController3D", &component.m_ControlRotationInAir); });
 
         // Audio Components
-        DrawComponent<AudioSourceComponent>("Audio Source", entity, [](auto& component)
+        DrawComponent<AudioSourceComponent>("Audio Source", entity, [this](auto& component)
                                             {
             ImGui::Text("Audio Source: %s", component.Source ? "Loaded" : "None");
             if (component.Source)
@@ -3033,7 +3034,89 @@ namespace OloEngine
             ImGui::SliderFloat("High-Pass Cutoff##AudioSource", &component.Config.HighPassCutoff, 0.0f, 1.0f, "%.3f");
             ImGui::SetItemTooltip("Normalized cutoff [0..1]. 0.0 = 20 Hz (bypassed)");
             ImGui::SliderFloat("Reverb Send##AudioSource", &component.Config.ReverbSend, 0.0f, 1.0f, "%.3f");
-            ImGui::SetItemTooltip("Reverb send level [0..1]"); });
+            ImGui::SetItemTooltip("Reverb send level [0..1]");
+
+            ImGui::Separator();
+            ImGui::Text("Event System");
+            if (auto prev = component.UseEventSystem; ImGui::Checkbox("Use Event System##AudioSource", &component.UseEventSystem))
+            {
+                if (component.UseEventSystem && !prev)
+                {
+                    if (auto* reg = m_Context->GetAudioCommandRegistry())
+                    {
+                        if (auto resolved = Audio::CommandID::FromString(component.StartEvent); reg->Contains(resolved))
+                        {
+                            component.StartCommandID = resolved;
+                        }
+                        else
+                        {
+                            component.StartCommandID = {};
+                        }
+                    }
+                    else
+                    {
+                        component.StartCommandID = {};
+                    }
+                }
+            }
+            if (component.UseEventSystem)
+            {
+                char eventBuf[256] = {};
+                std::strncpy(eventBuf, component.StartEvent.c_str(), sizeof(eventBuf) - 1);
+                if (ImGui::InputText("Start Event##AudioSource", eventBuf, sizeof(eventBuf)))
+                {
+                    component.StartEvent = eventBuf;
+                    if (auto* reg = m_Context->GetAudioCommandRegistry())
+                    {
+                        if (auto resolved = Audio::CommandID::FromString(component.StartEvent); reg->Contains(resolved))
+                        {
+                            component.StartCommandID = resolved;
+                        }
+                        else
+                        {
+                            component.StartCommandID = {};
+                        }
+                    }
+                    else
+                    {
+                        component.StartCommandID = {};
+                    }
+                }
+
+                // Validate against registry if available; re-resolve stale IDs
+                bool validated = false;
+                if (auto* reg = m_Context->GetAudioCommandRegistry())
+                {
+                    if (!component.StartEvent.empty() && !component.StartCommandID.IsValid())
+                    {
+                        if (auto resolved = Audio::CommandID::FromString(component.StartEvent); reg->Contains(resolved))
+                        {
+                            component.StartCommandID = resolved;
+                        }
+                    }
+                    if (component.StartCommandID.IsValid())
+                    {
+                        validated = reg->Contains(component.StartCommandID);
+                    }
+                }
+
+                if (component.StartEvent.empty())
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "No event name set");
+                }
+                else if (!component.StartCommandID.IsValid())
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "Unresolved start event");
+                }
+                else if (!validated && m_Context->IsRunning())
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "CommandID: %u (not found in registry)", component.StartCommandID.ID);
+                }
+                else
+                {
+                    ImGui::Text("CommandID: %u", component.StartCommandID.ID);
+                }
+            } });
 
         DrawComponent<AudioListenerComponent>("Audio Listener", entity, [](auto& component)
                                               {

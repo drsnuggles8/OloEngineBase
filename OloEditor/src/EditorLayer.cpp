@@ -704,6 +704,7 @@ namespace OloEngine
             ImGui::MenuItem("Save Game Panel", nullptr, &m_ShowSaveGamePanel);
             ImGui::MenuItem("Gamepad Debug", nullptr, &m_ShowGamepadDebug);
             ImGui::MenuItem("Shader Editor", nullptr, &m_ShowShaderEditor);
+            ImGui::MenuItem("Audio Events", nullptr, &m_ShowAudioEventsPanel);
 
             ImGui::EndMenu();
         }
@@ -1208,6 +1209,12 @@ namespace OloEngine
         if (m_ShowShaderEditor)
         {
             m_ShaderEditorPanel.OnImGuiRender(&m_ShowShaderEditor);
+        }
+
+        // Audio Events Panel
+        if (m_ShowAudioEventsPanel)
+        {
+            m_AudioEventsPanel.OnImGuiRender(&m_ShowAudioEventsPanel);
         }
 
         // Console Panel
@@ -2243,6 +2250,7 @@ namespace OloEngine
         m_NavMeshPanel.SetContext(m_ActiveScene);
         m_BehaviorTreeEditorPanel.SetContext(m_ActiveScene);
         m_FSMEditorPanel.SetContext(m_ActiveScene);
+        m_AudioEventsPanel.SetActiveScene(m_ActiveScene);
     }
 
     void EditorLayer::OnSceneSimulate()
@@ -2269,6 +2277,7 @@ namespace OloEngine
         m_NavMeshPanel.SetContext(m_ActiveScene);
         m_BehaviorTreeEditorPanel.SetContext(m_ActiveScene);
         m_FSMEditorPanel.SetContext(m_ActiveScene);
+        m_AudioEventsPanel.SetActiveScene(m_ActiveScene);
     }
 
     void EditorLayer::OnSceneStop()
@@ -2307,6 +2316,7 @@ namespace OloEngine
         m_NavMeshPanel.SetContext(m_ActiveScene);
         m_BehaviorTreeEditorPanel.SetContext(m_ActiveScene);
         m_FSMEditorPanel.SetContext(m_ActiveScene);
+        m_AudioEventsPanel.SetActiveScene(m_ActiveScene);
     }
 
     void EditorLayer::SetEditorScene(const Ref<Scene>& scene)
@@ -2334,6 +2344,7 @@ namespace OloEngine
         m_AnimationGraphEditorPanel.SetContext(m_EditorScene);
         m_AnimationGraphEditorPanel.SetCommandHistory(&m_CommandHistory);
         m_InputSettingsPanel.SetCommandHistory(&m_CommandHistory);
+        m_AudioEventsPanel.SetActiveScene(m_EditorScene);
 
         m_ActiveScene = m_EditorScene;
 

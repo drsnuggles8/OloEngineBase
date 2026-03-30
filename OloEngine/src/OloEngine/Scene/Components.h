@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Audio/AudioListener.h"
+#include "OloEngine/Audio/AudioEvents/CommandID.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
@@ -508,8 +509,38 @@ namespace OloEngine
 
         Ref<AudioSource> Source = nullptr;
 
+        // Event-driven audio
+        std::string StartEvent;          // Event name, e.g. "PlayFootsteps"
+        Audio::CommandID StartCommandID; // CRC32 of StartEvent (cached)
+        bool UseEventSystem = false;     // If true, uses events instead of direct play
+        u64 ActiveEventID = 0;           // Runtime handle from AudioPlayback::PostTrigger
+
         AudioSourceComponent() = default;
-        AudioSourceComponent(const AudioSourceComponent&) = default;
+
+        AudioSourceComponent(const AudioSourceComponent& other)
+            : Config(other.Config), Source(other.Source), StartEvent(other.StartEvent), StartCommandID(other.StartCommandID), UseEventSystem(other.UseEventSystem)
+        {
+        }
+
+        auto operator=(const AudioSourceComponent& other) -> AudioSourceComponent&
+        {
+            if (this != &other)
+            {
+                Config = other.Config;
+                Source = other.Source;
+                StartEvent = other.StartEvent;
+                StartCommandID = other.StartCommandID;
+                UseEventSystem = other.UseEventSystem;
+                ActiveEventID = 0;
+            }
+            return *this;
+        }
+
+        // Equality for undo/redo — compares serialized/editor-visible fields only
+        auto operator==(const AudioSourceComponent& other) const -> bool
+        {
+            return std::memcmp(&Config, &other.Config, sizeof(Config)) == 0 && StartEvent == other.StartEvent && StartCommandID == other.StartCommandID && UseEventSystem == other.UseEventSystem;
+        }
     };
 
     struct AudioListenerComponent

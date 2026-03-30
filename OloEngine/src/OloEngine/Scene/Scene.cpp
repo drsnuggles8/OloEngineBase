@@ -61,6 +61,10 @@
 #include "OloEngine/Gameplay/Inventory/InventorySystem.h"
 #include "OloEngine/Gameplay/Quest/QuestSystem.h"
 #include "OloEngine/Gameplay/Abilities/GameplayAbilitySystem.h"
+#include "OloEngine/Audio/AudioEvents/AudioEventsManager.h"
+#include "OloEngine/Audio/AudioEvents/AudioCommandRegistry.h"
+#include "OloEngine/Audio/AudioEvents/AudioPlayback.h"
+#include "OloEngine/Project/Project.h"
 
 #include <glm/glm.hpp>
 #include <ranges>
@@ -363,6 +367,30 @@ namespace OloEngine
 
         if (!Application::Get().IsHeadless())
         {
+            // Initialize audio events system
+            m_AudioCommandRegistry = std::make_unique<Audio::AudioCommandRegistry>();
+            m_AudioEventsManager = std::make_unique<Audio::AudioEventsManager>();
+
+            if (const auto project = Project::GetActive())
+            {
+                auto eventsPath = Project::GetAssetDirectory() / "audio" / "AudioEvents.yaml";
+                if (std::filesystem::exists(eventsPath))
+                {
+                    m_AudioCommandRegistry->Deserialize(eventsPath);
+                }
+            }
+
+            m_AudioEventsManager->Init(m_AudioCommandRegistry.get());
+            m_AudioEventsManager->SetPositionResolver([this](u64 objectID, glm::vec3& outPos) -> bool
+                                                      {
+                if (auto entity = TryGetEntityWithUUID(UUID(objectID)); entity && entity->HasComponent<TransformComponent>())
+                {
+                    outPos = entity->GetComponent<TransformComponent>().Translation;
+                    return true;
+                }
+                return false; });
+            Audio::AudioPlayback::SetManager(m_AudioEventsManager.get());
+
             for (auto listenerView = m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>); auto&& [e, ac, tc] : listenerView.each())
             {
                 ac.Listener = Ref<AudioListener>::Create();
@@ -379,6 +407,14 @@ namespace OloEngine
 
             for (auto sourceView = m_Registry.group<AudioSourceComponent>(entt::get<TransformComponent>); auto&& [e, ac, tc] : sourceView.each())
             {
+                // Event-driven audio: post the start event instead of direct play
+                if (ac.UseEventSystem && ac.StartCommandID.IsValid() && ac.Config.PlayOnAwake)
+                {
+                    Entity entity(e, this);
+                    ac.ActiveEventID = Audio::AudioPlayback::PostTrigger(ac.StartCommandID, static_cast<u64>(entity.GetUUID()));
+                    continue;
+                }
+
                 if (ac.Source)
                 {
                     const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
@@ -508,7 +544,17 @@ namespace OloEngine
         {
             if (ac.Source)
                 ac.Source->Stop();
+            ac.ActiveEventID = 0;
         }
+
+        // Shut down audio events system
+        if (m_AudioEventsManager)
+        {
+            m_AudioEventsManager->Shutdown();
+            Audio::AudioPlayback::SetManager(nullptr);
+            m_AudioEventsManager.reset();
+        }
+        m_AudioCommandRegistry.reset();
 
         OnPhysics2DStop();
         OnPhysics3DStop();
@@ -998,6 +1044,12 @@ namespace OloEngine
                     ac.Source->SetPosition(tc.Translation);
                     ac.Source->SetDirection(forward);
                 }
+            }
+
+            // Process audio events queue
+            if (m_AudioEventsManager)
+            {
+                m_AudioEventsManager->Update(ts);
             }
 
             // Update particle systems

@@ -10,6 +10,8 @@
 		
 		"Panels/AnimationPanel.cpp"
 		"Panels/AnimationPanel.h"
+		"Panels/AudioEventsPanel.cpp"
+		"Panels/AudioEventsPanel.h"
 		"Panels/AssetPackBuilderPanel.cpp"
 		"Panels/AssetPackBuilderPanel.h"
 		"Panels/ContentBrowserPanel.cpp"

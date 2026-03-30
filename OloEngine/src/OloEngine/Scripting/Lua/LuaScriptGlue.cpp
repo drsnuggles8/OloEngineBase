@@ -34,6 +34,11 @@
 #include "OloEngine/Gameplay/Abilities/Damage/DamageEvent.h"
 #include "OloEngine/Physics3D/SceneQueries.h"
 #include "OloEngine/Physics3D/JoltScene.h"
+#include "OloEngine/Audio/AudioEvents/AudioPlayback.h"
+#include "OloEngine/Audio/AudioEvents/CommandID.h"
+
+#include <algorithm>
+#include <cmath>
 
 namespace OloEngine
 {
@@ -275,6 +280,112 @@ namespace OloEngine
                                                    "ownerClientID", &NetworkIdentityComponent::OwnerClientID,
                                                    "authority", &NetworkIdentityComponent::Authority,
                                                    "isReplicated", &NetworkIdentityComponent::IsReplicated);
+
+        // --- AudioSourceComponent ---
+        lua.new_usertype<AudioSourceComponent>("AudioSourceComponent", "volume", sol::property([](const AudioSourceComponent& c)
+                                                                                               { return c.Config.VolumeMultiplier; }, [](AudioSourceComponent& c, f32 v)
+                                                                                               {
+                    if (!std::isfinite(v)) v = 1.0f;
+                    v = std::clamp(v, 0.0f, 2.0f);
+                    c.Config.VolumeMultiplier = v;
+                    if (c.Source) { c.Source->SetVolume(v); } }),
+                                               "pitch", sol::property([](const AudioSourceComponent& c)
+                                                                      { return c.Config.PitchMultiplier; }, [](AudioSourceComponent& c, f32 v)
+                                                                      {
+                    if (!std::isfinite(v)) v = 1.0f;
+                    v = std::clamp(v, 0.1f, 3.0f);
+                    c.Config.PitchMultiplier = v;
+                    if (c.Source) { c.Source->SetPitch(v); } }),
+                                               "playOnAwake", sol::property([](const AudioSourceComponent& c)
+                                                                            { return c.Config.PlayOnAwake; }, [](AudioSourceComponent& c, bool v)
+                                                                            { c.Config.PlayOnAwake = v; }),
+                                               "looping", sol::property([](const AudioSourceComponent& c)
+                                                                        { return c.Config.Looping; }, [](AudioSourceComponent& c, bool v)
+                                                                        {
+                    c.Config.Looping = v;
+                    if (c.Source) { c.Source->SetLooping(v); } }),
+                                               "spatialization", sol::property([](const AudioSourceComponent& c)
+                                                                               { return c.Config.Spatialization; }, [](AudioSourceComponent& c, bool v)
+                                                                               {
+                    c.Config.Spatialization = v;
+                    if (c.Source) { c.Source->SetSpatialization(v); } }),
+                                               "useEventSystem", &AudioSourceComponent::UseEventSystem, "startEvent", sol::property([](const AudioSourceComponent& c)
+                                                                                                                                    { return c.StartEvent; }, [](AudioSourceComponent& c, const std::string& v)
+                                                                                                                                    {
+                    c.StartEvent = v;
+                    c.StartCommandID = Audio::CommandID::FromString(v); }),
+                                               "isPlaying", [](const AudioSourceComponent& c) -> bool
+                                               {
+                if (c.UseEventSystem && c.ActiveEventID != 0)
+                {
+                    return Audio::AudioPlayback::IsEventActive(c.ActiveEventID);
+                }
+                return c.Source && c.Source->IsPlaying(); }, "Play", [](AudioSourceComponent& c, sol::optional<u64> ownerUUID)
+                                               {
+                if (c.UseEventSystem && c.StartCommandID.IsValid())
+                {
+                    if (c.ActiveEventID != 0)
+                    {
+                        Audio::AudioPlayback::StopEvent(c.ActiveEventID);
+                    }
+                    u64 objectID = ownerUUID.value_or(0);
+                    c.ActiveEventID = Audio::AudioPlayback::PostTrigger(c.StartCommandID, objectID);
+                    return;
+                }
+                if (c.Source) { c.Source->Play(); } }, "Stop", [](AudioSourceComponent& c)
+                                               {
+                if (c.UseEventSystem && c.ActiveEventID != 0)
+                {
+                    Audio::AudioPlayback::StopEvent(c.ActiveEventID);
+                    c.ActiveEventID = 0;
+                    return;
+                }
+                if (c.Source) { c.Source->Stop(); } }, "Pause", [](AudioSourceComponent& c)
+                                               {
+                if (c.UseEventSystem && c.ActiveEventID != 0)
+                {
+                    Audio::AudioPlayback::PauseEvent(c.ActiveEventID);
+                    return;
+                }
+                if (c.Source) { c.Source->Pause(); } }, "UnPause", [](AudioSourceComponent& c)
+                                               {
+                if (c.UseEventSystem && c.ActiveEventID != 0)
+                {
+                    Audio::AudioPlayback::ResumeEvent(c.ActiveEventID);
+                    return;
+                }
+                if (c.Source) { c.Source->UnPause(); } });
+
+        // --- AudioListenerComponent ---
+        lua.new_usertype<AudioListenerComponent>("AudioListenerComponent",
+                                                 "active", &AudioListenerComponent::Active);
+
+        // --- AudioEvents (global table) ---
+        auto audioEventsTable = lua.create_named_table("AudioEvents");
+        audioEventsTable["PostTrigger"] = [](const std::string& eventName, u64 objectID) -> u64
+        {
+            return Audio::AudioPlayback::PostTriggerByName(eventName, objectID);
+        };
+        audioEventsTable["StopEvent"] = [](u64 eventID)
+        {
+            Audio::AudioPlayback::StopEvent(eventID);
+        };
+        audioEventsTable["PauseEvent"] = [](u64 eventID)
+        {
+            Audio::AudioPlayback::PauseEvent(eventID);
+        };
+        audioEventsTable["ResumeEvent"] = [](u64 eventID)
+        {
+            Audio::AudioPlayback::ResumeEvent(eventID);
+        };
+        audioEventsTable["StopAll"] = []()
+        {
+            Audio::AudioPlayback::StopAll();
+        };
+        audioEventsTable["IsEventActive"] = [](u64 eventID) -> bool
+        {
+            return Audio::AudioPlayback::IsEventActive(eventID);
+        };
 
         // --- NetworkManager (static functions as table) ---
         auto networkTable = lua.create_named_table("Network");
@@ -987,6 +1098,7 @@ namespace OloEngine
 
         // --- ShaderLibrary3D (global table) ---
         auto shaderLib3D = lua.create_named_table("ShaderLibrary3D");
+
         shaderLib3D["Load"] = [](const std::string& filepath) -> bool
         {
             auto shader = Renderer3D::GetShaderLibrary().Load(filepath);
