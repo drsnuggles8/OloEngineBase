@@ -61,7 +61,10 @@ namespace OloEngine::Animation::BlendUtils
         glm::quat rotation;
         glm::vec3 skew;
         glm::vec4 perspective;
-        glm::decompose(m, scale, rotation, translation, skew, perspective);
+        if (!glm::decompose(m, scale, rotation, translation, skew, perspective))
+        {
+            return { glm::vec3(0.0f), glm::identity<glm::quat>(), glm::vec3(1.0f) };
+        }
         return { translation, rotation, scale };
     }
 
@@ -113,9 +116,14 @@ namespace OloEngine::Animation::BlendUtils
         // Walk up the parent chain and accumulate
         // Build the chain from root to boneIndex
         std::vector<u32> chain;
-        for (auto idx = static_cast<int>(boneIndex); idx >= 0 && static_cast<sizet>(idx) < localPose.size();)
+        chain.reserve(16);
+        for (auto idx = static_cast<int>(boneIndex); idx >= 0 && static_cast<sizet>(idx) < localPose.size() && static_cast<sizet>(idx) < parentIndices.size();)
         {
             chain.push_back(static_cast<u32>(idx));
+            if (chain.size() > localPose.size())
+            {
+                break; // cycle guard
+            }
             idx = parentIndices[static_cast<sizet>(idx)];
         }
 
@@ -166,6 +174,12 @@ namespace OloEngine::Animation::BlendUtils
         {
             affected = BuildAffectedBonesMask(blendRootBone, count, parentIndices);
             useMask = !affected.empty();
+        }
+        else if (blendRootBone > 0 && blendRootBone >= count)
+        {
+            // Out-of-range root bone: nothing to blend, copy base
+            std::copy(base.begin(), base.begin() + static_cast<std::ptrdiff_t>(count), out.begin());
+            return;
         }
 
         for (sizet i = 0; i < count; ++i)

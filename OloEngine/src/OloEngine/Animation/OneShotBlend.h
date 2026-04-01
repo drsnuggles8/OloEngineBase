@@ -70,5 +70,9 @@ namespace OloEngine::Animation
 
         // Reusable scratch buffer to avoid per-frame heap allocation
         std::vector<BoneTransform> m_OneShotPose;
+
+        // Snapshot of basePose captured on first additive Update after Trigger.
+        // Used as the stable rest pose for computing additive deltas.
+        std::vector<BoneTransform> m_AdditiveRestPose;
     };
 } // namespace OloEngine::Animation

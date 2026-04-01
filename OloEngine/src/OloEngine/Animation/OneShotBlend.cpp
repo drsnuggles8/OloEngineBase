@@ -15,6 +15,7 @@ namespace OloEngine::Animation
         m_Phase = Phase::BlendIn;
         m_PlaybackTime = 0.0f;
         m_PhaseTime = 0.0f;
+        m_AdditiveRestPose.clear();
     }
 
     void OneShotBlend::Cancel()
@@ -148,9 +149,14 @@ namespace OloEngine::Animation
         // Blend the one-shot pose into the base pose
         if (Additive)
         {
-            // For additive, we need a rest pose. Use basePose as the "rest" for simplicity
-            // (the delta is m_OneShotPose - basePose, applied on top of basePose).
-            BlendUtils::AdditivePose(basePose, m_OneShotPose, basePose, effectiveWeight,
+            // Capture a stable rest pose snapshot on the first additive frame.
+            // Using basePose as rest every frame would reduce to linear interpolation
+            // since the delta (m_OneShotPose - basePose) changes with basePose.
+            if (m_AdditiveRestPose.size() != boneCount)
+            {
+                m_AdditiveRestPose.assign(basePose.begin(), basePose.end());
+            }
+            BlendUtils::AdditivePose(basePose, m_OneShotPose, m_AdditiveRestPose, effectiveWeight,
                                      BlendRootBone, parentIndices, basePose);
         }
         else if (BlendRootBone > 0)

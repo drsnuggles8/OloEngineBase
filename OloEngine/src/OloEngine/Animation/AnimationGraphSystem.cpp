@@ -75,8 +75,9 @@ namespace OloEngine::Animation
                 if (isFiniteVec3(ikTarget->AimTarget) && isFiniteVec3(ikTarget->AimAxis) && isFiniteVec3(ikTarget->AimOffset) && isFiniteVec3(ikTarget->AimPoleVector) && std::isfinite(ikTarget->AimWeight) && std::isfinite(ikTarget->AimChainFactor))
                 {
                     // Mark affected bones only after validation passes
+                    auto aimChain = std::clamp(ikTarget->AimChainLength, 1u, static_cast<u32>(boneCount));
                     auto bone = ikTarget->AimBoneIndex;
-                    for (u32 j = 0; j < std::max(1u, ikTarget->AimChainLength) && bone < static_cast<u32>(boneCount); ++j)
+                    for (u32 j = 0; j < aimChain && bone < static_cast<u32>(boneCount); ++j)
                     {
                         ikModified[bone] = true;
                         if (auto parent = skeleton.m_ParentIndices[bone]; parent < 0)
@@ -95,7 +96,7 @@ namespace OloEngine::Animation
                     params.AimAxis = ikTarget->AimAxis;
                     params.AimOffset = ikTarget->AimOffset;
                     params.PoleVector = ikTarget->AimPoleVector;
-                    params.ChainLength = std::max(1u, ikTarget->AimChainLength);
+                    params.ChainLength = std::clamp(ikTarget->AimChainLength, 1u, static_cast<u32>(boneCount));
                     params.ChainFactor = glm::clamp(ikTarget->AimChainFactor, 0.0f, 1.0f);
                     params.Weight = glm::clamp(ikTarget->AimWeight, 0.0f, 1.0f);
                     AimIKSolver::Solve(localPose, skeleton.m_ParentIndices, params, skeleton.m_BonePreTransforms);
@@ -107,8 +108,9 @@ namespace OloEngine::Animation
                 if (isFiniteVec3(ikTarget->LimbTarget) && std::isfinite(ikTarget->LimbWeight))
                 {
                     // Mark affected bones only after validation passes
+                    auto limbChain = std::clamp(ikTarget->LimbChainLength, 1u, static_cast<u32>(boneCount));
                     auto bone = ikTarget->LimbBoneIndex;
-                    for (u32 j = 0; j < std::max(1u, ikTarget->LimbChainLength) && bone < static_cast<u32>(boneCount); ++j)
+                    for (u32 j = 0; j < limbChain && bone < static_cast<u32>(boneCount); ++j)
                     {
                         ikModified[bone] = true;
                         if (auto parent = skeleton.m_ParentIndices[bone]; parent < 0)
@@ -124,7 +126,7 @@ namespace OloEngine::Animation
                     LimbIKParams params;
                     params.TargetBoneIndex = ikTarget->LimbBoneIndex;
                     params.TargetPosition = BlendUtils::WorldToModelSpace(ikTarget->LimbTarget, entityWorldTransform);
-                    params.ChainLength = std::max(1u, ikTarget->LimbChainLength);
+                    params.ChainLength = std::clamp(ikTarget->LimbChainLength, 1u, static_cast<u32>(boneCount));
                     params.Weight = glm::clamp(ikTarget->LimbWeight, 0.0f, 1.0f);
                     LimbIKSolver::Solve(localPose, skeleton.m_ParentIndices, params, skeleton.m_BonePreTransforms);
                 }

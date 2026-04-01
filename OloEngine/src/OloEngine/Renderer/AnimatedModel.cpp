@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Animation/MorphTargets/MorphTarget.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
+#include <cmath>
 #include <filesystem>
 #include <set>
 #include <unordered_map>
@@ -108,7 +109,16 @@ namespace OloEngine
                 }
                 else if (m_HasMeshNodeTransform && mesh->mNumBones > 0)
                 {
-                    OLO_CORE_ASSERT(m_MeshNodeGlobalTransform == globalTransform,
+                    constexpr f32 kMatEps = 1e-4f;
+                    bool same = true;
+                    for (int r = 0; r < 4 && same; ++r)
+                    {
+                        for (int c = 0; c < 4 && same; ++c)
+                        {
+                            same = std::abs(m_MeshNodeGlobalTransform[r][c] - globalTransform[r][c]) < kMatEps;
+                        }
+                    }
+                    OLO_CORE_ASSERT(same,
                                     "AnimatedModel: skinned meshes have different node transforms — axis correction may be wrong");
                 }
 

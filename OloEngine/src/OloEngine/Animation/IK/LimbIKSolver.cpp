@@ -36,6 +36,12 @@ namespace OloEngine::Animation
             return;
         }
 
+        // Validate floating-point parameters
+        if (!std::isfinite(params.TargetPosition.x) || !std::isfinite(params.TargetPosition.y) || !std::isfinite(params.TargetPosition.z) || !std::isfinite(params.Weight) || !std::isfinite(params.ConvergenceThreshold))
+        {
+            return;
+        }
+
         auto boneCount = std::min(pose.size(), parentIndices.size());
 
         // Build the chain of bone indices from end-effector up to chain root.

@@ -260,13 +260,17 @@ namespace OloEngine
                                             "aimChainLength", &IKTargetComponent::AimChainLength,
                                             "aimChainFactor", &IKTargetComponent::AimChainFactor,
                                             "aimWeight", &IKTargetComponent::AimWeight,
-                                            "aimTargetEntity", &IKTargetComponent::AimTargetEntity,
+                                            "aimTargetEntity", sol::property([](const IKTargetComponent& c)
+                                                                             { return static_cast<u64>(c.AimTargetEntity); }, [](IKTargetComponent& c, u64 id)
+                                                                             { c.AimTargetEntity = UUID(id); }),
                                             "limbIKEnabled", &IKTargetComponent::LimbIKEnabled,
                                             "limbBoneIndex", &IKTargetComponent::LimbBoneIndex,
                                             "limbTarget", &IKTargetComponent::LimbTarget,
                                             "limbChainLength", &IKTargetComponent::LimbChainLength,
                                             "limbWeight", &IKTargetComponent::LimbWeight,
-                                            "limbTargetEntity", &IKTargetComponent::LimbTargetEntity);
+                                            "limbTargetEntity", sol::property([](const IKTargetComponent& c)
+                                                                              { return static_cast<u64>(c.LimbTargetEntity); }, [](IKTargetComponent& c, u64 id)
+                                                                              { c.LimbTargetEntity = UUID(id); }));
 
         // --- WindSettings (scene-level) ---
         lua.new_usertype<WindSettings>("WindSettings",
