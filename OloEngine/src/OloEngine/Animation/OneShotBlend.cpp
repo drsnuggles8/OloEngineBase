@@ -117,8 +117,9 @@ namespace OloEngine::Animation
             oneShotPose[i] = basePose[i]; // Default to base pose for bones without animation
         }
 
-        // Rebuild cache if bone count changed (skeleton swapped)
-        if (m_CachedBoneCount != boneCount)
+        // Rebuild cache if bone count or skeleton identity changed
+        std::string_view firstBone = boneNames.empty() ? std::string_view{} : std::string_view{ boneNames[0] };
+        if (m_CachedBoneCount != boneCount || m_CachedFirstBoneName != firstBone)
         {
             m_BoneNameToIndex.clear();
             for (sizet i = 0; i < boneCount && i < boneNames.size(); ++i)
@@ -126,6 +127,7 @@ namespace OloEngine::Animation
                 m_BoneNameToIndex[boneNames[i]] = i;
             }
             m_CachedBoneCount = boneCount;
+            m_CachedFirstBoneName = boneNames.empty() ? std::string{} : std::string{ boneNames[0] };
         }
 
         for (const auto& boneAnim : Clip->BoneAnimations)

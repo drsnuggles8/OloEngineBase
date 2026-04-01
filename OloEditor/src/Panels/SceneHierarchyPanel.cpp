@@ -5245,7 +5245,7 @@ namespace OloEngine
                     if (aimTarget != 0)
                     {
                         char label[64];
-                        snprintf(label, sizeof(label), "%llu##AimTargetDrop", aimTarget);
+                        snprintf(label, sizeof(label), "%llu##AimTargetDrop", static_cast<unsigned long long>(aimTarget));
                         ImGui::Button(label);
                     }
                     else
@@ -5288,7 +5288,7 @@ namespace OloEngine
                     if (limbTarget != 0)
                     {
                         char label[64];
-                        snprintf(label, sizeof(label), "%llu##LimbTargetDrop", limbTarget);
+                        snprintf(label, sizeof(label), "%llu##LimbTargetDrop", static_cast<unsigned long long>(limbTarget));
                         ImGui::Button(label);
                     }
                     else

@@ -162,7 +162,7 @@ namespace OloEngine::Animation
             if (ikTarget->AimIKEnabled && ikTarget->AimBoneIndex < static_cast<u32>(boneCount))
             {
                 auto bone = ikTarget->AimBoneIndex;
-                for (u32 j = 0; j < ikTarget->AimChainLength && bone < static_cast<u32>(boneCount); ++j)
+                for (u32 j = 0; j < std::max(1u, ikTarget->AimChainLength) && bone < static_cast<u32>(boneCount); ++j)
                 {
                     ikModified[bone] = true;
                     i32 parent = skeleton.m_ParentIndices[bone];
@@ -177,7 +177,7 @@ namespace OloEngine::Animation
             if (ikTarget->LimbIKEnabled && ikTarget->LimbBoneIndex < static_cast<u32>(boneCount))
             {
                 auto bone = ikTarget->LimbBoneIndex;
-                for (u32 j = 0; j < ikTarget->LimbChainLength && bone < static_cast<u32>(boneCount); ++j)
+                for (u32 j = 0; j < std::max(1u, ikTarget->LimbChainLength) && bone < static_cast<u32>(boneCount); ++j)
                 {
                     ikModified[bone] = true;
                     i32 parent = skeleton.m_ParentIndices[bone];
