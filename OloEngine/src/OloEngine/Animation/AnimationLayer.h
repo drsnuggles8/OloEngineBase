@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Animation/AnimationStateMachine.h"
+#include "OloEngine/Animation/OneShotBlend.h"
 #include <string>
 #include <vector>
 
@@ -27,5 +28,8 @@ namespace OloEngine
 
         // Avatar mask name
         std::string AvatarMask;
+
+        // One-shot overlay for triggered animations (attack swings, hit reactions, etc.)
+        Animation::OneShotBlend OneShot;
     };
 } // namespace OloEngine
