@@ -421,6 +421,8 @@ namespace OloEngine
             if (bandCurves.size() > std::numeric_limits<u16>::max() || curveListOffset > std::numeric_limits<u16>::max())
             {
                 OLO_CORE_ERROR("SlugFontProcessor::BuildBands: hband {} values exceed u16 max (count={}, offset={})", band, bandCurves.size(), curveListOffset);
+                renderData.HBandCount = 0;
+                renderData.VBandCount = 0;
                 return renderData;
             }
             bandTexelData[headerDataIdx] = static_cast<u16>(bandCurves.size());
@@ -450,6 +452,8 @@ namespace OloEngine
             if (bandCurves.size() > std::numeric_limits<u16>::max() || curveListOffset > std::numeric_limits<u16>::max())
             {
                 OLO_CORE_ERROR("SlugFontProcessor::BuildBands: vband {} values exceed u16 max (count={}, offset={})", band, bandCurves.size(), curveListOffset);
+                renderData.HBandCount = 0;
+                renderData.VBandCount = 0;
                 return renderData;
             }
             bandTexelData[headerDataIdx] = static_cast<u16>(bandCurves.size());
