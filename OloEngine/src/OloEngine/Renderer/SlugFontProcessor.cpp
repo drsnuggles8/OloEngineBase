@@ -184,6 +184,11 @@ namespace OloEngine
             // The shader reads the partner texel at (curveLoc.x + 1, curveLoc.y)
             // without row-wrap logic, so the entire run must stay in one row.
             auto contourTexels = contourCurveCount + 1;
+            if (contourTexels > kBandTextureWidth)
+            {
+                OLO_CORE_ERROR("SlugFontProcessor::PackCurves: contour {} has {} texels, exceeds row width {}", contourIdx, contourTexels, kBandTextureWidth);
+                continue;
+            }
             auto currentCol = curveTexelCount % kBandTextureWidth;
             if (currentCol + contourTexels > kBandTextureWidth)
             {
@@ -200,15 +205,15 @@ namespace OloEngine
                 if (localIdx == 0)
                 {
                     // First texel: (P1.x, P1.y, P2.x, P2.y)
-                    if (curveTexelCount > std::numeric_limits<u16>::max())
+                    auto texelY = curveTexelCount / kBandTextureWidth;
+                    if (texelY > std::numeric_limits<u16>::max())
                     {
-                        OLO_CORE_ERROR("SlugFontProcessor::PackCurves: curve texel count {} exceeds u16 max", curveTexelCount);
+                        OLO_CORE_ERROR("SlugFontProcessor::PackCurves: curve texelY {} exceeds u16 max", texelY);
                         result.Valid = false;
                         return result;
                     }
                     auto texelX = static_cast<u16>(curveTexelCount % kBandTextureWidth);
-                    auto texelY = static_cast<u16>(curveTexelCount / kBandTextureWidth);
-                    result.CurveLocations[curveIdx] = { texelX, texelY };
+                    result.CurveLocations[curveIdx] = { texelX, static_cast<u16>(texelY) };
 
                     curveTexelData.push_back(curve.P1.x);
                     curveTexelData.push_back(curve.P1.y);
@@ -222,15 +227,15 @@ namespace OloEngine
                     // That shared texel is at index (curveTexelCount - 1), written by the
                     // previous iteration's second-texel step.
                     auto sharedTexelIdx = curveTexelCount - 1;
-                    if (sharedTexelIdx > std::numeric_limits<u16>::max())
+                    auto sharedTexelY = sharedTexelIdx / kBandTextureWidth;
+                    if (sharedTexelY > std::numeric_limits<u16>::max())
                     {
-                        OLO_CORE_ERROR("SlugFontProcessor::PackCurves: shared texel index {} exceeds u16 max", sharedTexelIdx);
+                        OLO_CORE_ERROR("SlugFontProcessor::PackCurves: shared texelY {} exceeds u16 max", sharedTexelY);
                         result.Valid = false;
                         return result;
                     }
                     auto texelX = static_cast<u16>(sharedTexelIdx % kBandTextureWidth);
-                    auto texelY = static_cast<u16>(sharedTexelIdx / kBandTextureWidth);
-                    result.CurveLocations[curveIdx] = { texelX, texelY };
+                    result.CurveLocations[curveIdx] = { texelX, static_cast<u16>(sharedTexelY) };
 
                     // The shared texel format is (P1.x, P1.y, P2.x, P2.y) where
                     // P1 = P3 of previous curve. Overwrite zw with this curve's P2.

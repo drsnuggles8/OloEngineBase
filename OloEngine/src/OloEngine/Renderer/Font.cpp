@@ -120,13 +120,15 @@ namespace OloEngine
         if (const int kernTableLength = ::stbtt_GetKerningTableLength(&fontInfo); kernTableLength > 0)
         {
             // Build glyphIndex → codepoint reverse map for the loaded charset.
-            std::unordered_map<int, u32> glyphIndexToCodepoint;
+            // Multiple codepoints can share the same glyph index (aliases),
+            // so store all codepoints per glyph to emit kerning for every pair.
+            std::unordered_map<int, std::vector<u32>> glyphIndexToCodepoints;
             for (u32 cp = charsetBegin; cp <= charsetEnd; ++cp)
             {
                 const int gi = ::stbtt_FindGlyphIndex(&fontInfo, static_cast<int>(cp));
                 if (gi != 0 || cp == ' ')
                 {
-                    glyphIndexToCodepoint[gi] = cp;
+                    glyphIndexToCodepoints[gi].push_back(cp);
                 }
             }
 
@@ -138,12 +140,19 @@ namespace OloEngine
                 {
                     continue;
                 }
-                auto it1 = glyphIndexToCodepoint.find(entry.glyph1);
-                auto it2 = glyphIndexToCodepoint.find(entry.glyph2);
-                if (it1 != glyphIndexToCodepoint.end() && it2 != glyphIndexToCodepoint.end())
+                auto it1 = glyphIndexToCodepoints.find(entry.glyph1);
+                auto it2 = glyphIndexToCodepoints.find(entry.glyph2);
+                if (it1 != glyphIndexToCodepoints.end() && it2 != glyphIndexToCodepoints.end())
                 {
-                    const u64 key = (static_cast<u64>(it1->second) << 32) | it2->second;
-                    m_Data->KerningPairs[key] = static_cast<f32>(entry.advance) * emScale;
+                    const f32 kernValue = static_cast<f32>(entry.advance) * emScale;
+                    for (u32 cp1 : it1->second)
+                    {
+                        for (u32 cp2 : it2->second)
+                        {
+                            const u64 key = (static_cast<u64>(cp1) << 32) | cp2;
+                            m_Data->KerningPairs[key] = kernValue;
+                        }
+                    }
                 }
             }
         }

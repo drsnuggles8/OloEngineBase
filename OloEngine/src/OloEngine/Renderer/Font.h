@@ -21,7 +21,7 @@ namespace OloEngine
 
         [[nodiscard("Store this!")]] const SlugFontData* GetSlugData() const
         {
-            return m_Data.get();
+            return m_IsLoaded ? m_Data.get() : nullptr;
         }
 
         // Legacy accessor kept temporarily so callers compile during migration.
@@ -33,12 +33,12 @@ namespace OloEngine
 
         Ref<Texture2D> GetCurveTexture() const
         {
-            return m_Data ? m_Data->CurveTexture : nullptr;
+            return (m_IsLoaded && m_Data) ? m_Data->CurveTexture : nullptr;
         }
 
         Ref<Texture2D> GetBandTexture() const
         {
-            return m_Data ? m_Data->BandTexture : nullptr;
+            return (m_IsLoaded && m_Data) ? m_Data->BandTexture : nullptr;
         }
 
         // Legacy accessor — returns nullptr. Use GetCurveTexture() / GetBandTexture().
