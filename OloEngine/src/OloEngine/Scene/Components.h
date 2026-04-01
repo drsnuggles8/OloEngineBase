@@ -9,6 +9,7 @@
 #include "OloEngine/Audio/AudioEvents/CommandID.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
+#include "OloEngine/Animation/IKTargetComponent.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
 #include "OloEngine/Physics3D/Physics3DTypes.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
@@ -1713,5 +1714,6 @@ namespace OloEngine
         QuestJournalComponent,
         QuestGiverComponent,
         AbilityComponent,
-        NameplateComponent>;
+        NameplateComponent,
+        IKTargetComponent>;
 } // namespace OloEngine

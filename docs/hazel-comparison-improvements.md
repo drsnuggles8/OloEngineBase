@@ -164,4 +164,4 @@ Hazel's animation system includes specialized graph nodes: `IKNodes` (inverse ki
 | **Lower** | 2.1 Dedicated render thread | High | Perf (limited by single-threaded GL) | Skip — unfinished in Hazel, wrong arch for single-threaded GL |
 | **Lower** | 3.2 Sound graphs (node-based audio) | Medium | Audio designer workflow | Skip — backend 70% done, missing only node types + editor UI |
 | **Lower** | 3.3 Audio events system | Medium | Audio architecture | ✅ Done |
-| **Lower** | 8 Animation graph nodes (IK, etc.) | Medium | Animation completeness | |
+| **Lower** | 8 Animation graph nodes (IK, etc.) | Medium | Animation completeness | Spec written |

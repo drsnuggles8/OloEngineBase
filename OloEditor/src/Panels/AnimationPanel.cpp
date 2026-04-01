@@ -295,8 +295,29 @@ namespace OloEngine
                 auto& skelComp = entity.GetComponent<SkeletonComponent>();
                 if (skelComp.m_Skeleton)
                 {
-                    // Call AnimationSystem to compute bone transforms
-                    Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, deltaTime);
+                    const IKTargetComponent* ikTarget = nullptr;
+                    if (entity.HasComponent<IKTargetComponent>())
+                    {
+                        auto& ik = entity.GetComponent<IKTargetComponent>();
+                        // Resolve target entity positions if linked
+                        if (static_cast<u64>(ik.AimTargetEntity) != 0)
+                        {
+                            if (auto targetEnt = m_Context->TryGetEntityWithUUID(ik.AimTargetEntity))
+                            {
+                                ik.AimTarget = targetEnt->GetComponent<TransformComponent>().Translation;
+                            }
+                        }
+                        if (static_cast<u64>(ik.LimbTargetEntity) != 0)
+                        {
+                            if (auto targetEnt = m_Context->TryGetEntityWithUUID(ik.LimbTargetEntity))
+                            {
+                                ik.LimbTarget = targetEnt->GetComponent<TransformComponent>().Translation;
+                            }
+                        }
+                        ikTarget = &ik;
+                    }
+                    auto const& entityTransform = entity.GetComponent<TransformComponent>().GetTransform();
+                    Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, deltaTime, ikTarget, entityTransform);
                 }
             }
             else

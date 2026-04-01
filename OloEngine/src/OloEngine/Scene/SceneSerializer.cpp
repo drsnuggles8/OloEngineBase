@@ -2924,6 +2924,33 @@ namespace OloEngine
             TrySet(nc.m_BarBackgroundColor, nameplateNode["BarBackgroundColor"]);
             TrySet(nc.m_ManaBarGap, nameplateNode["ManaBarGap"]);
         }
+
+        if (auto ikNode = entity["IKTargetComponent"]; ikNode)
+        {
+            auto& ik = deserializedEntity.AddComponent<IKTargetComponent>();
+            TrySet(ik.AimIKEnabled, ikNode["AimIKEnabled"]);
+            TrySet(ik.AimBoneIndex, ikNode["AimBoneIndex"]);
+            TrySet(ik.AimTarget, ikNode["AimTarget"]);
+            TrySet(ik.AimAxis, ikNode["AimAxis"]);
+            TrySet(ik.AimOffset, ikNode["AimOffset"]);
+            TrySet(ik.AimPoleVector, ikNode["AimPoleVector"]);
+            TrySet(ik.AimChainLength, ikNode["AimChainLength"]);
+            TrySet(ik.AimChainFactor, ikNode["AimChainFactor"]);
+            TrySet(ik.AimWeight, ikNode["AimWeight"]);
+            if (auto aimTargetNode = ikNode["AimTargetEntity"]; aimTargetNode)
+            {
+                ik.AimTargetEntity = aimTargetNode.as<u64>(0);
+            }
+            TrySet(ik.LimbIKEnabled, ikNode["LimbIKEnabled"]);
+            TrySet(ik.LimbBoneIndex, ikNode["LimbBoneIndex"]);
+            TrySet(ik.LimbTarget, ikNode["LimbTarget"]);
+            TrySet(ik.LimbChainLength, ikNode["LimbChainLength"]);
+            TrySet(ik.LimbWeight, ikNode["LimbWeight"]);
+            if (auto limbTargetNode = ikNode["LimbTargetEntity"]; limbTargetNode)
+            {
+                ik.LimbTargetEntity = limbTargetNode.as<u64>(0);
+            }
+        }
     }
 
     SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -4878,6 +4905,38 @@ namespace OloEngine
             out << YAML::Key << "ManaBarGap" << YAML::Value << nc.m_ManaBarGap;
 
             out << YAML::EndMap; // NameplateComponent
+        }
+
+        if (entity.HasComponent<IKTargetComponent>())
+        {
+            out << YAML::Key << "IKTargetComponent";
+            out << YAML::BeginMap;
+
+            auto const& ik = entity.GetComponent<IKTargetComponent>();
+            out << YAML::Key << "AimIKEnabled" << YAML::Value << ik.AimIKEnabled;
+            out << YAML::Key << "AimBoneIndex" << YAML::Value << ik.AimBoneIndex;
+            out << YAML::Key << "AimTarget" << YAML::Value << ik.AimTarget;
+            out << YAML::Key << "AimAxis" << YAML::Value << ik.AimAxis;
+            out << YAML::Key << "AimOffset" << YAML::Value << ik.AimOffset;
+            out << YAML::Key << "AimPoleVector" << YAML::Value << ik.AimPoleVector;
+            out << YAML::Key << "AimChainLength" << YAML::Value << ik.AimChainLength;
+            out << YAML::Key << "AimChainFactor" << YAML::Value << ik.AimChainFactor;
+            out << YAML::Key << "AimWeight" << YAML::Value << ik.AimWeight;
+            if (static_cast<u64>(ik.AimTargetEntity) != 0)
+            {
+                out << YAML::Key << "AimTargetEntity" << YAML::Value << static_cast<u64>(ik.AimTargetEntity);
+            }
+            out << YAML::Key << "LimbIKEnabled" << YAML::Value << ik.LimbIKEnabled;
+            out << YAML::Key << "LimbBoneIndex" << YAML::Value << ik.LimbBoneIndex;
+            out << YAML::Key << "LimbTarget" << YAML::Value << ik.LimbTarget;
+            out << YAML::Key << "LimbChainLength" << YAML::Value << ik.LimbChainLength;
+            out << YAML::Key << "LimbWeight" << YAML::Value << ik.LimbWeight;
+            if (static_cast<u64>(ik.LimbTargetEntity) != 0)
+            {
+                out << YAML::Key << "LimbTargetEntity" << YAML::Value << static_cast<u64>(ik.LimbTargetEntity);
+            }
+
+            out << YAML::EndMap; // IKTargetComponent
         }
 
         out << YAML::EndMap; // Entity

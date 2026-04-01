@@ -84,7 +84,7 @@ namespace OloEngine
 
       private:
         // Model processing
-        void ProcessNode(const aiNode* node, const aiScene* scene);
+        void ProcessNode(const aiNode* node, const aiScene* scene, const glm::mat4& parentTransform);
         Ref<MeshSource> ProcessMesh(const aiMesh* mesh, const aiScene* scene);
 
         // Material and texture loading
@@ -128,6 +128,12 @@ namespace OloEngine
 
         BoundingBox m_BoundingBox;
         BoundingSphere m_BoundingSphere;
+
+        // Global transform of the first mesh node encountered during ProcessNode.
+        // Used to correct axis orientation: mesh vertices are in mesh-local space,
+        // but skinning expects them relative to the scene root coordinate system.
+        glm::mat4 m_MeshNodeGlobalTransform{ 1.0f };
+        bool m_HasMeshNodeTransform = false;
 
         u32 m_BoneCounter = 0;
     };

@@ -750,7 +750,30 @@ namespace OloEngine
 
                     if (animState.m_IsPlaying && animState.m_CurrentClip && skelComp.m_Skeleton)
                     {
-                        Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds());
+                        const IKTargetComponent* ikTarget = nullptr;
+                        Entity entity = { e, this };
+                        if (entity.HasComponent<IKTargetComponent>())
+                        {
+                            auto& ik = entity.GetComponent<IKTargetComponent>();
+                            // Resolve target entity positions if linked
+                            if (static_cast<u64>(ik.AimTargetEntity) != 0)
+                            {
+                                if (auto targetEnt = TryGetEntityWithUUID(ik.AimTargetEntity))
+                                {
+                                    ik.AimTarget = targetEnt->GetComponent<TransformComponent>().Translation;
+                                }
+                            }
+                            if (static_cast<u64>(ik.LimbTargetEntity) != 0)
+                            {
+                                if (auto targetEnt = TryGetEntityWithUUID(ik.LimbTargetEntity))
+                                {
+                                    ik.LimbTarget = targetEnt->GetComponent<TransformComponent>().Translation;
+                                }
+                            }
+                            ikTarget = &ik;
+                        }
+                        auto const& entityTransform = entity.GetComponent<TransformComponent>().GetTransform();
+                        Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform);
 
                         // Sample morph target keyframes from the current animation clip
                         if (!animState.m_CurrentClip->MorphKeyframes.empty())
@@ -946,7 +969,32 @@ namespace OloEngine
                                 break;
                             }
                         }
-                        Animation::AnimationGraphSystem::Update(graphComp, *skelComp.m_Skeleton, ts.GetSeconds());
+                        const IKTargetComponent* graphIkTarget = nullptr;
+                        {
+                            Entity entity = { e, this };
+                            if (entity.HasComponent<IKTargetComponent>())
+                            {
+                                auto& ik = entity.GetComponent<IKTargetComponent>();
+                                if (static_cast<u64>(ik.AimTargetEntity) != 0)
+                                {
+                                    if (auto targetEnt = TryGetEntityWithUUID(ik.AimTargetEntity))
+                                    {
+                                        ik.AimTarget = targetEnt->GetComponent<TransformComponent>().Translation;
+                                    }
+                                }
+                                if (static_cast<u64>(ik.LimbTargetEntity) != 0)
+                                {
+                                    if (auto targetEnt = TryGetEntityWithUUID(ik.LimbTargetEntity))
+                                    {
+                                        ik.LimbTarget = targetEnt->GetComponent<TransformComponent>().Translation;
+                                    }
+                                }
+                                graphIkTarget = &ik;
+                            }
+                        }
+                        Entity graphEntity = { e, this };
+                        auto const& graphEntityTransform = graphEntity.GetComponent<TransformComponent>().GetTransform();
+                        Animation::AnimationGraphSystem::Update(graphComp, *skelComp.m_Skeleton, ts.GetSeconds(), graphIkTarget, graphEntityTransform);
                     }
                 }
             }
@@ -1396,6 +1444,43 @@ namespace OloEngine
 
         // Process snow deformer entities in editor preview
         ProcessSnowDeformers(ts, m_EditorSnowPrevPositions);
+
+        // Update animations so they preview in the editor (IK responds to target movement)
+        {
+            auto animView = m_Registry.view<AnimationStateComponent, SkeletonComponent>();
+            for (auto e : animView)
+            {
+                auto& animState = animView.get<AnimationStateComponent>(e);
+                auto& skelComp = animView.get<SkeletonComponent>(e);
+
+                if (animState.m_IsPlaying && animState.m_CurrentClip && skelComp.m_Skeleton)
+                {
+                    const IKTargetComponent* ikTarget = nullptr;
+                    Entity entity = { e, this };
+                    if (entity.HasComponent<IKTargetComponent>())
+                    {
+                        auto& ik = entity.GetComponent<IKTargetComponent>();
+                        if (static_cast<u64>(ik.AimTargetEntity) != 0)
+                        {
+                            if (auto targetEnt = TryGetEntityWithUUID(ik.AimTargetEntity))
+                            {
+                                ik.AimTarget = targetEnt->GetComponent<TransformComponent>().Translation;
+                            }
+                        }
+                        if (static_cast<u64>(ik.LimbTargetEntity) != 0)
+                        {
+                            if (auto targetEnt = TryGetEntityWithUUID(ik.LimbTargetEntity))
+                            {
+                                ik.LimbTarget = targetEnt->GetComponent<TransformComponent>().Translation;
+                            }
+                        }
+                        ikTarget = &ik;
+                    }
+                    auto const& entityTransform = entity.GetComponent<TransformComponent>().GetTransform();
+                    Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform);
+                }
+            }
+        }
 
         // Render based on mode
         if (m_RenderingEnabled)
@@ -4159,5 +4244,10 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::AbilityComponent>([[maybe_unu
 
 template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::NameplateComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::NameplateComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::IKTargetComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::IKTargetComponent& component)
 {
 }

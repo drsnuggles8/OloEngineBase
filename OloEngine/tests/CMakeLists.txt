@@ -122,6 +122,10 @@ add_executable(OloEngine-Tests
 		AnimationStateMachineTest.cpp
 		AnimationSystemTest.cpp
 		BlendTreeTest.cpp
+		Animation/AimIKSolverTest.cpp
+		Animation/LimbIKSolverTest.cpp
+		Animation/BlendUtilsTest.cpp
+		Animation/OneShotBlendTest.cpp
 		# Morph Target Tests
 		MorphTargetTest.cpp
 		# AI Behavior Tree & FSM Tests

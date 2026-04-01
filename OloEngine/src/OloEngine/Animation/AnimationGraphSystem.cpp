@@ -1,13 +1,20 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Animation/AnimationGraphSystem.h"
+#include "OloEngine/Animation/BlendUtils.h"
+#include "OloEngine/Animation/IKTargetComponent.h"
+#include "OloEngine/Animation/IK/AimIKSolver.h"
+#include "OloEngine/Animation/IK/LimbIKSolver.h"
 #include "OloEngine/Core/Log.h"
+#include <glm/gtx/matrix_decompose.hpp>
 
 namespace OloEngine::Animation
 {
     void AnimationGraphSystem::Update(
         AnimationGraphComponent& graphComp,
         Skeleton& skeleton,
-        f32 deltaTime)
+        f32 deltaTime,
+        const IKTargetComponent* ikTarget,
+        const glm::mat4& entityWorldTransform)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -35,6 +42,91 @@ namespace OloEngine::Animation
         OLO_CORE_ASSERT(skeleton.m_ParentIndices.size() >= boneCount, "ParentIndices too small for boneCount");
         skeleton.m_GlobalTransforms.resize(boneCount, glm::mat4(1.0f));
         skeleton.m_FinalBoneMatrices.resize(boneCount, glm::mat4(1.0f));
+
+        // Apply IK pass between pose evaluation and forward kinematics
+        if (ikTarget && (ikTarget->AimIKEnabled || ikTarget->LimbIKEnabled))
+        {
+            // Track which bones the IK chains will modify so we only write those
+            // back — avoids the lossy glm::decompose round-trip on untouched bones.
+            std::vector<bool> ikModified(boneCount, false);
+
+            if (ikTarget->AimIKEnabled && ikTarget->AimBoneIndex < static_cast<u32>(boneCount))
+            {
+                auto bone = ikTarget->AimBoneIndex;
+                for (u32 j = 0; j < ikTarget->AimChainLength && bone < static_cast<u32>(boneCount); ++j)
+                {
+                    ikModified[bone] = true;
+                    i32 parent = skeleton.m_ParentIndices[bone];
+                    if (parent < 0)
+                    {
+                        break;
+                    }
+                    bone = static_cast<u32>(parent);
+                }
+            }
+
+            if (ikTarget->LimbIKEnabled && ikTarget->LimbBoneIndex < static_cast<u32>(boneCount))
+            {
+                auto bone = ikTarget->LimbBoneIndex;
+                for (u32 j = 0; j < ikTarget->LimbChainLength && bone < static_cast<u32>(boneCount); ++j)
+                {
+                    ikModified[bone] = true;
+                    i32 parent = skeleton.m_ParentIndices[bone];
+                    if (parent < 0)
+                    {
+                        break;
+                    }
+                    bone = static_cast<u32>(parent);
+                }
+            }
+
+            // Decompose mat4 local transforms to BoneTransform for IK solvers
+            std::vector<BoneTransform> localPose(boneCount);
+            for (sizet i = 0; i < boneCount; ++i)
+            {
+                glm::vec3 scale;
+                glm::vec3 translation;
+                glm::quat rotation;
+                glm::vec3 skew;
+                glm::vec4 perspective;
+                glm::decompose(skeleton.m_LocalTransforms[i], scale, rotation, translation, skew, perspective);
+                localPose[i] = { translation, rotation, scale };
+            }
+
+            if (ikTarget->AimIKEnabled)
+            {
+                AimIKParams params;
+                params.TargetBoneIndex = ikTarget->AimBoneIndex;
+                params.TargetPosition = BlendUtils::WorldToModelSpace(ikTarget->AimTarget, entityWorldTransform);
+                params.AimAxis = ikTarget->AimAxis;
+                params.AimOffset = ikTarget->AimOffset;
+                params.PoleVector = ikTarget->AimPoleVector;
+                params.ChainLength = ikTarget->AimChainLength;
+                params.ChainFactor = ikTarget->AimChainFactor;
+                params.Weight = ikTarget->AimWeight;
+                AimIKSolver::Solve(localPose, skeleton.m_ParentIndices, params, skeleton.m_BonePreTransforms);
+            }
+
+            if (ikTarget->LimbIKEnabled)
+            {
+                LimbIKParams params;
+                params.TargetBoneIndex = ikTarget->LimbBoneIndex;
+                params.TargetPosition = BlendUtils::WorldToModelSpace(ikTarget->LimbTarget, entityWorldTransform);
+                params.ChainLength = ikTarget->LimbChainLength;
+                params.Weight = ikTarget->LimbWeight;
+                LimbIKSolver::Solve(localPose, skeleton.m_ParentIndices, params, skeleton.m_BonePreTransforms);
+            }
+
+            // Only write back bones that IK actually modified
+            for (sizet i = 0; i < boneCount; ++i)
+            {
+                if (ikModified[i])
+                {
+                    skeleton.m_LocalTransforms[i] =
+                        glm::translate(glm::mat4(1.0f), localPose[i].Translation) * glm::mat4_cast(localPose[i].Rotation) * glm::scale(glm::mat4(1.0f), localPose[i].Scale);
+                }
+            }
+        }
 
         // Compute global transforms (forward kinematics)
         // Pre-transforms account for non-bone intermediate nodes in the hierarchy
