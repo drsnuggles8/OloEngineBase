@@ -82,6 +82,10 @@ static std::vector<u8> LoadTestFont()
             file.seekg(0, std::ios::beg);
             std::vector<u8> buffer(static_cast<sizet>(size));
             file.read(reinterpret_cast<char*>(buffer.data()), size);
+            if (file.fail() || file.gcount() != static_cast<std::streamsize>(size))
+            {
+                continue;
+            }
             return buffer;
         }
     }
@@ -106,6 +110,10 @@ class SlugFontProcessorTest : public ::testing::Test
         int descent{};
         int lineGap{};
         stbtt_GetFontVMetrics(&m_FontInfo, &ascent, &descent, &lineGap);
+        if (ascent == descent)
+        {
+            GTEST_SKIP() << "Font has degenerate metrics (ascent == descent)";
+        }
         m_EmScale = 1.0f / static_cast<f32>(ascent - descent);
     }
 

@@ -873,6 +873,8 @@ namespace OloEngine
 
     void Renderer2D::DrawString(const std::string& string, Ref<Font> font, const glm::mat4& transform, const TextParams& textParams, int entityID)
     {
+        OLO_PROFILE_FUNCTION();
+
         const auto* slugData = font->GetSlugData();
         if (!slugData)
         {
@@ -885,10 +887,11 @@ namespace OloEngine
         s_Data.SlugCurveTexture = font->GetCurveTexture();
         s_Data.SlugBandTexture = font->GetBandTexture();
 
-        const double fsScale = 1.0 / (metrics.AscenderY - metrics.DescenderY);
+        const auto metricSpan = static_cast<double>(metrics.AscenderY - metrics.DescenderY);
+        const double fsScale = std::abs(metricSpan) > 1e-6 ? (1.0 / metricSpan) : 1.0;
 
         const auto* spaceGlyph = slugData->GetGlyph(' ');
-        const f32 spaceGlyphAdvance = spaceGlyph ? spaceGlyph->AdvanceWidth : 0.0f;
+        const f32 spaceGlyphAdvance = spaceGlyph ? spaceGlyph->AdvanceWidth : 0.25f;
 
         // Small margin to expand glyph bounding box (prevents edge clipping).
         constexpr f32 kGlyphMargin = 0.02f;
@@ -1018,7 +1021,7 @@ namespace OloEngine
             }
             if (!glyph)
             {
-                return;
+                continue;
             }
 
             // Only emit geometry for glyphs with Slug curve data.

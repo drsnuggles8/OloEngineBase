@@ -191,6 +191,7 @@ namespace OloEngine
                     if (curveTexelCount > std::numeric_limits<u16>::max())
                     {
                         OLO_CORE_ERROR("SlugFontProcessor::PackCurves: curve texel count {} exceeds u16 max", curveTexelCount);
+                        result.Valid = false;
                         return result;
                     }
                     auto texelX = static_cast<u16>(curveTexelCount % kBandTextureWidth);
@@ -212,6 +213,7 @@ namespace OloEngine
                     if (sharedTexelIdx > std::numeric_limits<u16>::max())
                     {
                         OLO_CORE_ERROR("SlugFontProcessor::PackCurves: shared texel index {} exceeds u16 max", sharedTexelIdx);
+                        result.Valid = false;
                         return result;
                     }
                     auto texelX = static_cast<u16>(sharedTexelIdx % kBandTextureWidth);
@@ -512,6 +514,10 @@ namespace OloEngine
             }
 
             auto curveLocations = PackCurves(curves, curveTexelData, curveTexelCount);
+            if (!curveLocations.Valid)
+            {
+                continue;
+            }
             auto renderData = BuildBands(curves, curveLocations, glyphData, bandTexelData, bandTexelCount);
 
             // Only mark the glyph as having curves if BuildBands returned valid data.

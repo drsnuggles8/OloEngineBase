@@ -131,7 +131,7 @@ Entities:
       TextString: AV WAV Ty
       FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
       Color: [1, 1, 0.5, 1]
-      Kerning: 0
+      Kerning: 0.100000001
       LineSpacing: 0
       MaxWidth: 0
       DropShadow: false

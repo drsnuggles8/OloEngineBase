@@ -47,6 +47,7 @@ namespace OloEngine
         {
             // Maps local curve index → (texelX, texelY) in curve texture.
             std::vector<std::pair<u16, u16>> CurveLocations;
+            bool Valid = true;
         };
         static CurvePackResult PackCurves(const GlyphCurveData& curves, std::vector<f32>& curveTexelData, u32& curveTexelCount);
 

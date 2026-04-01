@@ -46,15 +46,16 @@ namespace OloEngine
         }
 
         std::vector<u8> fontBuffer(static_cast<sizet>(fileSize));
-        if (!file.read(reinterpret_cast<char*>(fontBuffer.data()), fileSize))
+        file.read(reinterpret_cast<char*>(fontBuffer.data()), fileSize);
+        if (file.fail())
         {
             OLO_CORE_ERROR("Failed to read font file: {}", m_Path);
             return;
         }
 
         // Initialize stb_truetype
-        stbtt_fontinfo fontInfo{};
-        if (!stbtt_InitFont(&fontInfo, fontBuffer.data(), stbtt_GetFontOffsetForIndex(fontBuffer.data(), 0)))
+        ::stbtt_fontinfo fontInfo{};
+        if (::stbtt_InitFont(&fontInfo, fontBuffer.data(), ::stbtt_GetFontOffsetForIndex(fontBuffer.data(), 0)) == 0)
         {
             OLO_CORE_ERROR("stb_truetype failed to parse font: {}", m_Path);
             return;
@@ -64,7 +65,7 @@ namespace OloEngine
         int ascent{};
         int descent{};
         int lineGap{};
-        stbtt_GetFontVMetrics(&fontInfo, &ascent, &descent, &lineGap);
+        ::stbtt_GetFontVMetrics(&fontInfo, &ascent, &descent, &lineGap);
 
         // unitsPerEm scales raw font units → normalized em-space
         f32 unitsPerEm = static_cast<f32>(ascent - descent);
@@ -86,7 +87,7 @@ namespace OloEngine
 
         for (u32 codepoint = charsetBegin; codepoint <= charsetEnd; ++codepoint)
         {
-            const int glyphIndex = stbtt_FindGlyphIndex(&fontInfo, static_cast<int>(codepoint));
+            const int glyphIndex = ::stbtt_FindGlyphIndex(&fontInfo, static_cast<int>(codepoint));
             if (glyphIndex == 0 && codepoint != ' ')
             {
                 continue; // glyph not present in font
@@ -94,13 +95,13 @@ namespace OloEngine
 
             int advanceWidth{};
             int leftSideBearing{};
-            stbtt_GetGlyphHMetrics(&fontInfo, glyphIndex, &advanceWidth, &leftSideBearing);
+            ::stbtt_GetGlyphHMetrics(&fontInfo, glyphIndex, &advanceWidth, &leftSideBearing);
 
             int x0{};
             int y0{};
             int x1{};
             int y1{};
-            stbtt_GetGlyphBox(&fontInfo, glyphIndex, &x0, &y0, &x1, &y1);
+            ::stbtt_GetGlyphBox(&fontInfo, glyphIndex, &x0, &y0, &x1, &y1);
 
             SlugGlyphData glyph;
             glyph.AdvanceWidth = static_cast<f32>(advanceWidth) * emScale;
@@ -116,22 +117,21 @@ namespace OloEngine
         // Load kerning pairs — use codepoint-based lookup to match GetAdvance().
         // stbtt_GetKerningTable returns glyph indices, so we build a reverse
         // mapping (glyphIndex → codepoint) for correct key construction.
-        const int kernTableLength = stbtt_GetKerningTableLength(&fontInfo);
-        if (kernTableLength > 0)
+        if (const int kernTableLength = ::stbtt_GetKerningTableLength(&fontInfo); kernTableLength > 0)
         {
             // Build glyphIndex → codepoint reverse map for the loaded charset.
             std::unordered_map<int, u32> glyphIndexToCodepoint;
             for (u32 cp = charsetBegin; cp <= charsetEnd; ++cp)
             {
-                const int gi = stbtt_FindGlyphIndex(&fontInfo, static_cast<int>(cp));
+                const int gi = ::stbtt_FindGlyphIndex(&fontInfo, static_cast<int>(cp));
                 if (gi != 0 || cp == ' ')
                 {
                     glyphIndexToCodepoint[gi] = cp;
                 }
             }
 
-            std::vector<stbtt_kerningentry> kernTable(static_cast<sizet>(kernTableLength));
-            stbtt_GetKerningTable(&fontInfo, kernTable.data(), kernTableLength);
+            std::vector<::stbtt_kerningentry> kernTable(static_cast<sizet>(kernTableLength));
+            ::stbtt_GetKerningTable(&fontInfo, kernTable.data(), kernTableLength);
             for (const auto& entry : kernTable)
             {
                 if (entry.advance == 0)
@@ -154,10 +154,7 @@ namespace OloEngine
         SlugFontProcessor::Process(fontInfo, emScale, *m_Data);
     }
 
-    Font::~Font()
-    {
-        // m_Data is automatically cleaned up by Scope<SlugFontData> (std::unique_ptr)
-    }
+    Font::~Font() = default;
 
     Ref<Font> Font::GetDefault()
     {
