@@ -36,7 +36,11 @@ namespace OloEngine::Animation::BlendUtils
     BoneTransform InverseTransform(const BoneTransform& t)
     {
         auto invRot = glm::conjugate(t.Rotation);
-        auto invScale = glm::vec3(1.0f) / t.Scale;
+        constexpr f32 kEpsilon = 1e-7f;
+        auto invScale = glm::vec3(
+            1.0f / std::max(std::abs(t.Scale.x), kEpsilon) * (t.Scale.x < 0.0f ? -1.0f : 1.0f),
+            1.0f / std::max(std::abs(t.Scale.y), kEpsilon) * (t.Scale.y < 0.0f ? -1.0f : 1.0f),
+            1.0f / std::max(std::abs(t.Scale.z), kEpsilon) * (t.Scale.z < 0.0f ? -1.0f : 1.0f));
         auto invTrans = invScale * (invRot * -t.Translation);
         return { invTrans, invRot, invScale };
     }
@@ -76,7 +80,7 @@ namespace OloEngine::Animation::BlendUtils
             auto effectiveLocal = localPose[i];
             if (i < preTransforms.size())
             {
-                static constexpr glm::mat4 kIdentity{1.0f};
+                static constexpr glm::mat4 kIdentity{ 1.0f };
                 if (std::memcmp(&preTransforms[i], &kIdentity, sizeof(glm::mat4)) != 0)
                 {
                     auto pre = DecomposeMatrix(preTransforms[i]);
@@ -132,7 +136,7 @@ namespace OloEngine::Animation::BlendUtils
         f32 weight,
         std::span<BoneTransform> out)
     {
-        auto count = std::min({a.size(), b.size(), out.size()});
+        auto count = std::min({ a.size(), b.size(), out.size() });
 
         for (sizet i = 0; i < count; ++i)
         {
@@ -153,7 +157,7 @@ namespace OloEngine::Animation::BlendUtils
         std::span<const int> parentIndices,
         std::span<BoneTransform> out)
     {
-        auto count = std::min({base.size(), additive.size(), restPose.size(), out.size()});
+        auto count = std::min({ base.size(), additive.size(), restPose.size(), out.size() });
 
         // Build affected-bones mask when masking is requested
         std::vector<bool> affected;
@@ -206,7 +210,7 @@ namespace OloEngine::Animation::BlendUtils
         std::span<const int> parentIndices,
         std::span<BoneTransform> out)
     {
-        auto count = std::min({a.size(), b.size(), out.size()});
+        auto count = std::min({ a.size(), b.size(), out.size() });
 
         // If blendRootBone is 0, apply to all bones
         if (blendRootBone == 0)

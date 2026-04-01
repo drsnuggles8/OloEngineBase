@@ -2950,6 +2950,33 @@ namespace OloEngine
             {
                 ik.LimbTargetEntity = limbTargetNode.as<u64>(0);
             }
+
+            // Sanitize float/vector fields — replace NaN/Inf with defaults and clamp to valid ranges
+            auto sanitizeVec3 = [](glm::vec3& v, const glm::vec3& fallback)
+            {
+                if (!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.z))
+                {
+                    OLO_CORE_WARN("IKTargetComponent: non-finite vector replaced with default");
+                    v = fallback;
+                }
+            };
+            auto sanitizeFloat = [](f32& v, f32 fallback, f32 lo, f32 hi)
+            {
+                if (!std::isfinite(v))
+                {
+                    OLO_CORE_WARN("IKTargetComponent: non-finite float replaced with default");
+                    v = fallback;
+                }
+                v = glm::clamp(v, lo, hi);
+            };
+            sanitizeVec3(ik.AimTarget, glm::vec3(0.0f));
+            sanitizeVec3(ik.AimAxis, glm::vec3(0.0f, 0.0f, 1.0f));
+            sanitizeVec3(ik.AimOffset, glm::vec3(0.0f));
+            sanitizeVec3(ik.AimPoleVector, glm::vec3(0.0f, 1.0f, 0.0f));
+            sanitizeVec3(ik.LimbTarget, glm::vec3(0.0f));
+            sanitizeFloat(ik.AimChainFactor, 0.5f, 0.0f, 1.0f);
+            sanitizeFloat(ik.AimWeight, 1.0f, 0.0f, 1.0f);
+            sanitizeFloat(ik.LimbWeight, 1.0f, 0.0f, 1.0f);
         }
     }
 

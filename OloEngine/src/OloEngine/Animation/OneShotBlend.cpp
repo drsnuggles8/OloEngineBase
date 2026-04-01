@@ -51,40 +51,40 @@ namespace OloEngine::Animation
             transitioned = false;
             switch (m_Phase)
             {
-            case Phase::BlendIn:
-                if (BlendInDuration <= 0.0f || m_PhaseTime >= BlendInDuration)
-                {
-                    m_Phase = Phase::Playing;
-                    m_PhaseTime = (BlendInDuration > 0.0f) ? (m_PhaseTime - BlendInDuration) : 0.0f;
-                    transitioned = true;
-                }
-                break;
-            case Phase::Playing:
-            {
-                f32 blendOutStart = Clip->Duration - BlendOutDuration;
-                if (m_PlaybackTime >= blendOutStart)
-                {
-                    m_Phase = Phase::BlendOut;
-                    m_PhaseTime = m_PlaybackTime - blendOutStart;
-                    transitioned = true;
-                }
-                break;
-            }
-            case Phase::BlendOut:
-                if (BlendOutDuration <= 0.0f || m_PhaseTime >= BlendOutDuration || m_PlaybackTime >= Clip->Duration)
-                {
-                    m_Phase = Phase::Idle;
-                    m_PlaybackTime = 0.0f;
-                    m_PhaseTime = 0.0f;
-                    if (OnFinished)
+                case Phase::BlendIn:
+                    if (BlendInDuration <= 0.0f || m_PhaseTime >= BlendInDuration)
                     {
-                        OnFinished();
+                        m_Phase = Phase::Playing;
+                        m_PhaseTime = (BlendInDuration > 0.0f) ? (m_PhaseTime - BlendInDuration) : 0.0f;
+                        transitioned = true;
                     }
-                    return;
+                    break;
+                case Phase::Playing:
+                {
+                    f32 blendOutStart = Clip->Duration - BlendOutDuration;
+                    if (m_PlaybackTime >= blendOutStart)
+                    {
+                        m_Phase = Phase::BlendOut;
+                        m_PhaseTime = m_PlaybackTime - blendOutStart;
+                        transitioned = true;
+                    }
+                    break;
                 }
-                break;
-            case Phase::Idle:
-                return;
+                case Phase::BlendOut:
+                    if (BlendOutDuration <= 0.0f || m_PhaseTime >= BlendOutDuration || m_PlaybackTime >= Clip->Duration)
+                    {
+                        m_Phase = Phase::Idle;
+                        m_PlaybackTime = 0.0f;
+                        m_PhaseTime = 0.0f;
+                        if (OnFinished)
+                        {
+                            OnFinished();
+                        }
+                        return;
+                    }
+                    break;
+                case Phase::Idle:
+                    return;
             }
         }
 
@@ -117,18 +117,25 @@ namespace OloEngine::Animation
             oneShotPose[i] = basePose[i]; // Default to base pose for bones without animation
         }
 
+        // Rebuild cache if bone count changed (skeleton swapped)
+        if (m_CachedBoneCount != boneCount)
+        {
+            m_BoneNameToIndex.clear();
+            for (sizet i = 0; i < boneCount && i < boneNames.size(); ++i)
+            {
+                m_BoneNameToIndex[boneNames[i]] = i;
+            }
+            m_CachedBoneCount = boneCount;
+        }
+
         for (const auto& boneAnim : Clip->BoneAnimations)
         {
-            // Find bone index by name
-            for (sizet i = 0; i < boneCount; ++i)
+            if (auto it = m_BoneNameToIndex.find(boneAnim.BoneName); it != m_BoneNameToIndex.end())
             {
-                if (i < boneNames.size() && boneNames[i] == boneAnim.BoneName)
-                {
-                    oneShotPose[i].Translation = AnimatedModel::SampleBonePosition(boneAnim.PositionKeys, sampleTime);
-                    oneShotPose[i].Rotation = AnimatedModel::SampleBoneRotation(boneAnim.RotationKeys, sampleTime);
-                    oneShotPose[i].Scale = AnimatedModel::SampleBoneScale(boneAnim.ScaleKeys, sampleTime);
-                    break;
-                }
+                auto i = it->second;
+                oneShotPose[i].Translation = AnimatedModel::SampleBonePosition(boneAnim.PositionKeys, sampleTime);
+                oneShotPose[i].Rotation = AnimatedModel::SampleBoneRotation(boneAnim.RotationKeys, sampleTime);
+                oneShotPose[i].Scale = AnimatedModel::SampleBoneScale(boneAnim.ScaleKeys, sampleTime);
             }
         }
 

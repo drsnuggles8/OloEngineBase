@@ -230,4 +230,8 @@ TEST(AimIKSolverTest, ChainFactorZeroPutsAllRotationOnEndBone)
     f32 tipDiff = 1.0f - std::abs(glm::dot(pose[2].Rotation, identityQuat));
     // The tip bone (first in iteration, i=0) gets chainFactor=0 → identity correction
     EXPECT_LT(tipDiff, 0.01f) << "Tip bone should have minimal rotation with chainFactor=0";
+
+    // The ancestor (bone 1, last in chain) should have actually rotated
+    f32 ancestorDiff = 1.0f - std::abs(glm::dot(pose[1].Rotation, identityQuat));
+    EXPECT_GT(ancestorDiff, 0.01f) << "Ancestor bone should have rotated with chainFactor=0";
 }

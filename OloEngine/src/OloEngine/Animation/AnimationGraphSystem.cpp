@@ -93,28 +93,38 @@ namespace OloEngine::Animation
                 localPose[i] = { translation, rotation, scale };
             }
 
-            if (ikTarget->AimIKEnabled)
+            if (ikTarget->AimIKEnabled && ikTarget->AimBoneIndex < static_cast<u32>(boneCount))
             {
-                AimIKParams params;
-                params.TargetBoneIndex = ikTarget->AimBoneIndex;
-                params.TargetPosition = BlendUtils::WorldToModelSpace(ikTarget->AimTarget, entityWorldTransform);
-                params.AimAxis = ikTarget->AimAxis;
-                params.AimOffset = ikTarget->AimOffset;
-                params.PoleVector = ikTarget->AimPoleVector;
-                params.ChainLength = ikTarget->AimChainLength;
-                params.ChainFactor = ikTarget->AimChainFactor;
-                params.Weight = ikTarget->AimWeight;
-                AimIKSolver::Solve(localPose, skeleton.m_ParentIndices, params, skeleton.m_BonePreTransforms);
+                auto isFiniteVec3 = [](const glm::vec3& v)
+                { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
+                if (isFiniteVec3(ikTarget->AimTarget) && isFiniteVec3(ikTarget->AimAxis) && isFiniteVec3(ikTarget->AimPoleVector) && std::isfinite(ikTarget->AimWeight) && std::isfinite(ikTarget->AimChainFactor))
+                {
+                    AimIKParams params;
+                    params.TargetBoneIndex = ikTarget->AimBoneIndex;
+                    params.TargetPosition = BlendUtils::WorldToModelSpace(ikTarget->AimTarget, entityWorldTransform);
+                    params.AimAxis = ikTarget->AimAxis;
+                    params.AimOffset = ikTarget->AimOffset;
+                    params.PoleVector = ikTarget->AimPoleVector;
+                    params.ChainLength = std::max(1u, ikTarget->AimChainLength);
+                    params.ChainFactor = glm::clamp(ikTarget->AimChainFactor, 0.0f, 1.0f);
+                    params.Weight = glm::clamp(ikTarget->AimWeight, 0.0f, 1.0f);
+                    AimIKSolver::Solve(localPose, skeleton.m_ParentIndices, params, skeleton.m_BonePreTransforms);
+                }
             }
 
-            if (ikTarget->LimbIKEnabled)
+            if (ikTarget->LimbIKEnabled && ikTarget->LimbBoneIndex < static_cast<u32>(boneCount))
             {
-                LimbIKParams params;
-                params.TargetBoneIndex = ikTarget->LimbBoneIndex;
-                params.TargetPosition = BlendUtils::WorldToModelSpace(ikTarget->LimbTarget, entityWorldTransform);
-                params.ChainLength = ikTarget->LimbChainLength;
-                params.Weight = ikTarget->LimbWeight;
-                LimbIKSolver::Solve(localPose, skeleton.m_ParentIndices, params, skeleton.m_BonePreTransforms);
+                auto isFiniteVec3 = [](const glm::vec3& v)
+                { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
+                if (isFiniteVec3(ikTarget->LimbTarget) && std::isfinite(ikTarget->LimbWeight))
+                {
+                    LimbIKParams params;
+                    params.TargetBoneIndex = ikTarget->LimbBoneIndex;
+                    params.TargetPosition = BlendUtils::WorldToModelSpace(ikTarget->LimbTarget, entityWorldTransform);
+                    params.ChainLength = std::max(1u, ikTarget->LimbChainLength);
+                    params.Weight = glm::clamp(ikTarget->LimbWeight, 0.0f, 1.0f);
+                    LimbIKSolver::Solve(localPose, skeleton.m_ParentIndices, params, skeleton.m_BonePreTransforms);
+                }
             }
 
             // Only write back bones that IK actually modified

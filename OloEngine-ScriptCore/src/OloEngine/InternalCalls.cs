@@ -711,6 +711,41 @@ namespace OloEngine
 		internal static extern void NameplateComponent_SetManaBarGap(ulong entityID, float gap);
 		#endregion
 
+		#region IKTargetComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool IKTargetComponent_GetAimIKEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetAimIKEnabled(ulong entityID, bool enabled);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint IKTargetComponent_GetAimBoneIndex(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetAimBoneIndex(ulong entityID, uint index);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_GetAimTarget(ulong entityID, out Vector3 target);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetAimTarget(ulong entityID, ref Vector3 target);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float IKTargetComponent_GetAimWeight(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetAimWeight(ulong entityID, float weight);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool IKTargetComponent_GetLimbIKEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetLimbIKEnabled(ulong entityID, bool enabled);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint IKTargetComponent_GetLimbBoneIndex(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetLimbBoneIndex(ulong entityID, uint index);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_GetLimbTarget(ulong entityID, out Vector3 target);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetLimbTarget(ulong entityID, ref Vector3 target);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float IKTargetComponent_GetLimbWeight(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetLimbWeight(ulong entityID, float weight);
+		#endregion
+
 		#region AnimationGraphComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void AnimationGraphComponent_SetFloat(ulong entityID, string paramName, float value);

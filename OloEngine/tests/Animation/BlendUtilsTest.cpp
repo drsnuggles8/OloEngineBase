@@ -190,7 +190,7 @@ TEST(BlendUtilsTest, LerpPoseWeightHalfInterpolates)
 // AdditivePose Tests
 //==============================================================================
 
-TEST(BlendUtilsTest, AdditiveWeight0ReturnsBse)
+TEST(BlendUtilsTest, AdditiveWeight0ReturnsBase)
 {
     // With weight 0, result should equal base
     BoneTransform base = { glm::vec3(1, 2, 3), glm::angleAxis(0.5f, glm::vec3(0, 1, 0)), glm::vec3(1) };

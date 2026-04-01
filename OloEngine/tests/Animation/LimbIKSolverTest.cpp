@@ -179,6 +179,7 @@ TEST(LimbIKSolverTest, PartialWeightBlendsResult)
 
     // Half weight should be closer to target than original, but further than full
     EXPECT_LT(distHalf, distOrig + 0.01f) << "Half weight should move toward target";
+    EXPECT_GT(distHalf, distFull + 0.01f) << "Half weight should not reach as far as full weight";
 }
 
 // Single-bone chain: no crash (edge case, needs at least 2 bones for FABRIK)

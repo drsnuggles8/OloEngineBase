@@ -6,6 +6,7 @@
 #include <functional>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace OloEngine
@@ -28,8 +29,14 @@ namespace OloEngine::Animation
 
         void Trigger();
         void Cancel();
-        [[nodiscard]] bool IsActive() const { return m_Phase != Phase::Idle; }
-        [[nodiscard]] Phase GetPhase() const { return m_Phase; }
+        [[nodiscard]] bool IsActive() const
+        {
+            return m_Phase != Phase::Idle;
+        }
+        [[nodiscard]] Phase GetPhase() const
+        {
+            return m_Phase;
+        }
 
         // Samples the one-shot clip and blends over basePose in-place.
         // parentIndices is needed for additive/masked blending.
@@ -55,5 +62,9 @@ namespace OloEngine::Animation
         Phase m_Phase = Phase::Idle;
         f32 m_PlaybackTime = 0.0f;
         f32 m_PhaseTime = 0.0f; // time within the current phase (for blend-in/out)
+
+        // Cached bone-name-to-index mapping for O(1) lookup during Update
+        std::unordered_map<std::string, sizet> m_BoneNameToIndex;
+        sizet m_CachedBoneCount = 0;
     };
 } // namespace OloEngine::Animation

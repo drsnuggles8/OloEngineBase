@@ -5241,16 +5241,16 @@ namespace OloEngine
                     auto aimTarget = static_cast<u64>(component.AimTargetEntity);
                     ImGui::Text("Aim Target Entity:");
                     ImGui::SameLine();
+                    // Use a Button as a consistent drag-drop target
                     if (aimTarget != 0)
                     {
-                        ImGui::Text("%llu", aimTarget);
-                        ImGui::SameLine();
-                        if (ImGui::SmallButton("Clear##AimTarget"))
-                            component.AimTargetEntity = 0;
+                        char label[64];
+                        snprintf(label, sizeof(label), "%llu##AimTargetDrop", aimTarget);
+                        ImGui::Button(label);
                     }
                     else
                     {
-                        ImGui::TextDisabled("(none — uses Aim Target position)");
+                        ImGui::Button("(none — drag entity here)##AimTargetDrop");
                     }
                     if (ImGui::BeginDragDropTarget())
                     {
@@ -5259,6 +5259,12 @@ namespace OloEngine
                             component.AimTargetEntity = *static_cast<const UUID*>(payload->Data);
                         }
                         ImGui::EndDragDropTarget();
+                    }
+                    if (aimTarget != 0)
+                    {
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("Clear##AimTarget"))
+                            component.AimTargetEntity = 0;
                     }
                 }
 
@@ -5278,16 +5284,16 @@ namespace OloEngine
                     auto limbTarget = static_cast<u64>(component.LimbTargetEntity);
                     ImGui::Text("Limb Target Entity:");
                     ImGui::SameLine();
+                    // Use a Button as a consistent drag-drop target
                     if (limbTarget != 0)
                     {
-                        ImGui::Text("%llu", limbTarget);
-                        ImGui::SameLine();
-                        if (ImGui::SmallButton("Clear##LimbTarget"))
-                            component.LimbTargetEntity = 0;
+                        char label[64];
+                        snprintf(label, sizeof(label), "%llu##LimbTargetDrop", limbTarget);
+                        ImGui::Button(label);
                     }
                     else
                     {
-                        ImGui::TextDisabled("(none — uses Limb Target position)");
+                        ImGui::Button("(none — drag entity here)##LimbTargetDrop");
                     }
                     if (ImGui::BeginDragDropTarget())
                     {
@@ -5296,6 +5302,12 @@ namespace OloEngine
                             component.LimbTargetEntity = *static_cast<const UUID*>(payload->Data);
                         }
                         ImGui::EndDragDropTarget();
+                    }
+                    if (limbTarget != 0)
+                    {
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("Clear##LimbTarget"))
+                            component.LimbTargetEntity = 0;
                     }
                 } });
     }
