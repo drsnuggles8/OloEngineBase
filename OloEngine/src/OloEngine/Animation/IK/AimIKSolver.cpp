@@ -22,8 +22,16 @@ namespace OloEngine::Animation
         const glm::vec3& target,
         glm::vec3& outOffsettedForward)
     {
+        // Normalize forward to ensure unit-length for projection math
+        f32 forwardLen2 = glm::length2(forward);
+        if (forwardLen2 < 1e-12f)
+        {
+            return false;
+        }
+        auto fwd = forward * glm::inversesqrt(forwardLen2);
+
         // AO is projected offset onto normalized forward
-        f32 AOl = glm::dot(forward, offset);
+        f32 AOl = glm::dot(fwd, offset);
 
         // Square length of perpendicular component
         f32 ACl2 = glm::length2(offset) - AOl * AOl;
@@ -40,7 +48,7 @@ namespace OloEngine::Animation
         // Distance from offset projection to sphere intersection
         f32 AIl = std::sqrt(r2 - ACl2);
 
-        outOffsettedForward = offset + (AIl - AOl) * forward;
+        outOffsettedForward = offset + (AIl - AOl) * fwd;
         return true;
     }
 
@@ -112,6 +120,21 @@ namespace OloEngine::Animation
         glm::vec3 forward;
         glm::quat correction = glm::identity<glm::quat>();
 
+        // Count actual chain length for weight calculation (may be shorter than
+        // params.ChainLength if we hit the root before exhausting the chain)
+        u32 actualChainLength = 0;
+        {
+            auto idx = params.TargetBoneIndex;
+            for (u32 c = 0; c < params.ChainLength && idx < static_cast<u32>(boneCount); ++c)
+            {
+                ++actualChainLength;
+                auto p = parentIndices[idx];
+                if (p < 0)
+                    break;
+                idx = static_cast<u32>(p);
+            }
+        }
+
         for (u32 i = 0; i < params.ChainLength && boneIndex < static_cast<u32>(boneCount); ++i)
         {
             auto invBone = BlendUtils::InverseTransform(modelSpace[boneIndex]);
@@ -182,7 +205,7 @@ namespace OloEngine::Animation
                 }
 
                 // Apply chain factor: last bone gets full weight, others get chainFactor
-                f32 weight = (i == params.ChainLength - 1) ? 1.0f : params.ChainFactor;
+                f32 weight = (i == actualChainLength - 1) ? 1.0f : params.ChainFactor;
                 if (weight < 1.0f)
                 {
                     correction = glm::normalize(glm::mix(glm::identity<glm::quat>(), correction, weight));

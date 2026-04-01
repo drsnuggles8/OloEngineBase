@@ -22,6 +22,9 @@
 #include "OloEngine/SaveGame/SaveGameManager.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
 #include "OloEngine/Animation/IKTargetComponent.h"
+#include "OloEngine/Animation/AnimatedMeshComponents.h"
+
+#include <algorithm>
 #include "OloEngine/Animation/MorphTargets/FacialExpressionLibrary.h"
 #include "OloEngine/AI/AIComponents.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
@@ -2255,6 +2258,26 @@ namespace OloEngine
     // IKTargetComponent //////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
 
+    static bool IsFiniteVec3(const glm::vec3& v)
+    {
+        return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+    }
+
+    // Get skeleton bone count for validating indices/chain lengths.
+    // Returns a hard-cap fallback (512) if no skeleton is present.
+    static u32 GetSkeletonBoneCount(Entity entity)
+    {
+        if (entity.HasComponent<SkeletonComponent>())
+        {
+            auto const& skel = entity.GetComponent<SkeletonComponent>();
+            if (skel.m_Skeleton)
+            {
+                return static_cast<u32>(skel.m_Skeleton->m_BoneNames.size());
+            }
+        }
+        return 512u;
+    }
+
     static bool IKTargetComponent_GetAimIKEnabled(UUID entityID)
     {
         auto entity = GetEntity(entityID);
@@ -2280,7 +2303,7 @@ namespace OloEngine
     {
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
-        entity.GetComponent<IKTargetComponent>().AimBoneIndex = std::min(index, 512u);
+        entity.GetComponent<IKTargetComponent>().AimBoneIndex = std::min(index, GetSkeletonBoneCount(entity) - 1);
     }
 
     static void IKTargetComponent_GetAimTarget(UUID entityID, glm::vec3* out)
@@ -2294,7 +2317,10 @@ namespace OloEngine
     {
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
-        entity.GetComponent<IKTargetComponent>().AimTarget = *v;
+        if (IsFiniteVec3(*v))
+        {
+            entity.GetComponent<IKTargetComponent>().AimTarget = *v;
+        }
     }
 
     static void IKTargetComponent_GetAimAxis(UUID entityID, glm::vec3* out)
@@ -2308,7 +2334,10 @@ namespace OloEngine
     {
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
-        entity.GetComponent<IKTargetComponent>().AimAxis = *v;
+        if (IsFiniteVec3(*v) && glm::length2(*v) > 1e-8f)
+        {
+            entity.GetComponent<IKTargetComponent>().AimAxis = *v;
+        }
     }
 
     static void IKTargetComponent_GetAimOffset(UUID entityID, glm::vec3* out)
@@ -2322,7 +2351,10 @@ namespace OloEngine
     {
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
-        entity.GetComponent<IKTargetComponent>().AimOffset = *v;
+        if (IsFiniteVec3(*v))
+        {
+            entity.GetComponent<IKTargetComponent>().AimOffset = *v;
+        }
     }
 
     static void IKTargetComponent_GetAimPoleVector(UUID entityID, glm::vec3* out)
@@ -2336,7 +2368,10 @@ namespace OloEngine
     {
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
-        entity.GetComponent<IKTargetComponent>().AimPoleVector = *v;
+        if (IsFiniteVec3(*v))
+        {
+            entity.GetComponent<IKTargetComponent>().AimPoleVector = *v;
+        }
     }
 
     static u32 IKTargetComponent_GetAimChainLength(UUID entityID)
@@ -2350,7 +2385,7 @@ namespace OloEngine
     {
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
-        entity.GetComponent<IKTargetComponent>().AimChainLength = std::min(length, 64u);
+        entity.GetComponent<IKTargetComponent>().AimChainLength = std::clamp(length, 1u, GetSkeletonBoneCount(entity));
     }
 
     static f32 IKTargetComponent_GetAimChainFactor(UUID entityID)
@@ -2420,7 +2455,7 @@ namespace OloEngine
     {
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
-        entity.GetComponent<IKTargetComponent>().LimbBoneIndex = std::min(index, 512u);
+        entity.GetComponent<IKTargetComponent>().LimbBoneIndex = std::min(index, GetSkeletonBoneCount(entity) - 1);
     }
 
     static void IKTargetComponent_GetLimbTarget(UUID entityID, glm::vec3* out)
@@ -2434,7 +2469,10 @@ namespace OloEngine
     {
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
-        entity.GetComponent<IKTargetComponent>().LimbTarget = *v;
+        if (IsFiniteVec3(*v))
+        {
+            entity.GetComponent<IKTargetComponent>().LimbTarget = *v;
+        }
     }
 
     static u32 IKTargetComponent_GetLimbChainLength(UUID entityID)
@@ -2448,7 +2486,7 @@ namespace OloEngine
     {
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
-        entity.GetComponent<IKTargetComponent>().LimbChainLength = std::min(length, 64u);
+        entity.GetComponent<IKTargetComponent>().LimbChainLength = std::clamp(length, 1u, GetSkeletonBoneCount(entity));
     }
 
     static u64 IKTargetComponent_GetLimbTargetEntity(UUID entityID)

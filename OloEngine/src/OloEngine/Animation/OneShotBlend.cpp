@@ -108,18 +108,22 @@ namespace OloEngine::Animation
         // Clamp playback time to clip duration
         f32 sampleTime = glm::clamp(m_PlaybackTime, 0.0f, Clip->Duration);
 
-        // Sample the one-shot clip into a temporary pose
+        // Sample the one-shot clip into a reusable pose buffer
         sizet boneCount = basePose.size();
-        std::vector<BoneTransform> oneShotPose(boneCount);
+        m_OneShotPose.resize(boneCount);
 
         for (sizet i = 0; i < boneCount; ++i)
         {
-            oneShotPose[i] = basePose[i]; // Default to base pose for bones without animation
+            m_OneShotPose[i] = basePose[i]; // Default to base pose for bones without animation
         }
 
         // Rebuild cache if bone count or skeleton identity changed
-        std::string_view firstBone = boneNames.empty() ? std::string_view{} : std::string_view{ boneNames[0] };
-        if (m_CachedBoneCount != boneCount || m_CachedFirstBoneName != firstBone)
+        sizet nameHash = 0;
+        for (auto const& name : boneNames)
+        {
+            nameHash ^= std::hash<std::string_view>{}(name) + 0x9e3779b9 + (nameHash << 6) + (nameHash >> 2);
+        }
+        if (m_CachedBoneCount != boneCount || m_CachedBoneNamesHash != nameHash)
         {
             m_BoneNameToIndex.clear();
             for (sizet i = 0; i < boneCount && i < boneNames.size(); ++i)
@@ -127,7 +131,7 @@ namespace OloEngine::Animation
                 m_BoneNameToIndex[boneNames[i]] = i;
             }
             m_CachedBoneCount = boneCount;
-            m_CachedFirstBoneName = boneNames.empty() ? std::string{} : std::string{ boneNames[0] };
+            m_CachedBoneNamesHash = nameHash;
         }
 
         for (const auto& boneAnim : Clip->BoneAnimations)
@@ -135,9 +139,9 @@ namespace OloEngine::Animation
             if (auto it = m_BoneNameToIndex.find(boneAnim.BoneName); it != m_BoneNameToIndex.end())
             {
                 auto i = it->second;
-                oneShotPose[i].Translation = AnimatedModel::SampleBonePosition(boneAnim.PositionKeys, sampleTime);
-                oneShotPose[i].Rotation = AnimatedModel::SampleBoneRotation(boneAnim.RotationKeys, sampleTime);
-                oneShotPose[i].Scale = AnimatedModel::SampleBoneScale(boneAnim.ScaleKeys, sampleTime);
+                m_OneShotPose[i].Translation = AnimatedModel::SampleBonePosition(boneAnim.PositionKeys, sampleTime);
+                m_OneShotPose[i].Rotation = AnimatedModel::SampleBoneRotation(boneAnim.RotationKeys, sampleTime);
+                m_OneShotPose[i].Scale = AnimatedModel::SampleBoneScale(boneAnim.ScaleKeys, sampleTime);
             }
         }
 
@@ -145,18 +149,18 @@ namespace OloEngine::Animation
         if (Additive)
         {
             // For additive, we need a rest pose. Use basePose as the "rest" for simplicity
-            // (the delta is oneShotPose - basePose, applied on top of basePose).
-            BlendUtils::AdditivePose(basePose, oneShotPose, basePose, effectiveWeight,
+            // (the delta is m_OneShotPose - basePose, applied on top of basePose).
+            BlendUtils::AdditivePose(basePose, m_OneShotPose, basePose, effectiveWeight,
                                      BlendRootBone, parentIndices, basePose);
         }
         else if (BlendRootBone > 0)
         {
-            BlendUtils::MaskedLerpPose(basePose, oneShotPose, effectiveWeight,
+            BlendUtils::MaskedLerpPose(basePose, m_OneShotPose, effectiveWeight,
                                        BlendRootBone, parentIndices, basePose);
         }
         else
         {
-            BlendUtils::LerpPose(basePose, oneShotPose, effectiveWeight, basePose);
+            BlendUtils::LerpPose(basePose, m_OneShotPose, effectiveWeight, basePose);
         }
     }
 } // namespace OloEngine::Animation

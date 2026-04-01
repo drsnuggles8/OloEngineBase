@@ -102,6 +102,7 @@ namespace OloEngine::Animation
         auto basePosition = jointPositions[0];
 
         // --- FABRIK iterations ---
+        constexpr f32 kDirectionEpsilon = 1e-6f;
         f32 convergenceThreshold2 = params.ConvergenceThreshold * params.ConvergenceThreshold;
         for (u32 iter = 0; iter < params.MaxIterations; ++iter)
         {
@@ -117,7 +118,7 @@ namespace OloEngine::Animation
                 auto idx = static_cast<sizet>(i);
                 auto dir = jointPositions[idx - 1] - jointPositions[idx];
                 f32 len = glm::length(dir);
-                if (len > params.ConvergenceThreshold)
+                if (len > kDirectionEpsilon)
                 {
                     jointPositions[idx - 1] = jointPositions[idx] + (dir / len) * boneLengths[idx];
                 }
@@ -133,7 +134,7 @@ namespace OloEngine::Animation
             {
                 auto dir = jointPositions[i] - jointPositions[i - 1];
                 f32 len = glm::length(dir);
-                if (len > params.ConvergenceThreshold)
+                if (len > kDirectionEpsilon)
                 {
                     jointPositions[i] = jointPositions[i - 1] + (dir / len) * boneLengths[i];
                 }

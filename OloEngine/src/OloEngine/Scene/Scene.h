@@ -32,6 +32,7 @@ namespace OloEngine
     class Prefab;
     class JoltScene;
     class SceneStreamer;
+    struct IKTargetComponent;
     class DialogueSystem;
 
     namespace Audio
@@ -114,6 +115,10 @@ namespace OloEngine
 
         // Entity lookup utilities
         [[nodiscard("Store this!")]] std::optional<Entity> TryGetEntityWithUUID(UUID id) const;
+
+        // IK target resolution: copies IKTargetComponent and resolves entity-linked targets.
+        // Returns true if entity has IKTargetComponent; resolved result written into `out`.
+        bool ResolveIKTargets(Entity entity, IKTargetComponent& out) const;
 
         [[nodiscard("Store this!")]] bool IsRunning() const
         {

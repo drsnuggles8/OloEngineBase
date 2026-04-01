@@ -66,6 +66,9 @@ namespace OloEngine::Animation
         // Cached bone-name-to-index mapping for O(1) lookup during Update
         std::unordered_map<std::string, sizet> m_BoneNameToIndex;
         sizet m_CachedBoneCount = 0;
-        std::string m_CachedFirstBoneName;
+        sizet m_CachedBoneNamesHash = 0;
+
+        // Reusable scratch buffer to avoid per-frame heap allocation
+        std::vector<BoneTransform> m_OneShotPose;
     };
 } // namespace OloEngine::Animation

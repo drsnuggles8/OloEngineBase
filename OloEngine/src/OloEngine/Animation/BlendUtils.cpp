@@ -160,23 +160,12 @@ namespace OloEngine::Animation::BlendUtils
         auto count = std::min({ base.size(), additive.size(), restPose.size(), out.size() });
 
         // Build affected-bones mask when masking is requested
-        std::vector<bool> affected;
         bool useMask = (blendRootBone > 0) && (blendRootBone < count);
+        std::vector<bool> affected;
         if (useMask)
         {
-            affected.resize(count, false);
-            affected[blendRootBone] = true;
-            for (sizet i = blendRootBone + 1; i < count; ++i)
-            {
-                if (i < parentIndices.size())
-                {
-                    auto parent = parentIndices[i];
-                    if (parent >= 0 && static_cast<sizet>(parent) < count && affected[static_cast<sizet>(parent)])
-                    {
-                        affected[i] = true;
-                    }
-                }
-            }
+            affected = BuildAffectedBonesMask(blendRootBone, count, parentIndices);
+            useMask = !affected.empty();
         }
 
         for (sizet i = 0; i < count; ++i)
@@ -220,26 +209,11 @@ namespace OloEngine::Animation::BlendUtils
         }
 
         // Build affected-bones mask
-        std::vector<bool> affected(count, false);
-        if (blendRootBone < count)
-        {
-            affected[blendRootBone] = true;
-            for (sizet i = blendRootBone + 1; i < count; ++i)
-            {
-                if (i < parentIndices.size())
-                {
-                    auto parent = parentIndices[i];
-                    if (parent >= 0 && static_cast<sizet>(parent) < count && affected[static_cast<sizet>(parent)])
-                    {
-                        affected[i] = true;
-                    }
-                }
-            }
-        }
+        auto affected = BuildAffectedBonesMask(blendRootBone, count, parentIndices);
 
         for (sizet i = 0; i < count; ++i)
         {
-            if (affected[i])
+            if (i < affected.size() && affected[i])
             {
                 out[i].Translation = glm::mix(a[i].Translation, b[i].Translation, alpha);
                 out[i].Rotation = glm::slerp(a[i].Rotation, b[i].Rotation, alpha);
@@ -250,6 +224,31 @@ namespace OloEngine::Animation::BlendUtils
                 out[i] = a[i];
             }
         }
+    }
+
+    std::vector<bool> BuildAffectedBonesMask(
+        u32 blendRootBone,
+        sizet boneCount,
+        std::span<const int> parentIndices)
+    {
+        if (blendRootBone >= boneCount)
+        {
+            return {};
+        }
+
+        std::vector<bool> affected(boneCount, false);
+        affected[blendRootBone] = true;
+        for (sizet i = blendRootBone + 1; i < boneCount; ++i)
+        {
+            if (i < parentIndices.size())
+            {
+                if (auto parent = parentIndices[i]; parent >= 0 && static_cast<sizet>(parent) < boneCount && affected[static_cast<sizet>(parent)])
+                {
+                    affected[i] = true;
+                }
+            }
+        }
+        return affected;
     }
 
 } // namespace OloEngine::Animation::BlendUtils

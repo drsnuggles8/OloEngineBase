@@ -34,7 +34,6 @@ namespace OloEngine
                                                  aiProcess_Triangulate |               // Make sure we get triangles
                                                      aiProcess_GenNormals |            // Create normals if not present
                                                      aiProcess_CalcTangentSpace |      // Calculate tangents and bitangents
-                                                     aiProcess_FlipUVs |               // Flip texture coordinates
                                                      aiProcess_ValidateDataStructure | // Validate the imported data structure
                                                      aiProcess_PreTransformVertices    // Bake node transforms into vertices (safe for static meshes)
         );

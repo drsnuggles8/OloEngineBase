@@ -159,36 +159,6 @@ namespace OloEngine::Animation
             // back — avoids the lossy glm::decompose round-trip on untouched bones.
             std::vector<bool> ikModified(boneCount, false);
 
-            if (ikTarget->AimIKEnabled && ikTarget->AimBoneIndex < static_cast<u32>(boneCount))
-            {
-                auto bone = ikTarget->AimBoneIndex;
-                for (u32 j = 0; j < std::max(1u, ikTarget->AimChainLength) && bone < static_cast<u32>(boneCount); ++j)
-                {
-                    ikModified[bone] = true;
-                    i32 parent = skeleton.m_ParentIndices[bone];
-                    if (parent < 0)
-                    {
-                        break;
-                    }
-                    bone = static_cast<u32>(parent);
-                }
-            }
-
-            if (ikTarget->LimbIKEnabled && ikTarget->LimbBoneIndex < static_cast<u32>(boneCount))
-            {
-                auto bone = ikTarget->LimbBoneIndex;
-                for (u32 j = 0; j < std::max(1u, ikTarget->LimbChainLength) && bone < static_cast<u32>(boneCount); ++j)
-                {
-                    ikModified[bone] = true;
-                    i32 parent = skeleton.m_ParentIndices[bone];
-                    if (parent < 0)
-                    {
-                        break;
-                    }
-                    bone = static_cast<u32>(parent);
-                }
-            }
-
             std::vector<BoneTransform> localPose(boneCount);
             for (sizet i = 0; i < boneCount; ++i)
             {
@@ -197,16 +167,36 @@ namespace OloEngine::Animation
                 glm::quat rotation;
                 glm::vec3 skew;
                 glm::vec4 perspective;
-                glm::decompose(skeleton.m_LocalTransforms[i], scale, rotation, translation, skew, perspective);
+                if (!glm::decompose(skeleton.m_LocalTransforms[i], scale, rotation, translation, skew, perspective))
+                {
+                    localPose[i] = { glm::vec3(0.0f), glm::identity<glm::quat>(), glm::vec3(1.0f) };
+                    continue;
+                }
                 localPose[i] = { translation, rotation, scale };
             }
 
+            auto isFiniteVec3 = [](const glm::vec3& v)
+            { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
+
             if (ikTarget->AimIKEnabled && ikTarget->AimBoneIndex < static_cast<u32>(boneCount))
             {
-                auto isFiniteVec3 = [](const glm::vec3& v)
-                { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
-                if (isFiniteVec3(ikTarget->AimTarget) && isFiniteVec3(ikTarget->AimAxis) && isFiniteVec3(ikTarget->AimPoleVector) && std::isfinite(ikTarget->AimWeight) && std::isfinite(ikTarget->AimChainFactor))
+                if (isFiniteVec3(ikTarget->AimTarget) && isFiniteVec3(ikTarget->AimAxis) && isFiniteVec3(ikTarget->AimOffset) && isFiniteVec3(ikTarget->AimPoleVector) && std::isfinite(ikTarget->AimWeight) && std::isfinite(ikTarget->AimChainFactor))
                 {
+                    // Mark affected bones only after validation passes
+                    auto bone = ikTarget->AimBoneIndex;
+                    for (u32 j = 0; j < std::max(1u, ikTarget->AimChainLength) && bone < static_cast<u32>(boneCount); ++j)
+                    {
+                        ikModified[bone] = true;
+                        if (auto parent = skeleton.m_ParentIndices[bone]; parent < 0)
+                        {
+                            break;
+                        }
+                        else
+                        {
+                            bone = static_cast<u32>(parent);
+                        }
+                    }
+
                     AimIKParams params;
                     params.TargetBoneIndex = ikTarget->AimBoneIndex;
                     params.TargetPosition = BlendUtils::WorldToModelSpace(ikTarget->AimTarget, entityWorldTransform);
@@ -222,10 +212,23 @@ namespace OloEngine::Animation
 
             if (ikTarget->LimbIKEnabled && ikTarget->LimbBoneIndex < static_cast<u32>(boneCount))
             {
-                auto isFiniteVec3 = [](const glm::vec3& v)
-                { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
                 if (isFiniteVec3(ikTarget->LimbTarget) && std::isfinite(ikTarget->LimbWeight))
                 {
+                    // Mark affected bones only after validation passes
+                    auto bone = ikTarget->LimbBoneIndex;
+                    for (u32 j = 0; j < std::max(1u, ikTarget->LimbChainLength) && bone < static_cast<u32>(boneCount); ++j)
+                    {
+                        ikModified[bone] = true;
+                        if (auto parent = skeleton.m_ParentIndices[bone]; parent < 0)
+                        {
+                            break;
+                        }
+                        else
+                        {
+                            bone = static_cast<u32>(parent);
+                        }
+                    }
+
                     LimbIKParams params;
                     params.TargetBoneIndex = ikTarget->LimbBoneIndex;
                     params.TargetPosition = BlendUtils::WorldToModelSpace(ikTarget->LimbTarget, entityWorldTransform);

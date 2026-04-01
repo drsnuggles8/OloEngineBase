@@ -750,29 +750,9 @@ namespace OloEngine
 
                     if (animState.m_IsPlaying && animState.m_CurrentClip && skelComp.m_Skeleton)
                     {
-                        const IKTargetComponent* ikTarget = nullptr;
                         IKTargetComponent tempIk;
                         Entity entity = { e, this };
-                        if (entity.HasComponent<IKTargetComponent>())
-                        {
-                            tempIk = entity.GetComponent<IKTargetComponent>();
-                            // Resolve target entity positions if linked
-                            if (static_cast<u64>(tempIk.AimTargetEntity) != 0)
-                            {
-                                if (auto targetEnt = TryGetEntityWithUUID(tempIk.AimTargetEntity))
-                                {
-                                    tempIk.AimTarget = targetEnt->GetComponent<TransformComponent>().Translation;
-                                }
-                            }
-                            if (static_cast<u64>(tempIk.LimbTargetEntity) != 0)
-                            {
-                                if (auto targetEnt = TryGetEntityWithUUID(tempIk.LimbTargetEntity))
-                                {
-                                    tempIk.LimbTarget = targetEnt->GetComponent<TransformComponent>().Translation;
-                                }
-                            }
-                            ikTarget = &tempIk;
-                        }
+                        const IKTargetComponent* ikTarget = ResolveIKTargets(entity, tempIk) ? &tempIk : nullptr;
                         auto const& entityTransform = entity.GetComponent<TransformComponent>().GetTransform();
                         Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform);
 
@@ -834,7 +814,22 @@ namespace OloEngine
                     }
 
                     if (!morphComp.HasActiveWeights() || !morphComp.MorphTargets)
+                    {
+                        // Restore base mesh when all weights go to zero
+                        if (!morphComp.BasePositions.empty() && meshComp.m_MeshSource)
+                        {
+                            auto& meshSource = meshComp.m_MeshSource;
+                            auto& mutableVerts = meshSource->GetVertices();
+                            for (u32 i = 0; i < static_cast<u32>(morphComp.BasePositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
+                            {
+                                mutableVerts[i].Position = morphComp.BasePositions[i];
+                                mutableVerts[i].Normal = morphComp.BaseNormals[i];
+                            }
+                            auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
+                            vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
+                        }
                         continue;
+                    }
 
                     auto& meshSource = meshComp.m_MeshSource;
                     auto& vertices = meshSource->GetVertices();
@@ -970,30 +965,9 @@ namespace OloEngine
                                 break;
                             }
                         }
-                        const IKTargetComponent* graphIkTarget = nullptr;
-                        {
-                            Entity entity = { e, this };
-                            if (entity.HasComponent<IKTargetComponent>())
-                            {
-                                auto& ik = entity.GetComponent<IKTargetComponent>();
-                                if (static_cast<u64>(ik.AimTargetEntity) != 0)
-                                {
-                                    if (auto targetEnt = TryGetEntityWithUUID(ik.AimTargetEntity))
-                                    {
-                                        ik.AimTarget = targetEnt->GetComponent<TransformComponent>().Translation;
-                                    }
-                                }
-                                if (static_cast<u64>(ik.LimbTargetEntity) != 0)
-                                {
-                                    if (auto targetEnt = TryGetEntityWithUUID(ik.LimbTargetEntity))
-                                    {
-                                        ik.LimbTarget = targetEnt->GetComponent<TransformComponent>().Translation;
-                                    }
-                                }
-                                graphIkTarget = &ik;
-                            }
-                        }
+                        IKTargetComponent graphTempIk;
                         Entity graphEntity = { e, this };
+                        const IKTargetComponent* graphIkTarget = ResolveIKTargets(graphEntity, graphTempIk) ? &graphTempIk : nullptr;
                         auto const& graphEntityTransform = graphEntity.GetComponent<TransformComponent>().GetTransform();
                         Animation::AnimationGraphSystem::Update(graphComp, *skelComp.m_Skeleton, ts.GetSeconds(), graphIkTarget, graphEntityTransform);
                     }
@@ -1456,28 +1430,9 @@ namespace OloEngine
 
                 if (animState.m_IsPlaying && animState.m_CurrentClip && skelComp.m_Skeleton)
                 {
-                    const IKTargetComponent* ikTarget = nullptr;
                     IKTargetComponent tempIk;
                     Entity entity = { e, this };
-                    if (entity.HasComponent<IKTargetComponent>())
-                    {
-                        tempIk = entity.GetComponent<IKTargetComponent>();
-                        if (static_cast<u64>(tempIk.AimTargetEntity) != 0)
-                        {
-                            if (auto targetEnt = TryGetEntityWithUUID(tempIk.AimTargetEntity))
-                            {
-                                tempIk.AimTarget = targetEnt->GetComponent<TransformComponent>().Translation;
-                            }
-                        }
-                        if (static_cast<u64>(tempIk.LimbTargetEntity) != 0)
-                        {
-                            if (auto targetEnt = TryGetEntityWithUUID(tempIk.LimbTargetEntity))
-                            {
-                                tempIk.LimbTarget = targetEnt->GetComponent<TransformComponent>().Translation;
-                            }
-                        }
-                        ikTarget = &tempIk;
-                    }
+                    const IKTargetComponent* ikTarget = ResolveIKTargets(entity, tempIk) ? &tempIk : nullptr;
                     auto const& entityTransform = entity.GetComponent<TransformComponent>().GetTransform();
                     Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform);
 
@@ -1509,7 +1464,22 @@ namespace OloEngine
                     morphComp.MorphTargets = meshComp.m_MeshSource->GetMorphTargets();
 
                 if (!morphComp.HasActiveWeights() || !morphComp.MorphTargets)
+                {
+                    // Restore base mesh when all weights go to zero
+                    if (!morphComp.BasePositions.empty() && meshComp.m_MeshSource)
+                    {
+                        auto& meshSource = meshComp.m_MeshSource;
+                        auto& mutableVerts = meshSource->GetVertices();
+                        for (u32 i = 0; i < static_cast<u32>(morphComp.BasePositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
+                        {
+                            mutableVerts[i].Position = morphComp.BasePositions[i];
+                            mutableVerts[i].Normal = morphComp.BaseNormals[i];
+                        }
+                        auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
+                        vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
+                    }
                     continue;
+                }
 
                 auto& meshSource = meshComp.m_MeshSource;
                 auto& vertices = meshSource->GetVertices();
@@ -1838,6 +1808,33 @@ namespace OloEngine
             return Entity{ *entityPtr, this };
         }
         return std::nullopt;
+    }
+
+    bool Scene::ResolveIKTargets(Entity entity, IKTargetComponent& out) const
+    {
+        if (!entity.HasComponent<IKTargetComponent>())
+        {
+            return false;
+        }
+
+        out = entity.GetComponent<IKTargetComponent>();
+
+        if (static_cast<u64>(out.AimTargetEntity) != 0)
+        {
+            if (auto targetEnt = TryGetEntityWithUUID(out.AimTargetEntity))
+            {
+                out.AimTarget = targetEnt->GetComponent<TransformComponent>().Translation;
+            }
+        }
+        if (static_cast<u64>(out.LimbTargetEntity) != 0)
+        {
+            if (auto targetEnt = TryGetEntityWithUUID(out.LimbTargetEntity))
+            {
+                out.LimbTarget = targetEnt->GetComponent<TransformComponent>().Translation;
+            }
+        }
+
+        return true;
     }
 
     void Scene::OnPhysics2DStart()

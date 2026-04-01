@@ -100,11 +100,16 @@ namespace OloEngine
             {
                 m_Meshes.push_back(meshSource);
 
-                // Store the first mesh node's global transform for axis correction
-                if (!m_HasMeshNodeTransform)
+                // Store the first skinned mesh node's global transform for axis correction
+                if (!m_HasMeshNodeTransform && mesh->mNumBones > 0)
                 {
                     m_MeshNodeGlobalTransform = globalTransform;
                     m_HasMeshNodeTransform = true;
+                }
+                else if (m_HasMeshNodeTransform && mesh->mNumBones > 0)
+                {
+                    OLO_CORE_ASSERT(m_MeshNodeGlobalTransform == globalTransform,
+                                    "AnimatedModel: skinned meshes have different node transforms — axis correction may be wrong");
                 }
 
                 // Process the material for this mesh

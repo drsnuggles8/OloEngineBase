@@ -260,11 +260,13 @@ namespace OloEngine
                                             "aimChainLength", &IKTargetComponent::AimChainLength,
                                             "aimChainFactor", &IKTargetComponent::AimChainFactor,
                                             "aimWeight", &IKTargetComponent::AimWeight,
+                                            "aimTargetEntity", &IKTargetComponent::AimTargetEntity,
                                             "limbIKEnabled", &IKTargetComponent::LimbIKEnabled,
                                             "limbBoneIndex", &IKTargetComponent::LimbBoneIndex,
                                             "limbTarget", &IKTargetComponent::LimbTarget,
                                             "limbChainLength", &IKTargetComponent::LimbChainLength,
-                                            "limbWeight", &IKTargetComponent::LimbWeight);
+                                            "limbWeight", &IKTargetComponent::LimbWeight,
+                                            "limbTargetEntity", &IKTargetComponent::LimbTargetEntity);
 
         // --- WindSettings (scene-level) ---
         lua.new_usertype<WindSettings>("WindSettings",

@@ -86,4 +86,11 @@ namespace OloEngine::Animation::BlendUtils
         std::span<const int> parentIndices,
         std::span<BoneTransform> out);
 
+    // Build a boolean mask marking blendRootBone and all its descendants.
+    // Returns an empty vector when blendRootBone is out of range.
+    [[nodiscard]] std::vector<bool> BuildAffectedBonesMask(
+        u32 blendRootBone,
+        sizet boneCount,
+        std::span<const int> parentIndices);
+
 } // namespace OloEngine::Animation::BlendUtils
