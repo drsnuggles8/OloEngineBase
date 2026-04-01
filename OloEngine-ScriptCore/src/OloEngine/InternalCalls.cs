@@ -725,6 +725,30 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void IKTargetComponent_SetAimTarget(ulong entityID, ref Vector3 target);
 		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_GetAimAxis(ulong entityID, out Vector3 axis);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetAimAxis(ulong entityID, ref Vector3 axis);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_GetAimOffset(ulong entityID, out Vector3 offset);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetAimOffset(ulong entityID, ref Vector3 offset);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_GetAimPoleVector(ulong entityID, out Vector3 poleVector);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetAimPoleVector(ulong entityID, ref Vector3 poleVector);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint IKTargetComponent_GetAimChainLength(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetAimChainLength(ulong entityID, uint length);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float IKTargetComponent_GetAimChainFactor(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetAimChainFactor(ulong entityID, float factor);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern ulong IKTargetComponent_GetAimTargetEntity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetAimTargetEntity(ulong entityID, ulong targetID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern float IKTargetComponent_GetAimWeight(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void IKTargetComponent_SetAimWeight(ulong entityID, float weight);
@@ -740,6 +764,14 @@ namespace OloEngine
 		internal static extern void IKTargetComponent_GetLimbTarget(ulong entityID, out Vector3 target);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void IKTargetComponent_SetLimbTarget(ulong entityID, ref Vector3 target);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint IKTargetComponent_GetLimbChainLength(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetLimbChainLength(ulong entityID, uint length);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern ulong IKTargetComponent_GetLimbTargetEntity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetLimbTargetEntity(ulong entityID, ulong targetID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern float IKTargetComponent_GetLimbWeight(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]

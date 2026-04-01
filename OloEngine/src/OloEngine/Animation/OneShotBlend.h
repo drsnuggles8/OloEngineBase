@@ -66,5 +66,6 @@ namespace OloEngine::Animation
         // Cached bone-name-to-index mapping for O(1) lookup during Update
         std::unordered_map<std::string, sizet> m_BoneNameToIndex;
         sizet m_CachedBoneCount = 0;
+        std::string m_CachedFirstBoneName;
     };
 } // namespace OloEngine::Animation

@@ -781,15 +781,16 @@ namespace OloEngine
                 return static_cast<i32>(SaveLoadResult::NoActiveScene);
             return static_cast<i32>(SaveGameManager::QuickLoad(*scene));
         };
-        saveGameTable["EnumerateSaves"] = [&lua]() -> sol::table
+        saveGameTable["EnumerateSaves"] = []() -> sol::table
         {
             OLO_PROFILE_SCOPE("Lua::SaveGame::EnumerateSaves");
+            auto& luaState = *Scripting::GetState();
             auto saves = SaveGameManager::EnumerateSaves();
-            sol::table result = lua.create_table(static_cast<int>(saves.size()), 0);
+            sol::table result = luaState.create_table(static_cast<int>(saves.size()), 0);
             int index = 1;
             for (const auto& info : saves)
             {
-                sol::table entry = lua.create_table(0, 3);
+                sol::table entry = luaState.create_table(0, 3);
                 entry["SlotName"] = info.FilePath.stem().string();
                 entry["DisplayName"] = info.Metadata.DisplayName;
                 entry["TimestampUTC"] = info.Metadata.TimestampUTC;
@@ -1141,10 +1142,11 @@ namespace OloEngine
         {
             return Renderer3D::GetShaderLibrary().GetTotalCount();
         };
-        shaderLib3D["GetAllNames"] = [&lua]() -> sol::table
+        shaderLib3D["GetAllNames"] = []() -> sol::table
         {
+            auto& luaState = *Scripting::GetState();
             auto names = Renderer3D::GetShaderLibrary().GetAllShaderNames();
-            sol::table result = lua.create_table(static_cast<int>(names.size()), 0);
+            sol::table result = luaState.create_table(static_cast<int>(names.size()), 0);
             for (size_t i = 0; i < names.size(); ++i)
             {
                 result[static_cast<int>(i) + 1] = names[i];
@@ -1182,10 +1184,11 @@ namespace OloEngine
         {
             return Renderer2D::GetShaderLibrary().GetTotalCount();
         };
-        shaderLib2D["GetAllNames"] = [&lua]() -> sol::table
+        shaderLib2D["GetAllNames"] = []() -> sol::table
         {
+            auto& luaState = *Scripting::GetState();
             auto names = Renderer2D::GetShaderLibrary().GetAllShaderNames();
-            sol::table result = lua.create_table(static_cast<int>(names.size()), 0);
+            sol::table result = luaState.create_table(static_cast<int>(names.size()), 0);
             for (size_t i = 0; i < names.size(); ++i)
             {
                 result[static_cast<int>(i) + 1] = names[i];

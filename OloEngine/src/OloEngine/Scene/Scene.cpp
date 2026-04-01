@@ -1494,6 +1494,59 @@ namespace OloEngine
             }
         }
 
+        // Evaluate morph targets for editor preview (mirrors the runtime morph evaluation pass)
+        {
+            OLO_PROFILE_SCOPE("Editor Morph Target Evaluation");
+            auto morphView = m_Registry.view<MorphTargetComponent, MeshComponent>();
+            for (auto e : morphView)
+            {
+                auto& morphComp = morphView.get<MorphTargetComponent>(e);
+                auto& meshComp = morphView.get<MeshComponent>(e);
+                if (!meshComp.m_MeshSource)
+                    continue;
+
+                if (!morphComp.MorphTargets && meshComp.m_MeshSource->HasMorphTargets())
+                    morphComp.MorphTargets = meshComp.m_MeshSource->GetMorphTargets();
+
+                if (!morphComp.HasActiveWeights() || !morphComp.MorphTargets)
+                    continue;
+
+                auto& meshSource = meshComp.m_MeshSource;
+                auto& vertices = meshSource->GetVertices();
+
+                if (morphComp.BasePositions.empty() && vertices.Num() > 0)
+                {
+                    morphComp.BasePositions.resize(vertices.Num());
+                    morphComp.BaseNormals.resize(vertices.Num());
+                    for (u32 i = 0; i < static_cast<u32>(vertices.Num()); ++i)
+                    {
+                        morphComp.BasePositions[i] = vertices[i].Position;
+                        morphComp.BaseNormals[i] = vertices[i].Normal;
+                    }
+                }
+
+                if (morphComp.BasePositions.empty())
+                    continue;
+
+                std::vector<glm::vec3> outPositions;
+                std::vector<glm::vec3> outNormals;
+                if (MorphTargetSystem::EvaluateMorphTargets(morphComp,
+                                                            morphComp.BasePositions, morphComp.BaseNormals,
+                                                            outPositions, outNormals))
+                {
+                    auto& mutableVerts = meshSource->GetVertices();
+                    for (u32 i = 0; i < static_cast<u32>(outPositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
+                    {
+                        mutableVerts[i].Position = outPositions[i];
+                        mutableVerts[i].Normal = outNormals[i];
+                    }
+
+                    auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
+                    vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
+                }
+            }
+        }
+
         // Render based on mode
         if (m_RenderingEnabled)
         {

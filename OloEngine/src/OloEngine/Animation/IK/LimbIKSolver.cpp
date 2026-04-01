@@ -63,7 +63,11 @@ namespace OloEngine::Animation
             return; // Need at least 2 bones for FABRIK
         }
 
+        // Reverse so indices go root-to-tip (ascending from chain root to end-effector)
+        std::reverse(boneIndices.begin(), boneIndices.end());
+
         // Save original rotations for chain bones only (for final weight blending)
+        // Must be captured AFTER reverse so indices align with the blend loop order.
         std::vector<glm::quat> originalRotations;
         bool needWeightBlend = (params.Weight < 1.0f - 1e-6f);
         if (needWeightBlend)
@@ -74,9 +78,6 @@ namespace OloEngine::Animation
                 originalRotations[i] = pose[boneIndices[i]].Rotation;
             }
         }
-
-        // Reverse so indices go root-to-tip (ascending from chain root to end-effector)
-        std::reverse(boneIndices.begin(), boneIndices.end());
 
         // Compute model-space transforms (including pre-transforms for correct coordinate space)
         std::vector<BoneTransform> modelSpace;
