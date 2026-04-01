@@ -249,6 +249,23 @@ namespace OloEngine
                                              "barBackgroundColor", &NameplateComponent::m_BarBackgroundColor,
                                              "manaBarGap", &NameplateComponent::m_ManaBarGap);
 
+        // --- IKTargetComponent ---
+        lua.new_usertype<IKTargetComponent>("IKTargetComponent",
+                                            "aimIKEnabled", &IKTargetComponent::AimIKEnabled,
+                                            "aimBoneIndex", &IKTargetComponent::AimBoneIndex,
+                                            "aimTarget", &IKTargetComponent::AimTarget,
+                                            "aimAxis", &IKTargetComponent::AimAxis,
+                                            "aimOffset", &IKTargetComponent::AimOffset,
+                                            "aimPoleVector", &IKTargetComponent::AimPoleVector,
+                                            "aimChainLength", &IKTargetComponent::AimChainLength,
+                                            "aimChainFactor", &IKTargetComponent::AimChainFactor,
+                                            "aimWeight", &IKTargetComponent::AimWeight,
+                                            "limbIKEnabled", &IKTargetComponent::LimbIKEnabled,
+                                            "limbBoneIndex", &IKTargetComponent::LimbBoneIndex,
+                                            "limbTarget", &IKTargetComponent::LimbTarget,
+                                            "limbChainLength", &IKTargetComponent::LimbChainLength,
+                                            "limbWeight", &IKTargetComponent::LimbWeight);
+
         // --- WindSettings (scene-level) ---
         lua.new_usertype<WindSettings>("WindSettings",
                                        "enabled", &WindSettings::Enabled,

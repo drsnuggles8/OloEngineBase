@@ -1291,6 +1291,65 @@ namespace OloEngine
 		}
 	}
 
+	public class IKTargetComponent : Component
+	{
+		public bool AimIKEnabled
+		{
+			get => InternalCalls.IKTargetComponent_GetAimIKEnabled(Entity.ID);
+			set => InternalCalls.IKTargetComponent_SetAimIKEnabled(Entity.ID, value);
+		}
+
+		public uint AimBoneIndex
+		{
+			get => InternalCalls.IKTargetComponent_GetAimBoneIndex(Entity.ID);
+			set => InternalCalls.IKTargetComponent_SetAimBoneIndex(Entity.ID, value);
+		}
+
+		public Vector3 AimTarget
+		{
+			get
+			{
+				InternalCalls.IKTargetComponent_GetAimTarget(Entity.ID, out Vector3 v);
+				return v;
+			}
+			set => InternalCalls.IKTargetComponent_SetAimTarget(Entity.ID, ref value);
+		}
+
+		public float AimWeight
+		{
+			get => InternalCalls.IKTargetComponent_GetAimWeight(Entity.ID);
+			set => InternalCalls.IKTargetComponent_SetAimWeight(Entity.ID, value);
+		}
+
+		public bool LimbIKEnabled
+		{
+			get => InternalCalls.IKTargetComponent_GetLimbIKEnabled(Entity.ID);
+			set => InternalCalls.IKTargetComponent_SetLimbIKEnabled(Entity.ID, value);
+		}
+
+		public uint LimbBoneIndex
+		{
+			get => InternalCalls.IKTargetComponent_GetLimbBoneIndex(Entity.ID);
+			set => InternalCalls.IKTargetComponent_SetLimbBoneIndex(Entity.ID, value);
+		}
+
+		public Vector3 LimbTarget
+		{
+			get
+			{
+				InternalCalls.IKTargetComponent_GetLimbTarget(Entity.ID, out Vector3 v);
+				return v;
+			}
+			set => InternalCalls.IKTargetComponent_SetLimbTarget(Entity.ID, ref value);
+		}
+
+		public float LimbWeight
+		{
+			get => InternalCalls.IKTargetComponent_GetLimbWeight(Entity.ID);
+			set => InternalCalls.IKTargetComponent_SetLimbWeight(Entity.ID, value);
+		}
+	}
+
 	public class AnimationGraphComponent : Component
 	{
 		public void SetFloat(string paramName, float value)

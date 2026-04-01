@@ -751,26 +751,27 @@ namespace OloEngine
                     if (animState.m_IsPlaying && animState.m_CurrentClip && skelComp.m_Skeleton)
                     {
                         const IKTargetComponent* ikTarget = nullptr;
+                        IKTargetComponent tempIk;
                         Entity entity = { e, this };
                         if (entity.HasComponent<IKTargetComponent>())
                         {
-                            auto& ik = entity.GetComponent<IKTargetComponent>();
+                            tempIk = entity.GetComponent<IKTargetComponent>();
                             // Resolve target entity positions if linked
-                            if (static_cast<u64>(ik.AimTargetEntity) != 0)
+                            if (static_cast<u64>(tempIk.AimTargetEntity) != 0)
                             {
-                                if (auto targetEnt = TryGetEntityWithUUID(ik.AimTargetEntity))
+                                if (auto targetEnt = TryGetEntityWithUUID(tempIk.AimTargetEntity))
                                 {
-                                    ik.AimTarget = targetEnt->GetComponent<TransformComponent>().Translation;
+                                    tempIk.AimTarget = targetEnt->GetComponent<TransformComponent>().Translation;
                                 }
                             }
-                            if (static_cast<u64>(ik.LimbTargetEntity) != 0)
+                            if (static_cast<u64>(tempIk.LimbTargetEntity) != 0)
                             {
-                                if (auto targetEnt = TryGetEntityWithUUID(ik.LimbTargetEntity))
+                                if (auto targetEnt = TryGetEntityWithUUID(tempIk.LimbTargetEntity))
                                 {
-                                    ik.LimbTarget = targetEnt->GetComponent<TransformComponent>().Translation;
+                                    tempIk.LimbTarget = targetEnt->GetComponent<TransformComponent>().Translation;
                                 }
                             }
-                            ikTarget = &ik;
+                            ikTarget = &tempIk;
                         }
                         auto const& entityTransform = entity.GetComponent<TransformComponent>().GetTransform();
                         Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform);
@@ -1456,28 +1457,39 @@ namespace OloEngine
                 if (animState.m_IsPlaying && animState.m_CurrentClip && skelComp.m_Skeleton)
                 {
                     const IKTargetComponent* ikTarget = nullptr;
+                    IKTargetComponent tempIk;
                     Entity entity = { e, this };
                     if (entity.HasComponent<IKTargetComponent>())
                     {
-                        auto& ik = entity.GetComponent<IKTargetComponent>();
-                        if (static_cast<u64>(ik.AimTargetEntity) != 0)
+                        tempIk = entity.GetComponent<IKTargetComponent>();
+                        if (static_cast<u64>(tempIk.AimTargetEntity) != 0)
                         {
-                            if (auto targetEnt = TryGetEntityWithUUID(ik.AimTargetEntity))
+                            if (auto targetEnt = TryGetEntityWithUUID(tempIk.AimTargetEntity))
                             {
-                                ik.AimTarget = targetEnt->GetComponent<TransformComponent>().Translation;
+                                tempIk.AimTarget = targetEnt->GetComponent<TransformComponent>().Translation;
                             }
                         }
-                        if (static_cast<u64>(ik.LimbTargetEntity) != 0)
+                        if (static_cast<u64>(tempIk.LimbTargetEntity) != 0)
                         {
-                            if (auto targetEnt = TryGetEntityWithUUID(ik.LimbTargetEntity))
+                            if (auto targetEnt = TryGetEntityWithUUID(tempIk.LimbTargetEntity))
                             {
-                                ik.LimbTarget = targetEnt->GetComponent<TransformComponent>().Translation;
+                                tempIk.LimbTarget = targetEnt->GetComponent<TransformComponent>().Translation;
                             }
                         }
-                        ikTarget = &ik;
+                        ikTarget = &tempIk;
                     }
                     auto const& entityTransform = entity.GetComponent<TransformComponent>().GetTransform();
                     Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform);
+
+                    // Sample morph target keyframes from the current animation clip
+                    if (!animState.m_CurrentClip->MorphKeyframes.empty())
+                    {
+                        if (entity.HasComponent<MorphTargetComponent>())
+                        {
+                            auto& morphComp = entity.GetComponent<MorphTargetComponent>();
+                            MorphTargetSystem::SampleMorphKeyframes(animState.m_CurrentClip, animState.m_CurrentTime, morphComp);
+                        }
+                    }
                 }
             }
         }

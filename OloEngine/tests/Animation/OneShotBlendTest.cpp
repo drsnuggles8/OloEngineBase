@@ -171,7 +171,8 @@ TEST(OneShotBlendTest, OnFinishedCallbackFires)
 
     TestSetup setup;
     bool finished = false;
-    oneShot.OnFinished = [&finished]() { finished = true; };
+    oneShot.OnFinished = [&finished]()
+    { finished = true; };
 
     oneShot.Trigger();
     oneShot.Update(0.6f, setup.basePose, setup.parentIndices, setup.boneNames);
@@ -189,7 +190,8 @@ TEST(OneShotBlendTest, OnFinishedCallbackNotCalledDuringPlayback)
 
     TestSetup setup;
     bool finished = false;
-    oneShot.OnFinished = [&finished]() { finished = true; };
+    oneShot.OnFinished = [&finished]()
+    { finished = true; };
 
     oneShot.Trigger();
     oneShot.Update(0.5f, setup.basePose, setup.parentIndices, setup.boneNames);

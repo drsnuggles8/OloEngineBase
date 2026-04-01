@@ -38,18 +38,6 @@ namespace OloEngine::Animation
 
         auto boneCount = std::min(pose.size(), parentIndices.size());
 
-        // Save original rotations for final weight blending
-        std::vector<glm::quat> originalRotations;
-        bool needWeightBlend = (params.Weight < 1.0f - 1e-6f);
-        if (needWeightBlend)
-        {
-            originalRotations.resize(boneCount);
-            for (sizet i = 0; i < boneCount; ++i)
-            {
-                originalRotations[i] = pose[i].Rotation;
-            }
-        }
-
         // Build the chain of bone indices from end-effector up to chain root.
         // chainLength bones + 1 extra joint for the tip of the end-effector.
         u32 chainJointCount = params.ChainLength + 1;
@@ -73,6 +61,18 @@ namespace OloEngine::Animation
         if (boneIndices.size() < 2)
         {
             return; // Need at least 2 bones for FABRIK
+        }
+
+        // Save original rotations for chain bones only (for final weight blending)
+        std::vector<glm::quat> originalRotations;
+        bool needWeightBlend = (params.Weight < 1.0f - 1e-6f);
+        if (needWeightBlend)
+        {
+            originalRotations.resize(boneIndices.size());
+            for (sizet i = 0; i < boneIndices.size(); ++i)
+            {
+                originalRotations[i] = pose[boneIndices[i]].Rotation;
+            }
         }
 
         // Reverse so indices go root-to-tip (ascending from chain root to end-effector)
@@ -101,9 +101,10 @@ namespace OloEngine::Animation
         auto basePosition = jointPositions[0];
 
         // --- FABRIK iterations ---
+        f32 convergenceThreshold2 = params.ConvergenceThreshold * params.ConvergenceThreshold;
         for (u32 iter = 0; iter < params.MaxIterations; ++iter)
         {
-            if (glm::length2(jointPositions.back() - params.TargetPosition) < params.ConvergenceThreshold)
+            if (glm::length2(jointPositions.back() - params.TargetPosition) < convergenceThreshold2)
             {
                 break;
             }
@@ -152,7 +153,7 @@ namespace OloEngine::Animation
         {
             if (idx < preTransforms.size())
             {
-                static constexpr glm::mat4 kIdentity{1.0f};
+                static constexpr glm::mat4 kIdentity{ 1.0f };
                 if (std::memcmp(&preTransforms[idx], &kIdentity, sizeof(glm::mat4)) != 0)
                 {
                     return BlendUtils::DecomposeMatrix(preTransforms[idx]);
@@ -197,12 +198,13 @@ namespace OloEngine::Animation
             parentModelSpace = BlendUtils::MultiplyTransforms(parentModelSpace, BlendUtils::MultiplyTransforms(pre, pose[thisIdx]));
         }
 
-        // Apply global weight: blend between original and IK result
+        // Apply global weight: blend between original and IK result (chain bones only)
         if (needWeightBlend)
         {
-            for (sizet i = 0; i < boneCount; ++i)
+            for (sizet i = 0; i < boneIndices.size(); ++i)
             {
-                pose[i].Rotation = glm::slerp(originalRotations[i], pose[i].Rotation, params.Weight);
+                auto bi = boneIndices[i];
+                pose[bi].Rotation = glm::slerp(originalRotations[i], pose[bi].Rotation, params.Weight);
             }
         }
     }

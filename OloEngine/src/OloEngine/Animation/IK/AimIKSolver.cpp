@@ -70,15 +70,28 @@ namespace OloEngine::Animation
 
         auto boneCount = std::min(pose.size(), parentIndices.size());
 
-        // Save original rotations for final weight blending
+        // Save original rotations for chain bones only (for final weight blending)
+        std::vector<u32> chainIndices;
         std::vector<glm::quat> originalRotations;
         bool needWeightBlend = (params.Weight < 1.0f - 1e-6f);
         if (needWeightBlend)
         {
-            originalRotations.resize(boneCount);
-            for (sizet i = 0; i < boneCount; ++i)
+            // Pre-compute chain indices (end-effector walking up parents)
+            auto idx = params.TargetBoneIndex;
+            for (u32 i = 0; i < params.ChainLength && idx < static_cast<u32>(boneCount); ++i)
             {
-                originalRotations[i] = pose[i].Rotation;
+                chainIndices.push_back(idx);
+                auto parent = parentIndices[idx];
+                if (parent < 0)
+                {
+                    break;
+                }
+                idx = static_cast<u32>(parent);
+            }
+            originalRotations.resize(chainIndices.size());
+            for (sizet i = 0; i < chainIndices.size(); ++i)
+            {
+                originalRotations[i] = pose[chainIndices[i]].Rotation;
             }
         }
 
@@ -138,7 +151,7 @@ namespace OloEngine::Animation
                 auto correctedUp = boneToTargetRotation * up;
 
                 // Compute reference plane normal and bone plane normal
-                auto poleVec = BlendUtils::TransformVector(invBone, glm::vec3(0.0f, 1.0f, 0.0f));
+                auto poleVec = BlendUtils::TransformVector(invBone, params.PoleVector);
                 auto refBoneNormal = glm::cross(poleVec, boneToTarget);
                 auto boneNormal = glm::cross(correctedUp, boneToTarget);
                 f32 refBoneNormalLen2 = glm::length2(refBoneNormal);
@@ -147,7 +160,7 @@ namespace OloEngine::Animation
                 glm::quat planeRotation = glm::identity<glm::quat>();
                 if ((boneToTargetLen2 > kEpsilon) && (boneNormalLen2 > kEpsilon) && (refBoneNormalLen2 > kEpsilon))
                 {
-                    auto rsqrts = glm::inversesqrt(glm::vec3{boneToTargetLen2, boneNormalLen2, refBoneNormalLen2});
+                    auto rsqrts = glm::inversesqrt(glm::vec3{ boneToTargetLen2, boneNormalLen2, refBoneNormalLen2 });
 
                     auto planeRotationAxis = rsqrts.x * boneToTarget;
 
@@ -192,12 +205,13 @@ namespace OloEngine::Animation
             boneIndex = static_cast<u32>(parent);
         }
 
-        // Apply global weight: blend between original and IK result
+        // Apply global weight: blend between original and IK result (chain bones only)
         if (needWeightBlend)
         {
-            for (sizet i = 0; i < boneCount; ++i)
+            for (sizet i = 0; i < chainIndices.size(); ++i)
             {
-                pose[i].Rotation = glm::slerp(originalRotations[i], pose[i].Rotation, params.Weight);
+                auto bi = chainIndices[i];
+                pose[bi].Rotation = glm::slerp(originalRotations[i], pose[bi].Rotation, params.Weight);
             }
         }
     }

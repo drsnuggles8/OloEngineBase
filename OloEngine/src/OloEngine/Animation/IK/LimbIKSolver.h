@@ -12,9 +12,9 @@ namespace OloEngine::Animation
     struct LimbIKParams
     {
         u32 TargetBoneIndex = 0;
-        glm::vec3 TargetPosition{0.0f};    // model-space target position
-        u32 ChainLength = 2;               // number of bones in IK chain
-        f32 Weight = 1.0f;                 // 0..1 blend between original and IK result
+        glm::vec3 TargetPosition{ 0.0f }; // model-space target position
+        u32 ChainLength = 2;              // number of bones in IK chain
+        f32 Weight = 1.0f;                // 0..1 blend between original and IK result
         u32 MaxIterations = 15;
         f32 ConvergenceThreshold = 0.00001f;
     };
