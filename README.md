@@ -95,10 +95,6 @@ All dependencies are automatically fetched via fetchcontent and CPM (CMake Packa
 * [glfw](https://github.com/glfw/glfw) - Multi-platform library for OpenGL, window and input
 * [assimp](https://github.com/assimp/assimp) - 3D model importing with scene post-processing
 * [stb](https://github.com/nothings/stb) - Single-file public domain libraries (stb_image for textures)
-* [freetype](https://gitlab.freedesktop.org/freetype/freetype) - Font rendering library
-* [msdf-atlas-gen](https://github.com/Chlumsky/msdf-atlas-gen) - Multi-channel signed distance field atlas generator
-* [msdfgen](https://github.com/Chlumsky/msdfgen) - Multi-channel signed distance field generator
-* [libpng](http://www.libpng.org/pub/png/libpng.html) - PNG image codec
 * [zlib](https://www.zlib.net/) - Compression library
 
 ### Physics
@@ -121,7 +117,7 @@ All dependencies are automatically fetched via fetchcontent and CPM (CMake Packa
 * [tracy](https://github.com/wolfpld/tracy) - Real-time profiler with nanosecond resolution
 * [googletest](https://github.com/google/googletest) - Google Testing and Mocking Framework
 * [filewatch](https://github.com/ThomasMonkman/filewatch) - File system monitoring for hot-reload
-* [tinyxml2](https://github.com/leethomason/tinyxml2) - Simple, small XML parser
+
 
 ### Code formatting & pre-commit hooks ✅
 

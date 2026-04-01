@@ -118,7 +118,6 @@ target_link_libraries(OloEngine
 	imgui
 	imguizmo
 	Jolt
-	msdf-atlas-gen
 	nlohmann_json::nlohmann_json
 	opengl32.lib
 	Recast
@@ -157,8 +156,11 @@ target_link_libraries(OloEngine
 	Version
 	ws2_32
 	WinMM
-	png_shared
     $<$<CONFIG:Debug>:${ZLIB_LIBRARY_DEBUG}>
     $<$<CONFIG:Release>:${ZLIB_LIBRARY_RELEASE}>
     $<$<CONFIG:Dist>:${ZLIB_LIBRARY_DIST}>
 )
+
+# Ensure zlib is built before OloEngine links against it (raw file paths above
+# don't create an implicit build dependency).
+add_dependencies(OloEngine zlib)

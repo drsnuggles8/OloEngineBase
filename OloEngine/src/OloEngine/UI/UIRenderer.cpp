@@ -4,11 +4,12 @@
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Font.h"
-#include "OloEngine/Renderer/MSDFData.h"
+#include "OloEngine/Renderer/SlugData.h"
 #include "OloEngine/Scene/Components.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <cmath>
 #include <stack>
 
 namespace OloEngine
@@ -209,17 +210,19 @@ namespace OloEngine
     // Measure the width of a single line of text in local (pre-transform) coordinates.
     // Mirrors the advancement logic from Renderer2D::DrawString — keep in sync.
     // TODO: Extract shared glyph-advancement logic into a Font utility to avoid drift.
-    static f32 MeasureLineWidth(std::string_view line, const msdf_atlas::FontGeometry& fontGeometry,
+    static f32 MeasureLineWidth(std::string_view line, const SlugFontData& fontData,
                                 double fsScale, f32 kerning)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (line.empty())
         {
             return 0.0f;
         }
 
         double x = 0.0;
-        const auto* spaceGlyph = fontGeometry.getGlyph(' ');
-        const f32 spaceAdvance = spaceGlyph ? static_cast<f32>(spaceGlyph->getAdvance()) : 0.0f;
+        const auto* spaceGlyph = fontData.GetGlyph(' ');
+        const f32 spaceAdvance = spaceGlyph ? spaceGlyph->AdvanceWidth : 0.0f;
 
         for (sizet i = 0; i < line.size(); i++)
         {
@@ -234,9 +237,7 @@ namespace OloEngine
                 f32 advance = spaceAdvance;
                 if (i < line.size() - 1)
                 {
-                    double dAdvance{};
-                    fontGeometry.getAdvance(dAdvance, ch, line[i + 1]);
-                    advance = static_cast<f32>(dAdvance);
+                    advance = fontData.GetAdvance(static_cast<u32>(ch), static_cast<u32>(line[i + 1]));
                 }
                 x += fsScale * advance + kerning;
                 continue;
@@ -248,20 +249,20 @@ namespace OloEngine
                 continue;
             }
 
-            auto* glyph = fontGeometry.getGlyph(ch);
+            auto* glyph = fontData.GetGlyph(static_cast<u32>(ch));
             if (!glyph)
             {
-                glyph = fontGeometry.getGlyph('?');
+                glyph = fontData.GetGlyph('?');
             }
             if (!glyph)
             {
                 continue;
             }
 
-            double advance = glyph->getAdvance();
+            f32 advance = glyph->AdvanceWidth;
             if (i < line.size() - 1)
             {
-                fontGeometry.getAdvance(advance, ch, line[i + 1]);
+                advance = fontData.GetAdvance(static_cast<u32>(ch), static_cast<u32>(line[i + 1]));
             }
             x += fsScale * advance + kerning;
         }
@@ -289,9 +290,20 @@ namespace OloEngine
             return;
         }
 
-        const auto& fontGeometry = fontAsset->GetMSDFData()->FontGeometry;
-        const auto& metrics = fontGeometry.getMetrics();
-        const double fsScale = 1.0 / (metrics.ascenderY - metrics.descenderY);
+        const auto* slugData = fontAsset->GetSlugData();
+        if (!slugData)
+        {
+            return;
+        }
+
+        const auto& metrics = slugData->Metrics;
+        const double metricSpan = static_cast<double>(metrics.AscenderY) - static_cast<double>(metrics.DescenderY);
+        if (!std::isfinite(metricSpan) || std::abs(metricSpan) < 1e-12)
+        {
+            OLO_CORE_ERROR("UIRenderer::DrawUIText: invalid font metric span (ascender={}, descender={})", metrics.AscenderY, metrics.DescenderY);
+            return;
+        }
+        const double fsScale = 1.0 / metricSpan;
 
         // Font size scaling: after fsScale normalization, the full ascender-to-descender
         // range is 1.0 local unit. Multiplying by fontSize gives fontSize pixels in the
@@ -301,7 +313,7 @@ namespace OloEngine
         // Line height in local space (pre-transform) and screen space.
         // m_LineSpacing is added in pixels (post-scale) so small values like 2.0
         // translate directly to 2 extra pixels between lines.
-        const f32 lineHeightLocal = static_cast<f32>(fsScale * metrics.lineHeight);
+        const f32 lineHeightLocal = static_cast<f32>(fsScale * metrics.LineHeight);
         const f32 lineHeightScreen = lineHeightLocal * scale + text.m_LineSpacing;
 
         // Split text into lines and measure each line's width
@@ -324,7 +336,7 @@ namespace OloEngine
                     line = line.substr(0, line.size() - 1);
                 }
                 lines.emplace_back(line);
-                lineWidths.push_back(MeasureLineWidth(line, fontGeometry, fsScale, text.m_Kerning) * scale);
+                lineWidths.push_back(MeasureLineWidth(line, *slugData, fsScale, text.m_Kerning) * scale);
                 start = end + 1;
             }
         }
@@ -364,7 +376,7 @@ namespace OloEngine
         // Negate Y scale so the font's Y-up becomes Y-down in screen space.
         // Offset lineY by the ascender so the top of the glyph aligns with the
         // intended top of each line.
-        const f32 ascenderScreen = static_cast<f32>(metrics.ascenderY * fsScale) * scale;
+        const f32 ascenderScreen = static_cast<f32>(metrics.AscenderY * fsScale) * scale;
 
         for (sizet i = 0; i < lines.size(); i++)
         {
