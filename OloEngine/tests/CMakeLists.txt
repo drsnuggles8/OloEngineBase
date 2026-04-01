@@ -12,6 +12,7 @@ add_executable(OloEngine-Tests
 		CoreUtilitiesTest.cpp
 		LoggerTest.cpp
 		MathTest.cpp
+		SlugFontRenderingTest.cpp
 		AssetCreationTest.cpp
 		AssetGenerationTest.cpp
 		AssetPackTest.cpp

@@ -5,13 +5,13 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/SlugData.h"
 #include "OloEngine/Renderer/RendererResource.h"
 #include "OloEngine/Asset/AssetTypes.h"
 #include "OloEngine/Core/Ref.h"
 
 namespace OloEngine
 {
-    struct MSDFData;
 
     class Font : public RendererResource
     {
@@ -19,13 +19,33 @@ namespace OloEngine
         explicit Font(const std::filesystem::path& font);
         ~Font() override;
 
-        [[nodiscard("Store this!")]] const MSDFData* GetMSDFData() const
+        [[nodiscard("Store this!")]] const SlugFontData* GetSlugData() const
         {
             return m_Data.get();
         }
+
+        // Legacy accessor kept temporarily so callers compile during migration.
+        // Returns nullptr — callers that used MSDFData should migrate to GetSlugData().
+        [[deprecated("Use GetSlugData() instead")]] [[nodiscard("Store this!")]] const void* GetMSDFData() const
+        {
+            return nullptr;
+        }
+
+        Ref<Texture2D> GetCurveTexture() const
+        {
+            return m_Data ? m_Data->CurveTexture : nullptr;
+        }
+
+        Ref<Texture2D> GetBandTexture() const
+        {
+            return m_Data ? m_Data->BandTexture : nullptr;
+        }
+
+        // Legacy accessor — returns nullptr. Use GetCurveTexture() / GetBandTexture().
+        [[deprecated("Use GetCurveTexture() / GetBandTexture() instead")]]
         Ref<Texture2D> GetAtlasTexture() const
         {
-            return m_AtlasTexture;
+            return nullptr;
         }
 
         const std::string& GetName() const
@@ -51,8 +71,7 @@ namespace OloEngine
         static Ref<Font> Create(const std::filesystem::path& font);
 
       private:
-        Scope<MSDFData> m_Data;
-        Ref<Texture2D> m_AtlasTexture;
+        Scope<SlugFontData> m_Data;
         std::string m_Name;
         std::string m_Path;
     };

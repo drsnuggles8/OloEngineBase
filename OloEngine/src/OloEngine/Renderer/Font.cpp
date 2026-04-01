@@ -1,139 +1,138 @@
 #include "OloEnginePCH.h"
 #include "Font.h"
+#include "SlugData.h"
+#include "SlugFontProcessor.h"
 
-#undef INFINITE
-#include "msdf-atlas-gen/msdf-atlas-gen.h"
-#include "msdf-atlas-gen/FontGeometry.h"
-#include "msdf-atlas-gen/GlyphGeometry.h"
+#define STB_TRUETYPE_IMPLEMENTATION
+#include <stb_image/stb_truetype.h>
 
-#include "MSDFData.h"
+#include <fstream>
 
 namespace OloEngine
 {
-    template<typename T, typename S, int N, msdf_atlas::GeneratorFunction<S, N> GenFunc>
-    static Ref<Texture2D> CreateAndCacheAtlas(const std::string_view /*fontName*/, f32 /*fontSize*/, const std::vector<msdf_atlas::GlyphGeometry>& glyphs,
-                                              const msdf_atlas::FontGeometry& /*fontGeometry*/, u32 width, u32 height)
-    {
-        msdf_atlas::GeneratorAttributes attributes;
-        attributes.config.overlapSupport = true;
-        attributes.scanlinePass = true;
-
-        msdf_atlas::ImmediateAtlasGenerator<S, N, GenFunc, msdf_atlas::BitmapAtlasStorage<T, N>> generator(width, height);
-        generator.setAttributes(attributes);
-        generator.setThreadCount(8);
-        generator.generate(glyphs.data(), static_cast<int>(glyphs.size()));
-
-        auto bitmap = (msdfgen::BitmapConstRef<T, N>)generator.atlasStorage();
-
-        TextureSpecification spec;
-        spec.Width = bitmap.width;
-        spec.Height = bitmap.height;
-        spec.Format = ImageFormat::RGB8;
-        spec.GenerateMips = false;
-
-        Ref<Texture2D> texture = Texture2D::Create(spec);
-        texture->SetData((void*)bitmap.pixels, bitmap.width * bitmap.height * 3);
-        return texture;
-    }
-
     Font::Font(const std::filesystem::path& filepath)
-        : m_Data(CreateScope<MSDFData>())
+        : m_Data(CreateScope<SlugFontData>())
     {
-        // Extract font name from filepath
         m_Name = filepath.filename().stem().string();
         m_Path = filepath.string();
 
-        msdfgen::FreetypeHandle* ft = msdfgen::initializeFreetype();
-        OLO_CORE_ASSERT(ft, "Failed to initialize FreeType library");
-
-        std::string fileString = filepath.string();
-
-        // TODO(olbu): msdfgen::loadFontData loads from memory buffer which we'll need
-        msdfgen::FontHandle* font = msdfgen::loadFont(ft, fileString.c_str());
-        if (!font)
+        // Read TTF file into memory
+        std::ifstream file(filepath, std::ios::binary | std::ios::ate);
+        if (!file.is_open())
         {
-            OLO_CORE_ERROR("Failed to load font: {}", fileString);
+            OLO_CORE_ERROR("Failed to open font file: {}", m_Path);
             return;
         }
 
-        struct CharsetRange
+        const auto fileSize = file.tellg();
+        file.seekg(0, std::ios::beg);
+        std::vector<u8> fontBuffer(static_cast<sizet>(fileSize));
+        if (!file.read(reinterpret_cast<char*>(fontBuffer.data()), fileSize))
         {
-            u32 Begin;
-            u32 End;
-        };
+            OLO_CORE_ERROR("Failed to read font file: {}", m_Path);
+            return;
+        }
 
-        // From imgui_draw.cpp
-        static const CharsetRange charsetRanges[] = {
-            { 0x0020, 0x00FF }
-        };
-
-        msdf_atlas::Charset charset;
-        for (CharsetRange range : charsetRanges)
+        // Initialize stb_truetype
+        stbtt_fontinfo fontInfo{};
+        if (!stbtt_InitFont(&fontInfo, fontBuffer.data(), stbtt_GetFontOffsetForIndex(fontBuffer.data(), 0)))
         {
-            for (u32 c = range.Begin; c <= range.End; ++c)
+            OLO_CORE_ERROR("stb_truetype failed to parse font: {}", m_Path);
+            return;
+        }
+
+        // Extract global metrics
+        int ascent{};
+        int descent{};
+        int lineGap{};
+        stbtt_GetFontVMetrics(&fontInfo, &ascent, &descent, &lineGap);
+
+        // unitsPerEm scales raw font units → normalized em-space
+        const f32 unitsPerEm = static_cast<f32>(ascent - descent);
+        const f32 emScale = 1.0f / unitsPerEm;
+        m_Data->Metrics.AscenderY = static_cast<f32>(ascent) * emScale;
+        m_Data->Metrics.DescenderY = static_cast<f32>(descent) * emScale;
+        m_Data->Metrics.LineHeight = static_cast<f32>(ascent - descent + lineGap) * emScale;
+        m_Data->Metrics.UnitsPerEm = unitsPerEm;
+
+        // Load glyph metrics for ASCII printable range (matches previous MSDF charset)
+        constexpr u32 charsetBegin = 0x0020;
+        constexpr u32 charsetEnd = 0x00FF;
+        int glyphCount = 0;
+
+        for (u32 codepoint = charsetBegin; codepoint <= charsetEnd; ++codepoint)
+        {
+            const int glyphIndex = stbtt_FindGlyphIndex(&fontInfo, static_cast<int>(codepoint));
+            if (glyphIndex == 0 && codepoint != ' ')
             {
-                charset.add(c);
+                continue; // glyph not present in font
+            }
+
+            int advanceWidth{};
+            int leftSideBearing{};
+            stbtt_GetGlyphHMetrics(&fontInfo, glyphIndex, &advanceWidth, &leftSideBearing);
+
+            int x0{};
+            int y0{};
+            int x1{};
+            int y1{};
+            stbtt_GetGlyphBox(&fontInfo, glyphIndex, &x0, &y0, &x1, &y1);
+
+            SlugGlyphData glyph;
+            glyph.AdvanceWidth = static_cast<f32>(advanceWidth) * emScale;
+            glyph.PlaneBoundsLeft = static_cast<f32>(x0) * emScale;
+            glyph.PlaneBoundsBottom = static_cast<f32>(y0) * emScale;
+            glyph.PlaneBoundsRight = static_cast<f32>(x1) * emScale;
+            glyph.PlaneBoundsTop = static_cast<f32>(y1) * emScale;
+
+            m_Data->Glyphs[codepoint] = glyph;
+            ++glyphCount;
+        }
+
+        // Load kerning pairs — use codepoint-based lookup to match GetAdvance().
+        // stbtt_GetKerningTable returns glyph indices, so we build a reverse
+        // mapping (glyphIndex → codepoint) for correct key construction.
+        const int kernTableLength = stbtt_GetKerningTableLength(&fontInfo);
+        if (kernTableLength > 0)
+        {
+            // Build glyphIndex → codepoint reverse map for the loaded charset.
+            std::unordered_map<int, u32> glyphIndexToCodepoint;
+            for (u32 cp = charsetBegin; cp <= charsetEnd; ++cp)
+            {
+                const int gi = stbtt_FindGlyphIndex(&fontInfo, static_cast<int>(cp));
+                if (gi != 0 || cp == ' ')
+                {
+                    glyphIndexToCodepoint[gi] = cp;
+                }
+            }
+
+            std::vector<stbtt_kerningentry> kernTable(static_cast<sizet>(kernTableLength));
+            stbtt_GetKerningTable(&fontInfo, kernTable.data(), kernTableLength);
+            for (const auto& entry : kernTable)
+            {
+                if (entry.advance == 0)
+                {
+                    continue;
+                }
+                auto it1 = glyphIndexToCodepoint.find(entry.glyph1);
+                auto it2 = glyphIndexToCodepoint.find(entry.glyph2);
+                if (it1 != glyphIndexToCodepoint.end() && it2 != glyphIndexToCodepoint.end())
+                {
+                    const u64 key = (static_cast<u64>(it1->second) << 32) | it2->second;
+                    m_Data->KerningPairs[key] = static_cast<f32>(entry.advance) * emScale;
+                }
             }
         }
 
-        double fontScale = 1.0;
-        m_Data->FontGeometry = msdf_atlas::FontGeometry(&m_Data->Glyphs);
-        int glyphsLoaded = m_Data->FontGeometry.loadCharset(font, fontScale, charset);
-        OLO_CORE_INFO("Loaded {} glyphs from font (out of {})", glyphsLoaded, charset.size());
+        OLO_CORE_INFO("Loaded {} glyphs from font '{}' via stb_truetype", glyphCount, m_Name);
 
-        double emSize = 40.0;
-
-        msdf_atlas::TightAtlasPacker atlasPacker;
-        // atlasPacker.setDimensionsConstraint()
-        atlasPacker.setPixelRange(2.0);
-        atlasPacker.setMiterLimit(1.0);
-        atlasPacker.setSpacing(0);
-        atlasPacker.setScale(emSize);
-        int remaining = atlasPacker.pack(m_Data->Glyphs.data(), (int)m_Data->Glyphs.size());
-        OLO_CORE_ASSERT(remaining == 0, "MSDF atlas packing failed — {} glyphs did not fit", remaining);
-
-        int width{};
-        int height{};
-        atlasPacker.getDimensions(width, height);
-        emSize = atlasPacker.getScale();
-
-        constexpr double DEFAULT_ANGLE_THRESHOLD = 3.0;
-        constexpr u64 LCG_MULTIPLIER = 6364136223846793005ull;
-        constexpr u64 LCG_INCREMENT = 1442695040888963407ull;
-        constexpr int THREAD_COUNT = 8;
-
-        // if MSDF || MTSDF
-
-        u64 coloringSeed = 0;
-        bool expensiveColoring = false;
-        if (expensiveColoring)
-        {
-            msdf_atlas::Workload([&glyphs = m_Data->Glyphs, &coloringSeed](int i, int /*threadNo*/) -> bool
-                                 {
-				unsigned long long glyphSeed = coloringSeed ? ((LCG_MULTIPLIER * (coloringSeed ^ i)) + LCG_INCREMENT) : 0;
-				glyphs[i].edgeColoring(msdfgen::edgeColoringInkTrap, DEFAULT_ANGLE_THRESHOLD, glyphSeed);
-				return true; }, static_cast<int>(m_Data->Glyphs.size()))
-                .finish(THREAD_COUNT);
-        }
-        else
-        {
-            unsigned long long glyphSeed = coloringSeed;
-            for (msdf_atlas::GlyphGeometry& glyph : m_Data->Glyphs)
-            {
-                glyphSeed *= LCG_MULTIPLIER;
-                glyph.edgeColoring(msdfgen::edgeColoringInkTrap, DEFAULT_ANGLE_THRESHOLD, glyphSeed);
-            }
-        }
-
-        m_AtlasTexture = CreateAndCacheAtlas<u8, f32, 3, msdf_atlas::msdfGenerator>("Test", static_cast<f32>(emSize), m_Data->Glyphs, m_Data->FontGeometry, width, height);
-
-        msdfgen::destroyFont(font);
-        msdfgen::deinitializeFreetype(ft);
+        // Generate Slug curve + band textures.
+        SlugFontProcessor::Process(fontInfo, emScale, *m_Data);
     }
 
     Font::~Font()
     {
-        // m_Data is automatically cleaned up by Scope<MSDFData> (std::unique_ptr)
+        // m_Data is automatically cleaned up by Scope<SlugFontData> (std::unique_ptr)
     }
 
     Ref<Font> Font::GetDefault()
@@ -165,8 +164,6 @@ namespace OloEngine
         }
 
         auto newFont = Ref<Font>::Create(canonical);
-        if (!newFont->GetAtlasTexture())
-            return newFont; // don't cache a font that failed to load
 
         {
             std::lock_guard lock(s_FontCacheMutex);

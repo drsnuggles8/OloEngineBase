@@ -1,0 +1,207 @@
+Scene: FontRenderingTest.olo
+Entities:
+  - Entity: 920000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 0, 8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.78539819
+        PerspectiveNear: 0.00999999978
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 920000000000010
+    TagComponent:
+      Tag: Title Text
+    TransformComponent:
+      Translation: [0, 3, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TextComponent:
+      TextString: Slug Font Rendering
+      FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
+      Color: [1, 1, 1, 1]
+      Kerning: 0
+      LineSpacing: 0
+      MaxWidth: 0
+      DropShadow: false
+      ShadowDistance: 0.0199999996
+      ShadowColor: [0, 0, 0, 1]
+  - Entity: 920000000000011
+    TagComponent:
+      Tag: Small Text
+    TransformComponent:
+      Translation: [0, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.5, 0.5, 0.5]
+    TextComponent:
+      TextString: Small scale (0.5x)
+      FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
+      Color: [0.800000012, 0.899999976, 1, 1]
+      Kerning: 0
+      LineSpacing: 0
+      MaxWidth: 0
+      DropShadow: false
+      ShadowDistance: 0.0199999996
+      ShadowColor: [0, 0, 0, 1]
+  - Entity: 920000000000012
+    TagComponent:
+      Tag: Large Text
+    TransformComponent:
+      Translation: [0, 1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [2, 2, 2]
+    TextComponent:
+      TextString: Large scale (2x)
+      FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
+      Color: [1, 0.899999976, 0.699999988, 1]
+      Kerning: 0
+      LineSpacing: 0
+      MaxWidth: 0
+      DropShadow: false
+      ShadowDistance: 0.0199999996
+      ShadowColor: [0, 0, 0, 1]
+  - Entity: 920000000000013
+    TagComponent:
+      Tag: Red Text
+    TransformComponent:
+      Translation: [-3, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TextComponent:
+      TextString: Red
+      FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
+      Color: [1, 0.200000003, 0.200000003, 1]
+      Kerning: 0
+      LineSpacing: 0
+      MaxWidth: 0
+      DropShadow: false
+      ShadowDistance: 0.0199999996
+      ShadowColor: [0, 0, 0, 1]
+  - Entity: 920000000000014
+    TagComponent:
+      Tag: Green Text
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TextComponent:
+      TextString: Green
+      FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
+      Color: [0.200000003, 1, 0.200000003, 1]
+      Kerning: 0
+      LineSpacing: 0
+      MaxWidth: 0
+      DropShadow: false
+      ShadowDistance: 0.0199999996
+      ShadowColor: [0, 0, 0, 1]
+  - Entity: 920000000000015
+    TagComponent:
+      Tag: Blue Text
+    TransformComponent:
+      Translation: [3, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TextComponent:
+      TextString: Blue
+      FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
+      Color: [0.300000012, 0.400000006, 1, 1]
+      Kerning: 0
+      LineSpacing: 0
+      MaxWidth: 0
+      DropShadow: false
+      ShadowDistance: 0.0199999996
+      ShadowColor: [0, 0, 0, 1]
+  - Entity: 920000000000016
+    TagComponent:
+      Tag: Kerning Test
+    TransformComponent:
+      Translation: [0, -1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TextComponent:
+      TextString: AV WAV Ty
+      FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
+      Color: [1, 1, 0.5, 1]
+      Kerning: 0
+      LineSpacing: 0
+      MaxWidth: 0
+      DropShadow: false
+      ShadowDistance: 0.0199999996
+      ShadowColor: [0, 0, 0, 1]
+  - Entity: 920000000000017
+    TagComponent:
+      Tag: All Characters
+    TransformComponent:
+      Translation: [0, -2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.699999988, 0.699999988, 0.699999988]
+    TextComponent:
+      TextString: ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789
+      FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
+      Color: [0.899999976, 0.899999976, 0.899999976, 1]
+      Kerning: 0
+      LineSpacing: 0
+      MaxWidth: 0
+      DropShadow: false
+      ShadowDistance: 0.0199999996
+      ShadowColor: [0, 0, 0, 1]
+  - Entity: 920000000000018
+    TagComponent:
+      Tag: Lowercase Characters
+    TransformComponent:
+      Translation: [0, -3, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.699999988, 0.699999988, 0.699999988]
+    TextComponent:
+      TextString: abcdefghijklmnopqrstuvwxyz !@#$%^&*()
+      FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
+      Color: [0.899999976, 0.899999976, 0.899999976, 1]
+      Kerning: 0
+      LineSpacing: 0
+      MaxWidth: 0
+      DropShadow: false
+      ShadowDistance: 0.0199999996
+      ShadowColor: [0, 0, 0, 1]
+  - Entity: 920000000000019
+    TagComponent:
+      Tag: Drop Shadow Text
+    TransformComponent:
+      Translation: [0, -4, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 1.5, 1.5]
+    TextComponent:
+      TextString: Drop Shadow
+      FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
+      Color: [1, 1, 1, 1]
+      Kerning: 0
+      LineSpacing: 0
+      MaxWidth: 0
+      DropShadow: true
+      ShadowDistance: 0.0199999996
+      ShadowColor: [0, 0, 0, 1]
+  - Entity: 920000000000020
+    TagComponent:
+      Tag: Word Wrapped Text
+    TransformComponent:
+      Translation: [0, -5.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TextComponent:
+      TextString: This is a longer piece of text that should wrap at the specified max width boundary.
+      FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
+      Color: [0.800000012, 0.699999988, 1, 1]
+      Kerning: 0
+      LineSpacing: 0
+      MaxWidth: 10
+      DropShadow: false
+      ShadowDistance: 0.0199999996
+      ShadowColor: [0, 0, 0, 1]

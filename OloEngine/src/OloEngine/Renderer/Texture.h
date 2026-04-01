@@ -15,8 +15,10 @@ namespace OloEngine
         R8,
         R8UI,
         R16UI,
+        RG16UI,
         RGB8,
         RGBA8,
+        RGBA16F,
         RGBA32F, // Unsupported
         R32F,    // Unsupported
         RG32F,   // Unsupported
