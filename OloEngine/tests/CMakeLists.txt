@@ -153,7 +153,7 @@ target_link_libraries(OloEngine-Tests
 
 # Fix UTF-8 compilation issue
 if(MSVC)
-	target_compile_options(OloEngine-Tests PRIVATE /utf-8)
+	target_compile_options(OloEngine-Tests PRIVATE /utf-8 /FS)
 endif()
 
 target_include_directories(OloEngine-Tests PRIVATE
@@ -167,9 +167,6 @@ target_include_directories(OloEngine-Tests PRIVATE
 # Copy required shared library DLLs next to the test executable
 if(WIN32)
     add_custom_command(TARGET OloEngine-Tests POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_SOURCE_DIR}/OloEngine/vendor/libpng-build/$<CONFIG>/libpng16$<$<CONFIG:Debug>:d>.dll"
-            $<TARGET_FILE_DIR:OloEngine-Tests>
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_SOURCE_DIR}/OloEngine/vendor/zlib-build/$<CONFIG>/zlib$<$<CONFIG:Debug>:d>.dll"
             $<TARGET_FILE_DIR:OloEngine-Tests>)

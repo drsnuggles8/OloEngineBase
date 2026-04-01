@@ -73,6 +73,7 @@ function(olo_set_compiler_options target_name)
         target_compile_options(${target_name} PRIVATE 
             /W4
             /MP       # Multi-processor compilation (parallel file compilation)
+            /FS       # Force synchronous PDB writes (fixes PDB contention with /MP)
             /utf-8    # Enable UTF-8 encoding for source files
             /Zc:preprocessor  # Enable conforming preprocessor (required for __VA_OPT__)
             /Zc:inline        # Remove unreferenced COMDAT functions (reduces linker work)

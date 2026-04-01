@@ -18,13 +18,13 @@ namespace OloEngine
     //   5. Fills per-glyph SlugGlyphRenderData for vertex attribute packing
     class SlugFontProcessor
     {
-    public:
+      public:
         // Process all glyphs in fontData, generating curve/band textures.
         // fontInfo must remain valid for the duration of this call.
         // emScale converts from font units to em-space (1.0 / unitsPerEm).
         static void Process(const stbtt_fontinfo& fontInfo, f32 emScale, SlugFontData& fontData);
 
-    private:
+      private:
         static constexpr u32 kBandTextureWidth = 4096;
         static constexpr u32 kLogBandTextureWidth = 12;
         static constexpr f32 kBandEpsilon = 1.0f / 1024.0f;

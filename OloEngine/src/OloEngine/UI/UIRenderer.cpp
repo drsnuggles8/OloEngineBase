@@ -9,6 +9,7 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <cmath>
 #include <stack>
 
 namespace OloEngine
@@ -212,6 +213,8 @@ namespace OloEngine
     static f32 MeasureLineWidth(std::string_view line, const SlugFontData& fontData,
                                 double fsScale, f32 kerning)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (line.empty())
         {
             return 0.0f;
@@ -294,7 +297,13 @@ namespace OloEngine
         }
 
         const auto& metrics = slugData->Metrics;
-        const double fsScale = 1.0 / (metrics.AscenderY - metrics.DescenderY);
+        const double metricSpan = static_cast<double>(metrics.AscenderY) - static_cast<double>(metrics.DescenderY);
+        if (!std::isfinite(metricSpan) || std::abs(metricSpan) < 1e-12)
+        {
+            OLO_CORE_ERROR("UIRenderer::DrawUIText: invalid font metric span (ascender={}, descender={})", metrics.AscenderY, metrics.DescenderY);
+            return;
+        }
+        const double fsScale = 1.0 / metricSpan;
 
         // Font size scaling: after fsScale normalization, the full ascender-to-descender
         // range is 1.0 local unit. Multiplying by fontSize gives fontSize pixels in the

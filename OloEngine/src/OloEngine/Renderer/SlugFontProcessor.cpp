@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <numeric>
 
 namespace OloEngine
@@ -167,8 +168,8 @@ namespace OloEngine
         {
             auto contourStart = curves.ContourStarts[contourIdx];
             auto contourEnd = (contourIdx + 1 < curves.ContourCount)
-                ? curves.ContourStarts[contourIdx + 1]
-                : static_cast<u32>(curveCount);
+                                  ? curves.ContourStarts[contourIdx + 1]
+                                  : static_cast<u32>(curveCount);
             auto contourCurveCount = contourEnd - contourStart;
             if (contourCurveCount == 0)
             {
@@ -187,6 +188,11 @@ namespace OloEngine
                 if (localIdx == 0)
                 {
                     // First texel: (P1.x, P1.y, P2.x, P2.y)
+                    if (curveTexelCount > std::numeric_limits<u16>::max())
+                    {
+                        OLO_CORE_ERROR("SlugFontProcessor::PackCurves: curve texel count {} exceeds u16 max", curveTexelCount);
+                        return result;
+                    }
                     auto texelX = static_cast<u16>(curveTexelCount % kBandTextureWidth);
                     auto texelY = static_cast<u16>(curveTexelCount / kBandTextureWidth);
                     result.CurveLocations[curveIdx] = { texelX, texelY };
@@ -203,6 +209,11 @@ namespace OloEngine
                     // That shared texel is at index (curveTexelCount - 1), written by the
                     // previous iteration's second-texel step.
                     auto sharedTexelIdx = curveTexelCount - 1;
+                    if (sharedTexelIdx > std::numeric_limits<u16>::max())
+                    {
+                        OLO_CORE_ERROR("SlugFontProcessor::PackCurves: shared texel index {} exceeds u16 max", sharedTexelIdx);
+                        return result;
+                    }
                     auto texelX = static_cast<u16>(sharedTexelIdx % kBandTextureWidth);
                     auto texelY = static_cast<u16>(sharedTexelIdx / kBandTextureWidth);
                     result.CurveLocations[curveIdx] = { texelX, texelY };
@@ -245,18 +256,24 @@ namespace OloEngine
             return renderData;
         }
 
-        // Compute glyph bounding box in em-space.
+        // Validate glyph metrics — reject NaN/Inf/degenerate bounds.
         f32 boundsLeft = glyphMetrics.PlaneBoundsLeft;
         f32 boundsBottom = glyphMetrics.PlaneBoundsBottom;
         f32 boundsRight = glyphMetrics.PlaneBoundsRight;
         f32 boundsTop = glyphMetrics.PlaneBoundsTop;
-        f32 boundsWidth = boundsRight - boundsLeft;
-        f32 boundsHeight = boundsTop - boundsBottom;
 
-        if (boundsWidth < 1e-6f || boundsHeight < 1e-6f)
+        if (!std::isfinite(boundsLeft) || !std::isfinite(boundsBottom) || !std::isfinite(boundsRight) || !std::isfinite(boundsTop))
         {
             return renderData;
         }
+
+        if (boundsRight <= boundsLeft || boundsTop <= boundsBottom)
+        {
+            return renderData;
+        }
+
+        f32 boundsWidth = boundsRight - boundsLeft;
+        f32 boundsHeight = boundsTop - boundsBottom;
 
         // Choose band counts: sqrt of curve count, clamped to [1, 16].
         auto sqrtCurves = static_cast<u32>(std::ceil(std::sqrt(static_cast<f64>(curveCount))));
@@ -322,7 +339,8 @@ namespace OloEngine
 
             // Sort curves in descending order by max x coordinate.
             std::sort(hbandCurves[band].begin(), hbandCurves[band].end(),
-                [&](u32 a, u32 b) { return curveBounds[a].MaxX > curveBounds[b].MaxX; });
+                      [&](u32 a, u32 b)
+                      { return curveBounds[a].MaxX > curveBounds[b].MaxX; });
         }
 
         // Vertical bands (indexed by x position).
@@ -348,7 +366,8 @@ namespace OloEngine
 
             // Sort curves in descending order by max y coordinate.
             std::sort(vbandCurves[band].begin(), vbandCurves[band].end(),
-                [&](u32 a, u32 b) { return curveBounds[a].MaxY > curveBounds[b].MaxY; });
+                      [&](u32 a, u32 b)
+                      { return curveBounds[a].MaxY > curveBounds[b].MaxY; });
         }
 
         // --- Pack into band texture ---
@@ -394,11 +413,16 @@ namespace OloEngine
                 const auto& loc = curveLocations.CurveLocations[curveIdx];
                 auto dataIdx = static_cast<sizet>(bandTexelCount) * 2;
                 bandTexelData[dataIdx] = loc.first;      // curve texture x
-                bandTexelData[dataIdx + 1] = loc.second;  // curve texture y
+                bandTexelData[dataIdx + 1] = loc.second; // curve texture y
                 ++bandTexelCount;
             }
 
             // Write header: (curveCount, offset to curve list).
+            if (bandCurves.size() > std::numeric_limits<u16>::max() || curveListOffset > std::numeric_limits<u16>::max())
+            {
+                OLO_CORE_ERROR("SlugFontProcessor::BuildBands: hband {} values exceed u16 max (count={}, offset={})", band, bandCurves.size(), curveListOffset);
+                return renderData;
+            }
             bandTexelData[headerDataIdx] = static_cast<u16>(bandCurves.size());
             bandTexelData[headerDataIdx + 1] = static_cast<u16>(curveListOffset);
         }
@@ -423,6 +447,11 @@ namespace OloEngine
                 ++bandTexelCount;
             }
 
+            if (bandCurves.size() > std::numeric_limits<u16>::max() || curveListOffset > std::numeric_limits<u16>::max())
+            {
+                OLO_CORE_ERROR("SlugFontProcessor::BuildBands: vband {} values exceed u16 max (count={}, offset={})", band, bandCurves.size(), curveListOffset);
+                return renderData;
+            }
             bandTexelData[headerDataIdx] = static_cast<u16>(bandCurves.size());
             bandTexelData[headerDataIdx + 1] = static_cast<u16>(curveListOffset);
         }
@@ -436,9 +465,15 @@ namespace OloEngine
 
     void SlugFontProcessor::Process(const stbtt_fontinfo& fontInfo, f32 emScale, SlugFontData& fontData)
     {
+        if (!std::isfinite(emScale) || std::abs(emScale) < 1e-12f)
+        {
+            OLO_CORE_ERROR("SlugFontProcessor::Process: invalid emScale {}", emScale);
+            return;
+        }
+
         // Accumulate curve and band data across all glyphs.
-        std::vector<f32> curveTexelData;   // RGBA16F texels (4 floats each)
-        std::vector<u16> bandTexelData;    // RG16UI texels (2 u16s each)
+        std::vector<f32> curveTexelData; // RGBA16F texels (4 floats each)
+        std::vector<u16> bandTexelData;  // RG16UI texels (2 u16s each)
         u32 curveTexelCount = 0;
         u32 bandTexelCount = 0;
 
@@ -450,6 +485,10 @@ namespace OloEngine
 
         for (auto& [codepoint, glyphData] : fontData.Glyphs)
         {
+            // Reset glyph render state before processing.
+            glyphData.RenderData = SlugGlyphRenderData{};
+            glyphData.HasCurves = false;
+
             const int glyphIndex = stbtt_FindGlyphIndex(&fontInfo, static_cast<int>(codepoint));
             if (glyphIndex == 0 && codepoint != ' ')
             {
@@ -469,9 +508,15 @@ namespace OloEngine
             }
 
             auto curveLocations = PackCurves(curves, curveTexelData, curveTexelCount);
-            glyphData.RenderData = BuildBands(curves, curveLocations, glyphData, bandTexelData, bandTexelCount);
-            glyphData.HasCurves = true;
-            ++processedGlyphs;
+            auto renderData = BuildBands(curves, curveLocations, glyphData, bandTexelData, bandTexelCount);
+
+            // Only mark the glyph as having curves if BuildBands returned valid data.
+            if (renderData.HBandCount > 0 && renderData.VBandCount > 0)
+            {
+                glyphData.RenderData = renderData;
+                glyphData.HasCurves = true;
+                ++processedGlyphs;
+            }
         }
 
         // Create GPU textures.
@@ -491,7 +536,7 @@ namespace OloEngine
             curveSpec.GenerateMips = false;
             fontData.CurveTexture = Texture2D::Create(curveSpec);
             fontData.CurveTexture->SetData(curveTexelData.data(),
-                static_cast<u32>(totalTexels * 4 * sizeof(f32)));
+                                           static_cast<u32>(totalTexels * 4 * sizeof(f32)));
         }
 
         if (bandTexelCount > 0)
@@ -509,11 +554,11 @@ namespace OloEngine
             bandSpec.GenerateMips = false;
             fontData.BandTexture = Texture2D::Create(bandSpec);
             fontData.BandTexture->SetData(bandTexelData.data(),
-                static_cast<u32>(totalTexels * 2 * sizeof(u16)));
+                                          static_cast<u32>(totalTexels * 2 * sizeof(u16)));
         }
 
         OLO_CORE_INFO("SlugFontProcessor: processed {} glyphs, {} curve texels, {} band texels",
-            processedGlyphs, curveTexelCount, bandTexelCount);
+                      processedGlyphs, curveTexelCount, bandTexelCount);
     }
 
 } // namespace OloEngine

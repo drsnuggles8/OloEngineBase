@@ -4,7 +4,6 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Texture.h"
 
-#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -67,7 +66,7 @@ namespace OloEngine
     {
         SlugFontMetrics Metrics;
         std::unordered_map<u32, SlugGlyphData> Glyphs; // codepoint → glyph
-        std::unordered_map<u64, f32> KerningPairs;      // (left<<32|right) → kern advance
+        std::unordered_map<u64, f32> KerningPairs;     // (left<<32|right) → kern advance
 
         // GPU textures for Slug rendering.
         Ref<Texture2D> CurveTexture; // RGBA16F — control point data

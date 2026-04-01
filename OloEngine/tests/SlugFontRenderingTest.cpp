@@ -90,7 +90,7 @@ static std::vector<u8> LoadTestFont()
 
 class SlugFontProcessorTest : public ::testing::Test
 {
-protected:
+  protected:
     void SetUp() override
     {
         m_FontBuffer = LoadTestFont();
@@ -100,7 +100,7 @@ protected:
         }
 
         ASSERT_TRUE(stbtt_InitFont(&m_FontInfo, m_FontBuffer.data(),
-            stbtt_GetFontOffsetForIndex(m_FontBuffer.data(), 0)));
+                                   stbtt_GetFontOffsetForIndex(m_FontBuffer.data(), 0)));
 
         int ascent{};
         int descent{};
@@ -114,9 +114,9 @@ protected:
     f32 m_EmScale = 0.0f;
 };
 
-TEST_F(SlugFontProcessorTest, ProcessPopulatesTextures)
+TEST_F(SlugFontProcessorTest, GlyphBoundsAreValid)
 {
-    // Build minimal SlugFontData with a few glyphs.
+    // Build minimal SlugFontData with a few glyphs and verify bounding boxes.
     SlugFontData fontData;
     fontData.Metrics.AscenderY = 1.0f;
     fontData.Metrics.DescenderY = -0.3f;
@@ -147,12 +147,6 @@ TEST_F(SlugFontProcessorTest, ProcessPopulatesTextures)
         glyph.PlaneBoundsTop = static_cast<f32>(y1) * m_EmScale;
         fontData.Glyphs[cp] = glyph;
     }
-
-    // Process should not be called without GPU context in unit tests.
-    // Instead, test the internal extraction logic directly.
-    // We verify that ExtractCurves (via the public Process) fills render data.
-    // Since Process creates GPU textures, we can't call it in a headless test.
-    // So we test the data-structure side only.
 
     // Verify glyphs have valid bounding boxes.
     for (const auto& [cp, glyph] : fontData.Glyphs)
@@ -201,7 +195,10 @@ TEST_F(SlugFontProcessorTest, SpaceGlyphHasNoCurves)
     const int vertexCount = stbtt_GetGlyphShape(&m_FontInfo, gi, &vertices);
     // Space typically has no outline.
     EXPECT_EQ(vertexCount, 0);
-    stbtt_FreeShape(&m_FontInfo, vertices);
+    if (vertices)
+    {
+        stbtt_FreeShape(&m_FontInfo, vertices);
+    }
 }
 
 // ---------------------------------------------------------------------------

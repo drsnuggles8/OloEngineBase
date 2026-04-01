@@ -25,7 +25,26 @@ namespace OloEngine
         }
 
         const auto fileSize = file.tellg();
+        if (fileSize <= 0)
+        {
+            OLO_CORE_ERROR("Failed to determine font file size (tellg={}) for: {}", static_cast<std::streamoff>(fileSize), m_Path);
+            return;
+        }
+
+        constexpr std::streamoff kMaxFontFileSize = 64 * 1024 * 1024; // 64 MB sanity cap
+        if (fileSize > kMaxFontFileSize)
+        {
+            OLO_CORE_ERROR("Font file too large ({} bytes, max {}) for: {}", static_cast<std::streamoff>(fileSize), kMaxFontFileSize, m_Path);
+            return;
+        }
+
         file.seekg(0, std::ios::beg);
+        if (!file.good())
+        {
+            OLO_CORE_ERROR("Failed to seek to start of font file: {}", m_Path);
+            return;
+        }
+
         std::vector<u8> fontBuffer(static_cast<sizet>(fileSize));
         if (!file.read(reinterpret_cast<char*>(fontBuffer.data()), fileSize))
         {
@@ -48,7 +67,12 @@ namespace OloEngine
         stbtt_GetFontVMetrics(&fontInfo, &ascent, &descent, &lineGap);
 
         // unitsPerEm scales raw font units → normalized em-space
-        const f32 unitsPerEm = static_cast<f32>(ascent - descent);
+        f32 unitsPerEm = static_cast<f32>(ascent - descent);
+        if (!std::isfinite(unitsPerEm) || std::abs(unitsPerEm) < 1e-6f)
+        {
+            OLO_CORE_ERROR("Font '{}' has invalid metrics (ascent={}, descent={}) — using fallback unitsPerEm=1.0", m_Path, ascent, descent);
+            unitsPerEm = 1.0f;
+        }
         const f32 emScale = 1.0f / unitsPerEm;
         m_Data->Metrics.AscenderY = static_cast<f32>(ascent) * emScale;
         m_Data->Metrics.DescenderY = static_cast<f32>(descent) * emScale;

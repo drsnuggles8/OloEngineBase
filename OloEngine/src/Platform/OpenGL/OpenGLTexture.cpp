@@ -391,10 +391,16 @@ namespace OloEngine
             case ImageFormat::R16UI:
                 dataType = GL_UNSIGNED_SHORT;
                 break;
+            case ImageFormat::RG16UI:
+                dataType = GL_UNSIGNED_SHORT;
+                break;
             case ImageFormat::R32F:
             case ImageFormat::RG32F:
             case ImageFormat::RGB32F:
             case ImageFormat::RGBA32F:
+                dataType = GL_FLOAT;
+                break;
+            case ImageFormat::RGBA16F:
                 dataType = GL_FLOAT;
                 break;
             default:
@@ -523,6 +529,10 @@ namespace OloEngine
                 bytesPerPixel = 2;
                 dataType = GL_UNSIGNED_SHORT;
                 break;
+            case ImageFormat::RG16UI:
+                bytesPerPixel = 4;
+                dataType = GL_UNSIGNED_SHORT;
+                break;
             case ImageFormat::RGB8:
                 bytesPerPixel = 3;
                 dataType = GL_UNSIGNED_BYTE;
@@ -544,6 +554,10 @@ namespace OloEngine
                 dataType = GL_FLOAT;
                 break;
             case ImageFormat::RGBA32F:
+                bytesPerPixel = 16;
+                dataType = GL_FLOAT;
+                break;
+            case ImageFormat::RGBA16F:
                 bytesPerPixel = 16;
                 dataType = GL_FLOAT;
                 break;
