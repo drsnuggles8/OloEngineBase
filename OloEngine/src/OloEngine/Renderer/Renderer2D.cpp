@@ -884,8 +884,16 @@ namespace OloEngine
         const auto& metrics = slugData->Metrics;
 
         // Store Slug textures for the flush pass.
-        s_Data.SlugCurveTexture = font->GetCurveTexture();
-        s_Data.SlugBandTexture = font->GetBandTexture();
+        // Flush text batch if font changed (different textures) to avoid
+        // earlier vertices sampling the wrong font's textures.
+        auto curveTexture = font->GetCurveTexture();
+        auto bandTexture = font->GetBandTexture();
+        if (s_Data.TextIndexCount > 0 && (s_Data.SlugCurveTexture != curveTexture || s_Data.SlugBandTexture != bandTexture))
+        {
+            NextBatch();
+        }
+        s_Data.SlugCurveTexture = curveTexture;
+        s_Data.SlugBandTexture = bandTexture;
 
         const auto metricSpan = static_cast<double>(metrics.AscenderY - metrics.DescenderY);
         const double fsScale = std::abs(metricSpan) > 1e-6 ? (1.0 / metricSpan) : 1.0;
@@ -905,7 +913,7 @@ namespace OloEngine
             sizet lastSpace = std::string::npos;
             for (sizet i = 0; i < string.size(); i++)
             {
-                char character = string[i];
+                auto character = static_cast<unsigned char>(string[i]);
                 if (character == '\n' || character == '\r')
                 {
                     wx = 0.0;
@@ -919,7 +927,7 @@ namespace OloEngine
                     f32 advance = spaceGlyphAdvance;
                     if (i < string.size() - 1)
                     {
-                        advance = slugData->GetAdvance(static_cast<u32>(character), static_cast<u32>(string[i + 1]));
+                        advance = slugData->GetAdvance(static_cast<u32>(character), static_cast<u32>(static_cast<unsigned char>(string[i + 1])));
                     }
                     wx += (fsScale * advance) + textParams.Kerning;
                     continue;
@@ -960,7 +968,7 @@ namespace OloEngine
 
                 f32 advance = glyph->AdvanceWidth;
                 if (i < string.size() - 1)
-                    advance = slugData->GetAdvance(static_cast<u32>(character), static_cast<u32>(string[i + 1]));
+                    advance = slugData->GetAdvance(static_cast<u32>(character), static_cast<u32>(static_cast<unsigned char>(string[i + 1])));
                 wx += (fsScale * advance) + textParams.Kerning;
             }
         }
@@ -972,7 +980,7 @@ namespace OloEngine
 
         for (sizet i = 0; i < string.size(); i++)
         {
-            char character = string[i];
+            auto character = static_cast<unsigned char>(string[i]);
 
             if (wrapIdx < wrapBreaks.size() && i == wrapBreaks[wrapIdx])
             {
@@ -1001,7 +1009,7 @@ namespace OloEngine
                 f32 advance = spaceGlyphAdvance;
                 if (i < (string.size() - 1))
                 {
-                    advance = slugData->GetAdvance(static_cast<u32>(character), static_cast<u32>(string[i + 1]));
+                    advance = slugData->GetAdvance(static_cast<u32>(character), static_cast<u32>(static_cast<unsigned char>(string[i + 1])));
                 }
 
                 x += (fsScale * advance) + textParams.Kerning;
@@ -1029,7 +1037,7 @@ namespace OloEngine
             {
                 if (i < (string.size() - 1))
                 {
-                    f32 advance = slugData->GetAdvance(static_cast<u32>(character), static_cast<u32>(string[i + 1]));
+                    f32 advance = slugData->GetAdvance(static_cast<u32>(character), static_cast<u32>(static_cast<unsigned char>(string[i + 1])));
                     x += (fsScale * advance) + textParams.Kerning;
                 }
                 continue;
@@ -1106,7 +1114,7 @@ namespace OloEngine
 
             if (i < (string.size() - 1))
             {
-                f32 advance = slugData->GetAdvance(static_cast<u32>(character), static_cast<u32>(string[i + 1]));
+                f32 advance = slugData->GetAdvance(static_cast<u32>(character), static_cast<u32>(static_cast<unsigned char>(string[i + 1])));
                 x += (fsScale * advance) + textParams.Kerning;
             }
         }

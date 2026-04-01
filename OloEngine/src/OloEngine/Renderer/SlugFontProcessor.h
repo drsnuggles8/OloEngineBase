@@ -5,6 +5,7 @@
 
 #include <stb_image/stb_truetype.h>
 
+#include <utility>
 #include <vector>
 
 namespace OloEngine

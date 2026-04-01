@@ -152,6 +152,8 @@ namespace OloEngine
 
         // Generate Slug curve + band textures.
         SlugFontProcessor::Process(fontInfo, emScale, *m_Data);
+
+        m_IsLoaded = true;
     }
 
     Font::~Font() = default;
@@ -186,6 +188,7 @@ namespace OloEngine
 
         auto newFont = Ref<Font>::Create(canonical);
 
+        if (newFont->IsLoaded())
         {
             std::lock_guard lock(s_FontCacheMutex);
             s_FontCache[canonical] = newFont;

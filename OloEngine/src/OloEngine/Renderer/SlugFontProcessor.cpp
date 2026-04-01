@@ -180,6 +180,18 @@ namespace OloEngine
             // Each subsequent curve in the contour reuses the previous endpoint texel.
             // Total texels for this contour: contourCurveCount + 1
 
+            // Ensure the contour's texel run doesn't cross a texture row boundary.
+            // The shader reads the partner texel at (curveLoc.x + 1, curveLoc.y)
+            // without row-wrap logic, so the entire run must stay in one row.
+            auto contourTexels = contourCurveCount + 1;
+            auto currentCol = curveTexelCount % kBandTextureWidth;
+            if (currentCol + contourTexels > kBandTextureWidth)
+            {
+                auto padding = kBandTextureWidth - currentCol;
+                curveTexelData.resize(curveTexelData.size() + static_cast<sizet>(padding) * 4, 0.0f);
+                curveTexelCount += padding;
+            }
+
             for (u32 localIdx = 0; localIdx < contourCurveCount; ++localIdx)
             {
                 auto curveIdx = contourStart + localIdx;
@@ -378,7 +390,20 @@ namespace OloEngine
         //   [hbandCount .. hbandCount+vbandCount-1]  : vband headers
         //   [hbandCount+vbandCount .. end]           : curve lists
 
-        // Record glyph location in band texture.
+        // Reserve space for headers (will fill in later).
+        // Ensure the header block doesn't cross a texture row boundary.
+        // The shader reads headers at (glyphLoc.x + bandIdx, glyphLoc.y)
+        // without row-wrap logic, so all headers must stay in one row.
+        auto totalHeaders = hbandCount + vbandCount;
+        auto currentCol = bandTexelCount % kBandTextureWidth;
+        if (currentCol + totalHeaders > kBandTextureWidth)
+        {
+            auto padding = kBandTextureWidth - currentCol;
+            bandTexelData.resize(bandTexelData.size() + static_cast<sizet>(padding) * 2, 0);
+            bandTexelCount += padding;
+        }
+
+        // Record glyph location in band texture (after possible alignment).
         renderData.BandTextureX = bandTexelCount % kBandTextureWidth;
         renderData.BandTextureY = bandTexelCount / kBandTextureWidth;
         renderData.HBandCount = hbandCount;
@@ -390,9 +415,7 @@ namespace OloEngine
         renderData.BandOffsetX = -boundsLeft * renderData.BandScaleX;
         renderData.BandOffsetY = -boundsBottom * renderData.BandScaleY;
 
-        // Reserve space for headers (will fill in later).
         auto headerStart = bandTexelCount;
-        auto totalHeaders = hbandCount + vbandCount;
         bandTexelCount += totalHeaders;
 
         // Ensure band texel data has enough room for headers (each header = 2 u16s = 1 RG16UI texel).

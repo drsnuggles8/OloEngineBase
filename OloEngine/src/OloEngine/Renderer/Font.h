@@ -74,5 +74,12 @@ namespace OloEngine
         Scope<SlugFontData> m_Data;
         std::string m_Name;
         std::string m_Path;
+        bool m_IsLoaded = false;
+
+      public:
+        [[nodiscard]] bool IsLoaded() const
+        {
+            return m_IsLoaded;
+        }
     };
 } // namespace OloEngine
