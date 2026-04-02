@@ -305,6 +305,12 @@ namespace OloEngine
         }
         const double fsScale = 1.0 / metricSpan;
 
+        if (!std::isfinite(metrics.LineHeight) || std::abs(metrics.LineHeight) < 1e-12f)
+        {
+            OLO_CORE_ERROR("UIRenderer::DrawUIText: invalid LineHeight ({})", metrics.LineHeight);
+            return;
+        }
+
         // Font size scaling: after fsScale normalization, the full ascender-to-descender
         // range is 1.0 local unit. Multiplying by fontSize gives fontSize pixels in the
         // screen-space ortho projection (1 unit = 1 pixel).

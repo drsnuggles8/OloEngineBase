@@ -42,6 +42,10 @@ namespace OloEngine::Animation
             return;
         }
 
+        // Clamp weight and convergence threshold to non-negative
+        auto weight = glm::clamp(params.Weight, 0.0f, 1.0f);
+        auto convergenceThreshold = std::max(params.ConvergenceThreshold, 0.0f);
+
         auto boneCount = std::min(pose.size(), parentIndices.size());
 
         // Build the chain of bone indices from end-effector up to chain root.
@@ -75,7 +79,7 @@ namespace OloEngine::Animation
         // Save original rotations for chain bones only (for final weight blending)
         // Must be captured AFTER reverse so indices align with the blend loop order.
         std::vector<glm::quat> originalRotations;
-        bool needWeightBlend = (params.Weight < 1.0f - 1e-6f);
+        bool needWeightBlend = (weight < 1.0f - 1e-6f);
         if (needWeightBlend)
         {
             originalRotations.resize(boneIndices.size());
@@ -109,7 +113,7 @@ namespace OloEngine::Animation
 
         // --- FABRIK iterations ---
         constexpr f32 kDirectionEpsilon = 1e-6f;
-        f32 convergenceThreshold2 = params.ConvergenceThreshold * params.ConvergenceThreshold;
+        f32 convergenceThreshold2 = convergenceThreshold * convergenceThreshold;
         for (u32 iter = 0; iter < params.MaxIterations; ++iter)
         {
             if (glm::length2(jointPositions.back() - params.TargetPosition) < convergenceThreshold2)
@@ -212,7 +216,7 @@ namespace OloEngine::Animation
             for (sizet i = 0; i < boneIndices.size(); ++i)
             {
                 auto bi = boneIndices[i];
-                pose[bi].Rotation = glm::slerp(originalRotations[i], pose[bi].Rotation, params.Weight);
+                pose[bi].Rotation = glm::slerp(originalRotations[i], pose[bi].Rotation, weight);
             }
         }
     }

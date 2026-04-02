@@ -2273,7 +2273,7 @@ namespace OloEngine
             auto const& skel = entity.GetComponent<SkeletonComponent>();
             if (skel.m_Skeleton)
             {
-                return static_cast<u32>(skel.m_Skeleton->m_BoneNames.size());
+                return std::max(1u, static_cast<u32>(skel.m_Skeleton->m_BoneNames.size()));
             }
         }
         return 512u;
@@ -2370,7 +2370,7 @@ namespace OloEngine
     {
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
-        if (IsFiniteVec3(*v))
+        if (IsFiniteVec3(*v) && glm::length2(*v) > 1e-8f)
         {
             entity.GetComponent<IKTargetComponent>().AimPoleVector = *v;
         }

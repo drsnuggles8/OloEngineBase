@@ -122,7 +122,7 @@ namespace OloEngine::Animation::BlendUtils
             chain.push_back(static_cast<u32>(idx));
             if (chain.size() > localPose.size())
             {
-                break; // cycle guard
+                return {}; // cycle guard — return identity
             }
             idx = parentIndices[static_cast<sizet>(idx)];
         }

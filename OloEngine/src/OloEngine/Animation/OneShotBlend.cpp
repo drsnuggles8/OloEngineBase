@@ -8,7 +8,7 @@ namespace OloEngine::Animation
 {
     void OneShotBlend::Trigger()
     {
-        if (!Clip || Clip->Duration <= 0.0f)
+        if (!Clip || Clip->Duration <= 0.0f || !std::isfinite(Clip->Duration))
         {
             return;
         }
@@ -36,6 +36,12 @@ namespace OloEngine::Animation
         std::span<const std::string> boneNames)
     {
         if (m_Phase == Phase::Idle || !Clip || basePose.empty())
+        {
+            return;
+        }
+
+        // Validate floating-point parameters before any arithmetic
+        if (!std::isfinite(Weight) || !std::isfinite(BlendInDuration) || !std::isfinite(BlendOutDuration))
         {
             return;
         }
@@ -133,6 +139,7 @@ namespace OloEngine::Animation
             }
             m_CachedBoneCount = boneCount;
             m_CachedBoneNamesHash = nameHash;
+            m_AdditiveRestPose.clear();
         }
 
         for (const auto& boneAnim : Clip->BoneAnimations)
