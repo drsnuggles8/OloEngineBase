@@ -1295,7 +1295,7 @@ namespace OloEngine
                         }
                     };
 
-                    if constexpr (std::is_trivially_copyable_v<T>)
+                    if constexpr (std::is_trivially_copyable_v<T> && !std::equality_comparable<T>)
                     {
                         // Byte-level change detection: compare component bytes before and after uiFunction
                         alignas(alignof(T)) unsigned char bytesBefore[sizeof(T)];
@@ -5225,15 +5225,13 @@ namespace OloEngine
                 ImGui::Checkbox("Aim Enabled", &component.AimIKEnabled);
                 if (component.AimIKEnabled)
                 {
-                    int aimBone = static_cast<int>(component.AimBoneIndex);
-                    if (ImGui::DragInt("Aim Bone Index", &aimBone, 1.0f, 0, 512))
+                    if (auto aimBone = static_cast<int>(component.AimBoneIndex); ImGui::DragInt("Aim Bone Index", &aimBone, 1.0f, 0, 512))
                         component.AimBoneIndex = static_cast<u32>(aimBone);
                     ImGui::DragFloat3("Aim Target", glm::value_ptr(component.AimTarget), 0.1f);
                     ImGui::DragFloat3("Aim Axis", glm::value_ptr(component.AimAxis), 0.01f);
                     ImGui::DragFloat3("Aim Offset", glm::value_ptr(component.AimOffset), 0.01f);
                     ImGui::DragFloat3("Aim Pole Vector", glm::value_ptr(component.AimPoleVector), 0.01f);
-                    int aimLen = static_cast<int>(component.AimChainLength);
-                    if (ImGui::DragInt("Aim Chain Length", &aimLen, 1.0f, 1, 64))
+                    if (auto aimLen = static_cast<int>(component.AimChainLength); ImGui::DragInt("Aim Chain Length", &aimLen, 1.0f, 1, 64))
                         component.AimChainLength = static_cast<u32>(aimLen);
                     ImGui::DragFloat("Aim Chain Factor", &component.AimChainFactor, 0.01f, 0.0f, 1.0f);
                     ImGui::DragFloat("Aim Weight", &component.AimWeight, 0.01f, 0.0f, 1.0f);
@@ -5272,12 +5270,10 @@ namespace OloEngine
                 ImGui::Checkbox("Limb Enabled", &component.LimbIKEnabled);
                 if (component.LimbIKEnabled)
                 {
-                    int limbBone = static_cast<int>(component.LimbBoneIndex);
-                    if (ImGui::DragInt("Limb Bone Index", &limbBone, 1.0f, 0, 512))
+                    if (auto limbBone = static_cast<int>(component.LimbBoneIndex); ImGui::DragInt("Limb Bone Index", &limbBone, 1.0f, 0, 512))
                         component.LimbBoneIndex = static_cast<u32>(limbBone);
                     ImGui::DragFloat3("Limb Target", glm::value_ptr(component.LimbTarget), 0.1f);
-                    int limbLen = static_cast<int>(component.LimbChainLength);
-                    if (ImGui::DragInt("Limb Chain Length", &limbLen, 1.0f, 1, 64))
+                    if (auto limbLen = static_cast<int>(component.LimbChainLength); ImGui::DragInt("Limb Chain Length", &limbLen, 1.0f, 1, 64))
                         component.LimbChainLength = static_cast<u32>(limbLen);
                     ImGui::DragFloat("Limb Weight", &component.LimbWeight, 0.01f, 0.0f, 1.0f);
 

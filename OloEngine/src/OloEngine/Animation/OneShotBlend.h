@@ -29,11 +29,11 @@ namespace OloEngine::Animation
 
         void Trigger();
         void Cancel();
-        [[nodiscard]] bool IsActive() const
+        [[nodiscard("check if one-shot is still playing")]] bool IsActive() const
         {
             return m_Phase != Phase::Idle;
         }
-        [[nodiscard]] Phase GetPhase() const
+        [[nodiscard("phase needed to determine blend state")]] Phase GetPhase() const
         {
             return m_Phase;
         }

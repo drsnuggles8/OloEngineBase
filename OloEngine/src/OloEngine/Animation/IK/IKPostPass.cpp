@@ -6,7 +6,9 @@
 #include "OloEngine/Animation/IK/LimbIKSolver.h"
 #include "OloEngine/Animation/Skeleton.h"
 
+#include <algorithm>
 #include <cmath>
+#include <vector>
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtx/norm.hpp>
 
@@ -14,7 +16,6 @@ namespace OloEngine::Animation
 {
     void ApplyIKPostPass(
         Skeleton& skeleton,
-        sizet boneCount,
         const IKTargetComponent& ikTarget,
         const glm::mat4& entityWorldTransform)
     {
@@ -24,6 +25,16 @@ namespace OloEngine::Animation
         {
             return;
         }
+
+        // Derive bone count from the skeleton itself to avoid stale caller values
+        auto boneCount = skeleton.m_LocalTransforms.size();
+        if (boneCount == 0)
+        {
+            return;
+        }
+        OLO_CORE_ASSERT(skeleton.m_ParentIndices.size() == boneCount, "ParentIndices/LocalTransforms size mismatch");
+        OLO_CORE_ASSERT(skeleton.m_BonePreTransforms.empty() || skeleton.m_BonePreTransforms.size() == boneCount,
+                        "BonePreTransforms size mismatch");
 
         // Track which bones the IK chains will modify so we only write those
         // back — avoids the lossy glm::decompose round-trip on untouched bones.
@@ -55,32 +66,36 @@ namespace OloEngine::Animation
         {
             if (isFiniteVec3(ikTarget.AimTarget) && isFiniteVec3(ikTarget.AimAxis) && isFiniteVec3(ikTarget.AimOffset) && isFiniteVec3(ikTarget.AimPoleVector) && std::isfinite(ikTarget.AimWeight) && std::isfinite(ikTarget.AimChainFactor) && glm::length2(ikTarget.AimAxis) > kVecEpsilon && glm::length2(ikTarget.AimPoleVector) > kVecEpsilon)
             {
-                // Mark affected bones only after validation passes
-                auto aimChain = std::clamp(ikTarget.AimChainLength, 1u, static_cast<u32>(boneCount));
-                auto bone = ikTarget.AimBoneIndex;
-                for (u32 j = 0; j < aimChain && bone < static_cast<u32>(boneCount); ++j)
+                // Skip if clamped weight is zero — no visible effect
+                if (auto aimWeight = glm::clamp(ikTarget.AimWeight, 0.0f, 1.0f); aimWeight > 0.0f)
                 {
-                    ikModified[bone] = true;
-                    if (auto parent = skeleton.m_ParentIndices[bone]; parent < 0)
+                    // Mark affected bones only after validation passes
+                    auto aimChain = std::clamp(ikTarget.AimChainLength, 1u, static_cast<u32>(boneCount));
+                    auto bone = ikTarget.AimBoneIndex;
+                    for (u32 j = 0; j < aimChain && bone < static_cast<u32>(boneCount); ++j)
                     {
-                        break;
+                        ikModified[bone] = true;
+                        if (auto parent = skeleton.m_ParentIndices[bone]; parent < 0)
+                        {
+                            break;
+                        }
+                        else
+                        {
+                            bone = static_cast<u32>(parent);
+                        }
                     }
-                    else
-                    {
-                        bone = static_cast<u32>(parent);
-                    }
-                }
 
-                AimIKParams params;
-                params.TargetBoneIndex = ikTarget.AimBoneIndex;
-                params.TargetPosition = BlendUtils::WorldToModelSpace(ikTarget.AimTarget, entityWorldTransform);
-                params.AimAxis = glm::normalize(ikTarget.AimAxis);
-                params.AimOffset = ikTarget.AimOffset;
-                params.PoleVector = glm::normalize(ikTarget.AimPoleVector);
-                params.ChainLength = std::clamp(ikTarget.AimChainLength, 1u, static_cast<u32>(boneCount));
-                params.ChainFactor = glm::clamp(ikTarget.AimChainFactor, 0.0f, 1.0f);
-                params.Weight = glm::clamp(ikTarget.AimWeight, 0.0f, 1.0f);
-                AimIKSolver::Solve(localPose, skeleton.m_ParentIndices, params, skeleton.m_BonePreTransforms);
+                    AimIKParams params;
+                    params.TargetBoneIndex = ikTarget.AimBoneIndex;
+                    params.TargetPosition = BlendUtils::WorldToModelSpace(ikTarget.AimTarget, entityWorldTransform);
+                    params.AimAxis = glm::normalize(ikTarget.AimAxis);
+                    params.AimOffset = ikTarget.AimOffset;
+                    params.PoleVector = glm::normalize(ikTarget.AimPoleVector);
+                    params.ChainLength = std::clamp(ikTarget.AimChainLength, 1u, static_cast<u32>(boneCount));
+                    params.ChainFactor = glm::clamp(ikTarget.AimChainFactor, 0.0f, 1.0f);
+                    params.Weight = aimWeight;
+                    AimIKSolver::Solve(localPose, skeleton.m_ParentIndices, params, skeleton.m_BonePreTransforms);
+                }
             }
         }
 
@@ -88,28 +103,32 @@ namespace OloEngine::Animation
         {
             if (isFiniteVec3(ikTarget.LimbTarget) && std::isfinite(ikTarget.LimbWeight))
             {
-                // Mark affected bones only after validation passes
-                auto limbChain = std::clamp(ikTarget.LimbChainLength, 1u, static_cast<u32>(boneCount));
-                auto bone = ikTarget.LimbBoneIndex;
-                for (u32 j = 0; j < limbChain && bone < static_cast<u32>(boneCount); ++j)
+                // Skip if clamped weight is zero — no visible effect
+                if (auto limbWeight = glm::clamp(ikTarget.LimbWeight, 0.0f, 1.0f); limbWeight > 0.0f)
                 {
-                    ikModified[bone] = true;
-                    if (auto parent = skeleton.m_ParentIndices[bone]; parent < 0)
+                    // Mark affected bones only after validation passes
+                    auto limbChain = std::clamp(ikTarget.LimbChainLength, 1u, static_cast<u32>(boneCount));
+                    auto bone = ikTarget.LimbBoneIndex;
+                    for (u32 j = 0; j < limbChain && bone < static_cast<u32>(boneCount); ++j)
                     {
-                        break;
+                        ikModified[bone] = true;
+                        if (auto parent = skeleton.m_ParentIndices[bone]; parent < 0)
+                        {
+                            break;
+                        }
+                        else
+                        {
+                            bone = static_cast<u32>(parent);
+                        }
                     }
-                    else
-                    {
-                        bone = static_cast<u32>(parent);
-                    }
-                }
 
-                LimbIKParams params;
-                params.TargetBoneIndex = ikTarget.LimbBoneIndex;
-                params.TargetPosition = BlendUtils::WorldToModelSpace(ikTarget.LimbTarget, entityWorldTransform);
-                params.ChainLength = std::clamp(ikTarget.LimbChainLength, 1u, static_cast<u32>(boneCount));
-                params.Weight = glm::clamp(ikTarget.LimbWeight, 0.0f, 1.0f);
-                LimbIKSolver::Solve(localPose, skeleton.m_ParentIndices, params, skeleton.m_BonePreTransforms);
+                    LimbIKParams params;
+                    params.TargetBoneIndex = ikTarget.LimbBoneIndex;
+                    params.TargetPosition = BlendUtils::WorldToModelSpace(ikTarget.LimbTarget, entityWorldTransform);
+                    params.ChainLength = std::clamp(ikTarget.LimbChainLength, 1u, static_cast<u32>(boneCount));
+                    params.Weight = limbWeight;
+                    LimbIKSolver::Solve(localPose, skeleton.m_ParentIndices, params, skeleton.m_BonePreTransforms);
+                }
             }
         }
 

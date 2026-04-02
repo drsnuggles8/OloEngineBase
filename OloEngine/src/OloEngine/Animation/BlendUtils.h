@@ -15,27 +15,27 @@ namespace OloEngine::Animation::BlendUtils
     // operate in model space (relative to the skeleton's entity origin).
 
     // Convert a world-space position to model space given the entity's world transform.
-    [[nodiscard]] glm::vec3 WorldToModelSpace(const glm::vec3& worldPos, const glm::mat4& entityWorldTransform);
+    [[nodiscard("coordinate conversion result must be used")]] glm::vec3 WorldToModelSpace(const glm::vec3& worldPos, const glm::mat4& entityWorldTransform);
 
     // Convert a model-space position to world space given the entity's world transform.
-    [[nodiscard]] glm::vec3 ModelToWorldSpace(const glm::vec3& modelPos, const glm::mat4& entityWorldTransform);
+    [[nodiscard("coordinate conversion result must be used")]] glm::vec3 ModelToWorldSpace(const glm::vec3& modelPos, const glm::mat4& entityWorldTransform);
 
     // --- Transform math ---
 
     // Apply transform to a point: translation + rotation * (scale * point)
-    [[nodiscard]] glm::vec3 TransformPoint(const BoneTransform& t, const glm::vec3& p);
+    [[nodiscard("transformed point must be used")]] glm::vec3 TransformPoint(const BoneTransform& t, const glm::vec3& p);
 
     // Apply transform to a direction vector: rotation * (scale * vector)
-    [[nodiscard]] glm::vec3 TransformVector(const BoneTransform& t, const glm::vec3& v);
+    [[nodiscard("transformed vector must be used")]] glm::vec3 TransformVector(const BoneTransform& t, const glm::vec3& v);
 
     // Compute the inverse of a BoneTransform
-    [[nodiscard]] BoneTransform InverseTransform(const BoneTransform& t);
+    [[nodiscard("inverse transform must be used")]] BoneTransform InverseTransform(const BoneTransform& t);
 
     // Compose two transforms: a then b (result = a * b)
-    [[nodiscard]] BoneTransform MultiplyTransforms(const BoneTransform& a, const BoneTransform& b);
+    [[nodiscard("composed transform must be used")]] BoneTransform MultiplyTransforms(const BoneTransform& a, const BoneTransform& b);
 
     // Decompose a glm::mat4 into a BoneTransform (TRS)
-    [[nodiscard]] BoneTransform DecomposeMatrix(const glm::mat4& m);
+    [[nodiscard("decomposed transform must be used")]] BoneTransform DecomposeMatrix(const glm::mat4& m);
 
     // Convert local-space bone transforms to model-space via parent chain.
     // When preTransforms is non-empty, each bone's effective local transform
@@ -48,7 +48,7 @@ namespace OloEngine::Animation::BlendUtils
         std::span<const glm::mat4> preTransforms = {});
 
     // Compute a single bone's model-space transform by walking up the parent chain
-    [[nodiscard]] BoneTransform ComputeModelSpaceTransform(
+    [[nodiscard("computed model-space transform must be used")]] BoneTransform ComputeModelSpaceTransform(
         u32 boneIndex,
         std::span<const BoneTransform> localPose,
         std::span<const int> parentIndices);
@@ -88,7 +88,7 @@ namespace OloEngine::Animation::BlendUtils
 
     // Build a boolean mask marking blendRootBone and all its descendants.
     // Returns an empty vector when blendRootBone is out of range.
-    [[nodiscard]] std::vector<bool> BuildAffectedBonesMask(
+    [[nodiscard("bone mask must be used")]] std::vector<bool> BuildAffectedBonesMask(
         u32 blendRootBone,
         sizet boneCount,
         std::span<const int> parentIndices);

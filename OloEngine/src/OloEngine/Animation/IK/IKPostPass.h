@@ -15,7 +15,6 @@ namespace OloEngine::Animation
     // Shared implementation called by both AnimationSystem and AnimationGraphSystem.
     void ApplyIKPostPass(
         Skeleton& skeleton,
-        sizet boneCount,
         const IKTargetComponent& ikTarget,
         const glm::mat4& entityWorldTransform);
 } // namespace OloEngine::Animation
