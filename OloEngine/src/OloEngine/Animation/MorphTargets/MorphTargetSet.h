@@ -20,7 +20,8 @@ namespace OloEngine
 
         [[nodiscard("target index needed for weight mapping")]] i32 FindTarget(const std::string& name) const
         {
-            for (i32 i = 0; i < static_cast<i32>(Targets.size()); ++i)
+            auto count = static_cast<i32>(Targets.size());
+            for (i32 i = 0; i < count; ++i)
             {
                 if (Targets[i].Name == name)
                     return i;

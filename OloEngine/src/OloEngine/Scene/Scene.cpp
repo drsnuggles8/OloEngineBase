@@ -815,8 +815,8 @@ namespace OloEngine
 
                     if (!morphComp.HasActiveWeights() || !morphComp.MorphTargets)
                     {
-                        // Restore base mesh when all weights go to zero
-                        if (!morphComp.BasePositions.empty() && meshComp.m_MeshSource)
+                        // Restore base mesh only on transition from active → inactive
+                        if (morphComp.WasMorphActive && !morphComp.BasePositions.empty() && meshComp.m_MeshSource)
                         {
                             auto& meshSource = meshComp.m_MeshSource;
                             auto& mutableVerts = meshSource->GetVertices();
@@ -828,6 +828,7 @@ namespace OloEngine
                             auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
                             vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
                         }
+                        morphComp.WasMorphActive = false;
                         continue;
                     }
 
@@ -868,6 +869,7 @@ namespace OloEngine
                         auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
                         vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
                     }
+                    morphComp.WasMorphActive = true;
                 }
             }
 
@@ -1465,8 +1467,8 @@ namespace OloEngine
 
                 if (!morphComp.HasActiveWeights() || !morphComp.MorphTargets)
                 {
-                    // Restore base mesh when all weights go to zero
-                    if (!morphComp.BasePositions.empty() && meshComp.m_MeshSource)
+                    // Restore base mesh only on transition from active → inactive
+                    if (morphComp.WasMorphActive && !morphComp.BasePositions.empty() && meshComp.m_MeshSource)
                     {
                         auto& meshSource = meshComp.m_MeshSource;
                         auto& mutableVerts = meshSource->GetVertices();
@@ -1478,6 +1480,7 @@ namespace OloEngine
                         auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
                         vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
                     }
+                    morphComp.WasMorphActive = false;
                     continue;
                 }
 
@@ -1514,6 +1517,7 @@ namespace OloEngine
                     auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
                     vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
                 }
+                morphComp.WasMorphActive = true;
             }
         }
 

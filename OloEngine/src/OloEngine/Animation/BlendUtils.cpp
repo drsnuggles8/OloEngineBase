@@ -106,12 +106,27 @@ namespace OloEngine::Animation::BlendUtils
     BoneTransform ComputeModelSpaceTransform(
         u32 boneIndex,
         std::span<const BoneTransform> localPose,
-        std::span<const int> parentIndices)
+        std::span<const int> parentIndices,
+        std::span<const glm::mat4> preTransforms)
     {
         if (boneIndex >= localPose.size() || boneIndex >= parentIndices.size())
         {
             return {};
         }
+
+        // Build effective local transform: preTransform[i] * localPose[i]
+        auto effectiveLocal = [&](u32 idx) -> BoneTransform
+        {
+            if (idx < preTransforms.size())
+            {
+                static constexpr glm::mat4 kIdentity{ 1.0f };
+                if (std::memcmp(&preTransforms[idx], &kIdentity, sizeof(glm::mat4)) != 0)
+                {
+                    return MultiplyTransforms(DecomposeMatrix(preTransforms[idx]), localPose[idx]);
+                }
+            }
+            return localPose[idx];
+        };
 
         // Walk up the parent chain and accumulate
         // Build the chain from root to boneIndex
@@ -131,7 +146,7 @@ namespace OloEngine::Animation::BlendUtils
         // Process from root (back of chain) to leaf (front of chain)
         for (auto it = chain.rbegin(); it != chain.rend(); ++it)
         {
-            result = MultiplyTransforms(result, localPose[*it]);
+            result = MultiplyTransforms(result, effectiveLocal(*it));
         }
         return result;
     }

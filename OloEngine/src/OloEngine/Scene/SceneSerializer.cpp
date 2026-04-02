@@ -2953,7 +2953,7 @@ namespace OloEngine
 
             // Sanitize float/vector fields — replace NaN/Inf with defaults and clamp to valid ranges
             ik.AimChainLength = std::max(1u, ik.AimChainLength);
-            ik.LimbChainLength = std::max(1u, ik.LimbChainLength);
+            ik.LimbChainLength = std::max(2u, ik.LimbChainLength);
             SanitizeVec3(ik.AimTarget, glm::vec3(0.0f));
             SanitizeVec3(ik.AimAxis, glm::vec3(0.0f, 0.0f, 1.0f));
             SanitizeVec3(ik.AimOffset, glm::vec3(0.0f));

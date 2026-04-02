@@ -43,6 +43,9 @@ namespace OloEngine::Animation
         // Validate floating-point parameters before any arithmetic
         if (!std::isfinite(Weight) || !std::isfinite(BlendInDuration) || !std::isfinite(BlendOutDuration))
         {
+            m_Phase = Phase::Idle;
+            m_PlaybackTime = 0.0f;
+            m_PhaseTime = 0.0f;
             return;
         }
 

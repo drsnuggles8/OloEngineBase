@@ -47,11 +47,14 @@ namespace OloEngine::Animation::BlendUtils
         std::vector<BoneTransform>& outModelSpacePose,
         std::span<const glm::mat4> preTransforms = {});
 
-    // Compute a single bone's model-space transform by walking up the parent chain
+    // Compute a single bone's model-space transform by walking up the parent chain.
+    // When preTransforms is non-empty, each bone's effective local transform is
+    // preTransforms[i] * localPose[i], matching ComputeModelSpacePose behavior.
     [[nodiscard("computed model-space transform must be used")]] BoneTransform ComputeModelSpaceTransform(
         u32 boneIndex,
         std::span<const BoneTransform> localPose,
-        std::span<const int> parentIndices);
+        std::span<const int> parentIndices,
+        std::span<const glm::mat4> preTransforms = {});
 
     // --- Standard blending ---
 

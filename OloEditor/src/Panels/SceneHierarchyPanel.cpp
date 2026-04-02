@@ -1114,6 +1114,20 @@ namespace OloEngine
             return std::string(fullName);
     }
 
+    // Trait to opt specific trivially-copyable types into value-comparison (operator==)
+    // instead of the default byte-level memcmp path.  Specialize to std::true_type for
+    // components whose operator== handles semantic equality (e.g., UUID comparison via
+    // static_cast) more accurately than raw byte comparison.
+    template<typename T>
+    struct PreferValueComparison : std::false_type
+    {
+    };
+
+    template<>
+    struct PreferValueComparison<IKTargetComponent> : std::true_type
+    {
+    };
+
     template<typename T, typename UIFunction>
     static void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction)
     {
@@ -1295,7 +1309,7 @@ namespace OloEngine
                         }
                     };
 
-                    if constexpr (std::is_trivially_copyable_v<T> && !std::equality_comparable<T>)
+                    if constexpr (std::is_trivially_copyable_v<T> && !PreferValueComparison<T>::value)
                     {
                         // Byte-level change detection: compare component bytes before and after uiFunction
                         alignas(alignof(T)) unsigned char bytesBefore[sizeof(T)];

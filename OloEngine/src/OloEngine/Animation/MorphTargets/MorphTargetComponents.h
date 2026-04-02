@@ -24,6 +24,9 @@ namespace OloEngine
         std::vector<glm::vec3> BasePositions;
         std::vector<glm::vec3> BaseNormals;
 
+        // Tracks whether morph weights were active last frame (for transition detection)
+        bool WasMorphActive = false;
+
         MorphTargetComponent() = default;
         MorphTargetComponent(const MorphTargetComponent&) = default;
 
@@ -66,8 +69,7 @@ namespace OloEngine
             std::vector<f32> ordered(MorphTargets->GetTargetCount(), 0.0f);
             for (const auto& [name, weight] : Weights)
             {
-                i32 idx = MorphTargets->FindTargetCached(name);
-                if (idx >= 0)
+                if (auto idx = MorphTargets->FindTargetCached(name); idx >= 0)
                     ordered[idx] = weight;
             }
             return ordered;

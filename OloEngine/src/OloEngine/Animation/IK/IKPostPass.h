@@ -1,6 +1,5 @@
 #pragma once
 
-#include "OloEngine/Core/Base.h"
 #include <glm/mat4x4.hpp>
 
 namespace OloEngine

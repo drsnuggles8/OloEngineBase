@@ -8,12 +8,36 @@
 
 #include <algorithm>
 #include <cmath>
+#include <span>
 #include <vector>
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtx/norm.hpp>
 
 namespace OloEngine::Animation
 {
+    // Marks all bones in an IK chain (from startBone walking up via parentIndices) as modified
+    static void MarkIkChain(
+        u32 startBone,
+        u32 chainLength,
+        sizet boneCount,
+        std::span<const int> parentIndices,
+        std::vector<bool>& ikModified)
+    {
+        auto bone = startBone;
+        for (u32 j = 0; j < chainLength && bone < static_cast<u32>(boneCount); ++j)
+        {
+            ikModified[bone] = true;
+            if (auto parent = parentIndices[bone]; parent < 0)
+            {
+                break;
+            }
+            else
+            {
+                bone = static_cast<u32>(parent);
+            }
+        }
+    }
+
     void ApplyIKPostPass(
         Skeleton& skeleton,
         const IKTargetComponent& ikTarget,
@@ -64,26 +88,17 @@ namespace OloEngine::Animation
 
         if (ikTarget.AimIKEnabled && ikTarget.AimBoneIndex < static_cast<u32>(boneCount))
         {
-            if (isFiniteVec3(ikTarget.AimTarget) && isFiniteVec3(ikTarget.AimAxis) && isFiniteVec3(ikTarget.AimOffset) && isFiniteVec3(ikTarget.AimPoleVector) && std::isfinite(ikTarget.AimWeight) && std::isfinite(ikTarget.AimChainFactor) && glm::length2(ikTarget.AimAxis) > kVecEpsilon && glm::length2(ikTarget.AimPoleVector) > kVecEpsilon)
+            // Validate all floating-point inputs individually for clarity
+            bool validInputs = isFiniteVec3(ikTarget.AimTarget) && isFiniteVec3(ikTarget.AimAxis) && isFiniteVec3(ikTarget.AimOffset) && isFiniteVec3(ikTarget.AimPoleVector) && std::isfinite(ikTarget.AimWeight) && std::isfinite(ikTarget.AimChainFactor);
+            bool validDirections = glm::length2(ikTarget.AimAxis) > kVecEpsilon && glm::length2(ikTarget.AimPoleVector) > kVecEpsilon;
+
+            if (validInputs && validDirections)
             {
                 // Skip if clamped weight is zero — no visible effect
                 if (auto aimWeight = glm::clamp(ikTarget.AimWeight, 0.0f, 1.0f); aimWeight > 0.0f)
                 {
-                    // Mark affected bones only after validation passes
                     auto aimChain = std::clamp(ikTarget.AimChainLength, 1u, static_cast<u32>(boneCount));
-                    auto bone = ikTarget.AimBoneIndex;
-                    for (u32 j = 0; j < aimChain && bone < static_cast<u32>(boneCount); ++j)
-                    {
-                        ikModified[bone] = true;
-                        if (auto parent = skeleton.m_ParentIndices[bone]; parent < 0)
-                        {
-                            break;
-                        }
-                        else
-                        {
-                            bone = static_cast<u32>(parent);
-                        }
-                    }
+                    MarkIkChain(ikTarget.AimBoneIndex, aimChain, boneCount, skeleton.m_ParentIndices, ikModified);
 
                     AimIKParams params;
                     params.TargetBoneIndex = ikTarget.AimBoneIndex;
@@ -91,7 +106,7 @@ namespace OloEngine::Animation
                     params.AimAxis = glm::normalize(ikTarget.AimAxis);
                     params.AimOffset = ikTarget.AimOffset;
                     params.PoleVector = glm::normalize(ikTarget.AimPoleVector);
-                    params.ChainLength = std::clamp(ikTarget.AimChainLength, 1u, static_cast<u32>(boneCount));
+                    params.ChainLength = aimChain;
                     params.ChainFactor = glm::clamp(ikTarget.AimChainFactor, 0.0f, 1.0f);
                     params.Weight = aimWeight;
                     AimIKSolver::Solve(localPose, skeleton.m_ParentIndices, params, skeleton.m_BonePreTransforms);
@@ -106,26 +121,13 @@ namespace OloEngine::Animation
                 // Skip if clamped weight is zero — no visible effect
                 if (auto limbWeight = glm::clamp(ikTarget.LimbWeight, 0.0f, 1.0f); limbWeight > 0.0f)
                 {
-                    // Mark affected bones only after validation passes
                     auto limbChain = std::clamp(ikTarget.LimbChainLength, 1u, static_cast<u32>(boneCount));
-                    auto bone = ikTarget.LimbBoneIndex;
-                    for (u32 j = 0; j < limbChain && bone < static_cast<u32>(boneCount); ++j)
-                    {
-                        ikModified[bone] = true;
-                        if (auto parent = skeleton.m_ParentIndices[bone]; parent < 0)
-                        {
-                            break;
-                        }
-                        else
-                        {
-                            bone = static_cast<u32>(parent);
-                        }
-                    }
+                    MarkIkChain(ikTarget.LimbBoneIndex, limbChain, boneCount, skeleton.m_ParentIndices, ikModified);
 
                     LimbIKParams params;
                     params.TargetBoneIndex = ikTarget.LimbBoneIndex;
                     params.TargetPosition = BlendUtils::WorldToModelSpace(ikTarget.LimbTarget, entityWorldTransform);
-                    params.ChainLength = std::clamp(ikTarget.LimbChainLength, 1u, static_cast<u32>(boneCount));
+                    params.ChainLength = limbChain;
                     params.Weight = limbWeight;
                     LimbIKSolver::Solve(localPose, skeleton.m_ParentIndices, params, skeleton.m_BonePreTransforms);
                 }

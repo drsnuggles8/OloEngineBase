@@ -2265,7 +2265,7 @@ namespace OloEngine
     }
 
     // Get skeleton bone count for validating indices/chain lengths.
-    // Returns a hard-cap fallback (512) if no skeleton is present.
+    // Returns 0 if no skeleton is present so callers can guard correctly.
     static u32 GetSkeletonBoneCount(Entity entity)
     {
         if (entity.HasComponent<SkeletonComponent>())
@@ -2273,10 +2273,10 @@ namespace OloEngine
             auto const& skel = entity.GetComponent<SkeletonComponent>();
             if (skel.m_Skeleton)
             {
-                return std::max(1u, static_cast<u32>(skel.m_Skeleton->m_BoneNames.size()));
+                return static_cast<u32>(skel.m_Skeleton->m_BoneNames.size());
             }
         }
-        return 512u;
+        return 0u;
     }
 
     static bool IKTargetComponent_GetAimIKEnabled(UUID entityID)

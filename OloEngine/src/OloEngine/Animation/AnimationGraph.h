@@ -21,8 +21,8 @@ namespace OloEngine
 
         void Start();
         void Update(f32 dt, sizet boneCount, std::vector<glm::mat4>& outFinalBoneMatrices,
-                    const std::vector<std::string>& boneNames = {},
-                    const std::vector<i32>& parentIndices = {});
+                    const std::vector<std::string>& boneNames,
+                    const std::vector<i32>& parentIndices);
 
         [[nodiscard("cloned graph must be assigned")]] Ref<AnimationGraph> Clone() const;
         void ResolveClips(const std::vector<Ref<AnimationClip>>& availableClips);

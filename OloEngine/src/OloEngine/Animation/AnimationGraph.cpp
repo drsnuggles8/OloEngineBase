@@ -50,7 +50,7 @@ namespace OloEngine
             }
 
             // Apply one-shot overlay on top of the base pose for this layer
-            if (layer.OneShot.IsActive() && !parentIndices.empty())
+            if (layer.OneShot.IsActive())
             {
                 layer.OneShot.Update(dt, layerTransforms, parentIndices, boneNames);
             }
@@ -81,6 +81,8 @@ namespace OloEngine
             clonedLayer.Weight = layer.Weight;
             clonedLayer.AffectedBones = layer.AffectedBones;
             clonedLayer.AvatarMask = layer.AvatarMask;
+
+            clonedLayer.OneShot = layer.OneShot;
 
             if (layer.StateMachine)
             {
