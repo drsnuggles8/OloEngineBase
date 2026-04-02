@@ -26,7 +26,7 @@ namespace OloEngine
         {
             m_FilePath = path;
         }
-        [[nodiscard]] const std::string& GetFilePath() const
+        [[nodiscard("file path needed for loading or display")]] const std::string& GetFilePath() const
         {
             return m_FilePath;
         }
@@ -35,7 +35,7 @@ namespace OloEngine
         {
             m_Graph = graph;
         }
-        [[nodiscard]] Ref<AnimationGraph> GetGraph() const
+        [[nodiscard("graph needed for playback or editing")]] Ref<AnimationGraph> GetGraph() const
         {
             return m_Graph;
         }

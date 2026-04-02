@@ -24,6 +24,9 @@ namespace OloEngine
         std::vector<glm::vec3> BasePositions;
         std::vector<glm::vec3> BaseNormals;
 
+        // Tracks whether morph weights were active last frame (for transition detection)
+        bool WasMorphActive = false;
+
         MorphTargetComponent() = default;
         MorphTargetComponent(const MorphTargetComponent&) = default;
 
@@ -32,7 +35,7 @@ namespace OloEngine
             Weights[targetName] = std::clamp(weight, 0.0f, 1.0f);
         }
 
-        [[nodiscard]] f32 GetWeight(const std::string& targetName) const
+        [[nodiscard("weight value must be used")]] f32 GetWeight(const std::string& targetName) const
         {
             auto it = Weights.find(targetName);
             return (it != Weights.end()) ? it->second : 0.0f;
@@ -47,7 +50,7 @@ namespace OloEngine
         }
 
         // Check if any morph target has a non-zero weight
-        [[nodiscard]] bool HasActiveWeights() const
+        [[nodiscard("active weight check drives morph target updates")]] bool HasActiveWeights() const
         {
             for (const auto& [name, weight] : Weights)
             {
@@ -58,7 +61,7 @@ namespace OloEngine
         }
 
         // Build a flat weight vector matching the MorphTargetSet order
-        [[nodiscard]] std::vector<f32> GetOrderedWeights() const
+        [[nodiscard("ordered weights needed for GPU upload")]] std::vector<f32> GetOrderedWeights() const
         {
             if (!MorphTargets)
                 return {};
@@ -66,8 +69,7 @@ namespace OloEngine
             std::vector<f32> ordered(MorphTargets->GetTargetCount(), 0.0f);
             for (const auto& [name, weight] : Weights)
             {
-                i32 idx = MorphTargets->FindTargetCached(name);
-                if (idx >= 0)
+                if (auto idx = MorphTargets->FindTargetCached(name); idx >= 0)
                     ordered[idx] = weight;
             }
             return ordered;

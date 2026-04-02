@@ -1114,6 +1114,20 @@ namespace OloEngine
             return std::string(fullName);
     }
 
+    // Trait to opt specific trivially-copyable types into value-comparison (operator==)
+    // instead of the default byte-level memcmp path.  Specialize to std::true_type for
+    // components whose operator== handles semantic equality (e.g., UUID comparison via
+    // static_cast) more accurately than raw byte comparison.
+    template<typename T>
+    struct PreferValueComparison : std::false_type
+    {
+    };
+
+    template<>
+    struct PreferValueComparison<IKTargetComponent> : std::true_type
+    {
+    };
+
     template<typename T, typename UIFunction>
     static void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction)
     {
@@ -1295,7 +1309,7 @@ namespace OloEngine
                         }
                     };
 
-                    if constexpr (std::is_trivially_copyable_v<T>)
+                    if constexpr (std::is_trivially_copyable_v<T> && !PreferValueComparison<T>::value)
                     {
                         // Byte-level change detection: compare component bytes before and after uiFunction
                         alignas(alignof(T)) unsigned char bytesBefore[sizeof(T)];
@@ -1761,6 +1775,11 @@ namespace OloEngine
 
             // Gameplay Ability System
             DisplayAddComponentEntry<AbilityComponent>("Gameplay Ability");
+
+            ImGui::Separator();
+
+            // Animation IK
+            DisplayAddComponentEntry<IKTargetComponent>("IK Target");
 
             ImGui::EndPopup();
         }
@@ -5213,6 +5232,94 @@ namespace OloEngine
             {
                 component.InitializeDefaultRPGAttributes(100.0f, 50.0f, 10.0f, 5.0f);
             } });
+
+        DrawComponent<IKTargetComponent>("IK Target", entity, [](auto& component)
+                                         {
+                ImGui::SeparatorText("Aim IK");
+                ImGui::Checkbox("Aim Enabled", &component.AimIKEnabled);
+                if (component.AimIKEnabled)
+                {
+                    if (auto aimBone = static_cast<int>(component.AimBoneIndex); ImGui::DragInt("Aim Bone Index", &aimBone, 1.0f, 0, 512))
+                        component.AimBoneIndex = static_cast<u32>(aimBone);
+                    ImGui::DragFloat3("Aim Target", glm::value_ptr(component.AimTarget), 0.1f);
+                    ImGui::DragFloat3("Aim Axis", glm::value_ptr(component.AimAxis), 0.01f);
+                    ImGui::DragFloat3("Aim Offset", glm::value_ptr(component.AimOffset), 0.01f);
+                    ImGui::DragFloat3("Aim Pole Vector", glm::value_ptr(component.AimPoleVector), 0.01f);
+                    if (auto aimLen = static_cast<int>(component.AimChainLength); ImGui::DragInt("Aim Chain Length", &aimLen, 1.0f, 1, 64))
+                        component.AimChainLength = static_cast<u32>(aimLen);
+                    ImGui::DragFloat("Aim Chain Factor", &component.AimChainFactor, 0.01f, 0.0f, 1.0f);
+                    ImGui::DragFloat("Aim Weight", &component.AimWeight, 0.01f, 0.0f, 1.0f);
+
+                    auto aimTarget = static_cast<u64>(component.AimTargetEntity);
+                    ImGui::Text("Aim Target Entity:");
+                    ImGui::SameLine();
+                    // Use a Button as a consistent drag-drop target
+                    if (aimTarget != 0)
+                    {
+                        char label[64];
+                        snprintf(label, sizeof(label), "%llu##AimTargetDrop", static_cast<unsigned long long>(aimTarget));
+                        ImGui::Button(label);
+                    }
+                    else
+                    {
+                        ImGui::Button("(none — drag entity here)##AimTargetDrop");
+                    }
+                    if (ImGui::BeginDragDropTarget())
+                    {
+                        if (auto const* payload = ImGui::AcceptDragDropPayload("ENTITY_REPARENT"))
+                        {
+                            component.AimTargetEntity = *static_cast<const UUID*>(payload->Data);
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    if (aimTarget != 0)
+                    {
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("Clear##AimTarget"))
+                            component.AimTargetEntity = 0;
+                    }
+                }
+
+                ImGui::SeparatorText("Limb IK");
+                ImGui::Checkbox("Limb Enabled", &component.LimbIKEnabled);
+                if (component.LimbIKEnabled)
+                {
+                    if (auto limbBone = static_cast<int>(component.LimbBoneIndex); ImGui::DragInt("Limb Bone Index", &limbBone, 1.0f, 0, 512))
+                        component.LimbBoneIndex = static_cast<u32>(limbBone);
+                    ImGui::DragFloat3("Limb Target", glm::value_ptr(component.LimbTarget), 0.1f);
+                    if (auto limbLen = static_cast<int>(component.LimbChainLength); ImGui::DragInt("Limb Chain Length", &limbLen, 1.0f, 1, 64))
+                        component.LimbChainLength = static_cast<u32>(limbLen);
+                    ImGui::DragFloat("Limb Weight", &component.LimbWeight, 0.01f, 0.0f, 1.0f);
+
+                    auto limbTarget = static_cast<u64>(component.LimbTargetEntity);
+                    ImGui::Text("Limb Target Entity:");
+                    ImGui::SameLine();
+                    // Use a Button as a consistent drag-drop target
+                    if (limbTarget != 0)
+                    {
+                        char label[64];
+                        snprintf(label, sizeof(label), "%llu##LimbTargetDrop", static_cast<unsigned long long>(limbTarget));
+                        ImGui::Button(label);
+                    }
+                    else
+                    {
+                        ImGui::Button("(none — drag entity here)##LimbTargetDrop");
+                    }
+                    if (ImGui::BeginDragDropTarget())
+                    {
+                        if (auto const* payload = ImGui::AcceptDragDropPayload("ENTITY_REPARENT"))
+                        {
+                            component.LimbTargetEntity = *static_cast<const UUID*>(payload->Data);
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    if (limbTarget != 0)
+                    {
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("Clear##LimbTarget"))
+                            component.LimbTargetEntity = 0;
+                    }
+                } });
     }
 
     template<typename T>

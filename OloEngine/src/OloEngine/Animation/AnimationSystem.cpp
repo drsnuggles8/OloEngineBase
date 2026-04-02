@@ -1,6 +1,8 @@
 
 #include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Animation/AnimationClip.h"
+#include "OloEngine/Animation/IKTargetComponent.h"
+#include "OloEngine/Animation/IK/IKPostPass.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Core/Log.h"
 #include <algorithm>
@@ -11,7 +13,9 @@ namespace OloEngine::Animation
     void AnimationSystem::Update(
         AnimationStateComponent& animState,
         Skeleton& skeleton,
-        f32 deltaTime)
+        f32 deltaTime,
+        const IKTargetComponent* ikTarget,
+        const glm::mat4& entityWorldTransform)
     {
 
         // Advance and loop animation time for current and next clips
@@ -141,6 +145,12 @@ namespace OloEngine::Animation
                 // else: bone not animated in this clip — keep bind-pose local transform
             }
             // If no current clip: keep existing bind-pose transforms
+        }
+
+        // Apply IK pass between pose evaluation and forward kinematics
+        if (ikTarget && (ikTarget->AimIKEnabled || ikTarget->LimbIKEnabled))
+        {
+            ApplyIKPostPass(skeleton, *ikTarget, entityWorldTransform);
         }
 
         // Compute global transforms, applying pre-transforms for non-bone ancestor nodes

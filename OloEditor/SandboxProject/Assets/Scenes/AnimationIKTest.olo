@@ -1,0 +1,168 @@
+Scene: AnimationIKTest.olo
+PostProcessSettings:
+  {}
+Entities:
+  # ── Camera ──
+  - Entity: 1000000000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 1.5, 5]
+      Rotation: [-0.2, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.00999999978
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1000
+      Primary: true
+      FixedAspectRatio: false
+
+  # ── Directional Light ──
+  - Entity: 1000000000000000002
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [0.5, -1, 0.3]
+      Color: [1, 1, 1]
+      Intensity: 2
+      CastShadows: true
+      ShadowBias: 0.02
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 1
+
+  # ── Floor ──
+  - Entity: 1000000000000000003
+    TagComponent:
+      Tag: Floor
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [50, 0.1, 50]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.4, 0.4, 0.4]
+      Metallic: 0
+      Roughness: 0.8
+
+  # ── CesiumMan — Animated humanoid with AimIK (head looks at target) ──
+  - Entity: 1000000000000000010
+    TagComponent:
+      Tag: CesiumMan (AimIK)
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      {}
+    MaterialComponent:
+      AlbedoColor: [1, 1, 1]
+      Metallic: 0
+      Roughness: 0.5
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 0
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/CesiumMan/CesiumMan.gltf
+      CurrentClipName: ""
+    SkeletonComponent:
+      {}
+    IKTargetComponent:
+      AimIKEnabled: true
+      AimBoneIndex: 4
+      AimTarget: [0, 2, 3]
+      AimAxis: [0, 0, 1]
+      AimOffset: [0, 0, 0]
+      AimPoleVector: [0, 1, 0]
+      AimChainLength: 2
+      AimChainFactor: 0.5
+      AimWeight: 1
+      AimTargetEntity: 1000000000000000011
+      LimbIKEnabled: false
+      LimbBoneIndex: 0
+      LimbTarget: [0, 0, 0]
+      LimbChainLength: 2
+      LimbWeight: 1
+
+  # ── Aim Target — Move this entity to make CesiumMan look at it ──
+  - Entity: 1000000000000000011
+    TagComponent:
+      Tag: AimTarget (move me!)
+    TransformComponent:
+      Translation: [0, 2, 3]
+      Rotation: [0, 0, 0]
+      Scale: [0.2, 0.2, 0.2]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0
+      Roughness: 0.3
+
+  # ── RiggedFigure — LimbIK (hand reaches toward target) ──
+  - Entity: 1000000000000000020
+    TagComponent:
+      Tag: RiggedFigure (LimbIK)
+    TransformComponent:
+      Translation: [3, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      {}
+    MaterialComponent:
+      AlbedoColor: [1, 1, 1]
+      Metallic: 0
+      Roughness: 0.5
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 0
+      IsPlaying: true
+      SourceFilePath: ../../assets/models/RiggedFigure/RiggedFigure.gltf
+      CurrentClipName: ""
+    SkeletonComponent:
+      {}
+    IKTargetComponent:
+      AimIKEnabled: false
+      AimBoneIndex: 0
+      AimTarget: [0, 0, 0]
+      AimAxis: [0, 0, 1]
+      AimOffset: [0, 0, 0]
+      AimPoleVector: [0, 1, 0]
+      AimChainLength: 1
+      AimChainFactor: 0.5
+      AimWeight: 1
+      LimbIKEnabled: true
+      LimbBoneIndex: 10
+      LimbTarget: [4, 1.5, 1]
+      LimbChainLength: 3
+      LimbWeight: 1
+      LimbTargetEntity: 1000000000000000021
+
+  # ── Limb Target — Move this entity to make the hand reach ──
+  - Entity: 1000000000000000021
+    TagComponent:
+      Tag: LimbTarget (move me!)
+    TransformComponent:
+      Translation: [4, 1.5, 1]
+      Rotation: [0, 0, 0]
+      Scale: [0.2, 0.2, 0.2]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0, 1, 0]
+      Metallic: 0
+      Roughness: 0.3

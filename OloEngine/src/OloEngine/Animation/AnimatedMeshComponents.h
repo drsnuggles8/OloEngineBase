@@ -116,7 +116,7 @@ namespace OloEngine
             }
         }
 
-        [[nodiscard]] bool IsLoaded() const
+        [[nodiscard("load state must be checked before rendering")]] bool IsLoaded() const
         {
             return m_Model != nullptr && m_Model->GetMeshCount() > 0;
         }

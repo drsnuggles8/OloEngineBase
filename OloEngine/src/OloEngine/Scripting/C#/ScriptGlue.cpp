@@ -21,6 +21,11 @@
 #include "OloEngine/Dialogue/DialogueVariables.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
+#include "OloEngine/Animation/IKTargetComponent.h"
+#include "OloEngine/Animation/AnimatedMeshComponents.h"
+
+#include <algorithm>
+#include <cmath>
 #include "OloEngine/Animation/MorphTargets/FacialExpressionLibrary.h"
 #include "OloEngine/AI/AIComponents.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
@@ -2251,6 +2256,280 @@ namespace OloEngine
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
+    // IKTargetComponent //////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static bool IsFiniteVec3(const glm::vec3& v)
+    {
+        return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+    }
+
+    // Get skeleton bone count for validating indices/chain lengths.
+    // Returns 0 if no skeleton is present so callers can guard correctly.
+    static u32 GetSkeletonBoneCount(Entity entity)
+    {
+        if (entity.HasComponent<SkeletonComponent>())
+        {
+            auto const& skel = entity.GetComponent<SkeletonComponent>();
+            if (skel.m_Skeleton)
+            {
+                return static_cast<u32>(skel.m_Skeleton->m_BoneNames.size());
+            }
+        }
+        return 0u;
+    }
+
+    static bool IKTargetComponent_GetAimIKEnabled(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().AimIKEnabled;
+    }
+
+    static void IKTargetComponent_SetAimIKEnabled(UUID entityID, bool enabled)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        entity.GetComponent<IKTargetComponent>().AimIKEnabled = enabled;
+    }
+
+    static u32 IKTargetComponent_GetAimBoneIndex(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().AimBoneIndex;
+    }
+
+    static void IKTargetComponent_SetAimBoneIndex(UUID entityID, u32 index)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        auto boneCount = GetSkeletonBoneCount(entity);
+        entity.GetComponent<IKTargetComponent>().AimBoneIndex = (boneCount > 0) ? std::min(index, boneCount - 1) : 0u;
+    }
+
+    static void IKTargetComponent_GetAimTarget(UUID entityID, glm::vec3* out)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        *out = entity.GetComponent<IKTargetComponent>().AimTarget;
+    }
+
+    static void IKTargetComponent_SetAimTarget(UUID entityID, glm::vec3 const* v)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        if (IsFiniteVec3(*v))
+        {
+            entity.GetComponent<IKTargetComponent>().AimTarget = *v;
+        }
+    }
+
+    static void IKTargetComponent_GetAimAxis(UUID entityID, glm::vec3* out)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        *out = entity.GetComponent<IKTargetComponent>().AimAxis;
+    }
+
+    static void IKTargetComponent_SetAimAxis(UUID entityID, glm::vec3 const* v)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        if (IsFiniteVec3(*v) && glm::length2(*v) > 1e-8f)
+        {
+            entity.GetComponent<IKTargetComponent>().AimAxis = *v;
+        }
+    }
+
+    static void IKTargetComponent_GetAimOffset(UUID entityID, glm::vec3* out)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        *out = entity.GetComponent<IKTargetComponent>().AimOffset;
+    }
+
+    static void IKTargetComponent_SetAimOffset(UUID entityID, glm::vec3 const* v)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        if (IsFiniteVec3(*v))
+        {
+            entity.GetComponent<IKTargetComponent>().AimOffset = *v;
+        }
+    }
+
+    static void IKTargetComponent_GetAimPoleVector(UUID entityID, glm::vec3* out)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        *out = entity.GetComponent<IKTargetComponent>().AimPoleVector;
+    }
+
+    static void IKTargetComponent_SetAimPoleVector(UUID entityID, glm::vec3 const* v)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        if (IsFiniteVec3(*v) && glm::length2(*v) > 1e-8f)
+        {
+            entity.GetComponent<IKTargetComponent>().AimPoleVector = *v;
+        }
+    }
+
+    static u32 IKTargetComponent_GetAimChainLength(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().AimChainLength;
+    }
+
+    static void IKTargetComponent_SetAimChainLength(UUID entityID, u32 length)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        entity.GetComponent<IKTargetComponent>().AimChainLength = std::clamp(length, 1u, GetSkeletonBoneCount(entity));
+    }
+
+    static f32 IKTargetComponent_GetAimChainFactor(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().AimChainFactor;
+    }
+
+    static void IKTargetComponent_SetAimChainFactor(UUID entityID, f32 factor)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        if (std::isfinite(factor))
+        {
+            entity.GetComponent<IKTargetComponent>().AimChainFactor = glm::clamp(factor, 0.0f, 1.0f);
+        }
+    }
+
+    static u64 IKTargetComponent_GetAimTargetEntity(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return static_cast<u64>(entity.GetComponent<IKTargetComponent>().AimTargetEntity);
+    }
+
+    static void IKTargetComponent_SetAimTargetEntity(UUID entityID, u64 targetID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        entity.GetComponent<IKTargetComponent>().AimTargetEntity = targetID;
+    }
+
+    static f32 IKTargetComponent_GetAimWeight(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().AimWeight;
+    }
+
+    static void IKTargetComponent_SetAimWeight(UUID entityID, f32 weight)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        if (std::isfinite(weight))
+        {
+            entity.GetComponent<IKTargetComponent>().AimWeight = glm::clamp(weight, 0.0f, 1.0f);
+        }
+    }
+
+    static bool IKTargetComponent_GetLimbIKEnabled(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().LimbIKEnabled;
+    }
+
+    static void IKTargetComponent_SetLimbIKEnabled(UUID entityID, bool enabled)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        entity.GetComponent<IKTargetComponent>().LimbIKEnabled = enabled;
+    }
+
+    static u32 IKTargetComponent_GetLimbBoneIndex(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().LimbBoneIndex;
+    }
+
+    static void IKTargetComponent_SetLimbBoneIndex(UUID entityID, u32 index)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        auto boneCount = GetSkeletonBoneCount(entity);
+        entity.GetComponent<IKTargetComponent>().LimbBoneIndex = (boneCount > 0) ? std::min(index, boneCount - 1) : 0u;
+    }
+
+    static void IKTargetComponent_GetLimbTarget(UUID entityID, glm::vec3* out)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        *out = entity.GetComponent<IKTargetComponent>().LimbTarget;
+    }
+
+    static void IKTargetComponent_SetLimbTarget(UUID entityID, glm::vec3 const* v)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        if (IsFiniteVec3(*v))
+        {
+            entity.GetComponent<IKTargetComponent>().LimbTarget = *v;
+        }
+    }
+
+    static u32 IKTargetComponent_GetLimbChainLength(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().LimbChainLength;
+    }
+
+    static void IKTargetComponent_SetLimbChainLength(UUID entityID, u32 length)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        entity.GetComponent<IKTargetComponent>().LimbChainLength = std::clamp(length, 1u, GetSkeletonBoneCount(entity));
+    }
+
+    static u64 IKTargetComponent_GetLimbTargetEntity(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return static_cast<u64>(entity.GetComponent<IKTargetComponent>().LimbTargetEntity);
+    }
+
+    static void IKTargetComponent_SetLimbTargetEntity(UUID entityID, u64 targetID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        entity.GetComponent<IKTargetComponent>().LimbTargetEntity = targetID;
+    }
+
+    static f32 IKTargetComponent_GetLimbWeight(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().LimbWeight;
+    }
+
+    static void IKTargetComponent_SetLimbWeight(UUID entityID, f32 weight)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        if (std::isfinite(weight))
+        {
+            entity.GetComponent<IKTargetComponent>().LimbWeight = glm::clamp(weight, 0.0f, 1.0f);
+        }
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
     // Dialogue ///////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -4074,6 +4353,42 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(NameplateComponent_SetBarBackgroundColor);
         OLO_ADD_INTERNAL_CALL(NameplateComponent_GetManaBarGap);
         OLO_ADD_INTERNAL_CALL(NameplateComponent_SetManaBarGap);
+
+        ///////////////////////////////////////////////////////////////
+        // IKTargetComponent /////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetAimIKEnabled);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetAimIKEnabled);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetAimBoneIndex);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetAimBoneIndex);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetAimTarget);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetAimTarget);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetAimAxis);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetAimAxis);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetAimOffset);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetAimOffset);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetAimPoleVector);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetAimPoleVector);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetAimChainLength);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetAimChainLength);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetAimChainFactor);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetAimChainFactor);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetAimTargetEntity);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetAimTargetEntity);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetAimWeight);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetAimWeight);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetLimbIKEnabled);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetLimbIKEnabled);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetLimbBoneIndex);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetLimbBoneIndex);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetLimbTarget);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetLimbTarget);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetLimbChainLength);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetLimbChainLength);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetLimbTargetEntity);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetLimbTargetEntity);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetLimbWeight);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetLimbWeight);
 
         ///////////////////////////////////////////////////////////////
         // AnimationGraphComponent ////////////////////////////////////

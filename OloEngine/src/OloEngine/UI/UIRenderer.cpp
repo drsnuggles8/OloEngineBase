@@ -226,7 +226,7 @@ namespace OloEngine
 
         for (sizet i = 0; i < line.size(); i++)
         {
-            const char ch = line[i];
+            const auto ch = static_cast<u32>(static_cast<u8>(line[i]));
             if (ch == '\r')
             {
                 continue;
@@ -237,7 +237,7 @@ namespace OloEngine
                 f32 advance = spaceAdvance;
                 if (i < line.size() - 1)
                 {
-                    advance = fontData.GetAdvance(static_cast<u32>(ch), static_cast<u32>(line[i + 1]));
+                    advance = fontData.GetAdvance(ch, static_cast<u32>(static_cast<u8>(line[i + 1])));
                 }
                 x += fsScale * advance + kerning;
                 continue;
@@ -249,7 +249,7 @@ namespace OloEngine
                 continue;
             }
 
-            auto* glyph = fontData.GetGlyph(static_cast<u32>(ch));
+            auto* glyph = fontData.GetGlyph(ch);
             if (!glyph)
             {
                 glyph = fontData.GetGlyph('?');
@@ -262,7 +262,7 @@ namespace OloEngine
             f32 advance = glyph->AdvanceWidth;
             if (i < line.size() - 1)
             {
-                advance = fontData.GetAdvance(static_cast<u32>(ch), static_cast<u32>(line[i + 1]));
+                advance = fontData.GetAdvance(ch, static_cast<u32>(static_cast<u8>(line[i + 1])));
             }
             x += fsScale * advance + kerning;
         }
@@ -304,6 +304,12 @@ namespace OloEngine
             return;
         }
         const double fsScale = 1.0 / metricSpan;
+
+        if (!std::isfinite(metrics.LineHeight) || std::abs(metrics.LineHeight) < 1e-12f)
+        {
+            OLO_CORE_ERROR("UIRenderer::DrawUIText: invalid LineHeight ({})", metrics.LineHeight);
+            return;
+        }
 
         // Font size scaling: after fsScale normalization, the full ascender-to-descender
         // range is 1.0 local unit. Multiplying by fontSize gives fontSize pixels in the

@@ -750,7 +750,11 @@ namespace OloEngine
 
                     if (animState.m_IsPlaying && animState.m_CurrentClip && skelComp.m_Skeleton)
                     {
-                        Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds());
+                        IKTargetComponent tempIk;
+                        Entity entity = { e, this };
+                        const IKTargetComponent* ikTarget = ResolveIKTargets(entity, tempIk) ? &tempIk : nullptr;
+                        auto const& entityTransform = entity.GetComponent<TransformComponent>().GetTransform();
+                        Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform);
 
                         // Sample morph target keyframes from the current animation clip
                         if (!animState.m_CurrentClip->MorphKeyframes.empty())
@@ -810,7 +814,23 @@ namespace OloEngine
                     }
 
                     if (!morphComp.HasActiveWeights() || !morphComp.MorphTargets)
+                    {
+                        // Restore base mesh only on transition from active → inactive
+                        if (morphComp.WasMorphActive && !morphComp.BasePositions.empty() && meshComp.m_MeshSource)
+                        {
+                            auto& meshSource = meshComp.m_MeshSource;
+                            auto& mutableVerts = meshSource->GetVertices();
+                            for (u32 i = 0; i < static_cast<u32>(morphComp.BasePositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
+                            {
+                                mutableVerts[i].Position = morphComp.BasePositions[i];
+                                mutableVerts[i].Normal = morphComp.BaseNormals[i];
+                            }
+                            auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
+                            vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
+                        }
+                        morphComp.WasMorphActive = false;
                         continue;
+                    }
 
                     auto& meshSource = meshComp.m_MeshSource;
                     auto& vertices = meshSource->GetVertices();
@@ -849,6 +869,7 @@ namespace OloEngine
                         auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
                         vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
                     }
+                    morphComp.WasMorphActive = true;
                 }
             }
 
@@ -946,7 +967,11 @@ namespace OloEngine
                                 break;
                             }
                         }
-                        Animation::AnimationGraphSystem::Update(graphComp, *skelComp.m_Skeleton, ts.GetSeconds());
+                        IKTargetComponent graphTempIk;
+                        Entity graphEntity = { e, this };
+                        const IKTargetComponent* graphIkTarget = ResolveIKTargets(graphEntity, graphTempIk) ? &graphTempIk : nullptr;
+                        auto const& graphEntityTransform = graphEntity.GetComponent<TransformComponent>().GetTransform();
+                        Animation::AnimationGraphSystem::Update(graphComp, *skelComp.m_Skeleton, ts.GetSeconds(), graphIkTarget, graphEntityTransform);
                     }
                 }
             }
@@ -1397,6 +1422,105 @@ namespace OloEngine
         // Process snow deformer entities in editor preview
         ProcessSnowDeformers(ts, m_EditorSnowPrevPositions);
 
+        // Update animations so they preview in the editor (IK responds to target movement)
+        {
+            auto animView = m_Registry.view<AnimationStateComponent, SkeletonComponent>();
+            for (auto e : animView)
+            {
+                auto& animState = animView.get<AnimationStateComponent>(e);
+                auto& skelComp = animView.get<SkeletonComponent>(e);
+
+                if (animState.m_IsPlaying && animState.m_CurrentClip && skelComp.m_Skeleton)
+                {
+                    IKTargetComponent tempIk;
+                    Entity entity = { e, this };
+                    const IKTargetComponent* ikTarget = ResolveIKTargets(entity, tempIk) ? &tempIk : nullptr;
+                    auto const& entityTransform = entity.GetComponent<TransformComponent>().GetTransform();
+                    Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform);
+
+                    // Sample morph target keyframes from the current animation clip
+                    if (!animState.m_CurrentClip->MorphKeyframes.empty())
+                    {
+                        if (entity.HasComponent<MorphTargetComponent>())
+                        {
+                            auto& morphComp = entity.GetComponent<MorphTargetComponent>();
+                            MorphTargetSystem::SampleMorphKeyframes(animState.m_CurrentClip, animState.m_CurrentTime, morphComp);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Evaluate morph targets for editor preview (mirrors the runtime morph evaluation pass)
+        {
+            OLO_PROFILE_SCOPE("Editor Morph Target Evaluation");
+            auto morphView = m_Registry.view<MorphTargetComponent, MeshComponent>();
+            for (auto e : morphView)
+            {
+                auto& morphComp = morphView.get<MorphTargetComponent>(e);
+                auto& meshComp = morphView.get<MeshComponent>(e);
+                if (!meshComp.m_MeshSource)
+                    continue;
+
+                if (!morphComp.MorphTargets && meshComp.m_MeshSource->HasMorphTargets())
+                    morphComp.MorphTargets = meshComp.m_MeshSource->GetMorphTargets();
+
+                if (!morphComp.HasActiveWeights() || !morphComp.MorphTargets)
+                {
+                    // Restore base mesh only on transition from active → inactive
+                    if (morphComp.WasMorphActive && !morphComp.BasePositions.empty() && meshComp.m_MeshSource)
+                    {
+                        auto& meshSource = meshComp.m_MeshSource;
+                        auto& mutableVerts = meshSource->GetVertices();
+                        for (u32 i = 0; i < static_cast<u32>(morphComp.BasePositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
+                        {
+                            mutableVerts[i].Position = morphComp.BasePositions[i];
+                            mutableVerts[i].Normal = morphComp.BaseNormals[i];
+                        }
+                        auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
+                        vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
+                    }
+                    morphComp.WasMorphActive = false;
+                    continue;
+                }
+
+                auto& meshSource = meshComp.m_MeshSource;
+                auto& vertices = meshSource->GetVertices();
+
+                if (morphComp.BasePositions.empty() && vertices.Num() > 0)
+                {
+                    morphComp.BasePositions.resize(vertices.Num());
+                    morphComp.BaseNormals.resize(vertices.Num());
+                    for (u32 i = 0; i < static_cast<u32>(vertices.Num()); ++i)
+                    {
+                        morphComp.BasePositions[i] = vertices[i].Position;
+                        morphComp.BaseNormals[i] = vertices[i].Normal;
+                    }
+                }
+
+                if (morphComp.BasePositions.empty())
+                    continue;
+
+                std::vector<glm::vec3> outPositions;
+                std::vector<glm::vec3> outNormals;
+                if (MorphTargetSystem::EvaluateMorphTargets(morphComp,
+                                                            morphComp.BasePositions, morphComp.BaseNormals,
+                                                            outPositions, outNormals))
+                {
+                    auto& mutableVerts = meshSource->GetVertices();
+                    for (u32 i = 0; i < static_cast<u32>(outPositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
+                    {
+                        mutableVerts[i].Position = outPositions[i];
+                        mutableVerts[i].Normal = outNormals[i];
+                    }
+
+                    auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
+                    vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
+                }
+                morphComp.WasMorphActive = true;
+            }
+        }
+
         // Render based on mode
         if (m_RenderingEnabled)
         {
@@ -1688,6 +1812,33 @@ namespace OloEngine
             return Entity{ *entityPtr, this };
         }
         return std::nullopt;
+    }
+
+    bool Scene::ResolveIKTargets(Entity entity, IKTargetComponent& out) const
+    {
+        if (!entity.HasComponent<IKTargetComponent>())
+        {
+            return false;
+        }
+
+        out = entity.GetComponent<IKTargetComponent>();
+
+        if (static_cast<u64>(out.AimTargetEntity) != 0)
+        {
+            if (auto targetEnt = TryGetEntityWithUUID(out.AimTargetEntity))
+            {
+                out.AimTarget = targetEnt->GetComponent<TransformComponent>().Translation;
+            }
+        }
+        if (static_cast<u64>(out.LimbTargetEntity) != 0)
+        {
+            if (auto targetEnt = TryGetEntityWithUUID(out.LimbTargetEntity))
+            {
+                out.LimbTarget = targetEnt->GetComponent<TransformComponent>().Translation;
+            }
+        }
+
+        return true;
     }
 
     void Scene::OnPhysics2DStart()
@@ -4159,5 +4310,10 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::AbilityComponent>([[maybe_unu
 
 template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::NameplateComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::NameplateComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::IKTargetComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::IKTargetComponent& component)
 {
 }

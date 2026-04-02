@@ -37,7 +37,7 @@ namespace OloEngine
                       sizet boneCount,
                       std::vector<BoneTransform>& outBoneTransforms) const;
 
-        [[nodiscard]] f32 GetClipDuration() const;
-        [[nodiscard]] f32 GetEffectiveDuration(const AnimationParameterSet& params) const;
+        [[nodiscard("clip duration needed for time calculations")]] f32 GetClipDuration() const;
+        [[nodiscard("effective duration accounts for speed multiplier")]] f32 GetEffectiveDuration(const AnimationParameterSet& params) const;
     };
 } // namespace OloEngine
