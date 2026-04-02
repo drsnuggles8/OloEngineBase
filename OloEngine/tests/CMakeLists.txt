@@ -150,6 +150,8 @@ add_executable(OloEngine-Tests
 		ContentBrowser/ContentBrowserItemTest.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser/DirectoryTree.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser/ContentBrowserItem.cpp
+		# Lua Binding Tests
+		Lua/LuaBindingTest.cpp
 )
 target_link_libraries(OloEngine-Tests
 	OloEngine

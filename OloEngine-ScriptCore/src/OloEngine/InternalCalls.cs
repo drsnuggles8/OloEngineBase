@@ -5,6 +5,15 @@ namespace OloEngine
 {
 	public static class InternalCalls
 	{
+        #region NativeLog
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+		internal extern static void NativeLog(string message, int parameter);
+		[MethodImplAttribute(MethodImplOptions.InternalCall)]
+		internal extern static void NativeLog_Vector(ref Vector3 parameter, out Vector3 outResult);
+		[MethodImplAttribute(MethodImplOptions.InternalCall)]
+		internal extern static float NativeLog_VectorDot(ref Vector3 parameter);
+        #endregion
+
         #region Entity
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
 		internal extern static bool Entity_HasComponent(ulong entityID, Type componentType);

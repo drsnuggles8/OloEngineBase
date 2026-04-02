@@ -4,6 +4,7 @@
 #include <sol/sol.hpp>
 
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Animation/MorphTargets/FacialExpressionLibrary.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
@@ -69,6 +70,79 @@ namespace OloEngine
                                     "y", &glm::vec4::y,
                                     "z", &glm::vec4::z,
                                     "w", &glm::vec4::w);
+
+        // --- TransformComponent ---
+        lua.new_usertype<TransformComponent>("TransformComponent",
+                                             "translation", &TransformComponent::Translation,
+                                             "scale", &TransformComponent::Scale,
+                                             "rotation", sol::property(&TransformComponent::GetRotationEuler, &TransformComponent::SetRotationEuler));
+
+        // --- Rigidbody2DComponent ---
+        lua.new_usertype<Rigidbody2DComponent>("Rigidbody2DComponent",
+                                               "type", &Rigidbody2DComponent::Type,
+                                               "fixedRotation", &Rigidbody2DComponent::FixedRotation,
+                                               "linearVelocity", &Rigidbody2DComponent::LinearVelocity,
+                                               "angularVelocity", &Rigidbody2DComponent::AngularVelocity);
+
+        // --- BoxCollider2DComponent ---
+        lua.new_usertype<BoxCollider2DComponent>("BoxCollider2DComponent",
+                                                 "offset", &BoxCollider2DComponent::Offset,
+                                                 "size", &BoxCollider2DComponent::Size,
+                                                 "density", &BoxCollider2DComponent::Density,
+                                                 "friction", &BoxCollider2DComponent::Friction,
+                                                 "restitution", &BoxCollider2DComponent::Restitution,
+                                                 "restitutionThreshold", &BoxCollider2DComponent::RestitutionThreshold);
+
+        // --- CircleCollider2DComponent ---
+        lua.new_usertype<CircleCollider2DComponent>("CircleCollider2DComponent",
+                                                    "offset", &CircleCollider2DComponent::Offset,
+                                                    "radius", &CircleCollider2DComponent::Radius,
+                                                    "density", &CircleCollider2DComponent::Density,
+                                                    "friction", &CircleCollider2DComponent::Friction,
+                                                    "restitution", &CircleCollider2DComponent::Restitution,
+                                                    "restitutionThreshold", &CircleCollider2DComponent::RestitutionThreshold);
+
+        // --- SceneCamera (needed by CameraComponent) ---
+        lua.new_usertype<SceneCamera>("SceneCamera",
+                                      "projectionType", sol::property(&SceneCamera::GetProjectionType, &SceneCamera::SetProjectionType),
+                                      "perspectiveFOV", sol::property(&SceneCamera::GetPerspectiveVerticalFOV, &SceneCamera::SetPerspectiveVerticalFOV),
+                                      "perspectiveNearClip", sol::property(&SceneCamera::GetPerspectiveNearClip, &SceneCamera::SetPerspectiveNearClip),
+                                      "perspectiveFarClip", sol::property(&SceneCamera::GetPerspectiveFarClip, &SceneCamera::SetPerspectiveFarClip),
+                                      "orthographicSize", sol::property(&SceneCamera::GetOrthographicSize, &SceneCamera::SetOrthographicSize),
+                                      "orthographicNearClip", sol::property(&SceneCamera::GetOrthographicNearClip, &SceneCamera::SetOrthographicNearClip),
+                                      "orthographicFarClip", sol::property(&SceneCamera::GetOrthographicFarClip, &SceneCamera::SetOrthographicFarClip));
+
+        // --- CameraComponent ---
+        lua.new_usertype<CameraComponent>("CameraComponent",
+                                          "camera", &CameraComponent::Camera,
+                                          "primary", &CameraComponent::Primary,
+                                          "fixedAspectRatio", &CameraComponent::FixedAspectRatio);
+
+        // --- SpriteRendererComponent ---
+        lua.new_usertype<SpriteRendererComponent>("SpriteRendererComponent",
+                                                  "color", &SpriteRendererComponent::Color,
+                                                  "tilingFactor", &SpriteRendererComponent::TilingFactor);
+
+        // --- CircleRendererComponent ---
+        lua.new_usertype<CircleRendererComponent>("CircleRendererComponent",
+                                                  "color", &CircleRendererComponent::Color,
+                                                  "thickness", &CircleRendererComponent::Thickness,
+                                                  "fade", &CircleRendererComponent::Fade);
+
+        // --- TextComponent ---
+        lua.new_usertype<TextComponent>("TextComponent",
+                                        "text", &TextComponent::TextString,
+                                        "color", &TextComponent::Color,
+                                        "kerning", &TextComponent::Kerning,
+                                        "lineSpacing", &TextComponent::LineSpacing,
+                                        "maxWidth", &TextComponent::MaxWidth,
+                                        "dropShadow", &TextComponent::DropShadow,
+                                        "shadowDistance", &TextComponent::ShadowDistance,
+                                        "shadowColor", &TextComponent::ShadowColor);
+
+        // --- MeshComponent ---
+        lua.new_usertype<MeshComponent>("MeshComponent",
+                                        "primitive", &MeshComponent::m_Primitive);
 
         // --- UICanvasComponent ---
         lua.new_usertype<UICanvasComponent>("UICanvasComponent",
