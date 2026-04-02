@@ -159,7 +159,7 @@ target_link_libraries(OloEngine-Tests
 
 # Fix UTF-8 compilation issue
 if(MSVC)
-	target_compile_options(OloEngine-Tests PRIVATE /utf-8 /FS)
+	target_compile_options(OloEngine-Tests PRIVATE /utf-8 /FS /bigobj)
 endif()
 
 target_include_directories(OloEngine-Tests PRIVATE

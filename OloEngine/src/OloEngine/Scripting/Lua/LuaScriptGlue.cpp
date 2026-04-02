@@ -37,6 +37,7 @@
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/Audio/AudioEvents/AudioPlayback.h"
 #include "OloEngine/Audio/AudioEvents/CommandID.h"
+#include "OloEngine/Scene/Streaming/SceneStreamer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -451,7 +452,69 @@ namespace OloEngine
                     Audio::AudioPlayback::ResumeEvent(c.ActiveEventID);
                     return;
                 }
-                if (c.Source) { c.Source->UnPause(); } });
+                if (c.Source) { c.Source->UnPause(); } },
+                                               // --- Spatial audio properties ---
+                                               "attenuationModel", sol::property([](const AudioSourceComponent& c)
+                                                                                 { return static_cast<int>(c.Config.AttenuationModel); }, [](AudioSourceComponent& c, int v)
+                                                                                 {
+                    c.Config.AttenuationModel = static_cast<AttenuationModelType>(v);
+                    if (c.Source) { c.Source->SetAttenuationModel(c.Config.AttenuationModel); } }),
+                                               "rollOff", sol::property([](const AudioSourceComponent& c)
+                                                                        { return c.Config.RollOff; }, [](AudioSourceComponent& c, f32 v)
+                                                                        {
+                    if (!std::isfinite(v)) v = 1.0f;
+                    c.Config.RollOff = v;
+                    if (c.Source) { c.Source->SetRollOff(v); } }),
+                                               "minGain", sol::property([](const AudioSourceComponent& c)
+                                                                        { return c.Config.MinGain; }, [](AudioSourceComponent& c, f32 v)
+                                                                        {
+                    if (!std::isfinite(v)) v = 0.0f;
+                    c.Config.MinGain = v;
+                    if (c.Source) { c.Source->SetMinGain(v); } }),
+                                               "maxGain", sol::property([](const AudioSourceComponent& c)
+                                                                        { return c.Config.MaxGain; }, [](AudioSourceComponent& c, f32 v)
+                                                                        {
+                    if (!std::isfinite(v)) v = 1.0f;
+                    c.Config.MaxGain = v;
+                    if (c.Source) { c.Source->SetMaxGain(v); } }),
+                                               "minDistance", sol::property([](const AudioSourceComponent& c)
+                                                                            { return c.Config.MinDistance; }, [](AudioSourceComponent& c, f32 v)
+                                                                            {
+                    if (!std::isfinite(v)) v = 0.3f;
+                    c.Config.MinDistance = v;
+                    if (c.Source) { c.Source->SetMinDistance(v); } }),
+                                               "maxDistance", sol::property([](const AudioSourceComponent& c)
+                                                                            { return c.Config.MaxDistance; }, [](AudioSourceComponent& c, f32 v)
+                                                                            {
+                    if (!std::isfinite(v)) v = 1000.0f;
+                    c.Config.MaxDistance = v;
+                    if (c.Source) { c.Source->SetMaxDistance(v); } }),
+                                               "coneInnerAngle", sol::property([](const AudioSourceComponent& c)
+                                                                               { return c.Config.ConeInnerAngle; }, [](AudioSourceComponent& c, f32 v)
+                                                                               {
+                    if (!std::isfinite(v)) v = glm::radians(360.0f);
+                    c.Config.ConeInnerAngle = v; }),
+                                               "coneOuterAngle", sol::property([](const AudioSourceComponent& c)
+                                                                               { return c.Config.ConeOuterAngle; }, [](AudioSourceComponent& c, f32 v)
+                                                                               {
+                    if (!std::isfinite(v)) v = glm::radians(360.0f);
+                    c.Config.ConeOuterAngle = v; }),
+                                               "coneOuterGain", sol::property([](const AudioSourceComponent& c)
+                                                                              { return c.Config.ConeOuterGain; }, [](AudioSourceComponent& c, f32 v)
+                                                                              {
+                    if (!std::isfinite(v)) v = 0.0f;
+                    c.Config.ConeOuterGain = v; }),
+                                               "SetCone", [](AudioSourceComponent& c, f32 innerAngle, f32 outerAngle, f32 outerGain)
+                                               {
+                    c.Config.ConeInnerAngle = innerAngle;
+                    c.Config.ConeOuterAngle = outerAngle;
+                    c.Config.ConeOuterGain = outerGain;
+                    if (c.Source) { c.Source->SetCone(innerAngle, outerAngle, outerGain); } }, "dopplerFactor", sol::property([](const AudioSourceComponent& c)
+                                                                                   { return c.Config.DopplerFactor; }, [](AudioSourceComponent& c, f32 v)
+                                                                                   {
+                    if (!std::isfinite(v)) v = 1.0f;
+                    c.Config.DopplerFactor = v;
+                    if (c.Source) { c.Source->SetDopplerFactor(v); } }));
 
         // --- AudioListenerComponent ---
         lua.new_usertype<AudioListenerComponent>("AudioListenerComponent",
@@ -1274,6 +1337,54 @@ namespace OloEngine
                 result[static_cast<int>(i) + 1] = names[i];
             }
             return result;
+        };
+
+        // --- Application (global table) ---
+        auto appTable = lua.create_named_table("Application");
+        appTable["GetTimeScale"] = []() -> f32
+        {
+            return Application::Get().GetTimeScale();
+        };
+        appTable["SetTimeScale"] = [](f32 scale)
+        {
+            Application::Get().SetTimeScale(scale);
+        };
+        appTable["QuitGame"] = []()
+        {
+            Application::Get().Close();
+        };
+
+        // --- Entity lookup utilities ---
+        entityUtilsTable["find_by_name"] = [](const std::string& name) -> sol::object
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return sol::nil;
+            Entity entity = scene->FindEntityByName(name);
+            if (!entity)
+                return sol::nil;
+            return sol::make_object(*Scripting::GetState(), static_cast<u64>(entity.GetUUID()));
+        };
+
+        // --- Scene streaming (global table) ---
+        auto sceneTable = lua.create_named_table("Scene");
+        sceneTable["LoadRegion"] = [](u64 regionId)
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (scene)
+            {
+                if (auto* streamer = scene->GetSceneStreamer())
+                    streamer->LoadRegion(UUID(regionId));
+            }
+        };
+        sceneTable["UnloadRegion"] = [](u64 regionId)
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (scene)
+            {
+                if (auto* streamer = scene->GetSceneStreamer())
+                    streamer->UnloadRegion(UUID(regionId));
+            }
         };
     }
 } // namespace OloEngine
