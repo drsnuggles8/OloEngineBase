@@ -66,7 +66,7 @@ namespace OloEngine
         #endregion
 
 
-        #region Rigidbody2DComponent
+        #region Input
         [MethodImpl(MethodImplOptions.InternalCall)]
         internal static extern bool Input_IsKeyDown(KeyCode keycode);
         [MethodImpl(MethodImplOptions.InternalCall)]
