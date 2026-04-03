@@ -6,6 +6,7 @@
 
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/SceneCamera.h"
+#include "OloEngine/Core/KeyCodes.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/IKTargetComponent.h"
 #include "OloEngine/Audio/AudioSource.h"
@@ -503,6 +504,36 @@ class LuaBindingTest : public ::testing::Test
 
         // --- Log (global table) ---
         lua.create_named_table("Log", "Trace", [](const std::string&) {}, "Info", [](const std::string&) {}, "Warn", [](const std::string&) {}, "Error", [](const std::string&) {});
+
+        // --- KeyCode constants ---
+        {
+            auto keyTable = lua.create_named_table("KeyCode");
+            keyTable["Space"] = Key::Space;
+            keyTable["A"] = Key::A;
+            keyTable["W"] = Key::W;
+            keyTable["S"] = Key::S;
+            keyTable["D"] = Key::D;
+            keyTable["Q"] = Key::Q;
+            keyTable["E"] = Key::E;
+            keyTable["Escape"] = Key::Escape;
+            keyTable["Enter"] = Key::Enter;
+            keyTable["Tab"] = Key::Tab;
+            keyTable["Up"] = Key::Up;
+            keyTable["Down"] = Key::Down;
+            keyTable["Left"] = Key::Left;
+            keyTable["Right"] = Key::Right;
+            keyTable["F1"] = Key::F1;
+            keyTable["LeftShift"] = Key::LeftShift;
+            keyTable["LeftControl"] = Key::LeftControl;
+        }
+
+        // --- MouseButton constants ---
+        {
+            auto mouseTable = lua.create_named_table("MouseButton");
+            mouseTable["Left"] = static_cast<u16>(0);
+            mouseTable["Right"] = static_cast<u16>(1);
+            mouseTable["Middle"] = static_cast<u16>(2);
+        }
     }
 };
 
@@ -1601,4 +1632,78 @@ TEST_F(LuaBindingTest, LogTable_CallsDoNotThrow)
     EXPECT_NO_THROW(lua.script("Log.Info('test info')"));
     EXPECT_NO_THROW(lua.script("Log.Warn('test warn')"));
     EXPECT_NO_THROW(lua.script("Log.Error('test error')"));
+}
+
+// =============================================================================
+// KeyCode constants
+// =============================================================================
+
+TEST_F(LuaBindingTest, KeyCode_TableExists)
+{
+    auto r = lua.script("return type(KeyCode)");
+    EXPECT_EQ(r.get<std::string>(), "table");
+}
+
+TEST_F(LuaBindingTest, KeyCode_LetterValues)
+{
+    auto rA = lua.script("return KeyCode.A");
+    EXPECT_EQ(rA.get<u16>(), 65);
+    auto rW = lua.script("return KeyCode.W");
+    EXPECT_EQ(rW.get<u16>(), 87);
+    auto rS = lua.script("return KeyCode.S");
+    EXPECT_EQ(rS.get<u16>(), 83);
+    auto rD = lua.script("return KeyCode.D");
+    EXPECT_EQ(rD.get<u16>(), 68);
+}
+
+TEST_F(LuaBindingTest, KeyCode_FunctionKeyValues)
+{
+    auto rEsc = lua.script("return KeyCode.Escape");
+    EXPECT_EQ(rEsc.get<u16>(), 256);
+    auto rEnter = lua.script("return KeyCode.Enter");
+    EXPECT_EQ(rEnter.get<u16>(), 257);
+    auto rTab = lua.script("return KeyCode.Tab");
+    EXPECT_EQ(rTab.get<u16>(), 258);
+    auto rF1 = lua.script("return KeyCode.F1");
+    EXPECT_EQ(rF1.get<u16>(), 290);
+}
+
+TEST_F(LuaBindingTest, KeyCode_ArrowKeys)
+{
+    auto rUp = lua.script("return KeyCode.Up");
+    EXPECT_EQ(rUp.get<u16>(), 265);
+    auto rDown = lua.script("return KeyCode.Down");
+    EXPECT_EQ(rDown.get<u16>(), 264);
+    auto rLeft = lua.script("return KeyCode.Left");
+    EXPECT_EQ(rLeft.get<u16>(), 263);
+    auto rRight = lua.script("return KeyCode.Right");
+    EXPECT_EQ(rRight.get<u16>(), 262);
+}
+
+TEST_F(LuaBindingTest, KeyCode_ModifierKeys)
+{
+    auto rShift = lua.script("return KeyCode.LeftShift");
+    EXPECT_EQ(rShift.get<u16>(), 340);
+    auto rCtrl = lua.script("return KeyCode.LeftControl");
+    EXPECT_EQ(rCtrl.get<u16>(), 341);
+}
+
+// =============================================================================
+// MouseButton constants
+// =============================================================================
+
+TEST_F(LuaBindingTest, MouseButton_TableExists)
+{
+    auto r = lua.script("return type(MouseButton)");
+    EXPECT_EQ(r.get<std::string>(), "table");
+}
+
+TEST_F(LuaBindingTest, MouseButton_Values)
+{
+    auto rLeft = lua.script("return MouseButton.Left");
+    EXPECT_EQ(rLeft.get<u16>(), 0);
+    auto rRight = lua.script("return MouseButton.Right");
+    EXPECT_EQ(rRight.get<u16>(), 1);
+    auto rMiddle = lua.script("return MouseButton.Middle");
+    EXPECT_EQ(rMiddle.get<u16>(), 2);
 }

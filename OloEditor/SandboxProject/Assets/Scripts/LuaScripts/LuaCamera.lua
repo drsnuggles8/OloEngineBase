@@ -5,45 +5,36 @@
 local LuaCamera = {}
 
 local distanceFromPlayer = 5.0
-local KEY_UP    = 265
-local KEY_DOWN  = 264
-local KEY_LEFT  = 263
-local KEY_RIGHT = 262
 
 function LuaCamera.OnCreate(id)
-    Log.Info("[LuaCamera] OnCreate — entity " .. tostring(id))
+    local name = entity_utils.get_name(id) or "unknown"
+    Log.Info("[LuaCamera] OnCreate — entity " .. name .. " (" .. tostring(id) .. ")")
 end
 
 function LuaCamera.OnUpdate(id, dt)
-    local transform = entity_utils.get_component(id, "TransformComponent")
-    if not transform then return end
-
     -- Follow player
     local playerID = entity_utils.find_by_name("Player")
     if playerID then
-        local playerTransform = entity_utils.get_component(playerID, "TransformComponent")
-        if playerTransform then
-            local playerPos = playerTransform.translation
-            local pos = transform.translation
-            pos.x = playerPos.x
-            pos.y = playerPos.y
-            pos.z = distanceFromPlayer
-            transform.translation = pos
-        end
+        local playerPos = entity_utils.get_translation(playerID)
+        local pos = entity_utils.get_translation(id)
+        pos.x = playerPos.x
+        pos.y = playerPos.y
+        pos.z = distanceFromPlayer
+        entity_utils.set_translation(id, pos)
     end
 
     -- Arrow key panning
     local speed = 1.0
-    local pos = transform.translation
+    local pos = entity_utils.get_translation(id)
     local moved = false
 
-    if Input.IsKeyDown(KEY_UP)    then pos.y = pos.y + speed * dt; moved = true end
-    if Input.IsKeyDown(KEY_DOWN)  then pos.y = pos.y - speed * dt; moved = true end
-    if Input.IsKeyDown(KEY_LEFT)  then pos.x = pos.x - speed * dt; moved = true end
-    if Input.IsKeyDown(KEY_RIGHT) then pos.x = pos.x + speed * dt; moved = true end
+    if Input.IsKeyDown(KeyCode.Up)    then pos.y = pos.y + speed * dt; moved = true end
+    if Input.IsKeyDown(KeyCode.Down)  then pos.y = pos.y - speed * dt; moved = true end
+    if Input.IsKeyDown(KeyCode.Left)  then pos.x = pos.x - speed * dt; moved = true end
+    if Input.IsKeyDown(KeyCode.Right) then pos.x = pos.x + speed * dt; moved = true end
 
     if moved then
-        transform.translation = pos
+        entity_utils.set_translation(id, pos)
     end
 end
 

@@ -697,6 +697,141 @@ namespace OloEngine
             gpAxisTable["RightTrigger"] = static_cast<u8>(GamepadAxis::RightTrigger);
         }
 
+        // --- KeyCode constants (mirrors Key:: enum from KeyCodes.h) ---
+        {
+            auto keyTable = lua.create_named_table("KeyCode");
+            keyTable["Space"] = Key::Space;
+            keyTable["Apostrophe"] = Key::Apostrophe;
+            keyTable["Comma"] = Key::Comma;
+            keyTable["Minus"] = Key::Minus;
+            keyTable["Period"] = Key::Period;
+            keyTable["Slash"] = Key::Slash;
+            keyTable["D0"] = Key::D0;
+            keyTable["D1"] = Key::D1;
+            keyTable["D2"] = Key::D2;
+            keyTable["D3"] = Key::D3;
+            keyTable["D4"] = Key::D4;
+            keyTable["D5"] = Key::D5;
+            keyTable["D6"] = Key::D6;
+            keyTable["D7"] = Key::D7;
+            keyTable["D8"] = Key::D8;
+            keyTable["D9"] = Key::D9;
+            keyTable["Semicolon"] = Key::Semicolon;
+            keyTable["Equal"] = Key::Equal;
+            keyTable["A"] = Key::A;
+            keyTable["B"] = Key::B;
+            keyTable["C"] = Key::C;
+            keyTable["D"] = Key::D;
+            keyTable["E"] = Key::E;
+            keyTable["F"] = Key::F;
+            keyTable["G"] = Key::G;
+            keyTable["H"] = Key::H;
+            keyTable["I"] = Key::I;
+            keyTable["J"] = Key::J;
+            keyTable["K"] = Key::K;
+            keyTable["L"] = Key::L;
+            keyTable["M"] = Key::M;
+            keyTable["N"] = Key::N;
+            keyTable["O"] = Key::O;
+            keyTable["P"] = Key::P;
+            keyTable["Q"] = Key::Q;
+            keyTable["R"] = Key::R;
+            keyTable["S"] = Key::S;
+            keyTable["T"] = Key::T;
+            keyTable["U"] = Key::U;
+            keyTable["V"] = Key::V;
+            keyTable["W"] = Key::W;
+            keyTable["X"] = Key::X;
+            keyTable["Y"] = Key::Y;
+            keyTable["Z"] = Key::Z;
+            keyTable["LeftBracket"] = Key::LeftBracket;
+            keyTable["Backslash"] = Key::Backslash;
+            keyTable["RightBracket"] = Key::RightBracket;
+            keyTable["GraveAccent"] = Key::GraveAccent;
+            keyTable["World1"] = Key::World1;
+            keyTable["World2"] = Key::World2;
+            keyTable["Escape"] = Key::Escape;
+            keyTable["Enter"] = Key::Enter;
+            keyTable["Tab"] = Key::Tab;
+            keyTable["Backspace"] = Key::Backspace;
+            keyTable["Insert"] = Key::Insert;
+            keyTable["Delete"] = Key::Delete;
+            keyTable["Right"] = Key::Right;
+            keyTable["Left"] = Key::Left;
+            keyTable["Down"] = Key::Down;
+            keyTable["Up"] = Key::Up;
+            keyTable["PageUp"] = Key::PageUp;
+            keyTable["PageDown"] = Key::PageDown;
+            keyTable["Home"] = Key::Home;
+            keyTable["End"] = Key::End;
+            keyTable["CapsLock"] = Key::CapsLock;
+            keyTable["ScrollLock"] = Key::ScrollLock;
+            keyTable["NumLock"] = Key::NumLock;
+            keyTable["PrintScreen"] = Key::PrintScreen;
+            keyTable["Pause"] = Key::Pause;
+            keyTable["F1"] = Key::F1;
+            keyTable["F2"] = Key::F2;
+            keyTable["F3"] = Key::F3;
+            keyTable["F4"] = Key::F4;
+            keyTable["F5"] = Key::F5;
+            keyTable["F6"] = Key::F6;
+            keyTable["F7"] = Key::F7;
+            keyTable["F8"] = Key::F8;
+            keyTable["F9"] = Key::F9;
+            keyTable["F10"] = Key::F10;
+            keyTable["F11"] = Key::F11;
+            keyTable["F12"] = Key::F12;
+            keyTable["F13"] = Key::F13;
+            keyTable["F14"] = Key::F14;
+            keyTable["F15"] = Key::F15;
+            keyTable["F16"] = Key::F16;
+            keyTable["F17"] = Key::F17;
+            keyTable["F18"] = Key::F18;
+            keyTable["F19"] = Key::F19;
+            keyTable["F20"] = Key::F20;
+            keyTable["F21"] = Key::F21;
+            keyTable["F22"] = Key::F22;
+            keyTable["F23"] = Key::F23;
+            keyTable["F24"] = Key::F24;
+            keyTable["F25"] = Key::F25;
+            keyTable["KP0"] = Key::KP0;
+            keyTable["KP1"] = Key::KP1;
+            keyTable["KP2"] = Key::KP2;
+            keyTable["KP3"] = Key::KP3;
+            keyTable["KP4"] = Key::KP4;
+            keyTable["KP5"] = Key::KP5;
+            keyTable["KP6"] = Key::KP6;
+            keyTable["KP7"] = Key::KP7;
+            keyTable["KP8"] = Key::KP8;
+            keyTable["KP9"] = Key::KP9;
+            keyTable["KPDecimal"] = Key::KPDecimal;
+            keyTable["KPDivide"] = Key::KPDivide;
+            keyTable["KPMultiply"] = Key::KPMultiply;
+            keyTable["KPSubtract"] = Key::KPSubtract;
+            keyTable["KPAdd"] = Key::KPAdd;
+            keyTable["KPEnter"] = Key::KPEnter;
+            keyTable["KPEqual"] = Key::KPEqual;
+            keyTable["LeftShift"] = Key::LeftShift;
+            keyTable["LeftControl"] = Key::LeftControl;
+            keyTable["LeftAlt"] = Key::LeftAlt;
+            keyTable["LeftSuper"] = Key::LeftSuper;
+            keyTable["RightShift"] = Key::RightShift;
+            keyTable["RightControl"] = Key::RightControl;
+            keyTable["RightAlt"] = Key::RightAlt;
+            keyTable["RightSuper"] = Key::RightSuper;
+            keyTable["Menu"] = Key::Menu;
+        }
+
+        // --- MouseButton constants ---
+        {
+            auto mouseTable = lua.create_named_table("MouseButton");
+            mouseTable["Left"] = static_cast<u16>(0);
+            mouseTable["Right"] = static_cast<u16>(1);
+            mouseTable["Middle"] = static_cast<u16>(2);
+            mouseTable["Button4"] = static_cast<u16>(3);
+            mouseTable["Button5"] = static_cast<u16>(4);
+        }
+
         // --- DialogueComponent ---
         lua.new_usertype<DialogueComponent>("DialogueComponent",
                                             "dialogueTree", &DialogueComponent::m_DialogueTree,
@@ -1235,6 +1370,26 @@ namespace OloEngine
             return finalDamage;
         };
 
+        damageTable["TryActivateAbility"] = [](u64 casterID, const std::string& abilityTag) -> bool
+        {
+            if (abilityTag.empty())
+                return false;
+
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return false;
+
+            auto casterOpt = scene->TryGetEntityWithUUID(UUID(casterID));
+            if (!casterOpt)
+                return false;
+            Entity caster{ static_cast<entt::entity>(*casterOpt), scene };
+
+            if (!caster.HasComponent<AbilityComponent>())
+                return false;
+
+            return GameplayAbilitySystem::TryActivateAbility(scene, caster, GameplayTag(abilityTag));
+        };
+
         damageTable["TryActivateAbilityOnTarget"] = [](u64 casterID, const std::string& abilityTag, u64 targetID) -> bool
         {
             if (abilityTag.empty())
@@ -1391,6 +1546,102 @@ namespace OloEngine
             return sol::make_object(*Scripting::GetState(), static_cast<u64>(entity.GetUUID()));
         };
 
+        // --- Entity convenience helpers (mirror C# Entity base-class properties) ---
+        entityUtilsTable["get_translation"] = [](u64 entityID) -> glm::vec3
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return glm::vec3(0.0f);
+            if (auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityID)))
+            {
+                Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+                if (entity.HasComponent<TransformComponent>())
+                    return entity.GetComponent<TransformComponent>().Translation;
+            }
+            return glm::vec3(0.0f);
+        };
+
+        entityUtilsTable["set_translation"] = [](u64 entityID, const glm::vec3& translation)
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return;
+            if (auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityID)))
+            {
+                Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+                if (entity.HasComponent<TransformComponent>())
+                    entity.GetComponent<TransformComponent>().Translation = translation;
+            }
+        };
+
+        entityUtilsTable["get_rotation"] = [](u64 entityID) -> glm::vec3
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return glm::vec3(0.0f);
+            if (auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityID)))
+            {
+                Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+                if (entity.HasComponent<TransformComponent>())
+                    return entity.GetComponent<TransformComponent>().GetRotationEuler();
+            }
+            return glm::vec3(0.0f);
+        };
+
+        entityUtilsTable["set_rotation"] = [](u64 entityID, const glm::vec3& rotation)
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return;
+            if (auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityID)))
+            {
+                Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+                if (entity.HasComponent<TransformComponent>())
+                    entity.GetComponent<TransformComponent>().SetRotationEuler(rotation);
+            }
+        };
+
+        entityUtilsTable["get_scale"] = [](u64 entityID) -> glm::vec3
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return glm::vec3(1.0f);
+            if (auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityID)))
+            {
+                Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+                if (entity.HasComponent<TransformComponent>())
+                    return entity.GetComponent<TransformComponent>().Scale;
+            }
+            return glm::vec3(1.0f);
+        };
+
+        entityUtilsTable["set_scale"] = [](u64 entityID, const glm::vec3& scale)
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return;
+            if (auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityID)))
+            {
+                Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+                if (entity.HasComponent<TransformComponent>())
+                    entity.GetComponent<TransformComponent>().Scale = scale;
+            }
+        };
+
+        entityUtilsTable["get_name"] = [](u64 entityID, sol::this_state s) -> sol::object
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return sol::make_object(s, sol::nil);
+            if (auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityID)))
+            {
+                Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+                if (entity.HasComponent<TagComponent>())
+                    return sol::make_object(s, entity.GetComponent<TagComponent>().Tag);
+            }
+            return sol::make_object(s, sol::nil);
+        };
+
         // --- Entity component access (by UUID + component name string) ---
         entityUtilsTable["get_component"] = [](u64 entityID, const std::string& compName, sol::this_state s) -> sol::object
         {
@@ -1452,6 +1703,57 @@ namespace OloEngine
                 return sol::make_object(s, &entity.GetComponent<QuestJournalComponent>());
             if (compName == "QuestGiverComponent" && entity.HasComponent<QuestGiverComponent>())
                 return sol::make_object(s, &entity.GetComponent<QuestGiverComponent>());
+            // UI components
+            if (compName == "UICanvasComponent" && entity.HasComponent<UICanvasComponent>())
+                return sol::make_object(s, &entity.GetComponent<UICanvasComponent>());
+            if (compName == "UIRectTransformComponent" && entity.HasComponent<UIRectTransformComponent>())
+                return sol::make_object(s, &entity.GetComponent<UIRectTransformComponent>());
+            if (compName == "UIImageComponent" && entity.HasComponent<UIImageComponent>())
+                return sol::make_object(s, &entity.GetComponent<UIImageComponent>());
+            if (compName == "UIPanelComponent" && entity.HasComponent<UIPanelComponent>())
+                return sol::make_object(s, &entity.GetComponent<UIPanelComponent>());
+            if (compName == "UITextComponent" && entity.HasComponent<UITextComponent>())
+                return sol::make_object(s, &entity.GetComponent<UITextComponent>());
+            if (compName == "UIButtonComponent" && entity.HasComponent<UIButtonComponent>())
+                return sol::make_object(s, &entity.GetComponent<UIButtonComponent>());
+            if (compName == "UISliderComponent" && entity.HasComponent<UISliderComponent>())
+                return sol::make_object(s, &entity.GetComponent<UISliderComponent>());
+            if (compName == "UICheckboxComponent" && entity.HasComponent<UICheckboxComponent>())
+                return sol::make_object(s, &entity.GetComponent<UICheckboxComponent>());
+            if (compName == "UIProgressBarComponent" && entity.HasComponent<UIProgressBarComponent>())
+                return sol::make_object(s, &entity.GetComponent<UIProgressBarComponent>());
+            if (compName == "UIInputFieldComponent" && entity.HasComponent<UIInputFieldComponent>())
+                return sol::make_object(s, &entity.GetComponent<UIInputFieldComponent>());
+            if (compName == "UIScrollViewComponent" && entity.HasComponent<UIScrollViewComponent>())
+                return sol::make_object(s, &entity.GetComponent<UIScrollViewComponent>());
+            if (compName == "UIDropdownComponent" && entity.HasComponent<UIDropdownComponent>())
+                return sol::make_object(s, &entity.GetComponent<UIDropdownComponent>());
+            if (compName == "UIGridLayoutComponent" && entity.HasComponent<UIGridLayoutComponent>())
+                return sol::make_object(s, &entity.GetComponent<UIGridLayoutComponent>());
+            if (compName == "UIToggleComponent" && entity.HasComponent<UIToggleComponent>())
+                return sol::make_object(s, &entity.GetComponent<UIToggleComponent>());
+            if (compName == "UIWorldAnchorComponent" && entity.HasComponent<UIWorldAnchorComponent>())
+                return sol::make_object(s, &entity.GetComponent<UIWorldAnchorComponent>());
+            // Lighting
+            if (compName == "LightProbeComponent" && entity.HasComponent<LightProbeComponent>())
+                return sol::make_object(s, &entity.GetComponent<LightProbeComponent>());
+            if (compName == "LightProbeVolumeComponent" && entity.HasComponent<LightProbeVolumeComponent>())
+                return sol::make_object(s, &entity.GetComponent<LightProbeVolumeComponent>());
+            // Streaming
+            if (compName == "StreamingVolumeComponent" && entity.HasComponent<StreamingVolumeComponent>())
+                return sol::make_object(s, &entity.GetComponent<StreamingVolumeComponent>());
+            // Animation
+            if (compName == "AnimationGraphComponent" && entity.HasComponent<AnimationGraphComponent>())
+                return sol::make_object(s, &entity.GetComponent<AnimationGraphComponent>());
+            if (compName == "MorphTargetComponent" && entity.HasComponent<MorphTargetComponent>())
+                return sol::make_object(s, &entity.GetComponent<MorphTargetComponent>());
+            // AI / Behavior
+            if (compName == "NavMeshBoundsComponent" && entity.HasComponent<NavMeshBoundsComponent>())
+                return sol::make_object(s, &entity.GetComponent<NavMeshBoundsComponent>());
+            if (compName == "BehaviorTreeComponent" && entity.HasComponent<BehaviorTreeComponent>())
+                return sol::make_object(s, &entity.GetComponent<BehaviorTreeComponent>());
+            if (compName == "StateMachineComponent" && entity.HasComponent<StateMachineComponent>())
+                return sol::make_object(s, &entity.GetComponent<StateMachineComponent>());
 
             OLO_CORE_WARN("[Lua] get_component: unknown or missing component '{}' on entity {}", compName, entityID);
             return sol::make_object(s, sol::nil);
@@ -1516,6 +1818,57 @@ namespace OloEngine
                 return entity.HasComponent<QuestJournalComponent>();
             if (compName == "QuestGiverComponent")
                 return entity.HasComponent<QuestGiverComponent>();
+            // UI components
+            if (compName == "UICanvasComponent")
+                return entity.HasComponent<UICanvasComponent>();
+            if (compName == "UIRectTransformComponent")
+                return entity.HasComponent<UIRectTransformComponent>();
+            if (compName == "UIImageComponent")
+                return entity.HasComponent<UIImageComponent>();
+            if (compName == "UIPanelComponent")
+                return entity.HasComponent<UIPanelComponent>();
+            if (compName == "UITextComponent")
+                return entity.HasComponent<UITextComponent>();
+            if (compName == "UIButtonComponent")
+                return entity.HasComponent<UIButtonComponent>();
+            if (compName == "UISliderComponent")
+                return entity.HasComponent<UISliderComponent>();
+            if (compName == "UICheckboxComponent")
+                return entity.HasComponent<UICheckboxComponent>();
+            if (compName == "UIProgressBarComponent")
+                return entity.HasComponent<UIProgressBarComponent>();
+            if (compName == "UIInputFieldComponent")
+                return entity.HasComponent<UIInputFieldComponent>();
+            if (compName == "UIScrollViewComponent")
+                return entity.HasComponent<UIScrollViewComponent>();
+            if (compName == "UIDropdownComponent")
+                return entity.HasComponent<UIDropdownComponent>();
+            if (compName == "UIGridLayoutComponent")
+                return entity.HasComponent<UIGridLayoutComponent>();
+            if (compName == "UIToggleComponent")
+                return entity.HasComponent<UIToggleComponent>();
+            if (compName == "UIWorldAnchorComponent")
+                return entity.HasComponent<UIWorldAnchorComponent>();
+            // Lighting
+            if (compName == "LightProbeComponent")
+                return entity.HasComponent<LightProbeComponent>();
+            if (compName == "LightProbeVolumeComponent")
+                return entity.HasComponent<LightProbeVolumeComponent>();
+            // Streaming
+            if (compName == "StreamingVolumeComponent")
+                return entity.HasComponent<StreamingVolumeComponent>();
+            // Animation
+            if (compName == "AnimationGraphComponent")
+                return entity.HasComponent<AnimationGraphComponent>();
+            if (compName == "MorphTargetComponent")
+                return entity.HasComponent<MorphTargetComponent>();
+            // AI / Behavior
+            if (compName == "NavMeshBoundsComponent")
+                return entity.HasComponent<NavMeshBoundsComponent>();
+            if (compName == "BehaviorTreeComponent")
+                return entity.HasComponent<BehaviorTreeComponent>();
+            if (compName == "StateMachineComponent")
+                return entity.HasComponent<StateMachineComponent>();
             return false;
         };
 
