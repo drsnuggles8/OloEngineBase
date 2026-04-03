@@ -1391,6 +1391,134 @@ namespace OloEngine
             return sol::make_object(*Scripting::GetState(), static_cast<u64>(entity.GetUUID()));
         };
 
+        // --- Entity component access (by UUID + component name string) ---
+        entityUtilsTable["get_component"] = [](u64 entityID, const std::string& compName, sol::this_state s) -> sol::object
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return sol::make_object(s, sol::nil);
+
+            auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityID));
+            if (!entityOpt)
+                return sol::make_object(s, sol::nil);
+            Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+
+            // Dispatch to concrete component types
+            if (compName == "TransformComponent" && entity.HasComponent<TransformComponent>())
+                return sol::make_object(s, &entity.GetComponent<TransformComponent>());
+            if (compName == "Rigidbody2DComponent" && entity.HasComponent<Rigidbody2DComponent>())
+                return sol::make_object(s, &entity.GetComponent<Rigidbody2DComponent>());
+            if (compName == "CameraComponent" && entity.HasComponent<CameraComponent>())
+                return sol::make_object(s, &entity.GetComponent<CameraComponent>());
+            if (compName == "SpriteRendererComponent" && entity.HasComponent<SpriteRendererComponent>())
+                return sol::make_object(s, &entity.GetComponent<SpriteRendererComponent>());
+            if (compName == "CircleRendererComponent" && entity.HasComponent<CircleRendererComponent>())
+                return sol::make_object(s, &entity.GetComponent<CircleRendererComponent>());
+            if (compName == "TextComponent" && entity.HasComponent<TextComponent>())
+                return sol::make_object(s, &entity.GetComponent<TextComponent>());
+            if (compName == "MeshComponent" && entity.HasComponent<MeshComponent>())
+                return sol::make_object(s, &entity.GetComponent<MeshComponent>());
+            if (compName == "MaterialComponent" && entity.HasComponent<MaterialComponent>())
+                return sol::make_object(s, &entity.GetComponent<MaterialComponent>());
+            if (compName == "BoxCollider2DComponent" && entity.HasComponent<BoxCollider2DComponent>())
+                return sol::make_object(s, &entity.GetComponent<BoxCollider2DComponent>());
+            if (compName == "CircleCollider2DComponent" && entity.HasComponent<CircleCollider2DComponent>())
+                return sol::make_object(s, &entity.GetComponent<CircleCollider2DComponent>());
+            if (compName == "AudioSourceComponent" && entity.HasComponent<AudioSourceComponent>())
+                return sol::make_object(s, &entity.GetComponent<AudioSourceComponent>());
+            if (compName == "AudioListenerComponent" && entity.HasComponent<AudioListenerComponent>())
+                return sol::make_object(s, &entity.GetComponent<AudioListenerComponent>());
+            if (compName == "ParticleSystemComponent" && entity.HasComponent<ParticleSystemComponent>())
+                return sol::make_object(s, &entity.GetComponent<ParticleSystemComponent>());
+            if (compName == "NavAgentComponent" && entity.HasComponent<NavAgentComponent>())
+                return sol::make_object(s, &entity.GetComponent<NavAgentComponent>());
+            if (compName == "AbilityComponent" && entity.HasComponent<AbilityComponent>())
+                return sol::make_object(s, &entity.GetComponent<AbilityComponent>());
+            if (compName == "DialogueComponent" && entity.HasComponent<DialogueComponent>())
+                return sol::make_object(s, &entity.GetComponent<DialogueComponent>());
+            if (compName == "NetworkIdentityComponent" && entity.HasComponent<NetworkIdentityComponent>())
+                return sol::make_object(s, &entity.GetComponent<NetworkIdentityComponent>());
+            if (compName == "IKTargetComponent" && entity.HasComponent<IKTargetComponent>())
+                return sol::make_object(s, &entity.GetComponent<IKTargetComponent>());
+            if (compName == "NameplateComponent" && entity.HasComponent<NameplateComponent>())
+                return sol::make_object(s, &entity.GetComponent<NameplateComponent>());
+            if (compName == "InventoryComponent" && entity.HasComponent<InventoryComponent>())
+                return sol::make_object(s, &entity.GetComponent<InventoryComponent>());
+            if (compName == "ItemPickupComponent" && entity.HasComponent<ItemPickupComponent>())
+                return sol::make_object(s, &entity.GetComponent<ItemPickupComponent>());
+            if (compName == "ItemContainerComponent" && entity.HasComponent<ItemContainerComponent>())
+                return sol::make_object(s, &entity.GetComponent<ItemContainerComponent>());
+            if (compName == "QuestJournalComponent" && entity.HasComponent<QuestJournalComponent>())
+                return sol::make_object(s, &entity.GetComponent<QuestJournalComponent>());
+            if (compName == "QuestGiverComponent" && entity.HasComponent<QuestGiverComponent>())
+                return sol::make_object(s, &entity.GetComponent<QuestGiverComponent>());
+
+            OLO_CORE_WARN("[Lua] get_component: unknown or missing component '{}' on entity {}", compName, entityID);
+            return sol::make_object(s, sol::nil);
+        };
+
+        entityUtilsTable["has_component"] = [](u64 entityID, const std::string& compName) -> bool
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return false;
+
+            auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityID));
+            if (!entityOpt)
+                return false;
+            Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+
+            if (compName == "TransformComponent")
+                return entity.HasComponent<TransformComponent>();
+            if (compName == "Rigidbody2DComponent")
+                return entity.HasComponent<Rigidbody2DComponent>();
+            if (compName == "CameraComponent")
+                return entity.HasComponent<CameraComponent>();
+            if (compName == "SpriteRendererComponent")
+                return entity.HasComponent<SpriteRendererComponent>();
+            if (compName == "CircleRendererComponent")
+                return entity.HasComponent<CircleRendererComponent>();
+            if (compName == "TextComponent")
+                return entity.HasComponent<TextComponent>();
+            if (compName == "MeshComponent")
+                return entity.HasComponent<MeshComponent>();
+            if (compName == "MaterialComponent")
+                return entity.HasComponent<MaterialComponent>();
+            if (compName == "BoxCollider2DComponent")
+                return entity.HasComponent<BoxCollider2DComponent>();
+            if (compName == "CircleCollider2DComponent")
+                return entity.HasComponent<CircleCollider2DComponent>();
+            if (compName == "AudioSourceComponent")
+                return entity.HasComponent<AudioSourceComponent>();
+            if (compName == "AudioListenerComponent")
+                return entity.HasComponent<AudioListenerComponent>();
+            if (compName == "ParticleSystemComponent")
+                return entity.HasComponent<ParticleSystemComponent>();
+            if (compName == "NavAgentComponent")
+                return entity.HasComponent<NavAgentComponent>();
+            if (compName == "AbilityComponent")
+                return entity.HasComponent<AbilityComponent>();
+            if (compName == "DialogueComponent")
+                return entity.HasComponent<DialogueComponent>();
+            if (compName == "NetworkIdentityComponent")
+                return entity.HasComponent<NetworkIdentityComponent>();
+            if (compName == "IKTargetComponent")
+                return entity.HasComponent<IKTargetComponent>();
+            if (compName == "NameplateComponent")
+                return entity.HasComponent<NameplateComponent>();
+            if (compName == "InventoryComponent")
+                return entity.HasComponent<InventoryComponent>();
+            if (compName == "ItemPickupComponent")
+                return entity.HasComponent<ItemPickupComponent>();
+            if (compName == "ItemContainerComponent")
+                return entity.HasComponent<ItemContainerComponent>();
+            if (compName == "QuestJournalComponent")
+                return entity.HasComponent<QuestJournalComponent>();
+            if (compName == "QuestGiverComponent")
+                return entity.HasComponent<QuestGiverComponent>();
+            return false;
+        };
+
         // --- Scene streaming (global table) ---
         auto sceneTable = lua.create_named_table("Scene");
         sceneTable["LoadRegion"] = [](u64 regionId)

@@ -236,6 +236,7 @@ namespace OloEngine
             SnapshotComponentIfExists<CharacterController3DComponent>(entity);
             SnapshotComponentIfExists<TextComponent>(entity);
             SnapshotComponentIfExists<ScriptComponent>(entity);
+            SnapshotComponentIfExists<LuaScriptComponent>(entity);
             SnapshotComponentIfExists<AudioSourceComponent>(entity);
             SnapshotComponentIfExists<AudioListenerComponent>(entity);
             SnapshotComponentIfExists<SubmeshComponent>(entity);

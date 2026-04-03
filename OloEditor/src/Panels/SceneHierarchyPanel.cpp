@@ -1622,6 +1622,7 @@ namespace OloEngine
         {
             DisplayAddComponentEntry<CameraComponent>("Camera");
             DisplayAddComponentEntry<ScriptComponent>("Script");
+            DisplayAddComponentEntry<LuaScriptComponent>("Lua Script");
             DisplayAddComponentEntry<SpriteRendererComponent>("Sprite Renderer");
             DisplayAddComponentEntry<CircleRendererComponent>("Circle Renderer");
             DisplayAddComponentEntry<Rigidbody2DComponent>("Rigidbody 2D");
@@ -1993,6 +1994,17 @@ namespace OloEngine
 					}
 				}
 			} });
+
+        DrawComponent<LuaScriptComponent>("Lua Script", entity, [](auto& component)
+                                          {
+            char buffer[256];
+            memset(buffer, 0, sizeof(buffer));
+            std::strncpy(buffer, component.ScriptFile.c_str(), sizeof(buffer) - 1);
+            if (ImGui::InputText("Script File", buffer, sizeof(buffer)))
+            {
+                component.ScriptFile = buffer;
+            }
+            ImGui::TextDisabled("Relative to project assets directory"); });
 
         DrawComponent<SpriteRendererComponent>("Sprite Renderer", entity, [](auto& component)
                                                {

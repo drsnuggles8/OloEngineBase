@@ -14,9 +14,13 @@ namespace OloEngine
         static void LoadScript(const std::string& file);
         static void LoadEntityScript(const std::string& file);
 
-        // Lua functions to call from C++
-        static void OnCreate(const Entity* entity);
-        static void OnDestroyed(const Entity* entity);
-        static void OnUpdate(const Entity* entity, f32 ts);
+        // Per-entity lifecycle
+        static void OnCreateEntity(Entity entity, const std::string& scriptFile);
+        static void OnUpdateEntity(Entity entity, f32 ts);
+        static void OnDestroyEntity(Entity entity);
+
+        // Scene lifecycle
+        static void OnRuntimeStart(Scene* scene);
+        static void OnRuntimeStop();
     };
 } // namespace OloEngine

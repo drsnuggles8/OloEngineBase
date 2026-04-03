@@ -13,6 +13,7 @@
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
+#include "OloEngine/Scripting/Lua/LuaScriptEngine.h"
 #include "OloEngine/Animation/BoneEntityUtils.h"
 #include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSystem.h"
@@ -444,6 +445,21 @@ namespace OloEngine
             }
         }
 
+        // Lua scripting
+        {
+            LuaScriptEngine::OnRuntimeStart(this);
+            for (const auto luaView = m_Registry.view<LuaScriptComponent>(); const auto e : luaView)
+            {
+                Entity entity = { e, this };
+                auto const& luaComp = entity.GetComponent<LuaScriptComponent>();
+                if (!luaComp.ScriptFile.empty())
+                {
+                    auto scriptPath = Project::GetAssetFileSystemPath(luaComp.ScriptFile);
+                    LuaScriptEngine::OnCreateEntity(entity, scriptPath.string());
+                }
+            }
+        }
+
         // Start animations
         {
             auto animView = m_Registry.view<AnimationStateComponent>();
@@ -528,6 +544,7 @@ namespace OloEngine
         }
 
         ScriptEngine::OnRuntimeStop();
+        LuaScriptEngine::OnRuntimeStop();
 
         // Shut down dialogue system
         m_DialogueSystem.reset();
@@ -730,6 +747,13 @@ namespace OloEngine
                 {
                     Entity entity = { e, this };
                     ScriptEngine::OnUpdateEntity(entity, ts);
+                }
+
+                // Lua Entity OnUpdate
+                for (auto luaView = m_Registry.view<LuaScriptComponent>(); auto e : luaView)
+                {
+                    Entity entity = { e, this };
+                    LuaScriptEngine::OnUpdateEntity(entity, ts);
                 }
             }
 
@@ -4065,6 +4089,11 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::CameraComponent>([[maybe_unus
 
 template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::ScriptComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::ScriptComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::LuaScriptComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::LuaScriptComponent& component)
 {
 }
 
