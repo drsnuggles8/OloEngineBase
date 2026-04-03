@@ -252,9 +252,38 @@ namespace OloEngine
                         Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
                         sol::object freshComp = resolveFn(entity, ws);
 
+                        // Strip the proxy "self" (first arg from colon-call syntax)
+                        // and forward only the real arguments after it.
+                        std::vector<sol::object> args;
+                        args.reserve(va.size());
+                        bool skippedSelf = false;
+                        for (auto const& arg : va)
+                        {
+                            if (!skippedSelf && arg.is<LuaComponentProxy*>())
+                            {
+                                skippedSelf = true;
+                                continue;
+                            }
+                            args.emplace_back(arg.get<sol::object>());
+                        }
+
                         // Call original with freshly-resolved component + remaining args
-                        // The first arg from Lua (self) was the proxy — replace with real comp
-                        return origFn(freshComp, va);
+                        switch (args.size())
+                        {
+                            case 0:
+                                return origFn(freshComp);
+                            case 1:
+                                return origFn(freshComp, args[0]);
+                            case 2:
+                                return origFn(freshComp, args[0], args[1]);
+                            case 3:
+                                return origFn(freshComp, args[0], args[1], args[2]);
+                            case 4:
+                                return origFn(freshComp, args[0], args[1], args[2], args[3]);
+                            default:
+                                // Fallback for 5+ args — build a Lua call via stack
+                                return origFn(freshComp, sol::as_args(args));
+                        }
                     };
 
                     lua_pop(L, 3); // pop value, mt, comp_ud
@@ -361,11 +390,32 @@ namespace OloEngine
                                              "rotation", sol::property(&TransformComponent::GetRotationEuler, &TransformComponent::SetRotationEuler));
 
         // --- Rigidbody2DComponent ---
-        // linearVelocity/angularVelocity use sol::property so setters sync
-        // through Box2D when a runtime body exists.
-        lua.new_usertype<Rigidbody2DComponent>("Rigidbody2DComponent", "type", &Rigidbody2DComponent::Type, "fixedRotation", &Rigidbody2DComponent::FixedRotation, "linearVelocity", sol::property([](Rigidbody2DComponent& rb) -> glm::vec2
-                                                                                                                                                                                                   { return rb.LinearVelocity; }, [](Rigidbody2DComponent& rb, const glm::vec2& v)
-                                                                                                                                                                                                   {
+        // All properties use sol::property so setters sync through Box2D when a runtime body exists.
+        lua.new_usertype<Rigidbody2DComponent>("Rigidbody2DComponent", "type", sol::property([](Rigidbody2DComponent& rb)
+                                                                                             { return rb.Type; }, [](Rigidbody2DComponent& rb, Rigidbody2DComponent::BodyType t)
+                                                                                             {
+                    rb.Type = t;
+                    if (b2Body_IsValid(rb.RuntimeBody))
+                    {
+                        b2BodyType b2t = b2_staticBody;
+                        switch (t)
+                        {
+                            using enum Rigidbody2DComponent::BodyType;
+                            case Dynamic:   b2t = b2_dynamicBody;   break;
+                            case Kinematic: b2t = b2_kinematicBody; break;
+                            default: break;
+                        }
+                        b2Body_SetType(rb.RuntimeBody, b2t);
+                    } }),
+                                               "fixedRotation", sol::property([](Rigidbody2DComponent& rb)
+                                                                              { return rb.FixedRotation; }, [](Rigidbody2DComponent& rb, bool v)
+                                                                              {
+                    rb.FixedRotation = v;
+                    if (b2Body_IsValid(rb.RuntimeBody))
+                        b2Body_SetFixedRotation(rb.RuntimeBody, v); }),
+                                               "linearVelocity", sol::property([](Rigidbody2DComponent& rb) -> glm::vec2
+                                                                               { return rb.LinearVelocity; }, [](Rigidbody2DComponent& rb, const glm::vec2& v)
+                                                                               {
                     rb.LinearVelocity = v;
                     if (b2Body_IsValid(rb.RuntimeBody))
                         b2Body_SetLinearVelocity(rb.RuntimeBody, { v.x, v.y }); }),
@@ -1876,7 +1926,19 @@ namespace OloEngine
             {
                 Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
                 if (entity.HasComponent<TransformComponent>())
+                {
                     entity.GetComponent<TransformComponent>().Translation = translation;
+                    // Sync to Box2D runtime body if present
+                    if (entity.HasComponent<Rigidbody2DComponent>())
+                    {
+                        auto const& rb = entity.GetComponent<Rigidbody2DComponent>();
+                        if (b2Body_IsValid(rb.RuntimeBody))
+                        {
+                            auto const& tc = entity.GetComponent<TransformComponent>();
+                            b2Body_SetTransform(rb.RuntimeBody, { tc.Translation.x, tc.Translation.y }, b2MakeRot(tc.GetRotationEuler().z));
+                        }
+                    }
+                }
             }
         };
 
@@ -1903,7 +1965,19 @@ namespace OloEngine
             {
                 Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
                 if (entity.HasComponent<TransformComponent>())
+                {
                     entity.GetComponent<TransformComponent>().SetRotationEuler(rotation);
+                    // Sync to Box2D runtime body if present
+                    if (entity.HasComponent<Rigidbody2DComponent>())
+                    {
+                        auto const& rb = entity.GetComponent<Rigidbody2DComponent>();
+                        if (b2Body_IsValid(rb.RuntimeBody))
+                        {
+                            auto const& tc = entity.GetComponent<TransformComponent>();
+                            b2Body_SetTransform(rb.RuntimeBody, { tc.Translation.x, tc.Translation.y }, b2MakeRot(tc.GetRotationEuler().z));
+                        }
+                    }
+                }
             }
         };
 
