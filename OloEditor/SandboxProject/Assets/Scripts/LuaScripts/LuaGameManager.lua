@@ -8,7 +8,12 @@ local paused = false
 local gameOver = false
 local victory = false
 
+-- Shared game state table for other scripts to check
+GameState = GameState or {}
+GameState.paused = false
+
 function GameManager.OnCreate(id)
+    GameState.paused = false
     Log.Info("[LuaGameManager] OnCreate — Game started")
 end
 
@@ -24,6 +29,7 @@ function GameManager.OnUpdate(id, dt)
     -- Pause toggle
     if Input.IsKeyJustPressed(KeyCode.Escape) then
         paused = not paused
+        GameState.paused = paused
         if paused then
             Application.SetTimeScale(0.0)
             Log.Info("[LuaGameManager] Paused")

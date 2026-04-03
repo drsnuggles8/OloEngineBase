@@ -14,13 +14,15 @@ local fireballVfxTimer = 0.0
 local healVfxTimer = 0.0
 local vfxDuration = 0.5
 
--- Attack cooldowns
-local attackCooldown = 0.0
-
 -- Damage flash
 local flashTimer = 0.0
 local flashDuration = 0.15
 local lastHealth = -1.0
+local originalColor = nil
+
+-- Module-local helpers (forward declarations)
+local FindNearestEnemy
+local TriggerFlash
 
 function PlayerController.OnCreate(id)
     myID = id
@@ -42,6 +44,7 @@ end
 
 function PlayerController.OnUpdate(id, dt)
     if not alive then return end
+    if GameState and GameState.paused then return end
 
     -- Check if still alive
     local abilities = entity_utils.get_component(id, "AbilityComponent")
@@ -51,20 +54,18 @@ function PlayerController.OnUpdate(id, dt)
             alive = false
             abilities:RemoveTag("State.Alive")
             Log.Warn("[LuaPlayerController] Player died!")
-            -- Notify game manager
-            local gmID = entity_utils.find_by_name("GameManager")
-            if gmID then
-                -- Game manager will detect death via tag check
-            end
             return
         end
 
         -- Damage flash detection
         if lastHealth > 0.0 and health < lastHealth then
             flashTimer = flashDuration
-            local mat = entity_utils.get_component(id, "MaterialComponent")
-            if mat then
-                mat.albedoColor = vec4.new(1.0, 0.3, 0.3, 1.0)
+            local sr = entity_utils.get_component(id, "SpriteRendererComponent")
+            if sr then
+                if not originalColor then
+                    originalColor = vec4.new(sr.color.x, sr.color.y, sr.color.z, sr.color.w)
+                end
+                sr.color = vec4.new(1.0, 0.3, 0.3, 1.0)
             end
         end
         lastHealth = health
@@ -74,9 +75,10 @@ function PlayerController.OnUpdate(id, dt)
     if flashTimer > 0.0 then
         flashTimer = flashTimer - dt
         if flashTimer <= 0.0 then
-            local mat = entity_utils.get_component(id, "MaterialComponent")
-            if mat then
-                mat.albedoColor = vec4.new(1.0, 1.0, 1.0, 1.0)
+            local sr = entity_utils.get_component(id, "SpriteRendererComponent")
+            if sr and originalColor then
+                sr.color = originalColor
+                originalColor = nil
             end
         end
     end
@@ -115,19 +117,14 @@ function PlayerController.OnUpdate(id, dt)
         end
     end
 
-    -- Cooldown timer
-    if attackCooldown > 0.0 then
-        attackCooldown = attackCooldown - dt
-    end
-
     -- Ability hotkeys (1 = Slash, 2 = Fireball, 3 = Heal)
-    if attackCooldown <= 0.0 and abilities then
+    -- Each ability enforces its own cooldown via the AbilityComponent system
+    if abilities then
         if Input.IsKeyJustPressed(KeyCode.D1) then
             -- Slash — melee on nearest enemy
             local targetID = FindNearestEnemy(id, 3.0)
             if targetID then
                 if Damage.TryActivateAbilityOnTarget(id, "Ability.Melee.Slash", targetID) then
-                    attackCooldown = 1.0
                     TriggerFlash(id, vec4.new(1.0, 1.0, 0.3, 1.0))
                     Log.Info("[LuaPlayerController] Slash!")
                 end
@@ -137,7 +134,6 @@ function PlayerController.OnUpdate(id, dt)
             local targetID = FindNearestEnemy(id, 10.0)
             if targetID then
                 if Damage.TryActivateAbilityOnTarget(id, "Ability.Spell.Fire.Fireball", targetID) then
-                    attackCooldown = 2.0
                     TriggerFlash(id, vec4.new(1.0, 0.5, 0.1, 1.0))
                     Log.Info("[LuaPlayerController] Fireball!")
                 end
@@ -145,7 +141,6 @@ function PlayerController.OnUpdate(id, dt)
         elseif Input.IsKeyJustPressed(KeyCode.D3) then
             -- Heal — self
             if Damage.TryActivateAbility(id, "Ability.Buff.Heal") then
-                attackCooldown = 3.0
                 TriggerFlash(id, vec4.new(0.3, 1.0, 0.3, 1.0))
                 Log.Info("[LuaPlayerController] Heal!")
             end
@@ -157,9 +152,9 @@ function PlayerController.OnDestroy(id)
     Log.Info("[LuaPlayerController] OnDestroy — entity " .. tostring(id))
 end
 
--- Helpers (module-local)
+-- Module-local helpers
 
-function FindNearestEnemy(myEntityID, maxRange)
+FindNearestEnemy = function(myEntityID, maxRange)
     local myPos = entity_utils.get_translation(myEntityID)
     local bestDist = maxRange
     local bestID = nil
@@ -184,10 +179,13 @@ function FindNearestEnemy(myEntityID, maxRange)
     return bestID
 end
 
-function TriggerFlash(entityID, color)
-    local mat = entity_utils.get_component(entityID, "MaterialComponent")
-    if mat then
-        mat.albedoColor = color
+TriggerFlash = function(entityID, color)
+    local sr = entity_utils.get_component(entityID, "SpriteRendererComponent")
+    if sr then
+        if not originalColor then
+            originalColor = vec4.new(sr.color.x, sr.color.y, sr.color.z, sr.color.w)
+        end
+        sr.color = color
         flashTimer = flashDuration
     end
 end

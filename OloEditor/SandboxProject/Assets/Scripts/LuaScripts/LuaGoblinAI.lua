@@ -14,6 +14,7 @@ local attackTimer = 0.0
 local flashTimer = 0.0
 local flashDuration = 0.15
 local lastHealth = -1.0
+local originalColor = nil
 
 function GoblinAI.OnCreate(id)
     local name = entity_utils.get_name(id) or "Goblin"
@@ -33,6 +34,7 @@ end
 
 function GoblinAI.OnUpdate(id, dt)
     if not alive then return end
+    if GameState and GameState.paused then return end
 
     local abilities = entity_utils.get_component(id, "AbilityComponent")
     if abilities then
@@ -49,9 +51,12 @@ function GoblinAI.OnUpdate(id, dt)
         -- Damage flash
         if lastHealth > 0.0 and health < lastHealth then
             flashTimer = flashDuration
-            local mat = entity_utils.get_component(id, "MaterialComponent")
-            if mat then
-                mat.albedoColor = vec4.new(1.0, 0.3, 0.3, 1.0)
+            local sr = entity_utils.get_component(id, "SpriteRendererComponent")
+            if sr then
+                if not originalColor then
+                    originalColor = vec4.new(sr.color.x, sr.color.y, sr.color.z, sr.color.w)
+                end
+                sr.color = vec4.new(1.0, 0.3, 0.3, 1.0)
             end
         end
         lastHealth = health
@@ -61,9 +66,10 @@ function GoblinAI.OnUpdate(id, dt)
     if flashTimer > 0.0 then
         flashTimer = flashTimer - dt
         if flashTimer <= 0.0 then
-            local mat = entity_utils.get_component(id, "MaterialComponent")
-            if mat then
-                mat.albedoColor = vec4.new(0.4, 0.7, 0.3, 1.0) -- goblin green
+            local sr = entity_utils.get_component(id, "SpriteRendererComponent")
+            if sr and originalColor then
+                sr.color = originalColor
+                originalColor = nil
             end
         end
     end

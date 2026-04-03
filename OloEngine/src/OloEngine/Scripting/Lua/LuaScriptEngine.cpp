@@ -154,9 +154,9 @@ namespace OloEngine
         }
 
         sol::table scriptTable = result;
-        s_LuaData.EntityScriptInstances[entityID] = scriptTable;
 
-        // Call OnCreate if it exists
+        // Call OnCreate if it exists — store instance only on success so
+        // half-initialised scripts don't receive OnUpdate.
         sol::optional<sol::protected_function> onCreate = scriptTable["OnCreate"];
         if (onCreate)
         {
@@ -165,8 +165,11 @@ namespace OloEngine
             {
                 sol::error error = createResult;
                 OLO_CORE_ERROR("[LuaScriptEngine] OnCreate error for entity {}: {}", entityID, error.what());
+                return;
             }
         }
+
+        s_LuaData.EntityScriptInstances[entityID] = scriptTable;
     }
 
     void LuaScriptEngine::OnUpdateEntity(Entity entity, f32 ts)
@@ -193,7 +196,13 @@ namespace OloEngine
         auto entityID = static_cast<u64>(entity.GetUUID());
         if (auto const it = s_LuaData.EntityScriptInstances.find(entityID); it != s_LuaData.EntityScriptInstances.end())
         {
-            sol::optional<sol::protected_function> onDestroy = it->second["OnDestroy"];
+            // Extract and erase before calling OnDestroy so a re-entrant
+            // DestroyEntity (from within the Lua callback) cannot invalidate
+            // the iterator.
+            sol::table scriptTable = std::move(it->second);
+            s_LuaData.EntityScriptInstances.erase(it);
+
+            sol::optional<sol::protected_function> onDestroy = scriptTable["OnDestroy"];
             if (onDestroy)
             {
                 sol::protected_function_result result = onDestroy.value()(entityID);
@@ -203,7 +212,6 @@ namespace OloEngine
                     OLO_CORE_ERROR("[LuaScriptEngine] OnDestroy error for entity {}: {}", entityID, error.what());
                 }
             }
-            s_LuaData.EntityScriptInstances.erase(it);
         }
     }
 } // namespace OloEngine

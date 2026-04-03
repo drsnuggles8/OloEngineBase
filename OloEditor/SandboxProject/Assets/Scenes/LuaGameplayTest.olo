@@ -550,7 +550,7 @@ Entities:
       LineSpacing: 0
       MaxWidth: 18
       DropShadow: true
-      ShadowDistance: [1, -1]
+      ShadowDistance: 1
       ShadowColor: [0, 0, 0, 0.8]
   # ===== Pause Overlay (hidden until Esc pressed) =====
   - Entity: 2000000000000000012
@@ -560,6 +560,14 @@ Entities:
       Translation: [0, 0, 0.5]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      AnchoredPosition: [0, 0]
+      SizeDelta: [0, 0]
+      Pivot: [0.5, 0.5]
+      Rotation: 0
+      Scale: [1, 1]
     UIPanelComponent:
       BackgroundColor: [0, 0, 0, 0]
   # ===== Death Overlay (hidden until player dies) =====
@@ -570,6 +578,14 @@ Entities:
       Translation: [0, 0, 0.5]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      AnchoredPosition: [0, 0]
+      SizeDelta: [0, 0]
+      Pivot: [0.5, 0.5]
+      Rotation: 0
+      Scale: [1, 1]
     UIPanelComponent:
       BackgroundColor: [0, 0, 0, 0]
   # ===== Victory Overlay (hidden until all enemies dead) =====
@@ -580,5 +596,13 @@ Entities:
       Translation: [0, 0, 0.5]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      AnchoredPosition: [0, 0]
+      SizeDelta: [0, 0]
+      Pivot: [0.5, 0.5]
+      Rotation: 0
+      Scale: [1, 1]
     UIPanelComponent:
       BackgroundColor: [0, 0, 0, 0]

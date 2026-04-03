@@ -12,14 +12,14 @@ function LuaCamera.OnCreate(id)
 end
 
 function LuaCamera.OnUpdate(id, dt)
-    -- Follow player
+    -- Follow player (XY only, preserve current Z for zoom)
     local playerID = entity_utils.find_by_name("Player")
     if playerID then
         local playerPos = entity_utils.get_translation(playerID)
         local pos = entity_utils.get_translation(id)
         pos.x = playerPos.x
         pos.y = playerPos.y
-        pos.z = distanceFromPlayer
+        -- Keep pos.z as-is so LuaPlayer zoom (Q/E) persists
         entity_utils.set_translation(id, pos)
     end
 

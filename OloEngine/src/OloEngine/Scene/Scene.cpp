@@ -345,6 +345,15 @@ namespace OloEngine
         if (!entity || !entity.HasComponent<IDComponent>())
             return;
 
+        // Dispatch Lua OnDestroy before the entity is removed from the registry
+        if (m_IsRunning && entity.HasComponent<LuaScriptComponent>())
+        {
+            if (auto const& lsc = entity.GetComponent<LuaScriptComponent>(); !lsc.ScriptFile.empty())
+            {
+                LuaScriptEngine::OnDestroyEntity(entity);
+            }
+        }
+
         UUID entityUUID = entity.GetUUID();
         m_Registry.destroy(entity);
         m_EntityMap.Remove(entityUUID);
@@ -548,7 +557,10 @@ namespace OloEngine
         // Dispatch OnDestroy to all Lua-scripted entities before clearing instances
         for (const auto luaView = m_Registry.view<LuaScriptComponent>(); const auto e : luaView)
         {
-            LuaScriptEngine::OnDestroyEntity({ e, this });
+            if (auto const& lsc = luaView.get<LuaScriptComponent>(e); !lsc.ScriptFile.empty())
+            {
+                LuaScriptEngine::OnDestroyEntity({ e, this });
+            }
         }
         LuaScriptEngine::OnRuntimeStop();
 
@@ -758,8 +770,11 @@ namespace OloEngine
                 // Lua Entity OnUpdate
                 for (auto luaView = m_Registry.view<LuaScriptComponent>(); auto e : luaView)
                 {
-                    Entity entity = { e, this };
-                    LuaScriptEngine::OnUpdateEntity(entity, ts);
+                    if (auto const& lsc = luaView.get<LuaScriptComponent>(e); !lsc.ScriptFile.empty())
+                    {
+                        Entity entity = { e, this };
+                        LuaScriptEngine::OnUpdateEntity(entity, ts);
+                    }
                 }
             }
 

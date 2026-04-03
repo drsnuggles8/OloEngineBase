@@ -461,6 +461,7 @@ namespace OloEngine
                                                "attenuationModel", sol::property([](const AudioSourceComponent& c)
                                                                                  { return static_cast<int>(c.Config.AttenuationModel); }, [](AudioSourceComponent& c, int v)
                                                                                  {
+                    if (v < 0 || v > static_cast<int>(AttenuationModelType::Exponential)) { v = 0; }
                     c.Config.AttenuationModel = static_cast<AttenuationModelType>(v);
                     if (c.Source) { c.Source->SetAttenuationModel(c.Config.AttenuationModel); } }),
                                                "rollOff", sol::property([](const AudioSourceComponent& c)
@@ -513,6 +514,9 @@ namespace OloEngine
                     if (c.Source) { c.Source->SetCone(c.Config.ConeInnerAngle, c.Config.ConeOuterAngle, c.Config.ConeOuterGain); } }),
                                                "SetCone", [](AudioSourceComponent& c, f32 innerAngle, f32 outerAngle, f32 outerGain)
                                                {
+                    if (!std::isfinite(innerAngle)) { innerAngle = glm::radians(360.0f); }
+                    if (!std::isfinite(outerAngle)) { outerAngle = glm::radians(360.0f); }
+                    if (!std::isfinite(outerGain)) { outerGain = 0.0f; }
                     c.Config.ConeInnerAngle = innerAngle;
                     c.Config.ConeOuterAngle = outerAngle;
                     c.Config.ConeOuterGain = outerGain;

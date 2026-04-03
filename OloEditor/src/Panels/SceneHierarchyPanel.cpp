@@ -1997,12 +1997,8 @@ namespace OloEngine
 
         DrawComponent<LuaScriptComponent>("Lua Script", entity, [](auto& component)
                                           {
-            char buffer[256];
-            memset(buffer, 0, sizeof(buffer));
-            std::strncpy(buffer, component.ScriptFile.c_str(), sizeof(buffer) - 1);
-            if (ImGui::InputText("Script File", buffer, sizeof(buffer)))
+            if (ImGui::InputText("Script File", &component.ScriptFile))
             {
-                component.ScriptFile = buffer;
             }
             ImGui::TextDisabled("Relative to project assets directory"); });
 

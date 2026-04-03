@@ -235,5 +235,5 @@ Entities:
       LineSpacing: 0
       MaxWidth: 0
       DropShadow: false
-      ShadowDistance: [0.01, -0.01]
+      ShadowDistance: 0.01
       ShadowColor: [0, 0, 0, 0.8]

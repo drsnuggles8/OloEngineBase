@@ -6,109 +6,109 @@ namespace OloEngine
 	public static class InternalCalls
 	{
         #region NativeLog
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void NativeLog(string message, int parameter);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void NativeLog_Vector(ref Vector3 parameter, out Vector3 outResult);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static float NativeLog_VectorDot(ref Vector3 parameter);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NativeLog(string message, int parameter);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NativeLog_Vector(ref Vector3 parameter, out Vector3 outResult);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float NativeLog_VectorDot(ref Vector3 parameter);
         #endregion
 
         #region Entity
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static bool Entity_HasComponent(ulong entityID, Type componentType);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool Entity_HasComponent(ulong entityID, Type componentType);
 
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static bool Entity_IsValid(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool Entity_IsValid(ulong entityID);
 
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static ulong Entity_FindEntityByName(string name);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern ulong Entity_FindEntityByName(string name);
 
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static object GetScriptInstance(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern object GetScriptInstance(ulong entityID);
         #endregion
 
         #region TransformComponent
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void TransformComponent_GetTranslation(ulong entityID, out Vector3 translation);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void TransformComponent_SetTranslation(ulong entityID, ref Vector3 translation);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void TransformComponent_GetRotation(ulong entityID, out Vector3 rotation);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void TransformComponent_SetRotation(ulong entityID, ref Vector3 rotation);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TransformComponent_GetTranslation(ulong entityID, out Vector3 translation);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TransformComponent_SetTranslation(ulong entityID, ref Vector3 translation);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TransformComponent_GetRotation(ulong entityID, out Vector3 rotation);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TransformComponent_SetRotation(ulong entityID, ref Vector3 rotation);
         #endregion
 
         #region Rigidbody2DComponent
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void Rigidbody2DComponent_ApplyLinearImpulse(ulong entityID, ref Vector2 impulse, ref Vector2 point, bool wake);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void Rigidbody2DComponent_ApplyLinearImpulseToCenter(ulong entityID, ref Vector2 impulse, bool wake);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Rigidbody2DComponent_ApplyLinearImpulse(ulong entityID, ref Vector2 impulse, ref Vector2 point, bool wake);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Rigidbody2DComponent_ApplyLinearImpulseToCenter(ulong entityID, ref Vector2 impulse, bool wake);
         #endregion
 
         #region TextComponent
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static string TextComponent_GetText(ulong entityID);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static void TextComponent_SetText(ulong entityID, string text);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static void TextComponent_GetColor(ulong entityID, out Vector4 color);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static void TextComponent_SetColor(ulong entityID, ref Vector4 color);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static float TextComponent_GetKerning(ulong entityID);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static void TextComponent_SetKerning(ulong entityID, float kerning);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static float TextComponent_GetLineSpacing(ulong entityID);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static void TextComponent_SetLineSpacing(ulong entityID, float lineSpacing);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern string TextComponent_GetText(ulong entityID);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern void TextComponent_SetText(ulong entityID, string text);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern void TextComponent_GetColor(ulong entityID, out Vector4 color);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern void TextComponent_SetColor(ulong entityID, ref Vector4 color);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern float TextComponent_GetKerning(ulong entityID);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern void TextComponent_SetKerning(ulong entityID, float kerning);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern float TextComponent_GetLineSpacing(ulong entityID);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern void TextComponent_SetLineSpacing(ulong entityID, float lineSpacing);
         #endregion
 
 
         #region Rigidbody2DComponent
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsKeyDown(KeyCode keycode);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsKeyJustPressed(KeyCode keycode);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsKeyJustReleased(KeyCode keycode);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static void Input_GetMousePosition(out Vector2 position);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static void Input_GetWindowSize(out Vector2 size);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsMouseButtonDown(int button);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsKeyDown(KeyCode keycode);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsKeyJustPressed(KeyCode keycode);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsKeyJustReleased(KeyCode keycode);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern void Input_GetMousePosition(out Vector2 position);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern void Input_GetWindowSize(out Vector2 size);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsMouseButtonDown(int button);
         #endregion
 
         #region Gamepad
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsGamepadButtonPressed(byte button, int gamepadIndex);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsGamepadButtonJustPressed(byte button, int gamepadIndex);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsGamepadButtonJustReleased(byte button, int gamepadIndex);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static float Input_GetGamepadAxis(byte axis, int gamepadIndex);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static void Input_GetGamepadLeftStick(int gamepadIndex, out Vector2 stick);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static void Input_GetGamepadRightStick(int gamepadIndex, out Vector2 stick);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsGamepadConnected(int gamepadIndex);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static int Input_GetGamepadConnectedCount();
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsGamepadButtonPressed(byte button, int gamepadIndex);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsGamepadButtonJustPressed(byte button, int gamepadIndex);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsGamepadButtonJustReleased(byte button, int gamepadIndex);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern float Input_GetGamepadAxis(byte axis, int gamepadIndex);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern void Input_GetGamepadLeftStick(int gamepadIndex, out Vector2 stick);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern void Input_GetGamepadRightStick(int gamepadIndex, out Vector2 stick);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsGamepadConnected(int gamepadIndex);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern int Input_GetGamepadConnectedCount();
         #endregion
 
         #region InputActionMapping
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsActionPressed(string actionName);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsActionJustPressed(string actionName);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsActionJustReleased(string actionName);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static float Input_GetActionAxisValue(string actionName);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsActionPressed(string actionName);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsActionJustPressed(string actionName);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsActionJustReleased(string actionName);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern float Input_GetActionAxisValue(string actionName);
         #endregion
 
         #region AudioSourceComponent
