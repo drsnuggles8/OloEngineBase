@@ -21,6 +21,7 @@ function GameManager.OnUpdate(id, dt)
     if gameOver then
         -- Restart on R
         if Input.IsKeyJustPressed(KeyCode.R) then
+            GameState.paused = false
             Scene.ReloadCurrentScene()
         end
         return
@@ -68,6 +69,7 @@ function GameManager.OnUpdate(id, dt)
         local ac = entity_utils.get_component(playerID, "AbilityComponent")
         if ac and not ac:HasTag("State.Alive") then
             gameOver = true
+            GameState.paused = true
             Application.SetTimeScale(0.0)
             Log.Warn("[LuaGameManager] Player died — Game Over! Press R to restart")
             local overlayID = entity_utils.find_by_name("Death Overlay")
@@ -98,6 +100,7 @@ function GameManager.OnUpdate(id, dt)
     if allDead then
         victory = true
         gameOver = true
+        GameState.paused = true
         Application.SetTimeScale(0.0)
         Log.Info("[LuaGameManager] Victory! All enemies defeated. Press R to restart")
         local overlayID = entity_utils.find_by_name("Victory Overlay")

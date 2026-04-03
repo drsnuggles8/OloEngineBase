@@ -535,23 +535,25 @@ Entities:
       Scale: [0.5, 20, 1]
     SpriteRendererComponent:
       Color: [0.3, 0.3, 0.35, 1]
-  # ===== HUD Label =====
+  # ===== HUD Label (screen-space UI) =====
   - Entity: 2000000000000000011
     TagComponent:
       Tag: HUD
-    TransformComponent:
-      Translation: [-9, 9, 0.1]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    TextComponent:
-      TextString: "Lua Gameplay Test - WASD move | 1=Slash 2=Fireball 3=Heal | Esc=Pause"
+    UIRectTransformComponent:
+      AnchorMin: [0, 1]
+      AnchorMax: [0, 1]
+      AnchoredPosition: [10, -10]
+      SizeDelta: [800, 40]
+      Pivot: [0, 1]
+      Rotation: 0
+      Scale: [1, 1]
+    UITextComponent:
+      Text: "Lua Gameplay Test - WASD move | 1=Slash 2=Fireball 3=Heal | Esc=Pause"
+      FontSize: 18
       Color: [0.9, 0.9, 0.9, 1]
+      Alignment: 3
       Kerning: 0
       LineSpacing: 0
-      MaxWidth: 18
-      DropShadow: true
-      ShadowDistance: 1
-      ShadowColor: [0, 0, 0, 0.8]
   # ===== Pause Overlay (hidden until Esc pressed) =====
   - Entity: 2000000000000000012
     TagComponent:

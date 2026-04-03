@@ -51,6 +51,100 @@ namespace OloEngine
         extern sol::state* GetState();
     }
 
+    // ── Component registry for Lua entity_utils.get_component / has_component ──
+    //
+    // Each entry maps a component name string to a pair of type-erased lambdas
+    // that call Entity::HasComponent<T> and Entity::GetComponent<T>.
+    // Adding a new component requires a single REGISTER_COMPONENT line.
+
+    struct ComponentEntry
+    {
+        using HasFn = bool (*)(Entity&);
+        using GetFn = sol::object (*)(Entity&, sol::this_state);
+
+        HasFn Has = nullptr;
+        GetFn Get = nullptr;
+    };
+
+    template<typename T>
+    static constexpr ComponentEntry MakeEntry()
+    {
+        return {
+            [](Entity& e) -> bool
+            { return e.HasComponent<T>(); },
+            [](Entity& e, sol::this_state s) -> sol::object
+            {
+                if (e.HasComponent<T>())
+                    return sol::make_object(s, &e.GetComponent<T>());
+                return sol::make_object(s, sol::nil);
+            }
+        };
+    }
+
+    // clang-format off
+    static const std::unordered_map<std::string_view, ComponentEntry>& GetComponentRegistry()
+    {
+        static const std::unordered_map<std::string_view, ComponentEntry> s_Registry = {
+            #define REGISTER_COMPONENT(T) { #T, MakeEntry<T>() }
+            // Core
+            REGISTER_COMPONENT(TransformComponent),
+            REGISTER_COMPONENT(Rigidbody2DComponent),
+            REGISTER_COMPONENT(CameraComponent),
+            REGISTER_COMPONENT(SpriteRendererComponent),
+            REGISTER_COMPONENT(CircleRendererComponent),
+            REGISTER_COMPONENT(TextComponent),
+            REGISTER_COMPONENT(MeshComponent),
+            REGISTER_COMPONENT(MaterialComponent),
+            REGISTER_COMPONENT(BoxCollider2DComponent),
+            REGISTER_COMPONENT(CircleCollider2DComponent),
+            REGISTER_COMPONENT(AudioSourceComponent),
+            REGISTER_COMPONENT(AudioListenerComponent),
+            REGISTER_COMPONENT(ParticleSystemComponent),
+            REGISTER_COMPONENT(NavAgentComponent),
+            REGISTER_COMPONENT(AbilityComponent),
+            REGISTER_COMPONENT(DialogueComponent),
+            REGISTER_COMPONENT(NetworkIdentityComponent),
+            REGISTER_COMPONENT(IKTargetComponent),
+            REGISTER_COMPONENT(NameplateComponent),
+            REGISTER_COMPONENT(InventoryComponent),
+            REGISTER_COMPONENT(ItemPickupComponent),
+            REGISTER_COMPONENT(ItemContainerComponent),
+            REGISTER_COMPONENT(QuestJournalComponent),
+            REGISTER_COMPONENT(QuestGiverComponent),
+            // UI
+            REGISTER_COMPONENT(UICanvasComponent),
+            REGISTER_COMPONENT(UIRectTransformComponent),
+            REGISTER_COMPONENT(UIImageComponent),
+            REGISTER_COMPONENT(UIPanelComponent),
+            REGISTER_COMPONENT(UITextComponent),
+            REGISTER_COMPONENT(UIButtonComponent),
+            REGISTER_COMPONENT(UISliderComponent),
+            REGISTER_COMPONENT(UICheckboxComponent),
+            REGISTER_COMPONENT(UIProgressBarComponent),
+            REGISTER_COMPONENT(UIInputFieldComponent),
+            REGISTER_COMPONENT(UIScrollViewComponent),
+            REGISTER_COMPONENT(UIDropdownComponent),
+            REGISTER_COMPONENT(UIGridLayoutComponent),
+            REGISTER_COMPONENT(UIToggleComponent),
+            REGISTER_COMPONENT(UIWorldAnchorComponent),
+            // Lighting
+            REGISTER_COMPONENT(LightProbeComponent),
+            REGISTER_COMPONENT(LightProbeVolumeComponent),
+            // Streaming
+            REGISTER_COMPONENT(StreamingVolumeComponent),
+            // Animation
+            REGISTER_COMPONENT(AnimationGraphComponent),
+            REGISTER_COMPONENT(MorphTargetComponent),
+            // AI / Behavior
+            REGISTER_COMPONENT(NavMeshBoundsComponent),
+            REGISTER_COMPONENT(BehaviorTreeComponent),
+            REGISTER_COMPONENT(StateMachineComponent),
+            #undef REGISTER_COMPONENT
+        };
+        return s_Registry;
+    }
+    // clang-format on
+
     void LuaScriptGlue::RegisterAllTypes()
     {
         sol::state& lua = *Scripting::GetState();
@@ -1666,106 +1760,9 @@ namespace OloEngine
                 return sol::make_object(s, sol::nil);
             Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
 
-            // Dispatch to concrete component types
-            if (compName == "TransformComponent" && entity.HasComponent<TransformComponent>())
-                return sol::make_object(s, &entity.GetComponent<TransformComponent>());
-            if (compName == "Rigidbody2DComponent" && entity.HasComponent<Rigidbody2DComponent>())
-                return sol::make_object(s, &entity.GetComponent<Rigidbody2DComponent>());
-            if (compName == "CameraComponent" && entity.HasComponent<CameraComponent>())
-                return sol::make_object(s, &entity.GetComponent<CameraComponent>());
-            if (compName == "SpriteRendererComponent" && entity.HasComponent<SpriteRendererComponent>())
-                return sol::make_object(s, &entity.GetComponent<SpriteRendererComponent>());
-            if (compName == "CircleRendererComponent" && entity.HasComponent<CircleRendererComponent>())
-                return sol::make_object(s, &entity.GetComponent<CircleRendererComponent>());
-            if (compName == "TextComponent" && entity.HasComponent<TextComponent>())
-                return sol::make_object(s, &entity.GetComponent<TextComponent>());
-            if (compName == "MeshComponent" && entity.HasComponent<MeshComponent>())
-                return sol::make_object(s, &entity.GetComponent<MeshComponent>());
-            if (compName == "MaterialComponent" && entity.HasComponent<MaterialComponent>())
-                return sol::make_object(s, &entity.GetComponent<MaterialComponent>());
-            if (compName == "BoxCollider2DComponent" && entity.HasComponent<BoxCollider2DComponent>())
-                return sol::make_object(s, &entity.GetComponent<BoxCollider2DComponent>());
-            if (compName == "CircleCollider2DComponent" && entity.HasComponent<CircleCollider2DComponent>())
-                return sol::make_object(s, &entity.GetComponent<CircleCollider2DComponent>());
-            if (compName == "AudioSourceComponent" && entity.HasComponent<AudioSourceComponent>())
-                return sol::make_object(s, &entity.GetComponent<AudioSourceComponent>());
-            if (compName == "AudioListenerComponent" && entity.HasComponent<AudioListenerComponent>())
-                return sol::make_object(s, &entity.GetComponent<AudioListenerComponent>());
-            if (compName == "ParticleSystemComponent" && entity.HasComponent<ParticleSystemComponent>())
-                return sol::make_object(s, &entity.GetComponent<ParticleSystemComponent>());
-            if (compName == "NavAgentComponent" && entity.HasComponent<NavAgentComponent>())
-                return sol::make_object(s, &entity.GetComponent<NavAgentComponent>());
-            if (compName == "AbilityComponent" && entity.HasComponent<AbilityComponent>())
-                return sol::make_object(s, &entity.GetComponent<AbilityComponent>());
-            if (compName == "DialogueComponent" && entity.HasComponent<DialogueComponent>())
-                return sol::make_object(s, &entity.GetComponent<DialogueComponent>());
-            if (compName == "NetworkIdentityComponent" && entity.HasComponent<NetworkIdentityComponent>())
-                return sol::make_object(s, &entity.GetComponent<NetworkIdentityComponent>());
-            if (compName == "IKTargetComponent" && entity.HasComponent<IKTargetComponent>())
-                return sol::make_object(s, &entity.GetComponent<IKTargetComponent>());
-            if (compName == "NameplateComponent" && entity.HasComponent<NameplateComponent>())
-                return sol::make_object(s, &entity.GetComponent<NameplateComponent>());
-            if (compName == "InventoryComponent" && entity.HasComponent<InventoryComponent>())
-                return sol::make_object(s, &entity.GetComponent<InventoryComponent>());
-            if (compName == "ItemPickupComponent" && entity.HasComponent<ItemPickupComponent>())
-                return sol::make_object(s, &entity.GetComponent<ItemPickupComponent>());
-            if (compName == "ItemContainerComponent" && entity.HasComponent<ItemContainerComponent>())
-                return sol::make_object(s, &entity.GetComponent<ItemContainerComponent>());
-            if (compName == "QuestJournalComponent" && entity.HasComponent<QuestJournalComponent>())
-                return sol::make_object(s, &entity.GetComponent<QuestJournalComponent>());
-            if (compName == "QuestGiverComponent" && entity.HasComponent<QuestGiverComponent>())
-                return sol::make_object(s, &entity.GetComponent<QuestGiverComponent>());
-            // UI components
-            if (compName == "UICanvasComponent" && entity.HasComponent<UICanvasComponent>())
-                return sol::make_object(s, &entity.GetComponent<UICanvasComponent>());
-            if (compName == "UIRectTransformComponent" && entity.HasComponent<UIRectTransformComponent>())
-                return sol::make_object(s, &entity.GetComponent<UIRectTransformComponent>());
-            if (compName == "UIImageComponent" && entity.HasComponent<UIImageComponent>())
-                return sol::make_object(s, &entity.GetComponent<UIImageComponent>());
-            if (compName == "UIPanelComponent" && entity.HasComponent<UIPanelComponent>())
-                return sol::make_object(s, &entity.GetComponent<UIPanelComponent>());
-            if (compName == "UITextComponent" && entity.HasComponent<UITextComponent>())
-                return sol::make_object(s, &entity.GetComponent<UITextComponent>());
-            if (compName == "UIButtonComponent" && entity.HasComponent<UIButtonComponent>())
-                return sol::make_object(s, &entity.GetComponent<UIButtonComponent>());
-            if (compName == "UISliderComponent" && entity.HasComponent<UISliderComponent>())
-                return sol::make_object(s, &entity.GetComponent<UISliderComponent>());
-            if (compName == "UICheckboxComponent" && entity.HasComponent<UICheckboxComponent>())
-                return sol::make_object(s, &entity.GetComponent<UICheckboxComponent>());
-            if (compName == "UIProgressBarComponent" && entity.HasComponent<UIProgressBarComponent>())
-                return sol::make_object(s, &entity.GetComponent<UIProgressBarComponent>());
-            if (compName == "UIInputFieldComponent" && entity.HasComponent<UIInputFieldComponent>())
-                return sol::make_object(s, &entity.GetComponent<UIInputFieldComponent>());
-            if (compName == "UIScrollViewComponent" && entity.HasComponent<UIScrollViewComponent>())
-                return sol::make_object(s, &entity.GetComponent<UIScrollViewComponent>());
-            if (compName == "UIDropdownComponent" && entity.HasComponent<UIDropdownComponent>())
-                return sol::make_object(s, &entity.GetComponent<UIDropdownComponent>());
-            if (compName == "UIGridLayoutComponent" && entity.HasComponent<UIGridLayoutComponent>())
-                return sol::make_object(s, &entity.GetComponent<UIGridLayoutComponent>());
-            if (compName == "UIToggleComponent" && entity.HasComponent<UIToggleComponent>())
-                return sol::make_object(s, &entity.GetComponent<UIToggleComponent>());
-            if (compName == "UIWorldAnchorComponent" && entity.HasComponent<UIWorldAnchorComponent>())
-                return sol::make_object(s, &entity.GetComponent<UIWorldAnchorComponent>());
-            // Lighting
-            if (compName == "LightProbeComponent" && entity.HasComponent<LightProbeComponent>())
-                return sol::make_object(s, &entity.GetComponent<LightProbeComponent>());
-            if (compName == "LightProbeVolumeComponent" && entity.HasComponent<LightProbeVolumeComponent>())
-                return sol::make_object(s, &entity.GetComponent<LightProbeVolumeComponent>());
-            // Streaming
-            if (compName == "StreamingVolumeComponent" && entity.HasComponent<StreamingVolumeComponent>())
-                return sol::make_object(s, &entity.GetComponent<StreamingVolumeComponent>());
-            // Animation
-            if (compName == "AnimationGraphComponent" && entity.HasComponent<AnimationGraphComponent>())
-                return sol::make_object(s, &entity.GetComponent<AnimationGraphComponent>());
-            if (compName == "MorphTargetComponent" && entity.HasComponent<MorphTargetComponent>())
-                return sol::make_object(s, &entity.GetComponent<MorphTargetComponent>());
-            // AI / Behavior
-            if (compName == "NavMeshBoundsComponent" && entity.HasComponent<NavMeshBoundsComponent>())
-                return sol::make_object(s, &entity.GetComponent<NavMeshBoundsComponent>());
-            if (compName == "BehaviorTreeComponent" && entity.HasComponent<BehaviorTreeComponent>())
-                return sol::make_object(s, &entity.GetComponent<BehaviorTreeComponent>());
-            if (compName == "StateMachineComponent" && entity.HasComponent<StateMachineComponent>())
-                return sol::make_object(s, &entity.GetComponent<StateMachineComponent>());
+            auto const& registry = GetComponentRegistry();
+            if (auto const it = registry.find(compName); it != registry.end())
+                return it->second.Get(entity, s);
 
             OLO_CORE_WARN("[Lua] get_component: unknown or missing component '{}' on entity {}", compName, entityID);
             return sol::make_object(s, sol::nil);
@@ -1782,105 +1779,9 @@ namespace OloEngine
                 return false;
             Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
 
-            if (compName == "TransformComponent")
-                return entity.HasComponent<TransformComponent>();
-            if (compName == "Rigidbody2DComponent")
-                return entity.HasComponent<Rigidbody2DComponent>();
-            if (compName == "CameraComponent")
-                return entity.HasComponent<CameraComponent>();
-            if (compName == "SpriteRendererComponent")
-                return entity.HasComponent<SpriteRendererComponent>();
-            if (compName == "CircleRendererComponent")
-                return entity.HasComponent<CircleRendererComponent>();
-            if (compName == "TextComponent")
-                return entity.HasComponent<TextComponent>();
-            if (compName == "MeshComponent")
-                return entity.HasComponent<MeshComponent>();
-            if (compName == "MaterialComponent")
-                return entity.HasComponent<MaterialComponent>();
-            if (compName == "BoxCollider2DComponent")
-                return entity.HasComponent<BoxCollider2DComponent>();
-            if (compName == "CircleCollider2DComponent")
-                return entity.HasComponent<CircleCollider2DComponent>();
-            if (compName == "AudioSourceComponent")
-                return entity.HasComponent<AudioSourceComponent>();
-            if (compName == "AudioListenerComponent")
-                return entity.HasComponent<AudioListenerComponent>();
-            if (compName == "ParticleSystemComponent")
-                return entity.HasComponent<ParticleSystemComponent>();
-            if (compName == "NavAgentComponent")
-                return entity.HasComponent<NavAgentComponent>();
-            if (compName == "AbilityComponent")
-                return entity.HasComponent<AbilityComponent>();
-            if (compName == "DialogueComponent")
-                return entity.HasComponent<DialogueComponent>();
-            if (compName == "NetworkIdentityComponent")
-                return entity.HasComponent<NetworkIdentityComponent>();
-            if (compName == "IKTargetComponent")
-                return entity.HasComponent<IKTargetComponent>();
-            if (compName == "NameplateComponent")
-                return entity.HasComponent<NameplateComponent>();
-            if (compName == "InventoryComponent")
-                return entity.HasComponent<InventoryComponent>();
-            if (compName == "ItemPickupComponent")
-                return entity.HasComponent<ItemPickupComponent>();
-            if (compName == "ItemContainerComponent")
-                return entity.HasComponent<ItemContainerComponent>();
-            if (compName == "QuestJournalComponent")
-                return entity.HasComponent<QuestJournalComponent>();
-            if (compName == "QuestGiverComponent")
-                return entity.HasComponent<QuestGiverComponent>();
-            // UI components
-            if (compName == "UICanvasComponent")
-                return entity.HasComponent<UICanvasComponent>();
-            if (compName == "UIRectTransformComponent")
-                return entity.HasComponent<UIRectTransformComponent>();
-            if (compName == "UIImageComponent")
-                return entity.HasComponent<UIImageComponent>();
-            if (compName == "UIPanelComponent")
-                return entity.HasComponent<UIPanelComponent>();
-            if (compName == "UITextComponent")
-                return entity.HasComponent<UITextComponent>();
-            if (compName == "UIButtonComponent")
-                return entity.HasComponent<UIButtonComponent>();
-            if (compName == "UISliderComponent")
-                return entity.HasComponent<UISliderComponent>();
-            if (compName == "UICheckboxComponent")
-                return entity.HasComponent<UICheckboxComponent>();
-            if (compName == "UIProgressBarComponent")
-                return entity.HasComponent<UIProgressBarComponent>();
-            if (compName == "UIInputFieldComponent")
-                return entity.HasComponent<UIInputFieldComponent>();
-            if (compName == "UIScrollViewComponent")
-                return entity.HasComponent<UIScrollViewComponent>();
-            if (compName == "UIDropdownComponent")
-                return entity.HasComponent<UIDropdownComponent>();
-            if (compName == "UIGridLayoutComponent")
-                return entity.HasComponent<UIGridLayoutComponent>();
-            if (compName == "UIToggleComponent")
-                return entity.HasComponent<UIToggleComponent>();
-            if (compName == "UIWorldAnchorComponent")
-                return entity.HasComponent<UIWorldAnchorComponent>();
-            // Lighting
-            if (compName == "LightProbeComponent")
-                return entity.HasComponent<LightProbeComponent>();
-            if (compName == "LightProbeVolumeComponent")
-                return entity.HasComponent<LightProbeVolumeComponent>();
-            // Streaming
-            if (compName == "StreamingVolumeComponent")
-                return entity.HasComponent<StreamingVolumeComponent>();
-            // Animation
-            if (compName == "AnimationGraphComponent")
-                return entity.HasComponent<AnimationGraphComponent>();
-            if (compName == "MorphTargetComponent")
-                return entity.HasComponent<MorphTargetComponent>();
-            // AI / Behavior
-            if (compName == "NavMeshBoundsComponent")
-                return entity.HasComponent<NavMeshBoundsComponent>();
-            if (compName == "BehaviorTreeComponent")
-                return entity.HasComponent<BehaviorTreeComponent>();
-            if (compName == "StateMachineComponent")
-                return entity.HasComponent<StateMachineComponent>();
+            auto const& registry = GetComponentRegistry();
+            if (auto const it = registry.find(compName); it != registry.end())
+                return it->second.Has(entity);
             return false;
         };
 

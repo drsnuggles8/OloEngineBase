@@ -5,14 +5,7 @@
 local PlayerController = {}
 
 local moveSpeed = 5.0
-local myID = nil
 local alive = true
-
--- VFX timers
-local slashVfxTimer = 0.0
-local fireballVfxTimer = 0.0
-local healVfxTimer = 0.0
-local vfxDuration = 0.5
 
 -- Damage flash
 local flashTimer = 0.0
@@ -25,7 +18,6 @@ local FindNearestEnemy
 local TriggerFlash
 
 function PlayerController.OnCreate(id)
-    myID = id
     local name = entity_utils.get_name(id) or "Player"
     Log.Info("[LuaPlayerController] OnCreate — " .. name)
 
