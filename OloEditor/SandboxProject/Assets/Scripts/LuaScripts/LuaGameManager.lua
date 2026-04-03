@@ -6,14 +6,15 @@ local GameManager = {}
 
 local paused = false
 local gameOver = false
-local victory = false
 
 -- Shared game state table for other scripts to check
 GameState = GameState or {}
 GameState.paused = false
+GameState.victory = false
 
 function GameManager.OnCreate(id)
     GameState.paused = false
+    GameState.victory = false
     Log.Info("[LuaGameManager] OnCreate — Game started")
 end
 
@@ -88,17 +89,27 @@ function GameManager.OnUpdate(id, dt)
     local enemies = { "Goblin", "Fire Mage" }
     for _, name in ipairs(enemies) do
         local enemyID = entity_utils.find_by_name(name)
-        if enemyID then
-            local ac = entity_utils.get_component(enemyID, "AbilityComponent")
-            if ac and ac:HasTag("State.Alive") then
-                allDead = false
-                break
-            end
+        if not enemyID then
+            -- Entity not found — cannot confirm dead, treat as alive
+            allDead = false
+            Log.Warn("[LuaGameManager] Enemy '" .. name .. "' entity not found")
+            break
+        end
+        local ac = entity_utils.get_component(enemyID, "AbilityComponent")
+        if not ac then
+            -- Component missing — cannot confirm dead, treat as alive
+            allDead = false
+            Log.Warn("[LuaGameManager] Enemy '" .. name .. "' missing AbilityComponent")
+            break
+        end
+        if ac:HasTag("State.Alive") then
+            allDead = false
+            break
         end
     end
 
     if allDead then
-        victory = true
+        GameState.victory = true
         gameOver = true
         GameState.paused = true
         Application.SetTimeScale(0.0)
@@ -114,9 +125,10 @@ function GameManager.OnUpdate(id, dt)
 end
 
 function GameManager.OnDestroy(id)
-    -- Restore time scale and clear global pause flag on exit
+    -- Restore time scale and clear global state flags on exit
     Application.SetTimeScale(1.0)
     GameState.paused = false
+    GameState.victory = false
     Log.Info("[LuaGameManager] OnDestroy — cleaning up")
 end
 

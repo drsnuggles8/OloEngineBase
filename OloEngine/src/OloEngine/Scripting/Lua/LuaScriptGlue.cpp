@@ -2040,6 +2040,10 @@ namespace OloEngine
             {
                 v = glm::vec3(1.0f, 0.0f, 0.0f);
             }
+            if (auto const len = glm::length(v); len > 1e-6f)
+                v /= len;
+            else
+                v = glm::vec3(1.0f, 0.0f, 0.0f);
             if (Scene* scene = ScriptEngine::GetSceneContext())
                 scene->GetWindSettings().Direction = v;
         };
