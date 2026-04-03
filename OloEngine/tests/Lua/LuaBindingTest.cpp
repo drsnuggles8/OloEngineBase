@@ -474,6 +474,35 @@ class LuaBindingTest : public ::testing::Test
                                               "questMarkerIcon", &QuestGiverComponent::QuestMarkerIcon,
                                               "offeredQuestIDs", &QuestGiverComponent::OfferedQuestIDs,
                                               "turnInQuestIDs", &QuestGiverComponent::TurnInQuestIDs);
+
+        // --- MaterialComponent ---
+        lua.new_usertype<MaterialComponent>("MaterialComponent",
+                                            "shaderGraphHandle", sol::property([](const MaterialComponent& mc) -> u64
+                                                                               { return static_cast<u64>(mc.m_ShaderGraphHandle); }, [](MaterialComponent& mc, u64 handle)
+                                                                               { mc.m_ShaderGraphHandle = handle; }),
+                                            "albedoColor", sol::property([](const MaterialComponent& mc) -> glm::vec4
+                                                                         { return mc.m_Material.GetBaseColorFactor(); }, [](MaterialComponent& mc, const glm::vec4& color)
+                                                                         { mc.m_Material.SetBaseColorFactor(color); }));
+
+        // --- QuestJournalComponent ---
+        lua.new_usertype<QuestJournalComponent>("QuestJournalComponent", "SetPlayerLevel", [](QuestJournalComponent& c, i32 lv)
+                                                { if (lv >= 0) c.Journal.SetPlayerLevel(lv); }, "GetPlayerLevel", [](const QuestJournalComponent& c) -> i32
+                                                { return c.Journal.GetPlayerLevel(); }, "SetReputation", [](QuestJournalComponent& c, const std::string& fid, i32 v)
+                                                { c.Journal.SetReputation(fid, v); }, "GetReputation", [](const QuestJournalComponent& c, const std::string& fid) -> i32
+                                                { return c.Journal.GetReputation(fid); }, "SetItemCount", [](QuestJournalComponent& c, const std::string& id, i32 cnt)
+                                                { if (cnt >= 0) c.Journal.SetItemCount(id, cnt); }, "GetItemCount", [](const QuestJournalComponent& c, const std::string& id) -> i32
+                                                { return c.Journal.GetItemCount(id); }, "SetStat", [](QuestJournalComponent& c, const std::string& name, i32 v)
+                                                { c.Journal.SetStat(name, v); }, "GetStat", [](const QuestJournalComponent& c, const std::string& name) -> i32
+                                                { return c.Journal.GetStat(name); }, "SetPlayerClass", [](QuestJournalComponent& c, const std::string& cls)
+                                                { c.Journal.SetPlayerClass(cls); }, "GetPlayerClass", [](const QuestJournalComponent& c) -> std::string
+                                                { return c.Journal.GetPlayerClass(); }, "SetPlayerFaction", [](QuestJournalComponent& c, const std::string& f)
+                                                { c.Journal.SetPlayerFaction(f); }, "GetPlayerFaction", [](const QuestJournalComponent& c) -> std::string
+                                                { return c.Journal.GetPlayerFaction(); }, "HasTag", [](const QuestJournalComponent& c, const std::string& tag) -> bool
+                                                { return c.Journal.HasTag(tag); }, "AddTag", [](QuestJournalComponent& c, const std::string& tag)
+                                                { c.Journal.AddTag(tag); });
+
+        // --- Log (global table) ---
+        lua.create_named_table("Log", "Trace", [](const std::string&) {}, "Info", [](const std::string&) {}, "Warn", [](const std::string&) {}, "Error", [](const std::string&) {});
     }
 };
 
@@ -1422,4 +1451,154 @@ TEST_F(LuaBindingTest, QuestGiverComponent_PropertyRoundTrip)
 
     lua.script("qg.questMarkerIcon = '!'");
     EXPECT_EQ(qg.QuestMarkerIcon, "!");
+}
+
+// =============================================================================
+// MaterialComponent
+// =============================================================================
+
+TEST_F(LuaBindingTest, MaterialComponent_AlbedoColorRoundTrip)
+{
+    MaterialComponent mc;
+    lua["mc"] = &mc;
+
+    lua.script("mc.albedoColor = vec4.new(0.2, 0.4, 0.6, 1.0)");
+    auto color = mc.m_Material.GetBaseColorFactor();
+    EXPECT_FLOAT_EQ(color.r, 0.2f);
+    EXPECT_FLOAT_EQ(color.g, 0.4f);
+    EXPECT_FLOAT_EQ(color.b, 0.6f);
+    EXPECT_FLOAT_EQ(color.a, 1.0f);
+
+    auto result = lua.script("local c = mc.albedoColor; return c.x, c.y, c.z, c.w");
+    EXPECT_FLOAT_EQ(result.get<f32>(0), 0.2f);
+    EXPECT_FLOAT_EQ(result.get<f32>(1), 0.4f);
+    EXPECT_FLOAT_EQ(result.get<f32>(2), 0.6f);
+    EXPECT_FLOAT_EQ(result.get<f32>(3), 1.0f);
+}
+
+TEST_F(LuaBindingTest, MaterialComponent_ShaderGraphHandleRoundTrip)
+{
+    MaterialComponent mc;
+    lua["mc"] = &mc;
+
+    lua.script("mc.shaderGraphHandle = 42");
+    EXPECT_EQ(static_cast<u64>(mc.m_ShaderGraphHandle), 42u);
+
+    auto result = lua.script("return mc.shaderGraphHandle");
+    EXPECT_EQ(result.get<u64>(), 42u);
+}
+
+// =============================================================================
+// QuestJournalComponent
+// =============================================================================
+
+TEST_F(LuaBindingTest, QuestJournalComponent_ItemCountRoundTrip)
+{
+    QuestJournalComponent qj;
+    lua["qj"] = &qj;
+
+    lua.script("qj:SetItemCount('sword', 5)");
+    EXPECT_EQ(qj.Journal.GetItemCount("sword"), 5);
+
+    auto result = lua.script("return qj:GetItemCount('sword')");
+    EXPECT_EQ(result.get<i32>(), 5);
+}
+
+TEST_F(LuaBindingTest, QuestJournalComponent_StatRoundTrip)
+{
+    QuestJournalComponent qj;
+    lua["qj"] = &qj;
+
+    lua.script("qj:SetStat('kills', 10)");
+    EXPECT_EQ(qj.Journal.GetStat("kills"), 10);
+
+    auto result = lua.script("return qj:GetStat('kills')");
+    EXPECT_EQ(result.get<i32>(), 10);
+}
+
+TEST_F(LuaBindingTest, QuestJournalComponent_PlayerClassRoundTrip)
+{
+    QuestJournalComponent qj;
+    lua["qj"] = &qj;
+
+    lua.script("qj:SetPlayerClass('Warrior')");
+    EXPECT_EQ(qj.Journal.GetPlayerClass(), "Warrior");
+
+    auto result = lua.script("return qj:GetPlayerClass()");
+    EXPECT_EQ(result.get<std::string>(), "Warrior");
+}
+
+TEST_F(LuaBindingTest, QuestJournalComponent_PlayerFactionRoundTrip)
+{
+    QuestJournalComponent qj;
+    lua["qj"] = &qj;
+
+    lua.script("qj:SetPlayerFaction('Alliance')");
+    EXPECT_EQ(qj.Journal.GetPlayerFaction(), "Alliance");
+
+    auto result = lua.script("return qj:GetPlayerFaction()");
+    EXPECT_EQ(result.get<std::string>(), "Alliance");
+}
+
+TEST_F(LuaBindingTest, QuestJournalComponent_TagRoundTrip)
+{
+    QuestJournalComponent qj;
+    lua["qj"] = &qj;
+
+    auto r1 = lua.script("return qj:HasTag('visited_town')");
+    EXPECT_FALSE(r1.get<bool>());
+
+    lua.script("qj:AddTag('visited_town')");
+    auto r2 = lua.script("return qj:HasTag('visited_town')");
+    EXPECT_TRUE(r2.get<bool>());
+}
+
+TEST_F(LuaBindingTest, QuestJournalComponent_PlayerLevelRoundTrip)
+{
+    QuestJournalComponent qj;
+    lua["qj"] = &qj;
+
+    lua.script("qj:SetPlayerLevel(15)");
+    EXPECT_EQ(qj.Journal.GetPlayerLevel(), 15);
+
+    auto result = lua.script("return qj:GetPlayerLevel()");
+    EXPECT_EQ(result.get<i32>(), 15);
+}
+
+TEST_F(LuaBindingTest, QuestJournalComponent_ReputationRoundTrip)
+{
+    QuestJournalComponent qj;
+    lua["qj"] = &qj;
+
+    lua.script("qj:SetReputation('Stormwind', 500)");
+    EXPECT_EQ(qj.Journal.GetReputation("Stormwind"), 500);
+
+    auto result = lua.script("return qj:GetReputation('Stormwind')");
+    EXPECT_EQ(result.get<i32>(), 500);
+}
+
+// =============================================================================
+// Log table
+// =============================================================================
+
+TEST_F(LuaBindingTest, LogTable_FunctionsExist)
+{
+    // Verify the Log table exists and all four entries are callable
+    auto r1 = lua.script("return type(Log)");
+    EXPECT_EQ(r1.get<std::string>(), "table");
+
+    // sol2 wraps C++ lambdas as userdata, so check they're non-nil and callable
+    EXPECT_NO_THROW(lua.script("assert(Log.Trace ~= nil)"));
+    EXPECT_NO_THROW(lua.script("assert(Log.Info ~= nil)"));
+    EXPECT_NO_THROW(lua.script("assert(Log.Warn ~= nil)"));
+    EXPECT_NO_THROW(lua.script("assert(Log.Error ~= nil)"));
+}
+
+TEST_F(LuaBindingTest, LogTable_CallsDoNotThrow)
+{
+    // Verify calling each log function doesn't throw
+    EXPECT_NO_THROW(lua.script("Log.Trace('test trace')"));
+    EXPECT_NO_THROW(lua.script("Log.Info('test info')"));
+    EXPECT_NO_THROW(lua.script("Log.Warn('test warn')"));
+    EXPECT_NO_THROW(lua.script("Log.Error('test error')"));
 }

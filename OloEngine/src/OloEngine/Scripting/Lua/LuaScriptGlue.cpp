@@ -39,6 +39,8 @@
 #include "OloEngine/Audio/AudioEvents/CommandID.h"
 #include "OloEngine/Scene/Streaming/SceneStreamer.h"
 
+#include "box2d/box2d.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -79,11 +81,13 @@ namespace OloEngine
                                              "rotation", sol::property(&TransformComponent::GetRotationEuler, &TransformComponent::SetRotationEuler));
 
         // --- Rigidbody2DComponent ---
-        lua.new_usertype<Rigidbody2DComponent>("Rigidbody2DComponent",
-                                               "type", &Rigidbody2DComponent::Type,
-                                               "fixedRotation", &Rigidbody2DComponent::FixedRotation,
-                                               "linearVelocity", &Rigidbody2DComponent::LinearVelocity,
-                                               "angularVelocity", &Rigidbody2DComponent::AngularVelocity);
+        lua.new_usertype<Rigidbody2DComponent>("Rigidbody2DComponent", "type", &Rigidbody2DComponent::Type, "fixedRotation", &Rigidbody2DComponent::FixedRotation, "linearVelocity", &Rigidbody2DComponent::LinearVelocity, "angularVelocity", &Rigidbody2DComponent::AngularVelocity, "applyLinearImpulse", [](Rigidbody2DComponent& rb, const glm::vec2& impulse, const glm::vec2& point, sol::optional<bool> wake)
+                                               {
+                    if (b2Body_IsValid(rb.RuntimeBody))
+                        b2Body_ApplyLinearImpulse(rb.RuntimeBody, b2Vec2(impulse.x, impulse.y), b2Vec2(point.x, point.y), wake.value_or(true)); }, "applyLinearImpulseToCenter", [](Rigidbody2DComponent& rb, const glm::vec2& impulse, sol::optional<bool> wake)
+                                               {
+                    if (b2Body_IsValid(rb.RuntimeBody))
+                        b2Body_ApplyLinearImpulseToCenter(rb.RuntimeBody, b2Vec2(impulse.x, impulse.y), wake.value_or(true)); });
 
         // --- BoxCollider2DComponent ---
         lua.new_usertype<BoxCollider2DComponent>("BoxCollider2DComponent",
@@ -748,7 +752,13 @@ namespace OloEngine
                                                         mc.m_ShaderGraphHandle = 0;
                                                         mc.m_Material.SetShader(nullptr);
                                                     }
-                                                }));
+                                                }),
+                                            "albedoColor",
+                                            sol::property(
+                                                [](const MaterialComponent& mc) -> glm::vec4
+                                                { return mc.m_Material.GetBaseColorFactor(); },
+                                                [](MaterialComponent& mc, const glm::vec4& color)
+                                                { mc.m_Material.SetBaseColorFactor(color); }));
 
         // --- NavAgentComponent ---
         lua.new_usertype<NavAgentComponent>("NavAgentComponent",
@@ -1067,16 +1077,31 @@ namespace OloEngine
                                                 { return comp.Journal.GetPlayerLevel(); }, "SetReputation", [](QuestJournalComponent& comp, const std::string& factionId, i32 value)
                                                 { comp.Journal.SetReputation(factionId, value); }, "GetReputation", [](const QuestJournalComponent& comp, const std::string& factionId) -> i32
                                                 { return comp.Journal.GetReputation(factionId); }, "SetItemCount", [](QuestJournalComponent& comp, const std::string& itemId, i32 count)
-                                                { if (count < 0) return; comp.Journal.SetItemCount(itemId, count); }, "SetStat", [](QuestJournalComponent& comp, const std::string& statName, i32 value)
-                                                { comp.Journal.SetStat(statName, value); }, "SetPlayerClass", [](QuestJournalComponent& comp, const std::string& className)
-                                                { comp.Journal.SetPlayerClass(className); }, "SetPlayerFaction", [](QuestJournalComponent& comp, const std::string& factionName)
-                                                { comp.Journal.SetPlayerFaction(factionName); });
+                                                { if (count < 0) return; comp.Journal.SetItemCount(itemId, count); }, "GetItemCount", [](const QuestJournalComponent& comp, const std::string& itemId) -> i32
+                                                { return comp.Journal.GetItemCount(itemId); }, "SetStat", [](QuestJournalComponent& comp, const std::string& statName, i32 value)
+                                                { comp.Journal.SetStat(statName, value); }, "GetStat", [](const QuestJournalComponent& comp, const std::string& statName) -> i32
+                                                { return comp.Journal.GetStat(statName); }, "SetPlayerClass", [](QuestJournalComponent& comp, const std::string& className)
+                                                { comp.Journal.SetPlayerClass(className); }, "GetPlayerClass", [](const QuestJournalComponent& comp) -> std::string
+                                                { return comp.Journal.GetPlayerClass(); }, "SetPlayerFaction", [](QuestJournalComponent& comp, const std::string& factionName)
+                                                { comp.Journal.SetPlayerFaction(factionName); }, "GetPlayerFaction", [](const QuestJournalComponent& comp) -> std::string
+                                                { return comp.Journal.GetPlayerFaction(); });
 
         // --- QuestGiverComponent ---
         lua.new_usertype<QuestGiverComponent>("QuestGiverComponent",
                                               "questMarkerIcon", &QuestGiverComponent::QuestMarkerIcon,
                                               "offeredQuestIDs", &QuestGiverComponent::OfferedQuestIDs,
                                               "turnInQuestIDs", &QuestGiverComponent::TurnInQuestIDs);
+
+        // --- Log (global table) ---
+        auto logTable = lua.create_named_table("Log");
+        logTable["Trace"] = [](const std::string& msg)
+        { OLO_TRACE("{}", msg); };
+        logTable["Info"] = [](const std::string& msg)
+        { OLO_INFO("{}", msg); };
+        logTable["Warn"] = [](const std::string& msg)
+        { OLO_WARN("{}", msg); };
+        logTable["Error"] = [](const std::string& msg)
+        { OLO_ERROR("{}", msg); };
 
         // --- Entity utilities ---
         auto entityUtilsTable = lua.create_named_table("entity_utils");
@@ -1385,6 +1410,77 @@ namespace OloEngine
                 if (auto* streamer = scene->GetSceneStreamer())
                     streamer->UnloadRegion(UUID(regionId));
             }
+        };
+
+        // --- Scene wind access (mirrors C# Scene_GetWind*/SetWind*) ---
+        sceneTable["GetWindEnabled"] = []() -> bool
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            return scene && scene->GetWindSettings().Enabled;
+        };
+        sceneTable["SetWindEnabled"] = [](bool v)
+        {
+            if (Scene* scene = ScriptEngine::GetSceneContext())
+                scene->GetWindSettings().Enabled = v;
+        };
+        sceneTable["GetWindDirection"] = []() -> glm::vec3
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            return scene ? scene->GetWindSettings().Direction : glm::vec3(1.0f, 0.0f, 0.0f);
+        };
+        sceneTable["SetWindDirection"] = [](const glm::vec3& v)
+        {
+            if (Scene* scene = ScriptEngine::GetSceneContext())
+                scene->GetWindSettings().Direction = v;
+        };
+        sceneTable["GetWindSpeed"] = []() -> f32
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            return scene ? scene->GetWindSettings().Speed : 0.0f;
+        };
+        sceneTable["SetWindSpeed"] = [](f32 v)
+        {
+            if (Scene* scene = ScriptEngine::GetSceneContext())
+                scene->GetWindSettings().Speed = v;
+        };
+        sceneTable["GetWindGustStrength"] = []() -> f32
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            return scene ? scene->GetWindSettings().GustStrength : 0.0f;
+        };
+        sceneTable["SetWindGustStrength"] = [](f32 v)
+        {
+            if (Scene* scene = ScriptEngine::GetSceneContext())
+                scene->GetWindSettings().GustStrength = v;
+        };
+        sceneTable["GetWindTurbulenceIntensity"] = []() -> f32
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            return scene ? scene->GetWindSettings().TurbulenceIntensity : 0.0f;
+        };
+        sceneTable["SetWindTurbulenceIntensity"] = [](f32 v)
+        {
+            if (Scene* scene = ScriptEngine::GetSceneContext())
+                scene->GetWindSettings().TurbulenceIntensity = v;
+        };
+
+        // --- Scene streaming toggle ---
+        sceneTable["GetStreamingEnabled"] = []() -> bool
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            return scene && scene->GetStreamingSettings().Enabled;
+        };
+        sceneTable["SetStreamingEnabled"] = [](bool v)
+        {
+            if (Scene* scene = ScriptEngine::GetSceneContext())
+                scene->GetStreamingSettings().Enabled = v;
+        };
+
+        // --- Scene reload ---
+        sceneTable["ReloadCurrentScene"] = []()
+        {
+            if (Scene* scene = ScriptEngine::GetSceneContext())
+                scene->SetPendingReload(true);
         };
     }
 } // namespace OloEngine
