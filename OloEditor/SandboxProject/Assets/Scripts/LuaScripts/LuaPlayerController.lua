@@ -27,10 +27,13 @@ function PlayerController.OnCreate(id)
     local name = entity_utils.get_name(id) or "Player"
     Log.Info("[LuaPlayerController] OnCreate — " .. name)
 
-    -- Initialize ability attributes if present
+    -- Initialize ability attributes only if not already serialized
     local abilities = entity_utils.get_component(id, "AbilityComponent")
     if abilities then
-        abilities:InitDefaultRPG(100.0, 50.0, 15.0, 5.0)
+        local hp = abilities:GetCurrentAttribute("Health")
+        if hp <= 0.0 then
+            abilities:InitDefaultRPG(100.0, 50.0, 15.0, 5.0)
+        end
         abilities:AddTag("State.Alive")
         lastHealth = abilities:GetCurrentAttribute("Health")
         Log.Info("[LuaPlayerController] Abilities initialized — HP: " .. tostring(lastHealth))

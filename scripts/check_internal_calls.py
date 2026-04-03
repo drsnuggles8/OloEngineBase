@@ -52,9 +52,11 @@ def main() -> int:
     cpp_names = extract_cpp_names(CPP_FILE)
 
     if not cs_names:
-        print("WARNING: No InternalCall declarations found in C# file.", file=sys.stderr)
+        print("ERROR: No InternalCall declarations found in C# file.", file=sys.stderr)
+        return 1
     if not cpp_names:
-        print("WARNING: No OLO_ADD_INTERNAL_CALL registrations found in C++ file.", file=sys.stderr)
+        print("ERROR: No OLO_ADD_INTERNAL_CALL registrations found in C++ file.", file=sys.stderr)
+        return 1
 
     only_cs = sorted(cs_names - cpp_names)
     only_cpp = sorted(cpp_names - cs_names)

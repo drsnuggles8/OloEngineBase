@@ -544,6 +544,12 @@ namespace OloEngine
         }
 
         ScriptEngine::OnRuntimeStop();
+
+        // Dispatch OnDestroy to all Lua-scripted entities before clearing instances
+        for (const auto luaView = m_Registry.view<LuaScriptComponent>(); const auto e : luaView)
+        {
+            LuaScriptEngine::OnDestroyEntity({ e, this });
+        }
         LuaScriptEngine::OnRuntimeStop();
 
         // Shut down dialogue system

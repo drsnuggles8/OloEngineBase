@@ -21,7 +21,11 @@ function GoblinAI.OnCreate(id)
 
     local abilities = entity_utils.get_component(id, "AbilityComponent")
     if abilities then
-        abilities:InitDefaultRPG(60.0, 0.0, 10.0, 3.0)
+        -- Only init defaults if not already serialized (Health == 0 means no data)
+        local hp = abilities:GetCurrentAttribute("Health")
+        if hp <= 0.0 then
+            abilities:InitDefaultRPG(60.0, 0.0, 10.0, 3.0)
+        end
         abilities:AddTag("State.Alive")
         lastHealth = abilities:GetCurrentAttribute("Health")
     end

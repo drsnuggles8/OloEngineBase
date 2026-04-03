@@ -510,6 +510,8 @@ namespace OloEngine
 
         LuaScriptComponent() = default;
         LuaScriptComponent(const LuaScriptComponent&) = default;
+
+        auto operator==(const LuaScriptComponent&) const -> bool = default;
     };
 
     struct AudioSourceComponent

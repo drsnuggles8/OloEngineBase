@@ -534,6 +534,44 @@ class LuaBindingTest : public ::testing::Test
             mouseTable["Right"] = static_cast<u16>(1);
             mouseTable["Middle"] = static_cast<u16>(2);
         }
+
+        // --- Stub global tables (match production structure for smoke tests) ---
+        auto euTable = lua.create_named_table("entity_utils");
+        euTable["get_component"] = [](u64, const std::string&) -> sol::object
+        { return sol::nil; };
+        euTable["has_component"] = [](u64, const std::string&) -> bool
+        { return false; };
+        euTable["find_by_name"] = [](const std::string&) -> sol::object
+        { return sol::nil; };
+        euTable["get_translation"] = [](u64) -> sol::object
+        { return sol::nil; };
+        euTable["set_translation"] = [](u64, const glm::vec3&) {};
+        euTable["get_rotation"] = [](u64) -> sol::object
+        { return sol::nil; };
+        euTable["set_rotation"] = [](u64, const glm::vec3&) {};
+        euTable["get_scale"] = [](u64) -> sol::object
+        { return sol::nil; };
+        euTable["set_scale"] = [](u64, const glm::vec3&) {};
+        euTable["get_name"] = [](u64) -> sol::object
+        { return sol::nil; };
+
+        auto appTable = lua.create_named_table("Application");
+        appTable["GetTimeScale"] = []() -> f32
+        { return 1.0f; };
+        appTable["SetTimeScale"] = [](f32) {};
+        appTable["QuitGame"] = []() {};
+
+        auto sceneTable = lua.create_named_table("Scene");
+        sceneTable["ReloadCurrentScene"] = []() {};
+        sceneTable["GetWindEnabled"] = []() -> bool
+        { return false; };
+        sceneTable["SetWindEnabled"] = [](bool) {};
+
+        auto dmgTable = lua.create_named_table("Damage");
+        dmgTable["TryActivateAbilityOnTarget"] = [](u64, const std::string&, u64) -> bool
+        { return false; };
+        dmgTable["TryActivateAbility"] = [](u64, const std::string&) -> bool
+        { return false; };
     }
 };
 
@@ -1706,4 +1744,72 @@ TEST_F(LuaBindingTest, MouseButton_Values)
     EXPECT_EQ(rRight.get<u16>(), 1);
     auto rMiddle = lua.script("return MouseButton.Middle");
     EXPECT_EQ(rMiddle.get<u16>(), 2);
+}
+
+// =============================================================================
+// Global table smoke tests (entity_utils, Application, Scene, Damage)
+// =============================================================================
+
+TEST_F(LuaBindingTest, EntityUtils_TableExists)
+{
+    auto r = lua.script("return type(entity_utils)");
+    EXPECT_EQ(r.get<std::string>(), "table");
+}
+
+TEST_F(LuaBindingTest, EntityUtils_HasExpectedFunctions)
+{
+    auto r = lua.script(R"(
+        return type(entity_utils.get_component),
+               type(entity_utils.has_component),
+               type(entity_utils.find_by_name),
+               type(entity_utils.get_translation),
+               type(entity_utils.set_translation),
+               type(entity_utils.get_name)
+    )");
+    EXPECT_EQ(r.get<std::string>(0), "function");
+    EXPECT_EQ(r.get<std::string>(1), "function");
+    EXPECT_EQ(r.get<std::string>(2), "function");
+    EXPECT_EQ(r.get<std::string>(3), "function");
+    EXPECT_EQ(r.get<std::string>(4), "function");
+    EXPECT_EQ(r.get<std::string>(5), "function");
+}
+
+TEST_F(LuaBindingTest, Application_TableExists)
+{
+    auto r = lua.script("return type(Application)");
+    EXPECT_EQ(r.get<std::string>(), "table");
+}
+
+TEST_F(LuaBindingTest, Application_HasExpectedFunctions)
+{
+    auto r = lua.script(R"(
+        return type(Application.GetTimeScale),
+               type(Application.SetTimeScale),
+               type(Application.QuitGame)
+    )");
+    EXPECT_EQ(r.get<std::string>(0), "function");
+    EXPECT_EQ(r.get<std::string>(1), "function");
+    EXPECT_EQ(r.get<std::string>(2), "function");
+}
+
+TEST_F(LuaBindingTest, Scene_TableExists)
+{
+    auto r = lua.script("return type(Scene)");
+    EXPECT_EQ(r.get<std::string>(), "table");
+}
+
+TEST_F(LuaBindingTest, Damage_TableExists)
+{
+    auto r = lua.script("return type(Damage)");
+    EXPECT_EQ(r.get<std::string>(), "table");
+}
+
+TEST_F(LuaBindingTest, Damage_HasExpectedFunctions)
+{
+    auto r = lua.script(R"(
+        return type(Damage.TryActivateAbilityOnTarget),
+               type(Damage.TryActivateAbility)
+    )");
+    EXPECT_EQ(r.get<std::string>(0), "function");
+    EXPECT_EQ(r.get<std::string>(1), "function");
 }

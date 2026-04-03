@@ -10,6 +10,8 @@
 #include "lstate.h"
 #include "setjmp.h"
 
+#include <unordered_map>
+
 namespace OloEngine
 {
     struct LuaScriptEngineData
@@ -169,6 +171,7 @@ namespace OloEngine
 
     void LuaScriptEngine::OnUpdateEntity(Entity entity, f32 ts)
     {
+        OLO_PROFILE_FUNCTION();
         auto entityID = static_cast<u64>(entity.GetUUID());
         if (auto const it = s_LuaData.EntityScriptInstances.find(entityID); it != s_LuaData.EntityScriptInstances.end())
         {

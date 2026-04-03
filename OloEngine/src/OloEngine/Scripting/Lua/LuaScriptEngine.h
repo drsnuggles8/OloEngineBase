@@ -2,6 +2,8 @@
 
 #include "OloEngine/Scene/Entity.h"
 
+#include <string>
+
 namespace OloEngine
 {
     class LuaScriptEngine

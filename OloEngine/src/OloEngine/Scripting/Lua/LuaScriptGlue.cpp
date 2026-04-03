@@ -497,17 +497,20 @@ namespace OloEngine
                                                                                { return c.Config.ConeInnerAngle; }, [](AudioSourceComponent& c, f32 v)
                                                                                {
                     if (!std::isfinite(v)) v = glm::radians(360.0f);
-                    c.Config.ConeInnerAngle = v; }),
+                    c.Config.ConeInnerAngle = v;
+                    if (c.Source) { c.Source->SetCone(c.Config.ConeInnerAngle, c.Config.ConeOuterAngle, c.Config.ConeOuterGain); } }),
                                                "coneOuterAngle", sol::property([](const AudioSourceComponent& c)
                                                                                { return c.Config.ConeOuterAngle; }, [](AudioSourceComponent& c, f32 v)
                                                                                {
                     if (!std::isfinite(v)) v = glm::radians(360.0f);
-                    c.Config.ConeOuterAngle = v; }),
+                    c.Config.ConeOuterAngle = v;
+                    if (c.Source) { c.Source->SetCone(c.Config.ConeInnerAngle, c.Config.ConeOuterAngle, c.Config.ConeOuterGain); } }),
                                                "coneOuterGain", sol::property([](const AudioSourceComponent& c)
                                                                               { return c.Config.ConeOuterGain; }, [](AudioSourceComponent& c, f32 v)
                                                                               {
                     if (!std::isfinite(v)) v = 0.0f;
-                    c.Config.ConeOuterGain = v; }),
+                    c.Config.ConeOuterGain = v;
+                    if (c.Source) { c.Source->SetCone(c.Config.ConeInnerAngle, c.Config.ConeOuterAngle, c.Config.ConeOuterGain); } }),
                                                "SetCone", [](AudioSourceComponent& c, f32 innerAngle, f32 outerAngle, f32 outerGain)
                                                {
                     c.Config.ConeInnerAngle = innerAngle;
@@ -1527,6 +1530,11 @@ namespace OloEngine
         };
         appTable["SetTimeScale"] = [](f32 scale)
         {
+            if (!std::isfinite(scale))
+            {
+                scale = 1.0f;
+            }
+            scale = std::clamp(scale, 0.0f, 100.0f);
             Application::Get().SetTimeScale(scale);
         };
         appTable["QuitGame"] = []()
@@ -1909,8 +1917,12 @@ namespace OloEngine
             Scene* scene = ScriptEngine::GetSceneContext();
             return scene ? scene->GetWindSettings().Direction : glm::vec3(1.0f, 0.0f, 0.0f);
         };
-        sceneTable["SetWindDirection"] = [](const glm::vec3& v)
+        sceneTable["SetWindDirection"] = [](glm::vec3 v)
         {
+            if (!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.z))
+            {
+                v = glm::vec3(1.0f, 0.0f, 0.0f);
+            }
             if (Scene* scene = ScriptEngine::GetSceneContext())
                 scene->GetWindSettings().Direction = v;
         };
@@ -1921,6 +1933,10 @@ namespace OloEngine
         };
         sceneTable["SetWindSpeed"] = [](f32 v)
         {
+            if (!std::isfinite(v))
+            {
+                v = 0.0f;
+            }
             if (Scene* scene = ScriptEngine::GetSceneContext())
                 scene->GetWindSettings().Speed = v;
         };
@@ -1931,6 +1947,10 @@ namespace OloEngine
         };
         sceneTable["SetWindGustStrength"] = [](f32 v)
         {
+            if (!std::isfinite(v))
+            {
+                v = 0.0f;
+            }
             if (Scene* scene = ScriptEngine::GetSceneContext())
                 scene->GetWindSettings().GustStrength = v;
         };
@@ -1941,6 +1961,10 @@ namespace OloEngine
         };
         sceneTable["SetWindTurbulenceIntensity"] = [](f32 v)
         {
+            if (!std::isfinite(v))
+            {
+                v = 0.0f;
+            }
             if (Scene* scene = ScriptEngine::GetSceneContext())
                 scene->GetWindSettings().TurbulenceIntensity = v;
         };

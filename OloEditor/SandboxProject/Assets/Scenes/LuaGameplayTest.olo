@@ -552,3 +552,33 @@ Entities:
       DropShadow: true
       ShadowDistance: [1, -1]
       ShadowColor: [0, 0, 0, 0.8]
+  # ===== Pause Overlay (hidden until Esc pressed) =====
+  - Entity: 2000000000000000012
+    TagComponent:
+      Tag: Pause Overlay
+    TransformComponent:
+      Translation: [0, 0, 0.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UIPanelComponent:
+      BackgroundColor: [0, 0, 0, 0]
+  # ===== Death Overlay (hidden until player dies) =====
+  - Entity: 2000000000000000013
+    TagComponent:
+      Tag: Death Overlay
+    TransformComponent:
+      Translation: [0, 0, 0.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UIPanelComponent:
+      BackgroundColor: [0, 0, 0, 0]
+  # ===== Victory Overlay (hidden until all enemies dead) =====
+  - Entity: 2000000000000000014
+    TagComponent:
+      Tag: Victory Overlay
+    TransformComponent:
+      Translation: [0, 0, 0.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UIPanelComponent:
+      BackgroundColor: [0, 0, 0, 0]
