@@ -114,8 +114,9 @@ function GameManager.OnUpdate(id, dt)
 end
 
 function GameManager.OnDestroy(id)
-    -- Restore time scale on exit
+    -- Restore time scale and clear global pause flag on exit
     Application.SetTimeScale(1.0)
+    GameState.paused = false
     Log.Info("[LuaGameManager] OnDestroy — cleaning up")
 end
 
