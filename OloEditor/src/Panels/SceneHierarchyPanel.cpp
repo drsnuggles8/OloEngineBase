@@ -716,7 +716,9 @@ namespace OloEngine
             ::strncpy_s(buffer, tag.c_str(), sizeof(buffer));
             if (ImGui::InputText("##Tag", buffer, sizeof(buffer)))
             {
+                std::string oldTag = tag;
                 tag = std::string(buffer);
+                m_Context->UpdateEntityName(entity, oldTag, tag);
             }
 
             if (ImGui::IsMouseClicked(0) && ImGui::IsWindowHovered())
@@ -1595,7 +1597,9 @@ namespace OloEngine
 
             if (ImGui::InputText("##Tag", buffer, sizeof(buffer)))
             {
+                std::string oldTag = tag;
                 tag = std::string(buffer);
+                m_Context->UpdateEntityName(entity, oldTag, tag);
             }
 
             if (ImGui::IsItemActivated())

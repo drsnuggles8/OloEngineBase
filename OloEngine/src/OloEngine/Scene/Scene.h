@@ -14,6 +14,7 @@
 #include "OloEngine/Navigation/CrowdManager.h"
 
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -97,6 +98,8 @@ namespace OloEngine
 
         [[nodiscard("Store this!")]] Entity FindEntityByName(std::string_view name);
         [[nodiscard("Store this!")]] Entity GetEntityByUUID(UUID uuid);
+
+        void UpdateEntityName(entt::entity entity, const std::string& oldName, const std::string& newName);
 
         [[nodiscard("Store this!")]] Entity GetPrimaryCameraEntity();
 
@@ -468,6 +471,10 @@ namespace OloEngine
         // Entity UUID -> entt::entity lookup map
         // Using TMap for O(1) lookup with better cache locality
         TMap<UUID, entt::entity> m_EntityMap;
+
+        // Entity name -> entt::entity fast lookup cache
+        // Maintained by CreateEntityWithUUID, DestroyEntity, and UpdateEntityName.
+        std::unordered_map<std::string, entt::entity> m_EntityNameMap;
 
         std::string m_Name = "Untitled";
 

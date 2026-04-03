@@ -80,7 +80,7 @@ namespace OloEngine
     {
         u64 EntityID = 0;
         ComponentEntry::GetFn Resolve = nullptr; // resolves Entity& → sol::object wrapping T*
-        std::string_view TypeName;               // component type name for Box2D sync hooks
+        std::string_view TypeName = {};          // component type name for Box2D sync hooks
 
         // Resolve the component to a sol::object wrapping T* (or nil).
         [[nodiscard]] sol::object ResolveComponent(sol::this_state s) const
@@ -812,6 +812,7 @@ namespace OloEngine
                                                                         { return c.Config.RollOff; }, [](AudioSourceComponent& c, f32 v)
                                                                         {
                     if (!std::isfinite(v)) v = 1.0f;
+                    v = std::max(v, 0.0f);
                     c.Config.RollOff = v;
                     if (c.Source) { c.Source->SetRollOff(v); } }),
                                                "minGain", sol::property([](const AudioSourceComponent& c)
@@ -830,12 +831,14 @@ namespace OloEngine
                                                                             { return c.Config.MinDistance; }, [](AudioSourceComponent& c, f32 v)
                                                                             {
                     if (!std::isfinite(v)) v = 0.3f;
+                    v = std::max(v, 0.0f);
                     c.Config.MinDistance = v;
                     if (c.Source) { c.Source->SetMinDistance(v); } }),
                                                "maxDistance", sol::property([](const AudioSourceComponent& c)
                                                                             { return c.Config.MaxDistance; }, [](AudioSourceComponent& c, f32 v)
                                                                             {
                     if (!std::isfinite(v)) v = 1000.0f;
+                    v = std::max(v, 0.0f);
                     c.Config.MaxDistance = v;
                     if (c.Source) { c.Source->SetMaxDistance(v); } }),
                                                "coneInnerAngle", sol::property([](const AudioSourceComponent& c)

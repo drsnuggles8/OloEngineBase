@@ -213,6 +213,7 @@ namespace OloEngine
         tag.Tag = name.empty() ? "Entity" : name;
 
         m_EntityMap.Add(uuid, entity);
+        m_EntityNameMap[tag.Tag] = entity;
 
         return entity;
     }
@@ -355,6 +356,15 @@ namespace OloEngine
         }
 
         UUID entityUUID = entity.GetUUID();
+
+        // Remove from name cache before destroying
+        if (entity.HasComponent<TagComponent>())
+        {
+            auto const& tag = entity.GetComponent<TagComponent>().Tag;
+            if (auto const it = m_EntityNameMap.find(tag); it != m_EntityNameMap.end() && it->second == static_cast<entt::entity>(entity))
+                m_EntityNameMap.erase(it);
+        }
+
         m_Registry.destroy(entity);
         m_EntityMap.Remove(entityUUID);
 
@@ -1763,11 +1773,20 @@ namespace OloEngine
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name)
     {
+        if (auto const it = m_EntityNameMap.find(std::string(name)); it != m_EntityNameMap.end())
+        {
+            if (m_Registry.valid(it->second))
+                return Entity{ it->second, this };
+            // Stale entry — remove and fall through
+            m_EntityNameMap.erase(it);
+        }
+        // Fallback O(n) scan for cache misses (e.g. after rename without UpdateEntityName)
         for (auto view = m_Registry.view<TagComponent>(); auto entity : view)
         {
             const TagComponent& tc = view.get<TagComponent>(entity);
             if (tc.Tag == name)
             {
+                m_EntityNameMap[std::string(name)] = entity;
                 return Entity{ entity, this };
             }
         }
@@ -1782,17 +1801,28 @@ namespace OloEngine
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name) const
     {
+        if (auto const it = m_EntityNameMap.find(std::string(name)); it != m_EntityNameMap.end())
+        {
+            if (m_Registry.valid(it->second))
+                return Entity{ it->second, const_cast<Scene*>(this) };
+        }
         for (auto view = m_Registry.view<TagComponent>(); auto entity : view)
         {
             const TagComponent& tc = view.get<TagComponent>(entity);
             if (tc.Tag == name)
             {
-                // SAFETY: this is const Scene*, but Entity requires non-const Scene*
-                // This is safe because name search only reads entity data
                 return Entity{ entity, const_cast<Scene*>(this) };
             }
         }
         return {};
+    }
+
+    void Scene::UpdateEntityName(entt::entity entity, const std::string& oldName, const std::string& newName)
+    {
+        // Remove old entry only if it still points to this entity
+        if (auto const it = m_EntityNameMap.find(oldName); it != m_EntityNameMap.end() && it->second == entity)
+            m_EntityNameMap.erase(it);
+        m_EntityNameMap[newName] = entity;
     }
 
     [[nodiscard]] Entity Scene::GetEntityByUUID(UUID uuid) const
