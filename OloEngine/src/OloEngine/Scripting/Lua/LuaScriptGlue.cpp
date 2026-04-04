@@ -45,9 +45,21 @@
 #include <cmath>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 namespace OloEngine
 {
+    // ── Finite-value helpers for Lua input validation ──
+    [[nodiscard]] static bool IsFiniteVec2(const glm::vec2& v)
+    {
+        return std::isfinite(v.x) && std::isfinite(v.y);
+    }
+
+    [[nodiscard]] static bool IsFiniteVec3(const glm::vec3& v)
+    {
+        return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+    }
+
     namespace Scripting
     {
         extern sol::state* GetState();
@@ -335,6 +347,19 @@ namespace OloEngine
                     }
                 }
 
+                // ── Finite-value validation for TransformComponent writes ──
+                if (proxy.TypeName == "TransformComponent")
+                {
+                    if ((key == "translation" || key == "scale" || key == "rotation") && value.is<glm::vec3>())
+                    {
+                        if (!IsFiniteVec3(value.as<glm::vec3>()))
+                        {
+                            OLO_CORE_WARN("[Lua] Rejected non-finite vec3 for TransformComponent.{} on entity {}", key, proxy.EntityID);
+                            return;
+                        }
+                    }
+                }
+
                 // Delegate the write through sol2's property dispatch
                 sol::table compAsTable = comp.as<sol::table>();
                 compAsTable[key] = value;
@@ -416,20 +441,24 @@ namespace OloEngine
                                                "linearVelocity", sol::property([](Rigidbody2DComponent& rb) -> glm::vec2
                                                                                { return rb.LinearVelocity; }, [](Rigidbody2DComponent& rb, const glm::vec2& v)
                                                                                {
+                    if (!IsFiniteVec2(v)) return;
                     rb.LinearVelocity = v;
                     if (b2Body_IsValid(rb.RuntimeBody))
                         b2Body_SetLinearVelocity(rb.RuntimeBody, { v.x, v.y }); }),
                                                "angularVelocity", sol::property([](Rigidbody2DComponent& rb) -> f32
                                                                                 { return rb.AngularVelocity; }, [](Rigidbody2DComponent& rb, f32 v)
                                                                                 {
+                    if (!std::isfinite(v)) return;
                     rb.AngularVelocity = v;
                     if (b2Body_IsValid(rb.RuntimeBody))
                         b2Body_SetAngularVelocity(rb.RuntimeBody, v); }),
                                                "applyLinearImpulse", [](Rigidbody2DComponent& rb, const glm::vec2& impulse, const glm::vec2& point, sol::optional<bool> wake)
                                                {
+                if (!IsFiniteVec2(impulse) || !IsFiniteVec2(point)) return;
                 if (b2Body_IsValid(rb.RuntimeBody))
                     b2Body_ApplyLinearImpulse(rb.RuntimeBody, b2Vec2(impulse.x, impulse.y), b2Vec2(point.x, point.y), wake.value_or(true)); }, "applyLinearImpulseToCenter", [](Rigidbody2DComponent& rb, const glm::vec2& impulse, sol::optional<bool> wake)
                                                {
+                if (!IsFiniteVec2(impulse)) return;
                 if (b2Body_IsValid(rb.RuntimeBody))
                     b2Body_ApplyLinearImpulseToCenter(rb.RuntimeBody, b2Vec2(impulse.x, impulse.y), wake.value_or(true)); });
 
@@ -1051,139 +1080,24 @@ namespace OloEngine
             gpAxisTable["RightTrigger"] = static_cast<u8>(GamepadAxis::RightTrigger);
         }
 
-        // --- KeyCode constants (mirrors Key:: enum from KeyCodes.h) ---
+        // --- KeyCode constants (auto-generated from OLO_KEY_LIST in KeyCodes.h) ---
         {
             auto keyTable = lua.create_named_table("KeyCode");
-            keyTable["Space"] = Key::Space;
-            keyTable["Apostrophe"] = Key::Apostrophe;
-            keyTable["Comma"] = Key::Comma;
-            keyTable["Minus"] = Key::Minus;
-            keyTable["Period"] = Key::Period;
-            keyTable["Slash"] = Key::Slash;
-            keyTable["D0"] = Key::D0;
-            keyTable["D1"] = Key::D1;
-            keyTable["D2"] = Key::D2;
-            keyTable["D3"] = Key::D3;
-            keyTable["D4"] = Key::D4;
-            keyTable["D5"] = Key::D5;
-            keyTable["D6"] = Key::D6;
-            keyTable["D7"] = Key::D7;
-            keyTable["D8"] = Key::D8;
-            keyTable["D9"] = Key::D9;
-            keyTable["Semicolon"] = Key::Semicolon;
-            keyTable["Equal"] = Key::Equal;
-            keyTable["A"] = Key::A;
-            keyTable["B"] = Key::B;
-            keyTable["C"] = Key::C;
-            keyTable["D"] = Key::D;
-            keyTable["E"] = Key::E;
-            keyTable["F"] = Key::F;
-            keyTable["G"] = Key::G;
-            keyTable["H"] = Key::H;
-            keyTable["I"] = Key::I;
-            keyTable["J"] = Key::J;
-            keyTable["K"] = Key::K;
-            keyTable["L"] = Key::L;
-            keyTable["M"] = Key::M;
-            keyTable["N"] = Key::N;
-            keyTable["O"] = Key::O;
-            keyTable["P"] = Key::P;
-            keyTable["Q"] = Key::Q;
-            keyTable["R"] = Key::R;
-            keyTable["S"] = Key::S;
-            keyTable["T"] = Key::T;
-            keyTable["U"] = Key::U;
-            keyTable["V"] = Key::V;
-            keyTable["W"] = Key::W;
-            keyTable["X"] = Key::X;
-            keyTable["Y"] = Key::Y;
-            keyTable["Z"] = Key::Z;
-            keyTable["LeftBracket"] = Key::LeftBracket;
-            keyTable["Backslash"] = Key::Backslash;
-            keyTable["RightBracket"] = Key::RightBracket;
-            keyTable["GraveAccent"] = Key::GraveAccent;
-            keyTable["World1"] = Key::World1;
-            keyTable["World2"] = Key::World2;
-            keyTable["Escape"] = Key::Escape;
-            keyTable["Enter"] = Key::Enter;
-            keyTable["Tab"] = Key::Tab;
-            keyTable["Backspace"] = Key::Backspace;
-            keyTable["Insert"] = Key::Insert;
-            keyTable["Delete"] = Key::Delete;
-            keyTable["Right"] = Key::Right;
-            keyTable["Left"] = Key::Left;
-            keyTable["Down"] = Key::Down;
-            keyTable["Up"] = Key::Up;
-            keyTable["PageUp"] = Key::PageUp;
-            keyTable["PageDown"] = Key::PageDown;
-            keyTable["Home"] = Key::Home;
-            keyTable["End"] = Key::End;
-            keyTable["CapsLock"] = Key::CapsLock;
-            keyTable["ScrollLock"] = Key::ScrollLock;
-            keyTable["NumLock"] = Key::NumLock;
-            keyTable["PrintScreen"] = Key::PrintScreen;
-            keyTable["Pause"] = Key::Pause;
-            keyTable["F1"] = Key::F1;
-            keyTable["F2"] = Key::F2;
-            keyTable["F3"] = Key::F3;
-            keyTable["F4"] = Key::F4;
-            keyTable["F5"] = Key::F5;
-            keyTable["F6"] = Key::F6;
-            keyTable["F7"] = Key::F7;
-            keyTable["F8"] = Key::F8;
-            keyTable["F9"] = Key::F9;
-            keyTable["F10"] = Key::F10;
-            keyTable["F11"] = Key::F11;
-            keyTable["F12"] = Key::F12;
-            keyTable["F13"] = Key::F13;
-            keyTable["F14"] = Key::F14;
-            keyTable["F15"] = Key::F15;
-            keyTable["F16"] = Key::F16;
-            keyTable["F17"] = Key::F17;
-            keyTable["F18"] = Key::F18;
-            keyTable["F19"] = Key::F19;
-            keyTable["F20"] = Key::F20;
-            keyTable["F21"] = Key::F21;
-            keyTable["F22"] = Key::F22;
-            keyTable["F23"] = Key::F23;
-            keyTable["F24"] = Key::F24;
-            keyTable["F25"] = Key::F25;
-            keyTable["KP0"] = Key::KP0;
-            keyTable["KP1"] = Key::KP1;
-            keyTable["KP2"] = Key::KP2;
-            keyTable["KP3"] = Key::KP3;
-            keyTable["KP4"] = Key::KP4;
-            keyTable["KP5"] = Key::KP5;
-            keyTable["KP6"] = Key::KP6;
-            keyTable["KP7"] = Key::KP7;
-            keyTable["KP8"] = Key::KP8;
-            keyTable["KP9"] = Key::KP9;
-            keyTable["KPDecimal"] = Key::KPDecimal;
-            keyTable["KPDivide"] = Key::KPDivide;
-            keyTable["KPMultiply"] = Key::KPMultiply;
-            keyTable["KPSubtract"] = Key::KPSubtract;
-            keyTable["KPAdd"] = Key::KPAdd;
-            keyTable["KPEnter"] = Key::KPEnter;
-            keyTable["KPEqual"] = Key::KPEqual;
-            keyTable["LeftShift"] = Key::LeftShift;
-            keyTable["LeftControl"] = Key::LeftControl;
-            keyTable["LeftAlt"] = Key::LeftAlt;
-            keyTable["LeftSuper"] = Key::LeftSuper;
-            keyTable["RightShift"] = Key::RightShift;
-            keyTable["RightControl"] = Key::RightControl;
-            keyTable["RightAlt"] = Key::RightAlt;
-            keyTable["RightSuper"] = Key::RightSuper;
-            keyTable["Menu"] = Key::Menu;
+            // clang-format off
+#define OLO_BIND_KEY(name, val) keyTable[#name] = static_cast<KeyCode>(val);
+            OLO_KEY_LIST(OLO_BIND_KEY)
+#undef OLO_BIND_KEY
+            // clang-format on
         }
 
-        // --- MouseButton constants ---
+        // --- MouseButton constants (auto-generated from OLO_MOUSE_LIST in MouseCodes.h) ---
         {
             auto mouseTable = lua.create_named_table("MouseButton");
-            mouseTable["Left"] = static_cast<u16>(0);
-            mouseTable["Right"] = static_cast<u16>(1);
-            mouseTable["Middle"] = static_cast<u16>(2);
-            mouseTable["Button4"] = static_cast<u16>(3);
-            mouseTable["Button5"] = static_cast<u16>(4);
+            // clang-format off
+#define OLO_BIND_MOUSE(name, val) mouseTable[#name] = static_cast<MouseCode>(val);
+            OLO_MOUSE_LIST(OLO_BIND_MOUSE)
+#undef OLO_BIND_MOUSE
+            // clang-format on
         }
 
         // --- DialogueComponent ---
@@ -1922,6 +1836,8 @@ namespace OloEngine
 
         entityUtilsTable["set_translation"] = [](u64 entityID, const glm::vec3& translation)
         {
+            if (!IsFiniteVec3(translation))
+                return;
             Scene* scene = ScriptEngine::GetSceneContext();
             if (!scene)
                 return;
@@ -1961,6 +1877,8 @@ namespace OloEngine
 
         entityUtilsTable["set_rotation"] = [](u64 entityID, const glm::vec3& rotation)
         {
+            if (!IsFiniteVec3(rotation))
+                return;
             Scene* scene = ScriptEngine::GetSceneContext();
             if (!scene)
                 return;
@@ -2000,6 +1918,8 @@ namespace OloEngine
 
         entityUtilsTable["set_scale"] = [](u64 entityID, const glm::vec3& scale)
         {
+            if (!IsFiniteVec3(scale))
+                return;
             Scene* scene = ScriptEngine::GetSceneContext();
             if (!scene)
                 return;

@@ -213,7 +213,7 @@ namespace OloEngine
         tag.Tag = name.empty() ? "Entity" : name;
 
         m_EntityMap.Add(uuid, entity);
-        m_EntityNameMap[tag.Tag] = entity;
+        m_EntityNameMap.emplace(tag.Tag, static_cast<entt::entity>(entity));
 
         return entity;
     }
@@ -361,8 +361,15 @@ namespace OloEngine
         if (entity.HasComponent<TagComponent>())
         {
             auto const& tag = entity.GetComponent<TagComponent>().Tag;
-            if (auto const it = m_EntityNameMap.find(tag); it != m_EntityNameMap.end() && it->second == static_cast<entt::entity>(entity))
-                m_EntityNameMap.erase(it);
+            auto [rangeBegin, rangeEnd] = m_EntityNameMap.equal_range(tag);
+            for (auto it = rangeBegin; it != rangeEnd; ++it)
+            {
+                if (it->second == static_cast<entt::entity>(entity))
+                {
+                    m_EntityNameMap.erase(it);
+                    break;
+                }
+            }
         }
 
         m_Registry.destroy(entity);
@@ -1773,12 +1780,17 @@ namespace OloEngine
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name)
     {
-        if (auto const it = m_EntityNameMap.find(std::string(name)); it != m_EntityNameMap.end())
+        auto const nameStr = std::string(name);
+        auto [rangeBegin, rangeEnd] = m_EntityNameMap.equal_range(nameStr);
+        for (auto it = rangeBegin; it != rangeEnd; ++it)
         {
             if (m_Registry.valid(it->second))
                 return Entity{ it->second, this };
-            // Stale entry — remove and fall through
-            m_EntityNameMap.erase(it);
+            // Stale entry — remove and continue checking
+            it = m_EntityNameMap.erase(it);
+            rangeEnd = m_EntityNameMap.end(); // iterator may have been invalidated
+            if (it == rangeEnd)
+                break;
         }
         // Fallback O(n) scan for cache misses (e.g. after rename without UpdateEntityName)
         for (auto view = m_Registry.view<TagComponent>(); auto entity : view)
@@ -1786,7 +1798,7 @@ namespace OloEngine
             const TagComponent& tc = view.get<TagComponent>(entity);
             if (tc.Tag == name)
             {
-                m_EntityNameMap[std::string(name)] = entity;
+                m_EntityNameMap.emplace(nameStr, entity);
                 return Entity{ entity, this };
             }
         }
@@ -1801,7 +1813,9 @@ namespace OloEngine
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name) const
     {
-        if (auto const it = m_EntityNameMap.find(std::string(name)); it != m_EntityNameMap.end())
+        auto const nameStr = std::string(name);
+        auto [rangeBegin, rangeEnd] = m_EntityNameMap.equal_range(nameStr);
+        for (auto it = rangeBegin; it != rangeEnd; ++it)
         {
             if (m_Registry.valid(it->second))
                 return Entity{ it->second, const_cast<Scene*>(this) };
@@ -1819,10 +1833,17 @@ namespace OloEngine
 
     void Scene::UpdateEntityName(entt::entity entity, const std::string& oldName, const std::string& newName)
     {
-        // Remove old entry only if it still points to this entity
-        if (auto const it = m_EntityNameMap.find(oldName); it != m_EntityNameMap.end() && it->second == entity)
-            m_EntityNameMap.erase(it);
-        m_EntityNameMap[newName] = entity;
+        // Remove old entry for this specific entity
+        auto [rangeBegin, rangeEnd] = m_EntityNameMap.equal_range(oldName);
+        for (auto it = rangeBegin; it != rangeEnd; ++it)
+        {
+            if (it->second == entity)
+            {
+                m_EntityNameMap.erase(it);
+                break;
+            }
+        }
+        m_EntityNameMap.emplace(newName, entity);
     }
 
     [[nodiscard]] Entity Scene::GetEntityByUUID(UUID uuid) const

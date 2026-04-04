@@ -7,6 +7,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Core/KeyCodes.h"
+#include "OloEngine/Core/MouseCodes.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/IKTargetComponent.h"
 #include "OloEngine/Audio/AudioSource.h"
@@ -505,34 +506,24 @@ class LuaBindingTest : public ::testing::Test
         // --- Log (global table) ---
         lua.create_named_table("Log", "Trace", [](const std::string&) {}, "Info", [](const std::string&) {}, "Warn", [](const std::string&) {}, "Error", [](const std::string&) {});
 
-        // --- KeyCode constants ---
+        // --- KeyCode constants (auto-generated from OLO_KEY_LIST) ---
         {
             auto keyTable = lua.create_named_table("KeyCode");
-            keyTable["Space"] = Key::Space;
-            keyTable["A"] = Key::A;
-            keyTable["W"] = Key::W;
-            keyTable["S"] = Key::S;
-            keyTable["D"] = Key::D;
-            keyTable["Q"] = Key::Q;
-            keyTable["E"] = Key::E;
-            keyTable["Escape"] = Key::Escape;
-            keyTable["Enter"] = Key::Enter;
-            keyTable["Tab"] = Key::Tab;
-            keyTable["Up"] = Key::Up;
-            keyTable["Down"] = Key::Down;
-            keyTable["Left"] = Key::Left;
-            keyTable["Right"] = Key::Right;
-            keyTable["F1"] = Key::F1;
-            keyTable["LeftShift"] = Key::LeftShift;
-            keyTable["LeftControl"] = Key::LeftControl;
+            // clang-format off
+#define OLO_BIND_KEY(name, val) keyTable[#name] = static_cast<KeyCode>(val);
+            OLO_KEY_LIST(OLO_BIND_KEY)
+#undef OLO_BIND_KEY
+            // clang-format on
         }
 
-        // --- MouseButton constants ---
+        // --- MouseButton constants (auto-generated from OLO_MOUSE_LIST) ---
         {
             auto mouseTable = lua.create_named_table("MouseButton");
-            mouseTable["Left"] = static_cast<u16>(0);
-            mouseTable["Right"] = static_cast<u16>(1);
-            mouseTable["Middle"] = static_cast<u16>(2);
+            // clang-format off
+#define OLO_BIND_MOUSE(name, val) mouseTable[#name] = static_cast<MouseCode>(val);
+            OLO_MOUSE_LIST(OLO_BIND_MOUSE)
+#undef OLO_BIND_MOUSE
+            // clang-format on
         }
 
         // --- Stub global tables (match production structure for smoke tests) ---
@@ -1738,12 +1729,13 @@ TEST_F(LuaBindingTest, MouseButton_TableExists)
 
 TEST_F(LuaBindingTest, MouseButton_Values)
 {
-    auto rLeft = lua.script("return MouseButton.Left");
-    EXPECT_EQ(rLeft.get<u16>(), 0);
-    auto rRight = lua.script("return MouseButton.Right");
-    EXPECT_EQ(rRight.get<u16>(), 1);
-    auto rMiddle = lua.script("return MouseButton.Middle");
-    EXPECT_EQ(rMiddle.get<u16>(), 2);
+    // New canonical names (from X-MACRO)
+    auto rBtnLeft = lua.script("return MouseButton.ButtonLeft");
+    EXPECT_EQ(rBtnLeft.get<u16>(), 0);
+    auto rBtnRight = lua.script("return MouseButton.ButtonRight");
+    EXPECT_EQ(rBtnRight.get<u16>(), 1);
+    auto rBtnMiddle = lua.script("return MouseButton.ButtonMiddle");
+    EXPECT_EQ(rBtnMiddle.get<u16>(), 2);
 }
 
 // =============================================================================

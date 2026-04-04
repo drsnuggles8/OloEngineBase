@@ -473,8 +473,9 @@ namespace OloEngine
         TMap<UUID, entt::entity> m_EntityMap;
 
         // Entity name -> entt::entity fast lookup cache
+        // Uses multimap to handle duplicate entity names correctly.
         // Maintained by CreateEntityWithUUID, DestroyEntity, and UpdateEntityName.
-        std::unordered_map<std::string, entt::entity> m_EntityNameMap;
+        std::unordered_multimap<std::string, entt::entity> m_EntityNameMap;
 
         std::string m_Name = "Untitled";
 
