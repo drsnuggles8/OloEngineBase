@@ -147,6 +147,7 @@ namespace OloEngine
     };
 
     static ScriptEngineData* s_Data = nullptr;
+    static Scene* s_TestSceneContext = nullptr;
 
     static void OnAppAssemblyFileSystemEvent(const std::string_view, const filewatch::Event change_type)
     {
@@ -214,6 +215,7 @@ namespace OloEngine
     void ScriptEngine::Shutdown()
     {
         OLO_CORE_TRACE("[ScriptEngine] Shutting down.");
+        s_TestSceneContext = nullptr;
         if (!s_Data || !s_Data->RootDomain)
         {
             delete s_Data;
@@ -346,6 +348,7 @@ namespace OloEngine
     void ScriptEngine::OnRuntimeStart(Scene* scene)
     {
         s_Data->SceneContext = scene;
+        s_TestSceneContext = nullptr;
     }
 
     bool ScriptEngine::EntityClassExists(const std::string& fullClassName)
@@ -394,7 +397,14 @@ namespace OloEngine
 
     Scene* ScriptEngine::GetSceneContext()
     {
-        return s_Data->SceneContext;
+        if (s_Data && s_Data->SceneContext)
+            return s_Data->SceneContext;
+        return s_TestSceneContext;
+    }
+
+    void ScriptEngine::SetSceneContextForTesting(Scene* scene)
+    {
+        s_TestSceneContext = scene;
     }
 
     Ref<ScriptInstance> ScriptEngine::GetEntityScriptInstance(UUID entityID)
@@ -421,6 +431,7 @@ namespace OloEngine
     void ScriptEngine::OnRuntimeStop()
     {
         s_Data->SceneContext = nullptr;
+        s_TestSceneContext = nullptr;
 
         s_Data->EntityInstances.clear();
     }

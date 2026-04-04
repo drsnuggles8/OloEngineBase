@@ -13,6 +13,7 @@
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
+#include "OloEngine/Scripting/Lua/LuaScriptEngine.h"
 #include "OloEngine/Animation/BoneEntityUtils.h"
 #include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSystem.h"
@@ -212,6 +213,7 @@ namespace OloEngine
         tag.Tag = name.empty() ? "Entity" : name;
 
         m_EntityMap.Add(uuid, entity);
+        m_EntityNameMap.emplace(tag.Tag, static_cast<entt::entity>(entity));
 
         return entity;
     }
@@ -344,7 +346,38 @@ namespace OloEngine
         if (!entity || !entity.HasComponent<IDComponent>())
             return;
 
+        // Capture UUID before the Lua callback — the script may re-entrantly
+        // destroy this entity, invalidating the handle.
         UUID entityUUID = entity.GetUUID();
+
+        // Dispatch Lua OnDestroy before the entity is removed from the registry
+        if (m_IsRunning && entity.HasComponent<LuaScriptComponent>())
+        {
+            if (auto const& lsc = entity.GetComponent<LuaScriptComponent>(); !lsc.ScriptFile.empty())
+            {
+                LuaScriptEngine::OnDestroyEntity(entity);
+            }
+        }
+
+        // The Lua callback may have re-entrantly destroyed this entity already.
+        if (!m_Registry.valid(entity))
+            return;
+
+        // Remove from name cache before destroying
+        if (entity.HasComponent<TagComponent>())
+        {
+            auto const& tag = entity.GetComponent<TagComponent>().Tag;
+            auto [rangeBegin, rangeEnd] = m_EntityNameMap.equal_range(tag);
+            for (auto it = rangeBegin; it != rangeEnd; ++it)
+            {
+                if (it->second == static_cast<entt::entity>(entity))
+                {
+                    m_EntityNameMap.erase(it);
+                    break;
+                }
+            }
+        }
+
         m_Registry.destroy(entity);
         m_EntityMap.Remove(entityUUID);
 
@@ -444,6 +477,21 @@ namespace OloEngine
             }
         }
 
+        // Lua scripting
+        {
+            LuaScriptEngine::OnRuntimeStart(this);
+            for (const auto luaView = m_Registry.view<LuaScriptComponent>(); const auto e : luaView)
+            {
+                Entity entity = { e, this };
+                auto const& luaComp = entity.GetComponent<LuaScriptComponent>();
+                if (!luaComp.ScriptFile.empty())
+                {
+                    auto scriptPath = Project::GetAssetFileSystemPath(luaComp.ScriptFile);
+                    LuaScriptEngine::OnCreateEntity(entity, scriptPath.string());
+                }
+            }
+        }
+
         // Start animations
         {
             auto animView = m_Registry.view<AnimationStateComponent>();
@@ -518,8 +566,6 @@ namespace OloEngine
 
     void Scene::OnRuntimeStop()
     {
-        m_IsRunning = false;
-
         // Shut down streaming before other systems
         if (m_SceneStreamer)
         {
@@ -528,6 +574,27 @@ namespace OloEngine
         }
 
         ScriptEngine::OnRuntimeStop();
+
+        // Snapshot entity IDs before dispatching Lua OnDestroy — callbacks may
+        // destroy other entities and mutate the underlying view.
+        std::vector<entt::entity> luaEntities;
+        for (const auto luaView = m_Registry.view<LuaScriptComponent>(); const auto e : luaView)
+            luaEntities.push_back(e);
+
+        for (const auto e : luaEntities)
+        {
+            if (!m_Registry.valid(e))
+                continue;
+            if (auto const* lsc = m_Registry.try_get<LuaScriptComponent>(e); lsc && !lsc->ScriptFile.empty())
+            {
+                LuaScriptEngine::OnDestroyEntity({ e, this });
+            }
+        }
+        LuaScriptEngine::OnRuntimeStop();
+
+        // Defer clearing the running flag until after Lua teardown so that
+        // per-entity Lua cleanup in DestroyEntity still fires during callbacks.
+        m_IsRunning = false;
 
         // Shut down dialogue system
         m_DialogueSystem.reset();
@@ -730,6 +797,16 @@ namespace OloEngine
                 {
                     Entity entity = { e, this };
                     ScriptEngine::OnUpdateEntity(entity, ts);
+                }
+
+                // Lua Entity OnUpdate
+                for (auto luaView = m_Registry.view<LuaScriptComponent>(); auto e : luaView)
+                {
+                    if (auto const& lsc = luaView.get<LuaScriptComponent>(e); !lsc.ScriptFile.empty())
+                    {
+                        Entity entity = { e, this };
+                        LuaScriptEngine::OnUpdateEntity(entity, ts);
+                    }
                 }
             }
 
@@ -1718,11 +1795,23 @@ namespace OloEngine
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name)
     {
+        auto const nameStr = std::string(name);
+        auto [rangeBegin, rangeEnd] = m_EntityNameMap.equal_range(nameStr);
+        auto it = rangeBegin;
+        while (it != rangeEnd)
+        {
+            if (m_Registry.valid(it->second))
+                return Entity{ it->second, this };
+            // Stale entry — erase returns the next iterator within the bucket
+            it = m_EntityNameMap.erase(it);
+        }
+        // Fallback O(n) scan for cache misses (e.g. after rename without UpdateEntityName)
         for (auto view = m_Registry.view<TagComponent>(); auto entity : view)
         {
             const TagComponent& tc = view.get<TagComponent>(entity);
             if (tc.Tag == name)
             {
+                m_EntityNameMap.emplace(nameStr, entity);
                 return Entity{ entity, this };
             }
         }
@@ -1737,17 +1826,37 @@ namespace OloEngine
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name) const
     {
+        auto const nameStr = std::string(name);
+        auto [rangeBegin, rangeEnd] = m_EntityNameMap.equal_range(nameStr);
+        for (auto it = rangeBegin; it != rangeEnd; ++it)
+        {
+            if (m_Registry.valid(it->second))
+                return Entity{ it->second, const_cast<Scene*>(this) };
+        }
         for (auto view = m_Registry.view<TagComponent>(); auto entity : view)
         {
             const TagComponent& tc = view.get<TagComponent>(entity);
             if (tc.Tag == name)
             {
-                // SAFETY: this is const Scene*, but Entity requires non-const Scene*
-                // This is safe because name search only reads entity data
                 return Entity{ entity, const_cast<Scene*>(this) };
             }
         }
         return {};
+    }
+
+    void Scene::UpdateEntityName(entt::entity entity, const std::string& oldName, const std::string& newName)
+    {
+        // Remove old entry for this specific entity
+        auto [rangeBegin, rangeEnd] = m_EntityNameMap.equal_range(oldName);
+        for (auto it = rangeBegin; it != rangeEnd; ++it)
+        {
+            if (it->second == entity)
+            {
+                m_EntityNameMap.erase(it);
+                break;
+            }
+        }
+        m_EntityNameMap.emplace(newName, entity);
     }
 
     [[nodiscard]] Entity Scene::GetEntityByUUID(UUID uuid) const
@@ -4065,6 +4174,11 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::CameraComponent>([[maybe_unus
 
 template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::ScriptComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::ScriptComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::LuaScriptComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::LuaScriptComponent& component)
 {
 }
 

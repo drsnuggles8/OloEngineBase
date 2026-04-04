@@ -1382,6 +1382,12 @@ namespace OloEngine
             }
         }
 
+        if (auto const& luaScript = entity["LuaScriptComponent"])
+        {
+            auto& lsc = deserializedEntity.AddComponent<LuaScriptComponent>();
+            TrySet(lsc.ScriptFile, luaScript["ScriptFile"]);
+        }
+
         if (const auto& audioSourceComponent = entity["AudioSourceComponent"])
         {
             auto& src = deserializedEntity.AddComponent<AudioSourceComponent>();
@@ -3082,6 +3088,15 @@ namespace OloEngine
                 out << YAML::EndSeq;
             }
 
+            out << YAML::EndMap;
+        }
+
+        if (entity.HasComponent<LuaScriptComponent>())
+        {
+            auto const& luaScript = entity.GetComponent<LuaScriptComponent>();
+            out << YAML::Key << "LuaScriptComponent";
+            out << YAML::BeginMap;
+            out << YAML::Key << "ScriptFile" << YAML::Value << luaScript.ScriptFile;
             out << YAML::EndMap;
         }
 

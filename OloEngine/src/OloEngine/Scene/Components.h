@@ -504,6 +504,16 @@ namespace OloEngine
         ScriptComponent(const ScriptComponent&) = default;
     };
 
+    struct LuaScriptComponent
+    {
+        std::string ScriptFile; // Relative path from project assets directory
+
+        LuaScriptComponent() = default;
+        LuaScriptComponent(const LuaScriptComponent&) = default;
+
+        auto operator==(const LuaScriptComponent&) const -> bool = default;
+    };
+
     struct AudioSourceComponent
     {
         AudioSourceConfig Config;
@@ -1656,6 +1666,7 @@ namespace OloEngine
         CharacterController3DComponent,
         TextComponent,
         ScriptComponent,
+        LuaScriptComponent,
         AudioSourceComponent,
         AudioListenerComponent,
         SubmeshComponent,

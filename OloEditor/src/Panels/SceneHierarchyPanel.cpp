@@ -716,7 +716,9 @@ namespace OloEngine
             ::strncpy_s(buffer, tag.c_str(), sizeof(buffer));
             if (ImGui::InputText("##Tag", buffer, sizeof(buffer)))
             {
+                std::string oldTag = tag;
                 tag = std::string(buffer);
+                m_Context->UpdateEntityName(entity, oldTag, tag);
             }
 
             if (ImGui::IsMouseClicked(0) && ImGui::IsWindowHovered())
@@ -1595,7 +1597,9 @@ namespace OloEngine
 
             if (ImGui::InputText("##Tag", buffer, sizeof(buffer)))
             {
+                std::string oldTag = tag;
                 tag = std::string(buffer);
+                m_Context->UpdateEntityName(entity, oldTag, tag);
             }
 
             if (ImGui::IsItemActivated())
@@ -1622,6 +1626,7 @@ namespace OloEngine
         {
             DisplayAddComponentEntry<CameraComponent>("Camera");
             DisplayAddComponentEntry<ScriptComponent>("Script");
+            DisplayAddComponentEntry<LuaScriptComponent>("Lua Script");
             DisplayAddComponentEntry<SpriteRendererComponent>("Sprite Renderer");
             DisplayAddComponentEntry<CircleRendererComponent>("Circle Renderer");
             DisplayAddComponentEntry<Rigidbody2DComponent>("Rigidbody 2D");
@@ -1993,6 +1998,13 @@ namespace OloEngine
 					}
 				}
 			} });
+
+        DrawComponent<LuaScriptComponent>("Lua Script", entity, [](auto& component)
+                                          {
+            if (ImGui::InputText("Script File", &component.ScriptFile))
+            {
+            }
+            ImGui::TextDisabled("Relative to project assets directory"); });
 
         DrawComponent<SpriteRendererComponent>("Sprite Renderer", entity, [](auto& component)
                                                {

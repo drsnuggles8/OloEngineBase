@@ -4,11 +4,14 @@
 #include <sol/sol.hpp>
 
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Animation/MorphTargets/FacialExpressionLibrary.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Core/Input.h"
+#include "OloEngine/Core/KeyCodes.h"
+#include "OloEngine/Core/MouseCodes.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/Gamepad.h"
@@ -20,6 +23,7 @@
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
@@ -36,20 +40,394 @@
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/Audio/AudioEvents/AudioPlayback.h"
 #include "OloEngine/Audio/AudioEvents/CommandID.h"
+#include "OloEngine/Scene/Streaming/SceneStreamer.h"
+
+#include "box2d/box2d.h"
 
 #include <algorithm>
 #include <cmath>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace OloEngine
 {
+    // ── Finite-value helpers for Lua input validation ──
+    [[nodiscard]] static bool IsFiniteVec2(const glm::vec2& v)
+    {
+        return std::isfinite(v.x) && std::isfinite(v.y);
+    }
+
+    [[nodiscard]] static bool IsFiniteVec3(const glm::vec3& v)
+    {
+        return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+    }
+
+    [[nodiscard]] static bool IsFiniteVec4(const glm::vec4& v)
+    {
+        return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z) && std::isfinite(v.w);
+    }
+
     namespace Scripting
     {
         extern sol::state* GetState();
     }
 
+    // ── Component registry for Lua entity_utils.get_component / has_component ──
+    //
+    // Each entry maps a component name string to a pair of type-erased lambdas
+    // that call Entity::HasComponent<T> and Entity::GetComponent<T>.
+    // Adding a new component requires a single REGISTER_COMPONENT line.
+
+    struct ComponentEntry
+    {
+        using HasFn = bool (*)(Entity&);
+        using GetFn = sol::object (*)(Entity&, sol::this_state);
+
+        HasFn Has = nullptr;
+        GetFn Get = nullptr;
+    };
+
+    // ── Safe proxy that re-resolves the component from EnTT on every access ──
+    //
+    // Lua never holds a raw T* into EnTT pool storage.  Instead get_component
+    // returns a LuaComponentProxy userdata.  __index / __newindex metamethods
+    // resolve Entity → Component& on every property read or write, so pool
+    // relocations (caused by AddComponent on other entities) cannot cause
+    // dangling-pointer UB.
+
+    struct LuaComponentProxy
+    {
+        u64 EntityID = 0;
+        ComponentEntry::GetFn Resolve = nullptr; // resolves Entity& → sol::object wrapping T*
+        std::string_view TypeName = {};          // component type name for Box2D sync hooks
+
+        // Resolve the component to a sol::object wrapping T* (or nil).
+        [[nodiscard]] sol::object ResolveComponent(sol::this_state s) const
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return sol::make_object(s, sol::nil);
+            auto entityOpt = scene->TryGetEntityWithUUID(UUID(EntityID));
+            if (!entityOpt)
+                return sol::make_object(s, sol::nil);
+            Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+            return Resolve(entity, s);
+        }
+    };
+
+    template<typename T>
+    static constexpr ComponentEntry MakeEntry()
+    {
+        return {
+            [](Entity& e) -> bool
+            { return e.HasComponent<T>(); },
+            // Returns a raw T* wrapped in sol::object — only used internally by
+            // the proxy's __index/__newindex to perform a single property
+            // read/write.  Lua scripts never see this pointer directly.
+            [](Entity& e, sol::this_state s) -> sol::object
+            {
+                if (e.HasComponent<T>())
+                    return sol::make_object(s, &e.GetComponent<T>());
+                return sol::make_object(s, sol::nil);
+            }
+        };
+    }
+
+    // clang-format off
+    static const std::unordered_map<std::string_view, ComponentEntry>& GetComponentRegistry()
+    {
+        static const std::unordered_map<std::string_view, ComponentEntry> s_Registry = {
+            #define REGISTER_COMPONENT(T) { #T, MakeEntry<T>() }
+            // Core
+            REGISTER_COMPONENT(TagComponent),
+            REGISTER_COMPONENT(TransformComponent),
+            REGISTER_COMPONENT(Rigidbody2DComponent),
+            REGISTER_COMPONENT(CameraComponent),
+            REGISTER_COMPONENT(SpriteRendererComponent),
+            REGISTER_COMPONENT(CircleRendererComponent),
+            REGISTER_COMPONENT(TextComponent),
+            REGISTER_COMPONENT(MeshComponent),
+            REGISTER_COMPONENT(MaterialComponent),
+            REGISTER_COMPONENT(BoxCollider2DComponent),
+            REGISTER_COMPONENT(CircleCollider2DComponent),
+            REGISTER_COMPONENT(AudioSourceComponent),
+            REGISTER_COMPONENT(AudioListenerComponent),
+            REGISTER_COMPONENT(ParticleSystemComponent),
+            REGISTER_COMPONENT(NavAgentComponent),
+            REGISTER_COMPONENT(AbilityComponent),
+            REGISTER_COMPONENT(DialogueComponent),
+            REGISTER_COMPONENT(NetworkIdentityComponent),
+            REGISTER_COMPONENT(IKTargetComponent),
+            REGISTER_COMPONENT(NameplateComponent),
+            REGISTER_COMPONENT(InventoryComponent),
+            REGISTER_COMPONENT(ItemPickupComponent),
+            REGISTER_COMPONENT(ItemContainerComponent),
+            REGISTER_COMPONENT(QuestJournalComponent),
+            REGISTER_COMPONENT(QuestGiverComponent),
+            REGISTER_COMPONENT(ScriptComponent),
+            REGISTER_COMPONENT(LuaScriptComponent),
+            REGISTER_COMPONENT(ModelComponent),
+            // 3D Physics
+            REGISTER_COMPONENT(Rigidbody3DComponent),
+            REGISTER_COMPONENT(BoxCollider3DComponent),
+            REGISTER_COMPONENT(SphereCollider3DComponent),
+            REGISTER_COMPONENT(CapsuleCollider3DComponent),
+            REGISTER_COMPONENT(MeshCollider3DComponent),
+            REGISTER_COMPONENT(ConvexMeshCollider3DComponent),
+            REGISTER_COMPONENT(TriangleMeshCollider3DComponent),
+            // UI
+            REGISTER_COMPONENT(UICanvasComponent),
+            REGISTER_COMPONENT(UIRectTransformComponent),
+            REGISTER_COMPONENT(UIImageComponent),
+            REGISTER_COMPONENT(UIPanelComponent),
+            REGISTER_COMPONENT(UITextComponent),
+            REGISTER_COMPONENT(UIButtonComponent),
+            REGISTER_COMPONENT(UISliderComponent),
+            REGISTER_COMPONENT(UICheckboxComponent),
+            REGISTER_COMPONENT(UIProgressBarComponent),
+            REGISTER_COMPONENT(UIInputFieldComponent),
+            REGISTER_COMPONENT(UIScrollViewComponent),
+            REGISTER_COMPONENT(UIDropdownComponent),
+            REGISTER_COMPONENT(UIGridLayoutComponent),
+            REGISTER_COMPONENT(UIToggleComponent),
+            REGISTER_COMPONENT(UIWorldAnchorComponent),
+            // Lighting
+            REGISTER_COMPONENT(DirectionalLightComponent),
+            REGISTER_COMPONENT(PointLightComponent),
+            REGISTER_COMPONENT(SpotLightComponent),
+            REGISTER_COMPONENT(LightProbeComponent),
+            REGISTER_COMPONENT(LightProbeVolumeComponent),
+            // Streaming
+            REGISTER_COMPONENT(StreamingVolumeComponent),
+            // Animation
+            REGISTER_COMPONENT(AnimationGraphComponent),
+            REGISTER_COMPONENT(MorphTargetComponent),
+            // AI / Behavior
+            REGISTER_COMPONENT(NavMeshBoundsComponent),
+            REGISTER_COMPONENT(BehaviorTreeComponent),
+            REGISTER_COMPONENT(StateMachineComponent),
+            #undef REGISTER_COMPONENT
+        };
+        return s_Registry;
+    }
+    // clang-format on
+
     void LuaScriptGlue::RegisterAllTypes()
     {
-        sol::state& lua = *Scripting::GetState();
+        RegisterAllTypes(*Scripting::GetState());
+    }
+
+    void LuaScriptGlue::RegisterAllTypes(sol::state& lua)
+    {
+
+        // ── LuaComponentProxy — safe proxy that prevents dangling pointers ──
+        //
+        // __index :  resolve entity → T&, then forward property read / method
+        //            lookup to the real component's usertype.  For methods, wrap
+        //            the result in a closure that re-resolves the component on
+        //            each call so the method never captures a stale T*.
+        // __newindex: resolve entity → T&, then forward property write.
+        lua.new_usertype<LuaComponentProxy>(
+            "LuaComponentProxy", sol::no_constructor,
+            sol::meta_function::index,
+            [](sol::this_state s, LuaComponentProxy& proxy, const std::string& key) -> sol::object
+            {
+                // 1. Resolve the real component (T*) as a sol::object
+                sol::object comp = proxy.ResolveComponent(s);
+                if (!comp.valid() || comp.is<sol::nil_t>())
+                    return sol::make_object(s, sol::nil);
+
+                // 2. Use sol2's high-level accessor to retrieve the value.
+                //    This automatically invokes property getters and member-
+                //    pointer accessors, returning the resolved value.
+                //    Methods are returned as sol::function objects.
+                sol::table compAsTable = comp.as<sol::table>();
+                sol::object result = compAsTable[key];
+
+                // 3. If the result is a method (function), wrap it in a closure
+                //    that re-resolves the component on each call so the method
+                //    never captures a stale T*.
+                if (result.get_type() == sol::type::function)
+                {
+                    sol::protected_function origFn = result.as<sol::protected_function>();
+                    u64 entityID = proxy.EntityID;
+                    auto resolveFn = proxy.Resolve;
+
+                    auto wrapper = [entityID, resolveFn, origFn = std::move(origFn)](sol::variadic_args va) -> sol::protected_function_result
+                    {
+                        sol::this_state ws = va.lua_state();
+
+                        // Re-resolve component fresh
+                        Scene* scene = ScriptEngine::GetSceneContext();
+                        if (!scene)
+                            return origFn(sol::nil);
+                        auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityID));
+                        if (!entityOpt)
+                            return origFn(sol::nil);
+                        Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+                        sol::object freshComp = resolveFn(entity, ws);
+
+                        // Strip the proxy "self" (first arg from colon-call syntax)
+                        // and forward only the real arguments after it.
+                        std::vector<sol::object> args;
+                        args.reserve(va.size());
+                        bool skippedSelf = false;
+                        for (auto const& arg : va)
+                        {
+                            if (!skippedSelf && arg.is<LuaComponentProxy*>())
+                            {
+                                skippedSelf = true;
+                                continue;
+                            }
+                            args.emplace_back(arg.get<sol::object>());
+                        }
+
+                        // Call original with freshly-resolved component + remaining args
+                        switch (args.size())
+                        {
+                            case 0:
+                                return origFn(freshComp);
+                            case 1:
+                                return origFn(freshComp, args[0]);
+                            case 2:
+                                return origFn(freshComp, args[0], args[1]);
+                            case 3:
+                                return origFn(freshComp, args[0], args[1], args[2]);
+                            case 4:
+                                return origFn(freshComp, args[0], args[1], args[2], args[3]);
+                            default:
+                                // Fallback for 5+ args — build a Lua call via stack
+                                return origFn(freshComp, sol::as_args(args));
+                        }
+                    };
+
+                    return sol::make_object(s, std::move(wrapper));
+                }
+
+                // 4. Deep-copy aggregate types to prevent bypass of __newindex.
+                //    sol2 returns references for member-pointer bindings (e.g.
+                //    &TransformComponent::Translation).  If we hand that reference
+                //    to Lua, mutations like `proxy.translation.x = 5` go straight
+                //    through to the component, skipping validation / Box2D sync.
+                //    Returning a copy forces writers to go through set_translation
+                //    or proxy.__newindex = vec3(...).
+                if (result.is<glm::vec4>())
+                    return sol::make_object(s, result.as<glm::vec4>());
+                if (result.is<glm::vec3>())
+                    return sol::make_object(s, result.as<glm::vec3>());
+                if (result.is<glm::vec2>())
+                    return sol::make_object(s, result.as<glm::vec2>());
+
+                // Return nested usertypes by reference so mutations
+                // (e.g. proxy.camera.perspectiveFOV = 1.2) modify the real
+                // component.  These types have their own validated setters.
+                if (result.is<SceneCamera>() || result.is<ColliderMaterial>() || result.is<ParticleSystem>())
+                    return result;
+
+                return result;
+            },
+            sol::meta_function::new_index,
+            [](sol::this_state s, LuaComponentProxy& proxy, const std::string& key, sol::object value)
+            {
+                // Resolve the real component fresh
+                sol::object comp = proxy.ResolveComponent(s);
+                if (!comp.valid() || comp.is<sol::nil_t>())
+                {
+                    OLO_CORE_WARN("[Lua] ComponentProxy: cannot set '{}' — component no longer exists on entity {}", key, proxy.EntityID);
+                    return;
+                }
+
+                // ── Box2D safety: reject collider writes while body is live ──
+                // Shape IDs are not stored, so we cannot rebuild fixtures at
+                // runtime.  Warn and silently discard the write.
+                if (proxy.TypeName == "BoxCollider2DComponent" || proxy.TypeName == "CircleCollider2DComponent")
+                {
+                    Scene* scene = ScriptEngine::GetSceneContext();
+                    if (scene)
+                    {
+                        if (auto entityOpt = scene->TryGetEntityWithUUID(UUID(proxy.EntityID)))
+                        {
+                            Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+                            if (entity.HasComponent<Rigidbody2DComponent>())
+                            {
+                                auto const& rb = entity.GetComponent<Rigidbody2DComponent>();
+                                if (b2Body_IsValid(rb.RuntimeBody))
+                                {
+                                    OLO_CORE_WARN("[Lua] Cannot mutate {} property '{}' while physics body is active (entity {})", proxy.TypeName, key, proxy.EntityID);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── Finite-value validation for TransformComponent writes ──
+                if (proxy.TypeName == "TransformComponent")
+                {
+                    if ((key == "translation" || key == "scale" || key == "rotation") && value.is<glm::vec3>())
+                    {
+                        if (!IsFiniteVec3(value.as<glm::vec3>()))
+                        {
+                            OLO_CORE_WARN("[Lua] Rejected non-finite vec3 for TransformComponent.{} on entity {}", key, proxy.EntityID);
+                            return;
+                        }
+                    }
+
+                    // Box2D does not support runtime scale changes — reject while body is live
+                    if (key == "scale")
+                    {
+                        Scene* scene = ScriptEngine::GetSceneContext();
+                        if (scene)
+                        {
+                            if (auto entityOpt = scene->TryGetEntityWithUUID(UUID(proxy.EntityID)))
+                            {
+                                Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+                                if (entity.HasComponent<Rigidbody2DComponent>())
+                                {
+                                    auto const& rb = entity.GetComponent<Rigidbody2DComponent>();
+                                    if (b2Body_IsValid(rb.RuntimeBody))
+                                    {
+                                        OLO_CORE_WARN("[Lua] Cannot change TransformComponent.scale while physics body is active (entity {})", proxy.EntityID);
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Delegate the write through sol2's property dispatch
+                sol::table compAsTable = comp.as<sol::table>();
+                compAsTable[key] = value;
+
+                // ── Box2D sync: push TransformComponent changes to body ──
+                if (proxy.TypeName == "TransformComponent" && (key == "translation" || key == "rotation"))
+                {
+                    Scene* scene = ScriptEngine::GetSceneContext();
+                    if (scene)
+                    {
+                        if (auto entityOpt = scene->TryGetEntityWithUUID(UUID(proxy.EntityID)))
+                        {
+                            Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+                            if (entity.HasComponent<Rigidbody2DComponent>())
+                            {
+                                auto const& rb = entity.GetComponent<Rigidbody2DComponent>();
+                                if (b2Body_IsValid(rb.RuntimeBody))
+                                {
+                                    auto const& tc = entity.GetComponent<TransformComponent>();
+                                    b2Body_SetTransform(rb.RuntimeBody,
+                                                        { tc.Translation.x, tc.Translation.y },
+                                                        b2MakeRot(tc.GetRotationEuler().z));
+                                }
+                            }
+                        }
+                    }
+                }
+            });
 
         // --- GLM vector types (needed before components that use them) ---
         lua.new_usertype<glm::vec2>("vec2",
@@ -70,162 +448,613 @@ namespace OloEngine
                                     "z", &glm::vec4::z,
                                     "w", &glm::vec4::w);
 
+        // --- TransformComponent ---
+        lua.new_usertype<TransformComponent>("TransformComponent",
+                                             "translation", &TransformComponent::Translation,
+                                             "scale", &TransformComponent::Scale,
+                                             "rotation", sol::property(&TransformComponent::GetRotationEuler, &TransformComponent::SetRotationEuler));
+
+        // --- Rigidbody2DComponent ---
+        // All properties use sol::property so setters sync through Box2D when a runtime body exists.
+        lua.new_usertype<Rigidbody2DComponent>("Rigidbody2DComponent", "type", sol::property([](Rigidbody2DComponent& rb) -> int
+                                                                                             { return static_cast<int>(rb.Type); }, [](Rigidbody2DComponent& rb, int v)
+                                                                                             {
+                    if (v < 0 || v > static_cast<int>(Rigidbody2DComponent::BodyType::Kinematic)) { v = 0; }
+                    auto const t = static_cast<Rigidbody2DComponent::BodyType>(v);
+                    rb.Type = t;
+                    if (b2Body_IsValid(rb.RuntimeBody))
+                    {
+                        b2BodyType b2t = b2_staticBody;
+                        switch (t)
+                        {
+                            using enum Rigidbody2DComponent::BodyType;
+                            case Dynamic:   b2t = b2_dynamicBody;   break;
+                            case Kinematic: b2t = b2_kinematicBody; break;
+                            default: break;
+                        }
+                        b2Body_SetType(rb.RuntimeBody, b2t);
+                    } }),
+                                               "fixedRotation", sol::property([](Rigidbody2DComponent& rb)
+                                                                              { return rb.FixedRotation; }, [](Rigidbody2DComponent& rb, bool v)
+                                                                              {
+                    rb.FixedRotation = v;
+                    if (b2Body_IsValid(rb.RuntimeBody))
+                        b2Body_SetFixedRotation(rb.RuntimeBody, v); }),
+                                               "linearVelocity", sol::property([](Rigidbody2DComponent& rb) -> glm::vec2
+                                                                               { return rb.LinearVelocity; }, [](Rigidbody2DComponent& rb, const glm::vec2& v)
+                                                                               {
+                    if (!IsFiniteVec2(v)) return;
+                    rb.LinearVelocity = v;
+                    if (b2Body_IsValid(rb.RuntimeBody))
+                        b2Body_SetLinearVelocity(rb.RuntimeBody, { v.x, v.y }); }),
+                                               "angularVelocity", sol::property([](Rigidbody2DComponent& rb) -> f32
+                                                                                { return rb.AngularVelocity; }, [](Rigidbody2DComponent& rb, f32 v)
+                                                                                {
+                    if (!std::isfinite(v)) return;
+                    rb.AngularVelocity = v;
+                    if (b2Body_IsValid(rb.RuntimeBody))
+                        b2Body_SetAngularVelocity(rb.RuntimeBody, v); }),
+                                               "applyLinearImpulse", [](Rigidbody2DComponent& rb, const glm::vec2& impulse, const glm::vec2& point, sol::optional<bool> wake)
+                                               {
+                if (!IsFiniteVec2(impulse) || !IsFiniteVec2(point)) return;
+                if (b2Body_IsValid(rb.RuntimeBody))
+                    b2Body_ApplyLinearImpulse(rb.RuntimeBody, b2Vec2(impulse.x, impulse.y), b2Vec2(point.x, point.y), wake.value_or(true)); }, "applyLinearImpulseToCenter", [](Rigidbody2DComponent& rb, const glm::vec2& impulse, sol::optional<bool> wake)
+                                               {
+                if (!IsFiniteVec2(impulse)) return;
+                if (b2Body_IsValid(rb.RuntimeBody))
+                    b2Body_ApplyLinearImpulseToCenter(rb.RuntimeBody, b2Vec2(impulse.x, impulse.y), wake.value_or(true)); });
+
+        // --- BoxCollider2DComponent ---
+        lua.new_usertype<BoxCollider2DComponent>("BoxCollider2DComponent",
+                                                 "offset", sol::property([](const BoxCollider2DComponent& c)
+                                                                         { return c.Offset; }, [](BoxCollider2DComponent& c, const glm::vec2& v)
+                                                                         { if (IsFiniteVec2(v)) c.Offset = v; }),
+                                                 "size", sol::property([](const BoxCollider2DComponent& c)
+                                                                       { return c.Size; }, [](BoxCollider2DComponent& c, const glm::vec2& v)
+                                                                       { if (IsFiniteVec2(v) && v.x > 0.0f && v.y > 0.0f) c.Size = v; }),
+                                                 "density", sol::property([](const BoxCollider2DComponent& c)
+                                                                          { return c.Density; }, [](BoxCollider2DComponent& c, f32 v)
+                                                                          { if (std::isfinite(v) && v >= 0.0f) c.Density = v; }),
+                                                 "friction", sol::property([](const BoxCollider2DComponent& c)
+                                                                           { return c.Friction; }, [](BoxCollider2DComponent& c, f32 v)
+                                                                           { if (std::isfinite(v)) c.Friction = std::clamp(v, 0.0f, 1.0f); }),
+                                                 "restitution", sol::property([](const BoxCollider2DComponent& c)
+                                                                              { return c.Restitution; }, [](BoxCollider2DComponent& c, f32 v)
+                                                                              { if (std::isfinite(v)) c.Restitution = std::clamp(v, 0.0f, 1.0f); }),
+                                                 "restitutionThreshold", sol::property([](const BoxCollider2DComponent& c)
+                                                                                       { return c.RestitutionThreshold; }, [](BoxCollider2DComponent& c, f32 v)
+                                                                                       { if (std::isfinite(v) && v >= 0.0f) c.RestitutionThreshold = v; }));
+
+        // --- CircleCollider2DComponent ---
+        lua.new_usertype<CircleCollider2DComponent>("CircleCollider2DComponent",
+                                                    "offset", sol::property([](const CircleCollider2DComponent& c)
+                                                                            { return c.Offset; }, [](CircleCollider2DComponent& c, const glm::vec2& v)
+                                                                            { if (IsFiniteVec2(v)) c.Offset = v; }),
+                                                    "radius", sol::property([](const CircleCollider2DComponent& c)
+                                                                            { return c.Radius; }, [](CircleCollider2DComponent& c, f32 v)
+                                                                            { if (std::isfinite(v) && v > 0.0f) c.Radius = v; }),
+                                                    "density", sol::property([](const CircleCollider2DComponent& c)
+                                                                             { return c.Density; }, [](CircleCollider2DComponent& c, f32 v)
+                                                                             { if (std::isfinite(v) && v >= 0.0f) c.Density = v; }),
+                                                    "friction", sol::property([](const CircleCollider2DComponent& c)
+                                                                              { return c.Friction; }, [](CircleCollider2DComponent& c, f32 v)
+                                                                              { if (std::isfinite(v)) c.Friction = std::clamp(v, 0.0f, 1.0f); }),
+                                                    "restitution", sol::property([](const CircleCollider2DComponent& c)
+                                                                                 { return c.Restitution; }, [](CircleCollider2DComponent& c, f32 v)
+                                                                                 { if (std::isfinite(v)) c.Restitution = std::clamp(v, 0.0f, 1.0f); }),
+                                                    "restitutionThreshold", sol::property([](const CircleCollider2DComponent& c)
+                                                                                          { return c.RestitutionThreshold; }, [](CircleCollider2DComponent& c, f32 v)
+                                                                                          { if (std::isfinite(v) && v >= 0.0f) c.RestitutionThreshold = v; }));
+
+        // --- ColliderMaterial (shared by all 3D collider components) ---
+        lua.new_usertype<ColliderMaterial>("ColliderMaterial", sol::no_constructor,
+                                           "staticFriction", sol::property(&ColliderMaterial::GetStaticFriction, &ColliderMaterial::SetStaticFriction),
+                                           "dynamicFriction", sol::property(&ColliderMaterial::GetDynamicFriction, &ColliderMaterial::SetDynamicFriction),
+                                           "restitution", sol::property(&ColliderMaterial::GetRestitution, &ColliderMaterial::SetRestitution),
+                                           "density", sol::property(&ColliderMaterial::GetDensity, &ColliderMaterial::SetDensity));
+
+        // --- Rigidbody3DComponent ---
+        lua.new_usertype<Rigidbody3DComponent>("Rigidbody3DComponent",
+                                               "type", sol::property([](const Rigidbody3DComponent& rb) -> int
+                                                                     { return static_cast<int>(rb.m_Type); }, [](Rigidbody3DComponent& rb, int v)
+                                                                     { if (v >= 0 && v <= 2) rb.m_Type = static_cast<BodyType3D>(v); }),
+                                               "layerID", sol::property([](const Rigidbody3DComponent& rb)
+                                                                        { return rb.m_LayerID; }, [](Rigidbody3DComponent& rb, int v)
+                                                                        { if (v >= 0) rb.m_LayerID = static_cast<u32>(v); }),
+                                               "mass", sol::property([](const Rigidbody3DComponent& rb)
+                                                                     { return rb.m_Mass; }, [](Rigidbody3DComponent& rb, f32 v)
+                                                                     { if (std::isfinite(v) && v >= 0.0f) rb.m_Mass = v; }),
+                                               "linearDrag", sol::property([](const Rigidbody3DComponent& rb)
+                                                                           { return rb.m_LinearDrag; }, [](Rigidbody3DComponent& rb, f32 v)
+                                                                           { if (std::isfinite(v) && v >= 0.0f) rb.m_LinearDrag = v; }),
+                                               "angularDrag", sol::property([](const Rigidbody3DComponent& rb)
+                                                                            { return rb.m_AngularDrag; }, [](Rigidbody3DComponent& rb, f32 v)
+                                                                            { if (std::isfinite(v) && v >= 0.0f) rb.m_AngularDrag = v; }),
+                                               "disableGravity", &Rigidbody3DComponent::m_DisableGravity,
+                                               "isTrigger", &Rigidbody3DComponent::m_IsTrigger,
+                                               "lockedAxes", sol::property([](const Rigidbody3DComponent& rb) -> int
+                                                                           { return static_cast<int>(static_cast<u32>(rb.m_LockedAxes)); }, [](Rigidbody3DComponent& rb, int v)
+                                                                           { if (v >= 0 && (static_cast<u32>(v) & ~AxisMask) == 0) rb.m_LockedAxes = static_cast<EActorAxis>(v); }),
+                                               "initialLinearVelocity", sol::property([](const Rigidbody3DComponent& rb)
+                                                                                      { return rb.m_InitialLinearVelocity; }, [](Rigidbody3DComponent& rb, const glm::vec3& v)
+                                                                                      { if (IsFiniteVec3(v)) rb.m_InitialLinearVelocity = v; }),
+                                               "initialAngularVelocity", sol::property([](const Rigidbody3DComponent& rb)
+                                                                                       { return rb.m_InitialAngularVelocity; }, [](Rigidbody3DComponent& rb, const glm::vec3& v)
+                                                                                       { if (IsFiniteVec3(v)) rb.m_InitialAngularVelocity = v; }),
+                                               "maxLinearVelocity", sol::property([](const Rigidbody3DComponent& rb)
+                                                                                  { return rb.m_MaxLinearVelocity; }, [](Rigidbody3DComponent& rb, f32 v)
+                                                                                  { if (std::isfinite(v) && v >= 0.0f) rb.m_MaxLinearVelocity = v; }),
+                                               "maxAngularVelocity", sol::property([](const Rigidbody3DComponent& rb)
+                                                                                   { return rb.m_MaxAngularVelocity; }, [](Rigidbody3DComponent& rb, f32 v)
+                                                                                   { if (std::isfinite(v) && v >= 0.0f) rb.m_MaxAngularVelocity = v; }));
+
+        // --- BoxCollider3DComponent ---
+        lua.new_usertype<BoxCollider3DComponent>("BoxCollider3DComponent",
+                                                 "halfExtents", sol::property([](const BoxCollider3DComponent& c)
+                                                                              { return c.m_HalfExtents; }, [](BoxCollider3DComponent& c, const glm::vec3& v)
+                                                                              { if (IsFiniteVec3(v) && v.x >= 0.0f && v.y >= 0.0f && v.z >= 0.0f) c.m_HalfExtents = v; }),
+                                                 "offset", sol::property([](const BoxCollider3DComponent& c)
+                                                                         { return c.m_Offset; }, [](BoxCollider3DComponent& c, const glm::vec3& v)
+                                                                         { if (IsFiniteVec3(v)) c.m_Offset = v; }),
+                                                 "material", &BoxCollider3DComponent::m_Material);
+
+        // --- SphereCollider3DComponent ---
+        lua.new_usertype<SphereCollider3DComponent>("SphereCollider3DComponent",
+                                                    "radius", sol::property([](const SphereCollider3DComponent& c)
+                                                                            { return c.m_Radius; }, [](SphereCollider3DComponent& c, f32 v)
+                                                                            { if (std::isfinite(v) && v >= 0.0f) c.m_Radius = v; }),
+                                                    "offset", sol::property([](const SphereCollider3DComponent& c)
+                                                                            { return c.m_Offset; }, [](SphereCollider3DComponent& c, const glm::vec3& v)
+                                                                            { if (IsFiniteVec3(v)) c.m_Offset = v; }),
+                                                    "material", &SphereCollider3DComponent::m_Material);
+
+        // --- CapsuleCollider3DComponent ---
+        lua.new_usertype<CapsuleCollider3DComponent>("CapsuleCollider3DComponent",
+                                                     "radius", sol::property([](const CapsuleCollider3DComponent& c)
+                                                                             { return c.m_Radius; }, [](CapsuleCollider3DComponent& c, f32 v)
+                                                                             { if (std::isfinite(v) && v >= 0.0f) c.m_Radius = v; }),
+                                                     "halfHeight", sol::property([](const CapsuleCollider3DComponent& c)
+                                                                                 { return c.m_HalfHeight; }, [](CapsuleCollider3DComponent& c, f32 v)
+                                                                                 { if (std::isfinite(v) && v >= 0.0f) c.m_HalfHeight = v; }),
+                                                     "offset", sol::property([](const CapsuleCollider3DComponent& c)
+                                                                             { return c.m_Offset; }, [](CapsuleCollider3DComponent& c, const glm::vec3& v)
+                                                                             { if (IsFiniteVec3(v)) c.m_Offset = v; }),
+                                                     "material", &CapsuleCollider3DComponent::m_Material);
+
+        // --- MeshCollider3DComponent ---
+        lua.new_usertype<MeshCollider3DComponent>("MeshCollider3DComponent",
+                                                  "colliderAsset", &MeshCollider3DComponent::m_ColliderAsset,
+                                                  "offset", sol::property([](const MeshCollider3DComponent& c)
+                                                                          { return c.m_Offset; }, [](MeshCollider3DComponent& c, const glm::vec3& v)
+                                                                          { if (IsFiniteVec3(v)) c.m_Offset = v; }),
+                                                  "scale", sol::property([](const MeshCollider3DComponent& c)
+                                                                         { return c.m_Scale; }, [](MeshCollider3DComponent& c, const glm::vec3& v)
+                                                                         { if (IsFiniteVec3(v) && v.x > 0.0f && v.y > 0.0f && v.z > 0.0f) c.m_Scale = v; }),
+                                                  "material", &MeshCollider3DComponent::m_Material,
+                                                  "useComplexAsSimple", &MeshCollider3DComponent::m_UseComplexAsSimple);
+
+        // --- ConvexMeshCollider3DComponent ---
+        lua.new_usertype<ConvexMeshCollider3DComponent>("ConvexMeshCollider3DComponent",
+                                                        "colliderAsset", &ConvexMeshCollider3DComponent::m_ColliderAsset,
+                                                        "offset", sol::property([](const ConvexMeshCollider3DComponent& c)
+                                                                                { return c.m_Offset; }, [](ConvexMeshCollider3DComponent& c, const glm::vec3& v)
+                                                                                { if (IsFiniteVec3(v)) c.m_Offset = v; }),
+                                                        "scale", sol::property([](const ConvexMeshCollider3DComponent& c)
+                                                                               { return c.m_Scale; }, [](ConvexMeshCollider3DComponent& c, const glm::vec3& v)
+                                                                               { if (IsFiniteVec3(v) && v.x > 0.0f && v.y > 0.0f && v.z > 0.0f) c.m_Scale = v; }),
+                                                        "material", &ConvexMeshCollider3DComponent::m_Material,
+                                                        "convexRadius", sol::property([](const ConvexMeshCollider3DComponent& c)
+                                                                                      { return c.m_ConvexRadius; }, [](ConvexMeshCollider3DComponent& c, f32 v)
+                                                                                      { if (std::isfinite(v) && v >= 0.0f) c.m_ConvexRadius = v; }),
+                                                        "maxVertices", &ConvexMeshCollider3DComponent::m_MaxVertices);
+
+        // --- TriangleMeshCollider3DComponent ---
+        lua.new_usertype<TriangleMeshCollider3DComponent>("TriangleMeshCollider3DComponent",
+                                                          "colliderAsset", &TriangleMeshCollider3DComponent::m_ColliderAsset,
+                                                          "offset", sol::property([](const TriangleMeshCollider3DComponent& c)
+                                                                                  { return c.m_Offset; }, [](TriangleMeshCollider3DComponent& c, const glm::vec3& v)
+                                                                                  { if (IsFiniteVec3(v)) c.m_Offset = v; }),
+                                                          "scale", sol::property([](const TriangleMeshCollider3DComponent& c)
+                                                                                 { return c.m_Scale; }, [](TriangleMeshCollider3DComponent& c, const glm::vec3& v)
+                                                                                 { if (IsFiniteVec3(v) && v.x > 0.0f && v.y > 0.0f && v.z > 0.0f) c.m_Scale = v; }),
+                                                          "material", &TriangleMeshCollider3DComponent::m_Material);
+
+        // --- TagComponent ---
+        lua.new_usertype<TagComponent>("TagComponent",
+                                       "tag", &TagComponent::Tag);
+
+        // --- ScriptComponent ---
+        lua.new_usertype<ScriptComponent>("ScriptComponent",
+                                          "className", &ScriptComponent::ClassName);
+
+        // --- LuaScriptComponent ---
+        lua.new_usertype<LuaScriptComponent>("LuaScriptComponent",
+                                             "scriptFile", &LuaScriptComponent::ScriptFile);
+
+        // --- ModelComponent ---
+        lua.new_usertype<ModelComponent>("ModelComponent",
+                                         "filePath", &ModelComponent::m_FilePath,
+                                         "visible", &ModelComponent::m_Visible,
+                                         "isLoaded", sol::property(&ModelComponent::IsLoaded));
+
+        // --- SceneCamera (needed by CameraComponent) ---
+        lua.new_usertype<SceneCamera>("SceneCamera",
+                                      "projectionType", sol::property(&SceneCamera::GetProjectionType, &SceneCamera::SetProjectionType),
+                                      "perspectiveFOV", sol::property(&SceneCamera::GetPerspectiveVerticalFOV, &SceneCamera::SetPerspectiveVerticalFOV),
+                                      "perspectiveNearClip", sol::property(&SceneCamera::GetPerspectiveNearClip, &SceneCamera::SetPerspectiveNearClip),
+                                      "perspectiveFarClip", sol::property(&SceneCamera::GetPerspectiveFarClip, &SceneCamera::SetPerspectiveFarClip),
+                                      "orthographicSize", sol::property(&SceneCamera::GetOrthographicSize, &SceneCamera::SetOrthographicSize),
+                                      "orthographicNearClip", sol::property(&SceneCamera::GetOrthographicNearClip, &SceneCamera::SetOrthographicNearClip),
+                                      "orthographicFarClip", sol::property(&SceneCamera::GetOrthographicFarClip, &SceneCamera::SetOrthographicFarClip));
+
+        // --- CameraComponent ---
+        lua.new_usertype<CameraComponent>("CameraComponent",
+                                          "camera", &CameraComponent::Camera,
+                                          "primary", &CameraComponent::Primary,
+                                          "fixedAspectRatio", &CameraComponent::FixedAspectRatio);
+
+        // --- SpriteRendererComponent ---
+        lua.new_usertype<SpriteRendererComponent>("SpriteRendererComponent",
+                                                  "color", sol::property([](const SpriteRendererComponent& c)
+                                                                         { return c.Color; }, [](SpriteRendererComponent& c, const glm::vec4& v)
+                                                                         { if (IsFiniteVec4(v)) c.Color = v; }),
+                                                  "tilingFactor", sol::property([](const SpriteRendererComponent& c)
+                                                                                { return c.TilingFactor; }, [](SpriteRendererComponent& c, f32 v)
+                                                                                { if (std::isfinite(v) && v >= 0.0f) c.TilingFactor = v; }));
+
+        // --- CircleRendererComponent ---
+        lua.new_usertype<CircleRendererComponent>("CircleRendererComponent",
+                                                  "color", sol::property([](const CircleRendererComponent& c)
+                                                                         { return c.Color; }, [](CircleRendererComponent& c, const glm::vec4& v)
+                                                                         { if (IsFiniteVec4(v)) c.Color = v; }),
+                                                  "thickness", sol::property([](const CircleRendererComponent& c)
+                                                                             { return c.Thickness; }, [](CircleRendererComponent& c, f32 v)
+                                                                             { if (std::isfinite(v) && v >= 0.0f) c.Thickness = v; }),
+                                                  "fade", sol::property([](const CircleRendererComponent& c)
+                                                                        { return c.Fade; }, [](CircleRendererComponent& c, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f) c.Fade = v; }));
+
+        // --- TextComponent ---
+        lua.new_usertype<TextComponent>("TextComponent",
+                                        "text", &TextComponent::TextString,
+                                        "color", sol::property([](const TextComponent& c)
+                                                               { return c.Color; }, [](TextComponent& c, const glm::vec4& v)
+                                                               { if (IsFiniteVec4(v)) c.Color = v; }),
+                                        "kerning", sol::property([](const TextComponent& c)
+                                                                 { return c.Kerning; }, [](TextComponent& c, f32 v)
+                                                                 { if (std::isfinite(v)) c.Kerning = v; }),
+                                        "lineSpacing", sol::property([](const TextComponent& c)
+                                                                     { return c.LineSpacing; }, [](TextComponent& c, f32 v)
+                                                                     { if (std::isfinite(v) && v >= 0.0f) c.LineSpacing = v; }),
+                                        "maxWidth", sol::property([](const TextComponent& c)
+                                                                  { return c.MaxWidth; }, [](TextComponent& c, f32 v)
+                                                                  { if (std::isfinite(v) && v >= 0.0f) c.MaxWidth = v; }),
+                                        "dropShadow", &TextComponent::DropShadow,
+                                        "shadowDistance", sol::property([](const TextComponent& c)
+                                                                        { return c.ShadowDistance; }, [](TextComponent& c, f32 v)
+                                                                        { if (std::isfinite(v)) c.ShadowDistance = v; }),
+                                        "shadowColor", sol::property([](const TextComponent& c)
+                                                                     { return c.ShadowColor; }, [](TextComponent& c, const glm::vec4& v)
+                                                                     { if (IsFiniteVec4(v)) c.ShadowColor = v; }));
+
+        // --- MeshComponent ---
+        lua.new_usertype<MeshComponent>("MeshComponent",
+                                        "primitive", sol::property([](const MeshComponent& c) -> int
+                                                                   { return static_cast<int>(c.m_Primitive); }, [](MeshComponent& c, int v)
+                                                                   { if (v >= 0 && v <= 7) c.m_Primitive = static_cast<MeshPrimitive>(v); }));
+
         // --- UICanvasComponent ---
         lua.new_usertype<UICanvasComponent>("UICanvasComponent",
-                                            "renderMode", &UICanvasComponent::m_RenderMode,
-                                            "scaleMode", &UICanvasComponent::m_ScaleMode,
+                                            "renderMode", sol::property([](const UICanvasComponent& c) -> int
+                                                                        { return static_cast<int>(c.m_RenderMode); }, [](UICanvasComponent& c, int v)
+                                                                        { if (v >= 0 && v <= 1) c.m_RenderMode = static_cast<UICanvasRenderMode>(v); }),
+                                            "scaleMode", sol::property([](const UICanvasComponent& c) -> int
+                                                                       { return static_cast<int>(c.m_ScaleMode); }, [](UICanvasComponent& c, int v)
+                                                                       { if (v >= 0 && v <= 1) c.m_ScaleMode = static_cast<UICanvasScaleMode>(v); }),
                                             "sortOrder", &UICanvasComponent::m_SortOrder,
-                                            "referenceResolution", &UICanvasComponent::m_ReferenceResolution);
+                                            "referenceResolution", sol::property([](const UICanvasComponent& c)
+                                                                                 { return c.m_ReferenceResolution; }, [](UICanvasComponent& c, const glm::vec2& v)
+                                                                                 { if (IsFiniteVec2(v)) c.m_ReferenceResolution = v; }));
 
         // --- UIRectTransformComponent ---
         lua.new_usertype<UIRectTransformComponent>("UIRectTransformComponent",
-                                                   "anchorMin", &UIRectTransformComponent::m_AnchorMin,
-                                                   "anchorMax", &UIRectTransformComponent::m_AnchorMax,
-                                                   "anchoredPosition", &UIRectTransformComponent::m_AnchoredPosition,
-                                                   "sizeDelta", &UIRectTransformComponent::m_SizeDelta,
-                                                   "pivot", &UIRectTransformComponent::m_Pivot,
-                                                   "rotation", &UIRectTransformComponent::m_Rotation,
-                                                   "scale", &UIRectTransformComponent::m_Scale);
+                                                   "anchorMin", sol::property([](const UIRectTransformComponent& c)
+                                                                              { return c.m_AnchorMin; }, [](UIRectTransformComponent& c, const glm::vec2& v)
+                                                                              { if (IsFiniteVec2(v)) c.m_AnchorMin = v; }),
+                                                   "anchorMax", sol::property([](const UIRectTransformComponent& c)
+                                                                              { return c.m_AnchorMax; }, [](UIRectTransformComponent& c, const glm::vec2& v)
+                                                                              { if (IsFiniteVec2(v)) c.m_AnchorMax = v; }),
+                                                   "anchoredPosition", sol::property([](const UIRectTransformComponent& c)
+                                                                                     { return c.m_AnchoredPosition; }, [](UIRectTransformComponent& c, const glm::vec2& v)
+                                                                                     { if (IsFiniteVec2(v)) c.m_AnchoredPosition = v; }),
+                                                   "sizeDelta", sol::property([](const UIRectTransformComponent& c)
+                                                                              { return c.m_SizeDelta; }, [](UIRectTransformComponent& c, const glm::vec2& v)
+                                                                              { if (IsFiniteVec2(v)) c.m_SizeDelta = v; }),
+                                                   "pivot", sol::property([](const UIRectTransformComponent& c)
+                                                                          { return c.m_Pivot; }, [](UIRectTransformComponent& c, const glm::vec2& v)
+                                                                          { if (IsFiniteVec2(v)) c.m_Pivot = v; }),
+                                                   "rotation", sol::property([](const UIRectTransformComponent& c)
+                                                                             { return c.m_Rotation; }, [](UIRectTransformComponent& c, f32 v)
+                                                                             { if (std::isfinite(v)) c.m_Rotation = v; }),
+                                                   "scale", sol::property([](const UIRectTransformComponent& c)
+                                                                          { return c.m_Scale; }, [](UIRectTransformComponent& c, const glm::vec2& v)
+                                                                          { if (IsFiniteVec2(v)) c.m_Scale = v; }));
 
         // --- UIImageComponent ---
         lua.new_usertype<UIImageComponent>("UIImageComponent",
-                                           "color", &UIImageComponent::m_Color,
-                                           "borderInsets", &UIImageComponent::m_BorderInsets);
+                                           "color", sol::property([](const UIImageComponent& c)
+                                                                  { return c.m_Color; }, [](UIImageComponent& c, const glm::vec4& v)
+                                                                  { if (IsFiniteVec4(v)) c.m_Color = v; }),
+                                           "borderInsets", sol::property([](const UIImageComponent& c)
+                                                                         { return c.m_BorderInsets; }, [](UIImageComponent& c, const glm::vec4& v)
+                                                                         { if (IsFiniteVec4(v) && v.x >= 0.0f && v.y >= 0.0f && v.z >= 0.0f && v.w >= 0.0f) c.m_BorderInsets = v; }));
 
         // --- UIPanelComponent ---
         lua.new_usertype<UIPanelComponent>("UIPanelComponent",
-                                           "backgroundColor", &UIPanelComponent::m_BackgroundColor);
+                                           "backgroundColor", sol::property([](const UIPanelComponent& c)
+                                                                            { return c.m_BackgroundColor; }, [](UIPanelComponent& c, const glm::vec4& v)
+                                                                            { if (IsFiniteVec4(v)) c.m_BackgroundColor = v; }));
 
         // --- UITextComponent ---
         lua.new_usertype<UITextComponent>("UITextComponent",
                                           "text", &UITextComponent::m_Text,
-                                          "fontSize", &UITextComponent::m_FontSize,
-                                          "color", &UITextComponent::m_Color,
-                                          "alignment", &UITextComponent::m_Alignment,
-                                          "kerning", &UITextComponent::m_Kerning,
-                                          "lineSpacing", &UITextComponent::m_LineSpacing);
+                                          "fontSize", sol::property([](const UITextComponent& c)
+                                                                    { return c.m_FontSize; }, [](UITextComponent& c, f32 v)
+                                                                    { if (std::isfinite(v) && v > 0.0f) c.m_FontSize = v; }),
+                                          "color", sol::property([](const UITextComponent& c)
+                                                                 { return c.m_Color; }, [](UITextComponent& c, const glm::vec4& v)
+                                                                 { if (IsFiniteVec4(v)) c.m_Color = v; }),
+                                          "alignment", sol::property([](const UITextComponent& c) -> int
+                                                                     { return static_cast<int>(c.m_Alignment); }, [](UITextComponent& c, int v)
+                                                                     { if (v >= 0 && v <= 8) c.m_Alignment = static_cast<UITextAlignment>(v); }),
+                                          "kerning", sol::property([](const UITextComponent& c)
+                                                                   { return c.m_Kerning; }, [](UITextComponent& c, f32 v)
+                                                                   { if (std::isfinite(v)) c.m_Kerning = v; }),
+                                          "lineSpacing", sol::property([](const UITextComponent& c)
+                                                                       { return c.m_LineSpacing; }, [](UITextComponent& c, f32 v)
+                                                                       { if (std::isfinite(v) && v >= 0.0f) c.m_LineSpacing = v; }));
 
         // --- UIButtonComponent ---
         lua.new_usertype<UIButtonComponent>("UIButtonComponent",
-                                            "normalColor", &UIButtonComponent::m_NormalColor,
-                                            "hoveredColor", &UIButtonComponent::m_HoveredColor,
-                                            "pressedColor", &UIButtonComponent::m_PressedColor,
-                                            "disabledColor", &UIButtonComponent::m_DisabledColor,
+                                            "normalColor", sol::property([](const UIButtonComponent& c)
+                                                                         { return c.m_NormalColor; }, [](UIButtonComponent& c, const glm::vec4& v)
+                                                                         { if (IsFiniteVec4(v)) c.m_NormalColor = v; }),
+                                            "hoveredColor", sol::property([](const UIButtonComponent& c)
+                                                                          { return c.m_HoveredColor; }, [](UIButtonComponent& c, const glm::vec4& v)
+                                                                          { if (IsFiniteVec4(v)) c.m_HoveredColor = v; }),
+                                            "pressedColor", sol::property([](const UIButtonComponent& c)
+                                                                          { return c.m_PressedColor; }, [](UIButtonComponent& c, const glm::vec4& v)
+                                                                          { if (IsFiniteVec4(v)) c.m_PressedColor = v; }),
+                                            "disabledColor", sol::property([](const UIButtonComponent& c)
+                                                                           { return c.m_DisabledColor; }, [](UIButtonComponent& c, const glm::vec4& v)
+                                                                           { if (IsFiniteVec4(v)) c.m_DisabledColor = v; }),
                                             "interactable", &UIButtonComponent::m_Interactable,
                                             "state", sol::readonly(&UIButtonComponent::m_State));
 
         // --- UISliderComponent ---
         lua.new_usertype<UISliderComponent>("UISliderComponent",
-                                            "value", &UISliderComponent::m_Value,
-                                            "minValue", &UISliderComponent::m_MinValue,
-                                            "maxValue", &UISliderComponent::m_MaxValue,
-                                            "direction", &UISliderComponent::m_Direction,
-                                            "backgroundColor", &UISliderComponent::m_BackgroundColor,
-                                            "fillColor", &UISliderComponent::m_FillColor,
-                                            "handleColor", &UISliderComponent::m_HandleColor,
+                                            "value", sol::property([](const UISliderComponent& c)
+                                                                   { return c.m_Value; }, [](UISliderComponent& c, f32 v)
+                                                                   { if (std::isfinite(v)) c.m_Value = v; }),
+                                            "minValue", sol::property([](const UISliderComponent& c)
+                                                                      { return c.m_MinValue; }, [](UISliderComponent& c, f32 v)
+                                                                      { if (std::isfinite(v)) c.m_MinValue = v; }),
+                                            "maxValue", sol::property([](const UISliderComponent& c)
+                                                                      { return c.m_MaxValue; }, [](UISliderComponent& c, f32 v)
+                                                                      { if (std::isfinite(v)) c.m_MaxValue = v; }),
+                                            "direction", sol::property([](const UISliderComponent& c) -> int
+                                                                       { return static_cast<int>(c.m_Direction); }, [](UISliderComponent& c, int v)
+                                                                       { if (v >= 0 && v <= 3) c.m_Direction = static_cast<UISliderDirection>(v); }),
+                                            "backgroundColor", sol::property([](const UISliderComponent& c)
+                                                                             { return c.m_BackgroundColor; }, [](UISliderComponent& c, const glm::vec4& v)
+                                                                             { if (IsFiniteVec4(v)) c.m_BackgroundColor = v; }),
+                                            "fillColor", sol::property([](const UISliderComponent& c)
+                                                                       { return c.m_FillColor; }, [](UISliderComponent& c, const glm::vec4& v)
+                                                                       { if (IsFiniteVec4(v)) c.m_FillColor = v; }),
+                                            "handleColor", sol::property([](const UISliderComponent& c)
+                                                                         { return c.m_HandleColor; }, [](UISliderComponent& c, const glm::vec4& v)
+                                                                         { if (IsFiniteVec4(v)) c.m_HandleColor = v; }),
                                             "interactable", &UISliderComponent::m_Interactable);
 
         // --- UICheckboxComponent ---
         lua.new_usertype<UICheckboxComponent>("UICheckboxComponent",
                                               "isChecked", &UICheckboxComponent::m_IsChecked,
-                                              "uncheckedColor", &UICheckboxComponent::m_UncheckedColor,
-                                              "checkedColor", &UICheckboxComponent::m_CheckedColor,
-                                              "checkmarkColor", &UICheckboxComponent::m_CheckmarkColor,
+                                              "uncheckedColor", sol::property([](const UICheckboxComponent& c)
+                                                                              { return c.m_UncheckedColor; }, [](UICheckboxComponent& c, const glm::vec4& v)
+                                                                              { if (IsFiniteVec4(v)) c.m_UncheckedColor = v; }),
+                                              "checkedColor", sol::property([](const UICheckboxComponent& c)
+                                                                            { return c.m_CheckedColor; }, [](UICheckboxComponent& c, const glm::vec4& v)
+                                                                            { if (IsFiniteVec4(v)) c.m_CheckedColor = v; }),
+                                              "checkmarkColor", sol::property([](const UICheckboxComponent& c)
+                                                                              { return c.m_CheckmarkColor; }, [](UICheckboxComponent& c, const glm::vec4& v)
+                                                                              { if (IsFiniteVec4(v)) c.m_CheckmarkColor = v; }),
                                               "interactable", &UICheckboxComponent::m_Interactable);
 
         // --- UIProgressBarComponent ---
         lua.new_usertype<UIProgressBarComponent>("UIProgressBarComponent",
-                                                 "value", &UIProgressBarComponent::m_Value,
-                                                 "minValue", &UIProgressBarComponent::m_MinValue,
-                                                 "maxValue", &UIProgressBarComponent::m_MaxValue,
-                                                 "fillMethod", &UIProgressBarComponent::m_FillMethod,
-                                                 "backgroundColor", &UIProgressBarComponent::m_BackgroundColor,
-                                                 "fillColor", &UIProgressBarComponent::m_FillColor);
+                                                 "value", sol::property([](const UIProgressBarComponent& c)
+                                                                        { return c.m_Value; }, [](UIProgressBarComponent& c, f32 v)
+                                                                        { if (std::isfinite(v)) c.m_Value = v; }),
+                                                 "minValue", sol::property([](const UIProgressBarComponent& c)
+                                                                           { return c.m_MinValue; }, [](UIProgressBarComponent& c, f32 v)
+                                                                           { if (std::isfinite(v)) c.m_MinValue = v; }),
+                                                 "maxValue", sol::property([](const UIProgressBarComponent& c)
+                                                                           { return c.m_MaxValue; }, [](UIProgressBarComponent& c, f32 v)
+                                                                           { if (std::isfinite(v)) c.m_MaxValue = v; }),
+                                                 "fillMethod", sol::property([](const UIProgressBarComponent& c) -> int
+                                                                             { return static_cast<int>(c.m_FillMethod); }, [](UIProgressBarComponent& c, int v)
+                                                                             { if (v >= 0 && v <= 1) c.m_FillMethod = static_cast<UIFillMethod>(v); }),
+                                                 "backgroundColor", sol::property([](const UIProgressBarComponent& c)
+                                                                                  { return c.m_BackgroundColor; }, [](UIProgressBarComponent& c, const glm::vec4& v)
+                                                                                  { if (IsFiniteVec4(v)) c.m_BackgroundColor = v; }),
+                                                 "fillColor", sol::property([](const UIProgressBarComponent& c)
+                                                                            { return c.m_FillColor; }, [](UIProgressBarComponent& c, const glm::vec4& v)
+                                                                            { if (IsFiniteVec4(v)) c.m_FillColor = v; }));
 
         // --- UIInputFieldComponent ---
         lua.new_usertype<UIInputFieldComponent>("UIInputFieldComponent",
                                                 "text", &UIInputFieldComponent::m_Text,
                                                 "placeholder", &UIInputFieldComponent::m_Placeholder,
-                                                "fontSize", &UIInputFieldComponent::m_FontSize,
-                                                "textColor", &UIInputFieldComponent::m_TextColor,
-                                                "placeholderColor", &UIInputFieldComponent::m_PlaceholderColor,
-                                                "backgroundColor", &UIInputFieldComponent::m_BackgroundColor,
+                                                "fontSize", sol::property([](const UIInputFieldComponent& c)
+                                                                          { return c.m_FontSize; }, [](UIInputFieldComponent& c, f32 v)
+                                                                          { if (std::isfinite(v) && v > 0.0f) c.m_FontSize = v; }),
+                                                "textColor", sol::property([](const UIInputFieldComponent& c)
+                                                                           { return c.m_TextColor; }, [](UIInputFieldComponent& c, const glm::vec4& v)
+                                                                           { if (IsFiniteVec4(v)) c.m_TextColor = v; }),
+                                                "placeholderColor", sol::property([](const UIInputFieldComponent& c)
+                                                                                  { return c.m_PlaceholderColor; }, [](UIInputFieldComponent& c, const glm::vec4& v)
+                                                                                  { if (IsFiniteVec4(v)) c.m_PlaceholderColor = v; }),
+                                                "backgroundColor", sol::property([](const UIInputFieldComponent& c)
+                                                                                 { return c.m_BackgroundColor; }, [](UIInputFieldComponent& c, const glm::vec4& v)
+                                                                                 { if (IsFiniteVec4(v)) c.m_BackgroundColor = v; }),
                                                 "characterLimit", &UIInputFieldComponent::m_CharacterLimit,
                                                 "interactable", &UIInputFieldComponent::m_Interactable);
 
         // --- UIScrollViewComponent ---
         lua.new_usertype<UIScrollViewComponent>("UIScrollViewComponent",
-                                                "scrollPosition", &UIScrollViewComponent::m_ScrollPosition,
-                                                "contentSize", &UIScrollViewComponent::m_ContentSize,
-                                                "scrollDirection", &UIScrollViewComponent::m_ScrollDirection,
-                                                "scrollSpeed", &UIScrollViewComponent::m_ScrollSpeed,
+                                                "scrollPosition", sol::property([](const UIScrollViewComponent& c)
+                                                                                { return c.m_ScrollPosition; }, [](UIScrollViewComponent& c, const glm::vec2& v)
+                                                                                { if (IsFiniteVec2(v)) c.m_ScrollPosition = v; }),
+                                                "contentSize", sol::property([](const UIScrollViewComponent& c)
+                                                                             { return c.m_ContentSize; }, [](UIScrollViewComponent& c, const glm::vec2& v)
+                                                                             { if (IsFiniteVec2(v)) c.m_ContentSize = v; }),
+                                                "scrollDirection", sol::property([](const UIScrollViewComponent& c) -> int
+                                                                                 { return static_cast<int>(c.m_ScrollDirection); }, [](UIScrollViewComponent& c, int v)
+                                                                                 { if (v >= 0 && v <= 2) c.m_ScrollDirection = static_cast<UIScrollDirection>(v); }),
+                                                "scrollSpeed", sol::property([](const UIScrollViewComponent& c)
+                                                                             { return c.m_ScrollSpeed; }, [](UIScrollViewComponent& c, f32 v)
+                                                                             { if (std::isfinite(v) && v >= 0.0f) c.m_ScrollSpeed = v; }),
                                                 "showHorizontalScrollbar", &UIScrollViewComponent::m_ShowHorizontalScrollbar,
                                                 "showVerticalScrollbar", &UIScrollViewComponent::m_ShowVerticalScrollbar,
-                                                "scrollbarColor", &UIScrollViewComponent::m_ScrollbarColor,
-                                                "scrollbarTrackColor", &UIScrollViewComponent::m_ScrollbarTrackColor);
+                                                "scrollbarColor", sol::property([](const UIScrollViewComponent& c)
+                                                                                { return c.m_ScrollbarColor; }, [](UIScrollViewComponent& c, const glm::vec4& v)
+                                                                                { if (IsFiniteVec4(v)) c.m_ScrollbarColor = v; }),
+                                                "scrollbarTrackColor", sol::property([](const UIScrollViewComponent& c)
+                                                                                     { return c.m_ScrollbarTrackColor; }, [](UIScrollViewComponent& c, const glm::vec4& v)
+                                                                                     { if (IsFiniteVec4(v)) c.m_ScrollbarTrackColor = v; }));
 
         // --- UIDropdownComponent ---
         lua.new_usertype<UIDropdownComponent>("UIDropdownComponent",
                                               "selectedIndex", &UIDropdownComponent::m_SelectedIndex,
-                                              "backgroundColor", &UIDropdownComponent::m_BackgroundColor,
-                                              "highlightColor", &UIDropdownComponent::m_HighlightColor,
-                                              "textColor", &UIDropdownComponent::m_TextColor,
-                                              "fontSize", &UIDropdownComponent::m_FontSize,
-                                              "itemHeight", &UIDropdownComponent::m_ItemHeight,
+                                              "backgroundColor", sol::property([](const UIDropdownComponent& c)
+                                                                               { return c.m_BackgroundColor; }, [](UIDropdownComponent& c, const glm::vec4& v)
+                                                                               { if (IsFiniteVec4(v)) c.m_BackgroundColor = v; }),
+                                              "highlightColor", sol::property([](const UIDropdownComponent& c)
+                                                                              { return c.m_HighlightColor; }, [](UIDropdownComponent& c, const glm::vec4& v)
+                                                                              { if (IsFiniteVec4(v)) c.m_HighlightColor = v; }),
+                                              "textColor", sol::property([](const UIDropdownComponent& c)
+                                                                         { return c.m_TextColor; }, [](UIDropdownComponent& c, const glm::vec4& v)
+                                                                         { if (IsFiniteVec4(v)) c.m_TextColor = v; }),
+                                              "fontSize", sol::property([](const UIDropdownComponent& c)
+                                                                        { return c.m_FontSize; }, [](UIDropdownComponent& c, f32 v)
+                                                                        { if (std::isfinite(v) && v > 0.0f) c.m_FontSize = v; }),
+                                              "itemHeight", sol::property([](const UIDropdownComponent& c)
+                                                                          { return c.m_ItemHeight; }, [](UIDropdownComponent& c, f32 v)
+                                                                          { if (std::isfinite(v) && v > 0.0f) c.m_ItemHeight = v; }),
                                               "interactable", &UIDropdownComponent::m_Interactable);
 
         // --- UIGridLayoutComponent ---
         lua.new_usertype<UIGridLayoutComponent>("UIGridLayoutComponent",
-                                                "cellSize", &UIGridLayoutComponent::m_CellSize,
-                                                "spacing", &UIGridLayoutComponent::m_Spacing,
-                                                "padding", &UIGridLayoutComponent::m_Padding,
-                                                "startCorner", &UIGridLayoutComponent::m_StartCorner,
-                                                "startAxis", &UIGridLayoutComponent::m_StartAxis,
+                                                "cellSize", sol::property([](const UIGridLayoutComponent& c)
+                                                                          { return c.m_CellSize; }, [](UIGridLayoutComponent& c, const glm::vec2& v)
+                                                                          { if (IsFiniteVec2(v) && v.x >= 0.0f && v.y >= 0.0f) c.m_CellSize = v; }),
+                                                "spacing", sol::property([](const UIGridLayoutComponent& c)
+                                                                         { return c.m_Spacing; }, [](UIGridLayoutComponent& c, const glm::vec2& v)
+                                                                         { if (IsFiniteVec2(v)) c.m_Spacing = v; }),
+                                                "padding", sol::property([](const UIGridLayoutComponent& c)
+                                                                         { return c.m_Padding; }, [](UIGridLayoutComponent& c, const glm::vec4& v)
+                                                                         { if (IsFiniteVec4(v) && v.x >= 0.0f && v.y >= 0.0f && v.z >= 0.0f && v.w >= 0.0f) c.m_Padding = v; }),
+                                                "startCorner", sol::property([](const UIGridLayoutComponent& c) -> int
+                                                                             { return static_cast<int>(c.m_StartCorner); }, [](UIGridLayoutComponent& c, int v)
+                                                                             { if (v >= 0 && v <= 3) c.m_StartCorner = static_cast<UIGridLayoutStartCorner>(v); }),
+                                                "startAxis", sol::property([](const UIGridLayoutComponent& c) -> int
+                                                                           { return static_cast<int>(c.m_StartAxis); }, [](UIGridLayoutComponent& c, int v)
+                                                                           { if (v >= 0 && v <= 1) c.m_StartAxis = static_cast<UIGridLayoutAxis>(v); }),
                                                 "constraintCount", &UIGridLayoutComponent::m_ConstraintCount);
 
         // --- UIToggleComponent ---
         lua.new_usertype<UIToggleComponent>("UIToggleComponent",
                                             "isOn", &UIToggleComponent::m_IsOn,
-                                            "offColor", &UIToggleComponent::m_OffColor,
-                                            "onColor", &UIToggleComponent::m_OnColor,
-                                            "knobColor", &UIToggleComponent::m_KnobColor,
+                                            "offColor", sol::property([](const UIToggleComponent& c)
+                                                                      { return c.m_OffColor; }, [](UIToggleComponent& c, const glm::vec4& v)
+                                                                      { if (IsFiniteVec4(v)) c.m_OffColor = v; }),
+                                            "onColor", sol::property([](const UIToggleComponent& c)
+                                                                     { return c.m_OnColor; }, [](UIToggleComponent& c, const glm::vec4& v)
+                                                                     { if (IsFiniteVec4(v)) c.m_OnColor = v; }),
+                                            "knobColor", sol::property([](const UIToggleComponent& c)
+                                                                       { return c.m_KnobColor; }, [](UIToggleComponent& c, const glm::vec4& v)
+                                                                       { if (IsFiniteVec4(v)) c.m_KnobColor = v; }),
                                             "interactable", &UIToggleComponent::m_Interactable);
 
         // --- ParticleSystemComponent ---
         lua.new_usertype<ParticleSystem>("ParticleSystem",
                                          "playing", &ParticleSystem::Playing,
                                          "looping", &ParticleSystem::Looping,
-                                         "duration", &ParticleSystem::Duration,
-                                         "playbackSpeed", &ParticleSystem::PlaybackSpeed,
-                                         "windInfluence", &ParticleSystem::WindInfluence,
+                                         "duration", sol::property([](const ParticleSystem& ps)
+                                                                   { return ps.Duration; }, [](ParticleSystem& ps, f32 v)
+                                                                   { if (std::isfinite(v) && v > 0.0f) ps.Duration = v; }),
+                                         "playbackSpeed", sol::property([](const ParticleSystem& ps)
+                                                                        { return ps.PlaybackSpeed; }, [](ParticleSystem& ps, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f) ps.PlaybackSpeed = v; }),
+                                         "windInfluence", sol::property([](const ParticleSystem& ps)
+                                                                        { return ps.WindInfluence; }, [](ParticleSystem& ps, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f) ps.WindInfluence = v; }),
                                          "getAliveCount", &ParticleSystem::GetAliveCount,
                                          "reset", &ParticleSystem::Reset);
 
         lua.new_usertype<ParticleEmitter>("ParticleEmitter",
-                                          "rateOverTime", &ParticleEmitter::RateOverTime,
-                                          "initialSpeed", &ParticleEmitter::InitialSpeed,
-                                          "speedVariance", &ParticleEmitter::SpeedVariance,
-                                          "lifetimeMin", &ParticleEmitter::LifetimeMin,
-                                          "lifetimeMax", &ParticleEmitter::LifetimeMax,
-                                          "initialSize", &ParticleEmitter::InitialSize,
-                                          "sizeVariance", &ParticleEmitter::SizeVariance,
-                                          "initialColor", &ParticleEmitter::InitialColor);
+                                          "rateOverTime", sol::property([](const ParticleEmitter& e)
+                                                                        { return e.RateOverTime; }, [](ParticleEmitter& e, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f) e.RateOverTime = v; }),
+                                          "initialSpeed", sol::property([](const ParticleEmitter& e)
+                                                                        { return e.InitialSpeed; }, [](ParticleEmitter& e, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f) e.InitialSpeed = v; }),
+                                          "speedVariance", sol::property([](const ParticleEmitter& e)
+                                                                         { return e.SpeedVariance; }, [](ParticleEmitter& e, f32 v)
+                                                                         { if (std::isfinite(v) && v >= 0.0f) e.SpeedVariance = v; }),
+                                          "lifetimeMin", sol::property([](const ParticleEmitter& e)
+                                                                       { return e.LifetimeMin; }, [](ParticleEmitter& e, f32 v)
+                                                                       { if (std::isfinite(v) && v >= 0.0f) { e.LifetimeMin = v; if (e.LifetimeMin > e.LifetimeMax) e.LifetimeMax = e.LifetimeMin; } }),
+                                          "lifetimeMax", sol::property([](const ParticleEmitter& e)
+                                                                       { return e.LifetimeMax; }, [](ParticleEmitter& e, f32 v)
+                                                                       { if (std::isfinite(v) && v >= 0.0f) { e.LifetimeMax = v; if (e.LifetimeMax < e.LifetimeMin) e.LifetimeMin = e.LifetimeMax; } }),
+                                          "initialSize", sol::property([](const ParticleEmitter& e)
+                                                                       { return e.InitialSize; }, [](ParticleEmitter& e, f32 v)
+                                                                       { if (std::isfinite(v) && v >= 0.0f) e.InitialSize = v; }),
+                                          "sizeVariance", sol::property([](const ParticleEmitter& e)
+                                                                        { return e.SizeVariance; }, [](ParticleEmitter& e, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f) e.SizeVariance = v; }),
+                                          "initialColor", sol::property([](const ParticleEmitter& e)
+                                                                        { return e.InitialColor; }, [](ParticleEmitter& e, const glm::vec4& v)
+                                                                        { if (IsFiniteVec4(v)) e.InitialColor = v; }));
 
         lua.new_usertype<ParticleSystemComponent>("ParticleSystemComponent",
                                                   "system", &ParticleSystemComponent::System);
 
         // --- LightProbeComponent ---
         lua.new_usertype<LightProbeComponent>("LightProbeComponent",
-                                              "influenceRadius", &LightProbeComponent::m_InfluenceRadius,
-                                              "intensity", &LightProbeComponent::m_Intensity,
+                                              "influenceRadius", sol::property([](const LightProbeComponent& c)
+                                                                               { return c.m_InfluenceRadius; }, [](LightProbeComponent& c, f32 v)
+                                                                               { if (std::isfinite(v) && v >= 0.0f) c.m_InfluenceRadius = v; }),
+                                              "intensity", sol::property([](const LightProbeComponent& c)
+                                                                         { return c.m_Intensity; }, [](LightProbeComponent& c, f32 v)
+                                                                         { if (std::isfinite(v) && v >= 0.0f) c.m_Intensity = v; }),
                                               "active", &LightProbeComponent::m_Active);
 
         // --- LightProbeVolumeComponent ---
         lua.new_usertype<LightProbeVolumeComponent>("LightProbeVolumeComponent",
-                                                    "boundsMin", &LightProbeVolumeComponent::m_BoundsMin,
-                                                    "boundsMax", &LightProbeVolumeComponent::m_BoundsMax,
-                                                    "spacing", &LightProbeVolumeComponent::m_Spacing,
-                                                    "intensity", &LightProbeVolumeComponent::m_Intensity,
+                                                    "boundsMin", sol::property([](const LightProbeVolumeComponent& c)
+                                                                               { return c.m_BoundsMin; }, [](LightProbeVolumeComponent& c, const glm::vec3& v)
+                                                                               { if (IsFiniteVec3(v)) c.m_BoundsMin = v; }),
+                                                    "boundsMax", sol::property([](const LightProbeVolumeComponent& c)
+                                                                               { return c.m_BoundsMax; }, [](LightProbeVolumeComponent& c, const glm::vec3& v)
+                                                                               { if (IsFiniteVec3(v)) c.m_BoundsMax = v; }),
+                                                    "spacing", sol::property([](const LightProbeVolumeComponent& c)
+                                                                             { return c.m_Spacing; }, [](LightProbeVolumeComponent& c, f32 v)
+                                                                             { if (std::isfinite(v) && v > 0.0f) c.m_Spacing = v; }),
+                                                    "intensity", sol::property([](const LightProbeVolumeComponent& c)
+                                                                               { return c.m_Intensity; }, [](LightProbeVolumeComponent& c, f32 v)
+                                                                               { if (std::isfinite(v) && v >= 0.0f) c.m_Intensity = v; }),
                                                     "active", &LightProbeVolumeComponent::m_Active,
                                                     "dirty", &LightProbeVolumeComponent::m_Dirty,
                                                     "getTotalProbeCount", &LightProbeVolumeComponent::GetTotalProbeCount);
@@ -235,39 +1064,69 @@ namespace OloEngine
                                                  "targetEntity", sol::property([](const UIWorldAnchorComponent& c)
                                                                                { return static_cast<u64>(c.m_TargetEntity); }, [](UIWorldAnchorComponent& c, u64 id)
                                                                                { c.m_TargetEntity = UUID(id); }),
-                                                 "worldOffset", &UIWorldAnchorComponent::m_WorldOffset);
+                                                 "worldOffset", sol::property([](const UIWorldAnchorComponent& c)
+                                                                              { return c.m_WorldOffset; }, [](UIWorldAnchorComponent& c, const glm::vec3& v)
+                                                                              { if (IsFiniteVec3(v)) c.m_WorldOffset = v; }));
 
         // --- NameplateComponent ---
         lua.new_usertype<NameplateComponent>("NameplateComponent",
                                              "enabled", &NameplateComponent::m_Enabled,
                                              "showHealthBar", &NameplateComponent::m_ShowHealthBar,
                                              "showManaBar", &NameplateComponent::m_ShowManaBar,
-                                             "worldOffset", &NameplateComponent::m_WorldOffset,
-                                             "barSize", &NameplateComponent::m_BarSize,
-                                             "healthBarColor", &NameplateComponent::m_HealthBarColor,
-                                             "manaBarColor", &NameplateComponent::m_ManaBarColor,
-                                             "barBackgroundColor", &NameplateComponent::m_BarBackgroundColor,
-                                             "manaBarGap", &NameplateComponent::m_ManaBarGap);
+                                             "worldOffset", sol::property([](const NameplateComponent& c)
+                                                                          { return c.m_WorldOffset; }, [](NameplateComponent& c, const glm::vec3& v)
+                                                                          { if (IsFiniteVec3(v)) c.m_WorldOffset = v; }),
+                                             "barSize", sol::property([](const NameplateComponent& c)
+                                                                      { return c.m_BarSize; }, [](NameplateComponent& c, const glm::vec2& v)
+                                                                      { if (IsFiniteVec2(v) && v.x >= 0.0f && v.y >= 0.0f) c.m_BarSize = v; }),
+                                             "healthBarColor", sol::property([](const NameplateComponent& c)
+                                                                             { return c.m_HealthBarColor; }, [](NameplateComponent& c, const glm::vec4& v)
+                                                                             { if (IsFiniteVec4(v)) c.m_HealthBarColor = v; }),
+                                             "manaBarColor", sol::property([](const NameplateComponent& c)
+                                                                           { return c.m_ManaBarColor; }, [](NameplateComponent& c, const glm::vec4& v)
+                                                                           { if (IsFiniteVec4(v)) c.m_ManaBarColor = v; }),
+                                             "barBackgroundColor", sol::property([](const NameplateComponent& c)
+                                                                                 { return c.m_BarBackgroundColor; }, [](NameplateComponent& c, const glm::vec4& v)
+                                                                                 { if (IsFiniteVec4(v)) c.m_BarBackgroundColor = v; }),
+                                             "manaBarGap", sol::property([](const NameplateComponent& c)
+                                                                         { return c.m_ManaBarGap; }, [](NameplateComponent& c, f32 v)
+                                                                         { if (std::isfinite(v) && v >= 0.0f) c.m_ManaBarGap = v; }));
 
         // --- IKTargetComponent ---
         lua.new_usertype<IKTargetComponent>("IKTargetComponent",
                                             "aimIKEnabled", &IKTargetComponent::AimIKEnabled,
                                             "aimBoneIndex", &IKTargetComponent::AimBoneIndex,
-                                            "aimTarget", &IKTargetComponent::AimTarget,
-                                            "aimAxis", &IKTargetComponent::AimAxis,
-                                            "aimOffset", &IKTargetComponent::AimOffset,
-                                            "aimPoleVector", &IKTargetComponent::AimPoleVector,
+                                            "aimTarget", sol::property([](const IKTargetComponent& c)
+                                                                       { return c.AimTarget; }, [](IKTargetComponent& c, const glm::vec3& v)
+                                                                       { if (IsFiniteVec3(v)) c.AimTarget = v; }),
+                                            "aimAxis", sol::property([](const IKTargetComponent& c)
+                                                                     { return c.AimAxis; }, [](IKTargetComponent& c, const glm::vec3& v)
+                                                                     { if (IsFiniteVec3(v)) c.AimAxis = v; }),
+                                            "aimOffset", sol::property([](const IKTargetComponent& c)
+                                                                       { return c.AimOffset; }, [](IKTargetComponent& c, const glm::vec3& v)
+                                                                       { if (IsFiniteVec3(v)) c.AimOffset = v; }),
+                                            "aimPoleVector", sol::property([](const IKTargetComponent& c)
+                                                                           { return c.AimPoleVector; }, [](IKTargetComponent& c, const glm::vec3& v)
+                                                                           { if (IsFiniteVec3(v)) c.AimPoleVector = v; }),
                                             "aimChainLength", &IKTargetComponent::AimChainLength,
-                                            "aimChainFactor", &IKTargetComponent::AimChainFactor,
-                                            "aimWeight", &IKTargetComponent::AimWeight,
+                                            "aimChainFactor", sol::property([](const IKTargetComponent& c)
+                                                                            { return c.AimChainFactor; }, [](IKTargetComponent& c, f32 v)
+                                                                            { if (std::isfinite(v)) c.AimChainFactor = std::clamp(v, 0.0f, 1.0f); }),
+                                            "aimWeight", sol::property([](const IKTargetComponent& c)
+                                                                       { return c.AimWeight; }, [](IKTargetComponent& c, f32 v)
+                                                                       { if (std::isfinite(v)) c.AimWeight = std::clamp(v, 0.0f, 1.0f); }),
                                             "aimTargetEntity", sol::property([](const IKTargetComponent& c)
                                                                              { return static_cast<u64>(c.AimTargetEntity); }, [](IKTargetComponent& c, u64 id)
                                                                              { c.AimTargetEntity = UUID(id); }),
                                             "limbIKEnabled", &IKTargetComponent::LimbIKEnabled,
                                             "limbBoneIndex", &IKTargetComponent::LimbBoneIndex,
-                                            "limbTarget", &IKTargetComponent::LimbTarget,
+                                            "limbTarget", sol::property([](const IKTargetComponent& c)
+                                                                        { return c.LimbTarget; }, [](IKTargetComponent& c, const glm::vec3& v)
+                                                                        { if (IsFiniteVec3(v)) c.LimbTarget = v; }),
                                             "limbChainLength", &IKTargetComponent::LimbChainLength,
-                                            "limbWeight", &IKTargetComponent::LimbWeight,
+                                            "limbWeight", sol::property([](const IKTargetComponent& c)
+                                                                        { return c.LimbWeight; }, [](IKTargetComponent& c, f32 v)
+                                                                        { if (std::isfinite(v)) c.LimbWeight = std::clamp(v, 0.0f, 1.0f); }),
                                             "limbTargetEntity", sol::property([](const IKTargetComponent& c)
                                                                               { return static_cast<u64>(c.LimbTargetEntity); }, [](IKTargetComponent& c, u64 id)
                                                                               { c.LimbTargetEntity = UUID(id); }));
@@ -275,33 +1134,57 @@ namespace OloEngine
         // --- WindSettings (scene-level) ---
         lua.new_usertype<WindSettings>("WindSettings",
                                        "enabled", &WindSettings::Enabled,
-                                       "direction", &WindSettings::Direction,
-                                       "speed", &WindSettings::Speed,
-                                       "gustStrength", &WindSettings::GustStrength,
-                                       "gustFrequency", &WindSettings::GustFrequency,
-                                       "turbulenceIntensity", &WindSettings::TurbulenceIntensity,
-                                       "turbulenceScale", &WindSettings::TurbulenceScale,
-                                       "gridWorldSize", &WindSettings::GridWorldSize,
+                                       "direction", sol::property([](const WindSettings& w)
+                                                                  { return w.Direction; }, [](WindSettings& w, const glm::vec3& v)
+                                                                  { if (IsFiniteVec3(v)) w.Direction = v; }),
+                                       "speed", sol::property([](const WindSettings& w)
+                                                              { return w.Speed; }, [](WindSettings& w, f32 v)
+                                                              { if (std::isfinite(v) && v >= 0.0f) w.Speed = v; }),
+                                       "gustStrength", sol::property([](const WindSettings& w)
+                                                                     { return w.GustStrength; }, [](WindSettings& w, f32 v)
+                                                                     { if (std::isfinite(v) && v >= 0.0f) w.GustStrength = v; }),
+                                       "gustFrequency", sol::property([](const WindSettings& w)
+                                                                      { return w.GustFrequency; }, [](WindSettings& w, f32 v)
+                                                                      { if (std::isfinite(v) && v >= 0.0f) w.GustFrequency = v; }),
+                                       "turbulenceIntensity", sol::property([](const WindSettings& w)
+                                                                            { return w.TurbulenceIntensity; }, [](WindSettings& w, f32 v)
+                                                                            { if (std::isfinite(v) && v >= 0.0f) w.TurbulenceIntensity = v; }),
+                                       "turbulenceScale", sol::property([](const WindSettings& w)
+                                                                        { return w.TurbulenceScale; }, [](WindSettings& w, f32 v)
+                                                                        { if (std::isfinite(v) && v > 0.0f) w.TurbulenceScale = v; }),
+                                       "gridWorldSize", sol::property([](const WindSettings& w)
+                                                                      { return w.GridWorldSize; }, [](WindSettings& w, f32 v)
+                                                                      { if (std::isfinite(v) && v > 0.0f) w.GridWorldSize = v; }),
                                        "gridResolution", &WindSettings::GridResolution);
 
         // --- StreamingVolumeComponent ---
         lua.new_usertype<StreamingVolumeComponent>("StreamingVolumeComponent",
-                                                   "loadRadius", &StreamingVolumeComponent::LoadRadius,
-                                                   "unloadRadius", &StreamingVolumeComponent::UnloadRadius,
+                                                   "loadRadius", sol::property([](const StreamingVolumeComponent& c)
+                                                                               { return c.LoadRadius; }, [](StreamingVolumeComponent& c, f32 v)
+                                                                               { if (std::isfinite(v) && v >= 0.0f) c.LoadRadius = v; }),
+                                                   "unloadRadius", sol::property([](const StreamingVolumeComponent& c)
+                                                                                 { return c.UnloadRadius; }, [](StreamingVolumeComponent& c, f32 v)
+                                                                                 { if (std::isfinite(v) && v >= 0.0f) c.UnloadRadius = v; }),
                                                    "isLoaded", sol::readonly(&StreamingVolumeComponent::IsLoaded));
 
         // --- StreamingSettings (scene-level) ---
         lua.new_usertype<StreamingSettings>("StreamingSettings",
                                             "enabled", &StreamingSettings::Enabled,
-                                            "defaultLoadRadius", &StreamingSettings::DefaultLoadRadius,
-                                            "defaultUnloadRadius", &StreamingSettings::DefaultUnloadRadius,
+                                            "defaultLoadRadius", sol::property([](const StreamingSettings& s)
+                                                                               { return s.DefaultLoadRadius; }, [](StreamingSettings& s, f32 v)
+                                                                               { if (std::isfinite(v) && v >= 0.0f) s.DefaultLoadRadius = v; }),
+                                            "defaultUnloadRadius", sol::property([](const StreamingSettings& s)
+                                                                                 { return s.DefaultUnloadRadius; }, [](StreamingSettings& s, f32 v)
+                                                                                 { if (std::isfinite(v) && v >= 0.0f) s.DefaultUnloadRadius = v; }),
                                             "maxLoadedRegions", &StreamingSettings::MaxLoadedRegions,
                                             "regionDirectory", &StreamingSettings::RegionDirectory);
 
         // --- NetworkIdentityComponent ---
         lua.new_usertype<NetworkIdentityComponent>("NetworkIdentityComponent",
                                                    "ownerClientID", &NetworkIdentityComponent::OwnerClientID,
-                                                   "authority", &NetworkIdentityComponent::Authority,
+                                                   "authority", sol::property([](const NetworkIdentityComponent& c) -> int
+                                                                              { return static_cast<int>(c.Authority); }, [](NetworkIdentityComponent& c, int v)
+                                                                              { if (v >= 0 && v <= 2) c.Authority = static_cast<ENetworkAuthority>(v); }),
                                                    "isReplicated", &NetworkIdentityComponent::IsReplicated);
 
         // --- AudioSourceComponent ---
@@ -377,7 +1260,92 @@ namespace OloEngine
                     Audio::AudioPlayback::ResumeEvent(c.ActiveEventID);
                     return;
                 }
-                if (c.Source) { c.Source->UnPause(); } });
+                if (c.Source) { c.Source->UnPause(); } },
+                                               // --- Spatial audio properties ---
+                                               "attenuationModel", sol::property([](const AudioSourceComponent& c)
+                                                                                 { return static_cast<int>(c.Config.AttenuationModel); }, [](AudioSourceComponent& c, int v)
+                                                                                 {
+                    if (v < 0 || v > static_cast<int>(AttenuationModelType::Exponential)) return;
+                    c.Config.AttenuationModel = static_cast<AttenuationModelType>(v);
+                    if (c.Source) { c.Source->SetAttenuationModel(c.Config.AttenuationModel); } }),
+                                               "rollOff", sol::property([](const AudioSourceComponent& c)
+                                                                        { return c.Config.RollOff; }, [](AudioSourceComponent& c, f32 v)
+                                                                        {
+                    if (!std::isfinite(v)) v = 1.0f;
+                    v = std::max(v, 0.0f);
+                    c.Config.RollOff = v;
+                    if (c.Source) { c.Source->SetRollOff(v); } }),
+                                               "minGain", sol::property([](const AudioSourceComponent& c)
+                                                                        { return c.Config.MinGain; }, [](AudioSourceComponent& c, f32 v)
+                                                                        {
+                    if (!std::isfinite(v)) v = 0.0f;
+                    v = std::max(v, 0.0f);
+                    c.Config.MinGain = v;
+                    if (c.Config.MinGain > c.Config.MaxGain) c.Config.MaxGain = c.Config.MinGain;
+                    if (c.Source) { c.Source->SetMinGain(c.Config.MinGain); c.Source->SetMaxGain(c.Config.MaxGain); } }),
+                                               "maxGain", sol::property([](const AudioSourceComponent& c)
+                                                                        { return c.Config.MaxGain; }, [](AudioSourceComponent& c, f32 v)
+                                                                        {
+                    if (!std::isfinite(v)) v = 1.0f;
+                    v = std::clamp(v, 0.0f, 1.0f);
+                    c.Config.MaxGain = v;
+                    if (c.Config.MinGain > c.Config.MaxGain) c.Config.MinGain = c.Config.MaxGain;
+                    if (c.Source) { c.Source->SetMinGain(c.Config.MinGain); c.Source->SetMaxGain(c.Config.MaxGain); } }),
+                                               "minDistance", sol::property([](const AudioSourceComponent& c)
+                                                                            { return c.Config.MinDistance; }, [](AudioSourceComponent& c, f32 v)
+                                                                            {
+                    if (!std::isfinite(v)) v = 0.3f;
+                    v = std::max(v, 0.0f);
+                    c.Config.MinDistance = v;
+                    if (c.Config.MinDistance > c.Config.MaxDistance) c.Config.MaxDistance = c.Config.MinDistance;
+                    if (c.Source) { c.Source->SetMinDistance(v); c.Source->SetMaxDistance(c.Config.MaxDistance); } }),
+                                               "maxDistance", sol::property([](const AudioSourceComponent& c)
+                                                                            { return c.Config.MaxDistance; }, [](AudioSourceComponent& c, f32 v)
+                                                                            {
+                    if (!std::isfinite(v)) v = 1000.0f;
+                    v = std::max(v, 0.0f);
+                    c.Config.MaxDistance = v;
+                    if (c.Config.MinDistance > c.Config.MaxDistance) c.Config.MinDistance = c.Config.MaxDistance;
+                    if (c.Source) { c.Source->SetMaxDistance(v); c.Source->SetMinDistance(c.Config.MinDistance); } }),
+                                               "coneInnerAngle", sol::property([](const AudioSourceComponent& c)
+                                                                               { return c.Config.ConeInnerAngle; }, [](AudioSourceComponent& c, f32 v)
+                                                                               {
+                    if (!std::isfinite(v)) v = glm::radians(360.0f);
+                    v = std::clamp(v, 0.0f, glm::radians(360.0f));
+                    c.Config.ConeInnerAngle = v;
+                    if (c.Source) { c.Source->SetCone(c.Config.ConeInnerAngle, c.Config.ConeOuterAngle, c.Config.ConeOuterGain); } }),
+                                               "coneOuterAngle", sol::property([](const AudioSourceComponent& c)
+                                                                               { return c.Config.ConeOuterAngle; }, [](AudioSourceComponent& c, f32 v)
+                                                                               {
+                    if (!std::isfinite(v)) v = glm::radians(360.0f);
+                    v = std::clamp(v, 0.0f, glm::radians(360.0f));
+                    c.Config.ConeOuterAngle = v;
+                    if (c.Source) { c.Source->SetCone(c.Config.ConeInnerAngle, c.Config.ConeOuterAngle, c.Config.ConeOuterGain); } }),
+                                               "coneOuterGain", sol::property([](const AudioSourceComponent& c)
+                                                                              { return c.Config.ConeOuterGain; }, [](AudioSourceComponent& c, f32 v)
+                                                                              {
+                    if (!std::isfinite(v)) v = 0.0f;
+                    v = std::max(v, 0.0f);
+                    c.Config.ConeOuterGain = v;
+                    if (c.Source) { c.Source->SetCone(c.Config.ConeInnerAngle, c.Config.ConeOuterAngle, c.Config.ConeOuterGain); } }),
+                                               "SetCone", [](AudioSourceComponent& c, f32 innerAngle, f32 outerAngle, f32 outerGain)
+                                               {
+                    if (!std::isfinite(innerAngle)) { innerAngle = glm::radians(360.0f); }
+                    if (!std::isfinite(outerAngle)) { outerAngle = glm::radians(360.0f); }
+                    if (!std::isfinite(outerGain)) { outerGain = 0.0f; }
+                    innerAngle = std::clamp(innerAngle, 0.0f, glm::radians(360.0f));
+                    outerAngle = std::clamp(outerAngle, 0.0f, glm::radians(360.0f));
+                    outerGain = std::max(outerGain, 0.0f);
+                    c.Config.ConeInnerAngle = innerAngle;
+                    c.Config.ConeOuterAngle = outerAngle;
+                    c.Config.ConeOuterGain = outerGain;
+                    if (c.Source) { c.Source->SetCone(innerAngle, outerAngle, outerGain); } }, "dopplerFactor", sol::property([](const AudioSourceComponent& c)
+                                                                                   { return c.Config.DopplerFactor; }, [](AudioSourceComponent& c, f32 v)
+                                                                                   {
+                    if (!std::isfinite(v)) v = 1.0f;
+                    v = std::max(v, 0.0f);
+                    c.Config.DopplerFactor = v;
+                    if (c.Source) { c.Source->SetDopplerFactor(v); } }));
 
         // --- AudioListenerComponent ---
         lua.new_usertype<AudioListenerComponent>("AudioListenerComponent",
@@ -556,11 +1524,33 @@ namespace OloEngine
             gpAxisTable["RightTrigger"] = static_cast<u8>(GamepadAxis::RightTrigger);
         }
 
+        // --- KeyCode constants (auto-generated from OLO_KEY_LIST in KeyCodes.h) ---
+        {
+            auto keyTable = lua.create_named_table("KeyCode");
+            // clang-format off
+#define OLO_BIND_KEY(name, val) keyTable[#name] = static_cast<KeyCode>(val);
+            OLO_KEY_LIST(OLO_BIND_KEY)
+#undef OLO_BIND_KEY
+            // clang-format on
+        }
+
+        // --- MouseButton constants (auto-generated from OLO_MOUSE_LIST in MouseCodes.h) ---
+        {
+            auto mouseTable = lua.create_named_table("MouseButton");
+            // clang-format off
+#define OLO_BIND_MOUSE(name, val) mouseTable[#name] = static_cast<MouseCode>(val);
+            OLO_MOUSE_LIST(OLO_BIND_MOUSE)
+#undef OLO_BIND_MOUSE
+            // clang-format on
+        }
+
         // --- DialogueComponent ---
         lua.new_usertype<DialogueComponent>("DialogueComponent",
                                             "dialogueTree", &DialogueComponent::m_DialogueTree,
                                             "autoTrigger", &DialogueComponent::m_AutoTrigger,
-                                            "triggerRadius", &DialogueComponent::m_TriggerRadius,
+                                            "triggerRadius", sol::property([](const DialogueComponent& c)
+                                                                           { return c.m_TriggerRadius; }, [](DialogueComponent& c, f32 v)
+                                                                           { if (std::isfinite(v) && v >= 0.0f) c.m_TriggerRadius = v; }),
                                             "hasTriggered", &DialogueComponent::m_HasTriggered,
                                             "triggerOnce", &DialogueComponent::m_TriggerOnce);
 
@@ -595,6 +1585,11 @@ namespace OloEngine
                                                 {
                                                     if (handle != 0)
                                                     {
+                                                        if (!Project::GetActive())
+                                                        {
+                                                            OLO_CORE_WARN("[Lua] Cannot validate ShaderGraph handle {} — no active project", handle);
+                                                            return;
+                                                        }
                                                         if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(handle))
                                                         {
                                                             if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(handle)))
@@ -611,19 +1606,119 @@ namespace OloEngine
                                                         mc.m_ShaderGraphHandle = 0;
                                                         mc.m_Material.SetShader(nullptr);
                                                     }
+                                                }),
+                                            "albedoColor",
+                                            sol::property(
+                                                [](const MaterialComponent& mc) -> glm::vec4
+                                                { return mc.m_Material.GetBaseColorFactor(); },
+                                                [](MaterialComponent& mc, const glm::vec4& color)
+                                                {
+                                                    if (!IsFiniteVec4(color))
+                                                        return;
+                                                    mc.m_Material.SetBaseColorFactor(color);
                                                 }));
+
+        // --- DirectionalLightComponent ---
+        lua.new_usertype<DirectionalLightComponent>("DirectionalLightComponent",
+                                                    "direction", sol::property([](const DirectionalLightComponent& l)
+                                                                               { return l.m_Direction; }, [](DirectionalLightComponent& l, const glm::vec3& v)
+                                                                               { if (IsFiniteVec3(v)) l.m_Direction = v; }),
+                                                    "color", sol::property([](const DirectionalLightComponent& l)
+                                                                           { return l.m_Color; }, [](DirectionalLightComponent& l, const glm::vec3& v)
+                                                                           { if (IsFiniteVec3(v)) l.m_Color = v; }),
+                                                    "intensity", sol::property([](const DirectionalLightComponent& l)
+                                                                               { return l.m_Intensity; }, [](DirectionalLightComponent& l, f32 v)
+                                                                               { if (std::isfinite(v) && v >= 0.0f) l.m_Intensity = v; }),
+                                                    "castShadows", &DirectionalLightComponent::m_CastShadows,
+                                                    "shadowBias", sol::property([](const DirectionalLightComponent& l)
+                                                                                { return l.m_ShadowBias; }, [](DirectionalLightComponent& l, f32 v)
+                                                                                { if (std::isfinite(v) && v >= 0.0f) l.m_ShadowBias = v; }),
+                                                    "shadowNormalBias", sol::property([](const DirectionalLightComponent& l)
+                                                                                      { return l.m_ShadowNormalBias; }, [](DirectionalLightComponent& l, f32 v)
+                                                                                      { if (std::isfinite(v) && v >= 0.0f) l.m_ShadowNormalBias = v; }),
+                                                    "maxShadowDistance", sol::property([](const DirectionalLightComponent& l)
+                                                                                       { return l.m_MaxShadowDistance; }, [](DirectionalLightComponent& l, f32 v)
+                                                                                       { if (std::isfinite(v) && v > 0.0f) l.m_MaxShadowDistance = v; }),
+                                                    "cascadeSplitLambda", sol::property([](const DirectionalLightComponent& l)
+                                                                                        { return l.m_CascadeSplitLambda; }, [](DirectionalLightComponent& l, f32 v)
+                                                                                        { if (std::isfinite(v)) l.m_CascadeSplitLambda = std::clamp(v, 0.0f, 1.0f); }),
+                                                    "cascadeDebugVisualization", &DirectionalLightComponent::m_CascadeDebugVisualization);
+
+        // --- PointLightComponent ---
+        lua.new_usertype<PointLightComponent>("PointLightComponent",
+                                              "color", sol::property([](const PointLightComponent& l)
+                                                                     { return l.m_Color; }, [](PointLightComponent& l, const glm::vec3& v)
+                                                                     { if (IsFiniteVec3(v)) l.m_Color = v; }),
+                                              "intensity", sol::property([](const PointLightComponent& l)
+                                                                         { return l.m_Intensity; }, [](PointLightComponent& l, f32 v)
+                                                                         { if (std::isfinite(v) && v >= 0.0f) l.m_Intensity = v; }),
+                                              "range", sol::property([](const PointLightComponent& l)
+                                                                     { return l.m_Range; }, [](PointLightComponent& l, f32 v)
+                                                                     { if (std::isfinite(v) && v >= 0.0f) l.m_Range = v; }),
+                                              "attenuation", sol::property([](const PointLightComponent& l)
+                                                                           { return l.m_Attenuation; }, [](PointLightComponent& l, f32 v)
+                                                                           { if (std::isfinite(v) && v >= 0.0f) l.m_Attenuation = v; }),
+                                              "castShadows", &PointLightComponent::m_CastShadows,
+                                              "shadowBias", sol::property([](const PointLightComponent& l)
+                                                                          { return l.m_ShadowBias; }, [](PointLightComponent& l, f32 v)
+                                                                          { if (std::isfinite(v) && v >= 0.0f) l.m_ShadowBias = v; }),
+                                              "shadowNormalBias", sol::property([](const PointLightComponent& l)
+                                                                                { return l.m_ShadowNormalBias; }, [](PointLightComponent& l, f32 v)
+                                                                                { if (std::isfinite(v) && v >= 0.0f) l.m_ShadowNormalBias = v; }));
+
+        // --- SpotLightComponent ---
+        lua.new_usertype<SpotLightComponent>("SpotLightComponent",
+                                             "direction", sol::property([](const SpotLightComponent& l)
+                                                                        { return l.m_Direction; }, [](SpotLightComponent& l, const glm::vec3& v)
+                                                                        { if (IsFiniteVec3(v)) l.m_Direction = v; }),
+                                             "color", sol::property([](const SpotLightComponent& l)
+                                                                    { return l.m_Color; }, [](SpotLightComponent& l, const glm::vec3& v)
+                                                                    { if (IsFiniteVec3(v)) l.m_Color = v; }),
+                                             "intensity", sol::property([](const SpotLightComponent& l)
+                                                                        { return l.m_Intensity; }, [](SpotLightComponent& l, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f) l.m_Intensity = v; }),
+                                             "range", sol::property([](const SpotLightComponent& l)
+                                                                    { return l.m_Range; }, [](SpotLightComponent& l, f32 v)
+                                                                    { if (std::isfinite(v) && v >= 0.0f) l.m_Range = v; }),
+                                             "innerCutoff", sol::property([](const SpotLightComponent& l)
+                                                                          { return l.m_InnerCutoff; }, [](SpotLightComponent& l, f32 v)
+                                                                          { if (std::isfinite(v)) l.m_InnerCutoff = std::clamp(v, 0.0f, 180.0f); }),
+                                             "outerCutoff", sol::property([](const SpotLightComponent& l)
+                                                                          { return l.m_OuterCutoff; }, [](SpotLightComponent& l, f32 v)
+                                                                          { if (std::isfinite(v)) l.m_OuterCutoff = std::clamp(v, 0.0f, 180.0f); }),
+                                             "attenuation", sol::property([](const SpotLightComponent& l)
+                                                                          { return l.m_Attenuation; }, [](SpotLightComponent& l, f32 v)
+                                                                          { if (std::isfinite(v) && v >= 0.0f) l.m_Attenuation = v; }),
+                                             "castShadows", &SpotLightComponent::m_CastShadows,
+                                             "shadowBias", sol::property([](const SpotLightComponent& l)
+                                                                         { return l.m_ShadowBias; }, [](SpotLightComponent& l, f32 v)
+                                                                         { if (std::isfinite(v) && v >= 0.0f) l.m_ShadowBias = v; }),
+                                             "shadowNormalBias", sol::property([](const SpotLightComponent& l)
+                                                                               { return l.m_ShadowNormalBias; }, [](SpotLightComponent& l, f32 v)
+                                                                               { if (std::isfinite(v) && v >= 0.0f) l.m_ShadowNormalBias = v; }));
 
         // --- NavAgentComponent ---
         lua.new_usertype<NavAgentComponent>("NavAgentComponent",
-                                            "radius", &NavAgentComponent::m_Radius,
-                                            "height", &NavAgentComponent::m_Height,
-                                            "maxSpeed", &NavAgentComponent::m_MaxSpeed,
-                                            "acceleration", &NavAgentComponent::m_Acceleration,
-                                            "stoppingDistance", &NavAgentComponent::m_StoppingDistance,
+                                            "radius", sol::property([](const NavAgentComponent& a)
+                                                                    { return a.m_Radius; }, [](NavAgentComponent& a, f32 v)
+                                                                    { if (std::isfinite(v) && v > 0.0f) a.m_Radius = v; }),
+                                            "height", sol::property([](const NavAgentComponent& a)
+                                                                    { return a.m_Height; }, [](NavAgentComponent& a, f32 v)
+                                                                    { if (std::isfinite(v) && v > 0.0f) a.m_Height = v; }),
+                                            "maxSpeed", sol::property([](const NavAgentComponent& a)
+                                                                      { return a.m_MaxSpeed; }, [](NavAgentComponent& a, f32 v)
+                                                                      { if (std::isfinite(v) && v >= 0.0f) a.m_MaxSpeed = v; }),
+                                            "acceleration", sol::property([](const NavAgentComponent& a)
+                                                                          { return a.m_Acceleration; }, [](NavAgentComponent& a, f32 v)
+                                                                          { if (std::isfinite(v) && v >= 0.0f) a.m_Acceleration = v; }),
+                                            "stoppingDistance", sol::property([](const NavAgentComponent& a)
+                                                                              { return a.m_StoppingDistance; }, [](NavAgentComponent& a, f32 v)
+                                                                              { if (std::isfinite(v) && v >= 0.0f) a.m_StoppingDistance = v; }),
                                             "avoidancePriority", &NavAgentComponent::m_AvoidancePriority,
                                             "targetPosition", sol::property([](const NavAgentComponent& a)
                                                                             { return a.m_TargetPosition; }, [](NavAgentComponent& a, const glm::vec3& pos)
                                                                             {
+                                                    if (!IsFiniteVec3(pos)) return;
                                                     a.m_TargetPosition = pos;
                                                     a.m_HasTarget = true;
                                                     a.m_HasPath = false;
@@ -641,8 +1736,12 @@ namespace OloEngine
 
         // --- NavMeshBoundsComponent ---
         lua.new_usertype<NavMeshBoundsComponent>("NavMeshBoundsComponent",
-                                                 "min", &NavMeshBoundsComponent::m_Min,
-                                                 "max", &NavMeshBoundsComponent::m_Max);
+                                                 "min", sol::property([](const NavMeshBoundsComponent& c)
+                                                                      { return c.m_Min; }, [](NavMeshBoundsComponent& c, const glm::vec3& v)
+                                                                      { if (IsFiniteVec3(v)) c.m_Min = v; }),
+                                                 "max", sol::property([](const NavMeshBoundsComponent& c)
+                                                                      { return c.m_Max; }, [](NavMeshBoundsComponent& c, const glm::vec3& v)
+                                                                      { if (IsFiniteVec3(v)) c.m_Max = v; }));
 
         // --- Dialogue system functions ---
         auto dialogueTable = lua.create_named_table("dialogue");
@@ -787,10 +1886,10 @@ namespace OloEngine
                 return static_cast<i32>(SaveLoadResult::NoActiveScene);
             return static_cast<i32>(SaveGameManager::QuickLoad(*scene));
         };
-        saveGameTable["EnumerateSaves"] = []() -> sol::table
+        saveGameTable["EnumerateSaves"] = [](sol::this_state s) -> sol::table
         {
             OLO_PROFILE_SCOPE("Lua::SaveGame::EnumerateSaves");
-            auto& luaState = *Scripting::GetState();
+            sol::state_view luaState(s);
             auto saves = SaveGameManager::EnumerateSaves();
             sol::table result = luaState.create_table(static_cast<int>(saves.size()), 0);
             int index = 1;
@@ -898,9 +1997,13 @@ namespace OloEngine
 
         // --- ItemPickupComponent ---
         lua.new_usertype<ItemPickupComponent>("ItemPickupComponent",
-                                              "pickupRadius", &ItemPickupComponent::PickupRadius,
+                                              "pickupRadius", sol::property([](const ItemPickupComponent& c)
+                                                                            { return c.PickupRadius; }, [](ItemPickupComponent& c, f32 v)
+                                                                            { if (std::isfinite(v) && v >= 0.0f) c.PickupRadius = v; }),
                                               "autoPickup", &ItemPickupComponent::AutoPickup,
-                                              "despawnTimer", &ItemPickupComponent::DespawnTimer);
+                                              "despawnTimer", sol::property([](const ItemPickupComponent& c)
+                                                                            { return c.DespawnTimer; }, [](ItemPickupComponent& c, f32 v)
+                                                                            { if (std::isfinite(v) && v >= 0.0f) c.DespawnTimer = v; }));
 
         // --- ItemContainerComponent ---
         lua.new_usertype<ItemContainerComponent>("ItemContainerComponent",
@@ -930,16 +2033,31 @@ namespace OloEngine
                                                 { return comp.Journal.GetPlayerLevel(); }, "SetReputation", [](QuestJournalComponent& comp, const std::string& factionId, i32 value)
                                                 { comp.Journal.SetReputation(factionId, value); }, "GetReputation", [](const QuestJournalComponent& comp, const std::string& factionId) -> i32
                                                 { return comp.Journal.GetReputation(factionId); }, "SetItemCount", [](QuestJournalComponent& comp, const std::string& itemId, i32 count)
-                                                { if (count < 0) return; comp.Journal.SetItemCount(itemId, count); }, "SetStat", [](QuestJournalComponent& comp, const std::string& statName, i32 value)
-                                                { comp.Journal.SetStat(statName, value); }, "SetPlayerClass", [](QuestJournalComponent& comp, const std::string& className)
-                                                { comp.Journal.SetPlayerClass(className); }, "SetPlayerFaction", [](QuestJournalComponent& comp, const std::string& factionName)
-                                                { comp.Journal.SetPlayerFaction(factionName); });
+                                                { if (count < 0) return; comp.Journal.SetItemCount(itemId, count); }, "GetItemCount", [](const QuestJournalComponent& comp, const std::string& itemId) -> i32
+                                                { return comp.Journal.GetItemCount(itemId); }, "SetStat", [](QuestJournalComponent& comp, const std::string& statName, i32 value)
+                                                { comp.Journal.SetStat(statName, value); }, "GetStat", [](const QuestJournalComponent& comp, const std::string& statName) -> i32
+                                                { return comp.Journal.GetStat(statName); }, "SetPlayerClass", [](QuestJournalComponent& comp, const std::string& className)
+                                                { comp.Journal.SetPlayerClass(className); }, "GetPlayerClass", [](const QuestJournalComponent& comp) -> std::string
+                                                { return comp.Journal.GetPlayerClass(); }, "SetPlayerFaction", [](QuestJournalComponent& comp, const std::string& factionName)
+                                                { comp.Journal.SetPlayerFaction(factionName); }, "GetPlayerFaction", [](const QuestJournalComponent& comp) -> std::string
+                                                { return comp.Journal.GetPlayerFaction(); });
 
         // --- QuestGiverComponent ---
         lua.new_usertype<QuestGiverComponent>("QuestGiverComponent",
                                               "questMarkerIcon", &QuestGiverComponent::QuestMarkerIcon,
                                               "offeredQuestIDs", &QuestGiverComponent::OfferedQuestIDs,
                                               "turnInQuestIDs", &QuestGiverComponent::TurnInQuestIDs);
+
+        // --- Log (global table) ---
+        auto logTable = lua.create_named_table("Log");
+        logTable["Trace"] = [](const std::string& msg)
+        { OLO_TRACE("{}", msg); };
+        logTable["Info"] = [](const std::string& msg)
+        { OLO_INFO("{}", msg); };
+        logTable["Warn"] = [](const std::string& msg)
+        { OLO_WARN("{}", msg); };
+        logTable["Error"] = [](const std::string& msg)
+        { OLO_ERROR("{}", msg); };
 
         // --- Entity utilities ---
         auto entityUtilsTable = lua.create_named_table("entity_utils");
@@ -1073,6 +2191,26 @@ namespace OloEngine
             return finalDamage;
         };
 
+        damageTable["TryActivateAbility"] = [](u64 casterID, const std::string& abilityTag) -> bool
+        {
+            if (abilityTag.empty())
+                return false;
+
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return false;
+
+            auto casterOpt = scene->TryGetEntityWithUUID(UUID(casterID));
+            if (!casterOpt)
+                return false;
+            Entity caster{ static_cast<entt::entity>(*casterOpt), scene };
+
+            if (!caster.HasComponent<AbilityComponent>())
+                return false;
+
+            return GameplayAbilitySystem::TryActivateAbility(scene, caster, GameplayTag(abilityTag));
+        };
+
         damageTable["TryActivateAbilityOnTarget"] = [](u64 casterID, const std::string& abilityTag, u64 targetID) -> bool
         {
             if (abilityTag.empty())
@@ -1148,9 +2286,9 @@ namespace OloEngine
         {
             return Renderer3D::GetShaderLibrary().GetTotalCount();
         };
-        shaderLib3D["GetAllNames"] = []() -> sol::table
+        shaderLib3D["GetAllNames"] = [](sol::this_state s) -> sol::table
         {
-            auto& luaState = *Scripting::GetState();
+            sol::state_view luaState(s);
             auto names = Renderer3D::GetShaderLibrary().GetAllShaderNames();
             sol::table result = luaState.create_table(static_cast<int>(names.size()), 0);
             for (size_t i = 0; i < names.size(); ++i)
@@ -1190,9 +2328,9 @@ namespace OloEngine
         {
             return Renderer2D::GetShaderLibrary().GetTotalCount();
         };
-        shaderLib2D["GetAllNames"] = []() -> sol::table
+        shaderLib2D["GetAllNames"] = [](sol::this_state s) -> sol::table
         {
-            auto& luaState = *Scripting::GetState();
+            sol::state_view luaState(s);
             auto names = Renderer2D::GetShaderLibrary().GetAllShaderNames();
             sol::table result = luaState.create_table(static_cast<int>(names.size()), 0);
             for (size_t i = 0; i < names.size(); ++i)
@@ -1200,6 +2338,338 @@ namespace OloEngine
                 result[static_cast<int>(i) + 1] = names[i];
             }
             return result;
+        };
+
+        // --- Application (global table) ---
+        auto appTable = lua.create_named_table("Application");
+        appTable["GetTimeScale"] = []() -> f32
+        {
+            return Application::Get().GetTimeScale();
+        };
+        appTable["SetTimeScale"] = [](f32 scale)
+        {
+            if (!std::isfinite(scale))
+            {
+                scale = 1.0f;
+            }
+            scale = std::clamp(scale, 0.0f, 100.0f);
+            Application::Get().SetTimeScale(scale);
+        };
+        appTable["QuitGame"] = []()
+        {
+            Application::Get().Close();
+        };
+
+        // --- Entity lookup utilities ---
+        entityUtilsTable["find_by_name"] = [](const std::string& name, sol::this_state s) -> sol::object
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return sol::make_object(s, sol::nil);
+            Entity entity = scene->FindEntityByName(name);
+            if (!entity)
+                return sol::make_object(s, sol::nil);
+            return sol::make_object(s, static_cast<u64>(entity.GetUUID()));
+        };
+
+        // --- Entity convenience helpers (mirror C# Entity base-class properties) ---
+        entityUtilsTable["get_translation"] = [](u64 entityID) -> glm::vec3
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return glm::vec3(0.0f);
+            if (auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityID)))
+            {
+                Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+                if (entity.HasComponent<TransformComponent>())
+                    return entity.GetComponent<TransformComponent>().Translation;
+            }
+            return glm::vec3(0.0f);
+        };
+
+        entityUtilsTable["set_translation"] = [](u64 entityID, const glm::vec3& translation)
+        {
+            if (!IsFiniteVec3(translation))
+                return;
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return;
+            if (auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityID)))
+            {
+                Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+                if (entity.HasComponent<TransformComponent>())
+                {
+                    entity.GetComponent<TransformComponent>().Translation = translation;
+                    // Sync to Box2D runtime body if present
+                    if (entity.HasComponent<Rigidbody2DComponent>())
+                    {
+                        auto const& rb = entity.GetComponent<Rigidbody2DComponent>();
+                        if (b2Body_IsValid(rb.RuntimeBody))
+                        {
+                            auto const& tc = entity.GetComponent<TransformComponent>();
+                            b2Body_SetTransform(rb.RuntimeBody, { tc.Translation.x, tc.Translation.y }, b2MakeRot(tc.GetRotationEuler().z));
+                        }
+                    }
+                }
+            }
+        };
+
+        entityUtilsTable["get_rotation"] = [](u64 entityID) -> glm::vec3
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return glm::vec3(0.0f);
+            if (auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityID)))
+            {
+                Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+                if (entity.HasComponent<TransformComponent>())
+                    return entity.GetComponent<TransformComponent>().GetRotationEuler();
+            }
+            return glm::vec3(0.0f);
+        };
+
+        entityUtilsTable["set_rotation"] = [](u64 entityID, const glm::vec3& rotation)
+        {
+            if (!IsFiniteVec3(rotation))
+                return;
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return;
+            if (auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityID)))
+            {
+                Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+                if (entity.HasComponent<TransformComponent>())
+                {
+                    entity.GetComponent<TransformComponent>().SetRotationEuler(rotation);
+                    // Sync to Box2D runtime body if present
+                    if (entity.HasComponent<Rigidbody2DComponent>())
+                    {
+                        auto const& rb = entity.GetComponent<Rigidbody2DComponent>();
+                        if (b2Body_IsValid(rb.RuntimeBody))
+                        {
+                            auto const& tc = entity.GetComponent<TransformComponent>();
+                            b2Body_SetTransform(rb.RuntimeBody, { tc.Translation.x, tc.Translation.y }, b2MakeRot(tc.GetRotationEuler().z));
+                        }
+                    }
+                }
+            }
+        };
+
+        entityUtilsTable["get_scale"] = [](u64 entityID) -> glm::vec3
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return glm::vec3(1.0f);
+            if (auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityID)))
+            {
+                Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+                if (entity.HasComponent<TransformComponent>())
+                    return entity.GetComponent<TransformComponent>().Scale;
+            }
+            return glm::vec3(1.0f);
+        };
+
+        entityUtilsTable["set_scale"] = [](u64 entityID, const glm::vec3& scale)
+        {
+            if (!IsFiniteVec3(scale))
+                return;
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return;
+            if (auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityID)))
+            {
+                Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+                // Box2D does not support runtime scale changes
+                if (entity.HasComponent<Rigidbody2DComponent>())
+                {
+                    auto const& rb = entity.GetComponent<Rigidbody2DComponent>();
+                    if (b2Body_IsValid(rb.RuntimeBody))
+                    {
+                        OLO_CORE_WARN("[Lua] Cannot change scale while physics body is active (entity {})", entityID);
+                        return;
+                    }
+                }
+                if (entity.HasComponent<TransformComponent>())
+                    entity.GetComponent<TransformComponent>().Scale = scale;
+            }
+        };
+
+        entityUtilsTable["get_name"] = [](u64 entityID, sol::this_state s) -> sol::object
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return sol::make_object(s, sol::nil);
+            if (auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityID)))
+            {
+                Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+                if (entity.HasComponent<TagComponent>())
+                    return sol::make_object(s, entity.GetComponent<TagComponent>().Tag);
+            }
+            return sol::make_object(s, sol::nil);
+        };
+
+        // --- Entity component access (by UUID + component name string) ---
+        // Returns a LuaComponentProxy that re-resolves the component from EnTT
+        // on every property access, preventing dangling-pointer UB.
+        entityUtilsTable["get_component"] = [](u64 entityID, const std::string& compName, sol::this_state s) -> sol::object
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return sol::make_object(s, sol::nil);
+
+            auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityID));
+            if (!entityOpt)
+                return sol::make_object(s, sol::nil);
+            Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+
+            auto const& registry = GetComponentRegistry();
+            if (auto const it = registry.find(compName); it != registry.end())
+            {
+                // Verify the entity actually has this component before returning a proxy
+                if (!it->second.Has(entity))
+                    return sol::make_object(s, sol::nil);
+
+                LuaComponentProxy proxy;
+                proxy.EntityID = entityID;
+                proxy.Resolve = it->second.Get;
+                proxy.TypeName = it->first;
+                return sol::make_object(s, std::move(proxy));
+            }
+
+            OLO_CORE_WARN("[Lua] get_component: unknown or missing component '{}' on entity {}", compName, entityID);
+            return sol::make_object(s, sol::nil);
+        };
+
+        entityUtilsTable["has_component"] = [](u64 entityID, const std::string& compName) -> bool
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return false;
+
+            auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityID));
+            if (!entityOpt)
+                return false;
+            Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
+
+            auto const& registry = GetComponentRegistry();
+            if (auto const it = registry.find(compName); it != registry.end())
+                return it->second.Has(entity);
+            return false;
+        };
+
+        // --- Scene streaming (global table) ---
+        auto sceneTable = lua.create_named_table("Scene");
+        sceneTable["LoadRegion"] = [](u64 regionId)
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (scene)
+            {
+                if (auto* streamer = scene->GetSceneStreamer())
+                    streamer->LoadRegion(UUID(regionId));
+            }
+        };
+        sceneTable["UnloadRegion"] = [](u64 regionId)
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (scene)
+            {
+                if (auto* streamer = scene->GetSceneStreamer())
+                    streamer->UnloadRegion(UUID(regionId));
+            }
+        };
+
+        // --- Scene wind access (mirrors C# Scene_GetWind*/SetWind*) ---
+        sceneTable["GetWindEnabled"] = []() -> bool
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            return scene && scene->GetWindSettings().Enabled;
+        };
+        sceneTable["SetWindEnabled"] = [](bool v)
+        {
+            if (Scene* scene = ScriptEngine::GetSceneContext())
+                scene->GetWindSettings().Enabled = v;
+        };
+        sceneTable["GetWindDirection"] = []() -> glm::vec3
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            return scene ? scene->GetWindSettings().Direction : glm::vec3(1.0f, 0.0f, 0.0f);
+        };
+        sceneTable["SetWindDirection"] = [](glm::vec3 v)
+        {
+            if (!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.z))
+            {
+                v = glm::vec3(1.0f, 0.0f, 0.0f);
+            }
+            if (auto const len = glm::length(v); len > 1e-6f)
+                v /= len;
+            else
+                v = glm::vec3(1.0f, 0.0f, 0.0f);
+            if (Scene* scene = ScriptEngine::GetSceneContext())
+                scene->GetWindSettings().Direction = v;
+        };
+        sceneTable["GetWindSpeed"] = []() -> f32
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            return scene ? scene->GetWindSettings().Speed : 0.0f;
+        };
+        sceneTable["SetWindSpeed"] = [](f32 v)
+        {
+            if (!std::isfinite(v))
+            {
+                v = 0.0f;
+            }
+            v = std::max(v, 0.0f);
+            if (Scene* scene = ScriptEngine::GetSceneContext())
+                scene->GetWindSettings().Speed = v;
+        };
+        sceneTable["GetWindGustStrength"] = []() -> f32
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            return scene ? scene->GetWindSettings().GustStrength : 0.0f;
+        };
+        sceneTable["SetWindGustStrength"] = [](f32 v)
+        {
+            if (!std::isfinite(v))
+            {
+                v = 0.0f;
+            }
+            v = std::max(v, 0.0f);
+            if (Scene* scene = ScriptEngine::GetSceneContext())
+                scene->GetWindSettings().GustStrength = v;
+        };
+        sceneTable["GetWindTurbulenceIntensity"] = []() -> f32
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            return scene ? scene->GetWindSettings().TurbulenceIntensity : 0.0f;
+        };
+        sceneTable["SetWindTurbulenceIntensity"] = [](f32 v)
+        {
+            if (!std::isfinite(v))
+            {
+                v = 0.0f;
+            }
+            v = std::max(v, 0.0f);
+            if (Scene* scene = ScriptEngine::GetSceneContext())
+                scene->GetWindSettings().TurbulenceIntensity = v;
+        };
+
+        // --- Scene streaming toggle ---
+        sceneTable["GetStreamingEnabled"] = []() -> bool
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            return scene && scene->GetStreamingSettings().Enabled;
+        };
+        sceneTable["SetStreamingEnabled"] = [](bool v)
+        {
+            if (Scene* scene = ScriptEngine::GetSceneContext())
+                scene->GetStreamingSettings().Enabled = v;
+        };
+
+        // --- Scene reload ---
+        sceneTable["ReloadCurrentScene"] = []()
+        {
+            if (Scene* scene = ScriptEngine::GetSceneContext())
+                scene->SetPendingReload(true);
         };
     }
 } // namespace OloEngine
