@@ -1672,6 +1672,46 @@ TEST_F(LuaSceneTest, SetTranslation_RejectsNonFinite)
     EXPECT_FLOAT_EQ(tc.Translation.x, 1.0f) << "Non-finite translation should be rejected";
 }
 
+TEST_F(LuaSceneTest, Proxy_MethodCallReResolvesComponent)
+{
+    Entity e = scene->CreateEntityWithUUID(UUID(710), "MethodProxyTest");
+    e.AddComponent<LightProbeVolumeComponent>();
+    lua["eid"] = static_cast<u64>(710);
+
+    // Invoke a method through the proxy; the wrapper must re-resolve
+    // the component on each call rather than using a stale pointer.
+    auto result = lua.script(R"(
+        local lpv = entity_utils.get_component(eid, "LightProbeVolumeComponent")
+        return lpv:getTotalProbeCount()
+    )");
+    ASSERT_TRUE(result.valid());
+    EXPECT_GE(result.get<i32>(), 0);
+}
+
+TEST_F(LuaSceneTest, Proxy_SafelyDegradeAfterEntityDestruction)
+{
+    Entity e = scene->CreateEntityWithUUID(UUID(720), "DestroyProxyTest");
+    e.AddComponent<PointLightComponent>();
+    lua["eid"] = static_cast<u64>(720);
+
+    // Obtain proxy while entity is alive
+    lua.script(R"(
+        proxy = entity_utils.get_component(eid, "PointLightComponent")
+    )");
+
+    // Destroy the entity
+    scene->DestroyEntity(e);
+
+    // Reading through the stale proxy must return nil, not crash
+    auto result = lua.script(R"(
+        local v = proxy.intensity
+        return v
+    )");
+    ASSERT_TRUE(result.valid());
+    EXPECT_TRUE(result.get<sol::object>().is<sol::nil_t>())
+        << "Proxy must return nil after entity destruction";
+}
+
 TEST_F(LuaBindingTest, MaterialComponent_ShaderGraphHandleRoundTrip)
 {
     MaterialComponent mc;
