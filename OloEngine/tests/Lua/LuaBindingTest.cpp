@@ -400,6 +400,8 @@ TEST_F(LuaBindingTest, UIImageComponent_PropertyRoundTrip)
 
     lua.script("i.borderInsets = vec4.new(1.0, 2.0, 3.0, 4.0)");
     EXPECT_FLOAT_EQ(img.m_BorderInsets.x, 1.0f);
+    EXPECT_FLOAT_EQ(img.m_BorderInsets.y, 2.0f);
+    EXPECT_FLOAT_EQ(img.m_BorderInsets.z, 3.0f);
     EXPECT_FLOAT_EQ(img.m_BorderInsets.w, 4.0f);
 }
 
@@ -613,6 +615,48 @@ TEST_F(LuaBindingTest, ParticleEmitter_PropertyRoundTrip)
     lua.script("e.initialColor = vec4.new(1.0, 0.0, 0.0, 1.0)");
     EXPECT_FLOAT_EQ(emitter.InitialColor.r, 1.0f);
     EXPECT_FLOAT_EQ(emitter.InitialColor.g, 0.0f);
+}
+
+TEST_F(LuaBindingTest, ParticleSystem_RejectsInvalidInputs)
+{
+    ParticleSystem ps;
+    lua["ps"] = &ps;
+
+    ps.Duration = 5.0f;
+    lua.script("ps.duration = -1.0"); // negative rejected
+    EXPECT_FLOAT_EQ(ps.Duration, 5.0f);
+
+    lua.script("ps.duration = 1.0/0.0"); // inf rejected
+    EXPECT_FLOAT_EQ(ps.Duration, 5.0f);
+
+    ps.PlaybackSpeed = 1.0f;
+    lua.script("ps.playbackSpeed = 0.0/0.0"); // NaN rejected
+    EXPECT_FLOAT_EQ(ps.PlaybackSpeed, 1.0f);
+}
+
+TEST_F(LuaBindingTest, ParticleEmitter_RejectsInvalidInputs)
+{
+    ParticleEmitter emitter;
+    lua["e"] = &emitter;
+
+    emitter.RateOverTime = 10.0f;
+    lua.script("e.rateOverTime = -5.0"); // negative rejected
+    EXPECT_FLOAT_EQ(emitter.RateOverTime, 10.0f);
+
+    emitter.InitialSpeed = 5.0f;
+    lua.script("e.initialSpeed = 1.0/0.0"); // inf rejected
+    EXPECT_FLOAT_EQ(emitter.InitialSpeed, 5.0f);
+
+    // lifetimeMin/Max min<=max enforcement
+    emitter.LifetimeMin = 1.0f;
+    emitter.LifetimeMax = 2.0f;
+    lua.script("e.lifetimeMin = 5.0"); // sets min=5, bumps max to 5
+    EXPECT_FLOAT_EQ(emitter.LifetimeMin, 5.0f);
+    EXPECT_FLOAT_EQ(emitter.LifetimeMax, 5.0f);
+
+    lua.script("e.lifetimeMax = 3.0"); // sets max=3, pulls min down to 3
+    EXPECT_FLOAT_EQ(emitter.LifetimeMin, 3.0f);
+    EXPECT_FLOAT_EQ(emitter.LifetimeMax, 3.0f);
 }
 
 TEST_F(LuaBindingTest, ParticleSystemComponent_SystemAccess)
@@ -1001,6 +1045,27 @@ TEST_F(LuaBindingTest, NavAgentComponent_PropertyRoundTrip)
     EXPECT_FALSE(r1.get<bool>());
     auto r2 = lua.script("return n.hasPath");
     EXPECT_FALSE(r2.get<bool>());
+}
+
+TEST_F(LuaBindingTest, NavAgentComponent_RejectsInvalidInputs)
+{
+    NavAgentComponent nav;
+    lua["n"] = &nav;
+
+    nav.m_Radius = 0.5f;
+    lua.script("n.radius = -1.0"); // negative rejected
+    EXPECT_FLOAT_EQ(nav.m_Radius, 0.5f);
+
+    lua.script("n.radius = 0.0"); // zero rejected (must be > 0)
+    EXPECT_FLOAT_EQ(nav.m_Radius, 0.5f);
+
+    nav.m_Height = 2.0f;
+    lua.script("n.height = 0.0/0.0"); // NaN rejected
+    EXPECT_FLOAT_EQ(nav.m_Height, 2.0f);
+
+    nav.m_MaxSpeed = 5.0f;
+    lua.script("n.maxSpeed = -1.0"); // negative rejected
+    EXPECT_FLOAT_EQ(nav.m_MaxSpeed, 5.0f);
 }
 
 // =============================================================================

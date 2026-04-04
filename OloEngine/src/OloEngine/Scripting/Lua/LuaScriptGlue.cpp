@@ -834,21 +834,43 @@ namespace OloEngine
         lua.new_usertype<ParticleSystem>("ParticleSystem",
                                          "playing", &ParticleSystem::Playing,
                                          "looping", &ParticleSystem::Looping,
-                                         "duration", &ParticleSystem::Duration,
-                                         "playbackSpeed", &ParticleSystem::PlaybackSpeed,
-                                         "windInfluence", &ParticleSystem::WindInfluence,
+                                         "duration", sol::property([](const ParticleSystem& ps)
+                                                                   { return ps.Duration; }, [](ParticleSystem& ps, f32 v)
+                                                                   { if (std::isfinite(v) && v > 0.0f) ps.Duration = v; }),
+                                         "playbackSpeed", sol::property([](const ParticleSystem& ps)
+                                                                        { return ps.PlaybackSpeed; }, [](ParticleSystem& ps, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f) ps.PlaybackSpeed = v; }),
+                                         "windInfluence", sol::property([](const ParticleSystem& ps)
+                                                                        { return ps.WindInfluence; }, [](ParticleSystem& ps, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f) ps.WindInfluence = v; }),
                                          "getAliveCount", &ParticleSystem::GetAliveCount,
                                          "reset", &ParticleSystem::Reset);
 
         lua.new_usertype<ParticleEmitter>("ParticleEmitter",
-                                          "rateOverTime", &ParticleEmitter::RateOverTime,
-                                          "initialSpeed", &ParticleEmitter::InitialSpeed,
-                                          "speedVariance", &ParticleEmitter::SpeedVariance,
-                                          "lifetimeMin", &ParticleEmitter::LifetimeMin,
-                                          "lifetimeMax", &ParticleEmitter::LifetimeMax,
-                                          "initialSize", &ParticleEmitter::InitialSize,
-                                          "sizeVariance", &ParticleEmitter::SizeVariance,
-                                          "initialColor", &ParticleEmitter::InitialColor);
+                                          "rateOverTime", sol::property([](const ParticleEmitter& e)
+                                                                        { return e.RateOverTime; }, [](ParticleEmitter& e, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f) e.RateOverTime = v; }),
+                                          "initialSpeed", sol::property([](const ParticleEmitter& e)
+                                                                        { return e.InitialSpeed; }, [](ParticleEmitter& e, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f) e.InitialSpeed = v; }),
+                                          "speedVariance", sol::property([](const ParticleEmitter& e)
+                                                                         { return e.SpeedVariance; }, [](ParticleEmitter& e, f32 v)
+                                                                         { if (std::isfinite(v) && v >= 0.0f) e.SpeedVariance = v; }),
+                                          "lifetimeMin", sol::property([](const ParticleEmitter& e)
+                                                                       { return e.LifetimeMin; }, [](ParticleEmitter& e, f32 v)
+                                                                       { if (std::isfinite(v) && v >= 0.0f) { e.LifetimeMin = v; if (e.LifetimeMin > e.LifetimeMax) e.LifetimeMax = e.LifetimeMin; } }),
+                                          "lifetimeMax", sol::property([](const ParticleEmitter& e)
+                                                                       { return e.LifetimeMax; }, [](ParticleEmitter& e, f32 v)
+                                                                       { if (std::isfinite(v) && v >= 0.0f) { e.LifetimeMax = v; if (e.LifetimeMax < e.LifetimeMin) e.LifetimeMin = e.LifetimeMax; } }),
+                                          "initialSize", sol::property([](const ParticleEmitter& e)
+                                                                       { return e.InitialSize; }, [](ParticleEmitter& e, f32 v)
+                                                                       { if (std::isfinite(v) && v >= 0.0f) e.InitialSize = v; }),
+                                          "sizeVariance", sol::property([](const ParticleEmitter& e)
+                                                                        { return e.SizeVariance; }, [](ParticleEmitter& e, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f) e.SizeVariance = v; }),
+                                          "initialColor", sol::property([](const ParticleEmitter& e)
+                                                                        { return e.InitialColor; }, [](ParticleEmitter& e, const glm::vec4& v)
+                                                                        { if (IsFiniteVec4(v)) e.InitialColor = v; }));
 
         lua.new_usertype<ParticleSystemComponent>("ParticleSystemComponent",
                                                   "system", &ParticleSystemComponent::System);
@@ -1440,11 +1462,21 @@ namespace OloEngine
 
         // --- NavAgentComponent ---
         lua.new_usertype<NavAgentComponent>("NavAgentComponent",
-                                            "radius", &NavAgentComponent::m_Radius,
-                                            "height", &NavAgentComponent::m_Height,
-                                            "maxSpeed", &NavAgentComponent::m_MaxSpeed,
-                                            "acceleration", &NavAgentComponent::m_Acceleration,
-                                            "stoppingDistance", &NavAgentComponent::m_StoppingDistance,
+                                            "radius", sol::property([](const NavAgentComponent& a)
+                                                                    { return a.m_Radius; }, [](NavAgentComponent& a, f32 v)
+                                                                    { if (std::isfinite(v) && v > 0.0f) a.m_Radius = v; }),
+                                            "height", sol::property([](const NavAgentComponent& a)
+                                                                    { return a.m_Height; }, [](NavAgentComponent& a, f32 v)
+                                                                    { if (std::isfinite(v) && v > 0.0f) a.m_Height = v; }),
+                                            "maxSpeed", sol::property([](const NavAgentComponent& a)
+                                                                      { return a.m_MaxSpeed; }, [](NavAgentComponent& a, f32 v)
+                                                                      { if (std::isfinite(v) && v >= 0.0f) a.m_MaxSpeed = v; }),
+                                            "acceleration", sol::property([](const NavAgentComponent& a)
+                                                                          { return a.m_Acceleration; }, [](NavAgentComponent& a, f32 v)
+                                                                          { if (std::isfinite(v) && v >= 0.0f) a.m_Acceleration = v; }),
+                                            "stoppingDistance", sol::property([](const NavAgentComponent& a)
+                                                                              { return a.m_StoppingDistance; }, [](NavAgentComponent& a, f32 v)
+                                                                              { if (std::isfinite(v) && v >= 0.0f) a.m_StoppingDistance = v; }),
                                             "avoidancePriority", &NavAgentComponent::m_AvoidancePriority,
                                             "targetPosition", sol::property([](const NavAgentComponent& a)
                                                                             { return a.m_TargetPosition; }, [](NavAgentComponent& a, const glm::vec3& pos)
