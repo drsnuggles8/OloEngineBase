@@ -22,6 +22,10 @@
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
 #include "OloEngine/Scripting/Lua/LuaScriptGlue.h"
 
+#include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scripting/C#/ScriptEngine.h"
+
 #include <glm/glm.hpp>
 
 #include <algorithm>
@@ -1018,6 +1022,323 @@ TEST_F(LuaBindingTest, MaterialComponent_AlbedoColorRoundTrip)
     EXPECT_FLOAT_EQ(result.get<f32>(1), 0.4f);
     EXPECT_FLOAT_EQ(result.get<f32>(2), 0.6f);
     EXPECT_FLOAT_EQ(result.get<f32>(3), 1.0f);
+}
+
+// =============================================================================
+// New component usertypes: 3D physics, lights, Tag, Script, Model
+// =============================================================================
+
+TEST_F(LuaBindingTest, Rigidbody3DComponent_PropertyRoundTrip)
+{
+    Rigidbody3DComponent rb;
+    lua["rb"] = &rb;
+
+    lua.script("rb.mass = 5.0; rb.linearDrag = 0.1; rb.angularDrag = 0.2; rb.disableGravity = true; rb.isTrigger = true");
+    EXPECT_FLOAT_EQ(rb.m_Mass, 5.0f);
+    EXPECT_FLOAT_EQ(rb.m_LinearDrag, 0.1f);
+    EXPECT_FLOAT_EQ(rb.m_AngularDrag, 0.2f);
+    EXPECT_TRUE(rb.m_DisableGravity);
+    EXPECT_TRUE(rb.m_IsTrigger);
+
+    lua.script("rb.maxLinearVelocity = 200.0; rb.maxAngularVelocity = 25.0");
+    EXPECT_FLOAT_EQ(rb.m_MaxLinearVelocity, 200.0f);
+    EXPECT_FLOAT_EQ(rb.m_MaxAngularVelocity, 25.0f);
+
+    lua.script("rb.initialLinearVelocity = vec3.new(1, 2, 3)");
+    EXPECT_FLOAT_EQ(rb.m_InitialLinearVelocity.x, 1.0f);
+    EXPECT_FLOAT_EQ(rb.m_InitialLinearVelocity.y, 2.0f);
+    EXPECT_FLOAT_EQ(rb.m_InitialLinearVelocity.z, 3.0f);
+}
+
+TEST_F(LuaBindingTest, BoxCollider3DComponent_PropertyRoundTrip)
+{
+    BoxCollider3DComponent bc;
+    lua["bc"] = &bc;
+
+    lua.script("bc.halfExtents = vec3.new(2, 3, 4); bc.offset = vec3.new(0.5, 0.5, 0.5)");
+    EXPECT_FLOAT_EQ(bc.m_HalfExtents.x, 2.0f);
+    EXPECT_FLOAT_EQ(bc.m_HalfExtents.y, 3.0f);
+    EXPECT_FLOAT_EQ(bc.m_HalfExtents.z, 4.0f);
+    EXPECT_FLOAT_EQ(bc.m_Offset.x, 0.5f);
+
+    lua.script("bc.material.staticFriction = 0.8");
+    EXPECT_FLOAT_EQ(bc.m_Material.GetStaticFriction(), 0.8f);
+}
+
+TEST_F(LuaBindingTest, SphereCollider3DComponent_PropertyRoundTrip)
+{
+    SphereCollider3DComponent sc;
+    lua["sc"] = &sc;
+
+    lua.script("sc.radius = 2.5; sc.offset = vec3.new(1, 0, 0)");
+    EXPECT_FLOAT_EQ(sc.m_Radius, 2.5f);
+    EXPECT_FLOAT_EQ(sc.m_Offset.x, 1.0f);
+}
+
+TEST_F(LuaBindingTest, CapsuleCollider3DComponent_PropertyRoundTrip)
+{
+    CapsuleCollider3DComponent cc;
+    lua["cc"] = &cc;
+
+    lua.script("cc.radius = 0.3; cc.halfHeight = 1.5");
+    EXPECT_FLOAT_EQ(cc.m_Radius, 0.3f);
+    EXPECT_FLOAT_EQ(cc.m_HalfHeight, 1.5f);
+}
+
+TEST_F(LuaBindingTest, DirectionalLightComponent_PropertyRoundTrip)
+{
+    DirectionalLightComponent dl;
+    lua["dl"] = &dl;
+
+    lua.script("dl.intensity = 2.5; dl.castShadows = false; dl.maxShadowDistance = 500.0");
+    EXPECT_FLOAT_EQ(dl.m_Intensity, 2.5f);
+    EXPECT_FALSE(dl.m_CastShadows);
+    EXPECT_FLOAT_EQ(dl.m_MaxShadowDistance, 500.0f);
+
+    lua.script("dl.direction = vec3.new(0.5, -0.8, 0.2); dl.color = vec3.new(1, 0.9, 0.8)");
+    EXPECT_FLOAT_EQ(dl.m_Direction.x, 0.5f);
+    EXPECT_FLOAT_EQ(dl.m_Color.g, 0.9f);
+}
+
+TEST_F(LuaBindingTest, PointLightComponent_PropertyRoundTrip)
+{
+    PointLightComponent pl;
+    lua["pl"] = &pl;
+
+    lua.script("pl.intensity = 3.0; pl.range = 20.0; pl.attenuation = 1.5");
+    EXPECT_FLOAT_EQ(pl.m_Intensity, 3.0f);
+    EXPECT_FLOAT_EQ(pl.m_Range, 20.0f);
+    EXPECT_FLOAT_EQ(pl.m_Attenuation, 1.5f);
+}
+
+TEST_F(LuaBindingTest, SpotLightComponent_PropertyRoundTrip)
+{
+    SpotLightComponent sl;
+    lua["sl"] = &sl;
+
+    lua.script("sl.innerCutoff = 15.0; sl.outerCutoff = 25.0; sl.range = 30.0");
+    EXPECT_FLOAT_EQ(sl.m_InnerCutoff, 15.0f);
+    EXPECT_FLOAT_EQ(sl.m_OuterCutoff, 25.0f);
+    EXPECT_FLOAT_EQ(sl.m_Range, 30.0f);
+}
+
+TEST_F(LuaBindingTest, TagComponent_PropertyRoundTrip)
+{
+    TagComponent tc("Hello");
+    lua["tc"] = &tc;
+
+    auto result = lua.script("return tc.tag");
+    EXPECT_EQ(result.get<std::string>(), "Hello");
+
+    lua.script("tc.tag = 'World'");
+    EXPECT_EQ(tc.Tag, "World");
+}
+
+TEST_F(LuaBindingTest, ScriptComponent_PropertyRoundTrip)
+{
+    ScriptComponent sc;
+    lua["sc"] = &sc;
+
+    lua.script("sc.className = 'MyNamespace.MyClass'");
+    EXPECT_EQ(sc.ClassName, "MyNamespace.MyClass");
+}
+
+TEST_F(LuaBindingTest, LuaScriptComponent_PropertyRoundTrip)
+{
+    LuaScriptComponent lsc;
+    lua["lsc"] = &lsc;
+
+    lua.script("lsc.scriptFile = 'scripts/player.lua'");
+    EXPECT_EQ(lsc.ScriptFile, "scripts/player.lua");
+}
+
+TEST_F(LuaBindingTest, ModelComponent_PropertyRoundTrip)
+{
+    ModelComponent mc;
+    lua["mc2"] = &mc;
+
+    lua.script("mc2.visible = false");
+    EXPECT_FALSE(mc.m_Visible);
+
+    auto result = lua.script("return mc2.isLoaded");
+    EXPECT_FALSE(result.get<bool>());
+}
+
+// =============================================================================
+// ComponentRegistry completeness — verify new components are discoverable
+// =============================================================================
+
+TEST_F(LuaBindingTest, ComponentRegistry_NewComponentsRegistered)
+{
+    // Verify that get_component type names resolve via the registry.
+    // We can't call get_component without a scene, but we can verify the
+    // usertype tables exist in Lua (sol2 registers them globally).
+    auto check = [&](const char* name)
+    {
+        auto r = lua.script(std::string("return type(") + name + ")");
+        EXPECT_EQ(r.get<std::string>(), "table") << name << " usertype not registered";
+    };
+
+    check("Rigidbody3DComponent");
+    check("BoxCollider3DComponent");
+    check("SphereCollider3DComponent");
+    check("CapsuleCollider3DComponent");
+    check("MeshCollider3DComponent");
+    check("ConvexMeshCollider3DComponent");
+    check("TriangleMeshCollider3DComponent");
+    check("DirectionalLightComponent");
+    check("PointLightComponent");
+    check("SpotLightComponent");
+    check("TagComponent");
+    check("ScriptComponent");
+    check("LuaScriptComponent");
+    check("ModelComponent");
+    check("ColliderMaterial");
+}
+
+// =============================================================================
+// Scene-backed integration tests (entity_utils with real Scene + Entity)
+// =============================================================================
+
+class LuaSceneTest : public ::testing::Test
+{
+  protected:
+    sol::state lua;
+    Ref<Scene> scene;
+
+    void SetUp() override
+    {
+        lua.open_libraries(sol::lib::base, sol::lib::math);
+        LuaScriptGlue::RegisterAllTypes(lua);
+
+        scene = Ref<Scene>::Create();
+        ScriptEngine::SetSceneContextForTesting(scene.get());
+    }
+
+    void TearDown() override
+    {
+        ScriptEngine::SetSceneContextForTesting(nullptr);
+        scene = nullptr;
+    }
+};
+
+TEST_F(LuaSceneTest, FindByName_ReturnsEntityID)
+{
+    Entity e = scene->CreateEntityWithUUID(UUID(42), "TestPlayer");
+
+    auto result = lua.script("return entity_utils.find_by_name('TestPlayer')");
+    ASSERT_TRUE(result.valid());
+    EXPECT_EQ(result.get<u64>(), 42u);
+}
+
+TEST_F(LuaSceneTest, FindByName_ReturnsNilForMissing)
+{
+    auto result = lua.script("return entity_utils.find_by_name('NonExistent')");
+    ASSERT_TRUE(result.valid());
+    EXPECT_TRUE(result.get<sol::object>().is<sol::nil_t>());
+}
+
+TEST_F(LuaSceneTest, GetSetTranslation_RoundTrip)
+{
+    Entity e = scene->CreateEntityWithUUID(UUID(100), "Mover");
+    lua["eid"] = static_cast<u64>(100);
+
+    lua.script("entity_utils.set_translation(eid, vec3.new(10, 20, 30))");
+
+    auto const& tc = e.GetComponent<TransformComponent>();
+    EXPECT_FLOAT_EQ(tc.Translation.x, 10.0f);
+    EXPECT_FLOAT_EQ(tc.Translation.y, 20.0f);
+    EXPECT_FLOAT_EQ(tc.Translation.z, 30.0f);
+
+    auto result = lua.script("local t = entity_utils.get_translation(eid); return t.x, t.y, t.z");
+    EXPECT_FLOAT_EQ(result.get<f32>(0), 10.0f);
+    EXPECT_FLOAT_EQ(result.get<f32>(1), 20.0f);
+    EXPECT_FLOAT_EQ(result.get<f32>(2), 30.0f);
+}
+
+TEST_F(LuaSceneTest, GetName_ReturnsTagName)
+{
+    Entity e = scene->CreateEntityWithUUID(UUID(200), "Hero");
+    lua["eid"] = static_cast<u64>(200);
+
+    auto result = lua.script("return entity_utils.get_name(eid)");
+    ASSERT_TRUE(result.valid());
+    EXPECT_EQ(result.get<std::string>(), "Hero");
+}
+
+TEST_F(LuaSceneTest, GetComponent_ReturnsProxy)
+{
+    Entity e = scene->CreateEntityWithUUID(UUID(300), "ProxyTest");
+    e.GetComponent<TransformComponent>().Translation = { 5.0f, 6.0f, 7.0f };
+    lua["eid"] = static_cast<u64>(300);
+
+    // get_component returns a LuaComponentProxy; reading 'translation'
+    // through it should give us the correct position.
+    auto result = lua.script(R"(
+        local tc = entity_utils.get_component(eid, "TransformComponent")
+        local t = tc.translation
+        return t.x, t.y, t.z
+    )");
+    EXPECT_FLOAT_EQ(result.get<f32>(0), 5.0f);
+    EXPECT_FLOAT_EQ(result.get<f32>(1), 6.0f);
+    EXPECT_FLOAT_EQ(result.get<f32>(2), 7.0f);
+}
+
+TEST_F(LuaSceneTest, ProxyWrite_UpdatesComponent)
+{
+    Entity e = scene->CreateEntityWithUUID(UUID(400), "WriteTest");
+    lua["eid"] = static_cast<u64>(400);
+
+    lua.script(R"(
+        local tc = entity_utils.get_component(eid, "TransformComponent")
+        tc.translation = vec3.new(100, 200, 300)
+    )");
+
+    auto const& tc = e.GetComponent<TransformComponent>();
+    EXPECT_FLOAT_EQ(tc.Translation.x, 100.0f);
+    EXPECT_FLOAT_EQ(tc.Translation.y, 200.0f);
+    EXPECT_FLOAT_EQ(tc.Translation.z, 300.0f);
+}
+
+TEST_F(LuaSceneTest, ProxyRead_ReturnsCopy_NotReference)
+{
+    Entity e = scene->CreateEntityWithUUID(UUID(500), "CopyTest");
+    e.GetComponent<TransformComponent>().Translation = { 1.0f, 2.0f, 3.0f };
+    lua["eid"] = static_cast<u64>(500);
+
+    // Modifying the returned vec3 should NOT change the component
+    lua.script(R"(
+        local tc = entity_utils.get_component(eid, "TransformComponent")
+        local t = tc.translation
+        t.x = 999.0
+    )");
+
+    auto const& tc = e.GetComponent<TransformComponent>();
+    EXPECT_FLOAT_EQ(tc.Translation.x, 1.0f) << "Proxy __index must return copies, not references";
+}
+
+TEST_F(LuaSceneTest, HasComponent_ReturnsTrueForExisting)
+{
+    Entity e = scene->CreateEntityWithUUID(UUID(600), "HasTest");
+    lua["eid"] = static_cast<u64>(600);
+
+    auto result = lua.script("return entity_utils.has_component(eid, 'TransformComponent')");
+    EXPECT_TRUE(result.get<bool>());
+
+    auto result2 = lua.script("return entity_utils.has_component(eid, 'Rigidbody3DComponent')");
+    EXPECT_FALSE(result2.get<bool>());
+}
+
+TEST_F(LuaSceneTest, SetTranslation_RejectsNonFinite)
+{
+    Entity e = scene->CreateEntityWithUUID(UUID(700), "FiniteTest");
+    e.GetComponent<TransformComponent>().Translation = { 1.0f, 2.0f, 3.0f };
+    lua["eid"] = static_cast<u64>(700);
+
+    lua.script("entity_utils.set_translation(eid, vec3.new(1.0/0.0, 0, 0))");
+
+    auto const& tc = e.GetComponent<TransformComponent>();
+    EXPECT_FLOAT_EQ(tc.Translation.x, 1.0f) << "Non-finite translation should be rejected";
 }
 
 TEST_F(LuaBindingTest, MaterialComponent_ShaderGraphHandleRoundTrip)

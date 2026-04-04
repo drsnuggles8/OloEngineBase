@@ -147,6 +147,7 @@ namespace OloEngine
     };
 
     static ScriptEngineData* s_Data = nullptr;
+    static Scene* s_TestSceneContext = nullptr;
 
     static void OnAppAssemblyFileSystemEvent(const std::string_view, const filewatch::Event change_type)
     {
@@ -394,7 +395,14 @@ namespace OloEngine
 
     Scene* ScriptEngine::GetSceneContext()
     {
-        return s_Data->SceneContext;
+        if (s_Data)
+            return s_Data->SceneContext;
+        return s_TestSceneContext;
+    }
+
+    void ScriptEngine::SetSceneContextForTesting(Scene* scene)
+    {
+        s_TestSceneContext = scene;
     }
 
     Ref<ScriptInstance> ScriptEngine::GetEntityScriptInstance(UUID entityID)
