@@ -558,7 +558,9 @@ namespace OloEngine
                                                "type", sol::property([](const Rigidbody3DComponent& rb) -> int
                                                                      { return static_cast<int>(rb.m_Type); }, [](Rigidbody3DComponent& rb, int v)
                                                                      { if (v >= 0 && v <= 2) rb.m_Type = static_cast<BodyType3D>(v); }),
-                                               "layerID", &Rigidbody3DComponent::m_LayerID,
+                                               "layerID", sol::property([](const Rigidbody3DComponent& rb)
+                                                                        { return rb.m_LayerID; }, [](Rigidbody3DComponent& rb, int v)
+                                                                        { if (v >= 0) rb.m_LayerID = static_cast<u32>(v); }),
                                                "mass", sol::property([](const Rigidbody3DComponent& rb)
                                                                      { return rb.m_Mass; }, [](Rigidbody3DComponent& rb, f32 v)
                                                                      { if (std::isfinite(v) && v >= 0.0f) rb.m_Mass = v; }),
@@ -570,7 +572,9 @@ namespace OloEngine
                                                                             { if (std::isfinite(v) && v >= 0.0f) rb.m_AngularDrag = v; }),
                                                "disableGravity", &Rigidbody3DComponent::m_DisableGravity,
                                                "isTrigger", &Rigidbody3DComponent::m_IsTrigger,
-                                               "lockedAxes", &Rigidbody3DComponent::m_LockedAxes,
+                                               "lockedAxes", sol::property([](const Rigidbody3DComponent& rb) -> int
+                                                                           { return static_cast<int>(static_cast<u32>(rb.m_LockedAxes)); }, [](Rigidbody3DComponent& rb, int v)
+                                                                           { if (v >= 0 && (static_cast<u32>(v) & ~AxisMask) == 0) rb.m_LockedAxes = static_cast<EActorAxis>(v); }),
                                                "initialLinearVelocity", sol::property([](const Rigidbody3DComponent& rb)
                                                                                       { return rb.m_InitialLinearVelocity; }, [](Rigidbody3DComponent& rb, const glm::vec3& v)
                                                                                       { if (IsFiniteVec3(v)) rb.m_InitialLinearVelocity = v; }),
@@ -1261,7 +1265,7 @@ namespace OloEngine
                                                "attenuationModel", sol::property([](const AudioSourceComponent& c)
                                                                                  { return static_cast<int>(c.Config.AttenuationModel); }, [](AudioSourceComponent& c, int v)
                                                                                  {
-                    if (v < 0 || v > static_cast<int>(AttenuationModelType::Exponential)) { v = 0; }
+                    if (v < 0 || v > static_cast<int>(AttenuationModelType::Exponential)) return;
                     c.Config.AttenuationModel = static_cast<AttenuationModelType>(v);
                     if (c.Source) { c.Source->SetAttenuationModel(c.Config.AttenuationModel); } }),
                                                "rollOff", sol::property([](const AudioSourceComponent& c)
@@ -1293,14 +1297,16 @@ namespace OloEngine
                     if (!std::isfinite(v)) v = 0.3f;
                     v = std::max(v, 0.0f);
                     c.Config.MinDistance = v;
-                    if (c.Source) { c.Source->SetMinDistance(v); } }),
+                    if (c.Config.MinDistance > c.Config.MaxDistance) c.Config.MaxDistance = c.Config.MinDistance;
+                    if (c.Source) { c.Source->SetMinDistance(v); c.Source->SetMaxDistance(c.Config.MaxDistance); } }),
                                                "maxDistance", sol::property([](const AudioSourceComponent& c)
                                                                             { return c.Config.MaxDistance; }, [](AudioSourceComponent& c, f32 v)
                                                                             {
                     if (!std::isfinite(v)) v = 1000.0f;
                     v = std::max(v, 0.0f);
                     c.Config.MaxDistance = v;
-                    if (c.Source) { c.Source->SetMaxDistance(v); } }),
+                    if (c.Config.MinDistance > c.Config.MaxDistance) c.Config.MinDistance = c.Config.MaxDistance;
+                    if (c.Source) { c.Source->SetMaxDistance(v); c.Source->SetMinDistance(c.Config.MinDistance); } }),
                                                "coneInnerAngle", sol::property([](const AudioSourceComponent& c)
                                                                                { return c.Config.ConeInnerAngle; }, [](AudioSourceComponent& c, f32 v)
                                                                                {

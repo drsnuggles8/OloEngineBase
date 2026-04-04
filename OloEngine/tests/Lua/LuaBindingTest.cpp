@@ -179,6 +179,7 @@ TEST_F(LuaBindingTest, BoxCollider2D_RejectsInvalidInputs)
     bc.Size = { 1.0f, 1.0f };
     lua.script("bc.size = vec2.new(-1.0, 1.0)"); // negative size rejected
     EXPECT_FLOAT_EQ(bc.Size.x, 1.0f);
+    EXPECT_FLOAT_EQ(bc.Size.y, 1.0f);
 
     bc.Density = 1.0f;
     lua.script("bc.density = -0.5"); // negative density rejected
@@ -397,6 +398,8 @@ TEST_F(LuaBindingTest, UIImageComponent_PropertyRoundTrip)
 
     lua.script("i.color = vec4.new(1.0, 0.0, 0.0, 0.5)");
     EXPECT_FLOAT_EQ(img.m_Color.r, 1.0f);
+    EXPECT_FLOAT_EQ(img.m_Color.g, 0.0f);
+    EXPECT_FLOAT_EQ(img.m_Color.b, 0.0f);
     EXPECT_FLOAT_EQ(img.m_Color.a, 0.5f);
 
     lua.script("i.borderInsets = vec4.new(1.0, 2.0, 3.0, 4.0)");
@@ -413,6 +416,8 @@ TEST_F(LuaBindingTest, UIPanelComponent_PropertyRoundTrip)
 
     lua.script("p.backgroundColor = vec4.new(0.1, 0.2, 0.3, 0.9)");
     EXPECT_FLOAT_EQ(panel.m_BackgroundColor.r, 0.1f);
+    EXPECT_FLOAT_EQ(panel.m_BackgroundColor.g, 0.2f);
+    EXPECT_FLOAT_EQ(panel.m_BackgroundColor.b, 0.3f);
     EXPECT_FLOAT_EQ(panel.m_BackgroundColor.a, 0.9f);
 }
 
@@ -427,6 +432,9 @@ TEST_F(LuaBindingTest, UITextComponent_PropertyRoundTrip)
 
     lua.script("t.color = vec4.new(0.0, 0.0, 0.0, 1.0)");
     EXPECT_FLOAT_EQ(text.m_Color.r, 0.0f);
+    EXPECT_FLOAT_EQ(text.m_Color.g, 0.0f);
+    EXPECT_FLOAT_EQ(text.m_Color.b, 0.0f);
+    EXPECT_FLOAT_EQ(text.m_Color.a, 1.0f);
 
     lua.script("t.kerning = 0.5; t.lineSpacing = 1.2");
     EXPECT_FLOAT_EQ(text.m_Kerning, 0.5f);
@@ -443,9 +451,15 @@ TEST_F(LuaBindingTest, UIButtonComponent_PropertyRoundTrip)
 
     lua.script("b.normalColor = vec4.new(0.5, 0.5, 0.5, 1.0)");
     EXPECT_FLOAT_EQ(btn.m_NormalColor.r, 0.5f);
+    EXPECT_FLOAT_EQ(btn.m_NormalColor.g, 0.5f);
+    EXPECT_FLOAT_EQ(btn.m_NormalColor.b, 0.5f);
+    EXPECT_FLOAT_EQ(btn.m_NormalColor.a, 1.0f);
 
     lua.script("b.hoveredColor = vec4.new(0.6, 0.6, 0.6, 1.0)");
     EXPECT_FLOAT_EQ(btn.m_HoveredColor.r, 0.6f);
+    EXPECT_FLOAT_EQ(btn.m_HoveredColor.g, 0.6f);
+    EXPECT_FLOAT_EQ(btn.m_HoveredColor.b, 0.6f);
+    EXPECT_FLOAT_EQ(btn.m_HoveredColor.a, 1.0f);
 
     // state is readonly
     auto result = lua.script("return b.state");
@@ -466,7 +480,10 @@ TEST_F(LuaBindingTest, UISliderComponent_PropertyRoundTrip)
     EXPECT_FALSE(slider.m_Interactable);
 
     lua.script("s.fillColor = vec4.new(0.0, 1.0, 0.0, 1.0)");
+    EXPECT_FLOAT_EQ(slider.m_FillColor.r, 0.0f);
     EXPECT_FLOAT_EQ(slider.m_FillColor.g, 1.0f);
+    EXPECT_FLOAT_EQ(slider.m_FillColor.b, 0.0f);
+    EXPECT_FLOAT_EQ(slider.m_FillColor.a, 1.0f);
 }
 
 TEST_F(LuaBindingTest, UICheckboxComponent_PropertyRoundTrip)
@@ -481,7 +498,10 @@ TEST_F(LuaBindingTest, UICheckboxComponent_PropertyRoundTrip)
     EXPECT_FALSE(cb.m_Interactable);
 
     lua.script("c.checkedColor = vec4.new(0.0, 0.8, 0.0, 1.0)");
+    EXPECT_FLOAT_EQ(cb.m_CheckedColor.r, 0.0f);
     EXPECT_FLOAT_EQ(cb.m_CheckedColor.g, 0.8f);
+    EXPECT_FLOAT_EQ(cb.m_CheckedColor.b, 0.0f);
+    EXPECT_FLOAT_EQ(cb.m_CheckedColor.a, 1.0f);
 }
 
 TEST_F(LuaBindingTest, UIProgressBarComponent_PropertyRoundTrip)
@@ -495,7 +515,10 @@ TEST_F(LuaBindingTest, UIProgressBarComponent_PropertyRoundTrip)
     EXPECT_FLOAT_EQ(pb.m_MaxValue, 100.0f);
 
     lua.script("p.fillColor = vec4.new(0.2, 0.8, 0.2, 1.0)");
+    EXPECT_FLOAT_EQ(pb.m_FillColor.r, 0.2f);
     EXPECT_FLOAT_EQ(pb.m_FillColor.g, 0.8f);
+    EXPECT_FLOAT_EQ(pb.m_FillColor.b, 0.2f);
+    EXPECT_FLOAT_EQ(pb.m_FillColor.a, 1.0f);
 }
 
 TEST_F(LuaBindingTest, UIInputFieldComponent_PropertyRoundTrip)
@@ -524,6 +547,7 @@ TEST_F(LuaBindingTest, UIScrollViewComponent_PropertyRoundTrip)
 
     lua.script("s.contentSize = vec2.new(800.0, 2000.0)");
     EXPECT_FLOAT_EQ(sv.m_ContentSize.x, 800.0f);
+    EXPECT_FLOAT_EQ(sv.m_ContentSize.y, 2000.0f);
 
     lua.script("s.scrollSpeed = 2.5");
     EXPECT_FLOAT_EQ(sv.m_ScrollSpeed, 2.5f);
@@ -554,7 +578,9 @@ TEST_F(LuaBindingTest, UIGridLayoutComponent_PropertyRoundTrip)
 
     lua.script("g.cellSize = vec2.new(64.0, 64.0); g.spacing = vec2.new(4.0, 4.0)");
     EXPECT_FLOAT_EQ(grid.m_CellSize.x, 64.0f);
+    EXPECT_FLOAT_EQ(grid.m_CellSize.y, 64.0f);
     EXPECT_FLOAT_EQ(grid.m_Spacing.x, 4.0f);
+    EXPECT_FLOAT_EQ(grid.m_Spacing.y, 4.0f);
 
     lua.script("g.constraintCount = 4");
     EXPECT_EQ(grid.m_ConstraintCount, 4);
@@ -570,10 +596,16 @@ TEST_F(LuaBindingTest, UIToggleComponent_PropertyRoundTrip)
     EXPECT_FALSE(toggle.m_Interactable);
 
     lua.script("t.onColor = vec4.new(0.0, 1.0, 0.0, 1.0)");
+    EXPECT_FLOAT_EQ(toggle.m_OnColor.r, 0.0f);
     EXPECT_FLOAT_EQ(toggle.m_OnColor.g, 1.0f);
+    EXPECT_FLOAT_EQ(toggle.m_OnColor.b, 0.0f);
+    EXPECT_FLOAT_EQ(toggle.m_OnColor.a, 1.0f);
 
     lua.script("t.knobColor = vec4.new(1.0, 1.0, 1.0, 1.0)");
     EXPECT_FLOAT_EQ(toggle.m_KnobColor.r, 1.0f);
+    EXPECT_FLOAT_EQ(toggle.m_KnobColor.g, 1.0f);
+    EXPECT_FLOAT_EQ(toggle.m_KnobColor.b, 1.0f);
+    EXPECT_FLOAT_EQ(toggle.m_KnobColor.a, 1.0f);
 }
 
 // =============================================================================
@@ -692,9 +724,13 @@ TEST_F(LuaBindingTest, LightProbeVolumeComponent_PropertyRoundTrip)
 
     lua.script("lpv.boundsMin = vec3.new(-10.0, -10.0, -10.0)");
     EXPECT_FLOAT_EQ(lpv.m_BoundsMin.x, -10.0f);
+    EXPECT_FLOAT_EQ(lpv.m_BoundsMin.y, -10.0f);
+    EXPECT_FLOAT_EQ(lpv.m_BoundsMin.z, -10.0f);
 
     lua.script("lpv.boundsMax = vec3.new(10.0, 10.0, 10.0)");
     EXPECT_FLOAT_EQ(lpv.m_BoundsMax.x, 10.0f);
+    EXPECT_FLOAT_EQ(lpv.m_BoundsMax.y, 10.0f);
+    EXPECT_FLOAT_EQ(lpv.m_BoundsMax.z, 10.0f);
 
     lua.script("lpv.spacing = 5.0");
     EXPECT_FLOAT_EQ(lpv.m_Spacing, 5.0f);
@@ -721,7 +757,9 @@ TEST_F(LuaBindingTest, UIWorldAnchorComponent_PropertyRoundTrip)
     EXPECT_EQ(static_cast<u64>(anchor.m_TargetEntity), 42u);
 
     lua.script("a.worldOffset = vec3.new(0.0, 5.0, 0.0)");
+    EXPECT_FLOAT_EQ(anchor.m_WorldOffset.x, 0.0f);
     EXPECT_FLOAT_EQ(anchor.m_WorldOffset.y, 5.0f);
+    EXPECT_FLOAT_EQ(anchor.m_WorldOffset.z, 0.0f);
 
     auto result = lua.script("return a.targetEntity");
     EXPECT_EQ(result.get<u64>(), 42u);
@@ -742,16 +780,22 @@ TEST_F(LuaBindingTest, NameplateComponent_PropertyRoundTrip)
     EXPECT_TRUE(np.m_ShowManaBar);
 
     lua.script("np.worldOffset = vec3.new(0.0, 3.0, 0.0)");
+    EXPECT_FLOAT_EQ(np.m_WorldOffset.x, 0.0f);
     EXPECT_FLOAT_EQ(np.m_WorldOffset.y, 3.0f);
+    EXPECT_FLOAT_EQ(np.m_WorldOffset.z, 0.0f);
 
     lua.script("np.barSize = vec2.new(200.0, 16.0)");
     EXPECT_FLOAT_EQ(np.m_BarSize.x, 200.0f);
+    EXPECT_FLOAT_EQ(np.m_BarSize.y, 16.0f);
 
     lua.script("np.manaBarGap = 4.0");
     EXPECT_FLOAT_EQ(np.m_ManaBarGap, 4.0f);
 
     lua.script("np.healthBarColor = vec4.new(1.0, 0.0, 0.0, 1.0)");
     EXPECT_FLOAT_EQ(np.m_HealthBarColor.r, 1.0f);
+    EXPECT_FLOAT_EQ(np.m_HealthBarColor.g, 0.0f);
+    EXPECT_FLOAT_EQ(np.m_HealthBarColor.b, 0.0f);
+    EXPECT_FLOAT_EQ(np.m_HealthBarColor.a, 1.0f);
 }
 
 // =============================================================================
@@ -770,6 +814,7 @@ TEST_F(LuaBindingTest, IKTargetComponent_AimProperties)
     lua.script("ik.aimTarget = vec3.new(10.0, 5.0, 0.0)");
     EXPECT_FLOAT_EQ(ik.AimTarget.x, 10.0f);
     EXPECT_FLOAT_EQ(ik.AimTarget.y, 5.0f);
+    EXPECT_FLOAT_EQ(ik.AimTarget.z, 0.0f);
 
     lua.script("ik.aimWeight = 0.8; ik.aimChainLength = 3; ik.aimChainFactor = 0.7");
     EXPECT_FLOAT_EQ(ik.AimWeight, 0.8f);
@@ -791,6 +836,8 @@ TEST_F(LuaBindingTest, IKTargetComponent_LimbProperties)
 
     lua.script("ik.limbTarget = vec3.new(1.0, 0.0, 0.0)");
     EXPECT_FLOAT_EQ(ik.LimbTarget.x, 1.0f);
+    EXPECT_FLOAT_EQ(ik.LimbTarget.y, 0.0f);
+    EXPECT_FLOAT_EQ(ik.LimbTarget.z, 0.0f);
 
     lua.script("ik.limbChainLength = 4; ik.limbWeight = 0.9");
     EXPECT_EQ(ik.LimbChainLength, 4);
@@ -821,6 +868,8 @@ TEST_F(LuaBindingTest, WindSettings_PropertyRoundTrip)
 
     lua.script("ws.direction = vec3.new(1.0, 0.0, 0.0)");
     EXPECT_FLOAT_EQ(ws.Direction.x, 1.0f);
+    EXPECT_FLOAT_EQ(ws.Direction.y, 0.0f);
+    EXPECT_FLOAT_EQ(ws.Direction.z, 0.0f);
 
     lua.script("ws.gridWorldSize = 500.0; ws.gridResolution = 64");
     EXPECT_FLOAT_EQ(ws.GridWorldSize, 500.0f);
@@ -1167,6 +1216,8 @@ TEST_F(LuaBindingTest, BoxCollider3DComponent_PropertyRoundTrip)
     EXPECT_FLOAT_EQ(bc.m_HalfExtents.y, 3.0f);
     EXPECT_FLOAT_EQ(bc.m_HalfExtents.z, 4.0f);
     EXPECT_FLOAT_EQ(bc.m_Offset.x, 0.5f);
+    EXPECT_FLOAT_EQ(bc.m_Offset.y, 0.5f);
+    EXPECT_FLOAT_EQ(bc.m_Offset.z, 0.5f);
 
     lua.script("bc.material.staticFriction = 0.8");
     EXPECT_FLOAT_EQ(bc.m_Material.GetStaticFriction(), 0.8f);
@@ -1180,6 +1231,8 @@ TEST_F(LuaBindingTest, SphereCollider3DComponent_PropertyRoundTrip)
     lua.script("sc.radius = 2.5; sc.offset = vec3.new(1, 0, 0)");
     EXPECT_FLOAT_EQ(sc.m_Radius, 2.5f);
     EXPECT_FLOAT_EQ(sc.m_Offset.x, 1.0f);
+    EXPECT_FLOAT_EQ(sc.m_Offset.y, 0.0f);
+    EXPECT_FLOAT_EQ(sc.m_Offset.z, 0.0f);
 }
 
 TEST_F(LuaBindingTest, CapsuleCollider3DComponent_PropertyRoundTrip)
@@ -1204,7 +1257,11 @@ TEST_F(LuaBindingTest, DirectionalLightComponent_PropertyRoundTrip)
 
     lua.script("dl.direction = vec3.new(0.5, -0.8, 0.2); dl.color = vec3.new(1, 0.9, 0.8)");
     EXPECT_FLOAT_EQ(dl.m_Direction.x, 0.5f);
+    EXPECT_FLOAT_EQ(dl.m_Direction.y, -0.8f);
+    EXPECT_FLOAT_EQ(dl.m_Direction.z, 0.2f);
+    EXPECT_FLOAT_EQ(dl.m_Color.r, 1.0f);
     EXPECT_FLOAT_EQ(dl.m_Color.g, 0.9f);
+    EXPECT_FLOAT_EQ(dl.m_Color.b, 0.8f);
 }
 
 TEST_F(LuaBindingTest, DirectionalLightComponent_RejectsInvalidInputs)
@@ -1415,26 +1472,28 @@ TEST_F(LuaSceneTest, ComponentRegistry_SceneBacked)
         EXPECT_TRUE(r.get<bool>()) << name << " get_component returned nil";
     };
 
-    checkHas("Rigidbody3DComponent");
-    checkHas("BoxCollider3DComponent");
-    checkHas("SphereCollider3DComponent");
-    checkHas("CapsuleCollider3DComponent");
-    checkHas("MeshCollider3DComponent");
-    checkHas("ConvexMeshCollider3DComponent");
-    checkHas("TriangleMeshCollider3DComponent");
-    checkHas("DirectionalLightComponent");
-    checkHas("PointLightComponent");
-    checkHas("SpotLightComponent");
-    checkHas("TagComponent");
-    checkHas("ScriptComponent");
-    checkHas("LuaScriptComponent");
-    checkHas("ModelComponent");
+    const std::array componentNames{
+        "TagComponent",
+        "Rigidbody3DComponent",
+        "BoxCollider3DComponent",
+        "SphereCollider3DComponent",
+        "CapsuleCollider3DComponent",
+        "MeshCollider3DComponent",
+        "ConvexMeshCollider3DComponent",
+        "TriangleMeshCollider3DComponent",
+        "DirectionalLightComponent",
+        "PointLightComponent",
+        "SpotLightComponent",
+        "ScriptComponent",
+        "LuaScriptComponent",
+        "ModelComponent",
+    };
 
-    checkGet("Rigidbody3DComponent");
-    checkGet("BoxCollider3DComponent");
-    checkGet("DirectionalLightComponent");
-    checkGet("TagComponent");
-    checkGet("ModelComponent");
+    for (auto const* name : componentNames)
+    {
+        checkHas(name);
+        checkGet(name);
+    }
 }
 
 TEST_F(LuaSceneTest, FindByName_ReturnsEntityID)
