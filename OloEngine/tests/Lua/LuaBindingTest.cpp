@@ -1,7 +1,6 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
-#define SOL_ALL_SAFETIES_ON 1
 #include <sol/sol.hpp>
 
 #include "OloEngine/Scene/Components.h"
@@ -29,6 +28,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <optional>
 #include <string>

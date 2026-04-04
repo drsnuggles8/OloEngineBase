@@ -157,6 +157,8 @@ target_link_libraries(OloEngine-Tests
 	OloEngine
 	gtest)
 
+target_compile_definitions(OloEngine-Tests PRIVATE SOL_ALL_SAFETIES_ON=1)
+
 # Fix UTF-8 compilation issue
 if(MSVC)
 	target_compile_options(OloEngine-Tests PRIVATE /utf-8 /FS /bigobj)
