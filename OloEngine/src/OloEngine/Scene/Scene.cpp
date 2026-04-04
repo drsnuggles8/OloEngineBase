@@ -346,6 +346,10 @@ namespace OloEngine
         if (!entity || !entity.HasComponent<IDComponent>())
             return;
 
+        // Capture UUID before the Lua callback — the script may re-entrantly
+        // destroy this entity, invalidating the handle.
+        UUID entityUUID = entity.GetUUID();
+
         // Dispatch Lua OnDestroy before the entity is removed from the registry
         if (m_IsRunning && entity.HasComponent<LuaScriptComponent>())
         {
@@ -355,7 +359,9 @@ namespace OloEngine
             }
         }
 
-        UUID entityUUID = entity.GetUUID();
+        // The Lua callback may have re-entrantly destroyed this entity already.
+        if (!m_Registry.valid(entity))
+            return;
 
         // Remove from name cache before destroying
         if (entity.HasComponent<TagComponent>())
@@ -560,8 +566,6 @@ namespace OloEngine
 
     void Scene::OnRuntimeStop()
     {
-        m_IsRunning = false;
-
         // Shut down streaming before other systems
         if (m_SceneStreamer)
         {
@@ -571,15 +575,26 @@ namespace OloEngine
 
         ScriptEngine::OnRuntimeStop();
 
-        // Dispatch OnDestroy to all Lua-scripted entities before clearing instances
+        // Snapshot entity IDs before dispatching Lua OnDestroy — callbacks may
+        // destroy other entities and mutate the underlying view.
+        std::vector<entt::entity> luaEntities;
         for (const auto luaView = m_Registry.view<LuaScriptComponent>(); const auto e : luaView)
+            luaEntities.push_back(e);
+
+        for (const auto e : luaEntities)
         {
-            if (auto const& lsc = luaView.get<LuaScriptComponent>(e); !lsc.ScriptFile.empty())
+            if (!m_Registry.valid(e))
+                continue;
+            if (auto const* lsc = m_Registry.try_get<LuaScriptComponent>(e); lsc && !lsc->ScriptFile.empty())
             {
                 LuaScriptEngine::OnDestroyEntity({ e, this });
             }
         }
         LuaScriptEngine::OnRuntimeStop();
+
+        // Defer clearing the running flag until after Lua teardown so that
+        // per-entity Lua cleanup in DestroyEntity still fires during callbacks.
+        m_IsRunning = false;
 
         // Shut down dialogue system
         m_DialogueSystem.reset();
@@ -1782,15 +1797,13 @@ namespace OloEngine
     {
         auto const nameStr = std::string(name);
         auto [rangeBegin, rangeEnd] = m_EntityNameMap.equal_range(nameStr);
-        for (auto it = rangeBegin; it != rangeEnd; ++it)
+        auto it = rangeBegin;
+        while (it != rangeEnd)
         {
             if (m_Registry.valid(it->second))
                 return Entity{ it->second, this };
-            // Stale entry — remove and continue checking
+            // Stale entry — erase returns the next iterator within the bucket
             it = m_EntityNameMap.erase(it);
-            rangeEnd = m_EntityNameMap.end(); // iterator may have been invalidated
-            if (it == rangeEnd)
-                break;
         }
         // Fallback O(n) scan for cache misses (e.g. after rename without UpdateEntityName)
         for (auto view = m_Registry.view<TagComponent>(); auto entity : view)

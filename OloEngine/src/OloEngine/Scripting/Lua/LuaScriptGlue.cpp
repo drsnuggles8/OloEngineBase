@@ -21,6 +21,7 @@
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
@@ -192,7 +193,11 @@ namespace OloEngine
 
     void LuaScriptGlue::RegisterAllTypes()
     {
-        sol::state& lua = *Scripting::GetState();
+        RegisterAllTypes(*Scripting::GetState());
+    }
+
+    void LuaScriptGlue::RegisterAllTypes(sol::state& lua)
+    {
 
         // ── LuaComponentProxy — safe proxy that prevents dangling pointers ──
         //
@@ -1139,6 +1144,11 @@ namespace OloEngine
                                                 {
                                                     if (handle != 0)
                                                     {
+                                                        if (!Project::GetActive())
+                                                        {
+                                                            OLO_CORE_WARN("[Lua] Cannot validate ShaderGraph handle {} — no active project", handle);
+                                                            return;
+                                                        }
                                                         if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(handle))
                                                         {
                                                             if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(handle)))
