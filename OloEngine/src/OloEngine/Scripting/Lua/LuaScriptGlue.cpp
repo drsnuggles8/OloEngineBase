@@ -44,8 +44,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 #include <string_view>
+#include <tuple>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace OloEngine
@@ -685,25 +688,47 @@ namespace OloEngine
 
         // --- SpriteRendererComponent ---
         lua.new_usertype<SpriteRendererComponent>("SpriteRendererComponent",
-                                                  "color", &SpriteRendererComponent::Color,
-                                                  "tilingFactor", &SpriteRendererComponent::TilingFactor);
+                                                  "color", sol::property([](const SpriteRendererComponent& c)
+                                                                         { return c.Color; }, [](SpriteRendererComponent& c, const glm::vec4& v)
+                                                                         { if (IsFiniteVec4(v)) c.Color = v; }),
+                                                  "tilingFactor", sol::property([](const SpriteRendererComponent& c)
+                                                                                { return c.TilingFactor; }, [](SpriteRendererComponent& c, f32 v)
+                                                                                { if (std::isfinite(v) && v >= 0.0f) c.TilingFactor = v; }));
 
         // --- CircleRendererComponent ---
         lua.new_usertype<CircleRendererComponent>("CircleRendererComponent",
-                                                  "color", &CircleRendererComponent::Color,
-                                                  "thickness", &CircleRendererComponent::Thickness,
-                                                  "fade", &CircleRendererComponent::Fade);
+                                                  "color", sol::property([](const CircleRendererComponent& c)
+                                                                         { return c.Color; }, [](CircleRendererComponent& c, const glm::vec4& v)
+                                                                         { if (IsFiniteVec4(v)) c.Color = v; }),
+                                                  "thickness", sol::property([](const CircleRendererComponent& c)
+                                                                             { return c.Thickness; }, [](CircleRendererComponent& c, f32 v)
+                                                                             { if (std::isfinite(v) && v >= 0.0f) c.Thickness = v; }),
+                                                  "fade", sol::property([](const CircleRendererComponent& c)
+                                                                        { return c.Fade; }, [](CircleRendererComponent& c, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f) c.Fade = v; }));
 
         // --- TextComponent ---
         lua.new_usertype<TextComponent>("TextComponent",
                                         "text", &TextComponent::TextString,
-                                        "color", &TextComponent::Color,
-                                        "kerning", &TextComponent::Kerning,
-                                        "lineSpacing", &TextComponent::LineSpacing,
-                                        "maxWidth", &TextComponent::MaxWidth,
+                                        "color", sol::property([](const TextComponent& c)
+                                                               { return c.Color; }, [](TextComponent& c, const glm::vec4& v)
+                                                               { if (IsFiniteVec4(v)) c.Color = v; }),
+                                        "kerning", sol::property([](const TextComponent& c)
+                                                                 { return c.Kerning; }, [](TextComponent& c, f32 v)
+                                                                 { if (std::isfinite(v)) c.Kerning = v; }),
+                                        "lineSpacing", sol::property([](const TextComponent& c)
+                                                                     { return c.LineSpacing; }, [](TextComponent& c, f32 v)
+                                                                     { if (std::isfinite(v) && v >= 0.0f) c.LineSpacing = v; }),
+                                        "maxWidth", sol::property([](const TextComponent& c)
+                                                                  { return c.MaxWidth; }, [](TextComponent& c, f32 v)
+                                                                  { if (std::isfinite(v) && v >= 0.0f) c.MaxWidth = v; }),
                                         "dropShadow", &TextComponent::DropShadow,
-                                        "shadowDistance", &TextComponent::ShadowDistance,
-                                        "shadowColor", &TextComponent::ShadowColor);
+                                        "shadowDistance", sol::property([](const TextComponent& c)
+                                                                        { return c.ShadowDistance; }, [](TextComponent& c, f32 v)
+                                                                        { if (std::isfinite(v)) c.ShadowDistance = v; }),
+                                        "shadowColor", sol::property([](const TextComponent& c)
+                                                                     { return c.ShadowColor; }, [](TextComponent& c, const glm::vec4& v)
+                                                                     { if (IsFiniteVec4(v)) c.ShadowColor = v; }));
 
         // --- MeshComponent ---
         lua.new_usertype<MeshComponent>("MeshComponent",
@@ -1057,14 +1082,18 @@ namespace OloEngine
                                                                         { return c.Config.MinGain; }, [](AudioSourceComponent& c, f32 v)
                                                                         {
                     if (!std::isfinite(v)) v = 0.0f;
+                    v = std::max(v, 0.0f);
                     c.Config.MinGain = v;
-                    if (c.Source) { c.Source->SetMinGain(v); } }),
+                    if (c.Config.MinGain > c.Config.MaxGain) c.Config.MaxGain = c.Config.MinGain;
+                    if (c.Source) { c.Source->SetMinGain(c.Config.MinGain); c.Source->SetMaxGain(c.Config.MaxGain); } }),
                                                "maxGain", sol::property([](const AudioSourceComponent& c)
                                                                         { return c.Config.MaxGain; }, [](AudioSourceComponent& c, f32 v)
                                                                         {
                     if (!std::isfinite(v)) v = 1.0f;
+                    v = std::clamp(v, 0.0f, 1.0f);
                     c.Config.MaxGain = v;
-                    if (c.Source) { c.Source->SetMaxGain(v); } }),
+                    if (c.Config.MinGain > c.Config.MaxGain) c.Config.MinGain = c.Config.MaxGain;
+                    if (c.Source) { c.Source->SetMinGain(c.Config.MinGain); c.Source->SetMaxGain(c.Config.MaxGain); } }),
                                                "minDistance", sol::property([](const AudioSourceComponent& c)
                                                                             { return c.Config.MinDistance; }, [](AudioSourceComponent& c, f32 v)
                                                                             {
@@ -1095,6 +1124,7 @@ namespace OloEngine
                                                                               { return c.Config.ConeOuterGain; }, [](AudioSourceComponent& c, f32 v)
                                                                               {
                     if (!std::isfinite(v)) v = 0.0f;
+                    v = std::max(v, 0.0f);
                     c.Config.ConeOuterGain = v;
                     if (c.Source) { c.Source->SetCone(c.Config.ConeInnerAngle, c.Config.ConeOuterAngle, c.Config.ConeOuterGain); } }),
                                                "SetCone", [](AudioSourceComponent& c, f32 innerAngle, f32 outerAngle, f32 outerGain)
@@ -1102,6 +1132,9 @@ namespace OloEngine
                     if (!std::isfinite(innerAngle)) { innerAngle = glm::radians(360.0f); }
                     if (!std::isfinite(outerAngle)) { outerAngle = glm::radians(360.0f); }
                     if (!std::isfinite(outerGain)) { outerGain = 0.0f; }
+                    innerAngle = std::clamp(innerAngle, 0.0f, glm::radians(360.0f));
+                    outerAngle = std::clamp(outerAngle, 0.0f, glm::radians(360.0f));
+                    outerGain = std::max(outerGain, 0.0f);
                     c.Config.ConeInnerAngle = innerAngle;
                     c.Config.ConeOuterAngle = outerAngle;
                     c.Config.ConeOuterGain = outerGain;
@@ -1109,6 +1142,7 @@ namespace OloEngine
                                                                                    { return c.Config.DopplerFactor; }, [](AudioSourceComponent& c, f32 v)
                                                                                    {
                     if (!std::isfinite(v)) v = 1.0f;
+                    v = std::max(v, 0.0f);
                     c.Config.DopplerFactor = v;
                     if (c.Source) { c.Source->SetDopplerFactor(v); } }));
 
@@ -1481,6 +1515,7 @@ namespace OloEngine
                                             "targetPosition", sol::property([](const NavAgentComponent& a)
                                                                             { return a.m_TargetPosition; }, [](NavAgentComponent& a, const glm::vec3& pos)
                                                                             {
+                                                    if (!IsFiniteVec3(pos)) return;
                                                     a.m_TargetPosition = pos;
                                                     a.m_HasTarget = true;
                                                     a.m_HasPath = false;

@@ -30,6 +30,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <string>
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
@@ -1340,11 +1341,27 @@ TEST_F(LuaBindingTest, ComponentRegistry_UsertypesExist)
 // Scene-backed integration tests (entity_utils with real Scene + Entity)
 // =============================================================================
 
+class ScopedTestSceneContext
+{
+  public:
+    explicit ScopedTestSceneContext(Scene* scene)
+    {
+        ScriptEngine::SetSceneContextForTesting(scene);
+    }
+    ~ScopedTestSceneContext()
+    {
+        ScriptEngine::SetSceneContextForTesting(nullptr);
+    }
+    ScopedTestSceneContext(const ScopedTestSceneContext&) = delete;
+    ScopedTestSceneContext& operator=(const ScopedTestSceneContext&) = delete;
+};
+
 class LuaSceneTest : public ::testing::Test
 {
   protected:
     sol::state lua;
     Ref<Scene> scene;
+    std::optional<ScopedTestSceneContext> m_ContextGuard;
 
     void SetUp() override
     {
@@ -1352,12 +1369,12 @@ class LuaSceneTest : public ::testing::Test
         LuaScriptGlue::RegisterAllTypes(lua);
 
         scene = Ref<Scene>::Create();
-        ScriptEngine::SetSceneContextForTesting(scene.get());
+        m_ContextGuard.emplace(scene.get());
     }
 
     void TearDown() override
     {
-        ScriptEngine::SetSceneContextForTesting(nullptr);
+        m_ContextGuard.reset();
         scene = nullptr;
     }
 };
