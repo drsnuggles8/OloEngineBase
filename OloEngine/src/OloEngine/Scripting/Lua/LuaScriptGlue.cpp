@@ -10,6 +10,8 @@
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Core/Input.h"
+#include "OloEngine/Core/KeyCodes.h"
+#include "OloEngine/Core/MouseCodes.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/Gamepad.h"
@@ -320,14 +322,11 @@ namespace OloEngine
                 if (result.is<glm::vec2>())
                     return sol::make_object(s, result.as<glm::vec2>());
 
-                // Deep-copy nested usertypes to prevent bypassing proxy
-                // __newindex (e.g. CameraComponent.camera, collider.material).
-                if (result.is<SceneCamera>())
-                    return sol::make_object(s, result.as<SceneCamera>());
-                if (result.is<ColliderMaterial>())
-                    return sol::make_object(s, result.as<ColliderMaterial>());
-                if (result.is<ParticleSystem>())
-                    return sol::make_object(s, result.as<ParticleSystem>());
+                // Return nested usertypes by reference so mutations
+                // (e.g. proxy.camera.perspectiveFOV = 1.2) modify the real
+                // component.  These types have their own validated setters.
+                if (result.is<SceneCamera>() || result.is<ColliderMaterial>() || result.is<ParticleSystem>())
+                    return result;
 
                 return result;
             },
@@ -457,9 +456,11 @@ namespace OloEngine
 
         // --- Rigidbody2DComponent ---
         // All properties use sol::property so setters sync through Box2D when a runtime body exists.
-        lua.new_usertype<Rigidbody2DComponent>("Rigidbody2DComponent", "type", sol::property([](Rigidbody2DComponent& rb)
-                                                                                             { return rb.Type; }, [](Rigidbody2DComponent& rb, Rigidbody2DComponent::BodyType t)
+        lua.new_usertype<Rigidbody2DComponent>("Rigidbody2DComponent", "type", sol::property([](Rigidbody2DComponent& rb) -> int
+                                                                                             { return static_cast<int>(rb.Type); }, [](Rigidbody2DComponent& rb, int v)
                                                                                              {
+                    if (v < 0 || v > static_cast<int>(Rigidbody2DComponent::BodyType::Kinematic)) { v = 0; }
+                    auto const t = static_cast<Rigidbody2DComponent::BodyType>(v);
                     rb.Type = t;
                     if (b2Body_IsValid(rb.RuntimeBody))
                     {
@@ -554,7 +555,9 @@ namespace OloEngine
 
         // --- Rigidbody3DComponent ---
         lua.new_usertype<Rigidbody3DComponent>("Rigidbody3DComponent",
-                                               "type", &Rigidbody3DComponent::m_Type,
+                                               "type", sol::property([](const Rigidbody3DComponent& rb) -> int
+                                                                     { return static_cast<int>(rb.m_Type); }, [](Rigidbody3DComponent& rb, int v)
+                                                                     { if (v >= 0 && v <= 2) rb.m_Type = static_cast<BodyType3D>(v); }),
                                                "layerID", &Rigidbody3DComponent::m_LayerID,
                                                "mass", sol::property([](const Rigidbody3DComponent& rb)
                                                                      { return rb.m_Mass; }, [](Rigidbody3DComponent& rb, f32 v)
@@ -732,127 +735,251 @@ namespace OloEngine
 
         // --- MeshComponent ---
         lua.new_usertype<MeshComponent>("MeshComponent",
-                                        "primitive", &MeshComponent::m_Primitive);
+                                        "primitive", sol::property([](const MeshComponent& c) -> int
+                                                                   { return static_cast<int>(c.m_Primitive); }, [](MeshComponent& c, int v)
+                                                                   { if (v >= 0 && v <= 7) c.m_Primitive = static_cast<MeshPrimitive>(v); }));
 
         // --- UICanvasComponent ---
         lua.new_usertype<UICanvasComponent>("UICanvasComponent",
-                                            "renderMode", &UICanvasComponent::m_RenderMode,
-                                            "scaleMode", &UICanvasComponent::m_ScaleMode,
+                                            "renderMode", sol::property([](const UICanvasComponent& c) -> int
+                                                                        { return static_cast<int>(c.m_RenderMode); }, [](UICanvasComponent& c, int v)
+                                                                        { if (v >= 0 && v <= 1) c.m_RenderMode = static_cast<UICanvasRenderMode>(v); }),
+                                            "scaleMode", sol::property([](const UICanvasComponent& c) -> int
+                                                                       { return static_cast<int>(c.m_ScaleMode); }, [](UICanvasComponent& c, int v)
+                                                                       { if (v >= 0 && v <= 1) c.m_ScaleMode = static_cast<UICanvasScaleMode>(v); }),
                                             "sortOrder", &UICanvasComponent::m_SortOrder,
-                                            "referenceResolution", &UICanvasComponent::m_ReferenceResolution);
+                                            "referenceResolution", sol::property([](const UICanvasComponent& c)
+                                                                                 { return c.m_ReferenceResolution; }, [](UICanvasComponent& c, const glm::vec2& v)
+                                                                                 { if (IsFiniteVec2(v)) c.m_ReferenceResolution = v; }));
 
         // --- UIRectTransformComponent ---
         lua.new_usertype<UIRectTransformComponent>("UIRectTransformComponent",
-                                                   "anchorMin", &UIRectTransformComponent::m_AnchorMin,
-                                                   "anchorMax", &UIRectTransformComponent::m_AnchorMax,
-                                                   "anchoredPosition", &UIRectTransformComponent::m_AnchoredPosition,
-                                                   "sizeDelta", &UIRectTransformComponent::m_SizeDelta,
-                                                   "pivot", &UIRectTransformComponent::m_Pivot,
-                                                   "rotation", &UIRectTransformComponent::m_Rotation,
-                                                   "scale", &UIRectTransformComponent::m_Scale);
+                                                   "anchorMin", sol::property([](const UIRectTransformComponent& c)
+                                                                              { return c.m_AnchorMin; }, [](UIRectTransformComponent& c, const glm::vec2& v)
+                                                                              { if (IsFiniteVec2(v)) c.m_AnchorMin = v; }),
+                                                   "anchorMax", sol::property([](const UIRectTransformComponent& c)
+                                                                              { return c.m_AnchorMax; }, [](UIRectTransformComponent& c, const glm::vec2& v)
+                                                                              { if (IsFiniteVec2(v)) c.m_AnchorMax = v; }),
+                                                   "anchoredPosition", sol::property([](const UIRectTransformComponent& c)
+                                                                                     { return c.m_AnchoredPosition; }, [](UIRectTransformComponent& c, const glm::vec2& v)
+                                                                                     { if (IsFiniteVec2(v)) c.m_AnchoredPosition = v; }),
+                                                   "sizeDelta", sol::property([](const UIRectTransformComponent& c)
+                                                                              { return c.m_SizeDelta; }, [](UIRectTransformComponent& c, const glm::vec2& v)
+                                                                              { if (IsFiniteVec2(v)) c.m_SizeDelta = v; }),
+                                                   "pivot", sol::property([](const UIRectTransformComponent& c)
+                                                                          { return c.m_Pivot; }, [](UIRectTransformComponent& c, const glm::vec2& v)
+                                                                          { if (IsFiniteVec2(v)) c.m_Pivot = v; }),
+                                                   "rotation", sol::property([](const UIRectTransformComponent& c)
+                                                                             { return c.m_Rotation; }, [](UIRectTransformComponent& c, f32 v)
+                                                                             { if (std::isfinite(v)) c.m_Rotation = v; }),
+                                                   "scale", sol::property([](const UIRectTransformComponent& c)
+                                                                          { return c.m_Scale; }, [](UIRectTransformComponent& c, const glm::vec2& v)
+                                                                          { if (IsFiniteVec2(v)) c.m_Scale = v; }));
 
         // --- UIImageComponent ---
         lua.new_usertype<UIImageComponent>("UIImageComponent",
-                                           "color", &UIImageComponent::m_Color,
-                                           "borderInsets", &UIImageComponent::m_BorderInsets);
+                                           "color", sol::property([](const UIImageComponent& c)
+                                                                  { return c.m_Color; }, [](UIImageComponent& c, const glm::vec4& v)
+                                                                  { if (IsFiniteVec4(v)) c.m_Color = v; }),
+                                           "borderInsets", sol::property([](const UIImageComponent& c)
+                                                                         { return c.m_BorderInsets; }, [](UIImageComponent& c, const glm::vec4& v)
+                                                                         { if (IsFiniteVec4(v) && v.x >= 0.0f && v.y >= 0.0f && v.z >= 0.0f && v.w >= 0.0f) c.m_BorderInsets = v; }));
 
         // --- UIPanelComponent ---
         lua.new_usertype<UIPanelComponent>("UIPanelComponent",
-                                           "backgroundColor", &UIPanelComponent::m_BackgroundColor);
+                                           "backgroundColor", sol::property([](const UIPanelComponent& c)
+                                                                            { return c.m_BackgroundColor; }, [](UIPanelComponent& c, const glm::vec4& v)
+                                                                            { if (IsFiniteVec4(v)) c.m_BackgroundColor = v; }));
 
         // --- UITextComponent ---
         lua.new_usertype<UITextComponent>("UITextComponent",
                                           "text", &UITextComponent::m_Text,
-                                          "fontSize", &UITextComponent::m_FontSize,
-                                          "color", &UITextComponent::m_Color,
-                                          "alignment", &UITextComponent::m_Alignment,
-                                          "kerning", &UITextComponent::m_Kerning,
-                                          "lineSpacing", &UITextComponent::m_LineSpacing);
+                                          "fontSize", sol::property([](const UITextComponent& c)
+                                                                    { return c.m_FontSize; }, [](UITextComponent& c, f32 v)
+                                                                    { if (std::isfinite(v) && v > 0.0f) c.m_FontSize = v; }),
+                                          "color", sol::property([](const UITextComponent& c)
+                                                                 { return c.m_Color; }, [](UITextComponent& c, const glm::vec4& v)
+                                                                 { if (IsFiniteVec4(v)) c.m_Color = v; }),
+                                          "alignment", sol::property([](const UITextComponent& c) -> int
+                                                                     { return static_cast<int>(c.m_Alignment); }, [](UITextComponent& c, int v)
+                                                                     { if (v >= 0 && v <= 8) c.m_Alignment = static_cast<UITextAlignment>(v); }),
+                                          "kerning", sol::property([](const UITextComponent& c)
+                                                                   { return c.m_Kerning; }, [](UITextComponent& c, f32 v)
+                                                                   { if (std::isfinite(v)) c.m_Kerning = v; }),
+                                          "lineSpacing", sol::property([](const UITextComponent& c)
+                                                                       { return c.m_LineSpacing; }, [](UITextComponent& c, f32 v)
+                                                                       { if (std::isfinite(v) && v >= 0.0f) c.m_LineSpacing = v; }));
 
         // --- UIButtonComponent ---
         lua.new_usertype<UIButtonComponent>("UIButtonComponent",
-                                            "normalColor", &UIButtonComponent::m_NormalColor,
-                                            "hoveredColor", &UIButtonComponent::m_HoveredColor,
-                                            "pressedColor", &UIButtonComponent::m_PressedColor,
-                                            "disabledColor", &UIButtonComponent::m_DisabledColor,
+                                            "normalColor", sol::property([](const UIButtonComponent& c)
+                                                                         { return c.m_NormalColor; }, [](UIButtonComponent& c, const glm::vec4& v)
+                                                                         { if (IsFiniteVec4(v)) c.m_NormalColor = v; }),
+                                            "hoveredColor", sol::property([](const UIButtonComponent& c)
+                                                                          { return c.m_HoveredColor; }, [](UIButtonComponent& c, const glm::vec4& v)
+                                                                          { if (IsFiniteVec4(v)) c.m_HoveredColor = v; }),
+                                            "pressedColor", sol::property([](const UIButtonComponent& c)
+                                                                          { return c.m_PressedColor; }, [](UIButtonComponent& c, const glm::vec4& v)
+                                                                          { if (IsFiniteVec4(v)) c.m_PressedColor = v; }),
+                                            "disabledColor", sol::property([](const UIButtonComponent& c)
+                                                                           { return c.m_DisabledColor; }, [](UIButtonComponent& c, const glm::vec4& v)
+                                                                           { if (IsFiniteVec4(v)) c.m_DisabledColor = v; }),
                                             "interactable", &UIButtonComponent::m_Interactable,
                                             "state", sol::readonly(&UIButtonComponent::m_State));
 
         // --- UISliderComponent ---
         lua.new_usertype<UISliderComponent>("UISliderComponent",
-                                            "value", &UISliderComponent::m_Value,
-                                            "minValue", &UISliderComponent::m_MinValue,
-                                            "maxValue", &UISliderComponent::m_MaxValue,
-                                            "direction", &UISliderComponent::m_Direction,
-                                            "backgroundColor", &UISliderComponent::m_BackgroundColor,
-                                            "fillColor", &UISliderComponent::m_FillColor,
-                                            "handleColor", &UISliderComponent::m_HandleColor,
+                                            "value", sol::property([](const UISliderComponent& c)
+                                                                   { return c.m_Value; }, [](UISliderComponent& c, f32 v)
+                                                                   { if (std::isfinite(v)) c.m_Value = v; }),
+                                            "minValue", sol::property([](const UISliderComponent& c)
+                                                                      { return c.m_MinValue; }, [](UISliderComponent& c, f32 v)
+                                                                      { if (std::isfinite(v)) c.m_MinValue = v; }),
+                                            "maxValue", sol::property([](const UISliderComponent& c)
+                                                                      { return c.m_MaxValue; }, [](UISliderComponent& c, f32 v)
+                                                                      { if (std::isfinite(v)) c.m_MaxValue = v; }),
+                                            "direction", sol::property([](const UISliderComponent& c) -> int
+                                                                       { return static_cast<int>(c.m_Direction); }, [](UISliderComponent& c, int v)
+                                                                       { if (v >= 0 && v <= 3) c.m_Direction = static_cast<UISliderDirection>(v); }),
+                                            "backgroundColor", sol::property([](const UISliderComponent& c)
+                                                                             { return c.m_BackgroundColor; }, [](UISliderComponent& c, const glm::vec4& v)
+                                                                             { if (IsFiniteVec4(v)) c.m_BackgroundColor = v; }),
+                                            "fillColor", sol::property([](const UISliderComponent& c)
+                                                                       { return c.m_FillColor; }, [](UISliderComponent& c, const glm::vec4& v)
+                                                                       { if (IsFiniteVec4(v)) c.m_FillColor = v; }),
+                                            "handleColor", sol::property([](const UISliderComponent& c)
+                                                                         { return c.m_HandleColor; }, [](UISliderComponent& c, const glm::vec4& v)
+                                                                         { if (IsFiniteVec4(v)) c.m_HandleColor = v; }),
                                             "interactable", &UISliderComponent::m_Interactable);
 
         // --- UICheckboxComponent ---
         lua.new_usertype<UICheckboxComponent>("UICheckboxComponent",
                                               "isChecked", &UICheckboxComponent::m_IsChecked,
-                                              "uncheckedColor", &UICheckboxComponent::m_UncheckedColor,
-                                              "checkedColor", &UICheckboxComponent::m_CheckedColor,
-                                              "checkmarkColor", &UICheckboxComponent::m_CheckmarkColor,
+                                              "uncheckedColor", sol::property([](const UICheckboxComponent& c)
+                                                                              { return c.m_UncheckedColor; }, [](UICheckboxComponent& c, const glm::vec4& v)
+                                                                              { if (IsFiniteVec4(v)) c.m_UncheckedColor = v; }),
+                                              "checkedColor", sol::property([](const UICheckboxComponent& c)
+                                                                            { return c.m_CheckedColor; }, [](UICheckboxComponent& c, const glm::vec4& v)
+                                                                            { if (IsFiniteVec4(v)) c.m_CheckedColor = v; }),
+                                              "checkmarkColor", sol::property([](const UICheckboxComponent& c)
+                                                                              { return c.m_CheckmarkColor; }, [](UICheckboxComponent& c, const glm::vec4& v)
+                                                                              { if (IsFiniteVec4(v)) c.m_CheckmarkColor = v; }),
                                               "interactable", &UICheckboxComponent::m_Interactable);
 
         // --- UIProgressBarComponent ---
         lua.new_usertype<UIProgressBarComponent>("UIProgressBarComponent",
-                                                 "value", &UIProgressBarComponent::m_Value,
-                                                 "minValue", &UIProgressBarComponent::m_MinValue,
-                                                 "maxValue", &UIProgressBarComponent::m_MaxValue,
-                                                 "fillMethod", &UIProgressBarComponent::m_FillMethod,
-                                                 "backgroundColor", &UIProgressBarComponent::m_BackgroundColor,
-                                                 "fillColor", &UIProgressBarComponent::m_FillColor);
+                                                 "value", sol::property([](const UIProgressBarComponent& c)
+                                                                        { return c.m_Value; }, [](UIProgressBarComponent& c, f32 v)
+                                                                        { if (std::isfinite(v)) c.m_Value = v; }),
+                                                 "minValue", sol::property([](const UIProgressBarComponent& c)
+                                                                           { return c.m_MinValue; }, [](UIProgressBarComponent& c, f32 v)
+                                                                           { if (std::isfinite(v)) c.m_MinValue = v; }),
+                                                 "maxValue", sol::property([](const UIProgressBarComponent& c)
+                                                                           { return c.m_MaxValue; }, [](UIProgressBarComponent& c, f32 v)
+                                                                           { if (std::isfinite(v)) c.m_MaxValue = v; }),
+                                                 "fillMethod", sol::property([](const UIProgressBarComponent& c) -> int
+                                                                             { return static_cast<int>(c.m_FillMethod); }, [](UIProgressBarComponent& c, int v)
+                                                                             { if (v >= 0 && v <= 1) c.m_FillMethod = static_cast<UIFillMethod>(v); }),
+                                                 "backgroundColor", sol::property([](const UIProgressBarComponent& c)
+                                                                                  { return c.m_BackgroundColor; }, [](UIProgressBarComponent& c, const glm::vec4& v)
+                                                                                  { if (IsFiniteVec4(v)) c.m_BackgroundColor = v; }),
+                                                 "fillColor", sol::property([](const UIProgressBarComponent& c)
+                                                                            { return c.m_FillColor; }, [](UIProgressBarComponent& c, const glm::vec4& v)
+                                                                            { if (IsFiniteVec4(v)) c.m_FillColor = v; }));
 
         // --- UIInputFieldComponent ---
         lua.new_usertype<UIInputFieldComponent>("UIInputFieldComponent",
                                                 "text", &UIInputFieldComponent::m_Text,
                                                 "placeholder", &UIInputFieldComponent::m_Placeholder,
-                                                "fontSize", &UIInputFieldComponent::m_FontSize,
-                                                "textColor", &UIInputFieldComponent::m_TextColor,
-                                                "placeholderColor", &UIInputFieldComponent::m_PlaceholderColor,
-                                                "backgroundColor", &UIInputFieldComponent::m_BackgroundColor,
+                                                "fontSize", sol::property([](const UIInputFieldComponent& c)
+                                                                          { return c.m_FontSize; }, [](UIInputFieldComponent& c, f32 v)
+                                                                          { if (std::isfinite(v) && v > 0.0f) c.m_FontSize = v; }),
+                                                "textColor", sol::property([](const UIInputFieldComponent& c)
+                                                                           { return c.m_TextColor; }, [](UIInputFieldComponent& c, const glm::vec4& v)
+                                                                           { if (IsFiniteVec4(v)) c.m_TextColor = v; }),
+                                                "placeholderColor", sol::property([](const UIInputFieldComponent& c)
+                                                                                  { return c.m_PlaceholderColor; }, [](UIInputFieldComponent& c, const glm::vec4& v)
+                                                                                  { if (IsFiniteVec4(v)) c.m_PlaceholderColor = v; }),
+                                                "backgroundColor", sol::property([](const UIInputFieldComponent& c)
+                                                                                 { return c.m_BackgroundColor; }, [](UIInputFieldComponent& c, const glm::vec4& v)
+                                                                                 { if (IsFiniteVec4(v)) c.m_BackgroundColor = v; }),
                                                 "characterLimit", &UIInputFieldComponent::m_CharacterLimit,
                                                 "interactable", &UIInputFieldComponent::m_Interactable);
 
         // --- UIScrollViewComponent ---
         lua.new_usertype<UIScrollViewComponent>("UIScrollViewComponent",
-                                                "scrollPosition", &UIScrollViewComponent::m_ScrollPosition,
-                                                "contentSize", &UIScrollViewComponent::m_ContentSize,
-                                                "scrollDirection", &UIScrollViewComponent::m_ScrollDirection,
-                                                "scrollSpeed", &UIScrollViewComponent::m_ScrollSpeed,
+                                                "scrollPosition", sol::property([](const UIScrollViewComponent& c)
+                                                                                { return c.m_ScrollPosition; }, [](UIScrollViewComponent& c, const glm::vec2& v)
+                                                                                { if (IsFiniteVec2(v)) c.m_ScrollPosition = v; }),
+                                                "contentSize", sol::property([](const UIScrollViewComponent& c)
+                                                                             { return c.m_ContentSize; }, [](UIScrollViewComponent& c, const glm::vec2& v)
+                                                                             { if (IsFiniteVec2(v)) c.m_ContentSize = v; }),
+                                                "scrollDirection", sol::property([](const UIScrollViewComponent& c) -> int
+                                                                                 { return static_cast<int>(c.m_ScrollDirection); }, [](UIScrollViewComponent& c, int v)
+                                                                                 { if (v >= 0 && v <= 2) c.m_ScrollDirection = static_cast<UIScrollDirection>(v); }),
+                                                "scrollSpeed", sol::property([](const UIScrollViewComponent& c)
+                                                                             { return c.m_ScrollSpeed; }, [](UIScrollViewComponent& c, f32 v)
+                                                                             { if (std::isfinite(v) && v >= 0.0f) c.m_ScrollSpeed = v; }),
                                                 "showHorizontalScrollbar", &UIScrollViewComponent::m_ShowHorizontalScrollbar,
                                                 "showVerticalScrollbar", &UIScrollViewComponent::m_ShowVerticalScrollbar,
-                                                "scrollbarColor", &UIScrollViewComponent::m_ScrollbarColor,
-                                                "scrollbarTrackColor", &UIScrollViewComponent::m_ScrollbarTrackColor);
+                                                "scrollbarColor", sol::property([](const UIScrollViewComponent& c)
+                                                                                { return c.m_ScrollbarColor; }, [](UIScrollViewComponent& c, const glm::vec4& v)
+                                                                                { if (IsFiniteVec4(v)) c.m_ScrollbarColor = v; }),
+                                                "scrollbarTrackColor", sol::property([](const UIScrollViewComponent& c)
+                                                                                     { return c.m_ScrollbarTrackColor; }, [](UIScrollViewComponent& c, const glm::vec4& v)
+                                                                                     { if (IsFiniteVec4(v)) c.m_ScrollbarTrackColor = v; }));
 
         // --- UIDropdownComponent ---
         lua.new_usertype<UIDropdownComponent>("UIDropdownComponent",
                                               "selectedIndex", &UIDropdownComponent::m_SelectedIndex,
-                                              "backgroundColor", &UIDropdownComponent::m_BackgroundColor,
-                                              "highlightColor", &UIDropdownComponent::m_HighlightColor,
-                                              "textColor", &UIDropdownComponent::m_TextColor,
-                                              "fontSize", &UIDropdownComponent::m_FontSize,
-                                              "itemHeight", &UIDropdownComponent::m_ItemHeight,
+                                              "backgroundColor", sol::property([](const UIDropdownComponent& c)
+                                                                               { return c.m_BackgroundColor; }, [](UIDropdownComponent& c, const glm::vec4& v)
+                                                                               { if (IsFiniteVec4(v)) c.m_BackgroundColor = v; }),
+                                              "highlightColor", sol::property([](const UIDropdownComponent& c)
+                                                                              { return c.m_HighlightColor; }, [](UIDropdownComponent& c, const glm::vec4& v)
+                                                                              { if (IsFiniteVec4(v)) c.m_HighlightColor = v; }),
+                                              "textColor", sol::property([](const UIDropdownComponent& c)
+                                                                         { return c.m_TextColor; }, [](UIDropdownComponent& c, const glm::vec4& v)
+                                                                         { if (IsFiniteVec4(v)) c.m_TextColor = v; }),
+                                              "fontSize", sol::property([](const UIDropdownComponent& c)
+                                                                        { return c.m_FontSize; }, [](UIDropdownComponent& c, f32 v)
+                                                                        { if (std::isfinite(v) && v > 0.0f) c.m_FontSize = v; }),
+                                              "itemHeight", sol::property([](const UIDropdownComponent& c)
+                                                                          { return c.m_ItemHeight; }, [](UIDropdownComponent& c, f32 v)
+                                                                          { if (std::isfinite(v) && v > 0.0f) c.m_ItemHeight = v; }),
                                               "interactable", &UIDropdownComponent::m_Interactable);
 
         // --- UIGridLayoutComponent ---
         lua.new_usertype<UIGridLayoutComponent>("UIGridLayoutComponent",
-                                                "cellSize", &UIGridLayoutComponent::m_CellSize,
-                                                "spacing", &UIGridLayoutComponent::m_Spacing,
-                                                "padding", &UIGridLayoutComponent::m_Padding,
-                                                "startCorner", &UIGridLayoutComponent::m_StartCorner,
-                                                "startAxis", &UIGridLayoutComponent::m_StartAxis,
+                                                "cellSize", sol::property([](const UIGridLayoutComponent& c)
+                                                                          { return c.m_CellSize; }, [](UIGridLayoutComponent& c, const glm::vec2& v)
+                                                                          { if (IsFiniteVec2(v) && v.x >= 0.0f && v.y >= 0.0f) c.m_CellSize = v; }),
+                                                "spacing", sol::property([](const UIGridLayoutComponent& c)
+                                                                         { return c.m_Spacing; }, [](UIGridLayoutComponent& c, const glm::vec2& v)
+                                                                         { if (IsFiniteVec2(v)) c.m_Spacing = v; }),
+                                                "padding", sol::property([](const UIGridLayoutComponent& c)
+                                                                         { return c.m_Padding; }, [](UIGridLayoutComponent& c, const glm::vec4& v)
+                                                                         { if (IsFiniteVec4(v) && v.x >= 0.0f && v.y >= 0.0f && v.z >= 0.0f && v.w >= 0.0f) c.m_Padding = v; }),
+                                                "startCorner", sol::property([](const UIGridLayoutComponent& c) -> int
+                                                                             { return static_cast<int>(c.m_StartCorner); }, [](UIGridLayoutComponent& c, int v)
+                                                                             { if (v >= 0 && v <= 3) c.m_StartCorner = static_cast<UIGridLayoutStartCorner>(v); }),
+                                                "startAxis", sol::property([](const UIGridLayoutComponent& c) -> int
+                                                                           { return static_cast<int>(c.m_StartAxis); }, [](UIGridLayoutComponent& c, int v)
+                                                                           { if (v >= 0 && v <= 1) c.m_StartAxis = static_cast<UIGridLayoutAxis>(v); }),
                                                 "constraintCount", &UIGridLayoutComponent::m_ConstraintCount);
 
         // --- UIToggleComponent ---
         lua.new_usertype<UIToggleComponent>("UIToggleComponent",
                                             "isOn", &UIToggleComponent::m_IsOn,
-                                            "offColor", &UIToggleComponent::m_OffColor,
-                                            "onColor", &UIToggleComponent::m_OnColor,
-                                            "knobColor", &UIToggleComponent::m_KnobColor,
+                                            "offColor", sol::property([](const UIToggleComponent& c)
+                                                                      { return c.m_OffColor; }, [](UIToggleComponent& c, const glm::vec4& v)
+                                                                      { if (IsFiniteVec4(v)) c.m_OffColor = v; }),
+                                            "onColor", sol::property([](const UIToggleComponent& c)
+                                                                     { return c.m_OnColor; }, [](UIToggleComponent& c, const glm::vec4& v)
+                                                                     { if (IsFiniteVec4(v)) c.m_OnColor = v; }),
+                                            "knobColor", sol::property([](const UIToggleComponent& c)
+                                                                       { return c.m_KnobColor; }, [](UIToggleComponent& c, const glm::vec4& v)
+                                                                       { if (IsFiniteVec4(v)) c.m_KnobColor = v; }),
                                             "interactable", &UIToggleComponent::m_Interactable);
 
         // --- ParticleSystemComponent ---
@@ -902,16 +1029,28 @@ namespace OloEngine
 
         // --- LightProbeComponent ---
         lua.new_usertype<LightProbeComponent>("LightProbeComponent",
-                                              "influenceRadius", &LightProbeComponent::m_InfluenceRadius,
-                                              "intensity", &LightProbeComponent::m_Intensity,
+                                              "influenceRadius", sol::property([](const LightProbeComponent& c)
+                                                                               { return c.m_InfluenceRadius; }, [](LightProbeComponent& c, f32 v)
+                                                                               { if (std::isfinite(v) && v >= 0.0f) c.m_InfluenceRadius = v; }),
+                                              "intensity", sol::property([](const LightProbeComponent& c)
+                                                                         { return c.m_Intensity; }, [](LightProbeComponent& c, f32 v)
+                                                                         { if (std::isfinite(v) && v >= 0.0f) c.m_Intensity = v; }),
                                               "active", &LightProbeComponent::m_Active);
 
         // --- LightProbeVolumeComponent ---
         lua.new_usertype<LightProbeVolumeComponent>("LightProbeVolumeComponent",
-                                                    "boundsMin", &LightProbeVolumeComponent::m_BoundsMin,
-                                                    "boundsMax", &LightProbeVolumeComponent::m_BoundsMax,
-                                                    "spacing", &LightProbeVolumeComponent::m_Spacing,
-                                                    "intensity", &LightProbeVolumeComponent::m_Intensity,
+                                                    "boundsMin", sol::property([](const LightProbeVolumeComponent& c)
+                                                                               { return c.m_BoundsMin; }, [](LightProbeVolumeComponent& c, const glm::vec3& v)
+                                                                               { if (IsFiniteVec3(v)) c.m_BoundsMin = v; }),
+                                                    "boundsMax", sol::property([](const LightProbeVolumeComponent& c)
+                                                                               { return c.m_BoundsMax; }, [](LightProbeVolumeComponent& c, const glm::vec3& v)
+                                                                               { if (IsFiniteVec3(v)) c.m_BoundsMax = v; }),
+                                                    "spacing", sol::property([](const LightProbeVolumeComponent& c)
+                                                                             { return c.m_Spacing; }, [](LightProbeVolumeComponent& c, f32 v)
+                                                                             { if (std::isfinite(v) && v > 0.0f) c.m_Spacing = v; }),
+                                                    "intensity", sol::property([](const LightProbeVolumeComponent& c)
+                                                                               { return c.m_Intensity; }, [](LightProbeVolumeComponent& c, f32 v)
+                                                                               { if (std::isfinite(v) && v >= 0.0f) c.m_Intensity = v; }),
                                                     "active", &LightProbeVolumeComponent::m_Active,
                                                     "dirty", &LightProbeVolumeComponent::m_Dirty,
                                                     "getTotalProbeCount", &LightProbeVolumeComponent::GetTotalProbeCount);
@@ -921,39 +1060,69 @@ namespace OloEngine
                                                  "targetEntity", sol::property([](const UIWorldAnchorComponent& c)
                                                                                { return static_cast<u64>(c.m_TargetEntity); }, [](UIWorldAnchorComponent& c, u64 id)
                                                                                { c.m_TargetEntity = UUID(id); }),
-                                                 "worldOffset", &UIWorldAnchorComponent::m_WorldOffset);
+                                                 "worldOffset", sol::property([](const UIWorldAnchorComponent& c)
+                                                                              { return c.m_WorldOffset; }, [](UIWorldAnchorComponent& c, const glm::vec3& v)
+                                                                              { if (IsFiniteVec3(v)) c.m_WorldOffset = v; }));
 
         // --- NameplateComponent ---
         lua.new_usertype<NameplateComponent>("NameplateComponent",
                                              "enabled", &NameplateComponent::m_Enabled,
                                              "showHealthBar", &NameplateComponent::m_ShowHealthBar,
                                              "showManaBar", &NameplateComponent::m_ShowManaBar,
-                                             "worldOffset", &NameplateComponent::m_WorldOffset,
-                                             "barSize", &NameplateComponent::m_BarSize,
-                                             "healthBarColor", &NameplateComponent::m_HealthBarColor,
-                                             "manaBarColor", &NameplateComponent::m_ManaBarColor,
-                                             "barBackgroundColor", &NameplateComponent::m_BarBackgroundColor,
-                                             "manaBarGap", &NameplateComponent::m_ManaBarGap);
+                                             "worldOffset", sol::property([](const NameplateComponent& c)
+                                                                          { return c.m_WorldOffset; }, [](NameplateComponent& c, const glm::vec3& v)
+                                                                          { if (IsFiniteVec3(v)) c.m_WorldOffset = v; }),
+                                             "barSize", sol::property([](const NameplateComponent& c)
+                                                                      { return c.m_BarSize; }, [](NameplateComponent& c, const glm::vec2& v)
+                                                                      { if (IsFiniteVec2(v) && v.x >= 0.0f && v.y >= 0.0f) c.m_BarSize = v; }),
+                                             "healthBarColor", sol::property([](const NameplateComponent& c)
+                                                                             { return c.m_HealthBarColor; }, [](NameplateComponent& c, const glm::vec4& v)
+                                                                             { if (IsFiniteVec4(v)) c.m_HealthBarColor = v; }),
+                                             "manaBarColor", sol::property([](const NameplateComponent& c)
+                                                                           { return c.m_ManaBarColor; }, [](NameplateComponent& c, const glm::vec4& v)
+                                                                           { if (IsFiniteVec4(v)) c.m_ManaBarColor = v; }),
+                                             "barBackgroundColor", sol::property([](const NameplateComponent& c)
+                                                                                 { return c.m_BarBackgroundColor; }, [](NameplateComponent& c, const glm::vec4& v)
+                                                                                 { if (IsFiniteVec4(v)) c.m_BarBackgroundColor = v; }),
+                                             "manaBarGap", sol::property([](const NameplateComponent& c)
+                                                                         { return c.m_ManaBarGap; }, [](NameplateComponent& c, f32 v)
+                                                                         { if (std::isfinite(v) && v >= 0.0f) c.m_ManaBarGap = v; }));
 
         // --- IKTargetComponent ---
         lua.new_usertype<IKTargetComponent>("IKTargetComponent",
                                             "aimIKEnabled", &IKTargetComponent::AimIKEnabled,
                                             "aimBoneIndex", &IKTargetComponent::AimBoneIndex,
-                                            "aimTarget", &IKTargetComponent::AimTarget,
-                                            "aimAxis", &IKTargetComponent::AimAxis,
-                                            "aimOffset", &IKTargetComponent::AimOffset,
-                                            "aimPoleVector", &IKTargetComponent::AimPoleVector,
+                                            "aimTarget", sol::property([](const IKTargetComponent& c)
+                                                                       { return c.AimTarget; }, [](IKTargetComponent& c, const glm::vec3& v)
+                                                                       { if (IsFiniteVec3(v)) c.AimTarget = v; }),
+                                            "aimAxis", sol::property([](const IKTargetComponent& c)
+                                                                     { return c.AimAxis; }, [](IKTargetComponent& c, const glm::vec3& v)
+                                                                     { if (IsFiniteVec3(v)) c.AimAxis = v; }),
+                                            "aimOffset", sol::property([](const IKTargetComponent& c)
+                                                                       { return c.AimOffset; }, [](IKTargetComponent& c, const glm::vec3& v)
+                                                                       { if (IsFiniteVec3(v)) c.AimOffset = v; }),
+                                            "aimPoleVector", sol::property([](const IKTargetComponent& c)
+                                                                           { return c.AimPoleVector; }, [](IKTargetComponent& c, const glm::vec3& v)
+                                                                           { if (IsFiniteVec3(v)) c.AimPoleVector = v; }),
                                             "aimChainLength", &IKTargetComponent::AimChainLength,
-                                            "aimChainFactor", &IKTargetComponent::AimChainFactor,
-                                            "aimWeight", &IKTargetComponent::AimWeight,
+                                            "aimChainFactor", sol::property([](const IKTargetComponent& c)
+                                                                            { return c.AimChainFactor; }, [](IKTargetComponent& c, f32 v)
+                                                                            { if (std::isfinite(v)) c.AimChainFactor = std::clamp(v, 0.0f, 1.0f); }),
+                                            "aimWeight", sol::property([](const IKTargetComponent& c)
+                                                                       { return c.AimWeight; }, [](IKTargetComponent& c, f32 v)
+                                                                       { if (std::isfinite(v)) c.AimWeight = std::clamp(v, 0.0f, 1.0f); }),
                                             "aimTargetEntity", sol::property([](const IKTargetComponent& c)
                                                                              { return static_cast<u64>(c.AimTargetEntity); }, [](IKTargetComponent& c, u64 id)
                                                                              { c.AimTargetEntity = UUID(id); }),
                                             "limbIKEnabled", &IKTargetComponent::LimbIKEnabled,
                                             "limbBoneIndex", &IKTargetComponent::LimbBoneIndex,
-                                            "limbTarget", &IKTargetComponent::LimbTarget,
+                                            "limbTarget", sol::property([](const IKTargetComponent& c)
+                                                                        { return c.LimbTarget; }, [](IKTargetComponent& c, const glm::vec3& v)
+                                                                        { if (IsFiniteVec3(v)) c.LimbTarget = v; }),
                                             "limbChainLength", &IKTargetComponent::LimbChainLength,
-                                            "limbWeight", &IKTargetComponent::LimbWeight,
+                                            "limbWeight", sol::property([](const IKTargetComponent& c)
+                                                                        { return c.LimbWeight; }, [](IKTargetComponent& c, f32 v)
+                                                                        { if (std::isfinite(v)) c.LimbWeight = std::clamp(v, 0.0f, 1.0f); }),
                                             "limbTargetEntity", sol::property([](const IKTargetComponent& c)
                                                                               { return static_cast<u64>(c.LimbTargetEntity); }, [](IKTargetComponent& c, u64 id)
                                                                               { c.LimbTargetEntity = UUID(id); }));
@@ -961,33 +1130,57 @@ namespace OloEngine
         // --- WindSettings (scene-level) ---
         lua.new_usertype<WindSettings>("WindSettings",
                                        "enabled", &WindSettings::Enabled,
-                                       "direction", &WindSettings::Direction,
-                                       "speed", &WindSettings::Speed,
-                                       "gustStrength", &WindSettings::GustStrength,
-                                       "gustFrequency", &WindSettings::GustFrequency,
-                                       "turbulenceIntensity", &WindSettings::TurbulenceIntensity,
-                                       "turbulenceScale", &WindSettings::TurbulenceScale,
-                                       "gridWorldSize", &WindSettings::GridWorldSize,
+                                       "direction", sol::property([](const WindSettings& w)
+                                                                  { return w.Direction; }, [](WindSettings& w, const glm::vec3& v)
+                                                                  { if (IsFiniteVec3(v)) w.Direction = v; }),
+                                       "speed", sol::property([](const WindSettings& w)
+                                                              { return w.Speed; }, [](WindSettings& w, f32 v)
+                                                              { if (std::isfinite(v) && v >= 0.0f) w.Speed = v; }),
+                                       "gustStrength", sol::property([](const WindSettings& w)
+                                                                     { return w.GustStrength; }, [](WindSettings& w, f32 v)
+                                                                     { if (std::isfinite(v) && v >= 0.0f) w.GustStrength = v; }),
+                                       "gustFrequency", sol::property([](const WindSettings& w)
+                                                                      { return w.GustFrequency; }, [](WindSettings& w, f32 v)
+                                                                      { if (std::isfinite(v) && v >= 0.0f) w.GustFrequency = v; }),
+                                       "turbulenceIntensity", sol::property([](const WindSettings& w)
+                                                                            { return w.TurbulenceIntensity; }, [](WindSettings& w, f32 v)
+                                                                            { if (std::isfinite(v) && v >= 0.0f) w.TurbulenceIntensity = v; }),
+                                       "turbulenceScale", sol::property([](const WindSettings& w)
+                                                                        { return w.TurbulenceScale; }, [](WindSettings& w, f32 v)
+                                                                        { if (std::isfinite(v) && v > 0.0f) w.TurbulenceScale = v; }),
+                                       "gridWorldSize", sol::property([](const WindSettings& w)
+                                                                      { return w.GridWorldSize; }, [](WindSettings& w, f32 v)
+                                                                      { if (std::isfinite(v) && v > 0.0f) w.GridWorldSize = v; }),
                                        "gridResolution", &WindSettings::GridResolution);
 
         // --- StreamingVolumeComponent ---
         lua.new_usertype<StreamingVolumeComponent>("StreamingVolumeComponent",
-                                                   "loadRadius", &StreamingVolumeComponent::LoadRadius,
-                                                   "unloadRadius", &StreamingVolumeComponent::UnloadRadius,
+                                                   "loadRadius", sol::property([](const StreamingVolumeComponent& c)
+                                                                               { return c.LoadRadius; }, [](StreamingVolumeComponent& c, f32 v)
+                                                                               { if (std::isfinite(v) && v >= 0.0f) c.LoadRadius = v; }),
+                                                   "unloadRadius", sol::property([](const StreamingVolumeComponent& c)
+                                                                                 { return c.UnloadRadius; }, [](StreamingVolumeComponent& c, f32 v)
+                                                                                 { if (std::isfinite(v) && v >= 0.0f) c.UnloadRadius = v; }),
                                                    "isLoaded", sol::readonly(&StreamingVolumeComponent::IsLoaded));
 
         // --- StreamingSettings (scene-level) ---
         lua.new_usertype<StreamingSettings>("StreamingSettings",
                                             "enabled", &StreamingSettings::Enabled,
-                                            "defaultLoadRadius", &StreamingSettings::DefaultLoadRadius,
-                                            "defaultUnloadRadius", &StreamingSettings::DefaultUnloadRadius,
+                                            "defaultLoadRadius", sol::property([](const StreamingSettings& s)
+                                                                               { return s.DefaultLoadRadius; }, [](StreamingSettings& s, f32 v)
+                                                                               { if (std::isfinite(v) && v >= 0.0f) s.DefaultLoadRadius = v; }),
+                                            "defaultUnloadRadius", sol::property([](const StreamingSettings& s)
+                                                                                 { return s.DefaultUnloadRadius; }, [](StreamingSettings& s, f32 v)
+                                                                                 { if (std::isfinite(v) && v >= 0.0f) s.DefaultUnloadRadius = v; }),
                                             "maxLoadedRegions", &StreamingSettings::MaxLoadedRegions,
                                             "regionDirectory", &StreamingSettings::RegionDirectory);
 
         // --- NetworkIdentityComponent ---
         lua.new_usertype<NetworkIdentityComponent>("NetworkIdentityComponent",
                                                    "ownerClientID", &NetworkIdentityComponent::OwnerClientID,
-                                                   "authority", &NetworkIdentityComponent::Authority,
+                                                   "authority", sol::property([](const NetworkIdentityComponent& c) -> int
+                                                                              { return static_cast<int>(c.Authority); }, [](NetworkIdentityComponent& c, int v)
+                                                                              { if (v >= 0 && v <= 2) c.Authority = static_cast<ENetworkAuthority>(v); }),
                                                    "isReplicated", &NetworkIdentityComponent::IsReplicated);
 
         // --- AudioSourceComponent ---
@@ -1112,12 +1305,14 @@ namespace OloEngine
                                                                                { return c.Config.ConeInnerAngle; }, [](AudioSourceComponent& c, f32 v)
                                                                                {
                     if (!std::isfinite(v)) v = glm::radians(360.0f);
+                    v = std::clamp(v, 0.0f, glm::radians(360.0f));
                     c.Config.ConeInnerAngle = v;
                     if (c.Source) { c.Source->SetCone(c.Config.ConeInnerAngle, c.Config.ConeOuterAngle, c.Config.ConeOuterGain); } }),
                                                "coneOuterAngle", sol::property([](const AudioSourceComponent& c)
                                                                                { return c.Config.ConeOuterAngle; }, [](AudioSourceComponent& c, f32 v)
                                                                                {
                     if (!std::isfinite(v)) v = glm::radians(360.0f);
+                    v = std::clamp(v, 0.0f, glm::radians(360.0f));
                     c.Config.ConeOuterAngle = v;
                     if (c.Source) { c.Source->SetCone(c.Config.ConeInnerAngle, c.Config.ConeOuterAngle, c.Config.ConeOuterGain); } }),
                                                "coneOuterGain", sol::property([](const AudioSourceComponent& c)
@@ -1347,7 +1542,9 @@ namespace OloEngine
         lua.new_usertype<DialogueComponent>("DialogueComponent",
                                             "dialogueTree", &DialogueComponent::m_DialogueTree,
                                             "autoTrigger", &DialogueComponent::m_AutoTrigger,
-                                            "triggerRadius", &DialogueComponent::m_TriggerRadius,
+                                            "triggerRadius", sol::property([](const DialogueComponent& c)
+                                                                           { return c.m_TriggerRadius; }, [](DialogueComponent& c, f32 v)
+                                                                           { if (std::isfinite(v) && v >= 0.0f) c.m_TriggerRadius = v; }),
                                             "hasTriggered", &DialogueComponent::m_HasTriggered,
                                             "triggerOnce", &DialogueComponent::m_TriggerOnce);
 
@@ -1533,8 +1730,12 @@ namespace OloEngine
 
         // --- NavMeshBoundsComponent ---
         lua.new_usertype<NavMeshBoundsComponent>("NavMeshBoundsComponent",
-                                                 "min", &NavMeshBoundsComponent::m_Min,
-                                                 "max", &NavMeshBoundsComponent::m_Max);
+                                                 "min", sol::property([](const NavMeshBoundsComponent& c)
+                                                                      { return c.m_Min; }, [](NavMeshBoundsComponent& c, const glm::vec3& v)
+                                                                      { if (IsFiniteVec3(v)) c.m_Min = v; }),
+                                                 "max", sol::property([](const NavMeshBoundsComponent& c)
+                                                                      { return c.m_Max; }, [](NavMeshBoundsComponent& c, const glm::vec3& v)
+                                                                      { if (IsFiniteVec3(v)) c.m_Max = v; }));
 
         // --- Dialogue system functions ---
         auto dialogueTable = lua.create_named_table("dialogue");
@@ -1790,9 +1991,13 @@ namespace OloEngine
 
         // --- ItemPickupComponent ---
         lua.new_usertype<ItemPickupComponent>("ItemPickupComponent",
-                                              "pickupRadius", &ItemPickupComponent::PickupRadius,
+                                              "pickupRadius", sol::property([](const ItemPickupComponent& c)
+                                                                            { return c.PickupRadius; }, [](ItemPickupComponent& c, f32 v)
+                                                                            { if (std::isfinite(v) && v >= 0.0f) c.PickupRadius = v; }),
                                               "autoPickup", &ItemPickupComponent::AutoPickup,
-                                              "despawnTimer", &ItemPickupComponent::DespawnTimer);
+                                              "despawnTimer", sol::property([](const ItemPickupComponent& c)
+                                                                            { return c.DespawnTimer; }, [](ItemPickupComponent& c, f32 v)
+                                                                            { if (std::isfinite(v) && v >= 0.0f) c.DespawnTimer = v; }));
 
         // --- ItemContainerComponent ---
         lua.new_usertype<ItemContainerComponent>("ItemContainerComponent",

@@ -1348,12 +1348,14 @@ class ScopedTestSceneContext
     {
         ScriptEngine::SetSceneContextForTesting(scene);
     }
-    ~ScopedTestSceneContext()
+    ~ScopedTestSceneContext() noexcept
     {
         ScriptEngine::SetSceneContextForTesting(nullptr);
     }
     ScopedTestSceneContext(const ScopedTestSceneContext&) = delete;
     ScopedTestSceneContext& operator=(const ScopedTestSceneContext&) = delete;
+    ScopedTestSceneContext(ScopedTestSceneContext&&) = delete;
+    ScopedTestSceneContext& operator=(ScopedTestSceneContext&&) = delete;
 };
 
 class LuaSceneTest : public ::testing::Test
@@ -1530,33 +1532,33 @@ TEST_F(LuaSceneTest, ProxyRead_ReturnsCopy_NotReference)
     EXPECT_FLOAT_EQ(tc.Translation.x, 1.0f) << "Proxy __index must return copies, not references";
 }
 
-TEST_F(LuaSceneTest, ProxyRead_NestedUsertype_ReturnsCopy)
+TEST_F(LuaSceneTest, ProxyRead_NestedUsertype_ReturnsReference)
 {
-    Entity e = scene->CreateEntityWithUUID(UUID(550), "CameraCopyTest");
+    Entity e = scene->CreateEntityWithUUID(UUID(550), "CameraRefTest");
     e.AddComponent<CameraComponent>();
     e.GetComponent<CameraComponent>().Camera.SetPerspectiveVerticalFOV(1.0f);
     lua["eid"] = static_cast<u64>(550);
 
-    // Modifying the returned SceneCamera should NOT change the component
+    // Modifying the returned SceneCamera SHOULD change the component (reference semantics)
     lua.script(R"(
         local cc = entity_utils.get_component(eid, "CameraComponent")
         local cam = cc.camera
-        cam.perspectiveFOV = 99.0
+        cam.perspectiveFOV = 1.2
     )");
 
     auto const& cc = e.GetComponent<CameraComponent>();
-    EXPECT_FLOAT_EQ(cc.Camera.GetPerspectiveVerticalFOV(), 1.0f)
-        << "Proxy __index must return copies of nested usertypes, not references";
+    EXPECT_FLOAT_EQ(cc.Camera.GetPerspectiveVerticalFOV(), 1.2f)
+        << "Proxy __index must return references to nested usertypes so mutations propagate";
 }
 
-TEST_F(LuaSceneTest, ProxyRead_ColliderMaterial_ReturnsCopy)
+TEST_F(LuaSceneTest, ProxyRead_ColliderMaterial_ReturnsReference)
 {
-    Entity e = scene->CreateEntityWithUUID(UUID(555), "MaterialCopyTest");
+    Entity e = scene->CreateEntityWithUUID(UUID(555), "MaterialRefTest");
     e.AddComponent<BoxCollider3DComponent>();
     e.GetComponent<BoxCollider3DComponent>().m_Material.SetStaticFriction(0.5f);
     lua["eid"] = static_cast<u64>(555);
 
-    // Modifying the returned ColliderMaterial should NOT change the component
+    // Modifying the returned ColliderMaterial SHOULD change the component (reference semantics)
     lua.script(R"(
         local bc = entity_utils.get_component(eid, "BoxCollider3DComponent")
         local m = bc.material
@@ -1564,8 +1566,8 @@ TEST_F(LuaSceneTest, ProxyRead_ColliderMaterial_ReturnsCopy)
     )");
 
     auto const& bc = e.GetComponent<BoxCollider3DComponent>();
-    EXPECT_FLOAT_EQ(bc.m_Material.GetStaticFriction(), 0.5f)
-        << "Proxy __index must return copies of ColliderMaterial, not references";
+    EXPECT_FLOAT_EQ(bc.m_Material.GetStaticFriction(), 0.9f)
+        << "Proxy __index must return references to ColliderMaterial so mutations propagate";
 }
 
 TEST_F(LuaSceneTest, HasComponent_ReturnsTrueForExisting)
@@ -1580,14 +1582,14 @@ TEST_F(LuaSceneTest, HasComponent_ReturnsTrueForExisting)
     EXPECT_FALSE(result2.get<bool>());
 }
 
-TEST_F(LuaSceneTest, ProxyRead_ParticleSystem_ReturnsCopy)
+TEST_F(LuaSceneTest, ProxyRead_ParticleSystem_ReturnsReference)
 {
-    Entity e = scene->CreateEntityWithUUID(UUID(560), "ParticleCopyTest");
+    Entity e = scene->CreateEntityWithUUID(UUID(560), "ParticleRefTest");
     e.AddComponent<ParticleSystemComponent>();
     e.GetComponent<ParticleSystemComponent>().System.Duration = 5.0f;
     lua["eid"] = static_cast<u64>(560);
 
-    // Modifying the returned ParticleSystem should NOT change the component
+    // Modifying the returned ParticleSystem SHOULD change the component (reference semantics)
     lua.script(R"(
         local ps = entity_utils.get_component(eid, "ParticleSystemComponent")
         local sys = ps.system
@@ -1595,8 +1597,8 @@ TEST_F(LuaSceneTest, ProxyRead_ParticleSystem_ReturnsCopy)
     )");
 
     auto const& ps = e.GetComponent<ParticleSystemComponent>();
-    EXPECT_FLOAT_EQ(ps.System.Duration, 5.0f)
-        << "Proxy __index must return copies of ParticleSystem, not references";
+    EXPECT_FLOAT_EQ(ps.System.Duration, 99.0f)
+        << "Proxy __index must return references to ParticleSystem so mutations propagate";
 }
 
 TEST_F(LuaSceneTest, SetTranslation_RejectsNonFinite)
