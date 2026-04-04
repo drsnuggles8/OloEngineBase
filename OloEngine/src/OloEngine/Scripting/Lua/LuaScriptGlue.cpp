@@ -323,6 +323,8 @@ namespace OloEngine
                     return sol::make_object(s, result.as<SceneCamera>());
                 if (result.is<ColliderMaterial>())
                     return sol::make_object(s, result.as<ColliderMaterial>());
+                if (result.is<ParticleSystem>())
+                    return sol::make_object(s, result.as<ParticleSystem>());
 
                 return result;
             },
@@ -500,21 +502,45 @@ namespace OloEngine
 
         // --- BoxCollider2DComponent ---
         lua.new_usertype<BoxCollider2DComponent>("BoxCollider2DComponent",
-                                                 "offset", &BoxCollider2DComponent::Offset,
-                                                 "size", &BoxCollider2DComponent::Size,
-                                                 "density", &BoxCollider2DComponent::Density,
-                                                 "friction", &BoxCollider2DComponent::Friction,
-                                                 "restitution", &BoxCollider2DComponent::Restitution,
-                                                 "restitutionThreshold", &BoxCollider2DComponent::RestitutionThreshold);
+                                                 "offset", sol::property([](const BoxCollider2DComponent& c)
+                                                                         { return c.Offset; }, [](BoxCollider2DComponent& c, const glm::vec2& v)
+                                                                         { if (IsFiniteVec2(v)) c.Offset = v; }),
+                                                 "size", sol::property([](const BoxCollider2DComponent& c)
+                                                                       { return c.Size; }, [](BoxCollider2DComponent& c, const glm::vec2& v)
+                                                                       { if (IsFiniteVec2(v) && v.x > 0.0f && v.y > 0.0f) c.Size = v; }),
+                                                 "density", sol::property([](const BoxCollider2DComponent& c)
+                                                                          { return c.Density; }, [](BoxCollider2DComponent& c, f32 v)
+                                                                          { if (std::isfinite(v) && v >= 0.0f) c.Density = v; }),
+                                                 "friction", sol::property([](const BoxCollider2DComponent& c)
+                                                                           { return c.Friction; }, [](BoxCollider2DComponent& c, f32 v)
+                                                                           { if (std::isfinite(v)) c.Friction = std::clamp(v, 0.0f, 1.0f); }),
+                                                 "restitution", sol::property([](const BoxCollider2DComponent& c)
+                                                                              { return c.Restitution; }, [](BoxCollider2DComponent& c, f32 v)
+                                                                              { if (std::isfinite(v)) c.Restitution = std::clamp(v, 0.0f, 1.0f); }),
+                                                 "restitutionThreshold", sol::property([](const BoxCollider2DComponent& c)
+                                                                                       { return c.RestitutionThreshold; }, [](BoxCollider2DComponent& c, f32 v)
+                                                                                       { if (std::isfinite(v) && v >= 0.0f) c.RestitutionThreshold = v; }));
 
         // --- CircleCollider2DComponent ---
         lua.new_usertype<CircleCollider2DComponent>("CircleCollider2DComponent",
-                                                    "offset", &CircleCollider2DComponent::Offset,
-                                                    "radius", &CircleCollider2DComponent::Radius,
-                                                    "density", &CircleCollider2DComponent::Density,
-                                                    "friction", &CircleCollider2DComponent::Friction,
-                                                    "restitution", &CircleCollider2DComponent::Restitution,
-                                                    "restitutionThreshold", &CircleCollider2DComponent::RestitutionThreshold);
+                                                    "offset", sol::property([](const CircleCollider2DComponent& c)
+                                                                            { return c.Offset; }, [](CircleCollider2DComponent& c, const glm::vec2& v)
+                                                                            { if (IsFiniteVec2(v)) c.Offset = v; }),
+                                                    "radius", sol::property([](const CircleCollider2DComponent& c)
+                                                                            { return c.Radius; }, [](CircleCollider2DComponent& c, f32 v)
+                                                                            { if (std::isfinite(v) && v > 0.0f) c.Radius = v; }),
+                                                    "density", sol::property([](const CircleCollider2DComponent& c)
+                                                                             { return c.Density; }, [](CircleCollider2DComponent& c, f32 v)
+                                                                             { if (std::isfinite(v) && v >= 0.0f) c.Density = v; }),
+                                                    "friction", sol::property([](const CircleCollider2DComponent& c)
+                                                                              { return c.Friction; }, [](CircleCollider2DComponent& c, f32 v)
+                                                                              { if (std::isfinite(v)) c.Friction = std::clamp(v, 0.0f, 1.0f); }),
+                                                    "restitution", sol::property([](const CircleCollider2DComponent& c)
+                                                                                 { return c.Restitution; }, [](CircleCollider2DComponent& c, f32 v)
+                                                                                 { if (std::isfinite(v)) c.Restitution = std::clamp(v, 0.0f, 1.0f); }),
+                                                    "restitutionThreshold", sol::property([](const CircleCollider2DComponent& c)
+                                                                                          { return c.RestitutionThreshold; }, [](CircleCollider2DComponent& c, f32 v)
+                                                                                          { if (std::isfinite(v) && v >= 0.0f) c.RestitutionThreshold = v; }));
 
         // --- ColliderMaterial (shared by all 3D collider components) ---
         lua.new_usertype<ColliderMaterial>("ColliderMaterial", sol::no_constructor,
@@ -1335,38 +1361,82 @@ namespace OloEngine
 
         // --- DirectionalLightComponent ---
         lua.new_usertype<DirectionalLightComponent>("DirectionalLightComponent",
-                                                    "direction", &DirectionalLightComponent::m_Direction,
-                                                    "color", &DirectionalLightComponent::m_Color,
-                                                    "intensity", &DirectionalLightComponent::m_Intensity,
+                                                    "direction", sol::property([](const DirectionalLightComponent& l)
+                                                                               { return l.m_Direction; }, [](DirectionalLightComponent& l, const glm::vec3& v)
+                                                                               { if (IsFiniteVec3(v)) l.m_Direction = v; }),
+                                                    "color", sol::property([](const DirectionalLightComponent& l)
+                                                                           { return l.m_Color; }, [](DirectionalLightComponent& l, const glm::vec3& v)
+                                                                           { if (IsFiniteVec3(v)) l.m_Color = v; }),
+                                                    "intensity", sol::property([](const DirectionalLightComponent& l)
+                                                                               { return l.m_Intensity; }, [](DirectionalLightComponent& l, f32 v)
+                                                                               { if (std::isfinite(v) && v >= 0.0f) l.m_Intensity = v; }),
                                                     "castShadows", &DirectionalLightComponent::m_CastShadows,
-                                                    "shadowBias", &DirectionalLightComponent::m_ShadowBias,
-                                                    "shadowNormalBias", &DirectionalLightComponent::m_ShadowNormalBias,
-                                                    "maxShadowDistance", &DirectionalLightComponent::m_MaxShadowDistance,
-                                                    "cascadeSplitLambda", &DirectionalLightComponent::m_CascadeSplitLambda,
+                                                    "shadowBias", sol::property([](const DirectionalLightComponent& l)
+                                                                                { return l.m_ShadowBias; }, [](DirectionalLightComponent& l, f32 v)
+                                                                                { if (std::isfinite(v) && v >= 0.0f) l.m_ShadowBias = v; }),
+                                                    "shadowNormalBias", sol::property([](const DirectionalLightComponent& l)
+                                                                                      { return l.m_ShadowNormalBias; }, [](DirectionalLightComponent& l, f32 v)
+                                                                                      { if (std::isfinite(v) && v >= 0.0f) l.m_ShadowNormalBias = v; }),
+                                                    "maxShadowDistance", sol::property([](const DirectionalLightComponent& l)
+                                                                                       { return l.m_MaxShadowDistance; }, [](DirectionalLightComponent& l, f32 v)
+                                                                                       { if (std::isfinite(v) && v > 0.0f) l.m_MaxShadowDistance = v; }),
+                                                    "cascadeSplitLambda", sol::property([](const DirectionalLightComponent& l)
+                                                                                        { return l.m_CascadeSplitLambda; }, [](DirectionalLightComponent& l, f32 v)
+                                                                                        { if (std::isfinite(v)) l.m_CascadeSplitLambda = std::clamp(v, 0.0f, 1.0f); }),
                                                     "cascadeDebugVisualization", &DirectionalLightComponent::m_CascadeDebugVisualization);
 
         // --- PointLightComponent ---
         lua.new_usertype<PointLightComponent>("PointLightComponent",
-                                              "color", &PointLightComponent::m_Color,
-                                              "intensity", &PointLightComponent::m_Intensity,
-                                              "range", &PointLightComponent::m_Range,
-                                              "attenuation", &PointLightComponent::m_Attenuation,
+                                              "color", sol::property([](const PointLightComponent& l)
+                                                                     { return l.m_Color; }, [](PointLightComponent& l, const glm::vec3& v)
+                                                                     { if (IsFiniteVec3(v)) l.m_Color = v; }),
+                                              "intensity", sol::property([](const PointLightComponent& l)
+                                                                         { return l.m_Intensity; }, [](PointLightComponent& l, f32 v)
+                                                                         { if (std::isfinite(v) && v >= 0.0f) l.m_Intensity = v; }),
+                                              "range", sol::property([](const PointLightComponent& l)
+                                                                     { return l.m_Range; }, [](PointLightComponent& l, f32 v)
+                                                                     { if (std::isfinite(v) && v >= 0.0f) l.m_Range = v; }),
+                                              "attenuation", sol::property([](const PointLightComponent& l)
+                                                                           { return l.m_Attenuation; }, [](PointLightComponent& l, f32 v)
+                                                                           { if (std::isfinite(v) && v >= 0.0f) l.m_Attenuation = v; }),
                                               "castShadows", &PointLightComponent::m_CastShadows,
-                                              "shadowBias", &PointLightComponent::m_ShadowBias,
-                                              "shadowNormalBias", &PointLightComponent::m_ShadowNormalBias);
+                                              "shadowBias", sol::property([](const PointLightComponent& l)
+                                                                          { return l.m_ShadowBias; }, [](PointLightComponent& l, f32 v)
+                                                                          { if (std::isfinite(v) && v >= 0.0f) l.m_ShadowBias = v; }),
+                                              "shadowNormalBias", sol::property([](const PointLightComponent& l)
+                                                                                { return l.m_ShadowNormalBias; }, [](PointLightComponent& l, f32 v)
+                                                                                { if (std::isfinite(v) && v >= 0.0f) l.m_ShadowNormalBias = v; }));
 
         // --- SpotLightComponent ---
         lua.new_usertype<SpotLightComponent>("SpotLightComponent",
-                                             "direction", &SpotLightComponent::m_Direction,
-                                             "color", &SpotLightComponent::m_Color,
-                                             "intensity", &SpotLightComponent::m_Intensity,
-                                             "range", &SpotLightComponent::m_Range,
-                                             "innerCutoff", &SpotLightComponent::m_InnerCutoff,
-                                             "outerCutoff", &SpotLightComponent::m_OuterCutoff,
-                                             "attenuation", &SpotLightComponent::m_Attenuation,
+                                             "direction", sol::property([](const SpotLightComponent& l)
+                                                                        { return l.m_Direction; }, [](SpotLightComponent& l, const glm::vec3& v)
+                                                                        { if (IsFiniteVec3(v)) l.m_Direction = v; }),
+                                             "color", sol::property([](const SpotLightComponent& l)
+                                                                    { return l.m_Color; }, [](SpotLightComponent& l, const glm::vec3& v)
+                                                                    { if (IsFiniteVec3(v)) l.m_Color = v; }),
+                                             "intensity", sol::property([](const SpotLightComponent& l)
+                                                                        { return l.m_Intensity; }, [](SpotLightComponent& l, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f) l.m_Intensity = v; }),
+                                             "range", sol::property([](const SpotLightComponent& l)
+                                                                    { return l.m_Range; }, [](SpotLightComponent& l, f32 v)
+                                                                    { if (std::isfinite(v) && v >= 0.0f) l.m_Range = v; }),
+                                             "innerCutoff", sol::property([](const SpotLightComponent& l)
+                                                                          { return l.m_InnerCutoff; }, [](SpotLightComponent& l, f32 v)
+                                                                          { if (std::isfinite(v)) l.m_InnerCutoff = std::clamp(v, 0.0f, 180.0f); }),
+                                             "outerCutoff", sol::property([](const SpotLightComponent& l)
+                                                                          { return l.m_OuterCutoff; }, [](SpotLightComponent& l, f32 v)
+                                                                          { if (std::isfinite(v)) l.m_OuterCutoff = std::clamp(v, 0.0f, 180.0f); }),
+                                             "attenuation", sol::property([](const SpotLightComponent& l)
+                                                                          { return l.m_Attenuation; }, [](SpotLightComponent& l, f32 v)
+                                                                          { if (std::isfinite(v) && v >= 0.0f) l.m_Attenuation = v; }),
                                              "castShadows", &SpotLightComponent::m_CastShadows,
-                                             "shadowBias", &SpotLightComponent::m_ShadowBias,
-                                             "shadowNormalBias", &SpotLightComponent::m_ShadowNormalBias);
+                                             "shadowBias", sol::property([](const SpotLightComponent& l)
+                                                                         { return l.m_ShadowBias; }, [](SpotLightComponent& l, f32 v)
+                                                                         { if (std::isfinite(v) && v >= 0.0f) l.m_ShadowBias = v; }),
+                                             "shadowNormalBias", sol::property([](const SpotLightComponent& l)
+                                                                               { return l.m_ShadowNormalBias; }, [](SpotLightComponent& l, f32 v)
+                                                                               { if (std::isfinite(v) && v >= 0.0f) l.m_ShadowNormalBias = v; }));
 
         // --- NavAgentComponent ---
         lua.new_usertype<NavAgentComponent>("NavAgentComponent",

@@ -170,6 +170,30 @@ TEST_F(LuaBindingTest, BoxCollider2D_PropertyRoundTrip)
     EXPECT_FLOAT_EQ(bc.RestitutionThreshold, 1.0f);
 }
 
+TEST_F(LuaBindingTest, BoxCollider2D_RejectsInvalidInputs)
+{
+    BoxCollider2DComponent bc;
+    lua["bc"] = &bc;
+
+    bc.Size = { 1.0f, 1.0f };
+    lua.script("bc.size = vec2.new(-1.0, 1.0)"); // negative size rejected
+    EXPECT_FLOAT_EQ(bc.Size.x, 1.0f);
+
+    bc.Density = 1.0f;
+    lua.script("bc.density = -0.5"); // negative density rejected
+    EXPECT_FLOAT_EQ(bc.Density, 1.0f);
+
+    bc.Friction = 0.5f;
+    lua.script("bc.friction = 1.0/0.0"); // inf rejected
+    EXPECT_FLOAT_EQ(bc.Friction, 0.5f);
+
+    lua.script("bc.friction = 1.5"); // clamped to [0,1]
+    EXPECT_FLOAT_EQ(bc.Friction, 1.0f);
+
+    lua.script("bc.restitution = -0.1"); // clamped to [0,1]
+    EXPECT_FLOAT_EQ(bc.Restitution, 0.0f);
+}
+
 // =============================================================================
 // CircleCollider2DComponent
 // =============================================================================
@@ -187,6 +211,19 @@ TEST_F(LuaBindingTest, CircleCollider2D_PropertyRoundTrip)
     lua.script("cc.density = 1.5; cc.friction = 0.8");
     EXPECT_FLOAT_EQ(cc.Density, 1.5f);
     EXPECT_FLOAT_EQ(cc.Friction, 0.8f);
+}
+
+TEST_F(LuaBindingTest, CircleCollider2D_RejectsInvalidInputs)
+{
+    CircleCollider2DComponent cc;
+    lua["cc"] = &cc;
+
+    cc.Radius = 1.0f;
+    lua.script("cc.radius = -1.0"); // negative radius rejected
+    EXPECT_FLOAT_EQ(cc.Radius, 1.0f);
+
+    lua.script("cc.radius = 0.0/0.0"); // NaN rejected
+    EXPECT_FLOAT_EQ(cc.Radius, 1.0f);
 }
 
 // =============================================================================
@@ -1104,6 +1141,29 @@ TEST_F(LuaBindingTest, DirectionalLightComponent_PropertyRoundTrip)
     EXPECT_FLOAT_EQ(dl.m_Color.g, 0.9f);
 }
 
+TEST_F(LuaBindingTest, DirectionalLightComponent_RejectsInvalidInputs)
+{
+    DirectionalLightComponent dl;
+    lua["dl"] = &dl;
+
+    dl.m_Intensity = 1.0f;
+    lua.script("dl.intensity = -1.0"); // negative intensity rejected
+    EXPECT_FLOAT_EQ(dl.m_Intensity, 1.0f);
+
+    lua.script("dl.intensity = 1.0/0.0"); // inf rejected
+    EXPECT_FLOAT_EQ(dl.m_Intensity, 1.0f);
+
+    dl.m_MaxShadowDistance = 200.0f;
+    lua.script("dl.maxShadowDistance = 0.0"); // zero rejected (must be > 0)
+    EXPECT_FLOAT_EQ(dl.m_MaxShadowDistance, 200.0f);
+
+    lua.script("dl.cascadeSplitLambda = 1.5"); // clamped to [0,1]
+    EXPECT_FLOAT_EQ(dl.m_CascadeSplitLambda, 1.0f);
+
+    lua.script("dl.cascadeSplitLambda = -0.2"); // clamped to [0,1]
+    EXPECT_FLOAT_EQ(dl.m_CascadeSplitLambda, 0.0f);
+}
+
 TEST_F(LuaBindingTest, PointLightComponent_PropertyRoundTrip)
 {
     PointLightComponent pl;
@@ -1115,6 +1175,20 @@ TEST_F(LuaBindingTest, PointLightComponent_PropertyRoundTrip)
     EXPECT_FLOAT_EQ(pl.m_Attenuation, 1.5f);
 }
 
+TEST_F(LuaBindingTest, PointLightComponent_RejectsInvalidInputs)
+{
+    PointLightComponent pl;
+    lua["pl"] = &pl;
+
+    pl.m_Range = 10.0f;
+    lua.script("pl.range = -5.0"); // negative range rejected
+    EXPECT_FLOAT_EQ(pl.m_Range, 10.0f);
+
+    pl.m_ShadowBias = 0.005f;
+    lua.script("pl.shadowBias = 0.0/0.0"); // NaN rejected
+    EXPECT_FLOAT_EQ(pl.m_ShadowBias, 0.005f);
+}
+
 TEST_F(LuaBindingTest, SpotLightComponent_PropertyRoundTrip)
 {
     SpotLightComponent sl;
@@ -1124,6 +1198,23 @@ TEST_F(LuaBindingTest, SpotLightComponent_PropertyRoundTrip)
     EXPECT_FLOAT_EQ(sl.m_InnerCutoff, 15.0f);
     EXPECT_FLOAT_EQ(sl.m_OuterCutoff, 25.0f);
     EXPECT_FLOAT_EQ(sl.m_Range, 30.0f);
+}
+
+TEST_F(LuaBindingTest, SpotLightComponent_RejectsInvalidInputs)
+{
+    SpotLightComponent sl;
+    lua["sl"] = &sl;
+
+    sl.m_InnerCutoff = 12.5f;
+    lua.script("sl.innerCutoff = 200.0"); // clamped to [0,180]
+    EXPECT_FLOAT_EQ(sl.m_InnerCutoff, 180.0f);
+
+    lua.script("sl.innerCutoff = -10.0"); // clamped to [0,180]
+    EXPECT_FLOAT_EQ(sl.m_InnerCutoff, 0.0f);
+
+    sl.m_Intensity = 1.0f;
+    lua.script("sl.intensity = -1.0"); // negative rejected
+    EXPECT_FLOAT_EQ(sl.m_Intensity, 1.0f);
 }
 
 TEST_F(LuaBindingTest, TagComponent_PropertyRoundTrip)
@@ -1405,6 +1496,25 @@ TEST_F(LuaSceneTest, HasComponent_ReturnsTrueForExisting)
 
     auto result2 = lua.script("return entity_utils.has_component(eid, 'Rigidbody3DComponent')");
     EXPECT_FALSE(result2.get<bool>());
+}
+
+TEST_F(LuaSceneTest, ProxyRead_ParticleSystem_ReturnsCopy)
+{
+    Entity e = scene->CreateEntityWithUUID(UUID(560), "ParticleCopyTest");
+    e.AddComponent<ParticleSystemComponent>();
+    e.GetComponent<ParticleSystemComponent>().System.Duration = 5.0f;
+    lua["eid"] = static_cast<u64>(560);
+
+    // Modifying the returned ParticleSystem should NOT change the component
+    lua.script(R"(
+        local ps = entity_utils.get_component(eid, "ParticleSystemComponent")
+        local sys = ps.system
+        sys.duration = 99.0
+    )");
+
+    auto const& ps = e.GetComponent<ParticleSystemComponent>();
+    EXPECT_FLOAT_EQ(ps.System.Duration, 5.0f)
+        << "Proxy __index must return copies of ParticleSystem, not references";
 }
 
 TEST_F(LuaSceneTest, SetTranslation_RejectsNonFinite)
