@@ -30,6 +30,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 
@@ -329,11 +330,13 @@ TEST_F(LuaBindingTest, UIRectTransformComponent_PropertyRoundTrip)
 
     lua.script("r.anchorMin = vec2.new(0.0, 0.0); r.anchorMax = vec2.new(1.0, 1.0)");
     EXPECT_FLOAT_EQ(rect.m_AnchorMin.x, 0.0f);
+    EXPECT_FLOAT_EQ(rect.m_AnchorMin.y, 0.0f);
     EXPECT_FLOAT_EQ(rect.m_AnchorMax.x, 1.0f);
     EXPECT_FLOAT_EQ(rect.m_AnchorMax.y, 1.0f);
 
     lua.script("r.anchoredPosition = vec2.new(10.0, 20.0)");
     EXPECT_FLOAT_EQ(rect.m_AnchoredPosition.x, 10.0f);
+    EXPECT_FLOAT_EQ(rect.m_AnchoredPosition.y, 20.0f);
 
     lua.script("r.sizeDelta = vec2.new(200.0, 50.0)");
     EXPECT_FLOAT_EQ(rect.m_SizeDelta.x, 200.0f);
@@ -346,6 +349,7 @@ TEST_F(LuaBindingTest, UIRectTransformComponent_PropertyRoundTrip)
     lua.script("r.rotation = 45.0; r.scale = vec2.new(2.0, 2.0)");
     EXPECT_FLOAT_EQ(rect.m_Rotation, 45.0f);
     EXPECT_FLOAT_EQ(rect.m_Scale.x, 2.0f);
+    EXPECT_FLOAT_EQ(rect.m_Scale.y, 2.0f);
 }
 
 TEST_F(LuaBindingTest, UIImageComponent_PropertyRoundTrip)
@@ -1168,32 +1172,12 @@ TEST_F(LuaBindingTest, ModelComponent_PropertyRoundTrip)
 // ComponentRegistry completeness — verify new components are discoverable
 // =============================================================================
 
-TEST_F(LuaBindingTest, ComponentRegistry_NewComponentsRegistered)
+TEST_F(LuaBindingTest, ComponentRegistry_UsertypesExist)
 {
-    // Verify that get_component type names resolve via the registry.
-    // We can't call get_component without a scene, but we can verify the
-    // usertype tables exist in Lua (sol2 registers them globally).
-    auto check = [&](const char* name)
-    {
-        auto r = lua.script(std::string("return type(") + name + ")");
-        EXPECT_EQ(r.get<std::string>(), "table") << name << " usertype not registered";
-    };
-
-    check("Rigidbody3DComponent");
-    check("BoxCollider3DComponent");
-    check("SphereCollider3DComponent");
-    check("CapsuleCollider3DComponent");
-    check("MeshCollider3DComponent");
-    check("ConvexMeshCollider3DComponent");
-    check("TriangleMeshCollider3DComponent");
-    check("DirectionalLightComponent");
-    check("PointLightComponent");
-    check("SpotLightComponent");
-    check("TagComponent");
-    check("ScriptComponent");
-    check("LuaScriptComponent");
-    check("ModelComponent");
-    check("ColliderMaterial");
+    // Verify sol2 usertype tables are globally registered for sub-types
+    // that are not entity components (e.g. ColliderMaterial).
+    auto r = lua.script("return type(ColliderMaterial)");
+    EXPECT_EQ(r.get<std::string>(), "table") << "ColliderMaterial usertype not registered";
 }
 
 // =============================================================================
@@ -1221,6 +1205,62 @@ class LuaSceneTest : public ::testing::Test
         scene = nullptr;
     }
 };
+
+TEST_F(LuaSceneTest, ComponentRegistry_SceneBacked)
+{
+    Entity e = scene->CreateEntityWithUUID(UUID(800), "RegistryTest");
+    lua["eid"] = static_cast<u64>(800);
+
+    // Add all discoverable component types (TagComponent already on entity)
+    e.AddComponent<Rigidbody3DComponent>();
+    e.AddComponent<BoxCollider3DComponent>();
+    e.AddComponent<SphereCollider3DComponent>();
+    e.AddComponent<CapsuleCollider3DComponent>();
+    e.AddComponent<MeshCollider3DComponent>();
+    e.AddComponent<ConvexMeshCollider3DComponent>();
+    e.AddComponent<TriangleMeshCollider3DComponent>();
+    e.AddComponent<DirectionalLightComponent>();
+    e.AddComponent<PointLightComponent>();
+    e.AddComponent<SpotLightComponent>();
+    e.AddComponent<ScriptComponent>();
+    e.AddComponent<LuaScriptComponent>();
+    e.AddComponent<ModelComponent>();
+
+    auto checkHas = [&](const char* name)
+    {
+        auto r = lua.script(std::string("return entity_utils.has_component(eid, '") + name + "')");
+        ASSERT_TRUE(r.valid()) << name;
+        EXPECT_TRUE(r.get<bool>()) << name << " not found via has_component";
+    };
+
+    auto checkGet = [&](const char* name)
+    {
+        auto r = lua.script(std::string("return entity_utils.get_component(eid, '") + name + "') ~= nil");
+        ASSERT_TRUE(r.valid()) << name;
+        EXPECT_TRUE(r.get<bool>()) << name << " get_component returned nil";
+    };
+
+    checkHas("Rigidbody3DComponent");
+    checkHas("BoxCollider3DComponent");
+    checkHas("SphereCollider3DComponent");
+    checkHas("CapsuleCollider3DComponent");
+    checkHas("MeshCollider3DComponent");
+    checkHas("ConvexMeshCollider3DComponent");
+    checkHas("TriangleMeshCollider3DComponent");
+    checkHas("DirectionalLightComponent");
+    checkHas("PointLightComponent");
+    checkHas("SpotLightComponent");
+    checkHas("TagComponent");
+    checkHas("ScriptComponent");
+    checkHas("LuaScriptComponent");
+    checkHas("ModelComponent");
+
+    checkGet("Rigidbody3DComponent");
+    checkGet("BoxCollider3DComponent");
+    checkGet("DirectionalLightComponent");
+    checkGet("TagComponent");
+    checkGet("ModelComponent");
+}
 
 TEST_F(LuaSceneTest, FindByName_ReturnsEntityID)
 {
@@ -1315,6 +1355,44 @@ TEST_F(LuaSceneTest, ProxyRead_ReturnsCopy_NotReference)
 
     auto const& tc = e.GetComponent<TransformComponent>();
     EXPECT_FLOAT_EQ(tc.Translation.x, 1.0f) << "Proxy __index must return copies, not references";
+}
+
+TEST_F(LuaSceneTest, ProxyRead_NestedUsertype_ReturnsCopy)
+{
+    Entity e = scene->CreateEntityWithUUID(UUID(550), "CameraCopyTest");
+    e.AddComponent<CameraComponent>();
+    e.GetComponent<CameraComponent>().Camera.SetPerspectiveVerticalFOV(1.0f);
+    lua["eid"] = static_cast<u64>(550);
+
+    // Modifying the returned SceneCamera should NOT change the component
+    lua.script(R"(
+        local cc = entity_utils.get_component(eid, "CameraComponent")
+        local cam = cc.camera
+        cam.perspectiveFOV = 99.0
+    )");
+
+    auto const& cc = e.GetComponent<CameraComponent>();
+    EXPECT_FLOAT_EQ(cc.Camera.GetPerspectiveVerticalFOV(), 1.0f)
+        << "Proxy __index must return copies of nested usertypes, not references";
+}
+
+TEST_F(LuaSceneTest, ProxyRead_ColliderMaterial_ReturnsCopy)
+{
+    Entity e = scene->CreateEntityWithUUID(UUID(555), "MaterialCopyTest");
+    e.AddComponent<BoxCollider3DComponent>();
+    e.GetComponent<BoxCollider3DComponent>().m_Material.SetStaticFriction(0.5f);
+    lua["eid"] = static_cast<u64>(555);
+
+    // Modifying the returned ColliderMaterial should NOT change the component
+    lua.script(R"(
+        local bc = entity_utils.get_component(eid, "BoxCollider3DComponent")
+        local m = bc.material
+        m.staticFriction = 0.9
+    )");
+
+    auto const& bc = e.GetComponent<BoxCollider3DComponent>();
+    EXPECT_FLOAT_EQ(bc.m_Material.GetStaticFriction(), 0.5f)
+        << "Proxy __index must return copies of ColliderMaterial, not references";
 }
 
 TEST_F(LuaSceneTest, HasComponent_ReturnsTrueForExisting)

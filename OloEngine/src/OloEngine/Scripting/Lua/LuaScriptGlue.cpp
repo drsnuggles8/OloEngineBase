@@ -317,6 +317,13 @@ namespace OloEngine
                 if (result.is<glm::vec2>())
                     return sol::make_object(s, result.as<glm::vec2>());
 
+                // Deep-copy nested usertypes to prevent bypassing proxy
+                // __newindex (e.g. CameraComponent.camera, collider.material).
+                if (result.is<SceneCamera>())
+                    return sol::make_object(s, result.as<SceneCamera>());
+                if (result.is<ColliderMaterial>())
+                    return sol::make_object(s, result.as<ColliderMaterial>());
+
                 return result;
             },
             sol::meta_function::new_index,
@@ -520,58 +527,100 @@ namespace OloEngine
         lua.new_usertype<Rigidbody3DComponent>("Rigidbody3DComponent",
                                                "type", &Rigidbody3DComponent::m_Type,
                                                "layerID", &Rigidbody3DComponent::m_LayerID,
-                                               "mass", &Rigidbody3DComponent::m_Mass,
-                                               "linearDrag", &Rigidbody3DComponent::m_LinearDrag,
-                                               "angularDrag", &Rigidbody3DComponent::m_AngularDrag,
+                                               "mass", sol::property([](const Rigidbody3DComponent& rb)
+                                                                     { return rb.m_Mass; }, [](Rigidbody3DComponent& rb, f32 v)
+                                                                     { if (std::isfinite(v) && v >= 0.0f) rb.m_Mass = v; }),
+                                               "linearDrag", sol::property([](const Rigidbody3DComponent& rb)
+                                                                           { return rb.m_LinearDrag; }, [](Rigidbody3DComponent& rb, f32 v)
+                                                                           { if (std::isfinite(v) && v >= 0.0f) rb.m_LinearDrag = v; }),
+                                               "angularDrag", sol::property([](const Rigidbody3DComponent& rb)
+                                                                            { return rb.m_AngularDrag; }, [](Rigidbody3DComponent& rb, f32 v)
+                                                                            { if (std::isfinite(v) && v >= 0.0f) rb.m_AngularDrag = v; }),
                                                "disableGravity", &Rigidbody3DComponent::m_DisableGravity,
                                                "isTrigger", &Rigidbody3DComponent::m_IsTrigger,
                                                "lockedAxes", &Rigidbody3DComponent::m_LockedAxes,
-                                               "initialLinearVelocity", &Rigidbody3DComponent::m_InitialLinearVelocity,
-                                               "initialAngularVelocity", &Rigidbody3DComponent::m_InitialAngularVelocity,
-                                               "maxLinearVelocity", &Rigidbody3DComponent::m_MaxLinearVelocity,
-                                               "maxAngularVelocity", &Rigidbody3DComponent::m_MaxAngularVelocity);
+                                               "initialLinearVelocity", sol::property([](const Rigidbody3DComponent& rb)
+                                                                                      { return rb.m_InitialLinearVelocity; }, [](Rigidbody3DComponent& rb, const glm::vec3& v)
+                                                                                      { if (IsFiniteVec3(v)) rb.m_InitialLinearVelocity = v; }),
+                                               "initialAngularVelocity", sol::property([](const Rigidbody3DComponent& rb)
+                                                                                       { return rb.m_InitialAngularVelocity; }, [](Rigidbody3DComponent& rb, const glm::vec3& v)
+                                                                                       { if (IsFiniteVec3(v)) rb.m_InitialAngularVelocity = v; }),
+                                               "maxLinearVelocity", sol::property([](const Rigidbody3DComponent& rb)
+                                                                                  { return rb.m_MaxLinearVelocity; }, [](Rigidbody3DComponent& rb, f32 v)
+                                                                                  { if (std::isfinite(v) && v >= 0.0f) rb.m_MaxLinearVelocity = v; }),
+                                               "maxAngularVelocity", sol::property([](const Rigidbody3DComponent& rb)
+                                                                                   { return rb.m_MaxAngularVelocity; }, [](Rigidbody3DComponent& rb, f32 v)
+                                                                                   { if (std::isfinite(v) && v >= 0.0f) rb.m_MaxAngularVelocity = v; }));
 
         // --- BoxCollider3DComponent ---
         lua.new_usertype<BoxCollider3DComponent>("BoxCollider3DComponent",
-                                                 "halfExtents", &BoxCollider3DComponent::m_HalfExtents,
-                                                 "offset", &BoxCollider3DComponent::m_Offset,
+                                                 "halfExtents", sol::property([](const BoxCollider3DComponent& c)
+                                                                              { return c.m_HalfExtents; }, [](BoxCollider3DComponent& c, const glm::vec3& v)
+                                                                              { if (IsFiniteVec3(v) && v.x >= 0.0f && v.y >= 0.0f && v.z >= 0.0f) c.m_HalfExtents = v; }),
+                                                 "offset", sol::property([](const BoxCollider3DComponent& c)
+                                                                         { return c.m_Offset; }, [](BoxCollider3DComponent& c, const glm::vec3& v)
+                                                                         { if (IsFiniteVec3(v)) c.m_Offset = v; }),
                                                  "material", &BoxCollider3DComponent::m_Material);
 
         // --- SphereCollider3DComponent ---
         lua.new_usertype<SphereCollider3DComponent>("SphereCollider3DComponent",
-                                                    "radius", &SphereCollider3DComponent::m_Radius,
-                                                    "offset", &SphereCollider3DComponent::m_Offset,
+                                                    "radius", sol::property([](const SphereCollider3DComponent& c)
+                                                                            { return c.m_Radius; }, [](SphereCollider3DComponent& c, f32 v)
+                                                                            { if (std::isfinite(v) && v >= 0.0f) c.m_Radius = v; }),
+                                                    "offset", sol::property([](const SphereCollider3DComponent& c)
+                                                                            { return c.m_Offset; }, [](SphereCollider3DComponent& c, const glm::vec3& v)
+                                                                            { if (IsFiniteVec3(v)) c.m_Offset = v; }),
                                                     "material", &SphereCollider3DComponent::m_Material);
 
         // --- CapsuleCollider3DComponent ---
         lua.new_usertype<CapsuleCollider3DComponent>("CapsuleCollider3DComponent",
-                                                     "radius", &CapsuleCollider3DComponent::m_Radius,
-                                                     "halfHeight", &CapsuleCollider3DComponent::m_HalfHeight,
-                                                     "offset", &CapsuleCollider3DComponent::m_Offset,
+                                                     "radius", sol::property([](const CapsuleCollider3DComponent& c)
+                                                                             { return c.m_Radius; }, [](CapsuleCollider3DComponent& c, f32 v)
+                                                                             { if (std::isfinite(v) && v >= 0.0f) c.m_Radius = v; }),
+                                                     "halfHeight", sol::property([](const CapsuleCollider3DComponent& c)
+                                                                                 { return c.m_HalfHeight; }, [](CapsuleCollider3DComponent& c, f32 v)
+                                                                                 { if (std::isfinite(v) && v >= 0.0f) c.m_HalfHeight = v; }),
+                                                     "offset", sol::property([](const CapsuleCollider3DComponent& c)
+                                                                             { return c.m_Offset; }, [](CapsuleCollider3DComponent& c, const glm::vec3& v)
+                                                                             { if (IsFiniteVec3(v)) c.m_Offset = v; }),
                                                      "material", &CapsuleCollider3DComponent::m_Material);
 
         // --- MeshCollider3DComponent ---
         lua.new_usertype<MeshCollider3DComponent>("MeshCollider3DComponent",
                                                   "colliderAsset", &MeshCollider3DComponent::m_ColliderAsset,
-                                                  "offset", &MeshCollider3DComponent::m_Offset,
-                                                  "scale", &MeshCollider3DComponent::m_Scale,
+                                                  "offset", sol::property([](const MeshCollider3DComponent& c)
+                                                                          { return c.m_Offset; }, [](MeshCollider3DComponent& c, const glm::vec3& v)
+                                                                          { if (IsFiniteVec3(v)) c.m_Offset = v; }),
+                                                  "scale", sol::property([](const MeshCollider3DComponent& c)
+                                                                         { return c.m_Scale; }, [](MeshCollider3DComponent& c, const glm::vec3& v)
+                                                                         { if (IsFiniteVec3(v) && v.x > 0.0f && v.y > 0.0f && v.z > 0.0f) c.m_Scale = v; }),
                                                   "material", &MeshCollider3DComponent::m_Material,
                                                   "useComplexAsSimple", &MeshCollider3DComponent::m_UseComplexAsSimple);
 
         // --- ConvexMeshCollider3DComponent ---
         lua.new_usertype<ConvexMeshCollider3DComponent>("ConvexMeshCollider3DComponent",
                                                         "colliderAsset", &ConvexMeshCollider3DComponent::m_ColliderAsset,
-                                                        "offset", &ConvexMeshCollider3DComponent::m_Offset,
-                                                        "scale", &ConvexMeshCollider3DComponent::m_Scale,
+                                                        "offset", sol::property([](const ConvexMeshCollider3DComponent& c)
+                                                                                { return c.m_Offset; }, [](ConvexMeshCollider3DComponent& c, const glm::vec3& v)
+                                                                                { if (IsFiniteVec3(v)) c.m_Offset = v; }),
+                                                        "scale", sol::property([](const ConvexMeshCollider3DComponent& c)
+                                                                               { return c.m_Scale; }, [](ConvexMeshCollider3DComponent& c, const glm::vec3& v)
+                                                                               { if (IsFiniteVec3(v) && v.x > 0.0f && v.y > 0.0f && v.z > 0.0f) c.m_Scale = v; }),
                                                         "material", &ConvexMeshCollider3DComponent::m_Material,
-                                                        "convexRadius", &ConvexMeshCollider3DComponent::m_ConvexRadius,
+                                                        "convexRadius", sol::property([](const ConvexMeshCollider3DComponent& c)
+                                                                                      { return c.m_ConvexRadius; }, [](ConvexMeshCollider3DComponent& c, f32 v)
+                                                                                      { if (std::isfinite(v) && v >= 0.0f) c.m_ConvexRadius = v; }),
                                                         "maxVertices", &ConvexMeshCollider3DComponent::m_MaxVertices);
 
         // --- TriangleMeshCollider3DComponent ---
         lua.new_usertype<TriangleMeshCollider3DComponent>("TriangleMeshCollider3DComponent",
                                                           "colliderAsset", &TriangleMeshCollider3DComponent::m_ColliderAsset,
-                                                          "offset", &TriangleMeshCollider3DComponent::m_Offset,
-                                                          "scale", &TriangleMeshCollider3DComponent::m_Scale,
+                                                          "offset", sol::property([](const TriangleMeshCollider3DComponent& c)
+                                                                                  { return c.m_Offset; }, [](TriangleMeshCollider3DComponent& c, const glm::vec3& v)
+                                                                                  { if (IsFiniteVec3(v)) c.m_Offset = v; }),
+                                                          "scale", sol::property([](const TriangleMeshCollider3DComponent& c)
+                                                                                 { return c.m_Scale; }, [](TriangleMeshCollider3DComponent& c, const glm::vec3& v)
+                                                                                 { if (IsFiniteVec3(v) && v.x > 0.0f && v.y > 0.0f && v.z > 0.0f) c.m_Scale = v; }),
                                                           "material", &TriangleMeshCollider3DComponent::m_Material);
 
         // --- TagComponent ---

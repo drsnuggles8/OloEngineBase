@@ -215,6 +215,7 @@ namespace OloEngine
     void ScriptEngine::Shutdown()
     {
         OLO_CORE_TRACE("[ScriptEngine] Shutting down.");
+        s_TestSceneContext = nullptr;
         if (!s_Data || !s_Data->RootDomain)
         {
             delete s_Data;
@@ -347,6 +348,7 @@ namespace OloEngine
     void ScriptEngine::OnRuntimeStart(Scene* scene)
     {
         s_Data->SceneContext = scene;
+        s_TestSceneContext = nullptr;
     }
 
     bool ScriptEngine::EntityClassExists(const std::string& fullClassName)
@@ -395,7 +397,7 @@ namespace OloEngine
 
     Scene* ScriptEngine::GetSceneContext()
     {
-        if (s_Data)
+        if (s_Data && s_Data->SceneContext)
             return s_Data->SceneContext;
         return s_TestSceneContext;
     }
@@ -429,6 +431,7 @@ namespace OloEngine
     void ScriptEngine::OnRuntimeStop()
     {
         s_Data->SceneContext = nullptr;
+        s_TestSceneContext = nullptr;
 
         s_Data->EntityInstances.clear();
     }
