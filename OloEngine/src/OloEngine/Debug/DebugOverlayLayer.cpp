@@ -74,13 +74,7 @@ namespace OloEngine
 
     void DebugOverlayLayer::DrawOverlayHUD()
     {
-        constexpr ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoDecoration
-            | ImGuiWindowFlags_NoDocking
-            | ImGuiWindowFlags_AlwaysAutoResize
-            | ImGuiWindowFlags_NoSavedSettings
-            | ImGuiWindowFlags_NoFocusOnAppearing
-            | ImGuiWindowFlags_NoNav
-            | ImGuiWindowFlags_NoMove;
+        constexpr ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
 
         constexpr f32 padding = 10.0f;
         auto const* viewport = ImGui::GetMainViewport();

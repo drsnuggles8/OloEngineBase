@@ -49,7 +49,7 @@ namespace OloEngine
 
     void ShaderResourceRegistry::DiscoverResources(u32 stage, const std::vector<u32>& spirvData, const std::string& filePath)
     {
-        OLO_CORE_WARN("ShaderResourceRegistry: DiscoverResources called for stage {}", stage);
+        OLO_CORE_TRACE("ShaderResourceRegistry: DiscoverResources called for stage {}", stage);
 
         try
         {
@@ -140,7 +140,7 @@ namespace OloEngine
 
         if (!ValidateStandardBindings())
         {
-            OLO_CORE_WARN("ShaderResourceRegistry: Shader has non-standard binding layout");
+            OLO_CORE_TRACE("ShaderResourceRegistry: Shader has non-standard binding layout");
         }
     }
 
@@ -446,8 +446,8 @@ namespace OloEngine
             {
                 if (!IsStandardUBOBinding(binding.BindingPoint, name))
                 {
-                    OLO_CORE_WARN("Non-standard UBO binding: '{}' at binding {}",
-                                  name, binding.BindingPoint);
+                    OLO_CORE_TRACE("Non-standard UBO binding: '{}' at binding {}",
+                                   name, binding.BindingPoint);
                     isValid = false;
                 }
             }
@@ -456,8 +456,8 @@ namespace OloEngine
             {
                 if (!IsStandardTextureBinding(binding.BindingPoint, name))
                 {
-                    OLO_CORE_WARN("Non-standard texture binding: '{}' at binding {}",
-                                  name, binding.BindingPoint);
+                    OLO_CORE_TRACE("Non-standard texture binding: '{}' at binding {}",
+                                   name, binding.BindingPoint);
                     isValid = false;
                 }
             }

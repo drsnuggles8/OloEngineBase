@@ -120,7 +120,9 @@ namespace OloEngine
         glDetachShader(m_RendererID, shader);
         glDeleteShader(shader);
 
-        OLO_TRACK_GPU_ALLOC(this, 0, RendererMemoryTracker::ResourceType::Shader, "OpenGL Compute Shader");
+        // Estimate GPU memory: source size + driver overhead for compiled program
+        const sizet estimatedMemory = source.size() + 1024;
+        OLO_TRACK_GPU_ALLOC(this, estimatedMemory, RendererMemoryTracker::ResourceType::Shader, "OpenGL Compute Shader");
 
         OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
         m_IsValid = true;

@@ -90,7 +90,7 @@ namespace OloEngine
                              const char* file = __FILE__, u32 line = __LINE__);
 
         // @brief Track a memory deallocation
-        void TrackDeallocation(void* address);
+        void TrackDeallocation(void* address, const char* file = __FILE__, u32 line = __LINE__);
 
         // @brief Update memory statistics (call once per frame)
         void UpdateStats();
@@ -189,8 +189,8 @@ namespace OloEngine
         OloEngine::RendererMemoryTracker::GetInstance().TrackAllocation(ptr, size, type, name, false, __FILE__, __LINE__); \
     } while (0)
 
-#define OLO_TRACK_DEALLOC(ptr)                                                  \
-    do                                                                          \
-    {                                                                           \
-        OloEngine::RendererMemoryTracker::GetInstance().TrackDeallocation(ptr); \
+#define OLO_TRACK_DEALLOC(ptr)                                                                      \
+    do                                                                                              \
+    {                                                                                               \
+        OloEngine::RendererMemoryTracker::GetInstance().TrackDeallocation(ptr, __FILE__, __LINE__); \
     } while (0)

@@ -471,7 +471,7 @@ namespace OloEngine
         sizet textureMemory = static_cast<sizet>(m_Width) * m_Height * channels;
         // Track GPU memory allocation
         std::string textureName = "OpenGL Texture2D: " + std::string(path);
-        OLO_TRACK_GPU_ALLOC(reinterpret_cast<void*>(static_cast<uintptr_t>(m_RendererID)),
+        OLO_TRACK_GPU_ALLOC(this,
                             textureMemory,
                             RendererMemoryTracker::ResourceType::Texture2D,
                             textureName);

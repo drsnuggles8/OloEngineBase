@@ -95,13 +95,7 @@ namespace OloEngine
 
     void PerformanceLayer::DrawPerformanceWindow()
     {
-        constexpr ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoDecoration
-            | ImGuiWindowFlags_NoDocking
-            | ImGuiWindowFlags_AlwaysAutoResize
-            | ImGuiWindowFlags_NoSavedSettings
-            | ImGuiWindowFlags_NoFocusOnAppearing
-            | ImGuiWindowFlags_NoNav
-            | ImGuiWindowFlags_NoMove;
+        constexpr ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
 
         constexpr f32 padding = 10.0f;
         auto const* viewport = ImGui::GetMainViewport();
@@ -169,8 +163,8 @@ namespace OloEngine
             auto const scaleMax = std::max(33.33f, m_FrameTimeMax * 1.1f);
 
             ImGui::PlotLines("##FrameTime", getter, &plotData,
-                static_cast<int>(m_FrameHistoryCount), 0,
-                nullptr, 0.0f, scaleMax, ImVec2(280.0f, 60.0f));
+                             static_cast<int>(m_FrameHistoryCount), 0,
+                             nullptr, 0.0f, scaleMax, ImVec2(280.0f, 60.0f));
 
             // Reference lines
             ImGui::TextDisabled("--- 16.67ms (60fps) --- 33.33ms (30fps)");
@@ -237,11 +231,11 @@ namespace OloEngine
         static constexpr MemCategory categories[] = {
             { "Textures", RT::Texture2D },
             { "Cubemaps", RT::TextureCubemap },
-            { "VBOs",     RT::VertexBuffer },
-            { "IBOs",     RT::IndexBuffer },
-            { "UBOs",     RT::UniformBuffer },
-            { "FBOs",     RT::Framebuffer },
-            { "Shaders",  RT::Shader },
+            { "VBOs", RT::VertexBuffer },
+            { "IBOs", RT::IndexBuffer },
+            { "UBOs", RT::UniformBuffer },
+            { "FBOs", RT::Framebuffer },
+            { "Shaders", RT::Shader },
         };
 
         for (auto const& [label, type] : categories)
@@ -287,7 +281,8 @@ namespace OloEngine
             entries.push_back({ &name, data.Time, data.Samples });
         }
 
-        std::ranges::sort(entries, [](auto const& a, auto const& b) { return a.Time > b.Time; });
+        std::ranges::sort(entries, [](auto const& a, auto const& b)
+                          { return a.Time > b.Time; });
 
         constexpr u32 maxShown = 8;
         auto const count = std::min(static_cast<u32>(entries.size()), maxShown);

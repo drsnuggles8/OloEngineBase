@@ -23,8 +23,14 @@ namespace OloEngine
         void OnImGuiRender() override;
         void OnEvent(Event& e) override;
 
-        [[nodiscard("Store this!")]] bool IsVisible() const { return m_Visible; }
-        void SetVisible(bool visible) { m_Visible = visible; }
+        [[nodiscard("Store this!")]] bool IsVisible() const
+        {
+            return m_Visible;
+        }
+        void SetVisible(bool visible)
+        {
+            m_Visible = visible;
+        }
 
       private:
         bool OnKeyPressed(KeyPressedEvent const& e);

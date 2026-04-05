@@ -78,7 +78,7 @@ namespace OloEngine
         // Check if shader is already registered
         if (m_Shaders.find(rendererID) != m_Shaders.end())
         {
-            OLO_CORE_WARN("Shader with ID {0} already registered", rendererID);
+            OLO_CORE_TRACE("Shader with ID {0} already registered", rendererID);
             return;
         }
 
@@ -86,8 +86,7 @@ namespace OloEngine
         info.m_RendererID = rendererID;
         info.m_Name = name;
         info.m_CreationTime = std::chrono::steady_clock::now();
-        // Initialize compilation result with zero instruction count
-        OLO_CORE_INFO("ShaderDebugger: RESET instruction count to 0 in OnCompilationStart (new shader): {0}", name);
+        // Initialize compilation metrics — real counts are populated in OnCompilationEnd
         info.m_LastCompilation.m_InstructionCount = 0;
         info.m_LastCompilation.m_VertexGeometrySPIRVSize = 0;
         info.m_LastCompilation.m_FragmentComputeSPIRVSize = 0;
@@ -117,7 +116,7 @@ namespace OloEngine
         // Check if shader is already registered
         if (m_Shaders.find(rendererID) != m_Shaders.end())
         {
-            OLO_CORE_WARN("Shader with ID {0} already registered", rendererID);
+            OLO_CORE_TRACE("Shader with ID {0} already registered", rendererID);
             return;
         }
 
@@ -126,8 +125,7 @@ namespace OloEngine
         info.m_Name = name;
         info.m_FilePath = filePath;
         info.m_CreationTime = std::chrono::steady_clock::now();
-        // Initialize compilation result with zero instruction count
-        OLO_CORE_INFO("ShaderDebugger: RESET instruction count to 0 in OnCompilationStart (file-based shader): {0}", name);
+        // Initialize compilation metrics — real counts are populated in OnCompilationEnd
         info.m_LastCompilation.m_InstructionCount = 0;
         info.m_LastCompilation.m_VertexGeometrySPIRVSize = 0;
         info.m_LastCompilation.m_FragmentComputeSPIRVSize = 0;

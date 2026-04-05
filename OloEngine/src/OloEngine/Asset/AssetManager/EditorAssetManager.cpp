@@ -710,7 +710,7 @@ namespace OloEngine
         AssetHandle existingHandle = m_AssetRegistry.GetHandleFromPath(relativePath);
         if (existingHandle != 0)
         {
-            OLO_CORE_WARN("Asset already imported: {}", relativePath.string());
+            OLO_CORE_TRACE("Asset already imported: {}", relativePath.string());
             return existingHandle;
         }
 
