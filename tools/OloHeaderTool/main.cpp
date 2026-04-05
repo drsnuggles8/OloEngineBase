@@ -37,17 +37,17 @@ enum class PropType
 
 struct PropertyDef
 {
-    std::string scriptName;  // Name exposed to scripts (e.g., "Color")
-    PropType type{PropType::Unknown};
-    std::string cppField;    // C++ field name (e.g., "m_Color")
-    std::string customGet;   // Custom getter expression (empty = direct field)
-    std::string customSet;   // Custom setter expression (empty = direct field)
+    std::string scriptName; // Name exposed to scripts (e.g., "Color")
+    PropType type{ PropType::Unknown };
+    std::string cppField;  // C++ field name (e.g., "m_Color")
+    std::string customGet; // Custom getter expression (empty = direct field)
+    std::string customSet; // Custom setter expression (empty = direct field)
 };
 
 struct ComponentDef
 {
-    std::string name;                    // e.g., "DirectionalLightComponent"
-    std::string sourceFile;              // e.g., "Components.h"
+    std::string name;       // e.g., "DirectionalLightComponent"
+    std::string sourceFile; // e.g., "Components.h"
     std::vector<PropertyDef> properties;
 };
 
@@ -100,14 +100,14 @@ static std::string CppReturnType(PropType t)
 {
     switch (t)
     {
-    case PropType::Float:
-        return "float";
-    case PropType::Bool:
-        return "bool";
-    case PropType::Int:
-        return "int";
-    default:
-        return "void";
+        case PropType::Float:
+            return "float";
+        case PropType::Bool:
+            return "bool";
+        case PropType::Int:
+            return "int";
+        default:
+            return "void";
     }
 }
 
@@ -115,14 +115,14 @@ static std::string GlmType(PropType t)
 {
     switch (t)
     {
-    case PropType::Vec2:
-        return "glm::vec2";
-    case PropType::Vec3:
-        return "glm::vec3";
-    case PropType::Vec4:
-        return "glm::vec4";
-    default:
-        return "";
+        case PropType::Vec2:
+            return "glm::vec2";
+        case PropType::Vec3:
+            return "glm::vec3";
+        case PropType::Vec4:
+            return "glm::vec4";
+        default:
+            return "";
     }
 }
 
@@ -130,22 +130,22 @@ static std::string CsType(PropType t)
 {
     switch (t)
     {
-    case PropType::Float:
-        return "float";
-    case PropType::Bool:
-        return "bool";
-    case PropType::Int:
-        return "int";
-    case PropType::Vec2:
-        return "Vector2";
-    case PropType::Vec3:
-        return "Vector3";
-    case PropType::Vec4:
-        return "Vector4";
-    case PropType::String:
-        return "string";
-    default:
-        return "???";
+        case PropType::Float:
+            return "float";
+        case PropType::Bool:
+            return "bool";
+        case PropType::Int:
+            return "int";
+        case PropType::Vec2:
+            return "Vector2";
+        case PropType::Vec3:
+            return "Vector3";
+        case PropType::Vec4:
+            return "Vector4";
+        case PropType::String:
+            return "string";
+        default:
+            return "???";
     }
 }
 
@@ -431,9 +431,9 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
                     // Find or create ComponentDef
                     if (compMap.find(currentComponent) == compMap.end())
                     {
-                        components.push_back({currentComponent,
-                                              entry.path().filename().string(),
-                                              {}});
+                        components.push_back({ currentComponent,
+                                               entry.path().filename().string(),
+                                               {} });
                         compMap[currentComponent] = &components.back();
                     }
                     compMap[currentComponent]->properties.push_back(prop);
