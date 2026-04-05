@@ -394,7 +394,6 @@
 		"OloEngine/HAL/Semaphore.h"
 		"OloEngine/HAL/Thread.h"
 		"OloEngine/HAL/ThreadManager.h"
-		"OloEngine/HAL/Windows/WindowsEvent.h"
 		
 		"OloEngine/Project/Project.cpp"
 		"OloEngine/Project/Project.h"
@@ -1007,11 +1006,26 @@
 		"Platform/OpenGL/OpenGLVertexArray.h"
 		"Platform/OpenGL/OpenGLVertexBuffer.cpp"
 		"Platform/OpenGL/OpenGLVertexBuffer.h"
+)
+
+# Platform-specific sources
+if(WIN32)
+	list(APPEND SOURCES
+		"OloEngine/HAL/Windows/WindowsEvent.h"
 		"Platform/Windows/WindowsInput.cpp"
 		"Platform/Windows/WindowsWindow.cpp"
 		"Platform/Windows/WindowsWindow.h"
 		"Platform/Windows/WindowsPlatformUtils.cpp"
-)
+	)
+elseif(UNIX AND NOT APPLE)
+	list(APPEND SOURCES
+		"OloEngine/HAL/Linux/LinuxEvent.h"
+		"Platform/Linux/LinuxInput.cpp"
+		"Platform/Linux/LinuxWindow.cpp"
+		"Platform/Linux/LinuxWindow.h"
+		"Platform/Linux/LinuxPlatformUtils.cpp"
+	)
+endif()
 
 add_library(OloEngine STATIC
 		${SOURCES}

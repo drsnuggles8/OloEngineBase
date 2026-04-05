@@ -222,6 +222,10 @@ namespace OloEngine::LowLevelTasks
             union FPackedData
             {
                 uptr PackedData;
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+#endif
                 struct
                 {
                     uptr State : 6;
@@ -229,6 +233,9 @@ namespace OloEngine::LowLevelTasks
                     uptr Priority : 3;
                     uptr Flags : 2;
                 };
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
               private:
                 friend class FTaskBase::FPackedDataAtomic;
@@ -256,8 +263,8 @@ namespace OloEngine::LowLevelTasks
                     static_assert(sizeof(FPackedData) == sizeof(uptr), "Packed data needs to be pointer size");
                 }
 
-                FPackedData(const FPackedData& Other, ETaskState State)
-                    : FPackedData(Other.GetDebugName(), Other.GetPriority(), State, Other.GetFlags())
+                FPackedData(const FPackedData& Other, ETaskState InState)
+                    : FPackedData(Other.GetDebugName(), Other.GetPriority(), InState, Other.GetFlags())
                 {
                 }
 

@@ -22,6 +22,8 @@
 #include <Windows.h>
 #else
 #include <pthread.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 #endif
 
 namespace OloEngine
@@ -74,13 +76,9 @@ namespace OloEngine
 #if defined(OLO_PLATFORM_WINDOWS)
             return ::GetCurrentThreadId();
 #else
-            // Note: pthread_t is opaque and may not be an integer type on all platforms.
-            // This cast works on common POSIX systems but may need platform-specific handling.
-            // UE5.7 uses syscall(SYS_gettid) on GNU systems for better compatibility.
-            // For now, verify at compile-time that the cast is safe.
-            static_assert(sizeof(u32) == sizeof(pthread_t),
-                          "pthread_t cannot be converted to u32 - platform-specific GetCurrentThreadId() needed");
-            return static_cast<u32>(pthread_self());
+            // pthread_t is 8 bytes on 64-bit Linux; use syscall(SYS_gettid) which
+            // returns a pid_t (fits in u32) and matches kernel thread IDs.
+            return static_cast<u32>(syscall(SYS_gettid));
 #endif
         }
 

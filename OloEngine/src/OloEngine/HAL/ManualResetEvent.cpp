@@ -179,7 +179,9 @@ namespace OloEngine
 
                 // Use FUTEX_WAIT_BITSET_PRIVATE which supports absolute timeouts
                 // FUTEX_BITSET_MATCH_ANY (0xFFFFFFFF) matches any bit
+#ifndef FUTEX_BITSET_MATCH_ANY
                 constexpr u32 FUTEX_BITSET_MATCH_ANY = 0xFFFFFFFF;
+#endif
                 syscall(SYS_futex, &m_State, FUTEX_WAIT_BITSET_PRIVATE | FUTEX_CLOCK_REALTIME,
                         0, &AbsTimeSpec, nullptr, FUTEX_BITSET_MATCH_ANY);
             }

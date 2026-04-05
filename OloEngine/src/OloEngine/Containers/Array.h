@@ -362,7 +362,14 @@ namespace OloEngine
          */
         template<typename ElementType, typename AllocatorType>
         static char (&ResolveIsTArrayPtr(const volatile TArray<ElementType, AllocatorType>*))[2];
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#endif
         static char (&ResolveIsTArrayPtr(...))[1];
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
         /**
          * @brief Type trait to check if T is a TArray or derived from TArray

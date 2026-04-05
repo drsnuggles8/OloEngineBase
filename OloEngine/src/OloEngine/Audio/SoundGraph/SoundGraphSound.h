@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Audio/AudioSource.h"
+#include "OloEngine/Audio/SoundGraph/SoundGraphSource.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/Timestep.h"
@@ -17,7 +18,6 @@ namespace OloEngine
 
     namespace Audio::SoundGraph
     {
-        class SoundGraphSource;
         class SoundGraph;
     } // namespace Audio::SoundGraph
 

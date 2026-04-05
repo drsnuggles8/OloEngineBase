@@ -12,9 +12,9 @@ namespace OloEngine
     class CommandAllocator
     {
       public:
-        static const sizet DEFAULT_BLOCK_SIZE = 64 * 1024; // 64KB blocks
-        static const sizet MAX_COMMAND_SIZE = 1024;        // Maximum size of any command (increased for PBR)
-        static const sizet COMMAND_ALIGNMENT = 16;         // Ensure commands are aligned properly
+        static constexpr sizet DEFAULT_BLOCK_SIZE = 64 * 1024; // 64KB blocks
+        static constexpr sizet MAX_COMMAND_SIZE = 1024;        // Maximum size of any command (increased for PBR)
+        static constexpr sizet COMMAND_ALIGNMENT = 16;         // Ensure commands are aligned properly
 
         explicit CommandAllocator(sizet blockSize = DEFAULT_BLOCK_SIZE);
         ~CommandAllocator() = default;

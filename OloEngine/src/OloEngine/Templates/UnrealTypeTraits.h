@@ -374,8 +374,11 @@ namespace OloEngine
                                         Expose_TFormatSpecifier(f32, "%f")
                                             Expose_TFormatSpecifier(f64, "%f")
                                                 Expose_TFormatSpecifier(long double, "%f")
+// On LP64 (Linux/macOS), long == int64_t, so these would be duplicate specializations
+#if defined(_WIN32) || !(defined(__LP64__) || defined(_LP64))
                                                     Expose_TFormatSpecifier(long, "%ld")
                                                         Expose_TFormatSpecifier(unsigned long, "%lu")
+#endif
 
         // ========================================================================
         // Type Name Traits

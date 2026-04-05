@@ -151,7 +151,6 @@ FetchContent_Declare(
 	GIT_REPOSITORY	https://github.com/protocolbuffers/protobuf.git
 	GIT_TAG			v3.21.12
 	GIT_SHALLOW		TRUE
-	SOURCE_SUBDIR	cmake
 	EXCLUDE_FROM_ALL
 )
 
@@ -166,9 +165,17 @@ FetchContent_Declare(
 
 FetchContent_GetProperties(zlib)
 FetchContent_MakeAvailable(zlib)
-set(ZLIB_LIBRARY_DEBUG "${zlib_BINARY_DIR}/Debug/${CMAKE_STATIC_LIBRARY_PREFIX}zlibd${CMAKE_STATIC_LIBRARY_SUFFIX}")
-set(ZLIB_LIBRARY_RELEASE "${zlib_BINARY_DIR}/Release/${CMAKE_STATIC_LIBRARY_PREFIX}zlib${CMAKE_STATIC_LIBRARY_SUFFIX}")
-set(ZLIB_LIBRARY_DIST "${zlib_BINARY_DIR}/Dist/${CMAKE_STATIC_LIBRARY_PREFIX}zlib${CMAKE_STATIC_LIBRARY_SUFFIX}")
+if(CMAKE_CONFIGURATION_TYPES)
+	# Multi-config generators (MSVC, Xcode) — libraries go into per-config subdirectories
+	set(ZLIB_LIBRARY_DEBUG "${zlib_BINARY_DIR}/Debug/${CMAKE_STATIC_LIBRARY_PREFIX}zlibd${CMAKE_STATIC_LIBRARY_SUFFIX}")
+	set(ZLIB_LIBRARY_RELEASE "${zlib_BINARY_DIR}/Release/${CMAKE_STATIC_LIBRARY_PREFIX}zlib${CMAKE_STATIC_LIBRARY_SUFFIX}")
+	set(ZLIB_LIBRARY_DIST "${zlib_BINARY_DIR}/Dist/${CMAKE_STATIC_LIBRARY_PREFIX}zlib${CMAKE_STATIC_LIBRARY_SUFFIX}")
+else()
+	# Single-config generators (Ninja, Make) — library is in the build dir directly
+	set(ZLIB_LIBRARY_DEBUG "${zlib_BINARY_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}z${CMAKE_STATIC_LIBRARY_SUFFIX}")
+	set(ZLIB_LIBRARY_RELEASE "${zlib_BINARY_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}z${CMAKE_STATIC_LIBRARY_SUFFIX}")
+	set(ZLIB_LIBRARY_DIST "${zlib_BINARY_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}z${CMAKE_STATIC_LIBRARY_SUFFIX}")
+endif()
 set(ZLIB_LIBRARY $<$<CONFIG:Debug>:${ZLIB_LIBRARY_DEBUG}>$<$<CONFIG:Release>:${ZLIB_LIBRARY_RELEASE}>$<$<CONFIG:Dist>:${ZLIB_LIBRARY_DIST}>)
 set(ZLIB_INCLUDE_DIR "${zlib_SOURCE_DIR};${zlib_BINARY_DIR}")
 set(ZLIB_INCLUDE_DIRS "${zlib_SOURCE_DIR};${zlib_BINARY_DIR}")
@@ -186,9 +193,16 @@ set(PNG_INTEL_SSE "off" CACHE STRING "Disable Intel SSE optimizations" FORCE)
 FetchContent_MakeAvailable(libpng)
 set(PNG_LIBRARY png CACHE INTERNAL "")
 set(PNG_PNG_INCLUDE_DIR ${libpng_SOURCE_DIR} CACHE INTERNAL "")
-set(PNG_LIBRARY_DIST ${libpng_BINARY_DIR}/Dist/libpng16.lib)
-set(PNG_LIBRARY_RELEASE ${libpng_BINARY_DIR}/Release/libpng16.lib)
-set(PNG_LIBRARY_DEBUG ${libpng_BINARY_DIR}/Debug/libpng16d.lib)
+if(MSVC)
+	set(PNG_LIBRARY_DIST ${libpng_BINARY_DIR}/Dist/libpng16.lib)
+	set(PNG_LIBRARY_RELEASE ${libpng_BINARY_DIR}/Release/libpng16.lib)
+	set(PNG_LIBRARY_DEBUG ${libpng_BINARY_DIR}/Debug/libpng16d.lib)
+else()
+	# On Linux with single-config generators, the library is in the build dir directly
+	set(PNG_LIBRARY_DIST ${libpng_BINARY_DIR}/libpng16${CMAKE_SHARED_LIBRARY_SUFFIX})
+	set(PNG_LIBRARY_RELEASE ${libpng_BINARY_DIR}/libpng16${CMAKE_SHARED_LIBRARY_SUFFIX})
+	set(PNG_LIBRARY_DEBUG ${libpng_BINARY_DIR}/libpng16d${CMAKE_SHARED_LIBRARY_SUFFIX})
+endif()
 find_package(PNG REQUIRED)
 if(TARGET PNG::PNG)
   set_target_properties(PNG::PNG PROPERTIES
@@ -269,6 +283,12 @@ set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
 set(JPH_BUILD_SHARED_LIBRARY OFF CACHE BOOL "" FORCE)
 set(JPH_STATIC_LIBRARY ON CACHE BOOL "" FORCE)
 set(JPH_CROSS_PLATFORM_DETERMINISTIC ON CACHE BOOL "" FORCE)
+# Enable C++ RTTI in Jolt — our engine uses dynamic_cast/typeid on Jolt shape types
+set(CPP_RTTI_ENABLED ON CACHE BOOL "" FORCE)
+# Disable Jolt Vulkan compute shaders on Linux — requires dxc which is not readily available
+if(NOT MSVC)
+	set(JPH_USE_VK OFF CACHE BOOL "" FORCE)
+endif()
 
 
 FetchContent_MakeAvailable(assimp atomic_queue box2d entt filewatch glad glfw glm googletest joltphysics miniaudio msdfgen msdf-atlas-gen recastnavigation spdlog tracy yaml-cpp)
@@ -354,7 +374,9 @@ if(lua_ADDED)
 endif()
 
 set_target_properties(assimp PROPERTIES FOLDER "Utilities/assimp")
-set_target_properties(UpdateAssimpLibsDebugSymbolsAndDLLs PROPERTIES FOLDER "Utilities/assimp")
+if(TARGET UpdateAssimpLibsDebugSymbolsAndDLLs)
+	set_target_properties(UpdateAssimpLibsDebugSymbolsAndDLLs PROPERTIES FOLDER "Utilities/assimp")
+endif()
 
 # --- Build libsodium (must be before GNS) ---
 FetchContent_GetProperties(libsodium)
@@ -393,13 +415,38 @@ if(NOT libsodium_POPULATED)
 			HAVE_TI_MODE=1
 			NATIVE_LITTLE_ENDIAN=1
 		)
+		# Generate version.h for non-MSVC builds (autotools would normally do this)
+		if(NOT EXISTS "${libsodium_SOURCE_DIR}/src/libsodium/include/sodium/version.h")
+			file(WRITE "${libsodium_SOURCE_DIR}/src/libsodium/include/sodium/version.h"
+				"#ifndef sodium_version_H\n"
+				"#define sodium_version_H\n"
+				"#define SODIUM_VERSION_STRING \"1.0.20\"\n"
+				"#define SODIUM_LIBRARY_VERSION_MAJOR 26\n"
+				"#define SODIUM_LIBRARY_VERSION_MINOR 2\n"
+				"#define SODIUM_LIBRARY_MINIMAL 0\n"
+				"#endif\n"
+			)
+		endif()
 	endif()
 	target_compile_definitions(sodium PUBLIC SODIUM_STATIC=1)
 endif()
-# Set variables for GNS's FindSodium.cmake
+# Bypass GNS's Findsodium.cmake: mark sodium as found and point at our target.
+# GNS's module unsets cached variables and runs find_library which fails at
+# configure time (the .a doesn't exist yet). Instead, we provide our own
+# minimal Findsodium that recognises the already-defined 'sodium' target.
+set(sodium_FOUND TRUE CACHE BOOL "" FORCE)
 set(sodium_INCLUDE_DIR "${libsodium_SOURCE_DIR}/src/libsodium/include" CACHE PATH "" FORCE)
-set(sodium_LIBRARY_RELEASE sodium CACHE STRING "" FORCE)
-set(sodium_LIBRARY_DEBUG sodium CACHE STRING "" FORCE)
+# Write a tiny Findsodium override into the build tree so find_package(sodium)
+# short-circuits when GNS calls it.
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/cmake_override/Findsodium.cmake"
+"# Auto-generated override — the 'sodium' target was already built by FetchContent.\n"
+"if(TARGET sodium)\n"
+"  set(sodium_FOUND TRUE)\n"
+"  set(sodium_INCLUDE_DIR \"${libsodium_SOURCE_DIR}/src/libsodium/include\")\n"
+"  return()\n"
+"endif()\n"
+)
+list(INSERT CMAKE_MODULE_PATH 0 "${CMAKE_CURRENT_BINARY_DIR}/cmake_override")
 
 # --- Build Protobuf (must be before GNS) ---
 set(protobuf_BUILD_TESTS OFF CACHE BOOL "" FORCE)

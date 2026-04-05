@@ -6,6 +6,7 @@
 #include <string>
 #include <map>
 
+#if OLO_ENABLE_CSHARP_SCRIPTING
 extern "C"
 {
     using MonoClass = struct _MonoClass;
@@ -16,6 +17,16 @@ extern "C"
     using MonoClassField = struct _MonoClassField;
     using MonoString = struct _MonoString;
 }
+#else
+// Opaque stubs so the API compiles without Mono headers
+using MonoClass = void;
+using MonoObject = void;
+using MonoMethod = void;
+using MonoAssembly = void;
+using MonoImage = void;
+using MonoClassField = void;
+using MonoString = void;
+#endif
 
 namespace OloEngine
 {

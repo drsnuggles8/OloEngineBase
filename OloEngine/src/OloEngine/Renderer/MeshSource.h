@@ -8,6 +8,8 @@
 #include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
+#include "OloEngine/Renderer/VertexArray.h"
+#include "OloEngine/Renderer/Buffer.h"
 
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Containers/Map.h"
@@ -23,9 +25,7 @@
 namespace OloEngine
 {
     // Forward declarations
-    class VertexArray;
     class VertexBuffer;
-    class IndexBuffer;
 
     // @brief Submesh data structure for organizing mesh geometry
     // Compatible with Hazel's Submesh class for asset compatibility

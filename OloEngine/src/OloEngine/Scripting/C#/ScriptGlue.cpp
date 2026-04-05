@@ -2,6 +2,8 @@
 #include "ScriptGlue.h"
 #include "ScriptEngine.h"
 
+#if OLO_ENABLE_CSHARP_SCRIPTING
+
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Core/KeyCodes.h"
 #include "OloEngine/Core/Input.h"
@@ -4243,3 +4245,13 @@ namespace OloEngine
     }
 
 } // namespace OloEngine
+
+#else // !OLO_ENABLE_CSHARP_SCRIPTING
+
+namespace OloEngine
+{
+    void ScriptGlue::RegisterComponents() {}
+    void ScriptGlue::RegisterFunctions() {}
+} // namespace OloEngine
+
+#endif // OLO_ENABLE_CSHARP_SCRIPTING

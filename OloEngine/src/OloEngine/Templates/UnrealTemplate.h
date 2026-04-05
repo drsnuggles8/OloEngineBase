@@ -18,6 +18,10 @@
 
 namespace OloEngine
 {
+    // Forward declaration — full definition in UnrealTypeTraits.h
+    // Needed here because of circular include between UnrealTemplate.h <-> UnrealTypeTraits.h
+    template<typename T>
+    struct TIsContiguousContainer;
     // ========================================================================
     // GetData / GetNum - Generic container accessors
     // ========================================================================

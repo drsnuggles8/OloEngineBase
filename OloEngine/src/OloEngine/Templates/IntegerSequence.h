@@ -23,6 +23,11 @@ namespace OloEngine
     template<typename T, T N>
     using TMakeIntegerSequence = __make_integer_seq<TIntegerSequence, T, N>;
 
+#elif __has_builtin(__integer_pack)
+
+    template<typename T, T N>
+    using TMakeIntegerSequence = TIntegerSequence<T, __integer_pack(N)...>;
+
 #else
 
     namespace Private

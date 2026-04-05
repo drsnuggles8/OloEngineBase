@@ -6,6 +6,9 @@
 #include "OloEngine/Debug/Profiler.h"
 
 #define MINIAUDIO_IMPLEMENTATION
+#ifdef __GNUC__
+#define MA_DR_FLAC_NO_SSE41
+#endif
 #include <miniaudio.h>
 
 namespace OloEngine

@@ -6,6 +6,9 @@
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 
 #define STB_IMAGE_IMPLEMENTATION
+#ifdef __GNUC__
+#define STBI_NO_SIMD
+#endif
 #include <stb_image/stb_image.h>
 
 namespace OloEngine

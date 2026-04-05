@@ -2684,7 +2684,7 @@ namespace OloEngine
         }
     } // namespace Freeze
 
-    /** Declare intrinsic type layout for TBitArray */
-    DECLARE_TEMPLATE_INTRINSIC_TYPE_LAYOUT(template<typename Allocator>, TBitArray<Allocator>);
-
 } // namespace OloEngine
+
+/** Declare intrinsic type layout for TBitArray */
+DECLARE_TEMPLATE_INTRINSIC_TYPE_LAYOUT(template<typename Allocator>, OloEngine::TBitArray<Allocator>);
