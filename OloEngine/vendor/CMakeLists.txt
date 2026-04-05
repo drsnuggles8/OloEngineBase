@@ -80,6 +80,12 @@ FetchContent_Declare(
 )
 
 FetchContent_Declare(
+	meshoptimizer
+	GIT_REPOSITORY	https://github.com/zeux/meshoptimizer.git
+	GIT_TAG			v1.1
+	GIT_SHALLOW		TRUE
+)
+FetchContent_Declare(
 	recastnavigation
 	GIT_REPOSITORY	https://github.com/recastnavigation/recastnavigation.git
 	GIT_TAG			v1.6.0
@@ -198,7 +204,7 @@ if(NOT MSVC)
 endif()
 
 
-FetchContent_MakeAvailable(assimp atomic_queue box2d entt filewatch glad glfw glm googletest joltphysics miniaudio recastnavigation spdlog tracy yaml-cpp)
+FetchContent_MakeAvailable(assimp atomic_queue box2d entt filewatch glad glfw glm googletest joltphysics meshoptimizer miniaudio recastnavigation spdlog tracy yaml-cpp)
 
 # Fix Jolt's INTERFACE_INCLUDE_DIRECTORIES to remove absolute Vulkan SDK paths
 # This is a workaround for CMake's strict policy against source-dir absolute paths in interface directories
@@ -437,6 +443,7 @@ set_target_properties(gtest PROPERTIES FOLDER "Utilities/googletest")
 set_target_properties(gtest_main PROPERTIES FOLDER "Utilities/googletest")
 set_target_properties(Jolt PROPERTIES FOLDER "Utilities/JoltPhysics")
 set_target_properties(miniaudio PROPERTIES FOLDER "Utilities/miniaudio")
+set_target_properties(meshoptimizer PROPERTIES FOLDER "Utilities/meshoptimizer")
 set_target_properties(miniaudio_channel_combiner_node PROPERTIES FOLDER "Utilities/miniaudio")
 set_target_properties(miniaudio_channel_separator_node PROPERTIES FOLDER "Utilities/miniaudio")
 set_target_properties(miniaudio_ltrim_node PROPERTIES FOLDER "Utilities/miniaudio")

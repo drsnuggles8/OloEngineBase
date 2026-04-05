@@ -107,6 +107,7 @@ target_include_directories(OloEngine PUBLIC
 	vendor/glfw-src/include
 	vendor/glm-src
 	vendor/joltphysics-src
+	vendor/meshoptimizer-src/src
 	vendor/miniaudio-src
 	vendor/lua-src
 	vendor/imgui-src
@@ -143,6 +144,7 @@ target_link_libraries(OloEngine
 	imgui
 	imguizmo
 	Jolt
+	meshoptimizer
 	nlohmann_json::nlohmann_json
 	Recast
 	sol2

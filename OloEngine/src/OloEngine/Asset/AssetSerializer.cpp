@@ -34,6 +34,8 @@
 #include "OloEngine/Particle/ParticleSystemAsset.h"
 #include "OloEngine/Particle/EmissionShapeUtils.h"
 #include "OloEngine/Particle/ParticleCurveSerializer.h"
+#include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Renderer/MeshOptimization.h"
 #include <yaml-cpp/yaml.h>
 #include <stb_image/stb_image.h>
 #include <fstream>
@@ -1842,18 +1844,275 @@ namespace OloEngine
         return false;
     }
 
-    bool MeshSourceSerializer::SerializeToAssetPack([[maybe_unused]] AssetHandle handle, [[maybe_unused]] FileStreamWriter& stream, [[maybe_unused]] AssetSerializationInfo& outInfo) const
+    bool MeshSourceSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
-        // TODO: Implement mesh source pack serialization
-        OLO_CORE_WARN("MeshSourceSerializer::SerializeToAssetPack not yet implemented");
-        return false;
+        OLO_PROFILE_FUNCTION();
+
+        auto meshSource = AssetManager::GetAsset<MeshSource>(handle);
+        if (!meshSource)
+        {
+            OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Invalid MeshSource asset");
+            return false;
+        }
+
+        outInfo.Offset = stream.GetStreamPosition();
+
+        const auto& vertices = meshSource->GetVertices();
+        const auto& indices = meshSource->GetIndices();
+        const auto& submeshes = meshSource->GetSubmeshes();
+        const auto& materials = meshSource->GetMaterials();
+
+        auto vertexCount = static_cast<u32>(vertices.Num());
+        auto indexCount = static_cast<u32>(indices.Num());
+        auto submeshCount = static_cast<u32>(submeshes.Num());
+        auto materialCount = static_cast<u32>(materials.Num());
+        bool hasBoneInfluences = meshSource->HasBoneInfluences();
+        bool hasShadowIndices = meshSource->HasShadowIndices();
+
+        // Write counts and flags
+        stream.WriteRaw<u32>(vertexCount);
+        stream.WriteRaw<u32>(indexCount);
+        stream.WriteRaw<u32>(submeshCount);
+        stream.WriteRaw<u32>(materialCount);
+        stream.WriteRaw<bool>(hasBoneInfluences);
+        stream.WriteRaw<bool>(hasShadowIndices);
+
+        // Encode and write vertex buffer
+        if (vertexCount > 0)
+        {
+            auto encodedVB = MeshOptimization::EncodeVertexBuffer(
+                vertices.GetData(), vertexCount, sizeof(Vertex));
+            auto encodedSize = static_cast<u64>(encodedVB.Data.size());
+            stream.WriteRaw<u64>(encodedSize);
+            stream.WriteData(reinterpret_cast<const char*>(encodedVB.Data.data()),
+                             static_cast<sizet>(encodedSize));
+        }
+
+        // Encode and write index buffer
+        if (indexCount > 0)
+        {
+            auto encodedIB = MeshOptimization::EncodeIndexBuffer(
+                indices.GetData(), indexCount, vertexCount);
+            auto encodedSize = static_cast<u64>(encodedIB.Data.size());
+            stream.WriteRaw<u64>(encodedSize);
+            stream.WriteData(reinterpret_cast<const char*>(encodedIB.Data.data()),
+                             static_cast<sizet>(encodedSize));
+        }
+
+        // Write submeshes
+        for (i32 i = 0; i < submeshes.Num(); ++i)
+        {
+            const auto& sub = submeshes[i];
+            stream.WriteData(reinterpret_cast<const char*>(&sub.m_Transform), sizeof(glm::mat4));
+            stream.WriteData(reinterpret_cast<const char*>(&sub.m_LocalTransform), sizeof(glm::mat4));
+            stream.WriteData(reinterpret_cast<const char*>(&sub.m_BoundingBox), sizeof(BoundingBox));
+            stream.WriteRaw<u32>(sub.m_BaseVertex);
+            stream.WriteRaw<u32>(sub.m_BaseIndex);
+            stream.WriteRaw<u32>(sub.m_MaterialIndex);
+            stream.WriteRaw<u32>(sub.m_IndexCount);
+            stream.WriteRaw<u32>(sub.m_VertexCount);
+            stream.WriteString(sub.m_NodeName);
+            stream.WriteString(sub.m_MeshName);
+            stream.WriteRaw<bool>(sub.m_IsRigged);
+        }
+
+        // Write materials
+        for (const auto& [index, matHandle] : materials)
+        {
+            stream.WriteRaw<u32>(index);
+            stream.WriteRaw<AssetHandle>(matHandle);
+        }
+
+        // Encode and write bone influences
+        if (hasBoneInfluences)
+        {
+            const auto& boneInfluences = meshSource->GetBoneInfluences();
+            auto boneCount = static_cast<u32>(boneInfluences.Num());
+            stream.WriteRaw<u32>(boneCount);
+
+            if (boneCount > 0)
+            {
+                auto encodedBones = MeshOptimization::EncodeVertexBuffer(
+                    boneInfluences.GetData(), boneCount, sizeof(BoneInfluence));
+                auto encodedSize = static_cast<u64>(encodedBones.Data.size());
+                stream.WriteRaw<u64>(encodedSize);
+                stream.WriteData(reinterpret_cast<const char*>(encodedBones.Data.data()),
+                                 static_cast<sizet>(encodedSize));
+            }
+        }
+
+        // Encode and write shadow indices
+        if (hasShadowIndices)
+        {
+            const auto& shadowIndices = meshSource->GetShadowIndices();
+            auto shadowCount = static_cast<u32>(shadowIndices.Num());
+            stream.WriteRaw<u32>(shadowCount);
+
+            if (shadowCount > 0)
+            {
+                auto encodedShadow = MeshOptimization::EncodeIndexBuffer(
+                    shadowIndices.GetData(), shadowCount, vertexCount);
+                auto encodedSize = static_cast<u64>(encodedShadow.Data.size());
+                stream.WriteRaw<u64>(encodedSize);
+                stream.WriteData(reinterpret_cast<const char*>(encodedShadow.Data.data()),
+                                 static_cast<sizet>(encodedSize));
+            }
+        }
+
+        outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
+        OLO_CORE_TRACE("MeshSourceSerializer::SerializeToAssetPack: {} verts, {} indices, {} bytes (encoded)",
+                       vertexCount, indexCount, outInfo.Size);
+        return true;
     }
 
-    Ref<Asset> MeshSourceSerializer::DeserializeFromAssetPack([[maybe_unused]] FileStreamReader& stream, [[maybe_unused]] const AssetPackFile::AssetInfo& assetInfo) const
+    Ref<Asset> MeshSourceSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
-        // TODO: Implement mesh source pack deserialization
-        OLO_CORE_WARN("MeshSourceSerializer::DeserializeFromAssetPack not yet implemented");
-        return nullptr;
+        OLO_PROFILE_FUNCTION();
+
+        // Read counts and flags
+        u32 vertexCount = 0;
+        u32 indexCount = 0;
+        u32 submeshCount = 0;
+        u32 materialCount = 0;
+        bool hasBoneInfluences = false;
+        bool hasShadowIndices = false;
+
+        stream.ReadRaw<u32>(vertexCount);
+        stream.ReadRaw<u32>(indexCount);
+        stream.ReadRaw<u32>(submeshCount);
+        stream.ReadRaw<u32>(materialCount);
+        stream.ReadRaw<bool>(hasBoneInfluences);
+        stream.ReadRaw<bool>(hasShadowIndices);
+
+        // Decode vertex buffer
+        TArray<Vertex> vertices;
+        if (vertexCount > 0)
+        {
+            u64 encodedSize = 0;
+            stream.ReadRaw<u64>(encodedSize);
+
+            EncodedMeshBuffer encoded;
+            encoded.Data.resize(static_cast<sizet>(encodedSize));
+            encoded.OriginalSize = vertexCount * sizeof(Vertex);
+            stream.ReadData(reinterpret_cast<char*>(encoded.Data.data()),
+                            static_cast<sizet>(encodedSize));
+
+            vertices.SetNum(static_cast<i32>(vertexCount));
+            if (!MeshOptimization::DecodeVertexBuffer(vertices.GetData(), vertexCount, sizeof(Vertex), encoded))
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to decode vertex buffer");
+                return nullptr;
+            }
+        }
+
+        // Decode index buffer
+        TArray<u32> indices;
+        if (indexCount > 0)
+        {
+            u64 encodedSize = 0;
+            stream.ReadRaw<u64>(encodedSize);
+
+            EncodedMeshBuffer encoded;
+            encoded.Data.resize(static_cast<sizet>(encodedSize));
+            encoded.OriginalSize = indexCount * sizeof(u32);
+            stream.ReadData(reinterpret_cast<char*>(encoded.Data.data()),
+                            static_cast<sizet>(encodedSize));
+
+            indices.SetNum(static_cast<i32>(indexCount));
+            if (!MeshOptimization::DecodeIndexBuffer(indices.GetData(), indexCount, encoded))
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to decode index buffer");
+                return nullptr;
+            }
+        }
+
+        auto meshSource = Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+
+        // Read submeshes
+        for (u32 i = 0; i < submeshCount; ++i)
+        {
+            Submesh sub;
+            stream.ReadData(reinterpret_cast<char*>(&sub.m_Transform), sizeof(glm::mat4));
+            stream.ReadData(reinterpret_cast<char*>(&sub.m_LocalTransform), sizeof(glm::mat4));
+            stream.ReadData(reinterpret_cast<char*>(&sub.m_BoundingBox), sizeof(BoundingBox));
+            stream.ReadRaw<u32>(sub.m_BaseVertex);
+            stream.ReadRaw<u32>(sub.m_BaseIndex);
+            stream.ReadRaw<u32>(sub.m_MaterialIndex);
+            stream.ReadRaw<u32>(sub.m_IndexCount);
+            stream.ReadRaw<u32>(sub.m_VertexCount);
+            stream.ReadString(sub.m_NodeName);
+            stream.ReadString(sub.m_MeshName);
+            stream.ReadRaw<bool>(sub.m_IsRigged);
+            meshSource->AddSubmesh(sub);
+        }
+
+        // Read materials
+        for (u32 i = 0; i < materialCount; ++i)
+        {
+            u32 matIndex = 0;
+            AssetHandle matHandle{};
+            stream.ReadRaw<u32>(matIndex);
+            stream.ReadRaw<AssetHandle>(matHandle);
+            meshSource->SetMaterial(matIndex, matHandle);
+        }
+
+        // Decode bone influences
+        if (hasBoneInfluences)
+        {
+            u32 boneCount = 0;
+            stream.ReadRaw<u32>(boneCount);
+
+            if (boneCount > 0)
+            {
+                u64 encodedSize = 0;
+                stream.ReadRaw<u64>(encodedSize);
+
+                EncodedMeshBuffer encoded;
+                encoded.Data.resize(static_cast<sizet>(encodedSize));
+                encoded.OriginalSize = boneCount * sizeof(BoneInfluence);
+                stream.ReadData(reinterpret_cast<char*>(encoded.Data.data()),
+                                static_cast<sizet>(encodedSize));
+
+                auto& boneInfluences = meshSource->GetBoneInfluences();
+                boneInfluences.SetNum(static_cast<i32>(boneCount));
+                if (!MeshOptimization::DecodeVertexBuffer(boneInfluences.GetData(), boneCount, sizeof(BoneInfluence), encoded))
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to decode bone influences");
+                }
+            }
+        }
+
+        // Decode shadow indices
+        if (hasShadowIndices)
+        {
+            u32 shadowCount = 0;
+            stream.ReadRaw<u32>(shadowCount);
+
+            if (shadowCount > 0)
+            {
+                u64 encodedSize = 0;
+                stream.ReadRaw<u64>(encodedSize);
+
+                EncodedMeshBuffer encoded;
+                encoded.Data.resize(static_cast<sizet>(encodedSize));
+                encoded.OriginalSize = shadowCount * sizeof(u32);
+                stream.ReadData(reinterpret_cast<char*>(encoded.Data.data()),
+                                static_cast<sizet>(encodedSize));
+
+                auto& shadowIndices = meshSource->GetShadowIndices();
+                shadowIndices.SetNum(static_cast<i32>(shadowCount));
+                if (!MeshOptimization::DecodeIndexBuffer(shadowIndices.GetData(), shadowCount, encoded))
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to decode shadow indices");
+                }
+            }
+        }
+
+        meshSource->SetHandle(assetInfo.Handle);
+
+        OLO_CORE_TRACE("MeshSourceSerializer::DeserializeFromAssetPack: {} verts, {} indices",
+                       vertexCount, indexCount);
+        return meshSource;
     }
 
     //////////////////////////////////////////////////////////////////////////////////

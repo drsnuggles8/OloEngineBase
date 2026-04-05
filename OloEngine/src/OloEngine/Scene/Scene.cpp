@@ -3653,9 +3653,14 @@ namespace OloEngine
                             auto va = submesh->GetVertexArray();
                             if (va)
                             {
+                                RendererID shadowVao = 0;
+                                if (auto const& ms = submesh->GetMeshSource(); ms && ms->HasShadowVertexArray())
+                                {
+                                    shadowVao = ms->GetShadowVertexArray()->GetRendererID();
+                                }
                                 meshShadowPass->AddMeshCaster(
                                     va->GetRendererID(), submesh->GetIndexCount(),
-                                    transform.GetTransform());
+                                    transform.GetTransform(), shadowVao);
                             }
                         }
                     }
@@ -3708,9 +3713,14 @@ namespace OloEngine
                     auto va = submesh.m_Mesh->GetVertexArray();
                     if (va)
                     {
+                        RendererID shadowVao = 0;
+                        if (auto const& ms = submesh.m_Mesh->GetMeshSource(); ms && ms->HasShadowVertexArray())
+                        {
+                            shadowVao = ms->GetShadowVertexArray()->GetRendererID();
+                        }
                         meshShadowPass->AddMeshCaster(
                             va->GetRendererID(), submesh.m_Mesh->GetIndexCount(),
-                            transform.GetTransform());
+                            transform.GetTransform(), shadowVao);
                     }
                 }
             }
@@ -3852,9 +3862,14 @@ namespace OloEngine
                             auto va = tileComp.TileMesh->GetVertexArray();
                             if (va)
                             {
+                                RendererID shadowVao = 0;
+                                if (auto const& ms = tileComp.TileMesh->GetMeshSource(); ms && ms->HasShadowVertexArray())
+                                {
+                                    shadowVao = ms->GetShadowVertexArray()->GetRendererID();
+                                }
                                 meshShadowPass->AddMeshCaster(
                                     va->GetRendererID(), tileComp.TileMesh->GetIndexCount(),
-                                    tileTransform);
+                                    tileTransform, shadowVao);
                             }
                         }
                     }

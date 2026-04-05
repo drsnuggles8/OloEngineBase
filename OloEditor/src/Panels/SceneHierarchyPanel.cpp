@@ -18,6 +18,7 @@
 #include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Renderer/LightProbeBaker.h"
 #include "OloEngine/Renderer/LightProbeVolumeAsset.h"
+#include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Scene/Streaming/StreamingRegionSerializer.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 #include "OloEngine/Debug/Instrumentor.h"
@@ -2102,6 +2103,25 @@ namespace OloEngine
 			{
 				ImGui::Text("Submeshes: %d", component.m_MeshSource->GetSubmeshes().Num());
 				ImGui::Text("Vertices: %d", component.m_MeshSource->GetVertices().Num());
+				ImGui::Text("Shadow IB: %s", component.m_MeshSource->HasShadowVertexArray() ? "Yes" : "No");
+
+				// On-demand mesh analysis via meshoptimizer
+				if (ImGui::TreeNode("Mesh Analysis"))
+				{
+					static MeshAnalysis s_CachedAnalysis;
+					static const MeshSource* s_AnalyzedSource = nullptr;
+					if (s_AnalyzedSource != component.m_MeshSource.get())
+					{
+						s_CachedAnalysis = MeshOptimization::AnalyzeMesh(*component.m_MeshSource);
+						s_AnalyzedSource = component.m_MeshSource.get();
+					}
+					ImGui::Text("Triangles: %u", s_CachedAnalysis.TriangleCount);
+					ImGui::Text("ACMR: %.3f (lower=better)", s_CachedAnalysis.ACMR);
+					ImGui::Text("ATVR: %.3f (ideal=1.0)", s_CachedAnalysis.ATVR);
+					ImGui::Text("Overdraw: %.3f (ideal=1.0)", s_CachedAnalysis.Overdraw);
+					ImGui::Text("Fetch Overfetch: %.3f (ideal=1.0)", s_CachedAnalysis.OverfetchRatio);
+					ImGui::TreePop();
+				}
 			}
 
 			// Import static model from file
@@ -2353,7 +2373,7 @@ namespace OloEngine
                 }
             } });
 
-        DrawComponent<LODGroupComponent>("LOD Group", entity, [](auto& component)
+        DrawComponent<LODGroupComponent>("LOD Group", entity, [entity](auto& component)
                                          {
             ImGui::Checkbox("Enabled", &component.m_Enabled);
             ImGui::DragFloat("LOD Bias", &component.m_LODGroup.Bias, 0.01f, 0.01f, 10.0f, "%.2f");
@@ -2427,6 +2447,25 @@ namespace OloEngine
                     ? 50.0f
                     : component.m_LODGroup.Levels.back().MaxDistance + 50.0f;
                 component.m_LODGroup.Levels.emplace_back(AssetHandle{0}, nextDistance);
+            }
+
+            // Auto-generate LODs from the entity's mesh source
+            if (entity.HasComponent<MeshComponent>())
+            {
+                auto& meshComp = entity.GetComponent<MeshComponent>();
+                if (meshComp.m_MeshSource)
+                {
+                    ImGui::SameLine();
+                    if (ImGui::Button("Generate LODs"))
+                    {
+                        // Register the base mesh as a memory asset so LOD 0 has a valid handle
+                        auto baseMesh = Ref<Mesh>::Create(meshComp.m_MeshSource, 0);
+                        AssetHandle const baseHandle = AssetManager::AddMemoryOnlyAsset(baseMesh);
+
+                        component.m_LODGroup = MeshOptimization::GenerateLODGroup(
+                            *meshComp.m_MeshSource, baseHandle, 4, 200.0f);
+                    }
+                }
             } });
 
         DrawComponent<TileRendererComponent>("Tile Renderer", entity, [](auto& component)

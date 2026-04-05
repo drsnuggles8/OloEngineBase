@@ -9,7 +9,7 @@
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/VertexArray.h"
-#include "OloEngine/Renderer/Buffer.h"
+#include "OloEngine/Renderer/IndexBuffer.h"
 
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Containers/Map.h"
@@ -24,9 +24,6 @@
 
 namespace OloEngine
 {
-    // Forward declarations
-    class VertexBuffer;
-
     // @brief Submesh data structure for organizing mesh geometry
     // Compatible with Hazel's Submesh class for asset compatibility
     struct Submesh
@@ -378,6 +375,28 @@ namespace OloEngine
             return m_BoundingSphere;
         }
 
+        // Shadow index buffer (position-only merge for depth-only passes)
+        const TArray<u32>& GetShadowIndices() const
+        {
+            return m_ShadowIndices;
+        }
+        TArray<u32>& GetShadowIndices()
+        {
+            return m_ShadowIndices;
+        }
+        bool HasShadowIndices() const
+        {
+            return !m_ShadowIndices.IsEmpty();
+        }
+        bool HasShadowVertexArray() const
+        {
+            return m_ShadowVertexArray != nullptr;
+        }
+        const Ref<VertexArray>& GetShadowVertexArray() const
+        {
+            return m_ShadowVertexArray;
+        }
+
         // Utility methods
         bool IsBuilt() const
         {
@@ -398,6 +417,7 @@ namespace OloEngine
         void BuildVertexBuffer();
         void BuildIndexBuffer();
         void BuildBoneInfluenceBuffer(); // New: build separate bone influence buffer
+        void BuildShadowIndexBuffer();   // Build shadow IBO + VAO for depth-only passes
 
       private:
         // Core mesh data
@@ -419,6 +439,10 @@ namespace OloEngine
         Ref<VertexBuffer> m_VertexBuffer;
         Ref<IndexBuffer> m_IndexBuffer;
         Ref<VertexBuffer> m_BoneInfluenceBuffer;
+        // Shadow rendering (depth-only pass with position-merged indices)
+        TArray<u32> m_ShadowIndices;
+        Ref<VertexArray> m_ShadowVertexArray;
+        Ref<IndexBuffer> m_ShadowIndexBuffer;
         // Bounding volumes
         BoundingBox m_BoundingBox;
         BoundingSphere m_BoundingSphere;

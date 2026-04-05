@@ -440,6 +440,8 @@
 		"OloEngine/Renderer/Mesh.h"
 		"OloEngine/Renderer/MeshSource.cpp"
 		"OloEngine/Renderer/MeshSource.h"
+		"OloEngine/Renderer/MeshOptimization.cpp"
+		"OloEngine/Renderer/MeshOptimization.h"
 		"OloEngine/Renderer/MeshPrimitives.cpp"
 		"OloEngine/Renderer/MeshPrimitives.h"
 		"OloEngine/Renderer/Model.cpp"

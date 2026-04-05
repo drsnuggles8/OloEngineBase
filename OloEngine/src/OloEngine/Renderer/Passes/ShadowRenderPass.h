@@ -32,6 +32,7 @@ namespace OloEngine
         RendererID vaoID = 0;
         u32 indexCount = 0;
         glm::mat4 transform = glm::mat4(1.0f);
+        RendererID shadowVaoID = 0; // Position-merged shadow IB; 0 = use vaoID
     };
 
     struct ShadowSkinnedCaster
@@ -96,7 +97,7 @@ namespace OloEngine
         }
 
         // Shadow caster submission — called during Scene entity traversal
-        void AddMeshCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform);
+        void AddMeshCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform, RendererID shadowVaoID = 0);
         void AddSkinnedCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform,
                               u32 boneBufferOffset, u32 boneCount);
         void AddTerrainCaster(RendererID vaoID, u32 indexCount, u32 patchVertexCount,

@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "MeshSource.h"
+#include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
@@ -67,6 +68,9 @@ namespace OloEngine
         if (m_Built)
             return;
 
+        // Optimize mesh data before GPU upload (vertex cache, overdraw, fetch)
+        MeshOptimization::OptimizeMesh(*this);
+
         // Ensure bounds are calculated before building GPU resources
         CalculateBounds();
         CalculateSubmeshBounds();
@@ -98,6 +102,12 @@ namespace OloEngine
 
         m_VertexArray->Unbind();
 
+        // Build shadow index buffer + VAO if shadow indices were generated
+        if (HasShadowIndices())
+        {
+            BuildShadowIndexBuffer();
+        }
+
         m_Built = true;
     }
 
@@ -118,6 +128,32 @@ namespace OloEngine
 
         m_IndexBuffer = IndexBuffer::Create(m_Indices.GetData(),
                                             static_cast<u32>(m_Indices.Num()));
+    }
+
+    void MeshSource::BuildShadowIndexBuffer()
+    {
+        if (m_ShadowIndices.IsEmpty() || !m_VertexBuffer)
+            return;
+
+        m_ShadowIndexBuffer = IndexBuffer::Create(m_ShadowIndices.GetData(),
+                                                  static_cast<u32>(m_ShadowIndices.Num()));
+
+        m_ShadowVertexArray = VertexArray::Create();
+        m_ShadowVertexArray->Bind();
+
+        m_VertexBuffer->Bind();
+        m_ShadowVertexArray->AddVertexBuffer(m_VertexBuffer);
+
+        if (m_BoneInfluenceBuffer)
+        {
+            m_BoneInfluenceBuffer->Bind();
+            m_ShadowVertexArray->AddVertexBuffer(m_BoneInfluenceBuffer);
+        }
+
+        m_ShadowIndexBuffer->Bind();
+        m_ShadowVertexArray->SetIndexBuffer(m_ShadowIndexBuffer);
+
+        m_ShadowVertexArray->Unbind();
     }
 
     void MeshSource::BuildBoneInfluenceBuffer()
