@@ -47,6 +47,12 @@ namespace OloEngine
         // Delete all cached files (e.g. for "clear cache" editor action).
         void ClearCache();
 
+        // Delete the cached files for a specific source file (reimport trigger).
+        void InvalidateCache(const std::filesystem::path& sourcePath);
+
+        // Returns the total size of all cached mesh + animation files in bytes.
+        u64 GetTotalCacheSize();
+
     } // namespace MeshCache
 
 } // namespace OloEngine

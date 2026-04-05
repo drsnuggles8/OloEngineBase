@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Debug/DebugUtils.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Scene/Components.h"
 
 #include <glad/gl.h>
@@ -225,6 +226,17 @@ namespace OloEngine
 
         sizet const totalMemory = tracker.GetTotalMemoryUsage();
         ImGui::Text("Total GPU/CPU Tracked: %s", DebugUtils::FormatMemorySize(totalMemory).c_str());
+
+        // Mesh asset cache on disk
+        {
+            auto cacheSize = MeshCache::GetTotalCacheSize();
+            ImGui::Text("Mesh Cache (disk): %s", DebugUtils::FormatMemorySize(cacheSize).c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Clear##MeshCache"))
+            {
+                MeshCache::ClearCache();
+            }
+        }
 
         ImGui::Separator();
 

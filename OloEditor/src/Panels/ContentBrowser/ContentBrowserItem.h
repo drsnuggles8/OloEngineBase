@@ -42,6 +42,7 @@ namespace OloEngine
         ShowInExplorer = 1 << 9,
         OpenExternal = 1 << 10,
         Refresh = 1 << 11,
+        Reimport = 1 << 12,
     };
 
     using CBActionResult = u16;

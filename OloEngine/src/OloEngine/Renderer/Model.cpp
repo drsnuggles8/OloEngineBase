@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Task/ParallelFor.h"
 
@@ -291,6 +292,9 @@ namespace OloEngine
         submesh.m_IsRigged = false;
         submesh.m_NodeName = mesh->mName.C_Str();
         meshSource->AddSubmesh(submesh);
+
+        // Optimize vertex/index ordering for GPU efficiency before building GPU resources
+        MeshOptimization::OptimizeMesh(*meshSource);
 
         meshSource->Build();
 

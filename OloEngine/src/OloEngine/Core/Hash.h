@@ -75,6 +75,7 @@ namespace OloEngine
         /// Runtime CRC32 hash for larger strings or dynamic content
         static u32 CRC32(const char* str);
         static u32 CRC32(const std::string& string);
+        static u32 CRC32(const void* data, sizet size);
 
         //==============================================================================
         /// Simple 64-bit hash for UUIDs and other numeric data

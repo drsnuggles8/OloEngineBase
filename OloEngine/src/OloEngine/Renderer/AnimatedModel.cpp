@@ -2,6 +2,7 @@
 #include "AnimatedModel.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Asset/MeshCache.h"
+#include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Animation/MorphTargets/MorphTarget.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
 #include <cmath>
@@ -542,6 +543,9 @@ namespace OloEngine
             OLO_CORE_INFO("AnimatedModel::ProcessMesh: Loaded {} morph targets for mesh '{}'",
                           morphTargets->GetTargetCount(), mesh->mName.C_Str());
         }
+
+        // Optimize vertex/index ordering for GPU efficiency before building GPU resources
+        MeshOptimization::OptimizeMesh(*meshSource);
 
         meshSource->Build();
 

@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "MeshBinarySerializer.h"
 #include "MeshBinaryFormat.h"
+#include "OloEngine/Core/Hash.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/Vertex.h"
@@ -74,6 +75,27 @@ namespace OloEngine
         u64 StreamPos(std::ifstream& in)
         {
             return static_cast<u64>(in.tellg());
+        }
+
+        // Compute CRC32 over a contiguous range of bytes in a file.
+        // Reads the entire range into memory for hashing.
+        u32 ComputeFileCRC32(const std::filesystem::path& filePath, u64 dataOffset, u64 dataSize)
+        {
+            if (dataSize == 0)
+            {
+                return 0;
+            }
+
+            std::ifstream in(filePath, std::ios::binary);
+            if (!in.is_open())
+            {
+                return 0;
+            }
+
+            in.seekg(static_cast<std::streamoff>(dataOffset));
+            std::vector<u8> buffer(static_cast<sizet>(dataSize));
+            in.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(dataSize));
+            return Hash::CRC32(buffer.data(), buffer.size());
         }
     } // anonymous namespace
 
@@ -399,9 +421,25 @@ namespace OloEngine
 
         out.close();
 
+        // Compute CRC32 over section data (everything after header + directory)
+        {
+            auto dataOffset = sizeof(OMeshFormat::FileHeader) + sizeof(OMeshFormat::SectionDirectory);
+            auto dataSize = header.TotalFileSize - dataOffset;
+            header.Checksum = ComputeFileCRC32(path, dataOffset, dataSize);
+
+            // Re-open and patch just the checksum field
+            std::ofstream patch(path, std::ios::binary | std::ios::in | std::ios::out);
+            if (patch.is_open())
+            {
+                patch.seekp(0);
+                WriteBytes(patch, &header, sizeof(header));
+                patch.close();
+            }
+        }
+
         OLO_CORE_TRACE("MeshBinarySerializer::Write: Wrote '{}' ({} bytes, {} verts, {} indices)",
-            path.filename().string(), header.TotalFileSize,
-            vertices.Num(), indices.Num());
+                       path.filename().string(), header.TotalFileSize,
+                       vertices.Num(), indices.Num());
 
         return true;
     }
@@ -433,8 +471,21 @@ namespace OloEngine
         if (header.Version != OMeshFormat::CurrentVersion)
         {
             OLO_CORE_WARN("MeshBinarySerializer::Read: Version mismatch in '{}' (got {}, expected {})",
-                path.string(), header.Version, OMeshFormat::CurrentVersion);
+                          path.string(), header.Version, OMeshFormat::CurrentVersion);
             return nullptr;
+        }
+
+        // Validate CRC32 checksum if present
+        if (header.Checksum != 0)
+        {
+            auto dataOffset = sizeof(OMeshFormat::FileHeader) + sizeof(OMeshFormat::SectionDirectory);
+            auto dataSize = header.TotalFileSize - dataOffset;
+            if (auto computed = ComputeFileCRC32(path, dataOffset, dataSize); computed != header.Checksum)
+            {
+                OLO_CORE_ERROR("MeshBinarySerializer::Read: Checksum mismatch in '{}' (expected 0x{:08X}, got 0x{:08X})",
+                               path.string(), header.Checksum, computed);
+                return nullptr;
+            }
         }
 
         // Read section directory
@@ -630,7 +681,7 @@ namespace OloEngine
                     auto& boneInfluences = meshSource->GetBoneInfluences();
                     boneInfluences.SetNum(static_cast<i32>(biHeader.InfluenceCount));
                     if (!MeshOptimization::DecodeVertexBuffer(boneInfluences.GetData(),
-                            biHeader.InfluenceCount, biHeader.InfluenceStride, encoded))
+                                                              biHeader.InfluenceCount, biHeader.InfluenceStride, encoded))
                     {
                         OLO_CORE_ERROR("MeshBinarySerializer::Read: Failed to decode bone influences");
                     }
@@ -699,7 +750,7 @@ namespace OloEngine
                         if (mtHeader.VertexCount > 0)
                         {
                             ReadBytes(in, target.Vertices.data(),
-                                mtHeader.VertexCount * sizeof(MorphTargetVertex));
+                                      mtHeader.VertexCount * sizeof(MorphTargetVertex));
                         }
                     }
 
@@ -711,10 +762,10 @@ namespace OloEngine
         }
 
         OLO_CORE_TRACE("MeshBinarySerializer::Read: Loaded '{}' ({} verts, {} indices, {} submeshes)",
-            path.filename().string(),
-            meshSource->GetVertices().Num(),
-            meshSource->GetIndices().Num(),
-            meshSource->GetSubmeshes().Num());
+                       path.filename().string(),
+                       meshSource->GetVertices().Num(),
+                       meshSource->GetIndices().Num(),
+                       meshSource->GetSubmeshes().Num());
 
         return meshSource;
     }
@@ -748,7 +799,7 @@ namespace OloEngine
     // ========================================================================
 
     bool AnimationBinarySerializer::Write(const std::filesystem::path& path,
-        const std::vector<Ref<AnimationClip>>& clips, u64 sourceTimestamp)
+                                          const std::vector<Ref<AnimationClip>>& clips, u64 sourceTimestamp)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -867,8 +918,23 @@ namespace OloEngine
 
         out.close();
 
+        // Compute CRC32 over data after header
+        {
+            auto const dataOffset = sizeof(OAnimFormat::FileHeader);
+            auto const dataSize = header.TotalFileSize - dataOffset;
+            header.Checksum = ComputeFileCRC32(path, dataOffset, dataSize);
+
+            std::ofstream patch(path, std::ios::binary | std::ios::in | std::ios::out);
+            if (patch.is_open())
+            {
+                patch.seekp(0);
+                WriteBytes(patch, &header, sizeof(header));
+                patch.close();
+            }
+        }
+
         OLO_CORE_TRACE("AnimationBinarySerializer::Write: Wrote '{}' ({} clips, {} bytes)",
-            path.filename().string(), clipCount, header.TotalFileSize);
+                       path.filename().string(), clipCount, header.TotalFileSize);
 
         return true;
     }
@@ -899,8 +965,21 @@ namespace OloEngine
         if (header.Version != OAnimFormat::CurrentVersion)
         {
             OLO_CORE_WARN("AnimationBinarySerializer::Read: Version mismatch in '{}' (got {}, expected {})",
-                path.string(), header.Version, OAnimFormat::CurrentVersion);
+                          path.string(), header.Version, OAnimFormat::CurrentVersion);
             return {};
+        }
+
+        // Validate CRC32 checksum if present
+        if (header.Checksum != 0)
+        {
+            auto const dataOffset = sizeof(OAnimFormat::FileHeader);
+            auto const dataSize = header.TotalFileSize - dataOffset;
+            if (auto computed = ComputeFileCRC32(path, dataOffset, dataSize); computed != header.Checksum)
+            {
+                OLO_CORE_ERROR("AnimationBinarySerializer::Read: Checksum mismatch in '{}' (expected 0x{:08X}, got 0x{:08X})",
+                               path.string(), header.Checksum, computed);
+                return {};
+            }
         }
 
         u32 clipCount = 0;
@@ -984,7 +1063,7 @@ namespace OloEngine
         }
 
         OLO_CORE_TRACE("AnimationBinarySerializer::Read: Loaded '{}' ({} clips)",
-            path.filename().string(), clips.size());
+                       path.filename().string(), clips.size());
 
         return clips;
     }

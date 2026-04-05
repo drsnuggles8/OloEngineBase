@@ -202,6 +202,57 @@ namespace OloEngine
             }
         }
 
+        void InvalidateCache(const std::filesystem::path& sourcePath)
+        {
+            std::error_code ec;
+
+            auto meshPath = GetMeshCachePath(sourcePath);
+            if (std::filesystem::exists(meshPath, ec))
+            {
+                std::filesystem::remove(meshPath, ec);
+                if (!ec)
+                {
+                    OLO_CORE_INFO("MeshCache: Invalidated mesh cache for '{}'", sourcePath.string());
+                }
+            }
+
+            auto animPath = GetAnimationCachePath(sourcePath);
+            if (std::filesystem::exists(animPath, ec))
+            {
+                std::filesystem::remove(animPath, ec);
+                if (!ec)
+                {
+                    OLO_CORE_INFO("MeshCache: Invalidated animation cache for '{}'", sourcePath.string());
+                }
+            }
+        }
+
+        u64 GetTotalCacheSize()
+        {
+            u64 totalSize = 0;
+            std::error_code ec;
+
+            auto const accumulateDirectorySize = [&](const std::filesystem::path& dir)
+            {
+                if (!std::filesystem::exists(dir, ec))
+                {
+                    return;
+                }
+                for (const auto& entry : std::filesystem::directory_iterator(dir, ec))
+                {
+                    if (entry.is_regular_file(ec))
+                    {
+                        totalSize += entry.file_size(ec);
+                    }
+                }
+            };
+
+            accumulateDirectorySize(std::filesystem::path(kMeshCacheDirectory));
+            accumulateDirectorySize(std::filesystem::path(kAnimationCacheDirectory));
+
+            return totalSize;
+        }
+
     } // namespace MeshCache
 
 } // namespace OloEngine

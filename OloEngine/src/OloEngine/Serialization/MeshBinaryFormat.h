@@ -48,16 +48,16 @@ namespace OloEngine
         {
             u32 Magic = MagicNumber;
             u32 Version = CurrentVersion;
-            u32 Flags = 0;              // Reserved for future use (compression, quantization)
-            u32 Checksum = 0;           // CRC32 of all section data (after header+directory)
-            u64 SourceTimestamp = 0;     // Source file last-modified time (for cache invalidation)
-            u64 TotalFileSize = 0;      // Total file size for integrity check
+            u32 Flags = 0;           // Reserved for future use (compression, quantization)
+            u32 Checksum = 0;        // CRC32 of all section data (after header+directory)
+            u64 SourceTimestamp = 0; // Source file last-modified time (for cache invalidation)
+            u64 TotalFileSize = 0;   // Total file size for integrity check
         };
 
         struct SectionEntry
         {
-            u64 Offset = 0;  // Byte offset from start of file
-            u64 Size = 0;    // Section size in bytes (0 = section not present)
+            u64 Offset = 0; // Byte offset from start of file
+            u64 Size = 0;   // Section size in bytes (0 = section not present)
         };
 
         struct SectionDirectory
@@ -70,7 +70,7 @@ namespace OloEngine
         {
             u32 VertexCount = 0;
             u32 IndexCount = 0;
-            u32 VertexStride = 0;     // sizeof(Vertex), for forward compat
+            u32 VertexStride = 0; // sizeof(Vertex), for forward compat
             u32 ShadowIndexCount = 0;
             u64 EncodedVertexSize = 0;
             u64 EncodedIndexSize = 0;
@@ -91,10 +91,10 @@ namespace OloEngine
         // Fixed-size submesh fields (written before variable-length strings)
         struct SubmeshEntry
         {
-            f32 Transform[16]{};       // Column-major mat4
-            f32 LocalTransform[16]{};  // Column-major mat4
-            f32 BoundsMin[3]{};        // BoundingBox min
-            f32 BoundsMax[3]{};        // BoundingBox max
+            f32 Transform[16]{};      // Column-major mat4
+            f32 LocalTransform[16]{}; // Column-major mat4
+            f32 BoundsMin[3]{};       // BoundingBox min
+            f32 BoundsMax[3]{};       // BoundingBox max
             u32 BaseVertex = 0;
             u32 BaseIndex = 0;
             u32 MaterialIndex = 0;
@@ -138,8 +138,8 @@ namespace OloEngine
         // BoneInfluence section header
         struct BoneInfluenceHeader
         {
-            u32 InfluenceCount = 0;     // Should equal vertex count
-            u32 InfluenceStride = 0;    // sizeof(BoneInfluence)
+            u32 InfluenceCount = 0;  // Should equal vertex count
+            u32 InfluenceStride = 0; // sizeof(BoneInfluence)
             u64 EncodedSize = 0;
             // Followed by EncodedSize bytes of meshoptimizer-encoded data
         };
@@ -203,8 +203,8 @@ namespace OloEngine
         {
             u32 Magic = MagicNumber;
             u32 Version = CurrentVersion;
-            u32 Flags = 0;              // Reserved: compression, quantization
-            u32 Reserved = 0;           // Reserved: future event markers etc.
+            u32 Flags = 0;    // Reserved: compression, quantization
+            u32 Checksum = 0; // CRC32 of all data after header
             u64 SourceTimestamp = 0;
             u64 TotalFileSize = 0;
         };
