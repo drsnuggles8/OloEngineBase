@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "AnimatedModel.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Animation/MorphTargets/MorphTarget.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
 #include <cmath>
@@ -11,6 +12,186 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        // Combine multiple MeshSources into a single MeshSource for binary cache serialization.
+        // Each original MeshSource becomes one submesh in the combined output.
+        Ref<MeshSource> CombineMeshSourcesForCache(const std::vector<Ref<MeshSource>>& meshes, const Ref<Skeleton>& skeleton)
+        {
+            auto combined = Ref<MeshSource>::Create();
+            u32 baseVertex = 0;
+            u32 baseIndex = 0;
+
+            for (const auto& src : meshes)
+            {
+                if (!src)
+                {
+                    continue;
+                }
+
+                const auto& srcVerts = src->GetVertices();
+                const auto& srcIndices = src->GetIndices();
+
+                for (i32 i = 0; i < srcVerts.Num(); ++i)
+                {
+                    combined->GetVertices().Add(srcVerts[i]);
+                }
+
+                for (i32 i = 0; i < srcIndices.Num(); ++i)
+                {
+                    combined->GetIndices().Add(srcIndices[i] + baseVertex);
+                }
+
+                for (i32 i = 0; i < src->GetBoneInfluences().Num(); ++i)
+                {
+                    combined->GetBoneInfluences().Add(src->GetBoneInfluences()[i]);
+                }
+
+                for (i32 i = 0; i < src->GetShadowIndices().Num(); ++i)
+                {
+                    combined->GetShadowIndices().Add(src->GetShadowIndices()[i] + baseVertex);
+                }
+
+                // Deduplicate bone info entries by bone index
+                for (i32 i = 0; i < src->GetBoneInfo().Num(); ++i)
+                {
+                    bool exists = false;
+                    for (i32 j = 0; j < combined->GetBoneInfo().Num(); ++j)
+                    {
+                        if (combined->GetBoneInfo()[j].m_BoneIndex == src->GetBoneInfo()[i].m_BoneIndex)
+                        {
+                            exists = true;
+                            break;
+                        }
+                    }
+                    if (!exists)
+                    {
+                        combined->GetBoneInfo().Add(src->GetBoneInfo()[i]);
+                    }
+                }
+
+                // Create submesh entry for this original mesh
+                Submesh submesh;
+                submesh.m_BaseVertex = baseVertex;
+                submesh.m_BaseIndex = baseIndex;
+                submesh.m_VertexCount = static_cast<u32>(srcVerts.Num());
+                submesh.m_IndexCount = static_cast<u32>(srcIndices.Num());
+                submesh.m_IsRigged = src->HasBoneInfluences();
+
+                if (!src->GetSubmeshes().IsEmpty())
+                {
+                    const auto& origSub = src->GetSubmeshes()[0];
+                    submesh.m_MaterialIndex = origSub.m_MaterialIndex;
+                    submesh.m_Transform = origSub.m_Transform;
+                    submesh.m_LocalTransform = origSub.m_LocalTransform;
+                    submesh.m_BoundingBox = origSub.m_BoundingBox;
+                    submesh.m_NodeName = origSub.m_NodeName;
+                    submesh.m_MeshName = origSub.m_MeshName;
+                }
+
+                combined->GetSubmeshes().Add(submesh);
+                baseVertex += static_cast<u32>(srcVerts.Num());
+                baseIndex += static_cast<u32>(srcIndices.Num());
+            }
+
+            if (skeleton)
+            {
+                combined->SetSkeleton(skeleton);
+            }
+
+            // Copy morph targets from the first mesh that has them
+            for (const auto& src : meshes)
+            {
+                if (src && src->HasMorphTargets())
+                {
+                    combined->SetMorphTargets(src->GetMorphTargets());
+                    break;
+                }
+            }
+
+            return combined;
+        }
+
+        // Split a combined MeshSource back into per-submesh MeshSources.
+        bool SplitCombinedMeshSource(
+            const Ref<MeshSource>& combined,
+            std::vector<Ref<MeshSource>>& outMeshes,
+            Ref<Skeleton>& outSkeleton)
+        {
+            if (!combined || combined->GetSubmeshes().IsEmpty())
+            {
+                return false;
+            }
+
+            if (combined->HasSkeleton())
+            {
+                outSkeleton = Ref<Skeleton>::Create();
+                const auto* src = combined->GetSkeleton();
+                outSkeleton->m_ParentIndices = src->m_ParentIndices;
+                outSkeleton->m_BoneNames = src->m_BoneNames;
+                outSkeleton->m_LocalTransforms = src->m_LocalTransforms;
+                outSkeleton->m_GlobalTransforms = src->m_GlobalTransforms;
+                outSkeleton->m_FinalBoneMatrices = src->m_FinalBoneMatrices;
+                outSkeleton->m_BindPoseMatrices = src->m_BindPoseMatrices;
+                outSkeleton->m_InverseBindPoses = src->m_InverseBindPoses;
+                outSkeleton->m_BindPoseLocalTransforms = src->m_BindPoseLocalTransforms;
+                outSkeleton->m_BonePreTransforms = src->m_BonePreTransforms;
+            }
+
+            const auto& allVerts = combined->GetVertices();
+            const auto& allIndices = combined->GetIndices();
+            const auto& allBones = combined->GetBoneInfluences();
+            const auto& allBoneInfo = combined->GetBoneInfo();
+
+            for (i32 s = 0; s < combined->GetSubmeshes().Num(); ++s)
+            {
+                const auto& submesh = combined->GetSubmeshes()[s];
+                auto mesh = Ref<MeshSource>::Create();
+
+                for (u32 i = 0; i < submesh.m_VertexCount; ++i)
+                {
+                    mesh->GetVertices().Add(allVerts[submesh.m_BaseVertex + i]);
+                }
+
+                for (u32 i = 0; i < submesh.m_IndexCount; ++i)
+                {
+                    mesh->GetIndices().Add(allIndices[submesh.m_BaseIndex + i] - submesh.m_BaseVertex);
+                }
+
+                if (!allBones.IsEmpty() && submesh.m_BaseVertex + submesh.m_VertexCount <= static_cast<u32>(allBones.Num()))
+                {
+                    for (u32 i = 0; i < submesh.m_VertexCount; ++i)
+                    {
+                        mesh->GetBoneInfluences().Add(allBones[submesh.m_BaseVertex + i]);
+                    }
+                }
+
+                for (i32 i = 0; i < allBoneInfo.Num(); ++i)
+                {
+                    mesh->GetBoneInfo().Add(allBoneInfo[i]);
+                }
+
+                Submesh newSub = submesh;
+                newSub.m_BaseVertex = 0;
+                newSub.m_BaseIndex = 0;
+                mesh->GetSubmeshes().Add(newSub);
+
+                mesh->SetSkeleton(outSkeleton);
+                mesh->Build();
+
+                outMeshes.push_back(mesh);
+            }
+
+            // Assign morph targets to the first mesh
+            if (combined->HasMorphTargets() && !outMeshes.empty())
+            {
+                outMeshes[0]->SetMorphTargets(combined->GetMorphTargets());
+            }
+
+            return true;
+        }
+    } // anonymous namespace
+
     AnimatedModel::AnimatedModel(const std::string& path)
     {
         LoadModel(path);
@@ -21,6 +202,33 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         OLO_CORE_INFO("AnimatedModel::LoadModel: Loading animated model from {}", path);
+
+        // Try loading from binary cache first (skip Assimp entirely)
+        std::filesystem::path sourcePath(path);
+        if (MeshCache::IsMeshCacheValid(sourcePath))
+        {
+            auto cachedMesh = MeshCache::LoadMeshFromCache(sourcePath);
+            if (cachedMesh)
+            {
+                m_Directory = sourcePath.parent_path().string();
+
+                Ref<Skeleton> skeleton;
+                if (SplitCombinedMeshSource(cachedMesh, m_Meshes, skeleton))
+                {
+                    m_Skeleton = skeleton;
+                    m_Animations = MeshCache::LoadAnimationsFromCache(sourcePath);
+
+                    // Default materials (one per mesh)
+                    m_Materials.resize(m_Meshes.size());
+
+                    CalculateBounds();
+
+                    OLO_CORE_INFO("AnimatedModel::LoadModel: Loaded from cache - {} meshes, {} animations",
+                                  m_Meshes.size(), m_Animations.size());
+                    return;
+                }
+            }
+        }
 
         // Create an instance of the Importer class
         Assimp::Importer importer;
@@ -80,6 +288,16 @@ namespace OloEngine
 
         // Calculate bounding volumes for the entire model
         CalculateBounds();
+
+        // Save to binary cache for next load
+        {
+            auto combined = CombineMeshSourcesForCache(m_Meshes, m_Skeleton);
+            MeshCache::SaveMeshToCache(sourcePath, *combined);
+            if (!m_Animations.empty())
+            {
+                MeshCache::SaveAnimationsToCache(sourcePath, m_Animations);
+            }
+        }
 
         OLO_CORE_INFO("AnimatedModel::LoadModel: Successfully loaded animated model with {} meshes, {} animations",
                       m_Meshes.size(), m_Animations.size());

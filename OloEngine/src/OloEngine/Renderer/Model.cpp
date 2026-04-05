@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Task/ParallelFor.h"
 
 namespace OloEngine
@@ -25,6 +26,32 @@ namespace OloEngine
         // Store texture override and UV flip setting for use in material processing
         m_TextureOverride = textureOverride.HasAnyTexture() ? std::optional<TextureOverride>(textureOverride) : std::nullopt;
         m_FlipUV = flipUV;
+
+        // Try loading geometry from binary cache (skip Assimp for vertex data)
+        std::filesystem::path sourcePath(path);
+        if (MeshCache::IsMeshCacheValid(sourcePath))
+        {
+            auto cachedMesh = MeshCache::LoadMeshFromCache(sourcePath);
+            if (cachedMesh)
+            {
+                m_Directory = sourcePath.parent_path().string();
+
+                // Create individual Mesh objects from submeshes
+                cachedMesh->Build();
+                for (i32 i = 0; i < cachedMesh->GetSubmeshes().Num(); ++i)
+                {
+                    m_Meshes.push_back(Ref<Mesh>::Create(cachedMesh, static_cast<u32>(i)));
+                }
+
+                // Default materials (one per mesh)
+                m_Materials.resize(m_Meshes.size());
+
+                CalculateBounds();
+
+                OLO_CORE_INFO("Model::LoadModel: Loaded {} meshes from cache", m_Meshes.size());
+                return;
+            }
+        }
 
         // Create an instance of the Importer class
         Assimp::Importer importer;
@@ -62,6 +89,15 @@ namespace OloEngine
 
         // Calculate bounding volumes for the entire model
         CalculateBounds();
+
+        // Save geometry to binary cache for next load
+        {
+            auto combinedMeshSource = CreateCombinedMeshSource();
+            if (combinedMeshSource)
+            {
+                MeshCache::SaveMeshToCache(sourcePath, *combinedMeshSource);
+            }
+        }
 
         OLO_CORE_INFO("Model loaded successfully: {0} meshes processed", m_Meshes.size());
     }

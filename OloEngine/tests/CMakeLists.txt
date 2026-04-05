@@ -110,6 +110,7 @@ add_executable(OloEngine-Tests
 		ShaderGraph/ShaderGraphCommandTest.cpp
 		# Serialization Tests
 		Serialization/ArchiveExtensionsTest.cpp
+		Serialization/MeshBinarySerializerTest.cpp
 		# SaveGame Tests
 		SaveGame/SaveGameFileTest.cpp
 		SaveGame/SaveGameManagerTest.cpp

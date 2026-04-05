@@ -36,6 +36,8 @@
 #include "OloEngine/Particle/ParticleCurveSerializer.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
+#include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Asset/MeshCache.h"
 #include <yaml-cpp/yaml.h>
 #include <stb_image/stb_image.h>
 #include <fstream>
@@ -1815,7 +1817,7 @@ namespace OloEngine
     // MeshSourceSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    bool MeshSourceSerializer::TryLoadData(const AssetMetadata& metadata, [[maybe_unused]] Ref<Asset>& asset) const
+    bool MeshSourceSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
         std::filesystem::path path = Project::GetAssetDirectory() / metadata.FilePath;
 
@@ -1825,23 +1827,35 @@ namespace OloEngine
             return false;
         }
 
-        // TODO: MeshSource class doesn't exist yet
-        // Use Assimp to load the mesh file
-        // auto meshSource = Ref<MeshSource>(new MeshSource(path));
-        // if (!meshSource->IsValid())
-        // {
-        //     OLO_CORE_ERROR("MeshSourceSerializer::TryLoadData - Failed to load mesh source: {}", path.string());
-        //     return false;
-        // }
-        //
-        // meshSource->SetHandle(metadata.Handle);
-        // asset = meshSource;
-        //
-        // OLO_CORE_TRACE("MeshSourceSerializer::TryLoadData - Successfully loaded mesh source: {} ({} submeshes)",
-        //               path.string(), meshSource->GetSubmeshes().size());
+        // Try loading from binary mesh cache first
+        if (MeshCache::IsMeshCacheValid(path))
+        {
+            auto meshSource = MeshCache::LoadMeshFromCache(path);
+            if (meshSource)
+            {
+                meshSource->Build();
+                meshSource->SetHandle(metadata.Handle);
+                asset = meshSource;
+                OLO_CORE_TRACE("MeshSourceSerializer::TryLoadData - Loaded from cache: {}", path.string());
+                return true;
+            }
+        }
 
-        OLO_CORE_WARN("MeshSourceSerializer::TryLoadData - MeshSource class not implemented yet");
-        return false;
+        // Cache miss — import via Assimp through Model, which writes the cache for next time
+        OLO_CORE_INFO("MeshSourceSerializer::TryLoadData - Cache miss, importing via Assimp: {}", path.string());
+        Model model(path.string());
+        auto meshSource = model.CreateCombinedMeshSource();
+        if (!meshSource || meshSource->GetVertices().IsEmpty())
+        {
+            OLO_CORE_ERROR("MeshSourceSerializer::TryLoadData - Assimp import failed: {}", path.string());
+            return false;
+        }
+
+        meshSource->SetHandle(metadata.Handle);
+        asset = meshSource;
+        OLO_CORE_TRACE("MeshSourceSerializer::TryLoadData - Loaded via Assimp: {} ({} verts, {} submeshes)",
+                       path.string(), meshSource->GetVertices().Num(), meshSource->GetSubmeshes().Num());
+        return true;
     }
 
     bool MeshSourceSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const

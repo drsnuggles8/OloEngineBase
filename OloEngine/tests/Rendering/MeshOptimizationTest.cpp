@@ -16,17 +16,21 @@ using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 
 static Ref<MeshSource> MakeQuadMesh()
 {
-	TArray<Vertex> vertices;
-	vertices.Add(Vertex({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f }));
-	vertices.Add(Vertex({ 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }));
-	vertices.Add(Vertex({ 1.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f }));
-	vertices.Add(Vertex({ 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f }));
+    TArray<Vertex> vertices;
+    vertices.Add(Vertex({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f }));
+    vertices.Add(Vertex({ 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }));
+    vertices.Add(Vertex({ 1.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f }));
+    vertices.Add(Vertex({ 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f }));
 
-	TArray<u32> indices;
-	indices.Add(0); indices.Add(1); indices.Add(2);
-	indices.Add(0); indices.Add(2); indices.Add(3);
+    TArray<u32> indices;
+    indices.Add(0);
+    indices.Add(1);
+    indices.Add(2);
+    indices.Add(0);
+    indices.Add(2);
+    indices.Add(3);
 
-	return Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+    return Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
 }
 
 // =============================================================================
@@ -35,41 +39,45 @@ static Ref<MeshSource> MakeQuadMesh()
 
 static Ref<MeshSource> MakeGridMesh(u32 gridSize)
 {
-	auto verticesPerSide = gridSize + 1;
-	TArray<Vertex> vertices;
-	vertices.Reserve(static_cast<i32>(verticesPerSide * verticesPerSide));
+    auto verticesPerSide = gridSize + 1;
+    TArray<Vertex> vertices;
+    vertices.Reserve(static_cast<i32>(verticesPerSide * verticesPerSide));
 
-	for (u32 z = 0; z < verticesPerSide; ++z)
-	{
-		for (u32 x = 0; x < verticesPerSide; ++x)
-		{
-			auto fx = static_cast<f32>(x) / static_cast<f32>(gridSize);
-			auto fz = static_cast<f32>(z) / static_cast<f32>(gridSize);
-			vertices.Add(Vertex(
-				{ fx, 0.0f, fz },
-				{ 0.0f, 1.0f, 0.0f },
-				{ fx, fz }));
-		}
-	}
+    for (u32 z = 0; z < verticesPerSide; ++z)
+    {
+        for (u32 x = 0; x < verticesPerSide; ++x)
+        {
+            auto fx = static_cast<f32>(x) / static_cast<f32>(gridSize);
+            auto fz = static_cast<f32>(z) / static_cast<f32>(gridSize);
+            vertices.Add(Vertex(
+                { fx, 0.0f, fz },
+                { 0.0f, 1.0f, 0.0f },
+                { fx, fz }));
+        }
+    }
 
-	TArray<u32> indices;
-	indices.Reserve(static_cast<i32>(gridSize * gridSize * 6));
+    TArray<u32> indices;
+    indices.Reserve(static_cast<i32>(gridSize * gridSize * 6));
 
-	for (u32 z = 0; z < gridSize; ++z)
-	{
-		for (u32 x = 0; x < gridSize; ++x)
-		{
-			auto i0 = z * verticesPerSide + x;
-			auto i1 = i0 + 1;
-			auto i2 = i0 + verticesPerSide;
-			auto i3 = i2 + 1;
+    for (u32 z = 0; z < gridSize; ++z)
+    {
+        for (u32 x = 0; x < gridSize; ++x)
+        {
+            auto i0 = z * verticesPerSide + x;
+            auto i1 = i0 + 1;
+            auto i2 = i0 + verticesPerSide;
+            auto i3 = i2 + 1;
 
-			indices.Add(i0); indices.Add(i1); indices.Add(i2);
-			indices.Add(i1); indices.Add(i3); indices.Add(i2);
-		}
-	}
+            indices.Add(i0);
+            indices.Add(i1);
+            indices.Add(i2);
+            indices.Add(i1);
+            indices.Add(i3);
+            indices.Add(i2);
+        }
+    }
 
-	return Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+    return Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
 }
 
 // =============================================================================
@@ -78,61 +86,61 @@ static Ref<MeshSource> MakeGridMesh(u32 gridSize)
 
 TEST(MeshOptimization, OptimizeMeshPreservesVertexCount)
 {
-	auto mesh = MakeQuadMesh();
-	auto originalVertCount = mesh->GetVertices().Num();
-	auto originalIdxCount = mesh->GetIndices().Num();
+    auto mesh = MakeQuadMesh();
+    auto originalVertCount = mesh->GetVertices().Num();
+    auto originalIdxCount = mesh->GetIndices().Num();
 
-	MeshOptimization::OptimizeMesh(*mesh);
+    MeshOptimization::OptimizeMesh(*mesh);
 
-	EXPECT_EQ(mesh->GetVertices().Num(), originalVertCount);
-	EXPECT_EQ(mesh->GetIndices().Num(), originalIdxCount);
+    EXPECT_EQ(mesh->GetVertices().Num(), originalVertCount);
+    EXPECT_EQ(mesh->GetIndices().Num(), originalIdxCount);
 }
 
 TEST(MeshOptimization, OptimizeMeshPreservesTriangleContent)
 {
-	auto mesh = MakeGridMesh(4);
-	auto originalIdxCount = mesh->GetIndices().Num();
+    auto mesh = MakeGridMesh(4);
+    auto originalIdxCount = mesh->GetIndices().Num();
 
-	MeshOptimization::OptimizeMesh(*mesh);
+    MeshOptimization::OptimizeMesh(*mesh);
 
-	// Index count must remain the same (same triangles, different order)
-	EXPECT_EQ(mesh->GetIndices().Num(), originalIdxCount);
+    // Index count must remain the same (same triangles, different order)
+    EXPECT_EQ(mesh->GetIndices().Num(), originalIdxCount);
 
-	// All indices must still be valid
-	auto vertCount = static_cast<u32>(mesh->GetVertices().Num());
-	for (i32 i = 0; i < mesh->GetIndices().Num(); ++i)
-	{
-		EXPECT_LT(mesh->GetIndices()[i], vertCount) << "Invalid index at position " << i;
-	}
+    // All indices must still be valid
+    auto vertCount = static_cast<u32>(mesh->GetVertices().Num());
+    for (i32 i = 0; i < mesh->GetIndices().Num(); ++i)
+    {
+        EXPECT_LT(mesh->GetIndices()[i], vertCount) << "Invalid index at position " << i;
+    }
 }
 
 TEST(MeshOptimization, OptimizeMeshHandlesEmptyMesh)
 {
-	auto mesh = Ref<MeshSource>::Create();
-	// Should not crash
-	MeshOptimization::OptimizeMesh(*mesh);
-	EXPECT_TRUE(mesh->GetVertices().IsEmpty());
-	EXPECT_TRUE(mesh->GetIndices().IsEmpty());
+    auto mesh = Ref<MeshSource>::Create();
+    // Should not crash
+    MeshOptimization::OptimizeMesh(*mesh);
+    EXPECT_TRUE(mesh->GetVertices().IsEmpty());
+    EXPECT_TRUE(mesh->GetIndices().IsEmpty());
 }
 
 TEST(MeshOptimization, OptimizeMeshRemapsBoneInfluences)
 {
-	auto mesh = MakeQuadMesh();
+    auto mesh = MakeQuadMesh();
 
-	// Add bone influences
-	auto& bones = mesh->GetBoneInfluences();
-	for (i32 i = 0; i < mesh->GetVertices().Num(); ++i)
-	{
-		BoneInfluence bi;
-		bi.m_BoneIDs[0] = static_cast<u32>(i); // Unique per vertex
-		bi.m_Weights[0] = 1.0f;
-		bones[i] = bi;
-	}
+    // Add bone influences
+    auto& bones = mesh->GetBoneInfluences();
+    for (i32 i = 0; i < mesh->GetVertices().Num(); ++i)
+    {
+        BoneInfluence bi;
+        bi.m_BoneIDs[0] = static_cast<u32>(i); // Unique per vertex
+        bi.m_Weights[0] = 1.0f;
+        bones[i] = bi;
+    }
 
-	MeshOptimization::OptimizeMesh(*mesh);
+    MeshOptimization::OptimizeMesh(*mesh);
 
-	// Bone influences must still have the same count
-	EXPECT_EQ(bones.Num(), mesh->GetVertices().Num());
+    // Bone influences must still have the same count
+    EXPECT_EQ(bones.Num(), mesh->GetVertices().Num());
 }
 
 // =============================================================================
@@ -141,49 +149,49 @@ TEST(MeshOptimization, OptimizeMeshRemapsBoneInfluences)
 
 TEST(MeshOptimization, GenerateLODReducesTriangles)
 {
-	auto mesh = MakeGridMesh(16); // 16x16 grid = 512 triangles
-	auto originalTriCount = mesh->GetIndices().Num() / 3;
+    auto mesh = MakeGridMesh(16); // 16x16 grid = 512 triangles
+    auto originalTriCount = mesh->GetIndices().Num() / 3;
 
-	auto lod = MeshOptimization::GenerateLODMesh(*mesh, 0.25f);
+    auto lod = MeshOptimization::GenerateLODMesh(*mesh, 0.25f);
 
-	ASSERT_NE(lod, nullptr);
-	auto lodTriCount = lod->GetIndices().Num() / 3;
+    ASSERT_NE(lod, nullptr);
+    auto lodTriCount = lod->GetIndices().Num() / 3;
 
-	// LOD should have fewer triangles than original
-	EXPECT_LT(lodTriCount, originalTriCount);
-	EXPECT_GT(lodTriCount, 0);
+    // LOD should have fewer triangles than original
+    EXPECT_LT(lodTriCount, originalTriCount);
+    EXPECT_GT(lodTriCount, 0);
 }
 
 TEST(MeshOptimization, GenerateLODReturnsNullForEmptyMesh)
 {
-	auto mesh = Ref<MeshSource>::Create();
-	auto lod = MeshOptimization::GenerateLODMesh(*mesh, 0.5f);
-	EXPECT_EQ(lod, nullptr);
+    auto mesh = Ref<MeshSource>::Create();
+    auto lod = MeshOptimization::GenerateLODMesh(*mesh, 0.5f);
+    EXPECT_EQ(lod, nullptr);
 }
 
 TEST(MeshOptimization, GenerateLODPreservesVertexValidity)
 {
-	auto mesh = MakeGridMesh(8);
+    auto mesh = MakeGridMesh(8);
 
-	auto lod = MeshOptimization::GenerateLODMesh(*mesh, 0.5f);
-	ASSERT_NE(lod, nullptr);
+    auto lod = MeshOptimization::GenerateLODMesh(*mesh, 0.5f);
+    ASSERT_NE(lod, nullptr);
 
-	auto vertCount = static_cast<u32>(lod->GetVertices().Num());
-	for (i32 i = 0; i < lod->GetIndices().Num(); ++i)
-	{
-		EXPECT_LT(lod->GetIndices()[i], vertCount) << "Invalid LOD index at position " << i;
-	}
+    auto vertCount = static_cast<u32>(lod->GetVertices().Num());
+    for (i32 i = 0; i < lod->GetIndices().Num(); ++i)
+    {
+        EXPECT_LT(lod->GetIndices()[i], vertCount) << "Invalid LOD index at position " << i;
+    }
 }
 
 TEST(MeshOptimization, GenerateLODWithVeryLowRatioProducesMinimalMesh)
 {
-	auto mesh = MakeGridMesh(8);
+    auto mesh = MakeGridMesh(8);
 
-	auto lod = MeshOptimization::GenerateLODMesh(*mesh, 0.01f, 1.0f);
-	ASSERT_NE(lod, nullptr);
+    auto lod = MeshOptimization::GenerateLODMesh(*mesh, 0.01f, 1.0f);
+    ASSERT_NE(lod, nullptr);
 
-	// Should produce at least 1 triangle
-	EXPECT_GE(lod->GetIndices().Num(), 3);
+    // Should produce at least 1 triangle
+    EXPECT_GE(lod->GetIndices().Num(), 3);
 }
 
 // =============================================================================
@@ -192,42 +200,42 @@ TEST(MeshOptimization, GenerateLODWithVeryLowRatioProducesMinimalMesh)
 
 TEST(MeshOptimization, GenerateShadowIndicesProducesSameCount)
 {
-	auto mesh = MakeGridMesh(4);
-	auto originalIdxCount = mesh->GetIndices().Num();
+    auto mesh = MakeGridMesh(4);
+    auto originalIdxCount = mesh->GetIndices().Num();
 
-	MeshOptimization::GenerateShadowIndices(*mesh);
+    MeshOptimization::GenerateShadowIndices(*mesh);
 
-	EXPECT_TRUE(mesh->HasShadowIndices());
-	EXPECT_EQ(mesh->GetShadowIndices().Num(), originalIdxCount);
+    EXPECT_TRUE(mesh->HasShadowIndices());
+    EXPECT_EQ(mesh->GetShadowIndices().Num(), originalIdxCount);
 }
 
 TEST(MeshOptimization, GenerateShadowIndicesValidIndices)
 {
-	auto mesh = MakeGridMesh(4);
-	MeshOptimization::GenerateShadowIndices(*mesh);
+    auto mesh = MakeGridMesh(4);
+    MeshOptimization::GenerateShadowIndices(*mesh);
 
-	auto vertCount = static_cast<u32>(mesh->GetVertices().Num());
-	for (i32 i = 0; i < mesh->GetShadowIndices().Num(); ++i)
-	{
-		EXPECT_LT(mesh->GetShadowIndices()[i], vertCount) << "Invalid shadow index at position " << i;
-	}
+    auto vertCount = static_cast<u32>(mesh->GetVertices().Num());
+    for (i32 i = 0; i < mesh->GetShadowIndices().Num(); ++i)
+    {
+        EXPECT_LT(mesh->GetShadowIndices()[i], vertCount) << "Invalid shadow index at position " << i;
+    }
 }
 
 TEST(MeshOptimization, GenerateShadowIndicesHandlesEmptyMesh)
 {
-	auto mesh = Ref<MeshSource>::Create();
-	MeshOptimization::GenerateShadowIndices(*mesh);
-	EXPECT_FALSE(mesh->HasShadowIndices());
+    auto mesh = Ref<MeshSource>::Create();
+    MeshOptimization::GenerateShadowIndices(*mesh);
+    EXPECT_FALSE(mesh->HasShadowIndices());
 }
 
 TEST(MeshOptimization, OptimizeMeshGeneratesShadowIndices)
 {
-	auto mesh = MakeGridMesh(4);
-	MeshOptimization::OptimizeMesh(*mesh);
+    auto mesh = MakeGridMesh(4);
+    MeshOptimization::OptimizeMesh(*mesh);
 
-	// OptimizeMesh should have generated shadow indices as part of its pipeline
-	EXPECT_TRUE(mesh->HasShadowIndices());
-	EXPECT_EQ(mesh->GetShadowIndices().Num(), mesh->GetIndices().Num());
+    // OptimizeMesh should have generated shadow indices as part of its pipeline
+    EXPECT_TRUE(mesh->HasShadowIndices());
+    EXPECT_EQ(mesh->GetShadowIndices().Num(), mesh->GetIndices().Num());
 }
 
 // =============================================================================
@@ -236,22 +244,22 @@ TEST(MeshOptimization, OptimizeMeshGeneratesShadowIndices)
 
 TEST(MeshOptimization, GenerateLODWithAttributesReducesTriangles)
 {
-	auto mesh = MakeGridMesh(16);
-	auto originalTriCount = mesh->GetIndices().Num() / 3;
+    auto mesh = MakeGridMesh(16);
+    auto originalTriCount = mesh->GetIndices().Num() / 3;
 
-	auto lod = MeshOptimization::GenerateLODMeshWithAttributes(*mesh, 0.25f);
+    auto lod = MeshOptimization::GenerateLODMeshWithAttributes(*mesh, 0.25f);
 
-	ASSERT_NE(lod, nullptr);
-	auto lodTriCount = lod->GetIndices().Num() / 3;
-	EXPECT_LT(lodTriCount, originalTriCount);
-	EXPECT_GT(lodTriCount, 0);
+    ASSERT_NE(lod, nullptr);
+    auto lodTriCount = lod->GetIndices().Num() / 3;
+    EXPECT_LT(lodTriCount, originalTriCount);
+    EXPECT_GT(lodTriCount, 0);
 }
 
 TEST(MeshOptimization, GenerateLODWithAttributesHandlesEmptyMesh)
 {
-	auto mesh = Ref<MeshSource>::Create();
-	auto lod = MeshOptimization::GenerateLODMeshWithAttributes(*mesh, 0.5f);
-	EXPECT_EQ(lod, nullptr);
+    auto mesh = Ref<MeshSource>::Create();
+    auto lod = MeshOptimization::GenerateLODMeshWithAttributes(*mesh, 0.5f);
+    EXPECT_EQ(lod, nullptr);
 }
 
 // =============================================================================
@@ -260,39 +268,39 @@ TEST(MeshOptimization, GenerateLODWithAttributesHandlesEmptyMesh)
 
 TEST(MeshOptimization, AnalyzeMeshReturnsValidStats)
 {
-	auto mesh = MakeGridMesh(8);
-	MeshOptimization::OptimizeMesh(*mesh);
+    auto mesh = MakeGridMesh(8);
+    MeshOptimization::OptimizeMesh(*mesh);
 
-	auto analysis = MeshOptimization::AnalyzeMesh(*mesh);
+    auto analysis = MeshOptimization::AnalyzeMesh(*mesh);
 
-	EXPECT_EQ(analysis.VertexCount, static_cast<u32>(mesh->GetVertices().Num()));
-	EXPECT_EQ(analysis.TriangleCount, static_cast<u32>(mesh->GetIndices().Num()) / 3);
-	EXPECT_GT(analysis.ACMR, 0.0f);
-	EXPECT_GT(analysis.ATVR, 0.0f);
-	EXPECT_GE(analysis.Overdraw, 1.0f); // Can't be less than 1
-	EXPECT_GE(analysis.OverfetchRatio, 1.0f);
+    EXPECT_EQ(analysis.VertexCount, static_cast<u32>(mesh->GetVertices().Num()));
+    EXPECT_EQ(analysis.TriangleCount, static_cast<u32>(mesh->GetIndices().Num()) / 3);
+    EXPECT_GT(analysis.ACMR, 0.0f);
+    EXPECT_GT(analysis.ATVR, 0.0f);
+    EXPECT_GE(analysis.Overdraw, 1.0f); // Can't be less than 1
+    EXPECT_GE(analysis.OverfetchRatio, 1.0f);
 }
 
 TEST(MeshOptimization, AnalyzeMeshHandlesEmptyMesh)
 {
-	auto mesh = Ref<MeshSource>::Create();
-	auto analysis = MeshOptimization::AnalyzeMesh(*mesh);
+    auto mesh = Ref<MeshSource>::Create();
+    auto analysis = MeshOptimization::AnalyzeMesh(*mesh);
 
-	EXPECT_EQ(analysis.VertexCount, 0u);
-	EXPECT_EQ(analysis.TriangleCount, 0u);
+    EXPECT_EQ(analysis.VertexCount, 0u);
+    EXPECT_EQ(analysis.TriangleCount, 0u);
 }
 
 TEST(MeshOptimization, OptimizedMeshHasBetterCacheStats)
 {
-	auto mesh = MakeGridMesh(8);
-	auto preAnalysis = MeshOptimization::AnalyzeMesh(*mesh);
+    auto mesh = MakeGridMesh(8);
+    auto preAnalysis = MeshOptimization::AnalyzeMesh(*mesh);
 
-	MeshOptimization::OptimizeMesh(*mesh);
-	auto postAnalysis = MeshOptimization::AnalyzeMesh(*mesh);
+    MeshOptimization::OptimizeMesh(*mesh);
+    auto postAnalysis = MeshOptimization::AnalyzeMesh(*mesh);
 
-	// After optimization, ACMR and ATVR should be equal or better
-	EXPECT_LE(postAnalysis.ACMR, preAnalysis.ACMR + 0.01f); // Allow tiny tolerance
-	EXPECT_LE(postAnalysis.ATVR, preAnalysis.ATVR + 0.01f);
+    // After optimization, ACMR and ATVR should be equal or better
+    EXPECT_LE(postAnalysis.ACMR, preAnalysis.ACMR + 0.01f); // Allow tiny tolerance
+    EXPECT_LE(postAnalysis.ATVR, preAnalysis.ATVR + 0.01f);
 }
 
 // =============================================================================
@@ -301,52 +309,52 @@ TEST(MeshOptimization, OptimizedMeshHasBetterCacheStats)
 
 TEST(MeshOptimization, GenerateMeshletsProducesOutput)
 {
-	auto mesh = MakeGridMesh(8);
-	MeshOptimization::OptimizeMesh(*mesh);
+    auto mesh = MakeGridMesh(8);
+    MeshOptimization::OptimizeMesh(*mesh);
 
-	auto meshlets = MeshOptimization::GenerateMeshlets(*mesh);
+    auto meshlets = MeshOptimization::GenerateMeshlets(*mesh);
 
-	EXPECT_FALSE(meshlets.Meshlets.empty());
-	EXPECT_FALSE(meshlets.MeshletVertices.empty());
-	EXPECT_FALSE(meshlets.MeshletTriangles.empty());
-	EXPECT_EQ(meshlets.Bounds.size(), meshlets.Meshlets.size());
+    EXPECT_FALSE(meshlets.Meshlets.empty());
+    EXPECT_FALSE(meshlets.MeshletVertices.empty());
+    EXPECT_FALSE(meshlets.MeshletTriangles.empty());
+    EXPECT_EQ(meshlets.Bounds.size(), meshlets.Meshlets.size());
 }
 
 TEST(MeshOptimization, GenerateMeshletsRespectsLimits)
 {
-	auto mesh = MakeGridMesh(16);
-	MeshOptimization::OptimizeMesh(*mesh);
+    auto mesh = MakeGridMesh(16);
+    MeshOptimization::OptimizeMesh(*mesh);
 
-	constexpr u32 maxVerts = 64;
-	constexpr u32 maxTris = 124;
-	auto meshlets = MeshOptimization::GenerateMeshlets(*mesh, maxVerts, maxTris);
+    constexpr u32 maxVerts = 64;
+    constexpr u32 maxTris = 124;
+    auto meshlets = MeshOptimization::GenerateMeshlets(*mesh, maxVerts, maxTris);
 
-	for (const auto& m : meshlets.Meshlets)
-	{
-		EXPECT_LE(m.VertexCount, maxVerts);
-		EXPECT_LE(m.TriangleCount, maxTris);
-	}
+    for (const auto& m : meshlets.Meshlets)
+    {
+        EXPECT_LE(m.VertexCount, maxVerts);
+        EXPECT_LE(m.TriangleCount, maxTris);
+    }
 }
 
 TEST(MeshOptimization, GenerateMeshletsHandlesEmptyMesh)
 {
-	auto mesh = Ref<MeshSource>::Create();
-	auto meshlets = MeshOptimization::GenerateMeshlets(*mesh);
+    auto mesh = Ref<MeshSource>::Create();
+    auto meshlets = MeshOptimization::GenerateMeshlets(*mesh);
 
-	EXPECT_TRUE(meshlets.Meshlets.empty());
+    EXPECT_TRUE(meshlets.Meshlets.empty());
 }
 
 TEST(MeshOptimization, MeshletBoundsHavePositiveRadius)
 {
-	auto mesh = MakeGridMesh(8);
-	MeshOptimization::OptimizeMesh(*mesh);
+    auto mesh = MakeGridMesh(8);
+    MeshOptimization::OptimizeMesh(*mesh);
 
-	auto meshlets = MeshOptimization::GenerateMeshlets(*mesh);
+    auto meshlets = MeshOptimization::GenerateMeshlets(*mesh);
 
-	for (const auto& b : meshlets.Bounds)
-	{
-		EXPECT_GT(b.Radius, 0.0f);
-	}
+    for (const auto& b : meshlets.Bounds)
+    {
+        EXPECT_GT(b.Radius, 0.0f);
+    }
 }
 
 // =============================================================================
@@ -355,27 +363,27 @@ TEST(MeshOptimization, MeshletBoundsHavePositiveRadius)
 
 TEST(MeshOptimization, SpatialSortPreservesGeometry)
 {
-	auto mesh = MakeGridMesh(4);
-	auto originalIdxCount = mesh->GetIndices().Num();
-	auto originalVertCount = mesh->GetVertices().Num();
+    auto mesh = MakeGridMesh(4);
+    auto originalIdxCount = mesh->GetIndices().Num();
+    auto originalVertCount = mesh->GetVertices().Num();
 
-	MeshOptimization::SpatialSortTriangles(*mesh);
+    MeshOptimization::SpatialSortTriangles(*mesh);
 
-	EXPECT_EQ(mesh->GetIndices().Num(), originalIdxCount);
-	EXPECT_EQ(mesh->GetVertices().Num(), originalVertCount);
+    EXPECT_EQ(mesh->GetIndices().Num(), originalIdxCount);
+    EXPECT_EQ(mesh->GetVertices().Num(), originalVertCount);
 
-	auto vertCount = static_cast<u32>(mesh->GetVertices().Num());
-	for (i32 i = 0; i < mesh->GetIndices().Num(); ++i)
-	{
-		EXPECT_LT(mesh->GetIndices()[i], vertCount);
-	}
+    auto vertCount = static_cast<u32>(mesh->GetVertices().Num());
+    for (i32 i = 0; i < mesh->GetIndices().Num(); ++i)
+    {
+        EXPECT_LT(mesh->GetIndices()[i], vertCount);
+    }
 }
 
 TEST(MeshOptimization, SpatialSortHandlesEmptyMesh)
 {
-	auto mesh = Ref<MeshSource>::Create();
-	MeshOptimization::SpatialSortTriangles(*mesh);
-	EXPECT_TRUE(mesh->GetIndices().IsEmpty());
+    auto mesh = Ref<MeshSource>::Create();
+    MeshOptimization::SpatialSortTriangles(*mesh);
+    EXPECT_TRUE(mesh->GetIndices().IsEmpty());
 }
 
 // =============================================================================
@@ -384,114 +392,114 @@ TEST(MeshOptimization, SpatialSortHandlesEmptyMesh)
 
 TEST(MeshOptimization, EncodeDecodeVertexBufferRoundTrip)
 {
-	auto mesh = MakeGridMesh(4);
-	const auto& verts = mesh->GetVertices();
-	auto vertCount = static_cast<sizet>(verts.Num());
+    auto mesh = MakeGridMesh(4);
+    const auto& verts = mesh->GetVertices();
+    auto vertCount = static_cast<sizet>(verts.Num());
 
-	auto encoded = MeshOptimization::EncodeVertexBuffer(verts.GetData(), vertCount, sizeof(Vertex));
+    auto encoded = MeshOptimization::EncodeVertexBuffer(verts.GetData(), vertCount, sizeof(Vertex));
 
-	EXPECT_FALSE(encoded.Data.empty());
-	EXPECT_LT(encoded.Data.size(), encoded.OriginalSize); // Should compress
+    EXPECT_FALSE(encoded.Data.empty());
+    EXPECT_LT(encoded.Data.size(), encoded.OriginalSize); // Should compress
 
-	std::vector<Vertex> decoded(vertCount);
-	bool ok = MeshOptimization::DecodeVertexBuffer(decoded.data(), vertCount, sizeof(Vertex), encoded);
-	EXPECT_TRUE(ok);
+    std::vector<Vertex> decoded(vertCount);
+    bool ok = MeshOptimization::DecodeVertexBuffer(decoded.data(), vertCount, sizeof(Vertex), encoded);
+    EXPECT_TRUE(ok);
 
-	// Verify round-trip fidelity
-	for (sizet i = 0; i < vertCount; ++i)
-	{
-		EXPECT_FLOAT_EQ(decoded[i].Position.x, verts[static_cast<i32>(i)].Position.x);
-		EXPECT_FLOAT_EQ(decoded[i].Position.y, verts[static_cast<i32>(i)].Position.y);
-		EXPECT_FLOAT_EQ(decoded[i].Position.z, verts[static_cast<i32>(i)].Position.z);
-		EXPECT_FLOAT_EQ(decoded[i].Normal.x, verts[static_cast<i32>(i)].Normal.x);
-		EXPECT_FLOAT_EQ(decoded[i].Normal.y, verts[static_cast<i32>(i)].Normal.y);
-		EXPECT_FLOAT_EQ(decoded[i].Normal.z, verts[static_cast<i32>(i)].Normal.z);
-		EXPECT_FLOAT_EQ(decoded[i].TexCoord.x, verts[static_cast<i32>(i)].TexCoord.x);
-		EXPECT_FLOAT_EQ(decoded[i].TexCoord.y, verts[static_cast<i32>(i)].TexCoord.y);
-	}
+    // Verify round-trip fidelity
+    for (sizet i = 0; i < vertCount; ++i)
+    {
+        EXPECT_FLOAT_EQ(decoded[i].Position.x, verts[static_cast<i32>(i)].Position.x);
+        EXPECT_FLOAT_EQ(decoded[i].Position.y, verts[static_cast<i32>(i)].Position.y);
+        EXPECT_FLOAT_EQ(decoded[i].Position.z, verts[static_cast<i32>(i)].Position.z);
+        EXPECT_FLOAT_EQ(decoded[i].Normal.x, verts[static_cast<i32>(i)].Normal.x);
+        EXPECT_FLOAT_EQ(decoded[i].Normal.y, verts[static_cast<i32>(i)].Normal.y);
+        EXPECT_FLOAT_EQ(decoded[i].Normal.z, verts[static_cast<i32>(i)].Normal.z);
+        EXPECT_FLOAT_EQ(decoded[i].TexCoord.x, verts[static_cast<i32>(i)].TexCoord.x);
+        EXPECT_FLOAT_EQ(decoded[i].TexCoord.y, verts[static_cast<i32>(i)].TexCoord.y);
+    }
 }
 
 TEST(MeshOptimization, EncodeDecodeIndexBufferRoundTrip)
 {
-	auto mesh = MakeGridMesh(4);
-	const auto& indices = mesh->GetIndices();
-	auto indexCount = static_cast<sizet>(indices.Num());
-	auto vertCount = static_cast<sizet>(mesh->GetVertices().Num());
+    auto mesh = MakeGridMesh(4);
+    const auto& indices = mesh->GetIndices();
+    auto indexCount = static_cast<sizet>(indices.Num());
+    auto vertCount = static_cast<sizet>(mesh->GetVertices().Num());
 
-	auto encoded = MeshOptimization::EncodeIndexBuffer(indices.GetData(), indexCount, vertCount);
+    auto encoded = MeshOptimization::EncodeIndexBuffer(indices.GetData(), indexCount, vertCount);
 
-	EXPECT_FALSE(encoded.Data.empty());
-	EXPECT_LT(encoded.Data.size(), encoded.OriginalSize); // Should compress
+    EXPECT_FALSE(encoded.Data.empty());
+    EXPECT_LT(encoded.Data.size(), encoded.OriginalSize); // Should compress
 
-	std::vector<u32> decoded(indexCount);
-	bool ok = MeshOptimization::DecodeIndexBuffer(decoded.data(), indexCount, encoded);
-	EXPECT_TRUE(ok);
+    std::vector<u32> decoded(indexCount);
+    bool ok = MeshOptimization::DecodeIndexBuffer(decoded.data(), indexCount, encoded);
+    EXPECT_TRUE(ok);
 
-	// Verify round-trip fidelity: codec may rotate vertices within a triangle
-	// but preserves triangle content and winding order
-	ASSERT_EQ(indexCount % 3, 0u);
-	for (sizet i = 0; i < indexCount; i += 3)
-	{
-		std::array<u32, 3> orig = { indices[static_cast<i32>(i)], indices[static_cast<i32>(i + 1)], indices[static_cast<i32>(i + 2)] };
-		std::array<u32, 3> dec  = { decoded[i], decoded[i + 1], decoded[i + 2] };
-		std::ranges::sort(orig);
-		std::ranges::sort(dec);
-		EXPECT_EQ(orig, dec) << "Triangle mismatch at index " << i;
-	}
+    // Verify round-trip fidelity: codec may rotate vertices within a triangle
+    // but preserves triangle content and winding order
+    ASSERT_EQ(indexCount % 3, 0u);
+    for (sizet i = 0; i < indexCount; i += 3)
+    {
+        std::array<u32, 3> orig = { indices[static_cast<i32>(i)], indices[static_cast<i32>(i + 1)], indices[static_cast<i32>(i + 2)] };
+        std::array<u32, 3> dec = { decoded[i], decoded[i + 1], decoded[i + 2] };
+        std::ranges::sort(orig);
+        std::ranges::sort(dec);
+        EXPECT_EQ(orig, dec) << "Triangle mismatch at index " << i;
+    }
 }
 
 TEST(MeshOptimization, EncodeVertexBufferCompresses)
 {
-	auto mesh = MakeGridMesh(16); // Larger mesh for meaningful compression
-	const auto& verts = mesh->GetVertices();
-	auto vertCount = static_cast<sizet>(verts.Num());
+    auto mesh = MakeGridMesh(16); // Larger mesh for meaningful compression
+    const auto& verts = mesh->GetVertices();
+    auto vertCount = static_cast<sizet>(verts.Num());
 
-	auto encoded = MeshOptimization::EncodeVertexBuffer(verts.GetData(), vertCount, sizeof(Vertex));
+    auto encoded = MeshOptimization::EncodeVertexBuffer(verts.GetData(), vertCount, sizeof(Vertex));
 
-	// Encoded should be meaningfully smaller than raw data
-	f32 ratio = static_cast<f32>(encoded.Data.size()) / static_cast<f32>(encoded.OriginalSize);
-	EXPECT_LT(ratio, 0.95f); // At least 5% reduction
+    // Encoded should be meaningfully smaller than raw data
+    f32 ratio = static_cast<f32>(encoded.Data.size()) / static_cast<f32>(encoded.OriginalSize);
+    EXPECT_LT(ratio, 0.95f); // At least 5% reduction
 }
 
 TEST(MeshOptimization, ShadowIndicesAreSpatialSorted)
 {
-	// A grid mesh has spatial structure that spatial sort can exploit.
-	// Verify shadow indices are generated and contain valid data.
-	auto mesh = MakeGridMesh(8);
-	MeshOptimization::OptimizeMesh(*mesh);
+    // A grid mesh has spatial structure that spatial sort can exploit.
+    // Verify shadow indices are generated and contain valid data.
+    auto mesh = MakeGridMesh(8);
+    MeshOptimization::OptimizeMesh(*mesh);
 
-	EXPECT_TRUE(mesh->HasShadowIndices());
-	const auto& shadowIndices = mesh->GetShadowIndices();
-	auto vertexCount = static_cast<u32>(mesh->GetVertices().Num());
+    EXPECT_TRUE(mesh->HasShadowIndices());
+    const auto& shadowIndices = mesh->GetShadowIndices();
+    auto vertexCount = static_cast<u32>(mesh->GetVertices().Num());
 
-	for (i32 i = 0; i < shadowIndices.Num(); ++i)
-	{
-		EXPECT_LT(shadowIndices[i], vertexCount) << "Invalid shadow index at " << i;
-	}
+    for (i32 i = 0; i < shadowIndices.Num(); ++i)
+    {
+        EXPECT_LT(shadowIndices[i], vertexCount) << "Invalid shadow index at " << i;
+    }
 }
 
 TEST(MeshOptimization, AttributeAwareLODPreservesUVQuality)
 {
-	// Verify attribute-aware LOD produces valid output
-	// that preserves more attribute quality than basic simplification
-	auto mesh = MakeGridMesh(16);
-	const auto& srcIndices = mesh->GetIndices();
-	auto srcTriCount = srcIndices.Num() / 3;
+    // Verify attribute-aware LOD produces valid output
+    // that preserves more attribute quality than basic simplification
+    auto mesh = MakeGridMesh(16);
+    const auto& srcIndices = mesh->GetIndices();
+    auto srcTriCount = srcIndices.Num() / 3;
 
-	auto basicLOD = MeshOptimization::GenerateLODMesh(*mesh, 0.25f);
-	auto attrLOD = MeshOptimization::GenerateLODMeshWithAttributes(*mesh, 0.25f);
+    auto basicLOD = MeshOptimization::GenerateLODMesh(*mesh, 0.25f);
+    auto attrLOD = MeshOptimization::GenerateLODMeshWithAttributes(*mesh, 0.25f);
 
-	ASSERT_NE(basicLOD, nullptr);
-	ASSERT_NE(attrLOD, nullptr);
+    ASSERT_NE(basicLOD, nullptr);
+    ASSERT_NE(attrLOD, nullptr);
 
-	// Both should reduce triangle count
-	EXPECT_LT(basicLOD->GetIndices().Num() / 3, srcTriCount);
-	EXPECT_LT(attrLOD->GetIndices().Num() / 3, srcTriCount);
+    // Both should reduce triangle count
+    EXPECT_LT(basicLOD->GetIndices().Num() / 3, srcTriCount);
+    EXPECT_LT(attrLOD->GetIndices().Num() / 3, srcTriCount);
 
-	// Both should produce valid indices
-	auto attrVertCount = static_cast<u32>(attrLOD->GetVertices().Num());
-	for (i32 i = 0; i < attrLOD->GetIndices().Num(); ++i)
-	{
-		EXPECT_LT(attrLOD->GetIndices()[i], attrVertCount);
-	}
+    // Both should produce valid indices
+    auto attrVertCount = static_cast<u32>(attrLOD->GetVertices().Num());
+    for (i32 i = 0; i < attrLOD->GetIndices().Num(); ++i)
+    {
+        EXPECT_LT(attrLOD->GetIndices()[i], attrVertCount);
+    }
 }
