@@ -350,7 +350,7 @@ namespace OloEngine
 
         // Grab the last N log lines from the ringbuffer
         report << "--- Recent Log Messages (last 200) ---\n";
-        auto recentLogs = Log::GetRecentLogMessages();
+        auto recentLogs = Log::Get().GetRecentLogMessages();
         if (recentLogs.empty())
         {
             report << "(no log messages captured)\n";

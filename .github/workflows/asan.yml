@@ -1,0 +1,182 @@
+name: Sanitizers
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+jobs:
+  asan-windows:
+    name: ASan (Windows/MSVC)
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Install Python 3.10
+      id: py
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.10'
+
+    - name: Install python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install jinja2
+
+    - name: Setup Vulkan SDK
+      uses: ./.github/actions/setup-vulkan
+
+    - name: Configure CMake (ASan enabled)
+      run: >
+        cmake -S . -B build
+        -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
+        -DOLO_ENABLE_ASAN=ON
+
+    - name: Build (Debug)
+      run: cmake --build build --config Debug --target OloEngine-Tests --parallel
+
+    - name: Run tests under ASan
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      run: ctest -C Debug -V
+      env:
+        ASAN_OPTIONS: halt_on_error=1
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: asan_test_results_windows
+        path: ${{runner.workspace}}/OloEngineBase/test_results/*.xml
+        if-no-files-found: 'warn'
+
+  asan-lsan-linux:
+    name: ASan + LSan (Linux/Clang)
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          clang lld \
+          libvulkan-dev vulkan-validationlayers \
+          libglfw3-dev libgl-dev libglu1-mesa-dev \
+          python3 python3-pip
+        python3 -m pip install --upgrade pip jinja2
+
+    - name: Configure CMake (ASan + LSan)
+      run: >
+        cmake -S . -B build
+        -DCMAKE_CXX_COMPILER=clang++
+        -DCMAKE_C_COMPILER=clang
+        -DCMAKE_BUILD_TYPE=Debug
+        -DOLO_ENABLE_ASAN=ON
+        -DBUILD_TESTS=ON
+
+    - name: Build tests
+      run: cmake --build build --target OloEngine-Tests --parallel
+
+    - name: Run tests under ASan + LSan
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      run: ctest -V
+      env:
+        ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
+        LSAN_OPTIONS: suppressions=${{github.workspace}}/sanitizer-suppressions/lsan.txt
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: asan_lsan_test_results_linux
+        path: ${{runner.workspace}}/OloEngineBase/test_results/*.xml
+        if-no-files-found: 'warn'
+
+  ubsan-linux:
+    name: UBSan (Linux/Clang)
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          clang lld \
+          libvulkan-dev vulkan-validationlayers \
+          libglfw3-dev libgl-dev libglu1-mesa-dev \
+          python3 python3-pip
+        python3 -m pip install --upgrade pip jinja2
+
+    - name: Configure CMake (UBSan)
+      run: >
+        cmake -S . -B build
+        -DCMAKE_CXX_COMPILER=clang++
+        -DCMAKE_C_COMPILER=clang
+        -DCMAKE_BUILD_TYPE=Debug
+        -DOLO_ENABLE_UBSAN=ON
+        -DBUILD_TESTS=ON
+
+    - name: Build tests
+      run: cmake --build build --target OloEngine-Tests --parallel
+
+    - name: Run tests under UBSan
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      run: ctest -V
+      env:
+        UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: ubsan_test_results_linux
+        path: ${{runner.workspace}}/OloEngineBase/test_results/*.xml
+        if-no-files-found: 'warn'
+
+  tsan-linux:
+    name: TSan (Linux/Clang)
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          clang lld \
+          libvulkan-dev vulkan-validationlayers \
+          libglfw3-dev libgl-dev libglu1-mesa-dev \
+          python3 python3-pip
+        python3 -m pip install --upgrade pip jinja2
+
+    - name: Configure CMake (TSan)
+      run: >
+        cmake -S . -B build
+        -DCMAKE_CXX_COMPILER=clang++
+        -DCMAKE_C_COMPILER=clang
+        -DCMAKE_BUILD_TYPE=Debug
+        -DOLO_ENABLE_TSAN=ON
+        -DBUILD_TESTS=ON
+
+    - name: Build tests
+      run: cmake --build build --target OloEngine-Tests --parallel
+
+    - name: Run tests under TSan
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      run: ctest -V
+      env:
+        TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: tsan_test_results_linux
+        path: ${{runner.workspace}}/OloEngineBase/test_results/*.xml
+        if-no-files-found: 'warn'

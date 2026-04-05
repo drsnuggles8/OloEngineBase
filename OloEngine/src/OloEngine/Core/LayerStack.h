@@ -3,6 +3,8 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Layer.h"
 
+#include <memory>
+#include <ranges>
 #include <vector>
 
 namespace OloEngine
@@ -11,49 +13,65 @@ namespace OloEngine
     {
       public:
         LayerStack() = default;
-        ~LayerStack() = default;
+        ~LayerStack();
 
-        void PushLayer(Layer* layer);
-        void PushOverlay(Layer* overlay);
-        void PopLayer(Layer* layer);
-        void PopOverlay(Layer* overlay);
+        LayerStack(LayerStack&&) noexcept = default;
+        LayerStack& operator=(LayerStack&&) noexcept = default;
+        LayerStack(const LayerStack&) = delete;
+        LayerStack& operator=(const LayerStack&) = delete;
 
-        std::vector<Layer*>::iterator begin()
+        // Takes ownership. Calls OnAttach() on the layer.
+        void PushLayer(std::unique_ptr<Layer> layer);
+        // Takes ownership. Calls OnAttach() on the overlay.
+        void PushOverlay(std::unique_ptr<Layer> overlay);
+        // Calls OnDetach(), removes from stack, returns ownership to caller.
+        std::unique_ptr<Layer> PopLayer(Layer* layer);
+        // Calls OnDetach(), removes from stack, returns ownership to caller.
+        std::unique_ptr<Layer> PopOverlay(Layer* overlay);
+
+        // Forward iteration yielding Layer* (for OnUpdate, OnImGuiRender)
+        [[nodiscard]] auto begin()
         {
-            return m_Layers.begin();
+            return m_RawPtrs.begin();
         }
-        std::vector<Layer*>::iterator end()
+        [[nodiscard]] auto end()
         {
-            return m_Layers.end();
+            return m_RawPtrs.end();
         }
-        std::vector<Layer*>::reverse_iterator rbegin()
+        [[nodiscard]] auto begin() const
         {
-            return m_Layers.rbegin();
+            return m_RawPtrs.cbegin();
         }
-        std::vector<Layer*>::reverse_iterator rend()
+        [[nodiscard]] auto end() const
         {
-            return m_Layers.rend();
+            return m_RawPtrs.cend();
         }
 
-        [[nodiscard("Store this!")]] std::vector<Layer*>::const_iterator begin() const
+        // Reverse iteration (for event dispatch — overlays first)
+        [[nodiscard]] auto rbegin()
         {
-            return m_Layers.begin();
+            return m_RawPtrs.rbegin();
         }
-        [[nodiscard("Store this!")]] std::vector<Layer*>::const_iterator end() const
+        [[nodiscard]] auto rend()
         {
-            return m_Layers.end();
+            return m_RawPtrs.rend();
         }
-        [[nodiscard("Store this!")]] std::vector<Layer*>::const_reverse_iterator rbegin() const
+        [[nodiscard]] auto rbegin() const
         {
-            return m_Layers.rbegin();
+            return m_RawPtrs.crbegin();
         }
-        [[nodiscard("Store this!")]] std::vector<Layer*>::const_reverse_iterator rend() const
+        [[nodiscard]] auto rend() const
         {
-            return m_Layers.rend();
+            return m_RawPtrs.crend();
         }
 
       private:
-        std::vector<Layer*> m_Layers;
-        unsigned int m_LayerInsertIndex = 0;
+        void RebuildRawPtrs();
+
+        std::vector<std::unique_ptr<Layer>> m_Layers;
+        // Cached raw-pointer mirror for fast iteration and ranges compatibility.
+        // Rebuilt on push/pop (rare) so per-frame iteration is zero-overhead.
+        std::vector<Layer*> m_RawPtrs;
+        u32 m_LayerInsertIndex = 0;
     };
 } // namespace OloEngine

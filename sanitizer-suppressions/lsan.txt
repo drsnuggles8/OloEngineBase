@@ -1,0 +1,18 @@
+# Leak Sanitizer suppressions for OloEngine
+#
+# Third-party libraries that intentionally leak (global singletons, etc.)
+# Add entries here to suppress known false positives from dependencies.
+#
+# Format: leak:<function_or_module_pattern>
+#
+# See: https://clang.llvm.org/docs/AddressSanitizer.html#suppressing-memory-leaks
+
+# Mono runtime allocates global state that lives until process exit
+leak:mono_
+
+# GLFW allocates X11/Wayland display state that persists
+leak:glfwInit
+
+# Mesa/NVIDIA driver global state
+leak:libGLX
+leak:libEGL

@@ -26,6 +26,7 @@ option(OLO_ENABLE_UNITY_BUILD "Enable Unity (Jumbo) Builds for faster compilatio
 # Includes
 include(cmake/SetupConfigurations.cmake)
 include(cmake/CommonProperties.cmake)
+include(cmake/Sanitizers.cmake)
 include(cmake/CPM.cmake)
 
 # Project wide setup - Configure module paths

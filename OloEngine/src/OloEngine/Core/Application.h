@@ -57,8 +57,8 @@ namespace OloEngine
 
         void OnEvent(Event& e);
 
-        void PushLayer(Layer* layer);
-        void PushOverlay(Layer* layer);
+        void PushLayer(std::unique_ptr<Layer> layer);
+        void PushOverlay(std::unique_ptr<Layer> layer);
         void PopLayer(Layer* layer);
         void PopOverlay(Layer* layer);
 

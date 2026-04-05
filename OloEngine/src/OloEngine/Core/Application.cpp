@@ -7,6 +7,8 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Timer.h"
 #include "OloEngine/Debug/CrashReporter.h"
+#include "OloEngine/Debug/DebugOverlayLayer.h"
+#include "OloEngine/Debug/PerformanceLayer.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
@@ -78,7 +80,11 @@ namespace OloEngine
                 InputActionManager::Init();
 
                 m_ImGuiLayer = new ImGuiLayer();
-                PushOverlay(m_ImGuiLayer);
+                PushOverlay(std::unique_ptr<Layer>(m_ImGuiLayer));
+
+                // Debug/performance overlay layers (toggle with F3/F4)
+                PushOverlay(std::make_unique<DebugOverlayLayer>());
+                PushOverlay(std::make_unique<PerformanceLayer>());
             }
             else
             {
@@ -127,11 +133,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        for (Layer* const layer : m_LayerStack)
-        {
-            layer->OnDetach();
-            delete layer;
-        }
+        // LayerStack destructor calls OnDetach() on all layers and owns their memory.
+        // Clear it before shutting down subsystems so layers detach while systems are live.
+        m_LayerStack = LayerStack();
+        m_ImGuiLayer = nullptr;
 
         if (!m_Specification.IsHeadless)
         {
@@ -178,32 +183,28 @@ namespace OloEngine
         }
     }
 
-    void Application::PushLayer(Layer* const layer)
+    void Application::PushLayer(std::unique_ptr<Layer> layer)
     {
         OLO_PROFILE_FUNCTION();
 
-        m_LayerStack.PushLayer(layer);
-        layer->OnAttach();
+        m_LayerStack.PushLayer(std::move(layer));
     }
 
-    void Application::PushOverlay(Layer* const layer)
+    void Application::PushOverlay(std::unique_ptr<Layer> layer)
     {
         OLO_PROFILE_FUNCTION();
 
-        m_LayerStack.PushOverlay(layer);
-        layer->OnAttach();
+        m_LayerStack.PushOverlay(std::move(layer));
     }
 
     void Application::PopLayer(Layer* const layer)
     {
         m_LayerStack.PopLayer(layer);
-        layer->OnDetach();
     }
 
     void Application::PopOverlay(Layer* const layer)
     {
         m_LayerStack.PopOverlay(layer);
-        layer->OnDetach();
     }
 
     void Application::Close()

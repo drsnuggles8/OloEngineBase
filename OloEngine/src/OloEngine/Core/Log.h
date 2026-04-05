@@ -32,14 +32,13 @@ namespace spdlog::sinks
 #define OLO_ASSERT_MESSAGE_BOX 0
 #endif
 
-#if OLO_ASSERT_MESSAGE_BOX
-#ifdef OLO_PLATFORM_WINDOWS
-#include <Windows.h>
-#endif
-#endif
-
 namespace OloEngine
 {
+#if OLO_ASSERT_MESSAGE_BOX
+    // Defined in Log.cpp — keeps <Windows.h> out of this header
+    void ShowAssertMessageBox(const char* message);
+#endif
+
     class Log
     {
       public:
@@ -65,35 +64,41 @@ namespace OloEngine
         };
 
       public:
-        static void Init();
-        static void Shutdown();
+        // Meyer's singleton — constructed on first call, destroyed at program exit
+        [[nodiscard("Store this!")]] static Log& Get();
 
-        [[nodiscard("Store this!")]] static std::shared_ptr<spdlog::logger>& GetCoreLogger()
+        // Non-copyable, non-moveable
+        Log(Log const&) = delete;
+        Log& operator=(Log const&) = delete;
+        Log(Log&&) = delete;
+        Log& operator=(Log&&) = delete;
+
+        [[nodiscard("Store this!")]] std::shared_ptr<spdlog::logger>& GetCoreLogger()
         {
-            return s_CoreLogger;
+            return m_CoreLogger;
         }
-        [[nodiscard("Store this!")]] static std::shared_ptr<spdlog::logger>& GetClientLogger()
+        [[nodiscard("Store this!")]] std::shared_ptr<spdlog::logger>& GetClientLogger()
         {
-            return s_ClientLogger;
+            return m_ClientLogger;
         }
-        [[nodiscard("Store this!")]] static std::shared_ptr<spdlog::logger>& GetEditorConsoleLogger()
+        [[nodiscard("Store this!")]] std::shared_ptr<spdlog::logger>& GetEditorConsoleLogger()
         {
-            return s_EditorConsoleLogger;
+            return m_EditorConsoleLogger;
         }
 
         // Thread-safe readers: lock-free snapshot
-        static bool HasTag(const std::string& tag);
-        static std::unordered_map<std::string, TagDetails> GetEnabledTags(); // returns copy
+        bool HasTag(const std::string& tag) const;
+        std::unordered_map<std::string, TagDetails> GetEnabledTags() const; // returns copy
 
         // Writers: apply copy-on-write and atomic swap
-        static void SetTagEnabled(const std::string& tag, bool enabled, Level level = Level::Trace);
-        static void RemoveTag(const std::string& tag);
-        static void ClearAllTags();
+        void SetTagEnabled(const std::string& tag, bool enabled, Level level = Level::Trace);
+        void RemoveTag(const std::string& tag);
+        void ClearAllTags();
 
-        static void SetDefaultTagSettings();
+        void SetDefaultTagSettings();
 
         // Crash reporting: retrieve the last N formatted log messages from the ringbuffer
-        [[nodiscard]] static std::vector<std::string> GetRecentLogMessages(size_t count = 0);
+        [[nodiscard]] std::vector<std::string> GetRecentLogMessages(size_t count = 0) const;
 
         template<typename... Args>
         static void PrintMessage(Log::Type type, Log::Level level, const std::string& format, Args&&... args);
@@ -108,12 +113,6 @@ namespace OloEngine
 
         static void PrintAssertMessage(Log::Type type, std::string_view prefix);
 
-      private:
-        // lock-free tag map: readers take a snapshot shared_ptr, writers copy-and-swap
-        using TagMap = std::unordered_map<std::string, TagDetails>;
-        static TagDetails GetTagDetails(std::string_view tag);
-
-      public:
         // Enum utils
         static const char* LevelToString(Level level)
         {
@@ -149,25 +148,34 @@ namespace OloEngine
         }
 
       private:
-        static std::shared_ptr<spdlog::logger> s_CoreLogger;
-        static std::shared_ptr<spdlog::logger> s_ClientLogger;
-        static std::shared_ptr<spdlog::logger> s_EditorConsoleLogger;
-        static std::shared_ptr<spdlog::sinks::ringbuffer_sink<std::mutex>> s_RingbufferSink;
+        Log();
+        ~Log();
+
+        // lock-free tag map: readers take a snapshot shared_ptr, writers copy-and-swap
+        using TagMap = std::unordered_map<std::string, TagDetails>;
+        TagDetails GetTagDetails(std::string_view tag) const;
+
+      private:
+        std::shared_ptr<spdlog::logger> m_CoreLogger;
+        std::shared_ptr<spdlog::logger> m_ClientLogger;
+        std::shared_ptr<spdlog::logger> m_EditorConsoleLogger;
+        std::shared_ptr<spdlog::sinks::ringbuffer_sink<std::mutex>> m_RingbufferSink;
 
         // lock-free storage
-        static std::atomic<std::shared_ptr<TagMap>> s_Tags;
+        mutable std::atomic<std::shared_ptr<TagMap>> m_Tags{ nullptr };
         // keep a copy of defaults if you need reset functionality
-        static std::unordered_map<std::string, TagDetails> s_DefaultTagDetails;
+        std::unordered_map<std::string, TagDetails> m_DefaultTagDetails;
     };
 
     // Template implementations
     template<typename... Args>
     void Log::PrintMessage(Log::Type type, Log::Level level, const std::string& format, Args&&... args)
     {
-        const auto detail = GetTagDetails("");
+        auto& log = Get();
+        const auto detail = log.GetTagDetails("");
         if (detail.Enabled && detail.LevelFilter <= level)
         {
-            auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
+            auto& logger = (type == Type::Core) ? log.GetCoreLogger() : log.GetClientLogger();
             switch (level)
             {
                 case Level::Trace:
@@ -192,10 +200,11 @@ namespace OloEngine
     template<typename... Args>
     void Log::PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, const std::string& format, Args&&... args)
     {
-        const auto detail = GetTagDetails(tag);
+        auto& log = Get();
+        const auto detail = log.GetTagDetails(tag);
         if (detail.Enabled && detail.LevelFilter <= level)
         {
-            auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
+            auto& logger = (type == Type::Core) ? log.GetCoreLogger() : log.GetClientLogger();
 
             // Build tagged format (simple and clear)
             const std::string tagged_format = "[{}] " + format;
@@ -223,10 +232,11 @@ namespace OloEngine
 
     inline void Log::PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, std::string_view message)
     {
-        const auto detail = GetTagDetails(tag);
+        auto& log = Get();
+        const auto detail = log.GetTagDetails(tag);
         if (detail.Enabled && detail.LevelFilter <= level)
         {
-            auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
+            auto& logger = (type == Type::Core) ? log.GetCoreLogger() : log.GetClientLogger();
             switch (level)
             {
                 case Level::Trace:
@@ -251,22 +261,24 @@ namespace OloEngine
     template<typename... Args>
     void Log::PrintAssertMessage(Log::Type type, std::string_view prefix, const std::string& message, Args&&... args)
     {
-        auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
+        auto& log = Get();
+        auto& logger = (type == Type::Core) ? log.GetCoreLogger() : log.GetClientLogger();
         const std::string full_format = "{}: " + message;
         logger->error(fmt::runtime(full_format), prefix, std::forward<Args>(args)...);
 
 #if OLO_ASSERT_MESSAGE_BOX
         std::string formatted = spdlog::fmt_lib::format(fmt::runtime(message), std::forward<Args>(args)...);
-        MessageBoxA(nullptr, formatted.c_str(), "OloEngine Assert", MB_OK | MB_ICONERROR);
+        ShowAssertMessageBox(formatted.c_str());
 #endif
     }
 
     inline void Log::PrintAssertMessage(Log::Type type, std::string_view prefix)
     {
-        auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
+        auto& log = Get();
+        auto& logger = (type == Type::Core) ? log.GetCoreLogger() : log.GetClientLogger();
         logger->error("{0}", prefix);
 #if OLO_ASSERT_MESSAGE_BOX
-        MessageBoxA(nullptr, "No message :(", "OloEngine Assert", MB_OK | MB_ICONERROR);
+        ShowAssertMessageBox("No message :(");
 #endif
     }
 } // namespace OloEngine
@@ -330,8 +342,8 @@ inline OStream& operator<<(OStream& os, glm::qua<T, Q> quaternion)
 #define OLO_CRITICAL(...) ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Client, ::OloEngine::Log::Level::Fatal, __VA_ARGS__)
 
 // Editor Console Logging Macros
-#define OLO_CONSOLE_LOG_TRACE(...) OloEngine::Log::GetEditorConsoleLogger()->trace(__VA_ARGS__)
-#define OLO_CONSOLE_LOG_INFO(...) OloEngine::Log::GetEditorConsoleLogger()->info(__VA_ARGS__)
-#define OLO_CONSOLE_LOG_WARN(...) OloEngine::Log::GetEditorConsoleLogger()->warn(__VA_ARGS__)
-#define OLO_CONSOLE_LOG_ERROR(...) OloEngine::Log::GetEditorConsoleLogger()->error(__VA_ARGS__)
-#define OLO_CONSOLE_LOG_FATAL(...) OloEngine::Log::GetEditorConsoleLogger()->critical(__VA_ARGS__)
+#define OLO_CONSOLE_LOG_TRACE(...) ::OloEngine::Log::Get().GetEditorConsoleLogger()->trace(__VA_ARGS__)
+#define OLO_CONSOLE_LOG_INFO(...) ::OloEngine::Log::Get().GetEditorConsoleLogger()->info(__VA_ARGS__)
+#define OLO_CONSOLE_LOG_WARN(...) ::OloEngine::Log::Get().GetEditorConsoleLogger()->warn(__VA_ARGS__)
+#define OLO_CONSOLE_LOG_ERROR(...) ::OloEngine::Log::Get().GetEditorConsoleLogger()->error(__VA_ARGS__)
+#define OLO_CONSOLE_LOG_FATAL(...) ::OloEngine::Log::Get().GetEditorConsoleLogger()->critical(__VA_ARGS__)
