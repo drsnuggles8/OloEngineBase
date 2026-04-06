@@ -181,7 +181,15 @@ namespace OloEngine
         {
             return {};
         }
-        return *current; // copy-out
+        std::unordered_map<std::string, TagDetails> result;
+        for (auto const& [tag, details] : *current)
+        {
+            if (details.Enabled)
+            {
+                result.emplace(tag, details);
+            }
+        }
+        return result;
     }
 
     void Log::SetTagEnabled(const std::string& tag, bool enabled, Level level)

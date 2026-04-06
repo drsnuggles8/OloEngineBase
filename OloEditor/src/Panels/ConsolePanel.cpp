@@ -57,9 +57,10 @@ namespace OloEngine
                 PushMessage(formatted, level, source);
             });
 
-        // Add sink to both core and client loggers
+        // Add sink to core, client, and editor console loggers
         Log::Get().GetCoreLogger()->sinks().push_back(m_Sink);
         Log::Get().GetClientLogger()->sinks().push_back(m_Sink);
+        Log::Get().GetEditorConsoleLogger()->sinks().push_back(m_Sink);
     }
 
     void ConsolePanel::RemoveSink()
@@ -77,6 +78,7 @@ namespace OloEngine
 
         removeSinkFrom(Log::Get().GetCoreLogger());
         removeSinkFrom(Log::Get().GetClientLogger());
+        removeSinkFrom(Log::Get().GetEditorConsoleLogger());
         m_Sink.reset();
     }
 
