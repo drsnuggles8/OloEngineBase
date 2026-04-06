@@ -12,5 +12,7 @@ EditorPreferences:
   ThrottleEditMode: true
   ThrottlePlayMode: false
   RenderBudgetMs: 33.3
+  EnableAutoSave: true
+  AutoSaveIntervalSeconds: 300
   Bookmarks:
     []

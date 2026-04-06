@@ -4,7 +4,6 @@
 #include "OloEngine/Core/Layer.h"
 
 #include <memory>
-#include <ranges>
 #include <vector>
 
 namespace OloEngine
@@ -15,8 +14,8 @@ namespace OloEngine
         LayerStack() = default;
         ~LayerStack();
 
-        LayerStack(LayerStack&&) noexcept = default;
-        LayerStack& operator=(LayerStack&&) noexcept = default;
+        LayerStack(LayerStack&& other) noexcept;
+        LayerStack& operator=(LayerStack&& other) noexcept;
         LayerStack(const LayerStack&) = delete;
         LayerStack& operator=(const LayerStack&) = delete;
 

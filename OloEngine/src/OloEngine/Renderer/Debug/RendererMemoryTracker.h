@@ -86,11 +86,11 @@ namespace OloEngine
 
         // @brief Track a memory allocation
         void TrackAllocation(void* address, sizet size, ResourceType type,
-                             const std::string& name, bool isGPU = false,
-                             const char* file = __FILE__, u32 line = __LINE__);
+                             const std::string& name, bool isGPU,
+                             const char* file, u32 line);
 
         // @brief Track a memory deallocation
-        void TrackDeallocation(void* address, const char* file = __FILE__, u32 line = __LINE__);
+        void TrackDeallocation(void* address, const char* file, u32 line);
 
         // @brief Update memory statistics (call once per frame)
         void UpdateStats();

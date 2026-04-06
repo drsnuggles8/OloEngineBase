@@ -33,7 +33,11 @@ namespace OloEngine
             return;
         }
 
-        m_FrameTime = ts.GetMilliseconds();
+        // Use unscaled delta so the FPS/frame-time HUD reports real wall-clock
+        // frame rate regardless of Application::m_TimeScale.
+        auto const* app = Application::TryGet();
+        f32 const unscaledMs = app ? app->GetUnscaledDeltaTime() * 1000.0f : ts.GetMilliseconds();
+        m_FrameTime = unscaledMs;
         if (m_FrameTime > 0.0f)
         {
             m_FPS = 1000.0f / m_FrameTime;

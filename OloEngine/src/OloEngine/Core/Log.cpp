@@ -28,6 +28,8 @@ namespace OloEngine
 
     Log::Log()
     {
+        s_Initialized = true;
+
         // Create the ringbuffer sink (keeps last 200 messages for crash reports)
         m_RingbufferSink = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(200);
         m_RingbufferSink->set_pattern("[%T] [%l] %n: %v");
@@ -61,7 +63,10 @@ namespace OloEngine
 
     Log::~Log()
     {
-        spdlog::shutdown();
+        // Intentionally do NOT call spdlog::shutdown() here.
+        // This destructor runs during static teardown, and other statics
+        // may still log via PrintMessage* after this point.  Destroying
+        // the process-wide spdlog registry would cause use-after-free.
         m_RingbufferSink.reset();
         // release tags explicitly
         m_Tags.store(nullptr, std::memory_order_release);

@@ -196,6 +196,11 @@ namespace OloEngine
         // Sync with async asset loading thread
         AssetManager::SyncWithAssetThread();
 
+        if (!m_ActiveScene)
+        {
+            return;
+        }
+
         m_ActiveScene->OnViewportResize(static_cast<u32>(m_ViewportSize.x), static_cast<u32>(m_ViewportSize.y));
         m_ActiveScene->SetViewportOffset(m_ViewportBounds[0]);
 

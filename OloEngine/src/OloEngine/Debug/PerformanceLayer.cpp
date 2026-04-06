@@ -32,12 +32,18 @@ namespace OloEngine
 
     void PerformanceLayer::OnUpdate(Timestep const ts)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_Visible || m_Paused)
         {
             return;
         }
 
-        m_CurrentFrameTime = ts.GetMilliseconds();
+        // Use unscaled delta so the FPS/frame-time display reports real wall-clock
+        // frame rate regardless of Application::m_TimeScale.
+        auto const* app = Application::TryGet();
+        f32 const unscaledMs = app ? app->GetUnscaledDeltaTime() * 1000.0f : ts.GetMilliseconds();
+        m_CurrentFrameTime = unscaledMs;
         if (m_CurrentFrameTime > 0.0f)
         {
             m_CurrentFPS = 1000.0f / m_CurrentFrameTime;
@@ -63,6 +69,8 @@ namespace OloEngine
 
     void PerformanceLayer::OnImGuiRender()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_Visible)
         {
             return;
@@ -73,12 +81,16 @@ namespace OloEngine
 
     void PerformanceLayer::OnEvent(Event& e)
     {
+        OLO_PROFILE_FUNCTION();
+
         EventDispatcher dispatcher(e);
         dispatcher.Dispatch<KeyPressedEvent>(OLO_BIND_EVENT_FN(PerformanceLayer::OnKeyPressed));
     }
 
     bool PerformanceLayer::OnKeyPressed(KeyPressedEvent const& e)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (e.IsRepeat())
         {
             return false;
@@ -95,6 +107,8 @@ namespace OloEngine
 
     void PerformanceLayer::DrawPerformanceWindow()
     {
+        OLO_PROFILE_SCOPE("Performance/DrawPerformanceWindow");
+
         constexpr ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
 
         constexpr f32 padding = 10.0f;
@@ -132,6 +146,8 @@ namespace OloEngine
 
     void PerformanceLayer::DrawFrameTimeGraph()
     {
+        OLO_PROFILE_SCOPE("Performance/DrawFrameTimeGraph");
+
         // FPS header
         auto const fpsColor = DebugUtils::GetPerformanceColor(m_CurrentFrameTime, 16.67f, 33.33f);
         ImGui::TextColored(fpsColor, "%.1f FPS (%.2f ms)", m_CurrentFPS, m_CurrentFrameTime);
@@ -173,6 +189,8 @@ namespace OloEngine
 
     void PerformanceLayer::DrawTimingBreakdown()
     {
+        OLO_PROFILE_SCOPE("Performance/DrawTimingBreakdown");
+
 #ifdef OLO_DEBUG
         auto const& frameData = RendererProfiler::GetInstance().GetCurrentFrameData();
 
@@ -211,6 +229,8 @@ namespace OloEngine
 
     void PerformanceLayer::DrawMemoryStats()
     {
+        OLO_PROFILE_SCOPE("Performance/DrawMemoryStats");
+
 #ifdef OLO_DEBUG
         auto& tracker = RendererMemoryTracker::GetInstance();
         auto const totalMem = tracker.GetTotalMemoryUsage();
@@ -252,6 +272,8 @@ namespace OloEngine
 
     void PerformanceLayer::DrawCPUProfileScopes()
     {
+        OLO_PROFILE_SCOPE("Performance/DrawCPUProfileScopes");
+
         auto const* app = Application::TryGet();
         if (!app)
         {

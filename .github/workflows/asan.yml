@@ -48,7 +48,7 @@ jobs:
       uses: actions/upload-artifact@v7
       with:
         name: asan_test_results_windows
-        path: ${{runner.workspace}}/OloEngineBase/test_results/*.xml
+        path: ${{github.workspace}}/test_results/*.xml
         if-no-files-found: 'warn'
 
   asan-lsan-linux:
@@ -92,7 +92,7 @@ jobs:
       uses: actions/upload-artifact@v7
       with:
         name: asan_lsan_test_results_linux
-        path: ${{runner.workspace}}/OloEngineBase/test_results/*.xml
+        path: ${{github.workspace}}/test_results/*.xml
         if-no-files-found: 'warn'
 
   ubsan-linux:
@@ -135,7 +135,7 @@ jobs:
       uses: actions/upload-artifact@v7
       with:
         name: ubsan_test_results_linux
-        path: ${{runner.workspace}}/OloEngineBase/test_results/*.xml
+        path: ${{github.workspace}}/test_results/*.xml
         if-no-files-found: 'warn'
 
   tsan-linux:
@@ -178,5 +178,5 @@ jobs:
       uses: actions/upload-artifact@v7
       with:
         name: tsan_test_results_linux
-        path: ${{runner.workspace}}/OloEngineBase/test_results/*.xml
+        path: ${{github.workspace}}/test_results/*.xml
         if-no-files-found: 'warn'

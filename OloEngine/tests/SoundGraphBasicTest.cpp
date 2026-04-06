@@ -20,7 +20,7 @@ class SoundGraphBasicTest : public ::testing::Test
     void SetUp() override
     {
         // Log is auto-initialized via Meyer's singleton
-        (void)Log::Get();
+        Log::Initialize();
     }
 };
 

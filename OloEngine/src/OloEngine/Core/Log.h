@@ -65,7 +65,22 @@ namespace OloEngine
 
       public:
         // Meyer's singleton — constructed on first call, destroyed at program exit
-        [[nodiscard("Store this!")]] static Log& Get();
+        static Log& Get();
+
+        // Explicit initialization entry point — call early in main() to trigger
+        // singleton construction without requiring the caller to store the result.
+        static void Initialize()
+        {
+            (void)Get();
+        }
+
+        // Returns a pointer to the singleton if it has already been constructed,
+        // or nullptr if Get() has never been called.  Safe to call from crash
+        // handlers and other contexts where heavy initialization is undesirable.
+        static Log* GetIfInitialized()
+        {
+            return s_Initialized ? &Get() : nullptr;
+        }
 
         // Non-copyable, non-moveable
         Log(Log const&) = delete;
@@ -150,6 +165,8 @@ namespace OloEngine
       private:
         Log();
         ~Log();
+
+        static inline bool s_Initialized = false;
 
         // lock-free tag map: readers take a snapshot shared_ptr, writers copy-and-swap
         using TagMap = std::unordered_map<std::string, TagDetails>;

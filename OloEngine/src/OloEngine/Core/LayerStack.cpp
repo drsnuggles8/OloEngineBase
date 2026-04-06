@@ -1,15 +1,35 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/LayerStack.h"
 
+#include <ranges>
+
 namespace OloEngine
 {
     LayerStack::~LayerStack()
     {
-        for (auto& layer : m_Layers)
+        for (auto it = m_Layers.rbegin(); it != m_Layers.rend(); ++it)
         {
-            layer->OnDetach();
+            (*it)->OnDetach();
         }
         // unique_ptrs destroy automatically
+    }
+
+    LayerStack::LayerStack(LayerStack&& other) noexcept
+        : m_Layers(std::move(other.m_Layers)), m_RawPtrs(std::move(other.m_RawPtrs)), m_LayerInsertIndex(other.m_LayerInsertIndex)
+    {
+        other.m_LayerInsertIndex = 0;
+    }
+
+    LayerStack& LayerStack::operator=(LayerStack&& other) noexcept
+    {
+        if (this != &other)
+        {
+            m_Layers = std::move(other.m_Layers);
+            m_RawPtrs = std::move(other.m_RawPtrs);
+            m_LayerInsertIndex = other.m_LayerInsertIndex;
+            other.m_LayerInsertIndex = 0;
+        }
+        return *this;
     }
 
     void LayerStack::PushLayer(std::unique_ptr<Layer> layer)
@@ -29,10 +49,11 @@ namespace OloEngine
 
     std::unique_ptr<Layer> LayerStack::PopLayer(Layer* const layer)
     {
-        const auto it = std::ranges::find_if(m_Layers,
+        auto const layerEnd = m_Layers.begin() + m_LayerInsertIndex;
+        const auto it = std::ranges::find_if(m_Layers.begin(), layerEnd,
                                              [layer](const std::unique_ptr<Layer>& ptr)
                                              { return ptr.get() == layer; });
-        if (it != m_Layers.end())
+        if (it != layerEnd)
         {
             (*it)->OnDetach();
             auto owned = std::move(*it);
@@ -46,7 +67,8 @@ namespace OloEngine
 
     std::unique_ptr<Layer> LayerStack::PopOverlay(Layer* const overlay)
     {
-        const auto it = std::ranges::find_if(m_Layers,
+        auto const overlayBegin = m_Layers.begin() + m_LayerInsertIndex;
+        const auto it = std::ranges::find_if(overlayBegin, m_Layers.end(),
                                              [overlay](const std::unique_ptr<Layer>& ptr)
                                              { return ptr.get() == overlay; });
         if (it != m_Layers.end())

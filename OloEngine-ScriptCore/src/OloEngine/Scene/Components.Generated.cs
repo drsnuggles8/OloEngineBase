@@ -802,6 +802,16 @@ namespace OloEngine
 			set => InternalCalls.TransformComponent_SetTranslation(Entity.ID, ref value);
 		}
 
+		public Vector3 Scale
+		{
+			get
+			{
+				InternalCalls.TransformComponent_GetScale(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.TransformComponent_SetScale(Entity.ID, ref value);
+		}
+
 		public Vector3 Rotation
 		{
 			get

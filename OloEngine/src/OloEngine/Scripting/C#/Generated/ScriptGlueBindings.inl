@@ -2160,6 +2160,8 @@ static void TextComponent_SetText(UUID entityID, MonoString* value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!value)
+        return;
     auto& comp = entity.GetComponent<TextComponent>();
     comp.TextString = Utils::MonoStringToString(value);
 }
@@ -2246,6 +2248,26 @@ static void TransformComponent_SetTranslation(UUID entityID, glm::vec3 const* va
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<TransformComponent>();
     comp.Translation = *value;
+}
+
+static void TransformComponent_GetScale(UUID entityID, glm::vec3* outValue)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TransformComponent>();
+    *outValue = comp.Scale;
+}
+
+static void TransformComponent_SetScale(UUID entityID, glm::vec3 const* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TransformComponent>();
+    comp.Scale = *value;
 }
 
 static void TransformComponent_GetRotation(UUID entityID, glm::vec3* outValue)
@@ -2612,6 +2634,8 @@ static void UIInputFieldComponent_SetText(UUID entityID, MonoString* value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!value)
+        return;
     auto& comp = entity.GetComponent<UIInputFieldComponent>();
     comp.m_Text = Utils::MonoStringToString(value);
 }
@@ -2632,6 +2656,8 @@ static void UIInputFieldComponent_SetPlaceholder(UUID entityID, MonoString* valu
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!value)
+        return;
     auto& comp = entity.GetComponent<UIInputFieldComponent>();
     comp.m_Placeholder = Utils::MonoStringToString(value);
 }
@@ -3096,6 +3122,8 @@ static void UITextComponent_SetText(UUID entityID, MonoString* value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!value)
+        return;
     auto& comp = entity.GetComponent<UITextComponent>();
     comp.m_Text = Utils::MonoStringToString(value);
 }

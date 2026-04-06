@@ -12,7 +12,7 @@ int main(int argc, char** argv)
 {
     // Log is initialized automatically on first use (Meyer's singleton).
     // Force initialization here so log file + crash ring buffer are ready early.
-    (void)OloEngine::Log::Get();
+    OloEngine::Log::Initialize();
     OloEngine::CrashReporter::Init();
 
     int exitCode = EXIT_SUCCESS;

@@ -152,6 +152,7 @@ namespace OloEngine
     {
         OLO_PROPERTY()
         glm::vec3 Translation = { 0.0f, 0.0f, 0.0f };
+        OLO_PROPERTY()
         glm::vec3 Scale = { 1.0f, 1.0f, 1.0f };
 
       private:

@@ -404,7 +404,7 @@ namespace OloEngine
 
         // Track GPU memory deallocation — only if FinalizeProgram ran (which tracks the alloc).
         // Async shaders destroyed while still Compiling were never allocated in the tracker.
-        if (m_CompilationStatus == ShaderCompilationStatus::Ready)
+        if (m_TrackedAllocation)
         {
             OLO_TRACK_DEALLOC(this);
         }
@@ -963,11 +963,7 @@ namespace OloEngine
                             estimatedMemory,
                             RendererMemoryTracker::ResourceType::Shader,
                             m_Name.empty() ? "OpenGL Shader" : m_Name);
-
-        OLO_CORE_TRACE("FinalizeProgram: '{}' registering shader...", m_Name);
-        // Register shader
-        OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
-        OloEngine::Renderer3D::RegisterShaderRegistry(m_RendererID, &m_ResourceRegistry);
+        m_TrackedAllocation = true;
 
         OLO_CORE_TRACE("FinalizeProgram: '{}' decompiling SPIR-V for debugger...", m_Name);
         // Store shader source code in debugger
@@ -1211,6 +1207,8 @@ namespace OloEngine
             glDeleteProgram(m_RendererID);
             m_RendererID = 0;
             m_CompilationStatus = ShaderCompilationStatus::Failed;
+            OLO_SHADER_COMPILATION_END(0, false, infoLog.data(), m_DeferredCompilationTime);
+            m_DeferredCompilationTime = 0.0;
             return;
         }
 
@@ -1222,6 +1220,7 @@ namespace OloEngine
 
         // Now that the shader is registered via FinalizeProgram, report deferred compilation end
         OLO_SHADER_COMPILATION_END(m_RendererID, true, "", m_DeferredCompilationTime);
+        m_DeferredCompilationTime = 0.0;
 
         OLO_CORE_TRACE("FinalizeAfterLink: Shader '{}' is Ready", m_Name);
     }

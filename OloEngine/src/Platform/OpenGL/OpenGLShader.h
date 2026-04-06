@@ -175,6 +175,7 @@ namespace OloEngine
         // --- Async compilation state ---
         ShaderCompilationStatus m_CompilationStatus = ShaderCompilationStatus::Ready;
         f64 m_DeferredCompilationTime = 0.0;
+        bool m_TrackedAllocation = false;
 
         // Shader stage IDs kept alive until link completes (then detached/deleted)
         std::vector<u32> m_PendingShaderIDs;

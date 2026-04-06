@@ -257,6 +257,8 @@ OLO_ADD_INTERNAL_CALL(TextComponent_SetLineSpacing);
 // TransformComponent
 OLO_ADD_INTERNAL_CALL(TransformComponent_GetTranslation);
 OLO_ADD_INTERNAL_CALL(TransformComponent_SetTranslation);
+OLO_ADD_INTERNAL_CALL(TransformComponent_GetScale);
+OLO_ADD_INTERNAL_CALL(TransformComponent_SetScale);
 OLO_ADD_INTERNAL_CALL(TransformComponent_GetRotation);
 OLO_ADD_INTERNAL_CALL(TransformComponent_SetRotation);
 

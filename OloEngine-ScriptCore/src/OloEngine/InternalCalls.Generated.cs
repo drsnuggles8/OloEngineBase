@@ -498,6 +498,10 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void TransformComponent_SetTranslation(ulong entityID, ref Vector3 value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TransformComponent_GetScale(ulong entityID, out Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TransformComponent_SetScale(ulong entityID, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void TransformComponent_GetRotation(ulong entityID, out Vector3 value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void TransformComponent_SetRotation(ulong entityID, ref Vector3 value);

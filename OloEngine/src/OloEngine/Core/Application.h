@@ -8,6 +8,8 @@
 #include "OloEngine/Events/ApplicationEvent.h"
 #include "OloEngine/Renderer/RendererTypes.h"
 
+#include <memory>
+
 #ifndef OLO_HEADLESS
 #include "OloEngine/Core/Window.h"
 #include "OloEngine/ImGui/ImGuiLayer.h"
@@ -105,6 +107,11 @@ namespace OloEngine
             return m_TimeScale;
         }
 
+        [[nodiscard("Store this!")]] f32 GetUnscaledDeltaTime() const
+        {
+            return m_UnscaledDeltaTime;
+        }
+
         [[nodiscard("Store this!")]] PerformanceProfiler* GetPerformanceProfiler()
         {
             return &m_PerformanceProfiler;
@@ -146,6 +153,7 @@ namespace OloEngine
         static constexpr f32 s_MaxTimestep = 0.25f;
         f32 m_LastFrameTime = 0.0f;
         f32 m_TimeScale = 1.0f;
+        f32 m_UnscaledDeltaTime = 0.0f;
         PerformanceProfiler m_PerformanceProfiler;
 
       private:

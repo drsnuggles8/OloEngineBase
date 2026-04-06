@@ -4,6 +4,7 @@
 #include "OloEngine/Events/KeyEvent.h"
 
 #include <array>
+#include <cfloat>
 
 namespace OloEngine
 {
