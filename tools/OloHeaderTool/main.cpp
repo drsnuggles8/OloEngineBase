@@ -296,7 +296,8 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
                     // Check if this line also opens a brace
                     if (trimmed.find('{') != std::string::npos)
                     {
-                        ++braceDepth;
+                        // Don't increment braceDepth here — the generic
+                        // brace-tracking loop below will count it.
                         structStack.push_back(name);
                         currentComponent = name;
                         insideStruct = true;
@@ -344,19 +345,32 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
                 }
                 // Extract the content between OLO_PROPERTY( and )
                 auto parenStart = propPos + 13; // length of "OLO_PROPERTY("
-                // Find matching closing paren (handle nested parens)
+                // Find matching closing paren (handle nested parens, multi-line)
+                std::string content = trimmed.substr(parenStart);
                 int depth = 1;
-                auto pos = parenStart;
-                while (pos < trimmed.size() && depth > 0)
+                size_t scanPos = 0;
+                while (depth > 0)
                 {
-                    if (trimmed[pos] == '(')
-                        ++depth;
-                    else if (trimmed[pos] == ')')
-                        --depth;
+                    while (scanPos < content.size() && depth > 0)
+                    {
+                        if (content[scanPos] == '(')
+                            ++depth;
+                        else if (content[scanPos] == ')')
+                            --depth;
+                        if (depth > 0)
+                            ++scanPos;
+                    }
                     if (depth > 0)
-                        ++pos;
+                    {
+                        // Closing paren on a subsequent line — keep reading
+                        std::string nextLine;
+                        if (!std::getline(stream, nextLine))
+                            break;
+                        content += ' ';
+                        content += Trim(nextLine);
+                    }
                 }
-                pendingMetadataList.push_back(trimmed.substr(parenStart, pos - parenStart));
+                pendingMetadataList.push_back(content.substr(0, scanPos));
                 continue; // The NEXT line has the field declaration (or another OLO_PROPERTY)
             }
 
@@ -405,6 +419,11 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
                 for (auto const& pendingMeta : pendingMetadataList)
                 {
                     auto meta = ParseMetadata(pendingMeta);
+
+                    // Honour Skip metadata — useful for fields that should not
+                    // be exposed to scripts.
+                    if (meta.contains("Skip"))
+                        continue;
 
                     PropertyDef prop;
                     prop.cppField = fieldName;
@@ -730,16 +749,35 @@ static bool WriteIfChanged(const fs::path& path, const std::string& content)
     // Read existing file
     if (fs::exists(path))
     {
-        std::ifstream existing(path);
-        std::string old((std::istreambuf_iterator<char>(existing)),
-                        std::istreambuf_iterator<char>());
-        if (old == normalized)
-            return false; // No change
+        if (std::ifstream existing(path); existing.is_open())
+        {
+            std::string old((std::istreambuf_iterator<char>(existing)),
+                            std::istreambuf_iterator<char>());
+            if (old == normalized)
+                return false; // No change
+        }
     }
 
-    fs::create_directories(path.parent_path());
+    std::error_code ec;
+    fs::create_directories(path.parent_path(), ec);
+    if (ec)
+    {
+        std::cerr << "ERROR: Failed to create directories for " << path << ": " << ec.message() << "\n";
+        return false;
+    }
+
     std::ofstream out(path);
+    if (!out.is_open())
+    {
+        std::cerr << "ERROR: Failed to open " << path << " for writing\n";
+        return false;
+    }
     out << normalized;
+    if (!out.good())
+    {
+        std::cerr << "ERROR: Failed to write to " << path << "\n";
+        return false;
+    }
     return true;
 }
 

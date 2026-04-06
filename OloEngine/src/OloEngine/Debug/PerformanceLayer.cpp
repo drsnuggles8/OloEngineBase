@@ -13,6 +13,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cfloat>
+#include <string>
+#include <vector>
 
 namespace OloEngine
 {
@@ -60,7 +62,8 @@ namespace OloEngine
         // Track min/max over the visible history
         m_FrameTimeMin = FLT_MAX;
         m_FrameTimeMax = 0.0f;
-        for (u32 i = 0; i < m_FrameHistoryCount; ++i)
+        auto const count = m_FrameHistoryCount;
+        for (u32 i = 0; i < count; ++i)
         {
             m_FrameTimeMin = std::min(m_FrameTimeMin, m_FrameTimeHistory[i]);
             m_FrameTimeMax = std::max(m_FrameTimeMax, m_FrameTimeHistory[i]);
@@ -162,7 +165,6 @@ namespace OloEngine
 
         // Frame time graph using ring buffer
         // ImGui::PlotLines needs a contiguous float array and a getter, or we reorder
-        if (m_FrameHistoryCount > 0)
         {
             // Use a lambda getter that reads from the ring buffer in chronological order
             struct PlotData

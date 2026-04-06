@@ -1,7 +1,7 @@
 name: Sanitizers
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   pull_request:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
@@ -37,6 +37,10 @@ jobs:
 
     - name: Build (Debug)
       run: cmake --build build --config Debug --target OloEngine-Tests --parallel
+
+    - name: Create test results directory
+      run: New-Item -ItemType Directory -Force -Path "${{github.workspace}}/test_results"
+      shell: pwsh
 
     - name: Run tests under ASan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
@@ -81,6 +85,9 @@ jobs:
 
     - name: Build tests
       run: cmake --build build --target OloEngine-Tests --parallel
+
+    - name: Create test results directory
+      run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
 
     - name: Run tests under ASan + LSan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
@@ -127,6 +134,9 @@ jobs:
     - name: Build tests
       run: cmake --build build --target OloEngine-Tests --parallel
 
+    - name: Create test results directory
+      run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
+
     - name: Run tests under UBSan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       run: ctest -V
@@ -170,6 +180,9 @@ jobs:
 
     - name: Build tests
       run: cmake --build build --target OloEngine-Tests --parallel
+
+    - name: Create test results directory
+      run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
 
     - name: Run tests under TSan
       working-directory: ${{github.workspace}}/build/OloEngine/tests

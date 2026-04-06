@@ -8,6 +8,7 @@
 #include <string_view>
 #include <atomic>
 #include <mutex>
+#include <vector>
 
 #include "OloEngine/Core/Base.h"
 

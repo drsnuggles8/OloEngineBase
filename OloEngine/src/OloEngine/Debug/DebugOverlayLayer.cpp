@@ -29,6 +29,8 @@ namespace OloEngine
 
     void DebugOverlayLayer::OnUpdate(Timestep const ts)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_Visible)
         {
             return;
@@ -47,6 +49,8 @@ namespace OloEngine
 
     void DebugOverlayLayer::OnImGuiRender()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_Visible)
         {
             return;
@@ -79,6 +83,8 @@ namespace OloEngine
 
     void DebugOverlayLayer::DrawOverlayHUD()
     {
+        OLO_PROFILE_SCOPE("DebugOverlay/DrawOverlayHUD");
+
         constexpr ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
 
         constexpr f32 padding = 10.0f;
@@ -102,6 +108,8 @@ namespace OloEngine
 
     void DebugOverlayLayer::DrawQuickStats()
     {
+        OLO_PROFILE_SCOPE("DebugOverlay/DrawQuickStats");
+
         // Frame time / FPS
         auto const fpsColor = DebugUtils::GetPerformanceColor(m_FrameTime, 16.67f, 33.33f);
         ImGui::TextColored(fpsColor, "%.1f FPS (%.2f ms)", m_FPS, m_FrameTime);
@@ -132,6 +140,8 @@ namespace OloEngine
 
     void DebugOverlayLayer::DrawVisualizationToggles()
     {
+        OLO_PROFILE_SCOPE("DebugOverlay/DrawVisualizationToggles");
+
         ImGui::Text("Visualization:");
 
         auto& settings = Renderer3D::GetRendererSettings();

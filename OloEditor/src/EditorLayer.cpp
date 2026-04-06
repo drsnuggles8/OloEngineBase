@@ -622,6 +622,7 @@ namespace OloEngine
 
             if (ImGui::MenuItem("Preferences..."))
             {
+                SyncPrefsFromMembers();
                 m_EditorPreferencesPanel.Open(m_Prefs, &m_EditorCamera);
             }
 
