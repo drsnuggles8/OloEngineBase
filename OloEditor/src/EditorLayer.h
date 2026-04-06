@@ -158,11 +158,8 @@ namespace OloEngine
         glm::vec2 m_ViewportSize = { 0.0f, 0.0f };
         glm::vec2 m_ViewportBounds[2] = {};
 
-        int m_GizmoType = 0; // Default to Translate (ImGuizmo::TRANSLATE) for immediate usability
-        bool m_ShowPhysicsColliders = false;
-        bool m_ShowLightGizmos = true;
+        int m_GizmoType = 0;    // Default to Translate (ImGuizmo::TRANSLATE) for immediate usability
         bool m_Is3DMode = true; // Toggle for 2D/3D rendering
-        bool m_ShowGrid = true;
         f32 m_GridSpacing = 1.0f;
 
         // Transform snapping

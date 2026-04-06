@@ -79,7 +79,7 @@ namespace OloEngine
         // handlers and other contexts where heavy initialization is undesirable.
         static Log* GetIfInitialized()
         {
-            return s_Initialized ? &Get() : nullptr;
+            return s_Initialized.load(std::memory_order_relaxed) ? &Get() : nullptr;
         }
 
         // Non-copyable, non-moveable
@@ -166,7 +166,7 @@ namespace OloEngine
         Log();
         ~Log();
 
-        static inline bool s_Initialized = false;
+        static inline std::atomic<bool> s_Initialized{ false };
 
         // lock-free tag map: readers take a snapshot shared_ptr, writers copy-and-swap
         using TagMap = std::unordered_map<std::string, TagDetails>;

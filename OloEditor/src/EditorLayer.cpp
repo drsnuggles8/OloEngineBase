@@ -322,9 +322,9 @@ namespace OloEngine
                 m_EditorCamera.OnUpdate(ts);
 
                 m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
-                m_ActiveScene->SetGridVisible(m_ShowGrid);
+                m_ActiveScene->SetGridVisible(Renderer3D::GetRendererSettings().ShowGrid);
                 m_ActiveScene->SetGridSpacing(m_GridSpacing);
-                m_ActiveScene->SetLightGizmosVisible(m_ShowLightGizmos);
+                m_ActiveScene->SetLightGizmosVisible(Renderer3D::GetRendererSettings().ShowLightGizmos);
                 m_ActiveScene->OnUpdateEditor(ts, m_EditorCamera);
 
                 // Auto-save timer
@@ -343,9 +343,9 @@ namespace OloEngine
                 m_EditorCamera.OnUpdate(ts);
 
                 m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
-                m_ActiveScene->SetGridVisible(m_ShowGrid);
+                m_ActiveScene->SetGridVisible(Renderer3D::GetRendererSettings().ShowGrid);
                 m_ActiveScene->SetGridSpacing(m_GridSpacing);
-                m_ActiveScene->SetLightGizmosVisible(m_ShowLightGizmos);
+                m_ActiveScene->SetLightGizmosVisible(Renderer3D::GetRendererSettings().ShowLightGizmos);
                 m_ActiveScene->OnUpdateSimulation(ts, m_EditorCamera);
                 break;
             }
@@ -1282,13 +1282,14 @@ namespace OloEngine
 
     void EditorLayer::ApplyPreferences()
     {
-        m_ShowGrid = m_Prefs.ShowGrid;
+        auto& debugSettings = Renderer3D::GetRendererSettings();
+        debugSettings.ShowGrid = m_Prefs.ShowGrid;
         m_GridSpacing = m_Prefs.GridSpacing;
         m_TranslateSnap = m_Prefs.TranslateSnap;
         m_RotateSnap = m_Prefs.RotateSnap;
         m_ScaleSnap = m_Prefs.ScaleSnap;
-        m_ShowPhysicsColliders = m_Prefs.ShowPhysicsColliders;
-        m_ShowLightGizmos = m_Prefs.ShowLightGizmos;
+        debugSettings.ShowPhysicsColliders = m_Prefs.ShowPhysicsColliders;
+        debugSettings.ShowLightGizmos = m_Prefs.ShowLightGizmos;
         m_Is3DMode = m_Prefs.Is3DMode;
         m_EditorCamera.SetFlySpeed(m_Prefs.CameraFlySpeed);
         m_ThrottleEditMode = m_Prefs.ThrottleEditMode;
@@ -1318,13 +1319,14 @@ namespace OloEngine
 
     void EditorLayer::SyncPrefsFromMembers()
     {
-        m_Prefs.ShowGrid = m_ShowGrid;
+        auto const& debugSettings = Renderer3D::GetRendererSettings();
+        m_Prefs.ShowGrid = debugSettings.ShowGrid;
         m_Prefs.GridSpacing = m_GridSpacing;
         m_Prefs.TranslateSnap = m_TranslateSnap;
         m_Prefs.RotateSnap = m_RotateSnap;
         m_Prefs.ScaleSnap = m_ScaleSnap;
-        m_Prefs.ShowPhysicsColliders = m_ShowPhysicsColliders;
-        m_Prefs.ShowLightGizmos = m_ShowLightGizmos;
+        m_Prefs.ShowPhysicsColliders = debugSettings.ShowPhysicsColliders;
+        m_Prefs.ShowLightGizmos = debugSettings.ShowLightGizmos;
         m_Prefs.Is3DMode = m_Is3DMode;
         m_Prefs.CameraFlySpeed = m_EditorCamera.GetFlySpeed();
         m_Prefs.CapturePhysicsOnPlay = Physics3DSystem::GetSettings().m_CaptureOnPlay;
@@ -1678,7 +1680,7 @@ namespace OloEngine
             }
         }
 
-        if (m_ShowPhysicsColliders)
+        if (Renderer3D::GetRendererSettings().ShowPhysicsColliders)
         {
             if (const f64 epsilon = 1e-5; std::abs(Renderer2D::GetLineWidth() - -2.0f) > static_cast<f32>(epsilon))
             {

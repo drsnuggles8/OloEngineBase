@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/DebugUtils.h"
 #include "OloEngine/Renderer/Renderer2D.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 
 #include <imgui.h>
 
@@ -132,14 +133,30 @@ namespace OloEngine
     void DebugOverlayLayer::DrawVisualizationToggles()
     {
         ImGui::Text("Visualization:");
-        ImGui::Checkbox("Wireframe", &m_ShowWireframe);
-        ImGui::Checkbox("Physics Colliders", &m_ShowPhysicsColliders);
-        ImGui::Checkbox("Bounding Boxes", &m_ShowBoundingBoxes);
-        ImGui::Checkbox("Light Frustums", &m_ShowLightFrustums);
-        ImGui::Checkbox("Grid", &m_ShowGrid);
-        ImGui::Checkbox("Entity Names", &m_ShowEntityNames);
 
-        // TODO: Wire these toggles to actual renderer debug visualization systems
-        // when they are implemented (e.g., Renderer3D::SetDebugWireframe(m_ShowWireframe))
+        auto& settings = Renderer3D::GetRendererSettings();
+
+        if (ImGui::Checkbox("Wireframe", &settings.WireframeOverlay))
+        {
+            Renderer3D::ApplyRendererSettings();
+        }
+        ImGui::Checkbox("Physics Colliders", &settings.ShowPhysicsColliders);
+        ImGui::Checkbox("Light Gizmos", &settings.ShowLightGizmos);
+        ImGui::Checkbox("Grid", &settings.ShowGrid);
+
+        ImGui::BeginDisabled();
+        bool showBoundingBoxes = false;
+        ImGui::Checkbox("Bounding Boxes", &showBoundingBoxes);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            ImGui::SetTooltip("Not yet implemented");
+        }
+        bool showEntityNames = false;
+        ImGui::Checkbox("Entity Names", &showEntityNames);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            ImGui::SetTooltip("Not yet implemented");
+        }
+        ImGui::EndDisabled();
     }
 } // namespace OloEngine

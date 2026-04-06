@@ -33,6 +33,7 @@ jobs:
         cmake -S . -B build
         -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
         -DOLO_ENABLE_ASAN=ON
+        -DBUILD_TESTS=ON
 
     - name: Build (Debug)
       run: cmake --build build --config Debug --target OloEngine-Tests --parallel
@@ -42,6 +43,7 @@ jobs:
       run: ctest -C Debug -V
       env:
         ASAN_OPTIONS: halt_on_error=1
+        GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
     - name: Upload test results
       if: always()
@@ -86,6 +88,7 @@ jobs:
       env:
         ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
         LSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/lsan.txt
+        GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
     - name: Upload test results
       if: always()
@@ -129,6 +132,7 @@ jobs:
       run: ctest -V
       env:
         UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
     - name: Upload test results
       if: always()
@@ -172,6 +176,7 @@ jobs:
       run: ctest -V
       env:
         TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
+        GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
     - name: Upload test results
       if: always()

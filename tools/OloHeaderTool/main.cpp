@@ -392,7 +392,7 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
                     tokens >> fieldName;
                     auto cutPos = fieldName.find_first_of("={;");
                     if (cutPos != std::string::npos)
-                        fieldName = fieldName.substr(0, cutPos);
+                        fieldName.resize(cutPos);
                 }
 
                 if (fieldName.empty())
@@ -438,14 +438,14 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
                         prop.customSet = it->second;
 
                     // Find or create ComponentDef
-                    if (compMap.find(currentComponent) == compMap.end())
+                    auto [it, inserted] = compMap.try_emplace(currentComponent, components.size());
+                    if (inserted)
                     {
-                        compMap[currentComponent] = components.size();
                         components.push_back({ currentComponent,
                                                entry.path().filename().string(),
                                                {} });
                     }
-                    components[compMap[currentComponent]].properties.push_back(prop);
+                    components[it->second].properties.push_back(prop);
                 }
                 pendingMetadataList.clear();
             }
@@ -551,7 +551,8 @@ static void EmitCppBindings(std::ostream& out, const std::vector<ComponentDef>& 
                     out << "        comp." << prop.cppField << " = Utils::MonoStringToString(value);\n";
                 else
                 {
-                    std::string expr = ReplaceAll(prop.customSet, "{v}", "Utils::MonoStringToString(value)");
+                    out << "        std::string converted = Utils::MonoStringToString(value);\n";
+                    std::string expr = ReplaceAll(prop.customSet, "{v}", "converted");
                     out << "        " << expr << ";\n";
                 }
 

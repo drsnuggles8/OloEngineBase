@@ -335,6 +335,9 @@ namespace OloEngine
             {
                 Renderer3D::ApplyRendererSettings();
             }
+            ImGui::Checkbox("Show Grid", &settings.ShowGrid);
+            ImGui::Checkbox("Show Physics Colliders", &settings.ShowPhysicsColliders);
+            ImGui::Checkbox("Show Light Gizmos", &settings.ShowLightGizmos);
 
             ImGui::Unindent();
         }

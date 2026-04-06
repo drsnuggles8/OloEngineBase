@@ -40,14 +40,6 @@ namespace OloEngine
       private:
         bool m_Visible = false;
 
-        // Visualization toggles
-        bool m_ShowWireframe = false;
-        bool m_ShowPhysicsColliders = false;
-        bool m_ShowBoundingBoxes = false;
-        bool m_ShowLightFrustums = false;
-        bool m_ShowGrid = true;
-        bool m_ShowEntityNames = false;
-
         // Stats
         f32 m_FrameTime = 0.0f;
         f32 m_FPS = 0.0f;

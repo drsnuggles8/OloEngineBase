@@ -13,7 +13,7 @@
 
 namespace OloEngine
 {
-#if OLO_ASSERT_MESSAGE_BOX
+#if OLO_ASSERT_MESSAGE_BOX && defined(OLO_PLATFORM_WINDOWS)
     void ShowAssertMessageBox(const char* message)
     {
         MessageBoxA(nullptr, message, "OloEngine Assert", MB_OK | MB_ICONERROR);
@@ -28,7 +28,7 @@ namespace OloEngine
 
     Log::Log()
     {
-        s_Initialized = true;
+        s_Initialized.store(true, std::memory_order_relaxed);
 
         // Create the ringbuffer sink (keeps last 200 messages for crash reports)
         m_RingbufferSink = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(200);

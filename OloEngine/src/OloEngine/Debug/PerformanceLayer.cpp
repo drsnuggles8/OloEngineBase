@@ -148,6 +148,13 @@ namespace OloEngine
     {
         OLO_PROFILE_SCOPE("Performance/DrawFrameTimeGraph");
 
+        if (m_FrameHistoryCount == 0)
+        {
+            ImGui::TextDisabled("-- FPS (-- ms)");
+            ImGui::TextDisabled("Min: N/A  Max: N/A");
+            return;
+        }
+
         // FPS header
         auto const fpsColor = DebugUtils::GetPerformanceColor(m_CurrentFrameTime, 16.67f, 33.33f);
         ImGui::TextColored(fpsColor, "%.1f FPS (%.2f ms)", m_CurrentFPS, m_CurrentFrameTime);
