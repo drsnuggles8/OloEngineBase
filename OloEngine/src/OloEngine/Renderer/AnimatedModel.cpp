@@ -219,8 +219,31 @@ namespace OloEngine
                     m_Skeleton = skeleton;
                     m_Animations = MeshCache::LoadAnimationsFromCache(sourcePath);
 
-                    // Default materials (one per mesh)
-                    m_Materials.resize(m_Meshes.size());
+                    // Load materials from the source file (lightweight Assimp read — no geometry postprocessing).
+                    // ProcessNode sets materialIndex = mesh->mMaterialIndex, so m_Materials[i]
+                    // must hold the material for the i-th Assimp mesh.
+                    {
+                        Assimp::Importer matImporter;
+                        const aiScene* matScene = matImporter.ReadFile(path, 0);
+                        if (matScene)
+                        {
+                            m_Materials.resize(m_Meshes.size());
+                            auto numSceneMeshes = std::min(matScene->mNumMeshes, static_cast<u32>(m_Meshes.size()));
+                            for (u32 i = 0; i < numSceneMeshes; ++i)
+                            {
+                                auto matIdx = matScene->mMeshes[i]->mMaterialIndex;
+                                if (matIdx < matScene->mNumMaterials)
+                                {
+                                    m_Materials[i] = ProcessMaterial(matScene->mMaterials[matIdx]);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            OLO_CORE_WARN("AnimatedModel::LoadModel: Failed to load materials from '{}' for cached geometry", path);
+                            m_Materials.resize(m_Meshes.size());
+                        }
+                    }
 
                     CalculateBounds();
 

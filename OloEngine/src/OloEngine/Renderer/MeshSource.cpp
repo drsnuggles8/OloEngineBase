@@ -69,7 +69,11 @@ namespace OloEngine
             return;
 
         // Optimize mesh data before GPU upload (vertex cache, overdraw, fetch)
-        MeshOptimization::OptimizeMesh(*this);
+        // Skip if data was already optimized (e.g., loaded from binary cache)
+        if (!m_PreOptimized)
+        {
+            MeshOptimization::OptimizeMesh(*this);
+        }
 
         // Ensure bounds are calculated before building GPU resources
         CalculateBounds();

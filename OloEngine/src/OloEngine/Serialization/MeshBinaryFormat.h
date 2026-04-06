@@ -28,6 +28,7 @@ namespace OloEngine
     {
         constexpr u32 MagicNumber = 0x4853454D; // "MESH" in little-endian
         constexpr u32 CurrentVersion = 1;
+        constexpr u32 FlagCompressed = 1; // Payload is zlib-compressed
 
         // Section identifiers
         enum class SectionType : u16
@@ -48,10 +49,11 @@ namespace OloEngine
         {
             u32 Magic = MagicNumber;
             u32 Version = CurrentVersion;
-            u32 Flags = 0;           // Reserved for future use (compression, quantization)
-            u32 Checksum = 0;        // CRC32 of all section data (after header+directory)
-            u64 SourceTimestamp = 0; // Source file last-modified time (for cache invalidation)
-            u64 TotalFileSize = 0;   // Total file size for integrity check
+            u32 Flags = 0;                   // Bit 0: zlib-compressed payload
+            u32 Checksum = 0;                // CRC32 of payload (after header)
+            u64 SourceTimestamp = 0;         // Source file last-modified time (for cache invalidation)
+            u64 TotalFileSize = 0;           // Total file size for integrity check
+            u64 UncompressedPayloadSize = 0; // Size of payload before compression (0 if uncompressed)
         };
 
         struct SectionEntry
@@ -198,15 +200,17 @@ namespace OloEngine
     {
         constexpr u32 MagicNumber = 0x4D494E41; // "ANIM" in little-endian
         constexpr u32 CurrentVersion = 1;
+        constexpr u32 FlagCompressed = 1; // Payload is zlib-compressed
 
         struct FileHeader
         {
             u32 Magic = MagicNumber;
             u32 Version = CurrentVersion;
-            u32 Flags = 0;    // Reserved: compression, quantization
-            u32 Checksum = 0; // CRC32 of all data after header
+            u32 Flags = 0;    // Bit 0: zlib-compressed payload
+            u32 Checksum = 0; // CRC32 of payload (after header)
             u64 SourceTimestamp = 0;
             u64 TotalFileSize = 0;
+            u64 UncompressedPayloadSize = 0; // Size of payload before compression (0 if uncompressed)
         };
 
         struct ClipDirectoryEntry

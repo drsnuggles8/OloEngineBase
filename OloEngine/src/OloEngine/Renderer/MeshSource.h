@@ -403,6 +403,12 @@ namespace OloEngine
             return m_Built;
         }
 
+        // Mark mesh data as already optimized (e.g., loaded from cache)
+        void SetPreOptimized(bool preOptimized)
+        {
+            m_PreOptimized = preOptimized;
+        }
+
         // Asset interface
         static AssetType GetStaticType()
         {
@@ -448,5 +454,6 @@ namespace OloEngine
         BoundingSphere m_BoundingSphere;
 
         bool m_Built = false;
+        bool m_PreOptimized = false;
     };
 } // namespace OloEngine

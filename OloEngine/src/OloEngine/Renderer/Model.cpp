@@ -44,8 +44,31 @@ namespace OloEngine
                     m_Meshes.push_back(Ref<Mesh>::Create(cachedMesh, static_cast<u32>(i)));
                 }
 
-                // Default materials (one per mesh)
-                m_Materials.resize(m_Meshes.size());
+                // Load materials from the source file (lightweight Assimp read — no geometry postprocessing)
+                // CreateCombinedMeshSource sets materialIndex = meshIdx, so m_Materials[i]
+                // must hold the material for the i-th Assimp mesh.
+                {
+                    Assimp::Importer importer;
+                    const aiScene* scene = importer.ReadFile(path, 0);
+                    if (scene)
+                    {
+                        m_Materials.resize(m_Meshes.size());
+                        auto numSceneMeshes = std::min(scene->mNumMeshes, static_cast<u32>(m_Meshes.size()));
+                        for (u32 i = 0; i < numSceneMeshes; ++i)
+                        {
+                            auto matIdx = scene->mMeshes[i]->mMaterialIndex;
+                            if (matIdx < scene->mNumMaterials)
+                            {
+                                m_Materials[i] = ProcessMaterial(scene->mMaterials[matIdx]);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        OLO_CORE_WARN("Model::LoadModel: Failed to load materials from '{}' for cached geometry", path);
+                        m_Materials.resize(m_Meshes.size());
+                    }
+                }
 
                 CalculateBounds();
 
@@ -293,9 +316,7 @@ namespace OloEngine
         submesh.m_NodeName = mesh->mName.C_Str();
         meshSource->AddSubmesh(submesh);
 
-        // Optimize vertex/index ordering for GPU efficiency before building GPU resources
-        MeshOptimization::OptimizeMesh(*meshSource);
-
+        // Build() internally calls OptimizeMesh before uploading to GPU
         meshSource->Build();
 
         // Create Mesh objects for all submeshes in the MeshSource
@@ -834,8 +855,9 @@ namespace OloEngine
         combinedMeshSource->GetVertices() = std::move(combinedVertices);
         combinedMeshSource->GetIndices() = std::move(combinedIndices);
 
-        // Build GPU resources
-        combinedMeshSource->Build();
+        // NOTE: Do NOT call Build() here — this MeshSource is only used for cache serialization,
+        // not rendering. Build() would re-run OptimizeMesh on already-optimized data, corrupting
+        // submesh base vertex/index offsets.
 
         OLO_CORE_INFO("Model::CreateCombinedMeshSource: Combined {} meshes into {} vertices, {} indices, {} submeshes",
                       m_Meshes.size(), combinedMeshSource->GetVertices().Num(),
