@@ -22,8 +22,10 @@ namespace OloEngine
 
     Log& Log::Get()
     {
-        static Log instance;
-        return instance;
+        // Intentionally leaked to survive static teardown — other statics
+        // may still log via PrintMessage* after normal destruction order.
+        static auto* instance = new Log();
+        return *instance;
     }
 
     Log::Log()
@@ -50,8 +52,9 @@ namespace OloEngine
         m_ClientLogger->set_level(spdlog::level::trace);
         m_ClientLogger->flush_on(spdlog::level::trace);
 
-        // Editor console logger (for potential future use)
-        m_EditorConsoleLogger = std::make_shared<spdlog::logger>("EditorConsole", logSinks[0]);
+        // Editor console logger — same sinks as core/client so messages
+        // reach the file log and ringbuffer (crash reports) too.
+        m_EditorConsoleLogger = std::make_shared<spdlog::logger>("EditorConsole", begin(logSinks), end(logSinks));
         spdlog::register_logger(m_EditorConsoleLogger);
         m_EditorConsoleLogger->set_level(spdlog::level::trace);
         m_EditorConsoleLogger->flush_on(spdlog::level::trace);

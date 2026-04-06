@@ -280,10 +280,11 @@ namespace OloEngine
         auto& log = Get();
         auto& logger = (type == Type::Core) ? log.GetCoreLogger() : log.GetClientLogger();
         std::string formatted = spdlog::fmt_lib::format(fmt::runtime(message), std::forward<Args>(args)...);
-        logger->error("{}: {}", prefix, formatted);
+        std::string full = spdlog::fmt_lib::format("{}: {}", prefix, formatted);
+        logger->error(full);
 
 #if OLO_ASSERT_MESSAGE_BOX
-        ShowAssertMessageBox(formatted.c_str());
+        ShowAssertMessageBox(full.c_str());
 #endif
     }
 
@@ -291,9 +292,10 @@ namespace OloEngine
     {
         auto& log = Get();
         auto& logger = (type == Type::Core) ? log.GetCoreLogger() : log.GetClientLogger();
-        logger->error("{0}", prefix);
+        std::string full = spdlog::fmt_lib::format("{}: Assertion Failed", prefix);
+        logger->error(full);
 #if OLO_ASSERT_MESSAGE_BOX
-        ShowAssertMessageBox("No message :(");
+        ShowAssertMessageBox(full.c_str());
 #endif
     }
 } // namespace OloEngine

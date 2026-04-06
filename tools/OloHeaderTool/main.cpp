@@ -276,9 +276,52 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
         // Map component name → index in components vector
         std::map<std::string, size_t> compMap;
 
+        bool inBlockComment = false;
+
         while (std::getline(stream, line))
         {
             std::string trimmed = Trim(line);
+
+            // Strip block comments and track state across lines.
+            // Produces a version of `trimmed` with /* ... */ content removed.
+            {
+                std::string stripped;
+                stripped.reserve(trimmed.size());
+                size_t pos = 0;
+                while (pos < trimmed.size())
+                {
+                    if (inBlockComment)
+                    {
+                        if (auto end = trimmed.find("*/", pos); end != std::string::npos)
+                        {
+                            inBlockComment = false;
+                            pos = end + 2;
+                        }
+                        else
+                        {
+                            pos = trimmed.size(); // rest of line is inside block comment
+                        }
+                    }
+                    else
+                    {
+                        auto blockStart = trimmed.find("/*", pos);
+                        if (blockStart != std::string::npos)
+                        {
+                            stripped += trimmed.substr(pos, blockStart - pos);
+                            inBlockComment = true;
+                            pos = blockStart + 2;
+                        }
+                        else
+                        {
+                            stripped += trimmed.substr(pos);
+                            pos = trimmed.size();
+                        }
+                    }
+                }
+                trimmed = Trim(stripped);
+            }
+            if (trimmed.empty() && inBlockComment)
+                continue;
 
             // Track struct/class declarations
             // Match: "struct Name" or "struct Name {"  (skip forward declarations with ;)
