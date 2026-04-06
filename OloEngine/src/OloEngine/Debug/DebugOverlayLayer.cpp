@@ -146,10 +146,7 @@ namespace OloEngine
 
         auto& settings = Renderer3D::GetRendererSettings();
 
-        if (ImGui::Checkbox("Wireframe", &settings.WireframeOverlay))
-        {
-            Renderer3D::ApplyRendererSettings();
-        }
+        ImGui::Checkbox("Wireframe", &settings.WireframeOverlay);
         ImGui::Checkbox("Physics Colliders", &settings.ShowPhysicsColliders);
         ImGui::Checkbox("Light Gizmos", &settings.ShowLightGizmos);
         ImGui::Checkbox("Grid", &settings.ShowGrid);

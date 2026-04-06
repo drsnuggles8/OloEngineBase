@@ -28,8 +28,6 @@ namespace OloEngine
 
     Log::Log()
     {
-        s_Initialized.store(true, std::memory_order_relaxed);
-
         // Create the ringbuffer sink (keeps last 200 messages for crash reports)
         m_RingbufferSink = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(200);
         m_RingbufferSink->set_pattern("[%T] [%l] %n: %v");
@@ -59,10 +57,14 @@ namespace OloEngine
         m_EditorConsoleLogger->flush_on(spdlog::level::trace);
 
         SetDefaultTagSettings();
+
+        s_Initialized.store(true, std::memory_order_release);
     }
 
     Log::~Log()
     {
+        s_Initialized.store(false, std::memory_order_relaxed);
+
         // Intentionally do NOT call spdlog::shutdown() here.
         // This destructor runs during static teardown, and other statics
         // may still log via PrintMessage* after this point.  Destroying
@@ -72,7 +74,7 @@ namespace OloEngine
         m_Tags.store(nullptr, std::memory_order_release);
     }
 
-    std::vector<std::string> Log::GetRecentLogMessages(size_t const count) const
+    std::vector<std::string> Log::GetRecentLogMessages(std::size_t const count) const
     {
         if (m_RingbufferSink)
         {

@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <atomic>
+#include <cstddef>
 #include <mutex>
 #include <vector>
 
@@ -89,15 +90,15 @@ namespace OloEngine
         Log(Log&&) = delete;
         Log& operator=(Log&&) = delete;
 
-        [[nodiscard("Store this!")]] std::shared_ptr<spdlog::logger>& GetCoreLogger()
+        [[nodiscard("Store this!")]] const std::shared_ptr<spdlog::logger>& GetCoreLogger()
         {
             return m_CoreLogger;
         }
-        [[nodiscard("Store this!")]] std::shared_ptr<spdlog::logger>& GetClientLogger()
+        [[nodiscard("Store this!")]] const std::shared_ptr<spdlog::logger>& GetClientLogger()
         {
             return m_ClientLogger;
         }
-        [[nodiscard("Store this!")]] std::shared_ptr<spdlog::logger>& GetEditorConsoleLogger()
+        [[nodiscard("Store this!")]] const std::shared_ptr<spdlog::logger>& GetEditorConsoleLogger()
         {
             return m_EditorConsoleLogger;
         }
@@ -114,7 +115,7 @@ namespace OloEngine
         void SetDefaultTagSettings();
 
         // Crash reporting: retrieve the last N formatted log messages from the ringbuffer
-        [[nodiscard]] std::vector<std::string> GetRecentLogMessages(size_t count = 0) const;
+        [[nodiscard]] std::vector<std::string> GetRecentLogMessages(std::size_t count = 0) const;
 
         template<typename... Args>
         static void PrintMessage(Log::Type type, Log::Level level, const std::string& format, Args&&... args);
@@ -190,8 +191,7 @@ namespace OloEngine
     void Log::PrintMessage(Log::Type type, Log::Level level, const std::string& format, Args&&... args)
     {
         auto& log = Get();
-        const auto detail = log.GetTagDetails("");
-        if (detail.Enabled && detail.LevelFilter <= level)
+        if (const auto detail = log.GetTagDetails(""); detail.Enabled && detail.LevelFilter <= level)
         {
             auto& logger = (type == Type::Core) ? log.GetCoreLogger() : log.GetClientLogger();
             switch (level)
@@ -219,8 +219,7 @@ namespace OloEngine
     void Log::PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, const std::string& format, Args&&... args)
     {
         auto& log = Get();
-        const auto detail = log.GetTagDetails(tag);
-        if (detail.Enabled && detail.LevelFilter <= level)
+        if (const auto detail = log.GetTagDetails(tag); detail.Enabled && detail.LevelFilter <= level)
         {
             auto& logger = (type == Type::Core) ? log.GetCoreLogger() : log.GetClientLogger();
 
@@ -251,8 +250,7 @@ namespace OloEngine
     inline void Log::PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, std::string_view message)
     {
         auto& log = Get();
-        const auto detail = log.GetTagDetails(tag);
-        if (detail.Enabled && detail.LevelFilter <= level)
+        if (const auto detail = log.GetTagDetails(tag); detail.Enabled && detail.LevelFilter <= level)
         {
             auto& logger = (type == Type::Core) ? log.GetCoreLogger() : log.GetClientLogger();
             switch (level)
@@ -281,11 +279,10 @@ namespace OloEngine
     {
         auto& log = Get();
         auto& logger = (type == Type::Core) ? log.GetCoreLogger() : log.GetClientLogger();
-        const std::string full_format = "{}: " + message;
-        logger->error(fmt::runtime(full_format), prefix, std::forward<Args>(args)...);
+        std::string formatted = spdlog::fmt_lib::format(fmt::runtime(message), std::forward<Args>(args)...);
+        logger->error("{}: {}", prefix, formatted);
 
 #if OLO_ASSERT_MESSAGE_BOX
-        std::string formatted = spdlog::fmt_lib::format(fmt::runtime(message), std::forward<Args>(args)...);
         ShowAssertMessageBox(formatted.c_str());
 #endif
     }

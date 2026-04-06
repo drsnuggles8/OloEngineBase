@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <sstream>
 #include <string>
@@ -269,8 +270,8 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
         bool insideStruct = false;
         std::vector<std::string> pendingMetadataList;
 
-        // Track struct names at each brace depth for nesting
-        std::vector<std::string> structStack;
+        // Track struct names paired with their opening brace depth for nesting
+        std::vector<std::pair<std::string, int>> structStack;
 
         // Map component name → index in components vector
         std::map<std::string, size_t> compMap;
@@ -298,14 +299,14 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
                     {
                         // Don't increment braceDepth here — the generic
                         // brace-tracking loop below will count it.
-                        structStack.push_back(name);
+                        structStack.emplace_back(name, braceDepth);
                         currentComponent = name;
                         insideStruct = true;
                     }
                     else
                     {
                         // Next line might have the brace — mark pending
-                        structStack.push_back(name);
+                        structStack.emplace_back(name, braceDepth);
                         currentComponent = name;
                         insideStruct = false; // Will become true when we see {
                     }
@@ -324,13 +325,14 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
                 else if (c == '}')
                 {
                     --braceDepth;
-                    if (braceDepth <= 0 && !structStack.empty())
+                    // Pop all structs whose opening depth >= current braceDepth
+                    while (!structStack.empty() && structStack.back().second >= braceDepth)
                     {
                         structStack.pop_back();
-                        currentComponent = structStack.empty() ? "" : structStack.back();
-                        insideStruct = !structStack.empty();
-                        braceDepth = std::max(braceDepth, 0);
                     }
+                    currentComponent = structStack.empty() ? "" : structStack.back().first;
+                    insideStruct = !structStack.empty();
+                    braceDepth = std::max(braceDepth, 0);
                 }
             }
 
@@ -422,7 +424,7 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
 
                     // Honour Skip metadata — useful for fields that should not
                     // be exposed to scripts.
-                    if (meta.contains("Skip"))
+                    if (auto it = meta.find("Skip"); it != meta.end() && it->second != "false")
                         continue;
 
                     PropertyDef prop;
@@ -738,7 +740,14 @@ static void EmitCsInternalCalls(std::ostream& out, const std::vector<ComponentDe
 
 // ─── File Writing Helper ────────────────────────────────────────────────────────
 
-static bool WriteIfChanged(const fs::path& path, const std::string& content)
+enum class WriteResult
+{
+    Unchanged,
+    Written,
+    Failed
+};
+
+static WriteResult WriteIfChanged(const fs::path& path, const std::string& content)
 {
     // Normalize: ensure content ends with exactly one newline
     std::string normalized = content;
@@ -754,7 +763,7 @@ static bool WriteIfChanged(const fs::path& path, const std::string& content)
             std::string old((std::istreambuf_iterator<char>(existing)),
                             std::istreambuf_iterator<char>());
             if (old == normalized)
-                return false; // No change
+                return WriteResult::Unchanged;
         }
     }
 
@@ -763,22 +772,23 @@ static bool WriteIfChanged(const fs::path& path, const std::string& content)
     if (ec)
     {
         std::cerr << "ERROR: Failed to create directories for " << path << ": " << ec.message() << "\n";
-        return false;
+        return WriteResult::Failed;
     }
 
     std::ofstream out(path);
     if (!out.is_open())
     {
         std::cerr << "ERROR: Failed to open " << path << " for writing\n";
-        return false;
+        return WriteResult::Failed;
     }
     out << normalized;
+    out.flush();
     if (!out.good())
     {
         std::cerr << "ERROR: Failed to write to " << path << "\n";
-        return false;
+        return WriteResult::Failed;
     }
-    return true;
+    return WriteResult::Written;
 }
 
 // ─── Main ───────────────────────────────────────────────────────────────────────
@@ -832,15 +842,26 @@ int main(int argc, char* argv[])
     std::cout << "OloHeaderTool: Found " << components.size() << " components, "
               << totalProps << " properties (" << totalProps * 2 << " getter/setter pairs)\n";
 
+    bool errors = false;
+
     // Generate C++ bindings
     {
         std::ostringstream ss;
         EmitCppBindings(ss, components);
         auto path = cppOutDir / "ScriptGlueBindings.inl";
-        if (WriteIfChanged(path, ss.str()))
-            std::cout << "  Wrote " << path << "\n";
-        else
-            std::cout << "  " << path << " (unchanged)\n";
+        switch (WriteIfChanged(path, ss.str()))
+        {
+            case WriteResult::Written:
+                std::cout << "  Wrote " << path << "\n";
+                break;
+            case WriteResult::Unchanged:
+                std::cout << "  " << path << " (unchanged)\n";
+                break;
+            case WriteResult::Failed:
+                std::cerr << "  FAILED " << path << "\n";
+                errors = true;
+                break;
+        }
     }
 
     // Generate C++ registrations
@@ -848,10 +869,19 @@ int main(int argc, char* argv[])
         std::ostringstream ss;
         EmitCppRegistrations(ss, components);
         auto path = cppOutDir / "ScriptGlueRegistrations.inl";
-        if (WriteIfChanged(path, ss.str()))
-            std::cout << "  Wrote " << path << "\n";
-        else
-            std::cout << "  " << path << " (unchanged)\n";
+        switch (WriteIfChanged(path, ss.str()))
+        {
+            case WriteResult::Written:
+                std::cout << "  Wrote " << path << "\n";
+                break;
+            case WriteResult::Unchanged:
+                std::cout << "  " << path << " (unchanged)\n";
+                break;
+            case WriteResult::Failed:
+                std::cerr << "  FAILED " << path << "\n";
+                errors = true;
+                break;
+        }
     }
 
     // Generate C# Components
@@ -859,10 +889,19 @@ int main(int argc, char* argv[])
         std::ostringstream ss;
         EmitCsComponents(ss, components);
         auto path = csOutDir / "Scene" / "Components.Generated.cs";
-        if (WriteIfChanged(path, ss.str()))
-            std::cout << "  Wrote " << path << "\n";
-        else
-            std::cout << "  " << path << " (unchanged)\n";
+        switch (WriteIfChanged(path, ss.str()))
+        {
+            case WriteResult::Written:
+                std::cout << "  Wrote " << path << "\n";
+                break;
+            case WriteResult::Unchanged:
+                std::cout << "  " << path << " (unchanged)\n";
+                break;
+            case WriteResult::Failed:
+                std::cerr << "  FAILED " << path << "\n";
+                errors = true;
+                break;
+        }
     }
 
     // Generate C# InternalCalls
@@ -870,12 +909,21 @@ int main(int argc, char* argv[])
         std::ostringstream ss;
         EmitCsInternalCalls(ss, components);
         auto path = csOutDir / "InternalCalls.Generated.cs";
-        if (WriteIfChanged(path, ss.str()))
-            std::cout << "  Wrote " << path << "\n";
-        else
-            std::cout << "  " << path << " (unchanged)\n";
+        switch (WriteIfChanged(path, ss.str()))
+        {
+            case WriteResult::Written:
+                std::cout << "  Wrote " << path << "\n";
+                break;
+            case WriteResult::Unchanged:
+                std::cout << "  " << path << " (unchanged)\n";
+                break;
+            case WriteResult::Failed:
+                std::cerr << "  FAILED " << path << "\n";
+                errors = true;
+                break;
+        }
     }
 
     std::cout << "OloHeaderTool: Done.\n";
-    return 0;
+    return errors ? 1 : 0;
 }

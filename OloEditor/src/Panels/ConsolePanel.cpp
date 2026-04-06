@@ -69,7 +69,7 @@ namespace OloEngine
             return;
         }
 
-        auto removeSinkFrom = [this](std::shared_ptr<spdlog::logger>& logger)
+        auto removeSinkFrom = [this](const std::shared_ptr<spdlog::logger>& logger)
         {
             auto& sinks = logger->sinks();
             std::erase(sinks, m_Sink);
