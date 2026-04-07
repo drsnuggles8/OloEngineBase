@@ -49,7 +49,7 @@ namespace OloEngine
 
     void ShaderResourceRegistry::DiscoverResources(u32 stage, const std::vector<u32>& spirvData, const std::string& filePath)
     {
-        OLO_CORE_WARN("ShaderResourceRegistry: DiscoverResources called for stage {}", stage);
+        OLO_CORE_TRACE("ShaderResourceRegistry: DiscoverResources called for stage {}", stage);
 
         try
         {

@@ -14,6 +14,19 @@ namespace OloEngine
 
         void OnImGuiRender(bool* p_open = nullptr);
 
+        // Returns true (and resets the flag) when a debug overlay toggle
+        // changed since the last call.  EditorLayer polls this to keep
+        // m_Prefs in sync with the live RendererSettings.
+        bool ConsumeDebugSettingsChanged()
+        {
+            if (m_DebugSettingsChanged)
+            {
+                m_DebugSettingsChanged = false;
+                return true;
+            }
+            return false;
+        }
+
       private:
         void DrawQualityTieringSection();
         void DrawRenderingPathSection();
@@ -27,5 +40,7 @@ namespace OloEngine
         static void DrawShadowControls(QualityTieringSettings& qt, bool& changed);
         static void DrawAOControls(QualityTieringSettings& qt, bool& changed);
         static void DrawPostProcessControls(QualityTieringSettings& qt, bool& changed);
+
+        bool m_DebugSettingsChanged = false;
     };
 } // namespace OloEngine

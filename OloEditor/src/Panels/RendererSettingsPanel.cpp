@@ -331,9 +331,26 @@ namespace OloEngine
         {
             ImGui::Indent();
 
+            // WireframeOverlay changes GL polygon mode, so it must be applied
+            // immediately via Renderer3D::ApplyRendererSettings(). ShowGrid,
+            // ShowPhysicsColliders, and ShowLightGizmos are editor-only visual
+            // toggles consumed each frame during rendering — no immediate apply needed.
             if (ImGui::Checkbox("Wireframe Overlay", &settings.WireframeOverlay))
             {
                 Renderer3D::ApplyRendererSettings();
+                m_DebugSettingsChanged = true;
+            }
+            if (ImGui::Checkbox("Show Grid", &settings.ShowGrid))
+            {
+                m_DebugSettingsChanged = true;
+            }
+            if (ImGui::Checkbox("Show Physics Colliders", &settings.ShowPhysicsColliders))
+            {
+                m_DebugSettingsChanged = true;
+            }
+            if (ImGui::Checkbox("Show Light Gizmos", &settings.ShowLightGizmos))
+            {
+                m_DebugSettingsChanged = true;
             }
 
             ImGui::Unindent();

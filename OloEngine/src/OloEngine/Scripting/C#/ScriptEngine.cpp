@@ -498,7 +498,7 @@ namespace OloEngine
             // to iterate over all of the elements. When no more values are available, the return value is NULL.
 
             int fieldCount = ::mono_class_num_fields(monoClass);
-            OLO_CORE_WARN("{} has {} fields:", className, fieldCount);
+            OLO_CORE_TRACE("{} has {} fields:", className, fieldCount);
             void* iterator = nullptr;
             while (MonoClassField* field = ::mono_class_get_fields(monoClass, &iterator))
             {
@@ -508,7 +508,7 @@ namespace OloEngine
                 {
                     MonoType* type = ::mono_field_get_type(field);
                     ScriptFieldType fieldType = Utils::MonoTypeToScriptFieldType(type);
-                    OLO_CORE_WARN("  {} ({})", fieldName, Utils::ScriptFieldTypeToString(fieldType));
+                    OLO_CORE_TRACE("  {} ({})", fieldName, Utils::ScriptFieldTypeToString(fieldType));
 
                     scriptClass->m_Fields[fieldName] = { fieldType, fieldName, field };
                 }

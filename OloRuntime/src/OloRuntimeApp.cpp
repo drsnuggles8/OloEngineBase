@@ -365,7 +365,7 @@ namespace OloEngine
             // loading the editor's imgui.ini from CWD would cause stale state.
             ImGui::GetIO().IniFilename = nullptr;
 
-            PushLayer(new RuntimeLayer());
+            PushLayer(std::make_unique<RuntimeLayer>());
         }
 
         ~OloGameRuntime() final = default;

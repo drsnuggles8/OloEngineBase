@@ -5,6 +5,7 @@
 		"OloEngine/GamepadCodes.cs"
 		"OloEngine/Input.cs"
 		"OloEngine/InternalCalls.cs"
+		"OloEngine/InternalCalls.Generated.cs"
 		"OloEngine/ISaveable.cs"
 		"OloEngine/KeyCode.cs"
 		"OloEngine/NetworkManager.cs"
@@ -15,6 +16,7 @@
 		"OloEngine/Vector4.cs"
 		
 		"OloEngine/Scene/Components.cs"
+		"OloEngine/Scene/Components.Generated.cs"
 		"OloEngine/Scene/Entity.cs"
 )
 

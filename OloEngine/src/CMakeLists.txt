@@ -290,6 +290,10 @@
 		"OloEngine/Debug/AllocationTracker.h"
 		"OloEngine/Debug/CrashReporter.cpp"
 		"OloEngine/Debug/CrashReporter.h"
+		"OloEngine/Debug/DebugOverlayLayer.cpp"
+		"OloEngine/Debug/DebugOverlayLayer.h"
+		"OloEngine/Debug/PerformanceLayer.cpp"
+		"OloEngine/Debug/PerformanceLayer.h"
 
 		"OloEngine/Events/ApplicationEvent.h"
 		"OloEngine/Events/Event.cpp"

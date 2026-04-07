@@ -134,6 +134,13 @@ namespace OloEngine
             CommandDispatch::SetDepthPrepassColorPassActive(true);
         }
 
+        // Apply wireframe overlay only for the color pass (not depth prepass)
+        bool const wireframe = Renderer3D::GetRendererSettings().WireframeOverlay;
+        if (wireframe)
+        {
+            rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        }
+
         if (capturing)
             m_CommandBucket.ExecuteWithGPUTiming(rendererAPI);
         else
@@ -145,6 +152,12 @@ namespace OloEngine
             CommandDispatch::SetDepthPrepassColorPassActive(false);
             rendererAPI.SetDepthMask(true);
             rendererAPI.SetDepthFunc(GL_LESS);
+        }
+
+        // Restore polygon mode after color pass
+        if (wireframe)
+        {
+            rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         }
 
         // Unbind Forward+ SSBOs after the color pass
@@ -163,13 +176,12 @@ namespace OloEngine
             forwardPlus.UnbindAfterShading();
         }
 
-        static u32 s_FrameCounter = 0;
-        s_FrameCounter++;
+        ++m_FrameCounter;
 
         if (capturing)
         {
             captureManager.OnFrameEnd(
-                s_FrameCounter,
+                m_FrameCounter,
                 m_CommandBucket.GetLastSortTimeMs(),
                 m_CommandBucket.GetLastBatchTimeMs(),
                 m_CommandBucket.GetLastExecuteTimeMs());

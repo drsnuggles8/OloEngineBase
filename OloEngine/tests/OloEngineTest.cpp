@@ -4,7 +4,8 @@
 
 int main(int argc, char** argv)
 {
-    OloEngine::Log::Init();
+    // Initialize logging explicitly
+    OloEngine::Log::Initialize();
     ::testing::InitGoogleTest(&argc, argv);
     return ::RUN_ALL_TESTS();
 }
