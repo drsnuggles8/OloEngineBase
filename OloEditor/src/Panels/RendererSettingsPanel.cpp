@@ -338,10 +338,20 @@ namespace OloEngine
             if (ImGui::Checkbox("Wireframe Overlay", &settings.WireframeOverlay))
             {
                 Renderer3D::ApplyRendererSettings();
+                m_DebugSettingsChanged = true;
             }
-            ImGui::Checkbox("Show Grid", &settings.ShowGrid);
-            ImGui::Checkbox("Show Physics Colliders", &settings.ShowPhysicsColliders);
-            ImGui::Checkbox("Show Light Gizmos", &settings.ShowLightGizmos);
+            if (ImGui::Checkbox("Show Grid", &settings.ShowGrid))
+            {
+                m_DebugSettingsChanged = true;
+            }
+            if (ImGui::Checkbox("Show Physics Colliders", &settings.ShowPhysicsColliders))
+            {
+                m_DebugSettingsChanged = true;
+            }
+            if (ImGui::Checkbox("Show Light Gizmos", &settings.ShowLightGizmos))
+            {
+                m_DebugSettingsChanged = true;
+            }
 
             ImGui::Unindent();
         }

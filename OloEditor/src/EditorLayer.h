@@ -30,10 +30,9 @@
 #include "OloEngine/Renderer/UniformBuffer.h"
 
 #include <atomic>
-#include <chrono>
+#include <future>
 #include <mutex>
 #include <string>
-#include <thread> // For std::this_thread::yield()
 #include <vector>
 
 namespace OloEngine
@@ -183,6 +182,7 @@ namespace OloEngine
         // Asset Pack Build Management
         AssetPackBuilder::BuildResult m_LastBuildResult{}; // Result from last build (accessed after m_BuildInProgress is false)
         std::atomic<bool> m_BuildInProgress{ false };
+        std::future<void> m_BuildFuture; // Joinable handle so the destructor can block until the task finishes
         std::atomic<bool> m_BuildCancelRequested{ false };
         std::atomic<f32> m_BuildProgress{ 0.0f };
 

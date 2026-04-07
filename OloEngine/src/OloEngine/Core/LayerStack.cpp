@@ -7,11 +7,18 @@ namespace OloEngine
 {
     LayerStack::~LayerStack()
     {
+        Clear();
+    }
+
+    void LayerStack::Clear()
+    {
         for (auto it = m_Layers.rbegin(); it != m_Layers.rend(); ++it)
         {
             (*it)->OnDetach();
         }
-        // unique_ptrs destroy automatically
+        m_Layers.clear();
+        m_RawPtrs.clear();
+        m_LayerInsertIndex = 0;
     }
 
     LayerStack::LayerStack(LayerStack&& other) noexcept

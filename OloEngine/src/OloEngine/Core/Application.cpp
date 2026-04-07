@@ -106,7 +106,7 @@ namespace OloEngine
         catch (...)
         {
             // Detach layers before shutting down subsystems they depend on.
-            m_LayerStack = LayerStack();
+            m_LayerStack.Clear();
             m_ImGuiLayer = nullptr;
 
             // Unwind subsystems in reverse initialization order.
@@ -139,9 +139,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // LayerStack destructor calls OnDetach() on all layers and owns their memory.
-        // Clear it before shutting down subsystems so layers detach while systems are live.
-        m_LayerStack = LayerStack();
+        // Clear calls OnDetach() on all layers and releases their memory.
+        // Do this before shutting down subsystems so layers detach while systems are live.
+        m_LayerStack.Clear();
         m_ImGuiLayer = nullptr;
 
         if (!m_Specification.IsHeadless)
@@ -261,9 +261,9 @@ namespace OloEngine
         {
 
             const auto timeNow = Time::GetTime();
-            const f32 rawDelta = std::min(timeNow - m_LastFrameTime, s_MaxTimestep);
+            const f32 rawDelta = timeNow - m_LastFrameTime;
             m_UnscaledDeltaTime = rawDelta;
-            const Timestep timestep = rawDelta * m_TimeScale;
+            const Timestep timestep = std::min(rawDelta, s_MaxTimestep) * m_TimeScale;
             m_LastFrameTime = timeNow;
 
             // Poll OS events first so GLFW key state is fresh for this frame

@@ -79,24 +79,12 @@ namespace OloEngine
 
     EditorLayer::~EditorLayer()
     {
-        // Cancel any ongoing build
+        // Cancel any ongoing build and wait for the task to finish so
+        // the background lambda cannot access member state after destruction.
         m_BuildCancelRequested.store(true);
-
-        // Wait for build to complete with a bounded timeout so the destructor cannot hang forever
-        constexpr auto timeout = std::chrono::seconds(5);
-        auto const start = std::chrono::steady_clock::now();
-        while (m_BuildInProgress.load())
+        if (m_BuildFuture.valid())
         {
-            if (std::chrono::steady_clock::now() - start >= timeout)
-            {
-                OLO_CORE_WARN("EditorLayer::~EditorLayer: Build thread did not stop within timeout "
-                              "(m_BuildInProgress={}, m_BuildCancelRequested={})",
-                              m_BuildInProgress.load(), m_BuildCancelRequested.load());
-                break;
-            }
-            // Keep requesting cancellation during wait
-            m_BuildCancelRequested.store(true);
-            std::this_thread::yield();
+            m_BuildFuture.wait();
         }
     }
 
@@ -1140,6 +1128,10 @@ namespace OloEngine
         if (m_ShowRendererSettings)
         {
             m_RendererSettingsPanel.OnImGuiRender(&m_ShowRendererSettings);
+            if (m_RendererSettingsPanel.ConsumeDebugSettingsChanged())
+            {
+                SyncPrefsFromMembers();
+            }
         }
 
         // Terrain Editor Panel
@@ -2876,15 +2868,18 @@ namespace OloEngine
         m_BuildCancelRequested.store(false);
         m_BuildInProgress.store(true);
 
+        // Create a promise/future pair so the destructor can join on the
+        // background task and guarantee the lambda (which captures `this`)
+        // finishes before member state is destroyed.
+        auto buildDone = std::make_shared<std::promise<void>>();
+        m_BuildFuture = buildDone->get_future();
+
         // Start async build task using Task System
-        Tasks::Launch("BuildAssetPack", [this, settings]()
+        Tasks::Launch("BuildAssetPack", [this, settings, buildDone]()
                       {
             try
             {
                 auto result = AssetPackBuilder::BuildFromActiveProject(settings, m_BuildProgress, &m_BuildCancelRequested);
-
-                // Mark build as complete
-                m_BuildInProgress.store(false);
 
                 if (result.m_Success && !m_BuildCancelRequested.load())
                 {
@@ -2904,10 +2899,11 @@ namespace OloEngine
 
                 // Store result for potential later access
                 m_LastBuildResult = result;
+                m_BuildInProgress.store(false);
+                buildDone->set_value();
             }
             catch (const std::exception& ex)
             {
-                m_BuildInProgress.store(false);
                 OLO_CORE_ERROR("Asset Pack build exception: {}", ex.what());
                 AssetPackBuilder::BuildResult errorResult{};
                 errorResult.m_Success = false;
@@ -2916,6 +2912,8 @@ namespace OloEngine
                 errorResult.m_AssetCount = 0;
                 errorResult.m_SceneCount = 0;
                 m_LastBuildResult = errorResult;
+                m_BuildInProgress.store(false);
+                buildDone->set_value();
             } }, Tasks::ETaskPriority::BackgroundNormal);
 
         OLO_CORE_INFO("Asset Pack build started asynchronously...");

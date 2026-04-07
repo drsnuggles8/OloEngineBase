@@ -19,6 +19,9 @@ namespace OloEngine
         LayerStack(const LayerStack&) = delete;
         LayerStack& operator=(const LayerStack&) = delete;
 
+        // Calls OnDetach() on every layer and empties the stack.
+        void Clear();
+
         // Takes ownership. Calls OnAttach() on the layer.
         void PushLayer(std::unique_ptr<Layer> layer);
         // Takes ownership. Calls OnAttach() on the overlay.
