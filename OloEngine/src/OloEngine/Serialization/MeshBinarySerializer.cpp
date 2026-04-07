@@ -35,6 +35,11 @@ namespace OloEngine
         void ReadBytes(std::istream& in, void* data, sizet size)
         {
             in.read(reinterpret_cast<char*>(data), static_cast<std::streamsize>(size));
+            if (in.gcount() != static_cast<std::streamsize>(size))
+            {
+                OLO_CORE_ERROR("ReadBytes: short read ({} of {} bytes)", in.gcount(), size);
+                in.setstate(std::ios::failbit);
+            }
         }
 
         void WriteString(std::ostream& out, const std::string& str)
@@ -293,6 +298,13 @@ namespace OloEngine
             const auto* skeleton = meshSource.GetSkeleton();
             auto boneCount = static_cast<u32>(skeleton->m_BoneNames.size());
 
+            if (skeleton->m_ParentIndices.size() < boneCount)
+            {
+                OLO_CORE_ERROR("MeshBinarySerializer::Write: ParentIndices size ({}) < BoneNames size ({})",
+                               skeleton->m_ParentIndices.size(), boneCount);
+                return false;
+            }
+
             OMeshFormat::SkeletonHeader skelHeader;
             skelHeader.BoneCount = boneCount;
             WriteBytes(payload, &skelHeader, sizeof(skelHeader));
@@ -533,7 +545,23 @@ namespace OloEngine
 
         if (header.Flags & OMeshFormat::FlagCompressed)
         {
+            if (header.TotalFileSize <= sizeof(OMeshFormat::FileHeader))
+            {
+                OLO_CORE_ERROR("MeshBinarySerializer::Read: TotalFileSize ({}) too small for compressed payload in '{}'",
+                               header.TotalFileSize, path.string());
+                return nullptr;
+            }
+
+            // Guard against absurd allocation sizes from corrupt files (256 MiB limit)
+            constexpr u64 MAX_COMPRESSED_SIZE = 256u * 1024u * 1024u;
             auto const compressedSize = header.TotalFileSize - sizeof(OMeshFormat::FileHeader);
+            if (compressedSize > MAX_COMPRESSED_SIZE)
+            {
+                OLO_CORE_ERROR("MeshBinarySerializer::Read: compressed payload size {} exceeds limit in '{}'",
+                               compressedSize, path.string());
+                return nullptr;
+            }
+
             std::vector<u8> compressedData(compressedSize);
             ReadBytes(in, compressedData.data(), compressedSize);
 
@@ -788,7 +816,8 @@ namespace OloEngine
                     if (!MeshOptimization::DecodeVertexBuffer(boneInfluences.GetData(),
                                                               biHeader.InfluenceCount, biHeader.InfluenceStride, encoded))
                     {
-                        OLO_CORE_ERROR("MeshBinarySerializer::Read: Failed to decode bone influences");
+                        OLO_CORE_ERROR("MeshBinarySerializer::Read: Failed to decode bone influences in '{}'", path.string());
+                        boneInfluences.Empty(); // Clear garbage data from failed decode
                     }
                 }
             }

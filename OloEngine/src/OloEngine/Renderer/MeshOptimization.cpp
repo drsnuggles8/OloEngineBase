@@ -149,6 +149,17 @@ namespace OloEngine::MeshOptimization
             submesh.m_IndexCount = static_cast<u32>(resultIndexCount);
             lodMesh->AddSubmesh(submesh);
         }
+        else
+        {
+            // Multi-submesh or no-submesh source: create a single submesh spanning all data
+            Submesh submesh;
+            submesh.m_BaseVertex = 0;
+            submesh.m_BaseIndex = 0;
+            submesh.m_VertexCount = static_cast<u32>(lodVertices.Num());
+            submesh.m_IndexCount = static_cast<u32>(resultIndexCount);
+            submesh.m_MaterialIndex = 0;
+            lodMesh->AddSubmesh(submesh);
+        }
 
         OLO_CORE_TRACE("MeshOptimization::GenerateLODMesh: {} -> {} triangles (ratio={:.2f})",
                        indexCount / 3, resultIndexCount / 3, targetRatio);
@@ -232,6 +243,17 @@ namespace OloEngine::MeshOptimization
         {
             Submesh submesh = srcSubmeshes[0];
             submesh.m_IndexCount = static_cast<u32>(resultIndexCount);
+            lodMesh->AddSubmesh(submesh);
+        }
+        else
+        {
+            // Multi-submesh or no-submesh source: create a single submesh spanning all data
+            Submesh submesh;
+            submesh.m_BaseVertex = 0;
+            submesh.m_BaseIndex = 0;
+            submesh.m_VertexCount = static_cast<u32>(lodVertices.Num());
+            submesh.m_IndexCount = static_cast<u32>(resultIndexCount);
+            submesh.m_MaterialIndex = 0;
             lodMesh->AddSubmesh(submesh);
         }
 

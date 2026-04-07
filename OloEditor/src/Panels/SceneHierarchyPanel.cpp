@@ -2457,7 +2457,7 @@ namespace OloEngine
             if (entity.HasComponent<MeshComponent>())
             {
                 auto& meshComp = entity.GetComponent<MeshComponent>();
-                if (meshComp.m_MeshSource)
+                if (meshComp.m_MeshSource && !meshComp.m_MeshSource->GetSubmeshes().IsEmpty())
                 {
                     ImGui::SameLine();
                     if (ImGui::Button("Generate LODs"))

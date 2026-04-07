@@ -1,6 +1,10 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
+#include <vector>
+
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Mesh.h"

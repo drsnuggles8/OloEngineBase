@@ -97,6 +97,9 @@ namespace OloEngine
             }
 
             // Copy morph targets from the first mesh that has them
+            // TODO: This only preserves morph targets from the first mesh source.
+            //       Multi-mesh morph targets require per-submesh partitioning
+            //       and vertex offset remapping during combine/split.
             for (const auto& src : meshes)
             {
                 if (src && src->HasMorphTargets())
@@ -234,6 +237,22 @@ namespace OloEngine
 
             return {};
         }
+        // Collect material indices from the Assimp scene in DFS traversal
+        // order to match the original ProcessNode order used to build m_Meshes.
+        static auto CollectMaterialIndices = [](const aiNode* node, const aiScene* scene,
+                                                std::vector<u32>& out, auto&& self) -> void
+        {
+            for (u32 i = 0; i < node->mNumMeshes; i++)
+            {
+                auto* mesh = scene->mMeshes[node->mMeshes[i]];
+                out.push_back(mesh->mMaterialIndex);
+            }
+            for (u32 i = 0; i < node->mNumChildren; i++)
+            {
+                self(node->mChildren[i], scene, out, self);
+            }
+        };
+
     } // anonymous namespace
 
     AnimatedModel::AnimatedModel(const std::string& path)
@@ -263,21 +282,24 @@ namespace OloEngine
                     m_Animations = MeshCache::LoadAnimationsFromCache(sourcePath);
 
                     // Load materials from the source file (lightweight Assimp read — no geometry postprocessing).
-                    // ProcessNode sets materialIndex = mesh->mMaterialIndex, so m_Materials[i]
-                    // must hold the material for the i-th Assimp mesh.
+                    // ProcessNode builds m_Meshes in DFS order, so we replay
+                    // the same traversal to collect material indices in matching order.
                     {
                         Assimp::Importer matImporter;
                         const aiScene* matScene = matImporter.ReadFile(path, 0);
                         if (matScene)
                         {
+                            std::vector<u32> materialIndices;
+                            materialIndices.reserve(m_Meshes.size());
+                            CollectMaterialIndices(matScene->mRootNode, matScene, materialIndices, CollectMaterialIndices);
+
                             m_Materials.resize(m_Meshes.size());
-                            auto numSceneMeshes = std::min(matScene->mNumMeshes, static_cast<u32>(m_Meshes.size()));
-                            for (u32 i = 0; i < numSceneMeshes; ++i)
+                            auto numMaterials = std::min(materialIndices.size(), m_Meshes.size());
+                            for (sizet i = 0; i < numMaterials; ++i)
                             {
-                                auto matIdx = matScene->mMeshes[i]->mMaterialIndex;
-                                if (matIdx < matScene->mNumMaterials)
+                                if (materialIndices[i] < matScene->mNumMaterials)
                                 {
-                                    m_Materials[i] = ProcessMaterial(matScene->mMaterials[matIdx]);
+                                    m_Materials[i] = ProcessMaterial(matScene->mMaterials[materialIndices[i]]);
                                 }
                             }
                         }

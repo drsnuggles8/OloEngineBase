@@ -2114,6 +2114,21 @@ namespace OloEngine
         stream.ReadRaw<bool>(hasBoneInfo);
         stream.ReadRaw<bool>(hasMorphTargets);
 
+        // Bounds-check deserialized counts to detect corrupt data early
+        constexpr u32 MAX_VERTEX_COUNT = 50'000'000;
+        constexpr u32 MAX_INDEX_COUNT = 150'000'000;
+        constexpr u32 MAX_SUBMESH_COUNT = 10'000;
+        constexpr u32 MAX_MATERIAL_COUNT = 10'000;
+
+        if (vertexCount > MAX_VERTEX_COUNT || indexCount > MAX_INDEX_COUNT ||
+            submeshCount > MAX_SUBMESH_COUNT || materialCount > MAX_MATERIAL_COUNT)
+        {
+            OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Suspicious counts "
+                           "(verts={}, indices={}, submeshes={}, materials={})",
+                           vertexCount, indexCount, submeshCount, materialCount);
+            return nullptr;
+        }
+
         // Decode vertex buffer
         TArray<Vertex> vertices;
         if (vertexCount > 0)
@@ -2355,6 +2370,10 @@ namespace OloEngine
         }
 
         meshSource->SetHandle(assetInfo.Handle);
+
+        // Asset pack data is already optimized — skip re-optimization during Build()
+        meshSource->SetPreOptimized(true);
+        meshSource->Build();
 
         OLO_CORE_TRACE("MeshSourceSerializer::DeserializeFromAssetPack: {} verts, {} indices",
                        vertexCount, indexCount);

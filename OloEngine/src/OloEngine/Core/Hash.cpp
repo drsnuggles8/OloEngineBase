@@ -76,7 +76,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!data || size == 0)
+        if (!data)
+        {
+            return 0xFFFFFFFFu; // Distinct sentinel for null pointer
+        }
+
+        if (size == 0)
         {
             return 0;
         }

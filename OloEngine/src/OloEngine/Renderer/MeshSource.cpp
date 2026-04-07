@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Task/ParallelFor.h"
+#include "OloEngine/Debug/Instrumentor.h"
 
 namespace OloEngine
 {
@@ -65,6 +66,8 @@ namespace OloEngine
 
     void MeshSource::Build()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_Built)
             return;
 

@@ -41,7 +41,7 @@ A cascaded approach that uses cheap metrics as a fast-path filter and only escal
 **Why cascade?** RMSE and perceptual metrics fail in complementary ways:
 - RMSE is **oversensitive** to isolated bright-pixel outliers (a specular highlight moving 1 pixel produces high RMSE despite being visually identical).
 - RMSE is **undersensitive** to distributed low-contrast shifts (a subtle color cast across the whole image has low RMSE but is clearly visible).
-- SSIM/FLIP handle both cases correctly but cost 5–10× more to compute.
+- Perceptual metrics (SSIM, FLIP) handle both cases correctly but cost 5–10× more to compute.
 
 In practice, ~90% of test runs resolve at stage 1 (clear pass or clear fail), so the expensive metric rarely runs.
 
@@ -425,9 +425,9 @@ test-output/
 
 ## Recommended Reading
 
-- [Rendering Testing at Scale (GDC 2019)](https://www.gdcvault.com/) — Unity's talk on maintaining thousands of rendering tests.
+- Rendering Testing at Scale (GDC 2019) — Unity's talk on maintaining thousands of rendering tests. (GDC Vault; search for the specific session.)
 - [Filament Test Infrastructure](https://github.com/google/filament/tree/main/test) — open-source example of golden image + headless rendering.
 - [Mesa piglit](https://gitlab.freedesktop.org/mesa/piglit) — GL conformance test suite with extensive per-pixel comparison patterns.
 - [Vulkan CTS (dEQP)](https://github.com/KhronosGroup/VK-GL-CTS) — the most comprehensive GPU test suite ever built, worth studying for methodology.
-- [The Furnace Test (Karis 2013)](https://blog.selfshadow.com/) — Brian Karis on energy conservation validation for PBR.
-- [Automated Visual Testing for Games (GDC 2023)](https://www.gdcvault.com/) — practical approaches to screenshot testing in game engines.
+- [The Furnace Test (Karis 2013)](https://blog.selfshadow.com/publications/s2013-shading-course/karis/s2013_pbs_epic_notes_v2.pdf) — Brian Karis on energy conservation validation for PBR.
+- Automated Visual Testing for Games (GDC 2023) — practical approaches to screenshot testing in game engines. (GDC Vault; search for the specific session.)

@@ -30,7 +30,9 @@ namespace OloEngine
             }
             case Bool:
             {
-                return GL_BOOL;
+                // GL_BOOL is not a valid type for glVertexArrayAttribIFormat.
+                // Map boolean attributes to GL_UNSIGNED_INT (1 component).
+                return GL_UNSIGNED_INT;
             }
             case None:
             {

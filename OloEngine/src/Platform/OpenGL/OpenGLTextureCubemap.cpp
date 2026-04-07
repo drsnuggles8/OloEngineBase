@@ -353,6 +353,16 @@ namespace OloEngine
                         "Data size doesn't match face dimensions! Expected: {}, Got: {}",
                         m_Width * m_Height * formatInfo.BytesPerPixel, size);
 
+        // Ensure correct pixel unpack alignment for formats where row size
+        // is not a multiple of 4 (e.g. RGB8 with odd widths, R8 formats).
+        GLint prevAlignment = 4;
+        auto const rowBytes = m_Width * formatInfo.BytesPerPixel;
+        if (rowBytes % 4 != 0)
+        {
+            glGetIntegerv(GL_UNPACK_ALIGNMENT, &prevAlignment);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        }
+
         glTextureSubImage3D(
             m_RendererID,
             0,                          // Mipmap level
@@ -365,6 +375,11 @@ namespace OloEngine
             formatInfo.DataType,        // Data type (float for HDR formats)
             data                        // Pixel data
         );
+
+        if (rowBytes % 4 != 0)
+        {
+            glPixelStorei(GL_UNPACK_ALIGNMENT, prevAlignment);
+        }
 
         if (m_CubemapSpecification.GenerateMips)
             glGenerateTextureMipmap(m_RendererID);
@@ -397,6 +412,16 @@ namespace OloEngine
                         "Data size doesn't match mip {} face dimensions! Expected: {}, Got: {}",
                         mipLevel, mipWidth * mipHeight * formatInfo.BytesPerPixel, size);
 
+        // Ensure correct pixel unpack alignment for formats where row size
+        // is not a multiple of 4 (e.g. RGB8 with odd widths, R8 formats).
+        GLint prevAlignment = 4;
+        auto const rowBytes = mipWidth * formatInfo.BytesPerPixel;
+        if (rowBytes % 4 != 0)
+        {
+            glGetIntegerv(GL_UNPACK_ALIGNMENT, &prevAlignment);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        }
+
         glTextureSubImage3D(
             m_RendererID,
             static_cast<GLint>(mipLevel),
@@ -408,6 +433,11 @@ namespace OloEngine
             m_DataFormat,
             formatInfo.DataType,
             data);
+
+        if (rowBytes % 4 != 0)
+        {
+            glPixelStorei(GL_UNPACK_ALIGNMENT, prevAlignment);
+        }
     }
 
     void OpenGLTextureCubemap::Invalidate(std::string_view /*path*/, u32 /*width*/, u32 /*height*/, const void* /*data*/, u32 /*channels*/)

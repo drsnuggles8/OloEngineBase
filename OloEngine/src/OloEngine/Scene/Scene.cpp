@@ -2494,6 +2494,20 @@ namespace OloEngine
         }
     }
 
+    // Helper: obtain the shadow VAO RendererID from a Mesh (returns 0 if unavailable).
+    [[nodiscard]] static RendererID GetShadowVaoID(const Ref<Mesh>& mesh)
+    {
+        if (!mesh)
+        {
+            return 0;
+        }
+        if (auto const& ms = mesh->GetMeshSource(); ms && ms->HasShadowVertexArray())
+        {
+            return ms->GetShadowVertexArray()->GetRendererID();
+        }
+        return 0;
+    }
+
     void Scene::ProcessScene3DSharedLogic(const glm::mat4& viewMatrix, const glm::mat4& projectionMatrix,
                                           const glm::vec3& cameraPosition,
                                           f32 cameraNearClip, f32 cameraFarClip)
@@ -3653,14 +3667,9 @@ namespace OloEngine
                             auto va = submesh->GetVertexArray();
                             if (va)
                             {
-                                RendererID shadowVao = 0;
-                                if (auto const& ms = submesh->GetMeshSource(); ms && ms->HasShadowVertexArray())
-                                {
-                                    shadowVao = ms->GetShadowVertexArray()->GetRendererID();
-                                }
                                 meshShadowPass->AddMeshCaster(
                                     va->GetRendererID(), submesh->GetIndexCount(),
-                                    transform.GetTransform(), shadowVao);
+                                    transform.GetTransform(), GetShadowVaoID(submesh));
                             }
                         }
                     }
@@ -3713,14 +3722,9 @@ namespace OloEngine
                     auto va = submesh.m_Mesh->GetVertexArray();
                     if (va)
                     {
-                        RendererID shadowVao = 0;
-                        if (auto const& ms = submesh.m_Mesh->GetMeshSource(); ms && ms->HasShadowVertexArray())
-                        {
-                            shadowVao = ms->GetShadowVertexArray()->GetRendererID();
-                        }
                         meshShadowPass->AddMeshCaster(
                             va->GetRendererID(), submesh.m_Mesh->GetIndexCount(),
-                            transform.GetTransform(), shadowVao);
+                            transform.GetTransform(), GetShadowVaoID(submesh.m_Mesh));
                     }
                 }
             }
@@ -3862,14 +3866,9 @@ namespace OloEngine
                             auto va = tileComp.TileMesh->GetVertexArray();
                             if (va)
                             {
-                                RendererID shadowVao = 0;
-                                if (auto const& ms = tileComp.TileMesh->GetMeshSource(); ms && ms->HasShadowVertexArray())
-                                {
-                                    shadowVao = ms->GetShadowVertexArray()->GetRendererID();
-                                }
                                 meshShadowPass->AddMeshCaster(
                                     va->GetRendererID(), tileComp.TileMesh->GetIndexCount(),
-                                    tileTransform, shadowVao);
+                                    tileTransform, GetShadowVaoID(tileComp.TileMesh));
                             }
                         }
                     }

@@ -437,6 +437,18 @@ namespace OloEngine
             return nullptr;
         }
 
+        if (header.Width == 0 || header.Height == 0)
+        {
+            OLO_CORE_ERROR("IBLCache: Invalid dimensions {}x{} in {}", header.Width, header.Height, path.string());
+            return nullptr;
+        }
+
+        if (header.MipLevels == 0 || header.MipLevels > 16)
+        {
+            OLO_CORE_ERROR("IBLCache: Suspicious MipLevels {} in {}", header.MipLevels, path.string());
+            return nullptr;
+        }
+
         // Create cubemap specification
         CubemapSpecification spec;
         spec.Width = header.Width;
@@ -448,6 +460,11 @@ namespace OloEngine
         Ref<TextureCubemap> cubemap = TextureCubemap::Create(spec);
 
         u32 bytesPerPixel = GetBytesPerPixel(spec.Format);
+        if (bytesPerPixel == 0)
+        {
+            OLO_CORE_ERROR("IBLCache: Unknown image format {} in {}", header.Format, path.string());
+            return nullptr;
+        }
 
         // Read each mip level's face data and upload via SetFaceDataMip
         // to preserve the precomputed roughness-convolved mip chain.
