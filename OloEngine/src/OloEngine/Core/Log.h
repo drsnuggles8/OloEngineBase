@@ -9,6 +9,7 @@
 #include <atomic>
 #include <cstddef>
 #include <mutex>
+#include <utility>
 #include <vector>
 
 #include "OloEngine/Core/Base.h"
@@ -66,7 +67,9 @@ namespace OloEngine
         };
 
       public:
-        // Meyer's singleton — constructed on first call, destroyed at program exit
+        // Singleton — created on first call via heap allocation, intentionally
+        // leaked so it survives static teardown (avoids use-after-free when
+        // other statics log during destruction).
         static Log& Get();
 
         // Explicit initialization entry point — call early in main() to trigger
