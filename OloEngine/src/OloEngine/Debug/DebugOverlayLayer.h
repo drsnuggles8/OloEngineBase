@@ -21,7 +21,7 @@ namespace OloEngine
         void OnImGuiRender() override;
         void OnEvent(Event& e) override;
 
-        [[nodiscard("Store this!")]] bool IsVisible() const
+        bool IsVisible() const
         {
             return m_Visible;
         }

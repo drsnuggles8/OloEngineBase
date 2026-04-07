@@ -21,6 +21,8 @@ static void AudioSourceComponent_SetVolume(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
     comp.Config.VolumeMultiplier = value;
     if (comp.Source)
@@ -43,6 +45,8 @@ static void AudioSourceComponent_SetPitch(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
     comp.Config.PitchMultiplier = value;
     if (comp.Source)
@@ -151,6 +155,8 @@ static void AudioSourceComponent_SetRollOff(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
     comp.Config.RollOff = value;
     if (comp.Source)
@@ -173,6 +179,8 @@ static void AudioSourceComponent_SetMinGain(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
     comp.Config.MinGain = value;
     if (comp.Source)
@@ -195,6 +203,8 @@ static void AudioSourceComponent_SetMaxGain(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
     comp.Config.MaxGain = value;
     if (comp.Source)
@@ -217,6 +227,8 @@ static void AudioSourceComponent_SetMinDistance(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
     comp.Config.MinDistance = value;
     if (comp.Source)
@@ -239,6 +251,8 @@ static void AudioSourceComponent_SetMaxDistance(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
     comp.Config.MaxDistance = value;
     if (comp.Source)
@@ -261,6 +275,8 @@ static void AudioSourceComponent_SetConeInnerAngle(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
     comp.Config.ConeInnerAngle = value;
     if (comp.Source)
@@ -283,6 +299,8 @@ static void AudioSourceComponent_SetConeOuterAngle(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
     comp.Config.ConeOuterAngle = value;
     if (comp.Source)
@@ -305,6 +323,8 @@ static void AudioSourceComponent_SetConeOuterGain(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
     comp.Config.ConeOuterGain = value;
     if (comp.Source)
@@ -327,6 +347,8 @@ static void AudioSourceComponent_SetDopplerFactor(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
     comp.Config.DopplerFactor = value;
     if (comp.Source)
@@ -354,6 +376,9 @@ static void BoxCollider2DComponent_SetOffset(UUID entityID, glm::vec2 const* val
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<BoxCollider2DComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.Offset = *value;
 }
 
@@ -374,6 +399,9 @@ static void BoxCollider2DComponent_SetSize(UUID entityID, glm::vec2 const* value
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<BoxCollider2DComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.Size = *value;
 }
 
@@ -393,6 +421,8 @@ static void BoxCollider2DComponent_SetDensity(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<BoxCollider2DComponent>();
     comp.Density = value;
 }
@@ -413,6 +443,8 @@ static void BoxCollider2DComponent_SetFriction(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<BoxCollider2DComponent>();
     comp.Friction = value;
 }
@@ -433,6 +465,8 @@ static void BoxCollider2DComponent_SetRestitution(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<BoxCollider2DComponent>();
     comp.Restitution = value;
 }
@@ -458,6 +492,9 @@ static void BoxCollider3DComponent_SetHalfExtents(UUID entityID, glm::vec3 const
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<BoxCollider3DComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_HalfExtents = *value;
 }
 
@@ -478,6 +515,9 @@ static void BoxCollider3DComponent_SetOffset(UUID entityID, glm::vec3 const* val
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<BoxCollider3DComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_Offset = *value;
 }
 
@@ -521,6 +561,8 @@ static void CameraComponent_SetPerspectiveFOV(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<CameraComponent>();
     comp.Camera.SetPerspectiveVerticalFOV(value);
 }
@@ -541,6 +583,8 @@ static void CameraComponent_SetPerspectiveNearClip(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<CameraComponent>();
     comp.Camera.SetPerspectiveNearClip(value);
 }
@@ -561,6 +605,8 @@ static void CameraComponent_SetPerspectiveFarClip(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<CameraComponent>();
     comp.Camera.SetPerspectiveFarClip(value);
 }
@@ -581,6 +627,8 @@ static void CameraComponent_SetOrthographicSize(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<CameraComponent>();
     comp.Camera.SetOrthographicSize(value);
 }
@@ -601,6 +649,8 @@ static void CameraComponent_SetOrthographicNearClip(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<CameraComponent>();
     comp.Camera.SetOrthographicNearClip(value);
 }
@@ -621,6 +671,8 @@ static void CameraComponent_SetOrthographicFarClip(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<CameraComponent>();
     comp.Camera.SetOrthographicFarClip(value);
 }
@@ -685,6 +737,8 @@ static void CapsuleCollider3DComponent_SetRadius(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<CapsuleCollider3DComponent>();
     comp.m_Radius = value;
 }
@@ -705,6 +759,8 @@ static void CapsuleCollider3DComponent_SetHalfHeight(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<CapsuleCollider3DComponent>();
     comp.m_HalfHeight = value;
 }
@@ -726,6 +782,9 @@ static void CapsuleCollider3DComponent_SetOffset(UUID entityID, glm::vec3 const*
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<CapsuleCollider3DComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_Offset = *value;
 }
 
@@ -749,6 +808,8 @@ static void CharacterController3DComponent_SetSlopeLimit(UUID entityID, float va
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<CharacterController3DComponent>();
     comp.m_SlopeLimitDeg = value;
 }
@@ -769,6 +830,8 @@ static void CharacterController3DComponent_SetStepOffset(UUID entityID, float va
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<CharacterController3DComponent>();
     comp.m_StepOffset = value;
 }
@@ -789,6 +852,8 @@ static void CharacterController3DComponent_SetJumpPower(UUID entityID, float val
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<CharacterController3DComponent>();
     comp.m_JumpPower = value;
 }
@@ -834,6 +899,9 @@ static void CircleCollider2DComponent_SetOffset(UUID entityID, glm::vec2 const* 
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<CircleCollider2DComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.Offset = *value;
 }
 
@@ -853,6 +921,8 @@ static void CircleCollider2DComponent_SetRadius(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<CircleCollider2DComponent>();
     comp.Radius = value;
 }
@@ -873,6 +943,8 @@ static void CircleCollider2DComponent_SetDensity(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<CircleCollider2DComponent>();
     comp.Density = value;
 }
@@ -893,6 +965,8 @@ static void CircleCollider2DComponent_SetFriction(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<CircleCollider2DComponent>();
     comp.Friction = value;
 }
@@ -913,6 +987,8 @@ static void CircleCollider2DComponent_SetRestitution(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<CircleCollider2DComponent>();
     comp.Restitution = value;
 }
@@ -938,6 +1014,9 @@ static void CircleRendererComponent_SetColor(UUID entityID, glm::vec4 const* val
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<CircleRendererComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.Color = *value;
 }
 
@@ -957,6 +1036,8 @@ static void CircleRendererComponent_SetThickness(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<CircleRendererComponent>();
     comp.Thickness = value;
 }
@@ -977,6 +1058,8 @@ static void CircleRendererComponent_SetFade(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<CircleRendererComponent>();
     comp.Fade = value;
 }
@@ -1002,6 +1085,9 @@ static void DirectionalLightComponent_SetColor(UUID entityID, glm::vec3 const* v
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<DirectionalLightComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_Color = *value;
 }
 
@@ -1021,6 +1107,8 @@ static void DirectionalLightComponent_SetIntensity(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<DirectionalLightComponent>();
     comp.m_Intensity = value;
 }
@@ -1065,6 +1153,8 @@ static void LightProbeComponent_SetInfluenceRadius(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<LightProbeComponent>();
     comp.m_InfluenceRadius = value;
 }
@@ -1085,6 +1175,8 @@ static void LightProbeComponent_SetIntensity(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<LightProbeComponent>();
     comp.m_Intensity = value;
 }
@@ -1130,6 +1222,9 @@ static void LightProbeVolumeComponent_SetBoundsMin(UUID entityID, glm::vec3 cons
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<LightProbeVolumeComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_BoundsMin = *value;
     comp.m_Dirty = true;
 }
@@ -1151,6 +1246,9 @@ static void LightProbeVolumeComponent_SetBoundsMax(UUID entityID, glm::vec3 cons
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<LightProbeVolumeComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_BoundsMax = *value;
     comp.m_Dirty = true;
 }
@@ -1171,6 +1269,8 @@ static void LightProbeVolumeComponent_SetSpacing(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<LightProbeVolumeComponent>();
     comp.m_Spacing = value;
     comp.m_Dirty = true;
@@ -1192,6 +1292,8 @@ static void LightProbeVolumeComponent_SetIntensity(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<LightProbeVolumeComponent>();
     comp.m_Intensity = value;
     comp.m_Dirty = true;
@@ -1239,6 +1341,9 @@ static void MaterialComponent_SetAlbedoColor(UUID entityID, glm::vec4 const* val
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<MaterialComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_Material.SetBaseColorFactor(*value);
 }
 
@@ -1258,6 +1363,8 @@ static void MaterialComponent_SetMetallic(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<MaterialComponent>();
     comp.m_Material.SetMetallicFactor(value);
 }
@@ -1278,6 +1385,8 @@ static void MaterialComponent_SetRoughness(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<MaterialComponent>();
     comp.m_Material.SetRoughnessFactor(value);
 }
@@ -1299,6 +1408,9 @@ static void MaterialComponent_SetEmissive(UUID entityID, glm::vec4 const* value)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<MaterialComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_Material.SetEmissiveFactor(*value);
 }
 
@@ -1383,6 +1495,9 @@ static void NameplateComponent_SetWorldOffset(UUID entityID, glm::vec3 const* va
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<NameplateComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_WorldOffset = *value;
 }
 
@@ -1403,6 +1518,9 @@ static void NameplateComponent_SetBarSize(UUID entityID, glm::vec2 const* value)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<NameplateComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_BarSize = *value;
 }
 
@@ -1423,6 +1541,9 @@ static void NameplateComponent_SetHealthBarColor(UUID entityID, glm::vec4 const*
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<NameplateComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_HealthBarColor = *value;
 }
 
@@ -1443,6 +1564,9 @@ static void NameplateComponent_SetManaBarColor(UUID entityID, glm::vec4 const* v
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<NameplateComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_ManaBarColor = *value;
 }
 
@@ -1463,6 +1587,9 @@ static void NameplateComponent_SetBarBackgroundColor(UUID entityID, glm::vec4 co
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<NameplateComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_BarBackgroundColor = *value;
 }
 
@@ -1482,6 +1609,8 @@ static void NameplateComponent_SetManaBarGap(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<NameplateComponent>();
     comp.m_ManaBarGap = value;
 }
@@ -1506,6 +1635,8 @@ static void NavAgentComponent_SetMaxSpeed(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<NavAgentComponent>();
     comp.m_MaxSpeed = value;
 }
@@ -1526,6 +1657,8 @@ static void NavAgentComponent_SetAcceleration(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<NavAgentComponent>();
     comp.m_Acceleration = value;
 }
@@ -1546,6 +1679,8 @@ static void NavAgentComponent_SetStoppingDistance(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<NavAgentComponent>();
     comp.m_StoppingDistance = value;
 }
@@ -1587,6 +1722,9 @@ static void NavAgentComponent_SetTargetPosition(UUID entityID, glm::vec3 const* 
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<NavAgentComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_TargetPosition = *value;
     comp.m_HasTarget = true;
     comp.m_HasPath = false;
@@ -1652,6 +1790,8 @@ static void ParticleSystemComponent_SetEmissionRate(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<ParticleSystemComponent>();
     comp.System.Emitter.RateOverTime = value;
 }
@@ -1672,6 +1812,8 @@ static void ParticleSystemComponent_SetWindInfluence(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<ParticleSystemComponent>();
     comp.System.WindInfluence = value;
 }
@@ -1697,6 +1839,9 @@ static void PointLightComponent_SetColor(UUID entityID, glm::vec3 const* value)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<PointLightComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_Color = *value;
 }
 
@@ -1716,6 +1861,8 @@ static void PointLightComponent_SetIntensity(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<PointLightComponent>();
     comp.m_Intensity = value;
 }
@@ -1736,6 +1883,8 @@ static void PointLightComponent_SetRange(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<PointLightComponent>();
     comp.m_Range = value;
 }
@@ -1800,6 +1949,8 @@ static void Rigidbody3DComponent_SetMass(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<Rigidbody3DComponent>();
     comp.m_Mass = value;
 }
@@ -1820,6 +1971,8 @@ static void Rigidbody3DComponent_SetLinearDrag(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<Rigidbody3DComponent>();
     comp.m_LinearDrag = value;
 }
@@ -1840,6 +1993,8 @@ static void Rigidbody3DComponent_SetAngularDrag(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<Rigidbody3DComponent>();
     comp.m_AngularDrag = value;
 }
@@ -1904,6 +2059,8 @@ static void SphereCollider3DComponent_SetRadius(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<SphereCollider3DComponent>();
     comp.m_Radius = value;
 }
@@ -1925,6 +2082,9 @@ static void SphereCollider3DComponent_SetOffset(UUID entityID, glm::vec3 const* 
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<SphereCollider3DComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_Offset = *value;
 }
 
@@ -1949,6 +2109,9 @@ static void SpotLightComponent_SetColor(UUID entityID, glm::vec3 const* value)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<SpotLightComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_Color = *value;
 }
 
@@ -1968,6 +2131,8 @@ static void SpotLightComponent_SetIntensity(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<SpotLightComponent>();
     comp.m_Intensity = value;
 }
@@ -1988,6 +2153,8 @@ static void SpotLightComponent_SetRange(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<SpotLightComponent>();
     comp.m_Range = value;
 }
@@ -2008,6 +2175,8 @@ static void SpotLightComponent_SetInnerCutoff(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<SpotLightComponent>();
     comp.m_InnerCutoff = value;
 }
@@ -2028,6 +2197,8 @@ static void SpotLightComponent_SetOuterCutoff(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<SpotLightComponent>();
     comp.m_OuterCutoff = value;
 }
@@ -2073,6 +2244,9 @@ static void SpriteRendererComponent_SetColor(UUID entityID, glm::vec4 const* val
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<SpriteRendererComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.Color = *value;
 }
 
@@ -2092,6 +2266,8 @@ static void SpriteRendererComponent_SetTilingFactor(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<SpriteRendererComponent>();
     comp.TilingFactor = value;
 }
@@ -2116,6 +2292,8 @@ static void StreamingVolumeComponent_SetLoadRadius(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<StreamingVolumeComponent>();
     comp.LoadRadius = value;
 }
@@ -2136,6 +2314,8 @@ static void StreamingVolumeComponent_SetUnloadRadius(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<StreamingVolumeComponent>();
     comp.UnloadRadius = value;
 }
@@ -2183,6 +2363,9 @@ static void TextComponent_SetColor(UUID entityID, glm::vec4 const* value)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<TextComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.Color = *value;
 }
 
@@ -2202,6 +2385,8 @@ static void TextComponent_SetKerning(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<TextComponent>();
     comp.Kerning = value;
 }
@@ -2222,6 +2407,8 @@ static void TextComponent_SetLineSpacing(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<TextComponent>();
     comp.LineSpacing = value;
 }
@@ -2247,6 +2434,9 @@ static void TransformComponent_SetTranslation(UUID entityID, glm::vec3 const* va
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<TransformComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.Translation = *value;
 }
 
@@ -2267,6 +2457,9 @@ static void TransformComponent_SetScale(UUID entityID, glm::vec3 const* value)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<TransformComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.Scale = *value;
 }
 
@@ -2287,6 +2480,9 @@ static void TransformComponent_SetRotation(UUID entityID, glm::vec3 const* value
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<TransformComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.SetRotationEuler(*value);
 }
 
@@ -2311,6 +2507,9 @@ static void UIButtonComponent_SetNormalColor(UUID entityID, glm::vec4 const* val
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<UIButtonComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_NormalColor = *value;
 }
 
@@ -2331,6 +2530,9 @@ static void UIButtonComponent_SetHoveredColor(UUID entityID, glm::vec4 const* va
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<UIButtonComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_HoveredColor = *value;
 }
 
@@ -2351,6 +2553,9 @@ static void UIButtonComponent_SetPressedColor(UUID entityID, glm::vec4 const* va
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<UIButtonComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_PressedColor = *value;
 }
 
@@ -2371,6 +2576,9 @@ static void UIButtonComponent_SetDisabledColor(UUID entityID, glm::vec4 const* v
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<UIButtonComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_DisabledColor = *value;
 }
 
@@ -2547,6 +2755,9 @@ static void UIGridLayoutComponent_SetCellSize(UUID entityID, glm::vec2 const* va
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<UIGridLayoutComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_CellSize = *value;
 }
 
@@ -2567,6 +2778,9 @@ static void UIGridLayoutComponent_SetSpacing(UUID entityID, glm::vec2 const* val
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<UIGridLayoutComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_Spacing = *value;
 }
 
@@ -2611,6 +2825,9 @@ static void UIImageComponent_SetColor(UUID entityID, glm::vec4 const* value)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<UIImageComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_Color = *value;
 }
 
@@ -2678,6 +2895,8 @@ static void UIInputFieldComponent_SetFontSize(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<UIInputFieldComponent>();
     comp.m_FontSize = value;
 }
@@ -2699,6 +2918,9 @@ static void UIInputFieldComponent_SetTextColor(UUID entityID, glm::vec4 const* v
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<UIInputFieldComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_TextColor = *value;
 }
 
@@ -2743,6 +2965,9 @@ static void UIPanelComponent_SetBackgroundColor(UUID entityID, glm::vec4 const* 
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<UIPanelComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_BackgroundColor = *value;
 }
 
@@ -2766,6 +2991,8 @@ static void UIProgressBarComponent_SetValue(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<UIProgressBarComponent>();
     comp.m_Value = value;
 }
@@ -2786,6 +3013,8 @@ static void UIProgressBarComponent_SetMinValue(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<UIProgressBarComponent>();
     comp.m_MinValue = value;
 }
@@ -2806,6 +3035,8 @@ static void UIProgressBarComponent_SetMaxValue(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<UIProgressBarComponent>();
     comp.m_MaxValue = value;
 }
@@ -2831,6 +3062,9 @@ static void UIRectTransformComponent_SetAnchorMin(UUID entityID, glm::vec2 const
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<UIRectTransformComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_AnchorMin = *value;
 }
 
@@ -2851,6 +3085,9 @@ static void UIRectTransformComponent_SetAnchorMax(UUID entityID, glm::vec2 const
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<UIRectTransformComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_AnchorMax = *value;
 }
 
@@ -2871,6 +3108,9 @@ static void UIRectTransformComponent_SetAnchoredPosition(UUID entityID, glm::vec
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<UIRectTransformComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_AnchoredPosition = *value;
 }
 
@@ -2891,6 +3131,9 @@ static void UIRectTransformComponent_SetSizeDelta(UUID entityID, glm::vec2 const
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<UIRectTransformComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_SizeDelta = *value;
 }
 
@@ -2911,6 +3154,9 @@ static void UIRectTransformComponent_SetPivot(UUID entityID, glm::vec2 const* va
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<UIRectTransformComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_Pivot = *value;
 }
 
@@ -2930,6 +3176,8 @@ static void UIRectTransformComponent_SetRotation(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<UIRectTransformComponent>();
     comp.m_Rotation = value;
 }
@@ -2951,6 +3199,9 @@ static void UIRectTransformComponent_SetScale(UUID entityID, glm::vec2 const* va
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<UIRectTransformComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_Scale = *value;
 }
 
@@ -2975,6 +3226,9 @@ static void UIScrollViewComponent_SetScrollPosition(UUID entityID, glm::vec2 con
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<UIScrollViewComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_ScrollPosition = *value;
 }
 
@@ -2995,6 +3249,9 @@ static void UIScrollViewComponent_SetContentSize(UUID entityID, glm::vec2 const*
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<UIScrollViewComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_ContentSize = *value;
 }
 
@@ -3014,6 +3271,8 @@ static void UIScrollViewComponent_SetScrollSpeed(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<UIScrollViewComponent>();
     comp.m_ScrollSpeed = value;
 }
@@ -3038,6 +3297,8 @@ static void UISliderComponent_SetValue(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<UISliderComponent>();
     comp.m_Value = value;
 }
@@ -3058,6 +3319,8 @@ static void UISliderComponent_SetMinValue(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<UISliderComponent>();
     comp.m_MinValue = value;
 }
@@ -3078,6 +3341,8 @@ static void UISliderComponent_SetMaxValue(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<UISliderComponent>();
     comp.m_MaxValue = value;
 }
@@ -3144,6 +3409,8 @@ static void UITextComponent_SetFontSize(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<UITextComponent>();
     comp.m_FontSize = value;
 }
@@ -3165,6 +3432,9 @@ static void UITextComponent_SetColor(UUID entityID, glm::vec4 const* value)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<UITextComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_Color = *value;
 }
 
@@ -3184,6 +3454,8 @@ static void UITextComponent_SetKerning(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<UITextComponent>();
     comp.m_Kerning = value;
 }
@@ -3204,6 +3476,8 @@ static void UITextComponent_SetLineSpacing(UUID entityID, float value)
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
     auto& comp = entity.GetComponent<UITextComponent>();
     comp.m_LineSpacing = value;
 }
@@ -3273,5 +3547,8 @@ static void UIWorldAnchorComponent_SetWorldOffset(UUID entityID, glm::vec3 const
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<UIWorldAnchorComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
     comp.m_WorldOffset = *value;
 }

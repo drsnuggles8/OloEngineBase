@@ -637,6 +637,11 @@ static void EmitCppBindings(std::ostream& out, const std::vector<ComponentDef>& 
                 out << "        OLO_CORE_ASSERT(scene);\n";
                 out << "        Entity entity = scene->GetEntityByUUID(entityID);\n";
                 out << "        OLO_CORE_ASSERT(entity);\n";
+
+                // Guard against NaN/Inf for floating-point scalars
+                if (prop.type == PropType::Float)
+                    out << "        if (!std::isfinite(value)) return;\n";
+
                 out << "        auto& comp = entity.GetComponent<" << comp.name << ">();\n";
 
                 if (prop.customSet.empty())
@@ -659,6 +664,10 @@ static void EmitCppBindings(std::ostream& out, const std::vector<ComponentDef>& 
                 out << "        Entity entity = scene->GetEntityByUUID(entityID);\n";
                 out << "        OLO_CORE_ASSERT(entity);\n";
                 out << "        auto& comp = entity.GetComponent<" << comp.name << ">();\n";
+
+                // Guard against NaN/Inf in any vector component
+                out << "        for (glm::length_t i = 0; i < value->length(); ++i)\n";
+                out << "            if (!std::isfinite((*value)[i])) return;\n";
 
                 if (prop.customSet.empty())
                     out << "        comp." << prop.cppField << " = *value;\n";

@@ -79,6 +79,8 @@ namespace OloEngine
                 GamepadManager::Initialize();
                 InputActionManager::Init();
 
+                // Non-owning pointer — ownership is transferred to LayerStack
+                // via PushOverlay; kept here for convenient access.
                 m_ImGuiLayer = new ImGuiLayer();
                 PushOverlay(std::unique_ptr<Layer>(m_ImGuiLayer));
 

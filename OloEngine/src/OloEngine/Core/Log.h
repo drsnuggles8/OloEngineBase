@@ -93,15 +93,15 @@ namespace OloEngine
         Log(Log&&) = delete;
         Log& operator=(Log&&) = delete;
 
-        [[nodiscard("Store this!")]] const std::shared_ptr<spdlog::logger>& GetCoreLogger()
+        const std::shared_ptr<spdlog::logger>& GetCoreLogger()
         {
             return m_CoreLogger;
         }
-        [[nodiscard("Store this!")]] const std::shared_ptr<spdlog::logger>& GetClientLogger()
+        const std::shared_ptr<spdlog::logger>& GetClientLogger()
         {
             return m_ClientLogger;
         }
-        [[nodiscard("Store this!")]] const std::shared_ptr<spdlog::logger>& GetEditorConsoleLogger()
+        const std::shared_ptr<spdlog::logger>& GetEditorConsoleLogger()
         {
             return m_EditorConsoleLogger;
         }
