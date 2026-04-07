@@ -87,16 +87,17 @@ function(olo_set_compiler_options target_name)
             -Wextra 
             -Wno-cast-function-type 
             -Wno-error=deprecated-declarations
-            # Relax warnings that UE5.7-ported code triggers frequently on GCC:
-            -Wno-undef              # Many macros checked via #if rather than #ifdef
-            -Wno-pedantic           # Zero-size arrays, anonymous structs (UE patterns)
-            -Wno-shadow             # Constructor params shadowing members (UE style)
-            -Wno-changes-meaning    # GCC-specific name lookup rule differing from MSVC
-            -Wno-unused-function    # Static helper functions in headers (UE trait patterns)
+            # GCC warnings triggered by UE5.7-ported code (Containers/, Templates/, Serialization/).
+            # These should be revisited as UE-ported code is cleaned up or replaced:
+            -Wno-undef              # #if MACRO without prior #define (UE convention)
+            -Wno-pedantic           # Zero-size arrays, anonymous structs
+            -Wno-shadow             # Constructor params shadowing members
+            -Wno-changes-meaning    # GCC name lookup differs from MSVC in class scope
+            -Wno-unused-function    # Static helpers in UE trait headers
             -Wno-unknown-pragmas    # MSVC-specific #pragma warning push/pop
             -Wno-ignored-qualifiers # const on return-by-value (UE accessor pattern)
-            -Wno-unused-local-typedefs  # UE Tuple.h defines type aliases for static_assert only
-            -Wno-error=delete-incomplete # Ref<T> may be instantiated before T is complete
+            -Wno-unused-local-typedefs  # Type aliases used only in static_assert (UE Tuple.h)
+            -Wno-error=delete-incomplete # Forward-declared types in Ref<T> smart pointers
         )
     endif()
 endfunction()

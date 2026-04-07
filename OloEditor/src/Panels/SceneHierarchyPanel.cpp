@@ -713,7 +713,7 @@ namespace OloEngine
         {
             char buffer[256];
             ::memset(buffer, 0, sizeof(buffer));
-            ::strncpy_s(buffer, tag.c_str(), sizeof(buffer));
+            std::strncpy(buffer, tag.c_str(), sizeof(buffer) - 1);
             if (ImGui::InputText("##Tag", buffer, sizeof(buffer)))
             {
                 tag = std::string(buffer);
@@ -1573,7 +1573,7 @@ namespace OloEngine
 
             char buffer[256];
             ::memset(buffer, 0, sizeof(buffer));
-            ::strncpy_s(buffer, sizeof(buffer), tag.c_str(), sizeof(buffer));
+            std::strncpy(buffer, tag.c_str(), sizeof(buffer) - 1);
 
             // Save tag before InputText modifies it (for undo tracking)
             static std::string s_tagEditStart;
@@ -2790,7 +2790,8 @@ namespace OloEngine
 
             // Path input (editable)
             char pathBuffer[512];
-            ::strncpy_s(pathBuffer, sizeof(pathBuffer), component.m_FilePath.c_str(), sizeof(pathBuffer) - 1);
+            std::strncpy(pathBuffer, component.m_FilePath.c_str(), sizeof(pathBuffer) - 1);
+            pathBuffer[sizeof(pathBuffer) - 1] = '\0';
             if (ImGui::InputText("Path##EnvMapPath", pathBuffer, sizeof(pathBuffer)))
             {
                 component.m_FilePath = pathBuffer;
@@ -4955,7 +4956,8 @@ namespace OloEngine
 
                         static char tagBuf[128];
                         std::string tagStr = def.AbilityTag.GetTagString();
-                        strncpy_s(tagBuf, tagStr.c_str(), sizeof(tagBuf) - 1);
+                        std::strncpy(tagBuf, tagStr.c_str(), sizeof(tagBuf) - 1);
+                        tagBuf[sizeof(tagBuf) - 1] = '\0';
                         if (ImGui::InputText("Ability Tag", tagBuf, 128))
                         {
                             ability.Definition.AbilityTag = GameplayTag(std::string(tagBuf));

@@ -1,5 +1,6 @@
 #include "OloEngine/Core/Base.h"
 #include "NodeTypes.h"
+#include "ArrayNodes.h"
 #include "OloEngine/Audio/SoundGraph/NodeDescriptors.h"
 
 namespace OloEngine::Audio::SoundGraph
@@ -41,6 +42,26 @@ namespace OloEngine::Audio::SoundGraph
     INIT_ENDPOINTS_FUNCS(RepeatTrigger);
     INIT_ENDPOINTS_FUNCS(TriggerCounter);
     INIT_ENDPOINTS_FUNCS(DelayedTrigger);
+
+    // Array nodes — template member definitions require template<> syntax
+#define INIT_ENDPOINTS_FUNCS_TEMPLATE(TNodeProcessor)        \
+    template<> void TNodeProcessor::RegisterEndpoints()      \
+    {                                                        \
+        EndpointUtilities::RegisterEndpoints(this);          \
+    }                                                        \
+    template<> void TNodeProcessor::InitializeInputs()       \
+    {                                                        \
+        EndpointUtilities::InitializeInputs(this);           \
+    }
+
+    INIT_ENDPOINTS_FUNCS_TEMPLATE(Get<int>);
+    INIT_ENDPOINTS_FUNCS_TEMPLATE(Get<float>);
+    INIT_ENDPOINTS_FUNCS_TEMPLATE(Random<int>);
+    INIT_ENDPOINTS_FUNCS_TEMPLATE(Random<float>);
+    INIT_ENDPOINTS_FUNCS_TEMPLATE(GetRandom<int>);
+    INIT_ENDPOINTS_FUNCS_TEMPLATE(GetRandom<float>);
+
+#undef INIT_ENDPOINTS_FUNCS_TEMPLATE
 
     // Music nodes with custom conversion logic - inline definitions in MusicNodes.h
     // (No out-of-line definitions needed)

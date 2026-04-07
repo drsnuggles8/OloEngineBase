@@ -6,6 +6,9 @@
 #include "OloEngine/Debug/Profiler.h"
 
 #define MINIAUDIO_IMPLEMENTATION
+// miniaudio's FLAC decoder uses _mm_alignr_epi8 (SSSE3) with a non-constant
+// shift in a function that GCC inlines, causing "not an 8-bit immediate" errors.
+// Disabling SSE4.1 also turns off the SSSE3 code path that triggers this.
 #ifdef __GNUC__
 #define MA_DR_FLAC_NO_SSE41
 #endif

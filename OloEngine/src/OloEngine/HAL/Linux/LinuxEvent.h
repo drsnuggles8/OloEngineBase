@@ -5,29 +5,18 @@
 
 #include "OloEngine/HAL/Event.h"
 
-#include <pthread.h>
-#include <ctime>
-#include <cerrno>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
 
 namespace OloEngine
 {
     class FEventLinux : public FEvent
     {
       public:
-        FEventLinux()
-            : m_Triggered(false), m_ManualReset(false)
-        {
-            pthread_mutex_init(&m_Mutex, nullptr);
-            pthread_cond_init(&m_Condition, nullptr);
-        }
+        FEventLinux() = default;
+        ~FEventLinux() override = default;
 
-        ~FEventLinux() override
-        {
-            pthread_cond_destroy(&m_Condition);
-            pthread_mutex_destroy(&m_Mutex);
-        }
-
-        // Non-copyable, non-movable
         FEventLinux(const FEventLinux&) = delete;
         FEventLinux& operator=(const FEventLinux&) = delete;
         FEventLinux(FEventLinux&&) = delete;
@@ -49,59 +38,40 @@ namespace OloEngine
         void Trigger() override
         {
             TriggerForStats();
-            pthread_mutex_lock(&m_Mutex);
-            m_Triggered = true;
+            {
+                std::lock_guard lock(m_Mutex);
+                m_Triggered = true;
+            }
             if (m_ManualReset)
             {
-                pthread_cond_broadcast(&m_Condition);
+                m_Condition.notify_all();
             }
             else
             {
-                pthread_cond_signal(&m_Condition);
+                m_Condition.notify_one();
             }
-            pthread_mutex_unlock(&m_Mutex);
         }
 
         void Reset() override
         {
             ResetForStats();
-            pthread_mutex_lock(&m_Mutex);
+            std::lock_guard lock(m_Mutex);
             m_Triggered = false;
-            pthread_mutex_unlock(&m_Mutex);
         }
 
         bool Wait(u32 WaitTime, [[maybe_unused]] bool bIgnoreThreadIdleStats = false) override
         {
             WaitForStats();
 
-            pthread_mutex_lock(&m_Mutex);
+            std::unique_lock lock(m_Mutex);
 
             if (WaitTime == 0xFFFFFFFF) // INFINITE
             {
-                while (!m_Triggered)
-                {
-                    pthread_cond_wait(&m_Condition, &m_Mutex);
-                }
+                m_Condition.wait(lock, [this] { return m_Triggered; });
             }
             else
             {
-                struct timespec ts;
-                clock_gettime(CLOCK_REALTIME, &ts);
-                ts.tv_sec += WaitTime / 1000;
-                ts.tv_nsec += (WaitTime % 1000) * 1000000L;
-                if (ts.tv_nsec >= 1000000000L)
-                {
-                    ts.tv_sec += 1;
-                    ts.tv_nsec -= 1000000000L;
-                }
-
-                while (!m_Triggered)
-                {
-                    if (int rc = pthread_cond_timedwait(&m_Condition, &m_Mutex, &ts); rc == ETIMEDOUT)
-                    {
-                        break;
-                    }
-                }
+                m_Condition.wait_for(lock, std::chrono::milliseconds(WaitTime), [this] { return m_Triggered; });
             }
 
             bool wasTriggered = m_Triggered;
@@ -112,15 +82,14 @@ namespace OloEngine
                 m_Triggered = false;
             }
 
-            pthread_mutex_unlock(&m_Mutex);
             return wasTriggered;
         }
 
       private:
-        pthread_mutex_t m_Mutex;
-        pthread_cond_t m_Condition;
-        bool m_Triggered;
-        bool m_ManualReset;
+        std::mutex m_Mutex;
+        std::condition_variable m_Condition;
+        bool m_Triggered{false};
+        bool m_ManualReset{false};
     };
 
 } // namespace OloEngine

@@ -63,18 +63,19 @@ add_subdirectory(OloEngine-LuaScriptCore)
 if(MSVC)
     add_subdirectory(OloEngine-ScriptCore)
     add_subdirectory(OloEditor/SandboxProject/Assets/Scripts)
-    add_subdirectory(OloEditor)
-    add_subdirectory(OloRuntime)
     set_target_properties(OloEngine-ScriptCore PROPERTIES FOLDER "Scripting")
     set_target_properties(Sandbox-Scripting PROPERTIES FOLDER "Scripting")
-    set_target_properties(OloEditor PROPERTIES FOLDER "Applications")
-    set_target_properties(OloRuntime PROPERTIES FOLDER "Applications")
-    # Ensure OloRuntime is always up-to-date when building OloEditor.
-    # Both link against OloEngine, and the editor's BuildGamePanel copies
-    # OloRuntime.exe into game builds — a stale binary would silently ship
-    # without the latest engine fixes.
-    add_dependencies(OloEditor OloRuntime)
 endif()
+
+add_subdirectory(OloEditor)
+add_subdirectory(OloRuntime)
+set_target_properties(OloEditor PROPERTIES FOLDER "Applications")
+set_target_properties(OloRuntime PROPERTIES FOLDER "Applications")
+# Ensure OloRuntime is always up-to-date when building OloEditor.
+# Both link against OloEngine, and the editor's BuildGamePanel copies
+# OloRuntime.exe into game builds — a stale binary would silently ship
+# without the latest engine fixes.
+add_dependencies(OloEditor OloRuntime)
 
 add_subdirectory(OloServer)
 
