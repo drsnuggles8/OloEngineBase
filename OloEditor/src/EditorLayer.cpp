@@ -82,9 +82,18 @@ namespace OloEngine
         // Cancel any ongoing build
         m_BuildCancelRequested.store(true);
 
-        // Wait for build to complete if running (spin-wait with yield)
+        // Wait for build to complete with a bounded timeout so the destructor cannot hang forever
+        constexpr auto timeout = std::chrono::seconds(5);
+        auto const start = std::chrono::steady_clock::now();
         while (m_BuildInProgress.load())
         {
+            if (std::chrono::steady_clock::now() - start >= timeout)
+            {
+                OLO_CORE_WARN("EditorLayer::~EditorLayer: Build thread did not stop within timeout "
+                              "(m_BuildInProgress={}, m_BuildCancelRequested={})",
+                              m_BuildInProgress.load(), m_BuildCancelRequested.load());
+                break;
+            }
             // Keep requesting cancellation during wait
             m_BuildCancelRequested.store(true);
             std::this_thread::yield();

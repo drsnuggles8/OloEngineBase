@@ -176,13 +176,12 @@ namespace OloEngine
             forwardPlus.UnbindAfterShading();
         }
 
-        static u32 s_FrameCounter = 0;
-        s_FrameCounter++;
+        ++m_FrameCounter;
 
         if (capturing)
         {
             captureManager.OnFrameEnd(
-                s_FrameCounter,
+                m_FrameCounter,
                 m_CommandBucket.GetLastSortTimeMs(),
                 m_CommandBucket.GetLastBatchTimeMs(),
                 m_CommandBucket.GetLastExecuteTimeMs());

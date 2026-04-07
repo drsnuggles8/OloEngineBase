@@ -35,5 +35,8 @@ namespace OloEngine
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
+
+      private:
+        u32 m_FrameCounter = 0;
     };
 } // namespace OloEngine

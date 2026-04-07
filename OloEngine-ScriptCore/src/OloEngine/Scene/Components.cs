@@ -55,16 +55,6 @@ namespace OloEngine
 		}
 
 		/// <summary>
-		/// Gets or sets the attenuation model using the typed enum.
-		/// Hides the generated int-based property.
-		/// </summary>
-		public new AttenuationModelType AttenuationModel
-		{
-			get => (AttenuationModelType)InternalCalls.AudioSourceComponent_GetAttenuationModel(Entity.ID);
-			set => InternalCalls.AudioSourceComponent_SetAttenuationModel(Entity.ID, (int)value);
-		}
-
-		/// <summary>
 		/// Plays the clip.
 		/// </summary>
 		public void Play()

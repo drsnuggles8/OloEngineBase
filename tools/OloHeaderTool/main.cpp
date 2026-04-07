@@ -399,6 +399,7 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
                 std::string content = trimmed.substr(parenStart);
                 int depth = 1;
                 size_t scanPos = 0;
+                bool streamExhausted = false;
                 while (depth > 0)
                 {
                     while (scanPos < content.size() && depth > 0)
@@ -415,12 +416,23 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
                         // Closing paren on a subsequent line — keep reading
                         std::string nextLine;
                         if (!std::getline(stream, nextLine))
+                        {
+                            streamExhausted = true;
                             break;
+                        }
                         // Strip block comments from continuation line
                         std::string cleaned = Trim(StripBlockComments(Trim(nextLine), inBlockComment));
                         content += ' ';
                         content += cleaned;
                     }
+                }
+                if (depth > 0)
+                {
+                    std::cerr << "WARNING: Unterminated OLO_PROPERTY( in "
+                              << entry.path().filename().string() << "\n";
+                    if (streamExhausted)
+                        break; // Exit the outer file-reading loop
+                    continue;
                 }
                 pendingMetadataList.push_back(content.substr(0, scanPos));
                 continue; // The NEXT line has the field declaration (or another OLO_PROPERTY)

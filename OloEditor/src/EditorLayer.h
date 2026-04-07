@@ -30,6 +30,7 @@
 #include "OloEngine/Renderer/UniformBuffer.h"
 
 #include <atomic>
+#include <chrono>
 #include <mutex>
 #include <string>
 #include <thread> // For std::this_thread::yield()
