@@ -60,6 +60,7 @@ namespace OloEngine
 
         u32 GetRendererID() const;
         u32 GetIndexCount() const;
+        u32 GetBaseIndex() const;
 
         // Asset interface
         static constexpr AssetType GetStaticType() noexcept

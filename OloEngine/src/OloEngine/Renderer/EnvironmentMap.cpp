@@ -71,7 +71,7 @@ namespace OloEngine
     {
         EnvironmentMapSpecification spec;
         spec.Resolution = cubemap->GetWidth();
-        spec.Format = ImageFormat::RGB32F;
+        spec.Format = ImageFormat::RGBA32F;
         spec.GenerateIBL = true;
 
         auto envMap = Ref<EnvironmentMap>::Create(spec);
@@ -90,7 +90,7 @@ namespace OloEngine
         EnvironmentMapSpecification spec;
         spec.FilePath = filePath;
         spec.Resolution = 512;
-        spec.Format = ImageFormat::RGB32F;
+        spec.Format = ImageFormat::RGBA32F;
         spec.GenerateIBL = true;
         spec.GenerateMipmaps = true;
 
@@ -141,10 +141,12 @@ namespace OloEngine
         }
         else if (m_EnvironmentMap)
         {
-            // For in-memory cubemaps, generate a unique key based on properties
-            // Use the cubemap's memory address as a unique identifier + dimensions
-            cacheKey = fmt::format("cubemap_inmem_{:016x}_{}x{}_{}",
-                                   reinterpret_cast<uintptr_t>(m_EnvironmentMap.get()),
+            // For in-memory cubemaps, use the texture's path + dimensions as a
+            // stable key.  The previous pointer-address approach produced a
+            // different key every time the scene was reloaded, preventing the
+            // cache from ever hitting.
+            cacheKey = fmt::format("cubemap_{}_{}x{}_{}",
+                                   m_EnvironmentMap->GetPath(),
                                    m_EnvironmentMap->GetWidth(),
                                    m_EnvironmentMap->GetHeight(),
                                    static_cast<int>(m_EnvironmentMap->GetSpecification().Format));
@@ -189,7 +191,7 @@ namespace OloEngine
         CubemapSpecification irradianceSpec;
         irradianceSpec.Width = config.IrradianceResolution;
         irradianceSpec.Height = config.IrradianceResolution;
-        irradianceSpec.Format = ImageFormat::RGB32F;
+        irradianceSpec.Format = ImageFormat::RGBA32F;
         irradianceSpec.GenerateMips = false;
 
         m_IrradianceMap = TextureCubemap::Create(irradianceSpec);
@@ -223,7 +225,7 @@ namespace OloEngine
         CubemapSpecification prefilterSpec;
         prefilterSpec.Width = config.PrefilterResolution;
         prefilterSpec.Height = config.PrefilterResolution;
-        prefilterSpec.Format = ImageFormat::RGB32F;
+        prefilterSpec.Format = ImageFormat::RGBA32F;
         prefilterSpec.GenerateMips = true;
 
         m_PrefilterMap = TextureCubemap::Create(prefilterSpec);

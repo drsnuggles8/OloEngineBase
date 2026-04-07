@@ -716,8 +716,14 @@ namespace OloEngine
                     skeleton->m_BoneNames[j] = ReadString(payload);
                 }
 
-                // FinalBoneMatrices initialized to identity by SkeletonData constructor
-                skeleton->m_FinalBoneMatrices.resize(boneCount, glm::mat4(1.0f));
+                // Compute bind-pose FinalBoneMatrices from cached data.
+                // InverseBindPoses already have meshNodeGlobal correction baked in,
+                // so Global * InvBind produces the correct bind-pose transform.
+                skeleton->m_FinalBoneMatrices.resize(boneCount);
+                for (u32 j = 0; j < boneCount; ++j)
+                {
+                    skeleton->m_FinalBoneMatrices[j] = skeleton->m_GlobalTransforms[j] * skeleton->m_InverseBindPoses[j];
+                }
 
                 meshSource->SetSkeleton(skeleton);
             }

@@ -370,6 +370,34 @@ namespace OloEngine
             glGenerateTextureMipmap(m_RendererID);
     }
 
+    void OpenGLTextureCubemap::SetFaceDataMip(u32 faceIndex, u32 mipLevel, void* data, u32 size)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        OLO_CORE_ASSERT(faceIndex < 6, "Face index out of range! Must be 0-5.");
+
+        auto formatInfo = Utils::GetFormatInfo(m_CubemapSpecification.Format);
+
+        u32 mipWidth = std::max(1u, m_Width >> mipLevel);
+        u32 mipHeight = std::max(1u, m_Height >> mipLevel);
+
+        OLO_CORE_ASSERT(size == mipWidth * mipHeight * formatInfo.BytesPerPixel,
+                        "Data size doesn't match mip {} face dimensions! Expected: {}, Got: {}",
+                        mipLevel, mipWidth * mipHeight * formatInfo.BytesPerPixel, size);
+
+        glTextureSubImage3D(
+            m_RendererID,
+            static_cast<GLint>(mipLevel),
+            0, 0,
+            static_cast<GLint>(faceIndex),
+            static_cast<GLsizei>(mipWidth),
+            static_cast<GLsizei>(mipHeight),
+            1,
+            m_DataFormat,
+            formatInfo.DataType,
+            data);
+    }
+
     void OpenGLTextureCubemap::Invalidate(std::string_view /*path*/, u32 /*width*/, u32 /*height*/, const void* /*data*/, u32 /*channels*/)
     {
         OLO_CORE_ERROR("Invalidate is not supported for cubemaps");

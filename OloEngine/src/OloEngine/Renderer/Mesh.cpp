@@ -147,6 +147,20 @@ namespace OloEngine
         return 0;
     }
 
+    u32 Mesh::GetBaseIndex() const
+    {
+        if (!m_MeshSource)
+            return 0;
+
+        const auto& submeshes = m_MeshSource->GetSubmeshes();
+        if (m_SubmeshIndex < static_cast<u32>(submeshes.Num()))
+        {
+            return submeshes[m_SubmeshIndex].m_BaseIndex;
+        }
+
+        return 0;
+    }
+
     ////////////////////////////////////////////////////////
     // StaticMesh //////////////////////////////////////////
     ////////////////////////////////////////////////////////

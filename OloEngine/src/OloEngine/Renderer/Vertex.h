@@ -35,4 +35,8 @@ namespace OloEngine
             };
         }
     };
+
+    // Verify that sizeof(Vertex) matches the GPU buffer layout stride (32 bytes)
+    // If this fails, the GPU reads vertex attributes at wrong offsets (stride mismatch)
+    static_assert(sizeof(Vertex) == 32, "Vertex sizeof must be 32 to match BufferLayout stride");
 } // namespace OloEngine

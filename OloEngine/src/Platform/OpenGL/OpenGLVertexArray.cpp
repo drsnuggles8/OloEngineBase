@@ -108,10 +108,15 @@ namespace OloEngine
                 case Bool:
                 {
                     glEnableVertexArrayAttrib(m_RendererID, m_VertexBufferIndex);
-                    // NOTE(olbu): If we uncomment these two and comment the one below, we lose hovered entity, not sure why
-                    // glVertexArrayVertexBuffer(m_RendererID, m_VertexBufferIndex, vertexBuffer->GetBufferHandle(), element.Offset, layout.GetStride());
-                    // glVertexArrayAttribFormat(m_RendererID, m_VertexBufferIndex, element.GetComponentCount(), ShaderDataTypeToOpenGLBaseType(element.Type), element.Normalized ? GL_TRUE : GL_FALSE, 0);
-                    glVertexAttribIPointer(m_VertexBufferIndex, element.GetComponentCount(), ShaderDataTypeToOpenGLBaseType(element.dataType), layout.GetStride(), reinterpret_cast<const void*>(element.offset));
+                    // Use pure DSA for integer attributes. The previous code used
+                    // legacy glVertexAttribIPointer mixed with DSA glVertexArrayAttribBinding,
+                    // which mixes two binding models within the same VAO.
+                    // NOTE: the old commented-out attempt used glVertexArrayAttribFormat
+                    // (the *float* variant) which converts integers to float — wrong for
+                    // ivec4/int shader inputs.  glVertexArrayAttribIFormat is the correct
+                    // DSA function that preserves integer representation.
+                    glVertexArrayVertexBuffer(m_RendererID, m_VertexBufferIndex, vertexBuffer->GetBufferHandle(), element.offset, layout.GetStride());
+                    glVertexArrayAttribIFormat(m_RendererID, m_VertexBufferIndex, element.GetComponentCount(), ShaderDataTypeToOpenGLBaseType(element.dataType), 0);
 
                     glVertexArrayAttribBinding(m_RendererID, m_VertexBufferIndex, m_VertexBufferIndex);
                     ++m_VertexBufferIndex;
@@ -164,7 +169,8 @@ namespace OloEngine
                 case Bool:
                 {
                     glEnableVertexArrayAttrib(m_RendererID, m_VertexBufferIndex);
-                    glVertexAttribIPointer(m_VertexBufferIndex, element.GetComponentCount(), ShaderDataTypeToOpenGLBaseType(element.dataType), layout.GetStride(), reinterpret_cast<const void*>(element.offset));
+                    glVertexArrayVertexBuffer(m_RendererID, m_VertexBufferIndex, vertexBuffer->GetBufferHandle(), element.offset, layout.GetStride());
+                    glVertexArrayAttribIFormat(m_RendererID, m_VertexBufferIndex, element.GetComponentCount(), ShaderDataTypeToOpenGLBaseType(element.dataType), 0);
 
                     glVertexArrayAttribBinding(m_RendererID, m_VertexBufferIndex, m_VertexBufferIndex);
                     glVertexArrayBindingDivisor(m_RendererID, m_VertexBufferIndex, 1);

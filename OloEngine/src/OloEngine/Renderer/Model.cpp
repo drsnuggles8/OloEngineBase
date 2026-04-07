@@ -13,6 +13,90 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        // Scan directory for a file whose stem matches (case-insensitive) with any common image extension.
+        // Returns empty path if nothing found.
+        std::filesystem::path FindTextureInDirectory(const std::filesystem::path& directory, const std::filesystem::path& filenameHint)
+        {
+            static constexpr std::array<std::string_view, 7> kImageExtensions = {
+                ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".hdr", ".dds"
+            };
+
+            std::string targetStem = filenameHint.stem().string();
+            // Convert target stem to lowercase for case-insensitive comparison
+            std::ranges::transform(targetStem, targetStem.begin(),
+                                   [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
+
+            std::error_code ec;
+            for (const auto& entry : std::filesystem::directory_iterator(directory, ec))
+            {
+                if (!entry.is_regular_file())
+                {
+                    continue;
+                }
+
+                const auto& entryPath = entry.path();
+                std::string entryStem = entryPath.stem().string();
+                std::ranges::transform(entryStem, entryStem.begin(),
+                                       [](unsigned char c)
+                                       { return static_cast<char>(std::tolower(c)); });
+
+                if (entryStem != targetStem)
+                {
+                    continue;
+                }
+
+                // Stem matches — check if the extension is a known image format
+                std::string ext = entryPath.extension().string();
+                std::ranges::transform(ext, ext.begin(),
+                                       [](unsigned char c)
+                                       { return static_cast<char>(std::tolower(c)); });
+
+                if (std::ranges::find(kImageExtensions, ext) != kImageExtensions.end())
+                {
+                    return entryPath;
+                }
+            }
+
+            return {};
+        }
+
+        // Try to discover a PBR companion texture by replacing an albedo-like suffix
+        // with the given PBR suffix. E.g., "cerberus_A.png" + "_N" → "cerberus_N.png".
+        // Uses FindTextureInDirectory for case-insensitive matching.
+        std::filesystem::path DiscoverPBRCompanion(
+            const std::filesystem::path& directory,
+            const std::filesystem::path& albedoPath,
+            std::string_view pbrSuffix)
+        {
+            static constexpr std::array<std::string_view, 5> kAlbedoSuffixes = {
+                "_A", "_a", "_albedo", "_Albedo", "_diffuse"
+            };
+
+            std::string stem = albedoPath.stem().string();
+
+            for (auto alSuffix : kAlbedoSuffixes)
+            {
+                if (stem.size() > alSuffix.size() && stem.ends_with(alSuffix))
+                {
+                    std::string baseName = stem.substr(0, stem.size() - alSuffix.size());
+                    std::string candidateStem = baseName + std::string(pbrSuffix);
+                    // Use any extension — FindTextureInDirectory checks all image extensions
+                    std::filesystem::path hint = candidateStem + ".png";
+                    auto result = FindTextureInDirectory(directory, hint);
+                    if (!result.empty())
+                    {
+                        return result;
+                    }
+                }
+            }
+
+            return {};
+        }
+    } // namespace
+
     Model::Model(const std::string& path, const TextureOverride& textureOverride, bool flipUV)
         : m_TextureOverride(textureOverride.HasAnyTexture() ? std::optional<TextureOverride>(textureOverride) : std::nullopt),
           m_FlipUV(flipUV)
@@ -85,6 +169,8 @@ namespace OloEngine
                                                  aiProcess_Triangulate |               // Make sure we get triangles
                                                      aiProcess_GenNormals |            // Create normals if not present
                                                      aiProcess_CalcTangentSpace |      // Calculate tangents and bitangents
+                                                     aiProcess_FlipUVs |               // Flip texture V-axis to match stbi_set_flip_vertically_on_load
+                                                     aiProcess_JoinIdenticalVertices | // Deduplicate identical vertices for smaller buffers
                                                      aiProcess_ValidateDataStructure | // Validate the imported data structure
                                                      aiProcess_PreTransformVertices    // Bake node transforms into vertices (safe for static meshes)
         );
@@ -361,6 +447,68 @@ namespace OloEngine
                     m_LoadedTextures[texturePathStr] = texture;
                     textures.push_back(texture);
                 }
+                else
+                {
+                    // Fallback: FBX files often embed absolute or nested relative paths
+                    // that don't match the filesystem. Try just the filename in the model directory.
+                    std::filesystem::path filenameOnly = relativePath.filename();
+                    std::filesystem::path fallbackPath = std::filesystem::path(m_Directory) / filenameOnly;
+                    std::string fallbackPathStr = fallbackPath.string();
+
+                    bool loaded = false;
+
+                    if (fallbackPathStr != texturePathStr && !m_LoadedTextures.contains(fallbackPathStr))
+                    {
+                        OLO_CORE_WARN("Model::LoadMaterialTextures: '{}' not found, trying fallback '{}'",
+                                      texturePathStr, fallbackPathStr);
+                        auto fallbackTexture = Texture2D::Create(fallbackPathStr);
+                        if (fallbackTexture && fallbackTexture->IsLoaded())
+                        {
+                            m_LoadedTextures[fallbackPathStr] = fallbackTexture;
+                            textures.push_back(fallbackTexture);
+                            loaded = true;
+                        }
+                    }
+                    else if (m_LoadedTextures.contains(fallbackPathStr))
+                    {
+                        textures.push_back(m_LoadedTextures[fallbackPathStr]);
+                        loaded = true;
+                    }
+
+                    // Fallback: scan model directory for case-insensitive stem match with any image extension.
+                    // Handles FBX referencing .tga when the actual file is .png, and case mismatches on Linux.
+                    if (!loaded)
+                    {
+                        auto discovered = FindTextureInDirectory(std::filesystem::path(m_Directory), filenameOnly);
+                        if (!discovered.empty())
+                        {
+                            std::string discoveredStr = discovered.string();
+                            OLO_CORE_WARN("Model::LoadMaterialTextures: Discovered '{}' via directory scan for '{}'",
+                                          discoveredStr, filenameOnly.string());
+                            if (m_LoadedTextures.contains(discoveredStr))
+                            {
+                                textures.push_back(m_LoadedTextures[discoveredStr]);
+                                loaded = true;
+                            }
+                            else
+                            {
+                                auto discoveredTexture = Texture2D::Create(discoveredStr);
+                                if (discoveredTexture && discoveredTexture->IsLoaded())
+                                {
+                                    m_LoadedTextures[discoveredStr] = discoveredTexture;
+                                    textures.push_back(discoveredTexture);
+                                    loaded = true;
+                                }
+                            }
+                        }
+                    }
+
+                    if (!loaded)
+                    {
+                        OLO_CORE_WARN("Model::LoadMaterialTextures: Failed to load texture '{}' (tried original, filename-only, and directory scan)",
+                                      texturePathStr);
+                    }
+                }
             }
             else
             {
@@ -401,6 +549,8 @@ namespace OloEngine
             roughness);
 
         // Load PBR textures - prioritize overrides if provided
+        // Track the albedo filename for PBR companion texture discovery
+        std::filesystem::path albedoFilename;
 
         // Albedo/Diffuse textures
         if (m_TextureOverride && !m_TextureOverride->AlbedoPath.empty())
@@ -423,6 +573,8 @@ namespace OloEngine
             if (!albedoMaps.empty())
             {
                 materialRef->SetAlbedoMap(albedoMaps[0]);
+                // Remember albedo filename for companion discovery below
+                albedoFilename = albedoMaps[0]->GetPath();
             }
         }
 
@@ -448,6 +600,20 @@ namespace OloEngine
             {
                 materialRef->SetMetallicRoughnessMap(metallicRoughnessMaps[0]);
             }
+            else if (!albedoFilename.empty())
+            {
+                // Auto-discover metallic companion by naming convention (e.g., cerberus_A → cerberus_M)
+                auto discovered = DiscoverPBRCompanion(std::filesystem::path(m_Directory), albedoFilename.filename(), "_M");
+                if (!discovered.empty())
+                {
+                    OLO_CORE_INFO("Model: Auto-discovered metallic map '{}' from albedo '{}'", discovered.string(), albedoFilename.string());
+                    auto tex = Texture2D::Create(discovered.string());
+                    if (tex && tex->IsLoaded())
+                    {
+                        materialRef->SetMetallicRoughnessMap(tex);
+                    }
+                }
+            }
         }
 
         // Normal textures
@@ -471,6 +637,20 @@ namespace OloEngine
             if (!normalMaps.empty())
             {
                 materialRef->SetNormalMap(normalMaps[0]);
+            }
+            else if (!albedoFilename.empty())
+            {
+                // Auto-discover normal companion by naming convention (e.g., cerberus_A → cerberus_N)
+                auto discovered = DiscoverPBRCompanion(std::filesystem::path(m_Directory), albedoFilename.filename(), "_N");
+                if (!discovered.empty())
+                {
+                    OLO_CORE_INFO("Model: Auto-discovered normal map '{}' from albedo '{}'", discovered.string(), albedoFilename.string());
+                    auto tex = Texture2D::Create(discovered.string());
+                    if (tex && tex->IsLoaded())
+                    {
+                        materialRef->SetNormalMap(tex);
+                    }
+                }
             }
         }
 
@@ -504,6 +684,20 @@ namespace OloEngine
             if (!aoMaps.empty())
             {
                 materialRef->SetAOMap(aoMaps[0]);
+            }
+            else if (!albedoFilename.empty())
+            {
+                // Auto-discover roughness companion as AO fallback (e.g., cerberus_A → cerberus_R)
+                auto discovered = DiscoverPBRCompanion(std::filesystem::path(m_Directory), albedoFilename.filename(), "_R");
+                if (!discovered.empty())
+                {
+                    OLO_CORE_INFO("Model: Auto-discovered roughness/AO map '{}' from albedo '{}'", discovered.string(), albedoFilename.string());
+                    auto tex = Texture2D::Create(discovered.string());
+                    if (tex && tex->IsLoaded())
+                    {
+                        materialRef->SetAOMap(tex);
+                    }
+                }
             }
         }
 

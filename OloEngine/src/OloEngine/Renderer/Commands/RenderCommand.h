@@ -539,6 +539,7 @@ namespace OloEngine
         AssetHandle meshHandle;   // Mesh asset handle for resolution
         RendererID vertexArrayID; // VAO renderer ID
         u32 indexCount;
+        u32 baseIndex = 0; // Starting index offset in shared index buffer (for multi-submesh MeshSources)
         glm::mat4 transform;
 
         // Entity ID for picking (editor support)
@@ -575,6 +576,7 @@ namespace OloEngine
         AssetHandle meshHandle;   // Mesh asset handle
         RendererID vertexArrayID; // VAO renderer ID
         u32 indexCount;
+        u32 baseIndex = 0; // Starting index offset in shared index buffer (for multi-submesh MeshSources)
         u32 instanceCount;
         u32 transformBufferOffset = 0; // Offset into FrameDataBuffer for instance transforms
         u32 transformCount = 0;        // Number of instance transforms

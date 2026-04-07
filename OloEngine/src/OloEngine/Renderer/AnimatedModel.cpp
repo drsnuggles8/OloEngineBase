@@ -178,6 +178,7 @@ namespace OloEngine
                 mesh->GetSubmeshes().Add(newSub);
 
                 mesh->SetSkeleton(outSkeleton);
+                mesh->SetPreOptimized(true); // Data was already optimized before caching — skip re-optimization
                 mesh->Build();
 
                 outMeshes.push_back(mesh);
@@ -190,6 +191,52 @@ namespace OloEngine
             }
 
             return true;
+        }
+
+        // Scan directory for a file whose stem matches (case-insensitive) with any common image extension.
+        // Returns empty path if nothing found.
+        std::filesystem::path FindTextureInDirectory(const std::filesystem::path& directory, const std::filesystem::path& filenameHint)
+        {
+            static constexpr std::array<std::string_view, 7> kImageExtensions = {
+                ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".hdr", ".dds"
+            };
+
+            std::string targetStem = filenameHint.stem().string();
+            std::ranges::transform(targetStem, targetStem.begin(),
+                                   [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
+
+            std::error_code ec;
+            for (const auto& entry : std::filesystem::directory_iterator(directory, ec))
+            {
+                if (!entry.is_regular_file())
+                {
+                    continue;
+                }
+
+                const auto& entryPath = entry.path();
+                std::string entryStem = entryPath.stem().string();
+                std::ranges::transform(entryStem, entryStem.begin(),
+                                       [](unsigned char c)
+                                       { return static_cast<char>(std::tolower(c)); });
+
+                if (entryStem != targetStem)
+                {
+                    continue;
+                }
+
+                std::string ext = entryPath.extension().string();
+                std::ranges::transform(ext, ext.begin(),
+                                       [](unsigned char c)
+                                       { return static_cast<char>(std::tolower(c)); });
+
+                if (std::ranges::find(kImageExtensions, ext) != kImageExtensions.end())
+                {
+                    return entryPath;
+                }
+            }
+
+            return {};
         }
     } // anonymous namespace
 
@@ -262,10 +309,13 @@ namespace OloEngine
             aiProcess_Triangulate |           // Make sure we get triangles
             aiProcess_GenNormals |            // Create normals if not present
             aiProcess_CalcTangentSpace |      // Calculate tangents and bitangents
-            aiProcess_FlipUVs |               // Flip texture coordinates
             aiProcess_ValidateDataStructure | // Validate the imported data structure
             aiProcess_LimitBoneWeights |      // Limit bone weights to 4 per vertex
             aiProcess_GlobalScale;            // Apply global scale
+        // NOTE: Do NOT add aiProcess_FlipUVs here. Assimp's glTF2 importer already
+        // flips V internally (glTF2Importer.cpp line ~648). Adding FlipUVs would
+        // double-flip, returning UVs to the original glTF convention and breaking
+        // texture mapping when stbi_set_flip_vertically_on_load is active.
 
         // Read the file
         const aiScene* scene = importer.ReadFile(path, importFlags);
@@ -567,9 +617,8 @@ namespace OloEngine
                           morphTargets->GetTargetCount(), mesh->mName.C_Str());
         }
 
-        // Optimize vertex/index ordering for GPU efficiency before building GPU resources
-        MeshOptimization::OptimizeMesh(*meshSource);
-
+        // Build() internally calls OptimizeMesh (which also remaps bone influences)
+        // before uploading to GPU — do NOT call OptimizeMesh separately here.
         meshSource->Build();
 
         return meshSource;
@@ -1129,14 +1178,71 @@ namespace OloEngine
             else
             {
                 auto texture = Texture2D::Create(path.string());
-                if (texture)
+                if (texture && texture->IsLoaded())
                 {
                     textures.push_back(texture);
                     m_LoadedTextures[path.string()] = texture;
                 }
                 else
                 {
-                    OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: Failed to load texture: {}", path.string());
+                    // Fallback: try just the filename in the model directory
+                    std::filesystem::path filenameOnly = std::filesystem::path(filename).filename();
+                    std::filesystem::path fallbackPath = std::filesystem::path(m_Directory) / filenameOnly;
+                    std::string fallbackPathStr = fallbackPath.string();
+
+                    bool loaded = false;
+
+                    if (fallbackPathStr != path.string() && m_LoadedTextures.find(fallbackPathStr) != m_LoadedTextures.end())
+                    {
+                        textures.push_back(m_LoadedTextures[fallbackPathStr]);
+                        loaded = true;
+                    }
+                    else if (fallbackPathStr != path.string())
+                    {
+                        OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: '{}' not found, trying fallback '{}'",
+                                      path.string(), fallbackPathStr);
+                        auto fallbackTexture = Texture2D::Create(fallbackPathStr);
+                        if (fallbackTexture && fallbackTexture->IsLoaded())
+                        {
+                            textures.push_back(fallbackTexture);
+                            m_LoadedTextures[fallbackPathStr] = fallbackTexture;
+                            loaded = true;
+                        }
+                    }
+
+                    // Fallback: scan model directory for case-insensitive stem match with any image extension.
+                    // Handles FBX referencing .tga when the actual file is .png, and case mismatches on Linux.
+                    if (!loaded)
+                    {
+                        auto discovered = FindTextureInDirectory(std::filesystem::path(m_Directory), filenameOnly);
+                        if (!discovered.empty())
+                        {
+                            std::string discoveredStr = discovered.string();
+                            OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: Discovered '{}' via directory scan for '{}'",
+                                          discoveredStr, filenameOnly.string());
+                            if (m_LoadedTextures.find(discoveredStr) != m_LoadedTextures.end())
+                            {
+                                textures.push_back(m_LoadedTextures[discoveredStr]);
+                                loaded = true;
+                            }
+                            else
+                            {
+                                auto discoveredTexture = Texture2D::Create(discoveredStr);
+                                if (discoveredTexture && discoveredTexture->IsLoaded())
+                                {
+                                    m_LoadedTextures[discoveredStr] = discoveredTexture;
+                                    textures.push_back(discoveredTexture);
+                                    loaded = true;
+                                }
+                            }
+                        }
+                    }
+
+                    if (!loaded)
+                    {
+                        OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: Failed to load texture '{}' (tried original, filename-only, and directory scan)",
+                                      path.string());
+                    }
                 }
             }
         }
@@ -1182,6 +1288,11 @@ namespace OloEngine
 
         // Load PBR textures
         auto albedoMaps = LoadMaterialTextures(mat, aiTextureType_DIFFUSE);
+        if (albedoMaps.empty())
+        {
+            // Try base color for newer PBR/glTF materials
+            albedoMaps = LoadMaterialTextures(mat, aiTextureType_BASE_COLOR);
+        }
         if (!albedoMaps.empty())
         {
             material.SetAlbedoMap(albedoMaps[0]);

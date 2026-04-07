@@ -40,8 +40,12 @@ namespace OloEngine
         cameraData.Position = glm::vec3(0.0f); // IBL rendering is done from origin
         cameraData._padding0 = 0.0f;
 
-        // Update the UBO
+        // Update the UBO and re-bind it to the binding point.
+        // Scene rendering may have bound a different buffer to UBO_CAMERA since
+        // the one-time creation above; SetData (glNamedBufferSubData) only
+        // updates the buffer contents without touching the binding point.
         s_IBLCameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+        s_IBLCameraUBO->Bind();
     }
 
     void IBLPrecompute::GenerateIrradianceMap(const Ref<TextureCubemap>& environmentMap, const Ref<TextureCubemap>& irradianceMap, ShaderLibrary& shaderLibrary)
@@ -161,7 +165,7 @@ namespace OloEngine
         CubemapSpecification cubemapSpec;
         cubemapSpec.Width = resolution;
         cubemapSpec.Height = resolution;
-        cubemapSpec.Format = ImageFormat::RGB32F;
+        cubemapSpec.Format = ImageFormat::RGBA32F;
         cubemapSpec.GenerateMips = false; // We'll render to mips manually
 
         auto cubemap = TextureCubemap::Create(cubemapSpec);
@@ -256,7 +260,7 @@ namespace OloEngine
 
             RenderCommand::CopyImageSubDataFull(
                 framebufferColorTexture, RendererAPI::TextureTargetType::Texture2D, 0, 0,
-                cubemap->GetRendererID(), RendererAPI::TextureTargetType::TextureCubeMap, 0, static_cast<i32>(i),
+                cubemap->GetRendererID(), RendererAPI::TextureTargetType::TextureCubeMap, static_cast<i32>(mipLevel), static_cast<i32>(i),
                 mipWidth, mipHeight);
         }
 

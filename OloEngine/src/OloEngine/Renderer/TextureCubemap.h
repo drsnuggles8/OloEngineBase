@@ -27,8 +27,11 @@ namespace OloEngine
         // Create empty cubemap with specification
         static Ref<TextureCubemap> Create(const CubemapSpecification& specification);
 
-        // Set data for a specific face
+        // Set data for a specific face (mip 0, auto-generates mipmaps if spec requests them)
         virtual void SetFaceData(u32 faceIndex, void* data, u32 size) = 0;
+
+        // Set data for a specific face at a specific mip level (no auto-mipmap generation)
+        virtual void SetFaceDataMip(u32 faceIndex, u32 mipLevel, void* data, u32 size) = 0;
 
         virtual const CubemapSpecification& GetCubemapSpecification() const = 0;
 
