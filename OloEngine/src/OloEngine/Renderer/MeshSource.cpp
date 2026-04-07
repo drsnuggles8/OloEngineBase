@@ -136,6 +136,8 @@ namespace OloEngine
 
     void MeshSource::BuildShadowIndexBuffer()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_ShadowIndices.IsEmpty() || !m_VertexBuffer)
             return;
 

@@ -145,11 +145,22 @@ namespace OloEngine
             // stable key.  The previous pointer-address approach produced a
             // different key every time the scene was reloaded, preventing the
             // cache from ever hitting.
-            cacheKey = fmt::format("cubemap_{}_{}x{}_{}",
-                                   m_EnvironmentMap->GetPath(),
-                                   m_EnvironmentMap->GetWidth(),
-                                   m_EnvironmentMap->GetHeight(),
-                                   static_cast<int>(m_EnvironmentMap->GetSpecification().Format));
+            const auto& texPath = m_EnvironmentMap->GetPath();
+            if (texPath.empty())
+            {
+                // Pathless cubemaps (procedural / render-target) cannot produce
+                // a stable cache key across reloads, so skip disk-cache reuse.
+                OLO_CORE_WARN("GenerateIBLWithConfig: Pathless cubemap — skipping IBL disk cache");
+                cacheKey.clear();
+            }
+            else
+            {
+                cacheKey = fmt::format("cubemap_{}_{}x{}_{}",
+                                       texPath,
+                                       m_EnvironmentMap->GetWidth(),
+                                       m_EnvironmentMap->GetHeight(),
+                                       static_cast<int>(m_EnvironmentMap->GetSpecification().Format));
+            }
         }
         else
         {
@@ -159,7 +170,7 @@ namespace OloEngine
 
         IBLCache::CachedIBL cached;
 
-        if (IBLCache::TryLoad(cacheKey, config, cached))
+        if (!cacheKey.empty() && IBLCache::TryLoad(cacheKey, config, cached))
         {
             // Use cached IBL textures
             m_IrradianceMap = cached.Irradiance;
@@ -177,7 +188,7 @@ namespace OloEngine
         GenerateBRDFLutWithConfig(config);
 
         // Save to cache for next time
-        if (m_IrradianceMap && m_PrefilterMap && m_BRDFLutMap)
+        if (!cacheKey.empty() && m_IrradianceMap && m_PrefilterMap && m_BRDFLutMap)
         {
             IBLCache::Save(cacheKey, config, m_IrradianceMap, m_PrefilterMap, m_BRDFLutMap);
         }

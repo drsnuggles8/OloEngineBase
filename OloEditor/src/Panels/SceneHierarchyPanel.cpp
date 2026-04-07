@@ -2109,11 +2109,15 @@ namespace OloEngine
 				if (ImGui::TreeNode("Mesh Analysis"))
 				{
 					static MeshAnalysis s_CachedAnalysis;
+					static AssetHandle s_AnalyzedHandle{0};
 					static const MeshSource* s_AnalyzedSource = nullptr;
-					if (s_AnalyzedSource != component.m_MeshSource.get())
+
+					AssetHandle currentHandle = component.m_MeshSource->GetHandle();
+					if (s_AnalyzedSource != component.m_MeshSource.get() || s_AnalyzedHandle != currentHandle)
 					{
 						s_CachedAnalysis = MeshOptimization::AnalyzeMesh(*component.m_MeshSource);
 						s_AnalyzedSource = component.m_MeshSource.get();
+						s_AnalyzedHandle = currentHandle;
 					}
 					ImGui::Text("Triangles: %u", s_CachedAnalysis.TriangleCount);
 					ImGui::Text("ACMR: %.3f (lower=better)", s_CachedAnalysis.ACMR);

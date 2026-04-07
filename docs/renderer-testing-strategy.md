@@ -370,7 +370,7 @@ Stages 1–4 are independent and can run in parallel during a single diagnostic 
 
 A failing test should produce a self-contained diagnostic bundle:
 
-```
+```text
 test-output/
 └── IBL_ReloadConsistency_FAIL/
     ├── summary.json              # Machine-readable: which stages ran, what they found
@@ -428,6 +428,6 @@ test-output/
 - [Rendering Testing at Scale (GDC 2019)](https://www.gdcvault.com/) — Unity's talk on maintaining thousands of rendering tests.
 - [Filament Test Infrastructure](https://github.com/google/filament/tree/main/test) — open-source example of golden image + headless rendering.
 - [Mesa piglit](https://gitlab.freedesktop.org/mesa/piglit) — GL conformance test suite with extensive per-pixel comparison patterns.
-- [Vulkan CTS (dEQP)](https://github.com/AcademySoftwareFoundation/openexr) — the most comprehensive GPU test suite ever built, worth studying for methodology.
+- [Vulkan CTS (dEQP)](https://github.com/KhronosGroup/VK-GL-CTS) — the most comprehensive GPU test suite ever built, worth studying for methodology.
 - [The Furnace Test (Karis 2013)](https://blog.selfshadow.com/) — Brian Karis on energy conservation validation for PBR.
 - [Automated Visual Testing for Games (GDC 2023)](https://www.gdcvault.com/) — practical approaches to screenshot testing in game engines.

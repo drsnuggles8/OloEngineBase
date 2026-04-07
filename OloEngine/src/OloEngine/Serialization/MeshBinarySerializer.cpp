@@ -55,6 +55,15 @@ namespace OloEngine
             {
                 return {};
             }
+            // Guard against corrupt length values — mesh string fields (bone/node
+            // names, paths) should never exceed 64 KiB.
+            constexpr u32 MAX_STRING_LENGTH = 65536;
+            if (len > MAX_STRING_LENGTH)
+            {
+                OLO_CORE_ERROR("ReadString: suspicious string length {} (max {}), stream likely corrupt", len, MAX_STRING_LENGTH);
+                in.setstate(std::ios::failbit);
+                return {};
+            }
             std::string result(len, '\0');
             ReadBytes(in, result.data(), len);
             return result;
@@ -516,6 +525,12 @@ namespace OloEngine
         std::unique_ptr<std::istringstream> decompressedStream;
         std::istream* payloadStream = &in;
 
+        // For the legacy uncompressed path, section offsets in the directory
+        // are relative to the start of the payload (right after the file
+        // header). Record the current stream position so seekg() calls can
+        // adjust by this base offset.
+        auto const payloadBase = static_cast<u64>(in.tellg());
+
         if (header.Flags & OMeshFormat::FlagCompressed)
         {
             auto const compressedSize = header.TotalFileSize - sizeof(OMeshFormat::FileHeader);
@@ -550,6 +565,12 @@ namespace OloEngine
 
         auto& payload = *payloadStream;
 
+        // For the uncompressed (legacy) path the file stream is positioned
+        // right after the header, so absolute seek positions need the base
+        // offset added.  For the compressed path the decompressed stream
+        // starts at 0 — base is 0.
+        u64 const seekBase = decompressedStream ? 0 : payloadBase;
+
         // Read section directory
         OMeshFormat::SectionDirectory directory;
         ReadBytes(payload, &directory, sizeof(directory));
@@ -563,10 +584,18 @@ namespace OloEngine
             const auto& sec = directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Geometry)];
             if (sec.Size > 0)
             {
-                payload.seekg(static_cast<std::streamoff>(sec.Offset));
+                payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
 
                 OMeshFormat::GeometryHeader geo;
                 ReadBytes(payload, &geo, sizeof(geo));
+
+                // Validate vertex stride matches current Vertex struct.
+                if (geo.VertexStride != sizeof(Vertex))
+                {
+                    OLO_CORE_ERROR("MeshBinarySerializer::Read: Vertex stride mismatch (file {}, expected {}) in '{}'",
+                                   geo.VertexStride, sizeof(Vertex), path.string());
+                    return nullptr;
+                }
 
                 // Decode vertices
                 if (geo.VertexCount > 0 && geo.EncodedVertexSize > 0)
@@ -631,7 +660,7 @@ namespace OloEngine
             const auto& sec = directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Submeshes)];
             if (sec.Size > 0)
             {
-                payload.seekg(static_cast<std::streamoff>(sec.Offset));
+                payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
 
                 OMeshFormat::SubmeshHeader subHeader;
                 ReadBytes(payload, &subHeader, sizeof(subHeader));
@@ -665,7 +694,7 @@ namespace OloEngine
             const auto& sec = directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Materials)];
             if (sec.Size > 0)
             {
-                payload.seekg(static_cast<std::streamoff>(sec.Offset));
+                payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
 
                 OMeshFormat::MaterialHeader matHeader;
                 ReadBytes(payload, &matHeader, sizeof(matHeader));
@@ -684,7 +713,7 @@ namespace OloEngine
             const auto& sec = directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Skeleton)];
             if (sec.Size > 0)
             {
-                payload.seekg(static_cast<std::streamoff>(sec.Offset));
+                payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
 
                 OMeshFormat::SkeletonHeader skelHeader;
                 ReadBytes(payload, &skelHeader, sizeof(skelHeader));
@@ -734,10 +763,18 @@ namespace OloEngine
             const auto& sec = directory.Sections[static_cast<u16>(OMeshFormat::SectionType::BoneInfluences)];
             if (sec.Size > 0)
             {
-                payload.seekg(static_cast<std::streamoff>(sec.Offset));
+                payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
 
                 OMeshFormat::BoneInfluenceHeader biHeader;
                 ReadBytes(payload, &biHeader, sizeof(biHeader));
+
+                // Validate bone influence stride matches current struct.
+                if (biHeader.InfluenceStride != sizeof(BoneInfluence))
+                {
+                    OLO_CORE_ERROR("MeshBinarySerializer::Read: BoneInfluence stride mismatch (file {}, expected {}) in '{}'",
+                                   biHeader.InfluenceStride, sizeof(BoneInfluence), path.string());
+                    return nullptr;
+                }
 
                 if (biHeader.InfluenceCount > 0 && biHeader.EncodedSize > 0)
                 {
@@ -762,7 +799,7 @@ namespace OloEngine
             const auto& sec = directory.Sections[static_cast<u16>(OMeshFormat::SectionType::BoneInfo)];
             if (sec.Size > 0)
             {
-                payload.seekg(static_cast<std::streamoff>(sec.Offset));
+                payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
 
                 OMeshFormat::BoneInfoHeader biHeader;
                 ReadBytes(payload, &biHeader, sizeof(biHeader));
@@ -786,7 +823,7 @@ namespace OloEngine
             const auto& sec = directory.Sections[static_cast<u16>(OMeshFormat::SectionType::MorphTargets)];
             if (sec.Size > 0)
             {
-                payload.seekg(static_cast<std::streamoff>(sec.Offset));
+                payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
 
                 OMeshFormat::MorphTargetHeader mtHeader;
                 ReadBytes(payload, &mtHeader, sizeof(mtHeader));

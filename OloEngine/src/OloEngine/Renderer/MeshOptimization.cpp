@@ -59,6 +59,29 @@ namespace OloEngine::MeshOptimization
             boneInfluences = MoveTemp(remappedBones);
         }
 
+        // Update submesh vertex ranges to match the remapped vertex buffer.
+        // After vertex fetch remap, vertex positions in the buffer have changed,
+        // so each submesh's m_BaseVertex/m_VertexCount must be recomputed.
+        auto& submeshes = meshSource.GetSubmeshes();
+        for (i32 s = 0; s < submeshes.Num(); ++s)
+        {
+            auto& sub = submeshes[s];
+            u32 minVertex = std::numeric_limits<u32>::max();
+            u32 maxVertex = 0;
+            u32 const end = sub.m_BaseIndex + sub.m_IndexCount;
+            for (u32 idx = sub.m_BaseIndex; idx < end && idx < static_cast<u32>(indices.Num()); ++idx)
+            {
+                u32 const v = indices[static_cast<i32>(idx)];
+                minVertex = std::min(minVertex, v);
+                maxVertex = std::max(maxVertex, v);
+            }
+            if (minVertex <= maxVertex)
+            {
+                sub.m_BaseVertex = minVertex;
+                sub.m_VertexCount = maxVertex - minVertex + 1;
+            }
+        }
+
         // 4. Generate shadow index buffer (merges position-equivalent vertices)
         GenerateShadowIndices(meshSource);
 
@@ -112,6 +135,12 @@ namespace OloEngine::MeshOptimization
         lodIndices.Append(simplifiedIndices.data(), static_cast<i32>(resultIndexCount));
 
         auto lodMesh = Ref<MeshSource>::Create(MoveTemp(lodVertices), MoveTemp(lodIndices));
+
+        // Copy material table from source
+        for (const auto& [index, handle] : meshSource.GetMaterials())
+        {
+            lodMesh->SetMaterial(index, handle);
+        }
 
         const auto& srcSubmeshes = meshSource.GetSubmeshes();
         if (srcSubmeshes.Num() == 1)
@@ -191,6 +220,12 @@ namespace OloEngine::MeshOptimization
         lodIndices.Append(simplifiedIndices.data(), static_cast<i32>(resultIndexCount));
 
         auto lodMesh = Ref<MeshSource>::Create(MoveTemp(lodVertices), MoveTemp(lodIndices));
+
+        // Copy material table from source
+        for (const auto& [index, handle] : meshSource.GetMaterials())
+        {
+            lodMesh->SetMaterial(index, handle);
+        }
 
         const auto& srcSubmeshes = meshSource.GetSubmeshes();
         if (srcSubmeshes.Num() == 1)

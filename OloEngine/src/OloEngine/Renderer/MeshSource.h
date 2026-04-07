@@ -406,7 +406,11 @@ namespace OloEngine
         // Mark mesh data as already optimized (e.g., loaded from cache)
         void SetPreOptimized(bool preOptimized)
         {
-            m_PreOptimized = preOptimized;
+            if (m_PreOptimized != preOptimized)
+            {
+                m_PreOptimized = preOptimized;
+                m_Built = false;
+            }
         }
 
         // Asset interface

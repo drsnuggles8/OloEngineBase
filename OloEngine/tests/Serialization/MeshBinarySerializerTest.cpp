@@ -84,18 +84,45 @@ static Ref<MeshSource> MakeRiggedMesh()
     return mesh;
 }
 
+static std::filesystem::path GetTestCacheDir()
+{
+    return std::filesystem::temp_directory_path() / "olo_test_cache";
+}
+
 static std::filesystem::path GetTestCachePath(const std::string& filename)
 {
-    auto dir = std::filesystem::temp_directory_path() / "olo_test_cache";
+    auto dir = GetTestCacheDir();
     std::filesystem::create_directories(dir);
     return dir / filename;
 }
+
+// Fixture that ensures the temp directory is cleaned up after the suite,
+// even when individual tests fail before their manual remove() calls.
+class MeshBinarySerializerTest : public ::testing::Test
+{
+  protected:
+    static void TearDownTestSuite()
+    {
+        std::error_code ec;
+        std::filesystem::remove_all(GetTestCacheDir(), ec);
+    }
+};
+
+class AnimationBinarySerializerTest : public ::testing::Test
+{
+  protected:
+    static void TearDownTestSuite()
+    {
+        std::error_code ec;
+        std::filesystem::remove_all(GetTestCacheDir(), ec);
+    }
+};
 
 // =============================================================================
 // MeshBinarySerializer Tests
 // =============================================================================
 
-TEST(MeshBinarySerializer, WriteAndReadStaticMesh)
+TEST_F(MeshBinarySerializerTest, WriteAndReadStaticMesh)
 {
     auto original = MakeSimpleMesh();
     auto path = GetTestCachePath("static_mesh.omesh");
@@ -126,7 +153,7 @@ TEST(MeshBinarySerializer, WriteAndReadStaticMesh)
     std::filesystem::remove(path);
 }
 
-TEST(MeshBinarySerializer, ReadTimestampWorks)
+TEST_F(MeshBinarySerializerTest, ReadTimestampWorks)
 {
     auto mesh = MakeSimpleMesh();
     auto path = GetTestCachePath("timestamp_test.omesh");
@@ -140,13 +167,13 @@ TEST(MeshBinarySerializer, ReadTimestampWorks)
     std::filesystem::remove(path);
 }
 
-TEST(MeshBinarySerializer, ReadTimestampFailsOnMissingFile)
+TEST_F(MeshBinarySerializerTest, ReadTimestampFailsOnMissingFile)
 {
     u64 ts = 0;
     EXPECT_FALSE(MeshBinarySerializer::ReadTimestamp("nonexistent_file.omesh", ts));
 }
 
-TEST(MeshBinarySerializer, WriteAndReadRiggedMesh)
+TEST_F(MeshBinarySerializerTest, WriteAndReadRiggedMesh)
 {
     auto original = MakeRiggedMesh();
     auto path = GetTestCachePath("rigged_mesh.omesh");
@@ -185,7 +212,7 @@ TEST(MeshBinarySerializer, WriteAndReadRiggedMesh)
     std::filesystem::remove(path);
 }
 
-TEST(MeshBinarySerializer, ReadRejectsCorruptFile)
+TEST_F(MeshBinarySerializerTest, ReadRejectsCorruptFile)
 {
     auto path = GetTestCachePath("corrupt.omesh");
 
@@ -229,7 +256,7 @@ static std::vector<Ref<AnimationClip>> MakeTestAnimations()
     return { clip };
 }
 
-TEST(AnimationBinarySerializer, WriteAndReadRoundTrip)
+TEST_F(AnimationBinarySerializerTest, WriteAndReadRoundTrip)
 {
     auto clips = MakeTestAnimations();
     auto path = GetTestCachePath("test_anim.oanim");
@@ -260,7 +287,7 @@ TEST(AnimationBinarySerializer, WriteAndReadRoundTrip)
     std::filesystem::remove(path);
 }
 
-TEST(AnimationBinarySerializer, ReadTimestampWorks)
+TEST_F(AnimationBinarySerializerTest, ReadTimestampWorks)
 {
     auto clips = MakeTestAnimations();
     auto path = GetTestCachePath("ts_anim.oanim");
@@ -274,7 +301,7 @@ TEST(AnimationBinarySerializer, ReadTimestampWorks)
     std::filesystem::remove(path);
 }
 
-TEST(AnimationBinarySerializer, ReadReturnsEmptyOnCorruptFile)
+TEST_F(AnimationBinarySerializerTest, ReadReturnsEmptyOnCorruptFile)
 {
     auto path = GetTestCachePath("corrupt.oanim");
 

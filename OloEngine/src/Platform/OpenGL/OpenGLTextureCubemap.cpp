@@ -378,6 +378,18 @@ namespace OloEngine
 
         auto formatInfo = Utils::GetFormatInfo(m_CubemapSpecification.Format);
 
+        if (formatInfo.DataType == 0 || formatInfo.BytesPerPixel == 0)
+        {
+            OLO_CORE_ERROR("SetFaceDataMip: Unsupported image format for cubemap face {} mip {}", faceIndex, mipLevel);
+            return;
+        }
+
+        if (mipLevel >= GetMipLevelCount())
+        {
+            OLO_CORE_ERROR("SetFaceDataMip: mipLevel {} out of range (max {})", mipLevel, GetMipLevelCount() - 1);
+            return;
+        }
+
         u32 mipWidth = std::max(1u, m_Width >> mipLevel);
         u32 mipHeight = std::max(1u, m_Height >> mipLevel);
 

@@ -22,6 +22,9 @@
 #include "OloEngine/Audio/SoundGraph/SoundGraphSerializer.h"
 #include "OloEngine/Audio/SoundGraph/SoundGraphPrototype.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
+#include "OloEngine/Animation/Skeleton.h"
+#include "OloEngine/Animation/MorphTargets/MorphTarget.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Prefab.h"
 #include "OloEngine/Scene/Scene.h"
@@ -1882,6 +1885,9 @@ namespace OloEngine
         auto materialCount = static_cast<u32>(materials.Num());
         bool hasBoneInfluences = meshSource->HasBoneInfluences();
         bool hasShadowIndices = meshSource->HasShadowIndices();
+        bool hasSkeleton = meshSource->HasSkeleton();
+        bool hasBoneInfo = !meshSource->GetBoneInfo().IsEmpty();
+        bool hasMorphTargets = meshSource->HasMorphTargets();
 
         // Write counts and flags
         stream.WriteRaw<u32>(vertexCount);
@@ -1890,6 +1896,9 @@ namespace OloEngine
         stream.WriteRaw<u32>(materialCount);
         stream.WriteRaw<bool>(hasBoneInfluences);
         stream.WriteRaw<bool>(hasShadowIndices);
+        stream.WriteRaw<bool>(hasSkeleton);
+        stream.WriteRaw<bool>(hasBoneInfo);
+        stream.WriteRaw<bool>(hasMorphTargets);
 
         // Encode and write vertex buffer
         if (vertexCount > 0)
@@ -1973,6 +1982,105 @@ namespace OloEngine
             }
         }
 
+        // Write skeleton
+        if (hasSkeleton)
+        {
+            const auto* skeleton = meshSource->GetSkeleton();
+            auto boneCount = static_cast<u32>(skeleton->m_BoneNames.size());
+            stream.WriteRaw<u32>(boneCount);
+
+            // Parent indices
+            stream.WriteData(reinterpret_cast<const char*>(skeleton->m_ParentIndices.data()),
+                             boneCount * sizeof(i32));
+
+            // Transform arrays (6 arrays of mat4)
+            auto const writeMat4Array = [&](const std::vector<glm::mat4>& arr)
+            {
+                for (u32 j = 0; j < boneCount; ++j)
+                {
+                    if (j < arr.size())
+                    {
+                        stream.WriteData(reinterpret_cast<const char*>(&arr[j][0][0]), sizeof(glm::mat4));
+                    }
+                    else
+                    {
+                        glm::mat4 identity(1.0f);
+                        stream.WriteData(reinterpret_cast<const char*>(&identity[0][0]), sizeof(glm::mat4));
+                    }
+                }
+            };
+
+            writeMat4Array(skeleton->m_LocalTransforms);
+            writeMat4Array(skeleton->m_GlobalTransforms);
+            writeMat4Array(skeleton->m_BindPoseMatrices);
+            writeMat4Array(skeleton->m_InverseBindPoses);
+            writeMat4Array(skeleton->m_BindPoseLocalTransforms);
+            writeMat4Array(skeleton->m_BonePreTransforms);
+
+            // Bone names
+            for (u32 j = 0; j < boneCount; ++j)
+            {
+                auto nameLen = static_cast<u32>(j < skeleton->m_BoneNames.size() ? skeleton->m_BoneNames[j].size() : 0);
+                stream.WriteRaw<u32>(nameLen);
+                if (nameLen > 0)
+                {
+                    stream.WriteData(skeleton->m_BoneNames[j].data(), nameLen);
+                }
+            }
+        }
+
+        // Write bone info
+        if (hasBoneInfo)
+        {
+            const auto& boneInfo = meshSource->GetBoneInfo();
+            auto boneInfoCount = static_cast<u32>(boneInfo.Num());
+            stream.WriteRaw<u32>(boneInfoCount);
+
+            for (i32 i = 0; i < boneInfo.Num(); ++i)
+            {
+                stream.WriteData(reinterpret_cast<const char*>(&boneInfo[i].m_InverseBindPose[0][0]), sizeof(glm::mat4));
+                stream.WriteRaw<u32>(boneInfo[i].m_BoneIndex);
+            }
+        }
+
+        // Write morph targets
+        if (hasMorphTargets)
+        {
+            const auto& morphTargets = meshSource->GetMorphTargets();
+            auto targetCount = morphTargets->GetTargetCount();
+            auto vertCount = morphTargets->GetVertexCount();
+            stream.WriteRaw<u32>(targetCount);
+            stream.WriteRaw<u32>(vertCount);
+
+            for (u32 t = 0; t < targetCount; ++t)
+            {
+                const auto& target = morphTargets->Targets[t];
+                auto sparseCount = target.IsSparse ? static_cast<u32>(target.SparseVertices.size()) : 0u;
+                stream.WriteRaw<u32>(sparseCount);
+
+                auto nameLen = static_cast<u32>(target.Name.size());
+                stream.WriteRaw<u32>(nameLen);
+                if (nameLen > 0)
+                {
+                    stream.WriteData(target.Name.data(), nameLen);
+                }
+
+                if (target.IsSparse)
+                {
+                    for (const auto& sparse : target.SparseVertices)
+                    {
+                        stream.WriteRaw<u32>(sparse.VertexIndex);
+                        stream.WriteData(reinterpret_cast<const char*>(&sparse.Delta), sizeof(MorphTargetVertex));
+                    }
+                }
+                else if (!target.Vertices.empty())
+                {
+                    stream.WriteData(reinterpret_cast<const char*>(target.Vertices.data()),
+                                     target.Vertices.size() * sizeof(MorphTargetVertex));
+                }
+            }
+        }
+
         outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
         OLO_CORE_TRACE("MeshSourceSerializer::SerializeToAssetPack: {} verts, {} indices, {} bytes (encoded)",
                        vertexCount, indexCount, outInfo.Size);
@@ -1983,6 +2091,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        stream.SetStreamPosition(assetInfo.PackedOffset);
+
         // Read counts and flags
         u32 vertexCount = 0;
         u32 indexCount = 0;
@@ -1990,6 +2100,9 @@ namespace OloEngine
         u32 materialCount = 0;
         bool hasBoneInfluences = false;
         bool hasShadowIndices = false;
+        bool hasSkeleton = false;
+        bool hasBoneInfo = false;
+        bool hasMorphTargets = false;
 
         stream.ReadRaw<u32>(vertexCount);
         stream.ReadRaw<u32>(indexCount);
@@ -1997,6 +2110,9 @@ namespace OloEngine
         stream.ReadRaw<u32>(materialCount);
         stream.ReadRaw<bool>(hasBoneInfluences);
         stream.ReadRaw<bool>(hasShadowIndices);
+        stream.ReadRaw<bool>(hasSkeleton);
+        stream.ReadRaw<bool>(hasBoneInfo);
+        stream.ReadRaw<bool>(hasMorphTargets);
 
         // Decode vertex buffer
         TArray<Vertex> vertices;
@@ -2120,6 +2236,122 @@ namespace OloEngine
                     OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to decode shadow indices");
                 }
             }
+        }
+
+        // Read skeleton
+        if (hasSkeleton)
+        {
+            u32 boneCount = 0;
+            stream.ReadRaw<u32>(boneCount);
+
+            auto skeleton = Ref<Skeleton>::Create(static_cast<sizet>(boneCount));
+
+            // Parent indices
+            stream.ReadData(reinterpret_cast<char*>(skeleton->m_ParentIndices.data()),
+                            boneCount * sizeof(i32));
+
+            // Transform arrays
+            auto const readMat4Array = [&](std::vector<glm::mat4>& arr)
+            {
+                arr.resize(boneCount);
+                stream.ReadData(reinterpret_cast<char*>(arr.data()), boneCount * sizeof(glm::mat4));
+            };
+
+            readMat4Array(skeleton->m_LocalTransforms);
+            readMat4Array(skeleton->m_GlobalTransforms);
+            readMat4Array(skeleton->m_BindPoseMatrices);
+            readMat4Array(skeleton->m_InverseBindPoses);
+            readMat4Array(skeleton->m_BindPoseLocalTransforms);
+            readMat4Array(skeleton->m_BonePreTransforms);
+
+            // Bone names
+            skeleton->m_BoneNames.resize(boneCount);
+            for (u32 j = 0; j < boneCount; ++j)
+            {
+                u32 nameLen = 0;
+                stream.ReadRaw<u32>(nameLen);
+                if (nameLen > 0)
+                {
+                    skeleton->m_BoneNames[j].resize(nameLen);
+                    stream.ReadData(skeleton->m_BoneNames[j].data(), nameLen);
+                }
+            }
+
+            // Compute bind-pose FinalBoneMatrices
+            skeleton->m_FinalBoneMatrices.resize(boneCount);
+            for (u32 j = 0; j < boneCount; ++j)
+            {
+                skeleton->m_FinalBoneMatrices[j] = skeleton->m_GlobalTransforms[j] * skeleton->m_InverseBindPoses[j];
+            }
+
+            meshSource->SetSkeleton(skeleton);
+        }
+
+        // Read bone info
+        if (hasBoneInfo)
+        {
+            u32 boneInfoCount = 0;
+            stream.ReadRaw<u32>(boneInfoCount);
+
+            auto& boneInfo = meshSource->GetBoneInfo();
+            for (u32 i = 0; i < boneInfoCount; ++i)
+            {
+                BoneInfo info;
+                stream.ReadData(reinterpret_cast<char*>(&info.m_InverseBindPose[0][0]), sizeof(glm::mat4));
+                stream.ReadRaw<u32>(info.m_BoneIndex);
+                boneInfo.Add(info);
+            }
+        }
+
+        // Read morph targets
+        if (hasMorphTargets)
+        {
+            u32 targetCount = 0;
+            u32 vertCount = 0;
+            stream.ReadRaw<u32>(targetCount);
+            stream.ReadRaw<u32>(vertCount);
+
+            auto morphTargetSet = Ref<MorphTargetSet>::Create();
+
+            for (u32 t = 0; t < targetCount; ++t)
+            {
+                u32 sparseCount = 0;
+                stream.ReadRaw<u32>(sparseCount);
+
+                MorphTarget target;
+                u32 nameLen = 0;
+                stream.ReadRaw<u32>(nameLen);
+                if (nameLen > 0)
+                {
+                    target.Name.resize(nameLen);
+                    stream.ReadData(target.Name.data(), nameLen);
+                }
+
+                if (sparseCount > 0)
+                {
+                    target.IsSparse = true;
+                    target.SparseVertices.resize(sparseCount);
+                    for (u32 s = 0; s < sparseCount; ++s)
+                    {
+                        stream.ReadRaw<u32>(target.SparseVertices[s].VertexIndex);
+                        stream.ReadData(reinterpret_cast<char*>(&target.SparseVertices[s].Delta), sizeof(MorphTargetVertex));
+                    }
+                }
+                else
+                {
+                    target.IsSparse = false;
+                    target.Vertices.resize(vertCount);
+                    if (vertCount > 0)
+                    {
+                        stream.ReadData(reinterpret_cast<char*>(target.Vertices.data()),
+                                        vertCount * sizeof(MorphTargetVertex));
+                    }
+                }
+
+                morphTargetSet->AddTarget(std::move(target));
+            }
+
+            meshSource->SetMorphTargets(morphTargetSet);
         }
 
         meshSource->SetHandle(assetInfo.Handle);

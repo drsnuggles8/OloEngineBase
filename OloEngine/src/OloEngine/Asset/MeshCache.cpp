@@ -5,7 +5,6 @@
 #include "OloEngine/Animation/AnimationClip.h"
 
 #include <fstream>
-#include <functional>
 
 namespace OloEngine
 {
@@ -28,13 +27,24 @@ namespace OloEngine
         }
 
         // Hash a source path to produce a deterministic cache filename.
-        // Uses std::hash on the canonical (or generic) string representation.
+        // Uses FNV-1a 64-bit for cross-platform stability (std::hash is
+        // implementation-defined and may differ across compilers/platforms).
         std::string HashSourcePath(const std::filesystem::path& sourcePath)
         {
             std::error_code ec;
             auto canonical = std::filesystem::weakly_canonical(sourcePath, ec);
             auto pathStr = ec ? sourcePath.generic_string() : canonical.generic_string();
-            auto hash = std::hash<std::string>{}(pathStr);
+
+            constexpr u64 FNV_OFFSET_BASIS = 14695981039346656037ULL;
+            constexpr u64 FNV_PRIME = 1099511628211ULL;
+
+            u64 hash = FNV_OFFSET_BASIS;
+            for (char c : pathStr)
+            {
+                hash ^= static_cast<u64>(static_cast<unsigned char>(c));
+                hash *= FNV_PRIME;
+            }
+
             return fmt::format("{:016X}", hash);
         }
 
@@ -119,6 +129,8 @@ namespace OloEngine
 
         Ref<MeshSource> LoadMeshFromCache(const std::filesystem::path& sourcePath)
         {
+            OLO_PROFILE_FUNCTION();
+
             if (!IsMeshCacheValid(sourcePath))
             {
                 return nullptr;
@@ -131,6 +143,8 @@ namespace OloEngine
 
         bool SaveMeshToCache(const std::filesystem::path& sourcePath, const MeshSource& meshSource)
         {
+            OLO_PROFILE_FUNCTION();
+
             u64 sourceTimestamp = GetSourceTimestamp(sourcePath);
             if (sourceTimestamp == 0)
             {
@@ -230,19 +244,26 @@ namespace OloEngine
         u64 GetTotalCacheSize()
         {
             u64 totalSize = 0;
-            std::error_code ec;
 
             auto const accumulateDirectorySize = [&](const std::filesystem::path& dir)
             {
-                if (!std::filesystem::exists(dir, ec))
+                std::error_code existsEc;
+                if (!std::filesystem::exists(dir, existsEc))
                 {
                     return;
                 }
-                for (const auto& entry : std::filesystem::directory_iterator(dir, ec))
+                std::error_code iterEc;
+                for (const auto& entry : std::filesystem::directory_iterator(dir, iterEc))
                 {
-                    if (entry.is_regular_file(ec))
+                    std::error_code fileEc;
+                    if (entry.is_regular_file(fileEc))
                     {
-                        totalSize += entry.file_size(ec);
+                        std::error_code sizeEc;
+                        auto size = entry.file_size(sizeEc);
+                        if (!sizeEc)
+                        {
+                            totalSize += size;
+                        }
                     }
                 }
             };

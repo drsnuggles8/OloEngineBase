@@ -74,6 +74,8 @@ namespace OloEngine
 
     u32 Hash::CRC32(const void* data, sizet size)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!data || size == 0)
         {
             return 0;

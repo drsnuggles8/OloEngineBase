@@ -54,18 +54,14 @@ namespace OloEngine
                 }
 
                 // Deduplicate bone info entries by bone index
+                std::unordered_set<u32> existingBoneIndices;
+                for (i32 j = 0; j < combined->GetBoneInfo().Num(); ++j)
+                {
+                    existingBoneIndices.insert(combined->GetBoneInfo()[j].m_BoneIndex);
+                }
                 for (i32 i = 0; i < src->GetBoneInfo().Num(); ++i)
                 {
-                    bool exists = false;
-                    for (i32 j = 0; j < combined->GetBoneInfo().Num(); ++j)
-                    {
-                        if (combined->GetBoneInfo()[j].m_BoneIndex == src->GetBoneInfo()[i].m_BoneIndex)
-                        {
-                            exists = true;
-                            break;
-                        }
-                    }
-                    if (!exists)
+                    if (auto [_, inserted] = existingBoneIndices.insert(src->GetBoneInfo()[i].m_BoneIndex); inserted)
                     {
                         combined->GetBoneInfo().Add(src->GetBoneInfo()[i]);
                     }
