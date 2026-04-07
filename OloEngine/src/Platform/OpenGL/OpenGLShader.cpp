@@ -195,7 +195,7 @@ namespace OloEngine
         static bool IsAmdGpu()
         {
             const auto* const vendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
-            return std::strstr(vendor, "ATI") != nullptr;
+            return std::strstr(vendor, "ATI") != nullptr || std::strstr(vendor, "AMD") != nullptr;
         }
     } // namespace Utils
 
@@ -1065,6 +1065,9 @@ namespace OloEngine
             glAttachShader(program, shaderID);
         }
 
+        // Tell the driver we may retrieve the program binary later (required by spec
+        // for glGetProgramBinary; without this, Mesa/radeonsi can crash in SaveProgramBinaryCache).
+        glProgramParameteri(program, GL_PROGRAM_BINARY_RETRIEVABLE_HINT, GL_TRUE);
         glLinkProgram(program);
 
         // ---- Async path: if GL_ARB/KHR_parallel_shader_compile is available,
@@ -1126,6 +1129,13 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         if (Utils::IsShaderCacheDisabled() || m_RendererID == 0)
+            return;
+
+        // Mesa radeonsi crashes in glGetProgramiv(GL_PROGRAM_BINARY_LENGTH) for
+        // programs compiled from SPIR-V binary (glShaderBinary + glSpecializeShader).
+        // The AMD-specific CreateProgramForAmd() path has its own cache save that
+        // works correctly (it compiles from cross-compiled GLSL text instead).
+        if (Utils::IsAmdGpu())
             return;
 
         GLint formats = 0;
@@ -1299,6 +1309,8 @@ namespace OloEngine
 
         std::array<u32, 2> glShadersIDs{};
         CompileOpenGLBinariesForAmd(program, glShadersIDs);
+        // Required by spec for glGetProgramBinary; prevents Mesa/radeonsi crash.
+        glProgramParameteri(program, GL_PROGRAM_BINARY_RETRIEVABLE_HINT, GL_TRUE);
         glLinkProgram(program);
 
         if (!VerifyProgramLink(program, m_FilePath))
