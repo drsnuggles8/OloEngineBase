@@ -67,11 +67,13 @@ namespace OloEngine
 
             if (WaitTime == 0xFFFFFFFF) // INFINITE
             {
-                m_Condition.wait(lock, [this] { return m_Triggered; });
+                m_Condition.wait(lock, [this]
+                                 { return m_Triggered; });
             }
             else
             {
-                m_Condition.wait_for(lock, std::chrono::milliseconds(WaitTime), [this] { return m_Triggered; });
+                m_Condition.wait_for(lock, std::chrono::milliseconds(WaitTime), [this]
+                                     { return m_Triggered; });
             }
 
             bool wasTriggered = m_Triggered;
@@ -88,8 +90,8 @@ namespace OloEngine
       private:
         std::mutex m_Mutex;
         std::condition_variable m_Condition;
-        bool m_Triggered{false};
-        bool m_ManualReset{false};
+        bool m_Triggered{ false };
+        bool m_ManualReset{ false };
     };
 
 } // namespace OloEngine

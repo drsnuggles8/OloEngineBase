@@ -22,7 +22,7 @@
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <sys/resource.h> // For setpriority, PRIO_PROCESS
-#include <cstring> // For strncpy
+#include <cstring>        // For strncpy
 #if defined(__x86_64__) || defined(__i386__)
 #include <immintrin.h>
 #endif

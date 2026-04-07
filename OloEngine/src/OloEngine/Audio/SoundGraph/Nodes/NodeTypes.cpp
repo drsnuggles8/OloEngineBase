@@ -44,14 +44,16 @@ namespace OloEngine::Audio::SoundGraph
     INIT_ENDPOINTS_FUNCS(DelayedTrigger);
 
     // Array nodes — template member definitions require template<> syntax
-#define INIT_ENDPOINTS_FUNCS_TEMPLATE(TNodeProcessor)        \
-    template<> void TNodeProcessor::RegisterEndpoints()      \
-    {                                                        \
-        EndpointUtilities::RegisterEndpoints(this);          \
-    }                                                        \
-    template<> void TNodeProcessor::InitializeInputs()       \
-    {                                                        \
-        EndpointUtilities::InitializeInputs(this);           \
+#define INIT_ENDPOINTS_FUNCS_TEMPLATE(TNodeProcessor) \
+    template<>                                        \
+    void TNodeProcessor::RegisterEndpoints()          \
+    {                                                 \
+        EndpointUtilities::RegisterEndpoints(this);   \
+    }                                                 \
+    template<>                                        \
+    void TNodeProcessor::InitializeInputs()           \
+    {                                                 \
+        EndpointUtilities::InitializeInputs(this);    \
     }
 
     INIT_ENDPOINTS_FUNCS_TEMPLATE(Get<int>);

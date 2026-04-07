@@ -844,57 +844,57 @@ struct Name<Counter>
 //
 // Use this for simple types like FSetElementId that are essentially just
 // wrappers around primitive types.
-#define DECLARE_INTRINSIC_TYPE_LAYOUT(T)                                                                                                                                                           \
-    namespace OloEngine                                                                                                                                                                            \
-    {                                                                                                                                                                                              \
-        template<>                                                                                                                                                                                 \
-        struct THasTypeLayout<T>                                                                                                                                                                   \
-        {                                                                                                                                                                                          \
-            static constexpr bool Value = true;                                                                                                                                                    \
-        };                                                                                                                                                                                         \
-        template<>                                                                                                                                                                                 \
-        struct TStaticGetTypeLayoutHelper<T>                                                                                                                                                       \
-        {                                                                                                                                                                                          \
-            UE_STATIC_ONLY(TStaticGetTypeLayoutHelper);                                                                                                                                            \
-            static void CallWriteMemoryImage(FMemoryImageWriter& Writer, const void* Object, const FTypeLayoutDesc& TypeDesc, const FTypeLayoutDesc& DerivedTypeDesc)                              \
-            {                                                                                                                                                                                      \
-                (void)Writer;                                                                                                                                                                      \
-                (void)Object;                                                                                                                                                                      \
-                (void)TypeDesc;                                                                                                                                                                    \
-                (void)DerivedTypeDesc;                                                                                                                                                             \
-            }                                                                                                                                                                                      \
-            static void CallDestroy(void* Object, const FTypeLayoutDesc&, const FPointerTableBase* PtrTable, bool bIsFrozen)                                                                       \
-            {                                                                                                                                                                                      \
-                Freeze::DestroyObject(static_cast<T*>(Object), PtrTable, bIsFrozen);                                                                                                               \
-            }                                                                                                                                                                                      \
-            static const FTypeLayoutDesc& Do()                                                                                                                                                     \
-            {                                                                                                                                                                                      \
-                alignas(FTypeLayoutDesc) static std::uint8_t TypeBuffer[sizeof(FTypeLayoutDesc)] = { 0 };                                                                                          \
-                FTypeLayoutDesc& TypeDesc = *reinterpret_cast<FTypeLayoutDesc*>(TypeBuffer);                                                                                                       \
-                if (!TypeDesc.IsInitialized)                                                                                                                                                       \
-                {                                                                                                                                                                                  \
-                    TypeDesc.IsInitialized = true;                                                                                                                                                 \
-                    TypeDesc.IsIntrinsic = true;                                                                                                                                                   \
-                    TypeDesc.Name = #T;                                                                                                                                                            \
-                    TypeDesc.WriteFrozenMemoryImageFunc = &CallWriteMemoryImage;                                                                                                                   \
-                    TypeDesc.DestroyFunc = &CallDestroy;                                                                                                                                           \
-                    TypeDesc.Size = sizeof(T);                                                                                                                                                     \
-                    TypeDesc.Alignment = alignof(T);                                                                                                                                               \
-                    TypeDesc.Interface = ETypeLayoutInterface::NonVirtual;                                                                                                                         \
-                    TypeDesc.SizeFromFields = sizeof(T);                                                                                                                                           \
-                }                                                                                                                                                                                  \
-                return TypeDesc;                                                                                                                                                                   \
-            }                                                                                                                                                                                      \
-        };                                                                                                                                                                                         \
-        template<>                                                                                                                                                                                 \
-        struct TGetTypeLayoutHelper<T>                                                                                                                                                             \
-        {                                                                                                                                                                                          \
-            UE_STATIC_ONLY(TGetTypeLayoutHelper);                                                                                                                                                  \
-            static const FTypeLayoutDesc& Do(const T&)                                                                                                                                             \
-            {                                                                                                                                                                                      \
-                return TStaticGetTypeLayoutHelper<T>::Do();                                                                                                                                        \
-            }                                                                                                                                                                                      \
-        };                                                                                                                                                                                         \
+#define DECLARE_INTRINSIC_TYPE_LAYOUT(T)                                                                                                                              \
+    namespace OloEngine                                                                                                                                               \
+    {                                                                                                                                                                 \
+        template<>                                                                                                                                                    \
+        struct THasTypeLayout<T>                                                                                                                                      \
+        {                                                                                                                                                             \
+            static constexpr bool Value = true;                                                                                                                       \
+        };                                                                                                                                                            \
+        template<>                                                                                                                                                    \
+        struct TStaticGetTypeLayoutHelper<T>                                                                                                                          \
+        {                                                                                                                                                             \
+            UE_STATIC_ONLY(TStaticGetTypeLayoutHelper);                                                                                                               \
+            static void CallWriteMemoryImage(FMemoryImageWriter& Writer, const void* Object, const FTypeLayoutDesc& TypeDesc, const FTypeLayoutDesc& DerivedTypeDesc) \
+            {                                                                                                                                                         \
+                (void)Writer;                                                                                                                                         \
+                (void)Object;                                                                                                                                         \
+                (void)TypeDesc;                                                                                                                                       \
+                (void)DerivedTypeDesc;                                                                                                                                \
+            }                                                                                                                                                         \
+            static void CallDestroy(void* Object, const FTypeLayoutDesc&, const FPointerTableBase* PtrTable, bool bIsFrozen)                                          \
+            {                                                                                                                                                         \
+                Freeze::DestroyObject(static_cast<T*>(Object), PtrTable, bIsFrozen);                                                                                  \
+            }                                                                                                                                                         \
+            static const FTypeLayoutDesc& Do()                                                                                                                        \
+            {                                                                                                                                                         \
+                alignas(FTypeLayoutDesc) static std::uint8_t TypeBuffer[sizeof(FTypeLayoutDesc)] = { 0 };                                                             \
+                FTypeLayoutDesc& TypeDesc = *reinterpret_cast<FTypeLayoutDesc*>(TypeBuffer);                                                                          \
+                if (!TypeDesc.IsInitialized)                                                                                                                          \
+                {                                                                                                                                                     \
+                    TypeDesc.IsInitialized = true;                                                                                                                    \
+                    TypeDesc.IsIntrinsic = true;                                                                                                                      \
+                    TypeDesc.Name = #T;                                                                                                                               \
+                    TypeDesc.WriteFrozenMemoryImageFunc = &CallWriteMemoryImage;                                                                                      \
+                    TypeDesc.DestroyFunc = &CallDestroy;                                                                                                              \
+                    TypeDesc.Size = sizeof(T);                                                                                                                        \
+                    TypeDesc.Alignment = alignof(T);                                                                                                                  \
+                    TypeDesc.Interface = ETypeLayoutInterface::NonVirtual;                                                                                            \
+                    TypeDesc.SizeFromFields = sizeof(T);                                                                                                              \
+                }                                                                                                                                                     \
+                return TypeDesc;                                                                                                                                      \
+            }                                                                                                                                                         \
+        };                                                                                                                                                            \
+        template<>                                                                                                                                                    \
+        struct TGetTypeLayoutHelper<T>                                                                                                                                \
+        {                                                                                                                                                             \
+            UE_STATIC_ONLY(TGetTypeLayoutHelper);                                                                                                                     \
+            static const FTypeLayoutDesc& Do(const T&)                                                                                                                \
+            {                                                                                                                                                         \
+                return TStaticGetTypeLayoutHelper<T>::Do();                                                                                                           \
+            }                                                                                                                                                         \
+        };                                                                                                                                                            \
     }
 
 // @def DECLARE_TEMPLATE_INTRINSIC_TYPE_LAYOUT
@@ -902,69 +902,69 @@ struct Name<Counter>
 //
 // @param TemplatePrefix  The template declaration (e.g., template<typename T>)
 // @param T               The full type expression
-#define DECLARE_TEMPLATE_INTRINSIC_TYPE_LAYOUT(TemplatePrefix, T)                                                                                                                                  \
-    namespace OloEngine                                                                                                                                                                            \
-    {                                                                                                                                                                                              \
-        TemplatePrefix struct THasTypeLayout<T>                                                                                                                                                    \
-        {                                                                                                                                                                                          \
-            static constexpr bool Value = true;                                                                                                                                                    \
-        };                                                                                                                                                                                         \
-        TemplatePrefix struct TStaticGetTypeLayoutHelper<T>                                                                                                                                        \
-        {                                                                                                                                                                                          \
-            UE_STATIC_ONLY(TStaticGetTypeLayoutHelper);                                                                                                                                            \
-            static void CallWriteMemoryImage(FMemoryImageWriter& Writer, const void* Object, const FTypeLayoutDesc& TypeDesc, const FTypeLayoutDesc& DerivedTypeDesc)                              \
-            {                                                                                                                                                                                      \
-                (void)Writer;                                                                                                                                                                      \
-                (void)Object;                                                                                                                                                                      \
-                (void)TypeDesc;                                                                                                                                                                    \
-                (void)DerivedTypeDesc;                                                                                                                                                             \
-            }                                                                                                                                                                                      \
-            static void CallDestroy(void* Object, const FTypeLayoutDesc&, const FPointerTableBase* PtrTable, bool bIsFrozen)                                                                       \
-            {                                                                                                                                                                                      \
-                Freeze::DestroyObject(static_cast<T*>(Object), PtrTable, bIsFrozen);                                                                                                               \
-            }                                                                                                                                                                                      \
-            static const FTypeLayoutDesc& Do()                                                                                                                                                     \
-            {                                                                                                                                                                                      \
-                alignas(FTypeLayoutDesc) static std::uint8_t TypeBuffer[sizeof(FTypeLayoutDesc)] = { 0 };                                                                                          \
-                FTypeLayoutDesc& TypeDesc = *reinterpret_cast<FTypeLayoutDesc*>(TypeBuffer);                                                                                                       \
-                if (!TypeDesc.IsInitialized)                                                                                                                                                       \
-                {                                                                                                                                                                                  \
-                    TypeDesc.IsInitialized = true;                                                                                                                                                 \
-                    TypeDesc.IsIntrinsic = true;                                                                                                                                                   \
-                    TypeDesc.Name = #T;                                                                                                                                                            \
-                    TypeDesc.WriteFrozenMemoryImageFunc = &CallWriteMemoryImage;                                                                                                                   \
-                    TypeDesc.DestroyFunc = &CallDestroy;                                                                                                                                           \
-                    TypeDesc.Size = sizeof(T);                                                                                                                                                     \
-                    TypeDesc.Alignment = alignof(T);                                                                                                                                               \
-                    TypeDesc.Interface = ETypeLayoutInterface::NonVirtual;                                                                                                                         \
-                    TypeDesc.SizeFromFields = sizeof(T);                                                                                                                                           \
-                }                                                                                                                                                                                  \
-                return TypeDesc;                                                                                                                                                                   \
-            }                                                                                                                                                                                      \
-        };                                                                                                                                                                                         \
-        TemplatePrefix struct TGetTypeLayoutHelper<T>                                                                                                                                              \
-        {                                                                                                                                                                                          \
-            UE_STATIC_ONLY(TGetTypeLayoutHelper);                                                                                                                                                  \
-            static const FTypeLayoutDesc& Do(const T&)                                                                                                                                             \
-            {                                                                                                                                                                                      \
-                return TStaticGetTypeLayoutHelper<T>::Do();                                                                                                                                        \
-            }                                                                                                                                                                                      \
-        };                                                                                                                                                                                         \
+#define DECLARE_TEMPLATE_INTRINSIC_TYPE_LAYOUT(TemplatePrefix, T)                                                                                                     \
+    namespace OloEngine                                                                                                                                               \
+    {                                                                                                                                                                 \
+        TemplatePrefix struct THasTypeLayout<T>                                                                                                                       \
+        {                                                                                                                                                             \
+            static constexpr bool Value = true;                                                                                                                       \
+        };                                                                                                                                                            \
+        TemplatePrefix struct TStaticGetTypeLayoutHelper<T>                                                                                                           \
+        {                                                                                                                                                             \
+            UE_STATIC_ONLY(TStaticGetTypeLayoutHelper);                                                                                                               \
+            static void CallWriteMemoryImage(FMemoryImageWriter& Writer, const void* Object, const FTypeLayoutDesc& TypeDesc, const FTypeLayoutDesc& DerivedTypeDesc) \
+            {                                                                                                                                                         \
+                (void)Writer;                                                                                                                                         \
+                (void)Object;                                                                                                                                         \
+                (void)TypeDesc;                                                                                                                                       \
+                (void)DerivedTypeDesc;                                                                                                                                \
+            }                                                                                                                                                         \
+            static void CallDestroy(void* Object, const FTypeLayoutDesc&, const FPointerTableBase* PtrTable, bool bIsFrozen)                                          \
+            {                                                                                                                                                         \
+                Freeze::DestroyObject(static_cast<T*>(Object), PtrTable, bIsFrozen);                                                                                  \
+            }                                                                                                                                                         \
+            static const FTypeLayoutDesc& Do()                                                                                                                        \
+            {                                                                                                                                                         \
+                alignas(FTypeLayoutDesc) static std::uint8_t TypeBuffer[sizeof(FTypeLayoutDesc)] = { 0 };                                                             \
+                FTypeLayoutDesc& TypeDesc = *reinterpret_cast<FTypeLayoutDesc*>(TypeBuffer);                                                                          \
+                if (!TypeDesc.IsInitialized)                                                                                                                          \
+                {                                                                                                                                                     \
+                    TypeDesc.IsInitialized = true;                                                                                                                    \
+                    TypeDesc.IsIntrinsic = true;                                                                                                                      \
+                    TypeDesc.Name = #T;                                                                                                                               \
+                    TypeDesc.WriteFrozenMemoryImageFunc = &CallWriteMemoryImage;                                                                                      \
+                    TypeDesc.DestroyFunc = &CallDestroy;                                                                                                              \
+                    TypeDesc.Size = sizeof(T);                                                                                                                        \
+                    TypeDesc.Alignment = alignof(T);                                                                                                                  \
+                    TypeDesc.Interface = ETypeLayoutInterface::NonVirtual;                                                                                            \
+                    TypeDesc.SizeFromFields = sizeof(T);                                                                                                              \
+                }                                                                                                                                                     \
+                return TypeDesc;                                                                                                                                      \
+            }                                                                                                                                                         \
+        };                                                                                                                                                            \
+        TemplatePrefix struct TGetTypeLayoutHelper<T>                                                                                                                 \
+        {                                                                                                                                                             \
+            UE_STATIC_ONLY(TGetTypeLayoutHelper);                                                                                                                     \
+            static const FTypeLayoutDesc& Do(const T&)                                                                                                                \
+            {                                                                                                                                                         \
+                return TStaticGetTypeLayoutHelper<T>::Do();                                                                                                           \
+            }                                                                                                                                                         \
+        };                                                                                                                                                            \
     }
 
 // @def ALIAS_TEMPLATE_TYPE_LAYOUT
 // @brief Aliases one type's layout to another
-#define ALIAS_TEMPLATE_TYPE_LAYOUT(TemplatePrefix, T, Alias)                                                   \
-    namespace OloEngine                                                                                        \
-    {                                                                                                          \
-        TemplatePrefix struct TStaticGetTypeLayoutHelper<T> : public TStaticGetTypeLayoutHelper<Alias>         \
-        {                                                                                                      \
-            UE_STATIC_ONLY(TStaticGetTypeLayoutHelper);                                                        \
-        };                                                                                                     \
-        TemplatePrefix struct TGetTypeLayoutHelper<T> : public TGetTypeLayoutHelper<Alias>                     \
-        {                                                                                                      \
-            UE_STATIC_ONLY(TGetTypeLayoutHelper);                                                              \
-        };                                                                                                     \
+#define ALIAS_TEMPLATE_TYPE_LAYOUT(TemplatePrefix, T, Alias)                                           \
+    namespace OloEngine                                                                                \
+    {                                                                                                  \
+        TemplatePrefix struct TStaticGetTypeLayoutHelper<T> : public TStaticGetTypeLayoutHelper<Alias> \
+        {                                                                                              \
+            UE_STATIC_ONLY(TStaticGetTypeLayoutHelper);                                                \
+        };                                                                                             \
+        TemplatePrefix struct TGetTypeLayoutHelper<T> : public TGetTypeLayoutHelper<Alias>             \
+        {                                                                                              \
+            UE_STATIC_ONLY(TGetTypeLayoutHelper);                                                      \
+        };                                                                                             \
     }
 
 // @def ALIAS_TYPE_LAYOUT
@@ -998,7 +998,10 @@ namespace OloEngine
         UE_STATIC_ONLY(TStaticGetTypeLayoutHelper);
         static void CallWriteMemoryImage(FMemoryImageWriter& Writer, const void* Object, const FTypeLayoutDesc& TypeDesc, const FTypeLayoutDesc& DerivedTypeDesc)
         {
-            (void)Writer; (void)Object; (void)TypeDesc; (void)DerivedTypeDesc;
+            (void)Writer;
+            (void)Object;
+            (void)TypeDesc;
+            (void)DerivedTypeDesc;
         }
         static void CallDestroy(void* Object, const FTypeLayoutDesc&, const FPointerTableBase*, bool)
         {

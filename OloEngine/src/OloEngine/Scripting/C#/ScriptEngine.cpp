@@ -633,37 +633,94 @@ namespace OloEngine
         OLO_CORE_INFO("[ScriptEngine] C# scripting disabled (Mono not available on this platform)");
     }
     void ScriptEngine::Shutdown() {}
-    bool ScriptEngine::LoadAssembly(const std::filesystem::path&) { return false; }
-    bool ScriptEngine::LoadAppAssembly(const std::filesystem::path&) { return false; }
+    bool ScriptEngine::LoadAssembly(const std::filesystem::path&)
+    {
+        return false;
+    }
+    bool ScriptEngine::LoadAppAssembly(const std::filesystem::path&)
+    {
+        return false;
+    }
     void ScriptEngine::ReloadAssembly() {}
-    void ScriptEngine::OnRuntimeStart(Scene* scene) { s_SceneContext = scene; }
-    void ScriptEngine::OnRuntimeStop() { s_SceneContext = nullptr; }
-    bool ScriptEngine::EntityClassExists(const std::string&) { return false; }
+    void ScriptEngine::OnRuntimeStart(Scene* scene)
+    {
+        s_SceneContext = scene;
+    }
+    void ScriptEngine::OnRuntimeStop()
+    {
+        s_SceneContext = nullptr;
+    }
+    bool ScriptEngine::EntityClassExists(const std::string&)
+    {
+        return false;
+    }
     void ScriptEngine::OnCreateEntity(Entity) {}
     void ScriptEngine::OnUpdateEntity(Entity, Timestep) {}
-    Scene* ScriptEngine::GetSceneContext() { return s_SceneContext; }
-    Ref<ScriptInstance> ScriptEngine::GetEntityScriptInstance(UUID) { return nullptr; }
-    Ref<ScriptClass> ScriptEngine::GetEntityClass(const std::string&) { return nullptr; }
-    std::unordered_map<std::string, Ref<ScriptClass>> ScriptEngine::GetEntityClasses() { return {}; }
-    ScriptFieldMap& ScriptEngine::GetScriptFieldMap(Entity) { return s_EmptyFieldMap; }
-    MonoImage* ScriptEngine::GetCoreAssemblyImage() { return nullptr; }
-    MonoObject* ScriptEngine::GetManagedInstance(UUID) { return nullptr; }
-    MonoString* ScriptEngine::CreateString(const char*) { return nullptr; }
+    Scene* ScriptEngine::GetSceneContext()
+    {
+        return s_SceneContext;
+    }
+    Ref<ScriptInstance> ScriptEngine::GetEntityScriptInstance(UUID)
+    {
+        return nullptr;
+    }
+    Ref<ScriptClass> ScriptEngine::GetEntityClass(const std::string&)
+    {
+        return nullptr;
+    }
+    std::unordered_map<std::string, Ref<ScriptClass>> ScriptEngine::GetEntityClasses()
+    {
+        return {};
+    }
+    ScriptFieldMap& ScriptEngine::GetScriptFieldMap(Entity)
+    {
+        return s_EmptyFieldMap;
+    }
+    MonoImage* ScriptEngine::GetCoreAssemblyImage()
+    {
+        return nullptr;
+    }
+    MonoObject* ScriptEngine::GetManagedInstance(UUID)
+    {
+        return nullptr;
+    }
+    MonoString* ScriptEngine::CreateString(const char*)
+    {
+        return nullptr;
+    }
     void ScriptEngine::InitMono() {}
     void ScriptEngine::ShutdownMono() {}
-    MonoObject* ScriptEngine::InstantiateClass(MonoClass*) { return nullptr; }
+    MonoObject* ScriptEngine::InstantiateClass(MonoClass*)
+    {
+        return nullptr;
+    }
     void ScriptEngine::LoadAssemblyClasses() {}
 
     ScriptClass::ScriptClass(const std::string&, const std::string&, bool) {}
-    MonoObject* ScriptClass::Instantiate() const { return nullptr; }
-    MonoMethod* ScriptClass::GetMethod(const std::string&, int) const { return nullptr; }
-    MonoObject* ScriptClass::InvokeMethod(MonoObject*, MonoMethod*, void**) { return nullptr; }
+    MonoObject* ScriptClass::Instantiate() const
+    {
+        return nullptr;
+    }
+    MonoMethod* ScriptClass::GetMethod(const std::string&, int) const
+    {
+        return nullptr;
+    }
+    MonoObject* ScriptClass::InvokeMethod(MonoObject*, MonoMethod*, void**)
+    {
+        return nullptr;
+    }
 
     ScriptInstance::ScriptInstance(const Ref<ScriptClass>&, Entity) {}
     void ScriptInstance::InvokeOnCreate() {}
     void ScriptInstance::InvokeOnUpdate(f32) {}
-    bool ScriptInstance::GetFieldValueInternal(const std::string&, void*) { return false; }
-    bool ScriptInstance::SetFieldValueInternal(const std::string&, const void*) { return false; }
+    bool ScriptInstance::GetFieldValueInternal(const std::string&, void*)
+    {
+        return false;
+    }
+    bool ScriptInstance::SetFieldValueInternal(const std::string&, const void*)
+    {
+        return false;
+    }
 } // namespace OloEngine
 
 #endif // OLO_ENABLE_CSHARP_SCRIPTING
