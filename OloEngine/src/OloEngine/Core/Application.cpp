@@ -132,6 +132,10 @@ namespace OloEngine
                 m_Window.reset();
             }
             s_Instance = nullptr;
+
+            // Shutdown task scheduler started before the try block.
+            LowLevelTasks::FScheduler::Get().StopWorkers();
+            Tasks::FNamedThreadManager::Get().DetachFromThread(Tasks::ENamedThread::GameThread);
             throw;
         }
     }

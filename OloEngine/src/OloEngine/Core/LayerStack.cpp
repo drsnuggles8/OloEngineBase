@@ -31,6 +31,7 @@ namespace OloEngine
     {
         if (this != &other)
         {
+            Clear();
             m_Layers = std::move(other.m_Layers);
             m_RawPtrs = std::move(other.m_RawPtrs);
             m_LayerInsertIndex = other.m_LayerInsertIndex;
@@ -41,17 +42,19 @@ namespace OloEngine
 
     void LayerStack::PushLayer(std::unique_ptr<Layer> layer)
     {
-        layer->OnAttach();
+        auto* const raw = layer.get();
         m_Layers.emplace(m_Layers.begin() + m_LayerInsertIndex, std::move(layer));
         ++m_LayerInsertIndex;
         RebuildRawPtrs();
+        raw->OnAttach();
     }
 
     void LayerStack::PushOverlay(std::unique_ptr<Layer> overlay)
     {
-        overlay->OnAttach();
+        auto* const raw = overlay.get();
         m_Layers.emplace_back(std::move(overlay));
         RebuildRawPtrs();
+        raw->OnAttach();
     }
 
     std::unique_ptr<Layer> LayerStack::PopLayer(Layer* const layer)
