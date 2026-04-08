@@ -1480,6 +1480,34 @@ namespace OloEngine
                     {
                         auto subdir = std::filesystem::path(m_Directory) / filenamePath.parent_path();
                         auto discovered = FindTextureInDirectory(subdir, filenameOnly);
+
+                        // If the exact subdirectory didn't exist or had no match, try a case-insensitive
+                        // directory name lookup under m_Directory (handles "textures/" vs "Textures/").
+                        if (discovered.empty())
+                        {
+                            std::string targetDir = filenamePath.parent_path().string();
+                            std::ranges::transform(targetDir, targetDir.begin(),
+                                                   [](unsigned char c)
+                                                   { return static_cast<char>(std::tolower(c)); });
+                            std::error_code ec;
+                            for (const auto& dirEntry : std::filesystem::directory_iterator(m_Directory, ec))
+                            {
+                                if (!dirEntry.is_directory(ec))
+                                {
+                                    continue;
+                                }
+                                std::string entryName = dirEntry.path().filename().string();
+                                std::ranges::transform(entryName, entryName.begin(),
+                                                       [](unsigned char c)
+                                                       { return static_cast<char>(std::tolower(c)); });
+                                if (entryName == targetDir)
+                                {
+                                    discovered = FindTextureInDirectory(dirEntry.path(), filenameOnly);
+                                    break;
+                                }
+                            }
+                        }
+
                         if (!discovered.empty())
                         {
                             std::string discoveredStr = discovered.string();

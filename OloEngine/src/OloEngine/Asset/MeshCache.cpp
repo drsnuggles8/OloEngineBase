@@ -262,8 +262,18 @@ namespace OloEngine
                     bool allRemoved = true;
                     for (const auto& entry : std::filesystem::directory_iterator(cacheDir, ec))
                     {
+                        if (ec)
+                        {
+                            allRemoved = false;
+                            break;
+                        }
                         if (!entry.is_regular_file(ec))
                         {
+                            if (ec)
+                            {
+                                allRemoved = false;
+                                ec.clear();
+                            }
                             continue;
                         }
                         if (entry.path().extension() == ".omesh" &&
@@ -273,8 +283,13 @@ namespace OloEngine
                             if (ec)
                             {
                                 allRemoved = false;
+                                ec.clear();
                             }
                         }
+                    }
+                    if (ec)
+                    {
+                        allRemoved = false;
                     }
                     if (allRemoved)
                     {

@@ -2128,62 +2128,33 @@ namespace OloEngine
         return true;
     }
 
-    Ref<Asset> MeshSourceSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
+    // ── Asset-pack deserialization helpers ──────────────────────────────────
+    // Each helper encapsulates reads, validations and logging for one logical
+    // block of the packed MeshSource format.  Returns true on success.
+
+    namespace
     {
-        OLO_PROFILE_FUNCTION();
+        constexpr u64 kMaxEncodedSize = 2'000'000'000; // 2 GB
+        constexpr u32 kMaxVertexCount = 50'000'000;
+        constexpr u32 kMaxIndexCount = 150'000'000;
+        constexpr u32 kMaxSubmeshCount = 10'000;
+        constexpr u32 kMaxMaterialCount = 10'000;
 
-        stream.SetStreamPosition(assetInfo.PackedOffset);
-
-        // Read counts and flags
-        u32 vertexCount = 0;
-        u32 indexCount = 0;
-        u32 submeshCount = 0;
-        u32 materialCount = 0;
-        bool hasBoneInfluences = false;
-        bool hasShadowIndices = false;
-        bool hasSkeleton = false;
-        bool hasBoneInfo = false;
-        bool hasMorphTargets = false;
-
-        stream.ReadRaw<u32>(vertexCount);
-        stream.ReadRaw<u32>(indexCount);
-        stream.ReadRaw<u32>(submeshCount);
-        stream.ReadRaw<u32>(materialCount);
-        stream.ReadRaw<bool>(hasBoneInfluences);
-        stream.ReadRaw<bool>(hasShadowIndices);
-        stream.ReadRaw<bool>(hasSkeleton);
-        stream.ReadRaw<bool>(hasBoneInfo);
-        stream.ReadRaw<bool>(hasMorphTargets);
-
-        // Bounds-check deserialized counts to detect corrupt data early
-        constexpr u32 MAX_VERTEX_COUNT = 50'000'000;
-        constexpr u32 MAX_INDEX_COUNT = 150'000'000;
-        constexpr u32 MAX_SUBMESH_COUNT = 10'000;
-        constexpr u32 MAX_MATERIAL_COUNT = 10'000;
-
-        if (vertexCount > MAX_VERTEX_COUNT || indexCount > MAX_INDEX_COUNT ||
-            submeshCount > MAX_SUBMESH_COUNT || materialCount > MAX_MATERIAL_COUNT)
+        bool DecodeVertexBufferFromPack(FileStreamReader& stream, u32 vertexCount, TArray<Vertex>& outVertices)
         {
-            OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Suspicious counts "
-                           "(verts={}, indices={}, submeshes={}, materials={})",
-                           vertexCount, indexCount, submeshCount, materialCount);
-            return nullptr;
-        }
+            if (vertexCount == 0)
+            {
+                return true;
+            }
 
-        constexpr u64 MAX_ENCODED_SIZE = 2'000'000'000; // 2 GB
-
-        // Decode vertex buffer
-        TArray<Vertex> vertices;
-        if (vertexCount > 0)
-        {
             u64 encodedSize = 0;
             stream.ReadRaw<u64>(encodedSize);
 
-            if (encodedSize > MAX_ENCODED_SIZE)
+            if (encodedSize > kMaxEncodedSize)
             {
                 OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Vertex encodedSize ({}) exceeds limit",
                                encodedSize);
-                return nullptr;
+                return false;
             }
 
             EncodedMeshBuffer encoded;
@@ -2192,26 +2163,30 @@ namespace OloEngine
             stream.ReadData(reinterpret_cast<char*>(encoded.Data.data()),
                             static_cast<sizet>(encodedSize));
 
-            vertices.SetNum(static_cast<i32>(vertexCount));
-            if (!MeshOptimization::DecodeVertexBuffer(vertices.GetData(), vertexCount, sizeof(Vertex), encoded))
+            outVertices.SetNum(static_cast<i32>(vertexCount));
+            if (!MeshOptimization::DecodeVertexBuffer(outVertices.GetData(), vertexCount, sizeof(Vertex), encoded))
             {
                 OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to decode vertex buffer");
-                return nullptr;
+                return false;
             }
+            return true;
         }
 
-        // Decode index buffer
-        TArray<u32> indices;
-        if (indexCount > 0)
+        bool DecodeIndexBufferFromPack(FileStreamReader& stream, u32 indexCount, TArray<u32>& outIndices, u32 vertexCount)
         {
+            if (indexCount == 0)
+            {
+                return true;
+            }
+
             u64 encodedSize = 0;
             stream.ReadRaw<u64>(encodedSize);
 
-            if (encodedSize > MAX_ENCODED_SIZE)
+            if (encodedSize > kMaxEncodedSize)
             {
                 OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Index encodedSize ({}) exceeds limit",
                                encodedSize);
-                return nullptr;
+                return false;
             }
 
             EncodedMeshBuffer encoded;
@@ -2220,69 +2195,61 @@ namespace OloEngine
             stream.ReadData(reinterpret_cast<char*>(encoded.Data.data()),
                             static_cast<sizet>(encodedSize));
 
-            indices.SetNum(static_cast<i32>(indexCount));
-            if (!MeshOptimization::DecodeIndexBuffer(indices.GetData(), indexCount, encoded))
+            outIndices.SetNum(static_cast<i32>(indexCount));
+            if (!MeshOptimization::DecodeIndexBuffer(outIndices.GetData(), indexCount, encoded))
             {
                 OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to decode index buffer");
-                return nullptr;
+                return false;
             }
 
             // Validate decoded indices against vertex count
             for (u32 i = 0; i < indexCount; ++i)
             {
-                if (indices[static_cast<i32>(i)] >= vertexCount)
+                if (outIndices[static_cast<i32>(i)] >= vertexCount)
                 {
                     OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Index {} out of range "
                                    "(value={}, vertexCount={})",
-                                   i, indices[static_cast<i32>(i)], vertexCount);
-                    return nullptr;
+                                   i, outIndices[static_cast<i32>(i)], vertexCount);
+                    return false;
                 }
             }
+            return true;
         }
 
-        auto meshSource = Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
-
-        // Read submeshes
-        for (u32 i = 0; i < submeshCount; ++i)
+        bool ReadSubmeshesFromPack(FileStreamReader& stream, u32 submeshCount, Ref<MeshSource>& meshSource,
+                                   u32 vertexCount, u32 indexCount)
         {
-            Submesh sub;
-            stream.ReadData(reinterpret_cast<char*>(&sub.m_Transform), sizeof(glm::mat4));
-            stream.ReadData(reinterpret_cast<char*>(&sub.m_LocalTransform), sizeof(glm::mat4));
-            stream.ReadData(reinterpret_cast<char*>(&sub.m_BoundingBox), sizeof(BoundingBox));
-            stream.ReadRaw<u32>(sub.m_BaseVertex);
-            stream.ReadRaw<u32>(sub.m_BaseIndex);
-            stream.ReadRaw<u32>(sub.m_MaterialIndex);
-            stream.ReadRaw<u32>(sub.m_IndexCount);
-            stream.ReadRaw<u32>(sub.m_VertexCount);
-            stream.ReadString(sub.m_NodeName);
-            stream.ReadString(sub.m_MeshName);
-            stream.ReadRaw<bool>(sub.m_IsRigged);
-
-            // Validate submesh ranges against total counts to catch corrupt data (overflow-safe)
-            if (sub.m_BaseVertex > vertexCount || sub.m_VertexCount > vertexCount - sub.m_BaseVertex ||
-                sub.m_BaseIndex > indexCount || sub.m_IndexCount > indexCount - sub.m_BaseIndex)
+            for (u32 i = 0; i < submeshCount; ++i)
             {
-                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Submesh {} has out-of-range "
-                               "vertex/index bounds (BaseVertex={}, VertexCount={}, BaseIndex={}, IndexCount={})",
-                               i, sub.m_BaseVertex, sub.m_VertexCount, sub.m_BaseIndex, sub.m_IndexCount);
-                return nullptr;
+                Submesh sub;
+                stream.ReadData(reinterpret_cast<char*>(&sub.m_Transform), sizeof(glm::mat4));
+                stream.ReadData(reinterpret_cast<char*>(&sub.m_LocalTransform), sizeof(glm::mat4));
+                stream.ReadData(reinterpret_cast<char*>(&sub.m_BoundingBox), sizeof(BoundingBox));
+                stream.ReadRaw<u32>(sub.m_BaseVertex);
+                stream.ReadRaw<u32>(sub.m_BaseIndex);
+                stream.ReadRaw<u32>(sub.m_MaterialIndex);
+                stream.ReadRaw<u32>(sub.m_IndexCount);
+                stream.ReadRaw<u32>(sub.m_VertexCount);
+                stream.ReadString(sub.m_NodeName);
+                stream.ReadString(sub.m_MeshName);
+                stream.ReadRaw<bool>(sub.m_IsRigged);
+
+                // Validate submesh ranges against total counts to catch corrupt data (overflow-safe)
+                if (sub.m_BaseVertex > vertexCount || sub.m_VertexCount > vertexCount - sub.m_BaseVertex ||
+                    sub.m_BaseIndex > indexCount || sub.m_IndexCount > indexCount - sub.m_BaseIndex)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Submesh {} has out-of-range "
+                                   "vertex/index bounds (BaseVertex={}, VertexCount={}, BaseIndex={}, IndexCount={})",
+                                   i, sub.m_BaseVertex, sub.m_VertexCount, sub.m_BaseIndex, sub.m_IndexCount);
+                    return false;
+                }
+
+                meshSource->AddSubmesh(sub);
             }
-
-            meshSource->AddSubmesh(sub);
+            return true;
         }
 
-        // Read materials
-        for (u32 i = 0; i < materialCount; ++i)
-        {
-            u32 matIndex = 0;
-            AssetHandle matHandle{};
-            stream.ReadRaw<u32>(matIndex);
-            stream.ReadRaw<AssetHandle>(matHandle);
-            meshSource->SetMaterial(matIndex, matHandle);
-        }
-
-        // Decode bone influences
-        if (hasBoneInfluences)
+        bool ReadBoneInfluencesFromPack(FileStreamReader& stream, Ref<MeshSource>& meshSource, u32 vertexCount)
         {
             u32 boneCount = 0;
             stream.ReadRaw<u32>(boneCount);
@@ -2292,7 +2259,7 @@ namespace OloEngine
             {
                 OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - BoneInfluence count ({}) != vertex count ({})",
                                boneCount, vertexCount);
-                return nullptr;
+                return false;
             }
 
             if (boneCount > 0)
@@ -2300,12 +2267,11 @@ namespace OloEngine
                 u64 encodedSize = 0;
                 stream.ReadRaw<u64>(encodedSize);
 
-                constexpr u64 MAX_ENCODED_SIZE = 2'000'000'000; // 2 GB
-                if (encodedSize > MAX_ENCODED_SIZE)
+                if (encodedSize > kMaxEncodedSize)
                 {
                     OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - BoneInfluence encodedSize ({}) exceeds limit",
                                    encodedSize);
-                    return nullptr;
+                    return false;
                 }
 
                 EncodedMeshBuffer encoded;
@@ -2319,22 +2285,22 @@ namespace OloEngine
                 if (!MeshOptimization::DecodeVertexBuffer(boneInfluences.GetData(), boneCount, sizeof(BoneInfluence), encoded))
                 {
                     OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to decode bone influences");
-                    return nullptr;
+                    return false;
                 }
             }
+            return true;
         }
 
-        // Decode shadow indices
-        if (hasShadowIndices)
+        bool ReadShadowIndicesFromPack(FileStreamReader& stream, Ref<MeshSource>& meshSource, u32 vertexCount)
         {
             u32 shadowCount = 0;
             stream.ReadRaw<u32>(shadowCount);
 
-            if (shadowCount > MAX_INDEX_COUNT)
+            if (shadowCount > kMaxIndexCount)
             {
                 OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Shadow index count ({}) exceeds limit",
                                shadowCount);
-                return nullptr;
+                return false;
             }
 
             if (shadowCount > 0)
@@ -2342,12 +2308,11 @@ namespace OloEngine
                 u64 encodedSize = 0;
                 stream.ReadRaw<u64>(encodedSize);
 
-                constexpr u64 MAX_ENCODED_SIZE = 2'000'000'000; // 2 GB
-                if (encodedSize > MAX_ENCODED_SIZE)
+                if (encodedSize > kMaxEncodedSize)
                 {
                     OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Shadow encodedSize ({}) exceeds limit",
                                    encodedSize);
-                    return nullptr;
+                    return false;
                 }
 
                 EncodedMeshBuffer encoded;
@@ -2361,7 +2326,7 @@ namespace OloEngine
                 if (!MeshOptimization::DecodeIndexBuffer(shadowIndices.GetData(), shadowCount, encoded))
                 {
                     OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to decode shadow indices");
-                    return nullptr;
+                    return false;
                 }
 
                 // Validate shadow index range against vertex count
@@ -2372,14 +2337,14 @@ namespace OloEngine
                         OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Shadow index {} out of range "
                                        "(value={}, vertexCount={})",
                                        si, shadowIndices[static_cast<i32>(si)], vertexCount);
-                        return nullptr;
+                        return false;
                     }
                 }
             }
+            return true;
         }
 
-        // Read skeleton
-        if (hasSkeleton)
+        bool ReadSkeletonFromPack(FileStreamReader& stream, Ref<MeshSource>& meshSource)
         {
             u32 boneCount = 0;
             stream.ReadRaw<u32>(boneCount);
@@ -2389,7 +2354,7 @@ namespace OloEngine
             {
                 OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Bone count {} exceeds limit {}",
                                boneCount, MAX_BONE_COUNT);
-                return nullptr;
+                return false;
             }
 
             auto skeleton = Ref<Skeleton>::Create(static_cast<sizet>(boneCount));
@@ -2443,7 +2408,7 @@ namespace OloEngine
                 !validateMat4Array(skeleton->m_BonePreTransforms, "BonePreTransforms"))
             {
                 OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Corrupt skeleton data, rejecting");
-                return nullptr;
+                return false;
             }
 
             // Bone names
@@ -2467,10 +2432,10 @@ namespace OloEngine
             }
 
             meshSource->SetSkeleton(skeleton);
+            return true;
         }
 
-        // Read bone info
-        if (hasBoneInfo)
+        bool ReadBoneInfoFromPack(FileStreamReader& stream, Ref<MeshSource>& meshSource)
         {
             u32 boneInfoCount = 0;
             stream.ReadRaw<u32>(boneInfoCount);
@@ -2499,15 +2464,15 @@ namespace OloEngine
                 }
                 if (!valid)
                 {
-                    return nullptr;
+                    return false;
                 }
 
                 boneInfo.Add(info);
             }
+            return true;
         }
 
-        // Read morph targets
-        if (hasMorphTargets)
+        bool ReadMorphTargetsFromPack(FileStreamReader& stream, Ref<MeshSource>& meshSource, u32 vertexCount)
         {
             u32 targetCount = 0;
             u32 vertCount = 0;
@@ -2521,16 +2486,23 @@ namespace OloEngine
             {
                 OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Morph targetCount ({}) exceeds limit",
                                targetCount);
-                return nullptr;
+                return false;
             }
             if (vertCount != vertexCount)
             {
                 OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Morph vertCount ({}) does not match vertexCount ({})",
                                vertCount, vertexCount);
-                return nullptr;
+                return false;
             }
 
             auto morphTargetSet = Ref<MorphTargetSet>::Create();
+
+            auto const validateMorphVertex = [](const MorphTargetVertex& v) -> bool
+            {
+                return std::isfinite(v.DeltaPosition.x) && std::isfinite(v.DeltaPosition.y) && std::isfinite(v.DeltaPosition.z) &&
+                       std::isfinite(v.DeltaNormal.x) && std::isfinite(v.DeltaNormal.y) && std::isfinite(v.DeltaNormal.z) &&
+                       std::isfinite(v.DeltaTangent.x) && std::isfinite(v.DeltaTangent.y) && std::isfinite(v.DeltaTangent.z);
+            };
 
             for (u32 t = 0; t < targetCount; ++t)
             {
@@ -2541,7 +2513,7 @@ namespace OloEngine
                 {
                     OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Morph sparseCount ({}) exceeds vertexCount ({})",
                                    sparseCount, vertexCount);
-                    return nullptr;
+                    return false;
                 }
 
                 MorphTarget target;
@@ -2552,7 +2524,7 @@ namespace OloEngine
                 {
                     OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Morph target name length ({}) exceeds limit",
                                    nameLen);
-                    return nullptr;
+                    return false;
                 }
                 if (nameLen > 0)
                 {
@@ -2574,7 +2546,14 @@ namespace OloEngine
                             OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Sparse morph vertex index {} "
                                            "out of range (vertexCount={})",
                                            target.SparseVertices[s].VertexIndex, vertexCount);
-                            return nullptr;
+                            return false;
+                        }
+                        if (!validateMorphVertex(target.SparseVertices[s].Delta))
+                        {
+                            OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Non-finite morph delta at "
+                                           "sparse vertex index {}",
+                                           target.SparseVertices[s].VertexIndex);
+                            return false;
                         }
                     }
                 }
@@ -2586,6 +2565,17 @@ namespace OloEngine
                     {
                         stream.ReadData(reinterpret_cast<char*>(target.Vertices.data()),
                                         vertCount * sizeof(MorphTargetVertex));
+
+                        for (u32 v = 0; v < vertCount; ++v)
+                        {
+                            if (!validateMorphVertex(target.Vertices[v]))
+                            {
+                                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Non-finite morph delta at "
+                                               "dense vertex index {}",
+                                               v);
+                                return false;
+                            }
+                        }
                     }
                 }
 
@@ -2593,6 +2583,106 @@ namespace OloEngine
             }
 
             meshSource->SetMorphTargets(morphTargetSet);
+            return true;
+        }
+    } // anonymous namespace
+
+    Ref<Asset> MeshSourceSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        stream.SetStreamPosition(assetInfo.PackedOffset);
+
+        // Read counts and flags
+        u32 vertexCount = 0;
+        u32 indexCount = 0;
+        u32 submeshCount = 0;
+        u32 materialCount = 0;
+        bool hasBoneInfluences = false;
+        bool hasShadowIndices = false;
+        bool hasSkeleton = false;
+        bool hasBoneInfo = false;
+        bool hasMorphTargets = false;
+
+        stream.ReadRaw<u32>(vertexCount);
+        stream.ReadRaw<u32>(indexCount);
+        stream.ReadRaw<u32>(submeshCount);
+        stream.ReadRaw<u32>(materialCount);
+        stream.ReadRaw<bool>(hasBoneInfluences);
+        stream.ReadRaw<bool>(hasShadowIndices);
+        stream.ReadRaw<bool>(hasSkeleton);
+        stream.ReadRaw<bool>(hasBoneInfo);
+        stream.ReadRaw<bool>(hasMorphTargets);
+
+        // Bounds-check deserialized counts to detect corrupt data early
+        if (vertexCount > kMaxVertexCount || indexCount > kMaxIndexCount ||
+            submeshCount > kMaxSubmeshCount || materialCount > kMaxMaterialCount)
+        {
+            OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Suspicious counts "
+                           "(verts={}, indices={}, submeshes={}, materials={})",
+                           vertexCount, indexCount, submeshCount, materialCount);
+            return nullptr;
+        }
+
+        // Decode vertex and index buffers
+        TArray<Vertex> vertices;
+        if (!DecodeVertexBufferFromPack(stream, vertexCount, vertices))
+        {
+            return nullptr;
+        }
+
+        TArray<u32> indices;
+        if (!DecodeIndexBufferFromPack(stream, indexCount, indices, vertexCount))
+        {
+            return nullptr;
+        }
+
+        auto meshSource = Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+
+        // Read submeshes
+        if (!ReadSubmeshesFromPack(stream, submeshCount, meshSource, vertexCount, indexCount))
+        {
+            return nullptr;
+        }
+
+        // Read materials
+        for (u32 i = 0; i < materialCount; ++i)
+        {
+            u32 matIndex = 0;
+            AssetHandle matHandle{};
+            stream.ReadRaw<u32>(matIndex);
+            stream.ReadRaw<AssetHandle>(matHandle);
+            meshSource->SetMaterial(matIndex, matHandle);
+        }
+
+        // Decode bone influences
+        if (hasBoneInfluences && !ReadBoneInfluencesFromPack(stream, meshSource, vertexCount))
+        {
+            return nullptr;
+        }
+
+        // Decode shadow indices
+        if (hasShadowIndices && !ReadShadowIndicesFromPack(stream, meshSource, vertexCount))
+        {
+            return nullptr;
+        }
+
+        // Read skeleton
+        if (hasSkeleton && !ReadSkeletonFromPack(stream, meshSource))
+        {
+            return nullptr;
+        }
+
+        // Read bone info
+        if (hasBoneInfo && !ReadBoneInfoFromPack(stream, meshSource))
+        {
+            return nullptr;
+        }
+
+        // Read morph targets
+        if (hasMorphTargets && !ReadMorphTargetsFromPack(stream, meshSource, vertexCount))
+        {
+            return nullptr;
         }
 
         meshSource->SetHandle(assetInfo.Handle);

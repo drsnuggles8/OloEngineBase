@@ -13,10 +13,14 @@
 
 #include <zlib.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <fstream>
+#include <memory>
 #include <sstream>
+#include <string>
+#include <vector>
 
 namespace OloEngine
 {
@@ -33,7 +37,7 @@ namespace OloEngine
             out.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(size));
         }
 
-        void ReadBytes(std::istream& in, void* data, sizet size)
+        bool ReadBytes(std::istream& in, void* data, sizet size)
         {
             in.read(reinterpret_cast<char*>(data), static_cast<std::streamsize>(size));
             if (in.gcount() != static_cast<std::streamsize>(size))
@@ -43,7 +47,9 @@ namespace OloEngine
                 std::memset(static_cast<u8*>(data) + bytesRead, 0, size - bytesRead);
                 OLO_CORE_ERROR("ReadBytes: short read ({} of {} bytes)", in.gcount(), size);
                 in.setstate(std::ios::failbit);
+                return false;
             }
+            return true;
         }
 
         void WriteString(std::ostream& out, const std::string& str)
@@ -549,7 +555,11 @@ namespace OloEngine
 
         // Read header
         OMeshFormat::FileHeader header;
-        ReadBytes(in, &header, sizeof(header));
+        if (!ReadBytes(in, &header, sizeof(header)))
+        {
+            OLO_CORE_ERROR("MeshBinarySerializer::Read: Failed to read header from '{}'", path.string());
+            return nullptr;
+        }
 
         if (header.Magic != OMeshFormat::MagicNumber)
         {
@@ -595,7 +605,11 @@ namespace OloEngine
             }
 
             std::vector<u8> compressedData(compressedSize);
-            ReadBytes(in, compressedData.data(), compressedSize);
+            if (!ReadBytes(in, compressedData.data(), compressedSize))
+            {
+                OLO_CORE_ERROR("MeshBinarySerializer::Read: Failed to read compressed payload from '{}'", path.string());
+                return nullptr;
+            }
 
             // Validate CRC32 checksum (always computed by Write, never legitimately zero)
             if (auto computed = Hash::CRC32(compressedData.data(), compressedData.size());
@@ -630,7 +644,35 @@ namespace OloEngine
 
         // Read section directory
         OMeshFormat::SectionDirectory directory;
-        ReadBytes(payload, &directory, sizeof(directory));
+        if (!ReadBytes(payload, &directory, sizeof(directory)))
+        {
+            OLO_CORE_ERROR("MeshBinarySerializer::Read: Failed to read section directory from '{}'", path.string());
+            return nullptr;
+        }
+
+        // Compute payload length for section bounds validation
+        auto const payloadLen = header.UncompressedPayloadSize > 0
+                                    ? header.UncompressedPayloadSize
+                                    : (header.TotalFileSize > sizeof(OMeshFormat::FileHeader)
+                                           ? header.TotalFileSize - sizeof(OMeshFormat::FileHeader)
+                                           : u64(0));
+
+        // Validate all section entries against payload bounds
+        for (u16 s = 0; s < OMeshFormat::kSectionCount; ++s)
+        {
+            const auto& sec = directory.Sections[s];
+            if (sec.Size == 0)
+            {
+                continue;
+            }
+            if (sec.Offset > payloadLen || sec.Size > payloadLen - sec.Offset)
+            {
+                OLO_CORE_ERROR("MeshBinarySerializer::Read: Section {} out of bounds "
+                               "(Offset={}, Size={}, PayloadLen={}) in '{}'",
+                               s, sec.Offset, sec.Size, payloadLen, path.string());
+                return nullptr;
+            }
+        }
 
         TArray<Vertex> vertices;
         TArray<u32> indices;
@@ -779,6 +821,33 @@ namespace OloEngine
                 {
                     OMeshFormat::SubmeshEntry entry{};
                     ReadBytes(payload, &entry, sizeof(entry));
+
+                    // Validate all float components for NaN/Inf
+                    {
+                        bool valid = true;
+                        for (int f = 0; f < 16; ++f)
+                        {
+                            if (!std::isfinite(entry.Transform[f]) || !std::isfinite(entry.LocalTransform[f]))
+                            {
+                                valid = false;
+                                break;
+                            }
+                        }
+                        for (int a = 0; a < 3 && valid; ++a)
+                        {
+                            if (!std::isfinite(entry.BoundsMin[a]) || !std::isfinite(entry.BoundsMax[a]) ||
+                                entry.BoundsMin[a] > entry.BoundsMax[a])
+                            {
+                                valid = false;
+                            }
+                        }
+                        if (!valid)
+                        {
+                            OLO_CORE_ERROR("MeshBinarySerializer::Read: Submesh {} has non-finite or inverted bounds in '{}'",
+                                           i, path.string());
+                            return nullptr;
+                        }
+                    }
 
                     Submesh sub;
                     std::memcpy(&sub.m_Transform[0][0], entry.Transform, sizeof(f32) * 16);
@@ -973,6 +1042,13 @@ namespace OloEngine
                     return nullptr;
                 }
 
+                if (biHeader.BoneInfoCount > 0 && !meshSource->HasSkeleton())
+                {
+                    OLO_CORE_ERROR("MeshBinarySerializer::Read: BoneInfo section has {} entries but no skeleton was loaded in '{}'",
+                                   biHeader.BoneInfoCount, path.string());
+                    return nullptr;
+                }
+
                 auto& boneInfo = meshSource->GetBoneInfo();
                 auto const skeletonBoneCount = meshSource->HasSkeleton()
                                                    ? static_cast<u32>(meshSource->GetSkeleton()->m_BoneNames.size())
@@ -1103,7 +1179,10 @@ namespace OloEngine
         }
 
         OMeshFormat::FileHeader header;
-        ReadBytes(in, &header, sizeof(header));
+        if (!ReadBytes(in, &header, sizeof(header)))
+        {
+            return false;
+        }
 
         if (header.Magic != OMeshFormat::MagicNumber || header.Version != OMeshFormat::CurrentVersion)
         {
@@ -1272,7 +1351,11 @@ namespace OloEngine
         }
 
         OAnimFormat::FileHeader header;
-        ReadBytes(in, &header, sizeof(header));
+        if (!ReadBytes(in, &header, sizeof(header)))
+        {
+            OLO_CORE_ERROR("AnimationBinarySerializer::Read: Failed to read header from '{}'", path.string());
+            return {};
+        }
 
         if (header.Magic != OAnimFormat::MagicNumber)
         {
@@ -1307,7 +1390,11 @@ namespace OloEngine
                 return {};
             }
             std::vector<u8> compressedData(compressedSize);
-            ReadBytes(in, compressedData.data(), compressedSize);
+            if (!ReadBytes(in, compressedData.data(), compressedSize))
+            {
+                OLO_CORE_ERROR("AnimationBinarySerializer::Read: Failed to read compressed payload from '{}'", path.string());
+                return {};
+            }
 
             // Validate CRC32 checksum (always computed by Write, never legitimately zero)
             if (auto computed = Hash::CRC32(compressedData.data(), compressedData.size());
@@ -1340,7 +1427,11 @@ namespace OloEngine
         auto const payloadBase = decompressedStream ? sizet(0) : sizeof(OAnimFormat::FileHeader);
 
         u32 clipCount = 0;
-        ReadBytes(payload, &clipCount, sizeof(u32));
+        if (!ReadBytes(payload, &clipCount, sizeof(u32)))
+        {
+            OLO_CORE_ERROR("AnimationBinarySerializer::Read: Failed to read clip count from '{}'", path.string());
+            return {};
+        }
 
         if (clipCount > OAnimFormat::MaxClipCount)
         {
@@ -1350,7 +1441,11 @@ namespace OloEngine
         }
 
         std::vector<OAnimFormat::ClipDirectoryEntry> directory(clipCount);
-        ReadBytes(payload, directory.data(), clipCount * sizeof(OAnimFormat::ClipDirectoryEntry));
+        if (!ReadBytes(payload, directory.data(), clipCount * sizeof(OAnimFormat::ClipDirectoryEntry)))
+        {
+            OLO_CORE_ERROR("AnimationBinarySerializer::Read: Failed to read clip directory from '{}'", path.string());
+            return {};
+        }
 
         std::vector<Ref<AnimationClip>> clips;
         clips.reserve(clipCount);
@@ -1529,7 +1624,10 @@ namespace OloEngine
         }
 
         OAnimFormat::FileHeader header;
-        ReadBytes(in, &header, sizeof(header));
+        if (!ReadBytes(in, &header, sizeof(header)))
+        {
+            return false;
+        }
 
         if (header.Magic != OAnimFormat::MagicNumber || header.Version != OAnimFormat::CurrentVersion)
         {
