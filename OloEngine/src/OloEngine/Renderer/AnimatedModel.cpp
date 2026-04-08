@@ -180,6 +180,10 @@ namespace OloEngine
                 mesh->SetPreOptimized(true); // Data was already optimized before caching — skip re-optimization
                 mesh->Build();
 
+                // Shadow indices cannot be split from the combined buffer (spatial sort
+                // reorders triangles globally), so regenerate them per-split mesh.
+                MeshOptimization::GenerateShadowIndices(*mesh);
+
                 outMeshes.push_back(mesh);
             }
 

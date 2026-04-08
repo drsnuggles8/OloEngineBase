@@ -271,6 +271,8 @@ namespace OloEngine
         }
 
         // Second pass: load and upload each face
+        // Set alignment to 1 for safety — RGB (3-byte) rows may not be 4-byte aligned.
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
         for (u32 i = 0; i < 6; i++)
         {
             stbi_uc* data = stbi_load(facePaths[i].c_str(), &width, &height, &channels, 0);
@@ -295,6 +297,7 @@ namespace OloEngine
 
             stbi_image_free(data);
         }
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4); // Restore default
 
         // Set texture parameters appropriate for cubemaps
         glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
@@ -385,7 +388,7 @@ namespace OloEngine
             glGenerateTextureMipmap(m_RendererID);
     }
 
-    void OpenGLTextureCubemap::SetFaceDataMip(u32 faceIndex, u32 mipLevel, void* data, u32 size)
+    bool OpenGLTextureCubemap::SetFaceDataMip(u32 faceIndex, u32 mipLevel, void* data, u32 size)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -396,21 +399,24 @@ namespace OloEngine
         if (formatInfo.DataType == 0 || formatInfo.BytesPerPixel == 0)
         {
             OLO_CORE_ERROR("SetFaceDataMip: Unsupported image format for cubemap face {} mip {}", faceIndex, mipLevel);
-            return;
+            return false;
         }
 
         if (mipLevel >= GetMipLevelCount())
         {
             OLO_CORE_ERROR("SetFaceDataMip: mipLevel {} out of range (max {})", mipLevel, GetMipLevelCount() - 1);
-            return;
+            return false;
         }
 
         u32 mipWidth = std::max(1u, m_Width >> mipLevel);
         u32 mipHeight = std::max(1u, m_Height >> mipLevel);
 
-        OLO_CORE_ASSERT(size == mipWidth * mipHeight * formatInfo.BytesPerPixel,
-                        "Data size doesn't match mip {} face dimensions! Expected: {}, Got: {}",
-                        mipLevel, mipWidth * mipHeight * formatInfo.BytesPerPixel, size);
+        if (size != mipWidth * mipHeight * formatInfo.BytesPerPixel)
+        {
+            OLO_CORE_ERROR("SetFaceDataMip: Data size mismatch for mip {} face {} (expected {}, got {})",
+                           mipLevel, faceIndex, mipWidth * mipHeight * formatInfo.BytesPerPixel, size);
+            return false;
+        }
 
         // Ensure correct pixel unpack alignment for formats where row size
         // is not a multiple of 4 (e.g. RGB8 with odd widths, R8 formats).
@@ -438,6 +444,8 @@ namespace OloEngine
         {
             glPixelStorei(GL_UNPACK_ALIGNMENT, prevAlignment);
         }
+
+        return true;
     }
 
     void OpenGLTextureCubemap::Invalidate(std::string_view /*path*/, u32 /*width*/, u32 /*height*/, const void* /*data*/, u32 /*channels*/)
@@ -457,6 +465,13 @@ namespace OloEngine
         if (!m_CubemapSpecification.GenerateMips)
         {
             return 1;
+        }
+
+        // Use explicit mip count if provided (e.g., prefilter maps with
+        // precomputed roughness-convolved levels that differ from the full chain).
+        if (m_CubemapSpecification.MipLevels > 0)
+        {
+            return m_CubemapSpecification.MipLevels;
         }
 
         // Calculate number of mip levels based on dimensions

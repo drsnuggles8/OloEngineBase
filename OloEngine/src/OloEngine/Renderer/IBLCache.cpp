@@ -456,6 +456,7 @@ namespace OloEngine
         spec.Format = static_cast<ImageFormat>(header.Format);
         // Allocate mip storage but do NOT auto-generate mips — we load precomputed data.
         spec.GenerateMips = header.MipLevels > 1;
+        spec.MipLevels = header.MipLevels; // Exact count so no uninitialized mips are allocated
 
         Ref<TextureCubemap> cubemap = TextureCubemap::Create(spec);
 
@@ -487,7 +488,11 @@ namespace OloEngine
                     return nullptr;
                 }
 
-                cubemap->SetFaceDataMip(face, mip, faceData.data(), static_cast<u32>(faceSize));
+                if (!cubemap->SetFaceDataMip(face, mip, faceData.data(), static_cast<u32>(faceSize)))
+                {
+                    OLO_CORE_ERROR("IBLCache: SetFaceDataMip failed for mip {} face {} from {}", mip, face, path.string());
+                    return nullptr;
+                }
             }
         }
 

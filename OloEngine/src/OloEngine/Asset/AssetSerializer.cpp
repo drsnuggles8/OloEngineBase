@@ -1854,6 +1854,10 @@ namespace OloEngine
             return false;
         }
 
+        // CreateCombinedMeshSource does not call Build() (it's also used for cache-only
+        // serialization). Build GPU buffers here so the asset is renderable.
+        meshSource->Build();
+
         meshSource->SetHandle(metadata.Handle);
         asset = meshSource;
         OLO_CORE_TRACE("MeshSourceSerializer::TryLoadData - Loaded via Assimp: {} ({} verts, {} submeshes)",
@@ -2188,6 +2192,17 @@ namespace OloEngine
             stream.ReadString(sub.m_NodeName);
             stream.ReadString(sub.m_MeshName);
             stream.ReadRaw<bool>(sub.m_IsRigged);
+
+            // Validate submesh ranges against total counts to catch corrupt data
+            if (sub.m_BaseVertex + sub.m_VertexCount > vertexCount ||
+                sub.m_BaseIndex + sub.m_IndexCount > indexCount)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Submesh {} has out-of-range "
+                               "vertex/index bounds (BaseVertex={}, VertexCount={}, BaseIndex={}, IndexCount={})",
+                               i, sub.m_BaseVertex, sub.m_VertexCount, sub.m_BaseIndex, sub.m_IndexCount);
+                return nullptr;
+            }
+
             meshSource->AddSubmesh(sub);
         }
 
@@ -2223,6 +2238,7 @@ namespace OloEngine
                 if (!MeshOptimization::DecodeVertexBuffer(boneInfluences.GetData(), boneCount, sizeof(BoneInfluence), encoded))
                 {
                     OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to decode bone influences");
+                    return nullptr;
                 }
             }
         }
@@ -2249,6 +2265,7 @@ namespace OloEngine
                 if (!MeshOptimization::DecodeIndexBuffer(shadowIndices.GetData(), shadowCount, encoded))
                 {
                     OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to decode shadow indices");
+                    return nullptr;
                 }
             }
         }

@@ -7,6 +7,7 @@
 
 #include <meshoptimizer.h>
 
+#include <cmath>
 #include <cstring>
 #include <vector>
 
@@ -102,6 +103,25 @@ namespace OloEngine::MeshOptimization
             return nullptr;
         }
 
+        // Multi-submesh LOD collapses all materials into index 0 — reject early
+        if (meshSource.GetSubmeshes().Num() > 1)
+        {
+            OLO_CORE_WARN("MeshOptimization::GenerateLODMesh: Multi-submesh LOD not supported ({} submeshes)",
+                          meshSource.GetSubmeshes().Num());
+            return nullptr;
+        }
+
+        // Sanitize incoming floats (may originate from serialized/UI data)
+        if (!std::isfinite(targetRatio))
+        {
+            targetRatio = 0.5f;
+        }
+        targetRatio = std::clamp(targetRatio, 0.0f, 1.0f);
+        if (!std::isfinite(targetError) || targetError < 0.0f)
+        {
+            targetError = 0.01f;
+        }
+
         auto vertexCount = static_cast<sizet>(srcVertices.Num());
         auto indexCount = static_cast<sizet>(srcIndices.Num());
 
@@ -151,7 +171,7 @@ namespace OloEngine::MeshOptimization
         }
         else
         {
-            // Multi-submesh or no-submesh source: create a single submesh spanning all data
+            // No-submesh source: create a single submesh spanning all data
             Submesh submesh;
             submesh.m_BaseVertex = 0;
             submesh.m_BaseIndex = 0;
@@ -177,6 +197,25 @@ namespace OloEngine::MeshOptimization
         if (srcVertices.IsEmpty() || srcIndices.IsEmpty())
         {
             return nullptr;
+        }
+
+        // Multi-submesh LOD collapses all materials into index 0 — reject early
+        if (meshSource.GetSubmeshes().Num() > 1)
+        {
+            OLO_CORE_WARN("MeshOptimization::GenerateLODMeshWithAttributes: Multi-submesh LOD not supported ({} submeshes)",
+                          meshSource.GetSubmeshes().Num());
+            return nullptr;
+        }
+
+        // Sanitize incoming floats (may originate from serialized/UI data)
+        if (!std::isfinite(targetRatio))
+        {
+            targetRatio = 0.5f;
+        }
+        targetRatio = std::clamp(targetRatio, 0.0f, 1.0f);
+        if (!std::isfinite(targetError) || targetError < 0.0f)
+        {
+            targetError = 0.01f;
         }
 
         auto vertexCount = static_cast<sizet>(srcVertices.Num());
@@ -247,7 +286,7 @@ namespace OloEngine::MeshOptimization
         }
         else
         {
-            // Multi-submesh or no-submesh source: create a single submesh spanning all data
+            // No-submesh source: create a single submesh spanning all data
             Submesh submesh;
             submesh.m_BaseVertex = 0;
             submesh.m_BaseIndex = 0;

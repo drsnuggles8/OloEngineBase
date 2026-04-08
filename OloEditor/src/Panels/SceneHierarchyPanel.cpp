@@ -2103,7 +2103,7 @@ namespace OloEngine
 			{
 				ImGui::Text("Submeshes: %d", component.m_MeshSource->GetSubmeshes().Num());
 				ImGui::Text("Vertices: %d", component.m_MeshSource->GetVertices().Num());
-				ImGui::Text("Shadow IB: %s", component.m_MeshSource->HasShadowVertexArray() ? "Yes" : "No");
+				ImGui::Text("Shadow VA: %s", component.m_MeshSource->HasShadowVertexArray() ? "Yes" : "No");
 
 				// On-demand mesh analysis via meshoptimizer
 				if (ImGui::TreeNode("Mesh Analysis"))
@@ -2457,7 +2457,7 @@ namespace OloEngine
             if (entity.HasComponent<MeshComponent>())
             {
                 auto& meshComp = entity.GetComponent<MeshComponent>();
-                if (meshComp.m_MeshSource && !meshComp.m_MeshSource->GetSubmeshes().IsEmpty())
+                if (meshComp.m_MeshSource && meshComp.m_MeshSource->GetSubmeshes().Num() == 1)
                 {
                     ImGui::SameLine();
                     if (ImGui::Button("Generate LODs"))

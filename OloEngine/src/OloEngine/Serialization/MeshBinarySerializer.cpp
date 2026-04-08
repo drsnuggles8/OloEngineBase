@@ -133,6 +133,14 @@ namespace OloEngine
                 return {};
             }
 
+            // Guard against corrupt headers claiming unreasonable sizes
+            constexpr sizet MAX_UNCOMPRESSED_SIZE = 512u * 1024u * 1024u; // 512 MiB
+            if (uncompressedSize > MAX_UNCOMPRESSED_SIZE)
+            {
+                OLO_CORE_ERROR("ZlibDecompress: claimed uncompressed size {} exceeds limit {}", uncompressedSize, MAX_UNCOMPRESSED_SIZE);
+                return {};
+            }
+
             std::vector<u8> decompressed(uncompressedSize);
             auto destLen = static_cast<uLongf>(uncompressedSize);
 
@@ -817,7 +825,7 @@ namespace OloEngine
                                                               biHeader.InfluenceCount, biHeader.InfluenceStride, encoded))
                     {
                         OLO_CORE_ERROR("MeshBinarySerializer::Read: Failed to decode bone influences in '{}'", path.string());
-                        boneInfluences.Empty(); // Clear garbage data from failed decode
+                        return nullptr;
                     }
                 }
             }

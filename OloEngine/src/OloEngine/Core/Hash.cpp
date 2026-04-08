@@ -56,7 +56,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         if (!str)
-            return 0;
+            return 0xFFFFFFFFu; // Distinct sentinel for null pointer (consistent with void* overload)
 
         u32 crc = 0xFFFFFFFF;
         while (*str)

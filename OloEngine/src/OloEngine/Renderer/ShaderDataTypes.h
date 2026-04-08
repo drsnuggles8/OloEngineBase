@@ -62,7 +62,7 @@ namespace OloEngine
             case ShaderDataType::Int4:
                 return 4 * 4;
             case ShaderDataType::Bool:
-                return 1;
+                return 4; // Must match GL_UNSIGNED_INT (4 bytes) used in OpenGLVertexArray
             default:
                 return 0;
         }

@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <tuple>
 #include <vector>
 
 #include "OloEngine/Renderer/MeshOptimization.h"
@@ -85,6 +86,34 @@ static Ref<MeshSource> MakeGridMesh(u32 gridSize)
 }
 
 // =============================================================================
+// Helper: extract canonical triangle multiset from a mesh
+// Each triangle is a sorted triple of positions for order-independent comparison
+// =============================================================================
+
+using Vec3Tuple = std::tuple<float, float, float>;
+using CanonicalTriangle = std::array<Vec3Tuple, 3>;
+
+static std::vector<CanonicalTriangle> ExtractCanonicalTriangles(const MeshSource& mesh)
+{
+    const auto& verts = mesh.GetVertices();
+    const auto& idxs = mesh.GetIndices();
+    std::vector<CanonicalTriangle> triangles;
+    triangles.reserve(static_cast<size_t>(idxs.Num()) / 3);
+
+    for (i32 i = 0; i + 2 < idxs.Num(); i += 3)
+    {
+        CanonicalTriangle tri = { { { verts[idxs[i]].Position.x, verts[idxs[i]].Position.y, verts[idxs[i]].Position.z },
+                                    { verts[idxs[i + 1]].Position.x, verts[idxs[i + 1]].Position.y, verts[idxs[i + 1]].Position.z },
+                                    { verts[idxs[i + 2]].Position.x, verts[idxs[i + 2]].Position.y, verts[idxs[i + 2]].Position.z } } };
+        std::sort(tri.begin(), tri.end());
+        triangles.push_back(tri);
+    }
+
+    std::sort(triangles.begin(), triangles.end());
+    return triangles;
+}
+
+// =============================================================================
 // OptimizeMesh Tests
 // =============================================================================
 
@@ -105,6 +134,8 @@ TEST(MeshOptimization, OptimizeMeshPreservesTriangleContent)
     auto mesh = MakeGridMesh(4);
     auto originalIdxCount = mesh->GetIndices().Num();
 
+    auto trianglesBefore = ExtractCanonicalTriangles(*mesh);
+
     MeshOptimization::OptimizeMesh(*mesh);
 
     // Index count must remain the same (same triangles, different order)
@@ -116,6 +147,10 @@ TEST(MeshOptimization, OptimizeMeshPreservesTriangleContent)
     {
         EXPECT_LT(mesh->GetIndices()[i], vertCount) << "Invalid index at position " << i;
     }
+
+    // The exact same set of triangles (by position) must be present
+    auto trianglesAfter = ExtractCanonicalTriangles(*mesh);
+    EXPECT_EQ(trianglesBefore, trianglesAfter) << "Optimization altered the triangle set";
 }
 
 TEST(MeshOptimization, OptimizeMeshHandlesEmptyMesh)
@@ -482,7 +517,7 @@ TEST(MeshOptimization, ShadowIndicesAreSpatialSorted)
     }
 }
 
-TEST(MeshOptimization, AttributeAwareLODPreservesUVQuality)
+TEST(MeshOptimization, AttributeAwareLODProducesValidOutput)
 {
     // Verify attribute-aware LOD produces valid output
     // that preserves more attribute quality than basic simplification
