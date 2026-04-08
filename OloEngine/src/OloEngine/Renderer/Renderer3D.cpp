@@ -1005,6 +1005,8 @@ namespace OloEngine
         cmd->normalMap1ID = params.normalMap1ID;
         cmd->noiseTextureID = params.noiseTextureID;
         cmd->foamTextureID = params.foamTextureID;
+        cmd->refractionEnabled = params.refractionEnabled;
+        cmd->ssrEnabled = params.ssrEnabled;
         cmd->entityID = entityID;
 
         // Water render state: translucent, depth test on, depth write off, alpha blend

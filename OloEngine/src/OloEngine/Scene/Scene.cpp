@@ -3338,9 +3338,15 @@ namespace OloEngine
                     }
                     waterParams.lightDirection = glm::vec4(glm::normalize(safeLightDir), 0.0f);
 
-                    // Screen params for depth/refraction
-                    f32 vpW = static_cast<f32>(m_ViewportWidth);
-                    f32 vpH = static_cast<f32>(m_ViewportHeight);
+                    // Screen params for depth/refraction — use framebuffer pixel dimensions (DPI-aware)
+                    f32 vpW = 0.0f;
+                    f32 vpH = 0.0f;
+                    if (auto scenePass = Renderer3D::GetScenePass(); scenePass && scenePass->GetTarget())
+                    {
+                        auto const& spec = scenePass->GetTarget()->GetSpecification();
+                        vpW = static_cast<f32>(spec.Width);
+                        vpH = static_cast<f32>(spec.Height);
+                    }
                     waterParams.screenParams = glm::vec4(vpW, vpH,
                                                          vpW > 0.0f ? 1.0f / vpW : 0.0f,
                                                          vpH > 0.0f ? 1.0f / vpH : 0.0f);
@@ -3371,6 +3377,22 @@ namespace OloEngine
                         water.m_TessellationEnabled ? water.m_TessellationFactor : 0.0f,
                         water.m_TessMinDistance,
                         water.m_TessMaxDistance, 0.0f);
+
+                    // Feature toggles
+                    waterParams.refractionEnabled = water.m_RefractionEnabled;
+                    waterParams.ssrEnabled = water.m_SSREnabled;
+
+                    // Sanitize scalar UBO fields — defence-in-depth against NaN/Inf reaching the GPU
+                    auto const safeF = [](f32 v, f32 fallback)
+                    { return std::isfinite(v) ? v : fallback; };
+                    waterParams.depthRefractionParams.x = safeF(waterParams.depthRefractionParams.x, 1.0f);
+                    waterParams.depthRefractionParams.y = safeF(waterParams.depthRefractionParams.y, 0.0f);
+                    waterParams.depthRefractionParams.z = safeF(waterParams.depthRefractionParams.z, 0.0f);
+                    waterParams.ssrParams.y = safeF(waterParams.ssrParams.y, 0.1f);
+                    waterParams.ssrParams.z = safeF(waterParams.ssrParams.z, 50.0f);
+                    waterParams.ssrParams.w = safeF(waterParams.ssrParams.w, 0.1f);
+                    waterParams.tessParams.y = safeF(waterParams.tessParams.y, 5.0f);
+                    waterParams.tessParams.z = safeF(waterParams.tessParams.z, 100.0f);
 
                     // Resolve texture IDs
                     if (water.m_NormalMap0 != 0)

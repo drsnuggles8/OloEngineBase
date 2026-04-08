@@ -1233,6 +1233,10 @@ namespace OloEngine
         water.m_RefractionDistortion = waterComponent["RefractionDistortion"].as<f32>(water.m_RefractionDistortion);
         water.m_RefractionHeightFactor = waterComponent["RefractionHeightFactor"].as<f32>(water.m_RefractionHeightFactor);
         water.m_RefractionColor = waterComponent["RefractionColor"].as<glm::vec3>(water.m_RefractionColor);
+        if (auto const refrEnabled = waterComponent["RefractionEnabled"])
+        {
+            water.m_RefractionEnabled = refrEnabled.as<bool>(water.m_RefractionEnabled);
+        }
         water.m_FoamTexture = waterComponent["FoamTexture"].as<u64>(water.m_FoamTexture);
         water.m_FoamHeightStart = waterComponent["FoamHeightStart"].as<f32>(water.m_FoamHeightStart);
         water.m_FoamFadeDistance = waterComponent["FoamFadeDistance"].as<f32>(water.m_FoamFadeDistance);
@@ -1246,6 +1250,10 @@ namespace OloEngine
         water.m_SSRStepSize = waterComponent["SSRStepSize"].as<f32>(water.m_SSRStepSize);
         water.m_SSRMaxDistance = waterComponent["SSRMaxDistance"].as<f32>(water.m_SSRMaxDistance);
         water.m_SSRThickness = waterComponent["SSRThickness"].as<f32>(water.m_SSRThickness);
+        if (auto const ssrEnabled = waterComponent["SSREnabled"])
+        {
+            water.m_SSREnabled = ssrEnabled.as<bool>(water.m_SSREnabled);
+        }
         if (auto const tessEnabled = waterComponent["TessellationEnabled"])
         {
             water.m_TessellationEnabled = tessEnabled.as<bool>(water.m_TessellationEnabled);
@@ -1283,11 +1291,11 @@ namespace OloEngine
         SanitizeVec2(water.m_NormalMapScrollDir0, { 1.0f, 0.0f });
         SanitizeVec2(water.m_NormalMapScrollDir1, { 0.0f, 1.0f });
         // Normalize scroll directions to unit length so speed remains independent of vector magnitude
-        if (auto const len0 = glm::length(water.m_NormalMapScrollDir0); len0 > 1e-4f)
+        if (auto const len0 = glm::length(water.m_NormalMapScrollDir0); std::isfinite(len0) && len0 > 1e-4f)
             water.m_NormalMapScrollDir0 /= len0;
         else
             water.m_NormalMapScrollDir0 = { 1.0f, 0.0f };
-        if (auto const len1 = glm::length(water.m_NormalMapScrollDir1); len1 > 1e-4f)
+        if (auto const len1 = glm::length(water.m_NormalMapScrollDir1); std::isfinite(len1) && len1 > 1e-4f)
             water.m_NormalMapScrollDir1 /= len1;
         else
             water.m_NormalMapScrollDir1 = { 0.0f, 1.0f };
@@ -1314,8 +1322,8 @@ namespace OloEngine
         SanitizeFloat(water.m_TessellationFactor, 1.0f, 64.0f, 8.0f);
         SanitizeFloat(water.m_TessMinDistance, 1.0f, 500.0f, 10.0f);
         SanitizeFloat(water.m_TessMaxDistance, 10.0f, 1000.0f, 200.0f);
-        // Enforce ordering: max must exceed min
-        if (water.m_TessMaxDistance <= water.m_TessMinDistance)
+        // Enforce ordering: max must exceed min by at least 1.0
+        if (water.m_TessMaxDistance < water.m_TessMinDistance + 1.0f)
             water.m_TessMaxDistance = water.m_TessMinDistance + 1.0f;
 
         water.m_NeedsRebuild = true;
@@ -4260,6 +4268,7 @@ namespace OloEngine
             out << YAML::Key << "RefractionDistortion" << YAML::Value << water.m_RefractionDistortion;
             out << YAML::Key << "RefractionHeightFactor" << YAML::Value << water.m_RefractionHeightFactor;
             out << YAML::Key << "RefractionColor" << YAML::Value << water.m_RefractionColor;
+            out << YAML::Key << "RefractionEnabled" << YAML::Value << water.m_RefractionEnabled;
             out << YAML::Key << "FoamTexture" << YAML::Value << water.m_FoamTexture;
             out << YAML::Key << "FoamHeightStart" << YAML::Value << water.m_FoamHeightStart;
             out << YAML::Key << "FoamFadeDistance" << YAML::Value << water.m_FoamFadeDistance;
@@ -4273,6 +4282,7 @@ namespace OloEngine
             out << YAML::Key << "SSRStepSize" << YAML::Value << water.m_SSRStepSize;
             out << YAML::Key << "SSRMaxDistance" << YAML::Value << water.m_SSRMaxDistance;
             out << YAML::Key << "SSRThickness" << YAML::Value << water.m_SSRThickness;
+            out << YAML::Key << "SSREnabled" << YAML::Value << water.m_SSREnabled;
             out << YAML::Key << "TessellationEnabled" << YAML::Value << water.m_TessellationEnabled;
             out << YAML::Key << "TessellationFactor" << YAML::Value << water.m_TessellationFactor;
             out << YAML::Key << "TessMinDistance" << YAML::Value << water.m_TessMinDistance;

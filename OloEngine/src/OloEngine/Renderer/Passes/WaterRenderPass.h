@@ -20,6 +20,11 @@ namespace OloEngine
         WaterRenderPass();
         ~WaterRenderPass() override;
 
+        WaterRenderPass(const WaterRenderPass&) = delete;
+        WaterRenderPass& operator=(const WaterRenderPass&) = delete;
+        WaterRenderPass(WaterRenderPass&&) = delete;
+        WaterRenderPass& operator=(WaterRenderPass&&) = delete;
+
         void Init(const FramebufferSpecification& spec) override;
         void Execute() override;
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
