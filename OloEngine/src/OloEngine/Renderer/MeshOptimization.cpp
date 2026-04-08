@@ -114,6 +114,9 @@ namespace OloEngine::MeshOptimization
                             sparse.VertexIndex = remap[sparse.VertexIndex];
                         }
                     }
+                    // Drop entries whose target vertex was removed by the remap
+                    std::erase_if(target.SparseVertices, [](const auto& sv)
+                                  { return sv.VertexIndex == ~0u; });
                 }
             }
         }
@@ -528,6 +531,10 @@ namespace OloEngine::MeshOptimization
         {
             return result;
         }
+
+        // Clamp to meshoptimizer's implementation limits (255 vertices, 512 triangles)
+        maxVertices = std::min(maxVertices, 255u);
+        maxTriangles = std::min(maxTriangles, 512u);
 
         auto vertexCount = static_cast<sizet>(vertices.Num());
         auto indexCount = static_cast<sizet>(indices.Num());

@@ -658,6 +658,15 @@ namespace OloEngine
                     return nullptr;
                 }
 
+                // Reject mismatched count/encoded-size pairs
+                if ((geo.VertexCount > 0) != (geo.EncodedVertexSize > 0) ||
+                    (geo.IndexCount > 0) != (geo.EncodedIndexSize > 0) ||
+                    (geo.ShadowIndexCount > 0) != (geo.EncodedShadowIndexSize > 0))
+                {
+                    OLO_CORE_ERROR("MeshBinarySerializer::Read: Count/encoded-size mismatch in geometry section of '{}'", path.string());
+                    return nullptr;
+                }
+
                 // Validate vertex stride matches current Vertex struct.
                 if (geo.VertexStride != sizeof(Vertex))
                 {
@@ -984,9 +993,9 @@ namespace OloEngine
 
                 // Validate morph target vertex count against the decoded mesh
                 if (auto meshVertCount = static_cast<u32>(meshSource->GetVertices().Num());
-                    mtHeader.VertexCount > meshVertCount)
+                    mtHeader.VertexCount != meshVertCount)
                 {
-                    OLO_CORE_ERROR("MeshBinarySerializer::Read: MorphTarget VertexCount ({}) exceeds mesh vertex count ({}) in '{}'",
+                    OLO_CORE_ERROR("MeshBinarySerializer::Read: MorphTarget VertexCount ({}) does not match mesh vertex count ({}) in '{}'",
                                    mtHeader.VertexCount, meshVertCount, path.string());
                     return nullptr;
                 }
@@ -1323,11 +1332,22 @@ namespace OloEngine
         std::vector<Ref<AnimationClip>> clips;
         clips.reserve(clipCount);
 
+        auto const payloadLen = header.UncompressedPayloadSize;
+
         for (u32 i = 0; i < clipCount; ++i)
         {
             if (directory[i].Size == 0)
             {
                 continue;
+            }
+
+            // Validate clip directory entry bounds against payload
+            if (directory[i].Offset > payloadLen || directory[i].Size > payloadLen - directory[i].Offset)
+            {
+                OLO_CORE_ERROR("AnimationBinarySerializer::Read: Clip {} directory entry out of bounds "
+                               "(Offset={}, Size={}, PayloadLen={}) in '{}'",
+                               i, directory[i].Offset, directory[i].Size, payloadLen, path.string());
+                return {};
             }
 
             payload.seekg(static_cast<std::streamoff>(payloadBase + directory[i].Offset));

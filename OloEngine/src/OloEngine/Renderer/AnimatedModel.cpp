@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Animation/MorphTargets/MorphTarget.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <cmath>
@@ -270,7 +271,13 @@ namespace OloEngine
                     mesh->GetIndices().Add(orig - submesh.m_BaseVertex);
                 }
 
-                if (!allBones.IsEmpty() && submesh.m_BaseVertex + submesh.m_VertexCount <= static_cast<u32>(allBones.Num()))
+                bool const hasBoneSlice = !allBones.IsEmpty() && submesh.m_BaseVertex + submesh.m_VertexCount <= static_cast<u32>(allBones.Num());
+                if (localSkeleton && !hasBoneSlice)
+                {
+                    OLO_CORE_ERROR("AnimatedModel::SplitCombinedMeshSource - Bone influence data missing for rigged submesh {}, rejecting cache", s);
+                    return false;
+                }
+                if (hasBoneSlice)
                 {
                     for (u32 i = 0; i < submesh.m_VertexCount; ++i)
                     {
@@ -470,7 +477,7 @@ namespace OloEngine
                         {
                             Assimp::Importer matImporter;
                             const aiScene* matScene = matImporter.ReadFile(path, 0);
-                            if (matScene && matScene->mRootNode)
+                            if (matScene && !(matScene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) && matScene->mRootNode)
                             {
                                 std::vector<u32> materialIndices;
                                 materialIndices.reserve(m_Meshes.size());
@@ -569,7 +576,9 @@ namespace OloEngine
         {
             auto combined = CombineMeshSourcesForCache(m_Meshes, m_Skeleton);
             MeshCache::SaveMeshToCache(sourcePath, *combined, kAnimCachePrefix);
-            if (!m_Animations.empty())
+            // Always write .oanim when skeleton exists (even if empty) so that
+            // IsAnimationCacheValid succeeds on re-load.
+            if (m_Skeleton || !m_Animations.empty())
             {
                 MeshCache::SaveAnimationsToCache(sourcePath, m_Animations);
             }

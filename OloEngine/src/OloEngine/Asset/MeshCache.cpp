@@ -250,7 +250,7 @@ namespace OloEngine
                 {
                     for (const auto& entry : std::filesystem::directory_iterator(cacheDir, ec))
                     {
-                        if (!entry.is_regular_file())
+                        if (!entry.is_regular_file(ec))
                         {
                             continue;
                         }

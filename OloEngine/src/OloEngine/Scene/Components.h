@@ -1573,16 +1573,30 @@ namespace OloEngine
     struct LODGroupComponent
     {
         LODGroup m_LODGroup;
-        std::vector<AssetHandle> m_GeneratedLODHandles; // Tracks memory-only assets created by "Generate LODs"
+        std::vector<AssetHandle> m_GeneratedLODHandles; // Transient — excluded from copy & equality
         bool m_Enabled = true;
 
         LODGroupComponent() = default;
-        LODGroupComponent(const LODGroupComponent&) = default;
-        LODGroupComponent& operator=(const LODGroupComponent&) = default;
+        LODGroupComponent(const LODGroupComponent& other)
+            : m_LODGroup(other.m_LODGroup), m_Enabled(other.m_Enabled)
+        {
+        }
+        LODGroupComponent& operator=(const LODGroupComponent& other)
+        {
+            if (this != &other)
+            {
+                m_LODGroup = other.m_LODGroup;
+                m_Enabled = other.m_Enabled;
+            }
+            return *this;
+        }
         LODGroupComponent(LODGroupComponent&&) noexcept = default;
         LODGroupComponent& operator=(LODGroupComponent&&) noexcept = default;
 
-        auto operator==(const LODGroupComponent&) const -> bool = default;
+        auto operator==(const LODGroupComponent& other) const -> bool
+        {
+            return m_LODGroup == other.m_LODGroup && m_Enabled == other.m_Enabled;
+        }
     };
 
     // ── Tile Renderer ────────────────────────────────────────────────────

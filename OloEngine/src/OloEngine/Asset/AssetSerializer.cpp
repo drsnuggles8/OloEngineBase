@@ -2336,6 +2336,13 @@ namespace OloEngine
             u32 shadowCount = 0;
             stream.ReadRaw<u32>(shadowCount);
 
+            if (shadowCount > MAX_INDEX_COUNT)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Shadow index count ({}) exceeds limit",
+                               shadowCount);
+                return nullptr;
+            }
+
             if (shadowCount > 0)
             {
                 u64 encodedSize = 0;
@@ -2459,6 +2466,22 @@ namespace OloEngine
             stream.ReadRaw<u32>(targetCount);
             stream.ReadRaw<u32>(vertCount);
 
+            constexpr u32 MAX_MORPH_TARGETS = 1'000;
+            constexpr u32 MAX_NAME_LEN = 1'024;
+
+            if (targetCount > MAX_MORPH_TARGETS)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Morph targetCount ({}) exceeds limit",
+                               targetCount);
+                return nullptr;
+            }
+            if (vertCount != vertexCount)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Morph vertCount ({}) does not match vertexCount ({})",
+                               vertCount, vertexCount);
+                return nullptr;
+            }
+
             auto morphTargetSet = Ref<MorphTargetSet>::Create();
 
             for (u32 t = 0; t < targetCount; ++t)
@@ -2466,9 +2489,23 @@ namespace OloEngine
                 u32 sparseCount = 0;
                 stream.ReadRaw<u32>(sparseCount);
 
+                if (sparseCount > vertexCount)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Morph sparseCount ({}) exceeds vertexCount ({})",
+                                   sparseCount, vertexCount);
+                    return nullptr;
+                }
+
                 MorphTarget target;
                 u32 nameLen = 0;
                 stream.ReadRaw<u32>(nameLen);
+
+                if (nameLen > MAX_NAME_LEN)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Morph target name length ({}) exceeds limit",
+                                   nameLen);
+                    return nullptr;
+                }
                 if (nameLen > 0)
                 {
                     target.Name.resize(nameLen);
@@ -2483,6 +2520,14 @@ namespace OloEngine
                     {
                         stream.ReadRaw<u32>(target.SparseVertices[s].VertexIndex);
                         stream.ReadData(reinterpret_cast<char*>(&target.SparseVertices[s].Delta), sizeof(MorphTargetVertex));
+
+                        if (target.SparseVertices[s].VertexIndex >= vertexCount)
+                        {
+                            OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Sparse morph vertex index {} "
+                                           "out of range (vertexCount={})",
+                                           target.SparseVertices[s].VertexIndex, vertexCount);
+                            return nullptr;
+                        }
                     }
                 }
                 else
