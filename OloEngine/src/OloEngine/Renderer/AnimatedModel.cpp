@@ -212,8 +212,43 @@ namespace OloEngine
             Ref<Skeleton> localSkeleton;
             if (combined->HasSkeleton())
             {
-                localSkeleton = Ref<Skeleton>::Create();
                 const auto* src = combined->GetSkeleton();
+
+                // Validate all skeleton matrices for non-finite values before copying
+                auto const validateMat4Array = [](const std::vector<glm::mat4>& arr, const char* name) -> bool
+                {
+                    for (sizet i = 0; i < arr.size(); ++i)
+                    {
+                        const auto& m = arr[i];
+                        for (int c = 0; c < 4; ++c)
+                        {
+                            for (int r = 0; r < 4; ++r)
+                            {
+                                if (!std::isfinite(m[c][r]))
+                                {
+                                    OLO_CORE_ERROR("AnimatedModel::SplitCombinedMeshSource - Non-finite value in cached skeleton {} "
+                                                   "at bone {} element [{},{}], rejecting cache",
+                                                   name, i, c, r);
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                    return true;
+                };
+
+                if (!validateMat4Array(src->m_LocalTransforms, "LocalTransforms") ||
+                    !validateMat4Array(src->m_GlobalTransforms, "GlobalTransforms") ||
+                    !validateMat4Array(src->m_FinalBoneMatrices, "FinalBoneMatrices") ||
+                    !validateMat4Array(src->m_BindPoseMatrices, "BindPoseMatrices") ||
+                    !validateMat4Array(src->m_InverseBindPoses, "InverseBindPoses") ||
+                    !validateMat4Array(src->m_BindPoseLocalTransforms, "BindPoseLocalTransforms") ||
+                    !validateMat4Array(src->m_BonePreTransforms, "BonePreTransforms"))
+                {
+                    return false;
+                }
+
+                localSkeleton = Ref<Skeleton>::Create();
                 localSkeleton->m_ParentIndices = src->m_ParentIndices;
                 localSkeleton->m_BoneNames = src->m_BoneNames;
                 localSkeleton->m_LocalTransforms = src->m_LocalTransforms;
@@ -414,8 +449,8 @@ namespace OloEngine
         }
         // Collect material indices from the Assimp scene in DFS traversal
         // order to match the original ProcessNode order used to build m_Meshes.
-        auto CollectMaterialIndices = [](const aiNode* node, const aiScene* scene,
-                                         std::vector<u32>& out, auto&& self) -> void
+        const auto CollectMaterialIndices = [](const aiNode* node, const aiScene* scene,
+                                               std::vector<u32>& out, auto&& self) -> void
         {
             for (u32 i = 0; i < node->mNumMeshes; i++)
             {

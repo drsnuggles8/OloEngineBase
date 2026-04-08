@@ -2105,24 +2105,18 @@ namespace OloEngine
                 }
                 else
                 {
-                    // Dense path: always write exactly vertCount entries.
-                    // If target.Vertices is non-empty, write those (clamped/padded to vertCount).
-                    // If empty, write all zeroes so the reader's fixed-size read stays in sync.
-                    auto denseCount = std::min(static_cast<u32>(target.Vertices.size()), vertCount);
-                    if (denseCount > 0)
+                    // Dense path: target.Vertices must match vertCount exactly.
+                    if (static_cast<u32>(target.Vertices.size()) != vertCount)
+                    {
+                        OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Dense morph target '{}' vertex count ({}) "
+                                       "does not match expected vertCount ({})",
+                                       target.Name, target.Vertices.size(), vertCount);
+                        return false;
+                    }
+                    if (vertCount > 0)
                     {
                         stream.WriteData(reinterpret_cast<const char*>(target.Vertices.data()),
-                                         denseCount * sizeof(MorphTargetVertex));
-                    }
-                    // Pad remaining entries with zeroes
-                    if (denseCount < vertCount)
-                    {
-                        auto padCount = vertCount - denseCount;
-                        MorphTargetVertex zero{};
-                        for (u32 p = 0; p < padCount; ++p)
-                        {
-                            stream.WriteData(reinterpret_cast<const char*>(&zero), sizeof(MorphTargetVertex));
-                        }
+                                         vertCount * sizeof(MorphTargetVertex));
                     }
                 }
             }
@@ -2375,11 +2369,10 @@ namespace OloEngine
                 {
                     if (shadowIndices[static_cast<i32>(si)] >= vertexCount)
                     {
-                        OLO_CORE_WARN("MeshSourceSerializer::DeserializeFromAssetPack - Shadow index {} out of range "
-                                      "(value={}, vertexCount={}) — discarding shadow indices",
-                                      si, shadowIndices[static_cast<i32>(si)], vertexCount);
-                        shadowIndices.Empty();
-                        break;
+                        OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Shadow index {} out of range "
+                                       "(value={}, vertexCount={})",
+                                       si, shadowIndices[static_cast<i32>(si)], vertexCount);
+                        return nullptr;
                     }
                 }
             }
@@ -2418,6 +2411,40 @@ namespace OloEngine
             readMat4Array(skeleton->m_InverseBindPoses);
             readMat4Array(skeleton->m_BindPoseLocalTransforms);
             readMat4Array(skeleton->m_BonePreTransforms);
+
+            // Validate all deserialized matrices for non-finite values
+            auto const validateMat4Array = [&](const std::vector<glm::mat4>& arr, const char* name) -> bool
+            {
+                for (sizet i = 0; i < arr.size(); ++i)
+                {
+                    const auto& m = arr[i];
+                    for (int c = 0; c < 4; ++c)
+                    {
+                        for (int r = 0; r < 4; ++r)
+                        {
+                            if (!std::isfinite(m[c][r]))
+                            {
+                                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Non-finite value in skeleton {} "
+                                               "at bone {} element [{},{}]",
+                                               name, i, c, r);
+                                return false;
+                            }
+                        }
+                    }
+                }
+                return true;
+            };
+
+            if (!validateMat4Array(skeleton->m_LocalTransforms, "LocalTransforms") ||
+                !validateMat4Array(skeleton->m_GlobalTransforms, "GlobalTransforms") ||
+                !validateMat4Array(skeleton->m_BindPoseMatrices, "BindPoseMatrices") ||
+                !validateMat4Array(skeleton->m_InverseBindPoses, "InverseBindPoses") ||
+                !validateMat4Array(skeleton->m_BindPoseLocalTransforms, "BindPoseLocalTransforms") ||
+                !validateMat4Array(skeleton->m_BonePreTransforms, "BonePreTransforms"))
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Corrupt skeleton data, rejecting");
+                return nullptr;
+            }
 
             // Bone names
             skeleton->m_BoneNames.resize(boneCount);

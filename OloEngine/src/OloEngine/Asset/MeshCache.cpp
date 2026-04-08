@@ -248,6 +248,7 @@ namespace OloEngine
                 auto cacheDir = GetCacheDirectory();
                 if (std::filesystem::exists(cacheDir, ec))
                 {
+                    bool allRemoved = true;
                     for (const auto& entry : std::filesystem::directory_iterator(cacheDir, ec))
                     {
                         if (!entry.is_regular_file(ec))
@@ -258,9 +259,20 @@ namespace OloEngine
                             entry.path().stem().string().ends_with(hashStr))
                         {
                             std::filesystem::remove(entry.path(), ec);
+                            if (ec)
+                            {
+                                allRemoved = false;
+                            }
                         }
                     }
-                    OLO_CORE_INFO("MeshCache: Invalidated all mesh cache variants for '{}'", sourcePath.string());
+                    if (allRemoved)
+                    {
+                        OLO_CORE_INFO("MeshCache: Invalidated all mesh cache variants for '{}'", sourcePath.string());
+                    }
+                    else
+                    {
+                        OLO_CORE_WARN("MeshCache: Some cache files could not be removed for '{}': {}", sourcePath.string(), ec.message());
+                    }
                 }
             }
             else

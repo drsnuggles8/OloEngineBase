@@ -1332,7 +1332,13 @@ namespace OloEngine
         std::vector<Ref<AnimationClip>> clips;
         clips.reserve(clipCount);
 
-        auto const payloadLen = header.UncompressedPayloadSize;
+        // For compressed payloads, UncompressedPayloadSize tracks the actual size.
+        // For legacy uncompressed files, derive it from TotalFileSize.
+        auto const payloadLen = header.UncompressedPayloadSize > 0
+                                    ? header.UncompressedPayloadSize
+                                    : (header.TotalFileSize > sizeof(OAnimFormat::FileHeader)
+                                           ? header.TotalFileSize - sizeof(OAnimFormat::FileHeader)
+                                           : u64(0));
 
         for (u32 i = 0; i < clipCount; ++i)
         {

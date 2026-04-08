@@ -177,9 +177,9 @@ namespace OloEngine::MeshOptimization
 
         // Animated meshes with skeleton or morph targets are not
         // supported until auxiliary streams (weights/morphs) are preserved.
-        if (meshSource.HasSkeleton() || meshSource.HasMorphTargets())
+        if (meshSource.HasSkeleton() || meshSource.HasMorphTargets() || !meshSource.GetBoneInfo().IsEmpty())
         {
-            OLO_CORE_WARN("MeshOptimization::GenerateLODMesh: Animated sources with bone/morph data are not supported for LOD generation");
+            OLO_CORE_WARN("MeshOptimization::GenerateLODMesh: Animated sources with bone/morph/skinning data are not supported for LOD generation");
             return nullptr;
         }
 
@@ -284,9 +284,9 @@ namespace OloEngine::MeshOptimization
 
         // Animated meshes with skeleton or morph targets are not
         // supported until auxiliary streams (weights/morphs) are preserved.
-        if (meshSource.HasSkeleton() || meshSource.HasMorphTargets())
+        if (meshSource.HasSkeleton() || meshSource.HasMorphTargets() || !meshSource.GetBoneInfo().IsEmpty())
         {
-            OLO_CORE_WARN("MeshOptimization::GenerateLODMeshWithAttributes: Animated sources with bone/morph data are not supported for LOD generation");
+            OLO_CORE_WARN("MeshOptimization::GenerateLODMeshWithAttributes: Animated sources with bone/morph/skinning data are not supported for LOD generation");
             return nullptr;
         }
 
@@ -466,10 +466,32 @@ namespace OloEngine::MeshOptimization
             shadowIndices.GetData(), indices.GetData(), indexCount,
             vertices.GetData(), vertexCount, sizeof(glm::vec3), sizeof(Vertex));
 
-        // Spatial-sort shadow triangles for better early-z rejection in depth-only passes
-        meshopt_spatialSortTriangles(
-            shadowIndices.GetData(), shadowIndices.GetData(), indexCount,
-            &vertices.GetData()[0].Position.x, vertexCount, sizeof(Vertex));
+        // Spatial-sort shadow triangles per-submesh to preserve BaseIndex/IndexCount boundaries
+        if (!meshSource.GetSubmeshes().IsEmpty())
+        {
+            auto submeshCount = meshSource.GetSubmeshes().Num();
+            for (i32 s = 0; s < submeshCount; ++s)
+            {
+                const auto& sub = meshSource.GetSubmeshes()[s];
+                if (sub.m_IndexCount < 3 ||
+                    sub.m_BaseIndex > static_cast<u32>(shadowIndices.Num()) ||
+                    sub.m_IndexCount > static_cast<u32>(shadowIndices.Num()) - sub.m_BaseIndex)
+                {
+                    continue;
+                }
+                meshopt_spatialSortTriangles(
+                    shadowIndices.GetData() + sub.m_BaseIndex,
+                    shadowIndices.GetData() + sub.m_BaseIndex,
+                    static_cast<sizet>(sub.m_IndexCount),
+                    &vertices.GetData()[0].Position.x, vertexCount, sizeof(Vertex));
+            }
+        }
+        else
+        {
+            meshopt_spatialSortTriangles(
+                shadowIndices.GetData(), shadowIndices.GetData(), indexCount,
+                &vertices.GetData()[0].Position.x, vertexCount, sizeof(Vertex));
+        }
 
         meshSource.GetShadowIndices() = MoveTemp(shadowIndices);
 
