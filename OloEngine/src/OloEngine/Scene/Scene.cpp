@@ -3325,8 +3325,19 @@ namespace OloEngine
                         water.m_NormalMapTiling, water.m_NoiseIntensity);
 
                     // Pack normal map scroll offsets (dir * time * speed)
-                    glm::vec2 scroll0 = water.m_NormalMapScrollDir0 * animationTime * water.m_NormalMapScrollSpeed0;
-                    glm::vec2 scroll1 = water.m_NormalMapScrollDir1 * animationTime * water.m_NormalMapScrollSpeed1;
+                    // Normalize scroll directions so magnitude doesn't affect speed
+                    auto safeNorm2 = [](glm::vec2 const& v, glm::vec2 const& fallback) -> glm::vec2
+                    {
+                        if (!std::isfinite(v.x) || !std::isfinite(v.y))
+                            return fallback;
+                        if (auto const len2 = glm::dot(v, v); len2 > 1e-6f)
+                            return v / std::sqrt(len2);
+                        return fallback;
+                    };
+                    glm::vec2 dir0 = safeNorm2(water.m_NormalMapScrollDir0, { 1.0f, 0.0f });
+                    glm::vec2 dir1 = safeNorm2(water.m_NormalMapScrollDir1, { 0.0f, 1.0f });
+                    glm::vec2 scroll0 = dir0 * animationTime * water.m_NormalMapScrollSpeed0;
+                    glm::vec2 scroll1 = dir1 * animationTime * water.m_NormalMapScrollSpeed1;
                     waterParams.normalMapScroll = glm::vec4(scroll0.x, scroll0.y, scroll1.x, scroll1.y);
                     waterParams.normalMapSpeed = glm::vec4(
                         water.m_NormalMapScrollSpeed0, water.m_NormalMapScrollSpeed1, 0.0f, 0.0f);
@@ -3406,13 +3417,19 @@ namespace OloEngine
                     waterParams.normalMapScroll.w = safeF(waterParams.normalMapScroll.w, 0.0f);
                     waterParams.normalMapSpeed.x = clampF(waterParams.normalMapSpeed.x, 0.0f, 1.0f, 0.02f);
                     waterParams.normalMapSpeed.y = clampF(waterParams.normalMapSpeed.y, 0.0f, 1.0f, 0.015f);
-                    // Packed wave directions (x,y=dir, z=steepness, w=wavelength)
-                    waterParams.waveDir0.x = safeF(waterParams.waveDir0.x, 1.0f);
-                    waterParams.waveDir0.y = safeF(waterParams.waveDir0.y, 0.0f);
+                    // Packed wave directions (x,y=dir validated as pair, z=steepness, w=wavelength)
+                    auto safeDir2 = [](glm::vec4& v, f32 fbX, f32 fbY)
+                    {
+                        if (!std::isfinite(v.x) || !std::isfinite(v.y) || (v.x * v.x + v.y * v.y) < 1e-6f)
+                        {
+                            v.x = fbX;
+                            v.y = fbY;
+                        }
+                    };
+                    safeDir2(waterParams.waveDir0, 1.0f, 0.0f);
                     waterParams.waveDir0.z = clampF(waterParams.waveDir0.z, 0.0f, 1.0f, 0.5f);
                     waterParams.waveDir0.w = clampF(waterParams.waveDir0.w, 0.1f, 500.0f, 10.0f);
-                    waterParams.waveDir1.x = safeF(waterParams.waveDir1.x, 0.7f);
-                    waterParams.waveDir1.y = safeF(waterParams.waveDir1.y, 0.7f);
+                    safeDir2(waterParams.waveDir1, 0.7f, 0.7f);
                     waterParams.waveDir1.z = clampF(waterParams.waveDir1.z, 0.0f, 1.0f, 0.3f);
                     waterParams.waveDir1.w = clampF(waterParams.waveDir1.w, 0.1f, 500.0f, 15.0f);
                     // Colors (RGB + alpha channels: transparency and reflectivity)

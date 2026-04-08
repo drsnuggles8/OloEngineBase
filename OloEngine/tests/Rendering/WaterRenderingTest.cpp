@@ -48,6 +48,15 @@ TEST(WaterRendering, WaterUBOKnownBinding)
 
 TEST(WaterRendering, WaterUBOFieldRoundTrip)
 {
+    // Compile-time layout guarantees
+    static_assert(std::is_trivially_copyable_v<UBOStructures::WaterUBO>);
+    EXPECT_EQ(offsetof(UBOStructures::WaterUBO, WaveParams), 0u);
+    EXPECT_EQ(offsetof(UBOStructures::WaterUBO, WaveDir0), 16u);
+    EXPECT_EQ(offsetof(UBOStructures::WaterUBO, WaveDir1), 32u);
+    EXPECT_EQ(offsetof(UBOStructures::WaterUBO, NormalMapScroll), 96u);
+    EXPECT_EQ(offsetof(UBOStructures::WaterUBO, DepthRefractionParams), 160u);
+    EXPECT_EQ(offsetof(UBOStructures::WaterUBO, TessParams), 256u);
+
     UBOStructures::WaterUBO ubo{};
     ubo.WaveParams = glm::vec4(1.0f, 2.0f, 0.5f, 3.0f);
     ubo.WaveDir0 = glm::vec4(1.0f, 0.0f, 0.5f, 6.28f);
