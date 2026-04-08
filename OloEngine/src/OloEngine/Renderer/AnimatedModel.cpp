@@ -493,6 +493,15 @@ namespace OloEngine
 
         OLO_CORE_INFO("AnimatedModel::LoadModel: Loading animated model from {}", path);
 
+        // Reset per-load state so stale data from a previous load never leaks through
+        // if the new load partially fails or takes a different code path.
+        m_Meshes.clear();
+        m_Skeleton = nullptr;
+        m_Materials.clear();
+        m_Animations.clear();
+        m_BoneInfoMap.clear();
+        m_HasMeshNodeTransform = false;
+
         // Try loading from binary cache first (skip Assimp entirely)
         std::filesystem::path sourcePath(path);
         constexpr auto kAnimCachePrefix = "anim_";
@@ -580,6 +589,12 @@ namespace OloEngine
                     m_Skeleton = nullptr;
                     MeshCache::InvalidateCache(sourcePath, kAnimCachePrefix);
                 }
+            }
+            else
+            {
+                // LoadMeshFromCache returned nullptr despite valid timestamp — cache is likely corrupt
+                OLO_CORE_WARN("AnimatedModel::LoadModel: Cache file appears valid but deserialization returned null for '{}', invalidating", path);
+                MeshCache::InvalidateCache(sourcePath, kAnimCachePrefix);
             }
         }
 

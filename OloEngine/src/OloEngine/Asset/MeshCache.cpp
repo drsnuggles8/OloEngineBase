@@ -22,7 +22,8 @@ namespace OloEngine
         // to the CWD-relative "assets/" for headless / test scenarios.
         std::filesystem::path GetAssetRoot()
         {
-            if (Project::GetActive())
+            // Capture the Ref so the project stays alive across the directory call.
+            if (auto const project = Project::GetActive())
             {
                 return Project::GetAssetDirectory();
             }

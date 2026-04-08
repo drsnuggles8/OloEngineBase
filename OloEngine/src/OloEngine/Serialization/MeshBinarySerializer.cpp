@@ -32,9 +32,10 @@ namespace OloEngine
     {
         // Stream I/O helpers — accept std::ostream / std::istream so they work
         // with both file streams and in-memory stringstreams.
-        void WriteBytes(std::ostream& out, const void* data, sizet size)
+        bool WriteBytes(std::ostream& out, const void* data, sizet size)
         {
             out.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(size));
+            return !out.fail();
         }
 
         bool ReadBytes(std::istream& in, void* data, sizet size)
@@ -531,6 +532,12 @@ namespace OloEngine
         WriteBytes(out, compressed.data(), compressed.size());
         out.close();
 
+        if (out.fail())
+        {
+            OLO_CORE_ERROR("MeshBinarySerializer::Write: I/O error while writing '{}'", path.string());
+            return false;
+        }
+
         OLO_CORE_TRACE("MeshBinarySerializer::Write: Wrote '{}' ({} bytes, compressed from {}, {} verts, {} indices)",
                        path.filename().string(), header.TotalFileSize, uncompressedSize,
                        vertices.Num(), indices.Num());
@@ -578,6 +585,7 @@ namespace OloEngine
         // while using the file stream directly for uncompressed (legacy) files.
         std::unique_ptr<std::istringstream> decompressedStream;
         std::istream* payloadStream = &in;
+        u64 actualPayloadSize = 0;
 
         // For the legacy uncompressed path, section offsets in the directory
         // are relative to the start of the payload (right after the file
@@ -632,6 +640,7 @@ namespace OloEngine
                 std::string(reinterpret_cast<const char*>(decompressed.data()), decompressed.size()),
                 std::ios::binary);
             payloadStream = decompressedStream.get();
+            actualPayloadSize = decompressed.size();
         }
 
         auto& payload = *payloadStream;
@@ -642,6 +651,14 @@ namespace OloEngine
         // starts at 0 — base is 0.
         u64 const seekBase = decompressedStream ? 0 : payloadBase;
 
+        // For the legacy (uncompressed) path, compute payload size from the file header
+        if (actualPayloadSize == 0)
+        {
+            actualPayloadSize = header.TotalFileSize > sizeof(OMeshFormat::FileHeader)
+                                    ? header.TotalFileSize - sizeof(OMeshFormat::FileHeader)
+                                    : 0;
+        }
+
         // Read section directory
         OMeshFormat::SectionDirectory directory;
         if (!ReadBytes(payload, &directory, sizeof(directory)))
@@ -649,13 +666,6 @@ namespace OloEngine
             OLO_CORE_ERROR("MeshBinarySerializer::Read: Failed to read section directory from '{}'", path.string());
             return nullptr;
         }
-
-        // Compute payload length for section bounds validation
-        auto const payloadLen = header.UncompressedPayloadSize > 0
-                                    ? header.UncompressedPayloadSize
-                                    : (header.TotalFileSize > sizeof(OMeshFormat::FileHeader)
-                                           ? header.TotalFileSize - sizeof(OMeshFormat::FileHeader)
-                                           : u64(0));
 
         // Validate all section entries against payload bounds
         for (u16 s = 0; s < OMeshFormat::kSectionCount; ++s)
@@ -665,11 +675,11 @@ namespace OloEngine
             {
                 continue;
             }
-            if (sec.Offset > payloadLen || sec.Size > payloadLen - sec.Offset)
+            if (sec.Offset > actualPayloadSize || sec.Size > actualPayloadSize - sec.Offset)
             {
                 OLO_CORE_ERROR("MeshBinarySerializer::Read: Section {} out of bounds "
                                "(Offset={}, Size={}, PayloadLen={}) in '{}'",
-                               s, sec.Offset, sec.Size, payloadLen, path.string());
+                               s, sec.Offset, sec.Size, actualPayloadSize, path.string());
                 return nullptr;
             }
         }
@@ -1329,6 +1339,12 @@ namespace OloEngine
         WriteBytes(out, compressed.data(), compressed.size());
         out.close();
 
+        if (out.fail())
+        {
+            OLO_CORE_ERROR("AnimationBinarySerializer::Write: I/O error while writing '{}'", path.string());
+            return false;
+        }
+
         OLO_CORE_TRACE("AnimationBinarySerializer::Write: Wrote '{}' ({} clips, {} bytes, compressed from {})",
                        path.filename().string(), clipCount, header.TotalFileSize, uncompressedSize);
 
@@ -1372,6 +1388,7 @@ namespace OloEngine
         // ── Obtain the payload stream (decompress if needed) ──
         std::unique_ptr<std::istringstream> decompressedStream;
         std::istream* payloadStream = &in;
+        u64 actualPayloadSize = 0;
 
         if (header.Flags & OAnimFormat::FlagCompressed)
         {
@@ -1417,6 +1434,7 @@ namespace OloEngine
                 std::string(reinterpret_cast<const char*>(decompressed.data()), decompressed.size()),
                 std::ios::binary);
             payloadStream = decompressedStream.get();
+            actualPayloadSize = decompressed.size();
         }
 
         auto& payload = *payloadStream;
@@ -1425,6 +1443,14 @@ namespace OloEngine
         // in the original stream. For decompressed payloads, the stream starts
         // at offset 0. Track this base so directory seeks are correct.
         auto const payloadBase = decompressedStream ? sizet(0) : sizeof(OAnimFormat::FileHeader);
+
+        // For the legacy (uncompressed) path, compute payload size from the file header
+        if (actualPayloadSize == 0)
+        {
+            actualPayloadSize = header.TotalFileSize > sizeof(OAnimFormat::FileHeader)
+                                    ? header.TotalFileSize - sizeof(OAnimFormat::FileHeader)
+                                    : 0;
+        }
 
         u32 clipCount = 0;
         if (!ReadBytes(payload, &clipCount, sizeof(u32)))
@@ -1450,14 +1476,6 @@ namespace OloEngine
         std::vector<Ref<AnimationClip>> clips;
         clips.reserve(clipCount);
 
-        // For compressed payloads, UncompressedPayloadSize tracks the actual size.
-        // For legacy uncompressed files, derive it from TotalFileSize.
-        auto const payloadLen = header.UncompressedPayloadSize > 0
-                                    ? header.UncompressedPayloadSize
-                                    : (header.TotalFileSize > sizeof(OAnimFormat::FileHeader)
-                                           ? header.TotalFileSize - sizeof(OAnimFormat::FileHeader)
-                                           : u64(0));
-
         for (u32 i = 0; i < clipCount; ++i)
         {
             if (directory[i].Size == 0)
@@ -1466,11 +1484,11 @@ namespace OloEngine
             }
 
             // Validate clip directory entry bounds against payload
-            if (directory[i].Offset > payloadLen || directory[i].Size > payloadLen - directory[i].Offset)
+            if (directory[i].Offset > actualPayloadSize || directory[i].Size > actualPayloadSize - directory[i].Offset)
             {
                 OLO_CORE_ERROR("AnimationBinarySerializer::Read: Clip {} directory entry out of bounds "
                                "(Offset={}, Size={}, PayloadLen={}) in '{}'",
-                               i, directory[i].Offset, directory[i].Size, payloadLen, path.string());
+                               i, directory[i].Offset, directory[i].Size, actualPayloadSize, path.string());
                 return {};
             }
 

@@ -2139,6 +2139,7 @@ namespace OloEngine
         constexpr u32 kMaxIndexCount = 150'000'000;
         constexpr u32 kMaxSubmeshCount = 10'000;
         constexpr u32 kMaxMaterialCount = 10'000;
+        constexpr u32 kMaxBoneCount = 10'000;
 
         bool DecodeVertexBufferFromPack(FileStreamReader& stream, u32 vertexCount, TArray<Vertex>& outVertices)
         {
@@ -2440,12 +2441,33 @@ namespace OloEngine
             u32 boneInfoCount = 0;
             stream.ReadRaw<u32>(boneInfoCount);
 
+            if (boneInfoCount > kMaxBoneCount)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - boneInfoCount {} exceeds limit {}",
+                               boneInfoCount, kMaxBoneCount);
+                return false;
+            }
+
+            // Determine skeleton bone count for index validation
+            u32 const skeletonBoneCount = meshSource->HasSkeleton()
+                                              ? static_cast<u32>(meshSource->GetSkeleton()->m_BoneNames.size())
+                                              : 0;
+
             auto& boneInfo = meshSource->GetBoneInfo();
             for (u32 i = 0; i < boneInfoCount; ++i)
             {
                 BoneInfo info;
                 stream.ReadData(reinterpret_cast<char*>(&info.m_InverseBindPose[0][0]), sizeof(glm::mat4));
                 stream.ReadRaw<u32>(info.m_BoneIndex);
+
+                // Validate bone index against skeleton
+                if (skeletonBoneCount > 0 && info.m_BoneIndex >= skeletonBoneCount)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - BoneInfo {} has m_BoneIndex {} "
+                                   "but skeleton only has {} bones",
+                                   i, info.m_BoneIndex, skeletonBoneCount);
+                    return false;
+                }
 
                 // Validate inverse bind pose matrix for non-finite values
                 bool valid = true;
