@@ -52,11 +52,6 @@ namespace OloEngine
                     combined->GetBoneInfluences().Add(src->GetBoneInfluences()[i]);
                 }
 
-                for (i32 i = 0; i < src->GetShadowIndices().Num(); ++i)
-                {
-                    combined->GetShadowIndices().Add(src->GetShadowIndices()[i] + baseVertex);
-                }
-
                 // Deduplicate bone info entries by bone index
                 std::unordered_set<u32> existingBoneIndices;
                 for (i32 j = 0; j < combined->GetBoneInfo().Num(); ++j)
@@ -277,9 +272,12 @@ namespace OloEngine
                 mesh->SetSkeleton(localSkeleton);
                 mesh->SetPreOptimized(combined->IsPreOptimized());
 
-                // Generate shadow indices BEFORE Build so BuildShadowIndexBuffer
-                // creates the GPU resources in the same pass.
-                MeshOptimization::GenerateShadowIndices(*mesh);
+                // For pre-optimized meshes, generate shadow indices before Build
+                // because Build skips OptimizeMesh (which normally handles it).
+                if (mesh->IsPreOptimized())
+                {
+                    MeshOptimization::GenerateShadowIndices(*mesh);
+                }
                 mesh->Build();
 
                 localMeshes.push_back(mesh);
@@ -389,8 +387,8 @@ namespace OloEngine
         }
         // Collect material indices from the Assimp scene in DFS traversal
         // order to match the original ProcessNode order used to build m_Meshes.
-        static auto CollectMaterialIndices = [](const aiNode* node, const aiScene* scene,
-                                                std::vector<u32>& out, auto&& self) -> void
+        auto CollectMaterialIndices = [](const aiNode* node, const aiScene* scene,
+                                         std::vector<u32>& out, auto&& self) -> void
         {
             for (u32 i = 0; i < node->mNumMeshes; i++)
             {

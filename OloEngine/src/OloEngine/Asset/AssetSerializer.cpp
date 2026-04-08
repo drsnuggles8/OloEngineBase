@@ -2103,14 +2103,18 @@ namespace OloEngine
                         stream.WriteData(reinterpret_cast<const char*>(&sparse.Delta), sizeof(MorphTargetVertex));
                     }
                 }
-                else if (!target.Vertices.empty())
+                else
                 {
-                    // Dense path: write exactly vertCount entries to match what the reader expects.
-                    // Clamp if the target has fewer vertices than the header count.
+                    // Dense path: always write exactly vertCount entries.
+                    // If target.Vertices is non-empty, write those (clamped/padded to vertCount).
+                    // If empty, write all zeroes so the reader's fixed-size read stays in sync.
                     auto denseCount = std::min(static_cast<u32>(target.Vertices.size()), vertCount);
-                    stream.WriteData(reinterpret_cast<const char*>(target.Vertices.data()),
-                                     denseCount * sizeof(MorphTargetVertex));
-                    // Pad remaining entries with zeroes if target.Vertices.size() < vertCount
+                    if (denseCount > 0)
+                    {
+                        stream.WriteData(reinterpret_cast<const char*>(target.Vertices.data()),
+                                         denseCount * sizeof(MorphTargetVertex));
+                    }
+                    // Pad remaining entries with zeroes
                     if (denseCount < vertCount)
                     {
                         auto padCount = vertCount - denseCount;
@@ -2172,12 +2176,21 @@ namespace OloEngine
             return nullptr;
         }
 
+        constexpr u64 MAX_ENCODED_SIZE = 2'000'000'000; // 2 GB
+
         // Decode vertex buffer
         TArray<Vertex> vertices;
         if (vertexCount > 0)
         {
             u64 encodedSize = 0;
             stream.ReadRaw<u64>(encodedSize);
+
+            if (encodedSize > MAX_ENCODED_SIZE)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Vertex encodedSize ({}) exceeds limit",
+                               encodedSize);
+                return nullptr;
+            }
 
             EncodedMeshBuffer encoded;
             encoded.Data.resize(static_cast<sizet>(encodedSize));
@@ -2199,6 +2212,13 @@ namespace OloEngine
         {
             u64 encodedSize = 0;
             stream.ReadRaw<u64>(encodedSize);
+
+            if (encodedSize > MAX_ENCODED_SIZE)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Index encodedSize ({}) exceeds limit",
+                               encodedSize);
+                return nullptr;
+            }
 
             EncodedMeshBuffer encoded;
             encoded.Data.resize(static_cast<sizet>(encodedSize));
@@ -2273,10 +2293,25 @@ namespace OloEngine
             u32 boneCount = 0;
             stream.ReadRaw<u32>(boneCount);
 
+            // Bone influences should be 1:1 with vertices
+            if (boneCount != vertexCount)
+            {
+                OLO_CORE_WARN("MeshSourceSerializer::DeserializeFromAssetPack - BoneInfluence count ({}) != vertex count ({})",
+                              boneCount, vertexCount);
+            }
+
             if (boneCount > 0)
             {
                 u64 encodedSize = 0;
                 stream.ReadRaw<u64>(encodedSize);
+
+                constexpr u64 MAX_ENCODED_SIZE = 2'000'000'000; // 2 GB
+                if (encodedSize > MAX_ENCODED_SIZE)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - BoneInfluence encodedSize ({}) exceeds limit",
+                                   encodedSize);
+                    return nullptr;
+                }
 
                 EncodedMeshBuffer encoded;
                 encoded.Data.resize(static_cast<sizet>(encodedSize));
@@ -2305,6 +2340,14 @@ namespace OloEngine
                 u64 encodedSize = 0;
                 stream.ReadRaw<u64>(encodedSize);
 
+                constexpr u64 MAX_ENCODED_SIZE = 2'000'000'000; // 2 GB
+                if (encodedSize > MAX_ENCODED_SIZE)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Shadow encodedSize ({}) exceeds limit",
+                                   encodedSize);
+                    return nullptr;
+                }
+
                 EncodedMeshBuffer encoded;
                 encoded.Data.resize(static_cast<sizet>(encodedSize));
                 encoded.OriginalSize = shadowCount * sizeof(u32);
@@ -2317,6 +2360,19 @@ namespace OloEngine
                 {
                     OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to decode shadow indices");
                     return nullptr;
+                }
+
+                // Validate shadow index range against vertex count
+                for (u32 si = 0; si < shadowCount; ++si)
+                {
+                    if (shadowIndices[static_cast<i32>(si)] >= vertexCount)
+                    {
+                        OLO_CORE_WARN("MeshSourceSerializer::DeserializeFromAssetPack - Shadow index {} out of range "
+                                      "(value={}, vertexCount={}) — discarding shadow indices",
+                                      si, shadowIndices[static_cast<i32>(si)], vertexCount);
+                        shadowIndices.Empty();
+                        break;
+                    }
                 }
             }
         }

@@ -171,6 +171,8 @@ namespace OloEngine
 
         std::vector<Ref<AnimationClip>> LoadAnimationsFromCache(const std::filesystem::path& sourcePath)
         {
+            OLO_PROFILE_FUNCTION();
+
             if (!IsAnimationCacheValid(sourcePath))
             {
                 return {};
@@ -183,6 +185,8 @@ namespace OloEngine
 
         bool SaveAnimationsToCache(const std::filesystem::path& sourcePath, const std::vector<Ref<AnimationClip>>& clips)
         {
+            OLO_PROFILE_FUNCTION();
+
             u64 sourceTimestamp = GetSourceTimestamp(sourcePath);
             if (sourceTimestamp == 0)
             {
@@ -232,13 +236,39 @@ namespace OloEngine
         {
             std::error_code ec;
 
-            auto meshPath = GetMeshCachePath(sourcePath, prefix);
-            if (std::filesystem::exists(meshPath, ec))
+            if (prefix.empty())
             {
-                std::filesystem::remove(meshPath, ec);
-                if (!ec)
+                // No prefix — remove all variant cache files for this source.
+                // Extract the hash portion from the filename to match against.
+                auto hashStr = HashSourcePath(sourcePath);
+                auto cacheDir = GetCacheDirectory();
+                if (std::filesystem::exists(cacheDir, ec))
                 {
-                    OLO_CORE_INFO("MeshCache: Invalidated mesh cache for '{}'", sourcePath.string());
+                    for (const auto& entry : std::filesystem::directory_iterator(cacheDir, ec))
+                    {
+                        if (!entry.is_regular_file())
+                        {
+                            continue;
+                        }
+                        auto filename = entry.path().filename().string();
+                        if (filename.find(hashStr) != std::string::npos && filename.ends_with(".omesh"))
+                        {
+                            std::filesystem::remove(entry.path(), ec);
+                        }
+                    }
+                    OLO_CORE_INFO("MeshCache: Invalidated all mesh cache variants for '{}'", sourcePath.string());
+                }
+            }
+            else
+            {
+                auto meshPath = GetMeshCachePath(sourcePath, prefix);
+                if (std::filesystem::exists(meshPath, ec))
+                {
+                    std::filesystem::remove(meshPath, ec);
+                    if (!ec)
+                    {
+                        OLO_CORE_INFO("MeshCache: Invalidated mesh cache for '{}'", sourcePath.string());
+                    }
                 }
             }
 

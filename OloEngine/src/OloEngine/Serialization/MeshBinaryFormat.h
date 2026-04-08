@@ -212,6 +212,12 @@ namespace OloEngine
         constexpr u32 CurrentVersion = 1;
         constexpr u32 FlagCompressed = 1; // Payload is zlib-compressed
 
+        // ── Safety caps for deserialized counts (defence against corrupt files) ──
+        constexpr u32 MaxClipCount = 1'000;
+        constexpr u32 MaxBoneChannelCount = 4'096;
+        constexpr u32 MaxKeyCount = 1'000'000;
+        constexpr u32 MaxMorphKeyframeCount = 1'000'000;
+
         struct FileHeader
         {
             u32 Magic = MagicNumber;

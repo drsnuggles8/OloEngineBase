@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "Hash.h"
 
+#include <stdexcept>
+
 namespace OloEngine
 {
     //==============================================================================
@@ -57,8 +59,7 @@ namespace OloEngine
 
         if (!str)
         {
-            OLO_CORE_ASSERT(false, "Hash::CRC32 called with null pointer");
-            return 0xFFFFFFFFu;
+            throw std::invalid_argument("Hash::CRC32 called with null pointer");
         }
 
         u32 crc = 0xFFFFFFFF;
@@ -81,9 +82,11 @@ namespace OloEngine
 
         if (!data)
         {
-            // nullptr with size==0 is a valid empty-buffer call; nullptr with size>0 is a bug.
-            OLO_CORE_ASSERT(size == 0, "Hash::CRC32 called with null pointer and non-zero size");
-            return 0xFFFFFFFF ^ 0xFFFFFFFF;
+            if (size == 0)
+            {
+                return 0xFFFFFFFF ^ 0xFFFFFFFF;
+            }
+            throw std::invalid_argument("Hash::CRC32 called with null pointer and non-zero size");
         }
 
         auto const* ptr = static_cast<const u8*>(data);

@@ -463,19 +463,21 @@ namespace OloEngine
                 }
                 else
                 {
-                    if (!target.Vertices.empty())
+                    // Dense path: always write exactly vertCount entries.
+                    // If target.Vertices is non-empty, write those (clamped/padded to vertCount).
+                    // If empty, write all zeroes so the reader's fixed-size read stays in sync.
+                    auto denseCount = std::min(static_cast<u32>(target.Vertices.size()), vertCount);
+                    if (denseCount > 0)
                     {
-                        // Write exactly vertCount entries to match what the reader expects.
-                        auto denseCount = std::min(static_cast<u32>(target.Vertices.size()), vertCount);
                         WriteBytes(payload, target.Vertices.data(), denseCount * sizeof(MorphTargetVertex));
-                        // Pad if undersized
-                        if (denseCount < vertCount)
+                    }
+                    // Pad remaining entries with zeroes
+                    if (denseCount < vertCount)
+                    {
+                        MorphTargetVertex zero{};
+                        for (auto p = denseCount; p < vertCount; ++p)
                         {
-                            MorphTargetVertex zero{};
-                            for (auto p = denseCount; p < vertCount; ++p)
-                            {
-                                WriteBytes(payload, &zero, sizeof(MorphTargetVertex));
-                            }
+                            WriteBytes(payload, &zero, sizeof(MorphTargetVertex));
                         }
                     }
                 }
@@ -709,6 +711,20 @@ namespace OloEngine
                         OLO_CORE_WARN("MeshBinarySerializer::Read: Failed to decode shadow indices (non-fatal)");
                         shadowIndices.Empty();
                     }
+                    else
+                    {
+                        // Validate shadow index range against vertex count
+                        for (u32 si = 0; si < geo.ShadowIndexCount; ++si)
+                        {
+                            if (shadowIndices[static_cast<i32>(si)] >= geo.VertexCount)
+                            {
+                                OLO_CORE_WARN("MeshBinarySerializer::Read: Shadow index {} out of range (value={}, vertexCount={}) — discarding shadow indices",
+                                              si, shadowIndices[static_cast<i32>(si)], geo.VertexCount);
+                                shadowIndices.Empty();
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -877,6 +893,14 @@ namespace OloEngine
                     OLO_CORE_ERROR("MeshBinarySerializer::Read: BoneInfluence stride mismatch (file {}, expected {}) in '{}'",
                                    biHeader.InfluenceStride, sizeof(BoneInfluence), path.string());
                     return nullptr;
+                }
+
+                // Bone influences should be 1:1 with vertices
+                if (auto vCount = static_cast<u32>(meshSource->GetVertices().Num());
+                    biHeader.InfluenceCount != vCount)
+                {
+                    OLO_CORE_WARN("MeshBinarySerializer::Read: BoneInfluence count ({}) != vertex count ({}) in '{}'",
+                                  biHeader.InfluenceCount, vCount, path.string());
                 }
 
                 if (biHeader.InfluenceCount > 0 && biHeader.EncodedSize > 0)
@@ -1239,8 +1263,20 @@ namespace OloEngine
 
         auto& payload = *payloadStream;
 
+        // For uncompressed payloads, payload data starts after the file header
+        // in the original stream. For decompressed payloads, the stream starts
+        // at offset 0. Track this base so directory seeks are correct.
+        auto const payloadBase = decompressedStream ? sizet(0) : sizeof(OAnimFormat::FileHeader);
+
         u32 clipCount = 0;
         ReadBytes(payload, &clipCount, sizeof(u32));
+
+        if (clipCount > OAnimFormat::MaxClipCount)
+        {
+            OLO_CORE_ERROR("AnimationBinarySerializer::Read: ClipCount ({}) exceeds safety limit in '{}'",
+                           clipCount, path.string());
+            return {};
+        }
 
         std::vector<OAnimFormat::ClipDirectoryEntry> directory(clipCount);
         ReadBytes(payload, directory.data(), clipCount * sizeof(OAnimFormat::ClipDirectoryEntry));
@@ -1255,10 +1291,23 @@ namespace OloEngine
                 continue;
             }
 
-            payload.seekg(static_cast<std::streamoff>(directory[i].Offset));
+            payload.seekg(static_cast<std::streamoff>(payloadBase + directory[i].Offset));
 
             OAnimFormat::ClipHeader clipHeader;
             ReadBytes(payload, &clipHeader, sizeof(clipHeader));
+
+            if (clipHeader.BoneChannelCount > OAnimFormat::MaxBoneChannelCount)
+            {
+                OLO_CORE_ERROR("AnimationBinarySerializer::Read: BoneChannelCount ({}) exceeds safety limit in clip {} of '{}'",
+                               clipHeader.BoneChannelCount, i, path.string());
+                return {};
+            }
+            if (clipHeader.MorphKeyframeCount > OAnimFormat::MaxMorphKeyframeCount)
+            {
+                OLO_CORE_ERROR("AnimationBinarySerializer::Read: MorphKeyframeCount ({}) exceeds safety limit in clip {} of '{}'",
+                               clipHeader.MorphKeyframeCount, i, path.string());
+                return {};
+            }
 
             auto clip = Ref<AnimationClip>::Create();
             clip->Name = ReadString(payload);
@@ -1270,6 +1319,15 @@ namespace OloEngine
             {
                 OAnimFormat::BoneChannelHeader chanHeader;
                 ReadBytes(payload, &chanHeader, sizeof(chanHeader));
+
+                if (chanHeader.PositionKeyCount > OAnimFormat::MaxKeyCount ||
+                    chanHeader.RotationKeyCount > OAnimFormat::MaxKeyCount ||
+                    chanHeader.ScaleKeyCount > OAnimFormat::MaxKeyCount)
+                {
+                    OLO_CORE_ERROR("AnimationBinarySerializer::Read: Key counts exceed safety limit in clip {} channel {} of '{}'",
+                                   i, c, path.string());
+                    return {};
+                }
 
                 auto& boneAnim = clip->BoneAnimations[c];
                 boneAnim.BoneName = ReadString(payload);

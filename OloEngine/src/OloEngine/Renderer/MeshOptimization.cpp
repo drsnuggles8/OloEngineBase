@@ -44,6 +44,11 @@ namespace OloEngine::MeshOptimization
             for (i32 s = 0; s < submeshes.Num(); ++s)
             {
                 auto const& sub = submeshes[s];
+                if (sub.m_IndexCount == 0 || sub.m_BaseIndex > static_cast<u32>(indices.Num()) || sub.m_BaseIndex + sub.m_IndexCount > static_cast<u32>(indices.Num()))
+                {
+                    OLO_CORE_WARN("MeshOptimization::OptimizeMesh: Submesh {} has out-of-range index bounds, skipping", s);
+                    continue;
+                }
                 u32* subIndices = indices.GetData() + sub.m_BaseIndex;
                 auto subIndexCount = static_cast<sizet>(sub.m_IndexCount);
 
@@ -68,12 +73,12 @@ namespace OloEngine::MeshOptimization
 
         // 3. Vertex fetch optimization — reorder vertices for sequential memory access
         std::vector<u32> remap(vertexCount);
-        meshopt_optimizeVertexFetchRemap(remap.data(), indices.GetData(), indexCount, vertexCount);
+        auto remappedVertexCount = meshopt_optimizeVertexFetchRemap(remap.data(), indices.GetData(), indexCount, vertexCount);
 
         meshopt_remapIndexBuffer(indices.GetData(), indices.GetData(), indexCount, remap.data());
 
         {
-            TArray<Vertex> remappedVertices(static_cast<i32>(vertexCount));
+            TArray<Vertex> remappedVertices(static_cast<i32>(remappedVertexCount));
             meshopt_remapVertexBuffer(remappedVertices.GetData(), vertices.GetData(), vertexCount, sizeof(Vertex), remap.data());
             vertices = MoveTemp(remappedVertices);
         }
@@ -81,7 +86,7 @@ namespace OloEngine::MeshOptimization
         if (meshSource.HasBoneInfluences())
         {
             auto& boneInfluences = meshSource.GetBoneInfluences();
-            TArray<BoneInfluence> remappedBones(static_cast<i32>(vertexCount));
+            TArray<BoneInfluence> remappedBones(static_cast<i32>(remappedVertexCount));
             meshopt_remapVertexBuffer(remappedBones.GetData(), boneInfluences.GetData(), vertexCount, sizeof(BoneInfluence), remap.data());
             boneInfluences = MoveTemp(remappedBones);
         }
@@ -94,7 +99,7 @@ namespace OloEngine::MeshOptimization
             {
                 if (!target.IsSparse && target.Vertices.size() == vertexCount)
                 {
-                    std::vector<MorphTargetVertex> remappedDeltas(vertexCount);
+                    std::vector<MorphTargetVertex> remappedDeltas(remappedVertexCount);
                     meshopt_remapVertexBuffer(remappedDeltas.data(), target.Vertices.data(),
                                               vertexCount, sizeof(MorphTargetVertex), remap.data());
                     target.Vertices = MoveTemp(remappedDeltas);
@@ -112,6 +117,9 @@ namespace OloEngine::MeshOptimization
                 }
             }
         }
+
+        // Update vertexCount to reflect the compacted buffer size
+        vertexCount = remappedVertexCount;
 
         // Update submesh vertex ranges to match the remapped vertex buffer.
         // After vertex fetch remap, vertex positions in the buffer have changed,
@@ -161,6 +169,14 @@ namespace OloEngine::MeshOptimization
         {
             OLO_CORE_WARN("MeshOptimization::GenerateLODMesh: Multi-submesh LOD not supported ({} submeshes)",
                           meshSource.GetSubmeshes().Num());
+            return nullptr;
+        }
+
+        // Animated meshes with skeleton or morph targets are not
+        // supported until auxiliary streams (weights/morphs) are preserved.
+        if (meshSource.HasSkeleton() || meshSource.HasMorphTargets())
+        {
+            OLO_CORE_WARN("MeshOptimization::GenerateLODMesh: Animated sources with bone/morph data are not supported for LOD generation");
             return nullptr;
         }
 
@@ -219,6 +235,9 @@ namespace OloEngine::MeshOptimization
         if (srcSubmeshes.Num() == 1)
         {
             Submesh submesh = srcSubmeshes[0];
+            submesh.m_BaseVertex = 0;
+            submesh.m_BaseIndex = 0;
+            submesh.m_VertexCount = static_cast<u32>(lodMesh->GetVertices().Num());
             submesh.m_IndexCount = static_cast<u32>(resultIndexCount);
             lodMesh->AddSubmesh(submesh);
         }
@@ -228,7 +247,7 @@ namespace OloEngine::MeshOptimization
             Submesh submesh;
             submesh.m_BaseVertex = 0;
             submesh.m_BaseIndex = 0;
-            submesh.m_VertexCount = static_cast<u32>(lodVertices.Num());
+            submesh.m_VertexCount = static_cast<u32>(lodMesh->GetVertices().Num());
             submesh.m_IndexCount = static_cast<u32>(resultIndexCount);
             submesh.m_MaterialIndex = 0;
             lodMesh->AddSubmesh(submesh);
@@ -257,6 +276,14 @@ namespace OloEngine::MeshOptimization
         {
             OLO_CORE_WARN("MeshOptimization::GenerateLODMeshWithAttributes: Multi-submesh LOD not supported ({} submeshes)",
                           meshSource.GetSubmeshes().Num());
+            return nullptr;
+        }
+
+        // Animated meshes with skeleton or morph targets are not
+        // supported until auxiliary streams (weights/morphs) are preserved.
+        if (meshSource.HasSkeleton() || meshSource.HasMorphTargets())
+        {
+            OLO_CORE_WARN("MeshOptimization::GenerateLODMeshWithAttributes: Animated sources with bone/morph data are not supported for LOD generation");
             return nullptr;
         }
 
@@ -334,6 +361,9 @@ namespace OloEngine::MeshOptimization
         if (srcSubmeshes.Num() == 1)
         {
             Submesh submesh = srcSubmeshes[0];
+            submesh.m_BaseVertex = 0;
+            submesh.m_BaseIndex = 0;
+            submesh.m_VertexCount = static_cast<u32>(lodMesh->GetVertices().Num());
             submesh.m_IndexCount = static_cast<u32>(resultIndexCount);
             lodMesh->AddSubmesh(submesh);
         }
@@ -343,7 +373,7 @@ namespace OloEngine::MeshOptimization
             Submesh submesh;
             submesh.m_BaseVertex = 0;
             submesh.m_BaseIndex = 0;
-            submesh.m_VertexCount = static_cast<u32>(lodVertices.Num());
+            submesh.m_VertexCount = static_cast<u32>(lodMesh->GetVertices().Num());
             submesh.m_IndexCount = static_cast<u32>(resultIndexCount);
             submesh.m_MaterialIndex = 0;
             lodMesh->AddSubmesh(submesh);
@@ -578,7 +608,7 @@ namespace OloEngine::MeshOptimization
             for (i32 s = 0; s < submeshCount; ++s)
             {
                 const auto& sub = meshSource.GetSubmeshes()[s];
-                if (sub.m_IndexCount < 3)
+                if (sub.m_IndexCount < 3 || sub.m_BaseIndex > static_cast<u32>(indices.Num()) || sub.m_BaseIndex + sub.m_IndexCount > static_cast<u32>(indices.Num()))
                 {
                     continue;
                 }

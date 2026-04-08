@@ -2466,10 +2466,11 @@ namespace OloEngine
                     ImGui::SameLine();
                     if (ImGui::Button("Generate LODs"))
                     {
-                        // Remove previous memory-only LOD assets to avoid orphaned handles
+                        // Remove previous generated (memory-only) LOD assets to avoid orphaned handles.
+                        // Only remove memory-only assets — user-assigned file-backed assets are preserved.
                         for (const auto& level : component.m_LODGroup.Levels)
                         {
-                            if (level.MeshHandle != 0)
+                            if (level.MeshHandle != 0 && AssetManager::IsMemoryAsset(level.MeshHandle))
                             {
                                 AssetManager::RemoveAsset(level.MeshHandle);
                             }
