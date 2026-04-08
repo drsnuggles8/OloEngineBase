@@ -1089,10 +1089,10 @@ namespace OloEngine
                 v = std::clamp(v, lo, hi);
             };
 
-            sanitize(c.m_WorldSizeX, 0.1f, 1e5f, 100.0f);
-            sanitize(c.m_WorldSizeZ, 0.1f, 1e5f, 100.0f);
-            c.m_GridResolutionX = std::clamp(c.m_GridResolutionX, 2u, 1024u);
-            c.m_GridResolutionZ = std::clamp(c.m_GridResolutionZ, 2u, 1024u);
+            sanitize(c.m_WorldSizeX, 0.1f, 10000.0f, 100.0f);
+            sanitize(c.m_WorldSizeZ, 0.1f, 10000.0f, 100.0f);
+            c.m_GridResolutionX = std::clamp(c.m_GridResolutionX, 1u, 1024u);
+            c.m_GridResolutionZ = std::clamp(c.m_GridResolutionZ, 1u, 1024u);
             sanitize(c.m_WaveAmplitude, 0.0f, 100.0f, 0.5f);
             sanitize(c.m_WaveFrequency, 0.0f, 100.0f, 1.0f);
             sanitize(c.m_WaveSpeed, 0.0f, 100.0f, 1.0f);

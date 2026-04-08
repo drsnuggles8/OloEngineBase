@@ -3291,8 +3291,8 @@ namespace OloEngine
                         auto const sizeZ = std::isfinite(water.m_WorldSizeZ)
                                                ? std::clamp(water.m_WorldSizeZ, 0.1f, 10000.0f)
                                                : 100.0f;
-                        const u32 resX = std::clamp(water.m_GridResolutionX, 2u, 1024u);
-                        const u32 resZ = std::clamp(water.m_GridResolutionZ, 2u, 1024u);
+                        const u32 resX = std::clamp(water.m_GridResolutionX, 1u, 1024u);
+                        const u32 resZ = std::clamp(water.m_GridResolutionZ, 1u, 1024u);
                         water.m_WaterMesh = MeshPrimitives::CreateWaterGrid(
                             sizeX, sizeZ,
                             resX, resZ);
