@@ -1220,6 +1220,39 @@ namespace OloEngine
         water.m_Reflectivity = waterComponent["Reflectivity"].as<f32>(water.m_Reflectivity);
         water.m_FresnelPower = waterComponent["FresnelPower"].as<f32>(water.m_FresnelPower);
         water.m_SpecularIntensity = waterComponent["SpecularIntensity"].as<f32>(water.m_SpecularIntensity);
+        water.m_NormalMapScrollDir0 = waterComponent["NormalMapScrollDir0"].as<glm::vec2>(water.m_NormalMapScrollDir0);
+        water.m_NormalMapScrollDir1 = waterComponent["NormalMapScrollDir1"].as<glm::vec2>(water.m_NormalMapScrollDir1);
+        water.m_NormalMapScrollSpeed0 = waterComponent["NormalMapScrollSpeed0"].as<f32>(water.m_NormalMapScrollSpeed0);
+        water.m_NormalMapScrollSpeed1 = waterComponent["NormalMapScrollSpeed1"].as<f32>(water.m_NormalMapScrollSpeed1);
+        water.m_NormalMapTiling = waterComponent["NormalMapTiling"].as<f32>(water.m_NormalMapTiling);
+        water.m_NoiseIntensity = waterComponent["NoiseIntensity"].as<f32>(water.m_NoiseIntensity);
+        water.m_NormalMap0 = waterComponent["NormalMap0"].as<u64>(water.m_NormalMap0);
+        water.m_NormalMap1 = waterComponent["NormalMap1"].as<u64>(water.m_NormalMap1);
+        water.m_NoiseTexture = waterComponent["NoiseTexture"].as<u64>(water.m_NoiseTexture);
+        water.m_DepthSofteningDistance = waterComponent["DepthSofteningDistance"].as<f32>(water.m_DepthSofteningDistance);
+        water.m_RefractionDistortion = waterComponent["RefractionDistortion"].as<f32>(water.m_RefractionDistortion);
+        water.m_RefractionHeightFactor = waterComponent["RefractionHeightFactor"].as<f32>(water.m_RefractionHeightFactor);
+        water.m_RefractionColor = waterComponent["RefractionColor"].as<glm::vec3>(water.m_RefractionColor);
+        water.m_FoamTexture = waterComponent["FoamTexture"].as<u64>(water.m_FoamTexture);
+        water.m_FoamHeightStart = waterComponent["FoamHeightStart"].as<f32>(water.m_FoamHeightStart);
+        water.m_FoamFadeDistance = waterComponent["FoamFadeDistance"].as<f32>(water.m_FoamFadeDistance);
+        water.m_FoamTiling = waterComponent["FoamTiling"].as<f32>(water.m_FoamTiling);
+        water.m_FoamBrightness = waterComponent["FoamBrightness"].as<f32>(water.m_FoamBrightness);
+        water.m_FoamAngleExponent = waterComponent["FoamAngleExponent"].as<f32>(water.m_FoamAngleExponent);
+        water.m_ShorelineFoamPower = waterComponent["ShorelineFoamPower"].as<f32>(water.m_ShorelineFoamPower);
+        water.m_SSSColor = waterComponent["SSSColor"].as<glm::vec3>(water.m_SSSColor);
+        water.m_SSSIntensity = waterComponent["SSSIntensity"].as<f32>(water.m_SSSIntensity);
+        water.m_SSRMaxSteps = waterComponent["SSRMaxSteps"].as<f32>(water.m_SSRMaxSteps);
+        water.m_SSRStepSize = waterComponent["SSRStepSize"].as<f32>(water.m_SSRStepSize);
+        water.m_SSRMaxDistance = waterComponent["SSRMaxDistance"].as<f32>(water.m_SSRMaxDistance);
+        water.m_SSRThickness = waterComponent["SSRThickness"].as<f32>(water.m_SSRThickness);
+        if (auto const tessEnabled = waterComponent["TessellationEnabled"])
+        {
+            water.m_TessellationEnabled = tessEnabled.as<bool>(water.m_TessellationEnabled);
+        }
+        water.m_TessellationFactor = waterComponent["TessellationFactor"].as<f32>(water.m_TessellationFactor);
+        water.m_TessMinDistance = waterComponent["TessMinDistance"].as<f32>(water.m_TessMinDistance);
+        water.m_TessMaxDistance = waterComponent["TessMaxDistance"].as<f32>(water.m_TessMaxDistance);
 
         // Clamp grid resolution to safe bounds
         water.m_GridResolutionX = std::clamp(water.m_GridResolutionX, 1u, 1024u);
@@ -1239,12 +1272,39 @@ namespace OloEngine
         SanitizeFloat(water.m_Reflectivity, 0.0f, 1.0f, 0.5f);
         SanitizeFloat(water.m_FresnelPower, 0.1f, 20.0f, 5.0f);
         SanitizeFloat(water.m_SpecularIntensity, 0.0f, 10.0f, 1.0f);
+        SanitizeFloat(water.m_NormalMapScrollSpeed0, 0.0f, 1.0f, 0.02f);
+        SanitizeFloat(water.m_NormalMapScrollSpeed1, 0.0f, 1.0f, 0.015f);
+        SanitizeFloat(water.m_NormalMapTiling, 0.0f, 50.0f, 1.0f);
+        SanitizeFloat(water.m_NoiseIntensity, 0.0f, 1.0f, 0.3f);
 
         // Sanitize vec2/vec3 fields
         SanitizeVec2(water.m_WaveDir0, { 1.0f, 0.0f });
         SanitizeVec2(water.m_WaveDir1, { 0.7f, 0.7f });
+        SanitizeVec2(water.m_NormalMapScrollDir0, { 1.0f, 0.0f });
+        SanitizeVec2(water.m_NormalMapScrollDir1, { 0.0f, 1.0f });
         SanitizeVec3(water.m_WaterColor, { 0.1f, 0.4f, 0.5f });
         SanitizeVec3(water.m_DeepColor, { 0.0f, 0.1f, 0.2f });
+
+        // Phase 2+3+5 fields
+        SanitizeFloat(water.m_DepthSofteningDistance, 0.0f, 50.0f, 2.0f);
+        SanitizeFloat(water.m_RefractionDistortion, 0.0f, 0.5f, 0.05f);
+        SanitizeFloat(water.m_RefractionHeightFactor, 0.0f, 2.0f, 0.5f);
+        SanitizeVec3(water.m_RefractionColor, { 0.0f, 0.05f, 0.1f });
+        SanitizeFloat(water.m_FoamHeightStart, 0.0f, 2.0f, 0.3f);
+        SanitizeFloat(water.m_FoamFadeDistance, 0.01f, 5.0f, 0.5f);
+        SanitizeFloat(water.m_FoamTiling, 0.0f, 50.0f, 2.0f);
+        SanitizeFloat(water.m_FoamBrightness, 0.0f, 5.0f, 1.5f);
+        SanitizeFloat(water.m_FoamAngleExponent, 0.1f, 10.0f, 2.0f);
+        SanitizeFloat(water.m_ShorelineFoamPower, 0.1f, 10.0f, 3.0f);
+        SanitizeVec3(water.m_SSSColor, { 0.0f, 0.5f, 0.4f });
+        SanitizeFloat(water.m_SSSIntensity, 0.0f, 5.0f, 0.5f);
+        SanitizeFloat(water.m_SSRMaxSteps, 0.0f, 256.0f, 64.0f);
+        SanitizeFloat(water.m_SSRStepSize, 0.01f, 1.0f, 0.1f);
+        SanitizeFloat(water.m_SSRMaxDistance, 1.0f, 200.0f, 50.0f);
+        SanitizeFloat(water.m_SSRThickness, 0.01f, 5.0f, 0.5f);
+        SanitizeFloat(water.m_TessellationFactor, 1.0f, 64.0f, 8.0f);
+        SanitizeFloat(water.m_TessMinDistance, 1.0f, 500.0f, 10.0f);
+        SanitizeFloat(water.m_TessMaxDistance, 10.0f, 1000.0f, 200.0f);
 
         water.m_NeedsRebuild = true;
     }
@@ -4175,6 +4235,36 @@ namespace OloEngine
             out << YAML::Key << "Reflectivity" << YAML::Value << water.m_Reflectivity;
             out << YAML::Key << "FresnelPower" << YAML::Value << water.m_FresnelPower;
             out << YAML::Key << "SpecularIntensity" << YAML::Value << water.m_SpecularIntensity;
+            out << YAML::Key << "NormalMapScrollDir0" << YAML::Value << water.m_NormalMapScrollDir0;
+            out << YAML::Key << "NormalMapScrollDir1" << YAML::Value << water.m_NormalMapScrollDir1;
+            out << YAML::Key << "NormalMapScrollSpeed0" << YAML::Value << water.m_NormalMapScrollSpeed0;
+            out << YAML::Key << "NormalMapScrollSpeed1" << YAML::Value << water.m_NormalMapScrollSpeed1;
+            out << YAML::Key << "NormalMapTiling" << YAML::Value << water.m_NormalMapTiling;
+            out << YAML::Key << "NoiseIntensity" << YAML::Value << water.m_NoiseIntensity;
+            out << YAML::Key << "NormalMap0" << YAML::Value << water.m_NormalMap0;
+            out << YAML::Key << "NormalMap1" << YAML::Value << water.m_NormalMap1;
+            out << YAML::Key << "NoiseTexture" << YAML::Value << water.m_NoiseTexture;
+            out << YAML::Key << "DepthSofteningDistance" << YAML::Value << water.m_DepthSofteningDistance;
+            out << YAML::Key << "RefractionDistortion" << YAML::Value << water.m_RefractionDistortion;
+            out << YAML::Key << "RefractionHeightFactor" << YAML::Value << water.m_RefractionHeightFactor;
+            out << YAML::Key << "RefractionColor" << YAML::Value << water.m_RefractionColor;
+            out << YAML::Key << "FoamTexture" << YAML::Value << water.m_FoamTexture;
+            out << YAML::Key << "FoamHeightStart" << YAML::Value << water.m_FoamHeightStart;
+            out << YAML::Key << "FoamFadeDistance" << YAML::Value << water.m_FoamFadeDistance;
+            out << YAML::Key << "FoamTiling" << YAML::Value << water.m_FoamTiling;
+            out << YAML::Key << "FoamBrightness" << YAML::Value << water.m_FoamBrightness;
+            out << YAML::Key << "FoamAngleExponent" << YAML::Value << water.m_FoamAngleExponent;
+            out << YAML::Key << "ShorelineFoamPower" << YAML::Value << water.m_ShorelineFoamPower;
+            out << YAML::Key << "SSSColor" << YAML::Value << water.m_SSSColor;
+            out << YAML::Key << "SSSIntensity" << YAML::Value << water.m_SSSIntensity;
+            out << YAML::Key << "SSRMaxSteps" << YAML::Value << water.m_SSRMaxSteps;
+            out << YAML::Key << "SSRStepSize" << YAML::Value << water.m_SSRStepSize;
+            out << YAML::Key << "SSRMaxDistance" << YAML::Value << water.m_SSRMaxDistance;
+            out << YAML::Key << "SSRThickness" << YAML::Value << water.m_SSRThickness;
+            out << YAML::Key << "TessellationEnabled" << YAML::Value << water.m_TessellationEnabled;
+            out << YAML::Key << "TessellationFactor" << YAML::Value << water.m_TessellationFactor;
+            out << YAML::Key << "TessMinDistance" << YAML::Value << water.m_TessMinDistance;
+            out << YAML::Key << "TessMaxDistance" << YAML::Value << water.m_TessMaxDistance;
 
             out << YAML::EndMap; // WaterComponent
         }

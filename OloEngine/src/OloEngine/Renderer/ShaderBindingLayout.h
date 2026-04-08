@@ -310,12 +310,23 @@ namespace OloEngine
         // @brief Water surface rendering parameters
         struct WaterUBO
         {
-            glm::vec4 WaveParams;     // x = Time, y = WaveSpeed, z = WaveAmplitude, w = WaveFrequency
-            glm::vec4 WaveDir0;       // xy = direction0, z = steepness0, w = wavelength0
-            glm::vec4 WaveDir1;       // xy = direction1, z = steepness1, w = wavelength1
-            glm::vec4 WaterColor;     // rgb = shallow color, a = Transparency
-            glm::vec4 WaterDeepColor; // rgb = deep color,    a = Reflectivity
-            glm::vec4 VisualParams;   // x = FresnelPower, y = SpecularIntensity, z = pad, w = pad
+            glm::vec4 WaveParams;            // x = Time, y = WaveSpeed, z = WaveAmplitude, w = WaveFrequency
+            glm::vec4 WaveDir0;              // xy = direction0, z = steepness0, w = wavelength0
+            glm::vec4 WaveDir1;              // xy = direction1, z = steepness1, w = wavelength1
+            glm::vec4 WaterColor;            // rgb = shallow color, a = Transparency
+            glm::vec4 WaterDeepColor;        // rgb = deep color,    a = Reflectivity
+            glm::vec4 VisualParams;          // x = FresnelPower, y = SpecularIntensity, z = NormalMapTiling, w = NoiseIntensity
+            glm::vec4 NormalMapScroll;       // xy = scroll0 dir, zw = scroll1 dir (scrolled by time * speed)
+            glm::vec4 NormalMapSpeed;        // x = speed0, y = speed1, z/w = unused
+            glm::vec4 LightDirection;        // xyz = directional light dir (normalized), w = unused
+            glm::vec4 ScreenParams;          // x = width, y = height, z = 1/width, w = 1/height
+            glm::vec4 DepthRefractionParams; // x = depthSofteningDist, y = refractionDistortion, z = refractionHeightFactor, w = unused
+            glm::vec4 RefractionColor;       // rgb = underwater tint, w = unused
+            glm::vec4 FoamParams;            // x = foamHeightStart, y = foamFadeDistance, z = foamTiling, w = foamBrightness
+            glm::vec4 FoamParams2;           // x = foamAngleExponent, y = shorelineFoamPower, z = sssIntensity, w = unused
+            glm::vec4 SSSColor;              // rgb = subsurface scattering color, w = unused
+            glm::vec4 SSRParams;             // x = maxSteps (0=disabled), y = stepSize, z = maxDistance, w = thickness
+            glm::vec4 TessParams;            // x = tessellationFactor (0=disabled), y = minTessDistance, z = maxTessDistance, w = unused
 
             static constexpr u32 GetSize()
             {
@@ -456,7 +467,7 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) % 16 == 0, "LightProbeVolumeUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) == 80, "LightProbeVolumeUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::WaterUBO) % 16 == 0, "WaterUBO size must be 16-byte aligned for std140");
-    static_assert(sizeof(UBOStructures::WaterUBO) == 96, "WaterUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::WaterUBO) == 272, "WaterUBO unexpected size \u2014 update GLSL layout");
     static_assert(sizeof(UBOStructures::ForwardPlusUBO) % 16 == 0, "ForwardPlusUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::ForwardPlusUBO) == 16, "ForwardPlusUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::PBRMaterialUBO) % 16 == 0, "PBRMaterialUBO size must be 16-byte aligned for std140");
@@ -550,9 +561,16 @@ namespace OloEngine
         static constexpr u32 TEX_GTAO_OUTPUT = 34;          // GTAO raw/denoised AO output
         static constexpr u32 TEX_GTAO_EDGES = 35;           // GTAO edge-detection texture
         static constexpr u32 TEX_HILBERT_LUT = 36;          // Hilbert curve LUT for GTAO spatial noise
+        static constexpr u32 TEX_WATER_NORMAL_0 = 37;       // Water scrolling normal map 0
+        static constexpr u32 TEX_WATER_NORMAL_1 = 38;       // Water scrolling normal map 1
+        static constexpr u32 TEX_WATER_NOISE = 39;          // Water specular noise texture
+        static constexpr u32 TEX_WATER_DEPTH = 40;          // Scene depth for water depth effects
+        static constexpr u32 TEX_WATER_REFRACTION = 41;     // Pre-water scene color for refraction
+        static constexpr u32 TEX_WATER_FOAM = 42;           // Foam texture
+        static constexpr u32 TEX_WATER_SSR = 43;            // SSR reflection result for water
 
         // Ensure all texture slots fit within the GL 4.6 minimum guarantee (80 combined units).
-        static_assert(TEX_HILBERT_LUT < 80, "Texture slot exceeds GL 4.6 minimum GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS");
+        static_assert(TEX_WATER_SSR < 80, "Texture slot exceeds GL 4.6 minimum GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS");
 
         // =============================================================================
         // SHADER STORAGE BUFFER OBJECT (SSBO) BINDINGS
@@ -914,12 +932,21 @@ layout(std140, binding = 21) uniform DecalData {
         {
             return R"(
 layout(std140, binding = 23) uniform WaterParams {
-    vec4 u_WaveParams;      // x = Time, y = WaveSpeed, z = WaveAmplitude, w = WaveFrequency
-    vec4 u_WaveDir0;        // xy = direction0, z = steepness0, w = wavelength0
-    vec4 u_WaveDir1;        // xy = direction1, z = steepness1, w = wavelength1
-    vec4 u_WaterColor;      // rgb = shallow color, a = Transparency
-    vec4 u_WaterDeepColor;  // rgb = deep color,    a = Reflectivity
-    vec4 u_VisualParams;    // x = FresnelPower, y = SpecularIntensity, z/w = unused
+    vec4 u_WaveParams;              // x = Time, y = WaveSpeed, z = WaveAmplitude, w = WaveFrequency
+    vec4 u_WaveDir0;                // xy = direction0, z = steepness0, w = wavelength0
+    vec4 u_WaveDir1;                // xy = direction1, z = steepness1, w = wavelength1
+    vec4 u_WaterColor;              // rgb = shallow color, a = Transparency
+    vec4 u_WaterDeepColor;          // rgb = deep color,    a = Reflectivity
+    vec4 u_VisualParams;            // x = FresnelPower, y = SpecularIntensity, z = NormalMapTiling, w = NoiseIntensity
+    vec4 u_NormalMapScroll;         // xy = scroll0 offset, zw = scroll1 offset
+    vec4 u_NormalMapSpeed;          // x = speed0, y = speed1, z/w = unused
+    vec4 u_LightDirection;          // xyz = directional light dir (normalized), w = unused
+    vec4 u_ScreenParams;            // x = width, y = height, z = 1/width, w = 1/height
+    vec4 u_DepthRefractionParams;   // x = depthSofteningDist, y = refractionDistortion, z = refractionHeightFactor, w = unused
+    vec4 u_RefractionColor;         // rgb = underwater tint, w = unused
+    vec4 u_FoamParams;              // x = foamHeightStart, y = foamFadeDistance, z = foamTiling, w = foamBrightness
+    vec4 u_FoamParams2;             // x = foamAngleExponent, y = shorelineFoamPower, z = sssIntensity, w = unused
+    vec4 u_SSSColor;                // rgb = subsurface scattering color, w = unused
 };)";
         }
 
