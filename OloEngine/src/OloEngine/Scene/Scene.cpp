@@ -2,6 +2,8 @@
 #include "Scene.h"
 #include "Entity.h"
 
+#include <cmath>
+
 #include "Components.h"
 #include "Prefab.h"
 #include "OloEngine/Asset/AssetManager.h"
@@ -3328,7 +3330,13 @@ namespace OloEngine
                     waterParams.normalMapScroll = glm::vec4(scroll0.x, scroll0.y, scroll1.x, scroll1.y);
                     waterParams.normalMapSpeed = glm::vec4(
                         water.m_NormalMapScrollSpeed0, water.m_NormalMapScrollSpeed1, 0.0f, 0.0f);
-                    waterParams.lightDirection = glm::vec4(glm::normalize(directionalLightDir), 0.0f);
+                    // Validate light direction: fallback to down if non-finite or zero-length
+                    glm::vec3 safeLightDir = directionalLightDir;
+                    if (!std::isfinite(safeLightDir.x) || !std::isfinite(safeLightDir.y) || !std::isfinite(safeLightDir.z) || glm::dot(safeLightDir, safeLightDir) < 1e-6f)
+                    {
+                        safeLightDir = glm::vec3(0.0f, -1.0f, 0.0f);
+                    }
+                    waterParams.lightDirection = glm::vec4(glm::normalize(safeLightDir), 0.0f);
 
                     // Screen params for depth/refraction
                     f32 vpW = static_cast<f32>(m_ViewportWidth);

@@ -76,6 +76,20 @@ namespace OloEngine
         u32 const fbWidth = m_SceneFramebuffer->GetSpecification().Width;
         u32 const fbHeight = m_SceneFramebuffer->GetSpecification().Height;
 
+        // Guard against zero-sized framebuffers (minimized window, etc.)
+        if (fbWidth == 0 || fbHeight == 0)
+        {
+            if (m_RefractionTextureID != 0)
+            {
+                glDeleteTextures(1, &m_RefractionTextureID);
+                m_RefractionTextureID = 0;
+                m_RefractionWidth = 0;
+                m_RefractionHeight = 0;
+            }
+            ResetCommandBucket();
+            return;
+        }
+
         // Copy scene color for refraction (before water renders over it)
         u32 const sceneColorID = m_SceneFramebuffer->GetColorAttachmentRendererID(0);
         EnsureRefractionTexture(fbWidth, fbHeight);

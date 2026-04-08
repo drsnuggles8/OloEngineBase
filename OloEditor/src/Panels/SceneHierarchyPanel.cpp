@@ -4214,8 +4214,16 @@ namespace OloEngine
                 ImGui::SeparatorText("Normal Maps");
                 ImGui::DragFloat("Normal Map Tiling", &component.m_NormalMapTiling, 0.01f, 0.0f, 50.0f);
                 ImGui::DragFloat2("Scroll Dir 0", glm::value_ptr(component.m_NormalMapScrollDir0), 0.01f, -1.0f, 1.0f);
+                if (auto const len = glm::length(component.m_NormalMapScrollDir0); len > 1e-4f)
+                    component.m_NormalMapScrollDir0 /= len;
+                else
+                    component.m_NormalMapScrollDir0 = { 1.0f, 0.0f };
                 ImGui::DragFloat("Scroll Speed 0", &component.m_NormalMapScrollSpeed0, 0.001f, 0.0f, 1.0f);
                 ImGui::DragFloat2("Scroll Dir 1", glm::value_ptr(component.m_NormalMapScrollDir1), 0.01f, -1.0f, 1.0f);
+                if (auto const len = glm::length(component.m_NormalMapScrollDir1); len > 1e-4f)
+                    component.m_NormalMapScrollDir1 /= len;
+                else
+                    component.m_NormalMapScrollDir1 = { 0.0f, 1.0f };
                 ImGui::DragFloat("Scroll Speed 1", &component.m_NormalMapScrollSpeed1, 0.001f, 0.0f, 1.0f);
                 ImGui::DragFloat("Noise Intensity", &component.m_NoiseIntensity, 0.01f, 0.0f, 1.0f);
 
@@ -4232,7 +4240,8 @@ namespace OloEngine
                             auto assetManager = Project::GetAssetManager().As<EditorAssetManager>();
                             if (assetManager)
                             {
-                                component.m_NormalMap0 = assetManager->ImportAsset(texPath);
+                                if (auto const imported = assetManager->ImportAsset(texPath); imported != 0)
+                                    component.m_NormalMap0 = imported;
                             }
                         }
                         ImGui::EndDragDropTarget();
@@ -4258,7 +4267,8 @@ namespace OloEngine
                             auto assetManager = Project::GetAssetManager().As<EditorAssetManager>();
                             if (assetManager)
                             {
-                                component.m_NormalMap1 = assetManager->ImportAsset(texPath);
+                                if (auto const imported = assetManager->ImportAsset(texPath); imported != 0)
+                                    component.m_NormalMap1 = imported;
                             }
                         }
                         ImGui::EndDragDropTarget();
@@ -4284,7 +4294,8 @@ namespace OloEngine
                             auto assetManager = Project::GetAssetManager().As<EditorAssetManager>();
                             if (assetManager)
                             {
-                                component.m_NoiseTexture = assetManager->ImportAsset(texPath);
+                                if (auto const imported = assetManager->ImportAsset(texPath); imported != 0)
+                                    component.m_NoiseTexture = imported;
                             }
                         }
                         ImGui::EndDragDropTarget();
@@ -4319,7 +4330,8 @@ namespace OloEngine
                             auto assetManager = Project::GetAssetManager().As<EditorAssetManager>();
                             if (assetManager)
                             {
-                                component.m_FoamTexture = assetManager->ImportAsset(texPath);
+                                if (auto const imported = assetManager->ImportAsset(texPath); imported != 0)
+                                    component.m_FoamTexture = imported;
                             }
                         }
                         ImGui::EndDragDropTarget();
@@ -4355,6 +4367,7 @@ namespace OloEngine
                     ImGui::DragFloat("Tessellation Factor", &component.m_TessellationFactor, 0.5f, 1.0f, 64.0f, "%.1f");
                     ImGui::DragFloat("Tess Min Distance", &component.m_TessMinDistance, 1.0f, 1.0f, 500.0f);
                     ImGui::DragFloat("Tess Max Distance", &component.m_TessMaxDistance, 1.0f, 10.0f, 1000.0f);
+                    component.m_TessMaxDistance = std::max(component.m_TessMaxDistance, component.m_TessMinDistance + 1.0f);
                 }
 
                 ImGui::Separator();

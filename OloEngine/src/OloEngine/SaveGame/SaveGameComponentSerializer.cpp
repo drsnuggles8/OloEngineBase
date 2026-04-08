@@ -1071,6 +1071,55 @@ namespace OloEngine
         ar << c.m_SSSColor << c.m_SSSIntensity;
         ar << c.m_SSRMaxSteps << c.m_SSRStepSize << c.m_SSRMaxDistance << c.m_SSRThickness;
         ar << c.m_TessellationEnabled << c.m_TessellationFactor << c.m_TessMinDistance << c.m_TessMaxDistance;
+
+        if (ar.IsLoading())
+        {
+            auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                {
+                    v = fallback;
+                    return;
+                }
+                v = std::clamp(v, lo, hi);
+            };
+
+            sanitize(c.m_WorldSizeX, 0.1f, 1e5f, 100.0f);
+            sanitize(c.m_WorldSizeZ, 0.1f, 1e5f, 100.0f);
+            sanitize(c.m_WaveAmplitude, 0.0f, 100.0f, 0.5f);
+            sanitize(c.m_WaveFrequency, 0.0f, 100.0f, 1.0f);
+            sanitize(c.m_WaveSpeed, 0.0f, 100.0f, 1.0f);
+            sanitize(c.m_WaveSteepness0, 0.0f, 1.0f, 0.5f);
+            sanitize(c.m_Wavelength0, 0.1f, 500.0f, 10.0f);
+            sanitize(c.m_WaveSteepness1, 0.0f, 1.0f, 0.3f);
+            sanitize(c.m_Wavelength1, 0.1f, 500.0f, 15.0f);
+            sanitize(c.m_Transparency, 0.0f, 1.0f, 0.6f);
+            sanitize(c.m_Reflectivity, 0.0f, 1.0f, 0.5f);
+            sanitize(c.m_FresnelPower, 0.1f, 20.0f, 5.0f);
+            sanitize(c.m_SpecularIntensity, 0.0f, 10.0f, 1.0f);
+            sanitize(c.m_NormalMapScrollSpeed0, 0.0f, 1.0f, 0.02f);
+            sanitize(c.m_NormalMapScrollSpeed1, 0.0f, 1.0f, 0.015f);
+            sanitize(c.m_NormalMapTiling, 0.0f, 50.0f, 1.0f);
+            sanitize(c.m_NoiseIntensity, 0.0f, 1.0f, 0.3f);
+            sanitize(c.m_DepthSofteningDistance, 0.0f, 50.0f, 2.0f);
+            sanitize(c.m_RefractionDistortion, 0.0f, 0.5f, 0.05f);
+            sanitize(c.m_RefractionHeightFactor, 0.0f, 2.0f, 0.5f);
+            sanitize(c.m_FoamHeightStart, 0.0f, 2.0f, 0.3f);
+            sanitize(c.m_FoamFadeDistance, 0.01f, 5.0f, 0.5f);
+            sanitize(c.m_FoamTiling, 0.0f, 50.0f, 2.0f);
+            sanitize(c.m_FoamBrightness, 0.0f, 5.0f, 1.5f);
+            sanitize(c.m_FoamAngleExponent, 0.1f, 10.0f, 2.0f);
+            sanitize(c.m_ShorelineFoamPower, 0.1f, 10.0f, 3.0f);
+            sanitize(c.m_SSSIntensity, 0.0f, 5.0f, 0.5f);
+            sanitize(c.m_SSRMaxSteps, 0.0f, 256.0f, 64.0f);
+            sanitize(c.m_SSRStepSize, 0.01f, 1.0f, 0.1f);
+            sanitize(c.m_SSRMaxDistance, 1.0f, 200.0f, 50.0f);
+            sanitize(c.m_SSRThickness, 0.01f, 5.0f, 0.5f);
+            sanitize(c.m_TessellationFactor, 1.0f, 64.0f, 8.0f);
+            sanitize(c.m_TessMinDistance, 1.0f, 500.0f, 10.0f);
+            sanitize(c.m_TessMaxDistance, 10.0f, 1000.0f, 200.0f);
+            c.m_TessMaxDistance = std::max(c.m_TessMaxDistance, c.m_TessMinDistance + 1.0f);
+        }
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, SnowDeformerComponent& c)
