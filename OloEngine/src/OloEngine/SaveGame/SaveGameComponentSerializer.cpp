@@ -1122,8 +1122,13 @@ namespace OloEngine
             sanitize(c.m_TessMaxDistance, 10.0f, 1000.0f, 200.0f);
             c.m_TessMaxDistance = std::max(c.m_TessMaxDistance, c.m_TessMinDistance + 1.0f);
 
-            // Sanitize direction vectors — fallback if non-finite or near-zero, else normalize
-            auto sanitizeVec2 = [](glm::vec2& v, glm::vec2 const& fallback)
+            // Sanitize direction vectors — finiteness check (+ normalize for scroll dirs only)
+            auto sanitizeDir2 = [](glm::vec2& v, glm::vec2 const& fallback)
+            {
+                if (!std::isfinite(v.x) || !std::isfinite(v.y) || glm::dot(v, v) < 1e-6f)
+                    v = fallback;
+            };
+            auto sanitizeScrollDir = [](glm::vec2& v, glm::vec2 const& fallback)
             {
                 if (!std::isfinite(v.x) || !std::isfinite(v.y) || glm::dot(v, v) < 1e-6f)
                 {
@@ -1141,14 +1146,14 @@ namespace OloEngine
                 }
                 v = glm::clamp(v, glm::vec3(0.0f), glm::vec3(1.0f));
             };
-            sanitizeVec2(c.m_WaveDir0, glm::vec2(1.0f, 0.0f));
-            sanitizeVec2(c.m_WaveDir1, glm::vec2(0.7f, 0.7f));
-            sanitizeVec2(c.m_NormalMapScrollDir0, glm::vec2(1.0f, 0.0f));
-            sanitizeVec2(c.m_NormalMapScrollDir1, glm::vec2(0.0f, 1.0f));
-            sanitizeColor(c.m_WaterColor, glm::vec3(0.0f, 0.3f, 0.5f));
+            sanitizeDir2(c.m_WaveDir0, glm::vec2(1.0f, 0.0f));
+            sanitizeDir2(c.m_WaveDir1, glm::vec2(0.7f, 0.7f));
+            sanitizeScrollDir(c.m_NormalMapScrollDir0, glm::vec2(1.0f, 0.0f));
+            sanitizeScrollDir(c.m_NormalMapScrollDir1, glm::vec2(0.0f, 1.0f));
+            sanitizeColor(c.m_WaterColor, glm::vec3(0.1f, 0.4f, 0.5f));
             sanitizeColor(c.m_DeepColor, glm::vec3(0.0f, 0.1f, 0.2f));
-            sanitizeColor(c.m_RefractionColor, glm::vec3(0.8f, 0.9f, 1.0f));
-            sanitizeColor(c.m_SSSColor, glm::vec3(0.0f, 0.5f, 0.3f));
+            sanitizeColor(c.m_RefractionColor, glm::vec3(0.0f, 0.05f, 0.1f));
+            sanitizeColor(c.m_SSSColor, glm::vec3(0.0f, 0.5f, 0.4f));
         }
     }
 
