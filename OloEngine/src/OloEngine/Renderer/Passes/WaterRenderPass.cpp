@@ -2,6 +2,9 @@
 #include "OloEngine/Renderer/Passes/WaterRenderPass.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Renderer.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+
+#include <glad/gl.h>
 
 namespace OloEngine
 {
@@ -12,12 +15,45 @@ namespace OloEngine
         OLO_CORE_INFO("Creating WaterRenderPass.");
     }
 
+    WaterRenderPass::~WaterRenderPass()
+    {
+        if (m_RefractionTextureID != 0)
+        {
+            glDeleteTextures(1, &m_RefractionTextureID);
+            m_RefractionTextureID = 0;
+        }
+    }
+
     void WaterRenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
 
         m_FramebufferSpec = spec;
         // No own framebuffer — this pass renders into the ScenePass target
+    }
+
+    void WaterRenderPass::EnsureRefractionTexture(u32 width, u32 height)
+    {
+        if (m_RefractionTextureID != 0 && m_RefractionWidth == width && m_RefractionHeight == height)
+        {
+            return;
+        }
+
+        if (m_RefractionTextureID != 0)
+        {
+            glDeleteTextures(1, &m_RefractionTextureID);
+        }
+
+        glCreateTextures(GL_TEXTURE_2D, 1, &m_RefractionTextureID);
+        glTextureStorage2D(m_RefractionTextureID, 1, GL_RGBA16F,
+                           static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+        glTextureParameteri(m_RefractionTextureID, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTextureParameteri(m_RefractionTextureID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTextureParameteri(m_RefractionTextureID, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTextureParameteri(m_RefractionTextureID, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        m_RefractionWidth = width;
+        m_RefractionHeight = height;
     }
 
     void WaterRenderPass::Execute()
@@ -37,7 +73,29 @@ namespace OloEngine
             return;
         }
 
+        u32 const fbWidth = m_SceneFramebuffer->GetSpecification().Width;
+        u32 const fbHeight = m_SceneFramebuffer->GetSpecification().Height;
+
+        // Copy scene color for refraction (before water renders over it)
+        u32 const sceneColorID = m_SceneFramebuffer->GetColorAttachmentRendererID(0);
+        EnsureRefractionTexture(fbWidth, fbHeight);
+        glCopyImageSubData(
+            sceneColorID, GL_TEXTURE_2D, 0, 0, 0, 0,
+            m_RefractionTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
+            static_cast<GLsizei>(fbWidth), static_cast<GLsizei>(fbHeight), 1);
+
         m_SceneFramebuffer->Bind();
+
+        // Bind scene depth for depth softening and shoreline foam
+        u32 const depthTextureID = m_SceneFramebuffer->GetDepthAttachmentRendererID();
+        RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, depthTextureID);
+
+        // Bind refraction color copy
+        RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, m_RefractionTextureID);
+
+        // Bind scene view-space normals for SSR ray marching
+        u32 const normalsTextureID = m_SceneFramebuffer->GetColorAttachmentRendererID(2);
+        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, normalsTextureID);
 
         // Sort and dispatch water commands through the command bucket
         m_CommandBucket.SortCommands();

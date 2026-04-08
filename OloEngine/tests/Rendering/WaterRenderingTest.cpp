@@ -23,8 +23,8 @@ TEST(WaterRendering, WaterUBOAlignment)
 
 TEST(WaterRendering, WaterUBOSizeStable)
 {
-    // 6 x glm::vec4 = 6 x 16 = 96 bytes
-    EXPECT_EQ(sizeof(UBOStructures::WaterUBO), 96u);
+    // 17 x glm::vec4 = 17 x 16 = 272 bytes
+    EXPECT_EQ(sizeof(UBOStructures::WaterUBO), 272u);
 }
 
 TEST(WaterRendering, WaterUBOGetSizeMatchesSizeof)
@@ -55,6 +55,17 @@ TEST(WaterRendering, WaterUBOFieldRoundTrip)
     ubo.WaterColor = glm::vec4(0.1f, 0.4f, 0.5f, 0.6f);
     ubo.WaterDeepColor = glm::vec4(0.0f, 0.1f, 0.2f, 0.5f);
     ubo.VisualParams = glm::vec4(5.0f, 1.0f, 0.0f, 0.0f);
+    ubo.NormalMapScroll = glm::vec4(0.1f, 0.2f, 0.3f, 0.4f);
+    ubo.NormalMapSpeed = glm::vec4(0.02f, 0.015f, 0.0f, 0.0f);
+    ubo.LightDirection = glm::vec4(0.5f, 1.0f, 0.3f, 0.0f);
+    ubo.ScreenParams = glm::vec4(1920.0f, 1080.0f, 1.0f / 1920.0f, 1.0f / 1080.0f);
+    ubo.DepthRefractionParams = glm::vec4(2.0f, 0.05f, 0.5f, 0.0f);
+    ubo.RefractionColor = glm::vec4(0.0f, 0.05f, 0.1f, 0.0f);
+    ubo.FoamParams = glm::vec4(0.3f, 0.5f, 2.0f, 1.5f);
+    ubo.FoamParams2 = glm::vec4(2.0f, 3.0f, 0.5f, 0.0f);
+    ubo.SSSColor = glm::vec4(0.0f, 0.5f, 0.4f, 0.0f);
+    ubo.SSRParams = glm::vec4(64.0f, 0.1f, 50.0f, 0.5f);
+    ubo.TessParams = glm::vec4(8.0f, 10.0f, 200.0f, 0.0f);
 
     // Verify memcpy round-trip (simulating UBO upload)
     UBOStructures::WaterUBO copy{};
@@ -68,6 +79,23 @@ TEST(WaterRendering, WaterUBOFieldRoundTrip)
     EXPECT_FLOAT_EQ(copy.WaterDeepColor.a, 0.5f);
     EXPECT_FLOAT_EQ(copy.VisualParams.x, 5.0f);
     EXPECT_FLOAT_EQ(copy.VisualParams.y, 1.0f);
+    EXPECT_FLOAT_EQ(copy.NormalMapScroll.x, 0.1f);
+    EXPECT_FLOAT_EQ(copy.NormalMapScroll.w, 0.4f);
+    EXPECT_FLOAT_EQ(copy.NormalMapSpeed.x, 0.02f);
+    EXPECT_FLOAT_EQ(copy.LightDirection.y, 1.0f);
+    EXPECT_FLOAT_EQ(copy.ScreenParams.x, 1920.0f);
+    EXPECT_FLOAT_EQ(copy.ScreenParams.y, 1080.0f);
+    EXPECT_FLOAT_EQ(copy.DepthRefractionParams.x, 2.0f);
+    EXPECT_FLOAT_EQ(copy.DepthRefractionParams.y, 0.05f);
+    EXPECT_FLOAT_EQ(copy.RefractionColor.g, 0.05f);
+    EXPECT_FLOAT_EQ(copy.FoamParams.x, 0.3f);
+    EXPECT_FLOAT_EQ(copy.FoamParams.w, 1.5f);
+    EXPECT_FLOAT_EQ(copy.FoamParams2.z, 0.5f);
+    EXPECT_FLOAT_EQ(copy.SSSColor.g, 0.5f);
+    EXPECT_FLOAT_EQ(copy.SSRParams.x, 64.0f);
+    EXPECT_FLOAT_EQ(copy.SSRParams.w, 0.5f);
+    EXPECT_FLOAT_EQ(copy.TessParams.x, 8.0f);
+    EXPECT_FLOAT_EQ(copy.TessParams.z, 200.0f);
 }
 
 // =============================================================================
@@ -117,6 +145,21 @@ TEST(WaterRendering, DrawWaterCommandZeroInitNoNaN)
     ValidateVec4(cmd.waterColor, "waterColor");
     ValidateVec4(cmd.waterDeepColor, "waterDeepColor");
     ValidateVec4(cmd.visualParams, "visualParams");
+    ValidateVec4(cmd.normalMapScroll, "normalMapScroll");
+    ValidateVec4(cmd.normalMapSpeed, "normalMapSpeed");
+    ValidateVec4(cmd.lightDirection, "lightDirection");
+    ValidateVec4(cmd.screenParams, "screenParams");
+    ValidateVec4(cmd.depthRefractionParams, "depthRefractionParams");
+    ValidateVec4(cmd.refractionColor, "refractionColor");
+    ValidateVec4(cmd.foamParams, "foamParams");
+    ValidateVec4(cmd.foamParams2, "foamParams2");
+    ValidateVec4(cmd.sssColor, "sssColor");
+    ValidateVec4(cmd.ssrParams, "ssrParams");
+    ValidateVec4(cmd.tessParams, "tessParams");
+    EXPECT_EQ(cmd.normalMap0ID, 0u);
+    EXPECT_EQ(cmd.normalMap1ID, 0u);
+    EXPECT_EQ(cmd.noiseTextureID, 0u);
+    EXPECT_EQ(cmd.foamTextureID, 0u);
 }
 
 // =============================================================================
@@ -144,6 +187,50 @@ TEST(WaterRendering, WaterComponentDefaults)
     EXPECT_TRUE(wc.m_Enabled);
     EXPECT_TRUE(wc.m_NeedsRebuild);
     EXPECT_EQ(wc.m_WaterMesh, nullptr);
+
+    // Normal map / noise defaults
+    EXPECT_FLOAT_EQ(wc.m_NormalMapScrollSpeed0, 0.02f);
+    EXPECT_FLOAT_EQ(wc.m_NormalMapScrollSpeed1, 0.015f);
+    EXPECT_FLOAT_EQ(wc.m_NormalMapTiling, 1.0f);
+    EXPECT_FLOAT_EQ(wc.m_NoiseIntensity, 0.3f);
+    EXPECT_EQ(wc.m_NormalMap0, 0u);
+    EXPECT_EQ(wc.m_NormalMap1, 0u);
+    EXPECT_EQ(wc.m_NoiseTexture, 0u);
+
+    // Depth / refraction defaults
+    EXPECT_FLOAT_EQ(wc.m_DepthSofteningDistance, 2.0f);
+    EXPECT_FLOAT_EQ(wc.m_RefractionDistortion, 0.05f);
+    EXPECT_FLOAT_EQ(wc.m_RefractionHeightFactor, 0.5f);
+    EXPECT_FLOAT_EQ(wc.m_RefractionColor.r, 0.0f);
+    EXPECT_FLOAT_EQ(wc.m_RefractionColor.g, 0.05f);
+    EXPECT_FLOAT_EQ(wc.m_RefractionColor.b, 0.1f);
+
+    // Foam defaults
+    EXPECT_EQ(wc.m_FoamTexture, 0u);
+    EXPECT_FLOAT_EQ(wc.m_FoamHeightStart, 0.3f);
+    EXPECT_FLOAT_EQ(wc.m_FoamFadeDistance, 0.5f);
+    EXPECT_FLOAT_EQ(wc.m_FoamTiling, 2.0f);
+    EXPECT_FLOAT_EQ(wc.m_FoamBrightness, 1.5f);
+    EXPECT_FLOAT_EQ(wc.m_FoamAngleExponent, 2.0f);
+    EXPECT_FLOAT_EQ(wc.m_ShorelineFoamPower, 3.0f);
+
+    // SSS defaults
+    EXPECT_FLOAT_EQ(wc.m_SSSColor.r, 0.0f);
+    EXPECT_FLOAT_EQ(wc.m_SSSColor.g, 0.5f);
+    EXPECT_FLOAT_EQ(wc.m_SSSColor.b, 0.4f);
+    EXPECT_FLOAT_EQ(wc.m_SSSIntensity, 0.5f);
+
+    // SSR defaults
+    EXPECT_FLOAT_EQ(wc.m_SSRMaxSteps, 64.0f);
+    EXPECT_FLOAT_EQ(wc.m_SSRStepSize, 0.1f);
+    EXPECT_FLOAT_EQ(wc.m_SSRMaxDistance, 50.0f);
+    EXPECT_FLOAT_EQ(wc.m_SSRThickness, 0.5f);
+
+    // Tessellation defaults
+    EXPECT_FALSE(wc.m_TessellationEnabled);
+    EXPECT_FLOAT_EQ(wc.m_TessellationFactor, 8.0f);
+    EXPECT_FLOAT_EQ(wc.m_TessMinDistance, 10.0f);
+    EXPECT_FLOAT_EQ(wc.m_TessMaxDistance, 200.0f);
 }
 
 // =============================================================================
@@ -233,4 +320,18 @@ TEST(WaterRendering, WavelengthPackedIntoWaveDir)
     EXPECT_FLOAT_EQ(waveDir1.w, 18.0f) << "waveDir1.w must carry wavelength1";
     EXPECT_FLOAT_EQ(waveDir0.z, 0.5f) << "waveDir0.z must carry steepness0";
     EXPECT_FLOAT_EQ(waveDir1.z, 0.3f) << "waveDir1.z must carry steepness1";
+}
+
+// =============================================================================
+// Texture Binding Slots — Phase 2+3+5
+// =============================================================================
+
+TEST(WaterRendering, WaterTextureBindingSlots)
+{
+    EXPECT_EQ(ShaderBindingLayout::TEX_WATER_NORMAL_0, 37u);
+    EXPECT_EQ(ShaderBindingLayout::TEX_WATER_NORMAL_1, 38u);
+    EXPECT_EQ(ShaderBindingLayout::TEX_WATER_NOISE, 39u);
+    EXPECT_EQ(ShaderBindingLayout::TEX_WATER_DEPTH, 40u);
+    EXPECT_EQ(ShaderBindingLayout::TEX_WATER_REFRACTION, 41u);
+    EXPECT_EQ(ShaderBindingLayout::TEX_WATER_FOAM, 42u);
 }

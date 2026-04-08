@@ -1059,6 +1059,18 @@ namespace OloEngine
         ar << c.m_Transparency << c.m_Reflectivity << c.m_FresnelPower << c.m_SpecularIntensity;
         ar << c.m_GridResolutionX << c.m_GridResolutionZ;
         ar << c.m_Enabled;
+        ar << c.m_NormalMapScrollDir0 << c.m_NormalMapScrollDir1;
+        ar << c.m_NormalMapScrollSpeed0 << c.m_NormalMapScrollSpeed1;
+        ar << c.m_NormalMapTiling << c.m_NoiseIntensity;
+        ar << c.m_NormalMap0 << c.m_NormalMap1 << c.m_NoiseTexture;
+        ar << c.m_DepthSofteningDistance << c.m_RefractionDistortion << c.m_RefractionHeightFactor;
+        ar << c.m_RefractionColor;
+        ar << c.m_FoamTexture;
+        ar << c.m_FoamHeightStart << c.m_FoamFadeDistance << c.m_FoamTiling << c.m_FoamBrightness;
+        ar << c.m_FoamAngleExponent << c.m_ShorelineFoamPower;
+        ar << c.m_SSSColor << c.m_SSSIntensity;
+        ar << c.m_SSRMaxSteps << c.m_SSRStepSize << c.m_SSRMaxDistance << c.m_SSRThickness;
+        ar << c.m_TessellationEnabled << c.m_TessellationFactor << c.m_TessMinDistance << c.m_TessMaxDistance;
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, SnowDeformerComponent& c)

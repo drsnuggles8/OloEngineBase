@@ -3305,20 +3305,94 @@ namespace OloEngine
                     i32 entityID = static_cast<i32>(static_cast<u32>(entity));
                     glm::mat4 modelMat = transform.GetTransform();
 
-                    // Pack component fields into UBO vec4 layout
-                    glm::vec4 waveParams = glm::vec4(
+                    // Pack component fields into WaterDrawParams
+                    Renderer3D::WaterDrawParams waterParams;
+                    waterParams.waveParams = glm::vec4(
                         0.0f, // Time — filled by DrawWaterSurface
                         water.m_WaveSpeed,
                         water.m_WaveAmplitude,
                         water.m_WaveFrequency);
-                    glm::vec4 waveDir0 = water.PackWaveDir0();
-                    glm::vec4 waveDir1 = water.PackWaveDir1();
-                    glm::vec4 waterColor = glm::vec4(
+                    waterParams.waveDir0 = water.PackWaveDir0();
+                    waterParams.waveDir1 = water.PackWaveDir1();
+                    waterParams.waterColor = glm::vec4(
                         water.m_WaterColor, water.m_Transparency);
-                    glm::vec4 waterDeepColor = glm::vec4(
+                    waterParams.waterDeepColor = glm::vec4(
                         water.m_DeepColor, water.m_Reflectivity);
-                    glm::vec4 visualParams = glm::vec4(
-                        water.m_FresnelPower, water.m_SpecularIntensity, 0.0f, 0.0f);
+                    waterParams.visualParams = glm::vec4(
+                        water.m_FresnelPower, water.m_SpecularIntensity,
+                        water.m_NormalMapTiling, water.m_NoiseIntensity);
+
+                    // Pack normal map scroll offsets (dir * time * speed)
+                    glm::vec2 scroll0 = water.m_NormalMapScrollDir0 * animationTime * water.m_NormalMapScrollSpeed0;
+                    glm::vec2 scroll1 = water.m_NormalMapScrollDir1 * animationTime * water.m_NormalMapScrollSpeed1;
+                    waterParams.normalMapScroll = glm::vec4(scroll0.x, scroll0.y, scroll1.x, scroll1.y);
+                    waterParams.normalMapSpeed = glm::vec4(
+                        water.m_NormalMapScrollSpeed0, water.m_NormalMapScrollSpeed1, 0.0f, 0.0f);
+                    waterParams.lightDirection = glm::vec4(glm::normalize(directionalLightDir), 0.0f);
+
+                    // Screen params for depth/refraction
+                    f32 vpW = static_cast<f32>(m_ViewportWidth);
+                    f32 vpH = static_cast<f32>(m_ViewportHeight);
+                    waterParams.screenParams = glm::vec4(vpW, vpH,
+                                                         vpW > 0.0f ? 1.0f / vpW : 0.0f,
+                                                         vpH > 0.0f ? 1.0f / vpH : 0.0f);
+
+                    // Depth, refraction, foam, SSS params
+                    waterParams.depthRefractionParams = glm::vec4(
+                        water.m_DepthSofteningDistance,
+                        water.m_RefractionDistortion,
+                        water.m_RefractionHeightFactor, 0.0f);
+                    waterParams.refractionColor = glm::vec4(water.m_RefractionColor, 0.0f);
+                    waterParams.foamParams = glm::vec4(
+                        water.m_FoamHeightStart, water.m_FoamFadeDistance,
+                        water.m_FoamTiling, water.m_FoamBrightness);
+                    waterParams.foamParams2 = glm::vec4(
+                        water.m_FoamAngleExponent, water.m_ShorelineFoamPower,
+                        water.m_SSSIntensity, 0.0f);
+                    waterParams.sssColor = glm::vec4(water.m_SSSColor, 0.0f);
+
+                    // SSR params: x=maxSteps (0=disabled), y=stepSize, z=maxDistance, w=thickness
+                    waterParams.ssrParams = glm::vec4(
+                        water.m_SSRMaxSteps,
+                        water.m_SSRStepSize,
+                        water.m_SSRMaxDistance,
+                        water.m_SSRThickness);
+
+                    // Tessellation params: x=factor (0=disabled), y=minDist, z=maxDist
+                    waterParams.tessParams = glm::vec4(
+                        water.m_TessellationEnabled ? water.m_TessellationFactor : 0.0f,
+                        water.m_TessMinDistance,
+                        water.m_TessMaxDistance, 0.0f);
+
+                    // Resolve texture IDs
+                    if (water.m_NormalMap0 != 0)
+                    {
+                        if (auto tex = AssetManager::GetAsset<Texture2D>(water.m_NormalMap0))
+                        {
+                            waterParams.normalMap0ID = tex->GetRendererID();
+                        }
+                    }
+                    if (water.m_NormalMap1 != 0)
+                    {
+                        if (auto tex = AssetManager::GetAsset<Texture2D>(water.m_NormalMap1))
+                        {
+                            waterParams.normalMap1ID = tex->GetRendererID();
+                        }
+                    }
+                    if (water.m_NoiseTexture != 0)
+                    {
+                        if (auto tex = AssetManager::GetAsset<Texture2D>(water.m_NoiseTexture))
+                        {
+                            waterParams.noiseTextureID = tex->GetRendererID();
+                        }
+                    }
+                    if (water.m_FoamTexture != 0)
+                    {
+                        if (auto tex = AssetManager::GetAsset<Texture2D>(water.m_FoamTexture))
+                        {
+                            waterParams.foamTextureID = tex->GetRendererID();
+                        }
+                    }
 
                     // Compute bounding box for frustum culling
                     f32 halfX = water.m_WorldSizeX * 0.5f;
@@ -3332,8 +3406,7 @@ namespace OloEngine
                         va->GetRendererID(), submesh.m_IndexCount,
                         modelMat,
                         animationTime,
-                        waveParams, waveDir0, waveDir1,
-                        waterColor, waterDeepColor, visualParams,
+                        waterParams,
                         bounds,
                         entityID);
                     if (packet)
