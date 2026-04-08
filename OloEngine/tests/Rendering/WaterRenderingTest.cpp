@@ -235,6 +235,10 @@ TEST(WaterRendering, WaterComponentDefaults)
     EXPECT_FLOAT_EQ(wc.m_SSRStepSize, 0.1f);
     EXPECT_FLOAT_EQ(wc.m_SSRMaxDistance, 50.0f);
     EXPECT_FLOAT_EQ(wc.m_SSRThickness, 0.5f);
+    EXPECT_TRUE(wc.m_SSREnabled);
+
+    // Refraction defaults
+    EXPECT_TRUE(wc.m_RefractionEnabled);
 
     // Tessellation defaults
     EXPECT_FALSE(wc.m_TessellationEnabled);
@@ -260,7 +264,7 @@ TEST(WaterRendering, WaterComponentCopyOmitsRuntime)
     original.m_RefractionDistortion = 0.456f;
     original.m_TessellationEnabled = true;
     original.m_TessellationFactor = 16.0f;
-    original.m_SSREnabled = true;
+    original.m_SSREnabled = false;
     original.m_SSRMaxSteps = 128.0f;
 
     WaterComponent copy(original);
@@ -276,7 +280,7 @@ TEST(WaterRendering, WaterComponentCopyOmitsRuntime)
     EXPECT_FLOAT_EQ(copy.m_RefractionDistortion, 0.456f);
     EXPECT_TRUE(copy.m_TessellationEnabled);
     EXPECT_FLOAT_EQ(copy.m_TessellationFactor, 16.0f);
-    EXPECT_TRUE(copy.m_SSREnabled);
+    EXPECT_FALSE(copy.m_SSREnabled);
     EXPECT_FLOAT_EQ(copy.m_SSRMaxSteps, 128.0f);
 
     // Runtime state should NOT be copied — mesh is null, needs rebuild

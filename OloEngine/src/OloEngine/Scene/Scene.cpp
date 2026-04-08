@@ -2,6 +2,7 @@
 #include "Scene.h"
 #include "Entity.h"
 
+#include <algorithm>
 #include <cmath>
 
 #include "Components.h"
@@ -3390,7 +3391,7 @@ namespace OloEngine
 
                     // SSR params: x=maxSteps (0=disabled), y=stepSize, z=maxDistance, w=thickness
                     waterParams.ssrParams = glm::vec4(
-                        water.m_SSRMaxSteps,
+                        water.m_SSREnabled ? water.m_SSRMaxSteps : 0.0f,
                         water.m_SSRStepSize,
                         water.m_SSRMaxDistance,
                         water.m_SSRThickness);
@@ -3508,10 +3509,19 @@ namespace OloEngine
                         }
                     }
 
-                    // Compute bounding box for frustum culling
-                    f32 halfX = water.m_WorldSizeX * 0.5f;
-                    f32 halfZ = water.m_WorldSizeZ * 0.5f;
-                    f32 waveH = water.m_WaveAmplitude * 2.0f; // Conservative height estimate
+                    // Compute bounding box for frustum culling — use sanitized values
+                    f32 const safeWorldX = std::isfinite(water.m_WorldSizeX)
+                                               ? std::clamp(water.m_WorldSizeX, 0.1f, 10000.0f)
+                                               : 100.0f;
+                    f32 const safeWorldZ = std::isfinite(water.m_WorldSizeZ)
+                                               ? std::clamp(water.m_WorldSizeZ, 0.1f, 10000.0f)
+                                               : 100.0f;
+                    f32 const safeAmplitude = std::isfinite(water.m_WaveAmplitude)
+                                                  ? std::clamp(water.m_WaveAmplitude, 0.0f, 100.0f)
+                                                  : 0.5f;
+                    f32 halfX = safeWorldX * 0.5f;
+                    f32 halfZ = safeWorldZ * 0.5f;
+                    f32 waveH = safeAmplitude * 2.0f; // Conservative height estimate
                     BoundingBox bounds;
                     bounds.Min = glm::vec3(-halfX, -waveH, -halfZ);
                     bounds.Max = glm::vec3(halfX, waveH, halfZ);
