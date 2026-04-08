@@ -2296,8 +2296,9 @@ namespace OloEngine
             // Bone influences should be 1:1 with vertices
             if (boneCount != vertexCount)
             {
-                OLO_CORE_WARN("MeshSourceSerializer::DeserializeFromAssetPack - BoneInfluence count ({}) != vertex count ({})",
-                              boneCount, vertexCount);
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - BoneInfluence count ({}) != vertex count ({})",
+                               boneCount, vertexCount);
+                return nullptr;
             }
 
             if (boneCount > 0)

@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 
 #include <array>
+#include <type_traits>
 
 namespace OloEngine
 {
@@ -290,5 +291,98 @@ namespace OloEngine
         };
 
     } // namespace OAnimFormat
+
+    // ── Compile-time ABI guards for wire-format structs ──────────────
+    // Any padding or field-order change will break binary compatibility.
+
+    // OMeshFormat
+    static_assert(std::is_trivially_copyable_v<OMeshFormat::FileHeader>);
+    static_assert(std::is_standard_layout_v<OMeshFormat::FileHeader>);
+    static_assert(sizeof(OMeshFormat::FileHeader) == 40);
+
+    static_assert(std::is_trivially_copyable_v<OMeshFormat::SectionEntry>);
+    static_assert(std::is_standard_layout_v<OMeshFormat::SectionEntry>);
+    static_assert(sizeof(OMeshFormat::SectionEntry) == 16);
+
+    static_assert(std::is_trivially_copyable_v<OMeshFormat::SectionDirectory>);
+    static_assert(std::is_standard_layout_v<OMeshFormat::SectionDirectory>);
+    static_assert(sizeof(OMeshFormat::SectionDirectory) == 112);
+
+    static_assert(std::is_trivially_copyable_v<OMeshFormat::GeometryHeader>);
+    static_assert(std::is_standard_layout_v<OMeshFormat::GeometryHeader>);
+    static_assert(sizeof(OMeshFormat::GeometryHeader) == 40);
+
+    static_assert(std::is_trivially_copyable_v<OMeshFormat::SubmeshHeader>);
+    static_assert(std::is_standard_layout_v<OMeshFormat::SubmeshHeader>);
+    static_assert(sizeof(OMeshFormat::SubmeshHeader) == 4);
+
+    static_assert(std::is_trivially_copyable_v<OMeshFormat::SubmeshEntry>);
+    static_assert(std::is_standard_layout_v<OMeshFormat::SubmeshEntry>);
+    static_assert(sizeof(OMeshFormat::SubmeshEntry) == 176);
+
+    static_assert(std::is_trivially_copyable_v<OMeshFormat::MaterialHeader>);
+    static_assert(std::is_standard_layout_v<OMeshFormat::MaterialHeader>);
+    static_assert(sizeof(OMeshFormat::MaterialHeader) == 4);
+
+    static_assert(std::is_trivially_copyable_v<OMeshFormat::MaterialEntry>);
+    static_assert(std::is_standard_layout_v<OMeshFormat::MaterialEntry>);
+    static_assert(sizeof(OMeshFormat::MaterialEntry) == 16);
+
+    static_assert(std::is_trivially_copyable_v<OMeshFormat::SkeletonHeader>);
+    static_assert(std::is_standard_layout_v<OMeshFormat::SkeletonHeader>);
+    static_assert(sizeof(OMeshFormat::SkeletonHeader) == 4);
+
+    static_assert(std::is_trivially_copyable_v<OMeshFormat::BoneInfluenceHeader>);
+    static_assert(std::is_standard_layout_v<OMeshFormat::BoneInfluenceHeader>);
+    static_assert(sizeof(OMeshFormat::BoneInfluenceHeader) == 16);
+
+    static_assert(std::is_trivially_copyable_v<OMeshFormat::BoneInfoHeader>);
+    static_assert(std::is_standard_layout_v<OMeshFormat::BoneInfoHeader>);
+    static_assert(sizeof(OMeshFormat::BoneInfoHeader) == 4);
+
+    static_assert(std::is_trivially_copyable_v<OMeshFormat::BoneInfoEntry>);
+    static_assert(std::is_standard_layout_v<OMeshFormat::BoneInfoEntry>);
+    static_assert(sizeof(OMeshFormat::BoneInfoEntry) == 72);
+
+    static_assert(std::is_trivially_copyable_v<OMeshFormat::MorphTargetHeader>);
+    static_assert(std::is_standard_layout_v<OMeshFormat::MorphTargetHeader>);
+    static_assert(sizeof(OMeshFormat::MorphTargetHeader) == 8);
+
+    static_assert(std::is_trivially_copyable_v<OMeshFormat::MorphTargetEntry>);
+    static_assert(std::is_standard_layout_v<OMeshFormat::MorphTargetEntry>);
+    static_assert(sizeof(OMeshFormat::MorphTargetEntry) == 4);
+
+    // OAnimFormat
+    static_assert(std::is_trivially_copyable_v<OAnimFormat::FileHeader>);
+    static_assert(std::is_standard_layout_v<OAnimFormat::FileHeader>);
+    static_assert(sizeof(OAnimFormat::FileHeader) == 40);
+
+    static_assert(std::is_trivially_copyable_v<OAnimFormat::ClipDirectoryEntry>);
+    static_assert(std::is_standard_layout_v<OAnimFormat::ClipDirectoryEntry>);
+    static_assert(sizeof(OAnimFormat::ClipDirectoryEntry) == 16);
+
+    static_assert(std::is_trivially_copyable_v<OAnimFormat::ClipHeader>);
+    static_assert(std::is_standard_layout_v<OAnimFormat::ClipHeader>);
+    static_assert(sizeof(OAnimFormat::ClipHeader) == 16);
+
+    static_assert(std::is_trivially_copyable_v<OAnimFormat::BoneChannelHeader>);
+    static_assert(std::is_standard_layout_v<OAnimFormat::BoneChannelHeader>);
+    static_assert(sizeof(OAnimFormat::BoneChannelHeader) == 16);
+
+    static_assert(std::is_trivially_copyable_v<OAnimFormat::PositionKey>);
+    static_assert(std::is_standard_layout_v<OAnimFormat::PositionKey>);
+    static_assert(sizeof(OAnimFormat::PositionKey) == 24);
+
+    static_assert(std::is_trivially_copyable_v<OAnimFormat::RotationKey>);
+    static_assert(std::is_standard_layout_v<OAnimFormat::RotationKey>);
+    static_assert(sizeof(OAnimFormat::RotationKey) == 24);
+
+    static_assert(std::is_trivially_copyable_v<OAnimFormat::ScaleKey>);
+    static_assert(std::is_standard_layout_v<OAnimFormat::ScaleKey>);
+    static_assert(sizeof(OAnimFormat::ScaleKey) == 24);
+
+    static_assert(std::is_trivially_copyable_v<OAnimFormat::MorphKeyframe>);
+    static_assert(std::is_standard_layout_v<OAnimFormat::MorphKeyframe>);
+    static_assert(sizeof(OAnimFormat::MorphKeyframe) == 16);
 
 } // namespace OloEngine

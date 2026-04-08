@@ -5,7 +5,11 @@
 #include "OloEngine/Animation/AnimationClip.h"
 #include "OloEngine/Project/Project.h"
 
+#include <filesystem>
 #include <fstream>
+#include <string>
+#include <system_error>
+#include <vector>
 
 namespace OloEngine
 {
@@ -250,8 +254,8 @@ namespace OloEngine
                         {
                             continue;
                         }
-                        auto filename = entry.path().filename().string();
-                        if (filename.find(hashStr) != std::string::npos && filename.ends_with(".omesh"))
+                        if (entry.path().extension() == ".omesh" &&
+                            entry.path().stem().string().ends_with(hashStr))
                         {
                             std::filesystem::remove(entry.path(), ec);
                         }

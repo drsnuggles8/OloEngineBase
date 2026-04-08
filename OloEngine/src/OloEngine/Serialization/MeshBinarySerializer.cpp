@@ -13,6 +13,7 @@
 
 #include <zlib.h>
 
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <sstream>
@@ -695,6 +696,17 @@ namespace OloEngine
                         OLO_CORE_ERROR("MeshBinarySerializer::Read: Failed to decode index buffer");
                         return nullptr;
                     }
+
+                    // Validate decoded index range against vertex count
+                    for (u32 idx = 0; idx < geo.IndexCount; ++idx)
+                    {
+                        if (indices[static_cast<i32>(idx)] >= geo.VertexCount)
+                        {
+                            OLO_CORE_ERROR("MeshBinarySerializer::Read: Index {} out of range (value={}, vertexCount={}) in '{}'",
+                                           idx, indices[static_cast<i32>(idx)], geo.VertexCount, path.string());
+                            return nullptr;
+                        }
+                    }
                 }
 
                 // Decode shadow indices
@@ -899,8 +911,9 @@ namespace OloEngine
                 if (auto vCount = static_cast<u32>(meshSource->GetVertices().Num());
                     biHeader.InfluenceCount != vCount)
                 {
-                    OLO_CORE_WARN("MeshBinarySerializer::Read: BoneInfluence count ({}) != vertex count ({}) in '{}'",
-                                  biHeader.InfluenceCount, vCount, path.string());
+                    OLO_CORE_ERROR("MeshBinarySerializer::Read: BoneInfluence count ({}) != vertex count ({}) in '{}'",
+                                   biHeader.InfluenceCount, vCount, path.string());
+                    return nullptr;
                 }
 
                 if (biHeader.InfluenceCount > 0 && biHeader.EncodedSize > 0)
@@ -969,6 +982,15 @@ namespace OloEngine
                     return nullptr;
                 }
 
+                // Validate morph target vertex count against the decoded mesh
+                if (auto meshVertCount = static_cast<u32>(meshSource->GetVertices().Num());
+                    mtHeader.VertexCount > meshVertCount)
+                {
+                    OLO_CORE_ERROR("MeshBinarySerializer::Read: MorphTarget VertexCount ({}) exceeds mesh vertex count ({}) in '{}'",
+                                   mtHeader.VertexCount, meshVertCount, path.string());
+                    return nullptr;
+                }
+
                 auto morphTargetSet = Ref<MorphTargetSet>::Create();
 
                 for (u32 t = 0; t < mtHeader.TargetCount; ++t)
@@ -994,6 +1016,16 @@ namespace OloEngine
                         {
                             ReadBytes(payload, &target.SparseVertices[s].VertexIndex, sizeof(u32));
                             ReadBytes(payload, &target.SparseVertices[s].Delta, sizeof(MorphTargetVertex));
+
+                            // Validate sparse vertex index against mesh vertex count
+                            if (auto meshVertCount = static_cast<u32>(meshSource->GetVertices().Num());
+                                target.SparseVertices[s].VertexIndex >= meshVertCount)
+                            {
+                                OLO_CORE_ERROR("MeshBinarySerializer::Read: Sparse morph vertex index {} out of range "
+                                               "(value={}, meshVertexCount={}) in '{}'",
+                                               s, target.SparseVertices[s].VertexIndex, meshVertCount, path.string());
+                                return nullptr;
+                            }
                         }
                     }
                     else
@@ -1234,7 +1266,14 @@ namespace OloEngine
                                header.TotalFileSize, path.string());
                 return {};
             }
+            constexpr u64 MAX_COMPRESSED_SIZE = 256u * 1024u * 1024u; // 256 MiB
             auto const compressedSize = header.TotalFileSize - sizeof(OAnimFormat::FileHeader);
+            if (compressedSize > MAX_COMPRESSED_SIZE)
+            {
+                OLO_CORE_ERROR("AnimationBinarySerializer::Read: compressed payload size {} exceeds limit in '{}'",
+                               compressedSize, path.string());
+                return {};
+            }
             std::vector<u8> compressedData(compressedSize);
             ReadBytes(in, compressedData.data(), compressedSize);
 
@@ -1313,6 +1352,14 @@ namespace OloEngine
             clip->Name = ReadString(payload);
             clip->Duration = clipHeader.Duration;
 
+            // Validate clip duration
+            if (!std::isfinite(clip->Duration))
+            {
+                OLO_CORE_ERROR("AnimationBinarySerializer::Read: Non-finite clip Duration in clip {} of '{}'",
+                               i, path.string());
+                return {};
+            }
+
             // Read bone channels
             clip->BoneAnimations.resize(clipHeader.BoneChannelCount);
             for (u32 c = 0; c < clipHeader.BoneChannelCount; ++c)
@@ -1338,6 +1385,13 @@ namespace OloEngine
                 {
                     OAnimFormat::PositionKey pk;
                     ReadBytes(payload, &pk, sizeof(pk));
+                    if (!std::isfinite(pk.Time) || !std::isfinite(pk.Position[0]) ||
+                        !std::isfinite(pk.Position[1]) || !std::isfinite(pk.Position[2]))
+                    {
+                        OLO_CORE_ERROR("AnimationBinarySerializer::Read: Non-finite position key in clip {} channel {} key {} of '{}'",
+                                       i, c, k, path.string());
+                        return {};
+                    }
                     boneAnim.PositionKeys[k].Time = pk.Time;
                     boneAnim.PositionKeys[k].Position = { pk.Position[0], pk.Position[1], pk.Position[2] };
                 }
@@ -1348,6 +1402,14 @@ namespace OloEngine
                 {
                     OAnimFormat::RotationKey rk;
                     ReadBytes(payload, &rk, sizeof(rk));
+                    if (!std::isfinite(rk.Time) || !std::isfinite(rk.Rotation[0]) ||
+                        !std::isfinite(rk.Rotation[1]) || !std::isfinite(rk.Rotation[2]) ||
+                        !std::isfinite(rk.Rotation[3]))
+                    {
+                        OLO_CORE_ERROR("AnimationBinarySerializer::Read: Non-finite rotation key in clip {} channel {} key {} of '{}'",
+                                       i, c, k, path.string());
+                        return {};
+                    }
                     boneAnim.RotationKeys[k].Time = rk.Time;
                     boneAnim.RotationKeys[k].Rotation = glm::quat(rk.Rotation[0], rk.Rotation[1], rk.Rotation[2], rk.Rotation[3]);
                 }
@@ -1358,6 +1420,13 @@ namespace OloEngine
                 {
                     OAnimFormat::ScaleKey sk;
                     ReadBytes(payload, &sk, sizeof(sk));
+                    if (!std::isfinite(sk.Time) || !std::isfinite(sk.Scale[0]) ||
+                        !std::isfinite(sk.Scale[1]) || !std::isfinite(sk.Scale[2]))
+                    {
+                        OLO_CORE_ERROR("AnimationBinarySerializer::Read: Non-finite scale key in clip {} channel {} key {} of '{}'",
+                                       i, c, k, path.string());
+                        return {};
+                    }
                     boneAnim.ScaleKeys[k].Time = sk.Time;
                     boneAnim.ScaleKeys[k].Scale = { sk.Scale[0], sk.Scale[1], sk.Scale[2] };
                 }
@@ -1369,6 +1438,12 @@ namespace OloEngine
             {
                 OAnimFormat::MorphKeyframe mkData;
                 ReadBytes(payload, &mkData, sizeof(mkData));
+                if (!std::isfinite(mkData.Time) || !std::isfinite(mkData.Weight))
+                {
+                    OLO_CORE_ERROR("AnimationBinarySerializer::Read: Non-finite morph keyframe in clip {} morph {} of '{}'",
+                                   i, m, path.string());
+                    return {};
+                }
                 clip->MorphKeyframes[m].Time = mkData.Time;
                 clip->MorphKeyframes[m].Weight = mkData.Weight;
                 clip->MorphKeyframes[m].TargetName = ReadString(payload);

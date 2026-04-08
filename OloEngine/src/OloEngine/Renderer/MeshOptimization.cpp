@@ -44,7 +44,7 @@ namespace OloEngine::MeshOptimization
             for (i32 s = 0; s < submeshes.Num(); ++s)
             {
                 auto const& sub = submeshes[s];
-                if (sub.m_IndexCount == 0 || sub.m_BaseIndex > static_cast<u32>(indices.Num()) || sub.m_BaseIndex + sub.m_IndexCount > static_cast<u32>(indices.Num()))
+                if (sub.m_IndexCount == 0 || sub.m_BaseIndex > static_cast<u32>(indices.Num()) || sub.m_IndexCount > static_cast<u32>(indices.Num()) - sub.m_BaseIndex)
                 {
                     OLO_CORE_WARN("MeshOptimization::OptimizeMesh: Submesh {} has out-of-range index bounds, skipping", s);
                     continue;
@@ -395,6 +395,8 @@ namespace OloEngine::MeshOptimization
         {
             lodCount = 2;
         }
+        // Prevent unreasonable LOD counts (1u << i overflows beyond 31)
+        lodCount = std::min(lodCount, 32u);
 
         // Sanitize maxDistance (may originate from serialized/UI data)
         if (!std::isfinite(maxDistance) || maxDistance <= 0.0f)
@@ -411,7 +413,7 @@ namespace OloEngine::MeshOptimization
 
         for (u32 i = 1; i < lodCount; ++i)
         {
-            f32 const ratio = 1.0f / static_cast<f32>(1u << i);
+            f32 const ratio = std::ldexp(1.0f, -static_cast<int>(i));
             f32 const error = 0.01f * static_cast<f32>(i);
 
             auto lodMeshSource = GenerateLODMeshWithAttributes(meshSource, ratio, error);
@@ -608,7 +610,7 @@ namespace OloEngine::MeshOptimization
             for (i32 s = 0; s < submeshCount; ++s)
             {
                 const auto& sub = meshSource.GetSubmeshes()[s];
-                if (sub.m_IndexCount < 3 || sub.m_BaseIndex > static_cast<u32>(indices.Num()) || sub.m_BaseIndex + sub.m_IndexCount > static_cast<u32>(indices.Num()))
+                if (sub.m_IndexCount < 3 || sub.m_BaseIndex > static_cast<u32>(indices.Num()) || sub.m_IndexCount > static_cast<u32>(indices.Num()) - sub.m_BaseIndex)
                 {
                     continue;
                 }

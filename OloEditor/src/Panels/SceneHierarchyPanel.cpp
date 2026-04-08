@@ -2466,22 +2466,31 @@ namespace OloEngine
                     ImGui::SameLine();
                     if (ImGui::Button("Generate LODs"))
                     {
-                        // Remove previous generated (memory-only) LOD assets to avoid orphaned handles.
-                        // Only remove memory-only assets — user-assigned file-backed assets are preserved.
-                        for (const auto& level : component.m_LODGroup.Levels)
+                        // Remove only previously generated (owned) LOD assets to avoid
+                        // deleting shared or user-assigned memory-only assets.
+                        for (const auto& handle : component.m_GeneratedLODHandles)
                         {
-                            if (level.MeshHandle != 0 && AssetManager::IsMemoryAsset(level.MeshHandle))
+                            if (handle != 0 && AssetManager::IsMemoryAsset(handle))
                             {
-                                AssetManager::RemoveAsset(level.MeshHandle);
+                                AssetManager::RemoveAsset(handle);
                             }
                         }
+                        component.m_GeneratedLODHandles.clear();
 
                         // Register the base mesh as a memory asset so LOD 0 has a valid handle
                         auto baseMesh = Ref<Mesh>::Create(meshComp.m_MeshSource, 0);
                         AssetHandle const baseHandle = AssetManager::AddMemoryOnlyAsset(baseMesh);
+                        component.m_GeneratedLODHandles.push_back(baseHandle);
 
                         component.m_LODGroup = MeshOptimization::GenerateLODGroup(
                             *meshComp.m_MeshSource, baseHandle, 4, 200.0f);
+
+                        // Track all generated LOD handles (skip LOD 0 which is the base)
+                        for (sizet li = 1; li < component.m_LODGroup.Levels.size(); ++li)
+                        {
+                            component.m_GeneratedLODHandles.push_back(
+                                component.m_LODGroup.Levels[li].MeshHandle);
+                        }
                     }
                 }
             } });

@@ -1573,6 +1573,7 @@ namespace OloEngine
     struct LODGroupComponent
     {
         LODGroup m_LODGroup;
+        std::vector<AssetHandle> m_GeneratedLODHandles; // Tracks memory-only assets created by "Generate LODs"
         bool m_Enabled = true;
 
         LODGroupComponent() = default;

@@ -149,7 +149,12 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         if (m_ShadowIndices.IsEmpty() || !m_VertexBuffer)
+        {
+            // Clear any previously created GPU state so stale resources aren't left bound
+            m_ShadowIndexBuffer = nullptr;
+            m_ShadowVertexArray = nullptr;
             return;
+        }
 
         m_ShadowIndexBuffer = IndexBuffer::Create(m_ShadowIndices.GetData(),
                                                   static_cast<u32>(m_ShadowIndices.Num()));

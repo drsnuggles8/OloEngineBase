@@ -182,6 +182,17 @@ namespace OloEngine
                 }
             }
 
+            // Preserve pre-optimized state from inputs so the cache round-trip
+            // skips OptimizeMesh on reload (mirrors SplitCombinedMeshSource).
+            for (const auto& src : meshes)
+            {
+                if (src && src->IsPreOptimized())
+                {
+                    combined->SetPreOptimized(true);
+                    break;
+                }
+            }
+
             return combined;
         }
 
@@ -247,7 +258,16 @@ namespace OloEngine
 
                 for (u32 i = 0; i < submesh.m_IndexCount; ++i)
                 {
-                    mesh->GetIndices().Add(allIndices[submesh.m_BaseIndex + i] - submesh.m_BaseVertex);
+                    u32 const orig = allIndices[submesh.m_BaseIndex + i];
+                    if (orig < submesh.m_BaseVertex || orig >= submesh.m_BaseVertex + submesh.m_VertexCount)
+                    {
+                        OLO_CORE_ERROR("AnimatedModel::SplitCombinedMeshSource - Index {} out of submesh {} "
+                                       "vertex range [{}..{}), rejecting cache",
+                                       orig, s, submesh.m_BaseVertex,
+                                       submesh.m_BaseVertex + submesh.m_VertexCount);
+                        return false;
+                    }
+                    mesh->GetIndices().Add(orig - submesh.m_BaseVertex);
                 }
 
                 if (!allBones.IsEmpty() && submesh.m_BaseVertex + submesh.m_VertexCount <= static_cast<u32>(allBones.Num()))
@@ -428,42 +448,57 @@ namespace OloEngine
                 if (SplitCombinedMeshSource(cachedMesh, m_Meshes, skeleton))
                 {
                     m_Skeleton = skeleton;
-                    m_Animations = MeshCache::LoadAnimationsFromCache(sourcePath);
 
-                    // Load materials from the source file (lightweight Assimp read — no geometry postprocessing).
-                    // ProcessNode builds m_Meshes in DFS order, so we replay
-                    // the same traversal to collect material indices in matching order.
+                    // Require animation cache to also be valid — an empty return is
+                    // ambiguous (no clips vs. missing/corrupt .oanim).  If the animation
+                    // sidecar is invalid, fall through to the full import so both halves
+                    // are rebuilt together.
+                    if (!MeshCache::IsAnimationCacheValid(sourcePath))
                     {
-                        Assimp::Importer matImporter;
-                        const aiScene* matScene = matImporter.ReadFile(path, 0);
-                        if (matScene)
-                        {
-                            std::vector<u32> materialIndices;
-                            materialIndices.reserve(m_Meshes.size());
-                            CollectMaterialIndices(matScene->mRootNode, matScene, materialIndices, CollectMaterialIndices);
+                        OLO_CORE_WARN("AnimatedModel::LoadModel: Mesh cache valid but animation cache invalid for '{}', re-importing", path);
+                        m_Meshes.clear();
+                        m_Skeleton = nullptr;
+                        MeshCache::InvalidateCache(sourcePath, kAnimCachePrefix);
+                    }
+                    else
+                    {
+                        m_Animations = MeshCache::LoadAnimationsFromCache(sourcePath);
 
-                            m_Materials.resize(m_Meshes.size());
-                            auto numMaterials = std::min(materialIndices.size(), m_Meshes.size());
-                            for (sizet i = 0; i < numMaterials; ++i)
+                        // Load materials from the source file (lightweight Assimp read — no geometry postprocessing).
+                        // ProcessNode builds m_Meshes in DFS order, so we replay
+                        // the same traversal to collect material indices in matching order.
+                        {
+                            Assimp::Importer matImporter;
+                            const aiScene* matScene = matImporter.ReadFile(path, 0);
+                            if (matScene && matScene->mRootNode)
                             {
-                                if (materialIndices[i] < matScene->mNumMaterials)
+                                std::vector<u32> materialIndices;
+                                materialIndices.reserve(m_Meshes.size());
+                                CollectMaterialIndices(matScene->mRootNode, matScene, materialIndices, CollectMaterialIndices);
+
+                                m_Materials.resize(m_Meshes.size());
+                                auto numMaterials = std::min(materialIndices.size(), m_Meshes.size());
+                                for (sizet i = 0; i < numMaterials; ++i)
                                 {
-                                    m_Materials[i] = ProcessMaterial(matScene->mMaterials[materialIndices[i]]);
+                                    if (materialIndices[i] < matScene->mNumMaterials)
+                                    {
+                                        m_Materials[i] = ProcessMaterial(matScene->mMaterials[materialIndices[i]]);
+                                    }
                                 }
                             }
+                            else
+                            {
+                                OLO_CORE_WARN("AnimatedModel::LoadModel: Failed to load materials from '{}' for cached geometry", path);
+                                m_Materials.resize(m_Meshes.size());
+                            }
                         }
-                        else
-                        {
-                            OLO_CORE_WARN("AnimatedModel::LoadModel: Failed to load materials from '{}' for cached geometry", path);
-                            m_Materials.resize(m_Meshes.size());
-                        }
-                    }
 
-                    CalculateBounds();
+                        CalculateBounds();
 
-                    OLO_CORE_INFO("AnimatedModel::LoadModel: Loaded from cache - {} meshes, {} animations",
-                                  m_Meshes.size(), m_Animations.size());
-                    return;
+                        OLO_CORE_INFO("AnimatedModel::LoadModel: Loaded from cache - {} meshes, {} animations",
+                                      m_Meshes.size(), m_Animations.size());
+                        return;
+                    } // end animation-cache-valid block
                 }
             }
         }
