@@ -246,6 +246,12 @@ TEST(WaterRendering, WaterComponentCopyOmitsRuntime)
     original.m_Wavelength1 = 30.0f;
     original.m_WaterColor = glm::vec3(0.2f, 0.5f, 0.8f);
     original.m_Enabled = false;
+    original.m_NormalMapScrollSpeed0 = 0.123f;
+    original.m_RefractionDistortion = 0.456f;
+    original.m_TessellationEnabled = true;
+    original.m_TessellationFactor = 16.0f;
+    original.m_SSREnabled = true;
+    original.m_SSRMaxSteps = 128.0f;
 
     WaterComponent copy(original);
 
@@ -256,6 +262,12 @@ TEST(WaterRendering, WaterComponentCopyOmitsRuntime)
     EXPECT_FLOAT_EQ(copy.m_Wavelength1, 30.0f);
     EXPECT_FLOAT_EQ(copy.m_WaterColor.r, 0.2f);
     EXPECT_FALSE(copy.m_Enabled);
+    EXPECT_FLOAT_EQ(copy.m_NormalMapScrollSpeed0, 0.123f);
+    EXPECT_FLOAT_EQ(copy.m_RefractionDistortion, 0.456f);
+    EXPECT_TRUE(copy.m_TessellationEnabled);
+    EXPECT_FLOAT_EQ(copy.m_TessellationFactor, 16.0f);
+    EXPECT_TRUE(copy.m_SSREnabled);
+    EXPECT_FLOAT_EQ(copy.m_SSRMaxSteps, 128.0f);
 
     // Runtime state should NOT be copied — mesh is null, needs rebuild
     EXPECT_EQ(copy.m_WaterMesh, nullptr);
@@ -267,12 +279,23 @@ TEST(WaterRendering, WaterComponentAssignmentOmitsRuntime)
     WaterComponent original{};
     original.m_WorldSizeZ = 50.0f;
     original.m_FresnelPower = 3.0f;
+    original.m_NormalMapScrollDir0 = glm::vec2(0.707f, 0.707f);
+    original.m_RefractionEnabled = true;
+    original.m_TessMinDistance = 5.0f;
+    original.m_TessMaxDistance = 100.0f;
+    original.m_SSRStepSize = 0.25f;
 
     WaterComponent target{};
     target = original;
 
     EXPECT_FLOAT_EQ(target.m_WorldSizeZ, 50.0f);
     EXPECT_FLOAT_EQ(target.m_FresnelPower, 3.0f);
+    EXPECT_FLOAT_EQ(target.m_NormalMapScrollDir0.x, 0.707f);
+    EXPECT_FLOAT_EQ(target.m_NormalMapScrollDir0.y, 0.707f);
+    EXPECT_TRUE(target.m_RefractionEnabled);
+    EXPECT_FLOAT_EQ(target.m_TessMinDistance, 5.0f);
+    EXPECT_FLOAT_EQ(target.m_TessMaxDistance, 100.0f);
+    EXPECT_FLOAT_EQ(target.m_SSRStepSize, 0.25f);
     EXPECT_EQ(target.m_WaterMesh, nullptr);
     EXPECT_TRUE(target.m_NeedsRebuild);
 }

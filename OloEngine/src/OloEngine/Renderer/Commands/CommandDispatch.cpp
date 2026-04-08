@@ -1741,25 +1741,14 @@ namespace OloEngine
             glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_WATER, waterUBO->GetRendererID());
         }
 
-        // Bind normal map and noise textures
-        if (cmd->normalMap0ID != 0)
-        {
-            glBindTextureUnit(ShaderBindingLayout::TEX_WATER_NORMAL_0, cmd->normalMap0ID);
-        }
-        if (cmd->normalMap1ID != 0)
-        {
-            glBindTextureUnit(ShaderBindingLayout::TEX_WATER_NORMAL_1, cmd->normalMap1ID);
-        }
-        if (cmd->noiseTextureID != 0)
-        {
-            glBindTextureUnit(ShaderBindingLayout::TEX_WATER_NOISE, cmd->noiseTextureID);
-        }
-        if (cmd->foamTextureID != 0)
-        {
-            glBindTextureUnit(ShaderBindingLayout::TEX_WATER_FOAM, cmd->foamTextureID);
-        }
+        // Bind normal map and noise textures (tracked for redundancy elimination and stats)
+        BindTrackedTexture(cmd->normalMap0ID, ShaderBindingLayout::TEX_WATER_NORMAL_0, GL_TEXTURE_2D);
+        BindTrackedTexture(cmd->normalMap1ID, ShaderBindingLayout::TEX_WATER_NORMAL_1, GL_TEXTURE_2D);
+        BindTrackedTexture(cmd->noiseTextureID, ShaderBindingLayout::TEX_WATER_NOISE, GL_TEXTURE_2D);
+        BindTrackedTexture(cmd->foamTextureID, ShaderBindingLayout::TEX_WATER_FOAM, GL_TEXTURE_2D);
 
-        // Bind VAO (cached) and draw water — use GL_PATCHES when tessellation is enabled
+        // Bind VAO (cached) and draw water
+        // tessParams.x holds the tessellation factor (0 = disabled, >0 = enabled)
         BindVAOIfNeeded(cmd->vertexArrayID);
         if (cmd->tessParams.x > 0.0f)
         {

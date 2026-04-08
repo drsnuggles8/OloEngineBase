@@ -1282,6 +1282,15 @@ namespace OloEngine
         SanitizeVec2(water.m_WaveDir1, { 0.7f, 0.7f });
         SanitizeVec2(water.m_NormalMapScrollDir0, { 1.0f, 0.0f });
         SanitizeVec2(water.m_NormalMapScrollDir1, { 0.0f, 1.0f });
+        // Normalize scroll directions to unit length so speed remains independent of vector magnitude
+        if (auto const len0 = glm::length(water.m_NormalMapScrollDir0); len0 > 1e-4f)
+            water.m_NormalMapScrollDir0 /= len0;
+        else
+            water.m_NormalMapScrollDir0 = { 1.0f, 0.0f };
+        if (auto const len1 = glm::length(water.m_NormalMapScrollDir1); len1 > 1e-4f)
+            water.m_NormalMapScrollDir1 /= len1;
+        else
+            water.m_NormalMapScrollDir1 = { 0.0f, 1.0f };
         SanitizeVec3(water.m_WaterColor, { 0.1f, 0.4f, 0.5f });
         SanitizeVec3(water.m_DeepColor, { 0.0f, 0.1f, 0.2f });
 
@@ -1305,6 +1314,9 @@ namespace OloEngine
         SanitizeFloat(water.m_TessellationFactor, 1.0f, 64.0f, 8.0f);
         SanitizeFloat(water.m_TessMinDistance, 1.0f, 500.0f, 10.0f);
         SanitizeFloat(water.m_TessMaxDistance, 10.0f, 1000.0f, 200.0f);
+        // Enforce ordering: max must exceed min
+        if (water.m_TessMaxDistance <= water.m_TessMinDistance)
+            water.m_TessMaxDistance = water.m_TessMinDistance + 1.0f;
 
         water.m_NeedsRebuild = true;
     }
