@@ -1065,11 +1065,13 @@ namespace OloEngine
         ar << c.m_NormalMap0 << c.m_NormalMap1 << c.m_NoiseTexture;
         ar << c.m_DepthSofteningDistance << c.m_RefractionDistortion << c.m_RefractionHeightFactor;
         ar << c.m_RefractionColor;
+        ar << c.m_RefractionEnabled;
         ar << c.m_FoamTexture;
         ar << c.m_FoamHeightStart << c.m_FoamFadeDistance << c.m_FoamTiling << c.m_FoamBrightness;
         ar << c.m_FoamAngleExponent << c.m_ShorelineFoamPower;
         ar << c.m_SSSColor << c.m_SSSIntensity;
         ar << c.m_SSRMaxSteps << c.m_SSRStepSize << c.m_SSRMaxDistance << c.m_SSRThickness;
+        ar << c.m_SSREnabled;
         ar << c.m_TessellationEnabled << c.m_TessellationFactor << c.m_TessMinDistance << c.m_TessMaxDistance;
 
         if (ar.IsLoading())
@@ -1119,6 +1121,32 @@ namespace OloEngine
             sanitize(c.m_TessMinDistance, 1.0f, 500.0f, 10.0f);
             sanitize(c.m_TessMaxDistance, 10.0f, 1000.0f, 200.0f);
             c.m_TessMaxDistance = std::max(c.m_TessMaxDistance, c.m_TessMinDistance + 1.0f);
+
+            // Sanitize direction vectors — fallback if non-finite
+            auto sanitizeVec2 = [](glm::vec2& v, glm::vec2 const& fallback)
+            {
+                if (!std::isfinite(v.x) || !std::isfinite(v.y))
+                {
+                    v = fallback;
+                }
+            };
+            auto sanitizeColor = [](glm::vec3& v, glm::vec3 const& fallback)
+            {
+                if (!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.z))
+                {
+                    v = fallback;
+                    return;
+                }
+                v = glm::clamp(v, glm::vec3(0.0f), glm::vec3(1.0f));
+            };
+            sanitizeVec2(c.m_WaveDir0, glm::vec2(1.0f, 0.0f));
+            sanitizeVec2(c.m_WaveDir1, glm::vec2(0.0f, 1.0f));
+            sanitizeVec2(c.m_NormalMapScrollDir0, glm::vec2(1.0f, 0.0f));
+            sanitizeVec2(c.m_NormalMapScrollDir1, glm::vec2(0.7071f, 0.7071f));
+            sanitizeColor(c.m_WaterColor, glm::vec3(0.0f, 0.3f, 0.5f));
+            sanitizeColor(c.m_DeepColor, glm::vec3(0.0f, 0.1f, 0.2f));
+            sanitizeColor(c.m_RefractionColor, glm::vec3(0.8f, 0.9f, 1.0f));
+            sanitizeColor(c.m_SSSColor, glm::vec3(0.0f, 0.5f, 0.3f));
         }
     }
 

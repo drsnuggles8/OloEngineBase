@@ -788,6 +788,8 @@ namespace OloEngine
             RendererID normalMap1ID = 0;
             RendererID noiseTextureID = 0;
             RendererID foamTextureID = 0;
+            bool refractionEnabled = true;
+            bool ssrEnabled = true;
         };
 
         // Water rendering (submits DrawWaterCommand to WaterRenderPass bucket)

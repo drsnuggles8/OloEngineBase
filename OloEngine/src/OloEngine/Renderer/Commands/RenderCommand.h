@@ -813,6 +813,10 @@ namespace OloEngine
         RendererID noiseTextureID = 0;
         RendererID foamTextureID = 0;
 
+        // Feature toggles
+        bool refractionEnabled = true;
+        bool ssrEnabled = true;
+
         // Entity ID for picking
         i32 entityID = -1;
 

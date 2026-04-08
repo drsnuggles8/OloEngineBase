@@ -4213,17 +4213,21 @@ namespace OloEngine
 
                 ImGui::SeparatorText("Normal Maps");
                 ImGui::DragFloat("Normal Map Tiling", &component.m_NormalMapTiling, 0.01f, 0.0f, 50.0f);
-                ImGui::DragFloat2("Scroll Dir 0", glm::value_ptr(component.m_NormalMapScrollDir0), 0.01f, -1.0f, 1.0f);
-                if (auto const len = glm::length(component.m_NormalMapScrollDir0); len > 1e-4f)
-                    component.m_NormalMapScrollDir0 /= len;
-                else
-                    component.m_NormalMapScrollDir0 = { 1.0f, 0.0f };
+                if (ImGui::DragFloat2("Scroll Dir 0", glm::value_ptr(component.m_NormalMapScrollDir0), 0.01f, -1.0f, 1.0f))
+                {
+                    if (auto const len = glm::length(component.m_NormalMapScrollDir0); len > 1e-4f)
+                        component.m_NormalMapScrollDir0 /= len;
+                    else
+                        component.m_NormalMapScrollDir0 = { 1.0f, 0.0f };
+                }
                 ImGui::DragFloat("Scroll Speed 0", &component.m_NormalMapScrollSpeed0, 0.001f, 0.0f, 1.0f);
-                ImGui::DragFloat2("Scroll Dir 1", glm::value_ptr(component.m_NormalMapScrollDir1), 0.01f, -1.0f, 1.0f);
-                if (auto const len = glm::length(component.m_NormalMapScrollDir1); len > 1e-4f)
-                    component.m_NormalMapScrollDir1 /= len;
-                else
-                    component.m_NormalMapScrollDir1 = { 0.0f, 1.0f };
+                if (ImGui::DragFloat2("Scroll Dir 1", glm::value_ptr(component.m_NormalMapScrollDir1), 0.01f, -1.0f, 1.0f))
+                {
+                    if (auto const len = glm::length(component.m_NormalMapScrollDir1); len > 1e-4f)
+                        component.m_NormalMapScrollDir1 /= len;
+                    else
+                        component.m_NormalMapScrollDir1 = { 0.0f, 1.0f };
+                }
                 ImGui::DragFloat("Scroll Speed 1", &component.m_NormalMapScrollSpeed1, 0.001f, 0.0f, 1.0f);
                 ImGui::DragFloat("Noise Intensity", &component.m_NoiseIntensity, 0.01f, 0.0f, 1.0f);
 
@@ -4237,10 +4241,10 @@ namespace OloEngine
                         if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
                         {
                             std::filesystem::path texPath = PathFromUtf8Payload(*payload);
-                            auto assetManager = Project::GetAssetManager().As<EditorAssetManager>();
-                            if (assetManager)
+                            if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
                             {
-                                if (auto const imported = assetManager->ImportAsset(texPath); imported != 0)
+                                if (auto const imported = assetManager->ImportAsset(texPath);
+                                    imported != 0 && AssetManager::GetAssetType(imported) == AssetType::Texture2D)
                                     component.m_NormalMap0 = imported;
                             }
                         }
@@ -4264,10 +4268,10 @@ namespace OloEngine
                         if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
                         {
                             std::filesystem::path texPath = PathFromUtf8Payload(*payload);
-                            auto assetManager = Project::GetAssetManager().As<EditorAssetManager>();
-                            if (assetManager)
+                            if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
                             {
-                                if (auto const imported = assetManager->ImportAsset(texPath); imported != 0)
+                                if (auto const imported = assetManager->ImportAsset(texPath);
+                                    imported != 0 && AssetManager::GetAssetType(imported) == AssetType::Texture2D)
                                     component.m_NormalMap1 = imported;
                             }
                         }
@@ -4291,10 +4295,10 @@ namespace OloEngine
                         if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
                         {
                             std::filesystem::path texPath = PathFromUtf8Payload(*payload);
-                            auto assetManager = Project::GetAssetManager().As<EditorAssetManager>();
-                            if (assetManager)
+                            if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
                             {
-                                if (auto const imported = assetManager->ImportAsset(texPath); imported != 0)
+                                if (auto const imported = assetManager->ImportAsset(texPath);
+                                    imported != 0 && AssetManager::GetAssetType(imported) == AssetType::Texture2D)
                                     component.m_NoiseTexture = imported;
                             }
                         }
@@ -4309,6 +4313,7 @@ namespace OloEngine
                 }
 
                 ImGui::SeparatorText("Depth & Refraction");
+                ImGui::Checkbox("Refraction Enabled", &component.m_RefractionEnabled);
                 ImGui::DragFloat("Depth Softening", &component.m_DepthSofteningDistance, 0.1f, 0.0f, 50.0f);
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Distance over which water edges fade (shoreline softening)");
@@ -4327,10 +4332,10 @@ namespace OloEngine
                         if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
                         {
                             std::filesystem::path texPath = PathFromUtf8Payload(*payload);
-                            auto assetManager = Project::GetAssetManager().As<EditorAssetManager>();
-                            if (assetManager)
+                            if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
                             {
-                                if (auto const imported = assetManager->ImportAsset(texPath); imported != 0)
+                                if (auto const imported = assetManager->ImportAsset(texPath);
+                                    imported != 0 && AssetManager::GetAssetType(imported) == AssetType::Texture2D)
                                     component.m_FoamTexture = imported;
                             }
                         }
@@ -4355,6 +4360,7 @@ namespace OloEngine
                 ImGui::DragFloat("SSS Intensity", &component.m_SSSIntensity, 0.01f, 0.0f, 5.0f);
 
                 ImGui::SeparatorText("Screen Space Reflections");
+                ImGui::Checkbox("SSR Enabled", &component.m_SSREnabled);
                 ImGui::DragFloat("SSR Max Steps", &component.m_SSRMaxSteps, 1.0f, 0.0f, 256.0f, "%.0f");
                 ImGui::DragFloat("SSR Step Size", &component.m_SSRStepSize, 0.01f, 0.01f, 1.0f);
                 ImGui::DragFloat("SSR Max Distance", &component.m_SSRMaxDistance, 1.0f, 1.0f, 200.0f);

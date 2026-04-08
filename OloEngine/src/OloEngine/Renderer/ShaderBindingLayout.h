@@ -739,6 +739,19 @@ namespace OloEngine
                 case TEX_PRECIPITATION_NOISE:
                     return name.contains("Precipitation") || name.contains("precipitation") ||
                            name.contains("StreakNoise") || name.contains("streakNoise");
+                case TEX_WATER_NORMAL_0:
+                case TEX_WATER_NORMAL_1:
+                    return name.contains("WaterNormal") || name.contains("waterNormal") || name.contains("Water") && name.contains("Normal");
+                case TEX_WATER_NOISE:
+                    return name.contains("WaterNoise") || name.contains("waterNoise");
+                case TEX_WATER_DEPTH:
+                    return name.contains("WaterDepth") || name.contains("waterDepth") || name.contains("SceneDepth");
+                case TEX_WATER_REFRACTION:
+                    return name.contains("Refraction") || name.contains("refraction");
+                case TEX_WATER_FOAM:
+                    return name.contains("Foam") || name.contains("foam");
+                case TEX_WATER_SSR:
+                    return name.contains("SSR") || name.contains("ssr") || name.contains("Reflection");
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_HILBERT_LUT, i.e. 10–36)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)
@@ -947,6 +960,8 @@ layout(std140, binding = 23) uniform WaterParams {
     vec4 u_FoamParams;              // x = foamHeightStart, y = foamFadeDistance, z = foamTiling, w = foamBrightness
     vec4 u_FoamParams2;             // x = foamAngleExponent, y = shorelineFoamPower, z = sssIntensity, w = unused
     vec4 u_SSSColor;                // rgb = subsurface scattering color, w = unused
+    vec4 u_SSRParams;               // x = maxSteps, y = stepSize, z = maxDistance, w = thickness
+    vec4 u_TessParams;              // x = tessellationFactor (0 = disabled), y = minDist, z = maxDist, w = unused
 };)";
         }
 
