@@ -1267,8 +1267,8 @@ namespace OloEngine
         water.m_GridResolutionZ = std::clamp(water.m_GridResolutionZ, 1u, 1024u);
 
         // Sanitize floats
-        SanitizeFloat(water.m_WorldSizeX, 0.1f, 1e5f, 100.0f);
-        SanitizeFloat(water.m_WorldSizeZ, 0.1f, 1e5f, 100.0f);
+        SanitizeFloat(water.m_WorldSizeX, 0.1f, 10000.0f, 100.0f);
+        SanitizeFloat(water.m_WorldSizeZ, 0.1f, 10000.0f, 100.0f);
         SanitizeFloat(water.m_WaveAmplitude, 0.0f, 100.0f, 0.5f);
         SanitizeFloat(water.m_WaveFrequency, 0.0f, 100.0f, 1.0f);
         SanitizeFloat(water.m_WaveSpeed, 0.0f, 100.0f, 1.0f);
