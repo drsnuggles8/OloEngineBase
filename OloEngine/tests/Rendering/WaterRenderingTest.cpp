@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Scene/Components.h"
 
+#include <cstddef>
 #include <cstring>
 #include <type_traits>
 
@@ -289,7 +290,7 @@ TEST(WaterRendering, WaterComponentAssignmentOmitsRuntime)
     original.m_WorldSizeZ = 50.0f;
     original.m_FresnelPower = 3.0f;
     original.m_NormalMapScrollDir0 = glm::vec2(0.707f, 0.707f);
-    original.m_RefractionEnabled = true;
+    original.m_RefractionEnabled = false;
     original.m_TessMinDistance = 5.0f;
     original.m_TessMaxDistance = 100.0f;
     original.m_SSRStepSize = 0.25f;
@@ -301,7 +302,7 @@ TEST(WaterRendering, WaterComponentAssignmentOmitsRuntime)
     EXPECT_FLOAT_EQ(target.m_FresnelPower, 3.0f);
     EXPECT_FLOAT_EQ(target.m_NormalMapScrollDir0.x, 0.707f);
     EXPECT_FLOAT_EQ(target.m_NormalMapScrollDir0.y, 0.707f);
-    EXPECT_TRUE(target.m_RefractionEnabled);
+    EXPECT_FALSE(target.m_RefractionEnabled);
     EXPECT_FLOAT_EQ(target.m_TessMinDistance, 5.0f);
     EXPECT_FLOAT_EQ(target.m_TessMaxDistance, 100.0f);
     EXPECT_FLOAT_EQ(target.m_SSRStepSize, 0.25f);
@@ -366,4 +367,5 @@ TEST(WaterRendering, WaterTextureBindingSlots)
     EXPECT_EQ(ShaderBindingLayout::TEX_WATER_DEPTH, 39u);
     EXPECT_EQ(ShaderBindingLayout::TEX_WATER_REFRACTION, 40u);
     EXPECT_EQ(ShaderBindingLayout::TEX_WATER_FOAM, 41u);
+    EXPECT_EQ(ShaderBindingLayout::TEX_WATER_SSR, 42u);
 }

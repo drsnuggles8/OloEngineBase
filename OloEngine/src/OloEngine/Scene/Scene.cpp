@@ -3284,10 +3284,16 @@ namespace OloEngine
                     // Lazy mesh initialization / rebuild
                     if (water.m_NeedsRebuild || !water.m_WaterMesh)
                     {
+                        auto const sizeX = std::isfinite(water.m_WorldSizeX)
+                                               ? std::clamp(water.m_WorldSizeX, 0.1f, 10000.0f)
+                                               : 100.0f;
+                        auto const sizeZ = std::isfinite(water.m_WorldSizeZ)
+                                               ? std::clamp(water.m_WorldSizeZ, 0.1f, 10000.0f)
+                                               : 100.0f;
                         const u32 resX = std::clamp(water.m_GridResolutionX, 2u, 1024u);
                         const u32 resZ = std::clamp(water.m_GridResolutionZ, 2u, 1024u);
                         water.m_WaterMesh = MeshPrimitives::CreateWaterGrid(
-                            water.m_WorldSizeX, water.m_WorldSizeZ,
+                            sizeX, sizeZ,
                             resX, resZ);
                         water.m_NeedsRebuild = false;
                     }
@@ -3336,11 +3342,17 @@ namespace OloEngine
                     };
                     glm::vec2 dir0 = safeNorm2(water.m_NormalMapScrollDir0, { 1.0f, 0.0f });
                     glm::vec2 dir1 = safeNorm2(water.m_NormalMapScrollDir1, { 0.0f, 1.0f });
-                    glm::vec2 scroll0 = dir0 * animationTime * water.m_NormalMapScrollSpeed0;
-                    glm::vec2 scroll1 = dir1 * animationTime * water.m_NormalMapScrollSpeed1;
+                    // Clamp scroll speeds before computing offsets — raw deserialized values could be huge
+                    f32 const speed0 = std::isfinite(water.m_NormalMapScrollSpeed0)
+                                           ? std::clamp(water.m_NormalMapScrollSpeed0, 0.0f, 1.0f)
+                                           : 0.02f;
+                    f32 const speed1 = std::isfinite(water.m_NormalMapScrollSpeed1)
+                                           ? std::clamp(water.m_NormalMapScrollSpeed1, 0.0f, 1.0f)
+                                           : 0.015f;
+                    glm::vec2 scroll0 = dir0 * animationTime * speed0;
+                    glm::vec2 scroll1 = dir1 * animationTime * speed1;
                     waterParams.normalMapScroll = glm::vec4(scroll0.x, scroll0.y, scroll1.x, scroll1.y);
-                    waterParams.normalMapSpeed = glm::vec4(
-                        water.m_NormalMapScrollSpeed0, water.m_NormalMapScrollSpeed1, 0.0f, 0.0f);
+                    waterParams.normalMapSpeed = glm::vec4(speed0, speed1, 0.0f, 0.0f);
                     // Validate light direction: fallback to down if non-finite or zero-length
                     glm::vec3 safeLightDir = directionalLightDir;
                     if (!std::isfinite(safeLightDir.x) || !std::isfinite(safeLightDir.y) || !std::isfinite(safeLightDir.z) || glm::dot(safeLightDir, safeLightDir) < 1e-6f)
@@ -3398,8 +3410,8 @@ namespace OloEngine
                     { return std::isfinite(v) ? v : fallback; };
                     auto const clampF = [](f32 v, f32 lo, f32 hi, f32 fallback)
                     { return std::isfinite(v) ? std::clamp(v, lo, hi) : fallback; };
-                    auto const safeV3 = [&safeF](glm::vec4& v, glm::vec3 const& fb)
-                    { v.x = safeF(v.x, fb.x); v.y = safeF(v.y, fb.y); v.z = safeF(v.z, fb.z); };
+                    auto const safeV3 = [&clampF](glm::vec4& v, glm::vec3 const& fb)
+                    { v.x = clampF(v.x, 0.0f, 1.0f, fb.x); v.y = clampF(v.y, 0.0f, 1.0f, fb.y); v.z = clampF(v.z, 0.0f, 1.0f, fb.z); };
 
                     // Wave params (y=speed, z=amplitude, w=frequency)
                     waterParams.waveParams.y = clampF(waterParams.waveParams.y, 0.0f, 100.0f, 1.0f);
