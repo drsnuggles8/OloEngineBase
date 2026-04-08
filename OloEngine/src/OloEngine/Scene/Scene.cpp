@@ -3382,45 +3382,89 @@ namespace OloEngine
                     waterParams.refractionEnabled = water.m_RefractionEnabled;
                     waterParams.ssrEnabled = water.m_SSREnabled;
 
-                    // Sanitize scalar UBO fields — defence-in-depth against NaN/Inf reaching the GPU
+                    // Sanitize all scalar UBO fields — defence-in-depth against NaN/Inf reaching the GPU
                     auto const safeF = [](f32 v, f32 fallback)
                     { return std::isfinite(v) ? v : fallback; };
-                    waterParams.depthRefractionParams.x = safeF(waterParams.depthRefractionParams.x, 1.0f);
-                    waterParams.depthRefractionParams.y = safeF(waterParams.depthRefractionParams.y, 0.0f);
-                    waterParams.depthRefractionParams.z = safeF(waterParams.depthRefractionParams.z, 0.0f);
-                    waterParams.ssrParams.y = safeF(waterParams.ssrParams.y, 0.1f);
-                    waterParams.ssrParams.z = safeF(waterParams.ssrParams.z, 50.0f);
-                    waterParams.ssrParams.w = safeF(waterParams.ssrParams.w, 0.1f);
-                    waterParams.tessParams.y = safeF(waterParams.tessParams.y, 5.0f);
-                    waterParams.tessParams.z = safeF(waterParams.tessParams.z, 100.0f);
+                    auto const clampF = [](f32 v, f32 lo, f32 hi, f32 fallback)
+                    { return std::isfinite(v) ? std::clamp(v, lo, hi) : fallback; };
+                    auto const safeV3 = [&safeF](glm::vec4& v, glm::vec3 const& fb)
+                    { v.x = safeF(v.x, fb.x); v.y = safeF(v.y, fb.y); v.z = safeF(v.z, fb.z); };
 
-                    // Resolve texture IDs
+                    // Wave params (y=speed, z=amplitude, w=frequency)
+                    waterParams.waveParams.y = clampF(waterParams.waveParams.y, 0.0f, 100.0f, 1.0f);
+                    waterParams.waveParams.z = clampF(waterParams.waveParams.z, 0.0f, 100.0f, 0.5f);
+                    waterParams.waveParams.w = clampF(waterParams.waveParams.w, 0.0f, 100.0f, 1.0f);
+                    // Visual params (x=fresnel, y=specular, z=tiling, w=noise)
+                    waterParams.visualParams.x = clampF(waterParams.visualParams.x, 0.1f, 20.0f, 5.0f);
+                    waterParams.visualParams.y = clampF(waterParams.visualParams.y, 0.0f, 10.0f, 1.0f);
+                    waterParams.visualParams.z = clampF(waterParams.visualParams.z, 0.0f, 50.0f, 1.0f);
+                    waterParams.visualParams.w = clampF(waterParams.visualParams.w, 0.0f, 1.0f, 0.3f);
+                    // Normal map scroll/speed
+                    waterParams.normalMapScroll.x = safeF(waterParams.normalMapScroll.x, 0.0f);
+                    waterParams.normalMapScroll.y = safeF(waterParams.normalMapScroll.y, 0.0f);
+                    waterParams.normalMapScroll.z = safeF(waterParams.normalMapScroll.z, 0.0f);
+                    waterParams.normalMapScroll.w = safeF(waterParams.normalMapScroll.w, 0.0f);
+                    waterParams.normalMapSpeed.x = clampF(waterParams.normalMapSpeed.x, 0.0f, 1.0f, 0.02f);
+                    waterParams.normalMapSpeed.y = clampF(waterParams.normalMapSpeed.y, 0.0f, 1.0f, 0.015f);
+                    // Colors (RGB only, w channel is alpha/reflectivity already clamped by component)
+                    safeV3(waterParams.waterColor, { 0.1f, 0.4f, 0.5f });
+                    safeV3(waterParams.waterDeepColor, { 0.0f, 0.1f, 0.2f });
+                    safeV3(waterParams.refractionColor, { 0.0f, 0.05f, 0.1f });
+                    safeV3(waterParams.sssColor, { 0.0f, 0.5f, 0.4f });
+                    // Depth/refraction
+                    waterParams.depthRefractionParams.x = clampF(waterParams.depthRefractionParams.x, 0.0f, 50.0f, 2.0f);
+                    waterParams.depthRefractionParams.y = clampF(waterParams.depthRefractionParams.y, 0.0f, 0.5f, 0.05f);
+                    waterParams.depthRefractionParams.z = clampF(waterParams.depthRefractionParams.z, 0.0f, 2.0f, 0.5f);
+                    // Foam
+                    waterParams.foamParams.x = clampF(waterParams.foamParams.x, 0.0f, 2.0f, 0.3f);
+                    waterParams.foamParams.y = clampF(waterParams.foamParams.y, 0.01f, 5.0f, 0.5f);
+                    waterParams.foamParams.z = clampF(waterParams.foamParams.z, 0.0f, 50.0f, 2.0f);
+                    waterParams.foamParams.w = clampF(waterParams.foamParams.w, 0.0f, 5.0f, 1.5f);
+                    waterParams.foamParams2.x = clampF(waterParams.foamParams2.x, 0.1f, 10.0f, 2.0f);
+                    waterParams.foamParams2.y = clampF(waterParams.foamParams2.y, 0.1f, 10.0f, 3.0f);
+                    waterParams.foamParams2.z = clampF(waterParams.foamParams2.z, 0.0f, 5.0f, 0.5f);
+                    // SSR (x=maxSteps, y=stepSize, z=maxDistance, w=thickness)
+                    waterParams.ssrParams.x = clampF(waterParams.ssrParams.x, 0.0f, 256.0f, 64.0f);
+                    waterParams.ssrParams.y = clampF(waterParams.ssrParams.y, 0.01f, 1.0f, 0.1f);
+                    waterParams.ssrParams.z = clampF(waterParams.ssrParams.z, 1.0f, 200.0f, 50.0f);
+                    waterParams.ssrParams.w = clampF(waterParams.ssrParams.w, 0.01f, 5.0f, 0.5f);
+                    // Tessellation (x=factor, y=minDist, z=maxDist)
+                    waterParams.tessParams.x = clampF(waterParams.tessParams.x, 0.0f, 64.0f, 0.0f);
+                    waterParams.tessParams.y = clampF(waterParams.tessParams.y, 1.0f, 500.0f, 10.0f);
+                    waterParams.tessParams.z = clampF(waterParams.tessParams.z, 10.0f, 1000.0f, 200.0f);
+                    waterParams.tessParams.z = std::max(waterParams.tessParams.z, waterParams.tessParams.y + 1.0f);
+
+                    // Resolve texture IDs — only assign non-zero renderer IDs (skip placeholders)
                     if (water.m_NormalMap0 != 0)
                     {
                         if (auto tex = AssetManager::GetAsset<Texture2D>(water.m_NormalMap0))
                         {
-                            waterParams.normalMap0ID = tex->GetRendererID();
+                            if (auto id = tex->GetRendererID(); id != 0)
+                                waterParams.normalMap0ID = id;
                         }
                     }
                     if (water.m_NormalMap1 != 0)
                     {
                         if (auto tex = AssetManager::GetAsset<Texture2D>(water.m_NormalMap1))
                         {
-                            waterParams.normalMap1ID = tex->GetRendererID();
+                            if (auto id = tex->GetRendererID(); id != 0)
+                                waterParams.normalMap1ID = id;
                         }
                     }
                     if (water.m_NoiseTexture != 0)
                     {
                         if (auto tex = AssetManager::GetAsset<Texture2D>(water.m_NoiseTexture))
                         {
-                            waterParams.noiseTextureID = tex->GetRendererID();
+                            if (auto id = tex->GetRendererID(); id != 0)
+                                waterParams.noiseTextureID = id;
                         }
                     }
                     if (water.m_FoamTexture != 0)
                     {
                         if (auto tex = AssetManager::GetAsset<Texture2D>(water.m_FoamTexture))
                         {
-                            waterParams.foamTextureID = tex->GetRendererID();
+                            if (auto id = tex->GetRendererID(); id != 0)
+                                waterParams.foamTextureID = id;
                         }
                     }
 
