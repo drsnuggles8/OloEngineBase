@@ -9,8 +9,10 @@
 
 #include <meshoptimizer.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <vector>
 
 namespace OloEngine::MeshOptimization
@@ -568,13 +570,43 @@ namespace OloEngine::MeshOptimization
         }
 
         auto vertexCount = static_cast<sizet>(vertices.Num());
-        auto indexCount = static_cast<sizet>(indices.Num());
 
-        meshopt_spatialSortTriangles(
-            indices.GetData(), indices.GetData(), indexCount,
-            &vertices.GetData()[0].Position.x, vertexCount, sizeof(Vertex));
+        // Sort per-submesh to preserve BaseIndex/IndexCount boundaries.
+        if (!meshSource.GetSubmeshes().IsEmpty())
+        {
+            auto submeshCount = meshSource.GetSubmeshes().Num();
+            for (i32 s = 0; s < submeshCount; ++s)
+            {
+                const auto& sub = meshSource.GetSubmeshes()[s];
+                if (sub.m_IndexCount < 3)
+                {
+                    continue;
+                }
 
-        OLO_CORE_TRACE("MeshOptimization::SpatialSortTriangles: Sorted {} triangles", indexCount / 3);
+                meshopt_spatialSortTriangles(
+                    indices.GetData() + sub.m_BaseIndex,
+                    indices.GetData() + sub.m_BaseIndex,
+                    static_cast<sizet>(sub.m_IndexCount),
+                    &vertices.GetData()[0].Position.x, vertexCount, sizeof(Vertex));
+            }
+
+            sizet totalIndices = 0;
+            for (i32 s = 0; s < submeshCount; ++s)
+            {
+                totalIndices += meshSource.GetSubmeshes()[s].m_IndexCount;
+            }
+            OLO_CORE_TRACE("MeshOptimization::SpatialSortTriangles: Sorted {} triangles across {} submeshes",
+                           totalIndices / 3, submeshCount);
+        }
+        else
+        {
+            auto indexCount = static_cast<sizet>(indices.Num());
+            meshopt_spatialSortTriangles(
+                indices.GetData(), indices.GetData(), indexCount,
+                &vertices.GetData()[0].Position.x, vertexCount, sizeof(Vertex));
+
+            OLO_CORE_TRACE("MeshOptimization::SpatialSortTriangles: Sorted {} triangles", indexCount / 3);
+        }
     }
 
     // ── Buffer encoding for asset packs ────────────────────────────

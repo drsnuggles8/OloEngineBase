@@ -328,7 +328,7 @@ namespace OloEngine
             {
                 if (arr.size() >= boneCount)
                 {
-                    WriteBytes(payload, arr.data(), boneCount * sizeof(glm::mat4));
+                    WriteBytes(payload, arr.data(), boneCount * sizeof(f32) * 16);
                 }
                 else
                 {
@@ -465,7 +465,18 @@ namespace OloEngine
                 {
                     if (!target.Vertices.empty())
                     {
-                        WriteBytes(payload, target.Vertices.data(), target.Vertices.size() * sizeof(MorphTargetVertex));
+                        // Write exactly vertCount entries to match what the reader expects.
+                        auto denseCount = std::min(static_cast<u32>(target.Vertices.size()), vertCount);
+                        WriteBytes(payload, target.Vertices.data(), denseCount * sizeof(MorphTargetVertex));
+                        // Pad if undersized
+                        if (denseCount < vertCount)
+                        {
+                            MorphTargetVertex zero{};
+                            for (auto p = denseCount; p < vertCount; ++p)
+                            {
+                                WriteBytes(payload, &zero, sizeof(MorphTargetVertex));
+                            }
+                        }
                     }
                 }
             }
@@ -746,6 +757,16 @@ namespace OloEngine
                     sub.m_NodeName = ReadString(payload);
                     sub.m_MeshName = ReadString(payload);
 
+                    // Validate submesh ranges against decoded buffer sizes
+                    auto vertexCount = static_cast<u32>(meshSource->GetVertices().Num());
+                    auto indexCount = static_cast<u32>(meshSource->GetIndices().Num());
+                    if (sub.m_BaseVertex > vertexCount || sub.m_VertexCount > vertexCount - sub.m_BaseVertex || sub.m_BaseIndex > indexCount || sub.m_IndexCount > indexCount - sub.m_BaseIndex)
+                    {
+                        OLO_CORE_ERROR("MeshBinarySerializer::Read: Submesh {} has out-of-range bounds in '{}'",
+                                       i, path.string());
+                        return nullptr;
+                    }
+
                     meshSource->AddSubmesh(sub);
                 }
             }
@@ -804,7 +825,7 @@ namespace OloEngine
                 auto const readMat4Array = [&](std::vector<glm::mat4>& arr)
                 {
                     arr.resize(boneCount);
-                    ReadBytes(payload, arr.data(), boneCount * sizeof(glm::mat4));
+                    ReadBytes(payload, arr.data(), boneCount * sizeof(f32) * 16);
                 };
 
                 readMat4Array(skeleton->m_LocalTransforms);
@@ -887,6 +908,13 @@ namespace OloEngine
                 OMeshFormat::BoneInfoHeader biHeader;
                 ReadBytes(payload, &biHeader, sizeof(biHeader));
 
+                if (biHeader.BoneInfoCount > OMeshFormat::MaxBoneCount)
+                {
+                    OLO_CORE_ERROR("MeshBinarySerializer::Read: BoneInfoCount ({}) exceeds safety limit in '{}'",
+                                   biHeader.BoneInfoCount, path.string());
+                    return nullptr;
+                }
+
                 auto& boneInfo = meshSource->GetBoneInfo();
                 for (u32 i = 0; i < biHeader.BoneInfoCount; ++i)
                 {
@@ -929,6 +957,13 @@ namespace OloEngine
 
                     if (entry.SparseEntryCount > 0)
                     {
+                        if (entry.SparseEntryCount > OMeshFormat::MaxVertexCount)
+                        {
+                            OLO_CORE_ERROR("MeshBinarySerializer::Read: SparseEntryCount ({}) exceeds safety limit in '{}'",
+                                           entry.SparseEntryCount, path.string());
+                            return nullptr;
+                        }
+
                         target.IsSparse = true;
                         target.SparseVertices.resize(entry.SparseEntryCount);
                         for (u32 s = 0; s < entry.SparseEntryCount; ++s)

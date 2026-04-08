@@ -81,8 +81,9 @@ namespace OloEngine
 
         if (!data)
         {
-            OLO_CORE_ASSERT(false, "Hash::CRC32 called with null pointer");
-            return 0xFFFFFFFFu;
+            // nullptr with size==0 is a valid empty-buffer call; nullptr with size>0 is a bug.
+            OLO_CORE_ASSERT(size == 0, "Hash::CRC32 called with null pointer and non-zero size");
+            return 0xFFFFFFFF ^ 0xFFFFFFFF;
         }
 
         auto const* ptr = static_cast<const u8*>(data);

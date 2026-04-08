@@ -201,19 +201,21 @@ namespace OloEngine
                 return false;
             }
 
+            // Build into locals so outMeshes/outSkeleton stay untouched on failure.
+            Ref<Skeleton> localSkeleton;
             if (combined->HasSkeleton())
             {
-                outSkeleton = Ref<Skeleton>::Create();
+                localSkeleton = Ref<Skeleton>::Create();
                 const auto* src = combined->GetSkeleton();
-                outSkeleton->m_ParentIndices = src->m_ParentIndices;
-                outSkeleton->m_BoneNames = src->m_BoneNames;
-                outSkeleton->m_LocalTransforms = src->m_LocalTransforms;
-                outSkeleton->m_GlobalTransforms = src->m_GlobalTransforms;
-                outSkeleton->m_FinalBoneMatrices = src->m_FinalBoneMatrices;
-                outSkeleton->m_BindPoseMatrices = src->m_BindPoseMatrices;
-                outSkeleton->m_InverseBindPoses = src->m_InverseBindPoses;
-                outSkeleton->m_BindPoseLocalTransforms = src->m_BindPoseLocalTransforms;
-                outSkeleton->m_BonePreTransforms = src->m_BonePreTransforms;
+                localSkeleton->m_ParentIndices = src->m_ParentIndices;
+                localSkeleton->m_BoneNames = src->m_BoneNames;
+                localSkeleton->m_LocalTransforms = src->m_LocalTransforms;
+                localSkeleton->m_GlobalTransforms = src->m_GlobalTransforms;
+                localSkeleton->m_FinalBoneMatrices = src->m_FinalBoneMatrices;
+                localSkeleton->m_BindPoseMatrices = src->m_BindPoseMatrices;
+                localSkeleton->m_InverseBindPoses = src->m_InverseBindPoses;
+                localSkeleton->m_BindPoseLocalTransforms = src->m_BindPoseLocalTransforms;
+                localSkeleton->m_BonePreTransforms = src->m_BonePreTransforms;
             }
 
             const auto& allVerts = combined->GetVertices();
@@ -221,7 +223,11 @@ namespace OloEngine
             const auto& allBones = combined->GetBoneInfluences();
             const auto& allBoneInfo = combined->GetBoneInfo();
 
-            for (i32 s = 0; s < combined->GetSubmeshes().Num(); ++s)
+            std::vector<Ref<MeshSource>> localMeshes;
+            localMeshes.reserve(static_cast<sizet>(combined->GetSubmeshes().Num()));
+
+            auto submeshCount = combined->GetSubmeshes().Num();
+            for (i32 s = 0; s < submeshCount; ++s)
             {
                 const auto& submesh = combined->GetSubmeshes()[s];
 
@@ -257,7 +263,8 @@ namespace OloEngine
                     }
                 }
 
-                for (i32 i = 0; i < allBoneInfo.Num(); ++i)
+                auto boneInfoCount = allBoneInfo.Num();
+                for (i32 i = 0; i < boneInfoCount; ++i)
                 {
                     mesh->GetBoneInfo().Add(allBoneInfo[i]);
                 }
@@ -267,24 +274,30 @@ namespace OloEngine
                 newSub.m_BaseIndex = 0;
                 mesh->GetSubmeshes().Add(newSub);
 
-                mesh->SetSkeleton(outSkeleton);
+                mesh->SetSkeleton(localSkeleton);
                 mesh->SetPreOptimized(combined->IsPreOptimized());
+
+                // Generate shadow indices BEFORE Build so BuildShadowIndexBuffer
+                // creates the GPU resources in the same pass.
+                MeshOptimization::GenerateShadowIndices(*mesh);
                 mesh->Build();
 
-                // Shadow indices cannot be split from the combined buffer (spatial sort
-                // reorders triangles globally), so regenerate them per-split mesh.
-                MeshOptimization::GenerateShadowIndices(*mesh);
-
-                outMeshes.push_back(mesh);
+                localMeshes.push_back(mesh);
             }
 
             // Split combined morph targets back into per-mesh sets.
             // Combined targets are dense arrays spanning the total vertex count;
             // extract each submesh's slice and skip targets with all-zero deltas.
+            constexpr f32 kMorphEpsilon = 1e-6f;
+            auto isNonZeroVec3 = [](const glm::vec3& v, f32 eps)
+            {
+                return std::abs(v.x) > eps || std::abs(v.y) > eps || std::abs(v.z) > eps;
+            };
+
             if (combined->HasMorphTargets())
             {
                 const auto& combinedMorphs = combined->GetMorphTargets();
-                for (i32 s = 0; s < combined->GetSubmeshes().Num() && s < static_cast<i32>(outMeshes.size()); ++s)
+                for (i32 s = 0; s < submeshCount && s < static_cast<i32>(localMeshes.size()); ++s)
                 {
                     const auto& submesh = combined->GetSubmeshes()[s];
                     auto meshMorphs = Ref<MorphTargetSet>::Create();
@@ -303,7 +316,7 @@ namespace OloEngine
                             {
                                 localTarget.Vertices[v] = target.Vertices[submesh.m_BaseVertex + v];
                                 const auto& d = localTarget.Vertices[v];
-                                if (d.DeltaPosition != glm::vec3(0.0f) || d.DeltaNormal != glm::vec3(0.0f) || d.DeltaTangent != glm::vec3(0.0f))
+                                if (isNonZeroVec3(d.DeltaPosition, kMorphEpsilon) || isNonZeroVec3(d.DeltaNormal, kMorphEpsilon) || isNonZeroVec3(d.DeltaTangent, kMorphEpsilon))
                                 {
                                     hasNonZero = true;
                                 }
@@ -318,11 +331,14 @@ namespace OloEngine
 
                     if (!meshMorphs->Targets.empty())
                     {
-                        outMeshes[s]->SetMorphTargets(meshMorphs);
+                        localMeshes[s]->SetMorphTargets(meshMorphs);
                     }
                 }
             }
 
+            // Commit — no exceptions past this point.
+            outSkeleton = MoveTemp(localSkeleton);
+            outMeshes = MoveTemp(localMeshes);
             return true;
         }
 

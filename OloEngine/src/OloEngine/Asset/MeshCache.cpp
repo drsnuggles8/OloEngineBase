@@ -3,6 +3,7 @@
 #include "OloEngine/Serialization/MeshBinarySerializer.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Animation/AnimationClip.h"
+#include "OloEngine/Project/Project.h"
 
 #include <fstream>
 
@@ -10,8 +11,19 @@ namespace OloEngine
 {
     namespace
     {
-        constexpr const char* kMeshCacheDirectory = "assets/cache/mesh";
-        constexpr const char* kAnimationCacheDirectory = "assets/cache/animation";
+        constexpr const char* kMeshCacheSubdir = "cache/mesh";
+        constexpr const char* kAnimationCacheSubdir = "cache/animation";
+
+        // Returns the project asset directory if a project is active, or falls back
+        // to the CWD-relative "assets/" for headless / test scenarios.
+        std::filesystem::path GetAssetRoot()
+        {
+            if (Project::GetActive())
+            {
+                return Project::GetAssetDirectory();
+            }
+            return "assets";
+        }
 
         void EnsureDirectoryExists(const std::filesystem::path& dir)
         {
@@ -65,14 +77,14 @@ namespace OloEngine
     {
         std::filesystem::path GetCacheDirectory()
         {
-            std::filesystem::path dir(kMeshCacheDirectory);
+            auto dir = GetAssetRoot() / kMeshCacheSubdir;
             EnsureDirectoryExists(dir);
             return dir;
         }
 
         std::filesystem::path GetAnimationCacheDirectory()
         {
-            std::filesystem::path dir(kAnimationCacheDirectory);
+            auto dir = GetAssetRoot() / kAnimationCacheSubdir;
             EnsureDirectoryExists(dir);
             return dir;
         }
@@ -187,7 +199,7 @@ namespace OloEngine
         {
             std::error_code ec;
 
-            std::filesystem::path meshDir(kMeshCacheDirectory);
+            auto meshDir = GetAssetRoot() / kMeshCacheSubdir;
             if (std::filesystem::exists(meshDir, ec))
             {
                 std::filesystem::remove_all(meshDir, ec);
@@ -201,7 +213,7 @@ namespace OloEngine
                 }
             }
 
-            std::filesystem::path animDir(kAnimationCacheDirectory);
+            auto animDir = GetAssetRoot() / kAnimationCacheSubdir;
             if (std::filesystem::exists(animDir, ec))
             {
                 std::filesystem::remove_all(animDir, ec);
@@ -268,8 +280,8 @@ namespace OloEngine
                 }
             };
 
-            accumulateDirectorySize(std::filesystem::path(kMeshCacheDirectory));
-            accumulateDirectorySize(std::filesystem::path(kAnimationCacheDirectory));
+            accumulateDirectorySize(GetAssetRoot() / kMeshCacheSubdir);
+            accumulateDirectorySize(GetAssetRoot() / kAnimationCacheSubdir);
 
             return totalSize;
         }

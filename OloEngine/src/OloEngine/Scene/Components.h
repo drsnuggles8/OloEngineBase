@@ -1580,6 +1580,8 @@ namespace OloEngine
         LODGroupComponent& operator=(const LODGroupComponent&) = default;
         LODGroupComponent(LODGroupComponent&&) noexcept = default;
         LODGroupComponent& operator=(LODGroupComponent&&) noexcept = default;
+
+        auto operator==(const LODGroupComponent&) const -> bool = default;
     };
 
     // ── Tile Renderer ────────────────────────────────────────────────────

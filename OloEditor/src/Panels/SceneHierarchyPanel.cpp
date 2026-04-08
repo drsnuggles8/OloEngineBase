@@ -2111,12 +2111,15 @@ namespace OloEngine
 					static MeshAnalysis s_CachedAnalysis;
 					static AssetHandle s_AnalyzedHandle{0};
 					static u64 s_AnalyzedGeneration = 0;
+					static const MeshSource* s_AnalyzedSource = nullptr;
 
 					AssetHandle currentHandle = component.m_MeshSource->GetHandle();
 					u64 currentGeneration = component.m_MeshSource->GetGeneration();
-					if (s_AnalyzedGeneration != currentGeneration || s_AnalyzedHandle != currentHandle)
+					const MeshSource* currentSource = component.m_MeshSource.get();
+					if (s_AnalyzedSource != currentSource || s_AnalyzedGeneration != currentGeneration || s_AnalyzedHandle != currentHandle)
 					{
 						s_CachedAnalysis = MeshOptimization::AnalyzeMesh(*component.m_MeshSource);
+						s_AnalyzedSource = currentSource;
 						s_AnalyzedGeneration = currentGeneration;
 						s_AnalyzedHandle = currentHandle;
 					}
@@ -2463,6 +2466,15 @@ namespace OloEngine
                     ImGui::SameLine();
                     if (ImGui::Button("Generate LODs"))
                     {
+                        // Remove previous memory-only LOD assets to avoid orphaned handles
+                        for (const auto& level : component.m_LODGroup.Levels)
+                        {
+                            if (level.MeshHandle != 0)
+                            {
+                                AssetManager::RemoveAsset(level.MeshHandle);
+                            }
+                        }
+
                         // Register the base mesh as a memory asset so LOD 0 has a valid handle
                         auto baseMesh = Ref<Mesh>::Create(meshComp.m_MeshSource, 0);
                         AssetHandle const baseHandle = AssetManager::AddMemoryOnlyAsset(baseMesh);

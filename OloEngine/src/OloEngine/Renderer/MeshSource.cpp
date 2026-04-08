@@ -114,6 +114,12 @@ namespace OloEngine
         {
             BuildShadowIndexBuffer();
         }
+        else
+        {
+            // Clear stale GPU resources if shadow indices were removed (e.g. by re-optimization)
+            m_ShadowVertexArray = nullptr;
+            m_ShadowIndexBuffer = nullptr;
+        }
 
         m_Built = true;
         ++m_Generation;

@@ -1955,6 +1955,14 @@ namespace OloEngine
         {
             const auto& boneInfluences = meshSource->GetBoneInfluences();
             auto boneCount = static_cast<u32>(boneInfluences.Num());
+
+            if (boneCount != vertexCount)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::SerializeMeshSource - BoneInfluence count ({}) != vertex count ({})",
+                               boneCount, vertexCount);
+                return false;
+            }
+
             stream.WriteRaw<u32>(boneCount);
 
             if (boneCount > 0)
@@ -2097,8 +2105,21 @@ namespace OloEngine
                 }
                 else if (!target.Vertices.empty())
                 {
+                    // Dense path: write exactly vertCount entries to match what the reader expects.
+                    // Clamp if the target has fewer vertices than the header count.
+                    auto denseCount = std::min(static_cast<u32>(target.Vertices.size()), vertCount);
                     stream.WriteData(reinterpret_cast<const char*>(target.Vertices.data()),
-                                     target.Vertices.size() * sizeof(MorphTargetVertex));
+                                     denseCount * sizeof(MorphTargetVertex));
+                    // Pad remaining entries with zeroes if target.Vertices.size() < vertCount
+                    if (denseCount < vertCount)
+                    {
+                        auto padCount = vertCount - denseCount;
+                        MorphTargetVertex zero{};
+                        for (u32 p = 0; p < padCount; ++p)
+                        {
+                            stream.WriteData(reinterpret_cast<const char*>(&zero), sizeof(MorphTargetVertex));
+                        }
+                    }
                 }
             }
         }
@@ -2190,6 +2211,18 @@ namespace OloEngine
             {
                 OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to decode index buffer");
                 return nullptr;
+            }
+
+            // Validate decoded indices against vertex count
+            for (u32 i = 0; i < indexCount; ++i)
+            {
+                if (indices[static_cast<i32>(i)] >= vertexCount)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Index {} out of range "
+                                   "(value={}, vertexCount={})",
+                                   i, indices[static_cast<i32>(i)], vertexCount);
+                    return nullptr;
+                }
             }
         }
 
