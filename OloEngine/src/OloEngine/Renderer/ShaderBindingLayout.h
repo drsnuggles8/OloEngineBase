@@ -556,21 +556,21 @@ namespace OloEngine
         static constexpr u32 TEX_WIND_FIELD = 29;           // 3D wind velocity field (sampler3D, RGBA16F)
         static constexpr u32 TEX_SNOW_DEPTH = 30;           // Snow accumulation depth map (sampler2D, R32F)
         static constexpr u32 TEX_PRECIPITATION_NOISE = 31;  // Precipitation streak/lens noise (sampler2D)
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 32;       // First shader graph user texture slot
-        static constexpr u32 TEX_HZB = 33;                  // Hierarchical Z-Buffer depth pyramid
-        static constexpr u32 TEX_GTAO_OUTPUT = 34;          // GTAO raw/denoised AO output
-        static constexpr u32 TEX_GTAO_EDGES = 35;           // GTAO edge-detection texture
-        static constexpr u32 TEX_HILBERT_LUT = 36;          // Hilbert curve LUT for GTAO spatial noise
-        static constexpr u32 TEX_WATER_NORMAL_0 = 37;       // Water scrolling normal map 0
-        static constexpr u32 TEX_WATER_NORMAL_1 = 38;       // Water scrolling normal map 1
-        static constexpr u32 TEX_WATER_NOISE = 39;          // Water specular noise texture
-        static constexpr u32 TEX_WATER_DEPTH = 40;          // Scene depth for water depth effects
-        static constexpr u32 TEX_WATER_REFRACTION = 41;     // Pre-water scene color for refraction
-        static constexpr u32 TEX_WATER_FOAM = 42;           // Foam texture
-        static constexpr u32 TEX_WATER_SSR = 43;            // SSR reflection result for water
+        static constexpr u32 TEX_HZB = 32;                  // Hierarchical Z-Buffer depth pyramid
+        static constexpr u32 TEX_GTAO_OUTPUT = 33;          // GTAO raw/denoised AO output
+        static constexpr u32 TEX_GTAO_EDGES = 34;           // GTAO edge-detection texture
+        static constexpr u32 TEX_HILBERT_LUT = 35;          // Hilbert curve LUT for GTAO spatial noise
+        static constexpr u32 TEX_WATER_NORMAL_0 = 36;       // Water scrolling normal map 0
+        static constexpr u32 TEX_WATER_NORMAL_1 = 37;       // Water scrolling normal map 1
+        static constexpr u32 TEX_WATER_NOISE = 38;          // Water specular noise texture
+        static constexpr u32 TEX_WATER_DEPTH = 39;          // Scene depth for water depth effects
+        static constexpr u32 TEX_WATER_REFRACTION = 40;     // Pre-water scene color for refraction
+        static constexpr u32 TEX_WATER_FOAM = 41;           // Foam texture
+        static constexpr u32 TEX_WATER_SSR = 42;            // SSR reflection result for water
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 43;       // First shader graph user texture slot (must be after all engine-reserved slots)
 
-        // Ensure all texture slots fit within the GL 4.6 minimum guarantee (80 combined units).
-        static_assert(TEX_WATER_SSR < 80, "Texture slot exceeds GL 4.6 minimum GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS");
+        // Ensure all engine-reserved texture slots fit within the GL 4.6 minimum guarantee (80 combined units).
+        static_assert(TEX_SHADER_GRAPH_0 < 80, "Engine texture slots exceed GL 4.6 minimum GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS");
 
         // =============================================================================
         // SHADER STORAGE BUFFER OBJECT (SSBO) BINDINGS
@@ -757,9 +757,9 @@ namespace OloEngine
                     return name.contains("SSR") || name.contains("ssr") ||
                            (name.contains("Screen") && name.contains("Reflection"));
                 default:
-                    // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_HILBERT_LUT, i.e. 10–36)
+                    // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_WATER_SSR, i.e. 10–42)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)
-                    return (binding >= TEX_USER_0 && binding <= TEX_HILBERT_LUT) ||
+                    return (binding >= TEX_USER_0 && binding <= TEX_WATER_SSR) ||
                            (binding >= TEX_SHADER_GRAPH_0 && binding < 80);
             }
         }

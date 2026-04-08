@@ -371,14 +371,14 @@ layout(std140, binding = 23) uniform WaterParams
 layout(binding = 9) uniform samplerCube u_EnvironmentMap;
 
 // Scrolling normal maps and noise texture
-layout(binding = 37) uniform sampler2D u_NormalMap0;
-layout(binding = 38) uniform sampler2D u_NormalMap1;
-layout(binding = 39) uniform sampler2D u_NoiseMap;
+layout(binding = 36) uniform sampler2D u_NormalMap0;
+layout(binding = 37) uniform sampler2D u_NormalMap1;
+layout(binding = 38) uniform sampler2D u_NoiseMap;
 
 // Depth and refraction textures (bound by WaterRenderPass)
-layout(binding = 40) uniform sampler2D u_SceneDepth;
-layout(binding = 41) uniform sampler2D u_RefractionTexture;
-layout(binding = 42) uniform sampler2D u_FoamTexture;
+layout(binding = 39) uniform sampler2D u_SceneDepth;
+layout(binding = 40) uniform sampler2D u_RefractionTexture;
+layout(binding = 41) uniform sampler2D u_FoamTexture;
 
 // Scene view-space normals for SSR (bound by WaterRenderPass)
 layout(binding = 22) uniform sampler2D u_SceneNormals;

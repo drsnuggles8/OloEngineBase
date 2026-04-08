@@ -4372,7 +4372,8 @@ namespace OloEngine
                 if (component.m_TessellationEnabled)
                 {
                     ImGui::DragFloat("Tessellation Factor", &component.m_TessellationFactor, 0.5f, 1.0f, 64.0f, "%.1f");
-                    ImGui::DragFloat("Tess Min Distance", &component.m_TessMinDistance, 1.0f, 1.0f, 500.0f);
+                    if (ImGui::DragFloat("Tess Min Distance", &component.m_TessMinDistance, 1.0f, 1.0f, 500.0f))
+                        component.m_TessMaxDistance = std::max(component.m_TessMaxDistance, component.m_TessMinDistance + 1.0f);
                     if (ImGui::DragFloat("Tess Max Distance", &component.m_TessMaxDistance, 1.0f, 10.0f, 1000.0f))
                         component.m_TessMaxDistance = std::max(component.m_TessMaxDistance, component.m_TessMinDistance + 1.0f);
                 }
