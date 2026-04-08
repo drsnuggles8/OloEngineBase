@@ -351,10 +351,10 @@ TEST(WaterRendering, WavelengthPackedIntoWaveDir)
 
 TEST(WaterRendering, WaterTextureBindingSlots)
 {
-    EXPECT_EQ(ShaderBindingLayout::TEX_WATER_NORMAL_0, 37u);
-    EXPECT_EQ(ShaderBindingLayout::TEX_WATER_NORMAL_1, 38u);
-    EXPECT_EQ(ShaderBindingLayout::TEX_WATER_NOISE, 39u);
-    EXPECT_EQ(ShaderBindingLayout::TEX_WATER_DEPTH, 40u);
-    EXPECT_EQ(ShaderBindingLayout::TEX_WATER_REFRACTION, 41u);
-    EXPECT_EQ(ShaderBindingLayout::TEX_WATER_FOAM, 42u);
+    EXPECT_EQ(ShaderBindingLayout::TEX_WATER_NORMAL_0, 36u);
+    EXPECT_EQ(ShaderBindingLayout::TEX_WATER_NORMAL_1, 37u);
+    EXPECT_EQ(ShaderBindingLayout::TEX_WATER_NOISE, 38u);
+    EXPECT_EQ(ShaderBindingLayout::TEX_WATER_DEPTH, 39u);
+    EXPECT_EQ(ShaderBindingLayout::TEX_WATER_REFRACTION, 40u);
+    EXPECT_EQ(ShaderBindingLayout::TEX_WATER_FOAM, 41u);
 }

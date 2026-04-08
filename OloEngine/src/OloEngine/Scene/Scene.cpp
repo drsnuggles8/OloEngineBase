@@ -3406,9 +3406,20 @@ namespace OloEngine
                     waterParams.normalMapScroll.w = safeF(waterParams.normalMapScroll.w, 0.0f);
                     waterParams.normalMapSpeed.x = clampF(waterParams.normalMapSpeed.x, 0.0f, 1.0f, 0.02f);
                     waterParams.normalMapSpeed.y = clampF(waterParams.normalMapSpeed.y, 0.0f, 1.0f, 0.015f);
-                    // Colors (RGB only, w channel is alpha/reflectivity already clamped by component)
+                    // Packed wave directions (x,y=dir, z=steepness, w=wavelength)
+                    waterParams.waveDir0.x = safeF(waterParams.waveDir0.x, 1.0f);
+                    waterParams.waveDir0.y = safeF(waterParams.waveDir0.y, 0.0f);
+                    waterParams.waveDir0.z = clampF(waterParams.waveDir0.z, 0.0f, 1.0f, 0.5f);
+                    waterParams.waveDir0.w = clampF(waterParams.waveDir0.w, 0.1f, 500.0f, 10.0f);
+                    waterParams.waveDir1.x = safeF(waterParams.waveDir1.x, 0.7f);
+                    waterParams.waveDir1.y = safeF(waterParams.waveDir1.y, 0.7f);
+                    waterParams.waveDir1.z = clampF(waterParams.waveDir1.z, 0.0f, 1.0f, 0.3f);
+                    waterParams.waveDir1.w = clampF(waterParams.waveDir1.w, 0.1f, 500.0f, 15.0f);
+                    // Colors (RGB + alpha channels: transparency and reflectivity)
                     safeV3(waterParams.waterColor, { 0.1f, 0.4f, 0.5f });
+                    waterParams.waterColor.w = clampF(waterParams.waterColor.w, 0.0f, 1.0f, 0.6f);
                     safeV3(waterParams.waterDeepColor, { 0.0f, 0.1f, 0.2f });
+                    waterParams.waterDeepColor.w = clampF(waterParams.waterDeepColor.w, 0.0f, 1.0f, 0.5f);
                     safeV3(waterParams.refractionColor, { 0.0f, 0.05f, 0.1f });
                     safeV3(waterParams.sssColor, { 0.0f, 0.5f, 0.4f });
                     // Depth/refraction

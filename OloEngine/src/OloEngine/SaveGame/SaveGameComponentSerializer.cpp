@@ -1142,9 +1142,9 @@ namespace OloEngine
                 v = glm::clamp(v, glm::vec3(0.0f), glm::vec3(1.0f));
             };
             sanitizeVec2(c.m_WaveDir0, glm::vec2(1.0f, 0.0f));
-            sanitizeVec2(c.m_WaveDir1, glm::vec2(0.0f, 1.0f));
+            sanitizeVec2(c.m_WaveDir1, glm::vec2(0.7f, 0.7f));
             sanitizeVec2(c.m_NormalMapScrollDir0, glm::vec2(1.0f, 0.0f));
-            sanitizeVec2(c.m_NormalMapScrollDir1, glm::vec2(0.7071f, 0.7071f));
+            sanitizeVec2(c.m_NormalMapScrollDir1, glm::vec2(0.0f, 1.0f));
             sanitizeColor(c.m_WaterColor, glm::vec3(0.0f, 0.3f, 0.5f));
             sanitizeColor(c.m_DeepColor, glm::vec3(0.0f, 0.1f, 0.2f));
             sanitizeColor(c.m_RefractionColor, glm::vec3(0.8f, 0.9f, 1.0f));
