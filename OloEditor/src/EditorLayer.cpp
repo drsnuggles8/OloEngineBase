@@ -79,15 +79,12 @@ namespace OloEngine
 
     EditorLayer::~EditorLayer()
     {
-        // Cancel any ongoing build
+        // Cancel any ongoing build and wait for the task to finish so
+        // the background lambda cannot access member state after destruction.
         m_BuildCancelRequested.store(true);
-
-        // Wait for build to complete if running (spin-wait with yield)
-        while (m_BuildInProgress.load())
+        if (m_BuildFuture.valid())
         {
-            // Keep requesting cancellation during wait
-            m_BuildCancelRequested.store(true);
-            std::this_thread::yield();
+            m_BuildFuture.wait();
         }
     }
 
@@ -195,6 +192,11 @@ namespace OloEngine
 
         // Sync with async asset loading thread
         AssetManager::SyncWithAssetThread();
+
+        if (!m_ActiveScene)
+        {
+            return;
+        }
 
         m_ActiveScene->OnViewportResize(static_cast<u32>(m_ViewportSize.x), static_cast<u32>(m_ViewportSize.y));
         m_ActiveScene->SetViewportOffset(m_ViewportBounds[0]);
@@ -317,9 +319,9 @@ namespace OloEngine
                 m_EditorCamera.OnUpdate(ts);
 
                 m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
-                m_ActiveScene->SetGridVisible(m_ShowGrid);
+                m_ActiveScene->SetGridVisible(Renderer3D::GetRendererSettings().ShowGrid);
                 m_ActiveScene->SetGridSpacing(m_GridSpacing);
-                m_ActiveScene->SetLightGizmosVisible(m_ShowLightGizmos);
+                m_ActiveScene->SetLightGizmosVisible(Renderer3D::GetRendererSettings().ShowLightGizmos);
                 m_ActiveScene->OnUpdateEditor(ts, m_EditorCamera);
 
                 // Auto-save timer
@@ -338,9 +340,9 @@ namespace OloEngine
                 m_EditorCamera.OnUpdate(ts);
 
                 m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
-                m_ActiveScene->SetGridVisible(m_ShowGrid);
+                m_ActiveScene->SetGridVisible(Renderer3D::GetRendererSettings().ShowGrid);
                 m_ActiveScene->SetGridSpacing(m_GridSpacing);
-                m_ActiveScene->SetLightGizmosVisible(m_ShowLightGizmos);
+                m_ActiveScene->SetLightGizmosVisible(Renderer3D::GetRendererSettings().ShowLightGizmos);
                 m_ActiveScene->OnUpdateSimulation(ts, m_EditorCamera);
                 break;
             }
@@ -617,6 +619,7 @@ namespace OloEngine
 
             if (ImGui::MenuItem("Preferences..."))
             {
+                SyncPrefsFromMembers();
                 m_EditorPreferencesPanel.Open(m_Prefs, &m_EditorCamera);
             }
 
@@ -1125,6 +1128,10 @@ namespace OloEngine
         if (m_ShowRendererSettings)
         {
             m_RendererSettingsPanel.OnImGuiRender(&m_ShowRendererSettings);
+            if (m_RendererSettingsPanel.ConsumeDebugSettingsChanged())
+            {
+                SyncPrefsFromMembers();
+            }
         }
 
         // Terrain Editor Panel
@@ -1277,13 +1284,14 @@ namespace OloEngine
 
     void EditorLayer::ApplyPreferences()
     {
-        m_ShowGrid = m_Prefs.ShowGrid;
+        auto& debugSettings = Renderer3D::GetRendererSettings();
+        debugSettings.ShowGrid = m_Prefs.ShowGrid;
         m_GridSpacing = m_Prefs.GridSpacing;
         m_TranslateSnap = m_Prefs.TranslateSnap;
         m_RotateSnap = m_Prefs.RotateSnap;
         m_ScaleSnap = m_Prefs.ScaleSnap;
-        m_ShowPhysicsColliders = m_Prefs.ShowPhysicsColliders;
-        m_ShowLightGizmos = m_Prefs.ShowLightGizmos;
+        debugSettings.ShowPhysicsColliders = m_Prefs.ShowPhysicsColliders;
+        debugSettings.ShowLightGizmos = m_Prefs.ShowLightGizmos;
         m_Is3DMode = m_Prefs.Is3DMode;
         m_EditorCamera.SetFlySpeed(m_Prefs.CameraFlySpeed);
         m_ThrottleEditMode = m_Prefs.ThrottleEditMode;
@@ -1313,13 +1321,14 @@ namespace OloEngine
 
     void EditorLayer::SyncPrefsFromMembers()
     {
-        m_Prefs.ShowGrid = m_ShowGrid;
+        auto const& debugSettings = Renderer3D::GetRendererSettings();
+        m_Prefs.ShowGrid = debugSettings.ShowGrid;
         m_Prefs.GridSpacing = m_GridSpacing;
         m_Prefs.TranslateSnap = m_TranslateSnap;
         m_Prefs.RotateSnap = m_RotateSnap;
         m_Prefs.ScaleSnap = m_ScaleSnap;
-        m_Prefs.ShowPhysicsColliders = m_ShowPhysicsColliders;
-        m_Prefs.ShowLightGizmos = m_ShowLightGizmos;
+        m_Prefs.ShowPhysicsColliders = debugSettings.ShowPhysicsColliders;
+        m_Prefs.ShowLightGizmos = debugSettings.ShowLightGizmos;
         m_Prefs.Is3DMode = m_Is3DMode;
         m_Prefs.CameraFlySpeed = m_EditorCamera.GetFlySpeed();
         m_Prefs.CapturePhysicsOnPlay = Physics3DSystem::GetSettings().m_CaptureOnPlay;
@@ -1673,7 +1682,7 @@ namespace OloEngine
             }
         }
 
-        if (m_ShowPhysicsColliders)
+        if (Renderer3D::GetRendererSettings().ShowPhysicsColliders)
         {
             if (const f64 epsilon = 1e-5; std::abs(Renderer2D::GetLineWidth() - -2.0f) > static_cast<f32>(epsilon))
             {
@@ -2859,15 +2868,18 @@ namespace OloEngine
         m_BuildCancelRequested.store(false);
         m_BuildInProgress.store(true);
 
+        // Create a promise/future pair so the destructor can join on the
+        // background task and guarantee the lambda (which captures `this`)
+        // finishes before member state is destroyed.
+        auto buildDone = std::make_shared<std::promise<void>>();
+        m_BuildFuture = buildDone->get_future();
+
         // Start async build task using Task System
-        Tasks::Launch("BuildAssetPack", [this, settings]()
+        Tasks::Launch("BuildAssetPack", [this, settings, buildDone]()
                       {
             try
             {
                 auto result = AssetPackBuilder::BuildFromActiveProject(settings, m_BuildProgress, &m_BuildCancelRequested);
-
-                // Mark build as complete
-                m_BuildInProgress.store(false);
 
                 if (result.m_Success && !m_BuildCancelRequested.load())
                 {
@@ -2887,10 +2899,11 @@ namespace OloEngine
 
                 // Store result for potential later access
                 m_LastBuildResult = result;
+                m_BuildInProgress.store(false);
+                buildDone->set_value();
             }
             catch (const std::exception& ex)
             {
-                m_BuildInProgress.store(false);
                 OLO_CORE_ERROR("Asset Pack build exception: {}", ex.what());
                 AssetPackBuilder::BuildResult errorResult{};
                 errorResult.m_Success = false;
@@ -2899,6 +2912,8 @@ namespace OloEngine
                 errorResult.m_AssetCount = 0;
                 errorResult.m_SceneCount = 0;
                 m_LastBuildResult = errorResult;
+                m_BuildInProgress.store(false);
+                buildDone->set_value();
             } }, Tasks::ETaskPriority::BackgroundNormal);
 
         OLO_CORE_INFO("Asset Pack build started asynchronously...");

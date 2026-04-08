@@ -25,7 +25,7 @@ namespace OloEngine
         i32 IntThreshold = 0;
         bool BoolValue = false;
 
-        [[nodiscard]] bool Evaluate(const AnimationParameterSet& params) const;
+        [[nodiscard("condition evaluation result must drive transition logic")]] bool Evaluate(const AnimationParameterSet& params) const;
     };
 
     struct AnimationTransition
@@ -40,6 +40,6 @@ namespace OloEngine
         bool HasExitTime = false;
         bool CanTransitionToSelf = false;
 
-        [[nodiscard]] bool Evaluate(const AnimationParameterSet& params) const;
+        [[nodiscard("evaluation result must drive transition logic")]] bool Evaluate(const AnimationParameterSet& params) const;
     };
 } // namespace OloEngine

@@ -236,6 +236,7 @@ namespace OloEngine
             SnapshotComponentIfExists<CharacterController3DComponent>(entity);
             SnapshotComponentIfExists<TextComponent>(entity);
             SnapshotComponentIfExists<ScriptComponent>(entity);
+            SnapshotComponentIfExists<LuaScriptComponent>(entity);
             SnapshotComponentIfExists<AudioSourceComponent>(entity);
             SnapshotComponentIfExists<AudioListenerComponent>(entity);
             SnapshotComponentIfExists<SubmeshComponent>(entity);
@@ -340,7 +341,11 @@ namespace OloEngine
             auto entityOpt = m_Scene->TryGetEntityWithUUID(m_EntityUUID);
             if (entityOpt)
             {
-                entityOpt->GetComponent<TagComponent>().Tag = name;
+                auto& currentTag = entityOpt->GetComponent<TagComponent>().Tag;
+                std::string oldName = currentTag;
+                currentTag = name;
+                // Entity holds a non-const Scene* internally, use it for cache update
+                entityOpt->GetScene()->UpdateEntityName(static_cast<entt::entity>(*entityOpt), oldName, name);
             }
         }
 

@@ -46,5 +46,8 @@ namespace OloEngine
 
         // --- Debug overlays ---
         bool WireframeOverlay = false;
+        bool ShowGrid = true;
+        bool ShowPhysicsColliders = false;
+        bool ShowLightGizmos = true;
     };
 } // namespace OloEngine

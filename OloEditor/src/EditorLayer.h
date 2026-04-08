@@ -30,9 +30,9 @@
 #include "OloEngine/Renderer/UniformBuffer.h"
 
 #include <atomic>
+#include <future>
 #include <mutex>
 #include <string>
-#include <thread> // For std::this_thread::yield()
 #include <vector>
 
 namespace OloEngine
@@ -158,11 +158,8 @@ namespace OloEngine
         glm::vec2 m_ViewportSize = { 0.0f, 0.0f };
         glm::vec2 m_ViewportBounds[2] = {};
 
-        int m_GizmoType = 0; // Default to Translate (ImGuizmo::TRANSLATE) for immediate usability
-        bool m_ShowPhysicsColliders = false;
-        bool m_ShowLightGizmos = true;
+        int m_GizmoType = 0;    // Default to Translate (ImGuizmo::TRANSLATE) for immediate usability
         bool m_Is3DMode = true; // Toggle for 2D/3D rendering
-        bool m_ShowGrid = true;
         f32 m_GridSpacing = 1.0f;
 
         // Transform snapping
@@ -185,6 +182,7 @@ namespace OloEngine
         // Asset Pack Build Management
         AssetPackBuilder::BuildResult m_LastBuildResult{}; // Result from last build (accessed after m_BuildInProgress is false)
         std::atomic<bool> m_BuildInProgress{ false };
+        std::future<void> m_BuildFuture; // Joinable handle so the destructor can block until the task finishes
         std::atomic<bool> m_BuildCancelRequested{ false };
         std::atomic<f32> m_BuildProgress{ 0.0f };
 

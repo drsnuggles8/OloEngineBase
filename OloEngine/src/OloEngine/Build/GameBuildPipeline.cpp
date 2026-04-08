@@ -330,8 +330,6 @@ namespace OloEngine
         }
 
         std::vector<std::string> requiredDlls = {
-            "libpng16.dll",
-            "libpng16d.dll", // Debug variant
             "zlib.dll",
             "zlibd.dll", // Debug variant
         };

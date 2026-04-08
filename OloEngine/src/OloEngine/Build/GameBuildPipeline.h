@@ -34,7 +34,7 @@ namespace OloEngine
      * 1. **Validate** — Check that the project has scenes and a valid configuration
      * 2. **Pack Assets** — Use AssetPackBuilder to create the .olopack file
      * 3. **Copy Runtime** — Copy OloRuntime.exe to the output directory
-     * 4. **Copy Dependencies** — Copy required DLLs (Mono, libpng, zlib, etc.)
+     * 4. **Copy Dependencies** — Copy required DLLs (Mono, zlib)
      * 5. **Copy Engine Resources** — Copy shaders and fonts
      * 6. **Copy Mono Runtime** — Copy mono/lib and mono/etc for C# scripting
      * 7. **Copy ScriptCore** — Copy the C# ScriptCore assembly

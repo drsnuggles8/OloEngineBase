@@ -11,13 +11,6 @@ olo_configure_app(OloEditor NO_PCH)
 add_dependencies(OloEditor
 				OloEngine
 )
-if(MSVC)
-	add_dependencies(OloEditor
-					OloEngine-ScriptCore
-					Sandbox-Scripting
-	)
-endif()
-# Note: png_shared and zlib are now dependencies of OloEngine, so they're implicitly included
 
 # Set up common include directories
 olo_set_common_include_directories(OloEditor)

@@ -3,169 +3,86 @@ using System.Runtime.CompilerServices;
 
 namespace OloEngine
 {
-	public static class InternalCalls
+	public static partial class InternalCalls
 	{
+        #region NativeLog
+        [MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NativeLog(string message, int parameter);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NativeLog_Vector(ref Vector3 parameter, out Vector3 outResult);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float NativeLog_VectorDot(ref Vector3 parameter);
+        #endregion
+
         #region Entity
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static bool Entity_HasComponent(ulong entityID, Type componentType);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool Entity_HasComponent(ulong entityID, Type componentType);
 
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static bool Entity_IsValid(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool Entity_IsValid(ulong entityID);
 
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static ulong Entity_FindEntityByName(string name);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern ulong Entity_FindEntityByName(string name);
 
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static object GetScriptInstance(ulong entityID);
-        #endregion
-
-        #region TransformComponent
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void TransformComponent_GetTranslation(ulong entityID, out Vector3 translation);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void TransformComponent_SetTranslation(ulong entityID, ref Vector3 translation);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void TransformComponent_GetRotation(ulong entityID, out Vector3 rotation);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void TransformComponent_SetRotation(ulong entityID, ref Vector3 rotation);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern object GetScriptInstance(ulong entityID);
         #endregion
 
         #region Rigidbody2DComponent
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void Rigidbody2DComponent_ApplyLinearImpulse(ulong entityID, ref Vector2 impulse, ref Vector2 point, bool wake);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void Rigidbody2DComponent_ApplyLinearImpulseToCenter(ulong entityID, ref Vector2 impulse, bool wake);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Rigidbody2DComponent_ApplyLinearImpulse(ulong entityID, ref Vector2 impulse, ref Vector2 point, bool wake);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Rigidbody2DComponent_ApplyLinearImpulseToCenter(ulong entityID, ref Vector2 impulse, bool wake);
         #endregion
 
-        #region TextComponent
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static string TextComponent_GetText(ulong entityID);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static void TextComponent_SetText(ulong entityID, string text);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static void TextComponent_GetColor(ulong entityID, out Vector4 color);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static void TextComponent_SetColor(ulong entityID, ref Vector4 color);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static float TextComponent_GetKerning(ulong entityID);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static void TextComponent_SetKerning(ulong entityID, float kerning);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static float TextComponent_GetLineSpacing(ulong entityID);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static void TextComponent_SetLineSpacing(ulong entityID, float lineSpacing);
-        #endregion
-
-
-        #region Rigidbody2DComponent
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsKeyDown(KeyCode keycode);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsKeyJustPressed(KeyCode keycode);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsKeyJustReleased(KeyCode keycode);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static void Input_GetMousePosition(out Vector2 position);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static void Input_GetWindowSize(out Vector2 size);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsMouseButtonDown(int button);
+        #region Input
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsKeyDown(KeyCode keycode);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsKeyJustPressed(KeyCode keycode);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsKeyJustReleased(KeyCode keycode);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern void Input_GetMousePosition(out Vector2 position);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern void Input_GetWindowSize(out Vector2 size);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsMouseButtonDown(int button);
         #endregion
 
         #region Gamepad
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsGamepadButtonPressed(byte button, int gamepadIndex);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsGamepadButtonJustPressed(byte button, int gamepadIndex);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsGamepadButtonJustReleased(byte button, int gamepadIndex);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static float Input_GetGamepadAxis(byte axis, int gamepadIndex);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static void Input_GetGamepadLeftStick(int gamepadIndex, out Vector2 stick);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static void Input_GetGamepadRightStick(int gamepadIndex, out Vector2 stick);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsGamepadConnected(int gamepadIndex);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static int Input_GetGamepadConnectedCount();
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsGamepadButtonPressed(byte button, int gamepadIndex);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsGamepadButtonJustPressed(byte button, int gamepadIndex);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsGamepadButtonJustReleased(byte button, int gamepadIndex);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern float Input_GetGamepadAxis(byte axis, int gamepadIndex);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern void Input_GetGamepadLeftStick(int gamepadIndex, out Vector2 stick);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern void Input_GetGamepadRightStick(int gamepadIndex, out Vector2 stick);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsGamepadConnected(int gamepadIndex);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern int Input_GetGamepadConnectedCount();
         #endregion
 
         #region InputActionMapping
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsActionPressed(string actionName);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsActionJustPressed(string actionName);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static bool Input_IsActionJustReleased(string actionName);
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal extern static float Input_GetActionAxisValue(string actionName);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsActionPressed(string actionName);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsActionJustPressed(string actionName);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Input_IsActionJustReleased(string actionName);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern float Input_GetActionAxisValue(string actionName);
         #endregion
 
-        #region AudioSourceComponent
-
-        [MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_GetVolume(ulong entityID, out float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_SetVolume(ulong entityID, ref float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_GetPitch(ulong entityID, out float p);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_SetPitch(ulong entityID, ref float p);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_GetPlayOnAwake(ulong entityID, out bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_SetPlayOnAwake(ulong entityID, ref bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_GetLooping(ulong entityID, out bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_SetLooping(ulong entityID, ref bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_GetSpatialization(ulong entityID, out bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_SetSpatialization(ulong entityID, ref bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_GetAttenuationModel(ulong entityID, out int v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_SetAttenuationModel(ulong entityID, ref int v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_GetRollOff(ulong entityID, out float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_SetRollOff(ulong entityID, ref float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_GetMinGain(ulong entityID, out float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_SetMinGain(ulong entityID, ref float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_GetMaxGain(ulong entityID, out float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_SetMaxGain(ulong entityID, ref float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_GetMinDistance(ulong entityID, out float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_SetMinDistance(ulong entityID, ref float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_GetMaxDistance(ulong entityID, out float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_SetMaxDistance(ulong entityID, ref float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_GetConeInnerAngle(ulong entityID, out float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_SetConeInnerAngle(ulong entityID, ref float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_GetConeOuterAngle(ulong entityID, out float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_SetConeOuterAngle(ulong entityID, ref float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_GetConeOuterGain(ulong entityID, out float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_SetConeOuterGain(ulong entityID, ref float v);
+        #region AudioSourceComponent (hand-written action methods only)
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void AudioSourceComponent_SetCone(ulong entityID, ref float innerConeAngle, ref float outerConeAngle, ref float outerConeGain);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_GetDopplerFactor(ulong entityID, out float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void AudioSourceComponent_SetDopplerFactor(ulong entityID, ref float v);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void AudioSourceComponent_IsPlaying(ulong entityID, out bool v);
 		[MethodImpl(MethodImplOptions.InternalCall)]
@@ -176,7 +93,6 @@ namespace OloEngine
 		internal static extern void AudioSourceComponent_UnPause(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void AudioSourceComponent_Stop(ulong entityID);
-
 		#endregion
 
 		#region AudioEvents
@@ -194,281 +110,7 @@ namespace OloEngine
 		internal static extern bool AudioEvents_IsEventActive(ulong eventID);
 		#endregion
 
-		#region UICanvasComponent
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern int UICanvasComponent_GetSortOrder(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UICanvasComponent_SetSortOrder(ulong entityID, int sortOrder);
-		#endregion
-
-		#region UIRectTransformComponent
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIRectTransformComponent_GetAnchorMin(ulong entityID, out Vector2 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIRectTransformComponent_SetAnchorMin(ulong entityID, ref Vector2 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIRectTransformComponent_GetAnchorMax(ulong entityID, out Vector2 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIRectTransformComponent_SetAnchorMax(ulong entityID, ref Vector2 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIRectTransformComponent_GetAnchoredPosition(ulong entityID, out Vector2 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIRectTransformComponent_SetAnchoredPosition(ulong entityID, ref Vector2 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIRectTransformComponent_GetSizeDelta(ulong entityID, out Vector2 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIRectTransformComponent_SetSizeDelta(ulong entityID, ref Vector2 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIRectTransformComponent_GetPivot(ulong entityID, out Vector2 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIRectTransformComponent_SetPivot(ulong entityID, ref Vector2 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern float UIRectTransformComponent_GetRotation(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIRectTransformComponent_SetRotation(ulong entityID, float rotation);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIRectTransformComponent_GetScale(ulong entityID, out Vector2 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIRectTransformComponent_SetScale(ulong entityID, ref Vector2 v);
-		#endregion
-
-		#region UIImageComponent
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIImageComponent_GetColor(ulong entityID, out Vector4 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIImageComponent_SetColor(ulong entityID, ref Vector4 v);
-		#endregion
-
-		#region UIPanelComponent
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIPanelComponent_GetBackgroundColor(ulong entityID, out Vector4 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIPanelComponent_SetBackgroundColor(ulong entityID, ref Vector4 v);
-		#endregion
-
-		#region UITextComponent
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern string UITextComponent_GetText(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UITextComponent_SetText(ulong entityID, string text);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern float UITextComponent_GetFontSize(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UITextComponent_SetFontSize(ulong entityID, float fontSize);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UITextComponent_GetColor(ulong entityID, out Vector4 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UITextComponent_SetColor(ulong entityID, ref Vector4 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern float UITextComponent_GetKerning(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UITextComponent_SetKerning(ulong entityID, float kerning);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern float UITextComponent_GetLineSpacing(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UITextComponent_SetLineSpacing(ulong entityID, float lineSpacing);
-		#endregion
-
-		#region UIButtonComponent
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIButtonComponent_GetNormalColor(ulong entityID, out Vector4 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIButtonComponent_SetNormalColor(ulong entityID, ref Vector4 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIButtonComponent_GetHoveredColor(ulong entityID, out Vector4 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIButtonComponent_SetHoveredColor(ulong entityID, ref Vector4 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIButtonComponent_GetPressedColor(ulong entityID, out Vector4 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIButtonComponent_SetPressedColor(ulong entityID, ref Vector4 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIButtonComponent_GetDisabledColor(ulong entityID, out Vector4 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIButtonComponent_SetDisabledColor(ulong entityID, ref Vector4 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIButtonComponent_GetInteractable(ulong entityID, out bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIButtonComponent_SetInteractable(ulong entityID, ref bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern int UIButtonComponent_GetState(ulong entityID);
-		#endregion
-
-		#region UISliderComponent
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern float UISliderComponent_GetValue(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UISliderComponent_SetValue(ulong entityID, float value);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern float UISliderComponent_GetMinValue(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UISliderComponent_SetMinValue(ulong entityID, float minValue);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern float UISliderComponent_GetMaxValue(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UISliderComponent_SetMaxValue(ulong entityID, float maxValue);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UISliderComponent_GetInteractable(ulong entityID, out bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UISliderComponent_SetInteractable(ulong entityID, ref bool v);
-		#endregion
-
-		#region UICheckboxComponent
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UICheckboxComponent_GetIsChecked(ulong entityID, out bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UICheckboxComponent_SetIsChecked(ulong entityID, ref bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UICheckboxComponent_GetInteractable(ulong entityID, out bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UICheckboxComponent_SetInteractable(ulong entityID, ref bool v);
-		#endregion
-
-		#region UIProgressBarComponent
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern float UIProgressBarComponent_GetValue(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIProgressBarComponent_SetValue(ulong entityID, float value);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern float UIProgressBarComponent_GetMinValue(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIProgressBarComponent_SetMinValue(ulong entityID, float minValue);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern float UIProgressBarComponent_GetMaxValue(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIProgressBarComponent_SetMaxValue(ulong entityID, float maxValue);
-		#endregion
-
-		#region UIInputFieldComponent
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern string UIInputFieldComponent_GetText(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIInputFieldComponent_SetText(ulong entityID, string text);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern string UIInputFieldComponent_GetPlaceholder(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIInputFieldComponent_SetPlaceholder(ulong entityID, string placeholder);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern float UIInputFieldComponent_GetFontSize(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIInputFieldComponent_SetFontSize(ulong entityID, float fontSize);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIInputFieldComponent_GetTextColor(ulong entityID, out Vector4 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIInputFieldComponent_SetTextColor(ulong entityID, ref Vector4 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIInputFieldComponent_GetInteractable(ulong entityID, out bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIInputFieldComponent_SetInteractable(ulong entityID, ref bool v);
-		#endregion
-
-		#region UIScrollViewComponent
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIScrollViewComponent_GetScrollPosition(ulong entityID, out Vector2 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIScrollViewComponent_SetScrollPosition(ulong entityID, ref Vector2 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIScrollViewComponent_GetContentSize(ulong entityID, out Vector2 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIScrollViewComponent_SetContentSize(ulong entityID, ref Vector2 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern float UIScrollViewComponent_GetScrollSpeed(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIScrollViewComponent_SetScrollSpeed(ulong entityID, float scrollSpeed);
-		#endregion
-
-		#region UIDropdownComponent
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern int UIDropdownComponent_GetSelectedIndex(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIDropdownComponent_SetSelectedIndex(ulong entityID, int selectedIndex);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIDropdownComponent_GetInteractable(ulong entityID, out bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIDropdownComponent_SetInteractable(ulong entityID, ref bool v);
-		#endregion
-
-		#region UIGridLayoutComponent
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIGridLayoutComponent_GetCellSize(ulong entityID, out Vector2 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIGridLayoutComponent_SetCellSize(ulong entityID, ref Vector2 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIGridLayoutComponent_GetSpacing(ulong entityID, out Vector2 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIGridLayoutComponent_SetSpacing(ulong entityID, ref Vector2 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern int UIGridLayoutComponent_GetConstraintCount(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIGridLayoutComponent_SetConstraintCount(ulong entityID, int constraintCount);
-		#endregion
-
-		#region UIToggleComponent
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIToggleComponent_GetIsOn(ulong entityID, out bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIToggleComponent_SetIsOn(ulong entityID, ref bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIToggleComponent_GetInteractable(ulong entityID, out bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIToggleComponent_SetInteractable(ulong entityID, ref bool v);
-		#endregion
-
-		#region ParticleSystemComponent
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void ParticleSystemComponent_GetPlaying(ulong entityID, out bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void ParticleSystemComponent_SetPlaying(ulong entityID, ref bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void ParticleSystemComponent_GetLooping(ulong entityID, out bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void ParticleSystemComponent_SetLooping(ulong entityID, ref bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void ParticleSystemComponent_GetEmissionRate(ulong entityID, out float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void ParticleSystemComponent_SetEmissionRate(ulong entityID, ref float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void ParticleSystemComponent_GetWindInfluence(ulong entityID, out float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void ParticleSystemComponent_SetWindInfluence(ulong entityID, ref float v);
-		#endregion
-
-		#region LightProbeComponent
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void LightProbeComponent_GetInfluenceRadius(ulong entityID, out float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void LightProbeComponent_SetInfluenceRadius(ulong entityID, ref float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void LightProbeComponent_GetIntensity(ulong entityID, out float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void LightProbeComponent_SetIntensity(ulong entityID, ref float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void LightProbeComponent_GetActive(ulong entityID, out bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void LightProbeComponent_SetActive(ulong entityID, ref bool v);
-		#endregion
-
-		#region LightProbeVolumeComponent
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void LightProbeVolumeComponent_GetBoundsMin(ulong entityID, out Vector3 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void LightProbeVolumeComponent_SetBoundsMin(ulong entityID, ref Vector3 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void LightProbeVolumeComponent_GetBoundsMax(ulong entityID, out Vector3 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void LightProbeVolumeComponent_SetBoundsMax(ulong entityID, ref Vector3 v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void LightProbeVolumeComponent_GetSpacing(ulong entityID, out float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void LightProbeVolumeComponent_SetSpacing(ulong entityID, ref float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void LightProbeVolumeComponent_GetIntensity(ulong entityID, out float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void LightProbeVolumeComponent_SetIntensity(ulong entityID, ref float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void LightProbeVolumeComponent_GetActive(ulong entityID, out bool v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void LightProbeVolumeComponent_SetActive(ulong entityID, ref bool v);
+		#region LightProbeVolumeComponent (hand-written action methods only)
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void LightProbeVolumeComponent_Dirty(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
@@ -498,15 +140,7 @@ namespace OloEngine
 		internal static extern void Scene_SetWindTurbulenceIntensity(ref float v);
 		#endregion
 
-		#region StreamingVolumeComponent
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void StreamingVolumeComponent_GetLoadRadius(ulong entityID, out float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void StreamingVolumeComponent_SetLoadRadius(ulong entityID, ref float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void StreamingVolumeComponent_GetUnloadRadius(ulong entityID, out float v);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void StreamingVolumeComponent_SetUnloadRadius(ulong entityID, ref float v);
+		#region StreamingVolumeComponent (hand-written action methods only)
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void StreamingVolumeComponent_GetIsLoaded(ulong entityID, out bool v);
 		#endregion
@@ -598,10 +232,6 @@ namespace OloEngine
 		internal static extern ulong MaterialComponent_GetShaderGraphHandle(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void MaterialComponent_SetShaderGraphHandle(ulong entityID, ulong handle);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void MaterialComponent_GetAlbedoColor(ulong entityID, out Vector4 color);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void MaterialComponent_SetAlbedoColor(ulong entityID, ref Vector4 color);
 		#endregion
 
 		#region ShaderLibrary3D
@@ -634,81 +264,85 @@ namespace OloEngine
 		internal static extern uint ShaderLibrary2D_GetShaderCount();
 		#endregion
 
-		#region NavAgentComponent
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NavAgentComponent_GetTargetPosition(ulong entityID, out Vector3 target);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NavAgentComponent_SetTargetPosition(ulong entityID, ref Vector3 target);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NavAgentComponent_GetMaxSpeed(ulong entityID, out float speed);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NavAgentComponent_SetMaxSpeed(ulong entityID, ref float speed);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NavAgentComponent_GetAcceleration(ulong entityID, out float accel);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NavAgentComponent_SetAcceleration(ulong entityID, ref float accel);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NavAgentComponent_GetStoppingDistance(ulong entityID, out float dist);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NavAgentComponent_SetStoppingDistance(ulong entityID, ref float dist);
+		#region NavAgentComponent (hand-written action methods only)
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool NavAgentComponent_HasPath(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void NavAgentComponent_ClearTarget(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern bool NavAgentComponent_GetLockYAxis(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NavAgentComponent_SetLockYAxis(ulong entityID, bool lockY);
 		#endregion
 
-		#region UIWorldAnchorComponent
+		#region UIWorldAnchorComponent (hand-written action methods only)
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern ulong UIWorldAnchorComponent_GetTargetEntity(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void UIWorldAnchorComponent_SetTargetEntity(ulong entityID, ulong targetEntityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIWorldAnchorComponent_GetWorldOffset(ulong entityID, out Vector3 offset);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void UIWorldAnchorComponent_SetWorldOffset(ulong entityID, ref Vector3 offset);
 		#endregion
 
-		#region NameplateComponent
+		#region IKTargetComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern bool NameplateComponent_GetEnabled(ulong entityID);
+		internal static extern bool IKTargetComponent_GetAimIKEnabled(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NameplateComponent_SetEnabled(ulong entityID, bool enabled);
+		internal static extern void IKTargetComponent_SetAimIKEnabled(ulong entityID, bool enabled);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern bool NameplateComponent_GetShowHealthBar(ulong entityID);
+		internal static extern uint IKTargetComponent_GetAimBoneIndex(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NameplateComponent_SetShowHealthBar(ulong entityID, bool show);
+		internal static extern void IKTargetComponent_SetAimBoneIndex(ulong entityID, uint index);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern bool NameplateComponent_GetShowManaBar(ulong entityID);
+		internal static extern void IKTargetComponent_GetAimTarget(ulong entityID, out Vector3 target);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NameplateComponent_SetShowManaBar(ulong entityID, bool show);
+		internal static extern void IKTargetComponent_SetAimTarget(ulong entityID, ref Vector3 target);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NameplateComponent_GetWorldOffset(ulong entityID, out Vector3 offset);
+		internal static extern void IKTargetComponent_GetAimAxis(ulong entityID, out Vector3 axis);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NameplateComponent_SetWorldOffset(ulong entityID, ref Vector3 offset);
+		internal static extern void IKTargetComponent_SetAimAxis(ulong entityID, ref Vector3 axis);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NameplateComponent_GetBarSize(ulong entityID, out Vector2 size);
+		internal static extern void IKTargetComponent_GetAimOffset(ulong entityID, out Vector3 offset);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NameplateComponent_SetBarSize(ulong entityID, ref Vector2 size);
+		internal static extern void IKTargetComponent_SetAimOffset(ulong entityID, ref Vector3 offset);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NameplateComponent_GetHealthBarColor(ulong entityID, out Vector4 color);
+		internal static extern void IKTargetComponent_GetAimPoleVector(ulong entityID, out Vector3 poleVector);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NameplateComponent_SetHealthBarColor(ulong entityID, ref Vector4 color);
+		internal static extern void IKTargetComponent_SetAimPoleVector(ulong entityID, ref Vector3 poleVector);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NameplateComponent_GetManaBarColor(ulong entityID, out Vector4 color);
+		internal static extern uint IKTargetComponent_GetAimChainLength(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NameplateComponent_SetManaBarColor(ulong entityID, ref Vector4 color);
+		internal static extern void IKTargetComponent_SetAimChainLength(ulong entityID, uint length);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NameplateComponent_GetBarBackgroundColor(ulong entityID, out Vector4 color);
+		internal static extern float IKTargetComponent_GetAimChainFactor(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NameplateComponent_SetBarBackgroundColor(ulong entityID, ref Vector4 color);
+		internal static extern void IKTargetComponent_SetAimChainFactor(ulong entityID, float factor);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern float NameplateComponent_GetManaBarGap(ulong entityID);
+		internal static extern ulong IKTargetComponent_GetAimTargetEntity(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void NameplateComponent_SetManaBarGap(ulong entityID, float gap);
+		internal static extern void IKTargetComponent_SetAimTargetEntity(ulong entityID, ulong targetID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float IKTargetComponent_GetAimWeight(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetAimWeight(ulong entityID, float weight);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool IKTargetComponent_GetLimbIKEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetLimbIKEnabled(ulong entityID, bool enabled);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint IKTargetComponent_GetLimbBoneIndex(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetLimbBoneIndex(ulong entityID, uint index);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_GetLimbTarget(ulong entityID, out Vector3 target);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetLimbTarget(ulong entityID, ref Vector3 target);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint IKTargetComponent_GetLimbChainLength(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetLimbChainLength(ulong entityID, uint length);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern ulong IKTargetComponent_GetLimbTargetEntity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetLimbTargetEntity(ulong entityID, ulong targetID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float IKTargetComponent_GetLimbWeight(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void IKTargetComponent_SetLimbWeight(ulong entityID, float weight);
 		#endregion
 
 		#region AnimationGraphComponent

@@ -133,7 +133,7 @@ namespace OloEngine
 
         static std::string ReadFile(const std::string& filepath);
         static std::string ProcessIncludesInternal(const std::string& source, const std::string& directory, std::unordered_set<std::string>& includedFiles);
-        static std::unordered_map<GLenum, std::string> PreProcess(std::string_view source);
+        std::unordered_map<GLenum, std::string> PreProcess(std::string_view source);
 
         void CompileOrGetVulkanBinaries(const std::unordered_map<GLenum, std::string>& shaderSources);
         void CompileOrGetOpenGLBinaries();
@@ -174,6 +174,8 @@ namespace OloEngine
 
         // --- Async compilation state ---
         ShaderCompilationStatus m_CompilationStatus = ShaderCompilationStatus::Ready;
+        f64 m_DeferredCompilationTime = 0.0;
+        bool m_TrackedAllocation = false;
 
         // Shader stage IDs kept alive until link completes (then detached/deleted)
         std::vector<u32> m_PendingShaderIDs;

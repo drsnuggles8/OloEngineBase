@@ -194,6 +194,11 @@ namespace OloEngine
         static void OnUpdateEntity(Entity entity, Timestep ts);
 
         [[nodiscard("Store this!")]] static Scene* GetSceneContext();
+
+        // Test-only: sets scene context without requiring Mono initialization.
+        // Production code should use OnRuntimeStart() instead.
+        static void SetSceneContextForTesting(Scene* scene);
+
         [[nodiscard("Store this!")]] static Ref<ScriptInstance> GetEntityScriptInstance(UUID entityID);
         [[nodiscard("Store this!")]] static Ref<ScriptClass> GetEntityClass(const std::string& name);
         [[nodiscard("Store this!")]] static std::unordered_map<std::string, Ref<ScriptClass>> GetEntityClasses();

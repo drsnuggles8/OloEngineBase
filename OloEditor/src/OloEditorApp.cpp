@@ -14,7 +14,7 @@ namespace OloEngine
         explicit OloEngineEditor(const ApplicationSpecification& spec)
             : Application(spec)
         {
-            PushLayer(new EditorLayer());
+            PushLayer(std::make_unique<EditorLayer>());
         }
 
         ~OloEngineEditor() final = default;

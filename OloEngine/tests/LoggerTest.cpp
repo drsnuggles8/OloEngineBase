@@ -5,7 +5,7 @@
 
 TEST(LoggerTest, InitTest)
 {
-    // Log::Init() is called in main(), so loggers are already initialized
-    EXPECT_NE(OloEngine::Log::GetCoreLogger(), nullptr);
-    EXPECT_NE(OloEngine::Log::GetClientLogger(), nullptr);
+    // Log is initialized automatically via Meyer's singleton on first use
+    EXPECT_NE(OloEngine::Log::Get().GetCoreLogger(), nullptr);
+    EXPECT_NE(OloEngine::Log::Get().GetClientLogger(), nullptr);
 }

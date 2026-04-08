@@ -12,6 +12,7 @@ add_executable(OloEngine-Tests
 		CoreUtilitiesTest.cpp
 		LoggerTest.cpp
 		MathTest.cpp
+		SlugFontRenderingTest.cpp
 		AssetCreationTest.cpp
 		AssetGenerationTest.cpp
 		AssetPackTest.cpp
@@ -121,6 +122,10 @@ add_executable(OloEngine-Tests
 		AnimationStateMachineTest.cpp
 		AnimationSystemTest.cpp
 		BlendTreeTest.cpp
+		Animation/AimIKSolverTest.cpp
+		Animation/LimbIKSolverTest.cpp
+		Animation/BlendUtilsTest.cpp
+		Animation/OneShotBlendTest.cpp
 		# Morph Target Tests
 		MorphTargetTest.cpp
 		# AI Behavior Tree & FSM Tests
@@ -145,14 +150,18 @@ add_executable(OloEngine-Tests
 		ContentBrowser/ContentBrowserItemTest.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser/DirectoryTree.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser/ContentBrowserItem.cpp
+		# Lua Binding Tests
+		Lua/LuaBindingTest.cpp
 )
 target_link_libraries(OloEngine-Tests
 	OloEngine
 	gtest)
 
+target_compile_definitions(OloEngine-Tests PRIVATE SOL_ALL_SAFETIES_ON=1)
+
 # Fix UTF-8 compilation issue
 if(MSVC)
-	target_compile_options(OloEngine-Tests PRIVATE /utf-8)
+	target_compile_options(OloEngine-Tests PRIVATE /utf-8 /FS /bigobj)
 endif()
 
 target_include_directories(OloEngine-Tests PRIVATE
@@ -166,9 +175,6 @@ target_include_directories(OloEngine-Tests PRIVATE
 # Copy required shared library DLLs next to the test executable
 if(WIN32)
     add_custom_command(TARGET OloEngine-Tests POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_SOURCE_DIR}/OloEngine/vendor/libpng-build/$<CONFIG>/libpng16$<$<CONFIG:Debug>:d>.dll"
-            $<TARGET_FILE_DIR:OloEngine-Tests>
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_SOURCE_DIR}/OloEngine/vendor/zlib-build/$<CONFIG>/zlib$<$<CONFIG:Debug>:d>.dll"
             $<TARGET_FILE_DIR:OloEngine-Tests>)

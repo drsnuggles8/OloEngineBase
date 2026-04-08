@@ -23,6 +23,11 @@
 #include "OloEngine/Dialogue/DialogueVariables.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
+#include "OloEngine/Animation/IKTargetComponent.h"
+#include "OloEngine/Animation/AnimatedMeshComponents.h"
+
+#include <algorithm>
+#include <cmath>
 #include "OloEngine/Animation/MorphTargets/FacialExpressionLibrary.h"
 #include "OloEngine/AI/AIComponents.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
@@ -158,49 +163,8 @@ namespace OloEngine
         return entity.GetUUID();
     }
 
-    ///////////////////////////////////////////////////////////////////////////////////////////
-    // Transform //////////////////////////////////////////////////////////////////////////////
-    ///////////////////////////////////////////////////////////////////////////////////////////
-
-    static void TransformComponent_GetTranslation(UUID entityID, glm::vec3* outTranslation)
-    {
-        Scene* scene = ScriptEngine::GetSceneContext();
-        OLO_CORE_ASSERT(scene);
-        Entity entity = scene->GetEntityByUUID(entityID);
-        OLO_CORE_ASSERT(entity);
-
-        *outTranslation = entity.GetComponent<TransformComponent>().Translation;
-    }
-
-    static void TransformComponent_SetTranslation(UUID entityID, glm::vec3 const* translation)
-    {
-        Scene* scene = ScriptEngine::GetSceneContext();
-        OLO_CORE_ASSERT(scene);
-        Entity entity = scene->GetEntityByUUID(entityID);
-        OLO_CORE_ASSERT(entity);
-
-        entity.GetComponent<TransformComponent>().Translation = *translation;
-    }
-
-    static void TransformComponent_GetRotation(UUID entityID, glm::vec3* outRotation)
-    {
-        Scene* scene = ScriptEngine::GetSceneContext();
-        OLO_CORE_ASSERT(scene);
-        Entity entity = scene->GetEntityByUUID(entityID);
-        OLO_CORE_ASSERT(entity);
-
-        *outRotation = entity.GetComponent<TransformComponent>().GetRotationEuler();
-    }
-
-    static void TransformComponent_SetRotation(UUID entityID, glm::vec3 const* rotation)
-    {
-        Scene* scene = ScriptEngine::GetSceneContext();
-        OLO_CORE_ASSERT(scene);
-        Entity entity = scene->GetEntityByUUID(entityID);
-        OLO_CORE_ASSERT(entity);
-
-        entity.GetComponent<TransformComponent>().SetRotationEuler(*rotation);
-    }
+    // Auto-generated property bindings from OLO_PROPERTY() annotations
+#include "Generated/ScriptGlueBindings.inl"
 
     ///////////////////////////////////////////////////////////////////////////////////////////
     // Rigidbody 2D ///////////////////////////////////////////////////////////////////////////
@@ -229,313 +193,8 @@ namespace OloEngine
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
-    // TextComponent //////////////////////////////////////////////////////////////////////////
-    ///////////////////////////////////////////////////////////////////////////////////////////
-
-    static MonoString* TextComponent_GetText(UUID entityID)
-    {
-        Scene* scene = ScriptEngine::GetSceneContext();
-        OLO_CORE_ASSERT(scene);
-        Entity entity = scene->GetEntityByUUID(entityID);
-        OLO_CORE_ASSERT(entity);
-        OLO_CORE_ASSERT(entity.HasComponent<TextComponent>());
-
-        auto const& tc = entity.GetComponent<TextComponent>();
-        return ScriptEngine::CreateString(tc.TextString.c_str());
-    }
-
-    static void TextComponent_SetText(UUID entityID, MonoString* textString)
-    {
-        Scene* scene = ScriptEngine::GetSceneContext();
-        OLO_CORE_ASSERT(scene);
-        Entity entity = scene->GetEntityByUUID(entityID);
-        OLO_CORE_ASSERT(entity);
-        OLO_CORE_ASSERT(entity.HasComponent<TextComponent>());
-
-        auto& tc = entity.GetComponent<TextComponent>();
-        tc.TextString = Utils::MonoStringToString(textString);
-    }
-
-    static void TextComponent_GetColor(UUID entityID, glm::vec4* color)
-    {
-        Scene* scene = ScriptEngine::GetSceneContext();
-        OLO_CORE_ASSERT(scene);
-        Entity entity = scene->GetEntityByUUID(entityID);
-        OLO_CORE_ASSERT(entity);
-        OLO_CORE_ASSERT(entity.HasComponent<TextComponent>());
-
-        auto const& tc = entity.GetComponent<TextComponent>();
-        *color = tc.Color;
-    }
-
-    static void TextComponent_SetColor(UUID entityID, glm::vec4 const* color)
-    {
-        Scene* scene = ScriptEngine::GetSceneContext();
-        OLO_CORE_ASSERT(scene);
-        Entity entity = scene->GetEntityByUUID(entityID);
-        OLO_CORE_ASSERT(entity);
-        OLO_CORE_ASSERT(entity.HasComponent<TextComponent>());
-
-        auto& tc = entity.GetComponent<TextComponent>();
-        tc.Color = *color;
-    }
-
-    static f32 TextComponent_GetKerning(UUID entityID)
-    {
-        Scene* scene = ScriptEngine::GetSceneContext();
-        OLO_CORE_ASSERT(scene);
-        Entity entity = scene->GetEntityByUUID(entityID);
-        OLO_CORE_ASSERT(entity);
-        OLO_CORE_ASSERT(entity.HasComponent<TextComponent>());
-
-        auto const& tc = entity.GetComponent<TextComponent>();
-        return tc.Kerning;
-    }
-
-    static void TextComponent_SetKerning(UUID entityID, f32 kerning)
-    {
-        Scene* scene = ScriptEngine::GetSceneContext();
-        OLO_CORE_ASSERT(scene);
-        Entity entity = scene->GetEntityByUUID(entityID);
-        OLO_CORE_ASSERT(entity);
-        OLO_CORE_ASSERT(entity.HasComponent<TextComponent>());
-
-        auto& tc = entity.GetComponent<TextComponent>();
-        tc.Kerning = kerning;
-    }
-
-    static f32 TextComponent_GetLineSpacing(UUID entityID)
-    {
-        Scene* scene = ScriptEngine::GetSceneContext();
-        OLO_CORE_ASSERT(scene);
-        Entity entity = scene->GetEntityByUUID(entityID);
-        OLO_CORE_ASSERT(entity);
-        OLO_CORE_ASSERT(entity.HasComponent<TextComponent>());
-
-        auto const& tc = entity.GetComponent<TextComponent>();
-        return tc.LineSpacing;
-    }
-
-    static void TextComponent_SetLineSpacing(UUID entityID, f32 lineSpacing)
-    {
-        Scene* scene = ScriptEngine::GetSceneContext();
-        OLO_CORE_ASSERT(scene);
-        Entity entity = scene->GetEntityByUUID(entityID);
-        OLO_CORE_ASSERT(entity);
-        OLO_CORE_ASSERT(entity.HasComponent<TextComponent>());
-
-        auto& tc = entity.GetComponent<TextComponent>();
-        tc.LineSpacing = lineSpacing;
-    }
-
-    ///////////////////////////////////////////////////////////////////////////////////////////
     // Audio Source ///////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
-
-    void AudioSourceComponent_GetVolume(u64 entityID, f32* outVolume)
-    {
-        *outVolume = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.VolumeMultiplier;
-    }
-
-    void AudioSourceComponent_SetVolume(u64 entityID, const f32* volume)
-    {
-        auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
-        component.Config.VolumeMultiplier = *volume;
-        if (component.Source)
-        {
-            component.Source->SetVolume(*volume);
-        }
-    }
-
-    void AudioSourceComponent_GetPitch(u64 entityID, f32* outPitch)
-    {
-        *outPitch = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.PitchMultiplier;
-    }
-
-    void AudioSourceComponent_SetPitch(u64 entityID, const f32* pitch)
-    {
-        auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
-        component.Config.PitchMultiplier = *pitch;
-        if (component.Source)
-        {
-            component.Source->SetPitch(*pitch);
-        }
-    }
-
-    void AudioSourceComponent_GetPlayOnAwake(u64 entityID, bool* outPlayOnAwake)
-    {
-        *outPlayOnAwake = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.PlayOnAwake;
-    }
-
-    void AudioSourceComponent_SetPlayOnAwake(u64 entityID, const bool* playOnAwake)
-    {
-        GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.PlayOnAwake = *playOnAwake;
-    }
-
-    void AudioSourceComponent_GetLooping(u64 entityID, bool* outLooping)
-    {
-        *outLooping = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.Looping;
-    }
-
-    void AudioSourceComponent_SetLooping(u64 entityID, const bool* looping)
-    {
-        auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
-        component.Config.Looping = *looping;
-        if (component.Source)
-        {
-            component.Source->SetLooping(*looping);
-        }
-    }
-
-    void AudioSourceComponent_GetSpatialization(u64 entityID, bool* outSpatialization)
-    {
-        *outSpatialization = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.Spatialization;
-    }
-
-    void AudioSourceComponent_SetSpatialization(u64 entityID, const bool* spatialization)
-    {
-        auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
-        component.Config.Spatialization = *spatialization;
-        if (component.Source)
-        {
-            component.Source->SetSpatialization(*spatialization);
-        }
-    }
-
-    void AudioSourceComponent_GetAttenuationModel(u64 entityID, int* outAttenuationModel)
-    {
-        *outAttenuationModel = (int)GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.AttenuationModel;
-    }
-
-    void AudioSourceComponent_SetAttenuationModel(u64 entityID, const int* attenuationModel)
-    {
-        auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
-        component.Config.AttenuationModel = (AttenuationModelType)(*attenuationModel);
-        if (component.Source)
-        {
-            component.Source->SetAttenuationModel(component.Config.AttenuationModel);
-        }
-    }
-
-    void AudioSourceComponent_GetRollOff(u64 entityID, f32* outRollOff)
-    {
-        *outRollOff = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.RollOff;
-    }
-
-    void AudioSourceComponent_SetRollOff(u64 entityID, const f32* rollOff)
-    {
-        auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
-        component.Config.RollOff = *rollOff;
-        if (component.Source)
-        {
-            component.Source->SetRollOff(*rollOff);
-        }
-    }
-
-    void AudioSourceComponent_GetMinGain(u64 entityID, f32* outMinGain)
-    {
-        *outMinGain = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.MinGain;
-    }
-
-    void AudioSourceComponent_SetMinGain(u64 entityID, const f32* minGain)
-    {
-        auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
-        component.Config.MinGain = *minGain;
-        if (component.Source)
-        {
-            component.Source->SetMinGain(*minGain);
-        }
-    }
-
-    void AudioSourceComponent_GetMaxGain(u64 entityID, f32* outMaxGain)
-    {
-        *outMaxGain = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.MaxGain;
-    }
-
-    void AudioSourceComponent_SetMaxGain(u64 entityID, const f32* maxGain)
-    {
-        auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
-        component.Config.MaxGain = *maxGain;
-        if (component.Source)
-        {
-            component.Source->SetMaxGain(*maxGain);
-        }
-    }
-
-    void AudioSourceComponent_GetMinDistance(u64 entityID, f32* outMinDistance)
-    {
-        *outMinDistance = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.MinDistance;
-    }
-
-    void AudioSourceComponent_SetMinDistance(u64 entityID, const f32* minDistance)
-    {
-        auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
-        component.Config.MinDistance = *minDistance;
-        if (component.Source)
-        {
-            component.Source->SetMinDistance(*minDistance);
-        }
-    }
-
-    void AudioSourceComponent_GetMaxDistance(u64 entityID, f32* outMaxDistance)
-    {
-        *outMaxDistance = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.MaxDistance;
-    }
-
-    void AudioSourceComponent_SetMaxDistance(u64 entityID, const f32* maxDistance)
-    {
-        auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
-        component.Config.MaxDistance = *maxDistance;
-        if (component.Source)
-        {
-            component.Source->SetMaxDistance(*maxDistance);
-        }
-    }
-
-    void AudioSourceComponent_GetConeInnerAngle(u64 entityID, f32* outConeInnerAngle)
-    {
-        *outConeInnerAngle = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.ConeInnerAngle;
-    }
-
-    void AudioSourceComponent_SetConeInnerAngle(u64 entityID, const f32* coneInnerAngle)
-    {
-        auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
-        component.Config.ConeInnerAngle = *coneInnerAngle;
-        if (component.Source)
-        {
-            component.Source->SetCone(component.Config.ConeInnerAngle, component.Config.ConeOuterAngle, component.Config.ConeOuterGain);
-        }
-    }
-
-    void AudioSourceComponent_GetConeOuterAngle(u64 entityID, f32* outConeOuterAngle)
-    {
-        *outConeOuterAngle = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.ConeOuterAngle;
-    }
-
-    void AudioSourceComponent_SetConeOuterAngle(u64 entityID, const f32* coneOuterAngle)
-    {
-        auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
-        component.Config.ConeOuterAngle = *coneOuterAngle;
-        if (component.Source)
-        {
-            component.Source->SetCone(component.Config.ConeInnerAngle, component.Config.ConeOuterAngle, component.Config.ConeOuterGain);
-        }
-    }
-
-    void AudioSourceComponent_GetConeOuterGain(u64 entityID, f32* outConeOuterGain)
-    {
-        *outConeOuterGain = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.ConeOuterGain;
-    }
-
-    void AudioSourceComponent_SetConeOuterGain(u64 entityID, const f32* coneOuterGain)
-    {
-        auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
-        component.Config.ConeOuterGain = *coneOuterGain;
-        if (component.Source)
-        {
-            component.Source->SetCone(component.Config.ConeInnerAngle, component.Config.ConeOuterAngle, component.Config.ConeOuterGain);
-        }
-    }
 
     void AudioSourceComponent_SetCone(u64 entityID, const f32* coneInnerAngle, const f32* coneOuterAngle, const f32* coneOuterGain)
     {
@@ -546,23 +205,6 @@ namespace OloEngine
         if (component.Source)
         {
             component.Source->SetCone(component.Config.ConeInnerAngle, component.Config.ConeOuterAngle, component.Config.ConeOuterGain);
-        }
-    }
-
-    void AudioSourceComponent_GetDopplerFactor(u64 entityID, f32* outDopplerFactor)
-    {
-        {
-            *outDopplerFactor = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.DopplerFactor;
-        }
-    }
-
-    void AudioSourceComponent_SetDopplerFactor(u64 entityID, const f32* dopplerFactor)
-    {
-        auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
-        component.Config.DopplerFactor = *dopplerFactor;
-        if (component.Source)
-        {
-            component.Source->SetDopplerFactor(*dopplerFactor);
         }
     }
 
@@ -689,619 +331,7 @@ namespace OloEngine
     // UI Components //////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
 
-    // --- UICanvasComponent ---
-
-    static i32 UICanvasComponent_GetSortOrder(UUID entityID)
-    {
-        return GetEntity(entityID).GetComponent<UICanvasComponent>().m_SortOrder;
-    }
-
-    static void UICanvasComponent_SetSortOrder(UUID entityID, i32 sortOrder)
-    {
-        GetEntity(entityID).GetComponent<UICanvasComponent>().m_SortOrder = sortOrder;
-    }
-
-    // --- UIRectTransformComponent ---
-
-    static void UIRectTransformComponent_GetAnchorMin(UUID entityID, glm::vec2* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_AnchorMin;
-    }
-
-    static void UIRectTransformComponent_SetAnchorMin(UUID entityID, glm::vec2 const* v)
-    {
-        GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_AnchorMin = *v;
-    }
-
-    static void UIRectTransformComponent_GetAnchorMax(UUID entityID, glm::vec2* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_AnchorMax;
-    }
-
-    static void UIRectTransformComponent_SetAnchorMax(UUID entityID, glm::vec2 const* v)
-    {
-        GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_AnchorMax = *v;
-    }
-
-    static void UIRectTransformComponent_GetAnchoredPosition(UUID entityID, glm::vec2* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_AnchoredPosition;
-    }
-
-    static void UIRectTransformComponent_SetAnchoredPosition(UUID entityID, glm::vec2 const* v)
-    {
-        GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_AnchoredPosition = *v;
-    }
-
-    static void UIRectTransformComponent_GetSizeDelta(UUID entityID, glm::vec2* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_SizeDelta;
-    }
-
-    static void UIRectTransformComponent_SetSizeDelta(UUID entityID, glm::vec2 const* v)
-    {
-        GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_SizeDelta = *v;
-    }
-
-    static void UIRectTransformComponent_GetPivot(UUID entityID, glm::vec2* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_Pivot;
-    }
-
-    static void UIRectTransformComponent_SetPivot(UUID entityID, glm::vec2 const* v)
-    {
-        GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_Pivot = *v;
-    }
-
-    static f32 UIRectTransformComponent_GetRotation(UUID entityID)
-    {
-        return GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_Rotation;
-    }
-
-    static void UIRectTransformComponent_SetRotation(UUID entityID, f32 rotation)
-    {
-        GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_Rotation = rotation;
-    }
-
-    static void UIRectTransformComponent_GetScale(UUID entityID, glm::vec2* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_Scale;
-    }
-
-    static void UIRectTransformComponent_SetScale(UUID entityID, glm::vec2 const* v)
-    {
-        GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_Scale = *v;
-    }
-
-    // --- UIImageComponent ---
-
-    static void UIImageComponent_GetColor(UUID entityID, glm::vec4* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIImageComponent>().m_Color;
-    }
-
-    static void UIImageComponent_SetColor(UUID entityID, glm::vec4 const* v)
-    {
-        GetEntity(entityID).GetComponent<UIImageComponent>().m_Color = *v;
-    }
-
-    // --- UIPanelComponent ---
-
-    static void UIPanelComponent_GetBackgroundColor(UUID entityID, glm::vec4* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIPanelComponent>().m_BackgroundColor;
-    }
-
-    static void UIPanelComponent_SetBackgroundColor(UUID entityID, glm::vec4 const* v)
-    {
-        GetEntity(entityID).GetComponent<UIPanelComponent>().m_BackgroundColor = *v;
-    }
-
-    // --- UITextComponent ---
-
-    static MonoString* UITextComponent_GetText(UUID entityID)
-    {
-        auto const& tc = GetEntity(entityID).GetComponent<UITextComponent>();
-        return ScriptEngine::CreateString(tc.m_Text.c_str());
-    }
-
-    static void UITextComponent_SetText(UUID entityID, MonoString* text)
-    {
-        GetEntity(entityID).GetComponent<UITextComponent>().m_Text = Utils::MonoStringToString(text);
-    }
-
-    static f32 UITextComponent_GetFontSize(UUID entityID)
-    {
-        return GetEntity(entityID).GetComponent<UITextComponent>().m_FontSize;
-    }
-
-    static void UITextComponent_SetFontSize(UUID entityID, f32 fontSize)
-    {
-        GetEntity(entityID).GetComponent<UITextComponent>().m_FontSize = fontSize;
-    }
-
-    static void UITextComponent_GetColor(UUID entityID, glm::vec4* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UITextComponent>().m_Color;
-    }
-
-    static void UITextComponent_SetColor(UUID entityID, glm::vec4 const* v)
-    {
-        GetEntity(entityID).GetComponent<UITextComponent>().m_Color = *v;
-    }
-
-    static f32 UITextComponent_GetKerning(UUID entityID)
-    {
-        return GetEntity(entityID).GetComponent<UITextComponent>().m_Kerning;
-    }
-
-    static void UITextComponent_SetKerning(UUID entityID, f32 kerning)
-    {
-        GetEntity(entityID).GetComponent<UITextComponent>().m_Kerning = kerning;
-    }
-
-    static f32 UITextComponent_GetLineSpacing(UUID entityID)
-    {
-        return GetEntity(entityID).GetComponent<UITextComponent>().m_LineSpacing;
-    }
-
-    static void UITextComponent_SetLineSpacing(UUID entityID, f32 lineSpacing)
-    {
-        GetEntity(entityID).GetComponent<UITextComponent>().m_LineSpacing = lineSpacing;
-    }
-
-    // --- UIButtonComponent ---
-
-    static void UIButtonComponent_GetNormalColor(UUID entityID, glm::vec4* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIButtonComponent>().m_NormalColor;
-    }
-
-    static void UIButtonComponent_SetNormalColor(UUID entityID, glm::vec4 const* v)
-    {
-        GetEntity(entityID).GetComponent<UIButtonComponent>().m_NormalColor = *v;
-    }
-
-    static void UIButtonComponent_GetHoveredColor(UUID entityID, glm::vec4* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIButtonComponent>().m_HoveredColor;
-    }
-
-    static void UIButtonComponent_SetHoveredColor(UUID entityID, glm::vec4 const* v)
-    {
-        GetEntity(entityID).GetComponent<UIButtonComponent>().m_HoveredColor = *v;
-    }
-
-    static void UIButtonComponent_GetPressedColor(UUID entityID, glm::vec4* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIButtonComponent>().m_PressedColor;
-    }
-
-    static void UIButtonComponent_SetPressedColor(UUID entityID, glm::vec4 const* v)
-    {
-        GetEntity(entityID).GetComponent<UIButtonComponent>().m_PressedColor = *v;
-    }
-
-    static void UIButtonComponent_GetDisabledColor(UUID entityID, glm::vec4* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIButtonComponent>().m_DisabledColor;
-    }
-
-    static void UIButtonComponent_SetDisabledColor(UUID entityID, glm::vec4 const* v)
-    {
-        GetEntity(entityID).GetComponent<UIButtonComponent>().m_DisabledColor = *v;
-    }
-
-    static void UIButtonComponent_GetInteractable(UUID entityID, bool* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIButtonComponent>().m_Interactable;
-    }
-
-    static void UIButtonComponent_SetInteractable(UUID entityID, bool const* v)
-    {
-        GetEntity(entityID).GetComponent<UIButtonComponent>().m_Interactable = *v;
-    }
-
-    static i32 UIButtonComponent_GetState(UUID entityID)
-    {
-        return static_cast<i32>(GetEntity(entityID).GetComponent<UIButtonComponent>().m_State);
-    }
-
-    // --- UISliderComponent ---
-
-    static f32 UISliderComponent_GetValue(UUID entityID)
-    {
-        return GetEntity(entityID).GetComponent<UISliderComponent>().m_Value;
-    }
-
-    static void UISliderComponent_SetValue(UUID entityID, f32 value)
-    {
-        GetEntity(entityID).GetComponent<UISliderComponent>().m_Value = value;
-    }
-
-    static f32 UISliderComponent_GetMinValue(UUID entityID)
-    {
-        return GetEntity(entityID).GetComponent<UISliderComponent>().m_MinValue;
-    }
-
-    static void UISliderComponent_SetMinValue(UUID entityID, f32 minValue)
-    {
-        GetEntity(entityID).GetComponent<UISliderComponent>().m_MinValue = minValue;
-    }
-
-    static f32 UISliderComponent_GetMaxValue(UUID entityID)
-    {
-        return GetEntity(entityID).GetComponent<UISliderComponent>().m_MaxValue;
-    }
-
-    static void UISliderComponent_SetMaxValue(UUID entityID, f32 maxValue)
-    {
-        GetEntity(entityID).GetComponent<UISliderComponent>().m_MaxValue = maxValue;
-    }
-
-    static void UISliderComponent_GetInteractable(UUID entityID, bool* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UISliderComponent>().m_Interactable;
-    }
-
-    static void UISliderComponent_SetInteractable(UUID entityID, bool const* v)
-    {
-        GetEntity(entityID).GetComponent<UISliderComponent>().m_Interactable = *v;
-    }
-
-    // --- UICheckboxComponent ---
-
-    static void UICheckboxComponent_GetIsChecked(UUID entityID, bool* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UICheckboxComponent>().m_IsChecked;
-    }
-
-    static void UICheckboxComponent_SetIsChecked(UUID entityID, bool const* v)
-    {
-        GetEntity(entityID).GetComponent<UICheckboxComponent>().m_IsChecked = *v;
-    }
-
-    static void UICheckboxComponent_GetInteractable(UUID entityID, bool* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UICheckboxComponent>().m_Interactable;
-    }
-
-    static void UICheckboxComponent_SetInteractable(UUID entityID, bool const* v)
-    {
-        GetEntity(entityID).GetComponent<UICheckboxComponent>().m_Interactable = *v;
-    }
-
-    // --- UIProgressBarComponent ---
-
-    static f32 UIProgressBarComponent_GetValue(UUID entityID)
-    {
-        return GetEntity(entityID).GetComponent<UIProgressBarComponent>().m_Value;
-    }
-
-    static void UIProgressBarComponent_SetValue(UUID entityID, f32 value)
-    {
-        GetEntity(entityID).GetComponent<UIProgressBarComponent>().m_Value = value;
-    }
-
-    static f32 UIProgressBarComponent_GetMinValue(UUID entityID)
-    {
-        return GetEntity(entityID).GetComponent<UIProgressBarComponent>().m_MinValue;
-    }
-
-    static void UIProgressBarComponent_SetMinValue(UUID entityID, f32 minValue)
-    {
-        GetEntity(entityID).GetComponent<UIProgressBarComponent>().m_MinValue = minValue;
-    }
-
-    static f32 UIProgressBarComponent_GetMaxValue(UUID entityID)
-    {
-        return GetEntity(entityID).GetComponent<UIProgressBarComponent>().m_MaxValue;
-    }
-
-    static void UIProgressBarComponent_SetMaxValue(UUID entityID, f32 maxValue)
-    {
-        GetEntity(entityID).GetComponent<UIProgressBarComponent>().m_MaxValue = maxValue;
-    }
-
-    // --- UIInputFieldComponent ---
-
-    static MonoString* UIInputFieldComponent_GetText(UUID entityID)
-    {
-        auto const& tc = GetEntity(entityID).GetComponent<UIInputFieldComponent>();
-        return ScriptEngine::CreateString(tc.m_Text.c_str());
-    }
-
-    static void UIInputFieldComponent_SetText(UUID entityID, MonoString* text)
-    {
-        GetEntity(entityID).GetComponent<UIInputFieldComponent>().m_Text = Utils::MonoStringToString(text);
-    }
-
-    static MonoString* UIInputFieldComponent_GetPlaceholder(UUID entityID)
-    {
-        auto const& tc = GetEntity(entityID).GetComponent<UIInputFieldComponent>();
-        return ScriptEngine::CreateString(tc.m_Placeholder.c_str());
-    }
-
-    static void UIInputFieldComponent_SetPlaceholder(UUID entityID, MonoString* placeholder)
-    {
-        GetEntity(entityID).GetComponent<UIInputFieldComponent>().m_Placeholder = Utils::MonoStringToString(placeholder);
-    }
-
-    static f32 UIInputFieldComponent_GetFontSize(UUID entityID)
-    {
-        return GetEntity(entityID).GetComponent<UIInputFieldComponent>().m_FontSize;
-    }
-
-    static void UIInputFieldComponent_SetFontSize(UUID entityID, f32 fontSize)
-    {
-        GetEntity(entityID).GetComponent<UIInputFieldComponent>().m_FontSize = fontSize;
-    }
-
-    static void UIInputFieldComponent_GetTextColor(UUID entityID, glm::vec4* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIInputFieldComponent>().m_TextColor;
-    }
-
-    static void UIInputFieldComponent_SetTextColor(UUID entityID, glm::vec4 const* v)
-    {
-        GetEntity(entityID).GetComponent<UIInputFieldComponent>().m_TextColor = *v;
-    }
-
-    static void UIInputFieldComponent_GetInteractable(UUID entityID, bool* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIInputFieldComponent>().m_Interactable;
-    }
-
-    static void UIInputFieldComponent_SetInteractable(UUID entityID, bool const* v)
-    {
-        GetEntity(entityID).GetComponent<UIInputFieldComponent>().m_Interactable = *v;
-    }
-
-    // --- UIScrollViewComponent ---
-
-    static void UIScrollViewComponent_GetScrollPosition(UUID entityID, glm::vec2* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIScrollViewComponent>().m_ScrollPosition;
-    }
-
-    static void UIScrollViewComponent_SetScrollPosition(UUID entityID, glm::vec2 const* v)
-    {
-        GetEntity(entityID).GetComponent<UIScrollViewComponent>().m_ScrollPosition = *v;
-    }
-
-    static void UIScrollViewComponent_GetContentSize(UUID entityID, glm::vec2* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIScrollViewComponent>().m_ContentSize;
-    }
-
-    static void UIScrollViewComponent_SetContentSize(UUID entityID, glm::vec2 const* v)
-    {
-        GetEntity(entityID).GetComponent<UIScrollViewComponent>().m_ContentSize = *v;
-    }
-
-    static f32 UIScrollViewComponent_GetScrollSpeed(UUID entityID)
-    {
-        return GetEntity(entityID).GetComponent<UIScrollViewComponent>().m_ScrollSpeed;
-    }
-
-    static void UIScrollViewComponent_SetScrollSpeed(UUID entityID, f32 scrollSpeed)
-    {
-        GetEntity(entityID).GetComponent<UIScrollViewComponent>().m_ScrollSpeed = scrollSpeed;
-    }
-
-    // --- UIDropdownComponent ---
-
-    static i32 UIDropdownComponent_GetSelectedIndex(UUID entityID)
-    {
-        return GetEntity(entityID).GetComponent<UIDropdownComponent>().m_SelectedIndex;
-    }
-
-    static void UIDropdownComponent_SetSelectedIndex(UUID entityID, i32 selectedIndex)
-    {
-        GetEntity(entityID).GetComponent<UIDropdownComponent>().m_SelectedIndex = selectedIndex;
-    }
-
-    static void UIDropdownComponent_GetInteractable(UUID entityID, bool* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIDropdownComponent>().m_Interactable;
-    }
-
-    static void UIDropdownComponent_SetInteractable(UUID entityID, bool const* v)
-    {
-        GetEntity(entityID).GetComponent<UIDropdownComponent>().m_Interactable = *v;
-    }
-
-    // --- UIGridLayoutComponent ---
-
-    static void UIGridLayoutComponent_GetCellSize(UUID entityID, glm::vec2* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIGridLayoutComponent>().m_CellSize;
-    }
-
-    static void UIGridLayoutComponent_SetCellSize(UUID entityID, glm::vec2 const* v)
-    {
-        GetEntity(entityID).GetComponent<UIGridLayoutComponent>().m_CellSize = *v;
-    }
-
-    static void UIGridLayoutComponent_GetSpacing(UUID entityID, glm::vec2* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIGridLayoutComponent>().m_Spacing;
-    }
-
-    static void UIGridLayoutComponent_SetSpacing(UUID entityID, glm::vec2 const* v)
-    {
-        GetEntity(entityID).GetComponent<UIGridLayoutComponent>().m_Spacing = *v;
-    }
-
-    static i32 UIGridLayoutComponent_GetConstraintCount(UUID entityID)
-    {
-        return GetEntity(entityID).GetComponent<UIGridLayoutComponent>().m_ConstraintCount;
-    }
-
-    static void UIGridLayoutComponent_SetConstraintCount(UUID entityID, i32 constraintCount)
-    {
-        GetEntity(entityID).GetComponent<UIGridLayoutComponent>().m_ConstraintCount = constraintCount;
-    }
-
-    // --- UIToggleComponent ---
-
-    static void UIToggleComponent_GetIsOn(UUID entityID, bool* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIToggleComponent>().m_IsOn;
-    }
-
-    static void UIToggleComponent_SetIsOn(UUID entityID, bool const* v)
-    {
-        GetEntity(entityID).GetComponent<UIToggleComponent>().m_IsOn = *v;
-    }
-
-    static void UIToggleComponent_GetInteractable(UUID entityID, bool* out)
-    {
-        *out = GetEntity(entityID).GetComponent<UIToggleComponent>().m_Interactable;
-    }
-
-    static void UIToggleComponent_SetInteractable(UUID entityID, bool const* v)
-    {
-        GetEntity(entityID).GetComponent<UIToggleComponent>().m_Interactable = *v;
-    }
-
-    // --- ParticleSystemComponent ---
-
-    static void ParticleSystemComponent_GetPlaying(UUID entityID, bool* out)
-    {
-        *out = GetEntity(entityID).GetComponent<ParticleSystemComponent>().System.Playing;
-    }
-
-    static void ParticleSystemComponent_SetPlaying(UUID entityID, bool const* v)
-    {
-        GetEntity(entityID).GetComponent<ParticleSystemComponent>().System.Playing = *v;
-    }
-
-    static void ParticleSystemComponent_GetLooping(UUID entityID, bool* out)
-    {
-        *out = GetEntity(entityID).GetComponent<ParticleSystemComponent>().System.Looping;
-    }
-
-    static void ParticleSystemComponent_SetLooping(UUID entityID, bool const* v)
-    {
-        GetEntity(entityID).GetComponent<ParticleSystemComponent>().System.Looping = *v;
-    }
-
-    static void ParticleSystemComponent_GetEmissionRate(UUID entityID, f32* out)
-    {
-        *out = GetEntity(entityID).GetComponent<ParticleSystemComponent>().System.Emitter.RateOverTime;
-    }
-
-    static void ParticleSystemComponent_SetEmissionRate(UUID entityID, f32 const* v)
-    {
-        GetEntity(entityID).GetComponent<ParticleSystemComponent>().System.Emitter.RateOverTime = *v;
-    }
-
-    // --- ParticleSystemComponent Wind ---
-
-    static void ParticleSystemComponent_GetWindInfluence(UUID entityID, f32* out)
-    {
-        *out = GetEntity(entityID).GetComponent<ParticleSystemComponent>().System.WindInfluence;
-    }
-
-    static void ParticleSystemComponent_SetWindInfluence(UUID entityID, f32 const* v)
-    {
-        GetEntity(entityID).GetComponent<ParticleSystemComponent>().System.WindInfluence = *v;
-    }
-
-    // --- LightProbeComponent ---
-
-    static void LightProbeComponent_GetInfluenceRadius(UUID entityID, f32* out)
-    {
-        *out = GetEntity(entityID).GetComponent<LightProbeComponent>().m_InfluenceRadius;
-    }
-
-    static void LightProbeComponent_SetInfluenceRadius(UUID entityID, f32 const* v)
-    {
-        GetEntity(entityID).GetComponent<LightProbeComponent>().m_InfluenceRadius = *v;
-    }
-
-    static void LightProbeComponent_GetIntensity(UUID entityID, f32* out)
-    {
-        *out = GetEntity(entityID).GetComponent<LightProbeComponent>().m_Intensity;
-    }
-
-    static void LightProbeComponent_SetIntensity(UUID entityID, f32 const* v)
-    {
-        GetEntity(entityID).GetComponent<LightProbeComponent>().m_Intensity = *v;
-    }
-
-    static void LightProbeComponent_GetActive(UUID entityID, bool* out)
-    {
-        *out = GetEntity(entityID).GetComponent<LightProbeComponent>().m_Active;
-    }
-
-    static void LightProbeComponent_SetActive(UUID entityID, bool const* v)
-    {
-        GetEntity(entityID).GetComponent<LightProbeComponent>().m_Active = *v;
-    }
-
-    // --- LightProbeVolumeComponent ---
-
-    static void LightProbeVolumeComponent_GetBoundsMin(UUID entityID, glm::vec3* out)
-    {
-        *out = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>().m_BoundsMin;
-    }
-
-    static void LightProbeVolumeComponent_SetBoundsMin(UUID entityID, glm::vec3 const* v)
-    {
-        auto& lpv = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>();
-        lpv.m_BoundsMin = *v;
-        lpv.m_Dirty = true;
-    }
-
-    static void LightProbeVolumeComponent_GetBoundsMax(UUID entityID, glm::vec3* out)
-    {
-        *out = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>().m_BoundsMax;
-    }
-
-    static void LightProbeVolumeComponent_SetBoundsMax(UUID entityID, glm::vec3 const* v)
-    {
-        auto& lpv = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>();
-        lpv.m_BoundsMax = *v;
-        lpv.m_Dirty = true;
-    }
-
-    static void LightProbeVolumeComponent_GetSpacing(UUID entityID, f32* out)
-    {
-        *out = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>().m_Spacing;
-    }
-
-    static void LightProbeVolumeComponent_SetSpacing(UUID entityID, f32 const* v)
-    {
-        auto& lpv = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>();
-        lpv.m_Spacing = *v;
-        lpv.m_Dirty = true;
-    }
-
-    static void LightProbeVolumeComponent_GetIntensity(UUID entityID, f32* out)
-    {
-        *out = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>().m_Intensity;
-    }
-
-    static void LightProbeVolumeComponent_SetIntensity(UUID entityID, f32 const* v)
-    {
-        auto& lpv = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>();
-        lpv.m_Intensity = *v;
-        lpv.m_Dirty = true;
-    }
-
-    static void LightProbeVolumeComponent_GetActive(UUID entityID, bool* out)
-    {
-        *out = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>().m_Active;
-    }
-
-    static void LightProbeVolumeComponent_SetActive(UUID entityID, bool const* v)
-    {
-        auto& lpv = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>();
-        lpv.m_Active = *v;
-        lpv.m_Dirty = true;
-    }
+    // --- LightProbeVolumeComponent (hand-written action/query methods) ---
 
     static void LightProbeVolumeComponent_Dirty(UUID entityID)
     {
@@ -1385,27 +415,7 @@ namespace OloEngine
         scene->GetWindSettings().TurbulenceIntensity = *v;
     }
 
-    // --- StreamingVolumeComponent ---
-
-    static void StreamingVolumeComponent_GetLoadRadius(UUID entityID, f32* out)
-    {
-        *out = GetEntity(entityID).GetComponent<StreamingVolumeComponent>().LoadRadius;
-    }
-
-    static void StreamingVolumeComponent_SetLoadRadius(UUID entityID, f32 const* v)
-    {
-        GetEntity(entityID).GetComponent<StreamingVolumeComponent>().LoadRadius = *v;
-    }
-
-    static void StreamingVolumeComponent_GetUnloadRadius(UUID entityID, f32* out)
-    {
-        *out = GetEntity(entityID).GetComponent<StreamingVolumeComponent>().UnloadRadius;
-    }
-
-    static void StreamingVolumeComponent_SetUnloadRadius(UUID entityID, f32 const* v)
-    {
-        GetEntity(entityID).GetComponent<StreamingVolumeComponent>().UnloadRadius = *v;
-    }
+    // --- StreamingVolumeComponent (hand-written query methods) ---
 
     static void StreamingVolumeComponent_GetIsLoaded(UUID entityID, bool* out)
     {
@@ -1848,24 +858,6 @@ namespace OloEngine
         }
     }
 
-    static void MaterialComponent_GetAlbedoColor(UUID entityID, glm::vec4* outColor)
-    {
-        Scene* scene = ScriptEngine::GetSceneContext();
-        OLO_CORE_ASSERT(scene);
-        Entity entity = scene->GetEntityByUUID(entityID);
-        OLO_CORE_ASSERT(entity);
-        *outColor = entity.GetComponent<MaterialComponent>().m_Material.GetBaseColorFactor();
-    }
-
-    static void MaterialComponent_SetAlbedoColor(UUID entityID, glm::vec4 const* color)
-    {
-        Scene* scene = ScriptEngine::GetSceneContext();
-        OLO_CORE_ASSERT(scene);
-        Entity entity = scene->GetEntityByUUID(entityID);
-        OLO_CORE_ASSERT(entity);
-        entity.GetComponent<MaterialComponent>().m_Material.SetBaseColorFactor(*color);
-    }
-
     ///////////////////////////////////////////////////////////////////////////////////////////
     // ShaderLibrary3D /////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -1986,75 +978,8 @@ namespace OloEngine
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
-    // NavAgentComponent //////////////////////////////////////////////////////////////////////
+    // NavAgentComponent (hand-written action/query methods) //////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
-
-    static void NavAgentComponent_GetTargetPosition(UUID entityID, glm::vec3* outTarget)
-    {
-        OLO_PROFILE_FUNCTION();
-        auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
-        *outTarget = entity.GetComponent<NavAgentComponent>().m_TargetPosition;
-    }
-
-    static void NavAgentComponent_SetTargetPosition(UUID entityID, glm::vec3 const* target)
-    {
-        OLO_PROFILE_FUNCTION();
-        auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
-        auto& agent = entity.GetComponent<NavAgentComponent>();
-        agent.m_TargetPosition = *target;
-        agent.m_HasTarget = true;
-        agent.m_HasPath = false;
-    }
-
-    static void NavAgentComponent_GetMaxSpeed(UUID entityID, f32* outSpeed)
-    {
-        OLO_PROFILE_FUNCTION();
-        auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
-        *outSpeed = entity.GetComponent<NavAgentComponent>().m_MaxSpeed;
-    }
-
-    static void NavAgentComponent_SetMaxSpeed(UUID entityID, f32 const* speed)
-    {
-        OLO_PROFILE_FUNCTION();
-        auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
-        entity.GetComponent<NavAgentComponent>().m_MaxSpeed = *speed;
-    }
-
-    static void NavAgentComponent_GetAcceleration(UUID entityID, f32* outAccel)
-    {
-        OLO_PROFILE_FUNCTION();
-        auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
-        *outAccel = entity.GetComponent<NavAgentComponent>().m_Acceleration;
-    }
-
-    static void NavAgentComponent_SetAcceleration(UUID entityID, f32 const* accel)
-    {
-        OLO_PROFILE_FUNCTION();
-        auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
-        entity.GetComponent<NavAgentComponent>().m_Acceleration = *accel;
-    }
-
-    static void NavAgentComponent_GetStoppingDistance(UUID entityID, f32* outDist)
-    {
-        OLO_PROFILE_FUNCTION();
-        auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
-        *outDist = entity.GetComponent<NavAgentComponent>().m_StoppingDistance;
-    }
-
-    static void NavAgentComponent_SetStoppingDistance(UUID entityID, f32 const* dist)
-    {
-        OLO_PROFILE_FUNCTION();
-        auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
-        entity.GetComponent<NavAgentComponent>().m_StoppingDistance = *dist;
-    }
 
     static bool NavAgentComponent_HasPath(UUID entityID)
     {
@@ -2076,20 +1001,6 @@ namespace OloEngine
         agent.m_CurrentCornerIndex = 0;
     }
 
-    static bool NavAgentComponent_GetLockYAxis(UUID entityID)
-    {
-        auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
-        return entity.GetComponent<NavAgentComponent>().m_LockYAxis;
-    }
-
-    static void NavAgentComponent_SetLockYAxis(UUID entityID, bool lock)
-    {
-        auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
-        entity.GetComponent<NavAgentComponent>().m_LockYAxis = lock;
-    }
-
     ///////////////////////////////////////////////////////////////////////////////////////////
     // UIWorldAnchorComponent /////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -2108,148 +1019,278 @@ namespace OloEngine
         entity.GetComponent<UIWorldAnchorComponent>().m_TargetEntity = UUID(targetEntityID);
     }
 
-    static void UIWorldAnchorComponent_GetWorldOffset(UUID entityID, glm::vec3* out)
-    {
-        auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<UIWorldAnchorComponent>());
-        *out = entity.GetComponent<UIWorldAnchorComponent>().m_WorldOffset;
-    }
-
-    static void UIWorldAnchorComponent_SetWorldOffset(UUID entityID, glm::vec3 const* v)
-    {
-        auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<UIWorldAnchorComponent>());
-        entity.GetComponent<UIWorldAnchorComponent>().m_WorldOffset = *v;
-    }
-
     ///////////////////////////////////////////////////////////////////////////////////////////
-    // NameplateComponent /////////////////////////////////////////////////////////////////////
+    // IKTargetComponent //////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
 
-    static bool NameplateComponent_GetEnabled(UUID entityID)
+    static bool IsFiniteVec3(const glm::vec3& v)
     {
-        auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
-        return entity.GetComponent<NameplateComponent>().m_Enabled;
+        return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
     }
 
-    static void NameplateComponent_SetEnabled(UUID entityID, bool enabled)
+    // Get skeleton bone count for validating indices/chain lengths.
+    // Returns 0 if no skeleton is present so callers can guard correctly.
+    static u32 GetSkeletonBoneCount(Entity entity)
     {
-        auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
-        entity.GetComponent<NameplateComponent>().m_Enabled = enabled;
+        if (entity.HasComponent<SkeletonComponent>())
+        {
+            auto const& skel = entity.GetComponent<SkeletonComponent>();
+            if (skel.m_Skeleton)
+            {
+                return static_cast<u32>(skel.m_Skeleton->m_BoneNames.size());
+            }
+        }
+        return 0u;
     }
 
-    static bool NameplateComponent_GetShowHealthBar(UUID entityID)
+    static bool IKTargetComponent_GetAimIKEnabled(UUID entityID)
     {
         auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
-        return entity.GetComponent<NameplateComponent>().m_ShowHealthBar;
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().AimIKEnabled;
     }
 
-    static void NameplateComponent_SetShowHealthBar(UUID entityID, bool show)
+    static void IKTargetComponent_SetAimIKEnabled(UUID entityID, bool enabled)
     {
         auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
-        entity.GetComponent<NameplateComponent>().m_ShowHealthBar = show;
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        entity.GetComponent<IKTargetComponent>().AimIKEnabled = enabled;
     }
 
-    static bool NameplateComponent_GetShowManaBar(UUID entityID)
+    static u32 IKTargetComponent_GetAimBoneIndex(UUID entityID)
     {
         auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
-        return entity.GetComponent<NameplateComponent>().m_ShowManaBar;
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().AimBoneIndex;
     }
 
-    static void NameplateComponent_SetShowManaBar(UUID entityID, bool show)
+    static void IKTargetComponent_SetAimBoneIndex(UUID entityID, u32 index)
     {
         auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
-        entity.GetComponent<NameplateComponent>().m_ShowManaBar = show;
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        auto boneCount = GetSkeletonBoneCount(entity);
+        entity.GetComponent<IKTargetComponent>().AimBoneIndex = (boneCount > 0) ? std::min(index, boneCount - 1) : 0u;
     }
 
-    static void NameplateComponent_GetWorldOffset(UUID entityID, glm::vec3* out)
+    static void IKTargetComponent_GetAimTarget(UUID entityID, glm::vec3* out)
     {
         auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
-        *out = entity.GetComponent<NameplateComponent>().m_WorldOffset;
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        *out = entity.GetComponent<IKTargetComponent>().AimTarget;
     }
 
-    static void NameplateComponent_SetWorldOffset(UUID entityID, glm::vec3 const* v)
+    static void IKTargetComponent_SetAimTarget(UUID entityID, glm::vec3 const* v)
     {
         auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
-        entity.GetComponent<NameplateComponent>().m_WorldOffset = *v;
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        if (IsFiniteVec3(*v))
+        {
+            entity.GetComponent<IKTargetComponent>().AimTarget = *v;
+        }
     }
 
-    static void NameplateComponent_GetBarSize(UUID entityID, glm::vec2* out)
+    static void IKTargetComponent_GetAimAxis(UUID entityID, glm::vec3* out)
     {
         auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
-        *out = entity.GetComponent<NameplateComponent>().m_BarSize;
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        *out = entity.GetComponent<IKTargetComponent>().AimAxis;
     }
 
-    static void NameplateComponent_SetBarSize(UUID entityID, glm::vec2 const* v)
+    static void IKTargetComponent_SetAimAxis(UUID entityID, glm::vec3 const* v)
     {
         auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
-        entity.GetComponent<NameplateComponent>().m_BarSize = *v;
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        if (IsFiniteVec3(*v) && glm::length2(*v) > 1e-8f)
+        {
+            entity.GetComponent<IKTargetComponent>().AimAxis = *v;
+        }
     }
 
-    static void NameplateComponent_GetHealthBarColor(UUID entityID, glm::vec4* out)
+    static void IKTargetComponent_GetAimOffset(UUID entityID, glm::vec3* out)
     {
         auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
-        *out = entity.GetComponent<NameplateComponent>().m_HealthBarColor;
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        *out = entity.GetComponent<IKTargetComponent>().AimOffset;
     }
 
-    static void NameplateComponent_SetHealthBarColor(UUID entityID, glm::vec4 const* v)
+    static void IKTargetComponent_SetAimOffset(UUID entityID, glm::vec3 const* v)
     {
         auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
-        entity.GetComponent<NameplateComponent>().m_HealthBarColor = *v;
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        if (IsFiniteVec3(*v))
+        {
+            entity.GetComponent<IKTargetComponent>().AimOffset = *v;
+        }
     }
 
-    static void NameplateComponent_GetManaBarColor(UUID entityID, glm::vec4* out)
+    static void IKTargetComponent_GetAimPoleVector(UUID entityID, glm::vec3* out)
     {
         auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
-        *out = entity.GetComponent<NameplateComponent>().m_ManaBarColor;
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        *out = entity.GetComponent<IKTargetComponent>().AimPoleVector;
     }
 
-    static void NameplateComponent_SetManaBarColor(UUID entityID, glm::vec4 const* v)
+    static void IKTargetComponent_SetAimPoleVector(UUID entityID, glm::vec3 const* v)
     {
         auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
-        entity.GetComponent<NameplateComponent>().m_ManaBarColor = *v;
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        if (IsFiniteVec3(*v) && glm::length2(*v) > 1e-8f)
+        {
+            entity.GetComponent<IKTargetComponent>().AimPoleVector = *v;
+        }
     }
 
-    static void NameplateComponent_GetBarBackgroundColor(UUID entityID, glm::vec4* out)
+    static u32 IKTargetComponent_GetAimChainLength(UUID entityID)
     {
         auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
-        *out = entity.GetComponent<NameplateComponent>().m_BarBackgroundColor;
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().AimChainLength;
     }
 
-    static void NameplateComponent_SetBarBackgroundColor(UUID entityID, glm::vec4 const* v)
+    static void IKTargetComponent_SetAimChainLength(UUID entityID, u32 length)
     {
         auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
-        entity.GetComponent<NameplateComponent>().m_BarBackgroundColor = *v;
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        entity.GetComponent<IKTargetComponent>().AimChainLength = std::clamp(length, 1u, GetSkeletonBoneCount(entity));
     }
 
-    static f32 NameplateComponent_GetManaBarGap(UUID entityID)
+    static f32 IKTargetComponent_GetAimChainFactor(UUID entityID)
     {
         auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
-        return entity.GetComponent<NameplateComponent>().m_ManaBarGap;
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().AimChainFactor;
     }
 
-    static void NameplateComponent_SetManaBarGap(UUID entityID, f32 gap)
+    static void IKTargetComponent_SetAimChainFactor(UUID entityID, f32 factor)
     {
         auto entity = GetEntity(entityID);
-        OLO_CORE_ASSERT(entity.HasComponent<NameplateComponent>());
-        entity.GetComponent<NameplateComponent>().m_ManaBarGap = gap;
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        if (std::isfinite(factor))
+        {
+            entity.GetComponent<IKTargetComponent>().AimChainFactor = glm::clamp(factor, 0.0f, 1.0f);
+        }
+    }
+
+    static u64 IKTargetComponent_GetAimTargetEntity(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return static_cast<u64>(entity.GetComponent<IKTargetComponent>().AimTargetEntity);
+    }
+
+    static void IKTargetComponent_SetAimTargetEntity(UUID entityID, u64 targetID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        entity.GetComponent<IKTargetComponent>().AimTargetEntity = targetID;
+    }
+
+    static f32 IKTargetComponent_GetAimWeight(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().AimWeight;
+    }
+
+    static void IKTargetComponent_SetAimWeight(UUID entityID, f32 weight)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        if (std::isfinite(weight))
+        {
+            entity.GetComponent<IKTargetComponent>().AimWeight = glm::clamp(weight, 0.0f, 1.0f);
+        }
+    }
+
+    static bool IKTargetComponent_GetLimbIKEnabled(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().LimbIKEnabled;
+    }
+
+    static void IKTargetComponent_SetLimbIKEnabled(UUID entityID, bool enabled)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        entity.GetComponent<IKTargetComponent>().LimbIKEnabled = enabled;
+    }
+
+    static u32 IKTargetComponent_GetLimbBoneIndex(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().LimbBoneIndex;
+    }
+
+    static void IKTargetComponent_SetLimbBoneIndex(UUID entityID, u32 index)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        auto boneCount = GetSkeletonBoneCount(entity);
+        entity.GetComponent<IKTargetComponent>().LimbBoneIndex = (boneCount > 0) ? std::min(index, boneCount - 1) : 0u;
+    }
+
+    static void IKTargetComponent_GetLimbTarget(UUID entityID, glm::vec3* out)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        *out = entity.GetComponent<IKTargetComponent>().LimbTarget;
+    }
+
+    static void IKTargetComponent_SetLimbTarget(UUID entityID, glm::vec3 const* v)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        if (IsFiniteVec3(*v))
+        {
+            entity.GetComponent<IKTargetComponent>().LimbTarget = *v;
+        }
+    }
+
+    static u32 IKTargetComponent_GetLimbChainLength(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().LimbChainLength;
+    }
+
+    static void IKTargetComponent_SetLimbChainLength(UUID entityID, u32 length)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        entity.GetComponent<IKTargetComponent>().LimbChainLength = std::clamp(length, 1u, GetSkeletonBoneCount(entity));
+    }
+
+    static u64 IKTargetComponent_GetLimbTargetEntity(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return static_cast<u64>(entity.GetComponent<IKTargetComponent>().LimbTargetEntity);
+    }
+
+    static void IKTargetComponent_SetLimbTargetEntity(UUID entityID, u64 targetID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        entity.GetComponent<IKTargetComponent>().LimbTargetEntity = targetID;
+    }
+
+    static f32 IKTargetComponent_GetLimbWeight(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        return entity.GetComponent<IKTargetComponent>().LimbWeight;
+    }
+
+    static void IKTargetComponent_SetLimbWeight(UUID entityID, f32 weight)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<IKTargetComponent>());
+        if (std::isfinite(weight))
+        {
+            entity.GetComponent<IKTargetComponent>().LimbWeight = glm::clamp(weight, 0.0f, 1.0f);
+        }
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -3731,10 +2772,8 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(Entity_IsValid);
         OLO_ADD_INTERNAL_CALL(Entity_FindEntityByName);
 
-        OLO_ADD_INTERNAL_CALL(TransformComponent_GetTranslation);
-        OLO_ADD_INTERNAL_CALL(TransformComponent_SetTranslation);
-        OLO_ADD_INTERNAL_CALL(TransformComponent_GetRotation);
-        OLO_ADD_INTERNAL_CALL(TransformComponent_SetRotation);
+        // Auto-generated property binding registrations from OLO_PROPERTY() annotations
+#include "Generated/ScriptGlueRegistrations.inl"
 
         OLO_ADD_INTERNAL_CALL(Rigidbody2DComponent_ApplyLinearImpulse);
         OLO_ADD_INTERNAL_CALL(Rigidbody2DComponent_ApplyLinearImpulseToCenter);
@@ -3764,50 +2803,9 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(Input_GetActionAxisValue);
 
         ///////////////////////////////////////////////////////////////
-        // TextComponent //////////////////////////////////////////////
-        ///////////////////////////////////////////////////////////////
-        OLO_ADD_INTERNAL_CALL(TextComponent_GetText);
-        OLO_ADD_INTERNAL_CALL(TextComponent_SetText);
-        OLO_ADD_INTERNAL_CALL(TextComponent_GetColor);
-        OLO_ADD_INTERNAL_CALL(TextComponent_SetColor);
-        OLO_ADD_INTERNAL_CALL(TextComponent_GetKerning);
-        OLO_ADD_INTERNAL_CALL(TextComponent_SetKerning);
-        OLO_ADD_INTERNAL_CALL(TextComponent_GetLineSpacing);
-        OLO_ADD_INTERNAL_CALL(TextComponent_SetLineSpacing);
-        ///////////////////////////////////////////////////////////////
         // Audio Source ///////////////////////////////////////////////
         ///////////////////////////////////////////////////////////////
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetVolume);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetVolume);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetPitch);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetPitch);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetPlayOnAwake);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetPlayOnAwake);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetLooping);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetLooping);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetSpatialization);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetSpatialization);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetAttenuationModel);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetAttenuationModel);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetRollOff);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetRollOff);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetMinGain);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetMinGain);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetMaxGain);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetMaxGain);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetMinDistance);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetMinDistance);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetMaxDistance);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetMaxDistance);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetConeInnerAngle);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetConeInnerAngle);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetConeOuterAngle);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetConeOuterAngle);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetConeOuterGain);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetConeOuterGain);
         OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetCone);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetDopplerFactor);
-        OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetDopplerFactor);
         OLO_ADD_INTERNAL_CALL(AudioSourceComponent_IsPlaying);
         OLO_ADD_INTERNAL_CALL(AudioSourceComponent_Play);
         OLO_ADD_INTERNAL_CALL(AudioSourceComponent_Pause);
@@ -3825,138 +2823,8 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(AudioEvents_IsEventActive);
 
         ///////////////////////////////////////////////////////////////
-        // UI Components //////////////////////////////////////////////
+        // UI/Particle/LightProbe (hand-written action/query only) ////
         ///////////////////////////////////////////////////////////////
-        OLO_ADD_INTERNAL_CALL(UICanvasComponent_GetSortOrder);
-        OLO_ADD_INTERNAL_CALL(UICanvasComponent_SetSortOrder);
-
-        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_GetAnchorMin);
-        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_SetAnchorMin);
-        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_GetAnchorMax);
-        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_SetAnchorMax);
-        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_GetAnchoredPosition);
-        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_SetAnchoredPosition);
-        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_GetSizeDelta);
-        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_SetSizeDelta);
-        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_GetPivot);
-        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_SetPivot);
-        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_GetRotation);
-        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_SetRotation);
-        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_GetScale);
-        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_SetScale);
-
-        OLO_ADD_INTERNAL_CALL(UIImageComponent_GetColor);
-        OLO_ADD_INTERNAL_CALL(UIImageComponent_SetColor);
-
-        OLO_ADD_INTERNAL_CALL(UIPanelComponent_GetBackgroundColor);
-        OLO_ADD_INTERNAL_CALL(UIPanelComponent_SetBackgroundColor);
-
-        OLO_ADD_INTERNAL_CALL(UITextComponent_GetText);
-        OLO_ADD_INTERNAL_CALL(UITextComponent_SetText);
-        OLO_ADD_INTERNAL_CALL(UITextComponent_GetFontSize);
-        OLO_ADD_INTERNAL_CALL(UITextComponent_SetFontSize);
-        OLO_ADD_INTERNAL_CALL(UITextComponent_GetColor);
-        OLO_ADD_INTERNAL_CALL(UITextComponent_SetColor);
-        OLO_ADD_INTERNAL_CALL(UITextComponent_GetKerning);
-        OLO_ADD_INTERNAL_CALL(UITextComponent_SetKerning);
-        OLO_ADD_INTERNAL_CALL(UITextComponent_GetLineSpacing);
-        OLO_ADD_INTERNAL_CALL(UITextComponent_SetLineSpacing);
-
-        OLO_ADD_INTERNAL_CALL(UIButtonComponent_GetNormalColor);
-        OLO_ADD_INTERNAL_CALL(UIButtonComponent_SetNormalColor);
-        OLO_ADD_INTERNAL_CALL(UIButtonComponent_GetHoveredColor);
-        OLO_ADD_INTERNAL_CALL(UIButtonComponent_SetHoveredColor);
-        OLO_ADD_INTERNAL_CALL(UIButtonComponent_GetPressedColor);
-        OLO_ADD_INTERNAL_CALL(UIButtonComponent_SetPressedColor);
-        OLO_ADD_INTERNAL_CALL(UIButtonComponent_GetDisabledColor);
-        OLO_ADD_INTERNAL_CALL(UIButtonComponent_SetDisabledColor);
-        OLO_ADD_INTERNAL_CALL(UIButtonComponent_GetInteractable);
-        OLO_ADD_INTERNAL_CALL(UIButtonComponent_SetInteractable);
-        OLO_ADD_INTERNAL_CALL(UIButtonComponent_GetState);
-
-        OLO_ADD_INTERNAL_CALL(UISliderComponent_GetValue);
-        OLO_ADD_INTERNAL_CALL(UISliderComponent_SetValue);
-        OLO_ADD_INTERNAL_CALL(UISliderComponent_GetMinValue);
-        OLO_ADD_INTERNAL_CALL(UISliderComponent_SetMinValue);
-        OLO_ADD_INTERNAL_CALL(UISliderComponent_GetMaxValue);
-        OLO_ADD_INTERNAL_CALL(UISliderComponent_SetMaxValue);
-        OLO_ADD_INTERNAL_CALL(UISliderComponent_GetInteractable);
-        OLO_ADD_INTERNAL_CALL(UISliderComponent_SetInteractable);
-
-        OLO_ADD_INTERNAL_CALL(UICheckboxComponent_GetIsChecked);
-        OLO_ADD_INTERNAL_CALL(UICheckboxComponent_SetIsChecked);
-        OLO_ADD_INTERNAL_CALL(UICheckboxComponent_GetInteractable);
-        OLO_ADD_INTERNAL_CALL(UICheckboxComponent_SetInteractable);
-
-        OLO_ADD_INTERNAL_CALL(UIProgressBarComponent_GetValue);
-        OLO_ADD_INTERNAL_CALL(UIProgressBarComponent_SetValue);
-        OLO_ADD_INTERNAL_CALL(UIProgressBarComponent_GetMinValue);
-        OLO_ADD_INTERNAL_CALL(UIProgressBarComponent_SetMinValue);
-        OLO_ADD_INTERNAL_CALL(UIProgressBarComponent_GetMaxValue);
-        OLO_ADD_INTERNAL_CALL(UIProgressBarComponent_SetMaxValue);
-
-        OLO_ADD_INTERNAL_CALL(UIInputFieldComponent_GetText);
-        OLO_ADD_INTERNAL_CALL(UIInputFieldComponent_SetText);
-        OLO_ADD_INTERNAL_CALL(UIInputFieldComponent_GetPlaceholder);
-        OLO_ADD_INTERNAL_CALL(UIInputFieldComponent_SetPlaceholder);
-        OLO_ADD_INTERNAL_CALL(UIInputFieldComponent_GetFontSize);
-        OLO_ADD_INTERNAL_CALL(UIInputFieldComponent_SetFontSize);
-        OLO_ADD_INTERNAL_CALL(UIInputFieldComponent_GetTextColor);
-        OLO_ADD_INTERNAL_CALL(UIInputFieldComponent_SetTextColor);
-        OLO_ADD_INTERNAL_CALL(UIInputFieldComponent_GetInteractable);
-        OLO_ADD_INTERNAL_CALL(UIInputFieldComponent_SetInteractable);
-
-        OLO_ADD_INTERNAL_CALL(UIScrollViewComponent_GetScrollPosition);
-        OLO_ADD_INTERNAL_CALL(UIScrollViewComponent_SetScrollPosition);
-        OLO_ADD_INTERNAL_CALL(UIScrollViewComponent_GetContentSize);
-        OLO_ADD_INTERNAL_CALL(UIScrollViewComponent_SetContentSize);
-        OLO_ADD_INTERNAL_CALL(UIScrollViewComponent_GetScrollSpeed);
-        OLO_ADD_INTERNAL_CALL(UIScrollViewComponent_SetScrollSpeed);
-
-        OLO_ADD_INTERNAL_CALL(UIDropdownComponent_GetSelectedIndex);
-        OLO_ADD_INTERNAL_CALL(UIDropdownComponent_SetSelectedIndex);
-        OLO_ADD_INTERNAL_CALL(UIDropdownComponent_GetInteractable);
-        OLO_ADD_INTERNAL_CALL(UIDropdownComponent_SetInteractable);
-
-        OLO_ADD_INTERNAL_CALL(UIGridLayoutComponent_GetCellSize);
-        OLO_ADD_INTERNAL_CALL(UIGridLayoutComponent_SetCellSize);
-        OLO_ADD_INTERNAL_CALL(UIGridLayoutComponent_GetSpacing);
-        OLO_ADD_INTERNAL_CALL(UIGridLayoutComponent_SetSpacing);
-        OLO_ADD_INTERNAL_CALL(UIGridLayoutComponent_GetConstraintCount);
-        OLO_ADD_INTERNAL_CALL(UIGridLayoutComponent_SetConstraintCount);
-
-        OLO_ADD_INTERNAL_CALL(UIToggleComponent_GetIsOn);
-        OLO_ADD_INTERNAL_CALL(UIToggleComponent_SetIsOn);
-        OLO_ADD_INTERNAL_CALL(UIToggleComponent_GetInteractable);
-        OLO_ADD_INTERNAL_CALL(UIToggleComponent_SetInteractable);
-
-        OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_GetPlaying);
-        OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_SetPlaying);
-        OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_GetLooping);
-        OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_SetLooping);
-        OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_GetEmissionRate);
-        OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_SetEmissionRate);
-
-        OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_GetWindInfluence);
-        OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_SetWindInfluence);
-
-        OLO_ADD_INTERNAL_CALL(LightProbeComponent_GetInfluenceRadius);
-        OLO_ADD_INTERNAL_CALL(LightProbeComponent_SetInfluenceRadius);
-        OLO_ADD_INTERNAL_CALL(LightProbeComponent_GetIntensity);
-        OLO_ADD_INTERNAL_CALL(LightProbeComponent_SetIntensity);
-        OLO_ADD_INTERNAL_CALL(LightProbeComponent_GetActive);
-        OLO_ADD_INTERNAL_CALL(LightProbeComponent_SetActive);
-
-        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_GetBoundsMin);
-        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_SetBoundsMin);
-        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_GetBoundsMax);
-        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_SetBoundsMax);
-        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_GetSpacing);
-        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_SetSpacing);
-        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_GetIntensity);
-        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_SetIntensity);
-        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_GetActive);
-        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_SetActive);
         OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_Dirty);
         OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_GetTotalProbeCount);
 
@@ -3974,10 +2842,6 @@ namespace OloEngine
         ///////////////////////////////////////////////////////////////
         // Streaming //////////////////////////////////////////////////
         ///////////////////////////////////////////////////////////////
-        OLO_ADD_INTERNAL_CALL(StreamingVolumeComponent_GetLoadRadius);
-        OLO_ADD_INTERNAL_CALL(StreamingVolumeComponent_SetLoadRadius);
-        OLO_ADD_INTERNAL_CALL(StreamingVolumeComponent_GetUnloadRadius);
-        OLO_ADD_INTERNAL_CALL(StreamingVolumeComponent_SetUnloadRadius);
         OLO_ADD_INTERNAL_CALL(StreamingVolumeComponent_GetIsLoaded);
         OLO_ADD_INTERNAL_CALL(Scene_LoadRegion);
         OLO_ADD_INTERNAL_CALL(Scene_UnloadRegion);
@@ -4032,50 +2896,52 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(MaterialComponent_SetShaderGraphHandle);
 
         ///////////////////////////////////////////////////////////////
-        // NavAgentComponent /////////////////////////////////////////
+        // NavAgentComponent (hand-written action/query only) ////////
         ///////////////////////////////////////////////////////////////
-        OLO_ADD_INTERNAL_CALL(NavAgentComponent_GetTargetPosition);
-        OLO_ADD_INTERNAL_CALL(NavAgentComponent_SetTargetPosition);
-        OLO_ADD_INTERNAL_CALL(NavAgentComponent_GetMaxSpeed);
-        OLO_ADD_INTERNAL_CALL(NavAgentComponent_SetMaxSpeed);
-        OLO_ADD_INTERNAL_CALL(NavAgentComponent_GetAcceleration);
-        OLO_ADD_INTERNAL_CALL(NavAgentComponent_SetAcceleration);
-        OLO_ADD_INTERNAL_CALL(NavAgentComponent_GetStoppingDistance);
-        OLO_ADD_INTERNAL_CALL(NavAgentComponent_SetStoppingDistance);
         OLO_ADD_INTERNAL_CALL(NavAgentComponent_HasPath);
         OLO_ADD_INTERNAL_CALL(NavAgentComponent_ClearTarget);
-        OLO_ADD_INTERNAL_CALL(NavAgentComponent_GetLockYAxis);
-        OLO_ADD_INTERNAL_CALL(NavAgentComponent_SetLockYAxis);
 
         ///////////////////////////////////////////////////////////////
-        // UIWorldAnchorComponent ////////////////////////////////////
+        // UIWorldAnchorComponent (hand-written UUID methods) ////////
         ///////////////////////////////////////////////////////////////
         OLO_ADD_INTERNAL_CALL(UIWorldAnchorComponent_GetTargetEntity);
         OLO_ADD_INTERNAL_CALL(UIWorldAnchorComponent_SetTargetEntity);
-        OLO_ADD_INTERNAL_CALL(UIWorldAnchorComponent_GetWorldOffset);
-        OLO_ADD_INTERNAL_CALL(UIWorldAnchorComponent_SetWorldOffset);
 
         ///////////////////////////////////////////////////////////////
-        // NameplateComponent ////////////////////////////////////////
+        // IKTargetComponent /////////////////////////////////////////
         ///////////////////////////////////////////////////////////////
-        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetEnabled);
-        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetEnabled);
-        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetShowHealthBar);
-        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetShowHealthBar);
-        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetShowManaBar);
-        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetShowManaBar);
-        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetWorldOffset);
-        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetWorldOffset);
-        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetBarSize);
-        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetBarSize);
-        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetHealthBarColor);
-        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetHealthBarColor);
-        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetManaBarColor);
-        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetManaBarColor);
-        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetBarBackgroundColor);
-        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetBarBackgroundColor);
-        OLO_ADD_INTERNAL_CALL(NameplateComponent_GetManaBarGap);
-        OLO_ADD_INTERNAL_CALL(NameplateComponent_SetManaBarGap);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetAimIKEnabled);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetAimIKEnabled);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetAimBoneIndex);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetAimBoneIndex);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetAimTarget);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetAimTarget);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetAimAxis);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetAimAxis);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetAimOffset);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetAimOffset);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetAimPoleVector);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetAimPoleVector);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetAimChainLength);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetAimChainLength);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetAimChainFactor);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetAimChainFactor);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetAimTargetEntity);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetAimTargetEntity);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetAimWeight);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetAimWeight);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetLimbIKEnabled);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetLimbIKEnabled);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetLimbBoneIndex);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetLimbBoneIndex);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetLimbTarget);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetLimbTarget);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetLimbChainLength);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetLimbChainLength);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetLimbTargetEntity);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetLimbTargetEntity);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_GetLimbWeight);
+        OLO_ADD_INTERNAL_CALL(IKTargetComponent_SetLimbWeight);
 
         ///////////////////////////////////////////////////////////////
         // AnimationGraphComponent ////////////////////////////////////
@@ -4204,12 +3070,6 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(Input_GetMousePosition);
         OLO_ADD_INTERNAL_CALL(Input_GetWindowSize);
         OLO_ADD_INTERNAL_CALL(Input_IsMouseButtonDown);
-
-        ///////////////////////////////////////////////////////////////
-        // MaterialComponent (extended) ///////////////////////////////
-        ///////////////////////////////////////////////////////////////
-        OLO_ADD_INTERNAL_CALL(MaterialComponent_GetAlbedoColor);
-        OLO_ADD_INTERNAL_CALL(MaterialComponent_SetAlbedoColor);
 
         ///////////////////////////////////////////////////////////////
         // ShaderLibrary3D ///////////////////////////////////////////

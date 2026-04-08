@@ -25,34 +25,34 @@ namespace OloEngine
                     sizet boneCount,
                     std::vector<BoneTransform>& outBoneTransforms);
 
-        [[nodiscard]] const std::string& GetCurrentStateName() const
+        [[nodiscard("state name needed for UI or logic")]] const std::string& GetCurrentStateName() const
         {
             return m_CurrentState;
         }
-        [[nodiscard]] bool IsInTransition() const
+        [[nodiscard("transition check needed for blend decisions")]] bool IsInTransition() const
         {
             return m_InTransition;
         }
-        [[nodiscard]] bool HasStarted() const
+        [[nodiscard("started check determines if machine has been initialized")]] bool HasStarted() const
         {
             return m_Started;
         }
-        [[nodiscard]] f32 GetCurrentStateNormalizedTime() const;
-        [[nodiscard]] const AnimationState* GetState(const std::string& name) const;
-        [[nodiscard]] AnimationState* GetMutableState(const std::string& name);
-        [[nodiscard]] const std::unordered_map<std::string, AnimationState>& GetStates() const
+        [[nodiscard("normalized time needed for exit-time transitions")]] f32 GetCurrentStateNormalizedTime() const;
+        [[nodiscard("state pointer needed for inspection")]] const AnimationState* GetState(const std::string& name) const;
+        [[nodiscard("mutable state pointer needed for editing")]] AnimationState* GetMutableState(const std::string& name);
+        [[nodiscard("states map needed for enumeration")]] const std::unordered_map<std::string, AnimationState>& GetStates() const
         {
             return m_States;
         }
-        [[nodiscard]] std::unordered_map<std::string, AnimationState>& GetMutableStates()
+        [[nodiscard("mutable states map needed for editing")]] std::unordered_map<std::string, AnimationState>& GetMutableStates()
         {
             return m_States;
         }
-        [[nodiscard]] const std::vector<AnimationTransition>& GetTransitions() const
+        [[nodiscard("transitions list needed for enumeration")]] const std::vector<AnimationTransition>& GetTransitions() const
         {
             return m_Transitions;
         }
-        [[nodiscard]] const std::string& GetDefaultState() const
+        [[nodiscard("default state name needed for initialization")]] const std::string& GetDefaultState() const
         {
             return m_DefaultState;
         }

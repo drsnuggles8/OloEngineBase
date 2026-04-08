@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Animation/MorphTargets/MorphTarget.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
+#include <cmath>
 #include <filesystem>
 #include <set>
 #include <unordered_map>
@@ -53,8 +54,26 @@ namespace OloEngine
         // Process skeleton first if available
         ProcessSkeleton(scene);
 
-        // Process all meshes
-        ProcessNode(scene->mRootNode, scene);
+        // Process all meshes (tracks mesh node's global transform for axis correction)
+        ProcessNode(scene->mRootNode, scene, glm::mat4(1.0f));
+
+        // Apply mesh node global transform correction for proper axis orientation.
+        // Mesh vertices are stored in mesh-local space which may use a different
+        // coordinate convention (e.g. Z-up from COLLADA). The mesh node's scene-graph
+        // ancestors (like a "Z_UP" node) encode the conversion to the glTF/engine
+        // Y-up system. By post-multiplying InverseBindPoses with meshNodeGlobal,
+        // FinalBoneMatrices naturally includes this axis correction:
+        //   FinalBone = GlobalBone * (InvBind * meshNodeGlobal)
+        // At bind pose this yields meshNodeGlobal (instead of identity), correctly
+        // transforming vertices from mesh-local to scene/world space.
+        if (m_Skeleton && m_HasMeshNodeTransform)
+        {
+            for (sizet i = 0; i < m_Skeleton->m_InverseBindPoses.size(); ++i)
+            {
+                m_Skeleton->m_InverseBindPoses[i] = m_Skeleton->m_InverseBindPoses[i] * m_MeshNodeGlobalTransform;
+                m_Skeleton->m_FinalBoneMatrices[i] = m_MeshNodeGlobalTransform;
+            }
+        }
 
         // Process animations
         ProcessAnimations(scene);
@@ -66,9 +85,12 @@ namespace OloEngine
                       m_Meshes.size(), m_Animations.size());
     }
 
-    void AnimatedModel::ProcessNode(const aiNode* node, const aiScene* scene)
+    void AnimatedModel::ProcessNode(const aiNode* node, const aiScene* scene, const glm::mat4& parentTransform)
     {
         OLO_PROFILE_FUNCTION();
+
+        glm::mat4 nodeTransform = AssimpMatrixToGLM(node->mTransformation);
+        glm::mat4 globalTransform = parentTransform * nodeTransform;
 
         // Process all the node's meshes
         for (u32 i = 0; i < node->mNumMeshes; i++)
@@ -78,6 +100,27 @@ namespace OloEngine
             if (meshSource)
             {
                 m_Meshes.push_back(meshSource);
+
+                // Store the first skinned mesh node's global transform for axis correction
+                if (!m_HasMeshNodeTransform && mesh->mNumBones > 0)
+                {
+                    m_MeshNodeGlobalTransform = globalTransform;
+                    m_HasMeshNodeTransform = true;
+                }
+                else if (m_HasMeshNodeTransform && mesh->mNumBones > 0)
+                {
+                    constexpr f32 kMatEps = 1e-4f;
+                    bool same = true;
+                    for (int r = 0; r < 4 && same; ++r)
+                    {
+                        for (int c = 0; c < 4 && same; ++c)
+                        {
+                            same = std::abs(m_MeshNodeGlobalTransform[r][c] - globalTransform[r][c]) < kMatEps;
+                        }
+                    }
+                    OLO_CORE_ASSERT(same,
+                                    "AnimatedModel: skinned meshes have different node transforms — axis correction may be wrong");
+                }
 
                 // Process the material for this mesh
                 Material material;
@@ -107,7 +150,7 @@ namespace OloEngine
         // Process all the node's children
         for (u32 i = 0; i < node->mNumChildren; i++)
         {
-            ProcessNode(node->mChildren[i], scene);
+            ProcessNode(node->mChildren[i], scene, globalTransform);
         }
     }
 

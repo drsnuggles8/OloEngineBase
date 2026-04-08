@@ -20,7 +20,8 @@ namespace OloEngine
     }
 
     void AnimationGraph::Update(f32 dt, sizet boneCount, std::vector<glm::mat4>& outFinalBoneMatrices,
-                                const std::vector<std::string>& boneNames)
+                                const std::vector<std::string>& boneNames,
+                                const std::vector<i32>& parentIndices)
     {
         OLO_PROFILE_FUNCTION();
         if (Layers.empty() || boneCount == 0)
@@ -46,6 +47,12 @@ namespace OloEngine
             if (layerTransforms.size() < boneCount)
             {
                 layerTransforms.resize(boneCount);
+            }
+
+            // Apply one-shot overlay on top of the base pose for this layer
+            if (layer.OneShot.IsActive())
+            {
+                layer.OneShot.Update(dt, layerTransforms, parentIndices, boneNames);
             }
 
             // Apply layer with weight and bone mask using skeleton bone names
@@ -74,6 +81,8 @@ namespace OloEngine
             clonedLayer.Weight = layer.Weight;
             clonedLayer.AffectedBones = layer.AffectedBones;
             clonedLayer.AvatarMask = layer.AvatarMask;
+
+            clonedLayer.OneShot = layer.OneShot;
 
             if (layer.StateMachine)
             {

@@ -32,6 +32,7 @@ option(OLO_ENABLE_UNITY_BUILD "Enable Unity (Jumbo) Builds for faster compilatio
 # Includes
 include(cmake/SetupConfigurations.cmake)
 include(cmake/CommonProperties.cmake)
+include(cmake/Sanitizers.cmake)
 include(cmake/CPM.cmake)
 
 # Project wide setup - Configure module paths
@@ -55,6 +56,9 @@ set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "Utilities/cmake")
 
 # Build options
 option(BUILD_TESTS "Build tests" ON)
+
+# Tools
+add_subdirectory(tools/OloHeaderTool)
 
 # Main targets built by this project
 add_subdirectory(OloEngine)
@@ -81,6 +85,14 @@ add_subdirectory(OloServer)
 
 set_target_properties(OloEngine-LuaScriptCore PROPERTIES FOLDER "Scripting")
 set_target_properties(OloServer PROPERTIES FOLDER "Applications")
+
+# Auto-run OloHeaderTool before compiling targets that consume its output.
+# OloEngine includes the generated .inl files; OloEngine-ScriptCore includes
+# the generated .cs files.
+add_dependencies(OloEngine GenerateBindings)
+if(MSVC)
+	add_dependencies(OloEngine-ScriptCore GenerateBindings)
+endif()
 
 if(${CMAKE_GENERATOR} MATCHES "Visual Studio")
     set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT "OloEditor")

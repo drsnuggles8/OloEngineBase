@@ -20,16 +20,10 @@ namespace OloEngine
         OLO_CORE_ASSERT(!Exists(name), "Shader '{}' already exists!", name);
         m_Shaders[name] = shader;
 
-        // Register with shader debugger — but only if the shader is already
-        // ready.  For async shaders (Compiling), registration happens later
-        // inside FinalizeProgram.  Registering now would call GetRendererID()
-        // while the ShaderDebugger mutex is held, which triggers EnsureLinked
-        // → FinalizeProgram → OLO_SHADER_REGISTER_MANUAL → deadlock on the
-        // same non-recursive mutex.
-        if (shader->IsReady())
-        {
-            OLO_SHADER_REGISTER(shader);
-        }
+        // Registration with ShaderDebugger is handled by FinalizeProgram
+        // (OLO_SHADER_REGISTER_MANUAL).  Do NOT register here — it would
+        // duplicate the entry for sync shaders and deadlock for async ones
+        // (calling GetRendererID while the ShaderDebugger mutex is held).
     }
 
     void ShaderLibrary::Add(const Ref<Shader>& shader)

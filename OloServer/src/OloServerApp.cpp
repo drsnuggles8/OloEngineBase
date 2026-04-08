@@ -285,7 +285,7 @@ namespace OloEngine
         explicit OloServerApplication(const ApplicationSpecification& spec, const ServerConfig& config)
             : Application(spec)
         {
-            PushLayer(new ServerLayer(config));
+            PushLayer(std::make_unique<ServerLayer>(config));
         }
 
         ~OloServerApplication() final = default;

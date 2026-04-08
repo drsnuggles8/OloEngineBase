@@ -88,6 +88,7 @@ namespace OloEngine
             RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             RenderCommand::SetDepthTest(false);
             RenderCommand::SetDepthMask(false);
+            RenderCommand::DisableCulling();
 
             m_RenderCallback();
 
@@ -96,6 +97,7 @@ namespace OloEngine
             RenderCommand::SetBlendFunc(GL_ONE, GL_ZERO);
             RenderCommand::SetDepthTest(true);
             RenderCommand::SetDepthMask(true);
+            RenderCommand::EnableCulling();
 
             // One-shot: clear for next frame
             m_RenderCallback = nullptr;

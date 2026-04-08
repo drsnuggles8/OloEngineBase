@@ -10,7 +10,9 @@ extern OloEngine::Application* OloEngine::CreateApplication(ApplicationCommandLi
 
 int main(int argc, char** argv)
 {
-    OloEngine::Log::Init();
+    // Log is initialized automatically on first use (Meyer's singleton).
+    // Force initialization here so log file + crash ring buffer are ready early.
+    OloEngine::Log::Initialize();
     OloEngine::CrashReporter::Init();
 
     int exitCode = EXIT_SUCCESS;

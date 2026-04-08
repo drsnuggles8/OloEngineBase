@@ -295,8 +295,10 @@ namespace OloEngine
                 auto& skelComp = entity.GetComponent<SkeletonComponent>();
                 if (skelComp.m_Skeleton)
                 {
-                    // Call AnimationSystem to compute bone transforms
-                    Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, deltaTime);
+                    IKTargetComponent tempIk;
+                    const IKTargetComponent* ikTarget = m_Context->ResolveIKTargets(entity, tempIk) ? &tempIk : nullptr;
+                    auto const& entityTransform = entity.GetComponent<TransformComponent>().GetTransform();
+                    Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, deltaTime, ikTarget, entityTransform);
                 }
             }
             else

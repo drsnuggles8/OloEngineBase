@@ -39,15 +39,15 @@ namespace OloEngine
         void SetInt(const std::string& name, i32 value);
         void SetTrigger(const std::string& name);
 
-        [[nodiscard]] f32 GetFloat(const std::string& name) const;
-        [[nodiscard]] bool GetBool(const std::string& name) const;
-        [[nodiscard]] i32 GetInt(const std::string& name) const;
-        [[nodiscard]] bool IsTriggerSet(const std::string& name) const;
+        [[nodiscard("parameter value must be used")]] f32 GetFloat(const std::string& name) const;
+        [[nodiscard("parameter value must be used")]] bool GetBool(const std::string& name) const;
+        [[nodiscard("parameter value must be used")]] i32 GetInt(const std::string& name) const;
+        [[nodiscard("trigger state must be checked before consuming")]] bool IsTriggerSet(const std::string& name) const;
         void ConsumeTrigger(const std::string& name);
 
-        [[nodiscard]] bool HasParameter(const std::string& name) const;
-        [[nodiscard]] const AnimationParameter* GetParameter(const std::string& name) const;
-        [[nodiscard]] const std::unordered_map<std::string, AnimationParameter>& GetAll() const
+        [[nodiscard("existence check must be used")]] bool HasParameter(const std::string& name) const;
+        [[nodiscard("parameter pointer must be used")]] const AnimationParameter* GetParameter(const std::string& name) const;
+        [[nodiscard("parameters map needed for enumeration")]] const std::unordered_map<std::string, AnimationParameter>& GetAll() const
         {
             return m_Parameters;
         }

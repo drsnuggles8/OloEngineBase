@@ -14,6 +14,7 @@
 #include "OloEngine/Navigation/CrowdManager.h"
 
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -32,6 +33,7 @@ namespace OloEngine
     class Prefab;
     class JoltScene;
     class SceneStreamer;
+    struct IKTargetComponent;
     class DialogueSystem;
 
     namespace Audio
@@ -97,6 +99,8 @@ namespace OloEngine
         [[nodiscard("Store this!")]] Entity FindEntityByName(std::string_view name);
         [[nodiscard("Store this!")]] Entity GetEntityByUUID(UUID uuid);
 
+        void UpdateEntityName(entt::entity entity, const std::string& oldName, const std::string& newName);
+
         [[nodiscard("Store this!")]] Entity GetPrimaryCameraEntity();
 
         [[nodiscard("Store this!")]] Entity FindEntityByName(std::string_view name) const;
@@ -114,6 +118,10 @@ namespace OloEngine
 
         // Entity lookup utilities
         [[nodiscard("Store this!")]] std::optional<Entity> TryGetEntityWithUUID(UUID id) const;
+
+        // IK target resolution: copies IKTargetComponent and resolves entity-linked targets.
+        // Returns true if entity has IKTargetComponent; resolved result written into `out`.
+        bool ResolveIKTargets(Entity entity, IKTargetComponent& out) const;
 
         [[nodiscard("Store this!")]] bool IsRunning() const
         {
@@ -463,6 +471,11 @@ namespace OloEngine
         // Entity UUID -> entt::entity lookup map
         // Using TMap for O(1) lookup with better cache locality
         TMap<UUID, entt::entity> m_EntityMap;
+
+        // Entity name -> entt::entity fast lookup cache
+        // Uses multimap to handle duplicate entity names correctly.
+        // Maintained by CreateEntityWithUUID, DestroyEntity, and UpdateEntityName.
+        std::unordered_multimap<std::string, entt::entity> m_EntityNameMap;
 
         std::string m_Name = "Untitled";
 

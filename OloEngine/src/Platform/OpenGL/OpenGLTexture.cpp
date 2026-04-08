@@ -28,9 +28,13 @@ namespace OloEngine
                     return GL_RED_INTEGER;
                 case ImageFormat::R16UI:
                     return GL_RED_INTEGER;
+                case ImageFormat::RG16UI:
+                    return GL_RG_INTEGER;
                 case ImageFormat::RGB8:
                     return GL_RGB;
                 case ImageFormat::RGBA8:
+                    return GL_RGBA;
+                case ImageFormat::RGBA16F:
                     return GL_RGBA;
                 case ImageFormat::R32F:
                     return GL_RED;
@@ -58,10 +62,14 @@ namespace OloEngine
                     return GL_R8UI;
                 case ImageFormat::R16UI:
                     return GL_R16UI;
+                case ImageFormat::RG16UI:
+                    return GL_RG16UI;
                 case ImageFormat::RGB8:
                     return GL_RGB8;
                 case ImageFormat::RGBA8:
                     return GL_RGBA8;
+                case ImageFormat::RGBA16F:
+                    return GL_RGBA16F;
                 case ImageFormat::R32F:
                     return GL_R32F;
                 case ImageFormat::RG32F:
@@ -125,11 +133,17 @@ namespace OloEngine
             case ImageFormat::R16UI:
                 bytesPerPixel = 2;
                 break;
+            case ImageFormat::RG16UI:
+                bytesPerPixel = 4;
+                break;
             case ImageFormat::RGB8:
                 bytesPerPixel = 3;
                 break;
             case ImageFormat::RGBA8:
                 bytesPerPixel = 4;
+                break;
+            case ImageFormat::RGBA16F:
+                bytesPerPixel = 8;
                 break;
             case ImageFormat::R32F:
                 bytesPerPixel = 4;
@@ -257,6 +271,9 @@ namespace OloEngine
             case ImageFormat::R16UI:
                 bytesPerPixel = 2;
                 break;
+            case ImageFormat::RG16UI:
+                bytesPerPixel = 4;
+                break;
             case ImageFormat::R32F:
                 bytesPerPixel = 4;
                 break;
@@ -268,6 +285,9 @@ namespace OloEngine
                 break;
             case ImageFormat::RGBA8:
                 bytesPerPixel = 4;
+                break;
+            case ImageFormat::RGBA16F:
+                bytesPerPixel = 8;
                 break;
             case ImageFormat::RGB32F:
                 bytesPerPixel = 12;
@@ -316,6 +336,10 @@ namespace OloEngine
                 bpp = 2;
                 dataType = GL_UNSIGNED_SHORT;
                 break;
+            case ImageFormat::RG16UI:
+                bpp = 4;
+                dataType = GL_UNSIGNED_SHORT;
+                break;
             case ImageFormat::RGB8:
                 bpp = 3;
                 dataType = GL_UNSIGNED_BYTE;
@@ -323,6 +347,10 @@ namespace OloEngine
             case ImageFormat::RGBA8:
                 bpp = 4;
                 dataType = GL_UNSIGNED_BYTE;
+                break;
+            case ImageFormat::RGBA16F:
+                bpp = 16; // Upload as GL_FLOAT (4 * 4 bytes), OpenGL converts to half-float
+                dataType = GL_FLOAT;
                 break;
             case ImageFormat::R32F:
                 bpp = 4;
@@ -368,10 +396,16 @@ namespace OloEngine
             case ImageFormat::R16UI:
                 dataType = GL_UNSIGNED_SHORT;
                 break;
+            case ImageFormat::RG16UI:
+                dataType = GL_UNSIGNED_SHORT;
+                break;
             case ImageFormat::R32F:
             case ImageFormat::RG32F:
             case ImageFormat::RGB32F:
             case ImageFormat::RGBA32F:
+                dataType = GL_FLOAT;
+                break;
+            case ImageFormat::RGBA16F:
                 dataType = GL_FLOAT;
                 break;
             default:
@@ -442,7 +476,7 @@ namespace OloEngine
         sizet textureMemory = static_cast<sizet>(m_Width) * m_Height * channels;
         // Track GPU memory allocation
         std::string textureName = "OpenGL Texture2D: " + std::string(path);
-        OLO_TRACK_GPU_ALLOC(reinterpret_cast<void*>(static_cast<uintptr_t>(m_RendererID)),
+        OLO_TRACK_GPU_ALLOC(this,
                             textureMemory,
                             RendererMemoryTracker::ResourceType::Texture2D,
                             textureName);
@@ -500,6 +534,10 @@ namespace OloEngine
                 bytesPerPixel = 2;
                 dataType = GL_UNSIGNED_SHORT;
                 break;
+            case ImageFormat::RG16UI:
+                bytesPerPixel = 4;
+                dataType = GL_UNSIGNED_SHORT;
+                break;
             case ImageFormat::RGB8:
                 bytesPerPixel = 3;
                 dataType = GL_UNSIGNED_BYTE;
@@ -521,6 +559,10 @@ namespace OloEngine
                 dataType = GL_FLOAT;
                 break;
             case ImageFormat::RGBA32F:
+                bytesPerPixel = 16;
+                dataType = GL_FLOAT;
+                break;
+            case ImageFormat::RGBA16F:
                 bytesPerPixel = 16;
                 dataType = GL_FLOAT;
                 break;

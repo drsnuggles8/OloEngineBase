@@ -18,9 +18,10 @@ namespace OloEngine
 
         MorphTargetSet() = default;
 
-        [[nodiscard]] i32 FindTarget(const std::string& name) const
+        [[nodiscard("target index needed for weight mapping")]] i32 FindTarget(const std::string& name) const
         {
-            for (i32 i = 0; i < static_cast<i32>(Targets.size()); ++i)
+            auto count = static_cast<i32>(Targets.size());
+            for (i32 i = 0; i < count; ++i)
             {
                 if (Targets[i].Name == name)
                     return i;
@@ -28,19 +29,19 @@ namespace OloEngine
             return -1;
         }
 
-        [[nodiscard]] u32 GetTargetCount() const
+        [[nodiscard("count needed for buffer sizing")]] u32 GetTargetCount() const
         {
             return static_cast<u32>(Targets.size());
         }
 
-        [[nodiscard]] u32 GetVertexCount() const
+        [[nodiscard("vertex count needed for validation")]] u32 GetVertexCount() const
         {
             if (Targets.empty())
                 return 0;
             return static_cast<u32>(Targets[0].Vertices.size());
         }
 
-        [[nodiscard]] bool HasTarget(const std::string& name) const
+        [[nodiscard("existence check must be used")]] bool HasTarget(const std::string& name) const
         {
             return FindTarget(name) >= 0;
         }
@@ -60,7 +61,7 @@ namespace OloEngine
         }
 
         // O(1) name-to-index lookup via cached map
-        [[nodiscard]] i32 FindTargetCached(const std::string& name) const
+        [[nodiscard("cached target index needed for weight mapping")]] i32 FindTargetCached(const std::string& name) const
         {
             BuildNameIndexCache();
             auto it = m_NameIndexCache.find(name);

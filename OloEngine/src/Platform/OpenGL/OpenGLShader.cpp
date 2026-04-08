@@ -209,11 +209,6 @@ namespace OloEngine
         Utils::CreateCacheDirectoryIfNeeded();
         const std::string source = ReadFile(filepath);
 
-        // Collect transitive include paths for cache invalidation.
-        // ProcessIncludes is called again inside PreProcess, but this extra
-        // pass at init time is negligible compared to SPIR-V compilation.
-        ProcessIncludes(source, "", m_IncludedFilePaths);
-
         const auto shaderSources = PreProcess(source);
 
         // Store original source code for debugging (after we have shader ID)
@@ -281,7 +276,16 @@ namespace OloEngine
         }
 
         // Register with shader debugger and report compilation
-        OLO_SHADER_COMPILATION_END(m_RendererID, m_RendererID != 0, "", compilationTime);
+        // For async shaders (still Compiling), defer COMPILATION_END to FinalizeAfterLink
+        // where the shader is registered via FinalizeProgram first.
+        if (m_CompilationStatus != ShaderCompilationStatus::Compiling)
+        {
+            OLO_SHADER_COMPILATION_END(m_RendererID, m_RendererID != 0, "", compilationTime);
+        }
+        else
+        {
+            m_DeferredCompilationTime = compilationTime;
+        }
     }
 
     OpenGLShader::OpenGLShader(std::string name, std::string_view vertexSrc, std::string_view fragmentSrc)
@@ -398,8 +402,12 @@ namespace OloEngine
         // Unregister from shader debugger
         OLO_SHADER_UNREGISTER(m_RendererID);
 
-        // Track GPU memory deallocation
-        OLO_TRACK_DEALLOC(this);
+        // Track GPU memory deallocation — only if FinalizeProgram ran (which tracks the alloc).
+        // Async shaders destroyed while still Compiling were never allocated in the tracker.
+        if (m_TrackedAllocation)
+        {
+            OLO_TRACK_DEALLOC(this);
+        }
 
         u32 programId = m_RendererID;
         FrameResourceManager::Get().SubmitForDeletion([programId]()
@@ -567,40 +575,55 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::string processedSource = ProcessIncludes(std::string(source));
-
+        // Split by #type FIRST, then process includes per stage independently.
+        // This avoids false "circular include" warnings when multiple stages
+        // include the same file (e.g., CameraMatrices.glsl in both vertex and fragment).
         std::unordered_map<GLenum, std::string> shaderSources;
+        const std::string sourceStr(source);
 
         const char* const typeToken = "#type";
         const sizet typeTokenLength = std::strlen(typeToken);
-        sizet pos = processedSource.find(typeToken, 0);
+        sizet pos = sourceStr.find(typeToken, 0);
         while (pos != std::string::npos)
         {
-            const sizet eol = processedSource.find_first_of("\r\n", pos);
+            const sizet eol = sourceStr.find_first_of("\r\n", pos);
             OLO_CORE_ASSERT(eol != std::string::npos, "Syntax error");
 
             sizet typeStart = pos + typeTokenLength;
-            while (typeStart < eol && (processedSource[typeStart] == ' ' || processedSource[typeStart] == '\t'))
+            while (typeStart < eol && (sourceStr[typeStart] == ' ' || sourceStr[typeStart] == '\t'))
             {
                 typeStart++;
             }
 
             sizet typeEnd = typeStart;
-            while (typeEnd < eol && processedSource[typeEnd] != ' ' && processedSource[typeEnd] != '\t' && processedSource[typeEnd] != '\r' && processedSource[typeEnd] != '\n')
+            while (typeEnd < eol && sourceStr[typeEnd] != ' ' && sourceStr[typeEnd] != '\t' && sourceStr[typeEnd] != '\r' && sourceStr[typeEnd] != '\n')
             {
                 typeEnd++;
             }
 
-            std::string typeStr = processedSource.substr(typeStart, typeEnd - typeStart);
+            std::string typeStr = sourceStr.substr(typeStart, typeEnd - typeStart);
             GLenum shaderType = Utils::ShaderTypeFromString(typeStr);
             OLO_CORE_ASSERT(shaderType != 0, "Invalid shader type specified");
 
-            const sizet nextLinePos = processedSource.find_first_not_of("\r\n", eol);
+            const sizet nextLinePos = sourceStr.find_first_not_of("\r\n", eol);
             OLO_CORE_ASSERT(nextLinePos != std::string::npos, "Syntax error");
-            pos = processedSource.find(typeToken, nextLinePos);
+            pos = sourceStr.find(typeToken, nextLinePos);
 
-            shaderSources[shaderType] = (pos == std::string::npos) ? processedSource.substr(nextLinePos) : processedSource.substr(nextLinePos, pos - nextLinePos);
+            shaderSources[shaderType] = (pos == std::string::npos) ? sourceStr.substr(nextLinePos) : sourceStr.substr(nextLinePos, pos - nextLinePos);
         }
+
+        // Process includes per stage independently — each stage gets a fresh includedFiles set.
+        // Also collect all included file paths for cache invalidation.
+        m_IncludedFilePaths.clear();
+        for (auto& [type, stageSource] : shaderSources)
+        {
+            std::vector<std::string> stageIncludes;
+            stageSource = ProcessIncludes(stageSource, "", stageIncludes);
+            m_IncludedFilePaths.insert(m_IncludedFilePaths.end(), stageIncludes.begin(), stageIncludes.end());
+        }
+        // Deduplicate (order doesn't matter for cache invalidation)
+        std::sort(m_IncludedFilePaths.begin(), m_IncludedFilePaths.end());
+        m_IncludedFilePaths.erase(std::unique(m_IncludedFilePaths.begin(), m_IncludedFilePaths.end()), m_IncludedFilePaths.end());
 
         return shaderSources;
     }
@@ -940,11 +963,7 @@ namespace OloEngine
                             estimatedMemory,
                             RendererMemoryTracker::ResourceType::Shader,
                             m_Name.empty() ? "OpenGL Shader" : m_Name);
-
-        OLO_CORE_TRACE("FinalizeProgram: '{}' registering shader...", m_Name);
-        // Register shader
-        OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
-        OloEngine::Renderer3D::RegisterShaderRegistry(m_RendererID, &m_ResourceRegistry);
+        m_TrackedAllocation = true;
 
         OLO_CORE_TRACE("FinalizeProgram: '{}' decompiling SPIR-V for debugger...", m_Name);
         // Store shader source code in debugger
@@ -1198,6 +1217,8 @@ namespace OloEngine
             glDeleteProgram(m_RendererID);
             m_RendererID = 0;
             m_CompilationStatus = ShaderCompilationStatus::Failed;
+            OLO_SHADER_COMPILATION_END(0, false, infoLog.data(), m_DeferredCompilationTime);
+            m_DeferredCompilationTime = 0.0;
             return;
         }
 
@@ -1206,6 +1227,11 @@ namespace OloEngine
         OLO_CORE_TRACE("FinalizeAfterLink: Saving cache for '{}'...", m_Name);
         SaveProgramBinaryCache();
         m_CompilationStatus = ShaderCompilationStatus::Ready;
+
+        // Now that the shader is registered via FinalizeProgram, report deferred compilation end
+        OLO_SHADER_COMPILATION_END(m_RendererID, true, "", m_DeferredCompilationTime);
+        m_DeferredCompilationTime = 0.0;
+
         OLO_CORE_TRACE("FinalizeAfterLink: Shader '{}' is Ready", m_Name);
     }
 
@@ -1451,7 +1477,6 @@ namespace OloEngine
         m_CompilationStatus = ShaderCompilationStatus::Pending;
 
         std::string source = ReadFile(m_FilePath);
-        ProcessIncludes(source, "", m_IncludedFilePaths);
         auto shaderSources = PreProcess(source);
 
         try

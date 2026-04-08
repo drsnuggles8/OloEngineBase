@@ -16,7 +16,7 @@ namespace OloEngine
         glCreateBuffers(1, &m_RendererID);
         glNamedBufferData(m_RendererID, size, nullptr, GL_DYNAMIC_DRAW);
         // Track GPU memory allocation
-        OLO_TRACK_GPU_ALLOC(reinterpret_cast<void*>(static_cast<uintptr_t>(m_RendererID)),
+        OLO_TRACK_GPU_ALLOC(this,
                             size,
                             RendererMemoryTracker::ResourceType::VertexBuffer,
                             "OpenGL VertexBuffer (dynamic)");

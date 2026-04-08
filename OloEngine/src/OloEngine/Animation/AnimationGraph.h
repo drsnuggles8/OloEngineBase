@@ -21,13 +21,14 @@ namespace OloEngine
 
         void Start();
         void Update(f32 dt, sizet boneCount, std::vector<glm::mat4>& outFinalBoneMatrices,
-                    const std::vector<std::string>& boneNames = {});
+                    const std::vector<std::string>& boneNames,
+                    const std::vector<i32>& parentIndices);
 
-        [[nodiscard]] Ref<AnimationGraph> Clone() const;
+        [[nodiscard("cloned graph must be assigned")]] Ref<AnimationGraph> Clone() const;
         void ResolveClips(const std::vector<Ref<AnimationClip>>& availableClips);
-        [[nodiscard]] bool HasUnresolvedClips() const;
-        [[nodiscard]] const std::string& GetCurrentStateName(i32 layerIndex = 0) const;
-        [[nodiscard]] bool IsInTransition(i32 layerIndex = 0) const;
+        [[nodiscard("check needed to avoid sampling missing clips")]] bool HasUnresolvedClips() const;
+        [[nodiscard("state name needed for UI or logic")]] const std::string& GetCurrentStateName(i32 layerIndex = 0) const;
+        [[nodiscard("transition check needed for blend decisions")]] bool IsInTransition(i32 layerIndex = 0) const;
 
       private:
         void ApplyLayerTransforms(const AnimationLayer& layer,

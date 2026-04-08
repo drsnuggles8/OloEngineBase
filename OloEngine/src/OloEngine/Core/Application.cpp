@@ -7,6 +7,8 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Timer.h"
 #include "OloEngine/Debug/CrashReporter.h"
+#include "OloEngine/Debug/DebugOverlayLayer.h"
+#include "OloEngine/Debug/PerformanceLayer.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
@@ -77,8 +79,14 @@ namespace OloEngine
                 GamepadManager::Initialize();
                 InputActionManager::Init();
 
+                // Non-owning pointer — ownership is transferred to LayerStack
+                // via PushOverlay; kept here for convenient access.
                 m_ImGuiLayer = new ImGuiLayer();
-                PushOverlay(m_ImGuiLayer);
+                PushOverlay(std::unique_ptr<Layer>(m_ImGuiLayer));
+
+                // Debug/performance overlay layers (toggle with F3/F4)
+                PushOverlay(std::make_unique<DebugOverlayLayer>());
+                PushOverlay(std::make_unique<PerformanceLayer>());
             }
             else
             {
@@ -97,6 +105,10 @@ namespace OloEngine
         }
         catch (...)
         {
+            // Detach layers before shutting down subsystems they depend on.
+            m_LayerStack.Clear();
+            m_ImGuiLayer = nullptr;
+
             // Unwind subsystems in reverse initialization order.
             // Each Shutdown() is safe to call even if its Init() wasn't reached.
             if (!m_Specification.IsHeadless)
@@ -120,6 +132,10 @@ namespace OloEngine
                 m_Window.reset();
             }
             s_Instance = nullptr;
+
+            // Shutdown task scheduler started before the try block.
+            LowLevelTasks::FScheduler::Get().StopWorkers();
+            Tasks::FNamedThreadManager::Get().DetachFromThread(Tasks::ENamedThread::GameThread);
             throw;
         }
     }
@@ -127,11 +143,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        for (Layer* const layer : m_LayerStack)
-        {
-            layer->OnDetach();
-            delete layer;
-        }
+        // Clear calls OnDetach() on all layers and releases their memory.
+        // Do this before shutting down subsystems so layers detach while systems are live.
+        m_LayerStack.Clear();
+        m_ImGuiLayer = nullptr;
 
         if (!m_Specification.IsHeadless)
         {
@@ -178,32 +193,28 @@ namespace OloEngine
         }
     }
 
-    void Application::PushLayer(Layer* const layer)
+    void Application::PushLayer(std::unique_ptr<Layer> layer)
     {
         OLO_PROFILE_FUNCTION();
 
-        m_LayerStack.PushLayer(layer);
-        layer->OnAttach();
+        m_LayerStack.PushLayer(std::move(layer));
     }
 
-    void Application::PushOverlay(Layer* const layer)
+    void Application::PushOverlay(std::unique_ptr<Layer> layer)
     {
         OLO_PROFILE_FUNCTION();
 
-        m_LayerStack.PushOverlay(layer);
-        layer->OnAttach();
+        m_LayerStack.PushOverlay(std::move(layer));
     }
 
     void Application::PopLayer(Layer* const layer)
     {
         m_LayerStack.PopLayer(layer);
-        layer->OnDetach();
     }
 
     void Application::PopOverlay(Layer* const layer)
     {
         m_LayerStack.PopOverlay(layer);
-        layer->OnDetach();
     }
 
     void Application::Close()
@@ -254,7 +265,9 @@ namespace OloEngine
         {
 
             const auto timeNow = Time::GetTime();
-            const Timestep timestep = std::min(timeNow - m_LastFrameTime, s_MaxTimestep) * m_TimeScale;
+            const f32 rawDelta = timeNow - m_LastFrameTime;
+            m_UnscaledDeltaTime = rawDelta;
+            const Timestep timestep = std::min(rawDelta, s_MaxTimestep) * m_TimeScale;
             m_LastFrameTime = timeNow;
 
             // Poll OS events first so GLFW key state is fresh for this frame

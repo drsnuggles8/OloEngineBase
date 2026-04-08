@@ -184,7 +184,7 @@ namespace OloEngine
         }
     }
 
-    void RendererMemoryTracker::TrackDeallocation(void* address)
+    void RendererMemoryTracker::TrackDeallocation(void* address, const char* file, u32 line)
     {
         if (!address || m_IsShutdown)
             return;
@@ -225,7 +225,7 @@ namespace OloEngine
             }
             else
             {
-                OLO_CORE_WARN("Attempted to deallocate untracked memory at address {0}", address);
+                OLO_CORE_WARN("Attempted to deallocate untracked memory at address {0} (from {1}:{2})", address, file, line);
             }
         }
         catch (...)

@@ -9,6 +9,7 @@
 #include "OloEngine/Audio/AudioEvents/CommandID.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
+#include "OloEngine/Animation/IKTargetComponent.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
 #include "OloEngine/Physics3D/Physics3DTypes.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
@@ -30,6 +31,7 @@
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
+#include "OloEngine/Scene/ComponentReflection.h"
 
 #include <box2d/id.h>
 
@@ -148,10 +150,13 @@ namespace OloEngine
 
     struct TransformComponent
     {
+        OLO_PROPERTY()
         glm::vec3 Translation = { 0.0f, 0.0f, 0.0f };
+        OLO_PROPERTY()
         glm::vec3 Scale = { 1.0f, 1.0f, 1.0f };
 
       private:
+        OLO_PROPERTY(Name = "Rotation", Type = "vec3", Get = "comp.GetRotationEuler()", Set = "comp.SetRotationEuler({v})")
         glm::vec3 RotationEuler = { 0.0f, 0.0f, 0.0f };
         glm::quat Rotation = { 1.0f, 0.0f, 0.0f, 0.0f };
 
@@ -251,8 +256,10 @@ namespace OloEngine
 
     struct SpriteRendererComponent
     {
+        OLO_PROPERTY()
         glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
         Ref<Texture2D> Texture = nullptr;
+        OLO_PROPERTY()
         f32 TilingFactor = 1.0f;
 
         SpriteRendererComponent() = default;
@@ -263,8 +270,11 @@ namespace OloEngine
 
     struct CircleRendererComponent
     {
+        OLO_PROPERTY()
         glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
+        OLO_PROPERTY()
         f32 Thickness = 1.0f;
+        OLO_PROPERTY()
         f32 Fade = 0.005f;
 
         CircleRendererComponent() = default;
@@ -274,8 +284,17 @@ namespace OloEngine
     struct CameraComponent
     {
         // TODO(olbu): think about moving to Scene
+        OLO_PROPERTY(Name = "ProjectionType", Type = "int", Get = "static_cast<int>(comp.Camera.GetProjectionType())", Set = "comp.Camera.SetProjectionType(static_cast<SceneCamera::ProjectionType>({v}))")
+        OLO_PROPERTY(Name = "PerspectiveFOV", Type = "float", Get = "comp.Camera.GetPerspectiveVerticalFOV()", Set = "comp.Camera.SetPerspectiveVerticalFOV({v})")
+        OLO_PROPERTY(Name = "PerspectiveNearClip", Type = "float", Get = "comp.Camera.GetPerspectiveNearClip()", Set = "comp.Camera.SetPerspectiveNearClip({v})")
+        OLO_PROPERTY(Name = "PerspectiveFarClip", Type = "float", Get = "comp.Camera.GetPerspectiveFarClip()", Set = "comp.Camera.SetPerspectiveFarClip({v})")
+        OLO_PROPERTY(Name = "OrthographicSize", Type = "float", Get = "comp.Camera.GetOrthographicSize()", Set = "comp.Camera.SetOrthographicSize({v})")
+        OLO_PROPERTY(Name = "OrthographicNearClip", Type = "float", Get = "comp.Camera.GetOrthographicNearClip()", Set = "comp.Camera.SetOrthographicNearClip({v})")
+        OLO_PROPERTY(Name = "OrthographicFarClip", Type = "float", Get = "comp.Camera.GetOrthographicFarClip()", Set = "comp.Camera.SetOrthographicFarClip({v})")
         SceneCamera Camera;
+        OLO_PROPERTY()
         bool Primary = true;
+        OLO_PROPERTY()
         bool FixedAspectRatio = false;
         bool RuntimeControl = false;
         f32 FlySpeed = 5.0f;
@@ -310,12 +329,17 @@ namespace OloEngine
 
     struct BoxCollider2DComponent
     {
+        OLO_PROPERTY()
         glm::vec2 Offset = { 0.0f, 0.0f };
+        OLO_PROPERTY()
         glm::vec2 Size = { 0.5f, 0.5f };
 
         // TODO(olbu): move into physics material in the future maybe
+        OLO_PROPERTY()
         f32 Density = 1.0f;
+        OLO_PROPERTY()
         f32 Friction = 0.5f;
+        OLO_PROPERTY()
         f32 Restitution = 0.0f;
         f32 RestitutionThreshold = 0.5f;
 
@@ -328,12 +352,17 @@ namespace OloEngine
 
     struct CircleCollider2DComponent
     {
+        OLO_PROPERTY()
         glm::vec2 Offset = { 0.0f, 0.0f };
+        OLO_PROPERTY()
         f32 Radius = 0.5f;
 
         // TODO(olbu): move into physics material in the future maybe
+        OLO_PROPERTY()
         f32 Density = 1.0f;
+        OLO_PROPERTY()
         f32 Friction = 0.5f;
+        OLO_PROPERTY()
         f32 Restitution = 0.0f;
         f32 RestitutionThreshold = 0.5f;
 
@@ -355,12 +384,18 @@ namespace OloEngine
 
     struct Rigidbody3DComponent
     {
+        OLO_PROPERTY(Name = "BodyType", Type = "int", Get = "static_cast<int>(comp.m_Type)", Set = "comp.m_Type = static_cast<BodyType3D>({v})")
         BodyType3D m_Type = BodyType3D::Static;
         u32 m_LayerID = 0;
+        OLO_PROPERTY()
         f32 m_Mass = 1.0f;
+        OLO_PROPERTY()
         f32 m_LinearDrag = 0.01f;
+        OLO_PROPERTY()
         f32 m_AngularDrag = 0.05f;
+        OLO_PROPERTY()
         bool m_DisableGravity = false;
+        OLO_PROPERTY()
         bool m_IsTrigger = false;
         EActorAxis m_LockedAxes = EActorAxis::None;
 
@@ -379,7 +414,9 @@ namespace OloEngine
 
     struct BoxCollider3DComponent
     {
+        OLO_PROPERTY()
         glm::vec3 m_HalfExtents = { 0.5f, 0.5f, 0.5f };
+        OLO_PROPERTY()
         glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
 
         // Physics material properties
@@ -391,7 +428,9 @@ namespace OloEngine
 
     struct SphereCollider3DComponent
     {
+        OLO_PROPERTY()
         f32 m_Radius = 0.5f;
+        OLO_PROPERTY()
         glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
 
         // Physics material properties
@@ -403,8 +442,11 @@ namespace OloEngine
 
     struct CapsuleCollider3DComponent
     {
+        OLO_PROPERTY()
         f32 m_Radius = 0.5f;
+        OLO_PROPERTY()
         f32 m_HalfHeight = 1.0f;
+        OLO_PROPERTY()
         glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
 
         // Physics material properties
@@ -467,11 +509,15 @@ namespace OloEngine
 
     struct CharacterController3DComponent
     {
+        OLO_PROPERTY(Name = "SlopeLimit")
         f32 m_SlopeLimitDeg = 45.0f;
+        OLO_PROPERTY()
         f32 m_StepOffset = 0.4f;
+        OLO_PROPERTY()
         f32 m_JumpPower = 8.0f;
         u32 m_LayerID = 0;
 
+        OLO_PROPERTY()
         bool m_DisableGravity = false;
         bool m_ControlMovementInAir = false;
         bool m_ControlRotationInAir = false;
@@ -482,10 +528,14 @@ namespace OloEngine
 
     struct TextComponent
     {
+        OLO_PROPERTY(Name = "Text", Type = "string")
         std::string TextString;
         Ref<Font> FontAsset = Font::GetDefault();
+        OLO_PROPERTY()
         glm::vec4 Color{ 1.0f };
+        OLO_PROPERTY()
         f32 Kerning = 0.0f;
+        OLO_PROPERTY()
         f32 LineSpacing = 0.0f;
         f32 MaxWidth = 0.0f; // 0 = no wrapping
         bool DropShadow = false;
@@ -503,8 +553,33 @@ namespace OloEngine
         ScriptComponent(const ScriptComponent&) = default;
     };
 
+    struct LuaScriptComponent
+    {
+        std::string ScriptFile; // Relative path from project assets directory
+
+        LuaScriptComponent() = default;
+        LuaScriptComponent(const LuaScriptComponent&) = default;
+
+        auto operator==(const LuaScriptComponent&) const -> bool = default;
+    };
+
     struct AudioSourceComponent
     {
+        OLO_PROPERTY(Name = "Volume", Type = "float", Get = "comp.Config.VolumeMultiplier", Set = "comp.Config.VolumeMultiplier = {v}; if (comp.Source) comp.Source->SetVolume({v})")
+        OLO_PROPERTY(Name = "Pitch", Type = "float", Get = "comp.Config.PitchMultiplier", Set = "comp.Config.PitchMultiplier = {v}; if (comp.Source) comp.Source->SetPitch({v})")
+        OLO_PROPERTY(Name = "PlayOnAwake", Type = "bool", Get = "comp.Config.PlayOnAwake", Set = "comp.Config.PlayOnAwake = {v}")
+        OLO_PROPERTY(Name = "Looping", Type = "bool", Get = "comp.Config.Looping", Set = "comp.Config.Looping = {v}; if (comp.Source) comp.Source->SetLooping({v})")
+        OLO_PROPERTY(Name = "Spatialization", Type = "bool", Get = "comp.Config.Spatialization", Set = "comp.Config.Spatialization = {v}; if (comp.Source) comp.Source->SetSpatialization({v})")
+        OLO_PROPERTY(Name = "AttenuationModel", Type = "int", Get = "static_cast<int>(comp.Config.AttenuationModel)", Set = "comp.Config.AttenuationModel = static_cast<AttenuationModelType>({v}); if (comp.Source) comp.Source->SetAttenuationModel(comp.Config.AttenuationModel)")
+        OLO_PROPERTY(Name = "RollOff", Type = "float", Get = "comp.Config.RollOff", Set = "comp.Config.RollOff = {v}; if (comp.Source) comp.Source->SetRollOff({v})")
+        OLO_PROPERTY(Name = "MinGain", Type = "float", Get = "comp.Config.MinGain", Set = "comp.Config.MinGain = {v}; if (comp.Source) comp.Source->SetMinGain({v})")
+        OLO_PROPERTY(Name = "MaxGain", Type = "float", Get = "comp.Config.MaxGain", Set = "comp.Config.MaxGain = {v}; if (comp.Source) comp.Source->SetMaxGain({v})")
+        OLO_PROPERTY(Name = "MinDistance", Type = "float", Get = "comp.Config.MinDistance", Set = "comp.Config.MinDistance = {v}; if (comp.Source) comp.Source->SetMinDistance({v})")
+        OLO_PROPERTY(Name = "MaxDistance", Type = "float", Get = "comp.Config.MaxDistance", Set = "comp.Config.MaxDistance = {v}; if (comp.Source) comp.Source->SetMaxDistance({v})")
+        OLO_PROPERTY(Name = "ConeInnerAngle", Type = "float", Get = "comp.Config.ConeInnerAngle", Set = "comp.Config.ConeInnerAngle = {v}; if (comp.Source) comp.Source->SetCone(comp.Config.ConeInnerAngle, comp.Config.ConeOuterAngle, comp.Config.ConeOuterGain)")
+        OLO_PROPERTY(Name = "ConeOuterAngle", Type = "float", Get = "comp.Config.ConeOuterAngle", Set = "comp.Config.ConeOuterAngle = {v}; if (comp.Source) comp.Source->SetCone(comp.Config.ConeInnerAngle, comp.Config.ConeOuterAngle, comp.Config.ConeOuterGain)")
+        OLO_PROPERTY(Name = "ConeOuterGain", Type = "float", Get = "comp.Config.ConeOuterGain", Set = "comp.Config.ConeOuterGain = {v}; if (comp.Source) comp.Source->SetCone(comp.Config.ConeInnerAngle, comp.Config.ConeOuterAngle, comp.Config.ConeOuterGain)")
+        OLO_PROPERTY(Name = "DopplerFactor", Type = "float", Get = "comp.Config.DopplerFactor", Set = "comp.Config.DopplerFactor = {v}; if (comp.Source) comp.Source->SetDopplerFactor({v})")
         AudioSourceConfig Config;
 
         Ref<AudioSource> Source = nullptr;
@@ -561,6 +636,10 @@ namespace OloEngine
     // Material component for storing PBR material data
     struct MaterialComponent
     {
+        OLO_PROPERTY(Name = "AlbedoColor", Type = "vec4", Get = "comp.m_Material.GetBaseColorFactor()", Set = "comp.m_Material.SetBaseColorFactor({v})")
+        OLO_PROPERTY(Name = "Metallic", Type = "float", Get = "comp.m_Material.GetMetallicFactor()", Set = "comp.m_Material.SetMetallicFactor({v})")
+        OLO_PROPERTY(Name = "Roughness", Type = "float", Get = "comp.m_Material.GetRoughnessFactor()", Set = "comp.m_Material.SetRoughnessFactor({v})")
+        OLO_PROPERTY(Name = "Emissive", Type = "vec4", Get = "comp.m_Material.GetEmissiveFactor()", Set = "comp.m_Material.SetEmissiveFactor({v})")
         Material m_Material;
         AssetHandle m_ShaderGraphHandle = 0;
 
@@ -574,8 +653,11 @@ namespace OloEngine
     struct DirectionalLightComponent
     {
         glm::vec3 m_Direction = { 0.0f, -1.0f, 0.0f };
+        OLO_PROPERTY()
         glm::vec3 m_Color = { 1.0f, 1.0f, 1.0f };
+        OLO_PROPERTY()
         f32 m_Intensity = 1.0f;
+        OLO_PROPERTY()
         bool m_CastShadows = true;
 
         // Shadow settings
@@ -591,10 +673,14 @@ namespace OloEngine
 
     struct PointLightComponent
     {
+        OLO_PROPERTY()
         glm::vec3 m_Color = { 1.0f, 1.0f, 1.0f };
+        OLO_PROPERTY()
         f32 m_Intensity = 1.0f;
+        OLO_PROPERTY()
         f32 m_Range = 10.0f;      // Falloff range
         f32 m_Attenuation = 2.0f; // Attenuation power
+        OLO_PROPERTY()
         bool m_CastShadows = false;
 
         // Shadow settings
@@ -608,12 +694,18 @@ namespace OloEngine
     struct SpotLightComponent
     {
         glm::vec3 m_Direction = { 0.0f, -1.0f, 0.0f };
+        OLO_PROPERTY()
         glm::vec3 m_Color = { 1.0f, 1.0f, 1.0f };
+        OLO_PROPERTY()
         f32 m_Intensity = 1.0f;
+        OLO_PROPERTY()
         f32 m_Range = 10.0f;
+        OLO_PROPERTY()
         f32 m_InnerCutoff = 12.5f; // Inner cone angle in degrees
+        OLO_PROPERTY()
         f32 m_OuterCutoff = 17.5f; // Outer cone angle in degrees
         f32 m_Attenuation = 2.0f;
+        OLO_PROPERTY()
         bool m_CastShadows = false;
 
         // Shadow settings
@@ -656,8 +748,11 @@ namespace OloEngine
     // Light probe component for a single standalone probe
     struct LightProbeComponent
     {
+        OLO_PROPERTY()
         f32 m_InfluenceRadius = 10.0f;
+        OLO_PROPERTY()
         f32 m_Intensity = 1.0f;
+        OLO_PROPERTY()
         bool m_Active = true;
         SHCoefficients m_SHCoefficients{};
 
@@ -668,11 +763,16 @@ namespace OloEngine
     // Light probe volume for grid-based global illumination
     struct LightProbeVolumeComponent
     {
+        OLO_PROPERTY(Set = "comp.m_BoundsMin = {v}; comp.m_Dirty = true")
         glm::vec3 m_BoundsMin = glm::vec3(-10.0f);
+        OLO_PROPERTY(Set = "comp.m_BoundsMax = {v}; comp.m_Dirty = true")
         glm::vec3 m_BoundsMax = glm::vec3(10.0f);
         glm::ivec3 m_Resolution = glm::ivec3(4, 2, 4);
+        OLO_PROPERTY(Set = "comp.m_Spacing = {v}; comp.m_Dirty = true")
         f32 m_Spacing = 5.0f;
+        OLO_PROPERTY(Set = "comp.m_Intensity = {v}; comp.m_Dirty = true")
         f32 m_Intensity = 1.0f;
+        OLO_PROPERTY(Set = "comp.m_Active = {v}; comp.m_Dirty = true")
         bool m_Active = true;
         bool m_Dirty = true;
         bool m_ShowDebugProbes = false;
@@ -732,6 +832,7 @@ namespace OloEngine
     {
         UICanvasRenderMode m_RenderMode = UICanvasRenderMode::ScreenSpaceOverlay;
         UICanvasScaleMode m_ScaleMode = UICanvasScaleMode::ConstantPixelSize;
+        OLO_PROPERTY()
         i32 m_SortOrder = 0;
         glm::vec2 m_ReferenceResolution = { 1920.0f, 1080.0f };
 
@@ -741,12 +842,19 @@ namespace OloEngine
 
     struct UIRectTransformComponent
     {
+        OLO_PROPERTY()
         glm::vec2 m_AnchorMin = { 0.5f, 0.5f };
+        OLO_PROPERTY()
         glm::vec2 m_AnchorMax = { 0.5f, 0.5f };
+        OLO_PROPERTY()
         glm::vec2 m_AnchoredPosition = { 0.0f, 0.0f };
+        OLO_PROPERTY()
         glm::vec2 m_SizeDelta = { 100.0f, 100.0f };
+        OLO_PROPERTY()
         glm::vec2 m_Pivot = { 0.5f, 0.5f };
+        OLO_PROPERTY()
         f32 m_Rotation = 0.0f;
+        OLO_PROPERTY()
         glm::vec2 m_Scale = { 1.0f, 1.0f };
 
         UIRectTransformComponent() = default;
@@ -787,6 +895,7 @@ namespace OloEngine
     struct UIImageComponent
     {
         Ref<Texture2D> m_Texture = nullptr;
+        OLO_PROPERTY()
         glm::vec4 m_Color = { 1.0f, 1.0f, 1.0f, 1.0f };
         // 9-slice border insets (left, right, top, bottom) in pixels
         glm::vec4 m_BorderInsets = { 0.0f, 0.0f, 0.0f, 0.0f };
@@ -797,6 +906,7 @@ namespace OloEngine
 
     struct UIPanelComponent
     {
+        OLO_PROPERTY()
         glm::vec4 m_BackgroundColor = { 0.2f, 0.2f, 0.2f, 1.0f };
         Ref<Texture2D> m_BackgroundTexture = nullptr;
 
@@ -806,12 +916,17 @@ namespace OloEngine
 
     struct UITextComponent
     {
+        OLO_PROPERTY(Name = "Text", Type = "string")
         std::string m_Text;
         Ref<Font> m_FontAsset = Font::GetDefault();
+        OLO_PROPERTY()
         f32 m_FontSize = 24.0f;
+        OLO_PROPERTY()
         glm::vec4 m_Color = { 1.0f, 1.0f, 1.0f, 1.0f };
         UITextAlignment m_Alignment = UITextAlignment::MiddleCenter;
+        OLO_PROPERTY()
         f32 m_Kerning = 0.0f;
+        OLO_PROPERTY()
         f32 m_LineSpacing = 0.0f;
 
         UITextComponent() = default;
@@ -820,13 +935,19 @@ namespace OloEngine
 
     struct UIButtonComponent
     {
+        OLO_PROPERTY()
         glm::vec4 m_NormalColor = { 0.3f, 0.3f, 0.3f, 1.0f };
+        OLO_PROPERTY()
         glm::vec4 m_HoveredColor = { 0.4f, 0.4f, 0.4f, 1.0f };
+        OLO_PROPERTY()
         glm::vec4 m_PressedColor = { 0.2f, 0.2f, 0.2f, 1.0f };
+        OLO_PROPERTY()
         glm::vec4 m_DisabledColor = { 0.15f, 0.15f, 0.15f, 0.5f };
+        OLO_PROPERTY()
         bool m_Interactable = true;
 
         // Runtime state — not serialized
+        OLO_PROPERTY(Name = "State", Type = "int", Get = "static_cast<int>(comp.m_State)", Set = "comp.m_State = static_cast<UIButtonState>({v})")
         UIButtonState m_State = UIButtonState::Normal;
 
         UIButtonComponent() = default;
@@ -843,13 +964,17 @@ namespace OloEngine
 
     struct UISliderComponent
     {
+        OLO_PROPERTY()
         f32 m_Value = 0.0f;
+        OLO_PROPERTY()
         f32 m_MinValue = 0.0f;
+        OLO_PROPERTY()
         f32 m_MaxValue = 1.0f;
         UISliderDirection m_Direction = UISliderDirection::LeftToRight;
         glm::vec4 m_BackgroundColor = { 0.15f, 0.15f, 0.15f, 1.0f };
         glm::vec4 m_FillColor = { 0.3f, 0.6f, 1.0f, 1.0f };
         glm::vec4 m_HandleColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+        OLO_PROPERTY()
         bool m_Interactable = true;
 
         // Runtime state — not serialized
@@ -861,10 +986,12 @@ namespace OloEngine
 
     struct UICheckboxComponent
     {
+        OLO_PROPERTY()
         bool m_IsChecked = false;
         glm::vec4 m_UncheckedColor = { 0.2f, 0.2f, 0.2f, 1.0f };
         glm::vec4 m_CheckedColor = { 0.3f, 0.6f, 1.0f, 1.0f };
         glm::vec4 m_CheckmarkColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+        OLO_PROPERTY()
         bool m_Interactable = true;
 
         UICheckboxComponent() = default;
@@ -879,8 +1006,11 @@ namespace OloEngine
 
     struct UIProgressBarComponent
     {
+        OLO_PROPERTY()
         f32 m_Value = 0.0f;
+        OLO_PROPERTY()
         f32 m_MinValue = 0.0f;
+        OLO_PROPERTY()
         f32 m_MaxValue = 1.0f;
         UIFillMethod m_FillMethod = UIFillMethod::Horizontal;
         glm::vec4 m_BackgroundColor = { 0.15f, 0.15f, 0.15f, 1.0f };
@@ -896,6 +1026,7 @@ namespace OloEngine
     struct UIWorldAnchorComponent
     {
         UUID m_TargetEntity;
+        OLO_PROPERTY()
         glm::vec3 m_WorldOffset = { 0.0f, 2.0f, 0.0f };
 
         UIWorldAnchorComponent() = default;
@@ -904,14 +1035,19 @@ namespace OloEngine
 
     struct UIInputFieldComponent
     {
+        OLO_PROPERTY(Name = "Text", Type = "string")
         std::string m_Text;
+        OLO_PROPERTY(Name = "Placeholder", Type = "string")
         std::string m_Placeholder = "Enter text...";
         Ref<Font> m_FontAsset = Font::GetDefault();
+        OLO_PROPERTY()
         f32 m_FontSize = 24.0f;
+        OLO_PROPERTY()
         glm::vec4 m_TextColor = { 1.0f, 1.0f, 1.0f, 1.0f };
         glm::vec4 m_PlaceholderColor = { 0.5f, 0.5f, 0.5f, 1.0f };
         glm::vec4 m_BackgroundColor = { 0.15f, 0.15f, 0.15f, 1.0f };
         i32 m_CharacterLimit = 0; // 0 = no limit
+        OLO_PROPERTY()
         bool m_Interactable = true;
 
         // Runtime state — not serialized
@@ -933,9 +1069,12 @@ namespace OloEngine
 
     struct UIScrollViewComponent
     {
+        OLO_PROPERTY()
         glm::vec2 m_ScrollPosition = { 0.0f, 0.0f };
+        OLO_PROPERTY()
         glm::vec2 m_ContentSize = { 0.0f, 0.0f }; // total scrollable content area
         UIScrollDirection m_ScrollDirection = UIScrollDirection::Vertical;
+        OLO_PROPERTY()
         f32 m_ScrollSpeed = 20.0f;
         bool m_ShowHorizontalScrollbar = false;
         bool m_ShowVerticalScrollbar = true;
@@ -954,6 +1093,7 @@ namespace OloEngine
     struct UIDropdownComponent
     {
         std::vector<UIDropdownOption> m_Options;
+        OLO_PROPERTY()
         i32 m_SelectedIndex = -1;
         glm::vec4 m_BackgroundColor = { 0.2f, 0.2f, 0.2f, 1.0f };
         glm::vec4 m_HighlightColor = { 0.3f, 0.6f, 1.0f, 1.0f };
@@ -961,6 +1101,7 @@ namespace OloEngine
         Ref<Font> m_FontAsset = Font::GetDefault();
         f32 m_FontSize = 24.0f;
         f32 m_ItemHeight = 30.0f;
+        OLO_PROPERTY()
         bool m_Interactable = true;
 
         // Runtime state — not serialized
@@ -987,11 +1128,14 @@ namespace OloEngine
 
     struct UIGridLayoutComponent
     {
+        OLO_PROPERTY()
         glm::vec2 m_CellSize = { 100.0f, 100.0f };
+        OLO_PROPERTY()
         glm::vec2 m_Spacing = { 5.0f, 5.0f };
         glm::vec4 m_Padding = { 5.0f, 5.0f, 5.0f, 5.0f }; // left, right, top, bottom
         UIGridLayoutStartCorner m_StartCorner = UIGridLayoutStartCorner::UpperLeft;
         UIGridLayoutAxis m_StartAxis = UIGridLayoutAxis::Horizontal;
+        OLO_PROPERTY()
         i32 m_ConstraintCount = 0; // 0 = flexible, >0 = fixed columns (Horizontal) or rows (Vertical)
 
         UIGridLayoutComponent() = default;
@@ -1000,10 +1144,12 @@ namespace OloEngine
 
     struct UIToggleComponent
     {
+        OLO_PROPERTY()
         bool m_IsOn = false;
         glm::vec4 m_OffColor = { 0.3f, 0.3f, 0.3f, 1.0f };
         glm::vec4 m_OnColor = { 0.3f, 0.8f, 0.3f, 1.0f };
         glm::vec4 m_KnobColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+        OLO_PROPERTY()
         bool m_Interactable = true;
 
         UIToggleComponent() = default;
@@ -1014,6 +1160,10 @@ namespace OloEngine
 
     struct ParticleSystemComponent
     {
+        OLO_PROPERTY(Name = "Playing", Type = "bool", Get = "comp.System.Playing", Set = "comp.System.Playing = {v}")
+        OLO_PROPERTY(Name = "Looping", Type = "bool", Get = "comp.System.Looping", Set = "comp.System.Looping = {v}")
+        OLO_PROPERTY(Name = "EmissionRate", Type = "float", Get = "comp.System.Emitter.RateOverTime", Set = "comp.System.Emitter.RateOverTime = {v}")
+        OLO_PROPERTY(Name = "WindInfluence", Type = "float", Get = "comp.System.WindInfluence", Set = "comp.System.WindInfluence = {v}")
         ParticleSystem System;
         Ref<Texture2D> Texture = nullptr;
         Ref<Mesh> ParticleMesh = nullptr; // Mesh for ParticleRenderMode::Mesh
@@ -1544,13 +1694,18 @@ namespace OloEngine
     {
         f32 m_Radius = 0.5f;
         f32 m_Height = 2.0f;
+        OLO_PROPERTY()
         f32 m_MaxSpeed = 3.5f;
+        OLO_PROPERTY()
         f32 m_Acceleration = 8.0f;
+        OLO_PROPERTY()
         f32 m_StoppingDistance = 0.1f;
         i32 m_AvoidancePriority = 50;
+        OLO_PROPERTY()
         bool m_LockYAxis = false; // When true, navigation only moves on XZ plane
 
         // Runtime state (not serialized)
+        OLO_PROPERTY(Name = "TargetPosition", Type = "vec3", Set = "comp.m_TargetPosition = {v}; comp.m_HasTarget = true; comp.m_HasPath = false")
         glm::vec3 m_TargetPosition = { 0.0f, 0.0f, 0.0f };
         bool m_HasTarget = false;
         bool m_HasPath = false;
@@ -1617,14 +1772,23 @@ namespace OloEngine
     // Values are read automatically from AbilityComponent at render time.
     struct NameplateComponent
     {
+        OLO_PROPERTY()
         bool m_Enabled = true;
+        OLO_PROPERTY()
         bool m_ShowHealthBar = true;
+        OLO_PROPERTY()
         bool m_ShowManaBar = false;
+        OLO_PROPERTY()
         glm::vec3 m_WorldOffset = { 0.0f, 2.0f, 0.0f };
+        OLO_PROPERTY()
         glm::vec2 m_BarSize = { 160.0f, 12.0f };
+        OLO_PROPERTY()
         glm::vec4 m_HealthBarColor = { 0.2f, 0.8f, 0.2f, 1.0f };
+        OLO_PROPERTY()
         glm::vec4 m_ManaBarColor = { 0.2f, 0.4f, 0.9f, 1.0f };
+        OLO_PROPERTY()
         glm::vec4 m_BarBackgroundColor = { 0.15f, 0.15f, 0.15f, 0.85f };
+        OLO_PROPERTY()
         f32 m_ManaBarGap = 2.0f; // pixels between HP and mana bar
 
         NameplateComponent() = default;
@@ -1655,6 +1819,7 @@ namespace OloEngine
         CharacterController3DComponent,
         TextComponent,
         ScriptComponent,
+        LuaScriptComponent,
         AudioSourceComponent,
         AudioListenerComponent,
         SubmeshComponent,
@@ -1713,5 +1878,6 @@ namespace OloEngine
         QuestJournalComponent,
         QuestGiverComponent,
         AbilityComponent,
-        NameplateComponent>;
+        NameplateComponent,
+        IKTargetComponent>;
 } // namespace OloEngine

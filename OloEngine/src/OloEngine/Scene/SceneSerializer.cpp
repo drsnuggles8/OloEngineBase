@@ -1382,6 +1382,12 @@ namespace OloEngine
             }
         }
 
+        if (auto const& luaScript = entity["LuaScriptComponent"])
+        {
+            auto& lsc = deserializedEntity.AddComponent<LuaScriptComponent>();
+            TrySet(lsc.ScriptFile, luaScript["ScriptFile"]);
+        }
+
         if (const auto& audioSourceComponent = entity["AudioSourceComponent"])
         {
             auto& src = deserializedEntity.AddComponent<AudioSourceComponent>();
@@ -2924,6 +2930,45 @@ namespace OloEngine
             TrySet(nc.m_BarBackgroundColor, nameplateNode["BarBackgroundColor"]);
             TrySet(nc.m_ManaBarGap, nameplateNode["ManaBarGap"]);
         }
+
+        if (auto ikNode = entity["IKTargetComponent"]; ikNode)
+        {
+            auto& ik = deserializedEntity.AddComponent<IKTargetComponent>();
+            TrySet(ik.AimIKEnabled, ikNode["AimIKEnabled"]);
+            TrySet(ik.AimBoneIndex, ikNode["AimBoneIndex"]);
+            TrySet(ik.AimTarget, ikNode["AimTarget"]);
+            TrySet(ik.AimAxis, ikNode["AimAxis"]);
+            TrySet(ik.AimOffset, ikNode["AimOffset"]);
+            TrySet(ik.AimPoleVector, ikNode["AimPoleVector"]);
+            TrySet(ik.AimChainLength, ikNode["AimChainLength"]);
+            TrySet(ik.AimChainFactor, ikNode["AimChainFactor"]);
+            TrySet(ik.AimWeight, ikNode["AimWeight"]);
+            if (auto aimTargetNode = ikNode["AimTargetEntity"]; aimTargetNode)
+            {
+                ik.AimTargetEntity = aimTargetNode.as<u64>(0);
+            }
+            TrySet(ik.LimbIKEnabled, ikNode["LimbIKEnabled"]);
+            TrySet(ik.LimbBoneIndex, ikNode["LimbBoneIndex"]);
+            TrySet(ik.LimbTarget, ikNode["LimbTarget"]);
+            TrySet(ik.LimbChainLength, ikNode["LimbChainLength"]);
+            TrySet(ik.LimbWeight, ikNode["LimbWeight"]);
+            if (auto limbTargetNode = ikNode["LimbTargetEntity"]; limbTargetNode)
+            {
+                ik.LimbTargetEntity = limbTargetNode.as<u64>(0);
+            }
+
+            // Sanitize float/vector fields — replace NaN/Inf with defaults and clamp to valid ranges
+            ik.AimChainLength = std::max(1u, ik.AimChainLength);
+            ik.LimbChainLength = std::max(2u, ik.LimbChainLength);
+            SanitizeVec3(ik.AimTarget, glm::vec3(0.0f));
+            SanitizeVec3(ik.AimAxis, glm::vec3(0.0f, 0.0f, 1.0f));
+            SanitizeVec3(ik.AimOffset, glm::vec3(0.0f));
+            SanitizeVec3(ik.AimPoleVector, glm::vec3(0.0f, 1.0f, 0.0f));
+            SanitizeVec3(ik.LimbTarget, glm::vec3(0.0f));
+            SanitizeFloat(ik.AimChainFactor, 0.0f, 1.0f, 0.5f);
+            SanitizeFloat(ik.AimWeight, 0.0f, 1.0f, 1.0f);
+            SanitizeFloat(ik.LimbWeight, 0.0f, 1.0f, 1.0f);
+        }
     }
 
     SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -3043,6 +3088,15 @@ namespace OloEngine
                 out << YAML::EndSeq;
             }
 
+            out << YAML::EndMap;
+        }
+
+        if (entity.HasComponent<LuaScriptComponent>())
+        {
+            auto const& luaScript = entity.GetComponent<LuaScriptComponent>();
+            out << YAML::Key << "LuaScriptComponent";
+            out << YAML::BeginMap;
+            out << YAML::Key << "ScriptFile" << YAML::Value << luaScript.ScriptFile;
             out << YAML::EndMap;
         }
 
@@ -4878,6 +4932,38 @@ namespace OloEngine
             out << YAML::Key << "ManaBarGap" << YAML::Value << nc.m_ManaBarGap;
 
             out << YAML::EndMap; // NameplateComponent
+        }
+
+        if (entity.HasComponent<IKTargetComponent>())
+        {
+            out << YAML::Key << "IKTargetComponent";
+            out << YAML::BeginMap;
+
+            auto const& ik = entity.GetComponent<IKTargetComponent>();
+            out << YAML::Key << "AimIKEnabled" << YAML::Value << ik.AimIKEnabled;
+            out << YAML::Key << "AimBoneIndex" << YAML::Value << ik.AimBoneIndex;
+            out << YAML::Key << "AimTarget" << YAML::Value << ik.AimTarget;
+            out << YAML::Key << "AimAxis" << YAML::Value << ik.AimAxis;
+            out << YAML::Key << "AimOffset" << YAML::Value << ik.AimOffset;
+            out << YAML::Key << "AimPoleVector" << YAML::Value << ik.AimPoleVector;
+            out << YAML::Key << "AimChainLength" << YAML::Value << ik.AimChainLength;
+            out << YAML::Key << "AimChainFactor" << YAML::Value << ik.AimChainFactor;
+            out << YAML::Key << "AimWeight" << YAML::Value << ik.AimWeight;
+            if (static_cast<u64>(ik.AimTargetEntity) != 0)
+            {
+                out << YAML::Key << "AimTargetEntity" << YAML::Value << static_cast<u64>(ik.AimTargetEntity);
+            }
+            out << YAML::Key << "LimbIKEnabled" << YAML::Value << ik.LimbIKEnabled;
+            out << YAML::Key << "LimbBoneIndex" << YAML::Value << ik.LimbBoneIndex;
+            out << YAML::Key << "LimbTarget" << YAML::Value << ik.LimbTarget;
+            out << YAML::Key << "LimbChainLength" << YAML::Value << ik.LimbChainLength;
+            out << YAML::Key << "LimbWeight" << YAML::Value << ik.LimbWeight;
+            if (static_cast<u64>(ik.LimbTargetEntity) != 0)
+            {
+                out << YAML::Key << "LimbTargetEntity" << YAML::Value << static_cast<u64>(ik.LimbTargetEntity);
+            }
+
+            out << YAML::EndMap; // IKTargetComponent
         }
 
         out << YAML::EndMap; // Entity

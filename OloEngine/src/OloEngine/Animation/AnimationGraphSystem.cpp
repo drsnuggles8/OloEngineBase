@@ -1,5 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Animation/AnimationGraphSystem.h"
+#include "OloEngine/Animation/IKTargetComponent.h"
+#include "OloEngine/Animation/IK/IKPostPass.h"
 #include "OloEngine/Core/Log.h"
 
 namespace OloEngine::Animation
@@ -7,7 +9,9 @@ namespace OloEngine::Animation
     void AnimationGraphSystem::Update(
         AnimationGraphComponent& graphComp,
         Skeleton& skeleton,
-        f32 deltaTime)
+        f32 deltaTime,
+        const IKTargetComponent* ikTarget,
+        const glm::mat4& entityWorldTransform)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -26,7 +30,7 @@ namespace OloEngine::Animation
         graphComp.RuntimeGraph->Parameters = graphComp.Parameters;
 
         // Evaluate the animation graph directly into the skeleton's local transform buffer
-        graphComp.RuntimeGraph->Update(deltaTime, boneCount, skeleton.m_LocalTransforms, skeleton.m_BoneNames);
+        graphComp.RuntimeGraph->Update(deltaTime, boneCount, skeleton.m_LocalTransforms, skeleton.m_BoneNames, skeleton.m_ParentIndices);
 
         // Copy parameters back (triggers may have been consumed)
         graphComp.Parameters = graphComp.RuntimeGraph->Parameters;
@@ -35,6 +39,12 @@ namespace OloEngine::Animation
         OLO_CORE_ASSERT(skeleton.m_ParentIndices.size() >= boneCount, "ParentIndices too small for boneCount");
         skeleton.m_GlobalTransforms.resize(boneCount, glm::mat4(1.0f));
         skeleton.m_FinalBoneMatrices.resize(boneCount, glm::mat4(1.0f));
+
+        // Apply IK pass between pose evaluation and forward kinematics
+        if (ikTarget && (ikTarget->AimIKEnabled || ikTarget->LimbIKEnabled))
+        {
+            ApplyIKPostPass(skeleton, *ikTarget, entityWorldTransform);
+        }
 
         // Compute global transforms (forward kinematics)
         // Pre-transforms account for non-bone intermediate nodes in the hierarchy

@@ -31,11 +31,11 @@ namespace OloEngine
 
         // And have it read the given file with some postprocessing
         const aiScene* scene = importer.ReadFile(path,
-                                                 aiProcess_Triangulate |             // Make sure we get triangles
-                                                     aiProcess_GenNormals |          // Create normals if not present
-                                                     aiProcess_CalcTangentSpace |    // Calculate tangents and bitangents
-                                                     aiProcess_FlipUVs |             // Flip texture coordinates
-                                                     aiProcess_ValidateDataStructure // Validate the imported data structure
+                                                 aiProcess_Triangulate |               // Make sure we get triangles
+                                                     aiProcess_GenNormals |            // Create normals if not present
+                                                     aiProcess_CalcTangentSpace |      // Calculate tangents and bitangents
+                                                     aiProcess_ValidateDataStructure | // Validate the imported data structure
+                                                     aiProcess_PreTransformVertices    // Bake node transforms into vertices (safe for static meshes)
         );
 
         // Check for errors

@@ -116,7 +116,7 @@ namespace OloEngine
                 m_ResourceCounts[static_cast<sizet>(oldType)]--;
                 m_ResourceCounts[static_cast<sizet>(ResourceType::Texture2D)]++;
             }
-            OLO_CORE_WARN("Registered DUPLICATE texture: {} (ID: {}) - replacing existing", name, rendererID);
+            OLO_CORE_TRACE("Registered DUPLICATE texture: {} (ID: {}) - replacing existing", name, rendererID);
         }
     }
 
@@ -163,7 +163,7 @@ namespace OloEngine
                 m_ResourceCounts[static_cast<sizet>(oldType)]--;
                 m_ResourceCounts[static_cast<sizet>(ResourceType::TextureCubemap)]++;
             }
-            OLO_CORE_WARN("Registered DUPLICATE cubemap: {} (ID: {}) - replacing existing", name, rendererID);
+            OLO_CORE_TRACE("Registered DUPLICATE cubemap: {} (ID: {}) - replacing existing", name, rendererID);
         }
 
         OLO_CORE_TRACE("Registered texture cubemap: {} (ID: {})", name, rendererID);
@@ -230,7 +230,7 @@ namespace OloEngine
                 m_ResourceCounts[static_cast<sizet>(oldType)]--;
                 m_ResourceCounts[static_cast<sizet>(bufferType)]++;
             }
-            OLO_CORE_WARN("Registered DUPLICATE buffer: {} (ID: {}, Target: 0x{:X}) - replacing existing", name, rendererID, target);
+            OLO_CORE_TRACE("Registered DUPLICATE buffer: {} (ID: {}, Target: 0x{:X}) - replacing existing", name, rendererID, target);
         }
     }
 
@@ -277,7 +277,7 @@ namespace OloEngine
                 m_ResourceCounts[static_cast<sizet>(oldType)]--;
                 m_ResourceCounts[static_cast<sizet>(ResourceType::Framebuffer)]++;
             }
-            OLO_CORE_WARN("Registered DUPLICATE framebuffer: {} (ID: {}) - replacing existing", name, rendererID);
+            OLO_CORE_TRACE("Registered DUPLICATE framebuffer: {} (ID: {}) - replacing existing", name, rendererID);
         }
     }
 

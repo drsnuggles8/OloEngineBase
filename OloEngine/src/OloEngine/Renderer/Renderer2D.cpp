@@ -6,7 +6,7 @@
 #include "OloEngine/Renderer/Buffer.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
-#include "OloEngine/Renderer/MSDFData.h"
+#include "OloEngine/Renderer/SlugData.h"
 #include "OloEngine/Renderer/ShaderWarmup.h"
 #include "OloEngine/Core/Application.h"
 
@@ -61,9 +61,9 @@ namespace OloEngine
     {
         glm::vec3 Position;
         glm::vec4 Color;
-        glm::vec2 TexCoord;
-
-        // TODO: bg color for outline/bg
+        glm::vec2 TexCoord;      // em-space sample coordinates
+        glm::vec4 BandTransform; // (scaleX, scaleY, offsetX, offsetY)
+        glm::ivec4 GlyphData;    // (bandTexX, bandTexY, bandMaxX, bandMaxY)
 
         // Editor-only
         int EntityID;
@@ -123,7 +123,8 @@ namespace OloEngine
         // 0 = white texture
         u32 TextureSlotIndex = 1;
 
-        Ref<Texture2D> FontAtlasTexture;
+        Ref<Texture2D> SlugCurveTexture;
+        Ref<Texture2D> SlugBandTexture;
 
         glm::vec4 QuadVertexPositions[4]{};
 
@@ -221,6 +222,8 @@ namespace OloEngine
         s_Data.TextVertexBuffer->SetLayout({ { ShaderDataType::Float3, "a_Position" },
                                              { ShaderDataType::Float4, "a_Color" },
                                              { ShaderDataType::Float2, "a_TexCoord" },
+                                             { ShaderDataType::Float4, "a_BandTransform" },
+                                             { ShaderDataType::Int4, "a_GlyphData" },
                                              { ShaderDataType::Int, "a_EntityID" } });
         s_Data.TextVertexArray->AddVertexBuffer(s_Data.TextVertexBuffer);
         s_Data.TextVertexArray->SetIndexBuffer(quadIB);
@@ -426,7 +429,14 @@ namespace OloEngine
         {
             DrawCall drawCall;
             drawCall.Shader = s_Data.TextShader;
-            drawCall.Textures.push_back(s_Data.FontAtlasTexture);
+            if (s_Data.SlugCurveTexture)
+            {
+                drawCall.Textures.push_back(s_Data.SlugCurveTexture);
+            }
+            if (s_Data.SlugBandTexture)
+            {
+                drawCall.Textures.push_back(s_Data.SlugBandTexture);
+            }
             drawCall.IndexCount = s_Data.TextIndexCount;
             drawCall.VertexBufferBase = s_Data.TextVertexBufferBase;
             drawCall.VertexBufferSize = static_cast<u32>(std::bit_cast<std::byte*>(s_Data.TextVertexBufferPtr) - std::bit_cast<std::byte*>(s_Data.TextVertexBufferBase));
@@ -863,29 +873,50 @@ namespace OloEngine
 
     void Renderer2D::DrawString(const std::string& string, Ref<Font> font, const glm::mat4& transform, const TextParams& textParams, int entityID)
     {
-        const auto& fontGeometry = font->GetMSDFData()->FontGeometry;
-        const auto& metrics = fontGeometry.getMetrics();
-        Ref<Texture2D> fontAtlas = font->GetAtlasTexture();
+        OLO_PROFILE_FUNCTION();
 
-        s_Data.FontAtlasTexture = fontAtlas;
+        const auto* slugData = font->GetSlugData();
+        if (!slugData)
+        {
+            return;
+        }
 
-        double fsScale = 1.0 / (metrics.ascenderY - metrics.descenderY);
+        const auto& metrics = slugData->Metrics;
 
-        const auto spaceGlyphAdvance = static_cast<f32>(fontGeometry.getGlyph(' ')->getAdvance());
+        // Store Slug textures for the flush pass.
+        // Flush text batch if font changed (different textures) to avoid
+        // earlier vertices sampling the wrong font's textures.
+        auto curveTexture = font->GetCurveTexture();
+        auto bandTexture = font->GetBandTexture();
+        if (s_Data.TextIndexCount > 0 && (s_Data.SlugCurveTexture != curveTexture || s_Data.SlugBandTexture != bandTexture))
+        {
+            NextBatch();
+        }
+        s_Data.SlugCurveTexture = curveTexture;
+        s_Data.SlugBandTexture = bandTexture;
+
+        const auto metricSpan = static_cast<double>(metrics.AscenderY - metrics.DescenderY);
+        const double fsScale = std::abs(metricSpan) > 1e-6 ? (1.0 / metricSpan) : 1.0;
+
+        const auto* spaceGlyph = slugData->GetGlyph(' ');
+        const f32 spaceGlyphAdvance = spaceGlyph ? spaceGlyph->AdvanceWidth : 0.25f;
+
+        // Small margin to expand glyph bounding box (prevents edge clipping).
+        constexpr f32 kGlyphMargin = 0.02f;
 
         // First pass: compute word-wrap line breaks when MaxWidth > 0
         std::vector<sizet> wrapBreaks;
         std::vector<bool> wrapIsMidWord;
         if (textParams.MaxWidth > 0.0f)
         {
-            double x = 0.0;
+            double wx = 0.0;
             sizet lastSpace = std::string::npos;
             for (sizet i = 0; i < string.size(); i++)
             {
-                char character = string[i];
+                auto character = static_cast<unsigned char>(string[i]);
                 if (character == '\n' || character == '\r')
                 {
-                    x = 0.0;
+                    wx = 0.0;
                     lastSpace = std::string::npos;
                     continue;
                 }
@@ -893,33 +924,29 @@ namespace OloEngine
                 if (character == ' ')
                 {
                     lastSpace = i;
-                    double advance = spaceGlyphAdvance;
+                    f32 advance = spaceGlyphAdvance;
                     if (i < string.size() - 1)
                     {
-                        double dAdv{};
-                        fontGeometry.getAdvance(dAdv, character, string[i + 1]);
-                        advance = dAdv;
+                        advance = slugData->GetAdvance(static_cast<u32>(character), static_cast<u32>(static_cast<unsigned char>(string[i + 1])));
                     }
-                    x += (fsScale * advance) + textParams.Kerning;
+                    wx += (fsScale * advance) + textParams.Kerning;
                     continue;
                 }
 
                 if (character == '\t')
                 {
                     lastSpace = i;
-                    x += 4.0 * ((fsScale * spaceGlyphAdvance) + textParams.Kerning);
+                    wx += 4.0 * ((fsScale * spaceGlyphAdvance) + textParams.Kerning);
                     continue;
                 }
 
-                auto* glyph = fontGeometry.getGlyph(character);
+                auto* glyph = slugData->GetGlyph(static_cast<u32>(character));
                 if (!glyph)
-                    glyph = fontGeometry.getGlyph('?');
+                    glyph = slugData->GetGlyph('?');
                 if (!glyph)
                     continue;
 
-                double pl{}, pb{}, pr{}, pt{};
-                glyph->getQuadPlaneBounds(pl, pb, pr, pt);
-                f32 quadMaxX = static_cast<f32>(pr) * static_cast<f32>(fsScale) + static_cast<f32>(x);
+                f32 quadMaxX = glyph->PlaneBoundsRight * static_cast<f32>(fsScale) + static_cast<f32>(wx);
 
                 if (quadMaxX > textParams.MaxWidth)
                 {
@@ -929,22 +956,20 @@ namespace OloEngine
                         wrapBreaks.push_back(lastSpace);
                         wrapIsMidWord.push_back(false);
                         lastSpace = std::string::npos;
-                        x = 0.0;
+                        wx = 0.0;
                         continue;
                     }
 
-                    // Single word exceeds MaxWidth — break at current character
                     wrapBreaks.push_back(i);
                     wrapIsMidWord.push_back(true);
                     lastSpace = std::string::npos;
-                    x = 0.0;
-                    // Fall through to measure this glyph's advance on the new line
+                    wx = 0.0;
                 }
 
-                double advance = glyph->getAdvance();
+                f32 advance = glyph->AdvanceWidth;
                 if (i < string.size() - 1)
-                    fontGeometry.getAdvance(advance, character, string[i + 1]);
-                x += (fsScale * advance) + textParams.Kerning;
+                    advance = slugData->GetAdvance(static_cast<u32>(character), static_cast<u32>(static_cast<unsigned char>(string[i + 1])));
+                wx += (fsScale * advance) + textParams.Kerning;
             }
         }
 
@@ -955,16 +980,14 @@ namespace OloEngine
 
         for (sizet i = 0; i < string.size(); i++)
         {
-            char character = string[i];
+            auto character = static_cast<unsigned char>(string[i]);
 
-            // Check if this index is a wrap break point
             if (wrapIdx < wrapBreaks.size() && i == wrapBreaks[wrapIdx])
             {
                 x = 0;
-                y -= (fsScale * metrics.lineHeight) + textParams.LineSpacing;
+                y -= (fsScale * metrics.LineHeight) + textParams.LineSpacing;
                 bool midWord = wrapIsMidWord[wrapIdx];
                 ++wrapIdx;
-                // Space breaks: skip the space character; mid-word breaks: render the character on the new line
                 if (!midWord)
                     continue;
             }
@@ -977,7 +1000,7 @@ namespace OloEngine
             if (character == '\n')
             {
                 x = 0;
-                y -= (fsScale * metrics.lineHeight) + textParams.LineSpacing;
+                y -= (fsScale * metrics.LineHeight) + textParams.LineSpacing;
                 continue;
             }
 
@@ -986,10 +1009,7 @@ namespace OloEngine
                 f32 advance = spaceGlyphAdvance;
                 if (i < (string.size() - 1))
                 {
-                    char nextCharacter = string[i + 1];
-                    double dAdvance{};
-                    fontGeometry.getAdvance(dAdvance, character, nextCharacter);
-                    advance = (f32)dAdvance;
+                    advance = slugData->GetAdvance(static_cast<u32>(character), static_cast<u32>(static_cast<unsigned char>(string[i + 1])));
                 }
 
                 x += (fsScale * advance) + textParams.Kerning;
@@ -1002,68 +1022,90 @@ namespace OloEngine
                 continue;
             }
 
-            auto* glyph = fontGeometry.getGlyph(character);
+            auto* glyph = slugData->GetGlyph(static_cast<u32>(character));
             if (!glyph)
             {
-                glyph = fontGeometry.getGlyph('?');
+                glyph = slugData->GetGlyph('?');
             }
             if (!glyph)
             {
-                return;
+                continue;
             }
 
-            double al{};
-            double ab{};
-            double ar{};
-            double at{};
-            glyph->getQuadAtlasBounds(al, ab, ar, at);
-            glm::vec2 texCoordMin((f32)al, (f32)ab);
-            glm::vec2 texCoordMax((f32)ar, (f32)at);
+            // Only emit geometry for glyphs with Slug curve data.
+            if (!glyph->HasCurves)
+            {
+                if (i < (string.size() - 1))
+                {
+                    f32 advance = slugData->GetAdvance(static_cast<u32>(character), static_cast<u32>(static_cast<unsigned char>(string[i + 1])));
+                    x += (fsScale * advance) + textParams.Kerning;
+                }
+                continue;
+            }
 
-            double pl{};
-            double pb{};
-            double pr{};
-            double pt{};
-            glyph->getQuadPlaneBounds(pl, pb, pr, pt);
-            glm::vec2 quadMin((f32)pl, (f32)pb);
-            glm::vec2 quadMax((f32)pr, (f32)pt);
+            const auto& rd = glyph->RenderData;
 
-            quadMin *= fsScale;
-            quadMax *= fsScale;
+            // Compute glyph quad in text space (with margin for edge coverage).
+            glm::vec2 quadMin(glyph->PlaneBoundsLeft - kGlyphMargin, glyph->PlaneBoundsBottom - kGlyphMargin);
+            glm::vec2 quadMax(glyph->PlaneBoundsRight + kGlyphMargin, glyph->PlaneBoundsTop + kGlyphMargin);
+
+            // Em-space sample coordinates (what the fragment shader uses for the algorithm).
+            auto emMin = quadMin;
+            auto emMax = quadMax;
+
+            quadMin *= static_cast<f32>(fsScale);
+            quadMax *= static_cast<f32>(fsScale);
             quadMin += glm::vec2(x, y);
             quadMax += glm::vec2(x, y);
 
-            f32 texelWidth = 1.0f / static_cast<f32>(fontAtlas->GetWidth());
-            f32 texelHeight = 1.0f / static_cast<f32>(fontAtlas->GetHeight());
-            texCoordMin *= glm::vec2(texelWidth, texelHeight);
-            texCoordMax *= glm::vec2(texelWidth, texelHeight);
-
-            // Flush text batch if full
+            // Flush text batch if full.
             if (s_Data.TextIndexCount + 6 > Renderer2DData::MaxIndices)
                 NextBatch();
 
-            // render here
+            // Pack per-glyph data into vertex attributes.
+            auto bandTransform = glm::vec4(rd.BandScaleX, rd.BandScaleY, rd.BandOffsetX, rd.BandOffsetY);
+            auto glyphData = glm::ivec4(
+                static_cast<int>(rd.BandTextureX),
+                static_cast<int>(rd.BandTextureY),
+                static_cast<int>(rd.VBandCount > 0 ? rd.VBandCount - 1 : 0),
+                static_cast<int>(rd.HBandCount > 0 ? rd.HBandCount - 1 : 0));
+
+            // Vertex order must match QuadVertexPositions: BL, BR, TR, TL
+            // so the shared index buffer {0,1,2, 2,3,0} produces +Z front faces.
+
+            // v0: Bottom-left
             s_Data.TextVertexBufferPtr->Position = transform * glm::vec4(quadMin, 0.0f, 1.0f);
             s_Data.TextVertexBufferPtr->Color = textParams.Color;
-            s_Data.TextVertexBufferPtr->TexCoord = texCoordMin;
+            s_Data.TextVertexBufferPtr->TexCoord = emMin;
+            s_Data.TextVertexBufferPtr->BandTransform = bandTransform;
+            s_Data.TextVertexBufferPtr->GlyphData = glyphData;
             s_Data.TextVertexBufferPtr->EntityID = entityID;
             ++s_Data.TextVertexBufferPtr;
 
-            s_Data.TextVertexBufferPtr->Position = transform * glm::vec4(quadMin.x, quadMax.y, 0.0f, 1.0f);
-            s_Data.TextVertexBufferPtr->Color = textParams.Color;
-            s_Data.TextVertexBufferPtr->TexCoord = { texCoordMin.x, texCoordMax.y };
-            s_Data.TextVertexBufferPtr->EntityID = entityID;
-            ++s_Data.TextVertexBufferPtr;
-
-            s_Data.TextVertexBufferPtr->Position = transform * glm::vec4(quadMax, 0.0f, 1.0f);
-            s_Data.TextVertexBufferPtr->Color = textParams.Color;
-            s_Data.TextVertexBufferPtr->TexCoord = texCoordMax;
-            s_Data.TextVertexBufferPtr->EntityID = entityID;
-            ++s_Data.TextVertexBufferPtr;
-
+            // v1: Bottom-right
             s_Data.TextVertexBufferPtr->Position = transform * glm::vec4(quadMax.x, quadMin.y, 0.0f, 1.0f);
             s_Data.TextVertexBufferPtr->Color = textParams.Color;
-            s_Data.TextVertexBufferPtr->TexCoord = { texCoordMax.x, texCoordMin.y };
+            s_Data.TextVertexBufferPtr->TexCoord = { emMax.x, emMin.y };
+            s_Data.TextVertexBufferPtr->BandTransform = bandTransform;
+            s_Data.TextVertexBufferPtr->GlyphData = glyphData;
+            s_Data.TextVertexBufferPtr->EntityID = entityID;
+            ++s_Data.TextVertexBufferPtr;
+
+            // v2: Top-right
+            s_Data.TextVertexBufferPtr->Position = transform * glm::vec4(quadMax, 0.0f, 1.0f);
+            s_Data.TextVertexBufferPtr->Color = textParams.Color;
+            s_Data.TextVertexBufferPtr->TexCoord = emMax;
+            s_Data.TextVertexBufferPtr->BandTransform = bandTransform;
+            s_Data.TextVertexBufferPtr->GlyphData = glyphData;
+            s_Data.TextVertexBufferPtr->EntityID = entityID;
+            ++s_Data.TextVertexBufferPtr;
+
+            // v3: Top-left
+            s_Data.TextVertexBufferPtr->Position = transform * glm::vec4(quadMin.x, quadMax.y, 0.0f, 1.0f);
+            s_Data.TextVertexBufferPtr->Color = textParams.Color;
+            s_Data.TextVertexBufferPtr->TexCoord = { emMin.x, emMax.y };
+            s_Data.TextVertexBufferPtr->BandTransform = bandTransform;
+            s_Data.TextVertexBufferPtr->GlyphData = glyphData;
             s_Data.TextVertexBufferPtr->EntityID = entityID;
             ++s_Data.TextVertexBufferPtr;
 
@@ -1072,10 +1114,7 @@ namespace OloEngine
 
             if (i < (string.size() - 1))
             {
-                double advance = glyph->getAdvance();
-                char nextCharacter = string[i + 1];
-                fontGeometry.getAdvance(advance, character, nextCharacter);
-
+                f32 advance = slugData->GetAdvance(static_cast<u32>(character), static_cast<u32>(static_cast<unsigned char>(string[i + 1])));
                 x += (fsScale * advance) + textParams.Kerning;
             }
         }

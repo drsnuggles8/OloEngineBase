@@ -126,7 +126,6 @@ target_link_libraries(OloEngine
 	imgui
 	imguizmo
 	Jolt
-	msdf-atlas-gen
 	nlohmann_json::nlohmann_json
 	Recast
 	sol2
@@ -213,6 +212,9 @@ if(MSVC)
 		Version
 		ws2_32
 		WinMM
+		$<$<CONFIG:Debug>:${ZLIB_LIBRARY_DEBUG}>
+		$<$<CONFIG:Release>:${ZLIB_LIBRARY_RELEASE}>
+		$<$<CONFIG:Dist>:${ZLIB_LIBRARY_DIST}>
 	)
 else()
 	target_link_libraries(OloEngine
@@ -221,3 +223,7 @@ else()
 		${CMAKE_DL_LIBS}
 	)
 endif()
+
+# Ensure zlib is built before OloEngine links against it (raw file paths above
+# don't create an implicit build dependency).
+add_dependencies(OloEngine zlib)

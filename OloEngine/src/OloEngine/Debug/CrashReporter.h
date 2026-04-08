@@ -10,7 +10,7 @@ namespace OloEngine
     {
       public:
         /// Install crash handlers and set the directory for crash report output.
-        /// Call after Log::Init() so that the ringbuffer sink is available.
+        /// Log is auto-initialized via Meyer's singleton, so ringbuffer sink is always available.
         static void Init(const std::filesystem::path& crashReportDir = "CrashReports");
 
         /// Uninstall crash handlers. Call during shutdown.
