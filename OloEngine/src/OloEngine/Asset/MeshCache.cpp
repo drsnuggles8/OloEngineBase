@@ -95,7 +95,18 @@ namespace OloEngine
 
         std::filesystem::path GetMeshCachePath(const std::filesystem::path& sourcePath, const std::string& prefix)
         {
-            return GetCacheDirectory() / (prefix + HashSourcePath(sourcePath) + ".omesh");
+            // Sanitize prefix to filename-safe characters only
+            std::string safe;
+            safe.reserve(prefix.size());
+            for (char c : prefix)
+            {
+                if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                    (c >= '0' && c <= '9') || c == '_' || c == '-')
+                {
+                    safe += c;
+                }
+            }
+            return GetCacheDirectory() / (safe + HashSourcePath(sourcePath) + ".omesh");
         }
 
         std::filesystem::path GetAnimationCachePath(const std::filesystem::path& sourcePath)

@@ -214,6 +214,23 @@ namespace OloEngine
             {
                 const auto* src = combined->GetSkeleton();
 
+                // Verify all skeleton arrays share the same bone count
+                auto const expectedBoneCount = src->m_ParentIndices.size();
+                if (src->m_BoneNames.size() != expectedBoneCount ||
+                    src->m_LocalTransforms.size() != expectedBoneCount ||
+                    src->m_GlobalTransforms.size() != expectedBoneCount ||
+                    src->m_FinalBoneMatrices.size() != expectedBoneCount ||
+                    src->m_BindPoseMatrices.size() != expectedBoneCount ||
+                    src->m_InverseBindPoses.size() != expectedBoneCount ||
+                    src->m_BindPoseLocalTransforms.size() != expectedBoneCount ||
+                    src->m_BonePreTransforms.size() != expectedBoneCount)
+                {
+                    OLO_CORE_ERROR("AnimatedModel::SplitCombinedMeshSource - Skeleton array size mismatch "
+                                   "(expected {} bones), rejecting cache",
+                                   expectedBoneCount);
+                    return false;
+                }
+
                 // Validate all skeleton matrices for non-finite values before copying
                 auto const validateMat4Array = [](const std::vector<glm::mat4>& arr, const char* name) -> bool
                 {
@@ -537,10 +554,31 @@ namespace OloEngine
 
                         CalculateBounds();
 
+                        // Rebuild bone name→id map from cached skeleton for FindBoneIndex()
+                        if (m_Skeleton)
+                        {
+                            m_BoneInfoMap.clear();
+                            for (sizet i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
+                            {
+                                BoneInfo boneInfo;
+                                boneInfo.Id = static_cast<u32>(i);
+                                boneInfo.Offset = m_Skeleton->m_InverseBindPoses[i];
+                                m_BoneInfoMap[m_Skeleton->m_BoneNames[i]] = boneInfo;
+                            }
+                        }
+
                         OLO_CORE_INFO("AnimatedModel::LoadModel: Loaded from cache - {} meshes, {} animations",
                                       m_Meshes.size(), m_Animations.size());
                         return;
                     } // end animation-cache-valid block
+                }
+                else
+                {
+                    // SplitCombinedMeshSource failed — invalidate corrupt cache so next load re-imports
+                    OLO_CORE_WARN("AnimatedModel::LoadModel: SplitCombinedMeshSource failed for '{}', invalidating cache", path);
+                    m_Meshes.clear();
+                    m_Skeleton = nullptr;
+                    MeshCache::InvalidateCache(sourcePath, kAnimCachePrefix);
                 }
             }
         }
@@ -1431,28 +1469,60 @@ namespace OloEngine
                 }
                 else
                 {
-                    // Fallback: try just the filename in the model directory
-                    std::filesystem::path filenameOnly = std::filesystem::path(filename).filename();
-                    std::filesystem::path fallbackPath = std::filesystem::path(m_Directory) / filenameOnly;
-                    std::string fallbackPathStr = fallbackPath.string();
-
+                    // Fallback: try preserving the relative subdirectory from the texture path
+                    std::filesystem::path filenamePath(filename);
+                    std::filesystem::path filenameOnly = filenamePath.filename();
                     bool loaded = false;
 
-                    if (fallbackPathStr != path.string() && m_LoadedTextures.find(fallbackPathStr) != m_LoadedTextures.end())
+                    // If the texture reference has a relative subdirectory (e.g. "textures/Fur.TGA"),
+                    // try scanning that subdirectory first before falling back to model root.
+                    if (filenamePath.has_parent_path() && filenamePath.parent_path() != ".")
                     {
-                        textures.push_back(m_LoadedTextures[fallbackPathStr]);
-                        loaded = true;
-                    }
-                    else if (fallbackPathStr != path.string())
-                    {
-                        OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: '{}' not found, trying fallback '{}'",
-                                      path.string(), fallbackPathStr);
-                        auto fallbackTexture = Texture2D::Create(fallbackPathStr);
-                        if (fallbackTexture && fallbackTexture->IsLoaded())
+                        auto subdir = std::filesystem::path(m_Directory) / filenamePath.parent_path();
+                        auto discovered = FindTextureInDirectory(subdir, filenameOnly);
+                        if (!discovered.empty())
                         {
-                            textures.push_back(fallbackTexture);
-                            m_LoadedTextures[fallbackPathStr] = fallbackTexture;
+                            std::string discoveredStr = discovered.string();
+                            if (m_LoadedTextures.find(discoveredStr) != m_LoadedTextures.end())
+                            {
+                                textures.push_back(m_LoadedTextures[discoveredStr]);
+                                loaded = true;
+                            }
+                            else
+                            {
+                                auto discoveredTexture = Texture2D::Create(discoveredStr);
+                                if (discoveredTexture && discoveredTexture->IsLoaded())
+                                {
+                                    m_LoadedTextures[discoveredStr] = discoveredTexture;
+                                    textures.push_back(discoveredTexture);
+                                    loaded = true;
+                                }
+                            }
+                        }
+                    }
+
+                    // Fallback: try just the filename in the model root directory
+                    if (!loaded)
+                    {
+                        std::filesystem::path fallbackPath = std::filesystem::path(m_Directory) / filenameOnly;
+                        std::string fallbackPathStr = fallbackPath.string();
+
+                        if (fallbackPathStr != path.string() && m_LoadedTextures.find(fallbackPathStr) != m_LoadedTextures.end())
+                        {
+                            textures.push_back(m_LoadedTextures[fallbackPathStr]);
                             loaded = true;
+                        }
+                        else if (fallbackPathStr != path.string())
+                        {
+                            OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: '{}' not found, trying fallback '{}'",
+                                          path.string(), fallbackPathStr);
+                            auto fallbackTexture = Texture2D::Create(fallbackPathStr);
+                            if (fallbackTexture && fallbackTexture->IsLoaded())
+                            {
+                                textures.push_back(fallbackTexture);
+                                m_LoadedTextures[fallbackPathStr] = fallbackTexture;
+                                loaded = true;
+                            }
                         }
                     }
 

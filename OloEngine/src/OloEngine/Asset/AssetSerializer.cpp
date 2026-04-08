@@ -2481,6 +2481,27 @@ namespace OloEngine
                 BoneInfo info;
                 stream.ReadData(reinterpret_cast<char*>(&info.m_InverseBindPose[0][0]), sizeof(glm::mat4));
                 stream.ReadRaw<u32>(info.m_BoneIndex);
+
+                // Validate inverse bind pose matrix for non-finite values
+                bool valid = true;
+                for (int c = 0; c < 4 && valid; ++c)
+                {
+                    for (int r = 0; r < 4 && valid; ++r)
+                    {
+                        if (!std::isfinite(info.m_InverseBindPose[c][r]))
+                        {
+                            OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Non-finite value in BoneInfo {} "
+                                           "InverseBindPose[{},{}]",
+                                           i, c, r);
+                            valid = false;
+                        }
+                    }
+                }
+                if (!valid)
+                {
+                    return nullptr;
+                }
+
                 boneInfo.Add(info);
             }
         }

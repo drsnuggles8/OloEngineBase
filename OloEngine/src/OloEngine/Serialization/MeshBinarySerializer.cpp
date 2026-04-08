@@ -858,6 +858,18 @@ namespace OloEngine
                 // Parent indices
                 ReadBytes(payload, skeleton->m_ParentIndices.data(), boneCount * sizeof(i32));
 
+                // Validate parent indices: each must be -1 (root) or a valid bone index
+                for (u32 j = 0; j < boneCount; ++j)
+                {
+                    auto const parent = skeleton->m_ParentIndices[j];
+                    if (parent < -1 || parent >= static_cast<i32>(boneCount))
+                    {
+                        OLO_CORE_ERROR("MeshBinarySerializer::Read: Invalid parent index {} for bone {} in '{}'",
+                                       parent, j, path.string());
+                        return nullptr;
+                    }
+                }
+
                 // Transform arrays
                 auto const readMat4Array = [&](std::vector<glm::mat4>& arr)
                 {
@@ -962,10 +974,21 @@ namespace OloEngine
                 }
 
                 auto& boneInfo = meshSource->GetBoneInfo();
+                auto const skeletonBoneCount = meshSource->HasSkeleton()
+                                                   ? static_cast<u32>(meshSource->GetSkeleton()->m_BoneNames.size())
+                                                   : u32(0);
                 for (u32 i = 0; i < biHeader.BoneInfoCount; ++i)
                 {
                     OMeshFormat::BoneInfoEntry entry{};
                     ReadBytes(payload, &entry, sizeof(entry));
+
+                    // Validate BoneIndex against skeleton bone count
+                    if (skeletonBoneCount > 0 && entry.BoneIndex >= skeletonBoneCount)
+                    {
+                        OLO_CORE_ERROR("MeshBinarySerializer::Read: BoneInfo {} has BoneIndex {} >= boneCount {} in '{}'",
+                                       i, entry.BoneIndex, skeletonBoneCount, path.string());
+                        return nullptr;
+                    }
 
                     BoneInfo info;
                     std::memcpy(&info.m_InverseBindPose[0][0], entry.InverseBindPose, sizeof(f32) * 16);
@@ -1473,6 +1496,15 @@ namespace OloEngine
                 clip->MorphKeyframes[m].Time = mkData.Time;
                 clip->MorphKeyframes[m].Weight = mkData.Weight;
                 clip->MorphKeyframes[m].TargetName = ReadString(payload);
+            }
+
+            // Verify we haven't read past the clip's declared size boundary
+            if (auto const clipEnd = static_cast<std::streamoff>(payloadBase + directory[i].Offset + directory[i].Size);
+                payload.tellg() > clipEnd)
+            {
+                OLO_CORE_ERROR("AnimationBinarySerializer::Read: Clip {} consumed {} bytes past its declared size ({}) in '{}'",
+                               i, static_cast<i64>(payload.tellg() - clipEnd), directory[i].Size, path.string());
+                return {};
             }
 
             clips.push_back(clip);
