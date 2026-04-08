@@ -1,6 +1,9 @@
 #include "OloEnginePCH.h"
 #include "SaveGameComponentSerializer.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Audio/AudioListener.h"
 #include "OloEngine/Audio/AudioSource.h"
@@ -1088,6 +1091,8 @@ namespace OloEngine
 
             sanitize(c.m_WorldSizeX, 0.1f, 1e5f, 100.0f);
             sanitize(c.m_WorldSizeZ, 0.1f, 1e5f, 100.0f);
+            c.m_GridResolutionX = std::clamp(c.m_GridResolutionX, 2u, 1024u);
+            c.m_GridResolutionZ = std::clamp(c.m_GridResolutionZ, 2u, 1024u);
             sanitize(c.m_WaveAmplitude, 0.0f, 100.0f, 0.5f);
             sanitize(c.m_WaveFrequency, 0.0f, 100.0f, 1.0f);
             sanitize(c.m_WaveSpeed, 0.0f, 100.0f, 1.0f);
