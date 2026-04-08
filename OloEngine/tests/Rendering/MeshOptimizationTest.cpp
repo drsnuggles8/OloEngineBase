@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <tuple>
 #include <vector>
 
@@ -58,6 +59,61 @@ static Ref<MeshSource> MakeGridMesh(u32 gridSize)
                 { fx, 0.0f, fz },
                 { 0.0f, 1.0f, 0.0f },
                 { fx, fz }));
+        }
+    }
+
+    TArray<u32> indices;
+    indices.Reserve(static_cast<i32>(gridSize * gridSize * 6));
+
+    for (u32 z = 0; z < gridSize; ++z)
+    {
+        for (u32 x = 0; x < gridSize; ++x)
+        {
+            auto i0 = z * verticesPerSide + x;
+            auto i1 = i0 + 1;
+            auto i2 = i0 + verticesPerSide;
+            auto i3 = i2 + 1;
+
+            indices.Add(i0);
+            indices.Add(i1);
+            indices.Add(i2);
+            indices.Add(i1);
+            indices.Add(i3);
+            indices.Add(i2);
+        }
+    }
+
+    return Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+}
+
+// =============================================================================
+// Helper: create a wavy grid with varying normals and UVs.
+// Sharp UV seams at the center make attribute-aware simplification preferable.
+// =============================================================================
+
+static Ref<MeshSource> MakeWavyGridMesh(u32 gridSize)
+{
+    auto verticesPerSide = gridSize + 1;
+    TArray<Vertex> vertices;
+    vertices.Reserve(static_cast<i32>(verticesPerSide * verticesPerSide));
+
+    for (u32 z = 0; z < verticesPerSide; ++z)
+    {
+        for (u32 x = 0; x < verticesPerSide; ++x)
+        {
+            auto fx = static_cast<f32>(x) / static_cast<f32>(gridSize);
+            auto fz = static_cast<f32>(z) / static_cast<f32>(gridSize);
+            // Sine-wave displacement creates varying normals
+            auto fy = 0.3f * std::sin(fx * 6.0f) * std::cos(fz * 6.0f);
+
+            // Analytical normal from the height-field partial derivatives
+            auto dydx = 0.3f * 6.0f * std::cos(fx * 6.0f) * std::cos(fz * 6.0f);
+            auto dydz = -0.3f * 6.0f * std::sin(fx * 6.0f) * std::sin(fz * 6.0f);
+            glm::vec3 n = glm::normalize(glm::vec3(-dydx, 1.0f, -dydz));
+
+            // UV with a sharp seam at x == 0.5
+            auto u = (fx < 0.5f) ? (fx * 2.0f) : ((fx - 0.5f) * 2.0f);
+            vertices.Add(Vertex({ fx, fy, fz }, n, { u, fz }));
         }
     }
 
@@ -521,7 +577,7 @@ TEST(MeshOptimization, AttributeAwareLODProducesValidOutput)
 {
     // Verify attribute-aware LOD produces valid output
     // that preserves more attribute quality than basic simplification
-    auto mesh = MakeGridMesh(16);
+    auto mesh = MakeWavyGridMesh(16);
     const auto& srcIndices = mesh->GetIndices();
     auto srcTriCount = srcIndices.Num() / 3;
 
@@ -541,4 +597,38 @@ TEST(MeshOptimization, AttributeAwareLODProducesValidOutput)
     {
         EXPECT_LT(attrLOD->GetIndices()[i], attrVertCount);
     }
+
+    // Compute average per-triangle UV span as an attribute-quality metric.
+    // Lower span = triangles don't straddle UV seams = better quality.
+    auto computeAvgTriUVSpan = [](const MeshSource& lod) -> f64
+    {
+        const auto& verts = lod.GetVertices();
+        const auto& idxs = lod.GetIndices();
+        auto triCount = idxs.Num() / 3;
+        if (triCount == 0)
+        {
+            return 0.0;
+        }
+
+        f64 totalSpan = 0.0;
+        for (i32 t = 0; t < triCount; ++t)
+        {
+            const auto& uv0 = verts[static_cast<i32>(idxs[t * 3 + 0])].TexCoord;
+            const auto& uv1 = verts[static_cast<i32>(idxs[t * 3 + 1])].TexCoord;
+            const auto& uv2 = verts[static_cast<i32>(idxs[t * 3 + 2])].TexCoord;
+            auto maxU = std::max({ uv0.x, uv1.x, uv2.x });
+            auto minU = std::min({ uv0.x, uv1.x, uv2.x });
+            auto maxV = std::max({ uv0.y, uv1.y, uv2.y });
+            auto minV = std::min({ uv0.y, uv1.y, uv2.y });
+            totalSpan += static_cast<f64>(maxU - minU + maxV - minV);
+        }
+        return totalSpan / static_cast<f64>(triCount);
+    };
+
+    auto basicUVSpan = computeAvgTriUVSpan(*basicLOD);
+    auto attrUVSpan = computeAvgTriUVSpan(*attrLOD);
+
+    // Attribute-aware LOD should produce equal or smaller UV span per triangle
+    // (it penalises collapsing edges that cross UV seams)
+    EXPECT_LE(attrUVSpan, basicUVSpan + 1e-4);
 }

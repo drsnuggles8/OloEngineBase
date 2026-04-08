@@ -4,6 +4,8 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Vertex.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Animation/MorphTargets/MorphTarget.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
 
 #include <meshoptimizer.h>
 
@@ -30,15 +32,37 @@ namespace OloEngine::MeshOptimization
         auto vertexCount = static_cast<sizet>(vertices.Num());
         auto indexCount = static_cast<sizet>(indices.Num());
 
-        // 1. Vertex cache optimization — reorder triangles for GPU post-transform cache
-        meshopt_optimizeVertexCache(indices.GetData(), indices.GetData(), indexCount, vertexCount);
+        // 1 & 2. Per-submesh cache and overdraw optimization.
+        // These operations reorder triangles within the index buffer, so they
+        // must run per-submesh to preserve each submesh's [m_BaseIndex, m_BaseIndex + m_IndexCount) range.
+        auto const& submeshes = meshSource.GetSubmeshes();
+        if (submeshes.Num() > 0)
+        {
+            constexpr f32 kOverdrawThreshold = 1.05f;
+            for (i32 s = 0; s < submeshes.Num(); ++s)
+            {
+                auto const& sub = submeshes[s];
+                u32* subIndices = indices.GetData() + sub.m_BaseIndex;
+                auto subIndexCount = static_cast<sizet>(sub.m_IndexCount);
 
-        // 2. Overdraw optimization — reorder triangles to reduce pixel overdraw
-        constexpr f32 kOverdrawThreshold = 1.05f;
-        meshopt_optimizeOverdraw(
-            indices.GetData(), indices.GetData(), indexCount,
-            &vertices.GetData()[0].Position.x, vertexCount, sizeof(Vertex),
-            kOverdrawThreshold);
+                meshopt_optimizeVertexCache(subIndices, subIndices, subIndexCount, vertexCount);
+                meshopt_optimizeOverdraw(
+                    subIndices, subIndices, subIndexCount,
+                    &vertices.GetData()[0].Position.x, vertexCount, sizeof(Vertex),
+                    kOverdrawThreshold);
+            }
+        }
+        else
+        {
+            // No submeshes — optimize the entire buffer as a single range
+            meshopt_optimizeVertexCache(indices.GetData(), indices.GetData(), indexCount, vertexCount);
+
+            constexpr f32 kOverdrawThreshold = 1.05f;
+            meshopt_optimizeOverdraw(
+                indices.GetData(), indices.GetData(), indexCount,
+                &vertices.GetData()[0].Position.x, vertexCount, sizeof(Vertex),
+                kOverdrawThreshold);
+        }
 
         // 3. Vertex fetch optimization — reorder vertices for sequential memory access
         std::vector<u32> remap(vertexCount);
@@ -60,13 +84,40 @@ namespace OloEngine::MeshOptimization
             boneInfluences = MoveTemp(remappedBones);
         }
 
+        // 3b. Remap morph target vertex delta arrays to follow the new vertex ordering
+        if (meshSource.HasMorphTargets())
+        {
+            auto& morphTargets = meshSource.GetMorphTargets();
+            for (auto& target : morphTargets->Targets)
+            {
+                if (!target.IsSparse && target.Vertices.size() == vertexCount)
+                {
+                    std::vector<MorphTargetVertex> remappedDeltas(vertexCount);
+                    meshopt_remapVertexBuffer(remappedDeltas.data(), target.Vertices.data(),
+                                              vertexCount, sizeof(MorphTargetVertex), remap.data());
+                    target.Vertices = MoveTemp(remappedDeltas);
+                }
+                // Sparse targets reference vertices by index — remap those indices
+                if (target.IsSparse)
+                {
+                    for (auto& sparse : target.SparseVertices)
+                    {
+                        if (sparse.VertexIndex < static_cast<u32>(vertexCount))
+                        {
+                            sparse.VertexIndex = remap[sparse.VertexIndex];
+                        }
+                    }
+                }
+            }
+        }
+
         // Update submesh vertex ranges to match the remapped vertex buffer.
         // After vertex fetch remap, vertex positions in the buffer have changed,
         // so each submesh's m_BaseVertex/m_VertexCount must be recomputed.
-        auto& submeshes = meshSource.GetSubmeshes();
-        for (i32 s = 0; s < submeshes.Num(); ++s)
+        auto& mutableSubmeshes = meshSource.GetSubmeshes();
+        for (i32 s = 0; s < mutableSubmeshes.Num(); ++s)
         {
-            auto& sub = submeshes[s];
+            auto& sub = mutableSubmeshes[s];
             u32 minVertex = std::numeric_limits<u32>::max();
             u32 maxVertex = 0;
             u32 const end = sub.m_BaseIndex + sub.m_IndexCount;
@@ -313,6 +364,13 @@ namespace OloEngine::MeshOptimization
             lodCount = 2;
         }
 
+        // Sanitize maxDistance (may originate from serialized/UI data)
+        if (!std::isfinite(maxDistance) || maxDistance <= 0.0f)
+        {
+            maxDistance = 200.0f;
+        }
+        maxDistance = std::clamp(maxDistance, 1.0f, 100000.0f);
+
         auto const& srcIndices = meshSource.GetIndices();
         u32 const baseTriCount = srcIndices.IsEmpty() ? 0 : static_cast<u32>(srcIndices.Num()) / 3;
 
@@ -369,7 +427,7 @@ namespace OloEngine::MeshOptimization
         TArray<u32> shadowIndices(static_cast<i32>(indexCount));
         meshopt_generateShadowIndexBuffer(
             shadowIndices.GetData(), indices.GetData(), indexCount,
-            vertices.GetData(), vertexCount, sizeof(Vertex), sizeof(Vertex));
+            vertices.GetData(), vertexCount, sizeof(glm::vec3), sizeof(Vertex));
 
         // Spatial-sort shadow triangles for better early-z rejection in depth-only passes
         meshopt_spatialSortTriangles(

@@ -24,19 +24,20 @@ namespace OloEngine
 
         // Compute cache file path from source file path.
         // e.g. "models/fox.gltf" → "assets/cache/mesh/<hash>.omesh"
-        std::filesystem::path GetMeshCachePath(const std::filesystem::path& sourcePath);
+        // Optional prefix differentiates cache namespaces (e.g. "anim_" for animated models).
+        std::filesystem::path GetMeshCachePath(const std::filesystem::path& sourcePath, const std::string& prefix = {});
         std::filesystem::path GetAnimationCachePath(const std::filesystem::path& sourcePath);
 
         // Check if a valid cache exists for the given source file.
         // Returns true if cached file exists AND source timestamp matches.
-        bool IsMeshCacheValid(const std::filesystem::path& sourcePath);
+        bool IsMeshCacheValid(const std::filesystem::path& sourcePath, const std::string& prefix = {});
         bool IsAnimationCacheValid(const std::filesystem::path& sourcePath);
 
         // Load a MeshSource from cache. Returns nullptr if cache is invalid/missing.
-        Ref<MeshSource> LoadMeshFromCache(const std::filesystem::path& sourcePath);
+        Ref<MeshSource> LoadMeshFromCache(const std::filesystem::path& sourcePath, const std::string& prefix = {});
 
         // Save a MeshSource to cache after import.
-        bool SaveMeshToCache(const std::filesystem::path& sourcePath, const MeshSource& meshSource);
+        bool SaveMeshToCache(const std::filesystem::path& sourcePath, const MeshSource& meshSource, const std::string& prefix = {});
 
         // Load AnimationClips from cache. Returns empty if cache is invalid/missing.
         std::vector<Ref<AnimationClip>> LoadAnimationsFromCache(const std::filesystem::path& sourcePath);
@@ -48,7 +49,7 @@ namespace OloEngine
         void ClearCache();
 
         // Delete the cached files for a specific source file (reimport trigger).
-        void InvalidateCache(const std::filesystem::path& sourcePath);
+        void InvalidateCache(const std::filesystem::path& sourcePath, const std::string& prefix = {});
 
         // Returns the total size of all cached mesh + animation files in bytes.
         u64 GetTotalCacheSize();

@@ -56,7 +56,10 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         if (!str)
-            return 0xFFFFFFFFu; // Distinct sentinel for null pointer (consistent with void* overload)
+        {
+            OLO_CORE_ASSERT(false, "Hash::CRC32 called with null pointer");
+            return 0xFFFFFFFFu;
+        }
 
         u32 crc = 0xFFFFFFFF;
         while (*str)
@@ -78,12 +81,8 @@ namespace OloEngine
 
         if (!data)
         {
-            return 0xFFFFFFFFu; // Distinct sentinel for null pointer
-        }
-
-        if (size == 0)
-        {
-            return 0;
+            OLO_CORE_ASSERT(false, "Hash::CRC32 called with null pointer");
+            return 0xFFFFFFFFu;
         }
 
         auto const* ptr = static_cast<const u8*>(data);

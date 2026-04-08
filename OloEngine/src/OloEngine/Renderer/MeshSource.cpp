@@ -116,6 +116,7 @@ namespace OloEngine
         }
 
         m_Built = true;
+        ++m_Generation;
     }
 
     void MeshSource::BuildVertexBuffer()

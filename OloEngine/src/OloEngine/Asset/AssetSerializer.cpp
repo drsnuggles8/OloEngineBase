@@ -1993,9 +1993,24 @@ namespace OloEngine
             auto boneCount = static_cast<u32>(skeleton->m_BoneNames.size());
             stream.WriteRaw<u32>(boneCount);
 
-            // Parent indices
-            stream.WriteData(reinterpret_cast<const char*>(skeleton->m_ParentIndices.data()),
-                             boneCount * sizeof(i32));
+            // Parent indices — write exactly boneCount entries, padding with -1 if array is shorter
+            auto parentCount = static_cast<u32>(skeleton->m_ParentIndices.size());
+            if (parentCount != boneCount)
+            {
+                OLO_CORE_WARN("MeshSourceSerializer::SerializeToAssetPack - ParentIndices size ({}) differs from BoneNames size ({})",
+                              parentCount, boneCount);
+            }
+            auto minCount = std::min(boneCount, parentCount);
+            if (minCount > 0)
+            {
+                stream.WriteData(reinterpret_cast<const char*>(skeleton->m_ParentIndices.data()),
+                                 minCount * sizeof(i32));
+            }
+            for (u32 j = minCount; j < boneCount; ++j)
+            {
+                i32 const pad = -1;
+                stream.WriteRaw<i32>(pad);
+            }
 
             // Transform arrays (6 arrays of mat4)
             auto const writeMat4Array = [&](const std::vector<glm::mat4>& arr)
@@ -2059,7 +2074,10 @@ namespace OloEngine
             for (u32 t = 0; t < targetCount; ++t)
             {
                 const auto& target = morphTargets->Targets[t];
-                auto sparseCount = target.IsSparse ? static_cast<u32>(target.SparseVertices.size()) : 0u;
+                // If IsSparse but no sparse entries, fall through to dense to avoid reader ambiguity
+                auto sparseCount = (target.IsSparse && !target.SparseVertices.empty())
+                                       ? static_cast<u32>(target.SparseVertices.size())
+                                       : 0u;
                 stream.WriteRaw<u32>(sparseCount);
 
                 auto nameLen = static_cast<u32>(target.Name.size());
@@ -2069,7 +2087,7 @@ namespace OloEngine
                     stream.WriteData(target.Name.data(), nameLen);
                 }
 
-                if (target.IsSparse)
+                if (sparseCount > 0)
                 {
                     for (const auto& sparse : target.SparseVertices)
                     {
@@ -2193,9 +2211,9 @@ namespace OloEngine
             stream.ReadString(sub.m_MeshName);
             stream.ReadRaw<bool>(sub.m_IsRigged);
 
-            // Validate submesh ranges against total counts to catch corrupt data
-            if (sub.m_BaseVertex + sub.m_VertexCount > vertexCount ||
-                sub.m_BaseIndex + sub.m_IndexCount > indexCount)
+            // Validate submesh ranges against total counts to catch corrupt data (overflow-safe)
+            if (sub.m_BaseVertex > vertexCount || sub.m_VertexCount > vertexCount - sub.m_BaseVertex ||
+                sub.m_BaseIndex > indexCount || sub.m_IndexCount > indexCount - sub.m_BaseIndex)
             {
                 OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Submesh {} has out-of-range "
                                "vertex/index bounds (BaseVertex={}, VertexCount={}, BaseIndex={}, IndexCount={})",
@@ -2275,6 +2293,14 @@ namespace OloEngine
         {
             u32 boneCount = 0;
             stream.ReadRaw<u32>(boneCount);
+
+            constexpr u32 MAX_BONE_COUNT = 4096;
+            if (boneCount > MAX_BONE_COUNT)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Bone count {} exceeds limit {}",
+                               boneCount, MAX_BONE_COUNT);
+                return nullptr;
+            }
 
             auto skeleton = Ref<Skeleton>::Create(static_cast<sizet>(boneCount));
 

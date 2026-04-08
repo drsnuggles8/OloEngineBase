@@ -77,9 +77,9 @@ namespace OloEngine
             return dir;
         }
 
-        std::filesystem::path GetMeshCachePath(const std::filesystem::path& sourcePath)
+        std::filesystem::path GetMeshCachePath(const std::filesystem::path& sourcePath, const std::string& prefix)
         {
-            return GetCacheDirectory() / (HashSourcePath(sourcePath) + ".omesh");
+            return GetCacheDirectory() / (prefix + HashSourcePath(sourcePath) + ".omesh");
         }
 
         std::filesystem::path GetAnimationCachePath(const std::filesystem::path& sourcePath)
@@ -87,9 +87,9 @@ namespace OloEngine
             return GetAnimationCacheDirectory() / (HashSourcePath(sourcePath) + ".oanim");
         }
 
-        bool IsMeshCacheValid(const std::filesystem::path& sourcePath)
+        bool IsMeshCacheValid(const std::filesystem::path& sourcePath, const std::string& prefix)
         {
-            auto cachePath = GetMeshCachePath(sourcePath);
+            auto cachePath = GetMeshCachePath(sourcePath, prefix);
 
             std::error_code ec;
             if (!std::filesystem::exists(cachePath, ec))
@@ -127,21 +127,21 @@ namespace OloEngine
             return (sourceTimestamp != 0) && (cachedTimestamp == sourceTimestamp);
         }
 
-        Ref<MeshSource> LoadMeshFromCache(const std::filesystem::path& sourcePath)
+        Ref<MeshSource> LoadMeshFromCache(const std::filesystem::path& sourcePath, const std::string& prefix)
         {
             OLO_PROFILE_FUNCTION();
 
-            if (!IsMeshCacheValid(sourcePath))
+            if (!IsMeshCacheValid(sourcePath, prefix))
             {
                 return nullptr;
             }
 
-            auto cachePath = GetMeshCachePath(sourcePath);
+            auto cachePath = GetMeshCachePath(sourcePath, prefix);
             OLO_CORE_INFO("MeshCache: Loading mesh from cache '{}'", cachePath.string());
             return MeshBinarySerializer::Read(cachePath);
         }
 
-        bool SaveMeshToCache(const std::filesystem::path& sourcePath, const MeshSource& meshSource)
+        bool SaveMeshToCache(const std::filesystem::path& sourcePath, const MeshSource& meshSource, const std::string& prefix)
         {
             OLO_PROFILE_FUNCTION();
 
@@ -152,7 +152,7 @@ namespace OloEngine
                 return false;
             }
 
-            auto cachePath = GetMeshCachePath(sourcePath);
+            auto cachePath = GetMeshCachePath(sourcePath, prefix);
             OLO_CORE_INFO("MeshCache: Saving mesh to cache '{}'", cachePath.string());
             return MeshBinarySerializer::Write(cachePath, meshSource, sourceTimestamp);
         }
@@ -216,11 +216,11 @@ namespace OloEngine
             }
         }
 
-        void InvalidateCache(const std::filesystem::path& sourcePath)
+        void InvalidateCache(const std::filesystem::path& sourcePath, const std::string& prefix)
         {
             std::error_code ec;
 
-            auto meshPath = GetMeshCachePath(sourcePath);
+            auto meshPath = GetMeshCachePath(sourcePath, prefix);
             if (std::filesystem::exists(meshPath, ec))
             {
                 std::filesystem::remove(meshPath, ec);

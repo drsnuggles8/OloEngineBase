@@ -360,6 +360,10 @@ namespace OloEngine
         {
             return m_MorphTargets;
         }
+        Ref<MorphTargetSet>& GetMorphTargets()
+        {
+            return m_MorphTargets;
+        }
         void SetMorphTargets(Ref<MorphTargetSet> morphTargets)
         {
             m_MorphTargets = std::move(morphTargets);
@@ -401,6 +405,15 @@ namespace OloEngine
         bool IsBuilt() const
         {
             return m_Built;
+        }
+
+        [[nodiscard]] bool IsPreOptimized() const
+        {
+            return m_PreOptimized;
+        }
+        [[nodiscard]] u64 GetGeneration() const
+        {
+            return m_Generation;
         }
 
         // Mark mesh data as already optimized (e.g., loaded from cache)
@@ -459,5 +472,6 @@ namespace OloEngine
 
         bool m_Built = false;
         bool m_PreOptimized = false;
+        u64 m_Generation = 0;
     };
 } // namespace OloEngine

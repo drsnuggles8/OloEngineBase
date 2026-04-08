@@ -37,6 +37,9 @@ namespace OloEngine
             in.read(reinterpret_cast<char*>(data), static_cast<std::streamsize>(size));
             if (in.gcount() != static_cast<std::streamsize>(size))
             {
+                // Zero-fill the unread tail so callers never see uninitialised memory
+                auto bytesRead = static_cast<sizet>(in.gcount());
+                std::memset(static_cast<u8*>(data) + bytesRead, 0, size - bytesRead);
                 OLO_CORE_ERROR("ReadBytes: short read ({} of {} bytes)", in.gcount(), size);
                 in.setstate(std::ios::failbit);
             }
@@ -442,12 +445,15 @@ namespace OloEngine
                 const auto& target = morphTargets->Targets[t];
 
                 OMeshFormat::MorphTargetEntry entry{};
-                entry.SparseEntryCount = target.IsSparse ? static_cast<u32>(target.SparseVertices.size()) : 0;
+                // If IsSparse but no sparse entries, fall through to dense to avoid reader ambiguity
+                entry.SparseEntryCount = (target.IsSparse && !target.SparseVertices.empty())
+                                             ? static_cast<u32>(target.SparseVertices.size())
+                                             : 0;
                 WriteBytes(payload, &entry, sizeof(entry));
 
                 WriteString(payload, target.Name);
 
-                if (target.IsSparse)
+                if (entry.SparseEntryCount > 0)
                 {
                     for (const auto& sparse : target.SparseVertices)
                     {
@@ -485,6 +491,10 @@ namespace OloEngine
 
         OMeshFormat::FileHeader header;
         header.Flags = OMeshFormat::FlagCompressed;
+        if (meshSource.IsPreOptimized())
+        {
+            header.Flags |= OMeshFormat::FlagPreOptimized;
+        }
         header.SourceTimestamp = sourceTimestamp;
         header.UncompressedPayloadSize = uncompressedSize;
         header.Checksum = Hash::CRC32(compressed.data(), compressed.size());
@@ -573,16 +583,13 @@ namespace OloEngine
             std::vector<u8> compressedData(compressedSize);
             ReadBytes(in, compressedData.data(), compressedSize);
 
-            // Validate CRC32 checksum
-            if (header.Checksum != 0)
+            // Validate CRC32 checksum (always computed by Write, never legitimately zero)
+            if (auto computed = Hash::CRC32(compressedData.data(), compressedData.size());
+                computed != header.Checksum)
             {
-                if (auto computed = Hash::CRC32(compressedData.data(), compressedData.size());
-                    computed != header.Checksum)
-                {
-                    OLO_CORE_ERROR("MeshBinarySerializer::Read: Checksum mismatch in '{}' (expected 0x{:08X}, got 0x{:08X})",
-                                   path.string(), header.Checksum, computed);
-                    return nullptr;
-                }
+                OLO_CORE_ERROR("MeshBinarySerializer::Read: Checksum mismatch in '{}' (expected 0x{:08X}, got 0x{:08X})",
+                               path.string(), header.Checksum, computed);
+                return nullptr;
             }
 
             auto decompressed = ZlibDecompress(compressedData.data(), compressedData.size(),
@@ -624,6 +631,18 @@ namespace OloEngine
 
                 OMeshFormat::GeometryHeader geo;
                 ReadBytes(payload, &geo, sizeof(geo));
+
+                // Validate counts against safety caps
+                if (geo.VertexCount > OMeshFormat::MaxVertexCount || geo.IndexCount > OMeshFormat::MaxIndexCount || geo.ShadowIndexCount > OMeshFormat::MaxIndexCount)
+                {
+                    OLO_CORE_ERROR("MeshBinarySerializer::Read: Geometry counts exceed safety limits in '{}'", path.string());
+                    return nullptr;
+                }
+                if (geo.EncodedVertexSize > OMeshFormat::MaxEncodedSize || geo.EncodedIndexSize > OMeshFormat::MaxEncodedSize || geo.EncodedShadowIndexSize > OMeshFormat::MaxEncodedSize)
+                {
+                    OLO_CORE_ERROR("MeshBinarySerializer::Read: Encoded sizes exceed safety limits in '{}'", path.string());
+                    return nullptr;
+                }
 
                 // Validate vertex stride matches current Vertex struct.
                 if (geo.VertexStride != sizeof(Vertex))
@@ -701,6 +720,13 @@ namespace OloEngine
                 OMeshFormat::SubmeshHeader subHeader;
                 ReadBytes(payload, &subHeader, sizeof(subHeader));
 
+                if (subHeader.SubmeshCount > OMeshFormat::MaxSubmeshCount)
+                {
+                    OLO_CORE_ERROR("MeshBinarySerializer::Read: SubmeshCount ({}) exceeds safety limit in '{}'",
+                                   subHeader.SubmeshCount, path.string());
+                    return nullptr;
+                }
+
                 for (u32 i = 0; i < subHeader.SubmeshCount; ++i)
                 {
                     OMeshFormat::SubmeshEntry entry{};
@@ -735,6 +761,13 @@ namespace OloEngine
                 OMeshFormat::MaterialHeader matHeader;
                 ReadBytes(payload, &matHeader, sizeof(matHeader));
 
+                if (matHeader.MaterialCount > OMeshFormat::MaxMaterialCount)
+                {
+                    OLO_CORE_ERROR("MeshBinarySerializer::Read: MaterialCount ({}) exceeds safety limit in '{}'",
+                                   matHeader.MaterialCount, path.string());
+                    return nullptr;
+                }
+
                 for (u32 i = 0; i < matHeader.MaterialCount; ++i)
                 {
                     OMeshFormat::MaterialEntry entry;
@@ -754,6 +787,13 @@ namespace OloEngine
                 OMeshFormat::SkeletonHeader skelHeader;
                 ReadBytes(payload, &skelHeader, sizeof(skelHeader));
                 u32 const boneCount = skelHeader.BoneCount;
+
+                if (boneCount > OMeshFormat::MaxBoneCount)
+                {
+                    OLO_CORE_ERROR("MeshBinarySerializer::Read: BoneCount ({}) exceeds safety limit in '{}'",
+                                   boneCount, path.string());
+                    return nullptr;
+                }
 
                 auto skeleton = Ref<Skeleton>::Create(static_cast<sizet>(boneCount));
 
@@ -803,6 +843,12 @@ namespace OloEngine
 
                 OMeshFormat::BoneInfluenceHeader biHeader;
                 ReadBytes(payload, &biHeader, sizeof(biHeader));
+
+                if (biHeader.InfluenceCount > OMeshFormat::MaxVertexCount || biHeader.EncodedSize > OMeshFormat::MaxEncodedSize)
+                {
+                    OLO_CORE_ERROR("MeshBinarySerializer::Read: BoneInfluence counts exceed safety limits in '{}'", path.string());
+                    return nullptr;
+                }
 
                 // Validate bone influence stride matches current struct.
                 if (biHeader.InfluenceStride != sizeof(BoneInfluence))
@@ -865,6 +911,12 @@ namespace OloEngine
                 OMeshFormat::MorphTargetHeader mtHeader;
                 ReadBytes(payload, &mtHeader, sizeof(mtHeader));
 
+                if (mtHeader.TargetCount > OMeshFormat::MaxMorphTargetCount || mtHeader.VertexCount > OMeshFormat::MaxVertexCount)
+                {
+                    OLO_CORE_ERROR("MeshBinarySerializer::Read: MorphTarget counts exceed safety limits in '{}'", path.string());
+                    return nullptr;
+                }
+
                 auto morphTargetSet = Ref<MorphTargetSet>::Create();
 
                 for (u32 t = 0; t < mtHeader.TargetCount; ++t)
@@ -909,8 +961,8 @@ namespace OloEngine
                        meshSource->GetIndices().Num(),
                        meshSource->GetSubmeshes().Num());
 
-        // Data was already optimized before caching — skip re-optimization in Build()
-        meshSource->SetPreOptimized(true);
+        // Restore pre-optimized flag from the stored header flags
+        meshSource->SetPreOptimized((header.Flags & OMeshFormat::FlagPreOptimized) != 0);
 
         return meshSource;
     }
@@ -1117,20 +1169,23 @@ namespace OloEngine
 
         if (header.Flags & OAnimFormat::FlagCompressed)
         {
+            if (header.TotalFileSize < sizeof(OAnimFormat::FileHeader))
+            {
+                OLO_CORE_ERROR("AnimationBinarySerializer::Read: TotalFileSize ({}) is smaller than header in '{}'",
+                               header.TotalFileSize, path.string());
+                return {};
+            }
             auto const compressedSize = header.TotalFileSize - sizeof(OAnimFormat::FileHeader);
             std::vector<u8> compressedData(compressedSize);
             ReadBytes(in, compressedData.data(), compressedSize);
 
-            // Validate CRC32 checksum
-            if (header.Checksum != 0)
+            // Validate CRC32 checksum (always computed by Write, never legitimately zero)
+            if (auto computed = Hash::CRC32(compressedData.data(), compressedData.size());
+                computed != header.Checksum)
             {
-                if (auto computed = Hash::CRC32(compressedData.data(), compressedData.size());
-                    computed != header.Checksum)
-                {
-                    OLO_CORE_ERROR("AnimationBinarySerializer::Read: Checksum mismatch in '{}' (expected 0x{:08X}, got 0x{:08X})",
-                                   path.string(), header.Checksum, computed);
-                    return {};
-                }
+                OLO_CORE_ERROR("AnimationBinarySerializer::Read: Checksum mismatch in '{}' (expected 0x{:08X}, got 0x{:08X})",
+                               path.string(), header.Checksum, computed);
+                return {};
             }
 
             auto decompressed = ZlibDecompress(compressedData.data(), compressedData.size(),

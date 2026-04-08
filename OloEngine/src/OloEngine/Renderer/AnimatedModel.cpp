@@ -5,9 +5,13 @@
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Animation/MorphTargets/MorphTarget.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
+#include <array>
+#include <cctype>
 #include <cmath>
 #include <filesystem>
+#include <ranges>
 #include <set>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -96,16 +100,90 @@ namespace OloEngine
                 combined->SetSkeleton(skeleton);
             }
 
-            // Copy morph targets from the first mesh that has them
-            // TODO: This only preserves morph targets from the first mesh source.
-            //       Multi-mesh morph targets require per-submesh partitioning
-            //       and vertex offset remapping during combine/split.
-            for (const auto& src : meshes)
+            // Merge morph targets from all meshes into combined vertex space.
+            // Each mesh's targets are expanded/remapped so vertex indices reference
+            // the combined buffer. On split, the reverse extraction happens.
             {
-                if (src && src->HasMorphTargets())
+                auto totalVertCount = static_cast<u32>(combined->GetVertices().Num());
+                auto mergedSet = Ref<MorphTargetSet>::Create();
+                std::unordered_map<std::string, sizet> nameToIndex; // target name -> index in mergedSet
+
+                u32 meshBaseVertex = 0;
+                for (const auto& src : meshes)
                 {
-                    combined->SetMorphTargets(src->GetMorphTargets());
-                    break;
+                    if (!src)
+                    {
+                        continue;
+                    }
+                    auto srcVertCount = static_cast<u32>(src->GetVertices().Num());
+
+                    if (src->HasMorphTargets())
+                    {
+                        for (const auto& target : src->GetMorphTargets()->Targets)
+                        {
+                            auto it = nameToIndex.find(target.Name);
+                            if (it == nameToIndex.end())
+                            {
+                                // New target — create expanded dense array
+                                MorphTarget combined_target;
+                                combined_target.Name = target.Name;
+                                combined_target.IsSparse = false;
+                                combined_target.Vertices.resize(totalVertCount); // zero-initialized
+
+                                if (target.IsSparse)
+                                {
+                                    for (const auto& sparse : target.SparseVertices)
+                                    {
+                                        if (sparse.VertexIndex < srcVertCount)
+                                        {
+                                            combined_target.Vertices[meshBaseVertex + sparse.VertexIndex] = sparse.Delta;
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    auto copyCount = std::min(static_cast<u32>(target.Vertices.size()), srcVertCount);
+                                    for (u32 v = 0; v < copyCount; ++v)
+                                    {
+                                        combined_target.Vertices[meshBaseVertex + v] = target.Vertices[v];
+                                    }
+                                }
+
+                                nameToIndex[target.Name] = mergedSet->Targets.size();
+                                mergedSet->Targets.push_back(MoveTemp(combined_target));
+                            }
+                            else
+                            {
+                                // Existing target — fill in this mesh's vertex range
+                                auto& existing = mergedSet->Targets[it->second];
+                                if (target.IsSparse)
+                                {
+                                    for (const auto& sparse : target.SparseVertices)
+                                    {
+                                        if (sparse.VertexIndex < srcVertCount)
+                                        {
+                                            existing.Vertices[meshBaseVertex + sparse.VertexIndex] = sparse.Delta;
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    auto copyCount = std::min(static_cast<u32>(target.Vertices.size()), srcVertCount);
+                                    for (u32 v = 0; v < copyCount; ++v)
+                                    {
+                                        existing.Vertices[meshBaseVertex + v] = target.Vertices[v];
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    meshBaseVertex += srcVertCount;
+                }
+
+                if (!mergedSet->Targets.empty())
+                {
+                    combined->SetMorphTargets(mergedSet);
                 }
             }
 
@@ -146,6 +224,19 @@ namespace OloEngine
             for (i32 s = 0; s < combined->GetSubmeshes().Num(); ++s)
             {
                 const auto& submesh = combined->GetSubmeshes()[s];
+
+                // Validate submesh ranges against combined buffer sizes
+                if (submesh.m_BaseVertex > static_cast<u32>(allVerts.Num()) ||
+                    submesh.m_VertexCount > static_cast<u32>(allVerts.Num()) - submesh.m_BaseVertex ||
+                    submesh.m_BaseIndex > static_cast<u32>(allIndices.Num()) ||
+                    submesh.m_IndexCount > static_cast<u32>(allIndices.Num()) - submesh.m_BaseIndex)
+                {
+                    OLO_CORE_ERROR("AnimatedModel::SplitCombinedMeshSource - Submesh {} has out-of-range bounds, "
+                                   "rejecting cache",
+                                   s);
+                    return false;
+                }
+
                 auto mesh = Ref<MeshSource>::Create();
 
                 for (u32 i = 0; i < submesh.m_VertexCount; ++i)
@@ -177,7 +268,7 @@ namespace OloEngine
                 mesh->GetSubmeshes().Add(newSub);
 
                 mesh->SetSkeleton(outSkeleton);
-                mesh->SetPreOptimized(true); // Data was already optimized before caching — skip re-optimization
+                mesh->SetPreOptimized(combined->IsPreOptimized());
                 mesh->Build();
 
                 // Shadow indices cannot be split from the combined buffer (spatial sort
@@ -187,10 +278,49 @@ namespace OloEngine
                 outMeshes.push_back(mesh);
             }
 
-            // Assign morph targets to the first mesh
-            if (combined->HasMorphTargets() && !outMeshes.empty())
+            // Split combined morph targets back into per-mesh sets.
+            // Combined targets are dense arrays spanning the total vertex count;
+            // extract each submesh's slice and skip targets with all-zero deltas.
+            if (combined->HasMorphTargets())
             {
-                outMeshes[0]->SetMorphTargets(combined->GetMorphTargets());
+                const auto& combinedMorphs = combined->GetMorphTargets();
+                for (i32 s = 0; s < combined->GetSubmeshes().Num() && s < static_cast<i32>(outMeshes.size()); ++s)
+                {
+                    const auto& submesh = combined->GetSubmeshes()[s];
+                    auto meshMorphs = Ref<MorphTargetSet>::Create();
+
+                    for (const auto& target : combinedMorphs->Targets)
+                    {
+                        MorphTarget localTarget;
+                        localTarget.Name = target.Name;
+                        localTarget.IsSparse = false;
+                        localTarget.Vertices.resize(submesh.m_VertexCount);
+
+                        bool hasNonZero = false;
+                        if (!target.IsSparse && submesh.m_BaseVertex + submesh.m_VertexCount <= static_cast<u32>(target.Vertices.size()))
+                        {
+                            for (u32 v = 0; v < submesh.m_VertexCount; ++v)
+                            {
+                                localTarget.Vertices[v] = target.Vertices[submesh.m_BaseVertex + v];
+                                const auto& d = localTarget.Vertices[v];
+                                if (d.DeltaPosition != glm::vec3(0.0f) || d.DeltaNormal != glm::vec3(0.0f) || d.DeltaTangent != glm::vec3(0.0f))
+                                {
+                                    hasNonZero = true;
+                                }
+                            }
+                        }
+
+                        if (hasNonZero)
+                        {
+                            meshMorphs->Targets.push_back(MoveTemp(localTarget));
+                        }
+                    }
+
+                    if (!meshMorphs->Targets.empty())
+                    {
+                        outMeshes[s]->SetMorphTargets(meshMorphs);
+                    }
+                }
             }
 
             return true;
@@ -272,9 +402,10 @@ namespace OloEngine
 
         // Try loading from binary cache first (skip Assimp entirely)
         std::filesystem::path sourcePath(path);
-        if (MeshCache::IsMeshCacheValid(sourcePath))
+        constexpr auto kAnimCachePrefix = "anim_";
+        if (MeshCache::IsMeshCacheValid(sourcePath, kAnimCachePrefix))
         {
-            auto cachedMesh = MeshCache::LoadMeshFromCache(sourcePath);
+            auto cachedMesh = MeshCache::LoadMeshFromCache(sourcePath, kAnimCachePrefix);
             if (cachedMesh)
             {
                 m_Directory = sourcePath.parent_path().string();
@@ -388,7 +519,7 @@ namespace OloEngine
         // Save to binary cache for next load
         {
             auto combined = CombineMeshSourcesForCache(m_Meshes, m_Skeleton);
-            MeshCache::SaveMeshToCache(sourcePath, *combined);
+            MeshCache::SaveMeshToCache(sourcePath, *combined, kAnimCachePrefix);
             if (!m_Animations.empty())
             {
                 MeshCache::SaveAnimationsToCache(sourcePath, m_Animations);

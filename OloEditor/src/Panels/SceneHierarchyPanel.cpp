@@ -2110,13 +2110,14 @@ namespace OloEngine
 				{
 					static MeshAnalysis s_CachedAnalysis;
 					static AssetHandle s_AnalyzedHandle{0};
-					static const MeshSource* s_AnalyzedSource = nullptr;
+					static u64 s_AnalyzedGeneration = 0;
 
 					AssetHandle currentHandle = component.m_MeshSource->GetHandle();
-					if (s_AnalyzedSource != component.m_MeshSource.get() || s_AnalyzedHandle != currentHandle)
+					u64 currentGeneration = component.m_MeshSource->GetGeneration();
+					if (s_AnalyzedGeneration != currentGeneration || s_AnalyzedHandle != currentHandle)
 					{
 						s_CachedAnalysis = MeshOptimization::AnalyzeMesh(*component.m_MeshSource);
-						s_AnalyzedSource = component.m_MeshSource.get();
+						s_AnalyzedGeneration = currentGeneration;
 						s_AnalyzedHandle = currentHandle;
 					}
 					ImGui::Text("Triangles: %u", s_CachedAnalysis.TriangleCount);

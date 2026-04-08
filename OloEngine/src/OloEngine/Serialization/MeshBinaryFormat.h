@@ -28,7 +28,17 @@ namespace OloEngine
     {
         constexpr u32 MagicNumber = 0x4853454D; // "MESH" in little-endian
         constexpr u32 CurrentVersion = 1;
-        constexpr u32 FlagCompressed = 1; // Payload is zlib-compressed
+        constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed
+        constexpr u32 FlagPreOptimized = 2; // Mesh was already optimized before caching
+
+        // ── Safety caps for deserialized counts (defence against corrupt files) ──
+        constexpr u32 MaxVertexCount = 50'000'000;
+        constexpr u32 MaxIndexCount = 150'000'000;
+        constexpr u32 MaxSubmeshCount = 10'000;
+        constexpr u32 MaxMaterialCount = 10'000;
+        constexpr u32 MaxBoneCount = 1'024;
+        constexpr u32 MaxMorphTargetCount = 1'000;
+        constexpr u64 MaxEncodedSize = 2'000'000'000; // 2 GB
 
         // Section identifiers
         enum class SectionType : u16
