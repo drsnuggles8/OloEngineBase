@@ -1391,9 +1391,40 @@ namespace OloEngine
 
         WaterComponent() = default;
 
+        // Bitwise comparison for undo/redo change detection (SonarQube rule 2a: no float ==).
+        // memcmp on contiguous float/vec blocks; regular == for non-float fields.
+        // Runtime fields (m_WaterMesh, m_NeedsRebuild) intentionally excluded.
         auto operator==(WaterComponent const& o) const -> bool
         {
-            return m_WorldSizeX == o.m_WorldSizeX && m_WorldSizeZ == o.m_WorldSizeZ && m_WaveAmplitude == o.m_WaveAmplitude && m_WaveFrequency == o.m_WaveFrequency && m_WaveSpeed == o.m_WaveSpeed && m_WaveDir0 == o.m_WaveDir0 && m_WaveSteepness0 == o.m_WaveSteepness0 && m_Wavelength0 == o.m_Wavelength0 && m_WaveDir1 == o.m_WaveDir1 && m_WaveSteepness1 == o.m_WaveSteepness1 && m_Wavelength1 == o.m_Wavelength1 && m_WaterColor == o.m_WaterColor && m_DeepColor == o.m_DeepColor && m_Transparency == o.m_Transparency && m_Reflectivity == o.m_Reflectivity && m_FresnelPower == o.m_FresnelPower && m_SpecularIntensity == o.m_SpecularIntensity && m_GridResolutionX == o.m_GridResolutionX && m_GridResolutionZ == o.m_GridResolutionZ && m_Enabled == o.m_Enabled && m_NormalMapScrollDir0 == o.m_NormalMapScrollDir0 && m_NormalMapScrollDir1 == o.m_NormalMapScrollDir1 && m_NormalMapScrollSpeed0 == o.m_NormalMapScrollSpeed0 && m_NormalMapScrollSpeed1 == o.m_NormalMapScrollSpeed1 && m_NormalMapTiling == o.m_NormalMapTiling && m_NoiseIntensity == o.m_NoiseIntensity && m_NormalMap0 == o.m_NormalMap0 && m_NormalMap1 == o.m_NormalMap1 && m_NoiseTexture == o.m_NoiseTexture && m_RefractionEnabled == o.m_RefractionEnabled && m_DepthSofteningDistance == o.m_DepthSofteningDistance && m_RefractionDistortion == o.m_RefractionDistortion && m_RefractionHeightFactor == o.m_RefractionHeightFactor && m_RefractionColor == o.m_RefractionColor && m_FoamTexture == o.m_FoamTexture && m_FoamHeightStart == o.m_FoamHeightStart && m_FoamFadeDistance == o.m_FoamFadeDistance && m_FoamTiling == o.m_FoamTiling && m_FoamBrightness == o.m_FoamBrightness && m_FoamAngleExponent == o.m_FoamAngleExponent && m_ShorelineFoamPower == o.m_ShorelineFoamPower && m_SSSColor == o.m_SSSColor && m_SSSIntensity == o.m_SSSIntensity && m_SSREnabled == o.m_SSREnabled && m_SSRMaxSteps == o.m_SSRMaxSteps && m_SSRStepSize == o.m_SSRStepSize && m_SSRMaxDistance == o.m_SSRMaxDistance && m_SSRThickness == o.m_SSRThickness && m_TessellationFactor == o.m_TessellationFactor && m_TessellationEnabled == o.m_TessellationEnabled && m_TessMinDistance == o.m_TessMinDistance && m_TessMaxDistance == o.m_TessMaxDistance;
+            // Helper: memcmp a contiguous range [&first .. &last+sizeof(last)) in *this vs o
+            auto blkEq = [this, &o](auto const& selfFirst, auto const& selfLast) -> bool
+            {
+                auto const* a = reinterpret_cast<unsigned char const*>(&selfFirst);
+                auto const len = reinterpret_cast<unsigned char const*>(&selfLast) + sizeof(selfLast) - a;
+                auto const off = a - reinterpret_cast<unsigned char const*>(this);
+                return std::memcmp(a, reinterpret_cast<unsigned char const*>(&o) + off,
+                                   static_cast<sizet>(len)) == 0;
+            };
+            // clang-format off
+            return blkEq(m_WorldSizeX, m_Wavelength1)           // f32*5 + vec2 + f32*2 + vec2 + f32*2
+                && blkEq(m_WaterColor, m_SpecularIntensity)     // vec3*2 + f32*4
+                && m_GridResolutionX == o.m_GridResolutionX
+                && m_GridResolutionZ == o.m_GridResolutionZ
+                && m_Enabled == o.m_Enabled
+                && blkEq(m_NormalMapScrollDir0, m_NoiseIntensity) // vec2*2 + f32*4
+                && m_NormalMap0 == o.m_NormalMap0
+                && m_NormalMap1 == o.m_NormalMap1
+                && m_NoiseTexture == o.m_NoiseTexture
+                && m_RefractionEnabled == o.m_RefractionEnabled
+                && blkEq(m_DepthSofteningDistance, m_RefractionColor) // f32*3 + vec3
+                && m_FoamTexture == o.m_FoamTexture
+                && blkEq(m_FoamHeightStart, m_SSSIntensity)    // f32*6 + vec3 + f32
+                && m_SSREnabled == o.m_SSREnabled
+                && blkEq(m_SSRMaxSteps, m_SSRThickness)        // f32*4
+                && blkEq(m_TessellationFactor, m_TessellationFactor) // f32
+                && m_TessellationEnabled == o.m_TessellationEnabled
+                && blkEq(m_TessMinDistance, m_TessMaxDistance); // f32*2
+            // clang-format on
         }
 
         WaterComponent(const WaterComponent& other)

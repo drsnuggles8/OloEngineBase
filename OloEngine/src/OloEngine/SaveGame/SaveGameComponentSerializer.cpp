@@ -1122,13 +1122,15 @@ namespace OloEngine
             sanitize(c.m_TessMaxDistance, 10.0f, 1000.0f, 200.0f);
             c.m_TessMaxDistance = std::max(c.m_TessMaxDistance, c.m_TessMinDistance + 1.0f);
 
-            // Sanitize direction vectors — fallback if non-finite
+            // Sanitize direction vectors — fallback if non-finite or near-zero, else normalize
             auto sanitizeVec2 = [](glm::vec2& v, glm::vec2 const& fallback)
             {
-                if (!std::isfinite(v.x) || !std::isfinite(v.y))
+                if (!std::isfinite(v.x) || !std::isfinite(v.y) || glm::dot(v, v) < 1e-6f)
                 {
                     v = fallback;
+                    return;
                 }
+                v = glm::normalize(v);
             };
             auto sanitizeColor = [](glm::vec3& v, glm::vec3 const& fallback)
             {

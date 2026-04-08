@@ -741,17 +741,21 @@ namespace OloEngine
                            name.contains("StreakNoise") || name.contains("streakNoise");
                 case TEX_WATER_NORMAL_0:
                 case TEX_WATER_NORMAL_1:
-                    return name.contains("WaterNormal") || name.contains("waterNormal") || name.contains("Water") && name.contains("Normal");
+                    return name.contains("WaterNormal") || name.contains("waterNormal") ||
+                           (name.contains("Water") && name.contains("Normal"));
                 case TEX_WATER_NOISE:
-                    return name.contains("WaterNoise") || name.contains("waterNoise");
+                    return name.contains("WaterNoise") || name.contains("waterNoise") ||
+                           (name.contains("Water") && name.contains("Noise"));
                 case TEX_WATER_DEPTH:
-                    return name.contains("WaterDepth") || name.contains("waterDepth") || name.contains("SceneDepth");
+                    return name.contains("WaterDepth") || name.contains("waterDepth") ||
+                           (name.contains("Scene") && name.contains("Depth"));
                 case TEX_WATER_REFRACTION:
                     return name.contains("Refraction") || name.contains("refraction");
                 case TEX_WATER_FOAM:
                     return name.contains("Foam") || name.contains("foam");
                 case TEX_WATER_SSR:
-                    return name.contains("SSR") || name.contains("ssr") || name.contains("Reflection");
+                    return name.contains("SSR") || name.contains("ssr") ||
+                           (name.contains("Screen") && name.contains("Reflection"));
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_HILBERT_LUT, i.e. 10–36)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)
