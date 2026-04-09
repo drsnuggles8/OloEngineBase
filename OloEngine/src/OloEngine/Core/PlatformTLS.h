@@ -130,6 +130,8 @@ namespace OloEngine
         }
 #elif defined(OLO_PLATFORM_LINUX)
         // POSIX implementation using pthread_key_t
+        static_assert(sizeof(pthread_key_t) <= sizeof(u32), "pthread_key_t does not fit in u32");
+
         static u32 AllocTlsSlot()
         {
             pthread_key_t Key = 0;

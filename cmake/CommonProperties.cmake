@@ -88,16 +88,6 @@ function(olo_set_compiler_options target_name)
             -Wextra 
             -Wno-cast-function-type 
             -Wno-error=deprecated-declarations
-            # GCC warnings triggered by UE5.7-ported code (Containers/, Templates/, Serialization/).
-            # These should be revisited as UE-ported code is cleaned up or replaced:
-            -Wno-undef              # #if MACRO without prior #define (UE convention)
-            -Wno-pedantic           # Zero-size arrays, anonymous structs
-            -Wno-shadow             # Constructor params shadowing members
-            -Wno-changes-meaning    # GCC name lookup differs from MSVC in class scope
-            -Wno-unused-function    # Static helpers in UE trait headers
-            -Wno-unknown-pragmas    # MSVC-specific #pragma warning push/pop
-            -Wno-ignored-qualifiers # const on return-by-value (UE accessor pattern)
-            -Wno-unused-local-typedefs  # Type aliases used only in static_assert (UE Tuple.h)
             -Wno-error=delete-incomplete # Forward-declared types in Ref<T> smart pointers
         )
     endif()

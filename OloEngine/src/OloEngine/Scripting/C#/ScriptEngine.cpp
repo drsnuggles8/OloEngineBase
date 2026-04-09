@@ -675,6 +675,10 @@ namespace OloEngine
     {
         return s_SceneContext;
     }
+    void ScriptEngine::SetSceneContextForTesting(Scene* scene)
+    {
+        s_SceneContext = scene;
+    }
     Ref<ScriptInstance> ScriptEngine::GetEntityScriptInstance(UUID)
     {
         return nullptr;

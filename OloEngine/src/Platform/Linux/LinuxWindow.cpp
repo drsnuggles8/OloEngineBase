@@ -71,7 +71,7 @@ namespace OloEngine
 #if defined(OLO_DEBUG)
             if (Renderer::GetAPI() == RendererAPI::API::OpenGL)
             {
-                glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
+                GLFWAPI::glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
             }
 #endif
 
@@ -95,8 +95,8 @@ namespace OloEngine
         GLFWAPI::glfwSetWindowSizeCallback(m_Window, [](GLFWwindow* const window, const int width, const int height)
                                            {
             WindowData& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
-            data.Width = width;
-            data.Height = height;
+            data.Width = static_cast<unsigned int>(std::max(0, width));
+            data.Height = static_cast<unsigned int>(std::max(0, height));
 
             WindowResizeEvent event(width, height);
             data.EventCallback(event); });
@@ -234,17 +234,17 @@ namespace OloEngine
 
     u32 LinuxWindow::GetFramebufferWidth() const
     {
-        int width;
-        int height;
-        glfwGetFramebufferSize(m_Window, &width, &height);
+        int width{};
+        int height{};
+        GLFWAPI::glfwGetFramebufferSize(m_Window, &width, &height);
         return static_cast<u32>(width);
     }
 
     u32 LinuxWindow::GetFramebufferHeight() const
     {
-        int width;
-        int height;
-        glfwGetFramebufferSize(m_Window, &width, &height);
+        int width{};
+        int height{};
+        GLFWAPI::glfwGetFramebufferSize(m_Window, &width, &height);
         return static_cast<u32>(height);
     }
 

@@ -76,10 +76,13 @@ namespace OloEngine
             }
             else
             {
-                m_Condition.wait_for(lock, std::chrono::milliseconds(WaitTime), predicate);
+                if (!m_Condition.wait_for(lock, std::chrono::milliseconds(WaitTime), predicate))
+                {
+                    return false; // Timed out without predicate becoming true
+                }
             }
 
-            const bool wasTriggered = m_Triggered || (m_Generation != initialGeneration);
+            const bool wasTriggered = m_Triggered;
 
             // Auto-reset events reset after a successful wait
             if (!m_ManualReset && wasTriggered)

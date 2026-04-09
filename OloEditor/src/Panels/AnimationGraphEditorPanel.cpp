@@ -9,10 +9,12 @@
 #include "OloEngine/Animation/AnimationParameter.h"
 #include "OloEngine/Core/Log.h"
 
+#include <algorithm>
 #include <cstring>
 #include <imgui.h>
 #include <limits>
 #include <string>
+#include <vector>
 
 namespace OloEngine
 {

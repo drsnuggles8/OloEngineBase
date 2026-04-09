@@ -60,6 +60,23 @@ olo_enable_lto(OloEngine)
 olo_enable_pch(OloEngine src/OloEnginePCH.h)
 olo_set_compiler_options(OloEngine)
 
+# UE5.7-ported code (Containers/, Templates/, Serialization/, HAL/) triggers
+# warnings that don't apply to our codebase.  PUBLIC so consumers that
+# transitively include these headers (Scene.h -> Map.h, etc.) also compile
+# without noise.  Revisit as UE-ported code is cleaned up or replaced.
+if(NOT MSVC)
+	target_compile_options(OloEngine PUBLIC
+		-Wno-undef              # #if MACRO without prior #define (UE convention)
+		-Wno-pedantic           # Zero-size arrays, anonymous structs
+		-Wno-shadow             # Constructor params shadowing members
+		$<$<CXX_COMPILER_ID:GNU>:-Wno-changes-meaning>  # GCC name lookup differs in class scope
+		-Wno-unused-function    # Static helpers in UE trait headers
+		-Wno-unknown-pragmas    # MSVC-specific #pragma warning push/pop
+		-Wno-ignored-qualifiers # const on return-by-value (UE accessor pattern)
+		-Wno-unused-local-typedefs  # Type aliases used only in static_assert (UE Tuple.h)
+	)
+endif()
+
 # Unity Build: combines multiple .cpp files per translation unit for faster compilation
 if(OLO_ENABLE_UNITY_BUILD)
     set_target_properties(OloEngine PROPERTIES
@@ -174,6 +191,12 @@ else()
 	find_library(MACHINE_INDEPENDENT_LIB NAMES MachineIndependent)
 	find_library(OS_DEPENDENT_LIB NAMES OSDependent)
 	find_library(GENERIC_CODEGEN_LIB NAMES GenericCodeGen)
+	foreach(_lib SHADERC_LIB SPIRV_CROSS_CORE_LIB SPIRV_CROSS_GLSL_LIB GLSLANG_LIB SPIRV_LIB SPIRV_TOOLS_LIB)
+		if(NOT ${_lib})
+			message(FATAL_ERROR "Required shader library not found: ${_lib}. "
+				"Install the Vulkan SDK / shader development packages.")
+		endif()
+	endforeach()
 	target_link_libraries(OloEngine
 		${SHADERC_LIB}
 		${SPIRV_CROSS_CORE_LIB}
@@ -211,9 +234,6 @@ if(MSVC)
 		Version
 		ws2_32
 		WinMM
-		$<$<CONFIG:Debug>:${ZLIB_LIBRARY_DEBUG}>
-		$<$<CONFIG:Release>:${ZLIB_LIBRARY_RELEASE}>
-		$<$<CONFIG:Dist>:${ZLIB_LIBRARY_DIST}>
 	)
 else()
 	find_package(Threads REQUIRED)
