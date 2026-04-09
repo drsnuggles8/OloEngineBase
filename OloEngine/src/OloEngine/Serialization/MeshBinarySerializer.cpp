@@ -32,10 +32,10 @@ namespace OloEngine
     {
         // ── Validation helpers ──
 
-        // Returns true if every component in the matrix array is finite.
+        // Checks every component in the matrix array for finite values.
         // On failure, logs the first offending element and replaces the matrix
         // with identity so downstream code doesn't propagate NaN/Inf.
-        bool ValidateMat4Array(std::vector<glm::mat4>& arr, const char* arrayName,
+        void ValidateMat4Array(std::vector<glm::mat4>& arr, const char* arrayName,
                                const std::filesystem::path& path)
         {
             for (sizet i = 0; i < arr.size(); ++i)
@@ -57,7 +57,6 @@ namespace OloEngine
                 }
             next_matrix:;
             }
-            return true;
         }
 
         // Returns true if the stream position hasn't exceeded the section boundary.
@@ -235,6 +234,32 @@ namespace OloEngine
         const auto& submeshes = meshSource.GetSubmeshes();
         const auto& materials = meshSource.GetMaterials();
 
+        // ── Validate counts against format caps before writing ──
+        if (auto const vc = static_cast<u32>(vertices.Num()); vc > OMeshFormat::MaxVertexCount)
+        {
+            OLO_CORE_ERROR("MeshBinarySerializer::Write: VertexCount ({}) exceeds cap ({}) for '{}'",
+                           vc, OMeshFormat::MaxVertexCount, path.string());
+            return false;
+        }
+        if (auto const ic = static_cast<u32>(indices.Num()); ic > OMeshFormat::MaxIndexCount)
+        {
+            OLO_CORE_ERROR("MeshBinarySerializer::Write: IndexCount ({}) exceeds cap ({}) for '{}'",
+                           ic, OMeshFormat::MaxIndexCount, path.string());
+            return false;
+        }
+        if (auto const sc = static_cast<u32>(submeshes.Num()); sc > OMeshFormat::MaxSubmeshCount)
+        {
+            OLO_CORE_ERROR("MeshBinarySerializer::Write: SubmeshCount ({}) exceeds cap ({}) for '{}'",
+                           sc, OMeshFormat::MaxSubmeshCount, path.string());
+            return false;
+        }
+        if (auto const mc = static_cast<u32>(materials.Num()); mc > OMeshFormat::MaxMaterialCount)
+        {
+            OLO_CORE_ERROR("MeshBinarySerializer::Write: MaterialCount ({}) exceeds cap ({}) for '{}'",
+                           mc, OMeshFormat::MaxMaterialCount, path.string());
+            return false;
+        }
+
         // ── Write payload (SectionDirectory + all sections) to memory ──
         std::ostringstream payload(std::ios::binary);
 
@@ -366,6 +391,13 @@ namespace OloEngine
             const auto* skeleton = meshSource.GetSkeleton();
             auto boneCount = static_cast<u32>(skeleton->m_BoneNames.size());
 
+            if (boneCount > OMeshFormat::MaxBoneCount)
+            {
+                OLO_CORE_ERROR("MeshBinarySerializer::Write: BoneCount ({}) exceeds cap ({}) for '{}'",
+                               boneCount, OMeshFormat::MaxBoneCount, path.string());
+                return false;
+            }
+
             // Validate skeleton array sizes — reject mismatches
             auto const validateSize = [&](sizet actual, const char* name) -> bool
             {
@@ -484,6 +516,13 @@ namespace OloEngine
             const auto& morphTargets = meshSource.GetMorphTargets();
             auto targetCount = morphTargets->GetTargetCount();
             auto vertCount = morphTargets->GetVertexCount();
+
+            if (targetCount > OMeshFormat::MaxMorphTargetCount)
+            {
+                OLO_CORE_ERROR("MeshBinarySerializer::Write: MorphTargetCount ({}) exceeds cap ({}) for '{}'",
+                               targetCount, OMeshFormat::MaxMorphTargetCount, path.string());
+                return false;
+            }
 
             OMeshFormat::MorphTargetHeader mtHeader;
             mtHeader.TargetCount = targetCount;
