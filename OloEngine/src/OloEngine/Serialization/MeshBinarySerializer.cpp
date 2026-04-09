@@ -729,12 +729,28 @@ namespace OloEngine
         }
 
         // Validate all section entries against payload bounds
+        constexpr u64 directoryEnd = sizeof(OMeshFormat::SectionDirectory);
+        struct ValidRange
+        {
+            u64 Start;
+            u64 End;
+        };
+        std::array<ValidRange, OMeshFormat::kSectionCount> validatedRanges{};
+        u16 rangeCount = 0;
+
         for (u16 s = 0; s < OMeshFormat::kSectionCount; ++s)
         {
             const auto& sec = directory.Sections[s];
             if (sec.Size == 0)
             {
                 continue;
+            }
+            if (sec.Offset < directoryEnd)
+            {
+                OLO_CORE_ERROR("MeshBinarySerializer::Read: Section {} overlaps directory table "
+                               "(Offset={}, directoryEnd={}) in '{}'",
+                               s, sec.Offset, directoryEnd, path.string());
+                return nullptr;
             }
             if (sec.Offset > actualPayloadSize || sec.Size > actualPayloadSize - sec.Offset)
             {
@@ -743,6 +759,19 @@ namespace OloEngine
                                s, sec.Offset, sec.Size, actualPayloadSize, path.string());
                 return nullptr;
             }
+            // Check for overlap with previously validated sections
+            u64 const newStart = sec.Offset;
+            u64 const newEnd = sec.Offset + sec.Size;
+            for (u16 r = 0; r < rangeCount; ++r)
+            {
+                if (newStart < validatedRanges[r].End && newEnd > validatedRanges[r].Start)
+                {
+                    OLO_CORE_ERROR("MeshBinarySerializer::Read: Section {} [{}, {}) overlaps a previous section in '{}'",
+                                   s, newStart, newEnd, path.string());
+                    return nullptr;
+                }
+            }
+            validatedRanges[rangeCount++] = { newStart, newEnd };
         }
 
         TArray<Vertex> vertices;
@@ -1108,6 +1137,14 @@ namespace OloEngine
                 {
                     OLO_CORE_ERROR("MeshBinarySerializer::Read: BoneInfluence count ({}) != vertex count ({}) in '{}'",
                                    biHeader.InfluenceCount, vCount, path.string());
+                    return nullptr;
+                }
+
+                if ((biHeader.InfluenceCount > 0) != (biHeader.EncodedSize > 0))
+                {
+                    OLO_CORE_ERROR("MeshBinarySerializer::Read: BoneInfluence count/encoded size mismatch "
+                                   "(count={}, encodedSize={}) in '{}'",
+                                   biHeader.InfluenceCount, biHeader.EncodedSize, path.string());
                     return nullptr;
                 }
 
@@ -1617,6 +1654,50 @@ namespace OloEngine
             return {};
         }
 
+        // Validate clip directory entries: bounds, post-directory start, non-overlap
+        u64 const clipDirectoryEnd = sizeof(u32) + clipCount * sizeof(OAnimFormat::ClipDirectoryEntry);
+        struct ClipRange
+        {
+            u64 Start;
+            u64 End;
+        };
+        std::vector<ClipRange> validatedClipRanges;
+        validatedClipRanges.reserve(clipCount);
+
+        for (u32 i = 0; i < clipCount; ++i)
+        {
+            if (directory[i].Size == 0)
+            {
+                continue;
+            }
+            if (directory[i].Offset < clipDirectoryEnd)
+            {
+                OLO_CORE_ERROR("AnimationBinarySerializer::Read: Clip {} overlaps directory table "
+                               "(Offset={}, directoryEnd={}) in '{}'",
+                               i, directory[i].Offset, clipDirectoryEnd, path.string());
+                return {};
+            }
+            if (directory[i].Offset > actualPayloadSize || directory[i].Size > actualPayloadSize - directory[i].Offset)
+            {
+                OLO_CORE_ERROR("AnimationBinarySerializer::Read: Clip {} directory entry out of bounds "
+                               "(Offset={}, Size={}, PayloadLen={}) in '{}'",
+                               i, directory[i].Offset, directory[i].Size, actualPayloadSize, path.string());
+                return {};
+            }
+            u64 const cStart = directory[i].Offset;
+            u64 const cEnd = directory[i].Offset + directory[i].Size;
+            for (const auto& [Start, End] : validatedClipRanges)
+            {
+                if (cStart < End && cEnd > Start)
+                {
+                    OLO_CORE_ERROR("AnimationBinarySerializer::Read: Clip {} [{}, {}) overlaps a previous clip in '{}'",
+                                   i, cStart, cEnd, path.string());
+                    return {};
+                }
+            }
+            validatedClipRanges.push_back({ cStart, cEnd });
+        }
+
         std::vector<Ref<AnimationClip>> clips;
         clips.reserve(clipCount);
 
@@ -1627,15 +1708,7 @@ namespace OloEngine
                 continue;
             }
 
-            // Validate clip directory entry bounds against payload
-            if (directory[i].Offset > actualPayloadSize || directory[i].Size > actualPayloadSize - directory[i].Offset)
-            {
-                OLO_CORE_ERROR("AnimationBinarySerializer::Read: Clip {} directory entry out of bounds "
-                               "(Offset={}, Size={}, PayloadLen={}) in '{}'",
-                               i, directory[i].Offset, directory[i].Size, actualPayloadSize, path.string());
-                return {};
-            }
-
+            // Bounds already validated above; seek directly.
             payload.seekg(static_cast<std::streamoff>(payloadBase + directory[i].Offset));
 
             auto const clipEnd = static_cast<std::streamoff>(payloadBase + directory[i].Offset + directory[i].Size);

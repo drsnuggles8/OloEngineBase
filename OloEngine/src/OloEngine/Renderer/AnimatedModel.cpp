@@ -530,6 +530,7 @@ namespace OloEngine
         m_Materials.clear();
         m_Animations.clear();
         m_BoneInfoMap.clear();
+        m_LoadedTextures.clear();
         m_HasMeshNodeTransform = false;
 
         // Try loading from binary cache first (skip Assimp entirely)

@@ -1896,6 +1896,20 @@ namespace OloEngine
         // ── Preflight validation ──
         // Validate all invariants before committing any bytes to stream so that
         // failures never leave a truncated/partial entry.
+        // Mirror the same hard caps that DeserializeFromAssetPack enforces so the
+        // writer never creates a pack the reader would reject.
+        constexpr u32 kMaxVertexCount = 50'000'000;
+        constexpr u32 kMaxIndexCount = 150'000'000;
+        constexpr u32 kMaxSubmeshCount = 10'000;
+        constexpr u32 kMaxMaterialCount = 10'000;
+        if (vertexCount > kMaxVertexCount || indexCount > kMaxIndexCount ||
+            submeshCount > kMaxSubmeshCount || materialCount > kMaxMaterialCount)
+        {
+            OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Counts exceed limits "
+                           "(verts={}, indices={}, submeshes={}, materials={}), rejecting before write",
+                           vertexCount, indexCount, submeshCount, materialCount);
+            return false;
+        }
         if (hasBoneInfluences)
         {
             if (static_cast<u32>(meshSource->GetBoneInfluences().Num()) != vertexCount)
