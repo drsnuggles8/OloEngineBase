@@ -1516,85 +1516,108 @@ namespace OloEngine
                     // try scanning that subdirectory first before falling back to model root.
                     if (filenamePath.has_parent_path() && filenamePath.parent_path() != ".")
                     {
-                        auto subdir = std::filesystem::path(m_Directory) / filenamePath.parent_path();
-                        auto discovered = FindTextureInDirectory(subdir, filenameOnly);
-
-                        // If the exact subdirectory didn't exist or had no match, try a case-insensitive
-                        // directory traversal under m_Directory. Handles multi-component paths
-                        // like "Textures/Characters" and case mismatches ("textures/" vs "Textures/").
-                        if (discovered.empty())
+                        // Reject absolute paths or parent-traversal ("..") to prevent
+                        // directory escape outside m_Directory.
+                        auto parentPath = filenamePath.parent_path();
+                        bool pathSafe = !filenamePath.is_absolute();
+                        if (pathSafe)
                         {
-                            auto parentPath = filenamePath.parent_path();
-                            std::filesystem::path resolvedDir = m_Directory;
-                            bool resolved = true;
-
-                            for (const auto& component : parentPath)
+                            for (const auto& comp : parentPath)
                             {
-                                std::string targetComponent = component.string();
-                                std::ranges::transform(targetComponent, targetComponent.begin(),
-                                                       [](unsigned char c)
-                                                       { return static_cast<char>(std::tolower(c)); });
-
-                                // Try exact match first
-                                if (auto exact = resolvedDir / component;
-                                    std::filesystem::is_directory(exact))
+                                if (comp == "..")
                                 {
-                                    resolvedDir = exact;
-                                    continue;
-                                }
-
-                                // Case-insensitive scan of current directory
-                                bool found = false;
-                                std::error_code ec;
-                                for (const auto& dirEntry : std::filesystem::directory_iterator(resolvedDir, ec))
-                                {
-                                    if (!dirEntry.is_directory(ec))
-                                    {
-                                        continue;
-                                    }
-                                    std::string entryName = dirEntry.path().filename().string();
-                                    std::ranges::transform(entryName, entryName.begin(),
-                                                           [](unsigned char c)
-                                                           { return static_cast<char>(std::tolower(c)); });
-                                    if (entryName == targetComponent)
-                                    {
-                                        resolvedDir = dirEntry.path();
-                                        found = true;
-                                        break;
-                                    }
-                                }
-                                if (!found)
-                                {
-                                    resolved = false;
+                                    pathSafe = false;
                                     break;
                                 }
                             }
-
-                            if (resolved)
-                            {
-                                discovered = FindTextureInDirectory(resolvedDir, filenameOnly);
-                            }
                         }
-
-                        if (!discovered.empty())
+                        if (!pathSafe)
                         {
-                            std::string discoveredStr = discovered.string();
-                            if (m_LoadedTextures.find(discoveredStr) != m_LoadedTextures.end())
+                            OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: Rejecting unsafe texture path '{}'",
+                                          filename);
+                        }
+                        else
+                        {
+                            auto subdir = std::filesystem::path(m_Directory) / filenamePath.parent_path();
+                            auto discovered = FindTextureInDirectory(subdir, filenameOnly);
+
+                            // If the exact subdirectory didn't exist or had no match, try a case-insensitive
+                            // directory traversal under m_Directory. Handles multi-component paths
+                            // like "Textures/Characters" and case mismatches ("textures/" vs "Textures/").
+                            if (discovered.empty())
                             {
-                                textures.push_back(m_LoadedTextures[discoveredStr]);
-                                loaded = true;
-                            }
-                            else
-                            {
-                                auto discoveredTexture = Texture2D::Create(discoveredStr);
-                                if (discoveredTexture && discoveredTexture->IsLoaded())
+                                auto parentPath = filenamePath.parent_path();
+                                std::filesystem::path resolvedDir = m_Directory;
+                                bool resolved = true;
+
+                                for (const auto& component : parentPath)
                                 {
-                                    m_LoadedTextures[discoveredStr] = discoveredTexture;
-                                    textures.push_back(discoveredTexture);
-                                    loaded = true;
+                                    std::string targetComponent = component.string();
+                                    std::ranges::transform(targetComponent, targetComponent.begin(),
+                                                           [](unsigned char c)
+                                                           { return static_cast<char>(std::tolower(c)); });
+
+                                    // Try exact match first
+                                    if (auto exact = resolvedDir / component;
+                                        std::filesystem::is_directory(exact))
+                                    {
+                                        resolvedDir = exact;
+                                        continue;
+                                    }
+
+                                    // Case-insensitive scan of current directory
+                                    bool found = false;
+                                    std::error_code ec;
+                                    for (const auto& dirEntry : std::filesystem::directory_iterator(resolvedDir, ec))
+                                    {
+                                        if (!dirEntry.is_directory(ec))
+                                        {
+                                            continue;
+                                        }
+                                        std::string entryName = dirEntry.path().filename().string();
+                                        std::ranges::transform(entryName, entryName.begin(),
+                                                               [](unsigned char c)
+                                                               { return static_cast<char>(std::tolower(c)); });
+                                        if (entryName == targetComponent)
+                                        {
+                                            resolvedDir = dirEntry.path();
+                                            found = true;
+                                            break;
+                                        }
+                                    }
+                                    if (!found)
+                                    {
+                                        resolved = false;
+                                        break;
+                                    }
+                                }
+
+                                if (resolved)
+                                {
+                                    discovered = FindTextureInDirectory(resolvedDir, filenameOnly);
                                 }
                             }
-                        }
+
+                            if (!discovered.empty())
+                            {
+                                std::string discoveredStr = discovered.string();
+                                if (m_LoadedTextures.find(discoveredStr) != m_LoadedTextures.end())
+                                {
+                                    textures.push_back(m_LoadedTextures[discoveredStr]);
+                                    loaded = true;
+                                }
+                                else
+                                {
+                                    auto discoveredTexture = Texture2D::Create(discoveredStr);
+                                    if (discoveredTexture && discoveredTexture->IsLoaded())
+                                    {
+                                        m_LoadedTextures[discoveredStr] = discoveredTexture;
+                                        textures.push_back(discoveredTexture);
+                                        loaded = true;
+                                    }
+                                }
+                            }
+                        } // else (pathSafe)
                     }
 
                     // Fallback: try just the filename in the model root directory

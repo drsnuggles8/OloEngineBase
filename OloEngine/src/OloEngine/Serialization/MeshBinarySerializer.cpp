@@ -225,7 +225,14 @@ namespace OloEngine
         // Ensure parent directory exists
         if (auto const parentDir = path.parent_path(); !parentDir.empty())
         {
-            std::filesystem::create_directories(parentDir);
+            std::error_code ec;
+            std::filesystem::create_directories(parentDir, ec);
+            if (ec)
+            {
+                OLO_CORE_ERROR("MeshBinarySerializer::Write: Failed to create directory '{}': {}",
+                               parentDir.string(), ec.message());
+                return false;
+            }
         }
 
         const auto& vertices = meshSource.GetVertices();
@@ -1326,7 +1333,14 @@ namespace OloEngine
 
         if (auto const parentDir = path.parent_path(); !parentDir.empty())
         {
-            std::filesystem::create_directories(parentDir);
+            std::error_code ec;
+            std::filesystem::create_directories(parentDir, ec);
+            if (ec)
+            {
+                OLO_CORE_ERROR("AnimationBinarySerializer::Write: Failed to create directory '{}': {}",
+                               parentDir.string(), ec.message());
+                return false;
+            }
         }
 
         // ── Write payload (clip directory + clip data) to memory ──
@@ -1642,6 +1656,10 @@ namespace OloEngine
             }
 
             auto clip = Ref<AnimationClip>::Create();
+            if (!ensureClipRemaining(sizeof(u32), "clip Name string"))
+            {
+                return {};
+            }
             clip->Name = ReadString(payload);
             clip->Duration = clipHeader.Duration;
 
@@ -1674,6 +1692,10 @@ namespace OloEngine
                 }
 
                 auto& boneAnim = clip->BoneAnimations[c];
+                if (!ensureClipRemaining(sizeof(u32), "BoneName string"))
+                {
+                    return {};
+                }
                 boneAnim.BoneName = ReadString(payload);
 
                 // Position keys
@@ -1759,6 +1781,10 @@ namespace OloEngine
                 }
                 clip->MorphKeyframes[m].Time = mkData.Time;
                 clip->MorphKeyframes[m].Weight = mkData.Weight;
+                if (!ensureClipRemaining(sizeof(u32), "MorphTarget TargetName string"))
+                {
+                    return {};
+                }
                 clip->MorphKeyframes[m].TargetName = ReadString(payload);
             }
 

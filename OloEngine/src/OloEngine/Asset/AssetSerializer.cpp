@@ -43,8 +43,10 @@
 #include "OloEngine/Asset/MeshCache.h"
 #include <yaml-cpp/yaml.h>
 #include <stb_image/stb_image.h>
-#include <fstream>
 #include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <fstream>
 
 namespace OloEngine
 {
@@ -1876,8 +1878,6 @@ namespace OloEngine
             return false;
         }
 
-        outInfo.Offset = stream.GetStreamPosition();
-
         const auto& vertices = meshSource->GetVertices();
         const auto& indices = meshSource->GetIndices();
         const auto& submeshes = meshSource->GetSubmeshes();
@@ -1892,6 +1892,41 @@ namespace OloEngine
         bool hasSkeleton = meshSource->HasSkeleton();
         bool hasBoneInfo = !meshSource->GetBoneInfo().IsEmpty();
         bool hasMorphTargets = meshSource->HasMorphTargets();
+
+        // ── Preflight validation ──
+        // Validate all invariants before committing any bytes to stream so that
+        // failures never leave a truncated/partial entry.
+        if (hasBoneInfluences)
+        {
+            if (static_cast<u32>(meshSource->GetBoneInfluences().Num()) != vertexCount)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - BoneInfluence count ({}) != vertex count ({}), "
+                               "rejecting before write",
+                               meshSource->GetBoneInfluences().Num(), vertexCount);
+                return false;
+            }
+        }
+        if (hasMorphTargets)
+        {
+            const auto& morphTargets = meshSource->GetMorphTargets();
+            auto vertCount = morphTargets->GetVertexCount();
+            for (u32 t = 0; t < morphTargets->GetTargetCount(); ++t)
+            {
+                const auto& target = morphTargets->Targets[t];
+                auto sparseCount = (target.IsSparse && !target.SparseVertices.empty())
+                                       ? static_cast<u32>(target.SparseVertices.size())
+                                       : 0u;
+                if (sparseCount == 0 && static_cast<u32>(target.Vertices.size()) != vertCount)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Dense morph target '{}' vertex count ({}) "
+                                   "does not match expected vertCount ({}), rejecting before write",
+                                   target.Name, target.Vertices.size(), vertCount);
+                    return false;
+                }
+            }
+        }
+
+        outInfo.Offset = stream.GetStreamPosition();
 
         // Write counts and flags
         stream.WriteRaw<u32>(vertexCount);
@@ -2359,9 +2394,21 @@ namespace OloEngine
 
             auto skeleton = Ref<Skeleton>::Create(static_cast<sizet>(boneCount));
 
-            // Parent indices
+            // Parent indices — read into place, then validate bounds
             stream.ReadData(reinterpret_cast<char*>(skeleton->m_ParentIndices.data()),
                             boneCount * sizeof(i32));
+
+            for (u32 j = 0; j < boneCount; ++j)
+            {
+                auto const idx = skeleton->m_ParentIndices[j];
+                if (idx != -1 && (idx < 0 || idx >= static_cast<i32>(boneCount)))
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - ParentIndex[{}] = {} "
+                                   "is out of range [0, {}) or -1",
+                                   j, idx, boneCount);
+                    return false;
+                }
+            }
 
             // Transform arrays
             auto const readMat4Array = [&](std::vector<glm::mat4>& arr)
@@ -2412,11 +2459,19 @@ namespace OloEngine
             }
 
             // Bone names
+            constexpr u32 MAX_BONE_NAME_LEN = 1'024;
             skeleton->m_BoneNames.resize(boneCount);
             for (u32 j = 0; j < boneCount; ++j)
             {
                 u32 nameLen = 0;
                 stream.ReadRaw<u32>(nameLen);
+                if (nameLen > MAX_BONE_NAME_LEN)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Bone name length ({}) "
+                                   "exceeds limit at bone {}",
+                                   nameLen, j);
+                    return false;
+                }
                 if (nameLen > 0)
                 {
                     skeleton->m_BoneNames[j].resize(nameLen);

@@ -106,7 +106,10 @@ namespace OloEngine
                     safe += c;
                 }
             }
-            return GetCacheDirectory() / (safe + HashSourcePath(sourcePath) + ".omesh");
+            // Append a hash of the original (unsanitized) prefix so distinct
+            // prefixes that sanitize to the same string don't collide.
+            auto const prefixHash = HashSourcePath(std::filesystem::path(prefix));
+            return GetCacheDirectory() / (safe + "_" + prefixHash + HashSourcePath(sourcePath) + ".omesh");
         }
 
         std::filesystem::path GetAnimationCachePath(const std::filesystem::path& sourcePath)
