@@ -1957,8 +1957,17 @@ namespace OloEngine
         if (hasSkeleton)
         {
             constexpr u32 MAX_BONE_NAME_LEN = 1'024;
+            constexpr u32 kMaxBoneCount = 10'000;
             const auto* skeleton = meshSource->GetSkeleton();
-            for (u32 j = 0; j < static_cast<u32>(skeleton->m_BoneNames.size()); ++j)
+            auto boneCount = static_cast<u32>(skeleton->m_BoneNames.size());
+            if (boneCount > kMaxBoneCount)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Bone count ({}) exceeds limit ({}), "
+                               "rejecting before write",
+                               boneCount, kMaxBoneCount);
+                return false;
+            }
+            for (u32 j = 0; j < boneCount; ++j)
             {
                 if (skeleton->m_BoneNames[j].size() > MAX_BONE_NAME_LEN)
                 {
@@ -1967,6 +1976,58 @@ namespace OloEngine
                                    skeleton->m_BoneNames[j].size(), MAX_BONE_NAME_LEN, j);
                     return false;
                 }
+            }
+            // Validate parent indices are within [0, boneCount) or -1 (root sentinel)
+            for (u32 j = 0; j < static_cast<u32>(skeleton->m_ParentIndices.size()); ++j)
+            {
+                auto const idx = skeleton->m_ParentIndices[j];
+                if (idx != -1 && (idx < 0 || idx >= static_cast<i32>(boneCount)))
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - ParentIndex[{}] = {} "
+                                   "is out of range [0, {}) or -1, rejecting before write",
+                                   j, idx, boneCount);
+                    return false;
+                }
+            }
+            // Validate all skeleton transform matrices are finite
+            auto const validateFiniteMat4Array = [](const std::vector<glm::mat4>& arr, const char* name) -> bool
+            {
+                for (sizet i = 0; i < arr.size(); ++i)
+                {
+                    const auto& m = arr[i];
+                    for (int c = 0; c < 4; ++c)
+                        for (int r = 0; r < 4; ++r)
+                            if (!std::isfinite(m[c][r]))
+                            {
+                                OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Non-finite value in skeleton {} "
+                                               "at bone {} element [{},{}], rejecting before write",
+                                               name, i, c, r);
+                                return false;
+                            }
+                }
+                return true;
+            };
+            if (!validateFiniteMat4Array(skeleton->m_LocalTransforms, "LocalTransforms") ||
+                !validateFiniteMat4Array(skeleton->m_GlobalTransforms, "GlobalTransforms") ||
+                !validateFiniteMat4Array(skeleton->m_BindPoseMatrices, "BindPoseMatrices") ||
+                !validateFiniteMat4Array(skeleton->m_InverseBindPoses, "InverseBindPoses") ||
+                !validateFiniteMat4Array(skeleton->m_BindPoseLocalTransforms, "BindPoseLocalTransforms") ||
+                !validateFiniteMat4Array(skeleton->m_BonePreTransforms, "BonePreTransforms"))
+            {
+                return false;
+            }
+        }
+        if (hasBoneInfo)
+        {
+            constexpr u32 kMaxBoneCount = 10'000;
+            const auto& boneInfo = meshSource->GetBoneInfo();
+            auto boneInfoCount = static_cast<u32>(boneInfo.Num());
+            if (boneInfoCount > kMaxBoneCount)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - BoneInfo count ({}) exceeds limit ({}), "
+                               "rejecting before write",
+                               boneInfoCount, kMaxBoneCount);
+                return false;
             }
         }
 
@@ -1984,11 +2045,18 @@ namespace OloEngine
         stream.WriteRaw<bool>(hasMorphTargets);
 
         // Encode and write vertex buffer
+        constexpr u64 kMaxEncodedSize = 2'000'000'000;
         if (vertexCount > 0)
         {
             auto encodedVB = MeshOptimization::EncodeVertexBuffer(
                 vertices.GetData(), vertexCount, sizeof(Vertex));
             auto encodedSize = static_cast<u64>(encodedVB.Data.size());
+            if (encodedSize > kMaxEncodedSize)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Encoded vertex buffer size ({}) exceeds limit ({})",
+                               encodedSize, kMaxEncodedSize);
+                return false;
+            }
             stream.WriteRaw<u64>(encodedSize);
             stream.WriteData(reinterpret_cast<const char*>(encodedVB.Data.data()),
                              static_cast<sizet>(encodedSize));
@@ -2000,26 +2068,67 @@ namespace OloEngine
             auto encodedIB = MeshOptimization::EncodeIndexBuffer(
                 indices.GetData(), indexCount, vertexCount);
             auto encodedSize = static_cast<u64>(encodedIB.Data.size());
+            if (encodedSize > kMaxEncodedSize)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Encoded index buffer size ({}) exceeds limit ({})",
+                               encodedSize, kMaxEncodedSize);
+                return false;
+            }
             stream.WriteRaw<u64>(encodedSize);
             stream.WriteData(reinterpret_cast<const char*>(encodedIB.Data.data()),
                              static_cast<sizet>(encodedSize));
         }
 
         // Write submeshes
-        for (i32 i = 0; i < submeshes.Num(); ++i)
         {
-            const auto& sub = submeshes[i];
-            stream.WriteData(reinterpret_cast<const char*>(&sub.m_Transform), sizeof(glm::mat4));
-            stream.WriteData(reinterpret_cast<const char*>(&sub.m_LocalTransform), sizeof(glm::mat4));
-            stream.WriteData(reinterpret_cast<const char*>(&sub.m_BoundingBox), sizeof(BoundingBox));
-            stream.WriteRaw<u32>(sub.m_BaseVertex);
-            stream.WriteRaw<u32>(sub.m_BaseIndex);
-            stream.WriteRaw<u32>(sub.m_MaterialIndex);
-            stream.WriteRaw<u32>(sub.m_IndexCount);
-            stream.WriteRaw<u32>(sub.m_VertexCount);
-            stream.WriteString(sub.m_NodeName);
-            stream.WriteString(sub.m_MeshName);
-            stream.WriteRaw<bool>(sub.m_IsRigged);
+            auto const isFiniteMat4 = [](const glm::mat4& m) -> bool
+            {
+                for (int c = 0; c < 4; ++c)
+                    for (int r = 0; r < 4; ++r)
+                        if (!std::isfinite(m[c][r]))
+                            return false;
+                return true;
+            };
+            for (i32 i = 0; i < submeshes.Num(); ++i)
+            {
+                const auto& sub = submeshes[i];
+                if (!isFiniteMat4(sub.m_Transform) || !isFiniteMat4(sub.m_LocalTransform))
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Submesh {} has non-finite transform, "
+                                   "rejecting before write",
+                                   i);
+                    return false;
+                }
+                const auto& bb = sub.m_BoundingBox;
+                if (!std::isfinite(bb.Min.x) || !std::isfinite(bb.Min.y) || !std::isfinite(bb.Min.z) ||
+                    !std::isfinite(bb.Max.x) || !std::isfinite(bb.Max.y) || !std::isfinite(bb.Max.z) ||
+                    bb.Min.x > bb.Max.x || bb.Min.y > bb.Max.y || bb.Min.z > bb.Max.z)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Submesh {} has non-finite "
+                                   "or inverted bounding box, rejecting before write",
+                                   i);
+                    return false;
+                }
+                if (sub.m_BaseVertex > vertexCount || sub.m_VertexCount > vertexCount - sub.m_BaseVertex ||
+                    sub.m_BaseIndex > indexCount || sub.m_IndexCount > indexCount - sub.m_BaseIndex)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Submesh {} has out-of-range "
+                                   "vertex/index bounds, rejecting before write",
+                                   i);
+                    return false;
+                }
+                stream.WriteData(reinterpret_cast<const char*>(&sub.m_Transform), sizeof(glm::mat4));
+                stream.WriteData(reinterpret_cast<const char*>(&sub.m_LocalTransform), sizeof(glm::mat4));
+                stream.WriteData(reinterpret_cast<const char*>(&sub.m_BoundingBox), sizeof(BoundingBox));
+                stream.WriteRaw<u32>(sub.m_BaseVertex);
+                stream.WriteRaw<u32>(sub.m_BaseIndex);
+                stream.WriteRaw<u32>(sub.m_MaterialIndex);
+                stream.WriteRaw<u32>(sub.m_IndexCount);
+                stream.WriteRaw<u32>(sub.m_VertexCount);
+                stream.WriteString(sub.m_NodeName);
+                stream.WriteString(sub.m_MeshName);
+                stream.WriteRaw<bool>(sub.m_IsRigged);
+            }
         }
 
         // Write materials
@@ -2049,6 +2158,12 @@ namespace OloEngine
                 auto encodedBones = MeshOptimization::EncodeVertexBuffer(
                     boneInfluences.GetData(), boneCount, sizeof(BoneInfluence));
                 auto encodedSize = static_cast<u64>(encodedBones.Data.size());
+                if (encodedSize > kMaxEncodedSize)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Encoded bone influence size ({}) exceeds limit ({})",
+                                   encodedSize, kMaxEncodedSize);
+                    return false;
+                }
                 stream.WriteRaw<u64>(encodedSize);
                 stream.WriteData(reinterpret_cast<const char*>(encodedBones.Data.data()),
                                  static_cast<sizet>(encodedSize));
@@ -2067,6 +2182,12 @@ namespace OloEngine
                 auto encodedShadow = MeshOptimization::EncodeIndexBuffer(
                     shadowIndices.GetData(), shadowCount, vertexCount);
                 auto encodedSize = static_cast<u64>(encodedShadow.Data.size());
+                if (encodedSize > kMaxEncodedSize)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Encoded shadow index size ({}) exceeds limit ({})",
+                                   encodedSize, kMaxEncodedSize);
+                    return false;
+                }
                 stream.WriteRaw<u64>(encodedSize);
                 stream.WriteData(reinterpret_cast<const char*>(encodedShadow.Data.data()),
                                  static_cast<sizet>(encodedSize));

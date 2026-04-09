@@ -137,18 +137,6 @@ namespace OloEngine
             return result;
         }
 
-        void WriteMat4(std::ostream& out, const glm::mat4& m)
-        {
-            WriteBytes(out, &m[0][0], sizeof(f32) * 16);
-        }
-
-        glm::mat4 ReadMat4(std::istream& in)
-        {
-            glm::mat4 m(1.0f);
-            ReadBytes(in, &m[0][0], sizeof(f32) * 16);
-            return m;
-        }
-
         u64 StreamPos(std::ostream& out)
         {
             return static_cast<u64>(out.tellp());
