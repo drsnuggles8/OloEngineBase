@@ -66,11 +66,36 @@ The following development libraries and tools are required on Linux:
 
 **Graphics & windowing:** OpenGL (Mesa), X11 (libx11, libxrandr, libxinerama, libxcursor, libxi, libxext), Wayland (libwayland, wayland-protocols, libxkbcommon)
 
-**Vulkan:** Vulkan SDK headers/loader, glslc, glslangValidator
+**Vulkan & shader compilation:** Vulkan headers/loader, shaderc, SPIRV-Cross, glslang, SPIRV-Tools
 
 **Additional:** Python 3 with Jinja2 (for glad GL loader generation)
 
 Most other dependencies (GLFW, ImGui, GLM, entt, Jolt, protobuf, libsodium, etc.) are fetched automatically via CMake FetchContent.
+
+#### Ubuntu 24.04 (and WSL)
+
+```bash
+# Build tools
+sudo apt install -y gcc-14 g++-14 cmake ninja-build pkg-config
+
+# Graphics & windowing
+sudo apt install -y libgl-dev \
+    libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
+    libwayland-dev wayland-protocols libxkbcommon-dev
+
+# Vulkan & shader compilation
+sudo apt install -y libvulkan-dev glslang-dev libshaderc-dev \
+    libspirv-cross-c-shared-dev spirv-tools glslc vulkan-tools
+
+# Additional
+sudo apt install -y python3-jinja2
+```
+
+Set GCC 14 as the default compiler (`CC`/`CXX` must be set before configuring):
+```bash
+export CC=gcc-14
+export CXX=g++-14
+```
 
 ### Vulkan SDK Environment
 
@@ -101,12 +126,20 @@ cmake --build build --target OloEngine-Tests --parallel
 ./build/OloEngine/tests/OloEngine-Tests
 ```
 
+### WSL (Windows Subsystem for Linux)
+
+WSL can be used to **compile** all targets and **run OloServer** (headless). However,
+**OloEditor and OloRuntime are not supported under WSL** — WSL2's Mesa `llvmpipe`
+software renderer only exposes OpenGL 4.5, while the engine requires OpenGL 4.6
+with DSA. Use a native Linux installation or the Windows build for the editor.
+
 ### Linux Platform Notes
 
 | Feature           | Status           | Notes                                              |
 |-------------------|------------------|----------------------------------------------------|
 | OloServer (headless)| Supported     | Primary Linux target — no GPU required             |
 | OloEditor         | Supported        | Requires X11/Wayland display and OpenGL 4.6 GPU   |
+| OloEditor on WSL  | Not supported    | WSL2 llvmpipe only provides OpenGL 4.5            |
 | C# scripting (Mono)| Not yet available| Mono is Windows-only for now; Lua scripting works  |
 | Lua scripting     | Supported        | Works identically to Windows                       |
 

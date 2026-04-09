@@ -13,6 +13,11 @@ OloEngine is primarily an early-stage interactive application and rendering engi
 ![PBR Model](assets/pbr_model.png)
 
 ## Getting Started
+
+**Supported platforms:** Windows (Visual Studio 2022/2026), Linux (GCC 14+).
+WSL can compile all targets and run OloServer, but OloEditor requires a native
+OpenGL 4.6 GPU (WSL2's software renderer only supports OpenGL 4.5).
+
 Requirements:
 - Python 3.10+, with the 'jinja2' package installed (needed for building glad2)
 - CMake 3.25+ (soon 4.2+ needed for Visual Studio 2026 support)
