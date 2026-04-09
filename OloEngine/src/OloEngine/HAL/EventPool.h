@@ -20,6 +20,9 @@
 
 namespace OloEngine
 {
+    // Forward declaration — must precede template usage for GCC
+    FEvent* CreateSynchEvent(EEventMode Mode);
+
     /**
      * @class TEventPool
      * @brief Template class for a pool of FEvent objects
@@ -99,9 +102,5 @@ namespace OloEngine
         /** @brief Lock-free list of available events */
         TLockFreePointerListUnordered<FEvent, 0> m_Pool;
     };
-
-    // Platform-specific event creation function (implemented in platform layer)
-    // This must be implemented by the platform (e.g., WindowsEvent.cpp)
-    FEvent* CreateSynchEvent(EEventMode Mode);
 
 } // namespace OloEngine

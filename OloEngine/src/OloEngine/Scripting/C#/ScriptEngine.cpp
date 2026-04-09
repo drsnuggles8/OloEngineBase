@@ -1,5 +1,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
+
+#if OLO_ENABLE_CSHARP_SCRIPTING
+
 #include "OloEngine/Scripting/C#/ScriptGlue.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Buffer.h"
@@ -627,3 +630,112 @@ namespace OloEngine
         return true;
     }
 } // namespace OloEngine
+
+#else // !OLO_ENABLE_CSHARP_SCRIPTING — stub implementation
+
+namespace OloEngine
+{
+    // Minimal scene-context management so LuaScriptGlue can call GetSceneContext()
+    static Scene* s_SceneContext = nullptr;
+    static std::unordered_map<u64, ScriptFieldMap> s_EntityFieldMaps;
+
+    void ScriptEngine::Init()
+    {
+        OLO_CORE_INFO("[ScriptEngine] C# scripting disabled (Mono not available on this platform)");
+    }
+    void ScriptEngine::Shutdown()
+    {
+        s_EntityFieldMaps.clear();
+    }
+    bool ScriptEngine::LoadAssembly(const std::filesystem::path&)
+    {
+        return false;
+    }
+    bool ScriptEngine::LoadAppAssembly(const std::filesystem::path&)
+    {
+        return false;
+    }
+    void ScriptEngine::ReloadAssembly() {}
+    void ScriptEngine::OnRuntimeStart(Scene* scene)
+    {
+        s_SceneContext = scene;
+    }
+    void ScriptEngine::OnRuntimeStop()
+    {
+        s_SceneContext = nullptr;
+        s_EntityFieldMaps.clear();
+    }
+    bool ScriptEngine::EntityClassExists(const std::string&)
+    {
+        return false;
+    }
+    void ScriptEngine::OnCreateEntity(Entity) {}
+    void ScriptEngine::OnUpdateEntity(Entity, Timestep) {}
+    Scene* ScriptEngine::GetSceneContext()
+    {
+        return s_SceneContext;
+    }
+    Ref<ScriptInstance> ScriptEngine::GetEntityScriptInstance(UUID)
+    {
+        return nullptr;
+    }
+    Ref<ScriptClass> ScriptEngine::GetEntityClass(const std::string&)
+    {
+        return nullptr;
+    }
+    std::unordered_map<std::string, Ref<ScriptClass>> ScriptEngine::GetEntityClasses()
+    {
+        return {};
+    }
+    ScriptFieldMap& ScriptEngine::GetScriptFieldMap(Entity entity)
+    {
+        return s_EntityFieldMaps[static_cast<u64>(entity.GetUUID())];
+    }
+    MonoImage* ScriptEngine::GetCoreAssemblyImage()
+    {
+        return nullptr;
+    }
+    MonoObject* ScriptEngine::GetManagedInstance(UUID)
+    {
+        return nullptr;
+    }
+    MonoString* ScriptEngine::CreateString(const char*)
+    {
+        return nullptr;
+    }
+    void ScriptEngine::InitMono() {}
+    void ScriptEngine::ShutdownMono() {}
+    MonoObject* ScriptEngine::InstantiateClass(MonoClass*)
+    {
+        return nullptr;
+    }
+    void ScriptEngine::LoadAssemblyClasses() {}
+
+    ScriptClass::ScriptClass(const std::string&, const std::string&, bool) {}
+    MonoObject* ScriptClass::Instantiate() const
+    {
+        return nullptr;
+    }
+    MonoMethod* ScriptClass::GetMethod(const std::string&, int) const
+    {
+        return nullptr;
+    }
+    MonoObject* ScriptClass::InvokeMethod(MonoObject*, MonoMethod*, void**)
+    {
+        return nullptr;
+    }
+
+    ScriptInstance::ScriptInstance(const Ref<ScriptClass>&, Entity) {}
+    void ScriptInstance::InvokeOnCreate() {}
+    void ScriptInstance::InvokeOnUpdate(f32) {}
+    bool ScriptInstance::GetFieldValueInternal(const std::string&, void*)
+    {
+        return false;
+    }
+    bool ScriptInstance::SetFieldValueInternal(const std::string&, const void*)
+    {
+        return false;
+    }
+} // namespace OloEngine
+
+#endif // OLO_ENABLE_CSHARP_SCRIPTING

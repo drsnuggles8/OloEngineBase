@@ -1532,7 +1532,7 @@ namespace OloEngine
             static constexpr sizet ElementAlignof = alignof(ElementType);
             static constexpr sizet AllocatorAlignof = alignof(
                 typename ElementAllocator<sizeof(ElementType)>::template ForElementType<u8>);
-            static constexpr sizet Value = Max(ElementAlignof, AllocatorAlignof);
+            static constexpr sizet Value = FMath::Max(ElementAlignof, AllocatorAlignof);
         };
     };
 
@@ -1553,7 +1553,7 @@ namespace OloEngine
             static constexpr sizet ElementAlignof = alignof(ElementType);
             static constexpr sizet AllocatorAlignof = alignof(
                 typename ElementAllocator<sizeof(ElementType)>::template ForElementType<u8>);
-            static constexpr sizet Value = Max(ElementAlignof, AllocatorAlignof);
+            static constexpr sizet Value = FMath::Max(ElementAlignof, AllocatorAlignof);
         };
     };
 

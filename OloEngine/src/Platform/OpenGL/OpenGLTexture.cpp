@@ -6,6 +6,11 @@
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 
 #define STB_IMAGE_IMPLEMENTATION
+// stb_image's SSE2 JPEG decoder passes non-constant values to _mm_shufflelo_epi16
+// when GCC inlines aggressively with AVX2 flags, causing "not an 8-bit immediate" errors.
+#if defined(__GNUC__) && !defined(__clang__)
+#define STBI_NO_SIMD
+#endif
 #include <stb_image/stb_image.h>
 
 namespace OloEngine

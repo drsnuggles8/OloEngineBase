@@ -59,17 +59,17 @@ namespace OloEngine
         virtual AsyncAssetResult<Asset> GetAssetAsync(AssetHandle assetHandle) override;
 
         virtual void AddMemoryOnlyAsset(Ref<Asset> asset) override;
-        virtual [[nodiscard]] bool ReloadData(AssetHandle assetHandle) override;
+        [[nodiscard]] virtual bool ReloadData(AssetHandle assetHandle) override;
         virtual void ReloadDataAsync(AssetHandle assetHandle) override;
-        virtual [[nodiscard]] bool EnsureCurrent(AssetHandle assetHandle) override;
-        virtual [[nodiscard]] bool EnsureAllLoadedCurrent() override;
-        virtual [[nodiscard]] bool IsAssetHandleValid(AssetHandle assetHandle) const noexcept override;
+        [[nodiscard]] virtual bool EnsureCurrent(AssetHandle assetHandle) override;
+        [[nodiscard]] virtual bool EnsureAllLoadedCurrent() override;
+        [[nodiscard]] virtual bool IsAssetHandleValid(AssetHandle assetHandle) const noexcept override;
         virtual Ref<Asset> GetMemoryAsset(AssetHandle handle) const override;
-        virtual [[nodiscard]] bool IsAssetLoaded(AssetHandle handle) const noexcept override;
-        virtual [[nodiscard]] bool IsAssetValid(AssetHandle handle) const noexcept override;
-        virtual [[nodiscard]] bool IsAssetMissing(AssetHandle handle) const noexcept override;
-        virtual [[nodiscard]] bool IsMemoryAsset(AssetHandle handle) const noexcept override;
-        virtual [[nodiscard]] bool IsPhysicalAsset(AssetHandle handle) const noexcept override;
+        [[nodiscard]] virtual bool IsAssetLoaded(AssetHandle handle) const noexcept override;
+        [[nodiscard]] virtual bool IsAssetValid(AssetHandle handle) const noexcept override;
+        [[nodiscard]] virtual bool IsAssetMissing(AssetHandle handle) const noexcept override;
+        [[nodiscard]] virtual bool IsMemoryAsset(AssetHandle handle) const noexcept override;
+        [[nodiscard]] virtual bool IsPhysicalAsset(AssetHandle handle) const noexcept override;
         virtual void RemoveAsset(AssetHandle handle) override;
 
         // Dependency management

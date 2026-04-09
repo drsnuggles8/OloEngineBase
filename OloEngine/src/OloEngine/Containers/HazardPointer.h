@@ -393,7 +393,6 @@ namespace OloEngine
 
         // Maybe scan the list - use time and count based triggers (matches UE5.7)
         // Note: Using a simple time approximation since we don't have FApp::GetGameTime()
-        static thread_local double s_LastCollectionTime = 0.0;
         const double CurrentTime = static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(
                                                            std::chrono::steady_clock::now().time_since_epoch())
                                                            .count()) /

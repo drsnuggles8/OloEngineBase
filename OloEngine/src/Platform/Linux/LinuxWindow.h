@@ -1,0 +1,71 @@
+#pragma once
+
+#include "OloEngine/Core/Window.h"
+#include "OloEngine/Renderer/GraphicsContext.h"
+
+#include <GLFW/glfw3.h>
+#include <string>
+
+namespace OloEngine
+{
+    class LinuxWindow : public Window
+    {
+      public:
+        explicit LinuxWindow(const WindowProps& props);
+        ~LinuxWindow() override;
+
+        void OnUpdate() override;
+        void PollEvents() override;
+        void SwapBuffers() override;
+
+        [[nodiscard("Store this!")]] unsigned int GetWidth() const noexcept override
+        {
+            return m_Data.Width;
+        }
+        [[nodiscard("Store this!")]] unsigned int GetHeight() const noexcept override
+        {
+            return m_Data.Height;
+        }
+
+        [[nodiscard("Store this!")]] unsigned int GetFramebufferWidth() const override;
+        [[nodiscard("Store this!")]] unsigned int GetFramebufferHeight() const override;
+
+        void SetEventCallback(const EventCallbackFn& callback) override
+        {
+            m_Data.EventCallback = callback;
+        }
+        void SetVSync(bool enabled) override;
+        [[nodiscard("Store this!")]] bool IsVSync() const override
+        {
+            return m_Data.VSync;
+        }
+
+        [[nodiscard("Store this!")]] void* GetNativeWindow() const noexcept override
+        {
+            return m_Window;
+        }
+
+        void SetTitle(const std::string& title) override;
+
+      private:
+        virtual void Init(const WindowProps& props);
+        virtual void Shutdown();
+
+      private:
+        GLFWwindow* m_Window{};
+        Scope<GraphicsContext> m_Context;
+
+        struct WindowData
+        {
+            std::string Title;
+            unsigned int Width{};
+            unsigned int Height{};
+            bool VSync{};
+
+            EventCallbackFn EventCallback;
+        };
+
+        WindowData m_Data;
+    };
+
+} // namespace OloEngine

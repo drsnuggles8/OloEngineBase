@@ -70,7 +70,10 @@ jobs:
         sudo apt-get install -y \
           clang lld \
           libvulkan-dev vulkan-validationlayers \
-          libglfw3-dev libgl-dev libglu1-mesa-dev \
+          libgl-dev libglu1-mesa-dev \
+          libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
+          libwayland-dev wayland-protocols libxkbcommon-dev \
+          glslang-dev libshaderc-dev libspirv-cross-c-shared-dev spirv-tools \
           python3 python3-pip
         python3 -m pip install --upgrade pip jinja2
 
@@ -118,7 +121,10 @@ jobs:
         sudo apt-get install -y \
           clang lld \
           libvulkan-dev vulkan-validationlayers \
-          libglfw3-dev libgl-dev libglu1-mesa-dev \
+          libgl-dev libglu1-mesa-dev \
+          libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
+          libwayland-dev wayland-protocols libxkbcommon-dev \
+          glslang-dev libshaderc-dev libspirv-cross-c-shared-dev spirv-tools \
           python3 python3-pip
         python3 -m pip install --upgrade pip jinja2
 
@@ -165,7 +171,10 @@ jobs:
         sudo apt-get install -y \
           clang lld \
           libvulkan-dev vulkan-validationlayers \
-          libglfw3-dev libgl-dev libglu1-mesa-dev \
+          libgl-dev libglu1-mesa-dev \
+          libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
+          libwayland-dev wayland-protocols libxkbcommon-dev \
+          glslang-dev libshaderc-dev libspirv-cross-c-shared-dev spirv-tools \
           python3 python3-pip
         python3 -m pip install --upgrade pip jinja2
 

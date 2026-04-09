@@ -225,7 +225,7 @@ namespace OloEngine
          * @brief Get all currently loaded assets
          * @return Map of asset handles to asset references
          */
-        static const std::unordered_map<AssetHandle, Ref<Asset>>& GetLoadedAssets()
+        static std::unordered_map<AssetHandle, Ref<Asset>> GetLoadedAssets()
         {
             return GetActiveManager()->GetLoadedAssets();
         }

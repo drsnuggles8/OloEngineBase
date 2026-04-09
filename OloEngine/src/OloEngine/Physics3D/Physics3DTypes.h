@@ -97,6 +97,8 @@ namespace OloEngine
                     return "ConvexMesh";
                 case ShapeType::TriangleMesh:
                     return "TriangleMesh";
+                case ShapeType::LAST:
+                    break;
             }
 
             OLO_CORE_ASSERT(false, "Unknown ShapeType");

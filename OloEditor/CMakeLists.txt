@@ -10,8 +10,6 @@ olo_configure_app(OloEditor NO_PCH)
 
 add_dependencies(OloEditor
 				OloEngine
-				OloEngine-ScriptCore
-				Sandbox-Scripting
 )
 
 # Set up common include directories

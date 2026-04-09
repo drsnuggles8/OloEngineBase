@@ -136,7 +136,7 @@ namespace OloEngine
             CommandPacket* packet = Submit(commandData, metadata, allocator);
             if (!packet)
                 return nullptr;
-            return reinterpret_cast<T*>(packet->GetCommandData());
+            return reinterpret_cast<T*>(packet->template GetCommandData<T>());
         }
 
         // Sort commands for optimal rendering (minimizes state changes)

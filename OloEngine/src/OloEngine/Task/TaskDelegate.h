@@ -295,8 +295,7 @@ namespace OloEngine::LowLevelTasks
             void Destroy(void* InlineData) override
             {
                 TCallableType* HeapPtr = reinterpret_cast<TCallableType*>(*reinterpret_cast<void**>(InlineData));
-                using DestructorType = TCallableType;
-                HeapPtr->DestructorType::~TCallableType();
+                HeapPtr->~TCallableType();
                 TConcurrentLinearAllocator<FLowLevelTasksBlockAllocationTag>::Free(HeapPtr);
             }
 

@@ -22,6 +22,8 @@
 #include <Windows.h>
 #else
 #include <pthread.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 #endif
 
 namespace OloEngine
@@ -73,14 +75,12 @@ namespace OloEngine
         {
 #if defined(OLO_PLATFORM_WINDOWS)
             return ::GetCurrentThreadId();
+#elif defined(OLO_PLATFORM_LINUX)
+            // pthread_t is 8 bytes on 64-bit Linux; use syscall(SYS_gettid) which
+            // returns a pid_t (fits in u32) and matches kernel thread IDs.
+            return static_cast<u32>(syscall(SYS_gettid));
 #else
-            // Note: pthread_t is opaque and may not be an integer type on all platforms.
-            // This cast works on common POSIX systems but may need platform-specific handling.
-            // UE5.7 uses syscall(SYS_gettid) on GNU systems for better compatibility.
-            // For now, verify at compile-time that the cast is safe.
-            static_assert(sizeof(u32) == sizeof(pthread_t),
-                          "pthread_t cannot be converted to u32 - platform-specific GetCurrentThreadId() needed");
-            return static_cast<u32>(pthread_self());
+#error "PlatformTLS::GetCurrentThreadId() not implemented for this platform"
 #endif
         }
 
@@ -128,7 +128,7 @@ namespace OloEngine
             // proper slot lifetime management to avoid ambiguous nullptr-as-error cases.
             return ::TlsGetValue(SlotIndex);
         }
-#else
+#elif defined(OLO_PLATFORM_LINUX)
         // POSIX implementation using pthread_key_t
         static u32 AllocTlsSlot()
         {
@@ -178,6 +178,8 @@ namespace OloEngine
             // We rely on proper slot management (matches UE5.7 design).
             return pthread_getspecific(static_cast<pthread_key_t>(SlotIndex));
         }
+#else
+#error "PlatformTLS not implemented for this platform"
 #endif
     };
 

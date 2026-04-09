@@ -9,9 +9,10 @@
 #include "OloEngine/Animation/AnimationParameter.h"
 #include "OloEngine/Core/Log.h"
 
+#include <cstring>
 #include <imgui.h>
-#include <string>
 #include <limits>
+#include <string>
 
 namespace OloEngine
 {
@@ -530,7 +531,8 @@ namespace OloEngine
                 {
                     if (ImGui::Selectable(name.c_str(), name == m_NewTransitionSource))
                     {
-                        strcpy_s(m_NewTransitionSource, sizeof(m_NewTransitionSource), name.c_str());
+                        std::strncpy(m_NewTransitionSource, name.c_str(), sizeof(m_NewTransitionSource) - 1);
+                        m_NewTransitionSource[sizeof(m_NewTransitionSource) - 1] = '\0';
                     }
                 }
                 ImGui::EndCombo();
@@ -544,7 +546,8 @@ namespace OloEngine
                 {
                     if (ImGui::Selectable(name.c_str(), name == m_NewTransitionDest))
                     {
-                        strcpy_s(m_NewTransitionDest, sizeof(m_NewTransitionDest), name.c_str());
+                        std::strncpy(m_NewTransitionDest, name.c_str(), sizeof(m_NewTransitionDest) - 1);
+                        m_NewTransitionDest[sizeof(m_NewTransitionDest) - 1] = '\0';
                     }
                 }
                 ImGui::EndCombo();

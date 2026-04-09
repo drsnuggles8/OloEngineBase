@@ -35,9 +35,24 @@
 #error "Android is not supported!"
 #elif defined(__linux__)
 #define OLO_PLATFORM_LINUX
-#error "Linux is not supported!"
 #else
 /* Unknown compiler/platform */
 #error "Unknown platform!"
 #endif
 // End of platform detection
+
+// Pointer size / bitness detection
+#if defined(__x86_64__) || defined(_M_X64) || defined(__aarch64__) || defined(_M_ARM64) || defined(__ppc64__)
+#define OLO_PLATFORM_64BITS 1
+#else
+#define OLO_PLATFORM_64BITS 0
+#endif
+
+// Build configuration macros (defaults; overridden by CMake for specific configs)
+#ifndef OLO_BUILD_SHIPPING
+#define OLO_BUILD_SHIPPING 0
+#endif
+
+#ifndef OLO_TRACK_MEMORY
+#define OLO_TRACK_MEMORY 0
+#endif

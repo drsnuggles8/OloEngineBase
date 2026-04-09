@@ -249,7 +249,7 @@ namespace OloEngine
             return m_Count;
         }
 
-        SIZE_T GetAllocatedSize() const
+        sizet GetAllocatedSize() const
         {
             return m_Storage.GetAllocatedSize(m_Capacity, sizeof(ElementType));
         }

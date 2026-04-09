@@ -4,7 +4,7 @@
 #include "OloEngine/Debug/CrashReporter.h"
 #include "OloEngine/Debug/Instrumentor.h"
 
-#ifdef OLO_PLATFORM_WINDOWS
+#if defined(OLO_PLATFORM_WINDOWS) || defined(OLO_PLATFORM_LINUX)
 
 extern OloEngine::Application* OloEngine::CreateApplication(ApplicationCommandLineArgs args);
 

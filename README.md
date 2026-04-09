@@ -1,5 +1,5 @@
 # OloEngine
-OloEngine is primarily an early-stage interactive application and rendering engine for Windows based on [Hazel](https://github.com/TheCherno/Hazel/).
+OloEngine is primarily an early-stage cross-platform (Windows and Linux) interactive application and rendering engine based on [Hazel](https://github.com/TheCherno/Hazel/).
 
 ## Screenshots
 
@@ -13,9 +13,14 @@ OloEngine is primarily an early-stage interactive application and rendering engi
 ![PBR Model](assets/pbr_model.png)
 
 ## Getting Started
+
+**Supported platforms:** Windows (Visual Studio 2022; Visual Studio 2026 experimental — requires CMake 4.2+), Linux (GCC 14+).
+WSL can compile all targets and run OloServer, but OloEditor requires a native
+OpenGL 4.6 GPU (WSL2's software renderer only supports OpenGL 4.5).
+
 Requirements:
 - Python 3.10+, with the 'jinja2' package installed (needed for building glad2)
-- CMake 3.25+ (soon 4.2+ needed for Visual Studio 2026 support)
+- CMake 3.25+ (4.2+ required for Visual Studio 2026 support)
 - Vulkan SDK (for SPIR-V shader compilation)
 
 You can clone the repository to a local destination using git:

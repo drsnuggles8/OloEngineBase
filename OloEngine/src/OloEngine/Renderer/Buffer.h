@@ -24,8 +24,8 @@ namespace OloEngine
 
         BufferElement() = default;
 
-        BufferElement(ShaderDataType const type, const std::string& name, const bool normalized = false)
-            : name(name), dataType(type), size(ShaderUniformDeclaration::ShaderDataTypeSize(type)), offset(0), normalized(normalized)
+        BufferElement(ShaderDataType const type, const std::string& elementName, const bool isNormalized = false)
+            : name(elementName), dataType(type), size(ShaderUniformDeclaration::ShaderDataTypeSize(type)), offset(0), normalized(isNormalized)
         {
         }
 
@@ -55,6 +55,9 @@ namespace OloEngine
                 case Int4:
                     return 4;
                 case Bool:
+                    return 1;
+                case Sampler2D:
+                case SamplerCube:
                     return 1;
                 case None:
                     break;

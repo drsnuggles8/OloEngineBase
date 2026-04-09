@@ -14,9 +14,15 @@ if(POLICY CMP0194)
     cmake_policy(SET CMP0194 NEW)  # MSVC assembler policy
 endif()
 
-project(OloEngineBase
-        VERSION 0.0.1
-        LANGUAGES CXX C CSharp)
+if(MSVC)
+    project(OloEngineBase
+            VERSION 0.0.1
+            LANGUAGES CXX C CSharp)
+else()
+    project(OloEngineBase
+            VERSION 0.0.1
+            LANGUAGES CXX C)
+endif()
 
 # Build optimization options
 option(OLO_ENABLE_LTO "Enable Link Time Optimization" ON)
@@ -41,8 +47,10 @@ set(CMAKE_CXX_EXTENSIONS ON)
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
-set(CMAKE_DOTNET_TARGET_FRAMEWORK_VERSION "v4.8.1")
-set(CMAKE_CSharp_FLAGS "/langversion:8")
+if(MSVC)
+    set(CMAKE_DOTNET_TARGET_FRAMEWORK_VERSION "v4.8.1")
+    set(CMAKE_CSharp_FLAGS "/langversion:8")
+endif()
 set_property(GLOBAL PROPERTY USE_FOLDERS YES)
 set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "Utilities/cmake")
 
@@ -54,31 +62,37 @@ add_subdirectory(tools/OloHeaderTool)
 
 # Main targets built by this project
 add_subdirectory(OloEngine)
-add_subdirectory(OloEngine-ScriptCore)
 add_subdirectory(OloEngine-LuaScriptCore)
-add_subdirectory(OloEditor/SandboxProject/Assets/Scripts)
+
+if(MSVC)
+    add_subdirectory(OloEngine-ScriptCore)
+    add_subdirectory(OloEditor/SandboxProject/Assets/Scripts)
+    set_target_properties(OloEngine-ScriptCore PROPERTIES FOLDER "Scripting")
+    set_target_properties(Sandbox-Scripting PROPERTIES FOLDER "Scripting")
+endif()
+
 add_subdirectory(OloEditor)
 add_subdirectory(OloRuntime)
-add_subdirectory(OloServer)
-
-set_target_properties(OloEngine-ScriptCore PROPERTIES FOLDER "Scripting")
-set_target_properties(OloEngine-LuaScriptCore PROPERTIES FOLDER "Scripting")
-set_target_properties(Sandbox-Scripting PROPERTIES FOLDER "Scripting")
 set_target_properties(OloEditor PROPERTIES FOLDER "Applications")
 set_target_properties(OloRuntime PROPERTIES FOLDER "Applications")
-set_target_properties(OloServer PROPERTIES FOLDER "Applications")
-
 # Ensure OloRuntime is always up-to-date when building OloEditor.
 # Both link against OloEngine, and the editor's BuildGamePanel copies
 # OloRuntime.exe into game builds — a stale binary would silently ship
 # without the latest engine fixes.
 add_dependencies(OloEditor OloRuntime)
 
+add_subdirectory(OloServer)
+
+set_target_properties(OloEngine-LuaScriptCore PROPERTIES FOLDER "Scripting")
+set_target_properties(OloServer PROPERTIES FOLDER "Applications")
+
 # Auto-run OloHeaderTool before compiling targets that consume its output.
 # OloEngine includes the generated .inl files; OloEngine-ScriptCore includes
 # the generated .cs files.
 add_dependencies(OloEngine GenerateBindings)
-add_dependencies(OloEngine-ScriptCore GenerateBindings)
+if(MSVC)
+	add_dependencies(OloEngine-ScriptCore GenerateBindings)
+endif()
 
 if(${CMAKE_GENERATOR} MATCHES "Visual Studio")
     set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT "OloEditor")

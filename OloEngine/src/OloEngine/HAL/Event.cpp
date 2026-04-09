@@ -14,6 +14,8 @@
 
 #ifdef OLO_PLATFORM_WINDOWS
 #include "OloEngine/HAL/Windows/WindowsEvent.h"
+#elif defined(OLO_PLATFORM_LINUX)
+#include "OloEngine/HAL/Linux/LinuxEvent.h"
 #endif
 
 namespace OloEngine
@@ -52,6 +54,8 @@ namespace OloEngine
 
 #ifdef OLO_PLATFORM_WINDOWS
         Event = new FEventWin();
+#elif defined(OLO_PLATFORM_LINUX)
+        Event = new FEventLinux();
 #else
         static_assert(false, "Platform-specific event implementation required");
 #endif

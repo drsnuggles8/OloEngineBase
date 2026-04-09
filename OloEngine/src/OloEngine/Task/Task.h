@@ -7,6 +7,7 @@
 #include "OloEngine/Containers/StaticArray.h"
 #include "OloEngine/HAL/ManualResetEvent.h"
 #include "OloEngine/Core/MonotonicTime.h"
+#include "OloEngine/Templates/SharedPointer.h"
 
 namespace OloEngine::Tasks
 {
@@ -14,7 +15,7 @@ namespace OloEngine::Tasks
     template<typename ResultType>
     class TTask;
     template<typename TaskCollectionType>
-    bool Wait(const TaskCollectionType& Tasks, FMonotonicTimeSpan InTimeout);
+    bool Wait(const TaskCollectionType& Tasks, FMonotonicTimeSpan InTimeout = FMonotonicTimeSpan::Infinity());
     template<typename TaskType>
     void AddNested(const TaskType& Nested);
 
@@ -335,7 +336,7 @@ namespace OloEngine::Tasks
 
     // @brief Wait for multiple tasks with timeout
     template<typename TaskCollectionType>
-    bool Wait(const TaskCollectionType& Tasks, FMonotonicTimeSpan InTimeout = FMonotonicTimeSpan::Infinity())
+    bool Wait(const TaskCollectionType& Tasks, FMonotonicTimeSpan InTimeout)
     {
         // Create an inline task that depends on all input tasks
         return Launch(
