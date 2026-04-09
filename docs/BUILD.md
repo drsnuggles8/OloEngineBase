@@ -16,7 +16,7 @@
 | CMake       | 3.25            | Required by root CMakeLists.txt        |
 | Git         | 2.x             | FetchContent clones vendor deps        |
 | Vulkan SDK  | 1.3+            | `VULKAN_SDK` env var must be set       |
-| C++ compiler| C++23 support   | MSVC 17.x / GCC 14+ / Clang 17+       |
+| C++ compiler| C++23 support   | Known-working: MSVC 17.x / GCC 14+ / Clang 17+. CMake enforces `CMAKE_CXX_STANDARD = 23` (required) but does not enforce specific compiler versions; older compilers with full C++23 support may work but are untested. |
 
 The Vulkan SDK must include `glslc` and `glslangValidator`.
 
@@ -25,7 +25,9 @@ The Vulkan SDK must include `glslc` and `glslangValidator`.
 ## Windows
 
 ### Compiler
-Visual Studio 2022 (v17.x) or Visual Studio 2026 with C++23 support.
+Visual Studio 2022 (v17.x) is the primary supported IDE. Visual Studio 2026 is
+experimental — the generation script (`scripts/Win-GenerateProjectVS2026.bat`)
+exists but requires CMake 4.2+.
 
 ### Generate & Build
 ```batch
@@ -185,5 +187,9 @@ C# scripting is currently Windows-only. The engine builds without it on Linux.
 Lua scripting is fully functional on all platforms.
 
 ### libsodium version.h not found
-The vendor build copies `version.h` automatically for MSVC. On Linux with GCC,
-ensure the libsodium FetchContent download completed (check `OloEngine/vendor/libsodium-src/`).
+On MSVC, the vendor build copies the pre-existing `version.h` from
+`builds/msvc/version.h` into the include directory. On non-MSVC builds (GCC,
+Clang), CMake generates `version.h` at
+`src/libsodium/include/sodium/version.h` during the configure step. If the
+header is missing, rerun the CMake configure step (`cmake -B build ...`) and
+check that the generated file exists under the FetchContent source directory.
