@@ -532,6 +532,7 @@ namespace OloEngine
         m_BoneInfoMap.clear();
         m_LoadedTextures.clear();
         m_HasMeshNodeTransform = false;
+        m_MeshNodeGlobalTransform = glm::mat4(1.0f);
 
         // Try loading from binary cache first (skip Assimp entirely)
         std::filesystem::path sourcePath(path);

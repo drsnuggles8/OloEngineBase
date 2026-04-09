@@ -1292,6 +1292,16 @@ namespace OloEngine
                                                s, target.SparseVertices[s].VertexIndex, meshVertCount, path.string());
                                 return nullptr;
                             }
+                            // Validate delta floats are finite
+                            const auto& d = target.SparseVertices[s].Delta;
+                            if (!std::isfinite(d.DeltaPosition.x) || !std::isfinite(d.DeltaPosition.y) || !std::isfinite(d.DeltaPosition.z) ||
+                                !std::isfinite(d.DeltaNormal.x) || !std::isfinite(d.DeltaNormal.y) || !std::isfinite(d.DeltaNormal.z) ||
+                                !std::isfinite(d.DeltaTangent.x) || !std::isfinite(d.DeltaTangent.y) || !std::isfinite(d.DeltaTangent.z))
+                            {
+                                OLO_CORE_ERROR("MeshBinarySerializer::Read: Non-finite morph delta at sparse entry {} in '{}'",
+                                               s, path.string());
+                                return nullptr;
+                            }
                         }
                     }
                     else
@@ -1302,6 +1312,19 @@ namespace OloEngine
                         {
                             ReadBytes(payload, target.Vertices.data(),
                                       mtHeader.VertexCount * sizeof(MorphTargetVertex));
+                            // Validate dense delta floats are finite
+                            for (u32 v = 0; v < mtHeader.VertexCount; ++v)
+                            {
+                                const auto& d = target.Vertices[v];
+                                if (!std::isfinite(d.DeltaPosition.x) || !std::isfinite(d.DeltaPosition.y) || !std::isfinite(d.DeltaPosition.z) ||
+                                    !std::isfinite(d.DeltaNormal.x) || !std::isfinite(d.DeltaNormal.y) || !std::isfinite(d.DeltaNormal.z) ||
+                                    !std::isfinite(d.DeltaTangent.x) || !std::isfinite(d.DeltaTangent.y) || !std::isfinite(d.DeltaTangent.z))
+                                {
+                                    OLO_CORE_ERROR("MeshBinarySerializer::Read: Non-finite morph delta at vertex {} in '{}'",
+                                                   v, path.string());
+                                    return nullptr;
+                                }
+                            }
                         }
                     }
 

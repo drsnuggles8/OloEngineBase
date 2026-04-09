@@ -1923,8 +1923,16 @@ namespace OloEngine
         if (hasMorphTargets)
         {
             constexpr u32 MAX_NAME_LEN = 1'024;
+            constexpr u32 MAX_MORPH_TARGETS = 1'000;
             const auto& morphTargets = meshSource->GetMorphTargets();
             auto vertCount = morphTargets->GetVertexCount();
+            if (morphTargets->GetTargetCount() > MAX_MORPH_TARGETS)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Morph target count ({}) exceeds limit ({}), "
+                               "rejecting before write",
+                               morphTargets->GetTargetCount(), MAX_MORPH_TARGETS);
+                return false;
+            }
             if (vertCount != vertexCount)
             {
                 OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Morph target vertex count ({}) != mesh vertex count ({}), "
@@ -2268,8 +2276,40 @@ namespace OloEngine
             auto boneInfoCount = static_cast<u32>(boneInfo.Num());
             stream.WriteRaw<u32>(boneInfoCount);
 
+            // Determine skeleton bone count for index validation
+            u32 const skeletonBoneCount = meshSource->HasSkeleton()
+                                              ? static_cast<u32>(meshSource->GetSkeleton()->m_BoneNames.size())
+                                              : 0;
+
             for (i32 i = 0; i < boneInfo.Num(); ++i)
             {
+                // Validate bone index against skeleton
+                if (skeletonBoneCount > 0 && boneInfo[i].m_BoneIndex >= skeletonBoneCount)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - BoneInfo {} has m_BoneIndex {} "
+                                   "but skeleton only has {} bones, rejecting before write",
+                                   i, boneInfo[i].m_BoneIndex, skeletonBoneCount);
+                    return false;
+                }
+                // Validate inverse bind pose is finite
+                bool valid = true;
+                for (int c = 0; c < 4 && valid; ++c)
+                {
+                    for (int r = 0; r < 4 && valid; ++r)
+                    {
+                        if (!std::isfinite(boneInfo[i].m_InverseBindPose[c][r]))
+                        {
+                            OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Non-finite value in BoneInfo {} "
+                                           "InverseBindPose[{},{}], rejecting before write",
+                                           i, c, r);
+                            valid = false;
+                        }
+                    }
+                }
+                if (!valid)
+                {
+                    return false;
+                }
                 stream.WriteData(reinterpret_cast<const char*>(&boneInfo[i].m_InverseBindPose[0][0]), sizeof(glm::mat4));
                 stream.WriteRaw<u32>(boneInfo[i].m_BoneIndex);
             }
