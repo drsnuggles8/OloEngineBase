@@ -2034,25 +2034,38 @@ namespace OloEngine
         {
             const auto* skeleton = meshSource->GetSkeleton();
             auto boneCount = static_cast<u32>(skeleton->m_BoneNames.size());
+
+            // Validate skeleton array sizes — reject mismatches instead of inventing data
+            auto const validateArraySize = [&](sizet actual, const char* name) -> bool
+            {
+                if (static_cast<u32>(actual) != boneCount)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Skeleton {} size ({}) "
+                                   "differs from boneCount ({})",
+                                   name, actual, boneCount);
+                    return false;
+                }
+                return true;
+            };
+
+            if (!validateArraySize(skeleton->m_ParentIndices.size(), "ParentIndices") ||
+                !validateArraySize(skeleton->m_LocalTransforms.size(), "LocalTransforms") ||
+                !validateArraySize(skeleton->m_GlobalTransforms.size(), "GlobalTransforms") ||
+                !validateArraySize(skeleton->m_BindPoseMatrices.size(), "BindPoseMatrices") ||
+                !validateArraySize(skeleton->m_InverseBindPoses.size(), "InverseBindPoses") ||
+                !validateArraySize(skeleton->m_BindPoseLocalTransforms.size(), "BindPoseLocalTransforms") ||
+                !validateArraySize(skeleton->m_BonePreTransforms.size(), "BonePreTransforms"))
+            {
+                return false;
+            }
+
             stream.WriteRaw<u32>(boneCount);
 
-            // Parent indices — write exactly boneCount entries, padding with -1 if array is shorter
-            auto parentCount = static_cast<u32>(skeleton->m_ParentIndices.size());
-            if (parentCount != boneCount)
-            {
-                OLO_CORE_WARN("MeshSourceSerializer::SerializeToAssetPack - ParentIndices size ({}) differs from BoneNames size ({})",
-                              parentCount, boneCount);
-            }
-            auto minCount = std::min(boneCount, parentCount);
-            if (minCount > 0)
+            // Parent indices
+            if (boneCount > 0)
             {
                 stream.WriteData(reinterpret_cast<const char*>(skeleton->m_ParentIndices.data()),
-                                 minCount * sizeof(i32));
-            }
-            for (u32 j = minCount; j < boneCount; ++j)
-            {
-                i32 const pad = -1;
-                stream.WriteRaw<i32>(pad);
+                                 boneCount * sizeof(i32));
             }
 
             // Transform arrays (6 arrays of mat4)
@@ -2060,15 +2073,7 @@ namespace OloEngine
             {
                 for (u32 j = 0; j < boneCount; ++j)
                 {
-                    if (j < arr.size())
-                    {
-                        stream.WriteData(reinterpret_cast<const char*>(&arr[j][0][0]), sizeof(glm::mat4));
-                    }
-                    else
-                    {
-                        glm::mat4 identity(1.0f);
-                        stream.WriteData(reinterpret_cast<const char*>(&identity[0][0]), sizeof(glm::mat4));
-                    }
+                    stream.WriteData(reinterpret_cast<const char*>(&arr[j][0][0]), sizeof(glm::mat4));
                 }
             };
 
@@ -2082,7 +2087,7 @@ namespace OloEngine
             // Bone names
             for (u32 j = 0; j < boneCount; ++j)
             {
-                auto nameLen = static_cast<u32>(j < skeleton->m_BoneNames.size() ? skeleton->m_BoneNames[j].size() : 0);
+                auto nameLen = static_cast<u32>(skeleton->m_BoneNames[j].size());
                 stream.WriteRaw<u32>(nameLen);
                 if (nameLen > 0)
                 {

@@ -185,13 +185,20 @@ namespace OloEngine
 
             // Preserve pre-optimized state from inputs so the cache round-trip
             // skips OptimizeMesh on reload (mirrors SplitCombinedMeshSource).
-            // Only mark the bundle as pre-optimized when every source mesh is.
-            if (auto allPreOpt = std::all_of(meshes.begin(), meshes.end(),
-                                             [](const Ref<MeshSource>& src)
-                                             { return src && src->IsPreOptimized(); });
-                allPreOpt && !meshes.empty())
+            // Only mark the bundle as pre-optimized when every non-null source mesh is.
+            // Null entries are ignored rather than causing the flag to be false.
+            if (auto anyNonNull = std::any_of(meshes.begin(), meshes.end(),
+                                              [](const Ref<MeshSource>& s)
+                                              { return static_cast<bool>(s); });
+                anyNonNull)
             {
-                combined->SetPreOptimized(true);
+                if (auto allPreOpt = std::all_of(meshes.begin(), meshes.end(),
+                                                 [](const Ref<MeshSource>& src)
+                                                 { return !src || src->IsPreOptimized(); });
+                    allPreOpt)
+                {
+                    combined->SetPreOptimized(true);
+                }
             }
 
             return combined;
@@ -1328,9 +1335,13 @@ namespace OloEngine
         {
             const aiAnimation* anim = scene->mAnimations[i];
 
+            // Guard against zero ticks-per-second (e.g. some FBX/glTF exporters
+            // omit the field). Fall back to 25 tps which is a common default.
+            auto const ticksPerSecond = (anim->mTicksPerSecond > 0.0) ? anim->mTicksPerSecond : 25.0;
+
             auto animClip = Ref<AnimationClip>::Create();
             animClip->Name = anim->mName.data;
-            animClip->Duration = static_cast<f32>(anim->mDuration / anim->mTicksPerSecond);
+            animClip->Duration = static_cast<f32>(anim->mDuration / ticksPerSecond);
 
             OLO_CORE_INFO("AnimatedModel::ProcessAnimations: Processing animation [{}] '{}' - Duration: {:.2f}s, Channels: {}",
                           i, animClip->Name.empty() ? "(unnamed)" : animClip->Name, animClip->Duration, anim->mNumChannels);
@@ -1348,7 +1359,7 @@ namespace OloEngine
                 for (u32 k = 0; k < nodeAnim->mNumPositionKeys; ++k)
                 {
                     BonePositionKey posKey;
-                    posKey.Time = static_cast<f64>(nodeAnim->mPositionKeys[k].mTime / anim->mTicksPerSecond);
+                    posKey.Time = static_cast<f64>(nodeAnim->mPositionKeys[k].mTime / ticksPerSecond);
                     const aiVector3D& pos = nodeAnim->mPositionKeys[k].mValue;
                     posKey.Position = glm::vec3(pos.x, pos.y, pos.z);
                     boneAnim.PositionKeys.push_back(posKey);
@@ -1359,7 +1370,7 @@ namespace OloEngine
                 for (u32 k = 0; k < nodeAnim->mNumRotationKeys; ++k)
                 {
                     BoneRotationKey rotKey;
-                    rotKey.Time = static_cast<f64>(nodeAnim->mRotationKeys[k].mTime / anim->mTicksPerSecond);
+                    rotKey.Time = static_cast<f64>(nodeAnim->mRotationKeys[k].mTime / ticksPerSecond);
                     const aiQuaternion& rot = nodeAnim->mRotationKeys[k].mValue;
                     rotKey.Rotation = glm::quat(rot.w, rot.x, rot.y, rot.z);
                     boneAnim.RotationKeys.push_back(rotKey);
@@ -1370,7 +1381,7 @@ namespace OloEngine
                 for (u32 k = 0; k < nodeAnim->mNumScalingKeys; ++k)
                 {
                     BoneScaleKey scaleKey;
-                    scaleKey.Time = static_cast<f64>(nodeAnim->mScalingKeys[k].mTime / anim->mTicksPerSecond);
+                    scaleKey.Time = static_cast<f64>(nodeAnim->mScalingKeys[k].mTime / ticksPerSecond);
                     const aiVector3D& scale = nodeAnim->mScalingKeys[k].mValue;
                     scaleKey.Scale = glm::vec3(scale.x, scale.y, scale.z);
                     boneAnim.ScaleKeys.push_back(scaleKey);

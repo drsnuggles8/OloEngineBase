@@ -108,7 +108,17 @@ namespace OloEngine
             }
             // Append a hash of the original (unsanitized) prefix so distinct
             // prefixes that sanitize to the same string don't collide.
-            auto const prefixHash = HashSourcePath(std::filesystem::path(prefix));
+            // Hash the raw string directly (not via filesystem::path) to avoid
+            // weakly_canonical() side-effects that make the hash cwd-dependent.
+            constexpr u64 FNV_OFFSET_BASIS = 14695981039346656037ULL;
+            constexpr u64 FNV_PRIME = 1099511628211ULL;
+            u64 prefixFnv = FNV_OFFSET_BASIS;
+            for (char c : prefix)
+            {
+                prefixFnv ^= static_cast<u64>(static_cast<unsigned char>(c));
+                prefixFnv *= FNV_PRIME;
+            }
+            auto const prefixHash = fmt::format("{:016X}", prefixFnv);
             return GetCacheDirectory() / (safe + "_" + prefixHash + HashSourcePath(sourcePath) + ".omesh");
         }
 
@@ -263,10 +273,15 @@ namespace OloEngine
                 if (std::filesystem::exists(cacheDir, ec))
                 {
                     bool allRemoved = true;
+                    std::string firstRemoveError;
                     for (const auto& entry : std::filesystem::directory_iterator(cacheDir, ec))
                     {
                         if (ec)
                         {
+                            if (firstRemoveError.empty())
+                            {
+                                firstRemoveError = ec.message();
+                            }
                             allRemoved = false;
                             break;
                         }
@@ -274,6 +289,10 @@ namespace OloEngine
                         {
                             if (ec)
                             {
+                                if (firstRemoveError.empty())
+                                {
+                                    firstRemoveError = ec.message();
+                                }
                                 allRemoved = false;
                                 ec.clear();
                             }
@@ -285,6 +304,10 @@ namespace OloEngine
                             std::filesystem::remove(entry.path(), ec);
                             if (ec)
                             {
+                                if (firstRemoveError.empty())
+                                {
+                                    firstRemoveError = ec.message();
+                                }
                                 allRemoved = false;
                                 ec.clear();
                             }
@@ -292,6 +315,10 @@ namespace OloEngine
                     }
                     if (ec)
                     {
+                        if (firstRemoveError.empty())
+                        {
+                            firstRemoveError = ec.message();
+                        }
                         allRemoved = false;
                     }
                     if (allRemoved)
@@ -300,7 +327,9 @@ namespace OloEngine
                     }
                     else
                     {
-                        OLO_CORE_WARN("MeshCache: Some cache files could not be removed for '{}': {}", sourcePath.string(), ec.message());
+                        OLO_CORE_WARN("MeshCache: Some cache files could not be removed for '{}': {}",
+                                      sourcePath.string(),
+                                      firstRemoveError.empty() ? ec.message() : firstRemoveError);
                     }
                 }
             }
@@ -314,6 +343,10 @@ namespace OloEngine
                     {
                         OLO_CORE_INFO("MeshCache: Invalidated mesh cache for '{}'", sourcePath.string());
                     }
+                    else
+                    {
+                        OLO_CORE_WARN("MeshCache: Failed to remove mesh cache '{}': {}", meshPath.string(), ec.message());
+                    }
                 }
             }
 
@@ -324,6 +357,10 @@ namespace OloEngine
                 if (!ec)
                 {
                     OLO_CORE_INFO("MeshCache: Invalidated animation cache for '{}'", sourcePath.string());
+                }
+                else
+                {
+                    OLO_CORE_WARN("MeshCache: Failed to remove animation cache '{}': {}", animPath.string(), ec.message());
                 }
             }
         }

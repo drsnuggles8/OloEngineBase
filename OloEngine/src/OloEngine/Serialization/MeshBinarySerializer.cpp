@@ -100,7 +100,13 @@ namespace OloEngine
 
         void WriteString(std::ostream& out, const std::string& str)
         {
+            constexpr u32 MAX_STRING_LENGTH = 65536;
             auto len = static_cast<u32>(str.size());
+            if (len > MAX_STRING_LENGTH)
+            {
+                OLO_CORE_ERROR("WriteString: string length {} exceeds max {}, truncating", len, MAX_STRING_LENGTH);
+                len = MAX_STRING_LENGTH;
+            }
             WriteBytes(out, &len, sizeof(u32));
             if (len > 0)
             {
@@ -369,10 +375,26 @@ namespace OloEngine
             const auto* skeleton = meshSource.GetSkeleton();
             auto boneCount = static_cast<u32>(skeleton->m_BoneNames.size());
 
-            if (skeleton->m_ParentIndices.size() < boneCount)
+            // Validate skeleton array sizes — reject mismatches
+            auto const validateSize = [&](sizet actual, const char* name) -> bool
             {
-                OLO_CORE_ERROR("MeshBinarySerializer::Write: ParentIndices size ({}) < BoneNames size ({})",
-                               skeleton->m_ParentIndices.size(), boneCount);
+                if (static_cast<u32>(actual) != boneCount)
+                {
+                    OLO_CORE_ERROR("MeshBinarySerializer::Write: Skeleton {} size ({}) != boneCount ({})",
+                                   name, actual, boneCount);
+                    return false;
+                }
+                return true;
+            };
+
+            if (!validateSize(skeleton->m_ParentIndices.size(), "ParentIndices") ||
+                !validateSize(skeleton->m_LocalTransforms.size(), "LocalTransforms") ||
+                !validateSize(skeleton->m_GlobalTransforms.size(), "GlobalTransforms") ||
+                !validateSize(skeleton->m_BindPoseMatrices.size(), "BindPoseMatrices") ||
+                !validateSize(skeleton->m_InverseBindPoses.size(), "InverseBindPoses") ||
+                !validateSize(skeleton->m_BindPoseLocalTransforms.size(), "BindPoseLocalTransforms") ||
+                !validateSize(skeleton->m_BonePreTransforms.size(), "BonePreTransforms"))
+            {
                 return false;
             }
 
@@ -383,29 +405,10 @@ namespace OloEngine
             // Parent indices
             WriteBytes(payload, skeleton->m_ParentIndices.data(), boneCount * sizeof(i32));
 
-            // Transform arrays (7 arrays of mat4)
+            // Transform arrays (6 arrays of mat4)
             auto const writeMat4Array = [&](const std::vector<glm::mat4>& arr)
             {
-                if (arr.size() >= boneCount)
-                {
-                    WriteBytes(payload, arr.data(), boneCount * sizeof(f32) * 16);
-                }
-                else
-                {
-                    // Pad with identity if undersized
-                    for (u32 j = 0; j < boneCount; ++j)
-                    {
-                        if (j < arr.size())
-                        {
-                            WriteMat4(payload, arr[j]);
-                        }
-                        else
-                        {
-                            glm::mat4 identity(1.0f);
-                            WriteMat4(payload, identity);
-                        }
-                    }
-                }
+                WriteBytes(payload, arr.data(), boneCount * sizeof(f32) * 16);
             };
 
             writeMat4Array(skeleton->m_LocalTransforms);
@@ -418,14 +421,7 @@ namespace OloEngine
             // Bone names (string table)
             for (u32 j = 0; j < boneCount; ++j)
             {
-                if (j < skeleton->m_BoneNames.size())
-                {
-                    WriteString(payload, skeleton->m_BoneNames[j]);
-                }
-                else
-                {
-                    WriteString(payload, {});
-                }
+                WriteString(payload, skeleton->m_BoneNames[j]);
             }
 
             directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Skeleton)].Size =
@@ -1625,6 +1621,13 @@ namespace OloEngine
             // Helper: verify that 'neededBytes' won't exceed the clip boundary.
             auto const ensureClipRemaining = [&](sizet neededBytes, const char* context) -> bool
             {
+                if (!payload.good() || payload.tellg() < 0)
+                {
+                    OLO_CORE_ERROR("AnimationBinarySerializer::Read: Stream in bad state "
+                                   "at {} in clip {} of '{}'",
+                                   context, i, path.string());
+                    return false;
+                }
                 if (payload.tellg() + static_cast<std::streamoff>(neededBytes) > clipEnd)
                 {
                     OLO_CORE_ERROR("AnimationBinarySerializer::Read: Clip {} would read {} bytes past boundary "
