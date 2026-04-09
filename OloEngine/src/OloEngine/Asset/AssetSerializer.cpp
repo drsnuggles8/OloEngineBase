@@ -1908,11 +1908,26 @@ namespace OloEngine
         }
         if (hasMorphTargets)
         {
+            constexpr u32 MAX_NAME_LEN = 1'024;
             const auto& morphTargets = meshSource->GetMorphTargets();
             auto vertCount = morphTargets->GetVertexCount();
+            if (vertCount != vertexCount)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Morph target vertex count ({}) != mesh vertex count ({}), "
+                               "rejecting before write",
+                               vertCount, vertexCount);
+                return false;
+            }
             for (u32 t = 0; t < morphTargets->GetTargetCount(); ++t)
             {
                 const auto& target = morphTargets->Targets[t];
+                if (target.Name.size() > MAX_NAME_LEN)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Morph target name length ({}) exceeds limit ({}), "
+                                   "rejecting before write",
+                                   target.Name.size(), MAX_NAME_LEN);
+                    return false;
+                }
                 auto sparseCount = (target.IsSparse && !target.SparseVertices.empty())
                                        ? static_cast<u32>(target.SparseVertices.size())
                                        : 0u;
@@ -1921,6 +1936,21 @@ namespace OloEngine
                     OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Dense morph target '{}' vertex count ({}) "
                                    "does not match expected vertCount ({}), rejecting before write",
                                    target.Name, target.Vertices.size(), vertCount);
+                    return false;
+                }
+            }
+        }
+        if (hasSkeleton)
+        {
+            constexpr u32 MAX_BONE_NAME_LEN = 1'024;
+            const auto* skeleton = meshSource->GetSkeleton();
+            for (u32 j = 0; j < static_cast<u32>(skeleton->m_BoneNames.size()); ++j)
+            {
+                if (skeleton->m_BoneNames[j].size() > MAX_BONE_NAME_LEN)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Bone name length ({}) exceeds limit ({}) at bone {}, "
+                                   "rejecting before write",
+                                   skeleton->m_BoneNames[j].size(), MAX_BONE_NAME_LEN, j);
                     return false;
                 }
             }
@@ -2274,6 +2304,33 @@ namespace OloEngine
                 stream.ReadString(sub.m_NodeName);
                 stream.ReadString(sub.m_MeshName);
                 stream.ReadRaw<bool>(sub.m_IsRigged);
+
+                // Validate submesh transform and bounding box floats for NaN/Inf
+                {
+                    auto const isFiniteMat4 = [](const glm::mat4& m) -> bool
+                    {
+                        for (int c = 0; c < 4; ++c)
+                            for (int r = 0; r < 4; ++r)
+                                if (!std::isfinite(m[c][r]))
+                                    return false;
+                        return true;
+                    };
+                    if (!isFiniteMat4(sub.m_Transform) || !isFiniteMat4(sub.m_LocalTransform))
+                    {
+                        OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Submesh {} has non-finite transform", i);
+                        return false;
+                    }
+                    const auto& bb = sub.m_BoundingBox;
+                    if (!std::isfinite(bb.Min.x) || !std::isfinite(bb.Min.y) || !std::isfinite(bb.Min.z) ||
+                        !std::isfinite(bb.Max.x) || !std::isfinite(bb.Max.y) || !std::isfinite(bb.Max.z) ||
+                        bb.Min.x > bb.Max.x || bb.Min.y > bb.Max.y || bb.Min.z > bb.Max.z)
+                    {
+                        OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Submesh {} has non-finite "
+                                       "or inverted bounding box",
+                                       i);
+                        return false;
+                    }
+                }
 
                 // Validate submesh ranges against total counts to catch corrupt data (overflow-safe)
                 if (sub.m_BaseVertex > vertexCount || sub.m_VertexCount > vertexCount - sub.m_BaseVertex ||

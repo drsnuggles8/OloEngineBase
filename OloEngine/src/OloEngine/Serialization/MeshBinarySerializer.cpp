@@ -98,20 +98,21 @@ namespace OloEngine
             return true;
         }
 
-        void WriteString(std::ostream& out, const std::string& str)
+        bool WriteString(std::ostream& out, const std::string& str)
         {
             constexpr u32 MAX_STRING_LENGTH = 65536;
             auto len = static_cast<u32>(str.size());
             if (len > MAX_STRING_LENGTH)
             {
-                OLO_CORE_ERROR("WriteString: string length {} exceeds max {}, truncating", len, MAX_STRING_LENGTH);
-                len = MAX_STRING_LENGTH;
+                OLO_CORE_ERROR("WriteString: string length {} exceeds max {}", len, MAX_STRING_LENGTH);
+                return false;
             }
             WriteBytes(out, &len, sizeof(u32));
             if (len > 0)
             {
                 WriteBytes(out, str.data(), len);
             }
+            return true;
         }
 
         std::string ReadString(std::istream& in)
@@ -338,8 +339,10 @@ namespace OloEngine
                 entry.IsRigged = sub.m_IsRigged ? 1 : 0;
 
                 WriteBytes(payload, &entry, sizeof(entry));
-                WriteString(payload, sub.m_NodeName);
-                WriteString(payload, sub.m_MeshName);
+                if (!WriteString(payload, sub.m_NodeName) || !WriteString(payload, sub.m_MeshName))
+                {
+                    return false;
+                }
             }
 
             directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Submeshes)].Size =
@@ -421,7 +424,10 @@ namespace OloEngine
             // Bone names (string table)
             for (u32 j = 0; j < boneCount; ++j)
             {
-                WriteString(payload, skeleton->m_BoneNames[j]);
+                if (!WriteString(payload, skeleton->m_BoneNames[j]))
+                {
+                    return false;
+                }
             }
 
             directory.Sections[static_cast<u16>(OMeshFormat::SectionType::Skeleton)].Size =
@@ -507,7 +513,10 @@ namespace OloEngine
                                              : 0;
                 WriteBytes(payload, &entry, sizeof(entry));
 
-                WriteString(payload, target.Name);
+                if (!WriteString(payload, target.Name))
+                {
+                    return false;
+                }
 
                 if (entry.SparseEntryCount > 0)
                 {
@@ -519,19 +528,23 @@ namespace OloEngine
                 }
                 else
                 {
-                    // Dense path: always write exactly vertCount entries.
-                    // If target.Vertices is non-empty, write those (clamped/padded to vertCount).
-                    // If empty, write all zeroes so the reader's fixed-size read stays in sync.
-                    auto denseCount = std::min(static_cast<u32>(target.Vertices.size()), vertCount);
-                    if (denseCount > 0)
+                    // Dense path: target vertex count must match exactly.
+                    if (!target.Vertices.empty() && static_cast<u32>(target.Vertices.size()) != vertCount)
                     {
-                        WriteBytes(payload, target.Vertices.data(), denseCount * sizeof(MorphTargetVertex));
+                        OLO_CORE_ERROR("MeshBinarySerializer::Write: Dense morph target '{}' vertex count ({}) "
+                                       "does not match expected vertCount ({})",
+                                       target.Name, target.Vertices.size(), vertCount);
+                        return false;
                     }
-                    // Pad remaining entries with zeroes
-                    if (denseCount < vertCount)
+                    // Write dense data or all zeroes if empty.
+                    if (!target.Vertices.empty())
+                    {
+                        WriteBytes(payload, target.Vertices.data(), vertCount * sizeof(MorphTargetVertex));
+                    }
+                    else
                     {
                         MorphTargetVertex zero{};
-                        for (auto p = denseCount; p < vertCount; ++p)
+                        for (u32 p = 0; p < vertCount; ++p)
                         {
                             WriteBytes(payload, &zero, sizeof(MorphTargetVertex));
                         }
@@ -1367,7 +1380,10 @@ namespace OloEngine
             clipHeader.MorphKeyframeCount = static_cast<u32>(clip->MorphKeyframes.size());
             WriteBytes(payload, &clipHeader, sizeof(clipHeader));
 
-            WriteString(payload, clip->Name);
+            if (!WriteString(payload, clip->Name))
+            {
+                return false;
+            }
 
             // Write bone channels
             for (const auto& boneAnim : clip->BoneAnimations)
@@ -1378,7 +1394,10 @@ namespace OloEngine
                 chanHeader.ScaleKeyCount = static_cast<u32>(boneAnim.ScaleKeys.size());
                 WriteBytes(payload, &chanHeader, sizeof(chanHeader));
 
-                WriteString(payload, boneAnim.BoneName);
+                if (!WriteString(payload, boneAnim.BoneName))
+                {
+                    return false;
+                }
 
                 // Position keys
                 for (const auto& key : boneAnim.PositionKeys)
@@ -1422,7 +1441,10 @@ namespace OloEngine
                 mkData.Time = mk.Time;
                 mkData.Weight = mk.Weight;
                 WriteBytes(payload, &mkData, sizeof(mkData));
-                WriteString(payload, mk.TargetName);
+                if (!WriteString(payload, mk.TargetName))
+                {
+                    return false;
+                }
             }
 
             directory[i].Size = StreamPos(payload) - directory[i].Offset;

@@ -1397,7 +1397,7 @@ namespace OloEngine
                 for (u32 k = 0; k < morphChannel->mNumKeys; ++k)
                 {
                     const aiMeshMorphKey& key = morphChannel->mKeys[k];
-                    f64 timeInSeconds = key.mTime / anim->mTicksPerSecond;
+                    f64 timeInSeconds = key.mTime / ticksPerSecond;
                     for (u32 w = 0; w < key.mNumValuesAndWeights; ++w)
                     {
                         MorphTargetKeyframe kf;
