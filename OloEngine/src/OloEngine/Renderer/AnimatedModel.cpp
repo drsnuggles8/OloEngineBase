@@ -185,13 +185,13 @@ namespace OloEngine
 
             // Preserve pre-optimized state from inputs so the cache round-trip
             // skips OptimizeMesh on reload (mirrors SplitCombinedMeshSource).
-            for (const auto& src : meshes)
+            // Only mark the bundle as pre-optimized when every source mesh is.
+            if (auto allPreOpt = std::all_of(meshes.begin(), meshes.end(),
+                                             [](const Ref<MeshSource>& src)
+                                             { return src && src->IsPreOptimized(); });
+                allPreOpt && !meshes.empty())
             {
-                if (src && src->IsPreOptimized())
-                {
-                    combined->SetPreOptimized(true);
-                    break;
-                }
+                combined->SetPreOptimized(true);
             }
 
             return combined;
@@ -374,6 +374,29 @@ namespace OloEngine
             if (combined->HasMorphTargets())
             {
                 const auto& combinedMorphs = combined->GetMorphTargets();
+                auto const totalVertCount = static_cast<u32>(combined->GetVertices().Num());
+
+                for (const auto& target : combinedMorphs->Targets)
+                {
+                    // Combined morph targets must be dense and span the full
+                    // vertex count (CombineMeshSources always produces this
+                    // layout).  Reject anything else as cache corruption.
+                    if (target.IsSparse)
+                    {
+                        OLO_CORE_ERROR("AnimatedModel::SplitCombinedMeshSource - Combined morph target '{}' "
+                                       "is sparse (expected dense), rejecting cache",
+                                       target.Name);
+                        return false;
+                    }
+                    if (static_cast<u32>(target.Vertices.size()) != totalVertCount)
+                    {
+                        OLO_CORE_ERROR("AnimatedModel::SplitCombinedMeshSource - Combined morph target '{}' "
+                                       "has {} vertices (expected {}), rejecting cache",
+                                       target.Name, target.Vertices.size(), totalVertCount);
+                        return false;
+                    }
+                }
+
                 for (i32 s = 0; s < submeshCount && s < static_cast<i32>(localMeshes.size()); ++s)
                 {
                     const auto& submesh = combined->GetSubmeshes()[s];
@@ -1497,29 +1520,59 @@ namespace OloEngine
                         auto discovered = FindTextureInDirectory(subdir, filenameOnly);
 
                         // If the exact subdirectory didn't exist or had no match, try a case-insensitive
-                        // directory name lookup under m_Directory (handles "textures/" vs "Textures/").
+                        // directory traversal under m_Directory. Handles multi-component paths
+                        // like "Textures/Characters" and case mismatches ("textures/" vs "Textures/").
                         if (discovered.empty())
                         {
-                            std::string targetDir = filenamePath.parent_path().string();
-                            std::ranges::transform(targetDir, targetDir.begin(),
-                                                   [](unsigned char c)
-                                                   { return static_cast<char>(std::tolower(c)); });
-                            std::error_code ec;
-                            for (const auto& dirEntry : std::filesystem::directory_iterator(m_Directory, ec))
+                            auto parentPath = filenamePath.parent_path();
+                            std::filesystem::path resolvedDir = m_Directory;
+                            bool resolved = true;
+
+                            for (const auto& component : parentPath)
                             {
-                                if (!dirEntry.is_directory(ec))
-                                {
-                                    continue;
-                                }
-                                std::string entryName = dirEntry.path().filename().string();
-                                std::ranges::transform(entryName, entryName.begin(),
+                                std::string targetComponent = component.string();
+                                std::ranges::transform(targetComponent, targetComponent.begin(),
                                                        [](unsigned char c)
                                                        { return static_cast<char>(std::tolower(c)); });
-                                if (entryName == targetDir)
+
+                                // Try exact match first
+                                if (auto exact = resolvedDir / component;
+                                    std::filesystem::is_directory(exact))
                                 {
-                                    discovered = FindTextureInDirectory(dirEntry.path(), filenameOnly);
+                                    resolvedDir = exact;
+                                    continue;
+                                }
+
+                                // Case-insensitive scan of current directory
+                                bool found = false;
+                                std::error_code ec;
+                                for (const auto& dirEntry : std::filesystem::directory_iterator(resolvedDir, ec))
+                                {
+                                    if (!dirEntry.is_directory(ec))
+                                    {
+                                        continue;
+                                    }
+                                    std::string entryName = dirEntry.path().filename().string();
+                                    std::ranges::transform(entryName, entryName.begin(),
+                                                           [](unsigned char c)
+                                                           { return static_cast<char>(std::tolower(c)); });
+                                    if (entryName == targetComponent)
+                                    {
+                                        resolvedDir = dirEntry.path();
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                if (!found)
+                                {
+                                    resolved = false;
                                     break;
                                 }
+                            }
+
+                            if (resolved)
+                            {
+                                discovered = FindTextureInDirectory(resolvedDir, filenameOnly);
                             }
                         }
 

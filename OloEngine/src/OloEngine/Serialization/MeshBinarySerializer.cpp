@@ -30,6 +30,51 @@ namespace OloEngine
 
     namespace
     {
+        // ── Validation helpers ──
+
+        // Returns true if every component in the matrix array is finite.
+        // On failure, logs the first offending element and replaces the matrix
+        // with identity so downstream code doesn't propagate NaN/Inf.
+        bool ValidateMat4Array(std::vector<glm::mat4>& arr, const char* arrayName,
+                               const std::filesystem::path& path)
+        {
+            for (sizet i = 0; i < arr.size(); ++i)
+            {
+                auto& m = arr[i];
+                for (int c = 0; c < 4; ++c)
+                {
+                    for (int r = 0; r < 4; ++r)
+                    {
+                        if (!std::isfinite(m[c][r]))
+                        {
+                            OLO_CORE_WARN("MeshBinarySerializer::Read: Non-finite value in {} "
+                                          "at bone {} element [{},{}] in '{}', replacing with identity",
+                                          arrayName, i, c, r, path.string());
+                            m = glm::mat4(1.0f);
+                            goto next_matrix; // skip remaining elements of this matrix
+                        }
+                    }
+                }
+            next_matrix:;
+            }
+            return true;
+        }
+
+        // Returns true if the stream position hasn't exceeded the section boundary.
+        bool VerifySectionBoundary(std::istream& payload, u64 seekBase, u64 sectionEnd,
+                                   const char* sectionName, const std::filesystem::path& path)
+        {
+            auto const pos = static_cast<u64>(payload.tellg()) - seekBase;
+            if (pos > sectionEnd)
+            {
+                OLO_CORE_ERROR("MeshBinarySerializer::Read: {} section read past boundary "
+                               "(pos={}, sectionEnd={}) in '{}'",
+                               sectionName, pos, sectionEnd, path.string());
+                return false;
+            }
+            return true;
+        }
+
         // Stream I/O helpers — accept std::ostream / std::istream so they work
         // with both file streams and in-memory stringstreams.
         bool WriteBytes(std::ostream& out, const void* data, sizet size)
@@ -694,6 +739,7 @@ namespace OloEngine
             if (sec.Size > 0)
             {
                 payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
+                auto const sectionEnd = sec.Offset + sec.Size;
 
                 OMeshFormat::GeometryHeader geo;
                 ReadBytes(payload, &geo, sizeof(geo));
@@ -708,6 +754,17 @@ namespace OloEngine
                 {
                     OLO_CORE_ERROR("MeshBinarySerializer::Read: Encoded sizes exceed safety limits in '{}'", path.string());
                     return nullptr;
+                }
+
+                // Verify all encoded data fits within the declared section
+                {
+                    auto const totalNeeded = sizeof(OMeshFormat::GeometryHeader) + geo.EncodedVertexSize + geo.EncodedIndexSize + geo.EncodedShadowIndexSize;
+                    if (totalNeeded > sec.Size)
+                    {
+                        OLO_CORE_ERROR("MeshBinarySerializer::Read: Geometry data ({} bytes) exceeds section size ({}) in '{}'",
+                                       totalNeeded, sec.Size, path.string());
+                        return nullptr;
+                    }
                 }
 
                 // Reject mismatched count/encoded-size pairs
@@ -799,6 +856,12 @@ namespace OloEngine
                         }
                     }
                 }
+
+                // Verify stream didn't read past the declared section boundary
+                if (!VerifySectionBoundary(payload, seekBase, sectionEnd, "Geometry", path))
+                {
+                    return nullptr;
+                }
             }
         }
 
@@ -885,6 +948,11 @@ namespace OloEngine
 
                     meshSource->AddSubmesh(sub);
                 }
+
+                if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "Submesh", path))
+                {
+                    return nullptr;
+                }
             }
         }
 
@@ -910,6 +978,11 @@ namespace OloEngine
                     OMeshFormat::MaterialEntry entry;
                     ReadBytes(payload, &entry, sizeof(entry));
                     meshSource->SetMaterial(entry.Index, AssetHandle{ entry.Handle });
+                }
+
+                if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "Material", path))
+                {
+                    return nullptr;
                 }
             }
         }
@@ -949,19 +1022,20 @@ namespace OloEngine
                     }
                 }
 
-                // Transform arrays
-                auto const readMat4Array = [&](std::vector<glm::mat4>& arr)
+                // Transform arrays — read then validate for NaN/Inf
+                auto const readMat4Array = [&](std::vector<glm::mat4>& arr, const char* name)
                 {
                     arr.resize(boneCount);
                     ReadBytes(payload, arr.data(), boneCount * sizeof(f32) * 16);
+                    ValidateMat4Array(arr, name, path);
                 };
 
-                readMat4Array(skeleton->m_LocalTransforms);
-                readMat4Array(skeleton->m_GlobalTransforms);
-                readMat4Array(skeleton->m_BindPoseMatrices);
-                readMat4Array(skeleton->m_InverseBindPoses);
-                readMat4Array(skeleton->m_BindPoseLocalTransforms);
-                readMat4Array(skeleton->m_BonePreTransforms);
+                readMat4Array(skeleton->m_LocalTransforms, "LocalTransforms");
+                readMat4Array(skeleton->m_GlobalTransforms, "GlobalTransforms");
+                readMat4Array(skeleton->m_BindPoseMatrices, "BindPoseMatrices");
+                readMat4Array(skeleton->m_InverseBindPoses, "InverseBindPoses");
+                readMat4Array(skeleton->m_BindPoseLocalTransforms, "BindPoseLocalTransforms");
+                readMat4Array(skeleton->m_BonePreTransforms, "BonePreTransforms");
 
                 // Bone names
                 skeleton->m_BoneNames.resize(boneCount);
@@ -980,6 +1054,11 @@ namespace OloEngine
                 }
 
                 meshSource->SetSkeleton(skeleton);
+
+                if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "Skeleton", path))
+                {
+                    return nullptr;
+                }
             }
         }
 
@@ -1032,6 +1111,11 @@ namespace OloEngine
                         return nullptr;
                     }
                 }
+
+                if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "BoneInfluence", path))
+                {
+                    return nullptr;
+                }
             }
         }
 
@@ -1078,8 +1162,31 @@ namespace OloEngine
 
                     BoneInfo info;
                     std::memcpy(&info.m_InverseBindPose[0][0], entry.InverseBindPose, sizeof(f32) * 16);
+
+                    // Validate InverseBindPose for NaN/Inf
+                    bool valid = true;
+                    for (int c = 0; c < 4 && valid; ++c)
+                    {
+                        for (int r = 0; r < 4 && valid; ++r)
+                        {
+                            if (!std::isfinite(info.m_InverseBindPose[c][r]))
+                            {
+                                OLO_CORE_WARN("MeshBinarySerializer::Read: Non-finite InverseBindPose in BoneInfo {} "
+                                              "element [{},{}] in '{}', replacing with identity",
+                                              i, c, r, path.string());
+                                info.m_InverseBindPose = glm::mat4(1.0f);
+                                valid = false;
+                            }
+                        }
+                    }
+
                     info.m_BoneIndex = entry.BoneIndex;
                     boneInfo.Add(info);
+                }
+
+                if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "BoneInfo", path))
+                {
+                    return nullptr;
                 }
             }
         }
@@ -1161,6 +1268,11 @@ namespace OloEngine
                 }
 
                 meshSource->SetMorphTargets(morphTargetSet);
+
+                if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "MorphTarget", path))
+                {
+                    return nullptr;
+                }
             }
         }
 
@@ -1494,6 +1606,25 @@ namespace OloEngine
 
             payload.seekg(static_cast<std::streamoff>(payloadBase + directory[i].Offset));
 
+            auto const clipEnd = static_cast<std::streamoff>(payloadBase + directory[i].Offset + directory[i].Size);
+
+            // Helper: verify that 'neededBytes' won't exceed the clip boundary.
+            auto const ensureClipRemaining = [&](sizet neededBytes, const char* context) -> bool
+            {
+                if (payload.tellg() + static_cast<std::streamoff>(neededBytes) > clipEnd)
+                {
+                    OLO_CORE_ERROR("AnimationBinarySerializer::Read: Clip {} would read {} bytes past boundary "
+                                   "at {} in '{}'",
+                                   i, neededBytes, context, path.string());
+                    return false;
+                }
+                return true;
+            };
+
+            if (!ensureClipRemaining(sizeof(OAnimFormat::ClipHeader), "ClipHeader"))
+            {
+                return {};
+            }
             OAnimFormat::ClipHeader clipHeader;
             ReadBytes(payload, &clipHeader, sizeof(clipHeader));
 
@@ -1526,6 +1657,10 @@ namespace OloEngine
             clip->BoneAnimations.resize(clipHeader.BoneChannelCount);
             for (u32 c = 0; c < clipHeader.BoneChannelCount; ++c)
             {
+                if (!ensureClipRemaining(sizeof(OAnimFormat::BoneChannelHeader), "BoneChannelHeader"))
+                {
+                    return {};
+                }
                 OAnimFormat::BoneChannelHeader chanHeader;
                 ReadBytes(payload, &chanHeader, sizeof(chanHeader));
 
@@ -1542,6 +1677,10 @@ namespace OloEngine
                 boneAnim.BoneName = ReadString(payload);
 
                 // Position keys
+                if (!ensureClipRemaining(chanHeader.PositionKeyCount * sizeof(OAnimFormat::PositionKey), "PositionKeys"))
+                {
+                    return {};
+                }
                 boneAnim.PositionKeys.resize(chanHeader.PositionKeyCount);
                 for (u32 k = 0; k < chanHeader.PositionKeyCount; ++k)
                 {
@@ -1559,6 +1698,10 @@ namespace OloEngine
                 }
 
                 // Rotation keys
+                if (!ensureClipRemaining(chanHeader.RotationKeyCount * sizeof(OAnimFormat::RotationKey), "RotationKeys"))
+                {
+                    return {};
+                }
                 boneAnim.RotationKeys.resize(chanHeader.RotationKeyCount);
                 for (u32 k = 0; k < chanHeader.RotationKeyCount; ++k)
                 {
@@ -1577,6 +1720,10 @@ namespace OloEngine
                 }
 
                 // Scale keys
+                if (!ensureClipRemaining(chanHeader.ScaleKeyCount * sizeof(OAnimFormat::ScaleKey), "ScaleKeys"))
+                {
+                    return {};
+                }
                 boneAnim.ScaleKeys.resize(chanHeader.ScaleKeyCount);
                 for (u32 k = 0; k < chanHeader.ScaleKeyCount; ++k)
                 {
@@ -1595,6 +1742,10 @@ namespace OloEngine
             }
 
             // Read morph keyframes
+            if (!ensureClipRemaining(clipHeader.MorphKeyframeCount * sizeof(OAnimFormat::MorphKeyframe), "MorphKeyframes"))
+            {
+                return {};
+            }
             clip->MorphKeyframes.resize(clipHeader.MorphKeyframeCount);
             for (u32 m = 0; m < clipHeader.MorphKeyframeCount; ++m)
             {
@@ -1612,8 +1763,7 @@ namespace OloEngine
             }
 
             // Verify we haven't read past the clip's declared size boundary
-            if (auto const clipEnd = static_cast<std::streamoff>(payloadBase + directory[i].Offset + directory[i].Size);
-                payload.tellg() > clipEnd)
+            if (payload.tellg() > clipEnd)
             {
                 OLO_CORE_ERROR("AnimationBinarySerializer::Read: Clip {} consumed {} bytes past its declared size ({}) in '{}'",
                                i, static_cast<i64>(payload.tellg() - clipEnd), directory[i].Size, path.string());

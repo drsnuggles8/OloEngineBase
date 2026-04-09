@@ -66,6 +66,16 @@ namespace OloEngine
             return GetProjectDirectory() / "Config" / "InputActions.yaml";
         }
 
+        const std::filesystem::path& GetDirectory() const
+        {
+            return m_ProjectDirectory;
+        }
+
+        std::filesystem::path GetAssetDir() const
+        {
+            return m_ProjectDirectory / m_Config.AssetDirectory;
+        }
+
         ProjectConfig& GetConfig()
         {
             return m_Config;

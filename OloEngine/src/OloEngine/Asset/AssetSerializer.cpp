@@ -2350,11 +2350,10 @@ namespace OloEngine
             u32 boneCount = 0;
             stream.ReadRaw<u32>(boneCount);
 
-            constexpr u32 MAX_BONE_COUNT = 4096;
-            if (boneCount > MAX_BONE_COUNT)
+            if (boneCount > kMaxBoneCount)
             {
                 OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Bone count {} exceeds limit {}",
-                               boneCount, MAX_BONE_COUNT);
+                               boneCount, kMaxBoneCount);
                 return false;
             }
 
