@@ -7,6 +7,8 @@
 #include "Platform/OpenGL/OpenGLContext.h"
 #include "Platform/Linux/LinuxWindow.h"
 
+#include <algorithm>
+
 namespace OloEngine
 {
 
@@ -65,6 +67,10 @@ namespace OloEngine
                 {
                     s_HighDPIScaleFactor = yscale;
                     GLFWAPI::glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
+                }
+                else
+                {
+                    s_HighDPIScaleFactor = 1.0f;
                 }
             }
 
@@ -179,8 +185,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        GLFWAPI::glfwDestroyWindow(m_Window);
-        --s_GLFWWindowCount;
+        if (m_Window)
+        {
+            GLFWAPI::glfwDestroyWindow(m_Window);
+            m_Window = nullptr;
+            --s_GLFWWindowCount;
+        }
 
         if (0 == s_GLFWWindowCount)
         {

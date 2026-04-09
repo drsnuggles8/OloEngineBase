@@ -20,10 +20,12 @@
 
 #if defined(OLO_PLATFORM_WINDOWS)
 #include <Windows.h>
-#else
+#elif defined(OLO_PLATFORM_LINUX)
 #include <pthread.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#else
+#error "PlatformTLS.h: unsupported platform"
 #endif
 
 namespace OloEngine

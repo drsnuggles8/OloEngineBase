@@ -645,6 +645,7 @@ namespace OloEngine
     }
     void ScriptEngine::Shutdown()
     {
+        s_SceneContext = nullptr;
         s_EntityFieldMaps.clear();
     }
     bool ScriptEngine::LoadAssembly(const std::filesystem::path&)

@@ -191,7 +191,8 @@ else()
 	find_library(MACHINE_INDEPENDENT_LIB NAMES MachineIndependent)
 	find_library(OS_DEPENDENT_LIB NAMES OSDependent)
 	find_library(GENERIC_CODEGEN_LIB NAMES GenericCodeGen)
-	foreach(_lib SHADERC_LIB SPIRV_CROSS_CORE_LIB SPIRV_CROSS_GLSL_LIB GLSLANG_LIB SPIRV_LIB SPIRV_TOOLS_LIB)
+	foreach(_lib SHADERC_LIB SPIRV_CROSS_CORE_LIB SPIRV_CROSS_GLSL_LIB GLSLANG_LIB SPIRV_LIB SPIRV_TOOLS_LIB
+			MACHINE_INDEPENDENT_LIB OS_DEPENDENT_LIB GENERIC_CODEGEN_LIB)
 		if(NOT ${_lib})
 			message(FATAL_ERROR "Required shader library not found: ${_lib}. "
 				"Install the Vulkan SDK / shader development packages.")
@@ -219,9 +220,9 @@ if(MSVC)
 		debug ${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Debug/libmono-static-sgen.lib
 		optimized ${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Release/libmono-static-sgen.lib
 	)
-	target_compile_definitions(OloEngine PRIVATE OLO_ENABLE_CSHARP_SCRIPTING=1)
+	target_compile_definitions(OloEngine PUBLIC OLO_ENABLE_CSHARP_SCRIPTING=1)
 else()
-	target_compile_definitions(OloEngine PRIVATE OLO_ENABLE_CSHARP_SCRIPTING=0)
+	target_compile_definitions(OloEngine PUBLIC OLO_ENABLE_CSHARP_SCRIPTING=0)
 endif()
 
 # Platform-specific system libraries
