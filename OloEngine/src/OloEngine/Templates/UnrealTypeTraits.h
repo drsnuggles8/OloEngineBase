@@ -379,7 +379,7 @@ namespace OloEngine
                                                     Expose_TFormatSpecifier(long, "%ld")
                                                         Expose_TFormatSpecifier(unsigned long, "%lu")
 #else
-    static_assert(sizeof(long) == 8, "LP64 assumption: long must be 8 bytes");
+                                                    static_assert(sizeof(long) == 8, "LP64 assumption: long must be 8 bytes");
 #endif
 
         // ========================================================================
