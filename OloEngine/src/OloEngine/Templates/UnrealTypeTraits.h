@@ -378,6 +378,8 @@ namespace OloEngine
 #if defined(_WIN32) || !(defined(__LP64__) || defined(_LP64))
                                                     Expose_TFormatSpecifier(long, "%ld")
                                                         Expose_TFormatSpecifier(unsigned long, "%lu")
+#else
+    static_assert(sizeof(long) == 8, "LP64 assumption: long must be 8 bytes");
 #endif
 
         // ========================================================================

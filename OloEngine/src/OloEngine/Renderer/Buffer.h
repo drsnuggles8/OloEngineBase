@@ -58,6 +58,7 @@ namespace OloEngine
                     return 1;
                 case Sampler2D:
                 case SamplerCube:
+                    return 1;
                 case None:
                     break;
             }

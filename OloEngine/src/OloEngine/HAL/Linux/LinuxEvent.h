@@ -41,6 +41,7 @@ namespace OloEngine
             {
                 std::lock_guard lock(m_Mutex);
                 m_Triggered = true;
+                ++m_Generation;
             }
             if (m_ManualReset)
             {
@@ -64,19 +65,21 @@ namespace OloEngine
             WaitForStats();
 
             std::unique_lock lock(m_Mutex);
+            const u64 initialGeneration = m_Generation;
+
+            auto predicate = [this, initialGeneration]
+            { return m_Triggered || (m_Generation != initialGeneration); };
 
             if (WaitTime == 0xFFFFFFFF) // INFINITE
             {
-                m_Condition.wait(lock, [this]
-                                 { return m_Triggered; });
+                m_Condition.wait(lock, predicate);
             }
             else
             {
-                m_Condition.wait_for(lock, std::chrono::milliseconds(WaitTime), [this]
-                                     { return m_Triggered; });
+                m_Condition.wait_for(lock, std::chrono::milliseconds(WaitTime), predicate);
             }
 
-            bool wasTriggered = m_Triggered;
+            const bool wasTriggered = m_Triggered || (m_Generation != initialGeneration);
 
             // Auto-reset events reset after a successful wait
             if (!m_ManualReset && wasTriggered)
@@ -90,6 +93,7 @@ namespace OloEngine
       private:
         std::mutex m_Mutex;
         std::condition_variable m_Condition;
+        u64 m_Generation{ 0 };
         bool m_Triggered{ false };
         bool m_ManualReset{ false };
     };

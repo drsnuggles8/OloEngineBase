@@ -75,10 +75,12 @@ namespace OloEngine
         {
 #if defined(OLO_PLATFORM_WINDOWS)
             return ::GetCurrentThreadId();
-#else
+#elif defined(OLO_PLATFORM_LINUX)
             // pthread_t is 8 bytes on 64-bit Linux; use syscall(SYS_gettid) which
             // returns a pid_t (fits in u32) and matches kernel thread IDs.
             return static_cast<u32>(syscall(SYS_gettid));
+#else
+#error "PlatformTLS::GetCurrentThreadId() not implemented for this platform"
 #endif
         }
 
@@ -126,7 +128,7 @@ namespace OloEngine
             // proper slot lifetime management to avoid ambiguous nullptr-as-error cases.
             return ::TlsGetValue(SlotIndex);
         }
-#else
+#elif defined(OLO_PLATFORM_LINUX)
         // POSIX implementation using pthread_key_t
         static u32 AllocTlsSlot()
         {
@@ -176,6 +178,8 @@ namespace OloEngine
             // We rely on proper slot management (matches UE5.7 design).
             return pthread_getspecific(static_cast<pthread_key_t>(SlotIndex));
         }
+#else
+#error "PlatformTLS not implemented for this platform"
 #endif
     };
 

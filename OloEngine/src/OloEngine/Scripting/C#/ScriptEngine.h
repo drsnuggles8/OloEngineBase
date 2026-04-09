@@ -2,9 +2,12 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 
+#include <cstring>
 #include <filesystem>
-#include <string>
 #include <map>
+#include <string>
+#include <string_view>
+#include <unordered_map>
 
 #if OLO_ENABLE_CSHARP_SCRIPTING
 extern "C"

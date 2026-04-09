@@ -134,7 +134,6 @@ target_link_libraries(OloEngine
 	yaml-cpp
 	GameNetworkingSockets_s
 	Vulkan::Vulkan
-	png_shared
 	$<$<CONFIG:Debug>:${ZLIB_LIBRARY_DEBUG}>
 	$<$<CONFIG:Release>:${ZLIB_LIBRARY_RELEASE}>
 	$<$<CONFIG:Dist>:${ZLIB_LIBRARY_DIST}>
@@ -217,8 +216,9 @@ if(MSVC)
 		$<$<CONFIG:Dist>:${ZLIB_LIBRARY_DIST}>
 	)
 else()
+	find_package(Threads REQUIRED)
 	target_link_libraries(OloEngine
-		pthread
+		Threads::Threads
 		dl
 		${CMAKE_DL_LIBS}
 	)

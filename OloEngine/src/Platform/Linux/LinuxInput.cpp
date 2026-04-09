@@ -2,7 +2,9 @@
 #include "OloEngine/Core/Input.h"
 
 #include "OloEngine/Core/Application.h"
+
 #include <GLFW/glfw3.h>
+#include <cstring>
 
 namespace OloEngine
 {

@@ -55,15 +55,17 @@ namespace OloEngine
         {
             OLO_PROFILE_SCOPE("glfwCreateWindow");
 
-            GLFWmonitor* monitor = GLFWAPI::glfwGetPrimaryMonitor();
-            f32 xscale{};
-            f32 yscale{};
-            GLFWAPI::glfwGetMonitorContentScale(monitor, &xscale, &yscale);
-
-            if ((xscale > 1.0f) || (yscale > 1.0f))
+            if (GLFWmonitor* monitor = GLFWAPI::glfwGetPrimaryMonitor())
             {
-                s_HighDPIScaleFactor = yscale;
-                GLFWAPI::glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
+                f32 xscale{};
+                f32 yscale{};
+                GLFWAPI::glfwGetMonitorContentScale(monitor, &xscale, &yscale);
+
+                if ((xscale > 1.0f) || (yscale > 1.0f))
+                {
+                    s_HighDPIScaleFactor = yscale;
+                    GLFWAPI::glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
+                }
             }
 
 #if defined(OLO_DEBUG)
@@ -74,10 +76,16 @@ namespace OloEngine
 #endif
 
             m_Window = GLFWAPI::glfwCreateWindow(static_cast<int>(props.Width), static_cast<int>(props.Height), m_Data.Title.c_str(), nullptr, nullptr);
+            if (!m_Window)
+            {
+                OLO_CORE_CRITICAL("glfwCreateWindow failed!");
+                return;
+            }
             ++s_GLFWWindowCount;
         }
 
         m_Context = GraphicsContext::Create(m_Window);
+        OLO_CORE_ASSERT(m_Context, "Failed to create graphics context!");
         m_Context->Init();
 
         GLFWAPI::glfwSetWindowUserPointer(m_Window, &m_Data);

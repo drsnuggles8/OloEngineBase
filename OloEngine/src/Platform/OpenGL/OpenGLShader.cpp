@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Task/ParallelFor.h"
 
+#include <cstring>
 #include <glad/gl.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <shaderc/shaderc.hpp>
@@ -1154,7 +1155,7 @@ namespace OloEngine
         // programs compiled from SPIR-V binary (glShaderBinary + glSpecializeShader).
         // The AMD-specific CreateProgramForAmd() path has its own cache save that
         // works correctly (it compiles from cross-compiled GLSL text instead).
-        if (Utils::IsAmdGpu())
+        if (Utils::IsAmdGpu() && !m_OpenGLSPIRV.empty())
             return;
 
         GLint formats = 0;

@@ -637,13 +637,16 @@ namespace OloEngine
 {
     // Minimal scene-context management so LuaScriptGlue can call GetSceneContext()
     static Scene* s_SceneContext = nullptr;
-    static ScriptFieldMap s_EmptyFieldMap;
+    static std::unordered_map<u64, ScriptFieldMap> s_EntityFieldMaps;
 
     void ScriptEngine::Init()
     {
         OLO_CORE_INFO("[ScriptEngine] C# scripting disabled (Mono not available on this platform)");
     }
-    void ScriptEngine::Shutdown() {}
+    void ScriptEngine::Shutdown()
+    {
+        s_EntityFieldMaps.clear();
+    }
     bool ScriptEngine::LoadAssembly(const std::filesystem::path&)
     {
         return false;
@@ -660,6 +663,7 @@ namespace OloEngine
     void ScriptEngine::OnRuntimeStop()
     {
         s_SceneContext = nullptr;
+        s_EntityFieldMaps.clear();
     }
     bool ScriptEngine::EntityClassExists(const std::string&)
     {
@@ -683,9 +687,9 @@ namespace OloEngine
     {
         return {};
     }
-    ScriptFieldMap& ScriptEngine::GetScriptFieldMap(Entity)
+    ScriptFieldMap& ScriptEngine::GetScriptFieldMap(Entity entity)
     {
-        return s_EmptyFieldMap;
+        return s_EntityFieldMaps[static_cast<u64>(entity.GetUUID())];
     }
     MonoImage* ScriptEngine::GetCoreAssemblyImage()
     {
