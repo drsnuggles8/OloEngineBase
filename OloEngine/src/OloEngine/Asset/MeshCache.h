@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Ref.h"
 
 #include <filesystem>
+#include <string>
 #include <vector>
 
 namespace OloEngine

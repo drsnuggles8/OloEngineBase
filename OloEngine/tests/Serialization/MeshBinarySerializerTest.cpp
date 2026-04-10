@@ -11,6 +11,7 @@
 #include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
 
 #include <filesystem>
+#include <fstream>
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace)
 

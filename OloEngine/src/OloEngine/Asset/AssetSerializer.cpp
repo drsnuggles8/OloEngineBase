@@ -2133,6 +2133,21 @@ namespace OloEngine
                 stream.WriteRaw<u32>(sub.m_MaterialIndex);
                 stream.WriteRaw<u32>(sub.m_IndexCount);
                 stream.WriteRaw<u32>(sub.m_VertexCount);
+                {
+                    constexpr u32 MAX_SUBMESH_NAME_LEN = 1'024;
+                    if (sub.m_NodeName.size() > MAX_SUBMESH_NAME_LEN)
+                    {
+                        OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Submesh {} NodeName length ({}) exceeds limit ({})",
+                                       i, sub.m_NodeName.size(), MAX_SUBMESH_NAME_LEN);
+                        return false;
+                    }
+                    if (sub.m_MeshName.size() > MAX_SUBMESH_NAME_LEN)
+                    {
+                        OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Submesh {} MeshName length ({}) exceeds limit ({})",
+                                       i, sub.m_MeshName.size(), MAX_SUBMESH_NAME_LEN);
+                        return false;
+                    }
+                }
                 stream.WriteString(sub.m_NodeName);
                 stream.WriteString(sub.m_MeshName);
                 stream.WriteRaw<bool>(sub.m_IsRigged);
@@ -2478,6 +2493,21 @@ namespace OloEngine
                 stream.ReadRaw<u32>(sub.m_VertexCount);
                 stream.ReadString(sub.m_NodeName);
                 stream.ReadString(sub.m_MeshName);
+                {
+                    constexpr u32 MAX_SUBMESH_NAME_LEN = 1'024;
+                    if (sub.m_NodeName.size() > MAX_SUBMESH_NAME_LEN)
+                    {
+                        OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Submesh {} NodeName length ({}) exceeds limit ({})",
+                                       i, sub.m_NodeName.size(), MAX_SUBMESH_NAME_LEN);
+                        return false;
+                    }
+                    if (sub.m_MeshName.size() > MAX_SUBMESH_NAME_LEN)
+                    {
+                        OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Submesh {} MeshName length ({}) exceeds limit ({})",
+                                       i, sub.m_MeshName.size(), MAX_SUBMESH_NAME_LEN);
+                        return false;
+                    }
+                }
                 stream.ReadRaw<bool>(sub.m_IsRigged);
 
                 // Validate submesh transform and bounding box floats for NaN/Inf

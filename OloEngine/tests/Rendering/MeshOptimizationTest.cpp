@@ -222,8 +222,9 @@ TEST(MeshOptimization, OptimizeMeshRemapsBoneInfluences)
 {
     auto mesh = MakeQuadMesh();
 
-    // Add bone influences
+    // Add bone influences — resize first so assignments are in-bounds
     auto& bones = mesh->GetBoneInfluences();
+    bones.SetNum(mesh->GetVertices().Num());
     for (i32 i = 0; i < mesh->GetVertices().Num(); ++i)
     {
         BoneInfluence bi;

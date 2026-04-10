@@ -462,16 +462,16 @@ namespace OloEngine
 
     u32 OpenGLTextureCubemap::GetMipLevelCount() const
     {
-        if (!m_CubemapSpecification.GenerateMips)
-        {
-            return 1;
-        }
-
         // Use explicit mip count if provided (e.g., prefilter maps with
         // precomputed roughness-convolved levels that differ from the full chain).
         if (m_CubemapSpecification.MipLevels > 0)
         {
             return m_CubemapSpecification.MipLevels;
+        }
+
+        if (!m_CubemapSpecification.GenerateMips)
+        {
+            return 1;
         }
 
         // Calculate number of mip levels based on dimensions

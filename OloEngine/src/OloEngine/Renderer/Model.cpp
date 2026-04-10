@@ -1,9 +1,9 @@
 // TODO(OloEngine): When implementing the asset pipeline for animated models, ensure that
 // AnimatedMeshComponent, AnimationStateComponent, and SkeletonComponent are assigned to entities
 // upon import. This is required for ECS-driven animated mesh support.
-#include <filesystem>
-
 #include "OloEnginePCH.h"
+
+#include <filesystem>
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/MeshSource.h"
@@ -144,6 +144,20 @@ namespace OloEngine
                             if (matIdx < scene->mNumMaterials)
                             {
                                 m_Materials[i] = ProcessMaterial(scene->mMaterials[matIdx]);
+                            }
+                        }
+                        // Fill any unfilled slots with a default material so accesses never see null
+                        if (numSceneMeshes < static_cast<u32>(m_Meshes.size()))
+                        {
+                            OLO_CORE_WARN("Model::LoadModel: Scene has {} meshes but cache has {} — "
+                                          "assigning default material to trailing entries",
+                                          numSceneMeshes, m_Meshes.size());
+                            for (auto i = numSceneMeshes; i < static_cast<u32>(m_Meshes.size()); ++i)
+                            {
+                                if (!m_Materials[i])
+                                {
+                                    m_Materials[i] = Ref<Material>::Create();
+                                }
                             }
                         }
                     }

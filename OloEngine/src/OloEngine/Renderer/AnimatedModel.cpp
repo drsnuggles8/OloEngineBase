@@ -1503,6 +1503,32 @@ namespace OloEngine
             mat->GetTexture(type, i, &str);
 
             std::string filename = str.C_Str();
+
+            // Validate texture path before any load attempt — reject absolute
+            // paths and parent-traversal ("..") to prevent directory escape.
+            {
+                std::filesystem::path filenamePath(filename);
+                if (filenamePath.is_absolute())
+                {
+                    OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: Rejecting absolute texture path '{}'", filename);
+                    continue;
+                }
+                bool safe = true;
+                for (const auto& comp : filenamePath)
+                {
+                    if (comp == "..")
+                    {
+                        safe = false;
+                        break;
+                    }
+                }
+                if (!safe)
+                {
+                    OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: Rejecting texture path with traversal '{}'", filename);
+                    continue;
+                }
+            }
+
             std::filesystem::path path = std::filesystem::path(m_Directory) / filename;
 
             // Check if texture was loaded before

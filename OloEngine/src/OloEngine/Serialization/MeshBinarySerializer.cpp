@@ -461,6 +461,14 @@ namespace OloEngine
 
             const auto& boneInfluences = meshSource.GetBoneInfluences();
             auto influenceCount = static_cast<u32>(boneInfluences.Num());
+            auto const vertCount = static_cast<u32>(vertices.Num());
+
+            if (influenceCount != vertCount)
+            {
+                OLO_CORE_ERROR("MeshBinarySerializer::Write: BoneInfluence count ({}) != vertex count ({}) for '{}'",
+                               influenceCount, vertCount, path.string());
+                return false;
+            }
 
             OMeshFormat::BoneInfluenceHeader biHeader;
             biHeader.InfluenceCount = influenceCount;
