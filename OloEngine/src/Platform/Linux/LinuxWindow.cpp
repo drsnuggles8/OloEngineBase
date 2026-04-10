@@ -71,6 +71,7 @@ namespace OloEngine
                 else
                 {
                     s_HighDPIScaleFactor = 1.0f;
+                    GLFWAPI::glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_FALSE);
                 }
             }
 
@@ -91,7 +92,14 @@ namespace OloEngine
         }
 
         m_Context = GraphicsContext::Create(m_Window);
-        OLO_CORE_ASSERT(m_Context, "Failed to create graphics context!");
+        if (!m_Context)
+        {
+            OLO_CORE_CRITICAL("Failed to create graphics context!");
+            GLFWAPI::glfwDestroyWindow(m_Window);
+            m_Window = nullptr;
+            --s_GLFWWindowCount;
+            return;
+        }
         m_Context->Init();
 
         GLFWAPI::glfwSetWindowUserPointer(m_Window, &m_Data);
@@ -104,7 +112,7 @@ namespace OloEngine
             data.Width = static_cast<unsigned int>(std::max(0, width));
             data.Height = static_cast<unsigned int>(std::max(0, height));
 
-            WindowResizeEvent event(width, height);
+            WindowResizeEvent event(static_cast<int>(data.Width), static_cast<int>(data.Height));
             data.EventCallback(event); });
 
         GLFWAPI::glfwSetWindowCloseCallback(m_Window, [](GLFWwindow* const window)

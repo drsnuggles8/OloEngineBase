@@ -664,7 +664,6 @@ namespace OloEngine
     void ScriptEngine::OnRuntimeStop()
     {
         s_SceneContext = nullptr;
-        s_EntityFieldMaps.clear();
     }
     bool ScriptEngine::EntityClassExists(const std::string&)
     {
@@ -694,6 +693,8 @@ namespace OloEngine
     }
     ScriptFieldMap& ScriptEngine::GetScriptFieldMap(Entity entity)
     {
+        OLO_CORE_ASSERT(entity, "ScriptEngine::GetScriptFieldMap called with invalid entity");
+
         return s_EntityFieldMaps[static_cast<u64>(entity.GetUUID())];
     }
     MonoImage* ScriptEngine::GetCoreAssemblyImage()

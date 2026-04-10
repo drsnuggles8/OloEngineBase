@@ -240,7 +240,6 @@ else()
 	find_package(Threads REQUIRED)
 	target_link_libraries(OloEngine
 		Threads::Threads
-		dl
 		${CMAKE_DL_LIBS}
 	)
 endif()
