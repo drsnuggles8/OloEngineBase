@@ -380,6 +380,8 @@ namespace OloEngine
                                                         Expose_TFormatSpecifier(unsigned long, "%lu")
 #else
                                                     static_assert(sizeof(long) == 8, "LP64 assumption: long must be 8 bytes");
+    static_assert(std::is_same_v<long, i64>, "LP64: long must be the same type as int64_t");
+    static_assert(std::is_same_v<unsigned long, u64>, "LP64: unsigned long must be the same type as uint64_t");
 #endif
 
         // ========================================================================

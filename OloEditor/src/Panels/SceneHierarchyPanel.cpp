@@ -4212,6 +4212,172 @@ namespace OloEngine
                 ImGui::DragFloat("Fresnel Power", &component.m_FresnelPower, 0.1f, 0.1f, 20.0f);
                 ImGui::DragFloat("Specular Intensity", &component.m_SpecularIntensity, 0.01f, 0.0f, 10.0f);
 
+                ImGui::SeparatorText("Normal Maps");
+                ImGui::DragFloat("Normal Map Tiling", &component.m_NormalMapTiling, 0.01f, 0.0f, 50.0f);
+                if (ImGui::DragFloat2("Scroll Dir 0", glm::value_ptr(component.m_NormalMapScrollDir0), 0.01f, -1.0f, 1.0f))
+                {
+                    if (auto const len = glm::length(component.m_NormalMapScrollDir0); len > 1e-4f)
+                        component.m_NormalMapScrollDir0 /= len;
+                    else
+                        component.m_NormalMapScrollDir0 = { 1.0f, 0.0f };
+                }
+                ImGui::DragFloat("Scroll Speed 0", &component.m_NormalMapScrollSpeed0, 0.001f, 0.0f, 1.0f);
+                if (ImGui::DragFloat2("Scroll Dir 1", glm::value_ptr(component.m_NormalMapScrollDir1), 0.01f, -1.0f, 1.0f))
+                {
+                    if (auto const len = glm::length(component.m_NormalMapScrollDir1); len > 1e-4f)
+                        component.m_NormalMapScrollDir1 /= len;
+                    else
+                        component.m_NormalMapScrollDir1 = { 0.0f, 1.0f };
+                }
+                ImGui::DragFloat("Scroll Speed 1", &component.m_NormalMapScrollSpeed1, 0.001f, 0.0f, 1.0f);
+                ImGui::DragFloat("Noise Intensity", &component.m_NoiseIntensity, 0.01f, 0.0f, 1.0f);
+
+                // Normal Map 0 drag-drop
+                {
+                    ImGui::Text("Normal Map 0: %s", component.m_NormalMap0 != 0 ? "Set" : "None");
+                    ImGui::SameLine();
+                    ImGui::Button("Drop##NormalMap0", ImVec2(60.0f, 0.0f));
+                    if (ImGui::BeginDragDropTarget())
+                    {
+                        if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                        {
+                            std::filesystem::path texPath = PathFromUtf8Payload(*payload);
+                            if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                            {
+                                if (auto const imported = assetManager->ImportAsset(texPath);
+                                    imported != 0 && AssetManager::GetAssetType(imported) == AssetType::Texture2D)
+                                    component.m_NormalMap0 = imported;
+                            }
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    if (component.m_NormalMap0 != 0)
+                    {
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("X##ClearNM0"))
+                            component.m_NormalMap0 = 0;
+                    }
+                }
+
+                // Normal Map 1 drag-drop
+                {
+                    ImGui::Text("Normal Map 1: %s", component.m_NormalMap1 != 0 ? "Set" : "None");
+                    ImGui::SameLine();
+                    ImGui::Button("Drop##NormalMap1", ImVec2(60.0f, 0.0f));
+                    if (ImGui::BeginDragDropTarget())
+                    {
+                        if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                        {
+                            std::filesystem::path texPath = PathFromUtf8Payload(*payload);
+                            if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                            {
+                                if (auto const imported = assetManager->ImportAsset(texPath);
+                                    imported != 0 && AssetManager::GetAssetType(imported) == AssetType::Texture2D)
+                                    component.m_NormalMap1 = imported;
+                            }
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    if (component.m_NormalMap1 != 0)
+                    {
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("X##ClearNM1"))
+                            component.m_NormalMap1 = 0;
+                    }
+                }
+
+                // Noise Texture drag-drop
+                {
+                    ImGui::Text("Noise Texture: %s", component.m_NoiseTexture != 0 ? "Set" : "None");
+                    ImGui::SameLine();
+                    ImGui::Button("Drop##NoiseTex", ImVec2(60.0f, 0.0f));
+                    if (ImGui::BeginDragDropTarget())
+                    {
+                        if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                        {
+                            std::filesystem::path texPath = PathFromUtf8Payload(*payload);
+                            if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                            {
+                                if (auto const imported = assetManager->ImportAsset(texPath);
+                                    imported != 0 && AssetManager::GetAssetType(imported) == AssetType::Texture2D)
+                                    component.m_NoiseTexture = imported;
+                            }
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    if (component.m_NoiseTexture != 0)
+                    {
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("X##ClearNoise"))
+                            component.m_NoiseTexture = 0;
+                    }
+                }
+
+                ImGui::SeparatorText("Depth & Refraction");
+                ImGui::Checkbox("Refraction Enabled", &component.m_RefractionEnabled);
+                ImGui::DragFloat("Depth Softening", &component.m_DepthSofteningDistance, 0.1f, 0.0f, 50.0f);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Distance over which water edges fade (shoreline softening)");
+                ImGui::DragFloat("Refraction Distortion", &component.m_RefractionDistortion, 0.001f, 0.0f, 0.5f, "%.3f");
+                ImGui::DragFloat("Refraction Height Factor", &component.m_RefractionHeightFactor, 0.01f, 0.0f, 2.0f);
+                ImGui::ColorEdit3("Refraction Tint", glm::value_ptr(component.m_RefractionColor));
+
+                ImGui::SeparatorText("Foam");
+                // Foam texture drag-drop
+                {
+                    ImGui::Text("Foam Texture: %s", component.m_FoamTexture != 0 ? "Set" : "None");
+                    ImGui::SameLine();
+                    ImGui::Button("Drop##FoamTex", ImVec2(60.0f, 0.0f));
+                    if (ImGui::BeginDragDropTarget())
+                    {
+                        if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                        {
+                            std::filesystem::path texPath = PathFromUtf8Payload(*payload);
+                            if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                            {
+                                if (auto const imported = assetManager->ImportAsset(texPath);
+                                    imported != 0 && AssetManager::GetAssetType(imported) == AssetType::Texture2D)
+                                    component.m_FoamTexture = imported;
+                            }
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    if (component.m_FoamTexture != 0)
+                    {
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("X##ClearFoam"))
+                            component.m_FoamTexture = 0;
+                    }
+                }
+                ImGui::DragFloat("Foam Height Start", &component.m_FoamHeightStart, 0.01f, 0.0f, 2.0f);
+                ImGui::DragFloat("Foam Fade Distance", &component.m_FoamFadeDistance, 0.01f, 0.01f, 5.0f);
+                ImGui::DragFloat("Foam Tiling", &component.m_FoamTiling, 0.1f, 0.0f, 50.0f);
+                ImGui::DragFloat("Foam Brightness", &component.m_FoamBrightness, 0.01f, 0.0f, 5.0f);
+                ImGui::DragFloat("Foam Angle Exponent", &component.m_FoamAngleExponent, 0.1f, 0.1f, 10.0f);
+                ImGui::DragFloat("Shoreline Foam Power", &component.m_ShorelineFoamPower, 0.1f, 0.1f, 10.0f);
+
+                ImGui::SeparatorText("Subsurface Scattering");
+                ImGui::ColorEdit3("SSS Color", glm::value_ptr(component.m_SSSColor));
+                ImGui::DragFloat("SSS Intensity", &component.m_SSSIntensity, 0.01f, 0.0f, 5.0f);
+
+                ImGui::SeparatorText("Screen Space Reflections");
+                ImGui::Checkbox("SSR Enabled", &component.m_SSREnabled);
+                ImGui::DragFloat("SSR Max Steps", &component.m_SSRMaxSteps, 1.0f, 0.0f, 256.0f, "%.0f");
+                ImGui::DragFloat("SSR Step Size", &component.m_SSRStepSize, 0.01f, 0.01f, 1.0f);
+                ImGui::DragFloat("SSR Max Distance", &component.m_SSRMaxDistance, 1.0f, 1.0f, 200.0f);
+                ImGui::DragFloat("SSR Thickness", &component.m_SSRThickness, 0.05f, 0.01f, 5.0f);
+
+                ImGui::SeparatorText("Tessellation");
+                ImGui::Checkbox("Tessellation Enabled", &component.m_TessellationEnabled);
+                if (component.m_TessellationEnabled)
+                {
+                    ImGui::DragFloat("Tessellation Factor", &component.m_TessellationFactor, 0.5f, 1.0f, 64.0f, "%.1f");
+                    if (ImGui::DragFloat("Tess Min Distance", &component.m_TessMinDistance, 1.0f, 1.0f, 500.0f))
+                        component.m_TessMaxDistance = std::max(component.m_TessMaxDistance, component.m_TessMinDistance + 1.0f);
+                    if (ImGui::DragFloat("Tess Max Distance", &component.m_TessMaxDistance, 1.0f, 10.0f, 1000.0f))
+                        component.m_TessMaxDistance = std::max(component.m_TessMaxDistance, component.m_TessMinDistance + 1.0f);
+                }
+
                 ImGui::Separator();
                 if (ImGui::Button("Rebuild Mesh"))
                 {

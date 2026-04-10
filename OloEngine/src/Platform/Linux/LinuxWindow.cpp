@@ -7,6 +7,9 @@
 #include "Platform/OpenGL/OpenGLContext.h"
 #include "Platform/Linux/LinuxWindow.h"
 
+#include <algorithm>
+#include <stdexcept>
+
 namespace OloEngine
 {
 
@@ -47,13 +50,16 @@ namespace OloEngine
         {
             OLO_PROFILE_SCOPE("glfwInit");
 
+            GLFWAPI::glfwSetErrorCallback(GLFWErrorCallback);
             const int success = GLFWAPI::glfwInit();
             OLO_CORE_ASSERT(success, "Could not initialize GLFW!");
-            GLFWAPI::glfwSetErrorCallback(GLFWErrorCallback);
         }
 
         {
             OLO_PROFILE_SCOPE("glfwCreateWindow");
+
+            s_HighDPIScaleFactor = 1.0f;
+            GLFWAPI::glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_FALSE);
 
             if (GLFWmonitor* monitor = GLFWAPI::glfwGetPrimaryMonitor())
             {
@@ -63,7 +69,7 @@ namespace OloEngine
 
                 if ((xscale > 1.0f) || (yscale > 1.0f))
                 {
-                    s_HighDPIScaleFactor = yscale;
+                    s_HighDPIScaleFactor = std::max(xscale, yscale);
                     GLFWAPI::glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
                 }
             }
@@ -71,21 +77,26 @@ namespace OloEngine
 #if defined(OLO_DEBUG)
             if (Renderer::GetAPI() == RendererAPI::API::OpenGL)
             {
-                glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
+                GLFWAPI::glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
             }
 #endif
 
             m_Window = GLFWAPI::glfwCreateWindow(static_cast<int>(props.Width), static_cast<int>(props.Height), m_Data.Title.c_str(), nullptr, nullptr);
             if (!m_Window)
             {
-                OLO_CORE_CRITICAL("glfwCreateWindow failed!");
-                return;
+                throw std::runtime_error("glfwCreateWindow failed!");
             }
             ++s_GLFWWindowCount;
         }
 
         m_Context = GraphicsContext::Create(m_Window);
-        OLO_CORE_ASSERT(m_Context, "Failed to create graphics context!");
+        if (!m_Context)
+        {
+            GLFWAPI::glfwDestroyWindow(m_Window);
+            m_Window = nullptr;
+            --s_GLFWWindowCount;
+            throw std::runtime_error("Failed to create graphics context!");
+        }
         m_Context->Init();
 
         GLFWAPI::glfwSetWindowUserPointer(m_Window, &m_Data);
@@ -95,10 +106,10 @@ namespace OloEngine
         GLFWAPI::glfwSetWindowSizeCallback(m_Window, [](GLFWwindow* const window, const int width, const int height)
                                            {
             WindowData& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
-            data.Width = width;
-            data.Height = height;
+            data.Width = static_cast<unsigned int>(std::max(0, width));
+            data.Height = static_cast<unsigned int>(std::max(0, height));
 
-            WindowResizeEvent event(width, height);
+            WindowResizeEvent event(static_cast<int>(data.Width), static_cast<int>(data.Height));
             data.EventCallback(event); });
 
         GLFWAPI::glfwSetWindowCloseCallback(m_Window, [](GLFWwindow* const window)
@@ -179,8 +190,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        GLFWAPI::glfwDestroyWindow(m_Window);
-        --s_GLFWWindowCount;
+        if (m_Window)
+        {
+            GLFWAPI::glfwDestroyWindow(m_Window);
+            m_Window = nullptr;
+            --s_GLFWWindowCount;
+        }
 
         if (0 == s_GLFWWindowCount)
         {
@@ -234,17 +249,17 @@ namespace OloEngine
 
     u32 LinuxWindow::GetFramebufferWidth() const
     {
-        int width;
-        int height;
-        glfwGetFramebufferSize(m_Window, &width, &height);
+        int width{};
+        int height{};
+        GLFWAPI::glfwGetFramebufferSize(m_Window, &width, &height);
         return static_cast<u32>(width);
     }
 
     u32 LinuxWindow::GetFramebufferHeight() const
     {
-        int width;
-        int height;
-        glfwGetFramebufferSize(m_Window, &width, &height);
+        int width{};
+        int height{};
+        GLFWAPI::glfwGetFramebufferSize(m_Window, &width, &height);
         return static_cast<u32>(height);
     }
 

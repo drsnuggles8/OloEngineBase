@@ -645,6 +645,7 @@ namespace OloEngine
     }
     void ScriptEngine::Shutdown()
     {
+        s_SceneContext = nullptr;
         s_EntityFieldMaps.clear();
     }
     bool ScriptEngine::LoadAssembly(const std::filesystem::path&)
@@ -663,7 +664,6 @@ namespace OloEngine
     void ScriptEngine::OnRuntimeStop()
     {
         s_SceneContext = nullptr;
-        s_EntityFieldMaps.clear();
     }
     bool ScriptEngine::EntityClassExists(const std::string&)
     {
@@ -674,6 +674,10 @@ namespace OloEngine
     Scene* ScriptEngine::GetSceneContext()
     {
         return s_SceneContext;
+    }
+    void ScriptEngine::SetSceneContextForTesting(Scene* scene)
+    {
+        s_SceneContext = scene;
     }
     Ref<ScriptInstance> ScriptEngine::GetEntityScriptInstance(UUID)
     {
@@ -689,6 +693,8 @@ namespace OloEngine
     }
     ScriptFieldMap& ScriptEngine::GetScriptFieldMap(Entity entity)
     {
+        OLO_CORE_ASSERT(entity, "ScriptEngine::GetScriptFieldMap called with invalid entity");
+
         return s_EntityFieldMaps[static_cast<u64>(entity.GetUUID())];
     }
     MonoImage* ScriptEngine::GetCoreAssemblyImage()

@@ -18,7 +18,12 @@ namespace OloEngine
     {
       public:
         WaterRenderPass();
-        ~WaterRenderPass() override = default;
+        ~WaterRenderPass() override;
+
+        WaterRenderPass(const WaterRenderPass&) = delete;
+        WaterRenderPass& operator=(const WaterRenderPass&) = delete;
+        WaterRenderPass(WaterRenderPass&&) = delete;
+        WaterRenderPass& operator=(WaterRenderPass&&) = delete;
 
         void Init(const FramebufferSpecification& spec) override;
         void Execute() override;
@@ -30,6 +35,11 @@ namespace OloEngine
         void SetSceneFramebuffer(const Ref<Framebuffer>& fb);
 
       private:
+        void EnsureRefractionTexture(u32 width, u32 height);
+
         Ref<Framebuffer> m_SceneFramebuffer;
+        u32 m_RefractionTextureID = 0;
+        u32 m_RefractionWidth = 0;
+        u32 m_RefractionHeight = 0;
     };
 } // namespace OloEngine

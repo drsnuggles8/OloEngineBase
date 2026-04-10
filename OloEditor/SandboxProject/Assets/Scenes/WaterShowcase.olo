@@ -1,0 +1,175 @@
+Scene: WaterShowcase.olo
+PostProcessSettings:
+  TonemapOperator: 1
+  Exposure: 1.2
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1.5
+  BloomIntensity: 0.2
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+FogSettings:
+  Enabled: false
+  Mode: 0
+  Color: [0.6, 0.65, 0.75]
+  Density: 0.005
+  Start: 50
+  End: 500
+  HeightFalloff: 0
+  HeightOffset: 0
+  MaxOpacity: 0.8
+  EnableScattering: false
+  RayleighStrength: 0.5
+  MieStrength: 0.003
+Entities:
+  - Entity: 300000000000001
+    TagComponent:
+      Tag: Main Camera
+    TransformComponent:
+      Translation: [0, 8, 20]
+      Rotation: [-0.25, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.1
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 300000000000002
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 30, 0]
+      Rotation: [-0.7853982, 0.3926991, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.4, -0.8, -0.3]
+      Color: [1, 0.95, 0.88]
+      Intensity: 3.5
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 500
+      CascadeSplitLambda: 0.5
+      CascadeDebugVisualization: false
+  - Entity: 300000000000003
+    TagComponent:
+      Tag: Ocean
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    WaterComponent:
+      Enabled: true
+      WorldSizeX: 1000
+      WorldSizeZ: 1000
+      GridResolutionX: 512
+      GridResolutionZ: 512
+      WaveAmplitude: 0.5
+      WaveFrequency: 1.0
+      WaveSpeed: 0.8
+      WaveDir0: [1.0, 0.3]
+      WaveDir1: [-0.4, 0.9]
+      WaveSteepness0: 0.3
+      Wavelength0: 30
+      WaveSteepness1: 0.25
+      Wavelength1: 50
+      WaterColor: [0.08, 0.35, 0.45]
+      DeepColor: [0.03, 0.12, 0.25]
+      Transparency: 0.95
+      Reflectivity: 0.4
+      FresnelPower: 3.5
+      SpecularIntensity: 1.2
+      NormalMapScrollDir0: [1, 0.3]
+      NormalMapScrollDir1: [-0.3, 1]
+      NormalMapScrollSpeed0: 0.02
+      NormalMapScrollSpeed1: 0.015
+      NormalMapTiling: 1.0
+      NoiseIntensity: 0.25
+      NormalMap0: 0
+      NormalMap1: 0
+      NoiseTexture: 0
+      DepthSofteningDistance: 4.0
+      RefractionDistortion: 0.03
+      RefractionHeightFactor: 0.4
+      RefractionColor: [0, 0.03, 0.07]
+      FoamTexture: 0
+      FoamHeightStart: 0.75
+      FoamFadeDistance: 1.2
+      FoamTiling: 2.0
+      FoamBrightness: 0.8
+      FoamAngleExponent: 5.0
+      ShorelineFoamPower: 3.5
+      SSSColor: [0.03, 0.35, 0.3]
+      SSSIntensity: 0.3
+      SSRMaxSteps: 64
+      SSRStepSize: 0.1
+      SSRMaxDistance: 50
+      SSRThickness: 0.5
+      TessellationEnabled: true
+      TessellationFactor: 8
+      TessMinDistance: 10
+      TessMaxDistance: 200
+  - Entity: 300000000000004
+    TagComponent:
+      Tag: Submerged Cube
+    TransformComponent:
+      Translation: [5, -1, -5]
+      Rotation: [0, 0.5, 0]
+      Scale: [3, 3, 3]
+    MeshComponent:
+      MeshType: 0
+    MeshRendererComponent:
+      Albedo: [0.7, 0.3, 0.2]
+      Roughness: 0.6
+      Metallic: 0.1
+  - Entity: 300000000000005
+    TagComponent:
+      Tag: Island Rock
+    TransformComponent:
+      Translation: [-8, -0.5, -10]
+      Rotation: [0, 0.8, 0]
+      Scale: [5, 3, 4]
+    MeshComponent:
+      MeshType: 1
+    MeshRendererComponent:
+      Albedo: [0.4, 0.35, 0.3]
+      Roughness: 0.9
+      Metallic: 0.0
+  - Entity: 300000000000006
+    TagComponent:
+      Tag: Floating Sphere
+    TransformComponent:
+      Translation: [-3, 0.3, -3]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 1.5, 1.5]
+    MeshComponent:
+      MeshType: 1
+    MeshRendererComponent:
+      Albedo: [0.9, 0.85, 0.1]
+      Roughness: 0.3
+      Metallic: 0.8

@@ -2,6 +2,9 @@
 #include "Scene.h"
 #include "Entity.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include "Components.h"
 #include "Prefab.h"
 #include "OloEngine/Asset/AssetManager.h"
@@ -3282,10 +3285,16 @@ namespace OloEngine
                     // Lazy mesh initialization / rebuild
                     if (water.m_NeedsRebuild || !water.m_WaterMesh)
                     {
-                        const u32 resX = std::clamp(water.m_GridResolutionX, 2u, 1024u);
-                        const u32 resZ = std::clamp(water.m_GridResolutionZ, 2u, 1024u);
+                        auto const sizeX = std::isfinite(water.m_WorldSizeX)
+                                               ? std::clamp(water.m_WorldSizeX, 0.1f, 10000.0f)
+                                               : 100.0f;
+                        auto const sizeZ = std::isfinite(water.m_WorldSizeZ)
+                                               ? std::clamp(water.m_WorldSizeZ, 0.1f, 10000.0f)
+                                               : 100.0f;
+                        const u32 resX = std::clamp(water.m_GridResolutionX, 1u, 1024u);
+                        const u32 resZ = std::clamp(water.m_GridResolutionZ, 1u, 1024u);
                         water.m_WaterMesh = MeshPrimitives::CreateWaterGrid(
-                            water.m_WorldSizeX, water.m_WorldSizeZ,
+                            sizeX, sizeZ,
                             resX, resZ);
                         water.m_NeedsRebuild = false;
                     }
@@ -3305,25 +3314,214 @@ namespace OloEngine
                     i32 entityID = static_cast<i32>(static_cast<u32>(entity));
                     glm::mat4 modelMat = transform.GetTransform();
 
-                    // Pack component fields into UBO vec4 layout
-                    glm::vec4 waveParams = glm::vec4(
+                    // Pack component fields into WaterDrawParams
+                    Renderer3D::WaterDrawParams waterParams;
+                    waterParams.waveParams = glm::vec4(
                         0.0f, // Time — filled by DrawWaterSurface
                         water.m_WaveSpeed,
                         water.m_WaveAmplitude,
                         water.m_WaveFrequency);
-                    glm::vec4 waveDir0 = water.PackWaveDir0();
-                    glm::vec4 waveDir1 = water.PackWaveDir1();
-                    glm::vec4 waterColor = glm::vec4(
+                    waterParams.waveDir0 = water.PackWaveDir0();
+                    waterParams.waveDir1 = water.PackWaveDir1();
+                    waterParams.waterColor = glm::vec4(
                         water.m_WaterColor, water.m_Transparency);
-                    glm::vec4 waterDeepColor = glm::vec4(
+                    waterParams.waterDeepColor = glm::vec4(
                         water.m_DeepColor, water.m_Reflectivity);
-                    glm::vec4 visualParams = glm::vec4(
-                        water.m_FresnelPower, water.m_SpecularIntensity, 0.0f, 0.0f);
+                    waterParams.visualParams = glm::vec4(
+                        water.m_FresnelPower, water.m_SpecularIntensity,
+                        water.m_NormalMapTiling, water.m_NoiseIntensity);
 
-                    // Compute bounding box for frustum culling
-                    f32 halfX = water.m_WorldSizeX * 0.5f;
-                    f32 halfZ = water.m_WorldSizeZ * 0.5f;
-                    f32 waveH = water.m_WaveAmplitude * 2.0f; // Conservative height estimate
+                    // Pack normal map scroll offsets (dir * time * speed)
+                    // Normalize scroll directions so magnitude doesn't affect speed
+                    auto safeNorm2 = [](glm::vec2 const& v, glm::vec2 const& fallback) -> glm::vec2
+                    {
+                        if (!std::isfinite(v.x) || !std::isfinite(v.y))
+                            return fallback;
+                        if (auto const len2 = glm::dot(v, v); len2 > 1e-6f)
+                            return v / std::sqrt(len2);
+                        return fallback;
+                    };
+                    glm::vec2 dir0 = safeNorm2(water.m_NormalMapScrollDir0, { 1.0f, 0.0f });
+                    glm::vec2 dir1 = safeNorm2(water.m_NormalMapScrollDir1, { 0.0f, 1.0f });
+                    // Clamp scroll speeds before computing offsets — raw deserialized values could be huge
+                    f32 const speed0 = std::isfinite(water.m_NormalMapScrollSpeed0)
+                                           ? std::clamp(water.m_NormalMapScrollSpeed0, 0.0f, 1.0f)
+                                           : 0.02f;
+                    f32 const speed1 = std::isfinite(water.m_NormalMapScrollSpeed1)
+                                           ? std::clamp(water.m_NormalMapScrollSpeed1, 0.0f, 1.0f)
+                                           : 0.015f;
+                    glm::vec2 scroll0 = dir0 * animationTime * speed0;
+                    glm::vec2 scroll1 = dir1 * animationTime * speed1;
+                    waterParams.normalMapScroll = glm::vec4(scroll0.x, scroll0.y, scroll1.x, scroll1.y);
+                    waterParams.normalMapSpeed = glm::vec4(speed0, speed1, 0.0f, 0.0f);
+                    // Validate light direction: fallback to down if non-finite or zero-length
+                    glm::vec3 safeLightDir = directionalLightDir;
+                    if (!std::isfinite(safeLightDir.x) || !std::isfinite(safeLightDir.y) || !std::isfinite(safeLightDir.z) || glm::dot(safeLightDir, safeLightDir) < 1e-6f)
+                    {
+                        safeLightDir = glm::vec3(0.0f, -1.0f, 0.0f);
+                    }
+                    waterParams.lightDirection = glm::vec4(glm::normalize(safeLightDir), 0.0f);
+
+                    // Screen params for depth/refraction — use framebuffer pixel dimensions (DPI-aware)
+                    f32 vpW = 0.0f;
+                    f32 vpH = 0.0f;
+                    if (auto scenePass = Renderer3D::GetScenePass(); scenePass && scenePass->GetTarget())
+                    {
+                        auto const& spec = scenePass->GetTarget()->GetSpecification();
+                        vpW = static_cast<f32>(spec.Width);
+                        vpH = static_cast<f32>(spec.Height);
+                    }
+                    waterParams.screenParams = glm::vec4(vpW, vpH,
+                                                         vpW > 0.0f ? 1.0f / vpW : 0.0f,
+                                                         vpH > 0.0f ? 1.0f / vpH : 0.0f);
+
+                    // Depth, refraction, foam, SSS params
+                    waterParams.depthRefractionParams = glm::vec4(
+                        water.m_DepthSofteningDistance,
+                        water.m_RefractionDistortion,
+                        water.m_RefractionHeightFactor, 0.0f);
+                    waterParams.refractionColor = glm::vec4(water.m_RefractionColor, 0.0f);
+                    waterParams.foamParams = glm::vec4(
+                        water.m_FoamHeightStart, water.m_FoamFadeDistance,
+                        water.m_FoamTiling, water.m_FoamBrightness);
+                    waterParams.foamParams2 = glm::vec4(
+                        water.m_FoamAngleExponent, water.m_ShorelineFoamPower,
+                        water.m_SSSIntensity, 0.0f);
+                    waterParams.sssColor = glm::vec4(water.m_SSSColor, 0.0f);
+
+                    // SSR params: x=maxSteps (0=disabled), y=stepSize, z=maxDistance, w=thickness
+                    waterParams.ssrParams = glm::vec4(
+                        water.m_SSREnabled ? water.m_SSRMaxSteps : 0.0f,
+                        water.m_SSRStepSize,
+                        water.m_SSRMaxDistance,
+                        water.m_SSRThickness);
+
+                    // Tessellation params: x=factor (0=disabled), y=minDist, z=maxDist
+                    waterParams.tessParams = glm::vec4(
+                        water.m_TessellationEnabled ? water.m_TessellationFactor : 0.0f,
+                        water.m_TessMinDistance,
+                        water.m_TessMaxDistance, 0.0f);
+
+                    // Feature toggles
+                    waterParams.refractionEnabled = water.m_RefractionEnabled;
+                    waterParams.ssrEnabled = water.m_SSREnabled;
+
+                    // Sanitize all scalar UBO fields — defence-in-depth against NaN/Inf reaching the GPU
+                    auto const safeF = [](f32 v, f32 fallback)
+                    { return std::isfinite(v) ? v : fallback; };
+                    auto const clampF = [](f32 v, f32 lo, f32 hi, f32 fallback)
+                    { return std::isfinite(v) ? std::clamp(v, lo, hi) : fallback; };
+                    auto const safeV3 = [&clampF](glm::vec4& v, glm::vec3 const& fb)
+                    { v.x = clampF(v.x, 0.0f, 1.0f, fb.x); v.y = clampF(v.y, 0.0f, 1.0f, fb.y); v.z = clampF(v.z, 0.0f, 1.0f, fb.z); };
+
+                    // Wave params (y=speed, z=amplitude, w=frequency)
+                    waterParams.waveParams.y = clampF(waterParams.waveParams.y, 0.0f, 100.0f, 1.0f);
+                    waterParams.waveParams.z = clampF(waterParams.waveParams.z, 0.0f, 100.0f, 0.5f);
+                    waterParams.waveParams.w = clampF(waterParams.waveParams.w, 0.0f, 100.0f, 1.0f);
+                    // Visual params (x=fresnel, y=specular, z=tiling, w=noise)
+                    waterParams.visualParams.x = clampF(waterParams.visualParams.x, 0.1f, 20.0f, 5.0f);
+                    waterParams.visualParams.y = clampF(waterParams.visualParams.y, 0.0f, 10.0f, 1.0f);
+                    waterParams.visualParams.z = clampF(waterParams.visualParams.z, 0.0f, 50.0f, 1.0f);
+                    waterParams.visualParams.w = clampF(waterParams.visualParams.w, 0.0f, 1.0f, 0.3f);
+                    // Normal map scroll/speed
+                    waterParams.normalMapScroll.x = safeF(waterParams.normalMapScroll.x, 0.0f);
+                    waterParams.normalMapScroll.y = safeF(waterParams.normalMapScroll.y, 0.0f);
+                    waterParams.normalMapScroll.z = safeF(waterParams.normalMapScroll.z, 0.0f);
+                    waterParams.normalMapScroll.w = safeF(waterParams.normalMapScroll.w, 0.0f);
+                    waterParams.normalMapSpeed.x = clampF(waterParams.normalMapSpeed.x, 0.0f, 1.0f, 0.02f);
+                    waterParams.normalMapSpeed.y = clampF(waterParams.normalMapSpeed.y, 0.0f, 1.0f, 0.015f);
+                    // Packed wave directions (x,y=dir validated as pair, z=steepness, w=wavelength)
+                    auto safeDir2 = [](glm::vec4& v, f32 fbX, f32 fbY)
+                    {
+                        if (!std::isfinite(v.x) || !std::isfinite(v.y) || (v.x * v.x + v.y * v.y) < 1e-6f)
+                        {
+                            v.x = fbX;
+                            v.y = fbY;
+                        }
+                    };
+                    safeDir2(waterParams.waveDir0, 1.0f, 0.0f);
+                    waterParams.waveDir0.z = clampF(waterParams.waveDir0.z, 0.0f, 1.0f, 0.5f);
+                    waterParams.waveDir0.w = clampF(waterParams.waveDir0.w, 0.1f, 500.0f, 10.0f);
+                    safeDir2(waterParams.waveDir1, 0.7f, 0.7f);
+                    waterParams.waveDir1.z = clampF(waterParams.waveDir1.z, 0.0f, 1.0f, 0.3f);
+                    waterParams.waveDir1.w = clampF(waterParams.waveDir1.w, 0.1f, 500.0f, 15.0f);
+                    // Colors (RGB + alpha channels: transparency and reflectivity)
+                    safeV3(waterParams.waterColor, { 0.1f, 0.4f, 0.5f });
+                    waterParams.waterColor.w = clampF(waterParams.waterColor.w, 0.0f, 1.0f, 0.6f);
+                    safeV3(waterParams.waterDeepColor, { 0.0f, 0.1f, 0.2f });
+                    waterParams.waterDeepColor.w = clampF(waterParams.waterDeepColor.w, 0.0f, 1.0f, 0.5f);
+                    safeV3(waterParams.refractionColor, { 0.0f, 0.05f, 0.1f });
+                    safeV3(waterParams.sssColor, { 0.0f, 0.5f, 0.4f });
+                    // Depth/refraction
+                    waterParams.depthRefractionParams.x = clampF(waterParams.depthRefractionParams.x, 0.0f, 50.0f, 2.0f);
+                    waterParams.depthRefractionParams.y = clampF(waterParams.depthRefractionParams.y, 0.0f, 0.5f, 0.05f);
+                    waterParams.depthRefractionParams.z = clampF(waterParams.depthRefractionParams.z, 0.0f, 2.0f, 0.5f);
+                    // Foam
+                    waterParams.foamParams.x = clampF(waterParams.foamParams.x, 0.0f, 2.0f, 0.3f);
+                    waterParams.foamParams.y = clampF(waterParams.foamParams.y, 0.01f, 5.0f, 0.5f);
+                    waterParams.foamParams.z = clampF(waterParams.foamParams.z, 0.0f, 50.0f, 2.0f);
+                    waterParams.foamParams.w = clampF(waterParams.foamParams.w, 0.0f, 5.0f, 1.5f);
+                    waterParams.foamParams2.x = clampF(waterParams.foamParams2.x, 0.1f, 10.0f, 2.0f);
+                    waterParams.foamParams2.y = clampF(waterParams.foamParams2.y, 0.1f, 10.0f, 3.0f);
+                    waterParams.foamParams2.z = clampF(waterParams.foamParams2.z, 0.0f, 5.0f, 0.5f);
+                    // SSR (x=maxSteps, y=stepSize, z=maxDistance, w=thickness)
+                    waterParams.ssrParams.x = clampF(waterParams.ssrParams.x, 0.0f, 256.0f, 64.0f);
+                    waterParams.ssrParams.y = clampF(waterParams.ssrParams.y, 0.01f, 1.0f, 0.1f);
+                    waterParams.ssrParams.z = clampF(waterParams.ssrParams.z, 1.0f, 200.0f, 50.0f);
+                    waterParams.ssrParams.w = clampF(waterParams.ssrParams.w, 0.01f, 5.0f, 0.5f);
+                    // Tessellation (x=factor, y=minDist, z=maxDist)
+                    waterParams.tessParams.x = clampF(waterParams.tessParams.x, 0.0f, 64.0f, 0.0f);
+                    waterParams.tessParams.y = clampF(waterParams.tessParams.y, 1.0f, 500.0f, 10.0f);
+                    waterParams.tessParams.z = clampF(waterParams.tessParams.z, 10.0f, 1000.0f, 200.0f);
+                    waterParams.tessParams.z = std::max(waterParams.tessParams.z, waterParams.tessParams.y + 1.0f);
+
+                    // Resolve texture IDs — only assign non-zero renderer IDs (skip placeholders)
+                    if (water.m_NormalMap0 != 0)
+                    {
+                        if (auto tex = AssetManager::GetAsset<Texture2D>(water.m_NormalMap0))
+                        {
+                            if (auto id = tex->GetRendererID(); id != 0)
+                                waterParams.normalMap0ID = id;
+                        }
+                    }
+                    if (water.m_NormalMap1 != 0)
+                    {
+                        if (auto tex = AssetManager::GetAsset<Texture2D>(water.m_NormalMap1))
+                        {
+                            if (auto id = tex->GetRendererID(); id != 0)
+                                waterParams.normalMap1ID = id;
+                        }
+                    }
+                    if (water.m_NoiseTexture != 0)
+                    {
+                        if (auto tex = AssetManager::GetAsset<Texture2D>(water.m_NoiseTexture))
+                        {
+                            if (auto id = tex->GetRendererID(); id != 0)
+                                waterParams.noiseTextureID = id;
+                        }
+                    }
+                    if (water.m_FoamTexture != 0)
+                    {
+                        if (auto tex = AssetManager::GetAsset<Texture2D>(water.m_FoamTexture))
+                        {
+                            if (auto id = tex->GetRendererID(); id != 0)
+                                waterParams.foamTextureID = id;
+                        }
+                    }
+
+                    // Compute bounding box for frustum culling — use sanitized values
+                    f32 const safeWorldX = std::isfinite(water.m_WorldSizeX)
+                                               ? std::clamp(water.m_WorldSizeX, 0.1f, 10000.0f)
+                                               : 100.0f;
+                    f32 const safeWorldZ = std::isfinite(water.m_WorldSizeZ)
+                                               ? std::clamp(water.m_WorldSizeZ, 0.1f, 10000.0f)
+                                               : 100.0f;
+                    f32 const safeAmplitude = std::isfinite(water.m_WaveAmplitude)
+                                                  ? std::clamp(water.m_WaveAmplitude, 0.0f, 100.0f)
+                                                  : 0.5f;
+                    f32 halfX = safeWorldX * 0.5f;
+                    f32 halfZ = safeWorldZ * 0.5f;
+                    f32 waveH = safeAmplitude * 2.0f; // Conservative height estimate
                     BoundingBox bounds;
                     bounds.Min = glm::vec3(-halfX, -waveH, -halfZ);
                     bounds.Max = glm::vec3(halfX, waveH, halfZ);
@@ -3332,8 +3530,7 @@ namespace OloEngine
                         va->GetRendererID(), submesh.m_IndexCount,
                         modelMat,
                         animationTime,
-                        waveParams, waveDir0, waveDir1,
-                        waterColor, waterDeepColor, visualParams,
+                        waterParams,
                         bounds,
                         entityID);
                     if (packet)

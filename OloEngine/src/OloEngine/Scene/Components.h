@@ -1329,6 +1329,52 @@ namespace OloEngine
         u32 m_GridResolutionZ = 128;
         bool m_Enabled = true;
 
+        // Normal map scrolling
+        glm::vec2 m_NormalMapScrollDir0 = { 1.0f, 0.0f };
+        glm::vec2 m_NormalMapScrollDir1 = { 0.0f, 1.0f };
+        f32 m_NormalMapScrollSpeed0 = 0.02f;
+        f32 m_NormalMapScrollSpeed1 = 0.015f;
+        f32 m_NormalMapTiling = 1.0f;
+        f32 m_NoiseIntensity = 0.3f;
+
+        // Normal map asset handles (serialized)
+        AssetHandle m_NormalMap0 = 0;
+        AssetHandle m_NormalMap1 = 0;
+        AssetHandle m_NoiseTexture = 0;
+
+        // Depth-based effects (Phase 2)
+        bool m_RefractionEnabled = true;
+        f32 m_DepthSofteningDistance = 2.0f;
+        f32 m_RefractionDistortion = 0.05f;
+        f32 m_RefractionHeightFactor = 0.5f;
+        glm::vec3 m_RefractionColor = { 0.0f, 0.05f, 0.1f };
+
+        // Foam (Phase 3)
+        AssetHandle m_FoamTexture = 0;
+        f32 m_FoamHeightStart = 0.3f;
+        f32 m_FoamFadeDistance = 0.5f;
+        f32 m_FoamTiling = 2.0f;
+        f32 m_FoamBrightness = 1.5f;
+        f32 m_FoamAngleExponent = 2.0f;
+        f32 m_ShorelineFoamPower = 3.0f;
+
+        // Subsurface scattering approximation
+        glm::vec3 m_SSSColor = { 0.0f, 0.5f, 0.4f };
+        f32 m_SSSIntensity = 0.5f;
+
+        // Screen Space Reflections (Phase 4)
+        bool m_SSREnabled = true;
+        f32 m_SSRMaxSteps = 64.0f;
+        f32 m_SSRStepSize = 0.1f;
+        f32 m_SSRMaxDistance = 50.0f;
+        f32 m_SSRThickness = 0.5f;
+
+        // Tessellation (Phase 5)
+        f32 m_TessellationFactor = 8.0f;
+        bool m_TessellationEnabled = false;
+        f32 m_TessMinDistance = 10.0f;
+        f32 m_TessMaxDistance = 200.0f;
+
         // Runtime (not serialized)
         Ref<Mesh> m_WaterMesh;
         bool m_NeedsRebuild = true;
@@ -1344,6 +1390,43 @@ namespace OloEngine
         }
 
         WaterComponent() = default;
+
+        // Bitwise comparison for undo/redo change detection (SonarQube rule 2a: no float ==).
+        // memcmp on contiguous float/vec blocks; regular == for non-float fields.
+        // Runtime fields (m_WaterMesh, m_NeedsRebuild) intentionally excluded.
+        auto operator==(WaterComponent const& o) const -> bool
+        {
+            // Helper: memcmp a contiguous range [&first .. &last+sizeof(last)) in *this vs o
+            auto blkEq = [this, &o](auto const& selfFirst, auto const& selfLast) -> bool
+            {
+                auto const* a = reinterpret_cast<unsigned char const*>(&selfFirst);
+                auto const len = reinterpret_cast<unsigned char const*>(&selfLast) + sizeof(selfLast) - a;
+                auto const off = a - reinterpret_cast<unsigned char const*>(this);
+                return std::memcmp(a, reinterpret_cast<unsigned char const*>(&o) + off,
+                                   static_cast<sizet>(len)) == 0;
+            };
+            // clang-format off
+            return blkEq(m_WorldSizeX, m_Wavelength1)           // f32*5 + vec2 + f32*2 + vec2 + f32*2
+                && blkEq(m_WaterColor, m_SpecularIntensity)     // vec3*2 + f32*4
+                && m_GridResolutionX == o.m_GridResolutionX
+                && m_GridResolutionZ == o.m_GridResolutionZ
+                && m_Enabled == o.m_Enabled
+                && blkEq(m_NormalMapScrollDir0, m_NoiseIntensity) // vec2*2 + f32*4
+                && m_NormalMap0 == o.m_NormalMap0
+                && m_NormalMap1 == o.m_NormalMap1
+                && m_NoiseTexture == o.m_NoiseTexture
+                && m_RefractionEnabled == o.m_RefractionEnabled
+                && blkEq(m_DepthSofteningDistance, m_RefractionColor) // f32*3 + vec3
+                && m_FoamTexture == o.m_FoamTexture
+                && blkEq(m_FoamHeightStart, m_SSSIntensity)    // f32*6 + vec3 + f32
+                && m_SSREnabled == o.m_SSREnabled
+                && blkEq(m_SSRMaxSteps, m_SSRThickness)        // f32*4
+                && blkEq(m_TessellationFactor, m_TessellationFactor) // f32
+                && m_TessellationEnabled == o.m_TessellationEnabled
+                && blkEq(m_TessMinDistance, m_TessMaxDistance); // f32*2
+            // clang-format on
+        }
+
         WaterComponent(const WaterComponent& other)
         {
             CopySerializedStateFrom(other);
@@ -1385,6 +1468,38 @@ namespace OloEngine
             m_GridResolutionX = src.m_GridResolutionX;
             m_GridResolutionZ = src.m_GridResolutionZ;
             m_Enabled = src.m_Enabled;
+            m_NormalMapScrollDir0 = src.m_NormalMapScrollDir0;
+            m_NormalMapScrollDir1 = src.m_NormalMapScrollDir1;
+            m_NormalMapScrollSpeed0 = src.m_NormalMapScrollSpeed0;
+            m_NormalMapScrollSpeed1 = src.m_NormalMapScrollSpeed1;
+            m_NormalMapTiling = src.m_NormalMapTiling;
+            m_NoiseIntensity = src.m_NoiseIntensity;
+            m_NormalMap0 = src.m_NormalMap0;
+            m_NormalMap1 = src.m_NormalMap1;
+            m_NoiseTexture = src.m_NoiseTexture;
+            m_RefractionEnabled = src.m_RefractionEnabled;
+            m_DepthSofteningDistance = src.m_DepthSofteningDistance;
+            m_RefractionDistortion = src.m_RefractionDistortion;
+            m_RefractionHeightFactor = src.m_RefractionHeightFactor;
+            m_RefractionColor = src.m_RefractionColor;
+            m_FoamTexture = src.m_FoamTexture;
+            m_FoamHeightStart = src.m_FoamHeightStart;
+            m_FoamFadeDistance = src.m_FoamFadeDistance;
+            m_FoamTiling = src.m_FoamTiling;
+            m_FoamBrightness = src.m_FoamBrightness;
+            m_FoamAngleExponent = src.m_FoamAngleExponent;
+            m_ShorelineFoamPower = src.m_ShorelineFoamPower;
+            m_SSSColor = src.m_SSSColor;
+            m_SSSIntensity = src.m_SSSIntensity;
+            m_SSREnabled = src.m_SSREnabled;
+            m_SSRMaxSteps = src.m_SSRMaxSteps;
+            m_SSRStepSize = src.m_SSRStepSize;
+            m_SSRMaxDistance = src.m_SSRMaxDistance;
+            m_SSRThickness = src.m_SSRThickness;
+            m_TessellationFactor = src.m_TessellationFactor;
+            m_TessellationEnabled = src.m_TessellationEnabled;
+            m_TessMinDistance = src.m_TessMinDistance;
+            m_TessMaxDistance = src.m_TessMaxDistance;
         }
     };
 

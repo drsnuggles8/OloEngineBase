@@ -789,12 +789,33 @@ namespace OloEngine
         glm::mat4 normalMatrix = glm::mat4(1.0f);
 
         // Water UBO data (inlined, fully POD)
-        glm::vec4 waveParams = glm::vec4(0.0f);     // Time, WaveSpeed, WaveAmplitude, WaveFrequency
-        glm::vec4 waveDir0 = glm::vec4(0.0f);       // xy = dir, z = steepness, w = wavelength
-        glm::vec4 waveDir1 = glm::vec4(0.0f);       // xy = dir, z = steepness, w = wavelength
-        glm::vec4 waterColor = glm::vec4(0.0f);     // rgb = shallow, a = transparency
-        glm::vec4 waterDeepColor = glm::vec4(0.0f); // rgb = deep,    a = reflectivity
-        glm::vec4 visualParams = glm::vec4(0.0f);   // FresnelPower, SpecularIntensity, pad, pad
+        glm::vec4 waveParams = glm::vec4(0.0f);            // Time, WaveSpeed, WaveAmplitude, WaveFrequency
+        glm::vec4 waveDir0 = glm::vec4(0.0f);              // xy = dir, z = steepness, w = wavelength
+        glm::vec4 waveDir1 = glm::vec4(0.0f);              // xy = dir, z = steepness, w = wavelength
+        glm::vec4 waterColor = glm::vec4(0.0f);            // rgb = shallow, a = transparency
+        glm::vec4 waterDeepColor = glm::vec4(0.0f);        // rgb = deep,    a = reflectivity
+        glm::vec4 visualParams = glm::vec4(0.0f);          // FresnelPower, SpecularIntensity, NormalMapTiling, NoiseIntensity
+        glm::vec4 normalMapScroll = glm::vec4(0.0f);       // xy = scroll0 offset, zw = scroll1 offset
+        glm::vec4 normalMapSpeed = glm::vec4(0.0f);        // x = speed0, y = speed1, z/w = unused
+        glm::vec4 lightDirection = glm::vec4(0.0f);        // xyz = directional light dir, w = unused
+        glm::vec4 screenParams = glm::vec4(0.0f);          // x = width, y = height, z = 1/w, w = 1/h
+        glm::vec4 depthRefractionParams = glm::vec4(0.0f); // depthSoftening, refrDistortion, refrHeightFactor
+        glm::vec4 refractionColor = glm::vec4(0.0f);       // rgb = underwater tint
+        glm::vec4 foamParams = glm::vec4(0.0f);            // foamHeightStart, foamFadeDistance, foamTiling, foamBrightness
+        glm::vec4 foamParams2 = glm::vec4(0.0f);           // foamAngleExponent, shorelineFoamPower, sssIntensity
+        glm::vec4 sssColor = glm::vec4(0.0f);              // rgb = SSS color
+        glm::vec4 ssrParams = glm::vec4(0.0f);             // maxSteps, stepSize, maxDistance, thickness
+        glm::vec4 tessParams = glm::vec4(0.0f);            // tessellationFactor, minDist, maxDist
+
+        // Normal map / noise texture IDs
+        RendererID normalMap0ID = 0;
+        RendererID normalMap1ID = 0;
+        RendererID noiseTextureID = 0;
+        RendererID foamTextureID = 0;
+
+        // Feature toggles
+        bool refractionEnabled = true;
+        bool ssrEnabled = true;
 
         // Entity ID for picking
         i32 entityID = -1;

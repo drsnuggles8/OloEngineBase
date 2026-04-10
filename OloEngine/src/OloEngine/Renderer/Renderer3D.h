@@ -764,17 +764,40 @@ namespace OloEngine
             const BoundingBox& layerBounds,
             i32 entityID = -1);
 
+        // Water rendering parameters (grouped to avoid 25+ parameter function)
+        struct WaterDrawParams
+        {
+            glm::vec4 waveParams = glm::vec4(0.0f);
+            glm::vec4 waveDir0 = glm::vec4(0.0f);
+            glm::vec4 waveDir1 = glm::vec4(0.0f);
+            glm::vec4 waterColor = glm::vec4(0.0f);
+            glm::vec4 waterDeepColor = glm::vec4(0.0f);
+            glm::vec4 visualParams = glm::vec4(0.0f);
+            glm::vec4 normalMapScroll = glm::vec4(0.0f);
+            glm::vec4 normalMapSpeed = glm::vec4(0.0f);
+            glm::vec4 lightDirection = glm::vec4(0.0f);
+            glm::vec4 screenParams = glm::vec4(0.0f);
+            glm::vec4 depthRefractionParams = glm::vec4(0.0f);
+            glm::vec4 refractionColor = glm::vec4(0.0f);
+            glm::vec4 foamParams = glm::vec4(0.0f);
+            glm::vec4 foamParams2 = glm::vec4(0.0f);
+            glm::vec4 sssColor = glm::vec4(0.0f);
+            glm::vec4 ssrParams = glm::vec4(0.0f);
+            glm::vec4 tessParams = glm::vec4(0.0f);
+            RendererID normalMap0ID = 0;
+            RendererID normalMap1ID = 0;
+            RendererID noiseTextureID = 0;
+            RendererID foamTextureID = 0;
+            bool refractionEnabled = true;
+            bool ssrEnabled = true;
+        };
+
         // Water rendering (submits DrawWaterCommand to WaterRenderPass bucket)
         static CommandPacket* DrawWaterSurface(
             RendererID vertexArrayID, u32 indexCount,
             const glm::mat4& modelTransform,
             f32 time,
-            const glm::vec4& waveParams,
-            const glm::vec4& waveDir0,
-            const glm::vec4& waveDir1,
-            const glm::vec4& waterColor,
-            const glm::vec4& waterDeepColor,
-            const glm::vec4& visualParams,
+            const WaterDrawParams& params,
             const BoundingBox& bounds,
             i32 entityID = -1);
 

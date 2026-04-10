@@ -939,12 +939,7 @@ namespace OloEngine
         RendererID vertexArrayID, u32 indexCount,
         const glm::mat4& modelTransform,
         f32 time,
-        const glm::vec4& waveParams,
-        const glm::vec4& waveDir0,
-        const glm::vec4& waveDir1,
-        const glm::vec4& waterColor,
-        const glm::vec4& waterDeepColor,
-        const glm::vec4& visualParams,
+        const WaterDrawParams& params,
         const BoundingBox& bounds,
         i32 entityID)
     {
@@ -987,14 +982,31 @@ namespace OloEngine
         cmd->normalMatrix = glm::transpose(glm::inverse(modelTransform));
 
         // Pack time into waveParams.x
-        glm::vec4 wp = waveParams;
+        glm::vec4 wp = params.waveParams;
         wp.x = time;
         cmd->waveParams = wp;
-        cmd->waveDir0 = waveDir0;
-        cmd->waveDir1 = waveDir1;
-        cmd->waterColor = waterColor;
-        cmd->waterDeepColor = waterDeepColor;
-        cmd->visualParams = visualParams;
+        cmd->waveDir0 = params.waveDir0;
+        cmd->waveDir1 = params.waveDir1;
+        cmd->waterColor = params.waterColor;
+        cmd->waterDeepColor = params.waterDeepColor;
+        cmd->visualParams = params.visualParams;
+        cmd->normalMapScroll = params.normalMapScroll;
+        cmd->normalMapSpeed = params.normalMapSpeed;
+        cmd->lightDirection = params.lightDirection;
+        cmd->screenParams = params.screenParams;
+        cmd->depthRefractionParams = params.depthRefractionParams;
+        cmd->refractionColor = params.refractionColor;
+        cmd->foamParams = params.foamParams;
+        cmd->foamParams2 = params.foamParams2;
+        cmd->sssColor = params.sssColor;
+        cmd->ssrParams = params.ssrParams;
+        cmd->tessParams = params.tessParams;
+        cmd->normalMap0ID = params.normalMap0ID;
+        cmd->normalMap1ID = params.normalMap1ID;
+        cmd->noiseTextureID = params.noiseTextureID;
+        cmd->foamTextureID = params.foamTextureID;
+        cmd->refractionEnabled = params.refractionEnabled;
+        cmd->ssrEnabled = params.ssrEnabled;
         cmd->entityID = entityID;
 
         // Water render state: translucent, depth test on, depth write off, alpha blend

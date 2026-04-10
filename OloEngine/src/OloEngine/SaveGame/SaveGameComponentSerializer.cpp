@@ -1,6 +1,9 @@
 #include "OloEnginePCH.h"
 #include "SaveGameComponentSerializer.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Audio/AudioListener.h"
 #include "OloEngine/Audio/AudioSource.h"
@@ -1059,6 +1062,104 @@ namespace OloEngine
         ar << c.m_Transparency << c.m_Reflectivity << c.m_FresnelPower << c.m_SpecularIntensity;
         ar << c.m_GridResolutionX << c.m_GridResolutionZ;
         ar << c.m_Enabled;
+        ar << c.m_NormalMapScrollDir0 << c.m_NormalMapScrollDir1;
+        ar << c.m_NormalMapScrollSpeed0 << c.m_NormalMapScrollSpeed1;
+        ar << c.m_NormalMapTiling << c.m_NoiseIntensity;
+        ar << c.m_NormalMap0 << c.m_NormalMap1 << c.m_NoiseTexture;
+        ar << c.m_DepthSofteningDistance << c.m_RefractionDistortion << c.m_RefractionHeightFactor;
+        ar << c.m_RefractionColor;
+        ar << c.m_RefractionEnabled;
+        ar << c.m_FoamTexture;
+        ar << c.m_FoamHeightStart << c.m_FoamFadeDistance << c.m_FoamTiling << c.m_FoamBrightness;
+        ar << c.m_FoamAngleExponent << c.m_ShorelineFoamPower;
+        ar << c.m_SSSColor << c.m_SSSIntensity;
+        ar << c.m_SSRMaxSteps << c.m_SSRStepSize << c.m_SSRMaxDistance << c.m_SSRThickness;
+        ar << c.m_SSREnabled;
+        ar << c.m_TessellationEnabled << c.m_TessellationFactor << c.m_TessMinDistance << c.m_TessMaxDistance;
+
+        if (ar.IsLoading())
+        {
+            auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                {
+                    v = fallback;
+                    return;
+                }
+                v = std::clamp(v, lo, hi);
+            };
+
+            sanitize(c.m_WorldSizeX, 0.1f, 10000.0f, 100.0f);
+            sanitize(c.m_WorldSizeZ, 0.1f, 10000.0f, 100.0f);
+            c.m_GridResolutionX = std::clamp(c.m_GridResolutionX, 1u, 1024u);
+            c.m_GridResolutionZ = std::clamp(c.m_GridResolutionZ, 1u, 1024u);
+            sanitize(c.m_WaveAmplitude, 0.0f, 100.0f, 0.5f);
+            sanitize(c.m_WaveFrequency, 0.0f, 100.0f, 1.0f);
+            sanitize(c.m_WaveSpeed, 0.0f, 100.0f, 1.0f);
+            sanitize(c.m_WaveSteepness0, 0.0f, 1.0f, 0.5f);
+            sanitize(c.m_Wavelength0, 0.1f, 500.0f, 10.0f);
+            sanitize(c.m_WaveSteepness1, 0.0f, 1.0f, 0.3f);
+            sanitize(c.m_Wavelength1, 0.1f, 500.0f, 15.0f);
+            sanitize(c.m_Transparency, 0.0f, 1.0f, 0.6f);
+            sanitize(c.m_Reflectivity, 0.0f, 1.0f, 0.5f);
+            sanitize(c.m_FresnelPower, 0.1f, 20.0f, 5.0f);
+            sanitize(c.m_SpecularIntensity, 0.0f, 10.0f, 1.0f);
+            sanitize(c.m_NormalMapScrollSpeed0, 0.0f, 1.0f, 0.02f);
+            sanitize(c.m_NormalMapScrollSpeed1, 0.0f, 1.0f, 0.015f);
+            sanitize(c.m_NormalMapTiling, 0.0f, 50.0f, 1.0f);
+            sanitize(c.m_NoiseIntensity, 0.0f, 1.0f, 0.3f);
+            sanitize(c.m_DepthSofteningDistance, 0.0f, 50.0f, 2.0f);
+            sanitize(c.m_RefractionDistortion, 0.0f, 0.5f, 0.05f);
+            sanitize(c.m_RefractionHeightFactor, 0.0f, 2.0f, 0.5f);
+            sanitize(c.m_FoamHeightStart, 0.0f, 2.0f, 0.3f);
+            sanitize(c.m_FoamFadeDistance, 0.01f, 5.0f, 0.5f);
+            sanitize(c.m_FoamTiling, 0.0f, 50.0f, 2.0f);
+            sanitize(c.m_FoamBrightness, 0.0f, 5.0f, 1.5f);
+            sanitize(c.m_FoamAngleExponent, 0.1f, 10.0f, 2.0f);
+            sanitize(c.m_ShorelineFoamPower, 0.1f, 10.0f, 3.0f);
+            sanitize(c.m_SSSIntensity, 0.0f, 5.0f, 0.5f);
+            sanitize(c.m_SSRMaxSteps, 0.0f, 256.0f, 64.0f);
+            sanitize(c.m_SSRStepSize, 0.01f, 1.0f, 0.1f);
+            sanitize(c.m_SSRMaxDistance, 1.0f, 200.0f, 50.0f);
+            sanitize(c.m_SSRThickness, 0.01f, 5.0f, 0.5f);
+            sanitize(c.m_TessellationFactor, 1.0f, 64.0f, 8.0f);
+            sanitize(c.m_TessMinDistance, 1.0f, 500.0f, 10.0f);
+            sanitize(c.m_TessMaxDistance, 10.0f, 1000.0f, 200.0f);
+            c.m_TessMaxDistance = std::max(c.m_TessMaxDistance, c.m_TessMinDistance + 1.0f);
+
+            // Sanitize direction vectors — finiteness check (+ normalize for scroll dirs only)
+            auto sanitizeDir2 = [](glm::vec2& v, glm::vec2 const& fallback)
+            {
+                if (!std::isfinite(v.x) || !std::isfinite(v.y) || glm::dot(v, v) < 1e-6f)
+                    v = fallback;
+            };
+            auto sanitizeScrollDir = [](glm::vec2& v, glm::vec2 const& fallback)
+            {
+                if (!std::isfinite(v.x) || !std::isfinite(v.y) || glm::dot(v, v) < 1e-6f)
+                {
+                    v = fallback;
+                    return;
+                }
+                v = glm::normalize(v);
+            };
+            auto sanitizeColor = [](glm::vec3& v, glm::vec3 const& fallback)
+            {
+                if (!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.z))
+                {
+                    v = fallback;
+                    return;
+                }
+                v = glm::clamp(v, glm::vec3(0.0f), glm::vec3(1.0f));
+            };
+            sanitizeDir2(c.m_WaveDir0, glm::vec2(1.0f, 0.0f));
+            sanitizeDir2(c.m_WaveDir1, glm::vec2(0.7f, 0.7f));
+            sanitizeScrollDir(c.m_NormalMapScrollDir0, glm::vec2(1.0f, 0.0f));
+            sanitizeScrollDir(c.m_NormalMapScrollDir1, glm::vec2(0.0f, 1.0f));
+            sanitizeColor(c.m_WaterColor, glm::vec3(0.1f, 0.4f, 0.5f));
+            sanitizeColor(c.m_DeepColor, glm::vec3(0.0f, 0.1f, 0.2f));
+            sanitizeColor(c.m_RefractionColor, glm::vec3(0.0f, 0.05f, 0.1f));
+            sanitizeColor(c.m_SSSColor, glm::vec3(0.0f, 0.5f, 0.4f));
+        }
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, SnowDeformerComponent& c)

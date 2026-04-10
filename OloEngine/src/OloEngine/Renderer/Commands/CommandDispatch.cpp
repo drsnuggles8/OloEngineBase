@@ -1726,13 +1726,39 @@ namespace OloEngine
             waterData.WaterColor = cmd->waterColor;
             waterData.WaterDeepColor = cmd->waterDeepColor;
             waterData.VisualParams = cmd->visualParams;
+            waterData.NormalMapScroll = cmd->normalMapScroll;
+            waterData.NormalMapSpeed = cmd->normalMapSpeed;
+            waterData.LightDirection = cmd->lightDirection;
+            waterData.ScreenParams = cmd->screenParams;
+            waterData.DepthRefractionParams = cmd->depthRefractionParams;
+            waterData.RefractionColor = cmd->refractionColor;
+            waterData.FoamParams = cmd->foamParams;
+            waterData.FoamParams2 = cmd->foamParams2;
+            waterData.SSSColor = cmd->sssColor;
+            waterData.SSRParams = cmd->ssrParams;
+            waterData.TessParams = cmd->tessParams;
             waterUBO->SetData(&waterData, ShaderBindingLayout::WaterUBO::GetSize());
             glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_WATER, waterUBO->GetRendererID());
         }
 
+        // Bind normal map and noise textures (tracked for redundancy elimination and stats)
+        BindTrackedTexture(cmd->normalMap0ID, ShaderBindingLayout::TEX_WATER_NORMAL_0, GL_TEXTURE_2D);
+        BindTrackedTexture(cmd->normalMap1ID, ShaderBindingLayout::TEX_WATER_NORMAL_1, GL_TEXTURE_2D);
+        BindTrackedTexture(cmd->noiseTextureID, ShaderBindingLayout::TEX_WATER_NOISE, GL_TEXTURE_2D);
+        BindTrackedTexture(cmd->foamTextureID, ShaderBindingLayout::TEX_WATER_FOAM, GL_TEXTURE_2D);
+
         // Bind VAO (cached) and draw water
+        // tessParams.x holds the tessellation factor (0 = disabled, >0 = enabled)
         BindVAOIfNeeded(cmd->vertexArrayID);
-        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
+        if (cmd->tessParams.x > 0.0f)
+        {
+            glPatchParameteri(GL_PATCH_VERTICES, 3);
+            glDrawElements(GL_PATCHES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
+        }
+        else
+        {
+            glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
+        }
         ++s_Data.Stats.DrawCalls;
     }
 } // namespace OloEngine
