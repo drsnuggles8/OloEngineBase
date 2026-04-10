@@ -26,7 +26,12 @@ jobs:
         python -m pip install jinja2
 
     - name: Setup Vulkan SDK
+      id: vulkan
       uses: ./.github/actions/setup-vulkan
+
+    - name: Export VULKAN_SDK
+      run: echo "VULKAN_SDK=${{ steps.vulkan.outputs.install-dir }}" >> $env:GITHUB_ENV
+      shell: pwsh
 
     - name: Configure CMake (ASan enabled)
       run: >

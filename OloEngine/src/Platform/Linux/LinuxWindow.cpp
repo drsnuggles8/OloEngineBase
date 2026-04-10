@@ -8,6 +8,7 @@
 #include "Platform/Linux/LinuxWindow.h"
 
 #include <algorithm>
+#include <stdexcept>
 
 namespace OloEngine
 {
@@ -49,13 +50,16 @@ namespace OloEngine
         {
             OLO_PROFILE_SCOPE("glfwInit");
 
+            GLFWAPI::glfwSetErrorCallback(GLFWErrorCallback);
             const int success = GLFWAPI::glfwInit();
             OLO_CORE_ASSERT(success, "Could not initialize GLFW!");
-            GLFWAPI::glfwSetErrorCallback(GLFWErrorCallback);
         }
 
         {
             OLO_PROFILE_SCOPE("glfwCreateWindow");
+
+            s_HighDPIScaleFactor = 1.0f;
+            GLFWAPI::glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_FALSE);
 
             if (GLFWmonitor* monitor = GLFWAPI::glfwGetPrimaryMonitor())
             {
@@ -65,13 +69,8 @@ namespace OloEngine
 
                 if ((xscale > 1.0f) || (yscale > 1.0f))
                 {
-                    s_HighDPIScaleFactor = yscale;
+                    s_HighDPIScaleFactor = std::max(xscale, yscale);
                     GLFWAPI::glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
-                }
-                else
-                {
-                    s_HighDPIScaleFactor = 1.0f;
-                    GLFWAPI::glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_FALSE);
                 }
             }
 
@@ -85,8 +84,7 @@ namespace OloEngine
             m_Window = GLFWAPI::glfwCreateWindow(static_cast<int>(props.Width), static_cast<int>(props.Height), m_Data.Title.c_str(), nullptr, nullptr);
             if (!m_Window)
             {
-                OLO_CORE_CRITICAL("glfwCreateWindow failed!");
-                return;
+                throw std::runtime_error("glfwCreateWindow failed!");
             }
             ++s_GLFWWindowCount;
         }
@@ -94,11 +92,10 @@ namespace OloEngine
         m_Context = GraphicsContext::Create(m_Window);
         if (!m_Context)
         {
-            OLO_CORE_CRITICAL("Failed to create graphics context!");
             GLFWAPI::glfwDestroyWindow(m_Window);
             m_Window = nullptr;
             --s_GLFWWindowCount;
-            return;
+            throw std::runtime_error("Failed to create graphics context!");
         }
         m_Context->Init();
 
