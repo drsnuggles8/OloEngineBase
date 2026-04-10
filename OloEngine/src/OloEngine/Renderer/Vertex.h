@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <glm/glm.hpp>
 #include <glm/gtx/integer.hpp>
 #include "OloEngine/Renderer/Buffer.h"
@@ -35,4 +36,11 @@ namespace OloEngine
             };
         }
     };
+
+    // Verify that sizeof(Vertex) matches the GPU buffer layout stride (32 bytes)
+    // If this fails, the GPU reads vertex attributes at wrong offsets (stride mismatch)
+    static_assert(sizeof(Vertex) == 32, "Vertex sizeof must be 32 to match BufferLayout stride");
+    static_assert(offsetof(Vertex, Position) == 0, "Vertex::Position must be at offset 0");
+    static_assert(offsetof(Vertex, Normal) == 12, "Vertex::Normal must be at offset 12");
+    static_assert(offsetof(Vertex, TexCoord) == 24, "Vertex::TexCoord must be at offset 24");
 } // namespace OloEngine

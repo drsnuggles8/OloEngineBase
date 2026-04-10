@@ -2494,6 +2494,20 @@ namespace OloEngine
         }
     }
 
+    // Helper: obtain the shadow VAO RendererID from a Mesh (returns 0 if unavailable).
+    [[nodiscard]] static RendererID GetShadowVaoID(const Ref<Mesh>& mesh)
+    {
+        if (!mesh)
+        {
+            return 0;
+        }
+        if (auto const& ms = mesh->GetMeshSource(); ms && ms->HasShadowVertexArray())
+        {
+            return ms->GetShadowVertexArray()->GetRendererID();
+        }
+        return 0;
+    }
+
     void Scene::ProcessScene3DSharedLogic(const glm::mat4& viewMatrix, const glm::mat4& projectionMatrix,
                                           const glm::vec3& cameraPosition,
                                           f32 cameraNearClip, f32 cameraFarClip)
@@ -3655,7 +3669,7 @@ namespace OloEngine
                             {
                                 meshShadowPass->AddMeshCaster(
                                     va->GetRendererID(), submesh->GetIndexCount(),
-                                    transform.GetTransform());
+                                    transform.GetTransform(), GetShadowVaoID(submesh));
                             }
                         }
                     }
@@ -3710,7 +3724,7 @@ namespace OloEngine
                     {
                         meshShadowPass->AddMeshCaster(
                             va->GetRendererID(), submesh.m_Mesh->GetIndexCount(),
-                            transform.GetTransform());
+                            transform.GetTransform(), GetShadowVaoID(submesh.m_Mesh));
                     }
                 }
             }
@@ -3854,7 +3868,7 @@ namespace OloEngine
                             {
                                 meshShadowPass->AddMeshCaster(
                                     va->GetRendererID(), tileComp.TileMesh->GetIndexCount(),
-                                    tileTransform);
+                                    tileTransform, GetShadowVaoID(tileComp.TileMesh));
                             }
                         }
                     }

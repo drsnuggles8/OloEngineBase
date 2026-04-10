@@ -1495,6 +1495,7 @@ namespace OloEngine
         cmd->meshHandle = meshToUse->GetHandle();
         cmd->vertexArrayID = meshToUse->GetVertexArray()->GetRendererID();
         cmd->indexCount = meshToUse->GetIndexCount();
+        cmd->baseIndex = meshToUse->GetBaseIndex();
         cmd->transform = glm::mat4(modelMatrix);
         cmd->shaderHandle = shaderToUse->GetHandle();
 
@@ -1626,6 +1627,7 @@ namespace OloEngine
         cmd->meshHandle = mesh->GetHandle();
         cmd->vertexArrayID = mesh->GetVertexArray()->GetRendererID();
         cmd->indexCount = mesh->GetIndexCount();
+        cmd->baseIndex = mesh->GetBaseIndex();
         cmd->transform = modelMatrix;
         cmd->shaderHandle = shaderToUse->GetHandle();
 
@@ -2214,6 +2216,7 @@ namespace OloEngine
         cmd->meshHandle = meshToUse->GetHandle();
         cmd->vertexArrayID = meshToUse->GetVertexArray()->GetRendererID();
         cmd->indexCount = meshToUse->GetIndexCount();
+        cmd->baseIndex = meshToUse->GetBaseIndex();
         cmd->transform = glm::mat4(modelMatrix);
         cmd->entityID = entityID;
         cmd->shaderHandle = shaderToUse->GetHandle();
@@ -2376,6 +2379,7 @@ namespace OloEngine
         cmd->meshHandle = mesh->GetHandle();
         cmd->vertexArrayID = mesh->GetVertexArray()->GetRendererID();
         cmd->indexCount = mesh->GetIndexCount();
+        cmd->baseIndex = mesh->GetBaseIndex();
         cmd->instanceCount = transformCount;
         cmd->transformBufferOffset = transformOffset;
         cmd->transformCount = transformCount;
@@ -2851,6 +2855,7 @@ namespace OloEngine
         cmd->meshHandle = mesh->GetHandle();
         cmd->vertexArrayID = vertexArray->GetRendererID();
         cmd->indexCount = mesh->GetIndexCount();
+        cmd->baseIndex = mesh->GetBaseIndex();
         cmd->transform = modelMatrix;
         cmd->shaderHandle = shaderToUse->GetHandle();
 

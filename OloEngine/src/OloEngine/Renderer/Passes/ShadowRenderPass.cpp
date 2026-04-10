@@ -203,7 +203,8 @@ namespace OloEngine
                 for (const auto& caster : m_MeshCasters)
                 {
                     uploadShadowModelUBO(caster.transform);
-                    RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount);
+                    RendererID const drawVao = (caster.shadowVaoID != 0) ? caster.shadowVaoID : caster.vaoID;
+                    RenderCommand::DrawIndexedRaw(drawVao, caster.indexCount);
                 }
             }
         }
@@ -307,9 +308,9 @@ namespace OloEngine
     }
 
     // Shadow caster submission methods
-    void ShadowRenderPass::AddMeshCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform)
+    void ShadowRenderPass::AddMeshCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform, RendererID shadowVaoID)
     {
-        m_MeshCasters.push_back({ vaoID, indexCount, transform });
+        m_MeshCasters.push_back({ vaoID, indexCount, transform, shadowVaoID });
     }
 
     void ShadowRenderPass::AddSkinnedCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform,

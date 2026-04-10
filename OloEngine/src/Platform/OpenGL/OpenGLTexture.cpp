@@ -198,7 +198,7 @@ namespace OloEngine
 
         if (!data)
         {
-            OLO_CORE_ERROR("Image texture data is null!");
+            OLO_CORE_ERROR("Image texture data is null! Failed to load: '{}'", path);
             ::stbi_image_free(data);
             return;
         }

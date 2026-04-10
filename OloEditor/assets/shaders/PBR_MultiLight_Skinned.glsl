@@ -46,13 +46,22 @@ void main()
 {
     // Calculate bone transformation
     mat4 boneTransform = mat4(0.0);
-    for (int i = 0; i < 4; ++i)
+    float totalWeight = a_BoneWeights.x + a_BoneWeights.y + a_BoneWeights.z + a_BoneWeights.w;
+    if (totalWeight > 0.001)
     {
-        int boneID = a_BoneIDs[i];
-        if (boneID >= 0 && boneID < 100)
+        for (int i = 0; i < 4; ++i)
         {
-            boneTransform += u_BoneTransforms[boneID] * a_BoneWeights[i];
+            int boneID = a_BoneIDs[i];
+            if (boneID >= 0 && boneID < 100)
+            {
+                boneTransform += u_BoneTransforms[boneID] * a_BoneWeights[i];
+            }
         }
+    }
+    else
+    {
+        // Vertex has no bone influence — pass through without skinning
+        boneTransform = mat4(1.0);
     }
 
     // Transform position and normal by bones

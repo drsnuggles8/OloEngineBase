@@ -3,7 +3,6 @@
 
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Profiler.h"
-#include "Platform/OpenGL/OpenGLTextureCubemap.h"
 
 #include <fstream>
 
@@ -438,18 +437,40 @@ namespace OloEngine
             return nullptr;
         }
 
+        if (header.Width == 0 || header.Height == 0)
+        {
+            OLO_CORE_ERROR("IBLCache: Invalid dimensions {}x{} in {}", header.Width, header.Height, path.string());
+            return nullptr;
+        }
+
+        if (header.MipLevels == 0 || header.MipLevels > 16)
+        {
+            OLO_CORE_ERROR("IBLCache: Suspicious MipLevels {} in {}", header.MipLevels, path.string());
+            return nullptr;
+        }
+
         // Create cubemap specification
         CubemapSpecification spec;
         spec.Width = header.Width;
         spec.Height = header.Height;
         spec.Format = static_cast<ImageFormat>(header.Format);
+        // Allocate mip storage but do NOT auto-generate mips — we load precomputed data.
         spec.GenerateMips = header.MipLevels > 1;
+        spec.MipLevels = header.MipLevels; // Exact count so no uninitialized mips are allocated
 
         Ref<TextureCubemap> cubemap = TextureCubemap::Create(spec);
 
         u32 bytesPerPixel = GetBytesPerPixel(spec.Format);
+        if (bytesPerPixel == 0)
+        {
+            OLO_CORE_ERROR("IBLCache: Unknown image format {} in {}", header.Format, path.string());
+            return nullptr;
+        }
 
-        // Read each mip level's face data
+        // Read each mip level's face data and upload via SetFaceDataMip
+        // to preserve the precomputed roughness-convolved mip chain.
+        // Using SetFaceData (mip 0 only) would trigger glGenerateTextureMipmap,
+        // overwriting the proper GGX-convolved mips with trivial bilinear downsamples.
         for (u32 mip = 0; mip < header.MipLevels; mip++)
         {
             u32 mipWidth = std::max(1u, header.Width >> mip);
@@ -458,29 +479,19 @@ namespace OloEngine
 
             for (u32 face = 0; face < 6; face++)
             {
-                if (mip == 0)
+                std::vector<u8> faceData(faceSize);
+                file.read(reinterpret_cast<char*>(faceData.data()), static_cast<std::streamsize>(faceSize));
+
+                if (!file.good())
                 {
-                    std::vector<u8> faceData(faceSize);
-                    file.read(reinterpret_cast<char*>(faceData.data()), static_cast<std::streamsize>(faceSize));
-
-                    if (!file.good())
-                    {
-                        OLO_CORE_ERROR("IBLCache: Failed to read base mip data for face {} from {}", face, path.string());
-                        return nullptr;
-                    }
-
-                    // SetFaceData only works for mip 0, for now just load base level
-                    cubemap->SetFaceData(face, faceData.data(), static_cast<u32>(faceSize));
+                    OLO_CORE_ERROR("IBLCache: Failed to read mip {} data for face {} from {}", mip, face, path.string());
+                    return nullptr;
                 }
-                else
+
+                if (!cubemap->SetFaceDataMip(face, mip, faceData.data(), static_cast<u32>(faceSize)))
                 {
-                    // Skip higher mip levels for now to avoid unnecessary I/O
-                    file.seekg(static_cast<std::streamoff>(faceSize), std::ios::cur);
-                    if (!file.good())
-                    {
-                        OLO_CORE_ERROR("IBLCache: Failed to skip mip {} data for face {} in {}", mip, face, path.string());
-                        return nullptr;
-                    }
+                    OLO_CORE_ERROR("IBLCache: SetFaceDataMip failed for mip {} face {} from {}", mip, face, path.string());
+                    return nullptr;
                 }
             }
         }

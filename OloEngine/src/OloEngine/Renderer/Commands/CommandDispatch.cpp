@@ -1069,7 +1069,10 @@ namespace OloEngine
             }
         }
 
-        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
+        // Use baseIndex offset for multi-submesh MeshSources sharing a single IBO
+        const void* indexOffset = reinterpret_cast<const void*>(static_cast<uintptr_t>(cmd->baseIndex) * sizeof(u32));
+
+        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, indexOffset);
         ++s_Data.Stats.DrawCalls;
 
         if (startedConditionalRender)
@@ -1165,7 +1168,8 @@ namespace OloEngine
         // Bind VAO (cached) and draw instanced
         BindVAOIfNeeded(cmd->vertexArrayID);
         ++s_Data.Stats.DrawCalls;
-        glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr, static_cast<GLsizei>(instanceCount));
+        const void* indexOffset = reinterpret_cast<const void*>(static_cast<uintptr_t>(cmd->baseIndex) * sizeof(u32));
+        glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, indexOffset, static_cast<GLsizei>(instanceCount));
     }
 
     void CommandDispatch::DrawSkybox(const void* data, RendererAPI& api)

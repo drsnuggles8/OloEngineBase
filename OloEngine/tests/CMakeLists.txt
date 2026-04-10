@@ -50,6 +50,7 @@ add_executable(OloEngine-Tests
 		Rendering/BoundingVolumeTest.cpp
 		Rendering/FrustumCullingTest.cpp
 		Rendering/LODTest.cpp
+		Rendering/MeshOptimizationTest.cpp
 		Rendering/PODCommandTest.cpp
 		Rendering/ShaderBindingLayoutTest.cpp
 		Rendering/ShaderPackTest.cpp
@@ -109,6 +110,7 @@ add_executable(OloEngine-Tests
 		ShaderGraph/ShaderGraphCommandTest.cpp
 		# Serialization Tests
 		Serialization/ArchiveExtensionsTest.cpp
+		Serialization/MeshBinarySerializerTest.cpp
 		# SaveGame Tests
 		SaveGame/SaveGameFileTest.cpp
 		SaveGame/SaveGameManagerTest.cpp

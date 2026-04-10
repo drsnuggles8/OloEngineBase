@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphSerializer.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphNode.h"
+#include "OloEngine/Asset/MeshCache.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -455,6 +456,13 @@ namespace OloEngine
 
             if (HasAction(actions, ContentBrowserAction::OpenExternal))
                 OpenExternally(item.GetPath());
+
+            if (HasAction(actions, ContentBrowserAction::Reimport))
+            {
+                MeshCache::InvalidateCache(item.GetPath());
+                OLO_CORE_INFO("ContentBrowser: Reimport queued for '{}' — cache invalidated, will re-import on next load",
+                              item.GetPath().filename().string());
+            }
 
             ImGui::NextColumn();
         }

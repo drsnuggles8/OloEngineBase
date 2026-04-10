@@ -22,6 +22,9 @@
 #include "OloEngine/Audio/SoundGraph/SoundGraphSerializer.h"
 #include "OloEngine/Audio/SoundGraph/SoundGraphPrototype.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
+#include "OloEngine/Animation/Skeleton.h"
+#include "OloEngine/Animation/MorphTargets/MorphTarget.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Prefab.h"
 #include "OloEngine/Scene/Scene.h"
@@ -34,10 +37,16 @@
 #include "OloEngine/Particle/ParticleSystemAsset.h"
 #include "OloEngine/Particle/EmissionShapeUtils.h"
 #include "OloEngine/Particle/ParticleCurveSerializer.h"
+#include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Renderer/MeshOptimization.h"
+#include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Asset/MeshCache.h"
 #include <yaml-cpp/yaml.h>
 #include <stb_image/stb_image.h>
-#include <fstream>
 #include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <fstream>
 
 namespace OloEngine
 {
@@ -1813,7 +1822,7 @@ namespace OloEngine
     // MeshSourceSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    bool MeshSourceSerializer::TryLoadData(const AssetMetadata& metadata, [[maybe_unused]] Ref<Asset>& asset) const
+    bool MeshSourceSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
         std::filesystem::path path = Project::GetAssetDirectory() / metadata.FilePath;
 
@@ -1823,37 +1832,1211 @@ namespace OloEngine
             return false;
         }
 
-        // TODO: MeshSource class doesn't exist yet
-        // Use Assimp to load the mesh file
-        // auto meshSource = Ref<MeshSource>(new MeshSource(path));
-        // if (!meshSource->IsValid())
-        // {
-        //     OLO_CORE_ERROR("MeshSourceSerializer::TryLoadData - Failed to load mesh source: {}", path.string());
-        //     return false;
-        // }
-        //
-        // meshSource->SetHandle(metadata.Handle);
-        // asset = meshSource;
-        //
-        // OLO_CORE_TRACE("MeshSourceSerializer::TryLoadData - Successfully loaded mesh source: {} ({} submeshes)",
-        //               path.string(), meshSource->GetSubmeshes().size());
+        // Try loading from binary mesh cache first
+        if (MeshCache::IsMeshCacheValid(path))
+        {
+            auto meshSource = MeshCache::LoadMeshFromCache(path);
+            if (meshSource)
+            {
+                meshSource->Build();
+                meshSource->SetHandle(metadata.Handle);
+                asset = meshSource;
+                OLO_CORE_TRACE("MeshSourceSerializer::TryLoadData - Loaded from cache: {}", path.string());
+                return true;
+            }
+        }
 
-        OLO_CORE_WARN("MeshSourceSerializer::TryLoadData - MeshSource class not implemented yet");
-        return false;
+        // Cache miss — import via Assimp through Model, which writes the cache for next time
+        OLO_CORE_INFO("MeshSourceSerializer::TryLoadData - Cache miss, importing via Assimp: {}", path.string());
+        Model model(path.string());
+        auto meshSource = model.CreateCombinedMeshSource();
+        if (!meshSource || meshSource->GetVertices().IsEmpty())
+        {
+            OLO_CORE_ERROR("MeshSourceSerializer::TryLoadData - Assimp import failed: {}", path.string());
+            return false;
+        }
+
+        // CreateCombinedMeshSource does not call Build() (it's also used for cache-only
+        // serialization). Build GPU buffers here so the asset is renderable.
+        meshSource->Build();
+
+        meshSource->SetHandle(metadata.Handle);
+        asset = meshSource;
+        OLO_CORE_TRACE("MeshSourceSerializer::TryLoadData - Loaded via Assimp: {} ({} verts, {} submeshes)",
+                       path.string(), meshSource->GetVertices().Num(), meshSource->GetSubmeshes().Num());
+        return true;
     }
 
-    bool MeshSourceSerializer::SerializeToAssetPack([[maybe_unused]] AssetHandle handle, [[maybe_unused]] FileStreamWriter& stream, [[maybe_unused]] AssetSerializationInfo& outInfo) const
+    bool MeshSourceSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
-        // TODO: Implement mesh source pack serialization
-        OLO_CORE_WARN("MeshSourceSerializer::SerializeToAssetPack not yet implemented");
-        return false;
+        OLO_PROFILE_FUNCTION();
+
+        auto meshSource = AssetManager::GetAsset<MeshSource>(handle);
+        if (!meshSource)
+        {
+            OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Invalid MeshSource asset");
+            return false;
+        }
+
+        const auto& vertices = meshSource->GetVertices();
+        const auto& indices = meshSource->GetIndices();
+        const auto& submeshes = meshSource->GetSubmeshes();
+        const auto& materials = meshSource->GetMaterials();
+
+        auto vertexCount = static_cast<u32>(vertices.Num());
+        auto indexCount = static_cast<u32>(indices.Num());
+        auto submeshCount = static_cast<u32>(submeshes.Num());
+        auto materialCount = static_cast<u32>(materials.Num());
+        bool hasBoneInfluences = meshSource->HasBoneInfluences();
+        bool hasShadowIndices = meshSource->HasShadowIndices();
+        bool hasSkeleton = meshSource->HasSkeleton();
+        bool hasBoneInfo = !meshSource->GetBoneInfo().IsEmpty();
+        bool hasMorphTargets = meshSource->HasMorphTargets();
+
+        // ── Preflight validation ──
+        // Validate all invariants before committing any bytes to stream so that
+        // failures never leave a truncated/partial entry.
+        // Mirror the same hard caps that DeserializeFromAssetPack enforces so the
+        // writer never creates a pack the reader would reject.
+        constexpr u32 kMaxVertexCount = 50'000'000;
+        constexpr u32 kMaxIndexCount = 150'000'000;
+        constexpr u32 kMaxSubmeshCount = 10'000;
+        constexpr u32 kMaxMaterialCount = 10'000;
+        if (vertexCount > kMaxVertexCount || indexCount > kMaxIndexCount ||
+            submeshCount > kMaxSubmeshCount || materialCount > kMaxMaterialCount)
+        {
+            OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Counts exceed limits "
+                           "(verts={}, indices={}, submeshes={}, materials={}), rejecting before write",
+                           vertexCount, indexCount, submeshCount, materialCount);
+            return false;
+        }
+        if (hasBoneInfluences)
+        {
+            if (static_cast<u32>(meshSource->GetBoneInfluences().Num()) != vertexCount)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - BoneInfluence count ({}) != vertex count ({}), "
+                               "rejecting before write",
+                               meshSource->GetBoneInfluences().Num(), vertexCount);
+                return false;
+            }
+        }
+        if (hasMorphTargets)
+        {
+            constexpr u32 MAX_NAME_LEN = 1'024;
+            constexpr u32 MAX_MORPH_TARGETS = 1'000;
+            const auto& morphTargets = meshSource->GetMorphTargets();
+            auto vertCount = morphTargets->GetVertexCount();
+            if (morphTargets->GetTargetCount() > MAX_MORPH_TARGETS)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Morph target count ({}) exceeds limit ({}), "
+                               "rejecting before write",
+                               morphTargets->GetTargetCount(), MAX_MORPH_TARGETS);
+                return false;
+            }
+            if (vertCount != vertexCount)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Morph target vertex count ({}) != mesh vertex count ({}), "
+                               "rejecting before write",
+                               vertCount, vertexCount);
+                return false;
+            }
+            for (u32 t = 0; t < morphTargets->GetTargetCount(); ++t)
+            {
+                const auto& target = morphTargets->Targets[t];
+                if (target.Name.size() > MAX_NAME_LEN)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Morph target name length ({}) exceeds limit ({}), "
+                                   "rejecting before write",
+                                   target.Name.size(), MAX_NAME_LEN);
+                    return false;
+                }
+                auto sparseCount = (target.IsSparse && !target.SparseVertices.empty())
+                                       ? static_cast<u32>(target.SparseVertices.size())
+                                       : 0u;
+                if (sparseCount == 0 && static_cast<u32>(target.Vertices.size()) != vertCount)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Dense morph target '{}' vertex count ({}) "
+                                   "does not match expected vertCount ({}), rejecting before write",
+                                   target.Name, target.Vertices.size(), vertCount);
+                    return false;
+                }
+            }
+        }
+        if (hasSkeleton)
+        {
+            constexpr u32 MAX_BONE_NAME_LEN = 1'024;
+            constexpr u32 kMaxBoneCount = 10'000;
+            const auto* skeleton = meshSource->GetSkeleton();
+            auto boneCount = static_cast<u32>(skeleton->m_BoneNames.size());
+            if (boneCount > kMaxBoneCount)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Bone count ({}) exceeds limit ({}), "
+                               "rejecting before write",
+                               boneCount, kMaxBoneCount);
+                return false;
+            }
+            for (u32 j = 0; j < boneCount; ++j)
+            {
+                if (skeleton->m_BoneNames[j].size() > MAX_BONE_NAME_LEN)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Bone name length ({}) exceeds limit ({}) at bone {}, "
+                                   "rejecting before write",
+                                   skeleton->m_BoneNames[j].size(), MAX_BONE_NAME_LEN, j);
+                    return false;
+                }
+            }
+            // Validate parent indices are within [0, boneCount) or -1 (root sentinel)
+            for (u32 j = 0; j < static_cast<u32>(skeleton->m_ParentIndices.size()); ++j)
+            {
+                auto const idx = skeleton->m_ParentIndices[j];
+                if (idx != -1 && (idx < 0 || idx >= static_cast<i32>(boneCount)))
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - ParentIndex[{}] = {} "
+                                   "is out of range [0, {}) or -1, rejecting before write",
+                                   j, idx, boneCount);
+                    return false;
+                }
+            }
+            // Validate all skeleton transform matrices are finite
+            auto const validateFiniteMat4Array = [](const std::vector<glm::mat4>& arr, const char* name) -> bool
+            {
+                for (sizet i = 0; i < arr.size(); ++i)
+                {
+                    const auto& m = arr[i];
+                    for (int c = 0; c < 4; ++c)
+                        for (int r = 0; r < 4; ++r)
+                            if (!std::isfinite(m[c][r]))
+                            {
+                                OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Non-finite value in skeleton {} "
+                                               "at bone {} element [{},{}], rejecting before write",
+                                               name, i, c, r);
+                                return false;
+                            }
+                }
+                return true;
+            };
+            if (!validateFiniteMat4Array(skeleton->m_LocalTransforms, "LocalTransforms") ||
+                !validateFiniteMat4Array(skeleton->m_GlobalTransforms, "GlobalTransforms") ||
+                !validateFiniteMat4Array(skeleton->m_BindPoseMatrices, "BindPoseMatrices") ||
+                !validateFiniteMat4Array(skeleton->m_InverseBindPoses, "InverseBindPoses") ||
+                !validateFiniteMat4Array(skeleton->m_BindPoseLocalTransforms, "BindPoseLocalTransforms") ||
+                !validateFiniteMat4Array(skeleton->m_BonePreTransforms, "BonePreTransforms"))
+            {
+                return false;
+            }
+        }
+        if (hasBoneInfo)
+        {
+            constexpr u32 kMaxBoneCount = 10'000;
+            const auto& boneInfo = meshSource->GetBoneInfo();
+            auto boneInfoCount = static_cast<u32>(boneInfo.Num());
+            if (boneInfoCount > kMaxBoneCount)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - BoneInfo count ({}) exceeds limit ({}), "
+                               "rejecting before write",
+                               boneInfoCount, kMaxBoneCount);
+                return false;
+            }
+        }
+
+        outInfo.Offset = stream.GetStreamPosition();
+
+        // Write counts and flags
+        stream.WriteRaw<u32>(vertexCount);
+        stream.WriteRaw<u32>(indexCount);
+        stream.WriteRaw<u32>(submeshCount);
+        stream.WriteRaw<u32>(materialCount);
+        stream.WriteRaw<bool>(hasBoneInfluences);
+        stream.WriteRaw<bool>(hasShadowIndices);
+        stream.WriteRaw<bool>(hasSkeleton);
+        stream.WriteRaw<bool>(hasBoneInfo);
+        stream.WriteRaw<bool>(hasMorphTargets);
+
+        // Encode and write vertex buffer
+        constexpr u64 kMaxEncodedSize = 2'000'000'000;
+        if (vertexCount > 0)
+        {
+            auto encodedVB = MeshOptimization::EncodeVertexBuffer(
+                vertices.GetData(), vertexCount, sizeof(Vertex));
+            auto encodedSize = static_cast<u64>(encodedVB.Data.size());
+            if (encodedSize > kMaxEncodedSize)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Encoded vertex buffer size ({}) exceeds limit ({})",
+                               encodedSize, kMaxEncodedSize);
+                return false;
+            }
+            stream.WriteRaw<u64>(encodedSize);
+            stream.WriteData(reinterpret_cast<const char*>(encodedVB.Data.data()),
+                             static_cast<sizet>(encodedSize));
+        }
+
+        // Encode and write index buffer
+        if (indexCount > 0)
+        {
+            auto encodedIB = MeshOptimization::EncodeIndexBuffer(
+                indices.GetData(), indexCount, vertexCount);
+            auto encodedSize = static_cast<u64>(encodedIB.Data.size());
+            if (encodedSize > kMaxEncodedSize)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Encoded index buffer size ({}) exceeds limit ({})",
+                               encodedSize, kMaxEncodedSize);
+                return false;
+            }
+            stream.WriteRaw<u64>(encodedSize);
+            stream.WriteData(reinterpret_cast<const char*>(encodedIB.Data.data()),
+                             static_cast<sizet>(encodedSize));
+        }
+
+        // Write submeshes
+        {
+            auto const isFiniteMat4 = [](const glm::mat4& m) -> bool
+            {
+                for (int c = 0; c < 4; ++c)
+                    for (int r = 0; r < 4; ++r)
+                        if (!std::isfinite(m[c][r]))
+                            return false;
+                return true;
+            };
+            for (i32 i = 0; i < submeshes.Num(); ++i)
+            {
+                const auto& sub = submeshes[i];
+                if (!isFiniteMat4(sub.m_Transform) || !isFiniteMat4(sub.m_LocalTransform))
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Submesh {} has non-finite transform, "
+                                   "rejecting before write",
+                                   i);
+                    return false;
+                }
+                const auto& bb = sub.m_BoundingBox;
+                if (!std::isfinite(bb.Min.x) || !std::isfinite(bb.Min.y) || !std::isfinite(bb.Min.z) ||
+                    !std::isfinite(bb.Max.x) || !std::isfinite(bb.Max.y) || !std::isfinite(bb.Max.z) ||
+                    bb.Min.x > bb.Max.x || bb.Min.y > bb.Max.y || bb.Min.z > bb.Max.z)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Submesh {} has non-finite "
+                                   "or inverted bounding box, rejecting before write",
+                                   i);
+                    return false;
+                }
+                if (sub.m_BaseVertex > vertexCount || sub.m_VertexCount > vertexCount - sub.m_BaseVertex ||
+                    sub.m_BaseIndex > indexCount || sub.m_IndexCount > indexCount - sub.m_BaseIndex)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Submesh {} has out-of-range "
+                                   "vertex/index bounds, rejecting before write",
+                                   i);
+                    return false;
+                }
+                stream.WriteData(reinterpret_cast<const char*>(&sub.m_Transform), sizeof(glm::mat4));
+                stream.WriteData(reinterpret_cast<const char*>(&sub.m_LocalTransform), sizeof(glm::mat4));
+                stream.WriteData(reinterpret_cast<const char*>(&sub.m_BoundingBox), sizeof(BoundingBox));
+                stream.WriteRaw<u32>(sub.m_BaseVertex);
+                stream.WriteRaw<u32>(sub.m_BaseIndex);
+                stream.WriteRaw<u32>(sub.m_MaterialIndex);
+                stream.WriteRaw<u32>(sub.m_IndexCount);
+                stream.WriteRaw<u32>(sub.m_VertexCount);
+                {
+                    constexpr u32 MAX_SUBMESH_NAME_LEN = 1'024;
+                    if (sub.m_NodeName.size() > MAX_SUBMESH_NAME_LEN)
+                    {
+                        OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Submesh {} NodeName length ({}) exceeds limit ({})",
+                                       i, sub.m_NodeName.size(), MAX_SUBMESH_NAME_LEN);
+                        return false;
+                    }
+                    if (sub.m_MeshName.size() > MAX_SUBMESH_NAME_LEN)
+                    {
+                        OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Submesh {} MeshName length ({}) exceeds limit ({})",
+                                       i, sub.m_MeshName.size(), MAX_SUBMESH_NAME_LEN);
+                        return false;
+                    }
+                }
+                stream.WriteString(sub.m_NodeName);
+                stream.WriteString(sub.m_MeshName);
+                stream.WriteRaw<bool>(sub.m_IsRigged);
+            }
+        }
+
+        // Write materials
+        for (const auto& [index, matHandle] : materials)
+        {
+            stream.WriteRaw<u32>(index);
+            stream.WriteRaw<AssetHandle>(matHandle);
+        }
+
+        // Encode and write bone influences
+        if (hasBoneInfluences)
+        {
+            const auto& boneInfluences = meshSource->GetBoneInfluences();
+            auto boneCount = static_cast<u32>(boneInfluences.Num());
+
+            if (boneCount != vertexCount)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::SerializeMeshSource - BoneInfluence count ({}) != vertex count ({})",
+                               boneCount, vertexCount);
+                return false;
+            }
+
+            stream.WriteRaw<u32>(boneCount);
+
+            if (boneCount > 0)
+            {
+                auto encodedBones = MeshOptimization::EncodeVertexBuffer(
+                    boneInfluences.GetData(), boneCount, sizeof(BoneInfluence));
+                auto encodedSize = static_cast<u64>(encodedBones.Data.size());
+                if (encodedSize > kMaxEncodedSize)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Encoded bone influence size ({}) exceeds limit ({})",
+                                   encodedSize, kMaxEncodedSize);
+                    return false;
+                }
+                stream.WriteRaw<u64>(encodedSize);
+                stream.WriteData(reinterpret_cast<const char*>(encodedBones.Data.data()),
+                                 static_cast<sizet>(encodedSize));
+            }
+        }
+
+        // Encode and write shadow indices
+        if (hasShadowIndices)
+        {
+            const auto& shadowIndices = meshSource->GetShadowIndices();
+            auto shadowCount = static_cast<u32>(shadowIndices.Num());
+            stream.WriteRaw<u32>(shadowCount);
+
+            if (shadowCount > 0)
+            {
+                auto encodedShadow = MeshOptimization::EncodeIndexBuffer(
+                    shadowIndices.GetData(), shadowCount, vertexCount);
+                auto encodedSize = static_cast<u64>(encodedShadow.Data.size());
+                if (encodedSize > kMaxEncodedSize)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Encoded shadow index size ({}) exceeds limit ({})",
+                                   encodedSize, kMaxEncodedSize);
+                    return false;
+                }
+                stream.WriteRaw<u64>(encodedSize);
+                stream.WriteData(reinterpret_cast<const char*>(encodedShadow.Data.data()),
+                                 static_cast<sizet>(encodedSize));
+            }
+        }
+
+        // Write skeleton
+        if (hasSkeleton)
+        {
+            const auto* skeleton = meshSource->GetSkeleton();
+            auto boneCount = static_cast<u32>(skeleton->m_BoneNames.size());
+
+            // Validate skeleton array sizes — reject mismatches instead of inventing data
+            auto const validateArraySize = [&](sizet actual, const char* name) -> bool
+            {
+                if (static_cast<u32>(actual) != boneCount)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Skeleton {} size ({}) "
+                                   "differs from boneCount ({})",
+                                   name, actual, boneCount);
+                    return false;
+                }
+                return true;
+            };
+
+            if (!validateArraySize(skeleton->m_ParentIndices.size(), "ParentIndices") ||
+                !validateArraySize(skeleton->m_LocalTransforms.size(), "LocalTransforms") ||
+                !validateArraySize(skeleton->m_GlobalTransforms.size(), "GlobalTransforms") ||
+                !validateArraySize(skeleton->m_BindPoseMatrices.size(), "BindPoseMatrices") ||
+                !validateArraySize(skeleton->m_InverseBindPoses.size(), "InverseBindPoses") ||
+                !validateArraySize(skeleton->m_BindPoseLocalTransforms.size(), "BindPoseLocalTransforms") ||
+                !validateArraySize(skeleton->m_BonePreTransforms.size(), "BonePreTransforms"))
+            {
+                return false;
+            }
+
+            stream.WriteRaw<u32>(boneCount);
+
+            // Parent indices
+            if (boneCount > 0)
+            {
+                stream.WriteData(reinterpret_cast<const char*>(skeleton->m_ParentIndices.data()),
+                                 boneCount * sizeof(i32));
+            }
+
+            // Transform arrays (6 arrays of mat4)
+            auto const writeMat4Array = [&](const std::vector<glm::mat4>& arr)
+            {
+                for (u32 j = 0; j < boneCount; ++j)
+                {
+                    stream.WriteData(reinterpret_cast<const char*>(&arr[j][0][0]), sizeof(glm::mat4));
+                }
+            };
+
+            writeMat4Array(skeleton->m_LocalTransforms);
+            writeMat4Array(skeleton->m_GlobalTransforms);
+            writeMat4Array(skeleton->m_BindPoseMatrices);
+            writeMat4Array(skeleton->m_InverseBindPoses);
+            writeMat4Array(skeleton->m_BindPoseLocalTransforms);
+            writeMat4Array(skeleton->m_BonePreTransforms);
+
+            // Bone names
+            for (u32 j = 0; j < boneCount; ++j)
+            {
+                auto nameLen = static_cast<u32>(skeleton->m_BoneNames[j].size());
+                stream.WriteRaw<u32>(nameLen);
+                if (nameLen > 0)
+                {
+                    stream.WriteData(skeleton->m_BoneNames[j].data(), nameLen);
+                }
+            }
+        }
+
+        // Write bone info
+        if (hasBoneInfo)
+        {
+            const auto& boneInfo = meshSource->GetBoneInfo();
+            auto boneInfoCount = static_cast<u32>(boneInfo.Num());
+            stream.WriteRaw<u32>(boneInfoCount);
+
+            // Determine skeleton bone count for index validation
+            u32 const skeletonBoneCount = meshSource->HasSkeleton()
+                                              ? static_cast<u32>(meshSource->GetSkeleton()->m_BoneNames.size())
+                                              : 0;
+
+            for (i32 i = 0; i < boneInfo.Num(); ++i)
+            {
+                // Validate bone index against skeleton
+                if (skeletonBoneCount > 0 && boneInfo[i].m_BoneIndex >= skeletonBoneCount)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - BoneInfo {} has m_BoneIndex {} "
+                                   "but skeleton only has {} bones, rejecting before write",
+                                   i, boneInfo[i].m_BoneIndex, skeletonBoneCount);
+                    return false;
+                }
+                // Validate inverse bind pose is finite
+                bool valid = true;
+                for (int c = 0; c < 4 && valid; ++c)
+                {
+                    for (int r = 0; r < 4 && valid; ++r)
+                    {
+                        if (!std::isfinite(boneInfo[i].m_InverseBindPose[c][r]))
+                        {
+                            OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Non-finite value in BoneInfo {} "
+                                           "InverseBindPose[{},{}], rejecting before write",
+                                           i, c, r);
+                            valid = false;
+                        }
+                    }
+                }
+                if (!valid)
+                {
+                    return false;
+                }
+                stream.WriteData(reinterpret_cast<const char*>(&boneInfo[i].m_InverseBindPose[0][0]), sizeof(glm::mat4));
+                stream.WriteRaw<u32>(boneInfo[i].m_BoneIndex);
+            }
+        }
+
+        // Write morph targets
+        if (hasMorphTargets)
+        {
+            const auto& morphTargets = meshSource->GetMorphTargets();
+            auto targetCount = morphTargets->GetTargetCount();
+            auto vertCount = morphTargets->GetVertexCount();
+            stream.WriteRaw<u32>(targetCount);
+            stream.WriteRaw<u32>(vertCount);
+
+            for (u32 t = 0; t < targetCount; ++t)
+            {
+                const auto& target = morphTargets->Targets[t];
+                // If IsSparse but no sparse entries, fall through to dense to avoid reader ambiguity
+                auto sparseCount = (target.IsSparse && !target.SparseVertices.empty())
+                                       ? static_cast<u32>(target.SparseVertices.size())
+                                       : 0u;
+                stream.WriteRaw<u32>(sparseCount);
+
+                auto nameLen = static_cast<u32>(target.Name.size());
+                stream.WriteRaw<u32>(nameLen);
+                if (nameLen > 0)
+                {
+                    stream.WriteData(target.Name.data(), nameLen);
+                }
+
+                if (sparseCount > 0)
+                {
+                    for (const auto& sparse : target.SparseVertices)
+                    {
+                        stream.WriteRaw<u32>(sparse.VertexIndex);
+                        stream.WriteData(reinterpret_cast<const char*>(&sparse.Delta), sizeof(MorphTargetVertex));
+                    }
+                }
+                else
+                {
+                    // Dense path: target.Vertices must match vertCount exactly.
+                    if (static_cast<u32>(target.Vertices.size()) != vertCount)
+                    {
+                        OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Dense morph target '{}' vertex count ({}) "
+                                       "does not match expected vertCount ({})",
+                                       target.Name, target.Vertices.size(), vertCount);
+                        return false;
+                    }
+                    if (vertCount > 0)
+                    {
+                        stream.WriteData(reinterpret_cast<const char*>(target.Vertices.data()),
+                                         vertCount * sizeof(MorphTargetVertex));
+                    }
+                }
+            }
+        }
+
+        outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
+        OLO_CORE_TRACE("MeshSourceSerializer::SerializeToAssetPack: {} verts, {} indices, {} bytes (encoded)",
+                       vertexCount, indexCount, outInfo.Size);
+        return true;
     }
 
-    Ref<Asset> MeshSourceSerializer::DeserializeFromAssetPack([[maybe_unused]] FileStreamReader& stream, [[maybe_unused]] const AssetPackFile::AssetInfo& assetInfo) const
+    // ── Asset-pack deserialization helpers ──────────────────────────────────
+    // Each helper encapsulates reads, validations and logging for one logical
+    // block of the packed MeshSource format.  Returns true on success.
+
+    namespace
     {
-        // TODO: Implement mesh source pack deserialization
-        OLO_CORE_WARN("MeshSourceSerializer::DeserializeFromAssetPack not yet implemented");
-        return nullptr;
+        constexpr u64 kMaxEncodedSize = 2'000'000'000; // 2 GB
+        constexpr u32 kMaxVertexCount = 50'000'000;
+        constexpr u32 kMaxIndexCount = 150'000'000;
+        constexpr u32 kMaxSubmeshCount = 10'000;
+        constexpr u32 kMaxMaterialCount = 10'000;
+        constexpr u32 kMaxBoneCount = 10'000;
+
+        bool DecodeVertexBufferFromPack(FileStreamReader& stream, u32 vertexCount, TArray<Vertex>& outVertices)
+        {
+            if (vertexCount == 0)
+            {
+                return true;
+            }
+
+            u64 encodedSize = 0;
+            stream.ReadRaw<u64>(encodedSize);
+
+            if (encodedSize > kMaxEncodedSize)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Vertex encodedSize ({}) exceeds limit",
+                               encodedSize);
+                return false;
+            }
+
+            EncodedMeshBuffer encoded;
+            encoded.Data.resize(static_cast<sizet>(encodedSize));
+            encoded.OriginalSize = vertexCount * sizeof(Vertex);
+            stream.ReadData(reinterpret_cast<char*>(encoded.Data.data()),
+                            static_cast<sizet>(encodedSize));
+
+            outVertices.SetNum(static_cast<i32>(vertexCount));
+            if (!MeshOptimization::DecodeVertexBuffer(outVertices.GetData(), vertexCount, sizeof(Vertex), encoded))
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to decode vertex buffer");
+                return false;
+            }
+            return true;
+        }
+
+        bool DecodeIndexBufferFromPack(FileStreamReader& stream, u32 indexCount, TArray<u32>& outIndices, u32 vertexCount)
+        {
+            if (indexCount == 0)
+            {
+                return true;
+            }
+
+            u64 encodedSize = 0;
+            stream.ReadRaw<u64>(encodedSize);
+
+            if (encodedSize > kMaxEncodedSize)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Index encodedSize ({}) exceeds limit",
+                               encodedSize);
+                return false;
+            }
+
+            EncodedMeshBuffer encoded;
+            encoded.Data.resize(static_cast<sizet>(encodedSize));
+            encoded.OriginalSize = indexCount * sizeof(u32);
+            stream.ReadData(reinterpret_cast<char*>(encoded.Data.data()),
+                            static_cast<sizet>(encodedSize));
+
+            outIndices.SetNum(static_cast<i32>(indexCount));
+            if (!MeshOptimization::DecodeIndexBuffer(outIndices.GetData(), indexCount, encoded))
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to decode index buffer");
+                return false;
+            }
+
+            // Validate decoded indices against vertex count
+            for (u32 i = 0; i < indexCount; ++i)
+            {
+                if (outIndices[static_cast<i32>(i)] >= vertexCount)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Index {} out of range "
+                                   "(value={}, vertexCount={})",
+                                   i, outIndices[static_cast<i32>(i)], vertexCount);
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        bool ReadSubmeshesFromPack(FileStreamReader& stream, u32 submeshCount, Ref<MeshSource>& meshSource,
+                                   u32 vertexCount, u32 indexCount)
+        {
+            for (u32 i = 0; i < submeshCount; ++i)
+            {
+                Submesh sub;
+                stream.ReadData(reinterpret_cast<char*>(&sub.m_Transform), sizeof(glm::mat4));
+                stream.ReadData(reinterpret_cast<char*>(&sub.m_LocalTransform), sizeof(glm::mat4));
+                stream.ReadData(reinterpret_cast<char*>(&sub.m_BoundingBox), sizeof(BoundingBox));
+                stream.ReadRaw<u32>(sub.m_BaseVertex);
+                stream.ReadRaw<u32>(sub.m_BaseIndex);
+                stream.ReadRaw<u32>(sub.m_MaterialIndex);
+                stream.ReadRaw<u32>(sub.m_IndexCount);
+                stream.ReadRaw<u32>(sub.m_VertexCount);
+                stream.ReadString(sub.m_NodeName);
+                stream.ReadString(sub.m_MeshName);
+                {
+                    constexpr u32 MAX_SUBMESH_NAME_LEN = 1'024;
+                    if (sub.m_NodeName.size() > MAX_SUBMESH_NAME_LEN)
+                    {
+                        OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Submesh {} NodeName length ({}) exceeds limit ({})",
+                                       i, sub.m_NodeName.size(), MAX_SUBMESH_NAME_LEN);
+                        return false;
+                    }
+                    if (sub.m_MeshName.size() > MAX_SUBMESH_NAME_LEN)
+                    {
+                        OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Submesh {} MeshName length ({}) exceeds limit ({})",
+                                       i, sub.m_MeshName.size(), MAX_SUBMESH_NAME_LEN);
+                        return false;
+                    }
+                }
+                stream.ReadRaw<bool>(sub.m_IsRigged);
+
+                // Validate submesh transform and bounding box floats for NaN/Inf
+                {
+                    auto const isFiniteMat4 = [](const glm::mat4& m) -> bool
+                    {
+                        for (int c = 0; c < 4; ++c)
+                            for (int r = 0; r < 4; ++r)
+                                if (!std::isfinite(m[c][r]))
+                                    return false;
+                        return true;
+                    };
+                    if (!isFiniteMat4(sub.m_Transform) || !isFiniteMat4(sub.m_LocalTransform))
+                    {
+                        OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Submesh {} has non-finite transform", i);
+                        return false;
+                    }
+                    const auto& bb = sub.m_BoundingBox;
+                    if (!std::isfinite(bb.Min.x) || !std::isfinite(bb.Min.y) || !std::isfinite(bb.Min.z) ||
+                        !std::isfinite(bb.Max.x) || !std::isfinite(bb.Max.y) || !std::isfinite(bb.Max.z) ||
+                        bb.Min.x > bb.Max.x || bb.Min.y > bb.Max.y || bb.Min.z > bb.Max.z)
+                    {
+                        OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Submesh {} has non-finite "
+                                       "or inverted bounding box",
+                                       i);
+                        return false;
+                    }
+                }
+
+                // Validate submesh ranges against total counts to catch corrupt data (overflow-safe)
+                if (sub.m_BaseVertex > vertexCount || sub.m_VertexCount > vertexCount - sub.m_BaseVertex ||
+                    sub.m_BaseIndex > indexCount || sub.m_IndexCount > indexCount - sub.m_BaseIndex)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Submesh {} has out-of-range "
+                                   "vertex/index bounds (BaseVertex={}, VertexCount={}, BaseIndex={}, IndexCount={})",
+                                   i, sub.m_BaseVertex, sub.m_VertexCount, sub.m_BaseIndex, sub.m_IndexCount);
+                    return false;
+                }
+
+                meshSource->AddSubmesh(sub);
+            }
+            return true;
+        }
+
+        bool ReadBoneInfluencesFromPack(FileStreamReader& stream, Ref<MeshSource>& meshSource, u32 vertexCount)
+        {
+            u32 boneCount = 0;
+            stream.ReadRaw<u32>(boneCount);
+
+            // Bone influences should be 1:1 with vertices
+            if (boneCount != vertexCount)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - BoneInfluence count ({}) != vertex count ({})",
+                               boneCount, vertexCount);
+                return false;
+            }
+
+            if (boneCount > 0)
+            {
+                u64 encodedSize = 0;
+                stream.ReadRaw<u64>(encodedSize);
+
+                if (encodedSize > kMaxEncodedSize)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - BoneInfluence encodedSize ({}) exceeds limit",
+                                   encodedSize);
+                    return false;
+                }
+
+                EncodedMeshBuffer encoded;
+                encoded.Data.resize(static_cast<sizet>(encodedSize));
+                encoded.OriginalSize = boneCount * sizeof(BoneInfluence);
+                stream.ReadData(reinterpret_cast<char*>(encoded.Data.data()),
+                                static_cast<sizet>(encodedSize));
+
+                auto& boneInfluences = meshSource->GetBoneInfluences();
+                boneInfluences.SetNum(static_cast<i32>(boneCount));
+                if (!MeshOptimization::DecodeVertexBuffer(boneInfluences.GetData(), boneCount, sizeof(BoneInfluence), encoded))
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to decode bone influences");
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        bool ReadShadowIndicesFromPack(FileStreamReader& stream, Ref<MeshSource>& meshSource, u32 vertexCount)
+        {
+            u32 shadowCount = 0;
+            stream.ReadRaw<u32>(shadowCount);
+
+            if (shadowCount > kMaxIndexCount)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Shadow index count ({}) exceeds limit",
+                               shadowCount);
+                return false;
+            }
+
+            if (shadowCount > 0)
+            {
+                u64 encodedSize = 0;
+                stream.ReadRaw<u64>(encodedSize);
+
+                if (encodedSize > kMaxEncodedSize)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Shadow encodedSize ({}) exceeds limit",
+                                   encodedSize);
+                    return false;
+                }
+
+                EncodedMeshBuffer encoded;
+                encoded.Data.resize(static_cast<sizet>(encodedSize));
+                encoded.OriginalSize = shadowCount * sizeof(u32);
+                stream.ReadData(reinterpret_cast<char*>(encoded.Data.data()),
+                                static_cast<sizet>(encodedSize));
+
+                auto& shadowIndices = meshSource->GetShadowIndices();
+                shadowIndices.SetNum(static_cast<i32>(shadowCount));
+                if (!MeshOptimization::DecodeIndexBuffer(shadowIndices.GetData(), shadowCount, encoded))
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to decode shadow indices");
+                    return false;
+                }
+
+                // Validate shadow index range against vertex count
+                for (u32 si = 0; si < shadowCount; ++si)
+                {
+                    if (shadowIndices[static_cast<i32>(si)] >= vertexCount)
+                    {
+                        OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Shadow index {} out of range "
+                                       "(value={}, vertexCount={})",
+                                       si, shadowIndices[static_cast<i32>(si)], vertexCount);
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        bool ReadSkeletonFromPack(FileStreamReader& stream, Ref<MeshSource>& meshSource)
+        {
+            u32 boneCount = 0;
+            stream.ReadRaw<u32>(boneCount);
+
+            if (boneCount > kMaxBoneCount)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Bone count {} exceeds limit {}",
+                               boneCount, kMaxBoneCount);
+                return false;
+            }
+
+            auto skeleton = Ref<Skeleton>::Create(static_cast<sizet>(boneCount));
+
+            // Parent indices — read into place, then validate bounds
+            stream.ReadData(reinterpret_cast<char*>(skeleton->m_ParentIndices.data()),
+                            boneCount * sizeof(i32));
+
+            for (u32 j = 0; j < boneCount; ++j)
+            {
+                auto const idx = skeleton->m_ParentIndices[j];
+                if (idx != -1 && (idx < 0 || idx >= static_cast<i32>(boneCount)))
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - ParentIndex[{}] = {} "
+                                   "is out of range [0, {}) or -1",
+                                   j, idx, boneCount);
+                    return false;
+                }
+            }
+
+            // Transform arrays
+            auto const readMat4Array = [&](std::vector<glm::mat4>& arr)
+            {
+                arr.resize(boneCount);
+                stream.ReadData(reinterpret_cast<char*>(arr.data()), boneCount * sizeof(glm::mat4));
+            };
+
+            readMat4Array(skeleton->m_LocalTransforms);
+            readMat4Array(skeleton->m_GlobalTransforms);
+            readMat4Array(skeleton->m_BindPoseMatrices);
+            readMat4Array(skeleton->m_InverseBindPoses);
+            readMat4Array(skeleton->m_BindPoseLocalTransforms);
+            readMat4Array(skeleton->m_BonePreTransforms);
+
+            // Validate all deserialized matrices for non-finite values
+            auto const validateMat4Array = [&](const std::vector<glm::mat4>& arr, const char* name) -> bool
+            {
+                for (sizet i = 0; i < arr.size(); ++i)
+                {
+                    const auto& m = arr[i];
+                    for (int c = 0; c < 4; ++c)
+                    {
+                        for (int r = 0; r < 4; ++r)
+                        {
+                            if (!std::isfinite(m[c][r]))
+                            {
+                                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Non-finite value in skeleton {} "
+                                               "at bone {} element [{},{}]",
+                                               name, i, c, r);
+                                return false;
+                            }
+                        }
+                    }
+                }
+                return true;
+            };
+
+            if (!validateMat4Array(skeleton->m_LocalTransforms, "LocalTransforms") ||
+                !validateMat4Array(skeleton->m_GlobalTransforms, "GlobalTransforms") ||
+                !validateMat4Array(skeleton->m_BindPoseMatrices, "BindPoseMatrices") ||
+                !validateMat4Array(skeleton->m_InverseBindPoses, "InverseBindPoses") ||
+                !validateMat4Array(skeleton->m_BindPoseLocalTransforms, "BindPoseLocalTransforms") ||
+                !validateMat4Array(skeleton->m_BonePreTransforms, "BonePreTransforms"))
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Corrupt skeleton data, rejecting");
+                return false;
+            }
+
+            // Bone names
+            constexpr u32 MAX_BONE_NAME_LEN = 1'024;
+            skeleton->m_BoneNames.resize(boneCount);
+            for (u32 j = 0; j < boneCount; ++j)
+            {
+                u32 nameLen = 0;
+                stream.ReadRaw<u32>(nameLen);
+                if (nameLen > MAX_BONE_NAME_LEN)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Bone name length ({}) "
+                                   "exceeds limit at bone {}",
+                                   nameLen, j);
+                    return false;
+                }
+                if (nameLen > 0)
+                {
+                    skeleton->m_BoneNames[j].resize(nameLen);
+                    stream.ReadData(skeleton->m_BoneNames[j].data(), nameLen);
+                }
+            }
+
+            // Compute bind-pose FinalBoneMatrices
+            skeleton->m_FinalBoneMatrices.resize(boneCount);
+            for (u32 j = 0; j < boneCount; ++j)
+            {
+                skeleton->m_FinalBoneMatrices[j] = skeleton->m_GlobalTransforms[j] * skeleton->m_InverseBindPoses[j];
+            }
+
+            meshSource->SetSkeleton(skeleton);
+            return true;
+        }
+
+        bool ReadBoneInfoFromPack(FileStreamReader& stream, Ref<MeshSource>& meshSource)
+        {
+            u32 boneInfoCount = 0;
+            stream.ReadRaw<u32>(boneInfoCount);
+
+            if (boneInfoCount > kMaxBoneCount)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - boneInfoCount {} exceeds limit {}",
+                               boneInfoCount, kMaxBoneCount);
+                return false;
+            }
+
+            // Determine skeleton bone count for index validation
+            u32 const skeletonBoneCount = meshSource->HasSkeleton()
+                                              ? static_cast<u32>(meshSource->GetSkeleton()->m_BoneNames.size())
+                                              : 0;
+
+            auto& boneInfo = meshSource->GetBoneInfo();
+            for (u32 i = 0; i < boneInfoCount; ++i)
+            {
+                BoneInfo info;
+                stream.ReadData(reinterpret_cast<char*>(&info.m_InverseBindPose[0][0]), sizeof(glm::mat4));
+                stream.ReadRaw<u32>(info.m_BoneIndex);
+
+                // Validate bone index against skeleton
+                if (skeletonBoneCount > 0 && info.m_BoneIndex >= skeletonBoneCount)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - BoneInfo {} has m_BoneIndex {} "
+                                   "but skeleton only has {} bones",
+                                   i, info.m_BoneIndex, skeletonBoneCount);
+                    return false;
+                }
+
+                // Validate inverse bind pose matrix for non-finite values
+                bool valid = true;
+                for (int c = 0; c < 4 && valid; ++c)
+                {
+                    for (int r = 0; r < 4 && valid; ++r)
+                    {
+                        if (!std::isfinite(info.m_InverseBindPose[c][r]))
+                        {
+                            OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Non-finite value in BoneInfo {} "
+                                           "InverseBindPose[{},{}]",
+                                           i, c, r);
+                            valid = false;
+                        }
+                    }
+                }
+                if (!valid)
+                {
+                    return false;
+                }
+
+                boneInfo.Add(info);
+            }
+            return true;
+        }
+
+        bool ReadMorphTargetsFromPack(FileStreamReader& stream, Ref<MeshSource>& meshSource, u32 vertexCount)
+        {
+            u32 targetCount = 0;
+            u32 vertCount = 0;
+            stream.ReadRaw<u32>(targetCount);
+            stream.ReadRaw<u32>(vertCount);
+
+            constexpr u32 MAX_MORPH_TARGETS = 1'000;
+            constexpr u32 MAX_NAME_LEN = 1'024;
+
+            if (targetCount > MAX_MORPH_TARGETS)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Morph targetCount ({}) exceeds limit",
+                               targetCount);
+                return false;
+            }
+            if (vertCount != vertexCount)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Morph vertCount ({}) does not match vertexCount ({})",
+                               vertCount, vertexCount);
+                return false;
+            }
+
+            auto morphTargetSet = Ref<MorphTargetSet>::Create();
+
+            auto const validateMorphVertex = [](const MorphTargetVertex& v) -> bool
+            {
+                return std::isfinite(v.DeltaPosition.x) && std::isfinite(v.DeltaPosition.y) && std::isfinite(v.DeltaPosition.z) &&
+                       std::isfinite(v.DeltaNormal.x) && std::isfinite(v.DeltaNormal.y) && std::isfinite(v.DeltaNormal.z) &&
+                       std::isfinite(v.DeltaTangent.x) && std::isfinite(v.DeltaTangent.y) && std::isfinite(v.DeltaTangent.z);
+            };
+
+            for (u32 t = 0; t < targetCount; ++t)
+            {
+                u32 sparseCount = 0;
+                stream.ReadRaw<u32>(sparseCount);
+
+                if (sparseCount > vertexCount)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Morph sparseCount ({}) exceeds vertexCount ({})",
+                                   sparseCount, vertexCount);
+                    return false;
+                }
+
+                MorphTarget target;
+                u32 nameLen = 0;
+                stream.ReadRaw<u32>(nameLen);
+
+                if (nameLen > MAX_NAME_LEN)
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Morph target name length ({}) exceeds limit",
+                                   nameLen);
+                    return false;
+                }
+                if (nameLen > 0)
+                {
+                    target.Name.resize(nameLen);
+                    stream.ReadData(target.Name.data(), nameLen);
+                }
+
+                if (sparseCount > 0)
+                {
+                    target.IsSparse = true;
+                    target.SparseVertices.resize(sparseCount);
+                    for (u32 s = 0; s < sparseCount; ++s)
+                    {
+                        stream.ReadRaw<u32>(target.SparseVertices[s].VertexIndex);
+                        stream.ReadData(reinterpret_cast<char*>(&target.SparseVertices[s].Delta), sizeof(MorphTargetVertex));
+
+                        if (target.SparseVertices[s].VertexIndex >= vertexCount)
+                        {
+                            OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Sparse morph vertex index {} "
+                                           "out of range (vertexCount={})",
+                                           target.SparseVertices[s].VertexIndex, vertexCount);
+                            return false;
+                        }
+                        if (!validateMorphVertex(target.SparseVertices[s].Delta))
+                        {
+                            OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Non-finite morph delta at "
+                                           "sparse vertex index {}",
+                                           target.SparseVertices[s].VertexIndex);
+                            return false;
+                        }
+                    }
+                }
+                else
+                {
+                    target.IsSparse = false;
+                    target.Vertices.resize(vertCount);
+                    if (vertCount > 0)
+                    {
+                        stream.ReadData(reinterpret_cast<char*>(target.Vertices.data()),
+                                        vertCount * sizeof(MorphTargetVertex));
+
+                        for (u32 v = 0; v < vertCount; ++v)
+                        {
+                            if (!validateMorphVertex(target.Vertices[v]))
+                            {
+                                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Non-finite morph delta at "
+                                               "dense vertex index {}",
+                                               v);
+                                return false;
+                            }
+                        }
+                    }
+                }
+
+                morphTargetSet->AddTarget(std::move(target));
+            }
+
+            meshSource->SetMorphTargets(morphTargetSet);
+            return true;
+        }
+    } // anonymous namespace
+
+    Ref<Asset> MeshSourceSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        stream.SetStreamPosition(assetInfo.PackedOffset);
+
+        // Read counts and flags
+        u32 vertexCount = 0;
+        u32 indexCount = 0;
+        u32 submeshCount = 0;
+        u32 materialCount = 0;
+        bool hasBoneInfluences = false;
+        bool hasShadowIndices = false;
+        bool hasSkeleton = false;
+        bool hasBoneInfo = false;
+        bool hasMorphTargets = false;
+
+        stream.ReadRaw<u32>(vertexCount);
+        stream.ReadRaw<u32>(indexCount);
+        stream.ReadRaw<u32>(submeshCount);
+        stream.ReadRaw<u32>(materialCount);
+        stream.ReadRaw<bool>(hasBoneInfluences);
+        stream.ReadRaw<bool>(hasShadowIndices);
+        stream.ReadRaw<bool>(hasSkeleton);
+        stream.ReadRaw<bool>(hasBoneInfo);
+        stream.ReadRaw<bool>(hasMorphTargets);
+
+        // Bounds-check deserialized counts to detect corrupt data early
+        if (vertexCount > kMaxVertexCount || indexCount > kMaxIndexCount ||
+            submeshCount > kMaxSubmeshCount || materialCount > kMaxMaterialCount)
+        {
+            OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Suspicious counts "
+                           "(verts={}, indices={}, submeshes={}, materials={})",
+                           vertexCount, indexCount, submeshCount, materialCount);
+            return nullptr;
+        }
+
+        // Decode vertex and index buffers
+        TArray<Vertex> vertices;
+        if (!DecodeVertexBufferFromPack(stream, vertexCount, vertices))
+        {
+            return nullptr;
+        }
+
+        TArray<u32> indices;
+        if (!DecodeIndexBufferFromPack(stream, indexCount, indices, vertexCount))
+        {
+            return nullptr;
+        }
+
+        auto meshSource = Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+
+        // Read submeshes
+        if (!ReadSubmeshesFromPack(stream, submeshCount, meshSource, vertexCount, indexCount))
+        {
+            return nullptr;
+        }
+
+        // Read materials
+        for (u32 i = 0; i < materialCount; ++i)
+        {
+            u32 matIndex = 0;
+            AssetHandle matHandle{};
+            stream.ReadRaw<u32>(matIndex);
+            stream.ReadRaw<AssetHandle>(matHandle);
+            meshSource->SetMaterial(matIndex, matHandle);
+        }
+
+        // Decode bone influences
+        if (hasBoneInfluences && !ReadBoneInfluencesFromPack(stream, meshSource, vertexCount))
+        {
+            return nullptr;
+        }
+
+        // Decode shadow indices
+        if (hasShadowIndices && !ReadShadowIndicesFromPack(stream, meshSource, vertexCount))
+        {
+            return nullptr;
+        }
+
+        // Read skeleton
+        if (hasSkeleton && !ReadSkeletonFromPack(stream, meshSource))
+        {
+            return nullptr;
+        }
+
+        // Read bone info
+        if (hasBoneInfo && !ReadBoneInfoFromPack(stream, meshSource))
+        {
+            return nullptr;
+        }
+
+        // Read morph targets
+        if (hasMorphTargets && !ReadMorphTargetsFromPack(stream, meshSource, vertexCount))
+        {
+            return nullptr;
+        }
+
+        meshSource->SetHandle(assetInfo.Handle);
+
+        // Asset pack data is already optimized — skip re-optimization during Build()
+        meshSource->SetPreOptimized(true);
+        meshSource->Build();
+
+        OLO_CORE_TRACE("MeshSourceSerializer::DeserializeFromAssetPack: {} verts, {} indices",
+                       vertexCount, indexCount);
+        return meshSource;
     }
 
     //////////////////////////////////////////////////////////////////////////////////

@@ -1,16 +1,517 @@
 #include "OloEnginePCH.h"
 #include "AnimatedModel.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Asset/MeshCache.h"
+#include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Animation/MorphTargets/MorphTarget.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
+#include <algorithm>
+#include <array>
+#include <cctype>
 #include <cmath>
 #include <filesystem>
+#include <ranges>
 #include <set>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
 namespace OloEngine
 {
+    namespace
+    {
+        // Combine multiple MeshSources into a single MeshSource for binary cache serialization.
+        // Each original MeshSource becomes one submesh in the combined output.
+        Ref<MeshSource> CombineMeshSourcesForCache(const std::vector<Ref<MeshSource>>& meshes, const Ref<Skeleton>& skeleton)
+        {
+            auto combined = Ref<MeshSource>::Create();
+            u32 baseVertex = 0;
+            u32 baseIndex = 0;
+
+            for (const auto& src : meshes)
+            {
+                if (!src)
+                {
+                    continue;
+                }
+
+                const auto& srcVerts = src->GetVertices();
+                const auto& srcIndices = src->GetIndices();
+
+                for (i32 i = 0; i < srcVerts.Num(); ++i)
+                {
+                    combined->GetVertices().Add(srcVerts[i]);
+                }
+
+                for (i32 i = 0; i < srcIndices.Num(); ++i)
+                {
+                    combined->GetIndices().Add(srcIndices[i] + baseVertex);
+                }
+
+                for (i32 i = 0; i < src->GetBoneInfluences().Num(); ++i)
+                {
+                    combined->GetBoneInfluences().Add(src->GetBoneInfluences()[i]);
+                }
+
+                // Deduplicate bone info entries by bone index
+                std::unordered_set<u32> existingBoneIndices;
+                for (i32 j = 0; j < combined->GetBoneInfo().Num(); ++j)
+                {
+                    existingBoneIndices.insert(combined->GetBoneInfo()[j].m_BoneIndex);
+                }
+                for (i32 i = 0; i < src->GetBoneInfo().Num(); ++i)
+                {
+                    if (auto [_, inserted] = existingBoneIndices.insert(src->GetBoneInfo()[i].m_BoneIndex); inserted)
+                    {
+                        combined->GetBoneInfo().Add(src->GetBoneInfo()[i]);
+                    }
+                }
+
+                // Create submesh entry for this original mesh
+                Submesh submesh;
+                submesh.m_BaseVertex = baseVertex;
+                submesh.m_BaseIndex = baseIndex;
+                submesh.m_VertexCount = static_cast<u32>(srcVerts.Num());
+                submesh.m_IndexCount = static_cast<u32>(srcIndices.Num());
+                submesh.m_IsRigged = src->HasBoneInfluences();
+
+                if (!src->GetSubmeshes().IsEmpty())
+                {
+                    const auto& origSub = src->GetSubmeshes()[0];
+                    submesh.m_MaterialIndex = origSub.m_MaterialIndex;
+                    submesh.m_Transform = origSub.m_Transform;
+                    submesh.m_LocalTransform = origSub.m_LocalTransform;
+                    submesh.m_BoundingBox = origSub.m_BoundingBox;
+                    submesh.m_NodeName = origSub.m_NodeName;
+                    submesh.m_MeshName = origSub.m_MeshName;
+                }
+
+                combined->GetSubmeshes().Add(submesh);
+                baseVertex += static_cast<u32>(srcVerts.Num());
+                baseIndex += static_cast<u32>(srcIndices.Num());
+            }
+
+            if (skeleton)
+            {
+                combined->SetSkeleton(skeleton);
+            }
+
+            // Merge morph targets from all meshes into combined vertex space.
+            // Each mesh's targets are expanded/remapped so vertex indices reference
+            // the combined buffer. On split, the reverse extraction happens.
+            {
+                auto totalVertCount = static_cast<u32>(combined->GetVertices().Num());
+                auto mergedSet = Ref<MorphTargetSet>::Create();
+                std::unordered_map<std::string, sizet> nameToIndex; // target name -> index in mergedSet
+
+                u32 meshBaseVertex = 0;
+                for (const auto& src : meshes)
+                {
+                    if (!src)
+                    {
+                        continue;
+                    }
+                    auto srcVertCount = static_cast<u32>(src->GetVertices().Num());
+
+                    if (src->HasMorphTargets())
+                    {
+                        for (const auto& target : src->GetMorphTargets()->Targets)
+                        {
+                            auto it = nameToIndex.find(target.Name);
+                            if (it == nameToIndex.end())
+                            {
+                                // New target — create expanded dense array
+                                MorphTarget combined_target;
+                                combined_target.Name = target.Name;
+                                combined_target.IsSparse = false;
+                                combined_target.Vertices.resize(totalVertCount); // zero-initialized
+
+                                if (target.IsSparse)
+                                {
+                                    for (const auto& sparse : target.SparseVertices)
+                                    {
+                                        if (sparse.VertexIndex < srcVertCount)
+                                        {
+                                            combined_target.Vertices[meshBaseVertex + sparse.VertexIndex] = sparse.Delta;
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    auto copyCount = std::min(static_cast<u32>(target.Vertices.size()), srcVertCount);
+                                    for (u32 v = 0; v < copyCount; ++v)
+                                    {
+                                        combined_target.Vertices[meshBaseVertex + v] = target.Vertices[v];
+                                    }
+                                }
+
+                                nameToIndex[target.Name] = mergedSet->Targets.size();
+                                mergedSet->Targets.push_back(MoveTemp(combined_target));
+                            }
+                            else
+                            {
+                                // Existing target — fill in this mesh's vertex range
+                                auto& existing = mergedSet->Targets[it->second];
+                                if (target.IsSparse)
+                                {
+                                    for (const auto& sparse : target.SparseVertices)
+                                    {
+                                        if (sparse.VertexIndex < srcVertCount)
+                                        {
+                                            existing.Vertices[meshBaseVertex + sparse.VertexIndex] = sparse.Delta;
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    auto copyCount = std::min(static_cast<u32>(target.Vertices.size()), srcVertCount);
+                                    for (u32 v = 0; v < copyCount; ++v)
+                                    {
+                                        existing.Vertices[meshBaseVertex + v] = target.Vertices[v];
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    meshBaseVertex += srcVertCount;
+                }
+
+                if (!mergedSet->Targets.empty())
+                {
+                    combined->SetMorphTargets(mergedSet);
+                }
+            }
+
+            // Preserve pre-optimized state from inputs so the cache round-trip
+            // skips OptimizeMesh on reload (mirrors SplitCombinedMeshSource).
+            // Only mark the bundle as pre-optimized when every non-null source mesh is.
+            // Null entries are ignored rather than causing the flag to be false.
+            if (auto anyNonNull = std::any_of(meshes.begin(), meshes.end(),
+                                              [](const Ref<MeshSource>& s)
+                                              { return static_cast<bool>(s); });
+                anyNonNull)
+            {
+                if (auto allPreOpt = std::all_of(meshes.begin(), meshes.end(),
+                                                 [](const Ref<MeshSource>& src)
+                                                 { return !src || src->IsPreOptimized(); });
+                    allPreOpt)
+                {
+                    combined->SetPreOptimized(true);
+                }
+            }
+
+            return combined;
+        }
+
+        // Split a combined MeshSource back into per-submesh MeshSources.
+        bool SplitCombinedMeshSource(
+            const Ref<MeshSource>& combined,
+            std::vector<Ref<MeshSource>>& outMeshes,
+            Ref<Skeleton>& outSkeleton)
+        {
+            if (!combined || combined->GetSubmeshes().IsEmpty())
+            {
+                return false;
+            }
+
+            // Build into locals so outMeshes/outSkeleton stay untouched on failure.
+            Ref<Skeleton> localSkeleton;
+            if (combined->HasSkeleton())
+            {
+                const auto* src = combined->GetSkeleton();
+
+                // Verify all skeleton arrays share the same bone count
+                auto const expectedBoneCount = src->m_ParentIndices.size();
+                if (src->m_BoneNames.size() != expectedBoneCount ||
+                    src->m_LocalTransforms.size() != expectedBoneCount ||
+                    src->m_GlobalTransforms.size() != expectedBoneCount ||
+                    src->m_FinalBoneMatrices.size() != expectedBoneCount ||
+                    src->m_BindPoseMatrices.size() != expectedBoneCount ||
+                    src->m_InverseBindPoses.size() != expectedBoneCount ||
+                    src->m_BindPoseLocalTransforms.size() != expectedBoneCount ||
+                    src->m_BonePreTransforms.size() != expectedBoneCount)
+                {
+                    OLO_CORE_ERROR("AnimatedModel::SplitCombinedMeshSource - Skeleton array size mismatch "
+                                   "(expected {} bones), rejecting cache",
+                                   expectedBoneCount);
+                    return false;
+                }
+
+                // Validate all skeleton matrices for non-finite values before copying
+                auto const validateMat4Array = [](const std::vector<glm::mat4>& arr, const char* name) -> bool
+                {
+                    for (sizet i = 0; i < arr.size(); ++i)
+                    {
+                        const auto& m = arr[i];
+                        for (int c = 0; c < 4; ++c)
+                        {
+                            for (int r = 0; r < 4; ++r)
+                            {
+                                if (!std::isfinite(m[c][r]))
+                                {
+                                    OLO_CORE_ERROR("AnimatedModel::SplitCombinedMeshSource - Non-finite value in cached skeleton {} "
+                                                   "at bone {} element [{},{}], rejecting cache",
+                                                   name, i, c, r);
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                    return true;
+                };
+
+                if (!validateMat4Array(src->m_LocalTransforms, "LocalTransforms") ||
+                    !validateMat4Array(src->m_GlobalTransforms, "GlobalTransforms") ||
+                    !validateMat4Array(src->m_FinalBoneMatrices, "FinalBoneMatrices") ||
+                    !validateMat4Array(src->m_BindPoseMatrices, "BindPoseMatrices") ||
+                    !validateMat4Array(src->m_InverseBindPoses, "InverseBindPoses") ||
+                    !validateMat4Array(src->m_BindPoseLocalTransforms, "BindPoseLocalTransforms") ||
+                    !validateMat4Array(src->m_BonePreTransforms, "BonePreTransforms"))
+                {
+                    return false;
+                }
+
+                localSkeleton = Ref<Skeleton>::Create();
+                localSkeleton->m_ParentIndices = src->m_ParentIndices;
+                localSkeleton->m_BoneNames = src->m_BoneNames;
+                localSkeleton->m_LocalTransforms = src->m_LocalTransforms;
+                localSkeleton->m_GlobalTransforms = src->m_GlobalTransforms;
+                localSkeleton->m_FinalBoneMatrices = src->m_FinalBoneMatrices;
+                localSkeleton->m_BindPoseMatrices = src->m_BindPoseMatrices;
+                localSkeleton->m_InverseBindPoses = src->m_InverseBindPoses;
+                localSkeleton->m_BindPoseLocalTransforms = src->m_BindPoseLocalTransforms;
+                localSkeleton->m_BonePreTransforms = src->m_BonePreTransforms;
+            }
+
+            const auto& allVerts = combined->GetVertices();
+            const auto& allIndices = combined->GetIndices();
+            const auto& allBones = combined->GetBoneInfluences();
+            const auto& allBoneInfo = combined->GetBoneInfo();
+
+            std::vector<Ref<MeshSource>> localMeshes;
+            localMeshes.reserve(static_cast<sizet>(combined->GetSubmeshes().Num()));
+
+            auto submeshCount = combined->GetSubmeshes().Num();
+            for (i32 s = 0; s < submeshCount; ++s)
+            {
+                const auto& submesh = combined->GetSubmeshes()[s];
+
+                // Validate submesh ranges against combined buffer sizes
+                if (submesh.m_BaseVertex > static_cast<u32>(allVerts.Num()) ||
+                    submesh.m_VertexCount > static_cast<u32>(allVerts.Num()) - submesh.m_BaseVertex ||
+                    submesh.m_BaseIndex > static_cast<u32>(allIndices.Num()) ||
+                    submesh.m_IndexCount > static_cast<u32>(allIndices.Num()) - submesh.m_BaseIndex)
+                {
+                    OLO_CORE_ERROR("AnimatedModel::SplitCombinedMeshSource - Submesh {} has out-of-range bounds, "
+                                   "rejecting cache",
+                                   s);
+                    return false;
+                }
+
+                auto mesh = Ref<MeshSource>::Create();
+
+                for (u32 i = 0; i < submesh.m_VertexCount; ++i)
+                {
+                    mesh->GetVertices().Add(allVerts[submesh.m_BaseVertex + i]);
+                }
+
+                for (u32 i = 0; i < submesh.m_IndexCount; ++i)
+                {
+                    u32 const orig = allIndices[submesh.m_BaseIndex + i];
+                    if (orig < submesh.m_BaseVertex || orig >= submesh.m_BaseVertex + submesh.m_VertexCount)
+                    {
+                        OLO_CORE_ERROR("AnimatedModel::SplitCombinedMeshSource - Index {} out of submesh {} "
+                                       "vertex range [{}..{}), rejecting cache",
+                                       orig, s, submesh.m_BaseVertex,
+                                       submesh.m_BaseVertex + submesh.m_VertexCount);
+                        return false;
+                    }
+                    mesh->GetIndices().Add(orig - submesh.m_BaseVertex);
+                }
+
+                bool const hasBoneSlice = !allBones.IsEmpty() && submesh.m_BaseVertex + submesh.m_VertexCount <= static_cast<u32>(allBones.Num());
+                if (localSkeleton && !hasBoneSlice)
+                {
+                    OLO_CORE_ERROR("AnimatedModel::SplitCombinedMeshSource - Bone influence data missing for rigged submesh {}, rejecting cache", s);
+                    return false;
+                }
+                if (hasBoneSlice)
+                {
+                    for (u32 i = 0; i < submesh.m_VertexCount; ++i)
+                    {
+                        mesh->GetBoneInfluences().Add(allBones[submesh.m_BaseVertex + i]);
+                    }
+                }
+
+                auto boneInfoCount = allBoneInfo.Num();
+                for (i32 i = 0; i < boneInfoCount; ++i)
+                {
+                    mesh->GetBoneInfo().Add(allBoneInfo[i]);
+                }
+
+                Submesh newSub = submesh;
+                newSub.m_BaseVertex = 0;
+                newSub.m_BaseIndex = 0;
+                mesh->GetSubmeshes().Add(newSub);
+
+                mesh->SetSkeleton(localSkeleton);
+                mesh->SetPreOptimized(combined->IsPreOptimized());
+
+                // For pre-optimized meshes, generate shadow indices before Build
+                // because Build skips OptimizeMesh (which normally handles it).
+                if (mesh->IsPreOptimized())
+                {
+                    MeshOptimization::GenerateShadowIndices(*mesh);
+                }
+                mesh->Build();
+
+                localMeshes.push_back(mesh);
+            }
+
+            // Split combined morph targets back into per-mesh sets.
+            // Combined targets are dense arrays spanning the total vertex count;
+            // extract each submesh's slice and skip targets with all-zero deltas.
+            constexpr f32 kMorphEpsilon = 1e-6f;
+            auto isNonZeroVec3 = [](const glm::vec3& v, f32 eps)
+            {
+                return std::abs(v.x) > eps || std::abs(v.y) > eps || std::abs(v.z) > eps;
+            };
+
+            if (combined->HasMorphTargets())
+            {
+                const auto& combinedMorphs = combined->GetMorphTargets();
+                auto const totalVertCount = static_cast<u32>(combined->GetVertices().Num());
+
+                for (const auto& target : combinedMorphs->Targets)
+                {
+                    // Combined morph targets must be dense and span the full
+                    // vertex count (CombineMeshSources always produces this
+                    // layout).  Reject anything else as cache corruption.
+                    if (target.IsSparse)
+                    {
+                        OLO_CORE_ERROR("AnimatedModel::SplitCombinedMeshSource - Combined morph target '{}' "
+                                       "is sparse (expected dense), rejecting cache",
+                                       target.Name);
+                        return false;
+                    }
+                    if (static_cast<u32>(target.Vertices.size()) != totalVertCount)
+                    {
+                        OLO_CORE_ERROR("AnimatedModel::SplitCombinedMeshSource - Combined morph target '{}' "
+                                       "has {} vertices (expected {}), rejecting cache",
+                                       target.Name, target.Vertices.size(), totalVertCount);
+                        return false;
+                    }
+                }
+
+                for (i32 s = 0; s < submeshCount && s < static_cast<i32>(localMeshes.size()); ++s)
+                {
+                    const auto& submesh = combined->GetSubmeshes()[s];
+                    auto meshMorphs = Ref<MorphTargetSet>::Create();
+
+                    for (const auto& target : combinedMorphs->Targets)
+                    {
+                        MorphTarget localTarget;
+                        localTarget.Name = target.Name;
+                        localTarget.IsSparse = false;
+                        localTarget.Vertices.resize(submesh.m_VertexCount);
+
+                        bool hasNonZero = false;
+                        if (!target.IsSparse && submesh.m_BaseVertex + submesh.m_VertexCount <= static_cast<u32>(target.Vertices.size()))
+                        {
+                            for (u32 v = 0; v < submesh.m_VertexCount; ++v)
+                            {
+                                localTarget.Vertices[v] = target.Vertices[submesh.m_BaseVertex + v];
+                                const auto& d = localTarget.Vertices[v];
+                                if (isNonZeroVec3(d.DeltaPosition, kMorphEpsilon) || isNonZeroVec3(d.DeltaNormal, kMorphEpsilon) || isNonZeroVec3(d.DeltaTangent, kMorphEpsilon))
+                                {
+                                    hasNonZero = true;
+                                }
+                            }
+                        }
+
+                        if (hasNonZero)
+                        {
+                            meshMorphs->Targets.push_back(MoveTemp(localTarget));
+                        }
+                    }
+
+                    if (!meshMorphs->Targets.empty())
+                    {
+                        localMeshes[s]->SetMorphTargets(meshMorphs);
+                    }
+                }
+            }
+
+            // Commit — no exceptions past this point.
+            outSkeleton = MoveTemp(localSkeleton);
+            outMeshes = MoveTemp(localMeshes);
+            return true;
+        }
+
+        // Scan directory for a file whose stem matches (case-insensitive) with any common image extension.
+        // Returns empty path if nothing found.
+        std::filesystem::path FindTextureInDirectory(const std::filesystem::path& directory, const std::filesystem::path& filenameHint)
+        {
+            static constexpr std::array<std::string_view, 7> kImageExtensions = {
+                ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".hdr", ".dds"
+            };
+
+            std::string targetStem = filenameHint.stem().string();
+            std::ranges::transform(targetStem, targetStem.begin(),
+                                   [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
+
+            std::error_code ec;
+            for (const auto& entry : std::filesystem::directory_iterator(directory, ec))
+            {
+                if (!entry.is_regular_file())
+                {
+                    continue;
+                }
+
+                const auto& entryPath = entry.path();
+                std::string entryStem = entryPath.stem().string();
+                std::ranges::transform(entryStem, entryStem.begin(),
+                                       [](unsigned char c)
+                                       { return static_cast<char>(std::tolower(c)); });
+
+                if (entryStem != targetStem)
+                {
+                    continue;
+                }
+
+                std::string ext = entryPath.extension().string();
+                std::ranges::transform(ext, ext.begin(),
+                                       [](unsigned char c)
+                                       { return static_cast<char>(std::tolower(c)); });
+
+                if (std::ranges::find(kImageExtensions, ext) != kImageExtensions.end())
+                {
+                    return entryPath;
+                }
+            }
+
+            return {};
+        }
+        // Collect material indices from the Assimp scene in DFS traversal
+        // order to match the original ProcessNode order used to build m_Meshes.
+        const auto CollectMaterialIndices = [](const aiNode* node, const aiScene* scene,
+                                               std::vector<u32>& out, auto&& self) -> void
+        {
+            for (u32 i = 0; i < node->mNumMeshes; i++)
+            {
+                auto* mesh = scene->mMeshes[node->mMeshes[i]];
+                out.push_back(mesh->mMaterialIndex);
+            }
+            for (u32 i = 0; i < node->mNumChildren; i++)
+            {
+                self(node->mChildren[i], scene, out, self);
+            }
+        };
+
+    } // anonymous namespace
+
     AnimatedModel::AnimatedModel(const std::string& path)
     {
         LoadModel(path);
@@ -22,6 +523,113 @@ namespace OloEngine
 
         OLO_CORE_INFO("AnimatedModel::LoadModel: Loading animated model from {}", path);
 
+        // Reset per-load state so stale data from a previous load never leaks through
+        // if the new load partially fails or takes a different code path.
+        m_Meshes.clear();
+        m_Skeleton = nullptr;
+        m_Materials.clear();
+        m_Animations.clear();
+        m_BoneInfoMap.clear();
+        m_LoadedTextures.clear();
+        m_HasMeshNodeTransform = false;
+        m_MeshNodeGlobalTransform = glm::mat4(1.0f);
+
+        // Try loading from binary cache first (skip Assimp entirely)
+        std::filesystem::path sourcePath(path);
+        constexpr auto kAnimCachePrefix = "anim_";
+        if (MeshCache::IsMeshCacheValid(sourcePath, kAnimCachePrefix))
+        {
+            auto cachedMesh = MeshCache::LoadMeshFromCache(sourcePath, kAnimCachePrefix);
+            if (cachedMesh)
+            {
+                m_Directory = sourcePath.parent_path().string();
+
+                Ref<Skeleton> skeleton;
+                if (SplitCombinedMeshSource(cachedMesh, m_Meshes, skeleton))
+                {
+                    m_Skeleton = skeleton;
+
+                    // Require animation cache to also be valid — an empty return is
+                    // ambiguous (no clips vs. missing/corrupt .oanim).  If the animation
+                    // sidecar is invalid, fall through to the full import so both halves
+                    // are rebuilt together.
+                    if (!MeshCache::IsAnimationCacheValid(sourcePath))
+                    {
+                        OLO_CORE_WARN("AnimatedModel::LoadModel: Mesh cache valid but animation cache invalid for '{}', re-importing", path);
+                        m_Meshes.clear();
+                        m_Skeleton = nullptr;
+                        MeshCache::InvalidateCache(sourcePath, kAnimCachePrefix);
+                    }
+                    else
+                    {
+                        m_Animations = MeshCache::LoadAnimationsFromCache(sourcePath);
+
+                        // Load materials from the source file (lightweight Assimp read — no geometry postprocessing).
+                        // ProcessNode builds m_Meshes in DFS order, so we replay
+                        // the same traversal to collect material indices in matching order.
+                        {
+                            Assimp::Importer matImporter;
+                            const aiScene* matScene = matImporter.ReadFile(path, 0);
+                            if (matScene && !(matScene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) && matScene->mRootNode)
+                            {
+                                std::vector<u32> materialIndices;
+                                materialIndices.reserve(m_Meshes.size());
+                                CollectMaterialIndices(matScene->mRootNode, matScene, materialIndices, CollectMaterialIndices);
+
+                                m_Materials.resize(m_Meshes.size());
+                                auto numMaterials = std::min(materialIndices.size(), m_Meshes.size());
+                                for (sizet i = 0; i < numMaterials; ++i)
+                                {
+                                    if (materialIndices[i] < matScene->mNumMaterials)
+                                    {
+                                        m_Materials[i] = ProcessMaterial(matScene->mMaterials[materialIndices[i]]);
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                OLO_CORE_WARN("AnimatedModel::LoadModel: Failed to load materials from '{}' for cached geometry", path);
+                                m_Materials.resize(m_Meshes.size());
+                            }
+                        }
+
+                        CalculateBounds();
+
+                        // Rebuild bone name→id map from cached skeleton for FindBoneIndex()
+                        if (m_Skeleton)
+                        {
+                            m_BoneInfoMap.clear();
+                            for (sizet i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
+                            {
+                                BoneInfo boneInfo;
+                                boneInfo.Id = static_cast<u32>(i);
+                                boneInfo.Offset = m_Skeleton->m_InverseBindPoses[i];
+                                m_BoneInfoMap[m_Skeleton->m_BoneNames[i]] = boneInfo;
+                            }
+                        }
+
+                        OLO_CORE_INFO("AnimatedModel::LoadModel: Loaded from cache - {} meshes, {} animations",
+                                      m_Meshes.size(), m_Animations.size());
+                        return;
+                    } // end animation-cache-valid block
+                }
+                else
+                {
+                    // SplitCombinedMeshSource failed — invalidate corrupt cache so next load re-imports
+                    OLO_CORE_WARN("AnimatedModel::LoadModel: SplitCombinedMeshSource failed for '{}', invalidating cache", path);
+                    m_Meshes.clear();
+                    m_Skeleton = nullptr;
+                    MeshCache::InvalidateCache(sourcePath, kAnimCachePrefix);
+                }
+            }
+            else
+            {
+                // LoadMeshFromCache returned nullptr despite valid timestamp — cache is likely corrupt
+                OLO_CORE_WARN("AnimatedModel::LoadModel: Cache file appears valid but deserialization returned null for '{}', invalidating", path);
+                MeshCache::InvalidateCache(sourcePath, kAnimCachePrefix);
+            }
+        }
+
         // Create an instance of the Importer class
         Assimp::Importer importer;
 
@@ -30,10 +638,13 @@ namespace OloEngine
             aiProcess_Triangulate |           // Make sure we get triangles
             aiProcess_GenNormals |            // Create normals if not present
             aiProcess_CalcTangentSpace |      // Calculate tangents and bitangents
-            aiProcess_FlipUVs |               // Flip texture coordinates
             aiProcess_ValidateDataStructure | // Validate the imported data structure
             aiProcess_LimitBoneWeights |      // Limit bone weights to 4 per vertex
             aiProcess_GlobalScale;            // Apply global scale
+        // NOTE: Do NOT add aiProcess_FlipUVs here. Assimp's glTF2 importer already
+        // flips V internally (glTF2Importer.cpp line ~648). Adding FlipUVs would
+        // double-flip, returning UVs to the original glTF convention and breaking
+        // texture mapping when stbi_set_flip_vertically_on_load is active.
 
         // Read the file
         const aiScene* scene = importer.ReadFile(path, importFlags);
@@ -80,6 +691,18 @@ namespace OloEngine
 
         // Calculate bounding volumes for the entire model
         CalculateBounds();
+
+        // Save to binary cache for next load
+        {
+            auto combined = CombineMeshSourcesForCache(m_Meshes, m_Skeleton);
+            MeshCache::SaveMeshToCache(sourcePath, *combined, kAnimCachePrefix);
+            // Always write .oanim when skeleton exists (even if empty) so that
+            // IsAnimationCacheValid succeeds on re-load.
+            if (m_Skeleton || !m_Animations.empty())
+            {
+                MeshCache::SaveAnimationsToCache(sourcePath, m_Animations);
+            }
+        }
 
         OLO_CORE_INFO("AnimatedModel::LoadModel: Successfully loaded animated model with {} meshes, {} animations",
                       m_Meshes.size(), m_Animations.size());
@@ -325,6 +948,8 @@ namespace OloEngine
                           morphTargets->GetTargetCount(), mesh->mName.C_Str());
         }
 
+        // Build() internally calls OptimizeMesh (which also remaps bone influences)
+        // before uploading to GPU — do NOT call OptimizeMesh separately here.
         meshSource->Build();
 
         return meshSource;
@@ -712,9 +1337,13 @@ namespace OloEngine
         {
             const aiAnimation* anim = scene->mAnimations[i];
 
+            // Guard against zero ticks-per-second (e.g. some FBX/glTF exporters
+            // omit the field). Fall back to 25 tps which is a common default.
+            auto const ticksPerSecond = (anim->mTicksPerSecond > 0.0) ? anim->mTicksPerSecond : 25.0;
+
             auto animClip = Ref<AnimationClip>::Create();
             animClip->Name = anim->mName.data;
-            animClip->Duration = static_cast<f32>(anim->mDuration / anim->mTicksPerSecond);
+            animClip->Duration = static_cast<f32>(anim->mDuration / ticksPerSecond);
 
             OLO_CORE_INFO("AnimatedModel::ProcessAnimations: Processing animation [{}] '{}' - Duration: {:.2f}s, Channels: {}",
                           i, animClip->Name.empty() ? "(unnamed)" : animClip->Name, animClip->Duration, anim->mNumChannels);
@@ -732,7 +1361,7 @@ namespace OloEngine
                 for (u32 k = 0; k < nodeAnim->mNumPositionKeys; ++k)
                 {
                     BonePositionKey posKey;
-                    posKey.Time = static_cast<f64>(nodeAnim->mPositionKeys[k].mTime / anim->mTicksPerSecond);
+                    posKey.Time = static_cast<f64>(nodeAnim->mPositionKeys[k].mTime / ticksPerSecond);
                     const aiVector3D& pos = nodeAnim->mPositionKeys[k].mValue;
                     posKey.Position = glm::vec3(pos.x, pos.y, pos.z);
                     boneAnim.PositionKeys.push_back(posKey);
@@ -743,7 +1372,7 @@ namespace OloEngine
                 for (u32 k = 0; k < nodeAnim->mNumRotationKeys; ++k)
                 {
                     BoneRotationKey rotKey;
-                    rotKey.Time = static_cast<f64>(nodeAnim->mRotationKeys[k].mTime / anim->mTicksPerSecond);
+                    rotKey.Time = static_cast<f64>(nodeAnim->mRotationKeys[k].mTime / ticksPerSecond);
                     const aiQuaternion& rot = nodeAnim->mRotationKeys[k].mValue;
                     rotKey.Rotation = glm::quat(rot.w, rot.x, rot.y, rot.z);
                     boneAnim.RotationKeys.push_back(rotKey);
@@ -754,7 +1383,7 @@ namespace OloEngine
                 for (u32 k = 0; k < nodeAnim->mNumScalingKeys; ++k)
                 {
                     BoneScaleKey scaleKey;
-                    scaleKey.Time = static_cast<f64>(nodeAnim->mScalingKeys[k].mTime / anim->mTicksPerSecond);
+                    scaleKey.Time = static_cast<f64>(nodeAnim->mScalingKeys[k].mTime / ticksPerSecond);
                     const aiVector3D& scale = nodeAnim->mScalingKeys[k].mValue;
                     scaleKey.Scale = glm::vec3(scale.x, scale.y, scale.z);
                     boneAnim.ScaleKeys.push_back(scaleKey);
@@ -770,7 +1399,7 @@ namespace OloEngine
                 for (u32 k = 0; k < morphChannel->mNumKeys; ++k)
                 {
                     const aiMeshMorphKey& key = morphChannel->mKeys[k];
-                    f64 timeInSeconds = key.mTime / anim->mTicksPerSecond;
+                    f64 timeInSeconds = key.mTime / ticksPerSecond;
                     for (u32 w = 0; w < key.mNumValuesAndWeights; ++w)
                     {
                         MorphTargetKeyframe kf;
@@ -874,6 +1503,32 @@ namespace OloEngine
             mat->GetTexture(type, i, &str);
 
             std::string filename = str.C_Str();
+
+            // Validate texture path before any load attempt — reject absolute
+            // paths and parent-traversal ("..") to prevent directory escape.
+            {
+                std::filesystem::path filenamePath(filename);
+                if (filenamePath.is_absolute())
+                {
+                    OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: Rejecting absolute texture path '{}'", filename);
+                    continue;
+                }
+                bool safe = true;
+                for (const auto& comp : filenamePath)
+                {
+                    if (comp == "..")
+                    {
+                        safe = false;
+                        break;
+                    }
+                }
+                if (!safe)
+                {
+                    OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: Rejecting texture path with traversal '{}'", filename);
+                    continue;
+                }
+            }
+
             std::filesystem::path path = std::filesystem::path(m_Directory) / filename;
 
             // Check if texture was loaded before
@@ -884,14 +1539,184 @@ namespace OloEngine
             else
             {
                 auto texture = Texture2D::Create(path.string());
-                if (texture)
+                if (texture && texture->IsLoaded())
                 {
                     textures.push_back(texture);
                     m_LoadedTextures[path.string()] = texture;
                 }
                 else
                 {
-                    OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: Failed to load texture: {}", path.string());
+                    // Fallback: try preserving the relative subdirectory from the texture path
+                    std::filesystem::path filenamePath(filename);
+                    std::filesystem::path filenameOnly = filenamePath.filename();
+                    bool loaded = false;
+
+                    // If the texture reference has a relative subdirectory (e.g. "textures/Fur.TGA"),
+                    // try scanning that subdirectory first before falling back to model root.
+                    if (filenamePath.has_parent_path() && filenamePath.parent_path() != ".")
+                    {
+                        // Reject absolute paths or parent-traversal ("..") to prevent
+                        // directory escape outside m_Directory.
+                        auto parentPath = filenamePath.parent_path();
+                        bool pathSafe = !filenamePath.is_absolute();
+                        if (pathSafe)
+                        {
+                            for (const auto& comp : parentPath)
+                            {
+                                if (comp == "..")
+                                {
+                                    pathSafe = false;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!pathSafe)
+                        {
+                            OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: Rejecting unsafe texture path '{}'",
+                                          filename);
+                        }
+                        else
+                        {
+                            auto subdir = std::filesystem::path(m_Directory) / filenamePath.parent_path();
+                            auto discovered = FindTextureInDirectory(subdir, filenameOnly);
+
+                            // If the exact subdirectory didn't exist or had no match, try a case-insensitive
+                            // directory traversal under m_Directory. Handles multi-component paths
+                            // like "Textures/Characters" and case mismatches ("textures/" vs "Textures/").
+                            if (discovered.empty())
+                            {
+                                auto parentPath = filenamePath.parent_path();
+                                std::filesystem::path resolvedDir = m_Directory;
+                                bool resolved = true;
+
+                                for (const auto& component : parentPath)
+                                {
+                                    std::string targetComponent = component.string();
+                                    std::ranges::transform(targetComponent, targetComponent.begin(),
+                                                           [](unsigned char c)
+                                                           { return static_cast<char>(std::tolower(c)); });
+
+                                    // Try exact match first
+                                    if (auto exact = resolvedDir / component;
+                                        std::filesystem::is_directory(exact))
+                                    {
+                                        resolvedDir = exact;
+                                        continue;
+                                    }
+
+                                    // Case-insensitive scan of current directory
+                                    bool found = false;
+                                    std::error_code ec;
+                                    for (const auto& dirEntry : std::filesystem::directory_iterator(resolvedDir, ec))
+                                    {
+                                        if (!dirEntry.is_directory(ec))
+                                        {
+                                            continue;
+                                        }
+                                        std::string entryName = dirEntry.path().filename().string();
+                                        std::ranges::transform(entryName, entryName.begin(),
+                                                               [](unsigned char c)
+                                                               { return static_cast<char>(std::tolower(c)); });
+                                        if (entryName == targetComponent)
+                                        {
+                                            resolvedDir = dirEntry.path();
+                                            found = true;
+                                            break;
+                                        }
+                                    }
+                                    if (!found)
+                                    {
+                                        resolved = false;
+                                        break;
+                                    }
+                                }
+
+                                if (resolved)
+                                {
+                                    discovered = FindTextureInDirectory(resolvedDir, filenameOnly);
+                                }
+                            }
+
+                            if (!discovered.empty())
+                            {
+                                std::string discoveredStr = discovered.string();
+                                if (m_LoadedTextures.find(discoveredStr) != m_LoadedTextures.end())
+                                {
+                                    textures.push_back(m_LoadedTextures[discoveredStr]);
+                                    loaded = true;
+                                }
+                                else
+                                {
+                                    auto discoveredTexture = Texture2D::Create(discoveredStr);
+                                    if (discoveredTexture && discoveredTexture->IsLoaded())
+                                    {
+                                        m_LoadedTextures[discoveredStr] = discoveredTexture;
+                                        textures.push_back(discoveredTexture);
+                                        loaded = true;
+                                    }
+                                }
+                            }
+                        } // else (pathSafe)
+                    }
+
+                    // Fallback: try just the filename in the model root directory
+                    if (!loaded)
+                    {
+                        std::filesystem::path fallbackPath = std::filesystem::path(m_Directory) / filenameOnly;
+                        std::string fallbackPathStr = fallbackPath.string();
+
+                        if (fallbackPathStr != path.string() && m_LoadedTextures.find(fallbackPathStr) != m_LoadedTextures.end())
+                        {
+                            textures.push_back(m_LoadedTextures[fallbackPathStr]);
+                            loaded = true;
+                        }
+                        else if (fallbackPathStr != path.string())
+                        {
+                            OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: '{}' not found, trying fallback '{}'",
+                                          path.string(), fallbackPathStr);
+                            auto fallbackTexture = Texture2D::Create(fallbackPathStr);
+                            if (fallbackTexture && fallbackTexture->IsLoaded())
+                            {
+                                textures.push_back(fallbackTexture);
+                                m_LoadedTextures[fallbackPathStr] = fallbackTexture;
+                                loaded = true;
+                            }
+                        }
+                    }
+
+                    // Fallback: scan model directory for case-insensitive stem match with any image extension.
+                    // Handles FBX referencing .tga when the actual file is .png, and case mismatches on Linux.
+                    if (!loaded)
+                    {
+                        auto discovered = FindTextureInDirectory(std::filesystem::path(m_Directory), filenameOnly);
+                        if (!discovered.empty())
+                        {
+                            std::string discoveredStr = discovered.string();
+                            OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: Discovered '{}' via directory scan for '{}'",
+                                          discoveredStr, filenameOnly.string());
+                            if (m_LoadedTextures.find(discoveredStr) != m_LoadedTextures.end())
+                            {
+                                textures.push_back(m_LoadedTextures[discoveredStr]);
+                                loaded = true;
+                            }
+                            else
+                            {
+                                auto discoveredTexture = Texture2D::Create(discoveredStr);
+                                if (discoveredTexture && discoveredTexture->IsLoaded())
+                                {
+                                    m_LoadedTextures[discoveredStr] = discoveredTexture;
+                                    textures.push_back(discoveredTexture);
+                                    loaded = true;
+                                }
+                            }
+                        }
+                    }
+
+                    if (!loaded)
+                    {
+                        OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: Failed to load texture '{}' (tried original, filename-only, and directory scan)",
+                                      path.string());
+                    }
                 }
             }
         }
@@ -937,6 +1762,11 @@ namespace OloEngine
 
         // Load PBR textures
         auto albedoMaps = LoadMaterialTextures(mat, aiTextureType_DIFFUSE);
+        if (albedoMaps.empty())
+        {
+            // Try base color for newer PBR/glTF materials
+            albedoMaps = LoadMaterialTextures(mat, aiTextureType_BASE_COLOR);
+        }
         if (!albedoMaps.empty())
         {
             material.SetAlbedoMap(albedoMaps[0]);

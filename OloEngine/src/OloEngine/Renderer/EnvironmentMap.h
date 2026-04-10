@@ -46,7 +46,7 @@ namespace OloEngine
     {
         std::string FilePath;
         u32 Resolution = 512;
-        ImageFormat Format = ImageFormat::RGB32F;
+        ImageFormat Format = ImageFormat::RGBA32F;
         bool GenerateIBL = true;
         bool GenerateMipmaps = true;
         IBLConfiguration IBLConfig; // Enhanced IBL configuration

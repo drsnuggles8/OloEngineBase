@@ -339,6 +339,15 @@ namespace OloEngine
             ImGui::SetClipboardText(reinterpret_cast<char const*>(u8path.c_str()));
         }
 
+        // Reimport option for 3D model files
+        if (m_Type == ContentFileType::Model3D)
+        {
+            if (ImGui::MenuItem("Reimport"))
+            {
+                SetAction(result, ContentBrowserAction::Reimport);
+            }
+        }
+
         ImGui::Separator();
 
         if (ImGui::MenuItem("Rename"))

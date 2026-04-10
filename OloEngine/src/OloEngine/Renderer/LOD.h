@@ -6,6 +6,7 @@
 
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
+#include <cstring>
 #include <vector>
 
 namespace OloEngine
@@ -20,6 +21,12 @@ namespace OloEngine
         LODLevel() = default;
         LODLevel(AssetHandle meshHandle, f32 maxDistance, u32 triangleCount = 0)
             : MeshHandle(meshHandle), MaxDistance(maxDistance), TriangleCount(triangleCount) {}
+
+        // Bitwise-exact comparison for undo/redo change detection (memcmp for float per rule 2b).
+        auto operator==(const LODLevel& other) const -> bool
+        {
+            return MeshHandle == other.MeshHandle && std::memcmp(&MaxDistance, &other.MaxDistance, sizeof(f32)) == 0 && TriangleCount == other.TriangleCount;
+        }
     };
 
     // Group of LOD levels, sorted by ascending distance
@@ -29,6 +36,11 @@ namespace OloEngine
         f32 Bias = 1.0f;              // Multiplier for tuning LOD selection distances
 
         LODGroup() = default;
+
+        auto operator==(const LODGroup& other) const -> bool
+        {
+            return Levels == other.Levels && std::memcmp(&Bias, &other.Bias, sizeof(f32)) == 0;
+        }
 
         // Returns the index of the appropriate LODLevel for the given distance.
         // Returns -1 if the group has no levels.
