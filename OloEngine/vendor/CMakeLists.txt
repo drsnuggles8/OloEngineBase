@@ -1,6 +1,6 @@
 include(FetchContent)
 set(FETCHCONTENT_QUIET off)
-set(FETCHCONTENT_BASE_DIR ${PROJECT_SOURCE_DIR}/vendor CACHE PATH "Missing description." FORCE)
+set(FETCHCONTENT_BASE_DIR ${PROJECT_SOURCE_DIR}/vendor CACHE PATH "Base directory for FetchContent downloads")
 
 # Set CMake policies to suppress warnings in vendor libraries
 if(POLICY CMP0194)  
@@ -167,6 +167,7 @@ set(ASSIMP_INJECT_DEBUG_POSTFIX OFF CACHE BOOL "" FORCE)
 set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE INTERNAL "" FORCE)
 set(ASSIMP_BUILD_ZLIB OFF CACHE INTERNAL "" FORCE)
+set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
 set(BOX2D_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
 set(BOX2D_BUILD_TESTBED OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
@@ -370,6 +371,19 @@ set(protobuf_MSVC_STATIC_RUNTIME OFF CACHE BOOL "" FORCE)
 set(protobuf_WITH_ZLIB OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(protobuf)
 
+# ClangCL: Protobuf leaks C++ flags (/utf-8, /wd4xxx, /bigobj) into RC
+# compilation via $FLAGS, which rc.exe doesn't understand.  Static libs
+# don't need version resources, so just strip the .rc sources.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+	foreach(_proto_target libprotobuf libprotobuf-lite libprotoc protoc)
+		if(TARGET ${_proto_target})
+			get_target_property(_srcs ${_proto_target} SOURCES)
+			list(FILTER _srcs EXCLUDE REGEX "\\.rc$")
+			set_target_properties(${_proto_target} PROPERTIES SOURCES "${_srcs}")
+		endif()
+	endforeach()
+endif()
+
 # Make protobuf_generate_cpp available (from CMake's built-in FindProtobuf)
 # GNS calls find_package(Protobuf) which needs this function
 set(Protobuf_FOUND TRUE CACHE BOOL "" FORCE)
@@ -459,5 +473,19 @@ set_target_properties(example PROPERTIES FOLDER "Utilities/zlib")
 set_target_properties(minigzip PROPERTIES FOLDER "Utilities/zlib")
 set_target_properties(zlib PROPERTIES FOLDER "Utilities/zlib")
 set_target_properties(zlibstatic PROPERTIES FOLDER "Utilities/zlib")
+
+# ClangCL compatibility: Vendor libraries (Jolt, assimp, box2d) use /Wall /WX,
+# which maps to -Weverything -Werror on Clang—triggering dozens of Clang-only
+# warnings (padded, nrvo, unique-object-duplication, etc.) absent from MSVC's /Wall.
+# Append -Wno-error AFTER target options so it overrides /WX.
+# Also suppress -Wpadded to avoid thousands of noise warnings that flood output.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+	foreach(_vendor_target Jolt assimp box2d)
+		if(TARGET ${_vendor_target})
+			target_compile_options(${_vendor_target} PRIVATE -Wno-error -Wno-padded)
+		endif()
+	endforeach()
+endif()
+
 #======================================
 message(STATUS "Fetching thirdparty libraries done")

@@ -43,6 +43,12 @@ if(OLO_ENABLE_ASAN)
     if(MSVC)
         add_compile_options(/fsanitize=address)
 
+        # Force release dynamic CRT (/MD) for all configurations when ASan is active.
+        # MSVC ASan runtime links against release CRT; mixing with /MDd causes
+        # _ITERATOR_DEBUG_LEVEL mismatches against release-only third-party static libs
+        # (e.g. Vulkan SDK's spirv-cross on CI where debug libs aren't available).
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+
         # ASan is incompatible with /RTC1 (runtime checks) and incremental linking.
         string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
         string(REPLACE "/RTCs" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
@@ -55,7 +61,7 @@ if(OLO_ENABLE_ASAN)
         string(REPLACE "/ZI" "/Zi" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
         add_link_options(/INCREMENTAL:NO)
 
-        message(STATUS "  MSVC ASan: /fsanitize=address (no leak detection on Windows)")
+        message(STATUS "  MSVC ASan: /fsanitize=address /MD (no leak detection on Windows)")
     elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
         add_link_options(-fsanitize=address)

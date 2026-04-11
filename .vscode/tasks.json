@@ -196,6 +196,72 @@
 			"problemMatcher": [
 				"$msCompile"
 			]
+		},
+		{
+			"label": "configure-clangcl",
+			"type": "shell",
+			"command": "cmake",
+			"args": [
+				"--preset",
+				"clangcl"
+			],
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "build-clangcl-tests-debug",
+			"type": "shell",
+			"command": "cmake",
+			"args": [
+				"--build",
+				"${workspaceFolder}/build-clang",
+				"--target",
+				"OloEngine-Tests",
+				"--config",
+				"Debug",
+				"--parallel"
+			],
+			"group": "build",
+			"dependsOn": [
+				"configure-clangcl"
+			],
+			"problemMatcher": [
+				"$msCompile"
+			]
+		},
+		{
+			"label": "run-clangcl-tests-debug",
+			"type": "shell",
+			"command": "${workspaceFolder}/build-clang/OloEngine/tests/Debug/OloEngine-Tests.exe",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"dependsOn": [
+				"build-clangcl-tests-debug"
+			],
+			"problemMatcher": []
+		},
+		{
+			"label": "build-clangcl-oloeditor-debug",
+			"type": "shell",
+			"command": "cmake",
+			"args": [
+				"--build",
+				"${workspaceFolder}/build-clang",
+				"--target",
+				"OloEditor",
+				"--config",
+				"Debug",
+				"--parallel"
+			],
+			"group": "build",
+			"dependsOn": [
+				"configure-clangcl"
+			],
+			"problemMatcher": [
+				"$msCompile"
+			]
 		}
 	]
 }

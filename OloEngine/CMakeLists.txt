@@ -11,7 +11,7 @@ add_subdirectory(vendor)
 # Sol2 - for Lua scripting
 CPMAddPackage(NAME sol2
   GIT_REPOSITORY https://github.com/ThePhD/sol2.git
-  VERSION 3.3.0
+  GIT_TAG develop
   DOWNLOAD_ONLY YES)
 if(sol2_ADDED)
   add_library(sol2 INTERFACE IMPORTED)
