@@ -97,39 +97,39 @@ olo_set_common_definitions(OloEngine)
 
 target_include_directories(OloEngine PUBLIC
 	src
-	vendor/assimp-src/include
-	vendor/atomic_queue-src/include
-	vendor/box2d-src/include/box2d
-	vendor/box2d-src/src
-	vendor/entt-src/single_include/entt
-	vendor/filewatch-src
+	${assimp_SOURCE_DIR}/include
+	${atomic_queue_SOURCE_DIR}/include
+	${box2d_SOURCE_DIR}/include/box2d
+	${box2d_SOURCE_DIR}/src
+	${entt_SOURCE_DIR}/single_include/entt
+	${filewatch_SOURCE_DIR}
 	vendor/glad-build/include
-	vendor/glfw-src/include
-	vendor/glm-src
-	vendor/joltphysics-src
-	vendor/meshoptimizer-src/src
-	vendor/miniaudio-src
-	vendor/lua-src
-	vendor/imgui-src
-	vendor/imgui-src/backends
-	vendor/imgui-src/examples
+	${glfw_SOURCE_DIR}/include
+	${glm_SOURCE_DIR}
+	${joltphysics_SOURCE_DIR}
+	${meshoptimizer_SOURCE_DIR}/src
+	${miniaudio_SOURCE_DIR}
+	${lua_SOURCE_DIR}
+	${imgui_SOURCE_DIR}
+	${imgui_SOURCE_DIR}/backends
+	${imgui_SOURCE_DIR}/examples
 	${imguizmo_SOURCE_DIR}
-	vendor/spdlog-src/include
-	vendor/tracy-src/public
-	vendor/sol2-src/include
+	${spdlog_SOURCE_DIR}/include
+	${tracy_SOURCE_DIR}/public
+	${sol2_SOURCE_DIR}/include
 	vendor/stb_image-build/include
-	vendor/recastnavigation-src/Recast/Include
-	vendor/recastnavigation-src/Detour/Include
-	vendor/recastnavigation-src/DetourCrowd/Include
-	vendor/recastnavigation-src/DetourTileCache/Include
+	${recastnavigation_SOURCE_DIR}/Recast/Include
+	${recastnavigation_SOURCE_DIR}/Detour/Include
+	${recastnavigation_SOURCE_DIR}/DetourCrowd/Include
+	${recastnavigation_SOURCE_DIR}/DetourTileCache/Include
 	mono/include
 	${Vulkan_INCLUDE_DIRS}
-	vendor/GameNetworkingSockets-src/include
+	${GameNetworkingSockets_SOURCE_DIR}/include
 )
 
 target_include_directories(OloEngine PRIVATE
-	vendor/zlib-src
-	vendor/zlib-build
+	${zlib_SOURCE_DIR}
+	${zlib_BINARY_DIR}
 )
 
 # Cross-platform link libraries

@@ -168,8 +168,8 @@ endif()
 
 target_include_directories(OloEngine-Tests PRIVATE
 	${CMAKE_SOURCE_DIR}/OloEngine/src
-	${CMAKE_SOURCE_DIR}/OloEngine/vendor/atomic_queue-src/include
-	${CMAKE_SOURCE_DIR}/OloEngine/vendor/spdlog-src/include
+	${atomic_queue_SOURCE_DIR}/include
+	${spdlog_SOURCE_DIR}/include
 	${CMAKE_CURRENT_SOURCE_DIR}/Rendering
 	${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser
 )

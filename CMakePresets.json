@@ -24,7 +24,7 @@
 			"binaryDir": "${sourceDir}/build-clang",
 			"toolchainFile": "${sourceDir}/cmake/ClangCLToolchain.cmake",
 			"cacheVariables": {
-				"FETCHCONTENT_BASE_DIR": "${sourceDir}/build-clang/_deps",
+				"FETCHCONTENT_BASE_DIR": "${sourceDir}/OloEngine/vendor/clang",
 				"BUILD_TESTS": "ON"
 			}
 		},

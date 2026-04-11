@@ -1,6 +1,10 @@
 include(FetchContent)
 set(FETCHCONTENT_QUIET off)
-set(FETCHCONTENT_BASE_DIR ${PROJECT_SOURCE_DIR}/vendor CACHE PATH "Base directory for FetchContent downloads")
+# Default to PROJECT_SOURCE_DIR/vendor for FetchContent downloads.
+# Presets can override via FETCHCONTENT_BASE_DIR cache variable.
+if(NOT DEFINED CACHE{FETCHCONTENT_BASE_DIR})
+	set(FETCHCONTENT_BASE_DIR ${PROJECT_SOURCE_DIR}/vendor CACHE PATH "" FORCE)
+endif()
 
 # Set CMake policies to suppress warnings in vendor libraries
 if(POLICY CMP0194)  
@@ -251,7 +255,7 @@ if(imgui_ADDED)
 
 	add_library(imgui STATIC ${IMGUI_SOURCES} ${IMGUI_HEADERS} "${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp" "${IMGUI_DIR}/backends/imgui_impl_opengl3.h" "${IMGUI_DIR}/backends/imgui_impl_opengl3_loader.h")
 	target_compile_definitions(imgui PRIVATE IMGUI_IMPL_OPENGL_LOADER_GLAD=1)
-	target_include_directories(imgui PUBLIC ${IMGUI_DIR} "glfw-src/include" "glad-build/include")
+	target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${glfw_SOURCE_DIR}/include "glad-build/include")
 	set_target_properties(imgui PROPERTIES
 		ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
 		LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
@@ -488,4 +492,17 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 #======================================
+# Propagate FetchContent _SOURCE_DIR / _BINARY_DIR variables to parent scope
+# so OloEngine/CMakeLists.txt can use them in target_include_directories.
+foreach(_dep assimp atomic_queue box2d entt filewatch glad glfw glm googletest
+             joltphysics meshoptimizer miniaudio recastnavigation spdlog tracy yaml-cpp
+             zlib stb_image imgui imguizmo lua GameNetworkingSockets)
+	if(DEFINED ${_dep}_SOURCE_DIR)
+		set(${_dep}_SOURCE_DIR "${${_dep}_SOURCE_DIR}" PARENT_SCOPE)
+	endif()
+	if(DEFINED ${_dep}_BINARY_DIR)
+		set(${_dep}_BINARY_DIR "${${_dep}_BINARY_DIR}" PARENT_SCOPE)
+	endif()
+endforeach()
+
 message(STATUS "Fetching thirdparty libraries done")

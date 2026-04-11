@@ -67,4 +67,4 @@ _codeql_detected_source_root
 
 # Game build output
 GameBuilds/
-build-clang/
+build-*/
