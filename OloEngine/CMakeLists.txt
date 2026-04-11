@@ -170,16 +170,25 @@ if(MSVC)
 			"Install the Vulkan SDK from https://vulkan.lunarg.com/sdk/home and "
 			"ensure the VULKAN_SDK environment variable points to the installation directory.")
 	endif()
+
+	# Resolve debug/release library paths — CI headless SDK installs may lack debug libs.
+	set(_vk_lib "$ENV{VULKAN_SDK}/Lib")
+	foreach(_base shaderc_shared spirv-cross-core spirv-cross-glsl)
+		set(_dbg "${_vk_lib}/${_base}d.lib")
+		set(_rel "${_vk_lib}/${_base}.lib")
+		if(EXISTS "${_dbg}")
+			list(APPEND _vk_shader_libs debug "${_dbg}" optimized "${_rel}")
+		else()
+			message(STATUS "Vulkan SDK debug lib not found (${_base}d.lib), using release for all configs")
+			list(APPEND _vk_shader_libs "${_rel}")
+		endif()
+	endforeach()
+
 	# Windows: link from Vulkan SDK + CMake imported targets
 	target_link_libraries(OloEngine
 		Vulkan::glslang
 		Vulkan::SPIRV-Tools
-		debug $ENV{VULKAN_SDK}/Lib/shaderc_sharedd.lib
-		debug $ENV{VULKAN_SDK}/Lib/spirv-cross-cored.lib
-		debug $ENV{VULKAN_SDK}/Lib/spirv-cross-glsld.lib
-		optimized $ENV{VULKAN_SDK}/Lib/shaderc_shared.lib
-		optimized $ENV{VULKAN_SDK}/Lib/spirv-cross-core.lib
-		optimized $ENV{VULKAN_SDK}/Lib/spirv-cross-glsl.lib
+		${_vk_shader_libs}
 	)
 else()
 	# Linux: find all shader-related libraries from system packages
