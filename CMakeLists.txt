@@ -33,6 +33,16 @@ option(OLO_ENABLE_UNITY_BUILD "Enable Unity (Jumbo) Builds for faster compilatio
 include(cmake/SetupConfigurations.cmake)
 include(cmake/CommonProperties.cmake)
 include(cmake/Sanitizers.cmake)
+
+# Default FetchContent downloads to PROJECT_SOURCE_DIR/vendor so vendor
+# libraries live in a predictable location.  Must be set BEFORE
+# include(cmake/CPM.cmake) — CPM internally does include(FetchContent)
+# which caches the default (_deps/) and would prevent a later override.
+# Presets (e.g. clangcl) can still override via -DFETCHCONTENT_BASE_DIR=…
+if(NOT DEFINED CACHE{FETCHCONTENT_BASE_DIR})
+	set(FETCHCONTENT_BASE_DIR "${PROJECT_SOURCE_DIR}/vendor" CACHE PATH "" FORCE)
+endif()
+
 include(cmake/CPM.cmake)
 
 # Project wide setup - Configure module paths

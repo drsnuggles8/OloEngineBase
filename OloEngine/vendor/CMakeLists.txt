@@ -1,11 +1,3 @@
-# Default to PROJECT_SOURCE_DIR/vendor for FetchContent downloads.
-# Presets can override via FETCHCONTENT_BASE_DIR cache variable.
-# Must be set BEFORE include(FetchContent) — that module pre-caches the
-# default (_deps/) so a later DEFINED CACHE check would always be true.
-if(NOT DEFINED CACHE{FETCHCONTENT_BASE_DIR})
-	set(FETCHCONTENT_BASE_DIR ${PROJECT_SOURCE_DIR}/vendor CACHE PATH "" FORCE)
-endif()
-
 include(FetchContent)
 set(FETCHCONTENT_QUIET off)
 
