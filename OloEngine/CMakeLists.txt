@@ -153,9 +153,7 @@ target_link_libraries(OloEngine
 	yaml-cpp
 	GameNetworkingSockets_s
 	Vulkan::Vulkan
-	$<$<CONFIG:Debug>:${ZLIB_LIBRARY_DEBUG}>
-	$<$<CONFIG:Release>:${ZLIB_LIBRARY_RELEASE}>
-	$<$<CONFIG:Dist>:${ZLIB_LIBRARY_DIST}>
+	zlibstatic
 )
 
 # OpenGL — platform-specific library name
@@ -255,10 +253,6 @@ else()
 	)
 endif()
 
-# Ensure zlib is built before OloEngine links against it (raw file paths above
-# don't create an implicit build dependency).
-add_dependencies(OloEngine zlib)
-
-# Propagate zlib_BINARY_DIR to parent scope so OloEditor/OloRuntime/tests
+# Propagate zlib_BINARY_DIR to parent scope so OloEditor/OloRuntime
 # can reference the built DLL without hardcoding vendor paths.
 set(zlib_BINARY_DIR "${zlib_BINARY_DIR}" PARENT_SCOPE)
