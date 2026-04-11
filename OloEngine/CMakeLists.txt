@@ -258,3 +258,7 @@ endif()
 # Ensure zlib is built before OloEngine links against it (raw file paths above
 # don't create an implicit build dependency).
 add_dependencies(OloEngine zlib)
+
+# Propagate zlib_BINARY_DIR to parent scope so OloEditor/OloRuntime/tests
+# can reference the built DLL without hardcoding vendor paths.
+set(zlib_BINARY_DIR "${zlib_BINARY_DIR}" PARENT_SCOPE)

@@ -35,8 +35,8 @@ jobs:
         -DOLO_ENABLE_ASAN=ON
         -DBUILD_TESTS=ON
 
-    - name: Build (Debug)
-      run: cmake --build build --config Debug --target OloEngine-Tests --parallel
+    - name: Build (RelWithDebInfo)
+      run: cmake --build build --config RelWithDebInfo --target OloEngine-Tests --parallel
 
     - name: Create test results directory
       run: New-Item -ItemType Directory -Force -Path "${{github.workspace}}/test_results"
@@ -44,7 +44,7 @@ jobs:
 
     - name: Run tests under ASan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest -C Debug -V
+      run: ctest -C RelWithDebInfo -V
       env:
         ASAN_OPTIONS: halt_on_error=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
@@ -64,11 +64,16 @@ jobs:
     steps:
     - uses: actions/checkout@v6
 
+    - name: Install Clang 19
+      run: |
+        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+        echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" | sudo tee /etc/apt/sources.list.d/llvm-19.list
+
     - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y \
-          clang lld \
+          clang-19 lld-19 \
           libvulkan-dev vulkan-validationlayers \
           libgl-dev libglu1-mesa-dev \
           libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
@@ -80,8 +85,8 @@ jobs:
     - name: Configure CMake (ASan + LSan)
       run: >
         cmake -S . -B build
-        -DCMAKE_CXX_COMPILER=clang++
-        -DCMAKE_C_COMPILER=clang
+        -DCMAKE_CXX_COMPILER=clang++-19
+        -DCMAKE_C_COMPILER=clang-19
         -DCMAKE_BUILD_TYPE=Debug
         -DOLO_ENABLE_ASAN=ON
         -DBUILD_TESTS=ON
@@ -115,11 +120,16 @@ jobs:
     steps:
     - uses: actions/checkout@v6
 
+    - name: Install Clang 19
+      run: |
+        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+        echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" | sudo tee /etc/apt/sources.list.d/llvm-19.list
+
     - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y \
-          clang lld \
+          clang-19 lld-19 \
           libvulkan-dev vulkan-validationlayers \
           libgl-dev libglu1-mesa-dev \
           libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
@@ -131,8 +141,8 @@ jobs:
     - name: Configure CMake (UBSan)
       run: >
         cmake -S . -B build
-        -DCMAKE_CXX_COMPILER=clang++
-        -DCMAKE_C_COMPILER=clang
+        -DCMAKE_CXX_COMPILER=clang++-19
+        -DCMAKE_C_COMPILER=clang-19
         -DCMAKE_BUILD_TYPE=Debug
         -DOLO_ENABLE_UBSAN=ON
         -DBUILD_TESTS=ON
@@ -165,11 +175,16 @@ jobs:
     steps:
     - uses: actions/checkout@v6
 
+    - name: Install Clang 19
+      run: |
+        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+        echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" | sudo tee /etc/apt/sources.list.d/llvm-19.list
+
     - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y \
-          clang lld \
+          clang-19 lld-19 \
           libvulkan-dev vulkan-validationlayers \
           libgl-dev libglu1-mesa-dev \
           libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
@@ -181,8 +196,8 @@ jobs:
     - name: Configure CMake (TSan)
       run: >
         cmake -S . -B build
-        -DCMAKE_CXX_COMPILER=clang++
-        -DCMAKE_C_COMPILER=clang
+        -DCMAKE_CXX_COMPILER=clang++-19
+        -DCMAKE_C_COMPILER=clang-19
         -DCMAKE_BUILD_TYPE=Debug
         -DOLO_ENABLE_TSAN=ON
         -DBUILD_TESTS=ON
