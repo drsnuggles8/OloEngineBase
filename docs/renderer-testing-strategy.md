@@ -1,114 +1,227 @@
 # Renderer Testing Strategy
 
-A specification of testing approaches for real-time rendering engines, covering what each approach tests, its core concepts, trade-offs, and how major engines use them.
+A production-grade testing specification for OloEngine's rendering pipeline, modeled after the practices of AAA engines (Unreal, Frostbite, id Tech) and informed by Bart Wronski's analysis of what separates effective rendering tests from brittle screenshot-blessing workflows.
+
+**Core philosophy:** The primary question a rendering test should answer is not *"did the output change?"* but *"does the output have the correct properties?"* Tests that verify mathematical invariants, physical constraints, and algorithmic contracts catch real bugs with actionable failure messages. Screenshot tests serve as a thin integration safety net on top.
 
 ---
 
-## 1. Golden Image / Screenshot Comparison Testing
+## Testing Pyramid for Rendering
 
-### Core Concept
+The testing strategy is organized as a pyramid. The base is fast, numerous, and deterministic. The top is slow, few, and integration-focused. Most test development effort targets the bottom layers.
 
-Render a deterministic scene to an offscreen framebuffer, read back pixels to CPU memory, and compare the result against a previously approved reference image. Differences exceeding a threshold indicate a regression.
+```
+                    ┌─────────────┐
+                    │  Golden     │  ~10–15 integration smoke tests
+                    │  Image      │  Slow. Catches "something broke somewhere."
+                  ┌─┴─────────────┴─┐
+                  │  Perf Regression │  Microbenchmarks + whole-frame budgets
+                  │  + Cross-Vendor  │  Medium speed. Catches perf & vendor drift.
+                ┌─┴─────────────────┴─┐
+                │  GPU State + Command │  RAII guards, state mirrors, command linting
+                │  Sequence Validation │  Fast. Catches state leaks & ordering bugs.
+              ┌─┴─────────────────────┴─┐
+              │  Property / Behavioral   │  Synthetic inputs, numerical verification
+              │  Tests on GPU            │  Fast. THE PRIMARY TESTING LAYER.
+            ┌─┴─────────────────────────┴─┐
+            │  Shader Unit Tests + Data    │  Math correctness, serialization round-trips
+            │  Round-Trip Tests            │  Fastest. No scene required.
+            └─────────────────────────────┘
+```
 
-### What It Tests
+---
 
-- **End-to-end visual correctness** — the final pixel output is the ultimate truth. Any bug in the pipeline (shaders, state management, resource binding, post-processing, tone mapping) that changes what the user sees will be caught.
-- **Regression detection** — new code that subtly changes lighting, shadow quality, anti-aliasing, or color grading is immediately flagged.
-- **Multi-frame consistency** — loading a scene twice, or rendering frame N vs frame N+100, should produce identical (or near-identical) output.
+## 1. Property-Based / Behavioral Testing with Synthetic Data
 
-### Key Design Decisions
+**This is the primary testing layer.** Every rendering algorithm has mathematical and physical properties that can be verified numerically. These tests replace authored scenes with procedurally generated inputs, run production GPU code paths, and verify outputs against known invariants. They are fast, deterministic, decoupled from the content pipeline, and produce actionable failure messages.
 
-| Decision | Options | Trade-offs |
-|---|---|---|
-| **Comparison metric** | Per-pixel RMSE, peak absolute delta, SSIM, perceptual diff (pdiff) | RMSE is simple but sensitive to single-pixel outliers. SSIM better matches human perception. Perceptual diff (Yee's algorithm) is best but slowest. |
-| **Threshold strategy** | Global RMSE threshold, per-pixel max delta, percentage of pixels allowed to differ | Too tight → flaky tests from driver/platform variance. Too loose → misses real bugs. Typical: RMSE < 0.005 in [0,1] space, or < 1% of pixels differing by > 2/255. |
-| **Reference image management** | Checked into VCS, stored in LFS, generated on-demand | Must be regenerated explicitly after intentional visual changes. Per-platform references handle driver differences. |
-| **Determinism** | Fixed camera, fixed resolution, fixed seed for any randomness, disabled temporal effects | Temporal AA, jittered sampling, and animation must be disabled or seeded for reproducibility. |
-| **Headless rendering** | Hidden window, EGL offscreen context, software rasterizer | Hidden window is simplest but needs a display server. EGL is truly headless. Software rasterizer (Mesa llvmpipe) works in Docker/CI but produces different results from hardware. |
+### Core Principles (Wronski's "Approach B")
 
-### Variant: Multi-Stage Comparison Pipeline
+1. **Generate inputs procedurally in code.** A lighting buffer with one white pixel. A flat GBuffer. A uniform white environment cubemap. A linear gradient. Never depend on authored meshes, textures, or scenes — those couple your test to the content pipeline, material system, camera system, and gamma correction all at once. Change any of those systems and every test breaks, drowning real regressions in noise.
+2. **Run production GPU code.** The actual shader code, the actual render pass, the actual framebuffer format. Not a CPU simulation. This is what distinguishes property tests from pure unit tests — they exercise the real code path including driver behavior.
+3. **Verify outputs numerically.** Integrate pixel values. Compute statistics. Check monotonicity. Assert energy bounds. The failure message should say *"bloom pass gained 3.2% energy (expected ≤ 0.5%)"* not *"pixels differ."*
+4. **One test, one property, one algorithm.** Isolation is the point. When a test fails, you know exactly what broke and where.
 
-A cascaded approach that uses cheap metrics as a fast-path filter and only escalates to expensive perceptual metrics when the result is ambiguous:
+### OloEngine-Specific Test Catalog
 
-1. **RMSE (fast)** — compute per-pixel RMSE across the whole image.
-   - Below tight threshold (e.g., < 0.002): **pass immediately**. No further analysis needed.
-   - Above high threshold (e.g., > 0.02): **fail immediately**. Clearly broken.
-   - Between the two: **ambiguous** — escalate to stage 2.
-2. **SSIM or FLIP (expensive)** — run a perceptual metric on the ambiguous image.
-   - SSIM > 0.98: **pass** — differences are imperceptible despite elevated RMSE (common cause: a single specular highlight shifting by 1 pixel).
-   - SSIM ≤ 0.98: **fail** — perceptually visible regression.
+#### PBR / Lighting
 
-**Why cascade?** RMSE and perceptual metrics fail in complementary ways:
-- RMSE is **oversensitive** to isolated bright-pixel outliers (a specular highlight moving 1 pixel produces high RMSE despite being visually identical).
-- RMSE is **undersensitive** to distributed low-contrast shifts (a subtle color cast across the whole image has low RMSE but is clearly visible).
-- Perceptual metrics (SSIM, FLIP) handle both cases correctly but cost 5–10× more to compute.
+| Test | Synthetic Input | Verification | What It Catches |
+|---|---|---|---|
+| **Furnace test** | White sphere, uniform white environment, sweep roughness 0→1 | Every pixel ≈ 1.0 (±ε). Any deviation = energy loss/gain. | BRDF energy conservation bugs, Fresnel errors, missing multi-scatter compensation |
+| **White environment irradiance** | Uniform white cubemap → irradiance convolution | Irradiance ≈ π for Lambertian diffuse | IBL convolution normalization errors |
+| **GGX NDF normalization** | Sweep roughness, integrate NDF over hemisphere via compute shader | Integral ≈ 1.0 for all roughness values | NDF formula bugs, clamping errors |
+| **Fresnel at normal incidence** | F0 = 0.04 (dielectric), viewing angle = 0° | Output ≈ F0 | Fresnel-Schlick implementation errors |
+| **Fresnel at grazing incidence** | Any F0, viewing angle → 90° | Output → 1.0 | Missing Fresnel clamp, NaN at extreme angles |
+| **Metallic kills diffuse** | Metallic = 1.0, diffuse albedo = (1,0,0) | Diffuse contribution = 0 | Incorrect metallic workflow |
+| **Roughness = 0 is mirror** | Roughness = 0, single directional light | Specular highlight concentrated in ≤ 2×2 pixels | GGX singularity at roughness 0 |
+| **Normal map identity** | Flat normal map (128, 128, 255) vs no normal map | Pixel-exact identical output | TBN construction errors, normal map range remapping bugs |
 
-In practice, ~90% of test runs resolve at stage 1 (clear pass or clear fail), so the expensive metric rarely runs.
+#### Post-Processing
 
-### Variant: Differential Testing
+| Test | Synthetic Input | Verification | What It Catches |
+|---|---|---|---|
+| **Bloom energy conservation** | Single bright pixel (10.0, 10.0, 10.0), black background | Sum of all pixels after bloom ≈ sum before bloom (±1%) | Bloom adding or losing energy |
+| **Bloom black passthrough** | All-black input | Output = all black | Bloom shader producing values from nothing |
+| **Tone mapping monotonicity** | Linear gradient 0→10 | Output is monotonically non-decreasing | Tone mapping curve inversion, clamping errors |
+| **Tone mapping black-to-black** | All-zero input | Output = all zero | Tone mapping offset/bias bugs |
+| **FXAA edge displacement** | Hard diagonal edge (white/black) | Edge pixels displaced by ≤ 1px from geometric edge | Overly aggressive AA, broken edge detection |
+| **DOF CoC correctness** | Single point at known depth, known focal params | Blur radius matches thin-lens equation (±1px) | Circle-of-confusion formula errors |
+| **Vignette center untouched** | Uniform white input, vignette enabled | Center pixel = 1.0 | Vignette applying darkening at center |
+| **Chromatic aberration center untouched** | Uniform color input, CA enabled | Center pixel = input color | CA shifting colors at optical center |
+| **Motion blur static** | Static camera, static scene | Output ≈ input (no blur applied) | Motion blur activating on zero-velocity pixels |
+| **Fog at zero distance** | Fragment at camera position | Fog contribution = 0 | Fog applying at zero distance |
+| **Fog at infinite distance** | Fragment at far plane | Fragment fully replaced by fog color | Fog not reaching full density |
 
-Instead of comparing against a static reference, render the same scene through two code paths (e.g., cached vs fresh, old branch vs new branch) and compare the outputs. No reference images needed — the two renders are compared against each other.
+#### Shadows
 
-### Industry Usage
+| Test | Synthetic Input | Verification | What It Catches |
+|---|---|---|---|
+| **No self-shadowing** | Flat plane facing light, at known distance | All lit pixels ≈ fully lit | Shadow bias too small |
+| **No peter-panning** | Object on plane, shadow enabled | Shadow contacts object base (no gap) | Shadow bias too large |
+| **Shadow outside frustum** | Object behind shadow camera frustum | No shadow cast | Shadow frustum calculation errors |
 
-- **Unreal Engine**: `FAutomationTestBase` + screenshot comparison framework, per-platform golden images, dedicated "Screenshot Comparison" tool.
-- **Unity**: Separate Graphics Tests repository with hundreds of scene-based screenshot tests per render pipeline (URP, HDRP, Built-in).
-- **Godot**: Screenshot-based tests in `tests/servers/rendering/`, integrated with CI.
-- **Filament**: `test_Filament` renders to headless SwapChain → compares against committed PNGs.
-- **Bevy**: `screenshot_test!` macro, runs across wgpu backends.
+#### IBL Pipeline
+
+| Test | Synthetic Input | Verification | What It Catches |
+|---|---|---|---|
+| **Prefilter mip energy monotonicity** | Environment cubemap → prefilter chain | Energy(mip N) ≤ Energy(mip N-1) for rougher mips | Mip generation bugs, wrong mip level writes |
+| **Prefilter mip 0 ≈ source** | Compare prefilter mip 0 to source cubemap | RMSE < tight threshold | Prefilter at roughness=0 diverging from source |
+| **IBL reload consistency** | Generate IBL, reload from cache, generate again | Cached vs fresh output identical | Cache key instability, mip loading bugs (a bug we actually had) |
+
+#### Terrain
+
+| Test | Synthetic Input | Verification | What It Catches |
+|---|---|---|---|
+| **Flat heightmap** | Heightmap of constant value | All terrain vertices at same Y | Heightmap sampling offset bugs |
+| **Splatmap channel isolation** | Splatmap with only channel 0 active | Only texture layer 0 visible | Splatmap channel swizzle errors |
+
+### Implementation Approach
+
+Tests use GoogleTest fixtures with a shared headless GL context:
+
+```cpp
+class RenderPropertyTest : public ::testing::Test
+{
+protected:
+    void SetUp() override
+    {
+        // Headless GL 4.6 context (EGL or hidden window)
+        // Minimal framebuffer at test resolution (e.g. 128×128)
+    }
+
+    // Helper: create a procedural texture from a lambda
+    Ref<Texture2D> MakeTexture(u32 width, u32 height,
+        std::function<glm::vec4(u32 x, u32 y)> generator);
+
+    // Helper: read back framebuffer and compute statistics
+    struct PixelStats { f32 min, max, avg; u32 nanCount, infCount; };
+    PixelStats ReadbackStats(const Ref<Framebuffer>& fbo, u32 attachment);
+
+    // Helper: sum all pixel values (for energy tests)
+    glm::vec4 ReadbackSum(const Ref<Framebuffer>& fbo, u32 attachment);
+};
+
+TEST_F(RenderPropertyTest, BloomPreservesEnergy)
+{
+    // 1. Procedural input: single bright pixel
+    auto input = MakeTexture(128, 128, [](u32 x, u32 y) {
+        return (x == 64 && y == 64) ? glm::vec4(10.0f) : glm::vec4(0.0f);
+    });
+    auto inputSum = glm::vec4(10.0f); // Known analytically
+
+    // 2. Run production bloom pass
+    auto output = RunBloomPass(input);
+
+    // 3. Numerical verification
+    auto outputSum = ReadbackSum(output, 0);
+    f32 energyRatio = outputSum.r / inputSum.r;
+    EXPECT_NEAR(energyRatio, 1.0f, 0.01f)
+        << "Bloom energy ratio: " << energyRatio
+        << " (expected 1.0 ± 1%)";
+}
+```
+
+### Why This Layer Is Primary
+
+Property tests embody every quality Wronski identifies as essential:
+- **Verify correctness**, not just "looks okay" — they answer *"is the Gaussian blur brightening the image?"* not *"did the image change?"*
+- **Trivial to add** — a new test is 10–30 lines of C++ in the same directory as the code it tests. No editor, no scenes, no golden files.
+- **Serve as documentation** — reading the test catalog tells you the design assumptions: "roughness=0 is a mirror," "bloom conserves energy," "fog is zero at camera position."
+- **Fail with actionable messages** — *"energy increased by 3.2%"* not *"RMSE 0.0127."*
+- **Decoupled from content pipeline** — changing the asset importer, material format, or camera system breaks zero property tests.
+- **Fast** — most run in <50ms. The entire catalog finishes in seconds.
+- **Deterministic** — synthetic inputs have no randomness. No temporal effects. No authored data dependencies.
 
 ### Limitations
 
-- **Brittle across GPU vendors** — AMD, NVIDIA, and Intel produce slightly different rounding for the same shader. Requires per-vendor references or generous thresholds.
-- **Slow** — each test requires full scene load + render + readback. Typically 0.5–2s per test.
-- **Binary pass/fail** — when a test fails, you see *that* something changed but not *why*. Needs complementary diagnostics (frame capture, state dumps).
+- **Doesn't test integration** — a bloom pass that conserves energy perfectly but reads from the wrong texture slot won't be caught. Golden image tests cover this.
+- **Requires understanding the algorithm** — you must know *what properties to test.* This is a feature, not a bug — it forces the implementer to articulate their assumptions.
+- **GPU precision variance** — identical synthetic inputs can produce slightly different outputs across vendors. Use tolerances derived from IEEE 754 analysis, not empirical tuning.
 
 ---
 
-## 2. GPU State Validation / Sanitization
+## 2. Shader Unit Testing
 
 ### Core Concept
 
-At the boundaries of rendering passes (shadow, scene, IBL, post-process), capture a snapshot of critical GPU state (depth test, depth mask, blend mode, bound textures, bound UBOs, viewport, scissor, stencil). On scope exit, assert that state was either properly restored or explicitly set to the expected values.
+Test individual shader functions in isolation on small synthetic inputs. Either by compute shader dispatch (GPU-side) or by making GLSL functions compilable as C++ via shared includes.
 
 ### What It Tests
 
-- **State leakage between passes** — a shadow pass disabling depth writes and forgetting to re-enable them, a post-process pass leaving blend enabled, an IBL pass leaving its UBO bound.
-- **Implicit assumptions** — code that assumes "depth test is enabled here" without checking.
-- **Driver-silent failures** — some state combinations are technically valid but produce wrong results (e.g., clearing depth with depth mask disabled silently no-ops).
-
-### Key Design Decisions
-
-| Decision | Options |
-|---|---|
-| **Granularity** | Per-pass boundaries, per-draw-call, or entry/exit of the entire frame |
-| **Tracked states** | Depth test/mask, blend mode/factors, stencil, viewport/scissor, bound FBO, bound textures per slot, bound UBOs per slot, active shader, face culling |
-| **Enforcement mode** | Assert-and-crash (debug builds), log-and-continue, or silent-restore |
-| **Debug-only vs always-on** | Typically debug/development builds only — `glGet*` queries are slow |
+- **Mathematical correctness** — PBR equations (GGX NDF, Fresnel-Schlick, Smith geometry), tone mapping operators (Reinhard, ACES, Uncharted2), color space conversions (sRGB ↔ linear), normal mapping math.
+- **Edge cases** — roughness = 0 or 1, metallic = 0 or 1, NdotL = 0, grazing angles, degenerate normals, F0 = 0 or 1.
+- **Numerical stability** — division by zero guards, clamping, avoiding log(0) or sqrt(negative).
+- **GBuffer packing/unpacking** — 0 maps to 0, 1 maps to 1, 0.5 maps to 0.5, round-trip within quantization tolerance. Engines routinely ship with 127/128 or 255/256 instead of 1.0 from wrong packing logic.
 
 ### Approaches
 
-**Approach A: RAII State Guards**
-An RAII object snapshots state on construction and asserts/restores on destruction. Place at pass boundaries. Lightweight, easy to adopt incrementally.
+**Approach A: Compute Shader Harness (preferred for OloEngine)**
+Write a compute shader that calls the function under test with known inputs, writes output to an SSBO, read back on CPU, and compare. Tests the actual compiled shader code on the actual GPU.
 
-**Approach B: Explicit State Machine / Tracked State**
-Maintain a CPU-side mirror of all GPU state. Every state-changing call goes through the mirror, which validates transitions. Like a "software driver" sitting above the real driver. More comprehensive but higher maintenance cost.
+```glsl
+// test_brdf.comp
+#version 460
+#include "PBR/BRDF.glsl"
 
-**Approach C: GL Debug Callbacks + Custom Validators**
-Use `glDebugMessageCallback` (already standard in GL 4.3+) for driver-reported issues, augmented with custom validators that `glGet*` state at pass boundaries. Combines driver intelligence with application-specific rules.
+layout(std430, binding = 0) buffer TestOutput { vec4 results[]; };
+layout(std430, binding = 1) buffer TestInput  { vec4 inputs[];  };
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+    vec3 N = vec3(0, 1, 0);
+    float roughness = inputs[idx].x;
+    float NdotH = inputs[idx].y;
+    results[idx] = vec4(DistributionGGX(N, N, roughness), 0, 0, 0);
+}
+```
+
+**Approach B: GLSL-to-C++ Dual Compilation**
+Core math in `.glsl` include files with `#ifdef __cplusplus` guards. Run on CPU with GoogleTest. Fast, no GPU context needed, but may miss driver-specific behavior.
+
+**Approach C: Shared Test Vectors**
+Maintain a set of known input/output pairs (Filament's approach). Both C++ and GPU paths must produce matching results for the same inputs.
+
+### Specialized Tests
+
+- **Furnace test** — white sphere, uniform white environment. Correct energy-conserving BRDF → perfectly white at all angles and roughness. Any deviation = energy leak. (See Section 1 for the property test version.)
+- **White environment irradiance** — irradiance of uniform white = π for Lambertian.
+- **Normal map identity** — flat normal (128, 128, 255) = no normal map.
+- **Tone mapping reference values** — known HDR inputs through each operator (Reinhard, ACES, Uncharted2) compared against hand-computed reference.
+- **sRGB ↔ linear round-trip** — convert to linear, convert back, verify < 1 LSB error.
 
 ### Industry Usage
 
-- **Filament**: Internal `DriverBase` tracks all state, validates transitions, asserts on illegal combinations.
-- **bgfx**: CPU-side state mirror (the "encoder") that validates before submission.
-- **WebGPU/Dawn**: Validation layer that rejects invalid state transitions before they reach the driver.
-- **Vulkan Validation Layers**: The gold standard — external layer that intercepts every API call and validates correctness. No GL equivalent exists, so engines must roll their own.
+- **Unreal**: Shader permutation tests validate compilation of all material permutations. Limited runtime verification of outputs.
+- **Filament**: Core BRDF functions implemented in both C++ and GLSL with shared test vectors.
+- **Unity HDRP**: Dedicated shader function tests in the Graphics Tests repo.
+- **Khronos dEQP**: Per-function precision tests for every GLSL built-in (`sin`, `cos`, `pow`, etc.) across all GPU vendors.
 
 ### Limitations
 
-- **Performance overhead** — `glGet*` calls stall the pipeline. Must be debug-only.
-- **Incomplete coverage** — you can only validate states you thought to track.
-- **Not visual** — validates *correctness of state* but not *correctness of output*. A shader bug producing wrong colors won't be caught.
+- **GPU compilation differences** — behavior can differ between NVIDIA, AMD, Intel due to precision, instruction reordering, and fast-math.
+- **Combinatorial explosion** — engines have thousands of shader permutations. Test the shared math functions, not every permutation.
 
 ---
 
@@ -116,269 +229,355 @@ Use `glDebugMessageCallback` (already standard in GL 4.3+) for driver-reported i
 
 ### Core Concept
 
-Generate rendering data (textures, cubemaps, meshes, shader binaries, material parameters), serialize to the engine's cache format, deserialize back, and compare with the original. Verifies that the cache pipeline preserves data integrity.
+Generate rendering data procedurally (textures, cubemaps, meshes, shader binaries, material parameters), serialize to the engine's cache format, deserialize back, and compare with the original. Verifies that the cache pipeline preserves data integrity.
 
 ### What It Tests
 
-- **Format correctness** — writing RGBA32F data but reading it back as RGB32F, wrong bytes-per-pixel calculations, endianness issues.
-- **Mip chain integrity** — all mip levels are saved and restored, not just mip 0.
-- **Lossy vs lossless encoding** — if the cache uses compression (meshopt, BC compression, etc.), verify the error stays within acceptable bounds.
-- **Header/metadata correctness** — dimensions, format enums, mip counts, face counts match the actual data.
-- **Compatibility across versions** — cache files from version N can be loaded by version N+1 (or are correctly rejected).
-
-### Key Design Decisions
-
-| Decision | Options |
-|---|---|
-| **Comparison type** | Byte-exact, floating-point epsilon, RMSE within tolerance |
-| **Data generation** | Procedural (deterministic patterns like gradients, checkerboards), or real assets |
-| **Scope** | Just the cache layer, or full GPU upload → readback → cache → reload → readback chain |
+- **Format correctness** — writing RGBA32F but reading as RGB32F, wrong bytes-per-pixel, endianness issues.
+- **Mip chain integrity** — all mip levels saved and restored, not just mip 0. (We have actually shipped a bug where `IBLCache::LoadCubemapFromCache` only loaded mip 0.)
+- **Lossy vs lossless encoding** — if cache uses compression (meshopt, BC), verify error within tolerance.
+- **Header/metadata correctness** — dimensions, format enums, mip counts, face counts match actual data.
+- **Version compatibility** — cache v(N) loadable by v(N+1) or cleanly rejected.
 
 ### Test Patterns
 
-- **Identity round-trip**: `data → serialize → deserialize → compare`. Pure CPU test, fast, no GPU needed.
-- **GPU round-trip**: `data → upload to GPU → readback → compare`. Tests the upload/readback path independently of caching.
+All test data is **procedurally generated** — deterministic gradients, checkerboards, known bit patterns. No dependency on authored assets.
+
+- **Identity round-trip**: `data → serialize → deserialize → compare`. Pure CPU, fast, no GPU.
+- **GPU round-trip**: `data → upload to GPU → readback → compare`. Tests the upload/readback path.
 - **Full pipeline round-trip**: `data → GPU render → cache save → cache load → GPU upload → readback → compare`. Tests everything.
 
 ### Industry Usage
 
-- **Assimp**: Extensive import → export → re-import tests for mesh formats.
-- **KTX (Khronos Texture)**: Round-trip tests for every texture format, including mip chains and cubemap faces.
-- **USD (Pixar)**: Serialization conformance suite that verifies data survives write → read cycles.
+- **Assimp**: Import → export → re-import tests for mesh formats.
+- **KTX (Khronos Texture)**: Round-trip tests for every texture format including mip chains and cubemap faces.
+- **USD (Pixar)**: Serialization conformance suite verifying write → read survival.
 
 ### Limitations
 
-- **Only tests the data path** — doesn't verify that the data is *used correctly* by the renderer.
-- **Doesn't catch "renders differently"** — data can round-trip perfectly but be bound to the wrong texture slot.
+- **Only tests the data path** — doesn't verify data is *used correctly* by the renderer.
+- **Doesn't catch "renders differently"** — data can round-trip perfectly but bind to the wrong texture slot.
 
 ---
 
-## 4. Smoke / Sanity Readback Tests
+## 4. GPU State Validation / Sanitization
 
 ### Core Concept
 
-After key rendering operations, read back a small sample of pixels (or statistics like min/max/average) and assert basic invariants: non-zero, no NaN, no Inf, within expected HDR range, alpha = 1.0, etc. Not comparing against a reference — just checking that the output isn't catastrophically wrong.
+At the boundaries of rendering passes (shadow, scene, IBL, post-process), capture a snapshot of critical GPU state and assert correctness. This is the layer that catches the class of bugs OloEngine has historically suffered: `ResetState()` zeroing shadow texture IDs, `OpenGLFramebuffer::Bind()` unconditionally enabling blend, blend state leaking from InfiniteGrid into terrain.
 
 ### What It Tests
 
-- **Catastrophic failures** — entire pass rendered black, NaN propagation through the pipeline, infinite values from division by zero, alpha channel corruption.
-- **Energy conservation** — rougher mip levels of a prefilter map should have less energy than smoother ones. IBL irradiance should be within a reasonable range of the environment map.
-- **Format correctness (coarse)** — if you expect HDR values > 1.0 but read back clamped [0,1], the texture is probably in the wrong format.
+- **State leakage between passes** — shadow pass disables depth writes and forgets to re-enable. Post-process leaves blend on. IBL pass leaves its UBO bound.
+- **Implicit assumptions** — code that assumes "depth test is enabled here" without verification.
+- **Driver-silent failures** — clearing depth with depth mask disabled silently no-ops. Technically valid, produces wrong results.
 
-### Key Design Decisions
+### Tracked States
 
-| Decision | Options |
-|---|---|
-| **Sample strategy** | Center pixel only, corners + center, full-face average, random sampling |
-| **Invariants** | Non-zero, non-NaN, non-Inf, within [min, max] range, monotonicity across mip levels |
-| **Runtime vs test-time** | Can run as both — lightweight enough for runtime diagnostics in debug builds |
-
-### Industry Usage
-
-- **Filament**: `test_Filament` includes basic "output is not black" checks alongside golden image tests.
-- **Three.js**: WebGL test suite renders simple scenes and checks for non-zero output via `readPixels`.
-- **Most engines**: Informal — developers add `assert(pixel != black)` during debugging and sometimes leave them in. Rarely formalized into a test suite.
-
-### Limitations
-
-- **Very coarse** — "not black and not NaN" is a very low bar. Many real bugs produce non-black, non-NaN output that is still visually wrong.
-- **Not a substitute for golden images** — a complement, not a replacement. Best used as a fast first-pass filter.
-
----
-
-## 5. Shader Unit Testing
-
-### Core Concept
-
-Test individual shader functions in isolation by running them on small synthetic inputs and verifying outputs. Either by compute shader dispatch (GPU-side) or by transpiling GLSL to C++ and running on CPU.
-
-### What It Tests
-
-- **Mathematical correctness** — PBR equations (GGX NDF, Fresnel-Schlick, Smith geometry), tone mapping operators (Reinhard, ACES), color space conversions (sRGB ↔ linear), normal mapping math.
-- **Edge cases** — roughness = 0 or 1, metallic = 0 or 1, NdotL = 0, grazing angles, degenerate normals.
-- **Numerical stability** — division by zero guards, clamping, avoiding log(0) or sqrt(negative).
+Depth test/mask, blend mode/factors, stencil op/mask, viewport/scissor, bound FBO, bound textures per slot, bound UBOs per slot, active shader program, face culling mode/enabled, polygon mode.
 
 ### Approaches
 
-**Approach A: Compute Shader Harness**
-Write a compute shader that calls the function under test with known inputs, writes output to an SSBO, read back on CPU, and compare. Requires a GL context but tests the actual compiled shader code.
+**Approach A: RAII State Guards (recommended first step)**
+An RAII object snapshots state on construction and asserts/restores on destruction. Place at render pass boundaries. Lightweight, incremental adoption.
 
-**Approach B: GLSL-to-C++ Transpilation**
-Tools like `glslang` or custom preprocessor macros can make GLSL functions compilable as C++. Run on CPU with standard unit test frameworks. Fast but may miss driver-specific behavior.
+```cpp
+class GLStateGuard
+{
+public:
+    GLStateGuard(std::string_view passName);  // Snapshots current state
+    ~GLStateGuard();                           // Asserts state restored or logs violations
+private:
+    GLStateSnapshot m_EntryState;
+    std::string_view m_PassName;
+};
 
-**Approach C: Shared Include Files**
-Write core math in `.glsl` include files. Test the CPU-translated version. Use `#ifdef __cplusplus` guards for dual-compilation.
+// Usage in SceneRenderPass::Execute()
+{
+    GLStateGuard guard("ScenePass");
+    // ... render ...
+}   // ~GLStateGuard asserts depth/blend/stencil match entry state
+```
+
+**Approach B: CPU-Side State Mirror**
+Maintain a CPU mirror of all GPU state. Every `glEnable`/`glDisable`/`glBindTexture` goes through the mirror, which validates transitions. Like Filament's `DriverBase` or bgfx's encoder.
+
+**Approach C: GL Debug Callbacks + Custom Validators**
+`glDebugMessageCallback` (GL 4.3+) for driver issues, plus custom `glGet*` validators at pass boundaries.
 
 ### Industry Usage
 
-- **Unreal**: Shader permutation tests validate that all material permutations compile successfully. Limited runtime verification.
-- **Filament**: Core BRDF functions implemented in both C++ and GLSL with shared test vectors.
-- **Unity HDRP**: Dedicated shader function tests in the Graphics Tests repo.
-- **Shadertoy / IQ**: Influential practice of validating math functions visually using known test scenes (Cornell box, furnace test).
-
-### Specialized Shader Tests
-
-- **Furnace test**: Render a white sphere inside a uniform white environment. A correct energy-conserving BRDF should produce a perfectly white pixel at all angles and roughness values. Any deviation indicates energy loss or gain.
-- **White environment test**: Similar to furnace, but tests the full IBL pipeline. Irradiance of a uniform white environment should be π (for Lambertian diffuse).
-- **Normal map identity test**: A flat normal map (128, 128, 255) should produce identical output to no normal map at all.
+- **Filament**: `DriverBase` tracks all state, validates transitions, asserts on illegal combinations.
+- **bgfx**: CPU-side state mirror validates before submission.
+- **WebGPU/Dawn**: Validation layer rejects invalid state transitions before reaching driver.
+- **Vulkan Validation Layers**: Gold standard — intercepts every API call, validates correctness. No GL equivalent, so engines must build their own.
 
 ### Limitations
 
-- **GPU compilation differences** — shader behavior can differ between NVIDIA, AMD, Intel due to precision, instruction reordering, and fast-math optimizations.
-- **Combinatorial explosion** — engines often have thousands of shader permutations. Testing all is impractical.
+- **Performance overhead** — `glGet*` calls stall the pipeline. Debug builds only.
+- **Incomplete coverage** — only validates states you thought to track.
+- **Not visual** — correct state doesn't mean correct output.
 
 ---
 
-## 6. Render Graph / Command Sequence Validation
+## 5. Render Graph / Command Sequence Validation
 
 ### Core Concept
 
-Capture the sequence of rendering commands (draw calls, state changes, resource barriers, pass transitions) for a frame, and validate structural properties: correct ordering, no missing barriers, no redundant state changes, correct resource lifetimes.
+Capture the sequence of rendering commands for a frame and validate structural properties: correct ordering, no missing barriers, no redundant state changes, correct resource lifetimes, no null resource references.
 
 ### What It Tests
 
-- **Pass ordering** — shadow passes execute before the main scene pass, post-processing after, IBL generation before anything that reads IBL.
-- **Resource hazards** — a texture written by pass A must not be read by pass B without a barrier/sync in between.
-- **Redundant state** — binding the same shader or texture twice in a row wastes GPU time.
-- **Missing resources** — a draw command references a texture ID of 0 (null/uninitialized).
-- **Command budget** — frame renders within expected draw call / state change budget.
+- **Pass ordering** — shadow before scene, post-process after scene, IBL before any pass that reads IBL.
+- **Resource hazards** — texture written by pass A read by pass B without barrier/sync.
+- **Redundant state** — binding same shader or texture twice consecutively.
+- **Missing resources** — draw command references texture ID 0 (null/uninitialized).
+- **Command budget** — frame within expected draw call / state change count.
 
 ### Approaches
 
 **Approach A: Frame Capture + Offline Analysis**
-Record an entire frame's commands to a structured log (JSON, binary). Analyze offline with custom validators. Can diff between two captures to find what changed.
+Record a frame's commands to structured JSON. Analyze offline with custom validators. Diff between captures to find what changed.
 
 **Approach B: Render Graph Static Analysis**
-If the engine uses a render graph (Vulkan-style), validate the graph structure before execution: check for cycles, verify resource lifetimes, detect unused passes, validate format compatibility.
+Validate graph structure before execution: check for cycles, verify resource lifetimes, detect unused passes, validate format compatibility. Unreal's RDG does this.
 
 **Approach C: Runtime Command Stream Validation**
-Intercept commands at submission time and validate in real-time. Like a "linter" for your command stream.
+Intercept commands at submission and validate in real-time. A "linter" for the command stream. Modeled after bgfx's submission-time validation.
 
 ### Industry Usage
 
-- **Vulkan Validation Layers**: Validates resource barriers, pipeline hazards, descriptor set bindings.
-- **RenderDoc**: Records frame → allows inspection of every API call, resource state, and pipeline stage.
-- **Unreal RDG (Render Dependency Graph)**: Static validation of the render graph — detects missing transitions, unused resources, and aliasing conflicts at build time.
-- **bgfx**: Submission-time validation of draw state (e.g., "texture slot 3 is unbound but shader expects it").
+- **Unreal RDG**: Static validation — detects missing transitions, unused resources, aliasing conflicts at graph build time.
+- **Vulkan Validation Layers**: Resource barriers, pipeline hazards, descriptor set bindings.
+- **RenderDoc**: Records frame for inspection of every API call, resource state, pipeline stage.
+- **bgfx**: Submission-time validation of draw state.
 
 ### Limitations
 
-- **Structural, not visual** — a perfectly valid command sequence can produce wrong pixels.
-- **Complex to implement** — requires either a render graph abstraction or comprehensive command interception.
+- **Structural, not visual** — valid command sequence can produce wrong pixels.
+- **Complex to implement** — requires render graph abstraction or comprehensive command interception.
 
 ---
 
-## 7. Performance Regression Testing
+## 6. Performance Regression Testing
 
-### Core Concept
+### Two Tiers: Microbenchmarks and Whole-Frame Budgets
 
-Measure frame time, draw call count, state change count, GPU memory usage, and other metrics across known scenes. Compare against a baseline to detect unintentional performance regressions.
+#### Tier 1: Microbenchmarks with Controlled Inputs (primary)
 
-### What It Tests
+Isolate individual passes with procedurally generated inputs at controlled sizes. Eliminates scene complexity noise and content pipeline dependencies. Modeled after Wronski's recommendation and id Tech's internal benchmark methodology.
 
-- **Draw call count regression** — a change that disables batching might double draw calls.
-- **State change explosion** — a sorting change that breaks material coherence.
-- **GPU memory leaks** — textures or buffers not freed across scene loads.
-- **Frame time regression** — detected via wall-clock or GPU timestamp queries.
+| Benchmark | Controlled Variables | Metric |
+|---|---|---|
+| **Bloom pass** | Resolution (720p, 1080p, 4K), % pixels above threshold (0%, 50%, 100%) | GPU time via timestamp queries |
+| **Shadow map generation** | Triangle count (1K, 10K, 100K), cascade count (1–4), resolution (1024–4096) | GPU time |
+| **FXAA pass** | Resolution, edge density (0%, 50%, 100%) | GPU time |
+| **Tone mapping** | Resolution, operator (Reinhard, ACES, Uncharted2) | GPU time |
+| **PBR lighting** | Light count (1, 8, 64, 256), material complexity | GPU time |
+| **Terrain rendering** | LOD level, patch count, splatmap layers | GPU time, triangle count |
+
+Run N frames, discard first M (warmup), report median and P95. Compare against checked-in baselines with ±10% tolerance.
+
+#### Tier 2: Whole-Frame Budgets
+
+Standard scenes with fixed camera paths and full pipeline active. Measures aggregate frame time, draw call count, state change count, GPU memory. Noisier than microbenchmarks but catches integration-level regressions (broken batching, sort order changes).
 
 ### Key Design Decisions
 
 | Decision | Options |
 |---|---|
-| **Metric collection** | CPU-side counters, GPU timestamp queries, driver performance counters (vendor-specific) |
-| **Baseline management** | Checked-in JSON with expected ranges, or relative comparison (this run vs previous run) |
-| **Noise handling** | Run N frames, discard first M (warmup), report median. Thermal throttling and background processes add noise. |
-| **Threshold** | Typically 5–10% regression triggers a warning, >20% fails the test |
+| **GPU timing** | `GL_TIME_ELAPSED` queries per pass, `glQueryCounter` for start/end timestamps |
+| **Baseline management** | Checked-in JSON with expected ranges per GPU family |
+| **Noise mitigation** | Median of 100 frames after 20-frame warmup. Run on idle machine. |
+| **Thresholds** | 5–10% warns, >20% fails. Per-pass and per-frame budgets. |
 
 ### Industry Usage
 
-- **Unreal**: Stat system + automated Gauntlet tests that track GPU/CPU timings across maps.
+- **Unreal**: Stat system + Gauntlet tests tracking GPU/CPU timings across maps.
+- **id Tech (Doom)**: Fixed camera paths, strict frame time budgets. Internal benchmarks are legendary for catching regressions.
 - **Unity**: Performance test framework with statistical analysis and historical tracking.
-- **id Tech (Doom)**: Internal benchmarks with fixed camera paths and strict frame time budgets.
 - **Chromium (Skia/Dawn)**: `perf_tests` with historical tracking and bisection support.
 
 ### Limitations
 
-- **Noisy** — GPU performance varies with thermal state, driver version, Windows updates, background load.
-- **Platform-specific** — a regression on NVIDIA may not appear on AMD.
-- **Doesn't catch visual bugs** — a renderer that skips half its draw calls will run faster and pass perf tests while looking completely wrong.
+- **Noisy** — thermal state, driver version, background load all add variance.
+- **Platform-specific** — regression on NVIDIA may not appear on AMD.
+- **Doesn't catch visual bugs** — skipping half the draw calls makes frames faster.
 
 ---
 
-## 8. Cross-API / Cross-Platform Conformance
+## 7. Smoke / Sanity Readback Tests
 
 ### Core Concept
 
-Run the same test suite across multiple rendering backends (OpenGL, Vulkan, DirectX, Metal) and/or multiple GPU vendors, comparing results for consistency. Verifies that the abstraction layer (RHI) produces equivalent output everywhere.
+After key rendering operations, read back pixel statistics and assert basic invariants: non-zero, no NaN, no Inf, within expected HDR range, alpha correctness. Not comparing against a reference — checking that output isn't catastrophically broken. These run on *every* frame in debug builds as a continuous safety net.
 
 ### What It Tests
 
-- **Backend parity** — same scene rendered by Vulkan and OpenGL backends should produce near-identical output.
-- **Vendor differences** — NVIDIA's fast-math vs AMD's stricter IEEE compliance, Intel's different texture filtering.
-- **Precision differences** — mediump vs highp on mobile, denormalized float handling.
-- **Format support** — not all formats are available on all backends (e.g., RGB32F is optional in GL).
+- **Catastrophic failures** — entire pass rendered black, NaN propagation, infinite values, alpha corruption.
+- **Energy bounds** — HDR output within expected range (not clamped to [0,1] when it shouldn't be, not exceeding reasonable maxima).
+- **Format correctness** — expecting HDR but reading back clamped values → wrong texture format.
 
-### Industry Usage
+### OloEngine Integration
 
-- **Unreal**: Per-platform golden images, cross-API parity tests.
-- **Filament**: Tests run across Vulkan, OpenGL, Metal backends.
-- **WebGPU CTS (Conformance Test Suite)**: Thousands of per-feature tests run across Dawn (Chrome), wgpu (Firefox), and all GPU vendors.
-- **Vulkan CTS (dEQP)**: Khronos-maintained conformance suite with ~500k tests.
+A `ValidateOutput` helper called after each pass in debug builds:
+
+```cpp
+void ValidatePassOutput(const Ref<Framebuffer>& fbo, std::string_view passName)
+{
+    auto stats = ReadbackStats(fbo, 0);
+    OLO_CORE_ASSERT(stats.nanCount == 0,
+        "{}: {} NaN pixels detected", passName, stats.nanCount);
+    OLO_CORE_ASSERT(stats.infCount == 0,
+        "{}: {} Inf pixels detected", passName, stats.infCount);
+    OLO_CORE_ASSERT(stats.max < 65504.0f,  // fp16 max
+        "{}: max value {} exceeds fp16 range", passName, stats.max);
+}
+```
 
 ### Limitations
 
-- **Expensive** — requires hardware for every target platform, or cloud GPU CI.
-- **Not always achievable** — single-backend engines (like an OpenGL-only engine) can only test cross-vendor, not cross-API.
+- **Very coarse** — "not black and not NaN" is a low bar. Complement with property tests.
+- **Debug-only** — readback stalls make this too expensive for release.
 
 ---
 
-## 9. Automatic Diagnostic Escalation
+## 8. Golden Image / Screenshot Comparison Testing
 
-### Core Concept
+### Role in the Strategy
 
-When a test fails, don't just report "FAIL" — automatically re-run the failing test with progressively more diagnostics enabled, collecting the information a developer would manually gather during debugging. The first run is fast and cheap (normal assertions). The second run is slow and expensive (full diagnostics). Only the failing tests pay the diagnostic cost.
+Golden image tests sit at the **top of the testing pyramid** — few in number, integration-focused, and expected to change occasionally. Following Wronski's recommendation: **no more than 10–15 golden smoke tests**, each cramming many features into one scene, testing the pipeline end-to-end. These are *not* per-feature tests.
 
-### Escalation Stages
+The per-feature correctness verification is handled by property tests (Section 1). Golden images answer a different question: *"does the fully composed frame, with all systems interacting, still produce acceptable output?"*
 
-| Stage | Trigger | What it collects | Cost |
-|---|---|---|---|
-| **Stage 0: Normal run** | Always | Pass/fail result, basic assertion message | Baseline |
-| **Stage 1: Readback diagnostics** | Stage 0 fails | Pixel readback at key pipeline stages (after scene pass, after post-process, after tone map), min/max/avg statistics, NaN/Inf scan | ~2× slower (GPU readback stalls) |
-| **Stage 2: State snapshots** | Stage 0 fails | Full GL state dump at pass boundaries (bound FBO, UBOs, textures, depth/blend/stencil config, viewport), diff against expected state | ~3× slower (`glGet*` queries) |
-| **Stage 3: Frame capture** | Stage 0 fails | Full command stream log (every draw call, state change, resource bind), diff against baseline capture if available | ~5× slower (command recording overhead) |
-| **Stage 4: Visual diff** | Golden image fails | Side-by-side diff image (reference vs actual vs heatmap of differences), per-channel breakdown, histogram of deltas | ~1.5× slower (image processing) |
+### Scene Design
 
-Stages 1–4 are independent and can run in parallel during a single diagnostic re-run.
+Each golden test scene is designed to exercise multiple systems simultaneously:
 
-### What It Solves
+| Scene | Systems Exercised |
+|---|---|
+| **PBR Material Gallery** | PBR shading, IBL, shadow mapping, normal mapping, tone mapping, gamma correction |
+| **Post-Process Showcase** | Bloom, FXAA, DOF, motion blur, vignette, chromatic aberration, fog, color grading |
+| **Terrain + Foliage** | Terrain LOD, splatmap blending, foliage instancing, shadow cascades |
+| **Animated Characters** | Skeletal animation, bone transforms, skinning, shadow casting from animated meshes |
+| **Transparency + Particles** | Alpha blending, particle rendering, OIT (if applicable), depth sorting |
+| **Stress Test** | Maximum lights, maximum draw calls, full post-process chain, all passes active |
 
-- **"Test failed, now what?"** — the most common developer experience with rendering tests is staring at a red test and having no idea what changed. Automatic diagnostics bridge the gap between "something is wrong" and "here's what's wrong."
-- **Non-reproducible failures** — some failures only occur under specific conditions (warm cache, second scene load, specific entity order). Re-running with diagnostics captures the failure in context rather than asking the developer to reproduce it manually.
-- **CI without RenderDoc** — on CI machines, interactive GPU debuggers aren't available. The diagnostic re-run acts as a lightweight substitute, collecting the same information a developer would get from a RenderDoc capture.
+### Multi-Stage Comparison Pipeline
+
+A cascaded approach using cheap metrics as fast-path filters:
+
+1. **RMSE (fast)** — per-pixel RMSE across the whole image.
+   - RMSE < 0.002: **pass immediately.**
+   - RMSE > 0.02: **fail immediately.**
+   - Between: **ambiguous** → escalate to stage 2.
+2. **SSIM or FLIP (expensive)** — perceptual metric on ambiguous cases.
+   - SSIM > 0.98: **pass** — differences imperceptible.
+   - SSIM ≤ 0.98: **fail** — perceptually visible regression.
+
+**Why cascade?** RMSE is oversensitive to isolated bright-pixel outliers (specular highlight shifts 1px → high RMSE, visually identical) and undersensitive to distributed low-contrast shifts (subtle color cast → low RMSE, clearly visible). Perceptual metrics handle both correctly but cost 5–10× more. ~90% of runs resolve at stage 1.
+
+### Variant: Differential Testing
+
+Render the same scene through two code paths (cached vs fresh, old branch vs new branch) and compare. No reference images needed.
 
 ### Key Design Decisions
 
 | Decision | Options | Trade-offs |
 |---|---|---|
-| **Re-run strategy** | Re-run only failing tests, re-run entire suite with diagnostics, or always collect diagnostics | Re-run failing only is fastest. Always-on diagnostics is simplest but wastes time on passing tests. |
-| **Diagnostic output format** | Structured JSON (machine-parseable), human-readable log, or both | JSON enables tooling (auto-bisection, dashboards). Human-readable is essential for quick debugging. Emit both. |
-| **Artifact storage** | CI artifact upload, local temp directory, or committed alongside test results | CI artifacts are ephemeral but cheap. Local temp for development. Never commit diagnostic output. |
-| **Diagnostic depth** | Fixed (always run all stages) or adaptive (stop after first informative stage) | Adaptive is faster but may miss correlated issues. Fixed is simpler and more thorough. |
-| **Diagnostic instrumentation** | Compile-time flags (`#ifdef DIAGNOSTIC_MODE`), runtime flags (env var or test fixture parameter), or always-present but gated by cost | Runtime flags are most flexible — same binary can run normal or diagnostic mode. |
+| **Threshold strategy** | Global RMSE, per-pixel max delta, % pixels differing | Too tight → flaky. Too loose → misses bugs. |
+| **Reference management** | Git LFS, per-platform references | Per-platform handles vendor variance. Regenerate explicitly after intentional changes. |
+| **Determinism** | Fixed camera, fixed resolution, fixed RNG seed, disabled temporal effects | Temporal AA/jitter/animation must be disabled or seeded. |
+| **Headless rendering** | Hidden window, EGL offscreen, SwiftShader | Hidden window simplest. SwiftShader for CI without GPU (property tests only — golden images need real GPU). |
+
+### Process for Golden Test Failures
+
+When a golden test fails, the developer workflow is:
+
+1. **Check property tests first.** If property tests also fail, fix the property-level bug — the golden test failure is a symptom.
+2. **If property tests pass**, the failure is an integration issue (system interaction, state ordering, resource binding). Use automatic diagnostic escalation (Section 10) output.
+3. **Investigate the diff.** Examine the heatmap, per-channel breakdown, and statistics.
+4. **If the change is intentional**, update the golden reference in the **same commit** as the code change. (Wronski: test updates in the same CL as code changes, not separated.)
+5. **Never blind-bless.** Every reference update requires understanding *why* pixels changed.
+
+### Industry Usage
+
+- **Unreal Engine**: `FAutomationTestBase` + screenshot comparison, per-platform golden images, "Screenshot Comparison" tool.
+- **Unity**: Graphics Tests repository with hundreds of scene-based tests per render pipeline.
+- **Filament**: `test_Filament` renders to headless SwapChain, compares against committed PNGs.
+- **Godot**: Screenshot tests in `tests/servers/rendering/`, CI-integrated.
+
+### Limitations
+
+- **Brittle across GPU vendors** — requires per-vendor references or generous thresholds.
+- **Slow** — full scene load + render + readback. 0.5–2s per test.
+- **Binary pass/fail** — shows *that* something changed, not *why*. Needs diagnostic escalation.
+
+---
+
+## 9. Cross-Vendor Conformance
+
+### Core Concept
+
+Run the same test suite across different GPU vendors (NVIDIA, AMD, Intel) comparing results for consistency. Since OloEngine currently targets OpenGL 4.6, this is cross-vendor rather than cross-API.
+
+### What It Tests
+
+- **Vendor differences** — NVIDIA's fast-math vs AMD's stricter IEEE compliance, Intel's different texture filtering.
+- **Precision differences** — denormalized float handling, rounding mode differences.
+- **Format support gaps** — not all formats behave identically (e.g., RGB32F filtering behavior).
+- **Driver regressions** — a new driver version changes behavior. Tracked over time.
+
+### Software Rasterizer Strategy
+
+For property tests (Section 1) and shader unit tests (Section 2), consider **SwiftShader** as a deterministic reference implementation:
+- Property tests check *invariants* (energy = input, monotonicity, etc.) — small precision differences between vendors don't matter.
+- Running property tests through SwiftShader in Docker enables fully deterministic CI with no GPU hardware.
+- Golden image tests (Section 8) still require real GPU hardware — SwiftShader's output differs too much for pixel comparison.
+
+### Industry Usage
+
+- **Unreal**: Per-platform golden images, cross-API parity tests.
+- **Filament**: Tests across Vulkan, OpenGL, Metal backends.
+- **WebGPU CTS**: Thousands of per-feature tests across Dawn, wgpu, all GPU vendors.
+- **Vulkan CTS (dEQP)**: Khronos-maintained, ~500k tests.
+
+### Limitations
+
+- **Requires hardware** — or cloud GPU CI for each target vendor.
+- **Single API limits scope** — can test cross-vendor but not cross-API until a Vulkan backend exists.
+
+---
+
+## 10. Automatic Diagnostic Escalation
+
+### Core Concept
+
+When a test fails, don't just report "FAIL" — automatically re-run with progressively more diagnostics. The first run is fast. The second run collects the data a developer would manually gather. Only failing tests pay the diagnostic cost.
+
+### Escalation Stages
+
+| Stage | Trigger | What It Collects | Cost |
+|---|---|---|---|
+| **Stage 0: Normal run** | Always | Pass/fail, assertion message | Baseline |
+| **Stage 1: Readback diagnostics** | Stage 0 fails | Pixel readback at key pipeline stages, min/max/avg statistics, NaN/Inf scan, energy totals | ~2× (GPU readback stalls) |
+| **Stage 2: State snapshots** | Stage 0 fails | Full GL state dump at pass boundaries, diff against expected state | ~3× (`glGet*` queries) |
+| **Stage 3: Frame capture** | Stage 0 fails | Full command stream log, diff against baseline capture | ~5× (command recording) |
+| **Stage 4: Visual diff** | Golden image fails | Side-by-side (reference \| actual \| heatmap), per-channel breakdown, histogram of deltas | ~1.5× (image processing) |
+
+Stages 1–4 are independent and run in parallel during a single diagnostic re-run.
 
 ### Diagnostic Report Structure
-
-A failing test should produce a self-contained diagnostic bundle:
 
 ```text
 test-output/
 └── IBL_ReloadConsistency_FAIL/
     ├── summary.json              # Machine-readable: which stages ran, what they found
-    ├── assertion.txt             # Original failure message
+    ├── assertion.txt             # Original failure message with numerical context
     ├── readback/
     │   ├── scene_pass_face0.exr  # HDR pixel data after scene pass
     │   ├── postprocess_out.exr   # After post-processing
-    │   └── statistics.json       # min/max/avg/NaN count per stage
+    │   └── statistics.json       # min/max/avg/NaN count/energy total per stage
     ├── state/
     │   ├── pass_entry_state.json # GL state at each pass entry
     │   ├── pass_exit_state.json  # GL state at each pass exit
@@ -389,45 +588,185 @@ test-output/
     └── visual/
         ├── reference.png
         ├── actual.png
-        └── diff_heatmap.png      # Per-pixel absolute difference, amplified for visibility
+        └── diff_heatmap.png      # Per-pixel absolute difference, amplified
 ```
+
+### Key Design Decisions
+
+| Decision | Recommendation |
+|---|---|
+| **Re-run strategy** | Re-run only failing tests (cap: first 5 failures get full diagnostics, rest summary only) |
+| **Output format** | Both structured JSON (for tooling/dashboards) and human-readable log |
+| **Artifact storage** | CI artifact upload. Local temp for development. Never committed. |
+| **Instrumentation** | Runtime flags (env var `OLO_DIAGNOSTIC_MODE=1`). Same binary, different mode. |
 
 ### Industry Usage
 
-- **Chromium (Dawn/Skia)**: On test failure, re-runs with `--enable-gpu-debugging` flag that activates validation layers, state dumps, and shader debug info. Diagnostic output uploaded as CI artifacts.
-- **Unity Graphics Tests**: Failed screenshot tests automatically emit a "diff triptych" (reference | actual | diff) as a CI artifact. Internal builds also dump render graph state.
-- **Unreal Gauntlet**: Test failures trigger "verbose mode" re-runs that collect additional telemetry (frame timing histograms, memory snapshots, GPU crash dumps).
-- **Mesa CI (piglit)**: Failed GL tests re-run with `MESA_DEBUG=1` and `LIBGL_DEBUG=verbose`, capturing driver-level diagnostics automatically.
-- **Valve Steam Deck QA**: Automated test failures trigger a RenderDoc capture on the next run via `RENDERDOC_HOOK_EGL=1`, uploading the `.rdc` file as a CI artifact.
+- **Chromium (Dawn/Skia)**: `--enable-gpu-debugging` on failure activates validation layers, state dumps, shader debug info. CI artifacts.
+- **Unity Graphics Tests**: Failed screenshots emit diff triptych as CI artifact. Internal builds dump render graph state.
+- **Unreal Gauntlet**: Failures trigger verbose re-runs with telemetry (frame timing histograms, memory snapshots, GPU crash dumps).
+- **Mesa CI (piglit)**: Failed tests re-run with `MESA_DEBUG=1` and `LIBGL_DEBUG=verbose`.
+- **Valve Steam Deck QA**: Failures trigger RenderDoc capture via `RENDERDOC_HOOK_EGL=1`, uploading `.rdc` as CI artifact.
 
 ### Limitations
 
-- **Re-run assumes reproducibility** — if the failure is truly non-deterministic (race condition, uninitialized memory), the diagnostic re-run may pass, producing no useful data. Mitigation: collect lightweight diagnostics (statistics, state snapshots) on *every* run, not just re-runs.
-- **Doubles wall-clock time for failures** — acceptable if failures are rare (<5% of runs). Problematic during large refactors where many tests fail simultaneously. Mitigation: cap the number of diagnostic re-runs per suite (e.g., first 5 failures get full diagnostics, rest get summary only).
-- **Diagnostic code is code** — the instrumentation itself can have bugs, or worse, can *mask* the original bug by changing timing or state. Mitigation: diagnostics should be read-only (no state modification), and the pass/fail verdict always comes from the *first* run, never the diagnostic run.
+- **Assumes reproducibility** — non-deterministic failures may not reproduce. Mitigation: collect lightweight stats on *every* run.
+- **Doubles wall-clock for failures** — acceptable if failures < 5% of runs.
+- **Diagnostic code is code** — instrumentation can mask bugs by changing timing. Diagnostics must be read-only. Pass/fail verdict always comes from first run.
+
+---
+
+## 11. Sanitizers, Fuzzing, and Memory Safety
+
+### Core Concept
+
+Compiler-provided sanitizers and fuzz testing catch entire categories of bugs that no pixel comparison ever will: buffer overruns, data races, undefined behavior, use-after-free. Bart Wronski calls these "amazing ROI" and dedicates a section to them despite being "off-topic" for graphics.
+
+These are not rendering-specific — they protect the engine's foundation. A corrupted vertex buffer or a race condition in command queue submission will eventually manifest as a visual bug, but the root cause is invisible to rendering tests.
+
+### Sanitizers
+
+| Sanitizer | What It Catches | OloEngine Relevance |
+|---|---|---|
+| **AddressSanitizer (ASan)** | Buffer overruns, use-after-free, stack overflow, memory leaks | Vertex/index buffer construction, texture readback, asset loading, custom allocators |
+| **ThreadSanitizer (TSan)** | Data races, lock-order inversions, deadlocks | Command queue submission (Molecular Matters-inspired), asset hot-reload, multithreaded scene loading |
+| **UndefinedBehaviorSanitizer (UBSan)** | Signed overflow, null deref, alignment, shift errors | Fixed-point math, bitfield packing, serialization, enum casting |
+
+### CMake Integration
+
+```cmake
+option(OLO_ENABLE_ASAN  "Enable AddressSanitizer"          OFF)
+option(OLO_ENABLE_TSAN  "Enable ThreadSanitizer"           OFF)
+option(OLO_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
+
+if(OLO_ENABLE_ASAN)
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address)
+endif()
+# (analogous for TSan, UBSan)
+```
+
+On MSVC: `/fsanitize=address` is supported since VS 2019 16.9. TSan and UBSan are not natively available on MSVC — use Clang/LLVM toolchain for those. Consider a Clang-cl CI configuration specifically for sanitizer runs.
+
+### Fuzz Testing
+
+Feed random or semi-random data into parsers and loaders to find crashes, hangs, and undefined behavior:
+
+| Fuzz Target | Input | What It Catches |
+|---|---|---|
+| **Shader source compilation** | Mutated GLSL source strings | Shader compiler crashes, infinite loops in preprocessor |
+| **Asset deserialization** | Mutated `.olo` scene files, `.oar` asset registries | Parser crashes, buffer overruns, OOM from malformed headers |
+| **Texture loading** | Corrupted PNG/HDR/KTX data | Image decoder crashes, integer overflow in dimension calculations |
+| **Mesh import** | Mutated glTF/FBX data via Assimp | Import pipeline crashes, degenerate geometry handling |
+
+Use libFuzzer (Clang) or similar. Run under ASan for maximum bug detection.
+
+### Industry Usage
+
+- **Chromium**: ASan/TSan/MSan/UBSan are part of standard CI. libFuzzer targets for every parser.
+- **Mesa**: Continuous fuzzing of shader compilers via OSS-Fuzz.
+- **Unreal**: Internal ASan configurations for development builds.
+- **Blender**: OSS-Fuzz integration for file format parsers.
+
+### Limitations
+
+- **Performance overhead** — ASan: ~2× slowdown, TSan: ~5–15×, UBSan: ~1.2×. Not for release builds.
+- **MSVC ecosystem gaps** — TSan and UBSan require Clang-cl. Worth the CI complexity.
+- **False positives** — rare with ASan/TSan, but driver code in vendor DLLs can trigger spurious reports. Maintain a suppression file.
+
+---
+
+## 12. Test Infrastructure and Developer Experience
+
+### Tests as Documentation
+
+Well-named tests teach the next developer (or your future self) the assumptions of every system. Reading the property test catalog should reveal design contracts:
+
+- *"Roughness=0 produces a mirror reflection"*
+- *"Bloom conserves energy"*
+- *"Fog contribution is zero at camera position"*
+- *"Metallic=1 kills the diffuse term"*
+
+This is especially valuable during onboarding and during refactors where you need to understand what a system *should* do, not just what it currently does.
+
+### Test Proximity
+
+Tests live **adjacent to the code they test**, not in a distant repository or editor-only workflow:
+
+```
+OloEngine/src/Renderer/PostProcess/
+    BloomPass.cpp
+    BloomPass.h
+OloEngine/tests/Renderer/PostProcess/
+    BloomPropertyTests.cpp       ← property tests
+    BloomShaderUnitTests.cpp     ← shader math tests
+```
+
+Adding a test requires no editor, no authored scenes, no golden file management — just C++ in the same build tree. Wronski's rule: *"make valued behaviors easy to do."*
+
+### Minimal Friction Test Template
+
+A new rendering property test should be ~15 lines:
+
+```cpp
+TEST_F(RenderPropertyTest, FogZeroAtCamera)
+{
+    auto depthBuffer = MakeDepthTexture(128, 128, 0.0f);  // depth = 0 → at camera
+    auto colorBuffer = MakeTexture(128, 128, glm::vec4(1.0f));
+    auto output = RunFogPass(colorBuffer, depthBuffer);
+    auto stats = ReadbackStats(output, 0);
+    EXPECT_NEAR(stats.avg, 1.0f, 0.001f) << "Fog should not affect fragments at camera position";
+}
+```
+
+### CI Integration
+
+| CI Stage | Tests Run | Expected Duration |
+|---|---|---|
+| **Pre-commit (local)** | Shader unit tests, data round-trip tests | < 5 seconds |
+| **PR gate** | All property tests, state validation, command sequence, smoke readbacks | < 60 seconds |
+| **Nightly** | Full suite including golden images, performance benchmarks, cross-vendor | < 15 minutes |
+| **Weekly** | Sanitizer builds (ASan, TSan, UBSan), fuzz campaign | < 2 hours |
+
+### Headless Rendering for CI
+
+| Option | Pros | Cons | Use For |
+|---|---|---|---|
+| **Hidden window** | Simplest, uses real GPU | Needs display server | All tests on GPU-equipped CI |
+| **EGL offscreen context** | Truly headless, real GPU | Linux-only for most drivers | Linux CI |
+| **SwiftShader** | Deterministic, runs in Docker, no GPU | Different results from hardware | Property tests, shader unit tests |
+| **Mesa llvmpipe** | CPU-only, runs anywhere | Slow, different from hardware | Fallback when no GPU available |
+
+For property tests, SwiftShader is the recommended CI path — invariant checks don't require hardware-accurate pixels. Golden image tests require real GPU hardware.
 
 ---
 
 ## Comparison Matrix
 
-| Approach | What it catches | Speed | Requires GPU | Catches visual bugs | Catches state bugs | Catches perf bugs |
-|---|---|---|---|---|---|---|
-| Golden Image | Everything visual | Slow | Yes | ✅ | Indirectly | ❌ |
-| GPU State Validation | State leakage | Fast | Yes (debug) | ❌ | ✅ | ❌ |
-| Data Round-Trip | Serialization bugs | Fast | Optional | ❌ | ❌ | ❌ |
-| Smoke Readback | Catastrophic failures | Medium | Yes | Coarse | ❌ | ❌ |
-| Shader Unit Tests | Math/logic bugs | Fast | Optional | ❌ | ❌ | ❌ |
-| Command Sequence | Ordering/resource bugs | Fast | No | ❌ | ✅ | Indirectly |
-| Performance Regression | Perf regressions | Slow | Yes | ❌ | ❌ | ✅ |
-| Cross-API Conformance | Backend parity | Very slow | Multi-GPU | ✅ | ✅ | ❌ |
+| Approach | What It Catches | Speed | GPU Required | Visual Bugs | State Bugs | Perf Bugs | Actionable Failures |
+|---|---|---|---|---|---|---|---|
+| **Property / Behavioral** | Algorithm correctness | Fast | Yes | Indirectly | ❌ | ❌ | ✅ Excellent |
+| **Shader Unit** | Math/logic bugs | Fastest | Optional | ❌ | ❌ | ❌ | ✅ Excellent |
+| **Data Round-Trip** | Serialization bugs | Fastest | Optional | ❌ | ❌ | ❌ | ✅ Good |
+| **GPU State Validation** | State leakage | Fast | Yes (debug) | ❌ | ✅ | ❌ | ✅ Good |
+| **Command Sequence** | Ordering/resource bugs | Fast | No | ❌ | ✅ | Indirectly | ✅ Good |
+| **Smoke Readback** | Catastrophic failures | Medium | Yes | Coarse | ❌ | ❌ | ⚠️ Coarse |
+| **Performance** | Perf regressions | Slow | Yes | ❌ | ❌ | ✅ | ✅ Good |
+| **Golden Image** | Integration visual regressions | Slow | Yes | ✅ | Indirectly | ❌ | ⚠️ Needs escalation |
+| **Cross-Vendor** | Vendor parity | Very slow | Multi-GPU | ✅ | ✅ | ❌ | ⚠️ Moderate |
+| **Sanitizers / Fuzzing** | Memory safety, UB, races | Slow | No | ❌ | ❌ | ❌ | ✅ Excellent |
 
 ---
 
 ## Recommended Reading
 
-- Rendering Testing at Scale (GDC 2019) — Unity's talk on maintaining thousands of rendering tests. (GDC Vault; search for the specific session.)
-- [Filament Test Infrastructure](https://github.com/google/filament/tree/main/test) — open-source example of golden image + headless rendering.
-- [Mesa piglit](https://gitlab.freedesktop.org/mesa/piglit) — GL conformance test suite with extensive per-pixel comparison patterns.
-- [Vulkan CTS (dEQP)](https://github.com/KhronosGroup/VK-GL-CTS) — the most comprehensive GPU test suite ever built, worth studying for methodology.
-- [The Furnace Test (Karis 2013)](https://blog.selfshadow.com/publications/s2013-shading-course/karis/s2013_pbs_epic_notes_v2.pdf) — Brian Karis on energy conservation validation for PBR.
-- Automated Visual Testing for Games (GDC 2023) — practical approaches to screenshot testing in game engines. (GDC Vault; search for the specific session.)
+- [**How (not) to test graphics algorithms** — Bart Wronski (2019)](https://bartwronski.com/2019/08/14/how-not-to-test-graphics-algorithms/) — The foundational reference for this document. Approach B (property testing with synthetic data) is our primary strategy.
+- [**The Furnace Test** — Brian Karis (SIGGRAPH 2013)](https://blog.selfshadow.com/publications/s2013-shading-course/karis/s2013_pbs_epic_notes_v2.pdf) — Energy conservation validation for PBR BRDFs.
+- [**Filament Test Infrastructure**](https://github.com/google/filament/tree/main/test) — Open-source golden image + headless rendering.
+- [**Mesa piglit**](https://gitlab.freedesktop.org/mesa/piglit) — GL conformance test suite with extensive per-pixel comparison patterns.
+- [**Vulkan CTS (dEQP)**](https://github.com/KhronosGroup/VK-GL-CTS) — Most comprehensive GPU test suite, worth studying for methodology.
+- [**SwiftShader**](https://github.com/nichmack/prebuilt-swiftshader) — CPU-based Vulkan/GL implementation for deterministic CI.
+- **Rendering Testing at Scale (GDC 2019)** — Unity's talk on maintaining thousands of rendering tests.
+- **Automated Visual Testing for Games (GDC 2023)** — Practical screenshot testing in game engines.
+- [**Google Sanitizers**](https://github.com/google/sanitizers/wiki) — ASan, TSan, MSan, UBSan documentation.
+- [**libFuzzer**](https://llvm.org/docs/LibFuzzer.html) — Coverage-guided fuzz testing for C/C++.

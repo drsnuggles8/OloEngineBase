@@ -34,12 +34,7 @@ jobs:
         python -c "import jinja2; print(f'jinja2 {jinja2.__version__} installed at {jinja2.__file__}')"
     
     - name: Setup Vulkan SDK
-      id: vulkan
       uses: ./.github/actions/setup-vulkan
-
-    - name: Export VULKAN_SDK
-      run: echo "VULKAN_SDK=${{ steps.vulkan.outputs.install-dir }}" >> $env:GITHUB_ENV
-      shell: pwsh
 
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.

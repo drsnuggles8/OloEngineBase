@@ -544,7 +544,7 @@ namespace OloEngine
         }
 
       private:
-        alignas(TPaddingForCacheContention > 0 ? TPaddingForCacheContention : 1) TDoublePtr m_Head;
+        alignas(TPaddingForCacheContention > 0 ? TPaddingForCacheContention : alignof(TDoublePtr)) TDoublePtr m_Head;
     };
 
     // ========================================================================
@@ -877,8 +877,8 @@ namespace OloEngine
         }
 
       private:
-        alignas(TPaddingForCacheContention > 0 ? TPaddingForCacheContention : 1) TDoublePtr m_Head;
-        alignas(TPaddingForCacheContention > 0 ? TPaddingForCacheContention : 1) TDoublePtr m_Tail;
+        alignas(TPaddingForCacheContention > 0 ? TPaddingForCacheContention : alignof(TDoublePtr)) TDoublePtr m_Head;
+        alignas(TPaddingForCacheContention > 0 ? TPaddingForCacheContention : alignof(TDoublePtr)) TDoublePtr m_Tail;
     };
 
     // ========================================================================
@@ -1033,7 +1033,7 @@ namespace OloEngine
         }
 
         FLockFreePointerFIFOBase<T, TPaddingForCacheContention> m_PriorityQueues[NumPriorities];
-        alignas(TPaddingForCacheContention > 0 ? TPaddingForCacheContention : 1) TDoublePtr m_MasterState;
+        alignas(TPaddingForCacheContention > 0 ? TPaddingForCacheContention : alignof(TDoublePtr)) TDoublePtr m_MasterState;
     };
 #ifdef _MSC_VER
 #pragma warning(pop)
