@@ -35,8 +35,8 @@ jobs:
         -DOLO_ENABLE_ASAN=ON
         -DBUILD_TESTS=ON
 
-    - name: Build (RelWithDebInfo)
-      run: cmake --build build --config RelWithDebInfo --target OloEngine-Tests --parallel
+    - name: Build (Release)
+      run: cmake --build build --config Release --target OloEngine-Tests --parallel
 
     - name: Create test results directory
       run: New-Item -ItemType Directory -Force -Path "${{github.workspace}}/test_results"
@@ -44,7 +44,7 @@ jobs:
 
     - name: Run tests under ASan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest -C RelWithDebInfo -V
+      run: ctest -C Release -V
       env:
         ASAN_OPTIONS: halt_on_error=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
