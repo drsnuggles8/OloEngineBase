@@ -174,10 +174,3 @@ target_include_directories(OloEngine-Tests PRIVATE
 	${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser
 )
 
-# Copy required shared library DLLs next to the test executable
-if(WIN32)
-    add_custom_command(TARGET OloEngine-Tests POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${zlib_BINARY_DIR}/$<CONFIG>/zlib$<$<CONFIG:Debug>:d>.dll"
-            $<TARGET_FILE_DIR:OloEngine-Tests>)
-endif()

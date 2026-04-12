@@ -171,6 +171,7 @@ jobs:
   tsan-linux:
     name: TSan (Linux/Clang)
     runs-on: ubuntu-latest
+    timeout-minutes: 90
 
     steps:
     - uses: actions/checkout@v6
@@ -203,7 +204,7 @@ jobs:
         -DBUILD_TESTS=ON
 
     - name: Build tests
-      run: cmake --build build --target OloEngine-Tests --parallel
+      run: cmake --build build --target OloEngine-Tests --parallel 2
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"

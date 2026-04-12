@@ -330,8 +330,8 @@ namespace OloEngine
         }
 
         std::vector<std::string> requiredDlls = {
-            "zlib.dll",
-            "zlibd.dll", // Debug variant
+            // zlib is linked statically (zlibstatic), no DLL needed.
+            // Add any future runtime DLL dependencies here.
         };
 
         sizet copiedCount = 0;

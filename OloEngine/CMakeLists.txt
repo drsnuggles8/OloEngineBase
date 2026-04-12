@@ -252,7 +252,3 @@ else()
 		${CMAKE_DL_LIBS}
 	)
 endif()
-
-# Propagate zlib_BINARY_DIR to parent scope so OloEditor/OloRuntime
-# can reference the built DLL without hardcoding vendor paths.
-set(zlib_BINARY_DIR "${zlib_BINARY_DIR}" PARENT_SCOPE)
