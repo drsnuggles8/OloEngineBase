@@ -174,3 +174,7 @@ target_include_directories(OloEngine-Tests PRIVATE
 	${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser
 )
 
+# Register tests with CTest so `ctest` discovers them
+include(GoogleTest)
+gtest_discover_tests(OloEngine-Tests)
+
