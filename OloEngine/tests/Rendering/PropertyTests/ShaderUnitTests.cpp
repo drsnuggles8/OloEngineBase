@@ -458,4 +458,91 @@ namespace OloEngine::Tests
                                   << violations << " / " << kCount << " samples (max drift "
                                   << maxDrift << ")";
     }
+
+    // =========================================================================
+    // Distance-fog endpoint behavior. Catches "fog at zero distance" and
+    // "fog at infinite distance" regressions in FogCommon.glsl. The test runs
+    // the three production modes (linear, exponential, exponential-squared)
+    // for a grid of distances and verifies the physical invariants.
+    //
+    // Covers two catalog items from docs/renderer-testing-strategy.md §1:
+    //   - Fog at zero distance     → factor == 0
+    //   - Fog at infinite distance → factor == 1 (or saturates at fogEnd for linear)
+    // =========================================================================
+    TEST(ShaderUnitFogTest, EndpointInvariants)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // Build test vectors: [mode, density, fogStart, fogEnd, dist]
+        // One "zero distance" case per mode + several large-distance cases.
+        struct Case
+        {
+            int mode;
+            f32 density;
+            f32 fogStart;
+            f32 fogEnd;
+            f32 dist;
+        };
+        const std::vector<Case> cases = {
+            // Zero-distance: fog contribution must be exactly 0 in every mode.
+            { 0 /* linear     */, 0.0f, 10.0f, 100.0f, 0.0f },
+            { 1 /* exp        */, 0.05f, 0.0f, 0.0f, 0.0f },
+            { 2 /* exp-squared*/, 0.05f, 0.0f, 0.0f, 0.0f },
+
+            // Large-distance: exponential modes saturate to ~1. We pick a
+            // distance such that density*dist = 25 so exp(-25) < 1e-10.
+            { 1 /* exp        */, 0.05f, 0.0f, 0.0f, 500.0f },
+            { 2 /* exp-squared*/, 0.1f, 0.0f, 0.0f, 50.0f }, // dd=5 → exp(-25)
+
+            // Linear beyond fogEnd must clamp to exactly 1.
+            { 0 /* linear     */, 0.0f, 10.0f, 100.0f, 200.0f },
+
+            // Linear before fogStart must be exactly 0.
+            { 0 /* linear     */, 0.0f, 10.0f, 100.0f, 5.0f },
+        };
+
+        std::vector<f32> inputs(cases.size() * 5);
+        for (std::size_t i = 0; i < cases.size(); ++i)
+        {
+            inputs[i * 5 + 0] = static_cast<f32>(cases[i].mode);
+            inputs[i * 5 + 1] = cases[i].density;
+            inputs[i * 5 + 2] = cases[i].fogStart;
+            inputs[i * 5 + 3] = cases[i].fogEnd;
+            inputs[i * 5 + 4] = cases[i].dist;
+        }
+
+        ComputeBuffers buffers(inputs.size() * sizeof(f32), cases.size() * sizeof(f32));
+        ::glNamedBufferSubData(buffers.m_In, 0,
+                               static_cast<GLsizeiptr>(inputs.size() * sizeof(f32)), inputs.data());
+
+        auto cs = ComputeShader::Create("assets/shaders/tests/ShaderUnit_Fog.glsl");
+        ASSERT_TRUE(cs && cs->IsValid());
+        cs->Bind();
+
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffers.m_In);
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buffers.m_Out);
+        constexpr u32 kLocal = 64;
+        const u32 count = static_cast<u32>(cases.size());
+        ::glDispatchCompute((count + kLocal - 1) / kLocal, 1, 1);
+        ::glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+        std::vector<f32> output(cases.size());
+        ::glGetNamedBufferSubData(buffers.m_Out, 0,
+                                  static_cast<GLsizeiptr>(output.size() * sizeof(f32)), output.data());
+
+        // Case 0-2: zero-distance → exactly 0.
+        EXPECT_FLOAT_EQ(output[0], 0.0f) << "Linear fog at dist=0 must be 0";
+        EXPECT_FLOAT_EQ(output[1], 0.0f) << "Exponential fog at dist=0 must be 0";
+        EXPECT_FLOAT_EQ(output[2], 0.0f) << "Exp-sq fog at dist=0 must be 0";
+
+        // Case 3-4: large distance → ≈ 1 within 1e-6.
+        EXPECT_NEAR(output[3], 1.0f, 1e-6f) << "Exponential fog must saturate to 1 for density*dist=25";
+        EXPECT_NEAR(output[4], 1.0f, 1e-6f) << "Exp-sq fog must saturate to 1 for (density*dist)^2=25";
+
+        // Case 5: linear fog beyond fogEnd → exactly 1 (clamp).
+        EXPECT_FLOAT_EQ(output[5], 1.0f) << "Linear fog beyond fogEnd must clamp to 1";
+
+        // Case 6: linear fog before fogStart → exactly 0 (clamp).
+        EXPECT_FLOAT_EQ(output[6], 0.0f) << "Linear fog before fogStart must clamp to 0";
+    }
 } // namespace OloEngine::Tests
