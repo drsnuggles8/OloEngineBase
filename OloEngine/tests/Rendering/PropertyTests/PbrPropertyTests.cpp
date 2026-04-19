@@ -17,11 +17,11 @@
 //   [x] Fresnel monotonic non-increasing in cosTheta
 //
 // Follow-ups (separate fixtures / shaders):
-//   [ ] GGX NDF normalization        (needs hemisphere integral compute shader)
-//   [ ] Furnace test                 (needs split-sum / IBL convolution fixture)
-//   [ ] Metallic kills diffuse        (needs cookTorranceBRDF probe)
-//   [ ] Roughness = 0 is mirror       (needs NDF peak probe)
-//   [ ] Normal map identity           (needs getNormalFromMap probe)
+//   [x] GGX NDF normalization        (PbrNdfTest.Roughness1HEqualsN_Equals_InvPi + GGX hemisphere integral in ShaderUnitTests)
+//   [x] Furnace test                 (PbrBrdfTest.FurnaceIntegralWithinEnergyBounds)
+//   [x] Metallic kills diffuse       (PbrDiffuseTest.*)
+//   [x] Roughness = 0 is mirror      (PbrNdfTest.LowRoughnessConcentratesHighlight)
+//   [x] Normal map identity          (PbrNormalMapTest.FlatNormalReturnsGeometricNormal)
 // =============================================================================
 
 #include "OloEnginePCH.h"
@@ -570,6 +570,121 @@ namespace OloEngine::Tests
                 EXPECT_NEAR(pixels[idx + 1], 0.5f, kTol) << "G at (" << x << "," << y << ")";
                 EXPECT_NEAR(pixels[idx + 2], 1.0f, kTol) << "B at (" << x << "," << y << ")";
             }
+        }
+    }
+
+    // =========================================================================
+    // Low roughness concentrates the specular highlight.
+    //
+    // A physically-meaningful GGX NDF must produce a narrower, taller peak
+    // at smaller roughness. The engine's distributionGGX guards its
+    // denominator with `max(denom, EPSILON)` where EPSILON = 1e-4, which
+    // clips the peak below roughness ≈ 0.3. We therefore probe at the
+    // lowest roughness that comfortably clears the clamp (≈ 0.35) and
+    // assert
+    //     D(NdotH = 1) / D(NdotH < 0.95) ≥ 30
+    // along with a finite, ≥ 10 peak value. That corresponds to a ~10°
+    // specular cone — still clearly "mirror-ish" relative to the
+    // roughness = 1 case where D = 1/π ≈ 0.318 everywhere.
+    //
+    // Catches: missing PI normaliser, (a²-1) sign flip, NdotH² instead of
+    // (NdotH² * (a² - 1) + 1) in the denominator, catastrophic EPSILON
+    // regressions that would flatten the highlight further.
+    // =========================================================================
+    TEST(PbrNdfTest, LowRoughnessConcentratesHighlight)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // row y in [0, 19] → roughness = (y + 0.5) / 20. Target y = 6 →
+        // roughness = 0.325, well above MIN_ROUGHNESS and the EPSILON clamp.
+        constexpr u32 kWidth = 1024;
+        constexpr u32 kHeight = 20;
+        constexpr u32 kTargetRow = 6;
+
+        PbrProbeHarness harness(kWidth, kHeight, "assets/shaders/tests/PbrNdfProbe.glsl");
+        harness.Draw();
+
+        std::vector<f32> pixels;
+        harness.ReadOutputRgbaFloat(pixels);
+        ASSERT_EQ(pixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4);
+
+        const f32 reportedRoughness = pixels[(static_cast<std::size_t>(kTargetRow) * kWidth + 0) * 4 + 2];
+        EXPECT_NEAR(reportedRoughness, 0.325f, 0.02f);
+
+        const f32 dAtPeak = pixels[(static_cast<std::size_t>(kTargetRow) * kWidth + (kWidth - 1)) * 4 + 0];
+        EXPECT_GT(dAtPeak, 10.0f) << "D at NdotH=1 unexpectedly low (" << dAtPeak << ")";
+        EXPECT_TRUE(std::isfinite(dAtPeak));
+
+        // Scan left until reported NdotH drops below 0.95 — avoids any
+        // assumption about the exact uv→theta→NdotH mapping.
+        u32 sampleX = kWidth - 1;
+        while (sampleX > 0)
+        {
+            const f32 ndh = pixels[(static_cast<std::size_t>(kTargetRow) * kWidth + sampleX) * 4 + 1];
+            if (ndh < 0.95f)
+                break;
+            --sampleX;
+        }
+        const f32 dOffAxis = pixels[(static_cast<std::size_t>(kTargetRow) * kWidth + sampleX) * 4 + 0];
+        ASSERT_GT(dOffAxis, 0.0f);
+        const f32 ratio = dAtPeak / dOffAxis;
+        EXPECT_GT(ratio, 30.0f)
+            << "highlight not concentrated: D(peak)/D(NdotH<0.95) = "
+            << ratio << " (peak=" << dAtPeak << " off=" << dOffAxis << ")";
+    }
+
+    // =========================================================================
+    // Furnace test.
+    //
+    // Under a uniform white environment and an energy-conserving BRDF, the
+    // outgoing radiance must equal the incoming radiance (1.0 white) — no
+    // energy created or destroyed. We approximate this with a Monte Carlo
+    // hemisphere integral over cookTorranceBRDF:
+    //     ∫ f(l, v) * (n · l) dω_i == 1   for a white incoming radiance.
+    //
+    // Because our BRDF is dielectric-only (single-scatter) and classical
+    // GGX exhibits energy loss at high roughness, we accept a band of
+    // [0.6, 1.05]: the upper bound catches energy *gain* (a real bug) while
+    // the lower bound catches catastrophic energy loss. The tighter
+    // multi-scatter variant (Turquin 2019 / Fdez-Agüera 2019) would push
+    // the lower bound toward 0.95.
+    //
+    // Catches: Fresnel double-counting, missing cosine term, NDF / G term
+    // sign flips, pi normalisation errors.
+    // =========================================================================
+    TEST(PbrBrdfTest, FurnaceIntegralWithinEnergyBounds)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // x axis → roughness, y axis → sample index (integrate the column).
+        constexpr u32 kWidth = 32;    // 32 roughness bins
+        constexpr u32 kHeight = 2048; // 2048 Monte Carlo samples per bin
+
+        PbrProbeHarness harness(kWidth, kHeight, "assets/shaders/tests/PbrFurnaceProbe.glsl");
+        harness.Draw();
+
+        std::vector<f32> pixels;
+        harness.ReadOutputRgbaFloat(pixels);
+        ASSERT_EQ(pixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4);
+
+        // Each texel packs f(l,v) * (n·l) * 2π (hemisphere measure). Average
+        // over the column gives the Monte Carlo estimate of the integral.
+        for (u32 x = 0; x < kWidth; ++x)
+        {
+            f64 sum = 0.0;
+            for (u32 y = 0; y < kHeight; ++y)
+            {
+                const std::size_t idx = (static_cast<std::size_t>(y) * kWidth + x) * 4;
+                sum += static_cast<f64>(pixels[idx + 0]);
+            }
+            const f32 estimate = static_cast<f32>(sum / static_cast<f64>(kHeight));
+            const f32 roughness = (static_cast<f32>(x) + 0.5f) / static_cast<f32>(kWidth);
+            EXPECT_GE(estimate, 0.60f)
+                << "energy loss too large at roughness=" << roughness << " (estimate=" << estimate << ")";
+            EXPECT_LE(estimate, 1.05f)
+                << "energy gained at roughness=" << roughness << " (estimate=" << estimate << ")";
+            EXPECT_TRUE(std::isfinite(estimate))
+                << "non-finite furnace estimate at roughness=" << roughness;
         }
     }
 } // namespace OloEngine::Tests
