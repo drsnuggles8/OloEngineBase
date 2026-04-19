@@ -13,9 +13,9 @@
 //   [ ] Bloom energy conservation               (needs multi-pass mip chain)
 //   [ ] Bloom black passthrough                 (needs multi-pass mip chain)
 //   [ ] FXAA edge displacement                  (needs edge-aware test image)
-//   [ ] DOF CoC correctness                     (needs scene depth buffer)
-//   [ ] Motion blur static                      (needs MotionBlur UBO)
-//   [ ] Fog zero/infinite                       (needs Fog UBO + depth)
+//   [x] DOF CoC correctness                     (DofFocusTest.DepthAtFocusDistanceIsIdentity)
+//   [x] Motion blur static                      (MotionBlurStaticTest.ZeroVelocityIsIdentity)
+//   [x] Fog zero/infinite                       (ShaderUnitFogTest.EndpointInvariants)
 //
 // TODO: The tests marked [ ] are out of scope for the initial PR because
 // they require either multi-pass rendering (bloom mip chain), depth-buffer
