@@ -31,6 +31,38 @@ The testing strategy is organized as a pyramid. The base is fast, numerous, and 
 
 ---
 
+## Current Coverage Snapshot
+
+Live status of the catalog (see [OloEngine/tests/Rendering/PropertyTests/](../OloEngine/tests/Rendering/PropertyTests/)). Numbers reflect the state of this branch after the renderer-testing-infrastructure PR.
+
+**Layer 1 — Property tests (`PbrPropertyTests.cpp`, `PostProcessPropertyTests.cpp`):**
+- PBR: Fresnel (normal / grazing / monotonicity / CPU reference), NDF (non-negative + finite / peak at H=N / roughness=1 gives 1/π), diffuse (metallic=1 kills diffuse / dielectric diffuse non-zero), BRDF (positive+finite / Helmholtz reciprocity), normal-map identity. *Missing:* furnace, white-environment irradiance, roughness=0 mirror.
+- Post-process: tone-map monotonicity (all 3 operators) + black-to-black (all 3 operators), vignette center-brighter-than-corners, chromatic aberration center untouched, FXAA uniform no-op, motion-blur static, DOF at focus distance, bloom threshold/downsample/upsample/composite invariants, fog disabled early-out. *Missing:* full bloom energy conservation over mip chain, FXAA edge displacement on hard diagonal.
+
+**Layer 2 — GPU state validation (`GLStateGuardTest.cpp`):** 8 tests covering blend / depth / stencil / FBO / viewport / texture-unit / UBO-binding leak detection via RAII snapshot-and-assert.
+
+**Layer 3 — Data round-trip (`DataRoundTripTests.cpp`):** RGBA32F GPU bit identity, RGBA8 GPU byte identity, **IBL cache cubemap round-trip preserves all mips** (targets the `IBLCache::LoadCubemapFromCache` historical bug directly).
+
+**Layer 4 — Shader unit tests (`ShaderUnitTests.cpp`):** sRGB↔linear round-trip, tone-map reference values (Reinhard / ACES / Uncharted2), GGX NDF hemisphere integral, octahedral normal round-trip, fog endpoint invariants (zero-distance → 0, infinite-distance → 1, linear-mode clamps).
+
+**Layer 5 — Render graph validation:** *Not yet implemented.* `CommandBucket` has Layer-0 coverage via `CommandBucketTest.cpp` / `CommandDispatchTest.cpp`; structural graph validation (pass ordering, resource hazards) is deferred.
+
+**Layer 6 — Perf regression (`PerfRegressionTests.cpp`):** GPU timing infrastructure + 4 microbenchmarks (tone-map, bloom threshold / downsample / upsample at 512²). No checked-in baselines yet — thresholds are sanity bounds only.
+
+**Layer 7 — Smoke/sanity readback (`RendererValidateTest.cpp`):** Helper + 5 tests for NaN / Inf / energy-bound scans after key passes.
+
+**Layer 8 — Golden image:** *Deferred* — per-vendor reference management + cascaded RMSE/SSIM comparison pipeline not yet implemented.
+
+**Layer 9 — Cross-vendor conformance:** *Deferred* — single-GPU CI today; SwiftShader CI container is a follow-up.
+
+**Layer 10 — Automatic diagnostic escalation:** *Deferred* — Stage-0 failure reporting only today.
+
+**Layer 11 — Sanitizers / fuzzing:** Build flags exist (`cmake/Sanitizers.cmake`); no dedicated fuzz targets yet.
+
+**Headline numbers:** ~2070 tests across ~335 suites, full run ≈ 35–45 s on a developer box.
+
+---
+
 ## 1. Property-Based / Behavioral Testing with Synthetic Data
 
 **This is the primary testing layer.** Every rendering algorithm has mathematical and physical properties that can be verified numerically. These tests replace authored scenes with procedurally generated inputs, run production GPU code paths, and verify outputs against known invariants. They are fast, deterministic, decoupled from the content pipeline, and produce actionable failure messages.
