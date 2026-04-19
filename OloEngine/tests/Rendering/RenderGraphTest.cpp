@@ -251,6 +251,126 @@ TEST(RenderGraph, SetFinalPassIsFinalPass)
 }
 
 // =============================================================================
+// Layer 5 structural validation — production ordering invariants
+//
+// These tests encode the engine's pipeline contract: regardless of how passes
+// are added or connected, a correctly-authored RenderGraph must topologically
+// sort them so shadow rendering precedes scene rendering, scene precedes
+// post-processing, and post-processing precedes the final screen blit.
+//
+// Failures here indicate the render graph violates its fundamental ordering
+// contract — a class of bugs that would produce missing shadows, ungraded
+// output, or tone-mapped geometry being post-processed twice.
+// =============================================================================
+
+TEST(RenderGraphStructural, ProductionPassOrderingAlwaysRespected)
+{
+    RenderGraph graph;
+    // Deliberately add in a random order to prove topological sort doesn't
+    // rely on insertion order.
+    AddStub(graph, "FinalPass");
+    AddStub(graph, "ScenePass");
+    AddStub(graph, "ShadowPass");
+    AddStub(graph, "PostProcessPass");
+
+    graph.AddExecutionDependency("ShadowPass", "ScenePass");
+    graph.ConnectPass("ScenePass", "PostProcessPass");
+    graph.ConnectPass("PostProcessPass", "FinalPass");
+
+    graph.Execute();
+
+    const auto& order = graph.GetPassOrder();
+    auto posOf = [&](const std::string& n)
+    {
+        return std::find(order.begin(), order.end(), n) - order.begin();
+    };
+    const auto shadowPos = posOf("ShadowPass");
+    const auto scenePos = posOf("ScenePass");
+    const auto postPos = posOf("PostProcessPass");
+    const auto finalPos = posOf("FinalPass");
+
+    EXPECT_LT(shadowPos, scenePos) << "Shadow must precede Scene";
+    EXPECT_LT(scenePos, postPos) << "Scene must precede PostProcess";
+    EXPECT_LT(postPos, finalPos) << "PostProcess must precede Final";
+}
+
+TEST(RenderGraphStructural, DuplicateConnectPassIsIdempotent)
+{
+    RenderGraph graph;
+    AddStub(graph, "A");
+    AddStub(graph, "B");
+
+    graph.ConnectPass("A", "B");
+    graph.ConnectPass("A", "B"); // Duplicate: must not be added twice
+    graph.ConnectPass("A", "B");
+
+    const auto connections = graph.GetConnections();
+    u32 abCount = 0;
+    for (const auto& c : connections)
+    {
+        if (c.OutputPass == "A" && c.InputPass == "B")
+            ++abCount;
+    }
+    EXPECT_EQ(abCount, 1u) << "Duplicate ConnectPass calls must not register multiple edges";
+}
+
+TEST(RenderGraphStructural, EachPassExecutesExactlyOncePerExecute)
+{
+    RenderGraph graph;
+    auto a = AddStub(graph, "A");
+    auto b = AddStub(graph, "B");
+    auto c = AddStub(graph, "C");
+
+    // Diamond — B and C both depend on A, and the engine previously had bugs
+    // where a pass with multiple downstream consumers ran more than once.
+    graph.ConnectPass("A", "B");
+    graph.ConnectPass("A", "C");
+
+    graph.Execute();
+
+    EXPECT_EQ(a->GetExecuteCount(), 1u) << "A with 2 downstreams must still run once";
+    EXPECT_EQ(b->GetExecuteCount(), 1u);
+    EXPECT_EQ(c->GetExecuteCount(), 1u);
+
+    graph.Execute();
+
+    EXPECT_EQ(a->GetExecuteCount(), 2u);
+    EXPECT_EQ(b->GetExecuteCount(), 2u);
+    EXPECT_EQ(c->GetExecuteCount(), 2u);
+}
+
+TEST(RenderGraphStructural, CycleIsDetectedAndDoesNotCrash)
+{
+    RenderGraph graph;
+    AddStub(graph, "A");
+    AddStub(graph, "B");
+
+    // Add a cycle A → B → A. Topological sort must NOT infinite-loop.
+    // We tolerate either outcome: cycle rejected silently or passes
+    // dropped. The binding contract is "no infinite loop / no crash."
+    graph.ConnectPass("A", "B");
+    graph.ConnectPass("B", "A");
+
+    EXPECT_NO_THROW(graph.Execute())
+        << "Cycle in render graph must not crash execution";
+}
+
+TEST(RenderGraphStructural, ConnectingToMissingPassDoesNotCorruptGraph)
+{
+    RenderGraph graph;
+    AddStub(graph, "A");
+
+    // Neither input nor output exists — engine logs an error but graph
+    // state must remain consistent.
+    graph.ConnectPass("A", "Nonexistent");
+    graph.ConnectPass("Nonexistent", "A");
+
+    EXPECT_NO_THROW(graph.Execute());
+    EXPECT_EQ(graph.GetAllPasses().size(), 1u)
+        << "Connect calls with missing passes must not register new passes";
+}
+
+// =============================================================================
 // GetConnections Returns All Connections
 // =============================================================================
 

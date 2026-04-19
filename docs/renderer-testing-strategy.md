@@ -45,7 +45,7 @@ Live status of the catalog (see [OloEngine/tests/Rendering/PropertyTests/](../Ol
 
 **Layer 4 — Shader unit tests (`ShaderUnitTests.cpp`):** sRGB↔linear round-trip, tone-map reference values (Reinhard / ACES / Uncharted2), GGX NDF hemisphere integral, octahedral normal round-trip, fog endpoint invariants (zero-distance → 0, infinite-distance → 1, linear-mode clamps).
 
-**Layer 5 — Render graph validation:** *Not yet implemented.* `CommandBucket` has Layer-0 coverage via `CommandBucketTest.cpp` / `CommandDispatchTest.cpp`; structural graph validation (pass ordering, resource hazards) is deferred.
+**Layer 5 — Render graph validation (`RenderGraphTest.cpp`):** basic topological ordering (linear chain, diamond, execution dependency, independent passes) + structural validators (`RenderGraphStructural.*`): production pass ordering (Shadow → Scene → PostProcess → Final), duplicate-connection idempotency, each-pass-executes-once invariant, cycle detection does-not-crash, missing-pass connection does-not-corrupt. Command-level resource-hazard validation remains deferred.
 
 **Layer 6 — Perf regression (`PerfRegressionTests.cpp`):** GPU timing infrastructure + 4 microbenchmarks (tone-map, bloom threshold / downsample / upsample at 512²). No checked-in baselines yet — thresholds are sanity bounds only.
 
