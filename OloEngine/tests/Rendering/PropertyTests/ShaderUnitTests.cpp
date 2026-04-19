@@ -393,4 +393,69 @@ namespace OloEngine::Tests
                 << "GGX hemisphere integral at roughness=" << roughness << " is " << integral;
         }
     }
+
+    // =========================================================================
+    // Octahedral normal encode/decode round-trip. For any unit normal on the
+    // sphere, decode(encode(n)) must equal n within fp32 precision. Catches
+    // sign-flip bugs in the encode/decode asymmetry for the lower hemisphere
+    // (where the Z<0 branch of octEncode flips the sign of x and y).
+    // =========================================================================
+    TEST(ShaderUnitOctNormalTest, RoundTripPreservesUnitNormals)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // Deterministic fibonacci-like sphere sampling for good sphere coverage
+        // without depending on std::random (which differs between stdlibs).
+        constexpr int kCount = 256;
+        std::vector<f32> inputs(static_cast<std::size_t>(kCount) * 3);
+        constexpr f64 kGoldenAngle = 2.399963229728653; // π * (3 - sqrt(5))
+        for (int i = 0; i < kCount; ++i)
+        {
+            const f64 t = (static_cast<f64>(i) + 0.5) / kCount;
+            const f64 z = 1.0 - 2.0 * t; // [-1, 1]
+            const f64 r = std::sqrt(std::max(0.0, 1.0 - z * z));
+            const f64 phi = static_cast<f64>(i) * kGoldenAngle;
+            inputs[i * 3 + 0] = static_cast<f32>(r * std::cos(phi));
+            inputs[i * 3 + 1] = static_cast<f32>(r * std::sin(phi));
+            inputs[i * 3 + 2] = static_cast<f32>(z);
+        }
+
+        ComputeBuffers buffers(inputs.size() * sizeof(f32), inputs.size() * sizeof(f32));
+        ::glNamedBufferSubData(buffers.m_In, 0,
+                               static_cast<GLsizeiptr>(inputs.size() * sizeof(f32)), inputs.data());
+
+        auto cs = ComputeShader::Create("assets/shaders/tests/ShaderUnit_OctNormal.glsl");
+        ASSERT_TRUE(cs && cs->IsValid());
+        cs->Bind();
+
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffers.m_In);
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buffers.m_Out);
+        constexpr u32 kLocal = 64;
+        const u32 triples = static_cast<u32>(inputs.size() / 3);
+        ::glDispatchCompute((triples + kLocal - 1) / kLocal, 1, 1);
+        ::glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+        std::vector<f32> output(inputs.size());
+        ::glGetNamedBufferSubData(buffers.m_Out, 0,
+                                  static_cast<GLsizeiptr>(output.size() * sizeof(f32)), output.data());
+
+        // Max per-component drift must be small. Octahedral round-trip through
+        // fp32 arithmetic is typically exact to ~1e-6; 1e-5 gives margin for
+        // sign-handling near axis-aligned normals.
+        u32 violations = 0;
+        f32 maxDrift = 0.0f;
+        for (int i = 0; i < kCount; ++i)
+        {
+            const f32 dx = std::abs(inputs[i * 3 + 0] - output[i * 3 + 0]);
+            const f32 dy = std::abs(inputs[i * 3 + 1] - output[i * 3 + 1]);
+            const f32 dz = std::abs(inputs[i * 3 + 2] - output[i * 3 + 2]);
+            maxDrift = std::max({ maxDrift, dx, dy, dz });
+            if (dx > 1e-5f || dy > 1e-5f || dz > 1e-5f)
+                ++violations;
+        }
+
+        EXPECT_EQ(violations, 0u) << "Octahedral round-trip violated 1e-5 threshold for "
+                                  << violations << " / " << kCount << " samples (max drift "
+                                  << maxDrift << ")";
+    }
 } // namespace OloEngine::Tests
