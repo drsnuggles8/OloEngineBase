@@ -38,6 +38,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <limits>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -268,5 +269,149 @@ namespace OloEngine::Tests
 
         IBLCache::Shutdown();
         std::filesystem::remove_all(tempDir, ec);
+    }
+
+    // =========================================================================
+    // Layer-11 fuzz surrogate: randomised stress over the RGBA32F GPU
+    // upload/readback path. Sweeps many (width, height, seed) tuples with a
+    // mix of interesting IEEE-754 value classes (zero, ±denormal, ±normal,
+    // ±large, signed zero, pow-of-two boundaries). Asserts bit-identity per
+    // iteration. Serves as a minimum-viable fuzzing proxy without pulling in
+    // libFuzzer — when a driver update or upload path regresses on a specific
+    // dimension or value class, this catches it without needing a curated
+    // corpus.
+    //
+    // Deterministic: seed is the iteration index, so failures reproduce
+    // on replay.
+    // =========================================================================
+    TEST(DataRoundTripTest, RandomisedRgba32FStressRoundTrip)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // Interesting IEEE-754 value classes we want the upload path to
+        // survive bit-exact. Keeps NaN/Inf out: those don't round-trip
+        // via memcmp because bit patterns are non-unique.
+        static constexpr f32 kSamples[] = {
+            0.0f,
+            -0.0f,
+            std::numeric_limits<f32>::min(), // smallest normal
+            -std::numeric_limits<f32>::min(),
+            std::numeric_limits<f32>::denorm_min(), // smallest denormal
+            -std::numeric_limits<f32>::denorm_min(),
+            1.0f,
+            -1.0f,
+            2.0f,
+            -2.0f,
+            0.5f,
+            -0.5f,
+            std::numeric_limits<f32>::max(),
+            -std::numeric_limits<f32>::max(),
+            3.14159265f,
+            -3.14159265f,
+            1.0e-20f,
+            1.0e+20f,
+            65504.0f, // fp16-max boundary
+            0.99999994f,
+            1.00000012f, // epsilon-boundary around 1.0
+        };
+        constexpr std::size_t kSampleCount = sizeof(kSamples) / sizeof(kSamples[0]);
+
+        constexpr u32 kIterations = 32;
+        u32 totalTexels = 0;
+
+        for (u32 iter = 0; iter < kIterations; ++iter)
+        {
+            // Deterministic pseudo-random dimensions per iteration. Stick to
+            // moderate sizes so the full sweep runs in well under a second.
+            const u32 W = 1u + ((iter * 1103515245u + 12345u) >> 24) % 64u; // [1, 64]
+            const u32 H = 1u + ((iter * 214013u + 2531011u) >> 24) % 64u;
+            const u32 N = W * H * 4u;
+
+            std::vector<f32> src(N);
+            for (u32 i = 0; i < N; ++i)
+            {
+                // Mix the iteration into the index so different iterations
+                // exercise different subsets of the value grid.
+                const std::size_t sampleIdx = (i + iter * 7u) % kSampleCount;
+                src[i] = kSamples[sampleIdx];
+            }
+
+            u32 tex = CreateFloatTexture2D(W, H, src.data());
+            std::vector<f32> dst(N, 0.0f);
+            ReadbackRgbaFloat(tex, W, H, dst);
+            ::glDeleteTextures(1, reinterpret_cast<const GLuint*>(&tex));
+
+            ASSERT_EQ(dst.size(), src.size());
+            u32 diffs = 0;
+            for (u32 i = 0; i < N; ++i)
+            {
+                if (std::memcmp(&src[i], &dst[i], sizeof(f32)) != 0)
+                    ++diffs;
+            }
+            ASSERT_EQ(diffs, 0u)
+                << "RGBA32F stress iter=" << iter
+                << " W=" << W << " H=" << H
+                << " produced " << diffs << " bit-different texels";
+            totalTexels += N;
+        }
+
+        // Sanity: ensure we actually exercised a meaningful amount of data
+        // across iterations (guards against a silent collapse to 1x1 tests).
+        EXPECT_GT(totalTexels, kIterations * 4u * 4u);
+    }
+
+    // =========================================================================
+    // Layer-11 fuzz surrogate for RGBA8: sweeps randomised dimensions and a
+    // full 0..255 byte palette. Any upload/readback regression that corrupts
+    // specific byte values (e.g. a sign-extension bug at 0x80) would surface
+    // here.
+    // =========================================================================
+    TEST(DataRoundTripTest, RandomisedRgba8StressRoundTrip)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kIterations = 32;
+        u32 totalBytes = 0;
+
+        for (u32 iter = 0; iter < kIterations; ++iter)
+        {
+            const u32 W = 1u + ((iter * 1103515245u + 12345u) >> 24) % 64u;
+            const u32 H = 1u + ((iter * 214013u + 2531011u) >> 24) % 64u;
+            const u32 N = W * H * 4u;
+
+            std::vector<u8> src(N);
+            // Linear congruential per-iteration so every iteration has a
+            // different byte distribution. Seed with iter to be deterministic.
+            u32 rng = iter * 2654435761u + 1u;
+            for (u32 i = 0; i < N; ++i)
+            {
+                rng = rng * 1664525u + 1013904223u;
+                src[i] = static_cast<u8>((rng >> 24) & 0xFFu);
+            }
+
+            GLuint tex = 0;
+            ::glCreateTextures(GL_TEXTURE_2D, 1, &tex);
+            ::glTextureStorage2D(tex, 1, GL_RGBA8,
+                                 static_cast<GLsizei>(W), static_cast<GLsizei>(H));
+            ::glTextureSubImage2D(tex, 0, 0, 0,
+                                  static_cast<GLsizei>(W), static_cast<GLsizei>(H),
+                                  GL_RGBA, GL_UNSIGNED_BYTE, src.data());
+
+            std::vector<u8> dst(N, 0);
+            ReadbackRgba8(static_cast<u32>(tex), W, H, dst);
+            ::glDeleteTextures(1, &tex);
+
+            u32 diffs = 0;
+            for (u32 i = 0; i < N; ++i)
+                if (src[i] != dst[i])
+                    ++diffs;
+            ASSERT_EQ(diffs, 0u)
+                << "RGBA8 stress iter=" << iter
+                << " W=" << W << " H=" << H
+                << " produced " << diffs << " different bytes";
+            totalBytes += N;
+        }
+
+        EXPECT_GT(totalBytes, kIterations * 4u * 4u);
     }
 } // namespace OloEngine::Tests

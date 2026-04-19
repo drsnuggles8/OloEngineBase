@@ -36,12 +36,12 @@ The testing strategy is organized as a pyramid. The base is fast, numerous, and 
 Live status of the catalog (see [OloEngine/tests/Rendering/PropertyTests/](../OloEngine/tests/Rendering/PropertyTests/)). Numbers reflect the state of this branch after the renderer-testing-infrastructure PR.
 
 **Layer 1 — Property tests (`PbrPropertyTests.cpp`, `PostProcessPropertyTests.cpp`):**
-- PBR: Fresnel (normal / grazing / monotonicity / CPU reference), NDF (non-negative + finite / peak at H=N / roughness=1 gives 1/π / low-roughness highlight concentration), diffuse (metallic=1 kills diffuse / dielectric diffuse non-zero), BRDF (positive+finite / Helmholtz reciprocity / **furnace energy bound via Monte Carlo hemisphere integral**), normal-map identity. *Missing:* white-environment irradiance (needs IBL convolution fixture).
+- PBR: Fresnel (normal / grazing / monotonicity / CPU reference), NDF (non-negative + finite / peak at H=N / roughness=1 gives 1/π / low-roughness highlight concentration), diffuse (metallic=1 kills diffuse / dielectric diffuse non-zero), BRDF (positive+finite / Helmholtz reciprocity / furnace energy bound via Monte Carlo hemisphere integral), normal-map identity, **white-environment irradiance (uniform-white cubemap → learnopengl-normalised unity)**.
 - Post-process: tone-map monotonicity (all 3 operators) + black-to-black (all 3 operators) + extreme-HDR NaN/Inf safety (all 3 operators), vignette center-brighter-than-corners, chromatic aberration center untouched, FXAA uniform no-op + hard-edge flat-region preservation, motion-blur static, DOF at focus distance, bloom threshold/downsample/upsample/composite invariants, fog disabled early-out. *Missing:* full bloom energy conservation over mip chain.
 
 **Layer 2 — GPU state validation (`GLStateGuardTest.cpp`):** 8 tests covering blend / depth / stencil / FBO / viewport / texture-unit / UBO-binding leak detection via RAII snapshot-and-assert.
 
-**Layer 3 — Data round-trip (`DataRoundTripTests.cpp`):** RGBA32F GPU bit identity, RGBA8 GPU byte identity, **IBL cache cubemap round-trip preserves all mips** (targets the `IBLCache::LoadCubemapFromCache` historical bug directly).
+**Layer 3 — Data round-trip (`DataRoundTripTests.cpp`):** RGBA32F GPU bit identity, RGBA8 GPU byte identity, **IBL cache cubemap round-trip preserves all mips** (targets the `IBLCache::LoadCubemapFromCache` historical bug directly), **randomised RGBA32F + RGBA8 stress round-trip** (Layer-11 fuzz surrogate: 32 iterations × random dimensions × IEEE-754 value-class grid / byte palette, asserts bit-identity per iteration).
 
 **Layer 4 — Shader unit tests (`ShaderUnitTests.cpp`):** sRGB↔linear round-trip, tone-map reference values (Reinhard / ACES / Uncharted2), GGX NDF hemisphere integral, octahedral normal round-trip, fog endpoint invariants (zero-distance → 0, infinite-distance → 1, linear-mode clamps).
 
@@ -57,9 +57,9 @@ Live status of the catalog (see [OloEngine/tests/Rendering/PropertyTests/](../Ol
 
 **Layer 10 — Automatic diagnostic escalation:** Partially implemented via golden-image failure output. When a `GoldenImageTest` fails, the actual frame is written next to the baseline as `<name>.actual.png`, and the RMSE is reported inline with a threshold comparison. *Deferred:* auto-capture of RenderDoc frame, shader disassembly dump, GPU state snapshot on property-test failures — those require a debug-only instrumentation layer that hasn't been built.
 
-**Layer 11 — Sanitizers / fuzzing:** ASan/UBSan/TSan flags are plumbed in [cmake/Sanitizers.cmake](../cmake/Sanitizers.cmake) and can be enabled per-configure. *Infrastructure-gated:* a dedicated libFuzzer target for serialization paths requires build-system work (new `OloEngine-Fuzz` target with `-fsanitize=fuzzer`) and is a CI follow-up, not a code change that belongs on this PR.
+**Layer 11 — Sanitizers / fuzzing:** ASan/UBSan/TSan flags are plumbed in [cmake/Sanitizers.cmake](../cmake/Sanitizers.cmake) and can be enabled per-configure. Randomised-input stress tests land in Layer 3 today (`DataRoundTripTest.RandomisedRgba32F/Rgba8StressRoundTrip`) as a fuzz surrogate — seeded, deterministic, and exercises a mix of IEEE-754 value classes and random dimensions per iteration so regressions on specific byte patterns or sizes surface without a curated corpus. *Infrastructure-gated:* a dedicated libFuzzer target with `-fsanitize=fuzzer` is a CI follow-up, not a code change that belongs on this PR.
 
-**Headline numbers:** ~2081 tests across ~340 suites, full run ≈ 35–45 s on a developer box.
+**Headline numbers:** ~2084 tests across ~341 suites, full run ≈ 35–45 s on a developer box.
 
 ---
 
