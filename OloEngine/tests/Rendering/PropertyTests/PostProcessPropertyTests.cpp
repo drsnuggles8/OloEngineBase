@@ -10,7 +10,7 @@
 //   [x] Tone mapping: black input → black output (all operators)
 //   [x] Vignette: center pixel unaffected by vignette
 //   [x] Chromatic aberration: center pixel unaffected
-//   [ ] Bloom energy conservation               (needs multi-pass mip chain)
+//   [x] Bloom energy conservation               (BloomChainEnergyTest.MultiPassDownUpPreservesTotalEnergy)
 //   [ ] Bloom black passthrough                 (needs multi-pass mip chain)
 //   [x] FXAA edge displacement                  (FxaaEdgeDisplacementTest.EdgePreservesFlatRegions)
 //   [x] DOF CoC correctness                     (DofFocusTest.DepthAtFocusDistanceIsIdentity)
@@ -800,6 +800,121 @@ namespace OloEngine::Tests
             EXPECT_NEAR(static_cast<int>(rgba[i * 4 + 1]), static_cast<int>(expected), 2);
             EXPECT_NEAR(static_cast<int>(rgba[i * 4 + 2]), static_cast<int>(expected), 2);
         }
+    }
+
+    // =========================================================================
+    // Bloom chain energy conservation. Chains the production downsample +
+    // upsample shaders through a multi-mip pyramid (64 → 32 → 16 → 8 → 16 →
+    // 32 → 64, all RGBA16F) and asserts that total summed radiance survives
+    // the round-trip within a tolerance.
+    //
+    // The Call-of-Duty 13-tap downsample weights sum to 1.0, so a uniform
+    // input stays uniform (and total sum halves per area halving). The
+    // 9-tap tent upsample weights also sum to 1.0, so reversing the chain
+    // should reconstruct total energy — minus kernel-leak across borders.
+    //
+    // Test input: single bright HDR pixel at the centre of a 64×64 frame
+    // (value 10.0 per RGB channel, total R sum = 10.0). After the full
+    // down→up chain the reconstructed total should match within ~30 %.
+    // We use a wide tolerance because:
+    //   1. kernel footprint at mip 3 (8×8) covers ~40 % of the image, so
+    //      border clamping loses some energy;
+    //   2. linear filtering at half-texel offsets smears the Dirac across
+    //      multiple output pixels (intended behaviour).
+    //
+    // Catches: downsample weight-sum != 1.0 (energy gain/loss per step),
+    // upsample weight-sum != 1.0, wrong texel-size UBO values (sampling
+    // outside the texel grid), and accidental additive instead of
+    // overwrite output in either pass.
+    // =========================================================================
+    TEST(BloomChainEnergyTest, MultiPassDownUpPreservesTotalEnergy)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kFullSize = 64;
+
+        constexpr f32 kPeak = 10.0f;
+        std::vector<f32> input(kFullSize * kFullSize * 4, 0.0f);
+        const u32 cx = kFullSize / 2;
+        const u32 cy = kFullSize / 2;
+        const std::size_t centreIdx = (static_cast<std::size_t>(cy) * kFullSize + cx) * 4;
+        input[centreIdx + 0] = kPeak;
+        input[centreIdx + 1] = kPeak;
+        input[centreIdx + 2] = kPeak;
+        input[centreIdx + 3] = 1.0f;
+
+        const f64 inputSumR = kPeak;
+
+        u32 currentTex = CreateFloatTexture2D(kFullSize, kFullSize, input.data());
+
+        auto downsampleShader = Shader::Create("assets/shaders/PostProcess_BloomDownsample.glsl");
+        auto upsampleShader = Shader::Create("assets/shaders/PostProcess_BloomUpsample.glsl");
+        ASSERT_TRUE(downsampleShader);
+        ASSERT_TRUE(upsampleShader);
+
+        auto ubo = UniformBuffer::Create(PostProcessUBOData::GetSize(), 7);
+        FullscreenPass pass;
+
+        auto makeHdrFb = [](u32 w, u32 h)
+        {
+            FramebufferSpecification s{};
+            s.Width = w;
+            s.Height = h;
+            s.Attachments = { FramebufferTextureFormat::RGBA16F };
+            return Framebuffer::Create(s);
+        };
+
+        auto runPass = [&](const Ref<Shader>& shader, Ref<Framebuffer>& target,
+                           u32 srcW, u32 srcH, u32 inputTex)
+        {
+            auto uboData = MakeDefaultPostProcessUBO(srcW, srcH);
+            uboData.TexelSizeX = 1.0f / static_cast<f32>(srcW);
+            uboData.TexelSizeY = 1.0f / static_cast<f32>(srcH);
+            ubo->SetData(&uboData, PostProcessUBOData::GetSize());
+
+            target->Bind();
+            ::glViewport(0, 0, static_cast<GLsizei>(target->GetSpecification().Width),
+                         static_cast<GLsizei>(target->GetSpecification().Height));
+            ::glDisable(GL_BLEND);
+            ::glDisable(GL_DEPTH_TEST);
+            ::glDisable(GL_CULL_FACE);
+            shader->Bind();
+            pass.Draw(inputTex);
+            ::glFinish();
+            target->Unbind();
+        };
+
+        auto fbDown32 = makeHdrFb(32, 32);
+        auto fbDown16 = makeHdrFb(16, 16);
+        auto fbDown8 = makeHdrFb(8, 8);
+
+        runPass(downsampleShader, fbDown32, 64, 64, currentTex);
+        ::glDeleteTextures(1, reinterpret_cast<const GLuint*>(&currentTex));
+
+        runPass(downsampleShader, fbDown16, 32, 32, fbDown32->GetColorAttachmentRendererID(0));
+        runPass(downsampleShader, fbDown8, 16, 16, fbDown16->GetColorAttachmentRendererID(0));
+
+        auto fbUp16 = makeHdrFb(16, 16);
+        auto fbUp32 = makeHdrFb(32, 32);
+        auto fbUp64 = makeHdrFb(64, 64);
+
+        runPass(upsampleShader, fbUp16, 8, 8, fbDown8->GetColorAttachmentRendererID(0));
+        runPass(upsampleShader, fbUp32, 16, 16, fbUp16->GetColorAttachmentRendererID(0));
+        runPass(upsampleShader, fbUp64, 32, 32, fbUp32->GetColorAttachmentRendererID(0));
+
+        std::vector<f32> reconstructed;
+        ReadbackRgbaFloat(fbUp64->GetColorAttachmentRendererID(0), kFullSize, kFullSize, reconstructed);
+        ASSERT_EQ(reconstructed.size(), static_cast<std::size_t>(kFullSize) * kFullSize * 4);
+
+        f64 outSumR = 0.0;
+        for (std::size_t i = 0; i < static_cast<std::size_t>(kFullSize) * kFullSize; ++i)
+        {
+            outSumR += static_cast<f64>(reconstructed[i * 4 + 0]);
+        }
+
+        const f64 ratio = outSumR / inputSumR;
+        EXPECT_GT(ratio, 0.70) << "Bloom chain lost > 30% energy (ratio=" << ratio << ")";
+        EXPECT_LT(ratio, 1.30) << "Bloom chain gained > 30% energy (ratio=" << ratio << ")";
     }
 
     // =========================================================================

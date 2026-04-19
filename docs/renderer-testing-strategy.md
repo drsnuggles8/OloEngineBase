@@ -37,7 +37,7 @@ Live status of the catalog (see [OloEngine/tests/Rendering/PropertyTests/](../Ol
 
 **Layer 1 — Property tests (`PbrPropertyTests.cpp`, `PostProcessPropertyTests.cpp`):**
 - PBR: Fresnel (normal / grazing / monotonicity / CPU reference), NDF (non-negative + finite / peak at H=N / roughness=1 gives 1/π / low-roughness highlight concentration), diffuse (metallic=1 kills diffuse / dielectric diffuse non-zero), BRDF (positive+finite / Helmholtz reciprocity / furnace energy bound via Monte Carlo hemisphere integral), normal-map identity, **white-environment irradiance (uniform-white cubemap → learnopengl-normalised unity)**.
-- Post-process: tone-map monotonicity (all 3 operators) + black-to-black (all 3 operators) + extreme-HDR NaN/Inf safety (all 3 operators), vignette center-brighter-than-corners, chromatic aberration center untouched, FXAA uniform no-op + hard-edge flat-region preservation, motion-blur static, DOF at focus distance, bloom threshold/downsample/upsample/composite invariants, fog disabled early-out. *Missing:* full bloom energy conservation over mip chain.
+- Post-process: tone-map monotonicity (all 3 operators) + black-to-black (all 3 operators) + extreme-HDR NaN/Inf safety (all 3 operators), vignette center-brighter-than-corners, chromatic aberration center untouched, FXAA uniform no-op + hard-edge flat-region preservation, motion-blur static, DOF at focus distance, bloom threshold/downsample/upsample/composite invariants, **bloom chain energy conservation (64→32→16→8→16→32→64 RGBA16F pyramid, total-sum ratio within ±30 %)**, fog disabled early-out.
 
 **Layer 2 — GPU state validation (`GLStateGuardTest.cpp`):** 8 tests covering blend / depth / stencil / FBO / viewport / texture-unit / UBO-binding leak detection via RAII snapshot-and-assert.
 
@@ -59,7 +59,7 @@ Live status of the catalog (see [OloEngine/tests/Rendering/PropertyTests/](../Ol
 
 **Layer 11 — Sanitizers / fuzzing:** ASan/UBSan/TSan flags are plumbed in [cmake/Sanitizers.cmake](../cmake/Sanitizers.cmake) and can be enabled per-configure. Randomised-input stress tests land in Layer 3 today (`DataRoundTripTest.RandomisedRgba32F/Rgba8StressRoundTrip`) as a fuzz surrogate — seeded, deterministic, and exercises a mix of IEEE-754 value classes and random dimensions per iteration so regressions on specific byte patterns or sizes surface without a curated corpus. *Infrastructure-gated:* a dedicated libFuzzer target with `-fsanitize=fuzzer` is a CI follow-up, not a code change that belongs on this PR.
 
-**Headline numbers:** ~2084 tests across ~341 suites, full run ≈ 35–45 s on a developer box.
+**Headline numbers:** ~2085 tests across ~342 suites, full run ≈ 35–45 s on a developer box.
 
 ---
 
