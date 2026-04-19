@@ -37,7 +37,7 @@ Live status of the catalog (see [OloEngine/tests/Rendering/PropertyTests/](../Ol
 
 **Layer 1 — Property tests (`PbrPropertyTests.cpp`, `PostProcessPropertyTests.cpp`):**
 - PBR: Fresnel (normal / grazing / monotonicity / CPU reference), NDF (non-negative + finite / peak at H=N / roughness=1 gives 1/π), diffuse (metallic=1 kills diffuse / dielectric diffuse non-zero), BRDF (positive+finite / Helmholtz reciprocity), normal-map identity. *Missing:* furnace, white-environment irradiance, roughness=0 mirror.
-- Post-process: tone-map monotonicity (all 3 operators) + black-to-black (all 3 operators), vignette center-brighter-than-corners, chromatic aberration center untouched, FXAA uniform no-op, motion-blur static, DOF at focus distance, bloom threshold/downsample/upsample/composite invariants, fog disabled early-out. *Missing:* full bloom energy conservation over mip chain, FXAA edge displacement on hard diagonal.
+- Post-process: tone-map monotonicity (all 3 operators) + black-to-black (all 3 operators) + extreme-HDR NaN/Inf safety (all 3 operators), vignette center-brighter-than-corners, chromatic aberration center untouched, FXAA uniform no-op + hard-edge flat-region preservation, motion-blur static, DOF at focus distance, bloom threshold/downsample/upsample/composite invariants, fog disabled early-out. *Missing:* full bloom energy conservation over mip chain.
 
 **Layer 2 — GPU state validation (`GLStateGuardTest.cpp`):** 8 tests covering blend / depth / stencil / FBO / viewport / texture-unit / UBO-binding leak detection via RAII snapshot-and-assert.
 
