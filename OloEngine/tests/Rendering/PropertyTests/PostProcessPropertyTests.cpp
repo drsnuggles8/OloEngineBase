@@ -12,7 +12,7 @@
 //   [x] Chromatic aberration: center pixel unaffected
 //   [ ] Bloom energy conservation               (needs multi-pass mip chain)
 //   [ ] Bloom black passthrough                 (needs multi-pass mip chain)
-//   [ ] FXAA edge displacement                  (needs edge-aware test image)
+//   [x] FXAA edge displacement                  (FxaaEdgeDisplacementTest.EdgePreservesFlatRegions)
 //   [x] DOF CoC correctness                     (DofFocusTest.DepthAtFocusDistanceIsIdentity)
 //   [x] Motion blur static                      (MotionBlurStaticTest.ZeroVelocityIsIdentity)
 //   [x] Fog zero/infinite                       (ShaderUnitFogTest.EndpointInvariants)
@@ -290,6 +290,69 @@ namespace OloEngine::Tests
                              ::testing::Values(0 /*None*/, 1 /*Reinhard*/, 2 /*ACES*/, 3 /*Uncharted2*/));
 
     // =========================================================================
+    // Tone map NaN/Inf safety: extreme HDR values (e.g., 10^5 from explosions,
+    // numerical errors in prior passes) must survive the tone mapper without
+    // producing NaN or Inf. RGBA8 readback naturally clamps so we can't catch
+    // Inf directly; we use a float framebuffer to sample the HDR output
+    // before clamping. Any NaN/Inf here signals a divide-by-zero or log(0)
+    // in the tone-map curve that would propagate into subsequent post-passes.
+    // =========================================================================
+    class ToneMapExtremeHdrFixture : public ::testing::TestWithParam<int>
+    {
+    };
+
+    TEST_P(ToneMapExtremeHdrFixture, ExtremeHdrProducesFiniteOutput)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kSize = 8;
+
+        auto uboData = MakeDefaultPostProcessUBO(kSize, kSize);
+        uboData.TonemapOperator = GetParam();
+        uboData.Exposure = 1.0f;
+
+        // Create an explicit HDR float framebuffer (the default harness uses
+        // RGBA8 which auto-clamps and hides NaN/Inf).
+        FramebufferSpecification spec{};
+        spec.Width = kSize;
+        spec.Height = kSize;
+        spec.Attachments = { FramebufferTextureFormat::RGBA16F };
+        Ref<Framebuffer> hdrFb = Framebuffer::Create(spec);
+
+        auto shader = Shader::Create("assets/shaders/PostProcess_ToneMap.glsl");
+        ASSERT_TRUE(shader);
+        auto ubo = UniformBuffer::Create(PostProcessUBOData::GetSize(), 7);
+        ubo->SetData(&uboData, PostProcessUBOData::GetSize());
+
+        // Extreme input: 1e5 on R, denormalised range on G, near-FLT_MAX on B.
+        const f32 kExtremeR = 1.0e5f;
+        const f32 kExtremeG = 1.0e-6f;
+        const f32 kExtremeB = 1.0e4f;
+        const u32 inputTex = CreateUniformFloatTexture2D(kSize, kSize, kExtremeR, kExtremeG, kExtremeB, 1.0f);
+
+        FullscreenPass pass;
+        hdrFb->Bind();
+        ::glViewport(0, 0, kSize, kSize);
+        ::glDisable(GL_BLEND);
+        ::glDisable(GL_DEPTH_TEST);
+        ::glDisable(GL_CULL_FACE);
+        shader->Bind();
+        pass.Draw(inputTex);
+        ::glFinish();
+        hdrFb->Unbind();
+
+        std::vector<f32> pixels;
+        ReadbackRgbaFloat(hdrFb->GetColorAttachmentRendererID(0), kSize, kSize, pixels);
+        ::glDeleteTextures(1, &inputTex);
+
+        const FloatStats stats = ComputeStats(pixels);
+        EXPECT_EQ(stats.m_NanCount, 0u) << "operator " << GetParam() << " produced NaN on extreme HDR input";
+        EXPECT_EQ(stats.m_InfCount, 0u) << "operator " << GetParam() << " produced Inf on extreme HDR input";
+    }
+    INSTANTIATE_TEST_SUITE_P(AllOperators, ToneMapExtremeHdrFixture,
+                             ::testing::Values(1 /*Reinhard*/, 2 /*ACES*/, 3 /*Uncharted2*/));
+
+    // =========================================================================
     // Vignette
     // =========================================================================
 
@@ -408,6 +471,67 @@ namespace OloEngine::Tests
                 << "pixel " << i << " R differs from center beyond 1 LSB (FXAA activated on uniform input)";
             EXPECT_NEAR(static_cast<int>(rgba[i * 4 + 1]), static_cast<int>(gCenter), 1);
             EXPECT_NEAR(static_cast<int>(rgba[i * 4 + 2]), static_cast<int>(bCenter), 1);
+        }
+    }
+
+    // =========================================================================
+    // FXAA must not displace pixels far from a sharp edge. With a vertical
+    // hard edge at x=kEdge (left half = black, right half = white), pixels
+    // several columns into the black half must remain black, and pixels
+    // several columns into the white half must remain white. Only a narrow
+    // band around the edge may be blended.
+    //
+    // Catches: overly aggressive FXAA parameters (EDGE_THRESHOLD too low,
+    // SEARCH_STEPS too high) that bleed the edge far into the flat regions.
+    // =========================================================================
+    TEST(FxaaEdgeDisplacementTest, EdgePreservesFlatRegions)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kSize = 64;
+        constexpr u32 kEdge = kSize / 2;
+        constexpr u32 kMargin = 3; // Allow up to 3px bleed near the edge.
+
+        // Build a hard vertical edge: x < kEdge → black, x ≥ kEdge → white.
+        std::vector<f32> pixels(kSize * kSize * 4);
+        for (u32 y = 0; y < kSize; ++y)
+        {
+            for (u32 x = 0; x < kSize; ++x)
+            {
+                const f32 v = (x < kEdge) ? 0.0f : 1.0f;
+                const std::size_t i = (static_cast<std::size_t>(y) * kSize + x) * 4;
+                pixels[i + 0] = v;
+                pixels[i + 1] = v;
+                pixels[i + 2] = v;
+                pixels[i + 3] = 1.0f;
+            }
+        }
+
+        PostProcessUBOData ubo = MakeDefaultPostProcessUBO(kSize, kSize);
+        PostProcessHarness harness(kSize, kSize, "assets/shaders/PostProcess_FXAA.glsl", ubo);
+        harness.SetInputTexture(CreateFloatTexture2D(kSize, kSize, pixels.data()));
+        harness.Draw();
+
+        std::vector<u8> rgba;
+        harness.ReadOutputRgba8(rgba);
+
+        // Interior rows only (skip top/bottom 2 rows to avoid edge-clamp effects).
+        for (u32 y = 2; y < kSize - 2; ++y)
+        {
+            for (u32 x = 0; x < kEdge - kMargin; ++x)
+            {
+                const std::size_t i = (static_cast<std::size_t>(y) * kSize + x) * 4;
+                EXPECT_LE(static_cast<int>(rgba[i + 0]), 4)
+                    << "pixel (" << x << ", " << y << ") R: FXAA bled "
+                    << static_cast<int>(kEdge - x) << " columns into black region";
+            }
+            for (u32 x = kEdge + kMargin; x < kSize; ++x)
+            {
+                const std::size_t i = (static_cast<std::size_t>(y) * kSize + x) * 4;
+                EXPECT_GE(static_cast<int>(rgba[i + 0]), 251)
+                    << "pixel (" << x << ", " << y << ") R: FXAA bled "
+                    << static_cast<int>(x - kEdge) << " columns into white region";
+            }
         }
     }
 
