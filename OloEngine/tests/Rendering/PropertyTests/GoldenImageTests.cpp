@@ -113,10 +113,14 @@ namespace OloEngine::Tests
 
             ~PostProcessHarness()
             {
-                if (m_InputTex) ::glDeleteTextures(1, &m_InputTex);
+                if (m_InputTex)
+                    ::glDeleteTextures(1, &m_InputTex);
             }
 
-            void SetInputTexture(u32 tex) { m_InputTex = tex; }
+            void SetInputTexture(u32 tex)
+            {
+                m_InputTex = tex;
+            }
 
             void Draw()
             {
@@ -149,16 +153,19 @@ namespace OloEngine::Tests
         static bool ShouldRebase()
         {
             const char* v = std::getenv("OLOENGINE_GOLDEN_REBASE");
-            if (v == nullptr) return false;
+            if (v == nullptr)
+                return false;
             const std::string s(v);
-            if (s.empty()) return false;
+            if (s.empty())
+                return false;
             return !(s == "0" || s == "false" || s == "FALSE");
         }
 
         // RMSE over RGB channels (alpha ignored), normalised to [0, 1].
         static f32 ComputeRgbRmse(const std::vector<u8>& a, const std::vector<u8>& b)
         {
-            if (a.size() != b.size() || a.empty()) return 1.0f;
+            if (a.size() != b.size() || a.empty())
+                return 1.0f;
             const std::size_t pixelCount = a.size() / 4;
             f64 sumSq = 0.0;
             for (std::size_t i = 0; i < pixelCount; ++i)
@@ -182,7 +189,7 @@ namespace OloEngine::Tests
         };
 
         static GoldenImageCheckResult CompareOrBootstrap(const std::string& name, u32 width, u32 height,
-                                                        const std::vector<u8>& actualRgba)
+                                                         const std::vector<u8>& actualRgba)
         {
             GoldenImageCheckResult result{};
 

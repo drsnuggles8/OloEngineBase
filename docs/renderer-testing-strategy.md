@@ -53,13 +53,13 @@ Live status of the catalog (see [OloEngine/tests/Rendering/PropertyTests/](../Ol
 
 **Layer 8 — Golden image (`GoldenImageTests.cpp`):** minimal RMSE-based framework implemented. Baselines stored under [OloEditor/assets/tests/golden/](../OloEditor/assets/tests/golden/); first run auto-bootstraps, subsequent runs compare RGB RMSE against a 0.008 threshold (≈ 2 LSBs/channel). Re-baselining gated by `OLOENGINE_GOLDEN_REBASE=1` env var. Two tests today (Reinhard tone-map ramp, FXAA hard edge). *Deferred:* cascaded SSIM/FLIP, per-vendor baselines.
 
-**Layer 9 — Cross-vendor conformance:** *Deferred* — single-GPU CI today; SwiftShader CI container is a follow-up.
+**Layer 9 — Cross-vendor conformance:** *Infrastructure-gated.* Requires a CI container running SwiftShader (or llvmpipe) in parallel with the hardware runner so each commit is validated on at least two driver stacks. No code-only change can close this gap — it's a CI-config follow-up. Today: single-vendor baseline in Layer 8 captured on the developer machine; `OLOENGINE_GOLDEN_REBASE` provides the hook CI would flip per vendor once the container lands.
 
-**Layer 10 — Automatic diagnostic escalation:** *Deferred* — Stage-0 failure reporting only today.
+**Layer 10 — Automatic diagnostic escalation:** Partially implemented via golden-image failure output. When a `GoldenImageTest` fails, the actual frame is written next to the baseline as `<name>.actual.png`, and the RMSE is reported inline with a threshold comparison. *Deferred:* auto-capture of RenderDoc frame, shader disassembly dump, GPU state snapshot on property-test failures — those require a debug-only instrumentation layer that hasn't been built.
 
-**Layer 11 — Sanitizers / fuzzing:** Build flags exist (`cmake/Sanitizers.cmake`); no dedicated fuzz targets yet.
+**Layer 11 — Sanitizers / fuzzing:** ASan/UBSan/TSan flags are plumbed in [cmake/Sanitizers.cmake](../cmake/Sanitizers.cmake) and can be enabled per-configure. *Infrastructure-gated:* a dedicated libFuzzer target for serialization paths requires build-system work (new `OloEngine-Fuzz` target with `-fsanitize=fuzzer`) and is a CI follow-up, not a code change that belongs on this PR.
 
-**Headline numbers:** ~2070 tests across ~335 suites, full run ≈ 35–45 s on a developer box.
+**Headline numbers:** ~2081 tests across ~340 suites, full run ≈ 35–45 s on a developer box.
 
 ---
 
