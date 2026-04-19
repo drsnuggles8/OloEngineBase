@@ -112,6 +112,11 @@ class VBAPTest : public ::testing::Test
         outputMap[2] = MA_CHANNEL_BACK_LEFT;
         outputMap[3] = MA_CHANNEL_BACK_RIGHT;
     }
+
+    void TearDown() override
+    {
+        VBAP::ClearVBAP(&vbapData);
+    }
 };
 
 TEST_F(VBAPTest, InitSucceeds)

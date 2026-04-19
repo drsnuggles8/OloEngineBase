@@ -32,8 +32,10 @@ namespace OloEngine
     {
         template<typename DestinationElementType, typename SourceElementType>
         inline constexpr bool TCanBitwiseRelocate_V =
-            std::is_same_v<DestinationElementType, SourceElementType> || (TIsBitwiseConstructible<DestinationElementType, SourceElementType>::Value &&
-                                                                          std::is_trivially_destructible_v<SourceElementType>);
+            TIsTriviallyRelocatable_V<SourceElementType> &&
+            (std::is_same_v<DestinationElementType, SourceElementType> ||
+             (TIsBitwiseConstructible<DestinationElementType, SourceElementType>::Value &&
+              std::is_trivially_destructible_v<SourceElementType>));
     }
 
     // ============================================================================

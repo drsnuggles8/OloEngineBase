@@ -248,12 +248,7 @@ namespace OloEngine
         {
         }
 
-        ~TMapBase()
-        {
-            // Warn if used with non-trivially-relocatable types
-            static_assert(TIsTriviallyRelocatable_V<KeyType> && TIsTriviallyRelocatable_V<ValueType>,
-                          "TMapBase can only be used with trivially relocatable types");
-        }
+        ~TMapBase() = default;
 
         // ========================================================================
         // Intrusive TOptional<TMapBase> state

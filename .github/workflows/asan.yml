@@ -6,6 +6,10 @@ on:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  checks: write
+
 jobs:
   asan-windows:
     name: ASan (Windows/MSVC)
@@ -42,20 +46,30 @@ jobs:
       run: New-Item -ItemType Directory -Force -Path "${{github.workspace}}/test_results"
       shell: pwsh
 
+    - name: Add MSVC ASan runtime to PATH
+      shell: pwsh
+      run: |
+        $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+        $msvcDir = Get-ChildItem "$vsPath\VC\Tools\MSVC" -Directory | Sort-Object Name -Descending | Select-Object -First 1
+        $binDir = "$($msvcDir.FullName)\bin\Hostx64\x64"
+        Write-Host "Adding MSVC bin to PATH: $binDir"
+        echo "$binDir" >> $env:GITHUB_PATH
+
     - name: Run tests under ASan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest -C Release -V
+      run: ctest -C Release --output-on-failure --rerun-failed
       env:
         ASAN_OPTIONS: halt_on_error=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
-    - name: Upload test results
+    - name: Test report
       if: always()
-      uses: actions/upload-artifact@v7
+      uses: dorny/test-reporter@v1
       with:
-        name: asan_test_results_windows
-        path: ${{github.workspace}}/test_results/*.xml
-        if-no-files-found: 'warn'
+        name: ASan (Windows)
+        path: test_results/*.xml
+        reporter: java-junit
+        fail-on-error: false
 
   asan-lsan-linux:
     name: ASan + LSan (Linux/Clang)
@@ -99,19 +113,20 @@ jobs:
 
     - name: Run tests under ASan + LSan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest -V
+      run: ctest --output-on-failure --rerun-failed
       env:
         ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
         LSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/lsan.txt
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
-    - name: Upload test results
+    - name: Test report
       if: always()
-      uses: actions/upload-artifact@v7
+      uses: dorny/test-reporter@v1
       with:
-        name: asan_lsan_test_results_linux
-        path: ${{github.workspace}}/test_results/*.xml
-        if-no-files-found: 'warn'
+        name: ASan + LSan (Linux)
+        path: test_results/*.xml
+        reporter: java-junit
+        fail-on-error: false
 
   ubsan-linux:
     name: UBSan (Linux/Clang)
@@ -155,18 +170,19 @@ jobs:
 
     - name: Run tests under UBSan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest -V
+      run: ctest --output-on-failure --rerun-failed
       env:
         UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
-    - name: Upload test results
+    - name: Test report
       if: always()
-      uses: actions/upload-artifact@v7
+      uses: dorny/test-reporter@v1
       with:
-        name: ubsan_test_results_linux
-        path: ${{github.workspace}}/test_results/*.xml
-        if-no-files-found: 'warn'
+        name: UBSan (Linux)
+        path: test_results/*.xml
+        reporter: java-junit
+        fail-on-error: false
 
   tsan-linux:
     name: TSan (Linux/Clang)
@@ -211,15 +227,16 @@ jobs:
 
     - name: Run tests under TSan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest -V
+      run: ctest --output-on-failure --rerun-failed
       env:
         TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
-    - name: Upload test results
+    - name: Test report
       if: always()
-      uses: actions/upload-artifact@v7
+      uses: dorny/test-reporter@v1
       with:
-        name: tsan_test_results_linux
-        path: ${{github.workspace}}/test_results/*.xml
-        if-no-files-found: 'warn'
+        name: TSan (Linux)
+        path: test_results/*.xml
+        reporter: java-junit
+        fail-on-error: false

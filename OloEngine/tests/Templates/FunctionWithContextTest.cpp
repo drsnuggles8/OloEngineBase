@@ -26,8 +26,9 @@ TEST(FunctionWithContextTest, NullptrConstruction)
 TEST(FunctionWithContextTest, LambdaConstruction)
 {
     bool WasCalled = false;
-    TFunctionWithContext<void()> Func = [&WasCalled]()
+    auto Lambda = [&WasCalled]()
     { WasCalled = true; };
+    TFunctionWithContext<void()> Func = Lambda;
 
     EXPECT_TRUE(Func);
     EXPECT_NE(Func.GetFunction(), nullptr);
@@ -40,8 +41,9 @@ TEST(FunctionWithContextTest, LambdaConstruction)
 TEST(FunctionWithContextTest, LambdaWithReturnValue)
 {
     int Value = 42;
-    TFunctionWithContext<int()> Func = [&Value]()
+    auto Lambda = [&Value]()
     { return Value * 2; };
+    TFunctionWithContext<int()> Func = Lambda;
 
     EXPECT_TRUE(Func);
     EXPECT_EQ(Func(), 84);
@@ -50,8 +52,9 @@ TEST(FunctionWithContextTest, LambdaWithReturnValue)
 TEST(FunctionWithContextTest, LambdaWithArguments)
 {
     int Sum = 0;
-    TFunctionWithContext<void(int, int)> Func = [&Sum](int A, int B)
+    auto Lambda = [&Sum](int A, int B)
     { Sum = A + B; };
+    TFunctionWithContext<void(int, int)> Func = Lambda;
 
     EXPECT_TRUE(Func);
     Func(10, 20);
@@ -60,8 +63,9 @@ TEST(FunctionWithContextTest, LambdaWithArguments)
 
 TEST(FunctionWithContextTest, LambdaWithArgumentsAndReturn)
 {
-    TFunctionWithContext<int(int, int)> Func = [](int A, int B)
+    auto Lambda = [](int A, int B)
     { return A + B; };
+    TFunctionWithContext<int(int, int)> Func = Lambda;
 
     EXPECT_TRUE(Func);
     EXPECT_EQ(Func(5, 7), 12);
@@ -86,14 +90,16 @@ TEST(FunctionWithContextTest, ExplicitFunctionPointerConstruction)
 TEST(FunctionWithContextTest, Assignment)
 {
     int CallCount = 0;
-    TFunctionWithContext<void()> Func = [&CallCount]()
+    auto Lambda1 = [&CallCount]()
     { CallCount = 1; };
+    TFunctionWithContext<void()> Func = Lambda1;
     Func();
     EXPECT_EQ(CallCount, 1);
 
     // Reassign to different lambda
-    Func = [&CallCount]()
+    auto Lambda2 = [&CallCount]()
     { CallCount = 2; };
+    Func = Lambda2;
     Func();
     EXPECT_EQ(CallCount, 2);
 }
@@ -101,8 +107,9 @@ TEST(FunctionWithContextTest, Assignment)
 TEST(FunctionWithContextTest, GetFunctionAndContext)
 {
     int Value = 42;
-    TFunctionWithContext<int()> Func = [&Value]()
+    auto Lambda = [&Value]()
     { return Value; };
+    TFunctionWithContext<int()> Func = Lambda;
 
     // Manually invoke using extracted function and context
     auto FunctionPtr = Func.GetFunction();
@@ -116,11 +123,12 @@ TEST(FunctionWithContextTest, GetFunctionAndContext)
 TEST(FunctionWithContextTest, MultipleArgTypes)
 {
     std::string Result;
-    TFunctionWithContext<void(const char*, int, float)> Func =
+    auto Lambda =
         [&Result](const char* Str, int I, float F)
     {
         Result = std::string(Str) + "_" + std::to_string(I) + "_" + std::to_string(static_cast<int>(F));
     };
+    TFunctionWithContext<void(const char*, int, float)> Func = Lambda;
 
     Func("test", 42, 3.14f);
     EXPECT_EQ(Result, "test_42_3");

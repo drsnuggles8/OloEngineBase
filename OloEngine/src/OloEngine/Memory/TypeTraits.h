@@ -13,6 +13,8 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Templates/UnrealTemplate.h"
+
+#include <string>
 #include <type_traits>
 #include <utility>
 
@@ -645,6 +647,17 @@ namespace OloEngine
 
     template<typename T>
     inline constexpr bool TIsTriviallyRelocatable_V = TIsTriviallyRelocatable<T>::Value;
+
+    // std::basic_string uses SSO with self-referencing pointers on some implementations
+    // (notably libstdc++), making it unsafe to relocate via memmove.
+    template<typename CharT, typename Traits, typename Alloc>
+    struct TIsTriviallyRelocatable<std::basic_string<CharT, Traits, Alloc>>
+    {
+        enum
+        {
+            Value = false
+        };
+    };
 
     // @struct TUseBitwiseSwap
     // @brief Determines if bitwise operations (memcpy/memswap) should be used for relocation

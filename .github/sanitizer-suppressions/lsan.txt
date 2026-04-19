@@ -16,3 +16,19 @@ leak:glfwInit
 # Mesa/NVIDIA driver global state
 leak:libGLX
 leak:libEGL
+
+# Task system singletons (scheduler, event pool) — intentional process-lifetime allocations
+leak:FScheduler
+leak:FSchedulerTls
+leak:TEventPool
+leak:TLazySingleton
+leak:LowLevelTasks
+
+# GameNetworkingSockets / protobuf / crypto — global state not fully cleaned up on exit
+leak:GameNetworkingSockets
+leak:SteamNetworkingSockets
+leak:google::protobuf
+leak:libprotobuf
+leak:libcrypto
+leak:libsodium
+leak:libssl
