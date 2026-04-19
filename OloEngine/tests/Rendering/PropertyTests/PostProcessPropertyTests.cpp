@@ -108,7 +108,10 @@ namespace OloEngine::Tests
                     ::glDeleteTextures(1, &m_InputTex);
             }
 
-            void SetInputTexture(u32 tex) { m_InputTex = tex; }
+            void SetInputTexture(u32 tex)
+            {
+                m_InputTex = tex;
+            }
 
             void Draw()
             {
@@ -249,7 +252,8 @@ namespace OloEngine::Tests
 
         // Vignette shader writes linear values directly (gamma applied later
         // by the ToneMap pass in the real pipeline). So byte/255 IS linear.
-        auto Lum = [&](u32 x, u32 y) {
+        auto Lum = [&](u32 x, u32 y)
+        {
             const std::size_t i = (static_cast<std::size_t>(y) * kSize + x) * 4;
             return static_cast<f32>(rgba[i + 0]) / 255.0f;
         };

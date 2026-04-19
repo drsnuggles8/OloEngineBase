@@ -228,11 +228,11 @@ namespace OloEngine::Tests
         };
         static constexpr Vertex verts[6] = {
             { -1.0f, -1.0f, 0.0f, 0.0f, 0.0f },
-            {  1.0f, -1.0f, 0.0f, 1.0f, 0.0f },
-            {  1.0f,  1.0f, 0.0f, 1.0f, 1.0f },
+            { 1.0f, -1.0f, 0.0f, 1.0f, 0.0f },
+            { 1.0f, 1.0f, 0.0f, 1.0f, 1.0f },
             { -1.0f, -1.0f, 0.0f, 0.0f, 0.0f },
-            {  1.0f,  1.0f, 0.0f, 1.0f, 1.0f },
-            { -1.0f,  1.0f, 0.0f, 0.0f, 1.0f },
+            { 1.0f, 1.0f, 0.0f, 1.0f, 1.0f },
+            { -1.0f, 1.0f, 0.0f, 0.0f, 1.0f },
         };
 
         ::glCreateVertexArrays(1, &m_Vao);

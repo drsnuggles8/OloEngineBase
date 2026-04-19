@@ -56,13 +56,13 @@ namespace OloEngine::Tests
 
         // Convenience: calls GTEST_SKIP() with a helpful message if no GPU.
         // Must be called from within a TEST/TEST_F body.
-#define OLO_ENSURE_GPU_OR_SKIP()                                                                                                                                                   \
-    do                                                                                                                                                                             \
-    {                                                                                                                                                                              \
-        if (!::OloEngine::Tests::RenderPropertyFixture::IsGpuAvailable())                                                                                                          \
-        {                                                                                                                                                                          \
-            GTEST_SKIP() << "No GPU / GL 4.5+ context available in this environment.";                                                                                             \
-        }                                                                                                                                                                          \
+#define OLO_ENSURE_GPU_OR_SKIP()                                                       \
+    do                                                                                 \
+    {                                                                                  \
+        if (!::OloEngine::Tests::RenderPropertyFixture::IsGpuAvailable())              \
+        {                                                                              \
+            GTEST_SKIP() << "No GPU / GL 4.5+ context available in this environment."; \
+        }                                                                              \
     } while (false)
 
       private:

@@ -564,6 +564,8 @@
 		"OloEngine/Renderer/Debug/ShaderDebugger.cpp"
 		"OloEngine/Renderer/Debug/DebugUtils.h"
 		"OloEngine/Renderer/Debug/DebugUtils.cpp"
+		"OloEngine/Renderer/Debug/GLStateGuard.h"
+		"OloEngine/Renderer/Debug/GLStateGuard.cpp"
 
 		"OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 		"OloEngine/Renderer/Occlusion/OcclusionQueryPool.cpp"

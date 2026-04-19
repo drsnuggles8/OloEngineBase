@@ -507,7 +507,8 @@ namespace OloEngine::Tests
         constexpr u32 kSize = 64;
 
         // Tangent-space "flat" normal: (0.5, 0.5, 1.0) encodes (0, 0, 1).
-        const std::vector<u8> flatTexel = []{
+        const std::vector<u8> flatTexel = []
+        {
             std::vector<u8> px(kSize * kSize * 4);
             for (std::size_t i = 0; i < static_cast<std::size_t>(kSize) * kSize; ++i)
             {
