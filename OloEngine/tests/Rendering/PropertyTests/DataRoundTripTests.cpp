@@ -24,6 +24,11 @@
 
 #include "RenderPropertyTest.h"
 
+#include "OloEngine/Renderer/IBLCache.h"
+#include "OloEngine/Renderer/EnvironmentMap.h"
+#include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/TextureCubemap.h"
+
 #define GLFW_INCLUDE_NONE
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
@@ -32,6 +37,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -99,5 +105,168 @@ namespace OloEngine::Tests
         EXPECT_EQ(diffs, 0u) << "RGBA8 round-trip produced " << diffs << " different bytes";
 
         ::glDeleteTextures(1, &tex);
+    }
+
+    // =========================================================================
+    // IBL cache round-trip: save a procedurally generated prefilter cubemap
+    // with a KNOWN distinct bit pattern per mip level, reload it, and verify
+    // that every mip level is preserved bit-exact.
+    //
+    // This is the exact shape of the bug we shipped previously:
+    // IBLCache::LoadCubemapFromCache only loaded mip 0, causing prefilter
+    // mips 1-4 to be silently re-generated as bilinear downsamples (via
+    // glGenerateTextureMipmap) instead of the proper GGX-convolved mips.
+    //
+    // We build a RGBA16F 32x32 cubemap with 3 mip levels, fill each mip of
+    // each face with a distinct linear-encoded byte pattern, save through
+    // IBLCache::Save, then TryLoad, then read back every mip of every face.
+    // The BRDF LUT and irradiance map are reused as cheap stand-ins since
+    // Save expects a full triplet; their content isn't under test here.
+    //
+    // Encoded pattern per (mip, face) is bit-exact: texel_value =
+    // float(mip * 100 + face * 10 + channel) / 1000.0, quantized through
+    // fp16 storage. Readback compares against fp16-roundtripped expected
+    // values to avoid false negatives from precision loss at storage.
+    // =========================================================================
+    TEST(DataRoundTripTest, IblCacheCubemapRoundTripPreservesAllMips)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kWidth = 32;
+        constexpr u32 kHeight = 32;
+        constexpr u32 kMipLevels = 3;
+
+        // Use a temp cache directory so we don't stomp on the real one.
+        auto tempDir = std::filesystem::temp_directory_path() / "olo_ibl_cache_test";
+        std::error_code ec;
+        std::filesystem::remove_all(tempDir, ec);
+        IBLCache::Initialize(tempDir);
+
+        // -- Build the test prefilter cubemap with a distinct pattern per mip.
+        // Use RGBA32F so upload / readback is exact bit-for-bit (no half-float
+        // conversion in the path). The bug this test catches is structural
+        // (missing mip levels), not format-precision; RGBA32F is sufficient.
+        CubemapSpecification spec{};
+        spec.Width = kWidth;
+        spec.Height = kHeight;
+        spec.Format = ImageFormat::RGBA32F;
+        spec.GenerateMips = true;
+        spec.MipLevels = kMipLevels;
+        Ref<TextureCubemap> src = TextureCubemap::Create(spec);
+        ASSERT_TRUE(src != nullptr);
+
+        auto MakePattern = [](u32 mip, u32 face, u32 x, u32 y) -> std::array<f32, 4>
+        {
+            const f32 base = static_cast<f32>(mip * 100 + face * 10) / 1000.0f;
+            return {
+                base + 0.0001f * static_cast<f32>(x),
+                base + 0.0001f * static_cast<f32>(y),
+                base + 0.5f,
+                1.0f,
+            };
+        };
+
+        for (u32 mip = 0; mip < kMipLevels; ++mip)
+        {
+            const u32 mipW = std::max(1u, kWidth >> mip);
+            const u32 mipH = std::max(1u, kHeight >> mip);
+            std::vector<f32> buf(static_cast<std::size_t>(mipW) * mipH * 4);
+            for (u32 face = 0; face < 6; ++face)
+            {
+                for (u32 y = 0; y < mipH; ++y)
+                {
+                    for (u32 x = 0; x < mipW; ++x)
+                    {
+                        auto texel = MakePattern(mip, face, x, y);
+                        const std::size_t idx = (static_cast<std::size_t>(y) * mipW + x) * 4;
+                        buf[idx + 0] = texel[0];
+                        buf[idx + 1] = texel[1];
+                        buf[idx + 2] = texel[2];
+                        buf[idx + 3] = texel[3];
+                    }
+                }
+                const u32 byteSize = static_cast<u32>(buf.size() * sizeof(f32));
+                ASSERT_TRUE(src->SetFaceDataMip(face, mip, buf.data(), byteSize));
+            }
+        }
+
+        // -- Minimal stand-in irradiance cubemap (1 mip, uniform gray).
+        CubemapSpecification irradianceSpec{};
+        irradianceSpec.Width = 16;
+        irradianceSpec.Height = 16;
+        irradianceSpec.Format = ImageFormat::RGBA32F;
+        irradianceSpec.GenerateMips = false;
+        irradianceSpec.MipLevels = 1;
+        Ref<TextureCubemap> irradiance = TextureCubemap::Create(irradianceSpec);
+        ASSERT_TRUE(irradiance != nullptr);
+        {
+            std::vector<f32> gray(16u * 16u * 4u, 0.5f);
+            for (u32 face = 0; face < 6; ++face)
+                ASSERT_TRUE(irradiance->SetFaceDataMip(face, 0,
+                                                       gray.data(), static_cast<u32>(gray.size() * sizeof(f32))));
+        }
+
+        // -- Minimal stand-in BRDF LUT (8x8, RGBA32F).
+        TextureSpecification brdfSpec{};
+        brdfSpec.Width = 8;
+        brdfSpec.Height = 8;
+        brdfSpec.Format = ImageFormat::RGBA32F;
+        brdfSpec.GenerateMips = false;
+        Ref<Texture2D> brdf = Texture2D::Create(brdfSpec);
+        ASSERT_TRUE(brdf != nullptr);
+        {
+            std::vector<f32> brdfPixels(8u * 8u * 4u);
+            for (std::size_t i = 0; i < brdfPixels.size(); ++i)
+                brdfPixels[i] = static_cast<f32>(i) / static_cast<f32>(brdfPixels.size());
+            brdf->SetData(brdfPixels.data(), static_cast<u32>(brdfPixels.size() * sizeof(f32)));
+        }
+
+        // -- Save.
+        IBLConfiguration config{};
+        const std::string sourcePath = "test_ibl_cache_roundtrip.hdr";
+        ASSERT_TRUE(IBLCache::Save(sourcePath, config, irradiance, src, brdf));
+
+        // -- Load.
+        IBLCache::CachedIBL cached;
+        ASSERT_TRUE(IBLCache::TryLoad(sourcePath, config, cached));
+        ASSERT_TRUE(cached.IsValid());
+        ASSERT_TRUE(cached.Prefilter != nullptr);
+        EXPECT_EQ(cached.Prefilter->GetMipLevelCount(), kMipLevels)
+            << "Loaded prefilter lost its mip chain";
+
+        // -- Verify every mip of every face bit-exact.
+        u32 totalDiffs = 0;
+        for (u32 mip = 0; mip < kMipLevels; ++mip)
+        {
+            const u32 mipW = std::max(1u, kWidth >> mip);
+            const u32 mipH = std::max(1u, kHeight >> mip);
+            for (u32 face = 0; face < 6; ++face)
+            {
+                std::vector<u8> readBytes;
+                ASSERT_TRUE(cached.Prefilter->GetFaceData(face, readBytes, mip));
+                ASSERT_EQ(readBytes.size(), static_cast<std::size_t>(mipW) * mipH * 4 * sizeof(f32));
+
+                const f32* readFloats = reinterpret_cast<const f32*>(readBytes.data());
+                for (u32 y = 0; y < mipH; ++y)
+                {
+                    for (u32 x = 0; x < mipW; ++x)
+                    {
+                        auto expected = MakePattern(mip, face, x, y);
+                        const std::size_t idx = (static_cast<std::size_t>(y) * mipW + x) * 4;
+                        for (u32 c = 0; c < 4; ++c)
+                        {
+                            if (std::memcmp(&expected[c], &readFloats[idx + c], sizeof(f32)) != 0)
+                                ++totalDiffs;
+                        }
+                    }
+                }
+            }
+        }
+        EXPECT_EQ(totalDiffs, 0u)
+            << "IBL cache round-trip produced " << totalDiffs
+            << " bit-different texels across all mips (classic 'only mip 0 loaded' symptom)";
+
+        IBLCache::Shutdown();
+        std::filesystem::remove_all(tempDir, ec);
     }
 } // namespace OloEngine::Tests
