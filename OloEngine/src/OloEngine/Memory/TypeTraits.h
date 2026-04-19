@@ -659,6 +659,19 @@ namespace OloEngine
         };
     };
 
+    // TTuple (and TPair alias) is only trivially relocatable if ALL its element types are.
+    template<typename... Types>
+    struct TTuple;
+
+    template<typename... Types>
+    struct TIsTriviallyRelocatable<TTuple<Types...>>
+    {
+        enum
+        {
+            Value = (TIsTriviallyRelocatable<Types>::Value && ...)
+        };
+    };
+
     // @struct TUseBitwiseSwap
     // @brief Determines if bitwise operations (memcpy/memswap) should be used for relocation
     //

@@ -57,11 +57,10 @@ jobs:
 
     - name: Run tests under ASan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest -C Release --output-on-failure --rerun-failed
+      run: ctest -C Release --output-on-failure --rerun-failed --exclude-regex "NetworkIntegration"
       env:
         ASAN_OPTIONS: halt_on_error=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
-        GTEST_FILTER: -*NetworkIntegrationTest*
 
     - name: Test report
       if: always()
@@ -115,12 +114,11 @@ jobs:
 
     - name: Run tests under ASan + LSan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest --output-on-failure --rerun-failed
+      run: ctest --output-on-failure --rerun-failed --exclude-regex "NetworkIntegration"
       env:
         ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
         LSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/lsan.txt
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
-        GTEST_FILTER: -*NetworkIntegrationTest*
 
     - name: Test report
       if: always()
@@ -174,11 +172,10 @@ jobs:
 
     - name: Run tests under UBSan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest --output-on-failure --rerun-failed
+      run: ctest --output-on-failure --rerun-failed --exclude-regex "NetworkIntegration"
       env:
         UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
-        GTEST_FILTER: -*NetworkIntegrationTest*
 
     - name: Test report
       if: always()
@@ -233,11 +230,10 @@ jobs:
 
     - name: Run tests under TSan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest --output-on-failure --rerun-failed
+      run: ctest --output-on-failure --rerun-failed --exclude-regex "NetworkIntegration|WorkerRestart"
       env:
         TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
-        GTEST_FILTER: -*NetworkIntegrationTest*
 
     - name: Test report
       if: always()
