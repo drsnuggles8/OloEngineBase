@@ -196,6 +196,69 @@ namespace OloEngine::Tests
     {
     };
 
+    // Monotonicity across a luminance ramp must hold for EVERY operator (not
+    // just Reinhard). An inverted curve anywhere in the pipeline would be a
+    // major visual regression. We parameterize over the three non-identity
+    // operators: Reinhard (1), ACES (2), Uncharted2 (3).
+    class ToneMapMonotonicityFixture : public ::testing::TestWithParam<int>
+    {
+    };
+
+    TEST_P(ToneMapMonotonicityFixture, HdrRampIsNonDecreasing)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kWidth = 256;
+        constexpr u32 kHeight = 1;
+
+        std::vector<f32> hdrPixels(kWidth * kHeight * 4);
+        for (u32 x = 0; x < kWidth; ++x)
+        {
+            // Ramp stops at 8.0 — ACES saturates well before that, which is
+            // fine for monotonicity as long as the plateau isn't an inversion.
+            const f32 t = static_cast<f32>(x) / static_cast<f32>(kWidth - 1);
+            const f32 lum = t * 8.0f;
+            hdrPixels[(x * 4) + 0] = lum;
+            hdrPixels[(x * 4) + 1] = lum;
+            hdrPixels[(x * 4) + 2] = lum;
+            hdrPixels[(x * 4) + 3] = 1.0f;
+        }
+
+        auto uboData = MakeDefaultPostProcessUBO(kWidth, kHeight);
+        uboData.TonemapOperator = GetParam();
+
+        PostProcessHarness h(kWidth, kHeight, "assets/shaders/PostProcess_ToneMap.glsl", uboData);
+        h.SetInputTexture(CreateFloatTexture2D(kWidth, kHeight, hdrPixels.data()));
+        h.Draw();
+
+        std::vector<u8> rgba;
+        h.ReadOutputRgba8(rgba);
+
+        f32 prevLum = -1.0f;
+        u32 violations = 0;
+        // ACES and Uncharted2 compress more aggressively; allow a 2-LSB
+        // tolerance window (vs 1 LSB for Reinhard) to absorb gamma + tone-map
+        // quantization noise. A real monotonicity violation produces drops
+        // many LSBs large, so this does not hide regressions.
+        constexpr f32 kEpsilon = 2.0f / 255.0f;
+        for (u32 x = 0; x < kWidth; ++x)
+        {
+            const u32 i = x * 4;
+            const f32 r = SrgbToLinear(rgba[i + 0]);
+            const f32 g = SrgbToLinear(rgba[i + 1]);
+            const f32 b = SrgbToLinear(rgba[i + 2]);
+            const f32 lum = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+            if (lum + kEpsilon < prevLum)
+                ++violations;
+            prevLum = lum;
+        }
+
+        EXPECT_EQ(violations, 0u) << "Operator " << GetParam() << " is not monotonic across the HDR ramp";
+        EXPECT_LT(rgba[0], 16u) << "Black input should tone-map near black for operator " << GetParam();
+    }
+    INSTANTIATE_TEST_SUITE_P(AllOperators, ToneMapMonotonicityFixture,
+                             ::testing::Values(1 /*Reinhard*/, 2 /*ACES*/, 3 /*Uncharted2*/));
+
     TEST_P(ToneMapBlackFixture, BlackInputStaysBlack)
     {
         OLO_ENSURE_GPU_OR_SKIP();

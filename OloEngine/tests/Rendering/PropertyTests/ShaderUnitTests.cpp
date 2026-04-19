@@ -170,4 +170,227 @@ namespace OloEngine::Tests
         EXPECT_NEAR(outputs[2].sRGB, 0.73535585f, 1e-3f);
         EXPECT_NEAR(outputs[3].sRGB, 1.0f, 1e-5f);
     }
+
+    // =========================================================================
+    // Tone mapping reference values. For each operator and each reference HDR
+    // input, the GPU shader output must match a hand-computed reference within
+    // tight tolerance (not 1-LSB — single-float math here, no 8-bit quantize).
+    // =========================================================================
+    namespace
+    {
+        // CPU reference implementations — IDENTICAL math to the GLSL in
+        // assets/shaders/tests/ShaderUnit_ToneMap.glsl. Deliberate duplication
+        // so that shader edits without matching CPU edits produce a failure.
+        f32 ReinhardRef(f32 x)
+        {
+            return x / (x + 1.0f);
+        }
+
+        f32 AcesRef(f32 x)
+        {
+            constexpr f32 a = 2.51f, b = 0.03f, c = 2.43f, d = 0.59f, e = 0.14f;
+            const f32 num = x * (a * x + b);
+            const f32 den = x * (c * x + d) + e;
+            return std::clamp(num / den, 0.0f, 1.0f);
+        }
+
+        f32 Uncharted2Ref(f32 x)
+        {
+            constexpr f32 A = 0.15f, B = 0.50f, C = 0.10f, D = 0.20f, E = 0.02f, F = 0.30f;
+            return ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F;
+        }
+
+        // Run N rgb triples through the tone-map compute shader and return the
+        // mapped triples.
+        std::vector<f32> RunToneMap(int op, const std::vector<f32>& rgbInputs)
+        {
+            ComputeBuffers buffers(rgbInputs.size() * sizeof(f32), rgbInputs.size() * sizeof(f32));
+            ::glNamedBufferSubData(buffers.m_In, 0,
+                                   static_cast<GLsizeiptr>(rgbInputs.size() * sizeof(f32)), rgbInputs.data());
+
+            auto cs = ComputeShader::Create("assets/shaders/tests/ShaderUnit_ToneMap.glsl");
+            EXPECT_TRUE(cs && cs->IsValid());
+            cs->Bind();
+            cs->SetInt("u_Op", op);
+
+            ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffers.m_In);
+            ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buffers.m_Out);
+            const u32 triples = static_cast<u32>(rgbInputs.size() / 3);
+            const u32 kLocal = 64;
+            ::glDispatchCompute((triples + kLocal - 1) / kLocal, 1, 1);
+            ::glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+            std::vector<f32> out(rgbInputs.size());
+            ::glGetNamedBufferSubData(buffers.m_Out, 0,
+                                      static_cast<GLsizeiptr>(out.size() * sizeof(f32)), out.data());
+            return out;
+        }
+    } // namespace
+
+    TEST(ShaderUnitToneMapTest, ReinhardMatchesReference)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        std::vector<f32> inputs = {
+            0.0f,
+            0.0f,
+            0.0f,
+            0.5f,
+            0.5f,
+            0.5f,
+            1.0f,
+            1.0f,
+            1.0f,
+            4.0f,
+            2.0f,
+            1.0f,
+            100.0f,
+            100.0f,
+            100.0f, // very bright — should converge to 1
+        };
+        const auto mapped = RunToneMap(0, inputs);
+        ASSERT_EQ(mapped.size(), inputs.size());
+
+        for (std::size_t i = 0; i < inputs.size(); ++i)
+        {
+            const f32 expected = ReinhardRef(inputs[i]);
+            EXPECT_NEAR(mapped[i], expected, 1e-5f)
+                << "Reinhard mismatch at channel " << i << " (input=" << inputs[i] << ")";
+        }
+        // Very bright → 100/101 ≈ 0.9901
+        EXPECT_NEAR(mapped[12], 100.0f / 101.0f, 1e-5f);
+    }
+
+    TEST(ShaderUnitToneMapTest, AcesMatchesReference)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        std::vector<f32> inputs = {
+            0.0f,
+            0.0f,
+            0.0f,
+            0.25f,
+            0.25f,
+            0.25f,
+            1.0f,
+            1.0f,
+            1.0f,
+            2.0f,
+            1.5f,
+            0.5f,
+            50.0f,
+            50.0f,
+            50.0f,
+        };
+        const auto mapped = RunToneMap(1, inputs);
+        ASSERT_EQ(mapped.size(), inputs.size());
+
+        for (std::size_t i = 0; i < inputs.size(); ++i)
+        {
+            const f32 expected = AcesRef(inputs[i]);
+            EXPECT_NEAR(mapped[i], expected, 1e-5f)
+                << "ACES mismatch at channel " << i << " (input=" << inputs[i] << ")";
+        }
+        // ACES must clamp to [0, 1] for any input.
+        for (f32 v : mapped)
+        {
+            EXPECT_GE(v, 0.0f);
+            EXPECT_LE(v, 1.0f);
+        }
+    }
+
+    TEST(ShaderUnitToneMapTest, Uncharted2MatchesReference)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // Uncharted2 is NOT normalized — values > 1 pass through the curve
+        // unchanged at their input scale. Output is later divided by
+        // Uncharted2(white_point) in the production shader to bring it to
+        // [0,1]; the raw operator here is tested against reference directly.
+        std::vector<f32> inputs = {
+            0.0f,
+            0.0f,
+            0.0f,
+            0.5f,
+            0.5f,
+            0.5f,
+            1.0f,
+            1.0f,
+            1.0f,
+            11.2f,
+            11.2f,
+            11.2f, // the canonical Hable white point
+        };
+        const auto mapped = RunToneMap(2, inputs);
+        ASSERT_EQ(mapped.size(), inputs.size());
+
+        for (std::size_t i = 0; i < inputs.size(); ++i)
+        {
+            const f32 expected = Uncharted2Ref(inputs[i]);
+            EXPECT_NEAR(mapped[i], expected, 1e-4f)
+                << "Uncharted2 mismatch at channel " << i << " (input=" << inputs[i] << ")";
+        }
+        // Black in → black out (offset term E/F is subtracted to zero).
+        EXPECT_NEAR(mapped[0], 0.0f, 1e-5f);
+    }
+
+    // =========================================================================
+    // GGX NDF hemisphere integral: ∫ D(h) * cos(θ_h) dω = 1. Standard
+    // normalization test for any normal distribution function. Uses a
+    // stratified-grid midpoint quadrature on (θ, φ). Discretization error
+    // bounds the achievable tolerance.
+    // =========================================================================
+    TEST(ShaderUnitGgxTest, HemisphereIntegralIsOne)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // Grid size: 256 × 128 = 32k cells, stratified midpoint quadrature.
+        // Valid range for this resolution: roughness ∈ [0.25, 1.0]. Lower
+        // roughness values produce a needle-thin specular lobe near θ=0 that
+        // the grid undersamples. A uniform midpoint rule is the wrong tool
+        // for roughness < 0.1; importance sampling would be required and is
+        // a separate test (not implemented here). The important regression
+        // signal is "integral off by 0.5 or more" (missing 2π factor, wrong
+        // Jacobian, etc.), which this test catches reliably.
+        constexpr int kTheta = 256;
+        constexpr int kPhi = 128;
+
+        auto cs = ComputeShader::Create("assets/shaders/tests/ShaderUnit_GgxIntegral.glsl");
+        ASSERT_TRUE(cs && cs->IsValid());
+        cs->Bind();
+        cs->SetInt("u_ThetaSteps", kTheta);
+        cs->SetInt("u_PhiSteps", kPhi);
+
+        for (f32 roughness : { 0.25f, 0.5f, 0.75f, 1.0f })
+        {
+            std::vector<f32> inputs = { roughness };
+            const std::size_t cellCount = static_cast<std::size_t>(kTheta) * kPhi;
+            ComputeBuffers buffers(inputs.size() * sizeof(f32), cellCount * sizeof(f32));
+            ::glNamedBufferSubData(buffers.m_In, 0,
+                                   static_cast<GLsizeiptr>(inputs.size() * sizeof(f32)), inputs.data());
+
+            ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffers.m_In);
+            ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buffers.m_Out);
+
+            constexpr u32 kLocal = 8;
+            ::glDispatchCompute(kTheta / kLocal, kPhi / kLocal, 1);
+            ::glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+            std::vector<f32> cells(cellCount);
+            ::glGetNamedBufferSubData(buffers.m_Out, 0,
+                                      static_cast<GLsizeiptr>(cells.size() * sizeof(f32)), cells.data());
+
+            // Sum in double precision to avoid catastrophic cancellation.
+            f64 integral = 0.0;
+            for (f32 v : cells)
+                integral += static_cast<f64>(v);
+
+            // Midpoint-rule hemisphere integration error grows as roughness
+            // shrinks (tighter lobe). 2% tolerance covers all sampled rough-
+            // nesses; the interesting failure is "off by 0.5" (missing 2π
+            // factor, etc.), not "off by 0.005".
+            EXPECT_NEAR(integral, 1.0, 0.02)
+                << "GGX hemisphere integral at roughness=" << roughness << " is " << integral;
+        }
+    }
 } // namespace OloEngine::Tests

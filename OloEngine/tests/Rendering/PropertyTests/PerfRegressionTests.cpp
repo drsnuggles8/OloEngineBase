@@ -48,7 +48,10 @@ namespace OloEngine::Tests
         class GpuTimer
         {
           public:
-            GpuTimer() { ::glGenQueries(1, &m_Query); }
+            GpuTimer()
+            {
+                ::glGenQueries(1, &m_Query);
+            }
             ~GpuTimer()
             {
                 if (m_Query)
@@ -57,8 +60,14 @@ namespace OloEngine::Tests
             GpuTimer(const GpuTimer&) = delete;
             GpuTimer& operator=(const GpuTimer&) = delete;
 
-            void Begin() const { ::glBeginQuery(GL_TIME_ELAPSED, m_Query); }
-            void End() const { ::glEndQuery(GL_TIME_ELAPSED); }
+            void Begin() const
+            {
+                ::glBeginQuery(GL_TIME_ELAPSED, m_Query);
+            }
+            void End() const
+            {
+                ::glEndQuery(GL_TIME_ELAPSED);
+            }
 
             // Blocks until the query resolves. Returns elapsed nanoseconds.
             u64 GetElapsedNs() const

@@ -87,7 +87,7 @@ namespace OloEngine::Tests
         ::glCreateTextures(GL_TEXTURE_2D, 1, &tex);
         ::glTextureStorage2D(tex, 1, GL_RGBA8, static_cast<GLsizei>(W), static_cast<GLsizei>(H));
         ::glTextureSubImage2D(tex, 0, 0, 0,
-            static_cast<GLsizei>(W), static_cast<GLsizei>(H), GL_RGBA, GL_UNSIGNED_BYTE, src.data());
+                              static_cast<GLsizei>(W), static_cast<GLsizei>(H), GL_RGBA, GL_UNSIGNED_BYTE, src.data());
 
         std::vector<u8> dst(N, 0);
         ReadbackRgba8(static_cast<u32>(tex), W, H, dst);
