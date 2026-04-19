@@ -51,7 +51,7 @@ Live status of the catalog (see [OloEngine/tests/Rendering/PropertyTests/](../Ol
 
 **Layer 7 — Smoke/sanity readback (`RendererValidateTest.cpp`):** Helper + 5 tests for NaN / Inf / energy-bound scans after key passes.
 
-**Layer 8 — Golden image:** *Deferred* — per-vendor reference management + cascaded RMSE/SSIM comparison pipeline not yet implemented.
+**Layer 8 — Golden image (`GoldenImageTests.cpp`):** minimal RMSE-based framework implemented. Baselines stored under [OloEditor/assets/tests/golden/](../OloEditor/assets/tests/golden/); first run auto-bootstraps, subsequent runs compare RGB RMSE against a 0.008 threshold (≈ 2 LSBs/channel). Re-baselining gated by `OLOENGINE_GOLDEN_REBASE=1` env var. Two tests today (Reinhard tone-map ramp, FXAA hard edge). *Deferred:* cascaded SSIM/FLIP, per-vendor baselines.
 
 **Layer 9 — Cross-vendor conformance:** *Deferred* — single-GPU CI today; SwiftShader CI container is a follow-up.
 
