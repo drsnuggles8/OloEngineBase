@@ -38,8 +38,8 @@ namespace OloEngine::Tests
             auto fb = Framebuffer::Create(spec);
             const GLuint tex = static_cast<GLuint>(fb->GetColorAttachmentRendererID(0));
             ::glTextureSubImage2D(tex, 0, 0, 0,
-                static_cast<GLsizei>(width), static_cast<GLsizei>(height),
-                GL_RGBA, GL_FLOAT, pixels);
+                                  static_cast<GLsizei>(width), static_cast<GLsizei>(height),
+                                  GL_RGBA, GL_FLOAT, pixels);
             return fb;
         }
     } // namespace

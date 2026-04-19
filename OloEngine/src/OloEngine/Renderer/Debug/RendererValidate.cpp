@@ -19,9 +19,7 @@ namespace OloEngine::RendererValidate
     {
         bool IsFloatColorFormat(FramebufferTextureFormat f)
         {
-            return f == FramebufferTextureFormat::RGBA16F || f == FramebufferTextureFormat::RGBA32F
-                || f == FramebufferTextureFormat::RGB16F || f == FramebufferTextureFormat::RGB32F
-                || f == FramebufferTextureFormat::RG16F || f == FramebufferTextureFormat::RG32F;
+            return f == FramebufferTextureFormat::RGBA16F || f == FramebufferTextureFormat::RGBA32F || f == FramebufferTextureFormat::RGB16F || f == FramebufferTextureFormat::RGB32F || f == FramebufferTextureFormat::RG16F || f == FramebufferTextureFormat::RG32F;
         }
     } // namespace
 
@@ -35,7 +33,7 @@ namespace OloEngine::RendererValidate
         if (attachmentIndex >= spec.Attachments.Attachments.size())
         {
             OLO_CORE_WARN("RendererValidate: attachment index {} out of range (have {})",
-                attachmentIndex, spec.Attachments.Attachments.size());
+                          attachmentIndex, spec.Attachments.Attachments.size());
             return stats;
         }
         const auto fmt = spec.Attachments.Attachments[attachmentIndex].TextureFormat;
@@ -55,7 +53,7 @@ namespace OloEngine::RendererValidate
         const GLuint tex = static_cast<GLuint>(fb->GetColorAttachmentRendererID(attachmentIndex));
         // Use glGetTextureImage (GL 4.5+ DSA) to avoid binding state churn.
         ::glGetTextureImage(tex, 0, GL_RGBA, GL_FLOAT,
-            static_cast<GLsizei>(pixels.size() * sizeof(f32)), pixels.data());
+                            static_cast<GLsizei>(pixels.size() * sizeof(f32)), pixels.data());
 
         // Accumulate into doubles to avoid catastrophic cancellation on large FBs.
         stats.m_MinR = stats.m_MinG = stats.m_MinB = stats.m_MinA = std::numeric_limits<f32>::infinity();
@@ -72,7 +70,8 @@ namespace OloEngine::RendererValidate
             // NaN is the only float that fails self-equality.
             const bool nanPixel = (r != r) || (g != g) || (b != b) || (a != a);
             // Any channel non-finite and non-NaN → Inf.
-            auto IsInf = [](f32 v) { return std::isinf(v); };
+            auto IsInf = [](f32 v)
+            { return std::isinf(v); };
             const bool infPixel = IsInf(r) || IsInf(g) || IsInf(b) || IsInf(a);
 
             if (nanPixel)
@@ -111,7 +110,7 @@ namespace OloEngine::RendererValidate
     }
 
     bool ValidateFramebuffer(const Ref<Framebuffer>& fb, std::string_view passName,
-        u32 attachmentIndex, bool assertOnFailure)
+                             u32 attachmentIndex, bool assertOnFailure)
     {
 #ifndef OLO_DEBUG
         (void)fb;
@@ -130,20 +129,20 @@ namespace OloEngine::RendererValidate
         if (stats.m_NanCount > 0)
         {
             OLO_CORE_ERROR("[{}] attachment {}: {} NaN pixels detected", passName,
-                attachmentIndex, stats.m_NanCount);
+                           attachmentIndex, stats.m_NanCount);
             ok = false;
         }
         if (stats.m_InfCount > 0)
         {
             OLO_CORE_ERROR("[{}] attachment {}: {} Inf pixels detected", passName,
-                attachmentIndex, stats.m_InfCount);
+                           attachmentIndex, stats.m_InfCount);
             ok = false;
         }
         const f32 maxChannel = std::max({ stats.m_MaxR, stats.m_MaxG, stats.m_MaxB });
         if (maxChannel > kFp16Max)
         {
             OLO_CORE_ERROR("[{}] attachment {}: max channel {:.2f} exceeds fp16 max ({:.0f})",
-                passName, attachmentIndex, maxChannel, kFp16Max);
+                           passName, attachmentIndex, maxChannel, kFp16Max);
             ok = false;
         }
 

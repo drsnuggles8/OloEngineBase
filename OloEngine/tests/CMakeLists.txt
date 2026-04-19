@@ -76,6 +76,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/GLStateGuardTest.cpp
 		Rendering/PropertyTests/RendererValidateTest.cpp
 		Rendering/PropertyTests/ShaderUnitTests.cpp
+		Rendering/PropertyTests/PerfRegressionTests.cpp
+		Rendering/PropertyTests/DataRoundTripTests.cpp
 		Streaming/SceneStreamingTest.cpp
 		InputActionTest.cpp
 		GamepadTest.cpp

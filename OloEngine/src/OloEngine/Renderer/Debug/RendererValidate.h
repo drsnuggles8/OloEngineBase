@@ -50,5 +50,5 @@ namespace OloEngine::RendererValidate
     // Returns true if the pass output is sane. Caller decides whether to
     // abort or continue. Skips work entirely unless OLO_DEBUG is defined.
     bool ValidateFramebuffer(const Ref<Framebuffer>& fb, std::string_view passName,
-        u32 attachmentIndex = 0, bool assertOnFailure = false);
+                             u32 attachmentIndex = 0, bool assertOnFailure = false);
 } // namespace OloEngine::RendererValidate

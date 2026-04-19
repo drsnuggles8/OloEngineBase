@@ -49,7 +49,7 @@ namespace OloEngine::Tests
                 ::glNamedBufferStorage(m_In, static_cast<GLsizeiptr>(inBytes), nullptr, GL_DYNAMIC_STORAGE_BIT);
                 ::glCreateBuffers(1, &m_Out);
                 ::glNamedBufferStorage(m_Out, static_cast<GLsizeiptr>(outBytes), nullptr,
-                    GL_DYNAMIC_STORAGE_BIT | GL_MAP_READ_BIT);
+                                       GL_DYNAMIC_STORAGE_BIT | GL_MAP_READ_BIT);
             }
             ~ComputeBuffers()
             {
@@ -86,7 +86,7 @@ namespace OloEngine::Tests
 
         ComputeBuffers buffers(inputs.size() * sizeof(f32), kN * sizeof(OutputPair));
         ::glNamedBufferSubData(buffers.m_In, 0,
-            static_cast<GLsizeiptr>(inputs.size() * sizeof(f32)), inputs.data());
+                               static_cast<GLsizeiptr>(inputs.size() * sizeof(f32)), inputs.data());
 
         auto cs = ComputeShader::Create("assets/shaders/tests/ShaderUnit_SrgbRoundTrip.glsl");
         ASSERT_TRUE(cs && cs->IsValid()) << "compute shader failed to compile";
@@ -101,7 +101,7 @@ namespace OloEngine::Tests
 
         std::vector<OutputPair> outputs(kN);
         ::glGetNamedBufferSubData(buffers.m_Out, 0,
-            static_cast<GLsizeiptr>(outputs.size() * sizeof(OutputPair)), outputs.data());
+                                  static_cast<GLsizeiptr>(outputs.size() * sizeof(OutputPair)), outputs.data());
 
         // Endpoints: 0 → 0, 1 → 1.
         EXPECT_NEAR(outputs[0].sRGB, 0.0f, 1e-6f);
@@ -118,7 +118,7 @@ namespace OloEngine::Tests
         }
         constexpr f32 kOneLsb = 1.0f / 255.0f;
         EXPECT_LT(maxErr, kOneLsb) << "max sRGB round-trip error = " << maxErr
-                                    << " (allowed " << kOneLsb << ")";
+                                   << " (allowed " << kOneLsb << ")";
 
         // Monotonicity: sRGB encode must be non-decreasing in its input.
         u32 monotoneViolations = 0;
@@ -148,7 +148,7 @@ namespace OloEngine::Tests
         };
         ComputeBuffers buffers(inputs.size() * sizeof(f32), inputs.size() * sizeof(OutputPair));
         ::glNamedBufferSubData(buffers.m_In, 0,
-            static_cast<GLsizeiptr>(inputs.size() * sizeof(f32)), inputs.data());
+                               static_cast<GLsizeiptr>(inputs.size() * sizeof(f32)), inputs.data());
 
         auto cs = ComputeShader::Create("assets/shaders/tests/ShaderUnit_SrgbRoundTrip.glsl");
         ASSERT_TRUE(cs && cs->IsValid());
@@ -161,7 +161,7 @@ namespace OloEngine::Tests
 
         std::vector<OutputPair> outputs(inputs.size());
         ::glGetNamedBufferSubData(buffers.m_Out, 0,
-            static_cast<GLsizeiptr>(outputs.size() * sizeof(OutputPair)), outputs.data());
+                                  static_cast<GLsizeiptr>(outputs.size() * sizeof(OutputPair)), outputs.data());
 
         EXPECT_NEAR(outputs[0].sRGB, 0.0f, 1e-6f);
         // Boundary of the piecewise formula: 12.92 * 0.0031308 ≈ 0.04045.
