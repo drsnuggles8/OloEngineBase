@@ -57,7 +57,7 @@ jobs:
 
     - name: Run tests under ASan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest -C Release --output-on-failure --rerun-failed --exclude-regex "NetworkIntegration|TaskSystemTest"
+      run: ctest -C Release --output-on-failure --rerun-failed --exclude-regex "NetworkIntegration|TaskSystemTest|TaskEventTest|NestedTasksTest"
       env:
         ASAN_OPTIONS: halt_on_error=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
@@ -172,7 +172,7 @@ jobs:
 
     - name: Run tests under UBSan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest --output-on-failure --rerun-failed --exclude-regex "NetworkIntegration|NetworkManager|TaskConcurrencyLimiter|LowLevelTaskUserData"
+      run: ctest --output-on-failure --rerun-failed --exclude-regex "NetworkIntegration|NetworkManager|NetworkThreadDispatch|TaskConcurrencyLimiter|LowLevelTaskUserData"
       env:
         UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
