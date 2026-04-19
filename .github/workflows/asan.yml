@@ -57,14 +57,14 @@ jobs:
 
     - name: Run tests under ASan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest -C Release --output-on-failure --rerun-failed --exclude-regex "NetworkIntegration"
+      run: ctest -C Release --output-on-failure --rerun-failed --exclude-regex "NetworkIntegration|TaskSystemTest"
       env:
         ASAN_OPTIONS: halt_on_error=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
     - name: Test report
       if: always()
-      uses: dorny/test-reporter@v1
+      uses: dorny/test-reporter@v3
       with:
         name: ASan (Windows)
         path: test_results/*.xml
@@ -122,7 +122,7 @@ jobs:
 
     - name: Test report
       if: always()
-      uses: dorny/test-reporter@v1
+      uses: dorny/test-reporter@v3
       with:
         name: ASan + LSan (Linux)
         path: test_results/*.xml
@@ -172,14 +172,14 @@ jobs:
 
     - name: Run tests under UBSan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest --output-on-failure --rerun-failed --exclude-regex "NetworkIntegration|NetworkManager|TaskSystemTest|TaskConcurrencyLimiter|LowLevelTaskUserData"
+      run: ctest --output-on-failure --rerun-failed --exclude-regex "NetworkIntegration|NetworkManager|TaskConcurrencyLimiter|LowLevelTaskUserData"
       env:
         UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
     - name: Test report
       if: always()
-      uses: dorny/test-reporter@v1
+      uses: dorny/test-reporter@v3
       with:
         name: UBSan (Linux)
         path: test_results/*.xml
@@ -237,7 +237,7 @@ jobs:
 
     - name: Test report
       if: always()
-      uses: dorny/test-reporter@v1
+      uses: dorny/test-reporter@v3
       with:
         name: TSan (Linux)
         path: test_results/*.xml

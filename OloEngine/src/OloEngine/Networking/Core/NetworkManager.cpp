@@ -69,19 +69,22 @@ namespace OloEngine
             return true;
         }
 
-        SteamDatagramErrMsg errMsg;
-        if (!GameNetworkingSockets_Init(nullptr, errMsg))
-        {
-            OLO_CORE_ERROR("GameNetworkingSockets_Init failed: {}", errMsg);
-            return false;
-        }
-
+        // Set debug output and connection-status callback BEFORE Init so that
+        // the networking thread spawned by Init already sees the configured
+        // spew level, avoiding a data race on g_eDefaultGroupSpewLevel.
         SteamNetworkingUtils()->SetDebugOutputFunction(
             k_ESteamNetworkingSocketsDebugOutputType_Msg,
             GNSDebugOutput);
 
         SteamNetworkingUtils()->SetGlobalCallback_SteamNetConnectionStatusChanged(
             GNSConnectionStatusCallback);
+
+        SteamDatagramErrMsg errMsg;
+        if (!GameNetworkingSockets_Init(nullptr, errMsg))
+        {
+            OLO_CORE_ERROR("GameNetworkingSockets_Init failed: {}", errMsg);
+            return false;
+        }
 
         NetworkThread::Start(60);
 
