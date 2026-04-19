@@ -42,7 +42,8 @@ namespace OloEngine::Tests
     bool DiffContainsPrefix(const std::vector<std::string>& diffs, std::string_view prefix)
     {
         return std::any_of(diffs.begin(), diffs.end(),
-            [&](const std::string& d) { return d.rfind(prefix, 0) == 0; });
+                           [&](const std::string& d)
+                           { return d.rfind(prefix, 0) == 0; });
     }
 
     // =========================================================================

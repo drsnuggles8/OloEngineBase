@@ -65,8 +65,8 @@ namespace OloEngine
         i32 m_PolygonMode = 0; // GL_FILL / GL_LINE / GL_POINT
 
         // Viewport / scissor
-        std::array<i32, 4> m_Viewport = {0, 0, 0, 0};
-        std::array<i32, 4> m_Scissor = {0, 0, 0, 0};
+        std::array<i32, 4> m_Viewport = { 0, 0, 0, 0 };
+        std::array<i32, 4> m_Scissor = { 0, 0, 0, 0 };
 
         // Bindings
         u32 m_FboDraw = 0;
@@ -94,7 +94,7 @@ namespace OloEngine
 
     class GLStateGuard
     {
-    public:
+      public:
         enum class Policy
         {
             // On destruction, print each mutation to the logger. No abort.
@@ -122,9 +122,12 @@ namespace OloEngine
         std::vector<std::string> DetectLeaks();
 
         // Access the entry snapshot (for tests / diagnostics).
-        const GLStateSnapshot& EntryState() const { return m_EntryState; }
+        const GLStateSnapshot& EntryState() const
+        {
+            return m_EntryState;
+        }
 
-    private:
+      private:
         std::string m_PassName;
         GLStateSnapshot m_EntryState;
         Policy m_Policy;
