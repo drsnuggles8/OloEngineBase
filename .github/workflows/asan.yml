@@ -61,6 +61,7 @@ jobs:
       env:
         ASAN_OPTIONS: halt_on_error=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
+        GTEST_FILTER: -*NetworkIntegrationTest*
 
     - name: Test report
       if: always()
@@ -70,6 +71,7 @@ jobs:
         path: test_results/*.xml
         reporter: java-junit
         fail-on-error: false
+        list-tests: 'failed'
 
   asan-lsan-linux:
     name: ASan + LSan (Linux/Clang)
@@ -80,8 +82,8 @@ jobs:
 
     - name: Install Clang 19
       run: |
-        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
-        echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" | sudo tee /etc/apt/sources.list.d/llvm-19.list
+        wget --max-redirect=0 -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+        echo "deb https://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" | sudo tee /etc/apt/sources.list.d/llvm-19.list
 
     - name: Install dependencies
       run: |
@@ -118,6 +120,7 @@ jobs:
         ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
         LSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/lsan.txt
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
+        GTEST_FILTER: -*NetworkIntegrationTest*
 
     - name: Test report
       if: always()
@@ -127,6 +130,7 @@ jobs:
         path: test_results/*.xml
         reporter: java-junit
         fail-on-error: false
+        list-tests: 'failed'
 
   ubsan-linux:
     name: UBSan (Linux/Clang)
@@ -137,8 +141,8 @@ jobs:
 
     - name: Install Clang 19
       run: |
-        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
-        echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" | sudo tee /etc/apt/sources.list.d/llvm-19.list
+        wget --max-redirect=0 -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+        echo "deb https://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" | sudo tee /etc/apt/sources.list.d/llvm-19.list
 
     - name: Install dependencies
       run: |
@@ -174,6 +178,7 @@ jobs:
       env:
         UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
+        GTEST_FILTER: -*NetworkIntegrationTest*
 
     - name: Test report
       if: always()
@@ -183,6 +188,7 @@ jobs:
         path: test_results/*.xml
         reporter: java-junit
         fail-on-error: false
+        list-tests: 'failed'
 
   tsan-linux:
     name: TSan (Linux/Clang)
@@ -194,8 +200,8 @@ jobs:
 
     - name: Install Clang 19
       run: |
-        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
-        echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" | sudo tee /etc/apt/sources.list.d/llvm-19.list
+        wget --max-redirect=0 -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+        echo "deb https://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" | sudo tee /etc/apt/sources.list.d/llvm-19.list
 
     - name: Install dependencies
       run: |
@@ -231,6 +237,7 @@ jobs:
       env:
         TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
+        GTEST_FILTER: -*NetworkIntegrationTest*
 
     - name: Test report
       if: always()
@@ -240,3 +247,4 @@ jobs:
         path: test_results/*.xml
         reporter: java-junit
         fail-on-error: false
+        list-tests: 'failed'

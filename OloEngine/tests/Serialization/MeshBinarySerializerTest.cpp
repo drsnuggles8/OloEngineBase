@@ -42,6 +42,7 @@ static Ref<MeshSource> MakeSimpleMesh()
     sub.m_IndexCount = 6;
     sub.m_NodeName = "TestQuad";
     sub.m_MeshName = "Quad";
+    sub.m_BoundingBox = BoundingBox({ 0.0f, 0.0f, 0.0f }, { 1.0f, 1.0f, 0.0f });
     mesh->GetSubmeshes().Add(sub);
 
     return mesh;

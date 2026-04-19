@@ -9,8 +9,8 @@ namespace OloEngine
     // Axis-aligned bounding box
     struct BoundingBox
     {
-        glm::vec3 Min;
-        glm::vec3 Max;
+        glm::vec3 Min{ 0.0f };
+        glm::vec3 Max{ 0.0f };
 
         BoundingBox() = default;
 
