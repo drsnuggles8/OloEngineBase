@@ -99,7 +99,7 @@ namespace OloEngine::Tests
         constexpr u32 kHeight = 32;
 
         ShaderProbeHarness harness(kWidth, kHeight,
-            "assets/shaders/tests/ShaderUnit_ShadowBounds.glsl");
+                                   "assets/shaders/tests/ShaderUnit_ShadowBounds.glsl");
         harness.Draw();
 
         std::vector<f32> pixels;
@@ -191,19 +191,23 @@ namespace OloEngine::Tests
         constexpr u32 kHeight = 2;  // only in-frustum rows matter
 
         ShaderProbeHarness harness(kWidth, kHeight,
-            "assets/shaders/tests/ShaderUnit_ShadowBounds.glsl");
+                                   "assets/shaders/tests/ShaderUnit_ShadowBounds.glsl");
         harness.Draw();
 
         std::vector<f32> pixels;
         harness.ReadRgbaFloat(pixels);
 
         // Sample along the bottom row (in-frustum).
-        struct Band { f32 minDepth, maxDepth; f32 expectedCascade; };
+        struct Band
+        {
+            f32 minDepth, maxDepth;
+            f32 expectedCascade;
+        };
         const Band bands[] = {
-            { 0.5f,    9.0f, 0.20f },  // cascade 0
-            { 11.0f,  24.0f, 0.40f },  // cascade 1
-            { 26.0f,  49.0f, 0.60f },  // cascade 2
-            { 51.0f,  99.0f, 0.80f },  // cascade 3
+            { 0.5f, 9.0f, 0.20f },   // cascade 0
+            { 11.0f, 24.0f, 0.40f }, // cascade 1
+            { 26.0f, 49.0f, 0.60f }, // cascade 2
+            { 51.0f, 99.0f, 0.80f }, // cascade 3
         };
 
         for (const Band& b : bands)
@@ -251,7 +255,7 @@ namespace OloEngine::Tests
         ::glTextureParameteri(heightTex, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
         ShaderProbeHarness harness(64, 64,
-            "assets/shaders/tests/ShaderUnit_TerrainFlatHeightmap.glsl");
+                                   "assets/shaders/tests/ShaderUnit_TerrainFlatHeightmap.glsl");
         harness.Draw(static_cast<u32>(heightTex));
 
         std::vector<f32> pixels;

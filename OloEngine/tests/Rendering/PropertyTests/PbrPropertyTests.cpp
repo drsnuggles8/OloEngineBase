@@ -745,4 +745,50 @@ namespace OloEngine::Tests
             }
         }
     }
+
+    // =========================================================================
+    // Prefilter white-environment invariant. Runs the exact GGX importance
+    // sampling integrator from `IBLPrefilter.glsl` with the cubemap lookup
+    // replaced by uniform-white radiance. The normalised integral
+    //
+    //     prefilteredColor = Σ L_i * NdotL / Σ NdotL
+    //
+    // must collapse to 1.0 for *every* roughness value (since L_i = 1
+    // everywhere). The probe sweeps roughness along the U axis so one draw
+    // covers the full [0, 1] roughness range; we sample several columns to
+    // confirm the invariant holds across the whole lobe.
+    //
+    // Catches: dropped `/ totalWeight` normalization, accumulation sign
+    // flips, importance-sample PDF errors, NdotL bound bugs, and Hammersley
+    // sequence regressions that cause clumped sampling.
+    //
+    // Tolerance: Monte Carlo integration with 512 samples has ~1% noise;
+    // allow 2% slack for fp32 drift.
+    // =========================================================================
+    TEST(PbrPrefilterTest, UniformWhiteYieldsUnityAtAllRoughness)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kWidth = 64;
+        constexpr u32 kHeight = 4;
+
+        PbrProbeHarness harness(kWidth, kHeight, "assets/shaders/tests/ShaderUnit_WhitePrefilter.glsl");
+        harness.Draw();
+
+        std::vector<f32> pixels;
+        harness.ReadOutputRgbaFloat(pixels);
+        ASSERT_EQ(pixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4);
+
+        // Sample roughness values across the row: low, mid, high. All must
+        // collapse to 1.0 within tolerance.
+        const u32 columns[] = { 2, kWidth / 4, kWidth / 2, (3 * kWidth) / 4, kWidth - 3 };
+        for (u32 col : columns)
+        {
+            const std::size_t idx = (0u * kWidth + col) * 4;
+            const f32 r = pixels[idx + 0];
+            const f32 roughness = static_cast<f32>(col) / static_cast<f32>(kWidth - 1);
+            EXPECT_NEAR(r, 1.0f, 2e-2f)
+                << "prefilter(uniform-white) drifts from unity at roughness=" << roughness;
+        }
+    }
 } // namespace OloEngine::Tests
