@@ -13,6 +13,7 @@
 #include "OloEngine/Containers/ClosableMpscQueue.h"
 #include "OloEngine/Containers/ConsumeAllMpmcQueue.h"
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Memory/UnrealMemory.h"
 
 #include <atomic>
 #include <thread>
@@ -334,7 +335,13 @@ TEST_F(ClosableMpscQueueTest, MultipleProducersBeforeClose)
 class ConsumeAllMpmcQueueTest : public ::testing::Test
 {
   protected:
-    void SetUp() override {}
+    void SetUp() override
+    {
+        // Force GMalloc initialization on the main thread to avoid TSan data race
+        // when multiple producer threads call FMemory::Malloc concurrently.
+        void* p = FMemory::Malloc(1);
+        FMemory::Free(p);
+    }
     void TearDown() override {}
 };
 

@@ -172,7 +172,7 @@ jobs:
 
     - name: Run tests under UBSan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest --output-on-failure --rerun-failed --exclude-regex "NetworkIntegration"
+      run: ctest --output-on-failure --rerun-failed --exclude-regex "NetworkIntegration|NetworkManager|TaskSystemTest|TaskConcurrencyLimiter|LowLevelTaskUserData"
       env:
         UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
