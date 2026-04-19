@@ -35,9 +35,10 @@ The testing strategy is organized as a pyramid. The base is fast, numerous, and 
 
 Live status of the catalog (see [OloEngine/tests/Rendering/PropertyTests/](../OloEngine/tests/Rendering/PropertyTests/)). Numbers reflect the state of this branch after the renderer-testing-infrastructure PR.
 
-**Layer 1 — Property tests (`PbrPropertyTests.cpp`, `PostProcessPropertyTests.cpp`):**
+**Layer 1 — Property tests (`PbrPropertyTests.cpp`, `PostProcessPropertyTests.cpp`, `ShadowTerrainPropertyTests.cpp`):**
 - PBR: Fresnel (normal / grazing / monotonicity / CPU reference), NDF (non-negative + finite / peak at H=N / roughness=1 gives 1/π / low-roughness highlight concentration), diffuse (metallic=1 kills diffuse / dielectric diffuse non-zero), BRDF (positive+finite / Helmholtz reciprocity / furnace energy bound via Monte Carlo hemisphere integral), normal-map identity, **white-environment irradiance (uniform-white cubemap → learnopengl-normalised unity)**.
 - Post-process: tone-map monotonicity (all 3 operators) + black-to-black (all 3 operators) + extreme-HDR NaN/Inf safety (all 3 operators), vignette center-brighter-than-corners, chromatic aberration center untouched, FXAA uniform no-op + hard-edge flat-region preservation, motion-blur static, DOF at focus distance, bloom threshold/downsample/upsample/composite invariants, **bloom chain energy conservation (64→32→16→8→16→32→64 RGBA16F pyramid, total-sum ratio within ±30 %)**, fog disabled early-out.
+- Shadow / terrain: **shadow bounds & cascade selection** (out-of-frustum + past-max-distance short-circuit to "lit"; cascade index sweep across 4 planes matches `calculateCascadedShadowFactorCSM`), **terrain flat-heightmap normal reconstruction** (uniform R8 heightmap through production 4-tap central-difference kernel yields exact (0, 1, 0) within fp32 tolerance).
 
 **Layer 2 — GPU state validation (`GLStateGuardTest.cpp`):** 8 tests covering blend / depth / stencil / FBO / viewport / texture-unit / UBO-binding leak detection via RAII snapshot-and-assert.
 
@@ -55,11 +56,11 @@ Live status of the catalog (see [OloEngine/tests/Rendering/PropertyTests/](../Ol
 
 **Layer 9 — Cross-vendor conformance:** *Infrastructure-gated.* Requires a CI container running SwiftShader (or llvmpipe) in parallel with the hardware runner so each commit is validated on at least two driver stacks. No code-only change can close this gap — it's a CI-config follow-up. Today: single-vendor baseline in Layer 8 captured on the developer machine; `OLOENGINE_GOLDEN_REBASE` provides the hook CI would flip per vendor once the container lands.
 
-**Layer 10 — Automatic diagnostic escalation:** Partially implemented via golden-image failure output. When a `GoldenImageTest` fails, the actual frame is written next to the baseline as `<name>.actual.png`, and the RMSE is reported inline with a threshold comparison. *Deferred:* auto-capture of RenderDoc frame, shader disassembly dump, GPU state snapshot on property-test failures — those require a debug-only instrumentation layer that hasn't been built.
+**Layer 10 — Automatic diagnostic escalation:** Implemented for golden-image failures. When a `GoldenImageTest` fails we emit: (a) `<name>.actual.png` — the rendered frame; (b) `<name>.diff.png` — a red/green heatmap where the red channel is the worst-channel delta × 8 and green is the mean-channel delta × 8 (so hot pixels glow red and broad drift shows up green); (c) a failure message carrying RMSE + threshold, worst-pixel (x, y) + max channel delta, per-channel max (R/G/B), and pixel-count with any channel delta > 4 LSBs. *Deferred:* auto-capture of RenderDoc frame, shader disassembly dump, GPU state snapshot on property-test failures — those require a debug-only instrumentation layer that hasn't been built.
 
 **Layer 11 — Sanitizers / fuzzing:** ASan/UBSan/TSan flags are plumbed in [cmake/Sanitizers.cmake](../cmake/Sanitizers.cmake) and can be enabled per-configure. Randomised-input stress tests land in Layer 3 today (`DataRoundTripTest.RandomisedRgba32F/Rgba8StressRoundTrip`) as a fuzz surrogate — seeded, deterministic, and exercises a mix of IEEE-754 value classes and random dimensions per iteration so regressions on specific byte patterns or sizes surface without a curated corpus. *Infrastructure-gated:* a dedicated libFuzzer target with `-fsanitize=fuzzer` is a CI follow-up, not a code change that belongs on this PR.
 
-**Headline numbers:** ~2085 tests across ~342 suites, full run ≈ 35–45 s on a developer box.
+**Headline numbers:** ~2088 tests across ~343 suites, full run ≈ 35–45 s on a developer box.
 
 ---
 

@@ -59,6 +59,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -179,6 +180,67 @@ namespace OloEngine::Tests
             return static_cast<f32>(std::sqrt(sumSq / static_cast<f64>(pixelCount * 3)));
         }
 
+        // Detailed per-pixel diff statistics. Produced on failure for L10
+        // diagnostic escalation: worst-pixel location + magnitude, per-channel
+        // max deltas, and a diff-heatmap PNG. Pinpoints WHERE in the frame
+        // the regression happened rather than just reporting aggregate RMSE.
+        struct DiffStats
+        {
+            u32 m_WorstX = 0;
+            u32 m_WorstY = 0;
+            u32 m_WorstDelta = 0; // max abs channel delta across all pixels
+            u32 m_MaxDeltaR = 0;
+            u32 m_MaxDeltaG = 0;
+            u32 m_MaxDeltaB = 0;
+            u32 m_PixelsOverEpsilon = 0;   // count of pixels with any channel delta > 4 LSBs
+            std::vector<u8> m_HeatmapRgba; // per-pixel max channel delta, greyscale -> red scaled
+        };
+
+        static DiffStats ComputeDiffStats(const std::vector<u8>& actual, const std::vector<u8>& baseline,
+                                          u32 width, u32 height)
+        {
+            DiffStats stats{};
+            stats.m_HeatmapRgba.assign(static_cast<std::size_t>(width) * height * 4, 0);
+            constexpr u32 kEpsilon = 4;
+            for (u32 y = 0; y < height; ++y)
+            {
+                for (u32 x = 0; x < width; ++x)
+                {
+                    const std::size_t idx = (static_cast<std::size_t>(y) * width + x) * 4;
+                    const u32 dr = static_cast<u32>(std::abs(static_cast<int>(actual[idx + 0]) - static_cast<int>(baseline[idx + 0])));
+                    const u32 dg = static_cast<u32>(std::abs(static_cast<int>(actual[idx + 1]) - static_cast<int>(baseline[idx + 1])));
+                    const u32 db = static_cast<u32>(std::abs(static_cast<int>(actual[idx + 2]) - static_cast<int>(baseline[idx + 2])));
+                    const u32 dMax = std::max({ dr, dg, db });
+
+                    if (dr > stats.m_MaxDeltaR)
+                        stats.m_MaxDeltaR = dr;
+                    if (dg > stats.m_MaxDeltaG)
+                        stats.m_MaxDeltaG = dg;
+                    if (db > stats.m_MaxDeltaB)
+                        stats.m_MaxDeltaB = db;
+                    if (dMax > stats.m_WorstDelta)
+                    {
+                        stats.m_WorstDelta = dMax;
+                        stats.m_WorstX = x;
+                        stats.m_WorstY = y;
+                    }
+                    if (dMax > kEpsilon)
+                        ++stats.m_PixelsOverEpsilon;
+
+                    // Heatmap: red channel proportional to worst delta, green
+                    // proportional to mean delta (so subtle-but-widespread
+                    // drift shows up green, and spiky hotspots glow red).
+                    const u8 redByte = static_cast<u8>(std::min<u32>(dMax * 8u, 255u));
+                    const u8 greenByte = static_cast<u8>(std::min<u32>((dr + dg + db) * 8u / 3u, 255u));
+                    stats.m_HeatmapRgba[idx + 0] = redByte;
+                    stats.m_HeatmapRgba[idx + 1] = greenByte;
+                    stats.m_HeatmapRgba[idx + 2] = 0;
+                    stats.m_HeatmapRgba[idx + 3] = 255;
+                }
+            }
+            return stats;
+        }
+
         // Writes / reads baselines, performs comparison, and writes a diff
         // visualisation on failure.
         struct GoldenImageCheckResult
@@ -246,13 +308,32 @@ namespace OloEngine::Tests
 
             if (!result.m_Passed)
             {
-                // Write the actual image side-by-side for debugging.
+                // L10 escalation: on failure, produce
+                //   <name>.actual.png    — the frame that was rendered
+                //   <name>.diff.png      — red/green per-pixel delta heatmap
+                //   detailed DiffStats in the failure message (worst-pixel
+                //   location + per-channel max + pixel count > 4 LSB)
                 fs::path actualPath = dir / (name + ".actual.png");
                 ::stbi_write_png(actualPath.string().c_str(), static_cast<int>(width), static_cast<int>(height),
                                  4, actualRgba.data(), static_cast<int>(width) * 4);
-                result.m_Message = "RMSE " + std::to_string(result.m_Rmse) +
-                                   " exceeds threshold " + std::to_string(kRmseThreshold) +
-                                   "; wrote actual frame to " + actualPath.string();
+
+                const DiffStats stats = ComputeDiffStats(actualRgba, baseline, width, height);
+
+                fs::path diffPath = dir / (name + ".diff.png");
+                ::stbi_write_png(diffPath.string().c_str(), static_cast<int>(width), static_cast<int>(height),
+                                 4, stats.m_HeatmapRgba.data(), static_cast<int>(width) * 4);
+
+                std::ostringstream msg;
+                msg << "RMSE " << result.m_Rmse << " exceeds threshold " << kRmseThreshold
+                    << "\n  worst pixel: (" << stats.m_WorstX << "," << stats.m_WorstY
+                    << ") max channel delta=" << stats.m_WorstDelta
+                    << "\n  per-channel max delta: R=" << stats.m_MaxDeltaR
+                    << " G=" << stats.m_MaxDeltaG << " B=" << stats.m_MaxDeltaB
+                    << "\n  pixels with any channel delta > 4 LSB: " << stats.m_PixelsOverEpsilon
+                    << " / " << (width * height)
+                    << "\n  wrote actual frame to: " << actualPath.string()
+                    << "\n  wrote diff heatmap to: " << diffPath.string();
+                result.m_Message = msg.str();
             }
             else
             {
