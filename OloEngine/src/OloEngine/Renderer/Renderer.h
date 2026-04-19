@@ -8,10 +8,14 @@
 
 namespace OloEngine
 {
+    class Window;
+
     class Renderer
     {
       public:
-        static void Init(RendererType type);
+        // @param loadingWindow  Optional window used to draw the shader loading
+        //                       progress bar. Pass nullptr for headless init.
+        static void Init(RendererType type, Window* loadingWindow = nullptr);
         static void Shutdown();
 
         static void OnWindowResize(u32 width, u32 height);

@@ -78,7 +78,7 @@ namespace OloEngine
         for (u32 ppIdx = 0; ppIdx < totalPPShaders; ++ppIdx)
         {
             *shaderRefs[ppIdx] = Shader::Create(s_ShaderPaths[ppIdx]);
-            ShaderWarmup::RenderProgressFrame(static_cast<f32>(ppIdx + 1) / static_cast<f32>(totalPPShaders), window, "post-process shaders", static_cast<i32>(ppIdx + 1), static_cast<i32>(totalPPShaders), 2);
+            ShaderWarmup::RenderProgressFrame(static_cast<f32>(ppIdx + 1) / static_cast<f32>(totalPPShaders), &window, "post-process shaders", static_cast<i32>(ppIdx + 1), static_cast<i32>(totalPPShaders), 2);
         }
         m_PrecipitationScreenUBO = UniformBuffer::Create(PrecipitationScreenUBOData::GetSize(), ShaderBindingLayout::UBO_PRECIPITATION_SCREEN);
 

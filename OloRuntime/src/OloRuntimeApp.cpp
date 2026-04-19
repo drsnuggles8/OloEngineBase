@@ -101,7 +101,7 @@ namespace OloEngine
                 // Initialize 3D rendering systems (render graph, UBOs, IBL, etc.)
                 if (!Renderer3D::IsInitialized())
                 {
-                    Renderer3D::Init();
+                    Renderer3D::Init(&Application::Get().GetWindow());
                 }
 
                 // Always ensure proper initial resize — this must run even if

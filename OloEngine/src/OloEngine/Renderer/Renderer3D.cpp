@@ -222,7 +222,7 @@ namespace OloEngine
         return data;
     }
 
-    void Renderer3D::Init()
+    void Renderer3D::Init(Window* loadingWindow)
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Initializing Renderer3D.");
@@ -294,7 +294,7 @@ namespace OloEngine
         ShaderWarmup::Init();
         ShaderLibrary::InitFallbackShader();
 
-        Window& window = Application::Get().GetWindow();
+        Window* window = loadingWindow;
 
         // All Load() calls issue glLinkProgram() back-to-back WITHOUT checking
         // GL_LINK_STATUS. When GL_ARB_parallel_shader_compile is available the
@@ -451,7 +451,11 @@ namespace OloEngine
         s_Data.Stats.Reset();
 
         s_Data.RGraph = Ref<RenderGraph>::Create();
-        SetupRenderGraph(window.GetFramebufferWidth(), window.GetFramebufferHeight());
+        // Headless init (window == nullptr) uses a placeholder framebuffer size;
+        // the real size is applied later via Renderer3D::OnWindowResize.
+        const u32 fbWidth = window ? window->GetFramebufferWidth() : 1280u;
+        const u32 fbHeight = window ? window->GetFramebufferHeight() : 720u;
+        SetupRenderGraph(fbWidth, fbHeight);
 
         // Initialize shadow mapping
         s_Data.Shadow.Init();
@@ -476,7 +480,7 @@ namespace OloEngine
         s_Data.FogTime = 0.0f;
 
         // Initialize Forward+ light culling system
-        s_Data.ForwardPlus.Initialize(window.GetFramebufferWidth(), window.GetFramebufferHeight());
+        s_Data.ForwardPlus.Initialize(fbWidth, fbHeight);
 
         OLO_CORE_INFO("Renderer3D initialization complete.");
     }

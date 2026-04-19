@@ -13,7 +13,7 @@ namespace OloEngine
     Scope<Renderer::SceneData> Renderer::s_SceneData = CreateScope<Renderer::SceneData>();
     RendererType Renderer::s_RendererType;
 
-    void Renderer::Init(RendererType type)
+    void Renderer::Init(RendererType type, Window* loadingWindow)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -29,13 +29,13 @@ namespace OloEngine
         switch (type)
         {
             case RendererType::Renderer2D:
-                Renderer2D::Init();
+                Renderer2D::Init(loadingWindow);
                 break;
             case RendererType::Renderer3D:
                 // Scene always uses Renderer2D for 2D sprite/text overlays even
                 // in 3D mode, so both renderers must be available.
-                Renderer2D::Init();
-                Renderer3D::Init();
+                Renderer2D::Init(loadingWindow);
+                Renderer3D::Init(loadingWindow);
                 break;
         }
     }

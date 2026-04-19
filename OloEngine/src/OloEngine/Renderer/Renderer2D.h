@@ -10,10 +10,14 @@
 
 namespace OloEngine
 {
+    class Window;
+
     class Renderer2D
     {
       public:
-        static void Init();
+        // @param loadingWindow  Optional window used to draw the shader loading
+        //                       progress bar. Pass nullptr for headless init.
+        static void Init(Window* loadingWindow = nullptr);
         static void Shutdown();
 
         static void BeginScene(const Camera& camera, const glm::mat4& transform);
