@@ -118,6 +118,11 @@ namespace OloEngine
         s.m_FboRead = GlGetUInt(GL_READ_FRAMEBUFFER_BINDING);
         s.m_ActiveProgram = GlGetUInt(GL_CURRENT_PROGRAM);
         s.m_Vao = GlGetUInt(GL_VERTEX_ARRAY_BINDING);
+        // GL_ACTIVE_TEXTURE returns GL_TEXTUREi; the per-slot array above
+        // only pins which texture is bound to each unit, not which unit is
+        // active when the region exits. Without this a pass that swaps the
+        // active unit and forgets to restore it will go undetected.
+        s.m_ActiveTextureUnit = GlGetUInt(GL_ACTIVE_TEXTURE);
 
         for (u32 i = 0; i < kTextureSlots; ++i)
             s.m_Textures2D[i] = GlGetTextureBinding2DAtUnit(i);
@@ -173,6 +178,7 @@ namespace OloEngine
         AppendIfDifferent(diffs, "ReadFBO", static_cast<i64>(m_FboRead), static_cast<i64>(other.m_FboRead));
         AppendIfDifferent(diffs, "ActiveProgram", static_cast<i64>(m_ActiveProgram), static_cast<i64>(other.m_ActiveProgram));
         AppendIfDifferent(diffs, "VAO", static_cast<i64>(m_Vao), static_cast<i64>(other.m_Vao));
+        AppendIfDifferent(diffs, "ActiveTextureUnit", static_cast<i64>(m_ActiveTextureUnit), static_cast<i64>(other.m_ActiveTextureUnit));
 
         for (u32 i = 0; i < kTextureSlots; ++i)
         {

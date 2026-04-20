@@ -192,9 +192,14 @@ namespace OloEngine::Tests::TestFailureCapture
         // HDR attachments (RGBA16F / RGBA32F) without banding or clamping
         // losing the interesting detail.
         std::vector<f32> pixelsF(static_cast<sizet>(w) * h * 4, 0.0f);
+        // Save + restore GL_PACK_ALIGNMENT so a failing capture can't leak
+        // the alignment change into subsequent passes that assume default 4.
+        GLint prevPackAlignment = 4;
+        ::glGetIntegerv(GL_PACK_ALIGNMENT, &prevPackAlignment);
         ::glPixelStorei(GL_PACK_ALIGNMENT, 1);
         ::glReadPixels(x, y, w, h, GL_RGBA, GL_FLOAT, pixelsF.data());
         const GLenum err = ::glGetError();
+        ::glPixelStorei(GL_PACK_ALIGNMENT, prevPackAlignment);
         if (err != GL_NO_ERROR)
         {
             // Clear for subsequent diagnostics but don't assert — the error

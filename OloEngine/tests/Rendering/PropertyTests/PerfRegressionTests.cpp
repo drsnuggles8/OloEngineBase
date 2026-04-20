@@ -54,6 +54,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -475,7 +476,12 @@ namespace OloEngine::Tests
 
             auto shader = Shader::Create(shaderPath);
             if (!shader)
-                return 0;
+            {
+                ADD_FAILURE() << "Shader::Create failed for " << shaderPath
+                              << " - perf baseline cannot be measured (returning sentinel so the"
+                                 " regression check treats this as a failure, never a 0 ns 'win').";
+                return std::numeric_limits<u64>::max();
+            }
 
             PostProcessUBOData uboData{};
             uboData.TonemapOperator = 1;
@@ -622,7 +628,12 @@ namespace OloEngine::Tests
             auto shaderDown = Shader::Create("assets/shaders/PostProcess_BloomDownsample.glsl");
             auto shaderUp = Shader::Create("assets/shaders/PostProcess_BloomUpsample.glsl");
             if (!shaderTone || !shaderThresh || !shaderDown || !shaderUp)
-                return 0;
+            {
+                ADD_FAILURE() << "Shader::Create failed for one of the postprocess chain shaders -"
+                                 " returning sentinel instead of 0 so the regression check cannot"
+                                 " treat missing assets as a perfect improvement.";
+                return std::numeric_limits<u64>::max();
+            }
 
             PostProcessUBOData uboData{};
             uboData.TonemapOperator = 1;
@@ -755,7 +766,13 @@ namespace OloEngine::Tests
             {
                 shaders[i] = Shader::Create(shaderPaths[i]);
                 if (!shaders[i])
-                    return 0;
+                {
+                    ADD_FAILURE() << "Shader::Create failed for " << shaderPaths[i]
+                                  << " - scene-draw-burst perf baseline cannot be measured."
+                                     " Returning sentinel instead of 0 so the regression check fails"
+                                     " loudly rather than recording a spurious 0 ns 'win'.";
+                    return std::numeric_limits<u64>::max();
+                }
             }
 
             PostProcessUBOData uboData{};

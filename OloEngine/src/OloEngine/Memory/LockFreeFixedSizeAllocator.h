@@ -51,6 +51,13 @@ namespace OloEngine
             BLOCK_ALIGNMENT = SIZE & (-SIZE)
         };
 
+        // A SIZE larger than SIZE_PER_BUNDLE produces NUM_PER_BUNDLE == 0,
+        // which in turn breaks every invariant downstream (TLS.NumPartial
+        // underflow, bundle-never-full logic, empty-bundle recycling). Catch
+        // the misuse at compile time rather than at silent runtime corruption.
+        static_assert(NUM_PER_BUNDLE > 0,
+                      "TLockFreeFixedSizeAllocator: SIZE must be <= SIZE_PER_BUNDLE (65536) so each bundle holds at least one block.");
+
       public:
         TLockFreeFixedSizeAllocator_TLSCacheBase()
         {

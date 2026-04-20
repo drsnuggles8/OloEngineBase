@@ -356,15 +356,20 @@ HDR values exceeding fp16 range.
 - Helper: [OloEngine/src/OloEngine/Renderer/Debug/RendererValidate.h](../OloEngine/src/OloEngine/Renderer/Debug/RendererValidate.h)
 - Tests: [OloEngine/tests/Rendering/PropertyTests/RendererValidateTest.cpp](../OloEngine/tests/Rendering/PropertyTests/RendererValidateTest.cpp)
 
-**How it works.** `RendererValidate::ScanFramebuffer()` reads back a
-framebuffer attachment and reports a `Stats` record (min / max / avg / NaN
-count / Inf count / energy total). Tests pin the contract on synthetic
-inputs; the same helper is available in production debug builds after any
-pass that can reasonably be spot-checked.
+**How it works.** `RendererValidate::ReadFloatAttachmentStats(fb, index)`
+reads back a float framebuffer attachment and returns an `AttachmentStats`
+record (min / max / avg / NaN count / Inf count / per-channel RGBA maxima).
+Tests pin the contract on synthetic inputs; the same helper is available in
+production debug builds after any pass that can reasonably be spot-checked.
 
-**Current catalogue.** Five `RendererValidateTest.*` cases: all-zero
-detection, all-black detection after clear, NaN scanning on RGBA32F, Inf
-scanning, fp16 range detection.
+**Current catalogue.** `RendererValidateTest.*` cases exercising
+`ReadFloatAttachmentStats`: `CleanFramebufferPassesValidation` (a solid
+within-range clear has zero NaN/Inf and stats inside fp16 range),
+`NanPixelsAreDetected` (an RGBA32F attachment seeded with NaN bumps the
+`m_NanCount` field), `InfPixelsAreDetected` (same for +/-Inf),
+`Fp16OverflowIsDetected` (a channel above `kFp16Max` fails validation), and
+`EmptyAttachmentIsHandled` (a zero-sized attachment returns a
+zero-initialised `AttachmentStats` without reading out of bounds).
 
 **Limitations.** "Not black and not NaN" is a low bar. L7 is the safety net
 under L1, not a replacement for it.

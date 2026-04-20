@@ -6,7 +6,7 @@ historical series used for trend analysis and cross-machine comparison.
 
 ## Schema
 
-```
+```text
 iso_date_utc    name    measured_ns    baseline_ns    ratio
 ```
 

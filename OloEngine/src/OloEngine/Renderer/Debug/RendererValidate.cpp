@@ -138,10 +138,10 @@ namespace OloEngine::RendererValidate
                            attachmentIndex, stats.m_InfCount);
             ok = false;
         }
-        const f32 maxChannel = std::max({ stats.m_MaxR, stats.m_MaxG, stats.m_MaxB });
+        const f32 maxChannel = std::max({ stats.m_MaxR, stats.m_MaxG, stats.m_MaxB, stats.m_MaxA });
         if (maxChannel > kFp16Max)
         {
-            OLO_CORE_ERROR("[{}] attachment {}: max channel {:.2f} exceeds fp16 max ({:.0f})",
+            OLO_CORE_ERROR("[{}] attachment {}: max RGBA channel {:.2f} exceeds fp16 max ({:.0f})",
                            passName, attachmentIndex, maxChannel, kFp16Max);
             ok = false;
         }

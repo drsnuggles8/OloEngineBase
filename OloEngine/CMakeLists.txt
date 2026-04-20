@@ -177,6 +177,12 @@ if(MSVC)
 	foreach(_base shaderc_shared spirv-cross-core spirv-cross-glsl)
 		set(_dbg "${_vk_lib}/${_base}d.lib")
 		set(_rel "${_vk_lib}/${_base}.lib")
+		if(NOT EXISTS "${_rel}")
+			message(FATAL_ERROR
+				"Vulkan SDK release library not found at '${_rel}'. Install / repair "
+				"the Vulkan SDK from https://vulkan.lunarg.com/sdk/home and make sure "
+				"the shaderc_shared + spirv-cross-{core,glsl} components are present.")
+		endif()
 		if(EXISTS "${_dbg}")
 			list(APPEND _vk_shader_libs debug "${_dbg}" optimized "${_rel}")
 		else()

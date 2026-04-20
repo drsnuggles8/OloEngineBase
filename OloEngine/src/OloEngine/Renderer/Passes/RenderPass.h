@@ -100,7 +100,6 @@ namespace OloEngine
             m_Writes.emplace_back(name, kind);
         }
 
-      protected:
         std::string m_Name = "RenderPass";
         Ref<Framebuffer> m_Target;
         FramebufferSpecification m_FramebufferSpec;

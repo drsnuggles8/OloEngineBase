@@ -59,7 +59,11 @@ def analyse_series(samples):
         ref_median = statistics.median(reference)
         ref_stdev = statistics.pstdev(reference)
         recent_median = statistics.median(recent)
-        sigma_delta = (recent_median - ref_median) / ref_stdev if ref_stdev > 0 else 0.0
+        # Floor the denominator at 1 ns so a dead-flat reference window cannot
+        # mask a real regression: sigma_delta becomes (recent - ref) / 1ns and
+        # still trips the 3.0 threshold when the recent median has drifted.
+        epsilon = 1.0
+        sigma_delta = (recent_median - ref_median) / max(ref_stdev, epsilon)
         out["recent_median"] = int(recent_median)
         out["ref_median"] = int(ref_median)
         out["sigma_delta"] = round(sigma_delta, 2)

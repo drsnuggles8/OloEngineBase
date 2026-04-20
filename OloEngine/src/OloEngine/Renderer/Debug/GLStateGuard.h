@@ -73,6 +73,9 @@ namespace OloEngine
         u32 m_FboRead = 0;
         u32 m_ActiveProgram = 0;
         u32 m_Vao = 0;
+        // Enum in [GL_TEXTURE0, GL_TEXTURE31] indicating the unit a pass
+        // left selected on exit. Per-unit bindings are tracked below.
+        u32 m_ActiveTextureUnit = 0;
 
         // Per-slot bindings. 16 texture units and 16 UBO slots cover every
         // binding currently used by OloEngine. Extending this later is a
