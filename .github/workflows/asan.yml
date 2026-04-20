@@ -8,12 +8,13 @@ on:
 
 permissions:
   contents: read
-  checks: write
 
 jobs:
   asan-windows:
     name: ASan (Windows/MSVC)
     runs-on: windows-latest
+    permissions:
+      checks: write
 
     steps:
     - uses: actions/checkout@v6
@@ -75,6 +76,8 @@ jobs:
   asan-lsan-linux:
     name: ASan + LSan (Linux/Clang)
     runs-on: ubuntu-latest
+    permissions:
+      checks: write
 
     steps:
     - uses: actions/checkout@v6
@@ -133,6 +136,8 @@ jobs:
   ubsan-linux:
     name: UBSan (Linux/Clang)
     runs-on: ubuntu-latest
+    permissions:
+      checks: write
 
     steps:
     - uses: actions/checkout@v6
@@ -191,6 +196,8 @@ jobs:
     name: TSan (Linux/Clang)
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    permissions:
+      checks: write
 
     steps:
     - uses: actions/checkout@v6
