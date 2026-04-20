@@ -344,10 +344,15 @@ namespace OloEngine
                 // Partial topo order is useless — running the remaining
                 // validator over an incomplete m_PassOrder would produce
                 // misleading "missing dependency" reports for passes the
-                // cycle excluded. Abort early with a clear log; caller
-                // must fix the graph and retry.
+                // cycle excluded. Surface a synthetic Cycle hazard so
+                // callers can distinguish "no hazards" from "could not
+                // validate" (the empty-vector overload used to conflate
+                // both).
                 OLO_CORE_ERROR("RenderGraph::ValidateResourceHazards: aborting (graph has a cycle)");
-                return {};
+                Hazard h;
+                h.Kind = HazardKind::Cycle;
+                h.Message = "RenderGraph contains a cycle; resource hazard validation aborted";
+                return { std::move(h) };
             }
             // Note: we deliberately leave m_DependencyGraphDirty set so the
             // first Execute() after validation still runs ResolveFinalPass +

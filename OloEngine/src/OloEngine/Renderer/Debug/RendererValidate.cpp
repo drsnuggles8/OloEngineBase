@@ -9,6 +9,7 @@
 
 #include <glad/gl.h>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <vector>
@@ -30,6 +31,8 @@ namespace OloEngine::RendererValidate
 
     AttachmentStats ReadFloatAttachmentStats(const Ref<Framebuffer>& fb, u32 attachmentIndex)
     {
+        OLO_PROFILE_FUNCTION();
+
         AttachmentStats stats{};
         if (!fb)
             return stats;
@@ -56,9 +59,20 @@ namespace OloEngine::RendererValidate
 
         std::vector<f32> pixels(static_cast<std::size_t>(pixelCount) * 4);
         const GLuint tex = static_cast<GLuint>(fb->GetColorAttachmentRendererID(attachmentIndex));
-        // Use glGetTextureImage (GL 4.5+ DSA) to avoid binding state churn.
+        // Drain any stale GL error so we can distinguish a failed readback
+        // from a caller-induced error. Use glGetTextureImage (GL 4.5+ DSA)
+        // to avoid binding state churn.
+        while (::glGetError() != GL_NO_ERROR)
+        {
+        }
         ::glGetTextureImage(tex, 0, GL_RGBA, GL_FLOAT,
                             static_cast<GLsizei>(pixels.size() * sizeof(f32)), pixels.data());
+        if (const GLenum err = ::glGetError(); err != GL_NO_ERROR)
+        {
+            OLO_CORE_WARN("RendererValidate: glGetTextureImage failed (0x{:x}) for attachment {}; returning zero stats",
+                          static_cast<u32>(err), attachmentIndex);
+            return stats;
+        }
 
         // Accumulate into doubles to avoid catastrophic cancellation on large FBs.
         stats.m_MinR = stats.m_MinG = stats.m_MinB = stats.m_MinA = std::numeric_limits<f32>::infinity();
@@ -72,9 +86,10 @@ namespace OloEngine::RendererValidate
             const f32 b = pixels[p * 4 + 2];
             const f32 a = pixels[p * 4 + 3];
 
-            // NaN is the only float that fails self-equality.
-            const bool nanPixel = (r != r) || (g != g) || (b != b) || (a != a);
-            // Any channel non-finite and non-NaN → Inf.
+            // Use std::isnan / std::isinf directly rather than the self-
+            // inequality trick; clearer intent and follows the engine's
+            // float-comparison style guide.
+            const bool nanPixel = std::isnan(r) || std::isnan(g) || std::isnan(b) || std::isnan(a);
             auto IsInf = [](f32 v)
             { return std::isinf(v); };
             const bool infPixel = IsInf(r) || IsInf(g) || IsInf(b) || IsInf(a);
@@ -124,6 +139,8 @@ namespace OloEngine::RendererValidate
         (void)assertOnFailure;
         return true;
 #else
+        OLO_PROFILE_FUNCTION();
+
         const AttachmentStats stats = ReadFloatAttachmentStats(fb, attachmentIndex);
         if (stats.m_PixelCount == 0)
             return true; // unsupported / empty — treat as "no opinion"

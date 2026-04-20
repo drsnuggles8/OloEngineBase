@@ -35,6 +35,7 @@
 #include <gtest/gtest.h>
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/IBLPrecompute.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -72,6 +73,9 @@ namespace OloEngine::Tests
 
             void Draw()
             {
+                // Restore FBO/blend/depth/cull bindings on scope exit so
+                // tests don't leak state into the harness that runs next.
+                GLStateGuard guard("PbrProbeHarness::Draw");
                 m_OutputFB->Bind();
                 ::glViewport(0, 0, static_cast<GLsizei>(m_Width), static_cast<GLsizei>(m_Height));
                 ::glDisable(GL_BLEND);

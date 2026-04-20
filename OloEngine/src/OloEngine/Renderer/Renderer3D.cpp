@@ -2705,8 +2705,21 @@ namespace OloEngine
             const auto hazards = s_Data.RGraph->ValidateResourceHazards();
             if (!hazards.empty())
             {
-                OLO_CORE_ERROR("Renderer3D: RenderGraph has {} resource hazards — see previous log entries for details.", hazards.size());
-                OLO_CORE_ASSERT(hazards.empty(), "RenderGraph resource hazard detected (see log). Add ConnectPass / AddExecutionDependency for the reported producer -> consumer edge.");
+                // Any Cycle entry means validation couldn't even run;
+                // surface that distinctly from genuine resource hazards.
+                const bool cycle = std::any_of(hazards.begin(), hazards.end(),
+                                               [](const auto& h)
+                                               { return h.Kind == RenderGraph::HazardKind::Cycle; });
+                if (cycle)
+                {
+                    OLO_CORE_ERROR("Renderer3D: RenderGraph dependency cycle detected — resource hazard validation aborted.");
+                    OLO_CORE_ASSERT(!cycle, "RenderGraph dependency cycle detected. Break the cycle and retry.");
+                }
+                else
+                {
+                    OLO_CORE_ERROR("Renderer3D: RenderGraph has {} resource hazards — see previous log entries for details.", hazards.size());
+                    OLO_CORE_ASSERT(hazards.empty(), "RenderGraph resource hazard detected (see log). Add ConnectPass / AddExecutionDependency for the reported producer -> consumer edge.");
+                }
             }
             else
             {

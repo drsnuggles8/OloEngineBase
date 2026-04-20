@@ -181,11 +181,19 @@ namespace OloEngine::Tests
         // CPU reference implementations — IDENTICAL math to the GLSL in
         // assets/shaders/tests/ShaderUnit_ToneMap.glsl. Deliberate duplication
         // so that shader edits without matching CPU edits produce a failure.
+
+        // Reinhard (1/(x+1)) — Reinhard et al. 2002,
+        // "Photographic Tone Reproduction for Digital Images",
+        // https://www.cs.utah.edu/docs/techreports/2002/pdf/UUCS-02-001.pdf
         f32 ReinhardRef(f32 x)
         {
             return x / (x + 1.0f);
         }
 
+        // ACES filmic approximation — Krzysztof Narkowicz, 2015,
+        // "ACES Filmic Tone Mapping Curve",
+        // https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/
+        // (fit of the full ACES RRT+ODT pipeline to a 5-constant rational curve).
         f32 AcesRef(f32 x)
         {
             constexpr f32 a = 2.51f, b = 0.03f, c = 2.43f, d = 0.59f, e = 0.14f;
@@ -194,6 +202,10 @@ namespace OloEngine::Tests
             return std::clamp(num / den, 0.0f, 1.0f);
         }
 
+        // Uncharted 2 filmic — John Hable, 2010,
+        // "Filmic Tonemapping Operators",
+        // http://filmicworlds.com/blog/filmic-tonemapping-operators/
+        // (constants A..F match Hable's reference shader verbatim).
         f32 Uncharted2Ref(f32 x)
         {
             constexpr f32 A = 0.15f, B = 0.50f, C = 0.10f, D = 0.20f, E = 0.02f, F = 0.30f;

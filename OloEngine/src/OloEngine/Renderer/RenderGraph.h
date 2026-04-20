@@ -90,6 +90,7 @@ namespace OloEngine
             ReadAfterWrite,  // reader does not depend on writer
             WriteAfterWrite, // later writer does not depend on previous writer
             WriteAfterRead,  // later writer does not depend on prior reader
+            Cycle,           // dependency graph has a cycle; hazards could not be validated
         };
         struct Hazard
         {

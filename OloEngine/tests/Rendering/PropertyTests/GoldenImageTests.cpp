@@ -915,6 +915,8 @@ namespace OloEngine::Tests
 
         Ref<Shader> splatShader = Shader::Create(
             "assets/shaders/tests/ShaderUnit_SplatmapChannel.glsl");
+        ASSERT_TRUE(splatShader != nullptr)
+            << "Failed to load ShaderUnit_SplatmapChannel.glsl — check asset path";
 
         FullscreenPass fullscreen;
         hdrFB->Bind();

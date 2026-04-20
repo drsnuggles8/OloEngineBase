@@ -80,6 +80,8 @@ namespace OloEngine
 
     GLStateSnapshot GLStateSnapshot::Capture()
     {
+        OLO_PROFILE_FUNCTION();
+
         GLStateSnapshot s;
 
         s.m_DepthTest = GlGetBoolean(GL_DEPTH_TEST);

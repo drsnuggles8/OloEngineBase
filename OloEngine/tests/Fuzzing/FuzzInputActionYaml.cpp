@@ -45,6 +45,12 @@ namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 {
+    // Size cap mirrors sibling harnesses (FuzzAssimpMesh, FuzzAnimationBinary).
+    // 4 MB is well above any realistic input-action asset and keeps the
+    // temp-file I/O cost bounded under ASan.
+    if (size > 4 * 1024 * 1024)
+        return 0;
+
     const auto path = MakeTempPath();
     {
         std::ofstream out(path, std::ios::binary | std::ios::trunc);
