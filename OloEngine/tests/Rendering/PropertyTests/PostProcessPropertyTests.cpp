@@ -656,6 +656,175 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
+    // DOF CoC linear-model sweep. Exercises the full CoC math from
+    // PostProcess_DOF.glsl using a CoC-only probe shader
+    // (ShaderUnit_DofCoc.glsl) that outputs the computed CoC directly. We
+    // author a depth gradient that sweeps linear depth from 0 → 2*focus
+    // across the image width so one draw covers near/at/far of the focus
+    // point in a single readback.
+    //
+    // Linear model: coc = clamp(|linearDepth - focus| / focusRange, 0, 1).
+    //
+    // Invariants asserted:
+    //   1. CoC(focus) == 0 (identity at focus point)
+    //   2. CoC clamps to exactly 1.0 once |Δ| >= focusRange
+    //   3. Monotonically non-decreasing in |linearDepth - focus|
+    //   4. Near/far symmetric: CoC(focus+d) == CoC(focus-d) within 2 LSBs
+    //   5. blurRadius == coc * u_DOFBokehRadius (the second output channel)
+    //
+    // Catches: wrong sign on (linearDepth - focus), missing clamp, asymmetric
+    // CoC (e.g. dropped abs()), wrong divisor.
+    // =========================================================================
+    TEST(DofFocusTest, CocLinearModelMatchesSweep)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kWidth = 128;
+        constexpr u32 kHeight = 4;
+        constexpr f32 kNear = 0.1f;
+        constexpr f32 kFar = 100.0f;
+        constexpr f32 kFocus = 10.0f;
+        constexpr f32 kRange = 5.0f;
+        constexpr f32 kBokeh = 16.0f;
+        constexpr f32 kLinearSweepMax = 2.0f * kFocus; // 0 → 20
+
+        // Build per-pixel depth values: linearDepth varies across U.
+        auto LinearToNdcDepth = [&](f32 linear) -> f32
+        {
+            const f32 zNdc = (kFar + kNear - 2.0f * kNear * kFar / linear) / (kFar - kNear);
+            return (zNdc + 1.0f) * 0.5f;
+        };
+
+        std::vector<f32> depthPixels(static_cast<std::size_t>(kWidth) * kHeight * 4);
+        for (u32 y = 0; y < kHeight; ++y)
+        {
+            for (u32 x = 0; x < kWidth; ++x)
+            {
+                const f32 u = (static_cast<f32>(x) + 0.5f) / static_cast<f32>(kWidth);
+                const f32 linear = std::max(0.01f, u * kLinearSweepMax);
+                const f32 depth = LinearToNdcDepth(linear);
+                const std::size_t idx = (static_cast<std::size_t>(y) * kWidth + x) * 4;
+                depthPixels[idx + 0] = depth;
+                depthPixels[idx + 1] = depth;
+                depthPixels[idx + 2] = depth;
+                depthPixels[idx + 3] = 1.0f;
+            }
+        }
+
+        PostProcessUBOData ubo = MakeDefaultPostProcessUBO(kWidth, kHeight);
+        ubo.DOFFocusDistance = kFocus;
+        ubo.DOFFocusRange = kRange;
+        ubo.DOFBokehRadius = kBokeh;
+        ubo.CameraNear = kNear;
+        ubo.CameraFar = kFar;
+
+        PostProcessHarness harness(kWidth, kHeight,
+                                   "assets/shaders/tests/ShaderUnit_DofCoc.glsl", ubo);
+        // Input texture is unused by the CoC probe but the harness wires it.
+        harness.SetInputTexture(CreateUniformFloatTexture2D(kWidth, kHeight, 0.5f, 0.5f, 0.5f, 1.0f));
+
+        const u32 depthTex = [&]() -> u32
+        {
+            GLuint id = 0;
+            ::glCreateTextures(GL_TEXTURE_2D, 1, &id);
+            ::glTextureStorage2D(id, 1, GL_RGBA32F, static_cast<GLsizei>(kWidth),
+                                 static_cast<GLsizei>(kHeight));
+            ::glTextureParameteri(id, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            ::glTextureParameteri(id, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            ::glTextureParameteri(id, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            ::glTextureParameteri(id, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            ::glTextureSubImage2D(id, 0, 0, 0,
+                                  static_cast<GLsizei>(kWidth),
+                                  static_cast<GLsizei>(kHeight),
+                                  GL_RGBA, GL_FLOAT, depthPixels.data());
+            return static_cast<u32>(id);
+        }();
+        ::glBindTextureUnit(19, static_cast<GLuint>(depthTex));
+
+        harness.Draw();
+
+        std::vector<u8> rgba;
+        harness.ReadOutputRgba8(rgba);
+        ::glDeleteTextures(1, &depthTex);
+        ASSERT_EQ(rgba.size(), static_cast<std::size_t>(kWidth) * kHeight * 4);
+
+        // Pull CoC values along the top row (all rows are identical since
+        // the depth gradient is 1D across U).
+        auto CocAt = [&](u32 x) -> f32
+        {
+            const std::size_t idx = (0u * kWidth + x) * 4;
+            return static_cast<f32>(rgba[idx + 0]) / 255.0f;
+        };
+        auto BlurRatioAt = [&](u32 x) -> f32
+        {
+            const std::size_t idx = (0u * kWidth + x) * 4;
+            return static_cast<f32>(rgba[idx + 1]) / 255.0f;
+        };
+
+        // Find the pixel x closest to linear==focus.
+        const u32 focusX = static_cast<u32>(std::lround(
+            (kFocus / kLinearSweepMax) * kWidth - 0.5f));
+        // Tolerance accounts for pixel-center quantization: one pixel of sweep
+        // resolution = (kLinearSweepMax / kWidth) / kRange in CoC units =
+        // 20/128/5 ≈ 0.031 ≈ 8/255. Round up for safety (8-bit readback).
+        constexpr f32 kPixelCocLsb = 10.0f / 255.0f;
+        EXPECT_LE(CocAt(focusX), kPixelCocLsb)
+            << "CoC(focus) must be ~0; got " << CocAt(focusX);
+
+        // Invariant 2: pixels at linear <= focus-range OR >= focus+range must saturate to 1.
+        const u32 nearSatX = static_cast<u32>(std::lround(
+            ((kFocus - 1.5f * kRange) / kLinearSweepMax) * kWidth));
+        const u32 farSatX = static_cast<u32>(std::lround(
+            ((kFocus + 1.5f * kRange) / kLinearSweepMax) * kWidth));
+        EXPECT_GE(CocAt(nearSatX), 250.0f / 255.0f)
+            << "CoC beyond near saturation (x=" << nearSatX << ") must be ~1.0";
+        EXPECT_GE(CocAt(farSatX), 250.0f / 255.0f)
+            << "CoC beyond far saturation (x=" << farSatX << ") must be ~1.0";
+
+        // Invariant 3: monotonic non-decreasing in |linear - focus|.
+        // Walk outward from focus in both directions.
+        u32 monotonicityViolations = 0;
+        for (u32 i = 1; i < focusX; ++i)
+        {
+            // Near side: as x decreases, |Δ| increases → CoC should not decrease
+            if (CocAt(focusX - i) + (2.0f / 255.0f) < CocAt(focusX - i + 1))
+                ++monotonicityViolations;
+        }
+        for (u32 i = 1; focusX + i < kWidth; ++i)
+        {
+            if (CocAt(focusX + i) + (2.0f / 255.0f) < CocAt(focusX + i - 1))
+                ++monotonicityViolations;
+        }
+        EXPECT_EQ(monotonicityViolations, 0u)
+            << "CoC should be monotonically non-decreasing in |linearDepth - focus|";
+
+        // Invariant 4: symmetric around focus (within a few LSBs due to the
+        // inverse-depth mapping making pixel widths non-uniform in linear
+        // space; we compare CoC *values* at matched |Δ|, not pixel distances).
+        for (u32 stepPct = 25; stepPct <= 90; stepPct += 25)
+        {
+            const f32 delta = (static_cast<f32>(stepPct) / 100.0f) * kRange;
+            const u32 xNear = static_cast<u32>(std::lround(
+                ((kFocus - delta) / kLinearSweepMax) * kWidth - 0.5f));
+            const u32 xFar = static_cast<u32>(std::lround(
+                ((kFocus + delta) / kLinearSweepMax) * kWidth - 0.5f));
+            if (xNear >= kWidth || xFar >= kWidth)
+                continue;
+            EXPECT_NEAR(CocAt(xNear), CocAt(xFar), 12.0f / 255.0f)
+                << "CoC must be symmetric around focus at Δ=" << delta
+                << " (xNear=" << xNear << " xFar=" << xFar << ")";
+        }
+
+        // Invariant 5: blur radius == coc * bokehRadius. Since the probe
+        // writes blurRadius / bokehRadius to G, G == R.
+        for (u32 x = 0; x < kWidth; x += 4)
+        {
+            EXPECT_NEAR(BlurRatioAt(x), CocAt(x), 2.0f / 255.0f)
+                << "blurRadius/bokehRadius mismatches CoC at x=" << x;
+        }
+    }
+
+    // =========================================================================
     // Bloom threshold: all-black input must produce all-black output.
     //
     // The bloom threshold pass extracts pixels brighter than u_BloomThreshold.

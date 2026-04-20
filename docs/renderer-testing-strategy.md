@@ -48,7 +48,7 @@ Live status of the catalog (see [OloEngine/tests/Rendering/PropertyTests/](../Ol
 
 **Layer 5 — Render graph validation (`RenderGraphTest.cpp`):** basic topological ordering (linear chain, diamond, execution dependency, independent passes) + structural validators (`RenderGraphStructural.*`): production pass ordering (Shadow → Scene → PostProcess → Final), duplicate-connection idempotency, each-pass-executes-once invariant, cycle detection does-not-crash, missing-pass connection does-not-corrupt. Command-level resource-hazard validation remains deferred.
 
-**Layer 6 — Perf regression (`PerfRegressionTests.cpp`):** GPU timing infrastructure + 4 microbenchmarks (tone-map, bloom threshold / downsample / upsample at 512²). No checked-in baselines yet — thresholds are sanity bounds only.
+**Layer 6 — Perf regression (`PerfRegressionTests.cpp`):** GPU timing infrastructure + 4 microbenchmarks (tone-map, bloom threshold / downsample / upsample at 512²). Dev-PC baselines stored in [OloEngine/tests/Rendering/PropertyTests/perf_baselines.txt](../OloEngine/tests/Rendering/PropertyTests/perf_baselines.txt); rebase via `OLOENGINE_PERF_REBASE=1`. Policy: PASS <1.5×, WARN 1.5–2.5×, FAIL ≥2.5× (measured = min of 20 samples after 5 warmup draws). *Cross-machine baselines remain infra-gated* — need a stable CI runner + historical tracking.
 
 **Layer 7 — Smoke/sanity readback (`RendererValidateTest.cpp`):** Helper + 5 tests for NaN / Inf / energy-bound scans after key passes.
 
@@ -60,7 +60,7 @@ Live status of the catalog (see [OloEngine/tests/Rendering/PropertyTests/](../Ol
 
 **Layer 11 — Sanitizers / fuzzing:** ASan/UBSan/TSan flags are plumbed in [cmake/Sanitizers.cmake](../cmake/Sanitizers.cmake) and can be enabled per-configure. Randomised-input stress tests land in Layer 3 today (`DataRoundTripTest.RandomisedRgba32F/Rgba8StressRoundTrip`) as a fuzz surrogate — seeded, deterministic, and exercises a mix of IEEE-754 value classes and random dimensions per iteration so regressions on specific byte patterns or sizes surface without a curated corpus. *Infrastructure-gated:* a dedicated libFuzzer target with `-fsanitize=fuzzer` is a CI follow-up, not a code change that belongs on this PR.
 
-**Headline numbers:** ~2089 tests across ~344 suites, full run ≈ 35–45 s on a developer box.
+**Headline numbers:** ~2092 tests across ~345 suites, full run ≈ 35–45 s on a developer box.
 
 ---
 
@@ -77,14 +77,14 @@ Last audit pass before shipping this PR. Each row below calls out a test from th
 | NDF (non-neg / peak / roughness-1 / low-roughness) | §1 PBR | ✅ shipped | 4 `PbrNdfTest.*` |
 | Metallic kills diffuse | §1 PBR | ✅ shipped | `PbrDiffuseTest.*` |
 | Normal map identity | §1 PBR | ✅ shipped | `PbrNormalMapTest.*` |
-| Prefilter mip energy monotonicity | §1 IBL | ⚠️ *covered-by-surrogate* | GGX normalisation (`PbrPrefilterTest`) guarantees the per-mip integrator can never amplify energy above the max radiance of the input. A mip-chain-over-real-cubemap test would need a full IBL fixture (cubemap faces + UBO) and is deferred as infra-gated. |
-| Prefilter mip 0 ≈ source | §1 IBL | ⚠️ *covered-by-surrogate* | At roughness=0 GGX collapses to a Dirac δ at N; `PbrPrefilterTest` includes roughness=0 in its sweep. Same full-fixture caveat as above. |
+| Prefilter mip energy monotonicity | §1 IBL | ✅ shipped | `PbrPrefilterTest.MipChainEnergyIsMonotonicAndMip0ApproxSource` runs the real `IBLPrecompute::GeneratePrefilterMap` pipeline against a RGBA32F cubemap with a known hotspot and asserts per-mip peak luminance is monotonically non-increasing. |
+| Prefilter mip 0 ≈ source | §1 IBL | ✅ shipped | Same fixture as above: mip-0 mean luminance must match source mean within 20% (accounts for GGX importance-sampling noise at roughness=0). |
 | IBL reload consistency | §1 IBL | ✅ shipped | `DataRoundTripTest.IblCacheCubemapRoundTripPreservesAllMips` (Layer 3) |
 | Bloom energy conservation | §1 post | ✅ shipped | `BloomChainEnergyTest.MultiPassDownUpPreservesTotalEnergy` |
 | Bloom black passthrough | §1 post | ✅ shipped | `BloomThresholdTest.*` / `BloomDownsampleTest.BlackInputStaysBlack` |
 | Tone-map monotonicity / black-to-black / NaN safety | §1 post | ✅ shipped | `ToneMapMonotonicityTest.*` + NaN extreme-HDR tests |
 | FXAA edge | §1 post | ✅ shipped | `FxaaTest.UniformNoOp` + `FxaaTest.HardEdgePreservesFlatRegions` |
-| DOF CoC correctness | §1 post | ⚠️ *partial* | `DofFocusTest.DepthAtFocusDistanceIsIdentity` covers the zero-CoC point. A full thin-lens-formula sweep needs a depth buffer authored per-pixel + bokeh-radius measurement; deferred. |
+| DOF CoC correctness | §1 post | ✅ shipped | `DofFocusTest.DepthAtFocusDistanceIsIdentity` (zero-CoC early-out) + `DofFocusTest.CocLinearModelMatchesSweep` (full near→focus→far sweep via dedicated CoC probe `ShaderUnit_DofCoc.glsl`; asserts symmetry, monotonicity in \|Δdepth\|, saturation at ±focusRange, and `blurRadius == coc * bokehRadius`). Production DOF uses a linear CoC model, not thin-lens. |
 | Vignette / chromatic aberration center untouched | §1 post | ✅ shipped | `VignetteTest.CenterBrighterThanCorners` / `ChromaticAberrationTest.*` |
 | Motion blur static | §1 post | ✅ shipped | `MotionBlurTest.StaticSceneIsIdentity` |
 | Fog zero-/infinite-distance | §1 post | ✅ shipped | `ShaderUnitFogTest.EndpointInvariants` (Layer 4) + `FogTest.DisabledEarlyOut` |
@@ -92,19 +92,19 @@ Last audit pass before shipping this PR. Each row below calls out a test from th
 | Self-shadowing / peter-panning | §1 shadows | ❌ *infra-gated* | Require a real cascaded shadow pipeline with authored geometry + light — that's an integration-level fixture outside the property-test surface. Caught today by Layer-8 golden images once added. |
 | Shadow outside frustum | §1 shadows | ✅ shipped | `ShadowBoundsTest.BoundaryCasesShortCircuit` (out-of-frustum short-circuits to "lit") |
 | Flat heightmap | §1 terrain | ✅ shipped | `TerrainHeightmapTest.FlatHeightmapProducesUpNormal` |
-| Splatmap channel isolation | §1 terrain | ❌ *infra-gated* | Requires 8-layer `sampler2DArray` of authored materials + 2 splatmap textures + full UBO chain. Testable end-to-end via Layer 8 once a golden baseline is authored; shader-only probe adds little because the production bug surface is swizzle + binding, not math. |
+| Splatmap channel isolation | §1 terrain | ✅ shipped | `TerrainSplatmapTest.ChannelIsolationMapsToCorrectLayer` via `ShaderUnit_SplatmapChannel.glsl` probe: 4-layer `sampler2DArray` + 4-channel splatmap, sweeps isolated-channel and 50/50-blend cases. Covers the swizzle + layer-index bug surface. End-to-end terrain-material golden baseline remains a Layer-8 follow-up. |
 | Shader unit tests (sRGB, tone-map, GGX, octahedral, fog) | §2 | ✅ shipped | 5 `ShaderUnit*Test` tests |
 | Data round-trip (RGBA8 / RGBA32F / IBL cache / randomised) | §3 | ✅ shipped | 5 `DataRoundTripTest.*` |
 | GPU state validation (blend/depth/stencil/FBO/viewport/tex/UBO) | §4 | ✅ shipped | 8 `GLStateGuardTest.*` |
 | Render graph validation | §5 | ✅ shipped (structural) | 4 `RenderGraphTest.*` + 5 `RenderGraphStructural.*`. *Command-level resource hazard validation remains infra-gated* (needs RDG abstraction). |
-| Perf regression (microbenchmarks) | §6 | ✅ shipped (timing only) | 4 `PerfRegressionTest.*`. *Baselines* are infra-gated — need a stable CI machine + historical tracking. |
+| Perf regression (microbenchmarks) | §6 | ✅ shipped | 4 `PerfRegressionTest.*` (tone-map, bloom threshold/downsample/upsample at 512²) with dev-PC baselines checked into [OloEngine/tests/Rendering/PropertyTests/perf_baselines.txt](../OloEngine/tests/Rendering/PropertyTests/perf_baselines.txt). Rebase via `OLOENGINE_PERF_REBASE=1`. Policy: PASS <1.5×, WARN 1.5– 2.5×, FAIL ≥2.5×. Metric: min of 20 samples after 5 warmup draws. *Cross-machine CI tracking is a separate tooling follow-up.* |
 | Smoke / sanity readback | §7 | ✅ shipped | 5 `RendererValidateTest.*` |
 | Golden image framework | §8 | ✅ shipped | `GoldenImageTests.*` with 2 baselines + L10 diff-PNG escalation |
 | Cross-vendor conformance | §9 | ❌ *infra-gated* | Needs SwiftShader/llvmpipe CI container. No code-only close. |
 | Auto-diagnostic escalation | §10 | ✅ shipped | diff-PNG + worst-pixel + per-channel deltas on golden-image failures |
 | Sanitizers / fuzzing | §11 | ⚠️ *partial* | ASan/UBSan/TSan plumbed; randomised fuzz surrogate in Layer 3. Dedicated libFuzzer target remains infra-gated. |
 
-**Net remaining code-only gaps:** zero. Every catalog item has either a shipped test or a surrogate that covers the same bug surface, except for the explicitly infra-gated items (cross-vendor container, libFuzzer target, end-to-end shadow/splatmap golden baselines, perf baselines). Those are tracked as CI / tooling follow-ups and do not belong on this PR.
+**Net remaining code-only gaps:** zero. Every catalog item has either a shipped test (with a working baseline on the dev workstation) or a surrogate that covers the same bug surface, except for the explicitly infra-gated items (cross-vendor SwiftShader container, libFuzzer target, end-to-end shadow self-shadow / terrain-splatmap **scene** golden baselines, command-level resource-hazard validation inside a resource-aware render graph, and cross-machine perf-baseline CI tracking). Those are tracked as CI / tooling follow-ups and do not belong on this PR.
 
 ---
 

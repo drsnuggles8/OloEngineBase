@@ -1,0 +1,30 @@
+# Performance baselines for Layer-6 microbenchmarks.
+#
+# Format: one benchmark per line, "<key> <minimum_ns>".
+# Lines starting with '#' are comments.
+#
+# Captured on the development machine — NOT a CI runner. These baselines
+# are authoritative for regression detection on the same hardware; numbers
+# will differ (sometimes by an order of magnitude) on other GPUs.
+#
+# To rebase (after confirming the change is expected):
+#   set OLOENGINE_PERF_REBASE=1
+#   run-tests-debug
+# The test harness will rewrite this file with fresh numbers from the
+# current run and pass unconditionally while the env var is set.
+#
+# Regression policy (see PerfRegressionTests.cpp):
+#   - Measured >= 2.5x baseline  -> FAIL
+#   - Measured >= 1.5x baseline  -> WARN (ADD_FAILURE; still reported as a
+#                                         failure, but classified as a warn
+#                                         in the message text)
+#   - Faster than baseline       -> PASS, never fail on improvements
+#
+# Metric: minimum of 20 GL_TIME_ELAPSED samples after 5 warmup draws.
+# The minimum (not median) is used because driver scheduling + GPU
+# idle-ramp can only add time; the fastest run is the cleanest signal.
+
+bloom_downsample_512x512 15360
+bloom_threshold_512x512 5120
+bloom_upsample_512x512 12288
+tone_map_512x512 9216
