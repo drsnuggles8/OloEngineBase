@@ -76,6 +76,52 @@ namespace OloEngine::Tests
                 ReadbackRgbaFloat(id, m_Width, m_Height, out);
             }
         };
+
+        // RAII wrappers so ASSERT_* early-exits can't leak GL objects. Both
+        // helpers no-op on a zero handle (so default-constructed holders are
+        // safe) and become owners once filled via address-of.
+        struct ScopedTexture
+        {
+            GLuint m_Id = 0;
+            ScopedTexture() = default;
+            explicit ScopedTexture(GLuint id) : m_Id(id) {}
+            ~ScopedTexture()
+            {
+                if (m_Id)
+                    ::glDeleteTextures(1, &m_Id);
+            }
+            ScopedTexture(const ScopedTexture&) = delete;
+            ScopedTexture& operator=(const ScopedTexture&) = delete;
+            GLuint* AddressOf()
+            {
+                return &m_Id;
+            }
+            operator GLuint() const
+            {
+                return m_Id;
+            }
+        };
+
+        struct ScopedBuffer
+        {
+            GLuint m_Id = 0;
+            ScopedBuffer() = default;
+            ~ScopedBuffer()
+            {
+                if (m_Id)
+                    ::glDeleteBuffers(1, &m_Id);
+            }
+            ScopedBuffer(const ScopedBuffer&) = delete;
+            ScopedBuffer& operator=(const ScopedBuffer&) = delete;
+            GLuint* AddressOf()
+            {
+                return &m_Id;
+            }
+            operator GLuint() const
+            {
+                return m_Id;
+            }
+        };
     } // namespace
 
     // =========================================================================
@@ -261,8 +307,8 @@ namespace OloEngine::Tests
 
         // Authored depth texture array: 4 layers (CSM cascades), all filled
         // with constant depth. Layer 0 is the one the probe samples.
-        GLuint shadowTex = 0;
-        ::glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &shadowTex);
+        ScopedTexture shadowTex;
+        ::glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, shadowTex.AddressOf());
         ::glTextureStorage3D(shadowTex, 1, GL_DEPTH_COMPONENT32F,
                              static_cast<GLsizei>(kShadowRes),
                              static_cast<GLsizei>(kShadowRes), 4);
@@ -300,8 +346,8 @@ namespace OloEngine::Tests
         static_assert(sizeof(ProbeUbo) == 32, "std140 layout mismatch");
 
         ProbeUbo uboData{ { kBias, 0.0f, 0.0f, 0.0f }, static_cast<i32>(kShadowRes), { 0, 0, 0 } };
-        GLuint ubo = 0;
-        ::glCreateBuffers(1, &ubo);
+        ScopedBuffer ubo;
+        ::glCreateBuffers(1, ubo.AddressOf());
         ::glNamedBufferData(ubo, sizeof(ProbeUbo), &uboData, GL_STATIC_DRAW);
         ::glBindBufferBase(GL_UNIFORM_BUFFER, 18, ubo);
 
@@ -383,8 +429,7 @@ namespace OloEngine::Tests
             << transitionDepth << " exceeds shadowDepth+bias="
             << (kShadowDepth + kBias) << " by more than one texel";
 
-        ::glDeleteBuffers(1, &ubo);
-        ::glDeleteTextures(1, &shadowTex);
+        // shadowTex + ubo destructors delete their GL objects.
     }
 
     // =========================================================================
@@ -409,8 +454,8 @@ namespace OloEngine::Tests
         // Build a flat R8 heightmap of constant value 128.
         std::vector<u8> flatHeights(static_cast<std::size_t>(kRes) * kRes, 128);
 
-        GLuint heightTex = 0;
-        ::glCreateTextures(GL_TEXTURE_2D, 1, &heightTex);
+        ScopedTexture heightTex;
+        ::glCreateTextures(GL_TEXTURE_2D, 1, heightTex.AddressOf());
         ::glTextureStorage2D(heightTex, 1, GL_R8, kRes, kRes);
         ::glTextureSubImage2D(heightTex, 0, 0, 0, kRes, kRes, GL_RED, GL_UNSIGNED_BYTE, flatHeights.data());
         ::glTextureParameteri(heightTex, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -454,7 +499,7 @@ namespace OloEngine::Tests
         }
         EXPECT_EQ(violations, 0u) << violations << " interior pixels had non-up normals";
 
-        ::glDeleteTextures(1, &heightTex);
+        // heightTex destructor deletes the GL texture.
     }
 
     // =========================================================================

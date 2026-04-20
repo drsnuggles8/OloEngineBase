@@ -391,8 +391,12 @@ namespace OloEngine::Tests
 
         constexpr u32 kWidth = 512;
         constexpr u32 kHeight = 512;
-        constexpr u32 kWarmup = 3;
-        constexpr u32 kMeasure = 10;
+        // Match the shared MeasureFullscreenPassNs helper so every microbench
+        // in this file shares the same warmup/measure budget. The earlier
+        // 3/10 figure was an outlier that increased sample variance on this
+        // one pass relative to its siblings.
+        constexpr u32 kWarmup = 5;
+        constexpr u32 kMeasure = 20;
 
         FramebufferSpecification spec{};
         spec.Width = kWidth;

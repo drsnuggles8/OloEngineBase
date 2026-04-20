@@ -353,9 +353,19 @@ namespace OloEngine::Tests
             const bool rebase = ShouldRebase();
             const bool baselineExists = fs::exists(baselinePath);
 
-            if (!baselineExists || rebase)
+            if (!baselineExists && !rebase)
             {
-                // Bootstrap: write current output as the new baseline.
+                // Fail loudly instead of silently bootstrapping a missing
+                // baseline: a disappeared golden is a regression we want to
+                // catch, not paper over on the next run. To (re)generate a
+                // baseline intentionally, set OLOENGINE_GOLDEN_REBASE=1.
+                result.m_Message = "golden baseline missing at " + baselinePath.string() + " — rerun with OLOENGINE_GOLDEN_REBASE=1 to (re)create it";
+                return result;
+            }
+
+            if (rebase)
+            {
+                // Rebase: write current output as the new baseline.
                 const int ok = ::stbi_write_png(baselinePath.string().c_str(),
                                                 static_cast<int>(width), static_cast<int>(height),
                                                 4, actualRgba.data(), static_cast<int>(width) * 4);
@@ -365,7 +375,7 @@ namespace OloEngine::Tests
                     return result;
                 }
                 result.m_Passed = true;
-                result.m_Message = std::string(rebase ? "REBASED" : "BOOTSTRAPPED") + " baseline at " + baselinePath.string();
+                result.m_Message = "REBASED baseline at " + baselinePath.string();
                 return result;
             }
 

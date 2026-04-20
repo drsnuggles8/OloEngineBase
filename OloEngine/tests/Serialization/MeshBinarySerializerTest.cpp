@@ -152,6 +152,18 @@ TEST_F(MeshBinarySerializerTest, WriteAndReadStaticMesh)
     EXPECT_EQ(loaded->GetSubmeshes()[0].m_VertexCount, 4u);
     EXPECT_EQ(loaded->GetSubmeshes()[0].m_IndexCount, 6u);
 
+    // Bounding box survives the round-trip — the authored submesh supplied
+    // a (0,0,0)..(1,1,0) box; if the serializer drops or truncates the box
+    // fields the engine would end up frustum-culling valid geometry.
+    const auto& originalBox = original->GetSubmeshes()[0].m_BoundingBox;
+    const auto& loadedBox = loaded->GetSubmeshes()[0].m_BoundingBox;
+    EXPECT_FLOAT_EQ(loadedBox.Min.x, originalBox.Min.x);
+    EXPECT_FLOAT_EQ(loadedBox.Min.y, originalBox.Min.y);
+    EXPECT_FLOAT_EQ(loadedBox.Min.z, originalBox.Min.z);
+    EXPECT_FLOAT_EQ(loadedBox.Max.x, originalBox.Max.x);
+    EXPECT_FLOAT_EQ(loadedBox.Max.y, originalBox.Max.y);
+    EXPECT_FLOAT_EQ(loadedBox.Max.z, originalBox.Max.z);
+
     std::filesystem::remove(path);
 }
 

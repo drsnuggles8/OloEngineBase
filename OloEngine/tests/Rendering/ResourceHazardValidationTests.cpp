@@ -339,6 +339,104 @@ TEST(RenderGraphResourceHazards, ProductionShapedGraphWithNoPathToShadowIsFlagge
 }
 
 // =============================================================================
+// Production-shaped with the IBL triplet (irradiance / prefilter / BRDF LUT)
+// produced by a dedicated EnvironmentPass and consumed read-only by Scene.
+// Mirrors the real SceneRenderPass declarations — any missing ConnectPass
+// from IBL → Scene must be flagged as a RAW hazard on the specific resource.
+// =============================================================================
+TEST(RenderGraphResourceHazards, IblProducerConsumerIsHazardFree)
+{
+    RenderGraph graph;
+
+    auto env = AddDeclStub(graph, "EnvironmentPass");
+    env->TestDeclareWrite(std::string(ResourceNames::IrradianceMap));
+    env->TestDeclareWrite(std::string(ResourceNames::PrefilterMap));
+    env->TestDeclareWrite(std::string(ResourceNames::BrdfLut));
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareRead(std::string(ResourceNames::IrradianceMap));
+    scene->TestDeclareRead(std::string(ResourceNames::PrefilterMap));
+    scene->TestDeclareRead(std::string(ResourceNames::BrdfLut));
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    graph.ConnectPass("EnvironmentPass", "ScenePass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+}
+
+TEST(RenderGraphResourceHazards, IblMissingDependencyIsFlagged)
+{
+    RenderGraph graph;
+
+    auto env = AddDeclStub(graph, "EnvironmentPass");
+    env->TestDeclareWrite(std::string(ResourceNames::PrefilterMap));
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareRead(std::string(ResourceNames::PrefilterMap));
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    // NOTE: intentionally no ConnectPass from Environment to Scene.
+    const auto hazards = graph.ValidateResourceHazards();
+    ASSERT_FALSE(hazards.empty()) << "expected IBL RAW hazard, got none";
+    EXPECT_TRUE(ContainsHazardForResource(hazards, std::string(ResourceNames::PrefilterMap)))
+        << HazardsToString(hazards);
+}
+
+// =============================================================================
+// UI composite in-chain: PostProcess → UIComposite → Final. UIComposite reads
+// PostProcessColor and writes UIComposite; Final reads UIComposite. Mirrors
+// the declarations in UICompositeRenderPass.cpp and catches the textbook
+// mistake of letting Final read PostProcessColor directly while the UI pass
+// has already overwritten it.
+// =============================================================================
+TEST(RenderGraphResourceHazards, UICompositeInChainIsHazardFree)
+{
+    RenderGraph graph;
+
+    auto post = AddDeclStub(graph, "PostProcessPass");
+    post->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+    auto ui = AddDeclStub(graph, "UICompositePass");
+    ui->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+    ui->TestDeclareWrite(std::string(ResourceNames::UIComposite));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::UIComposite));
+    final->TestDeclareWrite(std::string(ResourceNames::FinalColor));
+
+    graph.ConnectPass("PostProcessPass", "UICompositePass");
+    graph.ConnectPass("UICompositePass", "FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+}
+
+TEST(RenderGraphResourceHazards, UICompositeSkippedByFinalIsFlagged)
+{
+    RenderGraph graph;
+
+    auto post = AddDeclStub(graph, "PostProcessPass");
+    post->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+    auto ui = AddDeclStub(graph, "UICompositePass");
+    ui->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+    ui->TestDeclareWrite(std::string(ResourceNames::UIComposite));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::UIComposite));
+
+    graph.ConnectPass("PostProcessPass", "UICompositePass");
+    // NOTE: Final missing its dependency on UICompositePass — even though the
+    // resource it reads is produced, nothing guarantees the producer runs
+    // first. The validator must flag this as a RAW hazard on UIComposite.
+    const auto hazards = graph.ValidateResourceHazards();
+    ASSERT_FALSE(hazards.empty()) << "expected UIComposite RAW hazard, got none";
+    EXPECT_TRUE(ContainsHazardForResource(hazards, std::string(ResourceNames::UIComposite)))
+        << HazardsToString(hazards);
+}
+
+// =============================================================================
 // Resource handle identity: name-based equality, Kind is metadata.
 // =============================================================================
 TEST(RenderGraphResourceHazards, ResourceHandleEqualityIsNameBased)

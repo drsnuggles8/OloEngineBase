@@ -94,3 +94,12 @@ add_custom_target(OloEngine-FuzzSmoke
 	        FuzzImageDecoder-smoke FuzzSceneYaml-smoke
 	        FuzzAssimpMesh-smoke FuzzSpirvCross-smoke
 )
+
+# Build-only aggregate — compiles every harness without running them. Handy
+# for `cmake --build --target OloEngine-Fuzz` in developer workflows where a
+# smoke run would blow the iteration budget.
+add_custom_target(OloEngine-Fuzz
+	DEPENDS FuzzAnimationBinary FuzzMeshBinary FuzzInputActionYaml
+	        FuzzImageDecoder FuzzSceneYaml
+	        FuzzAssimpMesh FuzzSpirvCross
+)

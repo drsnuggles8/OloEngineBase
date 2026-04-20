@@ -595,7 +595,7 @@ replaces manual doc edits.
 | File | Tests | Cases |
 |---|---:|---|
 | [RenderGraphTest.cpp](../OloEngine/tests/Rendering/RenderGraphTest.cpp) | 18 | **RenderGraph** &mdash; `AddPassMakesItRetrievable`, `GetPassReturnsNullForUnknown`, `GetAllPassesReturnsAll`, `LinearChainOrder`, `DiamondDependency`, `ExecutionDependencyOrdering`, `AllPassesPresentInOrder`, `IndependentPassesAllExecute`, `SetFinalPassIsFinalPass`, `GetConnectionsComplete`, `DuplicatePassNameOverwrites`, `MultipleExecuteIdempotent`, `SinglePassGraph`<br/>**RenderGraphStructural** &mdash; `ProductionPassOrderingAlwaysRespected`, `DuplicateConnectPassIsIdempotent`, `EachPassExecutesExactlyOncePerExecute`, `CycleIsDetectedAndDoesNotCrash`, `ConnectingToMissingPassDoesNotCorruptGraph` |
-| [ResourceHazardValidationTests.cpp](../OloEngine/tests/Rendering/ResourceHazardValidationTests.cpp) | 12 | **RenderGraphResourceHazards** &mdash; `LinearChainWithHandoffIsHazardFree`, `ReadWithoutDependencyIsFlagged`, `ParallelWritesToSameResourceAreFlagged`, `WriteAfterReadWithoutDependencyIsFlagged`, `TransitiveDependencyCountsAsDependency`, `DiamondReadersOfSharedResourceIsHazardFree`, `ReadOnlyResourceHasNoHazards`, `SamePassReadAndWriteIsLegal`, `UndeclaredPassDoesNotContributeHazards`, `ProductionShapedGraphIsHazardFree`, `ProductionShapedGraphWithNoPathToShadowIsFlagged`, `ResourceHandleEqualityIsNameBased` |
+| [ResourceHazardValidationTests.cpp](../OloEngine/tests/Rendering/ResourceHazardValidationTests.cpp) | 16 | **RenderGraphResourceHazards** &mdash; `LinearChainWithHandoffIsHazardFree`, `ReadWithoutDependencyIsFlagged`, `ParallelWritesToSameResourceAreFlagged`, `WriteAfterReadWithoutDependencyIsFlagged`, `TransitiveDependencyCountsAsDependency`, `DiamondReadersOfSharedResourceIsHazardFree`, `ReadOnlyResourceHasNoHazards`, `SamePassReadAndWriteIsLegal`, `UndeclaredPassDoesNotContributeHazards`, `ProductionShapedGraphIsHazardFree`, `ProductionShapedGraphWithNoPathToShadowIsFlagged`, `IblProducerConsumerIsHazardFree`, `IblMissingDependencyIsFlagged`, `UICompositeInChainIsHazardFree`, `UICompositeSkippedByFinalIsFlagged`, `ResourceHandleEqualityIsNameBased` |
 
 #### L6 — [Performance regression](#36-layer-6--performance-regression)
 
@@ -674,7 +674,7 @@ replaces manual doc edits.
 |---|---:|---|
 | [TestFailureCaptureTest.cpp](../OloEngine/tests/Rendering/PropertyTests/TestFailureCaptureTest.cpp) | 6 | **TestFailureCaptureTest** &mdash; `DirectoryForSanitizesNames`, `MetadataIsWrittenWithoutGlContext`, `LatestFrameSummaryIsNoOpWithoutCaptures`, `GLStateSnapshotIsWrittenWhenGpuAvailable`, `FboPngIsWrittenWhenGpuAvailable`, `CaptureAllProducesExpectedArtefacts` |
 
-**Totals.** 46 rendering-scope test files, 705 TEST / TEST_F / TEST_P declarations across all layers. Non-rendering subsystems (audio, networking, gameplay, save-game, &hellip;) are catalogued separately and are not listed here by design.
+**Totals.** 46 rendering-scope test files, 709 TEST / TEST_F / TEST_P declarations across all layers. Non-rendering subsystems (audio, networking, gameplay, save-game, &hellip;) are catalogued separately and are not listed here by design.
 
 <!-- END: auto-catalogue -->
 

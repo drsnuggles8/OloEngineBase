@@ -43,6 +43,35 @@
 
 namespace OloEngine::Tests
 {
+    namespace
+    {
+        // RAII: initialise IBLCache against a temp directory and tear it all
+        // down on scope exit, so ASSERT_* early-exits can't leak the shared
+        // cache state across tests or leave stray files on disk.
+        struct ScopedIBLCacheGuard
+        {
+            std::filesystem::path m_TempDir;
+
+            explicit ScopedIBLCacheGuard(std::filesystem::path tempDir)
+                : m_TempDir(std::move(tempDir))
+            {
+                std::error_code ec;
+                std::filesystem::remove_all(m_TempDir, ec);
+                IBLCache::Initialize(m_TempDir);
+            }
+
+            ~ScopedIBLCacheGuard()
+            {
+                IBLCache::Shutdown();
+                std::error_code ec;
+                std::filesystem::remove_all(m_TempDir, ec);
+            }
+
+            ScopedIBLCacheGuard(const ScopedIBLCacheGuard&) = delete;
+            ScopedIBLCacheGuard& operator=(const ScopedIBLCacheGuard&) = delete;
+        };
+    } // namespace
+
     TEST(DataRoundTripTest, Rgba32FGpuBitIdentity)
     {
         OLO_ENSURE_GPU_OR_SKIP();
@@ -137,11 +166,11 @@ namespace OloEngine::Tests
         constexpr u32 kHeight = 32;
         constexpr u32 kMipLevels = 3;
 
-        // Use a temp cache directory so we don't stomp on the real one.
+        // Temp cache directory so we don't stomp on the real one.
+        // ScopedIBLCacheGuard handles Initialize/Shutdown + remove_all
+        // symmetrically across all exit paths, including ASSERT_* aborts.
         auto tempDir = std::filesystem::temp_directory_path() / "olo_ibl_cache_test";
-        std::error_code ec;
-        std::filesystem::remove_all(tempDir, ec);
-        IBLCache::Initialize(tempDir);
+        ScopedIBLCacheGuard cacheGuard(tempDir);
 
         // -- Build the test prefilter cubemap with a distinct pattern per mip.
         // Use RGBA32F so upload / readback is exact bit-for-bit (no half-float
@@ -247,7 +276,11 @@ namespace OloEngine::Tests
                 ASSERT_TRUE(cached.Prefilter->GetFaceData(face, readBytes, mip));
                 ASSERT_EQ(readBytes.size(), static_cast<std::size_t>(mipW) * mipH * 4 * sizeof(f32));
 
-                const f32* readFloats = reinterpret_cast<const f32*>(readBytes.data());
+                // Avoid reinterpret_cast-through-std::vector<u8>: copy each
+                // 4-byte texel into a local f32 via std::memcpy so we only
+                // touch the underlying bytes through their canonical type.
+                // Strict-aliasing safe and matches the pattern used in the
+                // RGBA32F bit-identity test above.
                 for (u32 y = 0; y < mipH; ++y)
                 {
                     for (u32 x = 0; x < mipW; ++x)
@@ -256,7 +289,11 @@ namespace OloEngine::Tests
                         const std::size_t idx = (static_cast<std::size_t>(y) * mipW + x) * 4;
                         for (u32 c = 0; c < 4; ++c)
                         {
-                            if (std::memcmp(&expected[c], &readFloats[idx + c], sizeof(f32)) != 0)
+                            f32 readValue = 0.0f;
+                            std::memcpy(&readValue,
+                                        readBytes.data() + (idx + c) * sizeof(f32),
+                                        sizeof(f32));
+                            if (std::memcmp(&expected[c], &readValue, sizeof(f32)) != 0)
                                 ++totalDiffs;
                         }
                     }
@@ -267,8 +304,7 @@ namespace OloEngine::Tests
             << "IBL cache round-trip produced " << totalDiffs
             << " bit-different texels across all mips (classic 'only mip 0 loaded' symptom)";
 
-        IBLCache::Shutdown();
-        std::filesystem::remove_all(tempDir, ec);
+        // cacheGuard destructor runs IBLCache::Shutdown + remove_all(tempDir).
     }
 
     // =========================================================================

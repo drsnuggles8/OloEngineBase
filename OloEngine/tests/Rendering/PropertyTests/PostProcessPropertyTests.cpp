@@ -110,6 +110,12 @@ namespace OloEngine::Tests
 
             void SetInputTexture(u32 tex)
             {
+                // Adopt ownership: release any previously-set input so
+                // repeated SetInputTexture calls in a single harness instance
+                // can't leak. Callers still hand over an already-owned
+                // texture created via CreateUniform*Texture2D etc.
+                if (m_InputTex && m_InputTex != tex)
+                    ::glDeleteTextures(1, &m_InputTex);
                 m_InputTex = tex;
             }
 

@@ -289,6 +289,16 @@ TEST(RenderGraphStructural, ProductionPassOrderingAlwaysRespected)
     const auto postPos = posOf("PostProcessPass");
     const auto finalPos = posOf("FinalPass");
 
+    // std::find returns end() for missing names, whose index equals order.size().
+    // Without these existence asserts the EXPECT_LT comparisons below could
+    // silently pass (both sides clamped to size()) when the pass dropped out
+    // of the execution order entirely.
+    const auto orderSize = static_cast<decltype(shadowPos)>(order.size());
+    ASSERT_LT(shadowPos, orderSize) << "ShadowPass missing from execution order";
+    ASSERT_LT(scenePos, orderSize) << "ScenePass missing from execution order";
+    ASSERT_LT(postPos, orderSize) << "PostProcessPass missing from execution order";
+    ASSERT_LT(finalPos, orderSize) << "FinalPass missing from execution order";
+
     EXPECT_LT(shadowPos, scenePos) << "Shadow must precede Scene";
     EXPECT_LT(scenePos, postPos) << "Scene must precede PostProcess";
     EXPECT_LT(postPos, finalPos) << "PostProcess must precede Final";
