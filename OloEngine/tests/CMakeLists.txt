@@ -188,7 +188,9 @@ target_include_directories(OloEngine-Tests PRIVATE
 	${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser
 )
 
-# Register tests with CTest so `ctest` discovers them
+# Register tests with CTest so `ctest` discovers them. The WORKING_DIRECTORY
+# keeps repo-relative paths (shaders, assets) resolvable — many tests call
+# Shader::Create("assets/shaders/...") which only works when CWD is OloEditor.
 include(GoogleTest)
-gtest_discover_tests(OloEngine-Tests)
+gtest_discover_tests(OloEngine-Tests WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor)
 

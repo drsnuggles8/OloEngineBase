@@ -75,7 +75,10 @@ jobs:
 
   asan-lsan-linux:
     name: ASan + LSan (Linux/Clang)
-    runs-on: ubuntu-latest
+    # Pinned to ubuntu-24.04 (noble) because the LLVM apt repo URL below
+    # hardcodes the distro codename. If ubuntu-latest jumps to a newer
+    # release the apt source would 404.
+    runs-on: ubuntu-24.04
     permissions:
       checks: write
 
@@ -135,7 +138,8 @@ jobs:
 
   ubsan-linux:
     name: UBSan (Linux/Clang)
-    runs-on: ubuntu-latest
+    # See asan-lsan-linux above for why this pins the distro codename.
+    runs-on: ubuntu-24.04
     permissions:
       checks: write
 
@@ -194,8 +198,9 @@ jobs:
 
   tsan-linux:
     name: TSan (Linux/Clang)
-    runs-on: ubuntu-latest
     timeout-minutes: 90
+    # See asan-lsan-linux above for why this pins the distro codename.
+    runs-on: ubuntu-24.04
     permissions:
       checks: write
 

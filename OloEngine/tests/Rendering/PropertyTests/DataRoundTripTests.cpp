@@ -39,7 +39,14 @@
 #include <cstring>
 #include <filesystem>
 #include <limits>
+#include <string>
 #include <vector>
+
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace OloEngine::Tests
 {
@@ -169,7 +176,16 @@ namespace OloEngine::Tests
         // Temp cache directory so we don't stomp on the real one.
         // ScopedIBLCacheGuard handles Initialize/Shutdown + remove_all
         // symmetrically across all exit paths, including ASSERT_* aborts.
-        auto tempDir = std::filesystem::temp_directory_path() / "olo_ibl_cache_test";
+        // PID-suffixed path isolates parallel test runners / ctest -j N.
+        auto tempDir = std::filesystem::temp_directory_path() /
+                       (std::string("olo_ibl_cache_test_") +
+                        std::to_string(
+#if defined(_WIN32)
+                            static_cast<unsigned long>(::_getpid())
+#else
+                            static_cast<unsigned long>(::getpid())
+#endif
+                                ));
         ScopedIBLCacheGuard cacheGuard(tempDir);
 
         // -- Build the test prefilter cubemap with a distinct pattern per mip.

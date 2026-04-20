@@ -17,6 +17,8 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <string>
+#include <system_error>
 
 #if defined(_WIN32)
 #include <process.h>

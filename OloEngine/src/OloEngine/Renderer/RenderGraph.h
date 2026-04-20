@@ -102,7 +102,11 @@ namespace OloEngine
         [[nodiscard]] std::vector<Hazard> ValidateResourceHazards();
 
       private:
-        void UpdateDependencyGraph();
+        // Returns false if the graph contains a cycle (m_PassOrder will be
+        // partial/empty in that case). Callers must abort further work when
+        // false is returned — running validators or Execute() against a
+        // partial topo order produces misleading diagnostics.
+        [[nodiscard]] bool UpdateDependencyGraph();
         void ResolveFinalPass();
 
         std::unordered_map<std::string, Ref<RenderPass>> m_PassLookup;

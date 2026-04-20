@@ -53,6 +53,9 @@ jobs:
       - name: Download Mesa3D llvmpipe (OpenGL 4.6 software renderer)
         shell: pwsh
         run: |
+          # Mesa3D llvmpipe — pinned version for reproducible software-renderer runs.
+          # Last verified: 2026-04-20. Bump when a newer release gates OpenGL 4.6
+          # feature support we rely on (compute shaders, DSA, etc.).
           $url = 'https://github.com/pal1000/mesa-dist-win/releases/download/24.3.4/mesa3d-24.3.4-release-msvc.7z'
           Invoke-WebRequest -Uri $url -OutFile mesa3d.7z
           7z x mesa3d.7z -omesa3d -y | Out-Null

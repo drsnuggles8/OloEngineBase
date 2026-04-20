@@ -19,7 +19,12 @@ namespace OloEngine::RendererValidate
     {
         bool IsFloatColorFormat(FramebufferTextureFormat f)
         {
-            return f == FramebufferTextureFormat::RGBA16F || f == FramebufferTextureFormat::RGBA32F || f == FramebufferTextureFormat::RGB16F || f == FramebufferTextureFormat::RGB32F || f == FramebufferTextureFormat::RG16F || f == FramebufferTextureFormat::RG32F;
+            // Only RGBA float formats are supported here. ReadFloatAttachmentStats
+            // calls glGetTextureImage with GL_RGBA which would be invalid for
+            // RG/RGB textures (base format mismatch). Callers wanting to
+            // validate RG/RGB attachments should extend both this predicate
+            // and the readback to thread the component count through.
+            return f == FramebufferTextureFormat::RGBA16F || f == FramebufferTextureFormat::RGBA32F;
         }
     } // namespace
 

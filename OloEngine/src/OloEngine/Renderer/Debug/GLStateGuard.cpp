@@ -9,6 +9,7 @@
 
 #include <glad/gl.h>
 
+#include <algorithm>
 #include <sstream>
 
 namespace OloEngine
@@ -124,10 +125,21 @@ namespace OloEngine
         // active unit and forgets to restore it will go undetected.
         s.m_ActiveTextureUnit = GlGetUInt(GL_ACTIVE_TEXTURE);
 
-        for (u32 i = 0; i < kTextureSlots; ++i)
+        // Clamp the per-slot loops against driver-reported limits so we
+        // never query a binding point the driver does not expose. Software
+        // renderers (llvmpipe, SwiftShader) sometimes report fewer than
+        // the GL 4.6 guaranteed minimums.
+        GLint driverTextureUnits = 0;
+        GLint driverUboBindings = 0;
+        ::glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &driverTextureUnits);
+        ::glGetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS, &driverUboBindings);
+        const u32 textureSlotLimit = std::min<u32>(kTextureSlots, driverTextureUnits > 0 ? static_cast<u32>(driverTextureUnits) : kTextureSlots);
+        const u32 uboSlotLimit = std::min<u32>(kUboSlots, driverUboBindings > 0 ? static_cast<u32>(driverUboBindings) : kUboSlots);
+
+        for (u32 i = 0; i < textureSlotLimit; ++i)
             s.m_Textures2D[i] = GlGetTextureBinding2DAtUnit(i);
 
-        for (u32 i = 0; i < kUboSlots; ++i)
+        for (u32 i = 0; i < uboSlotLimit; ++i)
             s.m_UniformBuffers[i] = GlGetIndexedUInt(GL_UNIFORM_BUFFER_BINDING, i);
 
         return s;

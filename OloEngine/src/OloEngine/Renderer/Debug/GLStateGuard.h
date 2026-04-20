@@ -77,11 +77,15 @@ namespace OloEngine
         // left selected on exit. Per-unit bindings are tracked below.
         u32 m_ActiveTextureUnit = 0;
 
-        // Per-slot bindings. 16 texture units and 16 UBO slots cover every
-        // binding currently used by OloEngine. Extending this later is a
-        // single-line change in the capture function.
-        static constexpr u32 kTextureSlots = 16;
-        static constexpr u32 kUboSlots = 16;
+        // Per-slot bindings. OloEngine currently uses binding points up to
+        // at least unit 24 (shadow / IBL / foliage / terrain splat) and UBO
+        // binding 18 (post-process / fog). Size these generously at 32 —
+        // the OpenGL 4.6 guaranteed minimum for GL_MAX_TEXTURE_IMAGE_UNITS
+        // and GL_MAX_UNIFORM_BUFFER_BINDINGS — so no live binding escapes
+        // detection. Clamp the capture loops against the driver's actual
+        // limit in case it reports fewer (software renderers occasionally do).
+        static constexpr u32 kTextureSlots = 32;
+        static constexpr u32 kUboSlots = 32;
         std::array<u32, kTextureSlots> m_Textures2D{};
         std::array<u32, kUboSlots> m_UniformBuffers{};
 

@@ -135,10 +135,14 @@ def build_markdown(cfg):
 
         title = layer["title"]
         anchor = layer.get("anchor", "")
+        # The catalogue is inserted under "## 3.12" in docs/renderer-testing.md,
+        # so per-layer sub-headings must be "### ..." (one level deeper) to
+        # satisfy MD001 (heading-increment). A previous hardcoded "####" was
+        # skipping a level and tripping markdownlint.
         if anchor:
-            heading = f"#### {layer_id} — [{title}](#{anchor})"
+            heading = f"### {layer_id} — [{title}](#{anchor})"
         else:
-            heading = f"#### {layer_id} — {title}"
+            heading = f"### {layer_id} — {title}"
 
         lines.append(heading)
         lines.append("")

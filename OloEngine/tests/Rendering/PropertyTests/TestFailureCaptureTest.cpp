@@ -29,7 +29,9 @@ namespace OloEngine::Tests
 {
     namespace
     {
-        static std::string ReadFile(const fs::path& p)
+        // Anonymous namespace already gives internal linkage — no need
+        // for the redundant `static` specifier.
+        std::string ReadFile(const fs::path& p)
         {
             std::ifstream in(p, std::ios::binary);
             if (!in)

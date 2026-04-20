@@ -37,7 +37,7 @@ def percentile(values, q):
     if not values:
         return float("nan")
     s = sorted(values)
-    k = max(0, min(len(s) - 1, int(round((q / 100.0) * (len(s) - 1)))))
+    k = max(0, min(len(s) - 1, round((q / 100.0) * (len(s) - 1))))
     return s[k]
 
 

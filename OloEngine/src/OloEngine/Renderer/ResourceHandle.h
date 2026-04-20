@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 
+#include <functional>
 #include <string>
 #include <string_view>
 

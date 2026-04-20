@@ -21,14 +21,14 @@ TEST(MathTest, DecomposeTransformTest)
 
     ASSERT_TRUE(OloEngine::Math::DecomposeTransform(transform, translation, rotation, scale));
 
-    constexpr float kEps = 1e-4f;
+    constexpr f32 kEps = 1e-4f;
 
-    for (int i = 0; i < 3; ++i)
+    for (u32 i = 0; i < 3; ++i)
     {
         EXPECT_NEAR(translation[i], expectedTranslation[i], kEps) << "Translation mismatch at [" << i << "]";
     }
 
-    for (int i = 0; i < 3; ++i)
+    for (u32 i = 0; i < 3; ++i)
     {
         EXPECT_NEAR(scale[i], expectedScale[i], kEps) << "Scale mismatch at [" << i << "]";
     }
@@ -37,9 +37,9 @@ TEST(MathTest, DecomposeTransformTest)
     // equivalent but numerically different angles. Compare rotation matrices.
     const glm::mat4 expectedRot = glm::toMat4(glm::quat(expectedRotation));
     const glm::mat4 actualRot = glm::toMat4(glm::quat(rotation));
-    for (int col = 0; col < 3; ++col)
+    for (u32 col = 0; col < 3; ++col)
     {
-        for (int row = 0; row < 3; ++row)
+        for (u32 row = 0; row < 3; ++row)
         {
             EXPECT_NEAR(actualRot[col][row], expectedRot[col][row], kEps)
                 << "Rotation matrix mismatch at [" << col << "][" << row << "]";

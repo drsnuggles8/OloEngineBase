@@ -20,6 +20,8 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <string>
+#include <system_error>
 
 #if defined(_WIN32)
 #include <process.h>
@@ -49,13 +51,18 @@ namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 {
+    // Cap on-disk write size; parity with FuzzAssimpMesh (4 MB) so we don't
+    // pay pathological I/O cost for adversarial inputs.
+    constexpr size_t kMaxFuzzFileSize = 4 * 1024 * 1024;
+    const size_t cappedSize = size < kMaxFuzzFileSize ? size : kMaxFuzzFileSize;
+
     const auto path = MakeTempPath();
     {
         std::ofstream out(path, std::ios::binary | std::ios::trunc);
         if (!out.is_open())
             return 0;
-        if (size > 0)
-            out.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(size));
+        if (cappedSize > 0)
+            out.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(cappedSize));
     }
 
     // Must not throw / crash on any byte pattern. Failure paths are logged

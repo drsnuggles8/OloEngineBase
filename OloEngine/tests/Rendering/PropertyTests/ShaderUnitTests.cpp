@@ -209,7 +209,11 @@ namespace OloEngine::Tests
                                    static_cast<GLsizeiptr>(rgbInputs.size() * sizeof(f32)), rgbInputs.data());
 
             auto cs = ComputeShader::Create("assets/shaders/tests/ShaderUnit_ToneMap.glsl");
-            EXPECT_TRUE(cs && cs->IsValid());
+            if (!cs || !cs->IsValid())
+            {
+                ADD_FAILURE() << "ShaderUnit_ToneMap compute shader failed to compile/link";
+                return {};
+            }
             cs->Bind();
             cs->SetInt("u_Op", op);
 

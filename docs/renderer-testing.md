@@ -563,7 +563,7 @@ replaces manual doc edits.
 
 > **Do not edit by hand.** Generated from [test_catalogue.json](../OloEngine/tests/scripts/test_catalogue.json) by [generate_test_catalogue.py](../OloEngine/tests/scripts/generate_test_catalogue.py). Add new test files to the config and run the script (or pre-commit will run it with `--check`).
 
-#### L1 — [Property / behavioural tests](#31-layer-1--property--behavioural-tests)
+### L1 — [Property / behavioural tests](#31-layer-1--property--behavioural-tests)
 
 | File | Tests | Cases |
 |---|---:|---|
@@ -571,52 +571,52 @@ replaces manual doc edits.
 | [PostProcessPropertyTests.cpp](../OloEngine/tests/Rendering/PropertyTests/PostProcessPropertyTests.cpp) | 17 | **ToneMapMonotonicityTest** &mdash; `ReinhardPreservesLuminanceOrdering`<br/>**ToneMapMonotonicityFixture** &mdash; `HdrRampIsNonDecreasing`<br/>**ToneMapBlackFixture** &mdash; `BlackInputStaysBlack`<br/>**ToneMapExtremeHdrFixture** &mdash; `ExtremeHdrProducesFiniteOutput`<br/>**VignettePropertyTest** &mdash; `CenterBrighterThanCorners`<br/>**ChromaticAberrationPropertyTest** &mdash; `CenterPixelUnaffected`<br/>**FxaaUniformInputTest** &mdash; `UniformInputIsNoOp`<br/>**FxaaEdgeDisplacementTest** &mdash; `EdgePreservesFlatRegions`<br/>**MotionBlurStaticTest** &mdash; `ZeroVelocityIsIdentity`<br/>**DofFocusTest** &mdash; `DepthAtFocusDistanceIsIdentity`, `CocLinearModelMatchesSweep`<br/>**BloomThresholdTest** &mdash; `BlackInputStaysBlack`<br/>**BloomDownsampleTest** &mdash; `UniformInputIsIdentity`<br/>**BloomUpsampleTest** &mdash; `UniformInputIsIdentity`<br/>**BloomCompositeTest** &mdash; `ZeroIntensityPassesSceneThrough`<br/>**BloomChainEnergyTest** &mdash; `MultiPassDownUpPreservesTotalEnergy`<br/>**FogDisabledTest** &mdash; `DisabledFlagProducesZeroInscatter`<br/>*Parametrised via 3 `INSTANTIATE_TEST_SUITE_P`* |
 | [ShadowTerrainPropertyTests.cpp](../OloEngine/tests/Rendering/PropertyTests/ShadowTerrainPropertyTests.cpp) | 5 | **ShadowBoundsTest** &mdash; `BoundaryCasesShortCircuit`, `CascadeIndexSweepIsCorrect`<br/>**ShadowBiasTest** &mdash; `SelfShadowAndPeterPanningContract`<br/>**TerrainHeightmapTest** &mdash; `FlatHeightmapProducesUpNormal`<br/>**TerrainSplatmapTest** &mdash; `ChannelIsolationMapsToCorrectLayer` |
 
-#### L2 — [Shader unit tests](#32-layer-2--shader-unit-tests)
+### L2 — [Shader unit tests](#32-layer-2--shader-unit-tests)
 
 | File | Tests | Cases |
 |---|---:|---|
 | [ShaderUnitTests.cpp](../OloEngine/tests/Rendering/PropertyTests/ShaderUnitTests.cpp) | 8 | **ShaderUnitSrgbTest** &mdash; `RoundTripWithinOneLsb`, `MidpointMatchesReference`<br/>**ShaderUnitToneMapTest** &mdash; `ReinhardMatchesReference`, `AcesMatchesReference`, `Uncharted2MatchesReference`<br/>**ShaderUnitGgxTest** &mdash; `HemisphereIntegralIsOne`<br/>**ShaderUnitOctNormalTest** &mdash; `RoundTripPreservesUnitNormals`<br/>**ShaderUnitFogTest** &mdash; `EndpointInvariants` |
 
-#### L3 — [Data round-trip](#33-layer-3--data-round-trip)
+### L3 — [Data round-trip](#33-layer-3--data-round-trip)
 
 | File | Tests | Cases |
 |---|---:|---|
 | [DataRoundTripTests.cpp](../OloEngine/tests/Rendering/PropertyTests/DataRoundTripTests.cpp) | 5 | **DataRoundTripTest** &mdash; `Rgba32FGpuBitIdentity`, `Rgba8GpuByteIdentity`, `IblCacheCubemapRoundTripPreservesAllMips`, `RandomisedRgba32FStressRoundTrip`, `RandomisedRgba8StressRoundTrip` |
 
-#### L4 — [GPU state validation](#34-layer-4--gpu-state-validation)
+### L4 — [GPU state validation](#34-layer-4--gpu-state-validation)
 
 | File | Tests | Cases |
 |---|---:|---|
 | [GLStateGuardTest.cpp](../OloEngine/tests/Rendering/PropertyTests/GLStateGuardTest.cpp) | 8 | **GLStateGuardTest** &mdash; `EmptyRegionHasNoLeaks`, `LeakedBlendIsDetected`, `LeakedDepthMaskIsDetected`, `LeakedDrawFboIsDetected`, `LeakedTextureBindingIsDetected`, `LeakedUboBindingIsDetected`, `MultipleLeaksAreAllReported`, `RestoredStateShowsNoLeaks` |
 | [RenderStateTest.cpp](../OloEngine/tests/Rendering/RenderStateTest.cpp) | 33 | **RenderState** &mdash; `DefaultsAreCorrect`, `TriviallyCopyable`, `BlendedObjectsUseTransparentSortKey`, `InfiniteGridSortKeyIsTransparent`, `OpaqueObjectHasCorrectState`, `TransparentObjectHasCorrectState`, `TwoSidedMaterialDisablesCulling`, `WireframeModeUsesLinePolygonMode`, `PolygonOffsetForDecals`, `DepthOnlyPassDisablesColorMask`, `CubeWindingOrderIsCCW`, `CubeHas36Indices`, `CubeHas24Vertices`, `CubeNormalsAreUnitLength`, `CubeIndicesInRange`, `ShaderIncludeSkipsComments`, `ShaderIncludePathNoDuplication`, `WireframeCubeState`, `TransparentSphereState`, `PolygonOffsetOverlayState`, `BlendEnabledRequiresTransparentKey`, `OpaqueBeforeTransparentSortInvariant`, `StencilOutlinePassWriteState`, `StencilOutlinePassReadState`, `CylinderTopCapWindingIsCCW`, `CylinderBottomCapWindingIsCCW`, `CylinderSideWindingIsCCW`, `ConeBaseWindingIsCCW`, `ConeSideWindingIsCCW`, `TorusWindingIsCCW`, `MaterialBlendFlagDeterminesSortKeyType`, `TransparentDepthSortsBackToFront`, `BlendedObjectShouldNotWriteDepth` |
 
-#### L5 — [Render graph / hazard validation](#35-layer-5--render-graph--hazard-validation)
+### L5 — [Render graph / hazard validation](#35-layer-5--render-graph--hazard-validation)
 
 | File | Tests | Cases |
 |---|---:|---|
 | [RenderGraphTest.cpp](../OloEngine/tests/Rendering/RenderGraphTest.cpp) | 18 | **RenderGraph** &mdash; `AddPassMakesItRetrievable`, `GetPassReturnsNullForUnknown`, `GetAllPassesReturnsAll`, `LinearChainOrder`, `DiamondDependency`, `ExecutionDependencyOrdering`, `AllPassesPresentInOrder`, `IndependentPassesAllExecute`, `SetFinalPassIsFinalPass`, `GetConnectionsComplete`, `DuplicatePassNameOverwrites`, `MultipleExecuteIdempotent`, `SinglePassGraph`<br/>**RenderGraphStructural** &mdash; `ProductionPassOrderingAlwaysRespected`, `DuplicateConnectPassIsIdempotent`, `EachPassExecutesExactlyOncePerExecute`, `CycleIsDetectedAndDoesNotCrash`, `ConnectingToMissingPassDoesNotCorruptGraph` |
 | [ResourceHazardValidationTests.cpp](../OloEngine/tests/Rendering/ResourceHazardValidationTests.cpp) | 16 | **RenderGraphResourceHazards** &mdash; `LinearChainWithHandoffIsHazardFree`, `ReadWithoutDependencyIsFlagged`, `ParallelWritesToSameResourceAreFlagged`, `WriteAfterReadWithoutDependencyIsFlagged`, `TransitiveDependencyCountsAsDependency`, `DiamondReadersOfSharedResourceIsHazardFree`, `ReadOnlyResourceHasNoHazards`, `SamePassReadAndWriteIsLegal`, `UndeclaredPassDoesNotContributeHazards`, `ProductionShapedGraphIsHazardFree`, `ProductionShapedGraphWithNoPathToShadowIsFlagged`, `IblProducerConsumerIsHazardFree`, `IblMissingDependencyIsFlagged`, `UICompositeInChainIsHazardFree`, `UICompositeSkippedByFinalIsFlagged`, `ResourceHandleEqualityIsNameBased` |
 
-#### L6 — [Performance regression](#36-layer-6--performance-regression)
+### L6 — [Performance regression](#36-layer-6--performance-regression)
 
 | File | Tests | Cases |
 |---|---:|---|
 | [CommandBucketBenchmarkTest.cpp](../OloEngine/tests/Rendering/CommandBucketBenchmarkTest.cpp) | 4 | **SortScalingTest** &mdash; `SortCompletesAndOrderIsValid`<br/>**CommandBucketBenchmark** &mdash; `ParallelSubmitAndMerge`, `AllocatorResetStability`, `LargeCommandMemoryPressure`<br/>*Parametrised via 1 `INSTANTIATE_TEST_SUITE_P`* |
 | [PerfRegressionTests.cpp](../OloEngine/tests/Rendering/PropertyTests/PerfRegressionTests.cpp) | 6 | **PerfRegressionTest** &mdash; `ToneMapPassTimingIsMeasurable`, `BloomThresholdPassTimingIsMeasurable`, `BloomDownsamplePassTimingIsMeasurable`, `BloomUpsamplePassTimingIsMeasurable`, `WholeFramePostprocessChainTimingIsMeasurable`, `SceneDrawBurstBudget` |
 
-#### L7 — [Smoke / sanity readback](#37-layer-7--smoke--sanity-readback)
+### L7 — [Smoke / sanity readback](#37-layer-7--smoke--sanity-readback)
 
 | File | Tests | Cases |
 |---|---:|---|
 | [RendererValidateTest.cpp](../OloEngine/tests/Rendering/PropertyTests/RendererValidateTest.cpp) | 5 | **RendererValidateTest** &mdash; `CleanFramebufferPassesValidation`, `NanPixelsAreDetected`, `InfPixelsAreDetected`, `Fp16OverflowIsDetected`, `RejectsUnsupportedFormatsGracefully` |
 
-#### L8 — [Golden image](#38-layer-8--golden-image)
+### L8 — [Golden image](#38-layer-8--golden-image)
 
 | File | Tests | Cases |
 |---|---:|---|
 | [GoldenImageTests.cpp](../OloEngine/tests/Rendering/PropertyTests/GoldenImageTests.cpp) | 8 | **GoldenImageSsimTest** &mdash; `IdenticalImagesYieldSsimOne`, `TinyUniformShiftKeepsSsimHigh`, `StructuralDestructionCollapsesSsim`, `SsimIsSymmetric`<br/>**GoldenImageTest** &mdash; `ReinhardHdrRampGolden`, `FxaaHardEdgeGolden`, `SceneShadowIntegrationGolden`, `SceneSplatmapIntegrationGolden` |
 
-#### plumbing — Pipeline plumbing (command bucket, dispatch, frame data)
+### plumbing — Pipeline plumbing (command bucket, dispatch, frame data)
 
 | File | Tests | Cases |
 |---|---:|---|
@@ -630,7 +630,7 @@ replaces manual doc edits.
 | [FramePipelineTest.cpp](../OloEngine/tests/Rendering/FramePipelineTest.cpp) | 6 | **FramePipelineTest** &mdash; `OpaqueBeforeTransparent`, `AllSubmittedCommandsPresent`, `SortReducesShaderStateChanges`, `IsolatedBuckets`, `MultiFrameResetCycle`, `ViewLayerSortingPriority` |
 | [PODCommandTest.cpp](../OloEngine/tests/Rendering/PODCommandTest.cpp) | 8 | **PODCommand** &mdash; `AllCommandsTrivialCopy`, `CommandSizeBound`, `DrawMeshFieldRoundTrip`, `ZeroInitNoNaN`, `PODRenderStateTrivialCopy`, `PODRenderStateDefaults`, `CommandTypeToStringCoverage`, `CommandHeaderDefault` |
 
-#### cullinglod — Culling, LOD, occlusion
+### cullinglod — Culling, LOD, occlusion
 
 | File | Tests | Cases |
 |---|---:|---|
@@ -641,7 +641,7 @@ replaces manual doc edits.
 | [OcclusionIntegrationTest.cpp](../OloEngine/tests/Rendering/OcclusionIntegrationTest.cpp) | 17 | **OcclusionIntegration** &mdash; `DrawMeshCommandDefaultQueryIndex`, `DrawMeshCommandQueryIndexRoundTrip`, `DrawMeshCommandStillTriviallyCopyable`, `DrawMeshCommandSizeBound`, `ParticleSphereInsideFrustum`, `ParticleSphereBehindCamera`, `ParticleSpherePartiallyIntersecting`, `ParticleSphereBeyondFarPlane`, `FoliageBoundsInsideFrustum`, `FoliageBoundsBehindCamera`, `FoliageBoundsFarAway`, `PerInstanceCullingFiltersCorrectly`, `PerInstanceCullingAllVisible`, `PerInstanceCullingNoneVisible`, `BoundingBoxCenterExtentsForProxy`, `BoundingBoxAsymmetricProxy`, `BoundingSphereFromBoundingBox` |
 | [OcclusionStateTest.cpp](../OloEngine/tests/Rendering/OcclusionStateTest.cpp) | 19 | **OcclusionState** &mdash; `DefaultConstruction`, `MutableFields`<br/>**OcclusionStateManagerTest** &mdash; `GetOrCreateNewState`, `GetOrCreateReturnsSameState`, `HasReturnsFalseForUnknown`, `HasReturnsTrueAfterCreate`, `RemoveDeletesState`, `RemoveNonExistentNoOp`, `MultipleObjects`, `AllocateSequential`, `AllocateRespectsMaxQueries`, `FreeAndReallocate`, `RemoveFreesQueryIndex`, `RemoveWithNoQueryNoFreeListCorruption`, `FrameCounterStartsAtZero`, `BeginFrameIncrementsCounter`, `ClearResetsFrameCounter`, `SimulateTemporalCoherence`, `StressAllocFree` |
 
-#### shaderpipe — Shader pack / binding layout / ShaderGraph
+### shaderpipe — Shader pack / binding layout / ShaderGraph
 
 | File | Tests | Cases |
 |---|---:|---|
@@ -652,7 +652,7 @@ replaces manual doc edits.
 | [ShaderGraphSerializationTest.cpp](../OloEngine/tests/ShaderGraph/ShaderGraphSerializationTest.cpp) | 12 | **ShaderGraphSerializationTest** &mdash; `SerializeProducesNonEmptyYAML`, `RoundTripPreservesGraphName`, `RoundTripPreservesNodeCount`, `RoundTripPreservesLinkCount`, `RoundTripPreservesParameterName`, `RoundTripPreservesNodeTypes`, `DeserializeInvalidYAMLReturnsFalse`, `DeserializeMissingRootNodeReturnsFalse`, `DeserializedGraphIsDirty`, `DeserializedGraphCanCompile`, `RoundTripPreservesComputeWorkgroupSize`, `RoundTripPreservesBufferBinding` |
 | [ShaderGraphTest.cpp](../OloEngine/tests/ShaderGraph/ShaderGraphTest.cpp) | 24 | **ShaderGraphTest** &mdash; `AddNodeAndFindIt`, `RemoveNodeCleansUpLinks`, `FindPinAcrossNodes`, `AddLinkConnectsCompatiblePins`, `AddLinkRejectsIncompatibleTypes`, `InputPinCanOnlyHaveOneLink`, `WouldCreateCycleDetectsCycle`, `WouldCreateCycleAllowsValidLink`, `ValidateEmptyGraphIsInvalid`, `ValidateGraphWithOutputNodeIsValid`, `ValidateGraphWithMultipleOutputsIsInvalid`, `TopologicalOrderPutsOutputLast`, `NodeFactoryCreatesAllRegisteredTypes`, `NodeFactoryReturnsNullForUnknown`, `ComputeOutputNodeCreation`, `ComputeBufferNodeCreation`, `ComputeInvocationIDNodes`, `ValidateComputeGraphIsValid`, `ValidateMixedOutputNodesIsInvalid`, `FindOutputNodeReturnsComputeOutput`<br/>**ShaderGraphTypeTest** &mdash; `FloatBroadcastsToVectors`, `Vec4TruncatesToVec3AndVec2`, `IncompatibleTypesCannotConvert`, `GenerateTypeConversionProducesValidGLSL` |
 
-#### integration — Feature-level integration tests (outside PropertyTests/)
+### integration — Feature-level integration tests (outside PropertyTests/)
 
 | File | Tests | Cases |
 |---|---:|---|
@@ -668,7 +668,7 @@ replaces manual doc edits.
 | [SphericalHarmonicsTest.cpp](../OloEngine/tests/SphericalHarmonicsTest.cpp) | 17 | **SphericalHarmonicsTest** &mdash; `ZeroClearsAllCoefficients`, `AccumulateAddsCoefficients`, `ScaleMultipliesAllCoefficients`, `GPULayoutRoundtripPreservesData`, `GPULayoutValidityFlag`, `GPULayoutUnusedWComponentsAreZero`, `BasisFunctionDCTermIsConstant`, `BasisFunctionLinearTermsMatchDirection`, `BasisFunctionOppositeDirections`, `ConstantLightProducesConstantIrradiance`, `IrradianceIsNonNegative`, `DirectionalLightHigherInLitDirection`, `SizeConstants`<br/>**LightProbeVolumeComponentTest** &mdash; `TotalProbeCount`, `TotalProbeCountSingle`, `GridIndexLinearization`, `WorldToGridCorners` |
 | [SceneStreamingTest.cpp](../OloEngine/tests/Streaming/SceneStreamingTest.cpp) | 18 | **StreamingSettings** &mdash; `DefaultValues`, `HysteresisGuarantee`<br/>**StreamingVolumeComponent** &mdash; `DefaultValues`, `ManualMode`<br/>**StreamingRegion** &mdash; `DefaultState`, `StateTransitions`, `BoundsStorage`, `LRUFrameTracking`, `EntityUUIDs`<br/>**SceneStreamerConfig** &mdash; `DefaultValues`, `CustomValues`<br/>**StreamingRegionSerializer** &mdash; `ParseInvalidYAML`, `MetadataRoundTrip`<br/>**RegionMetadata** &mdash; `DefaultValues`<br/>**SceneStreamer** &mdash; `DefaultConstruction`, `InitWithoutScene`, `ConfigAccessors`<br/>**StreamingActivationMode** &mdash; `EnumValues` |
 
-#### meta — [Test-framework self-tests](#310-layer-10--automatic-diagnostic-escalation)
+### meta — [Test-framework self-tests](#310-layer-10--automatic-diagnostic-escalation)
 
 | File | Tests | Cases |
 |---|---:|---|

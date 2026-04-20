@@ -68,11 +68,10 @@ jobs:
             $exe = "..\build\OloEngine\tests\Fuzzing\Release\$($h.Name).exe"
             $corpusDir = "..\OloEngine\tests\Fuzzing\corpus\$($h.Corpus)"
             if (-not (Test-Path $corpusDir)) {
-              Write-Host "corpus dir '$corpusDir' missing; running $($h.Name) without corpus"
-              & $exe -max_total_time=30 -print_final_stats=1
-            } else {
-              & $exe -max_total_time=30 -print_final_stats=1 $corpusDir
+              Write-Host "::error::required corpus directory '$corpusDir' is missing; refusing to run $($h.Name) without seeds"
+              exit 1
             }
+            & $exe -max_total_time=30 -print_final_stats=1 $corpusDir
             if ($LASTEXITCODE -ne 0) {
               Write-Host "::error::$($h.Name) found a crash"
               exit $LASTEXITCODE

@@ -32,9 +32,9 @@ namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 {
-    // Assimp holds a single scene buffer internally and is cheap enough to
-    // reuse across hints. Keep the buffer small enough that the driver does
-    // not OOM under ASan (which inflates working-set ~3x).
+    // Keep the buffer small enough that the driver does not OOM under ASan
+    // (which inflates working-set ~3x). A fresh Assimp::Importer is created
+    // per hint so one hint's parser state cannot contaminate the next.
     if (size == 0 || size > static_cast<size_t>(4 * 1024 * 1024))
         return 0;
 

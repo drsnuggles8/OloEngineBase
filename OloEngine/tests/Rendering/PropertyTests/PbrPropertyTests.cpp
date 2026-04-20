@@ -896,7 +896,12 @@ namespace OloEngine::Tests
             const std::size_t texelCount = static_cast<std::size_t>(mipResolution) * mipResolution;
             ASSERT_EQ(bytes.size(), texelCount * 4 * sizeof(f32))
                 << "readback size mismatch for face " << face << " mip " << mip;
-            const f32* pixels = reinterpret_cast<const f32*>(bytes.data());
+            // Copy into a properly-aligned f32 vector instead of reinterpret_cast.
+            // Strictly-aligned platforms (ARM without unaligned-access enabled)
+            // would trap on an unaligned cast; x86 tolerates it but it is still
+            // formally UB under the C++ aliasing rules.
+            std::vector<f32> pixels(texelCount * 4);
+            std::memcpy(pixels.data(), bytes.data(), bytes.size());
             f32 sum = 0.0f;
             f32 peak = 0.0f;
             for (std::size_t i = 0; i < texelCount; ++i)

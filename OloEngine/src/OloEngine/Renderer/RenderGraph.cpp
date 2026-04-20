@@ -109,7 +109,15 @@ namespace OloEngine
 
         if (m_DependencyGraphDirty)
         {
-            UpdateDependencyGraph();
+            if (!UpdateDependencyGraph())
+            {
+                // Cycle detected — m_PassOrder is empty. Abort execution;
+                // running with a partial topo order would execute the wrong
+                // subset of passes in the wrong order. Keep the dirty flag
+                // set so a corrected graph can retry.
+                OLO_CORE_ERROR("RenderGraph::Execute: aborting because dependency graph rebuild failed");
+                return;
+            }
             ResolveFinalPass();
             RebuildExecutionCache();
             m_DependencyGraphDirty = false;
@@ -229,7 +237,7 @@ namespace OloEngine
         return result;
     }
 
-    void RenderGraph::UpdateDependencyGraph()
+    bool RenderGraph::UpdateDependencyGraph()
     {
         OLO_PROFILE_FUNCTION();
 
@@ -278,12 +286,14 @@ namespace OloEngine
                 if (!visit(name))
                 {
                     OLO_CORE_ERROR("RenderGraph::UpdateDependencyGraph: Failed to build execution order!");
-                    return;
+                    m_PassOrder.clear();
+                    return false;
                 }
             }
         }
 
         OLO_CORE_INFO("RenderGraph execution order updated with {} passes", m_PassOrder.size());
+        return true;
     }
 
     void RenderGraph::ResolveFinalPass()
@@ -329,7 +339,16 @@ namespace OloEngine
 
         if (m_DependencyGraphDirty)
         {
-            UpdateDependencyGraph();
+            if (!UpdateDependencyGraph())
+            {
+                // Partial topo order is useless — running the remaining
+                // validator over an incomplete m_PassOrder would produce
+                // misleading "missing dependency" reports for passes the
+                // cycle excluded. Abort early with a clear log; caller
+                // must fix the graph and retry.
+                OLO_CORE_ERROR("RenderGraph::ValidateResourceHazards: aborting (graph has a cycle)");
+                return {};
+            }
             // Note: we deliberately leave m_DependencyGraphDirty set so the
             // first Execute() after validation still runs ResolveFinalPass +
             // RebuildExecutionCache. The validator only needs topo order.

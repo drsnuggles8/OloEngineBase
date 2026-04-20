@@ -3,6 +3,8 @@
 
 #include "OloEngine/Templates/FunctionWithContext.h"
 
+#include <string>
+
 using namespace OloEngine;
 
 // ============================================================================
@@ -122,6 +124,9 @@ TEST(FunctionWithContextTest, GetFunctionAndContext)
 
 TEST(FunctionWithContextTest, MultipleArgTypes)
 {
+    // Explicit <string> include lives at the top of the file; this test
+    // relies on std::string + std::to_string directly rather than through
+    // transitive PCH includes.
     std::string Result;
     auto Lambda =
         [&Result](const char* Str, int I, float F)

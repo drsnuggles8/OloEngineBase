@@ -749,6 +749,8 @@ namespace OloEngine::Tests
 
         Ref<Shader> probeShader = Shader::Create(
             "assets/shaders/tests/ShaderUnit_ShadowSelfShadow.glsl");
+        ASSERT_TRUE(probeShader != nullptr)
+            << "Failed to load ShaderUnit_ShadowSelfShadow.glsl — check asset path";
 
         FullscreenPass fullscreen;
         hdrFB->Bind();
