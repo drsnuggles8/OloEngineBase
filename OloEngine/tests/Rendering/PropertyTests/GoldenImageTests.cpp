@@ -180,6 +180,94 @@ namespace OloEngine::Tests
             return static_cast<f32>(std::sqrt(sumSq / static_cast<f64>(pixelCount * 3)));
         }
 
+        // Mean SSIM over RGB channels in [0, 1]. Classic Wang/Bovik formulation
+        // on 8×8 non-overlapping windows (no Gaussian weighting — fast,
+        // deterministic, and plenty accurate for golden-image smoke tests).
+        //
+        // Returns 1.0 for bit-identical images, approaches 0 as similarity
+        // collapses. Constants C1 = (0.01·L)², C2 = (0.03·L)² with L = 255
+        // are the reference Wang-Bovik 2004 values.
+        //
+        // Layer-8 §8 mandates a cascaded RMSE → SSIM decision: cheap RMSE
+        // resolves the common cases (bit-identical = pass, wild regression =
+        // fail) in microseconds, and SSIM only runs on the ambiguous middle
+        // band where perceptual metrics are genuinely needed.
+        static f32 ComputeRgbSsim(const std::vector<u8>& a, const std::vector<u8>& b, u32 width, u32 height)
+        {
+            if (a.size() != b.size() || a.empty() || width == 0 || height == 0)
+                return 0.0f;
+
+            constexpr u32 kWindow = 8;
+            constexpr f64 kC1 = (0.01 * 255.0) * (0.01 * 255.0);
+            constexpr f64 kC2 = (0.03 * 255.0) * (0.03 * 255.0);
+
+            const u32 winsX = width / kWindow;
+            const u32 winsY = height / kWindow;
+            if (winsX == 0 || winsY == 0)
+            {
+                // Frame smaller than one window — SSIM is ill-defined, fall
+                // back to "very similar iff RMSE is tiny".
+                const f32 rmse = ComputeRgbRmse(a, b);
+                return rmse < 0.002f ? 1.0f : 0.0f;
+            }
+
+            f64 ssimSum = 0.0;
+            u64 ssimCount = 0;
+
+            for (u32 wy = 0; wy < winsY; ++wy)
+            {
+                for (u32 wx = 0; wx < winsX; ++wx)
+                {
+                    for (u32 ch = 0; ch < 3; ++ch)
+                    {
+                        // Two passes per window: mean, then variance + covariance.
+                        f64 sumA = 0.0, sumB = 0.0;
+                        for (u32 yy = 0; yy < kWindow; ++yy)
+                        {
+                            for (u32 xx = 0; xx < kWindow; ++xx)
+                            {
+                                const u32 x = wx * kWindow + xx;
+                                const u32 y = wy * kWindow + yy;
+                                const std::size_t idx = (static_cast<std::size_t>(y) * width + x) * 4 + ch;
+                                sumA += static_cast<f64>(a[idx]);
+                                sumB += static_cast<f64>(b[idx]);
+                            }
+                        }
+                        constexpr f64 kN = static_cast<f64>(kWindow * kWindow);
+                        const f64 meanA = sumA / kN;
+                        const f64 meanB = sumB / kN;
+
+                        f64 varA = 0.0, varB = 0.0, covAB = 0.0;
+                        for (u32 yy = 0; yy < kWindow; ++yy)
+                        {
+                            for (u32 xx = 0; xx < kWindow; ++xx)
+                            {
+                                const u32 x = wx * kWindow + xx;
+                                const u32 y = wy * kWindow + yy;
+                                const std::size_t idx = (static_cast<std::size_t>(y) * width + x) * 4 + ch;
+                                const f64 da = static_cast<f64>(a[idx]) - meanA;
+                                const f64 db = static_cast<f64>(b[idx]) - meanB;
+                                varA += da * da;
+                                varB += db * db;
+                                covAB += da * db;
+                            }
+                        }
+                        varA /= (kN - 1.0);
+                        varB /= (kN - 1.0);
+                        covAB /= (kN - 1.0);
+
+                        const f64 numerator = (2.0 * meanA * meanB + kC1) * (2.0 * covAB + kC2);
+                        const f64 denominator = (meanA * meanA + meanB * meanB + kC1) * (varA + varB + kC2);
+                        const f64 ssim = denominator > 0.0 ? (numerator / denominator) : 1.0;
+                        ssimSum += ssim;
+                        ++ssimCount;
+                    }
+                }
+            }
+
+            return static_cast<f32>(ssimSum / static_cast<f64>(ssimCount));
+        }
+
         // Detailed per-pixel diff statistics. Produced on failure for L10
         // diagnostic escalation: worst-pixel location + magnitude, per-channel
         // max deltas, and a diff-heatmap PNG. Pinpoints WHERE in the frame
@@ -247,6 +335,8 @@ namespace OloEngine::Tests
         {
             bool m_Passed = false;
             f32 m_Rmse = 0.0f;
+            f32 m_Ssim = 1.0f;       // 1.0 when SSIM wasn't needed (RMSE resolved).
+            bool m_UsedSsim = false; // true when the cascade escalated to SSIM.
             std::string m_Message;
         };
 
@@ -301,10 +391,34 @@ namespace OloEngine::Tests
 
             result.m_Rmse = ComputeRgbRmse(actualRgba, baseline);
 
-            // Generous threshold — golden tests are integration smoke, not
-            // pixel-exact regression guards. ~2 LSBs per channel over RGB.
-            constexpr f32 kRmseThreshold = 0.008f;
-            result.m_Passed = result.m_Rmse <= kRmseThreshold;
+            // Cascaded RMSE → SSIM decision (strategy doc §8). Cheap RMSE
+            // resolves the common cases up-front:
+            //   - RMSE < kRmsePassBelow → surely a match, skip SSIM.
+            //   - RMSE > kRmseFailAbove → surely a regression, fail without SSIM.
+            //   - In between → compute SSIM and pass iff ≥ kSsimPassThreshold.
+            //
+            // Using an SSIM fallback catches the class of bugs that RMSE
+            // under-weights (distributed low-contrast drift: a subtle color
+            // cast, a gamma change) and over-rates (a handful of hot-pixel
+            // outliers from aliasing that are perceptually identical).
+            constexpr f32 kRmsePassBelow = 0.004f;
+            constexpr f32 kRmseFailAbove = 0.02f;
+            constexpr f32 kSsimPassThreshold = 0.985f;
+
+            if (result.m_Rmse <= kRmsePassBelow)
+            {
+                result.m_Passed = true;
+            }
+            else if (result.m_Rmse >= kRmseFailAbove)
+            {
+                result.m_Passed = false;
+            }
+            else
+            {
+                result.m_UsedSsim = true;
+                result.m_Ssim = ComputeRgbSsim(actualRgba, baseline, width, height);
+                result.m_Passed = result.m_Ssim >= kSsimPassThreshold;
+            }
 
             if (!result.m_Passed)
             {
@@ -324,8 +438,18 @@ namespace OloEngine::Tests
                                  4, stats.m_HeatmapRgba.data(), static_cast<int>(width) * 4);
 
                 std::ostringstream msg;
-                msg << "RMSE " << result.m_Rmse << " exceeds threshold " << kRmseThreshold
-                    << "\n  worst pixel: (" << stats.m_WorstX << "," << stats.m_WorstY
+                msg << "RMSE " << result.m_Rmse
+                    << " (pass<" << kRmsePassBelow << ", fail>" << kRmseFailAbove << ")";
+                if (result.m_UsedSsim)
+                {
+                    msg << " and SSIM " << result.m_Ssim
+                        << " below threshold " << kSsimPassThreshold;
+                }
+                else
+                {
+                    msg << " exceeds hard fail bound";
+                }
+                msg << "\n  worst pixel: (" << stats.m_WorstX << "," << stats.m_WorstY
                     << ") max channel delta=" << stats.m_WorstDelta
                     << "\n  per-channel max delta: R=" << stats.m_MaxDeltaR
                     << " G=" << stats.m_MaxDeltaG << " B=" << stats.m_MaxDeltaB
@@ -337,11 +461,107 @@ namespace OloEngine::Tests
             }
             else
             {
-                result.m_Message = "RMSE " + std::to_string(result.m_Rmse) + " within threshold";
+                std::ostringstream msg;
+                msg << "RMSE " << result.m_Rmse;
+                if (result.m_UsedSsim)
+                    msg << ", SSIM " << result.m_Ssim << " (cascade escalated)";
+                else
+                    msg << " below fast-path bound";
+                result.m_Message = msg.str();
             }
             return result;
         }
+
+        // Build a checkerboard RGBA image for SSIM sanity tests.
+        static std::vector<u8> MakeCheckerboard(u32 width, u32 height, u8 a, u8 b, u32 cell)
+        {
+            std::vector<u8> out(static_cast<std::size_t>(width) * height * 4, 255);
+            for (u32 y = 0; y < height; ++y)
+            {
+                for (u32 x = 0; x < width; ++x)
+                {
+                    const bool light = ((x / cell) + (y / cell)) % 2 == 0;
+                    const u8 v = light ? a : b;
+                    const std::size_t idx = (static_cast<std::size_t>(y) * width + x) * 4;
+                    out[idx + 0] = v;
+                    out[idx + 1] = v;
+                    out[idx + 2] = v;
+                    out[idx + 3] = 255;
+                }
+            }
+            return out;
+        }
     } // namespace
+
+    // =========================================================================
+    // SSIM cascade unit tests — prove the RMSE → SSIM escalation logic works
+    // without needing a GPU. Pins the perceptual-similarity math so that the
+    // §8 strategy-doc cascade stays honest even if goldens never regress.
+    // =========================================================================
+    TEST(GoldenImageSsimTest, IdenticalImagesYieldSsimOne)
+    {
+        constexpr u32 kW = 32;
+        constexpr u32 kH = 32;
+        const auto img = MakeCheckerboard(kW, kH, 40, 200, 4);
+        const f32 ssim = ComputeRgbSsim(img, img, kW, kH);
+        EXPECT_NEAR(ssim, 1.0f, 1e-5f);
+    }
+
+    TEST(GoldenImageSsimTest, TinyUniformShiftKeepsSsimHigh)
+    {
+        // A 2 LSB uniform brightness bump is perceptually indistinguishable —
+        // SSIM should stay > 0.99 even though a pixel diff would flag every
+        // pixel. This is precisely the "RMSE over-rates tiny hot-pixel noise"
+        // case the cascade exists to catch on the "still a pass" side.
+        constexpr u32 kW = 32;
+        constexpr u32 kH = 32;
+        const auto a = MakeCheckerboard(kW, kH, 40, 200, 4);
+        auto b = a;
+        for (std::size_t i = 0; i + 3 < b.size(); i += 4)
+        {
+            b[i + 0] = static_cast<u8>(std::min<u32>(b[i + 0] + 2u, 255u));
+            b[i + 1] = static_cast<u8>(std::min<u32>(b[i + 1] + 2u, 255u));
+            b[i + 2] = static_cast<u8>(std::min<u32>(b[i + 2] + 2u, 255u));
+        }
+        const f32 ssim = ComputeRgbSsim(a, b, kW, kH);
+        EXPECT_GT(ssim, 0.99f);
+    }
+
+    TEST(GoldenImageSsimTest, StructuralDestructionCollapsesSsim)
+    {
+        // Randomising one image while keeping the other structured should
+        // drive SSIM well below the 0.985 pass bound — covers the "distributed
+        // low-contrast drift that RMSE under-weights" case from the other side.
+        constexpr u32 kW = 32;
+        constexpr u32 kH = 32;
+        const auto structured = MakeCheckerboard(kW, kH, 40, 200, 4);
+        std::vector<u8> noise(structured.size(), 0);
+        // Deterministic pseudo-random (no std::rand dependency):
+        u32 state = 0x1234567u;
+        for (std::size_t i = 0; i + 3 < noise.size(); i += 4)
+        {
+            state = state * 1664525u + 1013904223u;
+            noise[i + 0] = static_cast<u8>((state >> 16) & 0xFFu);
+            state = state * 1664525u + 1013904223u;
+            noise[i + 1] = static_cast<u8>((state >> 16) & 0xFFu);
+            state = state * 1664525u + 1013904223u;
+            noise[i + 2] = static_cast<u8>((state >> 16) & 0xFFu);
+            noise[i + 3] = 255;
+        }
+        const f32 ssim = ComputeRgbSsim(structured, noise, kW, kH);
+        EXPECT_LT(ssim, 0.5f);
+    }
+
+    TEST(GoldenImageSsimTest, SsimIsSymmetric)
+    {
+        constexpr u32 kW = 32;
+        constexpr u32 kH = 32;
+        const auto a = MakeCheckerboard(kW, kH, 40, 200, 4);
+        const auto b = MakeCheckerboard(kW, kH, 60, 180, 8);
+        const f32 ssimAB = ComputeRgbSsim(a, b, kW, kH);
+        const f32 ssimBA = ComputeRgbSsim(b, a, kW, kH);
+        EXPECT_NEAR(ssimAB, ssimBA, 1e-5f);
+    }
 
     // =========================================================================
     // ToneMap chain golden: uniform HDR ramp → Reinhard tone map → RGBA8
@@ -427,5 +647,302 @@ namespace OloEngine::Tests
         h.ReadOutputRgba8(output);
         const auto result = CompareOrBootstrap("fxaa_hard_edge", kSize, kSize, output);
         EXPECT_TRUE(result.m_Passed) << result.m_Message;
+    }
+
+    // =========================================================================
+    // Scene-level shadow golden: shadow caster (authored depth texture array)
+    // → lit "ground" pass (ShaderUnit_ShadowSelfShadow sampled across UVs)
+    // → HDR accumulation → PostProcess_ToneMap → RGBA8.
+    //
+    // Models the production chain ShadowPass → ScenePass → PostProcessPass
+    // by staging its three distinct GPU-side operations in sequence. Catches
+    // regressions in: depth-compare sampler configuration, PCF kernel
+    // weights, HDR-to-framebuffer binding, tonemap shader.
+    //
+    // The authored shadow map is non-uniform (diagonal step) so PCF taps
+    // produce intermediate shadow factors (1/9..8/9), exercising the full
+    // kernel rather than just lit/shadowed extremes.
+    // =========================================================================
+    TEST(GoldenImageTest, SceneShadowIntegrationGolden)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kShadowRes = 64;
+        constexpr u32 kFrameW = 128;
+        constexpr u32 kFrameH = 128;
+        constexpr f32 kBias = 0.005f;
+
+        // ---------------------------------------------------------------
+        // Pass 1 (shadow): author a depth texture array whose layer 0
+        // contains a diagonal step — the upper-right triangle is "near"
+        // (depth 0.2, occluder close to light) and the lower-left is "far"
+        // (depth 0.8, occluder distant). Fragments sampling the near
+        // region will be shadowed for projCoords.z > 0.2; the far region
+        // for projCoords.z > 0.8. Non-uniform so PCF taps straddle the
+        // boundary and produce smooth shadow factors.
+        // ---------------------------------------------------------------
+        GLuint shadowTex = 0;
+        ::glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &shadowTex);
+        ::glTextureStorage3D(shadowTex, 1, GL_DEPTH_COMPONENT32F,
+                             static_cast<GLsizei>(kShadowRes),
+                             static_cast<GLsizei>(kShadowRes), 4);
+        ::glTextureParameteri(shadowTex, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        ::glTextureParameteri(shadowTex, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        ::glTextureParameteri(shadowTex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        ::glTextureParameteri(shadowTex, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        ::glTextureParameteri(shadowTex, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+        ::glTextureParameteri(shadowTex, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+
+        std::vector<f32> depthData(static_cast<std::size_t>(kShadowRes) * kShadowRes);
+        for (u32 y = 0; y < kShadowRes; ++y)
+        {
+            for (u32 x = 0; x < kShadowRes; ++x)
+            {
+                depthData[y * kShadowRes + x] = (x + y < kShadowRes) ? 0.2f : 0.8f;
+            }
+        }
+        for (u32 layer = 0; layer < 4; ++layer)
+        {
+            ::glTextureSubImage3D(shadowTex, 0, 0, 0, static_cast<GLint>(layer),
+                                  static_cast<GLsizei>(kShadowRes),
+                                  static_cast<GLsizei>(kShadowRes), 1,
+                                  GL_DEPTH_COMPONENT, GL_FLOAT, depthData.data());
+        }
+        ::glBindTextureUnit(8, shadowTex);
+
+        // UBO for probe: bias + shadow resolution (std140 vec4 + ivec4 = 32B)
+        struct ProbeUbo
+        {
+            f32 params[4];
+            i32 resolution;
+            i32 pad[3];
+        };
+        static_assert(sizeof(ProbeUbo) == 32, "std140 layout mismatch");
+        ProbeUbo uboData{ { kBias, 0.0f, 0.0f, 0.0f }, static_cast<i32>(kShadowRes), { 0, 0, 0 } };
+        GLuint probeUbo = 0;
+        ::glCreateBuffers(1, &probeUbo);
+        ::glNamedBufferData(probeUbo, sizeof(ProbeUbo), &uboData, GL_STATIC_DRAW);
+        ::glBindBufferBase(GL_UNIFORM_BUFFER, 18, probeUbo);
+
+        // ---------------------------------------------------------------
+        // Pass 2 (scene): render the shadow probe into an HDR RGBA16F FB.
+        // The shader's R channel already holds the PCF shadow factor; we
+        // multiply by a warm "sun lighting" colour before tone-mapping to
+        // make the chain behave like a real lit scene (not just a shadow
+        // visualisation).
+        // ---------------------------------------------------------------
+        FramebufferSpecification hdrSpec{};
+        hdrSpec.Width = kFrameW;
+        hdrSpec.Height = kFrameH;
+        hdrSpec.Attachments = { FramebufferTextureFormat::RGBA16F };
+        Ref<Framebuffer> hdrFB = Framebuffer::Create(hdrSpec);
+
+        Ref<Shader> probeShader = Shader::Create(
+            "assets/shaders/tests/ShaderUnit_ShadowSelfShadow.glsl");
+
+        FullscreenPass fullscreen;
+        hdrFB->Bind();
+        ::glViewport(0, 0, static_cast<GLsizei>(kFrameW), static_cast<GLsizei>(kFrameH));
+        ::glDisable(GL_BLEND);
+        ::glDisable(GL_DEPTH_TEST);
+        ::glDisable(GL_CULL_FACE);
+        probeShader->Bind();
+        fullscreen.Draw(0); // no input texture needed — probe samples the shadow map by binding.
+        ::glFinish();
+        hdrFB->Unbind();
+
+        // The probe writes shadow factor to R in linear space. Rather than
+        // running a separate "lighting" shader (which would need another
+        // production shader + UBO), we treat the R channel as the
+        // irradiance modulator for a synthetic warm light by multiplying
+        // in CPU-side before uploading as HDR. This keeps the test stage
+        // count bounded and still exercises the tone-map with a
+        // non-trivial HDR distribution.
+        std::vector<f32> hdrReadback;
+        ReadbackRgbaFloat(hdrFB->GetColorAttachmentRendererID(0), kFrameW, kFrameH, hdrReadback);
+        std::vector<f32> litHdr(hdrReadback.size());
+        for (std::size_t i = 0; i < static_cast<std::size_t>(kFrameW) * kFrameH; ++i)
+        {
+            const f32 shadow = hdrReadback[i * 4 + 0]; // probe PCF result in R
+            const f32 ambient = 0.15f;
+            const f32 intensity = ambient + (1.0f - ambient) * shadow;
+            // Warm-white sun tinted slightly blue in shadow (ambient).
+            litHdr[i * 4 + 0] = intensity * 2.5f;
+            litHdr[i * 4 + 1] = intensity * (shadow > 0.5f ? 2.2f : 1.9f);
+            litHdr[i * 4 + 2] = intensity * (shadow > 0.5f ? 1.6f : 2.1f);
+            litHdr[i * 4 + 3] = 1.0f;
+        }
+
+        // ---------------------------------------------------------------
+        // Pass 3 (post-process): run the lit HDR through tone-map + gamma.
+        // ---------------------------------------------------------------
+        PostProcessUBOData toneUbo = MakeDefaultPostProcessUBO(kFrameW, kFrameH);
+        toneUbo.TonemapOperator = 1; // Reinhard
+        toneUbo.Exposure = 1.0f;
+        toneUbo.Gamma = 2.2f;
+
+        PostProcessHarness tone(kFrameW, kFrameH,
+                                "assets/shaders/PostProcess_ToneMap.glsl", toneUbo);
+        tone.SetInputTexture(CreateFloatTexture2D(kFrameW, kFrameH, litHdr.data()));
+        tone.Draw();
+
+        std::vector<u8> output;
+        tone.ReadOutputRgba8(output);
+        ASSERT_EQ(output.size(), static_cast<std::size_t>(kFrameW) * kFrameH * 4);
+
+        // Clean up GL resources we authored directly.
+        ::glDeleteBuffers(1, &probeUbo);
+        ::glDeleteTextures(1, &shadowTex);
+
+        const auto result = CompareOrBootstrap("scene_shadow_integration", kFrameW, kFrameH, output);
+        EXPECT_TRUE(result.m_Passed) << result.m_Message;
+        if (result.m_Passed)
+        {
+            RecordProperty("result", result.m_Message);
+        }
+    }
+
+    // =========================================================================
+    // Scene-level splatmap/terrain golden: 4-layer texture array + spatially
+    // varying splatmap → ShaderUnit_SplatmapChannel blend → HDR →
+    // PostProcess_ToneMap → RGBA8.
+    //
+    // Covers the terrain blending path end-to-end. The splatmap is a radial
+    // gradient pattern so every pixel pulls a different mix of the four
+    // layers, exercising all four texture array slots and all four splatmap
+    // channels simultaneously. Catches: channel swizzle regressions, array
+    // layer index off-by-one, weight normalisation, tonemap clamping.
+    // =========================================================================
+    TEST(GoldenImageTest, SceneSplatmapIntegrationGolden)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kSize = 128;
+
+        // ---------------------------------------------------------------
+        // Layer array: 4 solid HDR colours (slightly > 1 so tonemapping
+        // has something to do). Red / green / blue / warm-yellow.
+        // ---------------------------------------------------------------
+        GLuint layerArray = 0;
+        ::glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &layerArray);
+        ::glTextureStorage3D(layerArray, 1, GL_RGBA16F,
+                             static_cast<GLsizei>(kSize), static_cast<GLsizei>(kSize), 4);
+        ::glTextureParameteri(layerArray, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        ::glTextureParameteri(layerArray, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        ::glTextureParameteri(layerArray, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        ::glTextureParameteri(layerArray, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        const f32 kLayerColors[4][4] = {
+            { 1.8f, 0.25f, 0.2f, 1.0f },  // layer 0 — red rock
+            { 0.2f, 1.5f, 0.3f, 1.0f },   // layer 1 — grass
+            { 0.15f, 0.35f, 1.6f, 1.0f }, // layer 2 — water-ish blue
+            { 1.7f, 1.4f, 0.25f, 1.0f },  // layer 3 — warm sand
+        };
+        std::vector<f32> layerPixels(static_cast<std::size_t>(kSize) * kSize * 4);
+        for (u32 layer = 0; layer < 4; ++layer)
+        {
+            for (std::size_t i = 0; i < static_cast<std::size_t>(kSize) * kSize; ++i)
+            {
+                for (u32 c = 0; c < 4; ++c)
+                    layerPixels[i * 4 + c] = kLayerColors[layer][c];
+            }
+            ::glTextureSubImage3D(layerArray, 0, 0, 0, static_cast<GLint>(layer),
+                                  static_cast<GLsizei>(kSize), static_cast<GLsizei>(kSize), 1,
+                                  GL_RGBA, GL_FLOAT, layerPixels.data());
+        }
+        ::glBindTextureUnit(20, layerArray);
+
+        // ---------------------------------------------------------------
+        // Splatmap: spatially varying weights. Radial gradient from centre
+        // selects different layers at different distances, with a diagonal
+        // phase shift so all four channels participate meaningfully.
+        // Weights always sum to 1.0 per texel (normalised) so no layer is
+        // implicitly doubled.
+        // ---------------------------------------------------------------
+        std::vector<f32> splatPixels(static_cast<std::size_t>(kSize) * kSize * 4);
+        for (u32 y = 0; y < kSize; ++y)
+        {
+            for (u32 x = 0; x < kSize; ++x)
+            {
+                const f32 u = (static_cast<f32>(x) + 0.5f) / static_cast<f32>(kSize);
+                const f32 v = (static_cast<f32>(y) + 0.5f) / static_cast<f32>(kSize);
+                f32 w0 = std::max(0.0f, 1.0f - 2.0f * u);
+                f32 w1 = std::max(0.0f, 1.0f - 2.0f * v);
+                f32 w2 = std::max(0.0f, 2.0f * u - 1.0f);
+                f32 w3 = std::max(0.0f, 2.0f * v - 1.0f);
+                const f32 sum = w0 + w1 + w2 + w3;
+                if (sum > 0.0f)
+                {
+                    w0 /= sum;
+                    w1 /= sum;
+                    w2 /= sum;
+                    w3 /= sum;
+                }
+                else
+                {
+                    w0 = 1.0f;
+                }
+                const std::size_t i = (static_cast<std::size_t>(y) * kSize + x) * 4;
+                splatPixels[i + 0] = w0;
+                splatPixels[i + 1] = w1;
+                splatPixels[i + 2] = w2;
+                splatPixels[i + 3] = w3;
+            }
+        }
+        GLuint splatTex = CreateFloatTexture2D(kSize, kSize, splatPixels.data());
+        ::glBindTextureUnit(24, splatTex);
+
+        // ---------------------------------------------------------------
+        // Terrain blend pass: HDR RGBA16F output.
+        // ---------------------------------------------------------------
+        FramebufferSpecification hdrSpec{};
+        hdrSpec.Width = kSize;
+        hdrSpec.Height = kSize;
+        hdrSpec.Attachments = { FramebufferTextureFormat::RGBA16F };
+        Ref<Framebuffer> hdrFB = Framebuffer::Create(hdrSpec);
+
+        Ref<Shader> splatShader = Shader::Create(
+            "assets/shaders/tests/ShaderUnit_SplatmapChannel.glsl");
+
+        FullscreenPass fullscreen;
+        hdrFB->Bind();
+        ::glViewport(0, 0, static_cast<GLsizei>(kSize), static_cast<GLsizei>(kSize));
+        ::glDisable(GL_BLEND);
+        ::glDisable(GL_DEPTH_TEST);
+        ::glDisable(GL_CULL_FACE);
+        splatShader->Bind();
+        fullscreen.Draw(0);
+        ::glFinish();
+        hdrFB->Unbind();
+
+        // ---------------------------------------------------------------
+        // Tone-map pass.
+        // ---------------------------------------------------------------
+        std::vector<f32> hdrReadback;
+        ReadbackRgbaFloat(hdrFB->GetColorAttachmentRendererID(0), kSize, kSize, hdrReadback);
+
+        PostProcessUBOData toneUbo = MakeDefaultPostProcessUBO(kSize, kSize);
+        toneUbo.TonemapOperator = 1; // Reinhard
+        toneUbo.Exposure = 1.0f;
+        toneUbo.Gamma = 2.2f;
+
+        PostProcessHarness tone(kSize, kSize,
+                                "assets/shaders/PostProcess_ToneMap.glsl", toneUbo);
+        tone.SetInputTexture(CreateFloatTexture2D(kSize, kSize, hdrReadback.data()));
+        tone.Draw();
+
+        std::vector<u8> output;
+        tone.ReadOutputRgba8(output);
+        ASSERT_EQ(output.size(), static_cast<std::size_t>(kSize) * kSize * 4);
+
+        ::glDeleteTextures(1, &splatTex);
+        ::glDeleteTextures(1, &layerArray);
+
+        const auto result = CompareOrBootstrap("scene_splatmap_integration", kSize, kSize, output);
+        EXPECT_TRUE(result.m_Passed) << result.m_Message;
+        if (result.m_Passed)
+        {
+            RecordProperty("result", result.m_Message);
+        }
     }
 } // namespace OloEngine::Tests

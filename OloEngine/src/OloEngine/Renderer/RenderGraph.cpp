@@ -312,4 +312,146 @@ namespace OloEngine
             OLO_CORE_WARN("RenderGraph: Could not determine final pass!");
         }
     }
+
+    // =========================================================================
+    // Resource-aware hazard validation
+    // =========================================================================
+    // Algorithm: walk passes in topological order, maintain a per-resource
+    // state (last writer + live readers since that writer), and for every
+    // declared access check that the current pass transitively depends on
+    // any prior conflicting accesses.
+    //
+    // Transitive closure is built on-demand from m_Dependencies (which holds
+    // every edge — ConnectPass + AddExecutionDependency both append here).
+    std::vector<RenderGraph::Hazard> RenderGraph::ValidateResourceHazards()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (m_DependencyGraphDirty)
+        {
+            UpdateDependencyGraph();
+            // Note: we deliberately leave m_DependencyGraphDirty set so the
+            // first Execute() after validation still runs ResolveFinalPass +
+            // RebuildExecutionCache. The validator only needs topo order.
+        }
+
+        std::vector<Hazard> hazards;
+
+        // Build transitive dependency closure: for each pass P, closure[P]
+        // is the set of all passes that must execute before P.
+        std::unordered_map<std::string, std::unordered_set<std::string>> closure;
+        closure.reserve(m_PassOrder.size());
+        for (const auto& passName : m_PassOrder)
+        {
+            std::unordered_set<std::string>& cls = closure[passName];
+            std::vector<std::string> frontier;
+            auto depsIt = m_Dependencies.find(passName);
+            if (depsIt != m_Dependencies.end())
+            {
+                frontier.insert(frontier.end(), depsIt->second.begin(), depsIt->second.end());
+            }
+            while (!frontier.empty())
+            {
+                const std::string parent = std::move(frontier.back());
+                frontier.pop_back();
+                if (!cls.insert(parent).second)
+                    continue;
+                auto parentDeps = m_Dependencies.find(parent);
+                if (parentDeps == m_Dependencies.end())
+                    continue;
+                for (const auto& grand : parentDeps->second)
+                {
+                    if (!cls.contains(grand))
+                        frontier.push_back(grand);
+                }
+            }
+        }
+
+        auto dependsOn = [&closure](const std::string& later, const std::string& earlier) -> bool
+        {
+            auto it = closure.find(later);
+            if (it == closure.end())
+                return false;
+            return it->second.contains(earlier);
+        };
+
+        struct ResourceState
+        {
+            std::string LastWriter;                      // empty => never written
+            std::unordered_set<std::string> LiveReaders; // readers since lastWriter
+        };
+        std::unordered_map<std::string, ResourceState> state;
+
+        for (const auto& passName : m_PassOrder)
+        {
+            auto passIt = m_PassLookup.find(passName);
+            if (passIt == m_PassLookup.end() || !passIt->second)
+                continue;
+            const RenderPass& pass = *passIt->second;
+
+            // Record reads first — a same-pass read+write on the same
+            // resource isn't a hazard against itself.
+            for (const ResourceHandle& r : pass.GetReads())
+            {
+                ResourceState& st = state[r.Name];
+                if (!st.LastWriter.empty() && st.LastWriter != passName && !dependsOn(passName, st.LastWriter))
+                {
+                    Hazard h;
+                    h.Kind = HazardKind::ReadAfterWrite;
+                    h.Resource = r.Name;
+                    h.Producer = st.LastWriter;
+                    h.Consumer = passName;
+                    h.Message = "RAW: pass '" + passName + "' reads resource '" + r.Name +
+                                "' written by '" + st.LastWriter +
+                                "' without declaring a dependency";
+                    OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message);
+                    hazards.push_back(std::move(h));
+                }
+                st.LiveReaders.insert(passName);
+            }
+
+            for (const ResourceHandle& w : pass.GetWrites())
+            {
+                ResourceState& st = state[w.Name];
+
+                if (!st.LastWriter.empty() && st.LastWriter != passName && !dependsOn(passName, st.LastWriter))
+                {
+                    Hazard h;
+                    h.Kind = HazardKind::WriteAfterWrite;
+                    h.Resource = w.Name;
+                    h.Producer = st.LastWriter;
+                    h.Consumer = passName;
+                    h.Message = "WAW: pass '" + passName + "' writes resource '" + w.Name +
+                                "' previously written by '" + st.LastWriter +
+                                "' without declaring a dependency";
+                    OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message);
+                    hazards.push_back(std::move(h));
+                }
+
+                for (const auto& reader : st.LiveReaders)
+                {
+                    if (reader == passName)
+                        continue;
+                    if (!dependsOn(passName, reader))
+                    {
+                        Hazard h;
+                        h.Kind = HazardKind::WriteAfterRead;
+                        h.Resource = w.Name;
+                        h.Producer = reader;
+                        h.Consumer = passName;
+                        h.Message = "WAR: pass '" + passName + "' overwrites resource '" + w.Name +
+                                    "' still live for reader '" + reader +
+                                    "' without declaring a dependency";
+                        OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message);
+                        hazards.push_back(std::move(h));
+                    }
+                }
+
+                st.LastWriter = passName;
+                st.LiveReaders.clear();
+            }
+        }
+
+        return hazards;
+    }
 } // namespace OloEngine

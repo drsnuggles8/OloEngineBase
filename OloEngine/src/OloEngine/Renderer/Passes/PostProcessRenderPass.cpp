@@ -98,6 +98,16 @@ namespace OloEngine
             m_FogHistoryFB = Framebuffer::Create(fogSpec);
         }
 
+        // Resource-aware RDG: post-process consumes the accumulated HDR
+        // scene color (piped via SetInputFramebuffer) + scene depth (set
+        // explicitly via SetSceneDepthFramebuffer for DOF / MotionBlur /
+        // fog depth reconstruction), and emits the tonemapped LDR image
+        // that the UI composite / final passes read.
+        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::SceneDepth, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::ShadowMapCSM, ResourceHandle::Kind::Texture2DArray);
+        DeclareWrite(ResourceNames::PostProcessColor, ResourceHandle::Kind::Framebuffer);
+
         OLO_CORE_INFO("PostProcessRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
     }
 

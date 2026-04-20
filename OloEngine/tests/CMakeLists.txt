@@ -60,6 +60,7 @@ add_executable(OloEngine-Tests
 		Rendering/CommandBucketTest.cpp
 		#Rendering/CommandDispatchTest.cpp  # Requires full engine (calls CommandDispatch::Initialize which pulls in OpenGL statics)
 		Rendering/RenderGraphTest.cpp
+		Rendering/ResourceHazardValidationTests.cpp
 		Rendering/FramePipelineTest.cpp
 		Rendering/FrameCaptureTest.cpp
 		Rendering/CommandBucketBenchmarkTest.cpp
@@ -80,6 +81,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/DataRoundTripTests.cpp
 		Rendering/PropertyTests/GoldenImageTests.cpp
 		Rendering/PropertyTests/ShadowTerrainPropertyTests.cpp
+		Rendering/PropertyTests/TestFailureCapture.cpp
+		Rendering/PropertyTests/TestFailureCaptureTest.cpp
 		Streaming/SceneStreamingTest.cpp
 		InputActionTest.cpp
 		GamepadTest.cpp

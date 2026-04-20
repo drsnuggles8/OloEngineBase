@@ -2696,6 +2696,23 @@ namespace OloEngine
         }
 
         s_Data.RGraph->SetFinalPass("FinalPass");
+
+        // Validate the resource-aware RDG contract: every pass's declared
+        // reads must have a transitive execution dependency on their
+        // producer. Hazards are logged to the engine logger; in debug
+        // builds we additionally assert so regressions surface immediately.
+        {
+            const auto hazards = s_Data.RGraph->ValidateResourceHazards();
+            if (!hazards.empty())
+            {
+                OLO_CORE_ERROR("Renderer3D: RenderGraph has {} resource hazards — see previous log entries for details.", hazards.size());
+                OLO_CORE_ASSERT(hazards.empty(), "RenderGraph resource hazard detected (see log). Add ConnectPass / AddExecutionDependency for the reported producer -> consumer edge.");
+            }
+            else
+            {
+                OLO_CORE_INFO("Renderer3D: RenderGraph resource hazard validation passed.");
+            }
+        }
     }
 
     void Renderer3D::OnWindowResize(u32 width, u32 height)

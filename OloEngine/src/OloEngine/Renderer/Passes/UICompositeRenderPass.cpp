@@ -25,6 +25,10 @@ namespace OloEngine
 
         CreateFramebuffer(spec.Width, spec.Height);
 
+        // Resource-aware RDG: composites post-processed LDR scene + UI.
+        DeclareRead(ResourceNames::PostProcessColor, ResourceHandle::Kind::Framebuffer);
+        DeclareWrite(ResourceNames::UIComposite, ResourceHandle::Kind::Framebuffer);
+
         OLO_CORE_INFO("UICompositeRenderPass: Initialized {}x{}", spec.Width, spec.Height);
     }
 

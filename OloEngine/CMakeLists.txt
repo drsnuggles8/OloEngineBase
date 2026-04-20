@@ -44,6 +44,9 @@ if(BUILD_TESTS)
 	set_target_properties(OloEngine-Tests PROPERTIES FOLDER "Test")
 endif()
 
+# Fuzz harnesses (Layer 11 / §11) — Clang only, opt-in via OLO_ENABLE_FUZZING.
+add_subdirectory(tests/Fuzzing)
+
 # Vulkan SDK
 if(MSVC)
 	find_package(Vulkan REQUIRED COMPONENTS glslc glslang SPIRV-Tools)

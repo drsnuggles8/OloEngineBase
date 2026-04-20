@@ -71,6 +71,36 @@ namespace OloEngine
             return m_PassOrder;
         }
 
+        // -------------------------------------------------------------------
+        // Resource-aware hazard validation
+        // -------------------------------------------------------------------
+        // Walks the topologically-sorted execution order and, using each
+        // pass's declared reads/writes (see RenderPass::DeclareRead/Write),
+        // validates that every read has a transitive execution dependency
+        // on its producer, that no two parallel passes write the same
+        // resource, and that writers don't overwrite live reads. Catches
+        // missing `ConnectPass` / `AddExecutionDependency` calls.
+        //
+        // Call this AFTER all passes are added and connections made — the
+        // first call forces topological sort if needed. Returns the list of
+        // hazards (empty vector = clean). Also logs each hazard as an error
+        // through the engine logger.
+        enum class HazardKind
+        {
+            ReadAfterWrite,  // reader does not depend on writer
+            WriteAfterWrite, // later writer does not depend on previous writer
+            WriteAfterRead,  // later writer does not depend on prior reader
+        };
+        struct Hazard
+        {
+            HazardKind Kind;
+            std::string Resource;
+            std::string Producer; // writer (RAW / WAW) or reader (WAR)
+            std::string Consumer; // reader (RAW), later writer (WAW / WAR)
+            std::string Message;
+        };
+        [[nodiscard]] std::vector<Hazard> ValidateResourceHazards();
+
       private:
         void UpdateDependencyGraph();
         void ResolveFinalPass();

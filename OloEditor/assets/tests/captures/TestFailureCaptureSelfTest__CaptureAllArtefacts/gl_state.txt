@@ -1,0 +1,69 @@
+# OloEngine GLStateSnapshot
+# Written by TestFailureCapture on failure.
+
+[toggles]
+DepthTest      = 0
+DepthMask      = 1
+DepthFunc      = 0x201
+Blend          = 0
+BlendSrcRgb    = 0x1
+BlendDstRgb    = 0x0
+BlendSrcAlpha  = 0x1
+BlendDstAlpha  = 0x0
+BlendEqRgb     = 0x8006
+BlendEqAlpha   = 0x8006
+StencilTest    = 0
+StencilFunc    = 0x207
+StencilRef     = 0
+StencilMask    = 0xffffffff
+CullFace       = 0
+CullFaceMode   = 0x405
+FrontFace      = 0x901
+ScissorTest    = 0
+PolygonMode    = 0x1b02
+
+[viewport]
+Viewport = [0,0,32,32]
+Scissor  = [0,0,176,1]
+
+[bindings]
+FboDraw       = 0
+FboRead       = 0
+ActiveProgram = 110
+Vao           = 0
+
+[texture_units]
+Texture2D[0] = 0
+Texture2D[1] = 0
+Texture2D[2] = 0
+Texture2D[3] = 0
+Texture2D[4] = 0
+Texture2D[5] = 0
+Texture2D[6] = 0
+Texture2D[7] = 0
+Texture2D[8] = 0
+Texture2D[9] = 0
+Texture2D[10] = 0
+Texture2D[11] = 0
+Texture2D[12] = 0
+Texture2D[13] = 0
+Texture2D[14] = 0
+Texture2D[15] = 0
+
+[uniform_buffers]
+UBO[0] = 5
+UBO[1] = 0
+UBO[2] = 0
+UBO[3] = 0
+UBO[4] = 0
+UBO[5] = 0
+UBO[6] = 0
+UBO[7] = 0
+UBO[8] = 0
+UBO[9] = 0
+UBO[10] = 0
+UBO[11] = 0
+UBO[12] = 0
+UBO[13] = 0
+UBO[14] = 0
+UBO[15] = 0

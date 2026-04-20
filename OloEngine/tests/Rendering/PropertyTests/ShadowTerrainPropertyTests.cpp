@@ -225,6 +225,169 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
+    // Shadow bias contract: self-shadow suppression + peter-panning bound.
+    //
+    // Uses `ShaderUnit_ShadowSelfShadow.glsl` to drive the real production
+    // `sampleShadowPCF` kernel against an authored `sampler2DArrayShadow`
+    // whose every texel equals a known depth `D`. The probe sweeps the
+    // fragment's light-space z via v_TexCoord.x; since the shadow map is
+    // uniform, the 3x3 PCF kernel collapses to a hard transition at
+    // `projCoords.z - bias == D`.
+    //
+    // Two invariants under test:
+    //   (1) No false self-shadowing: at projCoords.z ≈ D the shadow factor
+    //       must be 1.0 (lit). A naive `projCoords.z > storedDepth` compare
+    //       with zero bias would incorrectly shadow the surface due to fp32
+    //       equality flicker.
+    //   (2) Bounded peter-panning: the transition from lit → shadowed must
+    //       happen within `D + bias + 1 texel`. If the transition lands
+    //       significantly further back, a real scene's shadow would "float"
+    //       off its occluder's base by that distance.
+    //
+    // Catches: bias sign flip (subtracting vs adding), bias scaling bugs by
+    // cascade index at cascade 0 (`baseBias * (0+1) == baseBias`), wrong
+    // compare operator (GL_LESS vs GL_LEQUAL → compared to our probe which
+    // uses the LEQUAL convention).
+    // =========================================================================
+    TEST(ShadowBiasTest, SelfShadowAndPeterPanningContract)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kShadowRes = 64;
+        constexpr u32 kWidth = 256; // depth sweep granularity
+        constexpr u32 kHeight = 4;
+        constexpr f32 kShadowDepth = 0.5f;
+        constexpr f32 kBias = 0.005f;
+
+        // Authored depth texture array: 4 layers (CSM cascades), all filled
+        // with constant depth. Layer 0 is the one the probe samples.
+        GLuint shadowTex = 0;
+        ::glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &shadowTex);
+        ::glTextureStorage3D(shadowTex, 1, GL_DEPTH_COMPONENT32F,
+                             static_cast<GLsizei>(kShadowRes),
+                             static_cast<GLsizei>(kShadowRes), 4);
+        // NEAREST filtering keeps each PCF tap a hard 0/1 compare; LINEAR
+        // would invoke hardware PCF which interpolates across 4 texels and
+        // muddies the single-step transition we're measuring.
+        ::glTextureParameteri(shadowTex, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        ::glTextureParameteri(shadowTex, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        ::glTextureParameteri(shadowTex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        ::glTextureParameteri(shadowTex, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        ::glTextureParameteri(shadowTex, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+        ::glTextureParameteri(shadowTex, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+
+        std::vector<f32> depthData(static_cast<std::size_t>(kShadowRes) * kShadowRes, kShadowDepth);
+        for (u32 layer = 0; layer < 4; ++layer)
+        {
+            ::glTextureSubImage3D(shadowTex, 0, 0, 0, static_cast<GLint>(layer),
+                                  static_cast<GLsizei>(kShadowRes),
+                                  static_cast<GLsizei>(kShadowRes), 1,
+                                  GL_DEPTH_COMPONENT, GL_FLOAT, depthData.data());
+        }
+        ::glBindTextureUnit(8, shadowTex);
+
+        // std140 UBO mirror for the probe:
+        //   vec4 u_ShadowParams;   offset  0, size 16
+        //   int  u_ShadowResolution; offset 16, size 4
+        //   int  u_Pad0/1/2;          offset 20..28
+        // total 32 bytes (padded to vec4 boundary).
+        struct ProbeUbo
+        {
+            f32 params[4];
+            i32 resolution;
+            i32 pad[3];
+        };
+        static_assert(sizeof(ProbeUbo) == 32, "std140 layout mismatch");
+
+        ProbeUbo uboData{ { kBias, 0.0f, 0.0f, 0.0f }, static_cast<i32>(kShadowRes), { 0, 0, 0 } };
+        GLuint ubo = 0;
+        ::glCreateBuffers(1, &ubo);
+        ::glNamedBufferData(ubo, sizeof(ProbeUbo), &uboData, GL_STATIC_DRAW);
+        ::glBindBufferBase(GL_UNIFORM_BUFFER, 18, ubo);
+
+        ShaderProbeHarness harness(kWidth, kHeight,
+                                   "assets/shaders/tests/ShaderUnit_ShadowSelfShadow.glsl");
+        harness.Draw();
+
+        std::vector<f32> pixels;
+        harness.ReadRgbaFloat(pixels);
+        ASSERT_EQ(pixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4);
+
+        // Read the middle row. All rows should produce the same sweep since
+        // v_TexCoord.y is mapped to the sample XY (shadow map is uniform).
+        const u32 row = kHeight / 2;
+
+        // Per-bin UV-centre depth: (x + 0.5) / kWidth. This is exactly what
+        // the probe sees as `depth` via `clamp(v_TexCoord.x, 0, 1)`.
+        auto depthAt = [&](u32 x)
+        { return (static_cast<f32>(x) + 0.5f) / static_cast<f32>(kWidth); };
+
+        // (1) Near end (depth well in front of shadow depth): fully lit.
+        const f32 shadowAtNear = pixels[(row * kWidth + 0) * 4];
+        EXPECT_NEAR(shadowAtNear, 1.0f, 1e-3f)
+            << "fragment in front of occluder is not lit: shadow=" << shadowAtNear
+            << " at depth=" << depthAt(0);
+
+        // (2) Far end (depth well past shadow depth + bias): fully shadowed.
+        const f32 shadowAtFar = pixels[(row * kWidth + (kWidth - 1)) * 4];
+        EXPECT_NEAR(shadowAtFar, 0.0f, 1e-3f)
+            << "fragment well past occluder is not shadowed: shadow=" << shadowAtFar
+            << " at depth=" << depthAt(kWidth - 1);
+
+        // (3) Self-shadow: at the exact surface depth the fragment must be lit.
+        //     Pick the x whose depth centre is closest to kShadowDepth from below.
+        //     A bias of +0.005 shifts compareRef to 0.495 ≤ 0.5 → lit.
+        u32 selfShadowX = 0;
+        for (u32 x = 0; x < kWidth; ++x)
+        {
+            if (depthAt(x) > kShadowDepth)
+                break;
+            selfShadowX = x;
+        }
+        const f32 shadowAtSurface = pixels[(row * kWidth + selfShadowX) * 4];
+        EXPECT_NEAR(shadowAtSurface, 1.0f, 1e-3f)
+            << "false self-shadow at depth=" << depthAt(selfShadowX)
+            << " (shadow map depth=" << kShadowDepth << ", bias=" << kBias << ")"
+            << " shadow=" << shadowAtSurface;
+
+        // (4) Transition: walk rightwards from the lit region; find the first
+        //     bin where shadow dropped below 0.5. That bin's depth is where
+        //     compareRef first exceeded the stored depth. Must land in
+        //     [kShadowDepth, kShadowDepth + kBias + 1 texel].
+        i32 transitionX = -1;
+        for (u32 x = 0; x < kWidth; ++x)
+        {
+            if (pixels[(row * kWidth + x) * 4] < 0.5f)
+            {
+                transitionX = static_cast<i32>(x);
+                break;
+            }
+        }
+        ASSERT_GE(transitionX, 0)
+            << "no lit → shadowed transition found: the shadow map or UBO may not be bound";
+
+        const f32 transitionDepth = depthAt(static_cast<u32>(transitionX));
+        const f32 depthStep = 1.0f / static_cast<f32>(kWidth);
+
+        // Lower bound: transition depth ≥ shadow map depth (no false shadow
+        // before we reach the surface). One depthStep of slack for fp32 rounding.
+        EXPECT_GE(transitionDepth, kShadowDepth - depthStep)
+            << "transition landed before the surface depth: transitionDepth="
+            << transitionDepth << " kShadowDepth=" << kShadowDepth;
+
+        // Upper bound: transition depth ≤ shadow map depth + bias + 1 texel.
+        // If bias is too large, the transition slides further back — the
+        // classic "peter-panning gap".
+        EXPECT_LE(transitionDepth, kShadowDepth + kBias + depthStep)
+            << "peter-panning gap too large: transitionDepth="
+            << transitionDepth << " exceeds shadowDepth+bias="
+            << (kShadowDepth + kBias) << " by more than one texel";
+
+        ::glDeleteBuffers(1, &ubo);
+        ::glDeleteTextures(1, &shadowTex);
+    }
+
+    // =========================================================================
     // Terrain: a flat heightmap (all texels equal) must produce exact
     // (0, 1, 0) world-space normals via the production Terrain_PBR
     // 4-tap central-difference kernel. Any non-zero dX or dZ indicates

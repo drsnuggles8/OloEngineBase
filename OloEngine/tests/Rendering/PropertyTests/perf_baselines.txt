@@ -27,4 +27,6 @@
 bloom_downsample_512x512 15360
 bloom_threshold_512x512 5120
 bloom_upsample_512x512 12288
+scene_draw_burst_512x512 328704
 tone_map_512x512 9216
+whole_frame_postprocess_512x512 22528

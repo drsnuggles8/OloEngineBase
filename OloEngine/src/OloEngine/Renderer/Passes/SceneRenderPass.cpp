@@ -33,6 +33,18 @@ namespace OloEngine
 
         m_Target = Framebuffer::Create(m_FramebufferSpec);
 
+        // Resource-aware RDG: scene reads the shadow map + IBL maps, writes
+        // the HDR scene color + shared depth. Subsequent passes (foliage,
+        // water, decal, particle, SSS) all share the same framebuffer, so
+        // they continue writing SceneColor / SceneDepth — those passes can
+        // opt in via DeclareRead/Write as they are migrated.
+        DeclareRead(ResourceNames::ShadowMapCSM, ResourceHandle::Kind::Texture2DArray);
+        DeclareRead(ResourceNames::IrradianceMap, ResourceHandle::Kind::TextureCube);
+        DeclareRead(ResourceNames::PrefilterMap, ResourceHandle::Kind::TextureCube);
+        DeclareRead(ResourceNames::BrdfLut, ResourceHandle::Kind::Texture2D);
+        DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
+        DeclareWrite(ResourceNames::SceneDepth, ResourceHandle::Kind::Framebuffer);
+
         OLO_CORE_INFO("SceneRenderPass: Created framebuffer with dimensions {}x{}",
                       m_FramebufferSpec.Width, m_FramebufferSpec.Height);
     }

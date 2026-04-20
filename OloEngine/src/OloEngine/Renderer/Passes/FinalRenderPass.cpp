@@ -24,6 +24,12 @@ namespace OloEngine
         // Load or create the blit shader
         m_BlitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
 
+        // Resource-aware RDG: final pass reads the composited (post-process
+        // + UI) color piped in via SetInputFramebuffer and blits to the
+        // backbuffer / swapchain image.
+        DeclareRead(ResourceNames::UIComposite, ResourceHandle::Kind::Framebuffer);
+        DeclareWrite(ResourceNames::FinalColor, ResourceHandle::Kind::Framebuffer);
+
         OLO_CORE_INFO("FinalRenderPass: Initialized with viewport dimensions {}x{}",
                       m_FramebufferSpec.Width, m_FramebufferSpec.Height);
     }

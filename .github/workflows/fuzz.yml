@@ -1,0 +1,92 @@
+name: Fuzz Smoke
+
+# Layer 11 (renderer-testing-strategy.md §11) — build the libFuzzer
+# harnesses with Clang, run each for ~30s against the checked-in corpus,
+# and upload any crashers as artifacts. This is a continuous safety net
+# for the data-ingestion code paths (mesh / animation / input action YAML /
+# image decoders (stb_image) / scene YAML / Assimp mesh importers /
+# SPIRV-Cross decompilation).
+#
+# Manual-dispatch + scheduled nightly. Fuzzers are slow to bootstrap
+# against a cold corpus; the goal here is regression coverage of known-
+# good seeds, not open-ended novelty hunting. For that, invoke the
+# `OloEngine-FuzzSmoke` target locally with a larger `-max_total_time`.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '13 4 * * *' # Nightly at 04:13 UTC.
+
+jobs:
+  fuzz:
+    name: Fuzz smoke (ClangCL + libFuzzer)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Python 3.10
+        id: py
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+
+      - name: Install python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install jinja2
+
+      - name: Setup Vulkan SDK
+        uses: ./.github/actions/setup-vulkan
+
+      - name: Configure CMake (ClangCL)
+        # ClangCL is bundled with VS2022. It exposes the MSVC-compatible
+        # ABI while supporting `-fsanitize=fuzzer`, which is what
+        # `tests/Fuzzing/CMakeLists.txt` requires.
+        run: |
+          cmake -S . -B build -T ClangCL `
+                -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" `
+                -DOLO_ENABLE_FUZZING=ON
+
+      - name: Build fuzzers
+        run: cmake --build build --target OloEngine-FuzzSmoke --config Release --parallel
+
+      - name: Run fuzz smoke (per-target 30s)
+        working-directory: OloEditor
+        run: |
+          # Explicit harness -> corpus mapping. A heuristic would be neat but
+          # every one-off (YAML suffix, acronyms) would need a special case.
+          $harnesses = @(
+            @{ Name = 'FuzzAnimationBinary';  Corpus = 'animation_binary'  },
+            @{ Name = 'FuzzMeshBinary';       Corpus = 'mesh_binary'       },
+            @{ Name = 'FuzzInputActionYaml';  Corpus = 'input_action_yaml' },
+            @{ Name = 'FuzzImageDecoder';     Corpus = 'image_decoder'     },
+            @{ Name = 'FuzzSceneYaml';        Corpus = 'scene_yaml'        },
+            @{ Name = 'FuzzAssimpMesh';       Corpus = 'assimp_mesh'       },
+            @{ Name = 'FuzzSpirvCross';       Corpus = 'spirv_cross'       }
+          )
+          foreach ($h in $harnesses) {
+            $exe = "..\build\OloEngine\tests\Fuzzing\Release\$($h.Name).exe"
+            $corpusDir = "..\OloEngine\tests\Fuzzing\corpus\$($h.Corpus)"
+            if (-not (Test-Path $corpusDir)) {
+              Write-Host "corpus dir '$corpusDir' missing; running $($h.Name) without corpus"
+              & $exe -max_total_time=30 -print_final_stats=1
+            } else {
+              & $exe -max_total_time=30 -print_final_stats=1 $corpusDir
+            }
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "::error::$($h.Name) found a crash"
+              exit $LASTEXITCODE
+            }
+          }
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz_crashes
+          path: |
+            OloEditor/crash-*
+            OloEditor/leak-*
+            OloEditor/timeout-*
+            OloEditor/oom-*
+          if-no-files-found: ignore
