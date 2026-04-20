@@ -215,7 +215,7 @@ namespace OloEngine::Tests::TestFailureCapture
                 if (std::isnan(v) || std::isinf(v))
                     v = 0.0f;
                 v = std::max(0.0f, v);
-                v = v / (1.0f + v);                                 // Reinhard
+                v = v / (1.0f + v);                                   // Reinhard
                 v = std::pow(std::clamp(v, 0.0f, 1.0f), 1.0f / 2.2f); // gamma encode
                 pixels8[i + c] = static_cast<u8>(std::lround(v * 255.0f));
             }
@@ -293,7 +293,8 @@ namespace OloEngine::Tests::TestFailureCapture
         out << "GLSL       = " << SafeGlString(GL_SHADING_LANGUAGE_VERSION) << '\n';
         out << "HasContext = " << (HasGlContext() ? "yes" : "no") << '\n';
         if (!assertionMessage.empty())
-            out << "\n[assertion]\n" << assertionMessage << '\n';
+            out << "\n[assertion]\n"
+                << assertionMessage << '\n';
         return out.good();
     }
 

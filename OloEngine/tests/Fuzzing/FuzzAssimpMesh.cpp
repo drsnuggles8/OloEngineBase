@@ -23,26 +23,26 @@
 
 namespace
 {
-	// Format hints passed as the `pHint` parameter. Empty string lets Assimp
-	// sniff the content; explicit hints force specific parsers.
-	const char* const kHints[] = { "", "obj", "gltf", "fbx", "dae", "blend" };
+    // Format hints passed as the `pHint` parameter. Empty string lets Assimp
+    // sniff the content; explicit hints force specific parsers.
+    const char* const kHints[] = { "", "obj", "gltf", "fbx", "dae", "blend" };
 
-	constexpr unsigned int kFlags = 0; // No post-processing — fuzz the parser.
+    constexpr unsigned int kFlags = 0; // No post-processing — fuzz the parser.
 } // namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 {
-	// Assimp holds a single scene buffer internally and is cheap enough to
-	// reuse across hints. Keep the buffer small enough that the driver does
-	// not OOM under ASan (which inflates working-set ~3x).
-	if (size == 0 || size > static_cast<size_t>(4 * 1024 * 1024))
-		return 0;
+    // Assimp holds a single scene buffer internally and is cheap enough to
+    // reuse across hints. Keep the buffer small enough that the driver does
+    // not OOM under ASan (which inflates working-set ~3x).
+    if (size == 0 || size > static_cast<size_t>(4 * 1024 * 1024))
+        return 0;
 
-	for (const char* hint : kHints)
-	{
-		Assimp::Importer importer;
-		// Return value is owned by the importer; we intentionally ignore it.
-		(void)importer.ReadFileFromMemory(data, size, kFlags, hint);
-	}
-	return 0;
+    for (const char* hint : kHints)
+    {
+        Assimp::Importer importer;
+        // Return value is owned by the importer; we intentionally ignore it.
+        (void)importer.ReadFileFromMemory(data, size, kFlags, hint);
+    }
+    return 0;
 }

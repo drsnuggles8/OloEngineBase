@@ -28,40 +28,40 @@
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 {
-	// Cap at 1 MiB of SPIR-V; the largest shader in the engine is well
-	// below 64 KiB of SPIR-V, so 1 MiB is generous without triggering OOM.
-	if (size < 4 || size > static_cast<size_t>(1 << 20))
-		return 0;
+    // Cap at 1 MiB of SPIR-V; the largest shader in the engine is well
+    // below 64 KiB of SPIR-V, so 1 MiB is generous without triggering OOM.
+    if (size < 4 || size > static_cast<size_t>(1 << 20))
+        return 0;
 
-	// Copy + pad to a multiple of 4 bytes so `vector<uint32_t>` construction
-	// never reads past the tail of `data`.
-	const size_t padded = (size + 3u) & ~static_cast<size_t>(3u);
-	std::vector<uint32_t> words(padded / 4, 0u);
-	std::memcpy(words.data(), data, size);
+    // Copy + pad to a multiple of 4 bytes so `vector<uint32_t>` construction
+    // never reads past the tail of `data`.
+    const size_t padded = (size + 3u) & ~static_cast<size_t>(3u);
+    std::vector<uint32_t> words(padded / 4, 0u);
+    std::memcpy(words.data(), data, size);
 
-	try
-	{
-		spirv_cross::CompilerGLSL compiler(std::move(words));
+    try
+    {
+        spirv_cross::CompilerGLSL compiler(std::move(words));
 
-		// Flip a couple of reflection-heavy surfaces before decompile so
-		// we exercise the resource / type graph even when the compile path
-		// bails early.
-		(void)compiler.get_shader_resources();
-		(void)compiler.get_entry_points_and_stages();
+        // Flip a couple of reflection-heavy surfaces before decompile so
+        // we exercise the resource / type graph even when the compile path
+        // bails early.
+        (void)compiler.get_shader_resources();
+        (void)compiler.get_entry_points_and_stages();
 
-		(void)compiler.compile();
-	}
-	catch (const std::exception&)
-	{
-		// Malformed SPIR-V routinely raises `spirv_cross::CompilerError`
-		// (derives from std::exception). That's the library's normal
-		// error-reporting path — not a bug in the engine.
-	}
-	catch (...)
-	{
-		// Safety net: some exception types in SPIRV-Cross don't derive
-		// from std::exception. Still not a crash.
-	}
+        (void)compiler.compile();
+    }
+    catch (const std::exception&)
+    {
+        // Malformed SPIR-V routinely raises `spirv_cross::CompilerError`
+        // (derives from std::exception). That's the library's normal
+        // error-reporting path — not a bug in the engine.
+    }
+    catch (...)
+    {
+        // Safety net: some exception types in SPIRV-Cross don't derive
+        // from std::exception. Still not a crash.
+    }
 
-	return 0;
+    return 0;
 }

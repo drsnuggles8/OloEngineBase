@@ -19,44 +19,44 @@
 #include <fstream>
 
 #if defined(_WIN32)
-#	include <process.h>
+#include <process.h>
 #else
-#	include <unistd.h>
+#include <unistd.h>
 #endif
 
 namespace
 {
-	std::filesystem::path MakeTempPath()
-	{
-		auto dir = std::filesystem::temp_directory_path() / "olofuzz_mesh";
-		std::error_code ec;
-		std::filesystem::create_directories(dir, ec);
-		return dir / (std::string("in_") +
-		              std::to_string(
+    std::filesystem::path MakeTempPath()
+    {
+        auto dir = std::filesystem::temp_directory_path() / "olofuzz_mesh";
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        return dir / (std::string("in_") +
+                      std::to_string(
 #if defined(_WIN32)
-		                  static_cast<unsigned long>(::_getpid())
+                          static_cast<unsigned long>(::_getpid())
 #else
-		                  static_cast<unsigned long>(::getpid())
+                          static_cast<unsigned long>(::getpid())
 #endif
-		                  ) +
-		              ".omesh");
-	}
+                              ) +
+                      ".omesh");
+    }
 } // namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 {
-	const auto path = MakeTempPath();
-	{
-		std::ofstream out(path, std::ios::binary | std::ios::trunc);
-		if (!out.is_open())
-			return 0;
-		if (size > 0)
-			out.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(size));
-	}
+    const auto path = MakeTempPath();
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        if (!out.is_open())
+            return 0;
+        if (size > 0)
+            out.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(size));
+    }
 
-	(void)OloEngine::MeshBinarySerializer::Read(path);
+    (void)OloEngine::MeshBinarySerializer::Read(path);
 
-	std::error_code ec;
-	std::filesystem::remove(path, ec);
-	return 0;
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+    return 0;
 }

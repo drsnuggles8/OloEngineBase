@@ -22,20 +22,20 @@
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 {
-	// yaml-cpp pathological-depth inputs have historically triggered
-	// stack-overflow at >10 MiB. Cap here so ASan can reliably report
-	// the interesting failures under 64-bit stack limits.
-	if (size > static_cast<size_t>(1 << 20))
-		return 0;
+    // yaml-cpp pathological-depth inputs have historically triggered
+    // stack-overflow at >10 MiB. Cap here so ASan can reliably report
+    // the interesting failures under 64-bit stack limits.
+    if (size > static_cast<size_t>(1 << 20))
+        return 0;
 
-	std::string yaml(reinterpret_cast<const char*>(data), size);
+    std::string yaml(reinterpret_cast<const char*>(data), size);
 
-	auto scene = OloEngine::Scene::Create();
-	if (!scene)
-		return 0;
+    auto scene = OloEngine::Scene::Create();
+    if (!scene)
+        return 0;
 
-	OloEngine::SceneSerializer serializer(scene);
-	(void)serializer.DeserializeFromYAML(yaml);
+    OloEngine::SceneSerializer serializer(scene);
+    (void)serializer.DeserializeFromYAML(yaml);
 
-	return 0;
+    return 0;
 }
