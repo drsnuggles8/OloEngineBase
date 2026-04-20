@@ -91,9 +91,7 @@ namespace OloEngine::RendererValidate
             // inequality trick; clearer intent and follows the engine's
             // float-comparison style guide.
             const bool nanPixel = std::isnan(r) || std::isnan(g) || std::isnan(b) || std::isnan(a);
-            auto IsInf = [](f32 v)
-            { return std::isinf(v); };
-            const bool infPixel = IsInf(r) || IsInf(g) || IsInf(b) || IsInf(a);
+            const bool infPixel = std::isinf(r) || std::isinf(g) || std::isinf(b) || std::isinf(a);
 
             if (nanPixel)
             {

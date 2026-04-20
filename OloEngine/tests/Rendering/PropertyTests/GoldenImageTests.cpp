@@ -109,7 +109,17 @@ namespace OloEngine::Tests
                 m_OutputFB = Framebuffer::Create(spec);
                 m_Shader = Shader::Create(shaderPath);
                 m_Ubo = UniformBuffer::Create(PostProcessUBOData::GetSize(), 7);
-                m_Ubo->SetData(&uboData, PostProcessUBOData::GetSize());
+                // Fail fast so Draw() doesn't dereference nulls later. The
+                // diagnostic names the failing resource and the shader path
+                // so CI logs point straight at the missing asset.
+                if (!m_OutputFB)
+                    ADD_FAILURE() << "PostProcessHarness: Framebuffer::Create returned null (" << shaderPath << ")";
+                if (!m_Shader)
+                    ADD_FAILURE() << "PostProcessHarness: Shader::Create returned null for '" << shaderPath << "'";
+                if (!m_Ubo)
+                    ADD_FAILURE() << "PostProcessHarness: UniformBuffer::Create returned null (" << shaderPath << ")";
+                if (m_Ubo)
+                    m_Ubo->SetData(&uboData, PostProcessUBOData::GetSize());
             }
 
             ~PostProcessHarness()

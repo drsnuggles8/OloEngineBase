@@ -193,6 +193,26 @@ namespace OloEngine::Tests::TestFailureCapture
         // HDR attachments (RGBA16F / RGBA32F) without banding or clamping
         // losing the interesting detail.
         std::vector<f32> pixelsF(static_cast<sizet>(w) * h * 4, 0.0f);
+
+        // glReadPixels reads from GL_READ_FRAMEBUFFER_BINDING, but tests
+        // typically only bind the draw framebuffer. Temporarily point the
+        // read binding at the current draw FBO so the capture matches
+        // what the pass under test actually rendered, then restore.
+        GLint prevReadFbo = 0;
+        GLint drawFbo = 0;
+        ::glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevReadFbo);
+        ::glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &drawFbo);
+        if (prevReadFbo != drawFbo)
+            ::glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(drawFbo));
+
+        // Select a sensible source attachment. Non-default FBO → colour
+        // attachment 0; default FBO → GL_BACK.
+        GLint prevReadBuffer = 0;
+        ::glGetIntegerv(GL_READ_BUFFER, &prevReadBuffer);
+        const GLenum desiredReadBuffer = (drawFbo != 0) ? GL_COLOR_ATTACHMENT0 : GL_BACK;
+        if (static_cast<GLenum>(prevReadBuffer) != desiredReadBuffer)
+            ::glReadBuffer(desiredReadBuffer);
+
         // Save + restore GL_PACK_ALIGNMENT so a failing capture can't leak
         // the alignment change into subsequent passes that assume default 4.
         GLint prevPackAlignment = 4;
@@ -201,6 +221,10 @@ namespace OloEngine::Tests::TestFailureCapture
         ::glReadPixels(x, y, w, h, GL_RGBA, GL_FLOAT, pixelsF.data());
         const GLenum err = ::glGetError();
         ::glPixelStorei(GL_PACK_ALIGNMENT, prevPackAlignment);
+        if (static_cast<GLenum>(prevReadBuffer) != desiredReadBuffer)
+            ::glReadBuffer(static_cast<GLenum>(prevReadBuffer));
+        if (prevReadFbo != drawFbo)
+            ::glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(prevReadFbo));
         if (err != GL_NO_ERROR)
         {
             // Clear for subsequent diagnostics but don't assert — the error
