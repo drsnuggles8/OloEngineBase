@@ -62,7 +62,10 @@ namespace OloEngine
 
         bool m_ScissorTest = false;
 
-        i32 m_PolygonMode = 0; // GL_FILL / GL_LINE / GL_POINT
+        // GL_POLYGON_MODE always writes two values (front + back) even in the
+        // 4.6 core profile where both entries are constrained to the same
+        // mode. A single GLint destination corrupts the stack; keep both.
+        std::array<i32, 2> m_PolygonMode = { 0, 0 }; // [0]=front, [1]=back
 
         // Viewport / scissor
         std::array<i32, 4> m_Viewport = { 0, 0, 0, 0 };

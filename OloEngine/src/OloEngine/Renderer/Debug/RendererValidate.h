@@ -34,6 +34,11 @@ namespace OloEngine::RendererValidate
         u32 m_NanCount = 0;
         u32 m_InfCount = 0;
         u32 m_PixelCount = 0;
+        // Distinct from `m_PixelCount == 0` (which legitimately means
+        // "empty / unsupported attachment, no opinion"). Set when
+        // glGetTextureImage itself reports a GL error — callers should
+        // treat this as a hard validation failure.
+        bool m_ReadbackFailed = false;
     };
 
     // Reads back the given color attachment of a float-format framebuffer

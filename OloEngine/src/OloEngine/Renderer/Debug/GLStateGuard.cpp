@@ -109,10 +109,10 @@ namespace OloEngine
 
         s.m_ScissorTest = GlGetBoolean(GL_SCISSOR_TEST);
 
-        // GL_POLYGON_MODE returns 2 values (front, back) in legacy; core
-        // 4.6 still returns 1 (both faces always match for non-deprecated
-        // GL_FILL/LINE/POINT). glGetIntegerv writes at least one value.
-        s.m_PolygonMode = GlGetInt(GL_POLYGON_MODE);
+        // GL_POLYGON_MODE writes TWO ints (front, back) per the GL 4.6 spec,
+        // even though the core profile constrains both to the same mode.
+        // Passing a single-int destination would smash the stack.
+        ::glGetIntegerv(GL_POLYGON_MODE, s.m_PolygonMode.data());
 
         ::glGetIntegerv(GL_VIEWPORT, s.m_Viewport.data());
         ::glGetIntegerv(GL_SCISSOR_BOX, s.m_Scissor.data());
@@ -133,7 +133,13 @@ namespace OloEngine
         // the GL 4.6 guaranteed minimums.
         GLint driverTextureUnits = 0;
         GLint driverUboBindings = 0;
-        ::glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &driverTextureUnits);
+        // Use GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS: m_Textures2D iterates over
+        // texture *units* (which glActiveTexture / GL_TEXTURE_BINDING_2D
+        // address), not per-stage sampler bindings. The combined limit is
+        // the correct bound — GL_MAX_TEXTURE_IMAGE_UNITS is the
+        // fragment-stage-only cap and underestimates units a pass can leak
+        // state into (e.g. via compute or vertex-stage bindings).
+        ::glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &driverTextureUnits);
         ::glGetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS, &driverUboBindings);
         const u32 textureSlotLimit = std::min<u32>(kTextureSlots, driverTextureUnits > 0 ? static_cast<u32>(driverTextureUnits) : kTextureSlots);
         const u32 uboSlotLimit = std::min<u32>(kUboSlots, driverUboBindings > 0 ? static_cast<u32>(driverUboBindings) : kUboSlots);
@@ -173,7 +179,8 @@ namespace OloEngine
         AppendIfDifferent(diffs, "FrontFace", m_FrontFace, other.m_FrontFace);
 
         AppendIfDifferentBool(diffs, "ScissorTest", m_ScissorTest, other.m_ScissorTest);
-        AppendIfDifferent(diffs, "PolygonMode", m_PolygonMode, other.m_PolygonMode);
+        AppendIfDifferent(diffs, "PolygonMode[Front]", m_PolygonMode[0], other.m_PolygonMode[0]);
+        AppendIfDifferent(diffs, "PolygonMode[Back]", m_PolygonMode[1], other.m_PolygonMode[1]);
 
         for (u32 i = 0; i < 4; ++i)
         {

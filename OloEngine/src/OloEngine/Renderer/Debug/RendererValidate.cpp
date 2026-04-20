@@ -69,8 +69,9 @@ namespace OloEngine::RendererValidate
                             static_cast<GLsizei>(pixels.size() * sizeof(f32)), pixels.data());
         if (const GLenum err = ::glGetError(); err != GL_NO_ERROR)
         {
-            OLO_CORE_WARN("RendererValidate: glGetTextureImage failed (0x{:x}) for attachment {}; returning zero stats",
-                          static_cast<u32>(err), attachmentIndex);
+            OLO_CORE_ERROR("RendererValidate: glGetTextureImage failed (GL error 0x{:x}) for attachment {}; marking readback as failed",
+                           static_cast<u32>(err), attachmentIndex);
+            stats.m_ReadbackFailed = true;
             return stats;
         }
 
@@ -142,11 +143,24 @@ namespace OloEngine::RendererValidate
         OLO_PROFILE_FUNCTION();
 
         const AttachmentStats stats = ReadFloatAttachmentStats(fb, attachmentIndex);
+        if (stats.m_ReadbackFailed)
+        {
+            // Hard failure: we could not read the attachment, so we cannot
+            // validate it. Distinct from empty/unsupported (m_PixelCount == 0).
+            OLO_CORE_ERROR("[{}] attachment {}: readback failed; validation could not run",
+                           passName, attachmentIndex);
+            if (assertOnFailure)
+            {
+                OLO_CORE_ASSERT(false, "Pass output readback failed");
+            }
+            return false;
+        }
         if (stats.m_PixelCount == 0)
             return true; // unsupported / empty — treat as "no opinion"
 
         bool ok = true;
         constexpr f32 kFp16Max = 65504.0f;
+        constexpr f32 kFp16Min = -65504.0f;
 
         if (stats.m_NanCount > 0)
         {
@@ -165,6 +179,13 @@ namespace OloEngine::RendererValidate
         {
             OLO_CORE_ERROR("[{}] attachment {}: max RGBA channel {:.2f} exceeds fp16 max ({:.0f})",
                            passName, attachmentIndex, maxChannel, kFp16Max);
+            ok = false;
+        }
+        const f32 minChannel = std::min({ stats.m_MinR, stats.m_MinG, stats.m_MinB, stats.m_MinA });
+        if (minChannel < kFp16Min)
+        {
+            OLO_CORE_ERROR("[{}] attachment {}: min RGBA channel {:.2f} below fp16 min ({:.0f})",
+                           passName, attachmentIndex, minChannel, kFp16Min);
             ok = false;
         }
 

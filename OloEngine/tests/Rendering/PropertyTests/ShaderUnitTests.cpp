@@ -389,7 +389,10 @@ namespace OloEngine::Tests
             ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buffers.m_Out);
 
             constexpr u32 kLocal = 8;
-            ::glDispatchCompute(kTheta / kLocal, kPhi / kLocal, 1);
+            // Ceiling division so we always cover the grid, even if kTheta /
+            // kPhi stop being exact multiples of kLocal. Consistent with the
+            // other dispatches in this file.
+            ::glDispatchCompute((kTheta + kLocal - 1) / kLocal, (kPhi + kLocal - 1) / kLocal, 1);
             ::glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
 
             std::vector<f32> cells(cellCount);

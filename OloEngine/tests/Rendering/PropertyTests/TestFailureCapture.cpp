@@ -142,7 +142,8 @@ namespace OloEngine::Tests::TestFailureCapture
         out << "CullFaceMode   = 0x" << std::hex << snap.m_CullFaceMode << std::dec << '\n';
         out << "FrontFace      = 0x" << std::hex << snap.m_FrontFace << std::dec << '\n';
         out << "ScissorTest    = " << snap.m_ScissorTest << '\n';
-        out << "PolygonMode    = 0x" << std::hex << snap.m_PolygonMode << std::dec << '\n';
+        out << "PolygonMode    = 0x" << std::hex << snap.m_PolygonMode[0]
+            << " / 0x" << snap.m_PolygonMode[1] << std::dec << " (front / back)\n";
 
         out << "\n[viewport]\n";
         out << "Viewport = [" << snap.m_Viewport[0] << "," << snap.m_Viewport[1] << ","

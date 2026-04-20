@@ -120,6 +120,10 @@ namespace OloEngine::Tests
 
             void SetInputTexture(u32 tex)
             {
+                // Free any previously-owned texture to avoid leaking when
+                // callers re-bind the harness to a new input.
+                if (m_InputTex != 0 && m_InputTex != tex)
+                    ::glDeleteTextures(1, &m_InputTex);
                 m_InputTex = tex;
             }
 

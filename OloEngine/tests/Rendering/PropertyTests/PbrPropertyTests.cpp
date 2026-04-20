@@ -528,8 +528,19 @@ namespace OloEngine::Tests
             return px;
         }();
 
-        GLuint normalTex = 0;
-        ::glCreateTextures(GL_TEXTURE_2D, 1, &normalTex);
+        // RAII guard for the normal-map texture so an ASSERT_/EXPECT_NEAR
+        // failure below cannot leak the GL name.
+        struct TextureGuard
+        {
+            GLuint m_Id = 0;
+            ~TextureGuard()
+            {
+                if (m_Id != 0)
+                    ::glDeleteTextures(1, &m_Id);
+            }
+        } normalTexGuard;
+        ::glCreateTextures(GL_TEXTURE_2D, 1, &normalTexGuard.m_Id);
+        const GLuint normalTex = normalTexGuard.m_Id;
         ::glTextureStorage2D(normalTex, 1, GL_RGBA8, kSize, kSize);
         ::glTextureSubImage2D(normalTex, 0, 0, 0, kSize, kSize, GL_RGBA, GL_UNSIGNED_BYTE, flatTexel.data());
         ::glTextureParameteri(normalTex, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -546,22 +557,25 @@ namespace OloEngine::Tests
         Ref<Shader> shader = Shader::Create("assets/shaders/tests/PbrNormalMapProbe.glsl");
         FullscreenPass pass;
 
-        fb->Bind();
-        ::glViewport(0, 0, kSize, kSize);
-        ::glDisable(GL_BLEND);
-        ::glDisable(GL_DEPTH_TEST);
-        ::glDisable(GL_CULL_FACE);
-        shader->Bind();
-        // FullscreenPass::Draw binds the given texture to unit 0, which is
-        // exactly what our probe's u_NormalMap (layout binding = 0) needs.
-        pass.Draw(normalTex);
-        ::glFinish();
-        fb->Unbind();
-
         std::vector<f32> pixels;
-        ReadbackRgbaFloat(fb->GetColorAttachmentRendererID(0), kSize, kSize, pixels);
+        {
+            // Restore FBO / blend / depth / cull on assertion failure or scope
+            // exit — mirrors PbrProbeHarness::Draw.
+            GLStateGuard stateGuard("PbrNormalMapTest::FlatNormal");
+            fb->Bind();
+            ::glViewport(0, 0, kSize, kSize);
+            ::glDisable(GL_BLEND);
+            ::glDisable(GL_DEPTH_TEST);
+            ::glDisable(GL_CULL_FACE);
+            shader->Bind();
+            // FullscreenPass::Draw binds the given texture to unit 0, which is
+            // exactly what our probe's u_NormalMap (layout binding = 0) needs.
+            pass.Draw(normalTex);
+            ::glFinish();
+            fb->Unbind();
 
-        ::glDeleteTextures(1, &normalTex);
+            ReadbackRgbaFloat(fb->GetColorAttachmentRendererID(0), kSize, kSize, pixels);
+        }
 
         // Expected encoded normal = (0, 0, 1) * 0.5 + 0.5 = (0.5, 0.5, 1.0).
         // Tolerance absorbs the 128/255 = 0.5019 round-trip plus half-float
@@ -892,14 +906,28 @@ namespace OloEngine::Tests
         IBLPrecompute::GeneratePrefilterMap(env, prefilter, localLib);
 
         // Helper: compute mean + peak luminance over face 0 of a given mip.
+        // Returns false if the readback or size check failed — callers must
+        // check. Using a return-status helper instead of `ASSERT_*` inside a
+        // lambda (which only returns from the lambda, not the TEST, leaving
+        // outMean/outPeak uninitialised).
         auto FaceStats = [](const Ref<TextureCubemap>& cm, u32 face, u32 mip,
-                            u32 mipResolution, f32& outMean, f32& outPeak)
+                            u32 mipResolution, f32& outMean, f32& outPeak) -> bool
         {
+            outMean = 0.0f;
+            outPeak = 0.0f;
             std::vector<u8> bytes;
-            ASSERT_TRUE(cm->GetFaceData(face, bytes, mip));
+            if (!cm->GetFaceData(face, bytes, mip))
+            {
+                ADD_FAILURE() << "GetFaceData failed for face " << face << " mip " << mip;
+                return false;
+            }
             const std::size_t texelCount = static_cast<std::size_t>(mipResolution) * mipResolution;
-            ASSERT_EQ(bytes.size(), texelCount * 4 * sizeof(f32))
-                << "readback size mismatch for face " << face << " mip " << mip;
+            if (bytes.size() != texelCount * 4 * sizeof(f32))
+            {
+                ADD_FAILURE() << "readback size mismatch for face " << face << " mip " << mip
+                              << " (expected " << texelCount * 4 * sizeof(f32) << ", got " << bytes.size() << ")";
+                return false;
+            }
             // Copy into a properly-aligned f32 vector instead of reinterpret_cast.
             // Strictly-aligned platforms (ARM without unaligned-access enabled)
             // would trap on an unaligned cast; x86 tolerates it but it is still
@@ -917,11 +945,13 @@ namespace OloEngine::Tests
             }
             outMean = sum / static_cast<f32>(texelCount);
             outPeak = peak;
+            return true;
         };
 
         // -- Source face-0 stats for reference.
         f32 srcMean = 0.0f, srcPeak = 0.0f;
-        FaceStats(env, 0, 0, kResolution, srcMean, srcPeak);
+        ASSERT_TRUE(FaceStats(env, 0, 0, kResolution, srcMean, srcPeak))
+            << "Failed to read source cubemap face 0";
 
         // -- Invariant 1: per-mip peak luminance on face 0 is non-increasing.
         // Invariant 2: per-mip mean luminance stays within an energy-conservation
@@ -932,7 +962,8 @@ namespace OloEngine::Tests
         for (u32 mip = 0; mip < kMipLevels; ++mip)
         {
             const u32 mipRes = std::max(1u, kResolution >> mip);
-            FaceStats(prefilter, 0, mip, mipRes, means[mip], peaks[mip]);
+            ASSERT_TRUE(FaceStats(prefilter, 0, mip, mipRes, means[mip], peaks[mip]))
+                << "Failed to read prefilter mip " << mip;
         }
 
         // Mip 0 mean should track source mean within ~15% (GGX roughness=0
