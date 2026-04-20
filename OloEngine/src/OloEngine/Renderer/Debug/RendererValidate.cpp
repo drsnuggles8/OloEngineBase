@@ -53,7 +53,20 @@ namespace OloEngine::RendererValidate
 
         const u32 width = spec.Width;
         const u32 height = spec.Height;
-        const u32 pixelCount = width * height;
+        // Defensive overflow guard: width/height are u32 each, so their
+        // product in u32 can wrap for pathological framebuffer sizes
+        // (e.g. >64K on either side). Compute in u64 first; refuse the
+        // readback if the element count wouldn't fit in u32 or if the
+        // byte count would exceed GLsizei.
+        const u64 pixelCount64 = static_cast<u64>(width) * static_cast<u64>(height);
+        constexpr u64 kMaxPixels = static_cast<u64>(std::numeric_limits<u32>::max()) / 4u; // RGBA
+        if (pixelCount64 > kMaxPixels)
+        {
+            OLO_CORE_WARN("RendererValidate: attachment {} is {}x{} (>{} pixels); skipping readback to avoid overflow",
+                          attachmentIndex, width, height, kMaxPixels);
+            return stats;
+        }
+        const u32 pixelCount = static_cast<u32>(pixelCount64);
         if (pixelCount == 0)
             return stats;
 

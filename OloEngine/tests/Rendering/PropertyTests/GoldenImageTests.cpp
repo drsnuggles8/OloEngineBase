@@ -69,6 +69,47 @@ namespace OloEngine::Tests
     {
         namespace fs = std::filesystem;
 
+        // Minimal RAII wrappers for raw GL object handles used in tests
+        // below. ASSERT_* aborts the enclosing TEST()'s scope but doesn't
+        // unwind C++ destructors for plain GLuint variables, so any
+        // `::glDelete*` call placed after the ASSERT would leak. These
+        // wrappers delete the handle in their destructor, making the
+        // cleanup ASSERT-safe.
+        struct ScopedGLTexture
+        {
+            GLuint m_Id = 0;
+            ScopedGLTexture() = default;
+            explicit ScopedGLTexture(GLuint id) : m_Id(id) {}
+            ~ScopedGLTexture()
+            {
+                if (m_Id != 0)
+                    ::glDeleteTextures(1, &m_Id);
+            }
+            ScopedGLTexture(const ScopedGLTexture&) = delete;
+            ScopedGLTexture& operator=(const ScopedGLTexture&) = delete;
+            operator GLuint() const
+            {
+                return m_Id;
+            }
+        };
+
+        struct ScopedGLBuffer
+        {
+            GLuint m_Id = 0;
+            ScopedGLBuffer() = default;
+            ~ScopedGLBuffer()
+            {
+                if (m_Id != 0)
+                    ::glDeleteBuffers(1, &m_Id);
+            }
+            ScopedGLBuffer(const ScopedGLBuffer&) = delete;
+            ScopedGLBuffer& operator=(const ScopedGLBuffer&) = delete;
+            operator GLuint() const
+            {
+                return m_Id;
+            }
+        };
+
         // Duplicated from PostProcessPropertyTests anonymous namespace —
         // kept local to avoid a broader shared-header refactor.
         PostProcessUBOData MakeDefaultPostProcessUBO(u32 width, u32 height)
@@ -94,6 +135,7 @@ namespace OloEngine::Tests
             u32 m_Width;
             u32 m_Height;
             u32 m_InputTex = 0;
+            bool m_Initialized = false;
             Ref<Framebuffer> m_OutputFB;
             Ref<Shader> m_Shader;
             Ref<UniformBuffer> m_Ubo;
@@ -111,15 +153,20 @@ namespace OloEngine::Tests
                 m_Ubo = UniformBuffer::Create(PostProcessUBOData::GetSize(), 7);
                 // Fail fast so Draw() doesn't dereference nulls later. The
                 // diagnostic names the failing resource and the shader path
-                // so CI logs point straight at the missing asset.
+                // so CI logs point straight at the missing asset. m_Initialized
+                // gates Draw() / ReadOutputRgba8() against a later null deref
+                // when ADD_FAILURE() didn't abort (it only records the failure).
                 if (!m_OutputFB)
                     ADD_FAILURE() << "PostProcessHarness: Framebuffer::Create returned null (" << shaderPath << ")";
                 if (!m_Shader)
                     ADD_FAILURE() << "PostProcessHarness: Shader::Create returned null for '" << shaderPath << "'";
                 if (!m_Ubo)
                     ADD_FAILURE() << "PostProcessHarness: UniformBuffer::Create returned null (" << shaderPath << ")";
-                if (m_Ubo)
+                if (m_OutputFB && m_Shader && m_Ubo)
+                {
                     m_Ubo->SetData(&uboData, PostProcessUBOData::GetSize());
+                    m_Initialized = true;
+                }
             }
 
             ~PostProcessHarness()
@@ -139,6 +186,8 @@ namespace OloEngine::Tests
 
             void Draw()
             {
+                if (!m_Initialized)
+                    return; // ADD_FAILURE already logged in ctor; avoid null deref
                 m_OutputFB->Bind();
                 ::glViewport(0, 0, static_cast<GLsizei>(m_Width), static_cast<GLsizei>(m_Height));
                 ::glDisable(GL_BLEND);
@@ -152,6 +201,11 @@ namespace OloEngine::Tests
 
             void ReadOutputRgba8(std::vector<u8>& out) const
             {
+                if (!m_Initialized)
+                {
+                    out.clear();
+                    return;
+                }
                 ReadbackRgba8(m_OutputFB->GetColorAttachmentRendererID(0), m_Width, m_Height, out);
             }
         };
@@ -705,8 +759,9 @@ namespace OloEngine::Tests
         // for projCoords.z > 0.8. Non-uniform so PCF taps straddle the
         // boundary and produce smooth shadow factors.
         // ---------------------------------------------------------------
-        GLuint shadowTex = 0;
-        ::glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &shadowTex);
+        ScopedGLTexture shadowTexGuard;
+        ::glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &shadowTexGuard.m_Id);
+        const GLuint shadowTex = shadowTexGuard.m_Id;
         ::glTextureStorage3D(shadowTex, 1, GL_DEPTH_COMPONENT32F,
                              static_cast<GLsizei>(kShadowRes),
                              static_cast<GLsizei>(kShadowRes), 4);
@@ -743,8 +798,9 @@ namespace OloEngine::Tests
         };
         static_assert(sizeof(ProbeUbo) == 32, "std140 layout mismatch");
         ProbeUbo uboData{ { kBias, 0.0f, 0.0f, 0.0f }, static_cast<i32>(kShadowRes), { 0, 0, 0 } };
-        GLuint probeUbo = 0;
-        ::glCreateBuffers(1, &probeUbo);
+        ScopedGLBuffer probeUboGuard;
+        ::glCreateBuffers(1, &probeUboGuard.m_Id);
+        const GLuint probeUbo = probeUboGuard.m_Id;
         ::glNamedBufferData(probeUbo, sizeof(ProbeUbo), &uboData, GL_STATIC_DRAW);
         ::glBindBufferBase(GL_UNIFORM_BUFFER, 18, probeUbo);
 
@@ -760,6 +816,7 @@ namespace OloEngine::Tests
         hdrSpec.Height = kFrameH;
         hdrSpec.Attachments = { FramebufferTextureFormat::RGBA16F };
         Ref<Framebuffer> hdrFB = Framebuffer::Create(hdrSpec);
+        ASSERT_TRUE(hdrFB != nullptr) << "Framebuffer::Create returned null for HDR scene FBO";
 
         Ref<Shader> probeShader = Shader::Create(
             "assets/shaders/tests/ShaderUnit_ShadowSelfShadow.glsl");
@@ -816,9 +873,7 @@ namespace OloEngine::Tests
         tone.ReadOutputRgba8(output);
         ASSERT_EQ(output.size(), static_cast<std::size_t>(kFrameW) * kFrameH * 4);
 
-        // Clean up GL resources we authored directly.
-        ::glDeleteBuffers(1, &probeUbo);
-        ::glDeleteTextures(1, &shadowTex);
+        // shadowTex / probeUbo are freed automatically by the ScopedGL* guards.
 
         const auto result = CompareOrBootstrap("scene_shadow_integration", kFrameW, kFrameH, output);
         EXPECT_TRUE(result.m_Passed) << result.m_Message;
@@ -849,8 +904,9 @@ namespace OloEngine::Tests
         // Layer array: 4 solid HDR colours (slightly > 1 so tonemapping
         // has something to do). Red / green / blue / warm-yellow.
         // ---------------------------------------------------------------
-        GLuint layerArray = 0;
-        ::glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &layerArray);
+        ScopedGLTexture layerArrayGuard;
+        ::glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &layerArrayGuard.m_Id);
+        const GLuint layerArray = layerArrayGuard.m_Id;
         ::glTextureStorage3D(layerArray, 1, GL_RGBA16F,
                              static_cast<GLsizei>(kSize), static_cast<GLsizei>(kSize), 4);
         ::glTextureParameteri(layerArray, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -916,6 +972,7 @@ namespace OloEngine::Tests
             }
         }
         GLuint splatTex = CreateFloatTexture2D(kSize, kSize, splatPixels.data());
+        ScopedGLTexture splatTexGuard(splatTex);
         ::glBindTextureUnit(24, splatTex);
 
         // ---------------------------------------------------------------
@@ -926,6 +983,7 @@ namespace OloEngine::Tests
         hdrSpec.Height = kSize;
         hdrSpec.Attachments = { FramebufferTextureFormat::RGBA16F };
         Ref<Framebuffer> hdrFB = Framebuffer::Create(hdrSpec);
+        ASSERT_TRUE(hdrFB != nullptr) << "Framebuffer::Create returned null for terrain HDR FBO";
 
         Ref<Shader> splatShader = Shader::Create(
             "assets/shaders/tests/ShaderUnit_SplatmapChannel.glsl");
@@ -963,8 +1021,7 @@ namespace OloEngine::Tests
         tone.ReadOutputRgba8(output);
         ASSERT_EQ(output.size(), static_cast<std::size_t>(kSize) * kSize * 4);
 
-        ::glDeleteTextures(1, &splatTex);
-        ::glDeleteTextures(1, &layerArray);
+        // splatTex / layerArray are freed automatically by the ScopedGL* guards.
 
         const auto result = CompareOrBootstrap("scene_splatmap_integration", kSize, kSize, output);
         EXPECT_TRUE(result.m_Passed) << result.m_Message;
