@@ -2,16 +2,61 @@ name: Sanitizers
 on:
   push:
     branches: [master]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
   pull_request:
     types: [opened, synchronize, reopened]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 permissions:
   contents: read
 
 jobs:
+  detect-changes:
+    name: Detect sanitizer-relevant changes
+    runs-on: ubuntu-latest
+    outputs:
+      native: ${{ steps.filter.outputs.native }}
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+    - name: Detect changed paths
+      id: filter
+      uses: dorny/paths-filter@v3
+      with:
+        filters: |
+          native:
+            - '**/*.c'
+            - '**/*.cc'
+            - '**/*.cpp'
+            - '**/*.cxx'
+            - '**/*.h'
+            - '**/*.hpp'
+            - '**/*.hh'
+            - '**/*.hxx'
+            - '**/*.ixx'
+            - '**/*.cppm'
+            - '**/*.glsl'
+            - 'CMakeLists.txt'
+            - 'cmake/**'
+            - '.github/actions/**'
+            - '.github/workflows/asan.yml'
+
   asan-windows:
     name: ASan (Windows/MSVC)
+    needs: detect-changes
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.native == 'true' }}
     runs-on: windows-latest
     permissions:
       checks: write
@@ -75,6 +120,8 @@ jobs:
 
   asan-lsan-linux:
     name: ASan + LSan (Linux/Clang)
+    needs: detect-changes
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.native == 'true' }}
     # Pinned to ubuntu-24.04 (noble) because the LLVM apt repo URL below
     # hardcodes the distro codename. If ubuntu-latest jumps to a newer
     # release the apt source would 404.
@@ -138,6 +185,8 @@ jobs:
 
   ubsan-linux:
     name: UBSan (Linux/Clang)
+    needs: detect-changes
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.native == 'true' }}
     # See asan-lsan-linux above for why this pins the distro codename.
     runs-on: ubuntu-24.04
     permissions:
@@ -198,6 +247,8 @@ jobs:
 
   tsan-linux:
     name: TSan (Linux/Clang)
+    needs: detect-changes
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.native == 'true' }}
     timeout-minutes: 90
     # See asan-lsan-linux above for why this pins the distro codename.
     runs-on: ubuntu-24.04

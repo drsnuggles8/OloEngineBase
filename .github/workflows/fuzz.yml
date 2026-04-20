@@ -17,6 +17,10 @@ on:
   schedule:
     - cron: '13 4 * * *' # Nightly at 04:13 UTC.
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+
 jobs:
   fuzz:
     name: Fuzz smoke (ClangCL + libFuzzer)

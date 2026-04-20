@@ -55,11 +55,15 @@ namespace OloEngine::RendererValidate
         const u32 height = spec.Height;
         // Defensive overflow guard: width/height are u32 each, so their
         // product in u32 can wrap for pathological framebuffer sizes
-        // (e.g. >64K on either side). Compute in u64 first; refuse the
-        // readback if the element count wouldn't fit in u32 or if the
-        // byte count would exceed GLsizei.
+        // (e.g. >64K on either side). Compute in u64 first and bound both:
+        //   1) pixel count representable by AttachmentStats::m_PixelCount (u32)
+        //   2) byte count representable by GLsizei for glGetTextureImage.
         const u64 pixelCount64 = static_cast<u64>(width) * static_cast<u64>(height);
-        constexpr u64 kMaxPixels = static_cast<u64>(std::numeric_limits<u32>::max()) / 4u; // RGBA
+        constexpr u64 bytesPerPixel = 4ull * sizeof(f32); // RGBA32F readback
+        const auto maxBytes = static_cast<u64>(std::numeric_limits<GLsizei>::max());
+        const auto maxPixelsByGlsizei = maxBytes / bytesPerPixel;
+        const auto maxPixelsByStats = static_cast<u64>(std::numeric_limits<u32>::max());
+        const auto kMaxPixels = std::min(maxPixelsByGlsizei, maxPixelsByStats);
         if (pixelCount64 > kMaxPixels)
         {
             OLO_CORE_WARN("RendererValidate: attachment {} is {}x{} (>{} pixels); skipping readback to avoid overflow",
@@ -71,6 +75,8 @@ namespace OloEngine::RendererValidate
             return stats;
 
         std::vector<f32> pixels(static_cast<std::size_t>(pixelCount) * 4);
+        const auto byteSize64 = pixelCount64 * bytesPerPixel;
+        const auto byteSize = static_cast<GLsizei>(byteSize64);
         const GLuint tex = static_cast<GLuint>(fb->GetColorAttachmentRendererID(attachmentIndex));
         // Drain any stale GL error so we can distinguish a failed readback
         // from a caller-induced error. Use glGetTextureImage (GL 4.5+ DSA)
@@ -78,8 +84,7 @@ namespace OloEngine::RendererValidate
         while (::glGetError() != GL_NO_ERROR)
         {
         }
-        ::glGetTextureImage(tex, 0, GL_RGBA, GL_FLOAT,
-                            static_cast<GLsizei>(pixels.size() * sizeof(f32)), pixels.data());
+        ::glGetTextureImage(tex, 0, GL_RGBA, GL_FLOAT, byteSize, pixels.data());
         if (const GLenum err = ::glGetError(); err != GL_NO_ERROR)
         {
             OLO_CORE_ERROR("RendererValidate: glGetTextureImage failed (GL error 0x{:x}) for attachment {}; marking readback as failed",
@@ -170,8 +175,15 @@ namespace OloEngine::RendererValidate
             return true; // unsupported / empty — treat as "no opinion"
 
         bool ok = true;
-        constexpr f32 kFp16Max = 65504.0f;
-        constexpr f32 kFp16Min = -65504.0f;
+        FramebufferTextureFormat format = FramebufferTextureFormat::None;
+        if (fb)
+        {
+            const auto& spec = fb->GetSpecification();
+            if (attachmentIndex < spec.Attachments.Attachments.size())
+            {
+                format = spec.Attachments.Attachments[attachmentIndex].TextureFormat;
+            }
+        }
 
         if (stats.m_NanCount > 0)
         {
@@ -185,19 +197,28 @@ namespace OloEngine::RendererValidate
                            attachmentIndex, stats.m_InfCount);
             ok = false;
         }
-        const f32 maxChannel = std::max({ stats.m_MaxR, stats.m_MaxG, stats.m_MaxB, stats.m_MaxA });
-        if (maxChannel > kFp16Max)
+        // Numeric-range check is format-dependent:
+        // - RGBA16F: clamp to fp16 finite range
+        // - RGBA32F: no fp16 clamp (NaN/Inf checks above already catch invalid values)
+        if (format == FramebufferTextureFormat::RGBA16F)
         {
-            OLO_CORE_ERROR("[{}] attachment {}: max RGBA channel {:.2f} exceeds fp16 max ({:.0f})",
-                           passName, attachmentIndex, maxChannel, kFp16Max);
-            ok = false;
-        }
-        const f32 minChannel = std::min({ stats.m_MinR, stats.m_MinG, stats.m_MinB, stats.m_MinA });
-        if (minChannel < kFp16Min)
-        {
-            OLO_CORE_ERROR("[{}] attachment {}: min RGBA channel {:.2f} below fp16 min ({:.0f})",
-                           passName, attachmentIndex, minChannel, kFp16Min);
-            ok = false;
+            constexpr f32 kFp16Max = 65504.0f;
+            constexpr f32 kFp16Min = -65504.0f;
+
+            const f32 maxChannel = std::max({ stats.m_MaxR, stats.m_MaxG, stats.m_MaxB, stats.m_MaxA });
+            if (maxChannel > kFp16Max)
+            {
+                OLO_CORE_ERROR("[{}] attachment {}: max RGBA channel {:.2f} exceeds fp16 max ({:.0f})",
+                               passName, attachmentIndex, maxChannel, kFp16Max);
+                ok = false;
+            }
+            const f32 minChannel = std::min({ stats.m_MinR, stats.m_MinG, stats.m_MinB, stats.m_MinA });
+            if (minChannel < kFp16Min)
+            {
+                OLO_CORE_ERROR("[{}] attachment {}: min RGBA channel {:.2f} below fp16 min ({:.0f})",
+                               passName, attachmentIndex, minChannel, kFp16Min);
+                ok = false;
+            }
         }
 
         if (!ok && assertOnFailure)

@@ -5,16 +5,16 @@
 //
 // Each test renders a deterministic procedural frame through production
 // shader code (tone map, FXAA, etc.) at a fixed resolution and compares the
-// RGBA8 readback against a baseline PNG stored in
-// `OloEditor/assets/tests/golden/`.
+// RGBA8 readback against a baseline PNG in GoldenBaselineDir().
 //
-// First run bootstrap
-// -------------------
-//   If the baseline PNG does not exist (or the env var
-//   OLOENGINE_GOLDEN_REBASE is set to a truthy value), the test writes the
-//   current output as the new baseline and passes. This is how baselines are
-//   initially captured and how they are intentionally updated after a
-//   validated shader change.
+// Baseline policy
+// ---------------
+//   Missing baselines are treated as failures by CompareOrBootstrap(); they
+//   are NOT auto-bootstrapped. To intentionally create/rebase baselines, run:
+//
+//     OLOENGINE_GOLDEN_REBASE=1 <test binary> --gtest_filter=GoldenImage*
+//
+//   (from `OloEditor/` so `assets/...` resolves as expected).
 //
 // Comparison
 // ----------
@@ -55,6 +55,7 @@
 #include <stb_image/stb_image_write.h>
 
 #include <algorithm>
+#include <cerrno>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -506,14 +507,22 @@ namespace OloEngine::Tests
                 //   detailed DiffStats in the failure message (worst-pixel
                 //   location + per-channel max + pixel count > 4 LSB)
                 fs::path actualPath = dir / (name + ".actual.png");
-                ::stbi_write_png(actualPath.string().c_str(), static_cast<int>(width), static_cast<int>(height),
-                                 4, actualRgba.data(), static_cast<int>(width) * 4);
+                errno = 0;
+                const int wroteActualResult = ::stbi_write_png(actualPath.string().c_str(),
+                                                               static_cast<int>(width), static_cast<int>(height),
+                                                               4, actualRgba.data(), static_cast<int>(width) * 4);
+                const bool wroteActual = wroteActualResult != 0;
+                const int actualErrno = errno;
 
                 const DiffStats stats = ComputeDiffStats(actualRgba, baseline, width, height);
 
                 fs::path diffPath = dir / (name + ".diff.png");
-                ::stbi_write_png(diffPath.string().c_str(), static_cast<int>(width), static_cast<int>(height),
-                                 4, stats.m_HeatmapRgba.data(), static_cast<int>(width) * 4);
+                errno = 0;
+                const int wroteDiffResult = ::stbi_write_png(diffPath.string().c_str(),
+                                                             static_cast<int>(width), static_cast<int>(height),
+                                                             4, stats.m_HeatmapRgba.data(), static_cast<int>(width) * 4);
+                const bool wroteDiff = wroteDiffResult != 0;
+                const int diffErrno = errno;
 
                 std::ostringstream msg;
                 msg << "RMSE " << result.m_Rmse
@@ -532,9 +541,37 @@ namespace OloEngine::Tests
                     << "\n  per-channel max delta: R=" << stats.m_MaxDeltaR
                     << " G=" << stats.m_MaxDeltaG << " B=" << stats.m_MaxDeltaB
                     << "\n  pixels with any channel delta > 4 LSB: " << stats.m_PixelsOverEpsilon
-                    << " / " << (width * height)
-                    << "\n  wrote actual frame to: " << actualPath.string()
-                    << "\n  wrote diff heatmap to: " << diffPath.string();
+                    << " / " << (width * height);
+
+                if (wroteActual)
+                {
+                    msg << "\n  wrote actual frame to: " << actualPath.string();
+                }
+                else
+                {
+                    msg << "\n  failed to write actual frame to: " << actualPath.string()
+                        << " (stbi_write_png=" << wroteActualResult;
+                    if (actualErrno != 0)
+                    {
+                        msg << ", errno=" << actualErrno << " (" << std::strerror(actualErrno) << ")";
+                    }
+                    msg << ")";
+                }
+
+                if (wroteDiff)
+                {
+                    msg << "\n  wrote diff heatmap to: " << diffPath.string();
+                }
+                else
+                {
+                    msg << "\n  failed to write diff heatmap to: " << diffPath.string()
+                        << " (stbi_write_png=" << wroteDiffResult;
+                    if (diffErrno != 0)
+                    {
+                        msg << ", errno=" << diffErrno << " (" << std::strerror(diffErrno) << ")";
+                    }
+                    msg << ")";
+                }
                 result.m_Message = msg.str();
             }
             else

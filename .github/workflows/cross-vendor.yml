@@ -20,6 +20,10 @@ on:
     # Nightly at 03:47 UTC — odd minute to avoid the on-the-hour CI surge.
     - cron: '47 3 * * *'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+
 env:
   BUILD_TYPE: Release
 

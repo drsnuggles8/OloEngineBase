@@ -2,16 +2,66 @@ name: "CodeQL"
 on:
   push:
     branches: [ master ]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
   pull_request:
     types: [opened, synchronize, reopened]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 env:
   BUILD_TYPE: Release
 
 jobs:
+  detect-changes:
+    name: Detect language-relevant changes
+    runs-on: ubuntu-latest
+    outputs:
+      cpp: ${{ steps.filter.outputs.cpp }}
+      csharp: ${{ steps.filter.outputs.csharp }}
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+    - name: Detect changed paths
+      id: filter
+      uses: dorny/paths-filter@v3
+      with:
+        filters: |
+          cpp:
+            - '**/*.c'
+            - '**/*.cc'
+            - '**/*.cpp'
+            - '**/*.cxx'
+            - '**/*.h'
+            - '**/*.hpp'
+            - '**/*.hh'
+            - '**/*.hxx'
+            - '**/*.ixx'
+            - '**/*.cppm'
+            - '**/*.glsl'
+            - 'CMakeLists.txt'
+            - 'cmake/**'
+            - '.github/actions/**'
+            - '.github/workflows/codeql.yml'
+          csharp:
+            - '**/*.cs'
+            - 'OloEngine-ScriptCore/**'
+            - '.github/workflows/codeql.yml'
+
   analyze:
     name: Analyze
+    needs: detect-changes
+    if: ${{ github.event_name == 'workflow_dispatch' || (matrix.language == 'c-cpp' && needs.detect-changes.outputs.cpp == 'true') || (matrix.language == 'csharp' && needs.detect-changes.outputs.csharp == 'true') }}
     runs-on: windows-latest
 
     strategy:
