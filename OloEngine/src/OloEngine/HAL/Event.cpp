@@ -13,9 +13,9 @@
 #include "OloEngine/HAL/EventPool.h"
 
 #ifdef OLO_PLATFORM_WINDOWS
-#include "OloEngine/HAL/Windows/WindowsEvent.h"
+#include "Platform/Windows/WindowsEvent.h"
 #elif defined(OLO_PLATFORM_LINUX)
-#include "OloEngine/HAL/Linux/LinuxEvent.h"
+#include "Platform/Linux/LinuxEvent.h"
 #endif
 
 namespace OloEngine

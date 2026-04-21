@@ -1039,7 +1039,7 @@
 # Platform-specific sources
 if(WIN32)
 	list(APPEND SOURCES
-		"OloEngine/HAL/Windows/WindowsEvent.h"
+		"Platform/Windows/WindowsEvent.h"
 		"Platform/Windows/WindowsInput.cpp"
 		"Platform/Windows/WindowsWindow.cpp"
 		"Platform/Windows/WindowsWindow.h"
@@ -1047,7 +1047,7 @@ if(WIN32)
 	)
 elseif(UNIX AND NOT APPLE)
 	list(APPEND SOURCES
-		"OloEngine/HAL/Linux/LinuxEvent.h"
+		"Platform/Linux/LinuxEvent.h"
 		"Platform/Linux/LinuxInput.cpp"
 		"Platform/Linux/LinuxWindow.cpp"
 		"Platform/Linux/LinuxWindow.h"

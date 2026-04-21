@@ -1,5 +1,5 @@
 // Linux implementation of FEvent using pthreads
-// Mirrors OloEngine/HAL/Windows/WindowsEvent.h
+// Mirrors Platform/Windows/WindowsEvent.h
 
 #pragma once
 
