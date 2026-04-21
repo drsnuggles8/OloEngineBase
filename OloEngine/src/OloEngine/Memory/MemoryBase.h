@@ -278,6 +278,21 @@ namespace OloEngine
         {
             std::atomic_ref<FMalloc*>(GMalloc).store(Allocator, std::memory_order_release);
         }
+
+        // @brief Atomic compare-exchange on the global allocator pointer.
+        //
+        // Used by the proxy-install loops in `FMemory::EnablePoisonTests` /
+        // `EnablePurgatoryTests` to atomically swap the live allocator for
+        // a wrapping proxy. `acq_rel` on success ensures the proxy’s state
+        // is observed by other threads; `acquire` on failure synchronises
+        // `Expected` with whoever won the race (typically the initial
+        // lazy-init publish), so the next loop iteration reads an
+        // up-to-date pointer.
+        OLO_FINLINE bool AtomicCompareExchangeGMalloc(FMalloc*& Expected, FMalloc* Desired) noexcept
+        {
+            return std::atomic_ref<FMalloc*>(GMalloc).compare_exchange_strong(
+                Expected, Desired, std::memory_order_acq_rel, std::memory_order_acquire);
+        }
     } // namespace Private
 
     // @brief Un-namespaced GMalloc remains exposed for backwards compatibility.

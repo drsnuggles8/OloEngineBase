@@ -83,7 +83,7 @@ namespace OloEngine
 
             // Atomic compare-exchange to swap in the proxy
             FMalloc* Expected = LocalGMalloc;
-            if (std::atomic_ref(Private::GMalloc).compare_exchange_strong(Expected, Proxy))
+            if (Private::AtomicCompareExchangeGMalloc(Expected, Proxy))
             {
                 OLO_CORE_INFO("Purgatory proxy is now on - use-after-free detection enabled.");
                 return;
@@ -113,7 +113,7 @@ namespace OloEngine
 
             // Atomic compare-exchange to swap in the proxy
             FMalloc* Expected = LocalGMalloc;
-            if (std::atomic_ref(Private::GMalloc).compare_exchange_strong(Expected, Proxy))
+            if (Private::AtomicCompareExchangeGMalloc(Expected, Proxy))
             {
                 OLO_CORE_INFO("Poison proxy is now on - memory poisoning enabled (0xCD=new, 0xDD=freed).");
                 return;
