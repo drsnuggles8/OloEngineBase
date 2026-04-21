@@ -126,6 +126,7 @@
 		"OloEngine/Build/GameBuildSettings.h"
 		"OloEngine/Build/GameBuildPipeline.h"
 		"OloEngine/Build/GameBuildPipeline.cpp"
+		"OloEngine/Build/BuildPipelinePlatform.h"
 		"OloEngine/Serialization/AssetPackFile.h"
 		"OloEngine/Serialization/FileStream.h"
 		"OloEngine/Serialization/FileStream.cpp"
@@ -1044,6 +1045,7 @@
 # Platform-specific sources
 if(WIN32)
 	list(APPEND SOURCES
+		"Platform/Windows/WindowsBuildPipeline.cpp"
 		"Platform/Windows/WindowsCrashReporter.cpp"
 		"Platform/Windows/WindowsEvent.h"
 		"Platform/Windows/WindowsSemaphore.h"
@@ -1059,6 +1061,7 @@ if(WIN32)
 	)
 elseif(UNIX AND NOT APPLE)
 	list(APPEND SOURCES
+		"Platform/Linux/LinuxBuildPipeline.cpp"
 		"Platform/Linux/LinuxCrashReporter.cpp"
 		"Platform/Linux/LinuxEvent.h"
 		"Platform/Linux/LinuxSemaphore.h"
