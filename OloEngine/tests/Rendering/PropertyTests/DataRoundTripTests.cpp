@@ -151,12 +151,11 @@ namespace OloEngine::Tests
         for (u32 i = 0; i < N; ++i)
             src[i] = static_cast<u8>((i * 37u + 13u) & 0xFFu);
 
-        GLuint tex = 0;
-        ::glCreateTextures(GL_TEXTURE_2D, 1, &tex);
+        // Use CreateRgba8Texture2D so the upload runs under a
+        // PixelStoreDefaultsScope guard — prior tests with non-zero
+        // GL_UNPACK_ROW_LENGTH could otherwise corrupt the transfer.
+        GLuint tex = static_cast<GLuint>(CreateRgba8Texture2D(W, H, src.data()));
         ScopedTexture texOwner{ tex };
-        ::glTextureStorage2D(tex, 1, GL_RGBA8, static_cast<GLsizei>(W), static_cast<GLsizei>(H));
-        ::glTextureSubImage2D(tex, 0, 0, 0,
-                              static_cast<GLsizei>(W), static_cast<GLsizei>(H), GL_RGBA, GL_UNSIGNED_BYTE, src.data());
 
         std::vector<u8> dst(N, 0);
         ReadbackRgba8(static_cast<u32>(tex), W, H, dst);
@@ -479,14 +478,9 @@ namespace OloEngine::Tests
                 src[i] = static_cast<u8>((rng >> 24) & 0xFFu);
             }
 
-            GLuint tex = 0;
-            ::glCreateTextures(GL_TEXTURE_2D, 1, &tex);
+            // CreateRgba8Texture2D guards GL_UNPACK_* state around the upload.
+            GLuint tex = static_cast<GLuint>(CreateRgba8Texture2D(W, H, src.data()));
             ScopedTexture texOwner{ tex };
-            ::glTextureStorage2D(tex, 1, GL_RGBA8,
-                                 static_cast<GLsizei>(W), static_cast<GLsizei>(H));
-            ::glTextureSubImage2D(tex, 0, 0, 0,
-                                  static_cast<GLsizei>(W), static_cast<GLsizei>(H),
-                                  GL_RGBA, GL_UNSIGNED_BYTE, src.data());
 
             std::vector<u8> dst(N, 0);
             ReadbackRgba8(static_cast<u32>(tex), W, H, dst);

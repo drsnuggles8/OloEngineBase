@@ -131,6 +131,13 @@ namespace OloEngine::Tests
     // -------------------------------------------------------------------------
     namespace
     {
+        // Tag-dispatched constructor (instead of named factories returning
+        // by value) so we can keep both move and copy deleted \u2014 NRVO of a
+        // local is non-mandatory under C++17, so factories returning a local
+        // by value would still need a move ctor on MSVC.
+        struct UnpackTag { };
+        struct PackTag { };
+
         struct PixelStoreDefaultsScope
         {
             bool m_Unpack = false;
@@ -147,44 +154,38 @@ namespace OloEngine::Tests
             GLint m_PackSkipRows = 0;
             GLint m_PackSkipImages = 0;
 
-            PixelStoreDefaultsScope() = default;
-
-            static PixelStoreDefaultsScope ForUnpack()
+            explicit PixelStoreDefaultsScope(UnpackTag)
+                : m_Unpack(true)
             {
-                PixelStoreDefaultsScope s;
-                s.m_Unpack = true;
-                ::glGetIntegerv(GL_UNPACK_ALIGNMENT, &s.m_UnpackAlignment);
-                ::glGetIntegerv(GL_UNPACK_ROW_LENGTH, &s.m_UnpackRowLength);
-                ::glGetIntegerv(GL_UNPACK_IMAGE_HEIGHT, &s.m_UnpackImageHeight);
-                ::glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &s.m_UnpackSkipPixels);
-                ::glGetIntegerv(GL_UNPACK_SKIP_ROWS, &s.m_UnpackSkipRows);
-                ::glGetIntegerv(GL_UNPACK_SKIP_IMAGES, &s.m_UnpackSkipImages);
+                ::glGetIntegerv(GL_UNPACK_ALIGNMENT, &m_UnpackAlignment);
+                ::glGetIntegerv(GL_UNPACK_ROW_LENGTH, &m_UnpackRowLength);
+                ::glGetIntegerv(GL_UNPACK_IMAGE_HEIGHT, &m_UnpackImageHeight);
+                ::glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &m_UnpackSkipPixels);
+                ::glGetIntegerv(GL_UNPACK_SKIP_ROWS, &m_UnpackSkipRows);
+                ::glGetIntegerv(GL_UNPACK_SKIP_IMAGES, &m_UnpackSkipImages);
                 ::glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
                 ::glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
                 ::glPixelStorei(GL_UNPACK_IMAGE_HEIGHT, 0);
                 ::glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
                 ::glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
                 ::glPixelStorei(GL_UNPACK_SKIP_IMAGES, 0);
-                return s;
             }
 
-            static PixelStoreDefaultsScope ForPack()
+            explicit PixelStoreDefaultsScope(PackTag)
+                : m_Unpack(false)
             {
-                PixelStoreDefaultsScope s;
-                s.m_Unpack = false;
-                ::glGetIntegerv(GL_PACK_ALIGNMENT, &s.m_PackAlignment);
-                ::glGetIntegerv(GL_PACK_ROW_LENGTH, &s.m_PackRowLength);
-                ::glGetIntegerv(GL_PACK_IMAGE_HEIGHT, &s.m_PackImageHeight);
-                ::glGetIntegerv(GL_PACK_SKIP_PIXELS, &s.m_PackSkipPixels);
-                ::glGetIntegerv(GL_PACK_SKIP_ROWS, &s.m_PackSkipRows);
-                ::glGetIntegerv(GL_PACK_SKIP_IMAGES, &s.m_PackSkipImages);
+                ::glGetIntegerv(GL_PACK_ALIGNMENT, &m_PackAlignment);
+                ::glGetIntegerv(GL_PACK_ROW_LENGTH, &m_PackRowLength);
+                ::glGetIntegerv(GL_PACK_IMAGE_HEIGHT, &m_PackImageHeight);
+                ::glGetIntegerv(GL_PACK_SKIP_PIXELS, &m_PackSkipPixels);
+                ::glGetIntegerv(GL_PACK_SKIP_ROWS, &m_PackSkipRows);
+                ::glGetIntegerv(GL_PACK_SKIP_IMAGES, &m_PackSkipImages);
                 ::glPixelStorei(GL_PACK_ALIGNMENT, 1);
                 ::glPixelStorei(GL_PACK_ROW_LENGTH, 0);
                 ::glPixelStorei(GL_PACK_IMAGE_HEIGHT, 0);
                 ::glPixelStorei(GL_PACK_SKIP_PIXELS, 0);
                 ::glPixelStorei(GL_PACK_SKIP_ROWS, 0);
                 ::glPixelStorei(GL_PACK_SKIP_IMAGES, 0);
-                return s;
             }
 
             ~PixelStoreDefaultsScope()
@@ -211,7 +212,11 @@ namespace OloEngine::Tests
 
             PixelStoreDefaultsScope(const PixelStoreDefaultsScope&) = delete;
             PixelStoreDefaultsScope& operator=(const PixelStoreDefaultsScope&) = delete;
-            PixelStoreDefaultsScope(PixelStoreDefaultsScope&&) = default;
+            // Movability would let both the source and moved-to instances
+            // run their destructor's glPixelStorei restores. Deleted \u2014
+            // construct directly with the tag at the call site.
+            PixelStoreDefaultsScope(PixelStoreDefaultsScope&&) = delete;
+            PixelStoreDefaultsScope& operator=(PixelStoreDefaultsScope&&) = delete;
         };
     } // namespace
 
@@ -221,7 +226,7 @@ namespace OloEngine::Tests
 
     u32 CreateFloatTexture2D(u32 width, u32 height, const f32* pixels)
     {
-        auto unpackScope = PixelStoreDefaultsScope::ForUnpack();
+        PixelStoreDefaultsScope unpackScope{ UnpackTag{} };
         GLuint tex = 0;
         ::glCreateTextures(GL_TEXTURE_2D, 1, &tex);
         ::glTextureStorage2D(tex, 1, GL_RGBA32F, static_cast<GLsizei>(width), static_cast<GLsizei>(height));
@@ -253,13 +258,28 @@ namespace OloEngine::Tests
         return CreateFloatTexture2D(1, 1, pixel);
     }
 
+    u32 CreateRgba8Texture2D(u32 width, u32 height, const u8* pixels)
+    {
+        PixelStoreDefaultsScope unpackScope{ UnpackTag{} };
+        GLuint tex = 0;
+        ::glCreateTextures(GL_TEXTURE_2D, 1, &tex);
+        ::glTextureStorage2D(tex, 1, GL_RGBA8, static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+        ::glTextureSubImage2D(tex, 0, 0, 0, static_cast<GLsizei>(width), static_cast<GLsizei>(height),
+                              GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        ::glTextureParameteri(tex, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        ::glTextureParameteri(tex, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        ::glTextureParameteri(tex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        ::glTextureParameteri(tex, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        return static_cast<u32>(tex);
+    }
+
     // -------------------------------------------------------------------------
     // Readback helpers
     // -------------------------------------------------------------------------
 
     void ReadbackRgba8(u32 textureId, u32 width, u32 height, std::vector<u8>& out)
     {
-        auto packScope = PixelStoreDefaultsScope::ForPack();
+        PixelStoreDefaultsScope packScope{ PackTag{} };
         out.resize(static_cast<std::size_t>(width) * height * 4);
         ::glGetTextureImage(static_cast<GLuint>(textureId), 0, GL_RGBA, GL_UNSIGNED_BYTE,
                             static_cast<GLsizei>(out.size()), out.data());
@@ -267,7 +287,7 @@ namespace OloEngine::Tests
 
     void ReadbackRgbaFloat(u32 textureId, u32 width, u32 height, std::vector<f32>& out)
     {
-        auto packScope = PixelStoreDefaultsScope::ForPack();
+        PixelStoreDefaultsScope packScope{ PackTag{} };
         out.resize(static_cast<std::size_t>(width) * height * 4);
         ::glGetTextureImage(static_cast<GLuint>(textureId), 0, GL_RGBA, GL_FLOAT,
                             static_cast<GLsizei>(out.size() * sizeof(f32)), out.data());
@@ -276,7 +296,10 @@ namespace OloEngine::Tests
     FloatStats ComputeStats(const std::vector<f32>& pixels)
     {
         FloatStats stats{};
-        if (pixels.empty())
+        // Need a full RGBA quad to seed the min/max. A buffer with 1-3
+        // trailing floats is malformed — bail out with default stats
+        // rather than read past the end.
+        if (pixels.size() < 4)
             return stats;
 
         stats.m_MinR = stats.m_MaxR = pixels[0];

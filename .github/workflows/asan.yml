@@ -65,6 +65,10 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.native == 'true' }}
     runs-on: windows-latest
     permissions:
+      # Job-level permissions replace the workflow-level block entirely,
+      # so re-declare contents: read alongside checks: write. Without it
+      # actions/checkout@v6 would fail on fork PRs.
+      contents: read
       checks: write
 
     steps:
@@ -145,6 +149,10 @@ jobs:
     # release the apt source would 404.
     runs-on: ubuntu-24.04
     permissions:
+      # Job-level permissions replace the workflow-level block entirely,
+      # so re-declare contents: read alongside checks: write. Without it
+      # actions/checkout@v6 would fail on fork PRs.
+      contents: read
       checks: write
 
     steps:
@@ -178,8 +186,11 @@ jobs:
         -DBUILD_TESTS=ON
 
     - name: Build tests
-      # Auto-detect available cores on the runner instead of pinning to 2.
-      run: cmake --build build --target OloEngine-Tests --parallel
+      # Pinned to --parallel 2: higher concurrency has been observed to
+      # exhaust runner memory (clang++ under sanitizer instrumentation uses
+      # ~3 GB per translation unit), causing `The hosted runner lost
+      # communication with the server` failures.
+      run: cmake --build build --target OloEngine-Tests --parallel 2
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
@@ -212,6 +223,10 @@ jobs:
     # See asan-lsan-linux above for why this pins the distro codename.
     runs-on: ubuntu-24.04
     permissions:
+      # Job-level permissions replace the workflow-level block entirely,
+      # so re-declare contents: read alongside checks: write. Without it
+      # actions/checkout@v6 would fail on fork PRs.
+      contents: read
       checks: write
 
     steps:
@@ -245,8 +260,11 @@ jobs:
         -DBUILD_TESTS=ON
 
     - name: Build tests
-      # Auto-detect available cores on the runner instead of pinning to 2.
-      run: cmake --build build --target OloEngine-Tests --parallel
+      # Pinned to --parallel 2: higher concurrency has been observed to
+      # exhaust runner memory (clang++ under sanitizer instrumentation uses
+      # ~3 GB per translation unit), causing `The hosted runner lost
+      # communication with the server` failures.
+      run: cmake --build build --target OloEngine-Tests --parallel 2
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
@@ -279,6 +297,10 @@ jobs:
     # See asan-lsan-linux above for why this pins the distro codename.
     runs-on: ubuntu-24.04
     permissions:
+      # Job-level permissions replace the workflow-level block entirely,
+      # so re-declare contents: read alongside checks: write. Without it
+      # actions/checkout@v6 would fail on fork PRs.
+      contents: read
       checks: write
 
     steps:
@@ -312,8 +334,11 @@ jobs:
         -DBUILD_TESTS=ON
 
     - name: Build tests
-      # Auto-detect available cores on the runner instead of pinning to 2.
-      run: cmake --build build --target OloEngine-Tests --parallel
+      # Pinned to --parallel 2: higher concurrency has been observed to
+      # exhaust runner memory (clang++ under sanitizer instrumentation uses
+      # ~3 GB per translation unit), causing `The hosted runner lost
+      # communication with the server` failures.
+      run: cmake --build build --target OloEngine-Tests --parallel 2
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"

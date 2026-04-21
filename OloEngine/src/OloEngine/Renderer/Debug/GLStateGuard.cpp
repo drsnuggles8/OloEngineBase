@@ -102,6 +102,14 @@ namespace OloEngine
         s.m_StencilFunc = GlGetInt(GL_STENCIL_FUNC);
         s.m_StencilRef = GlGetInt(GL_STENCIL_REF);
         s.m_StencilMask = static_cast<u32>(GlGetInt(GL_STENCIL_VALUE_MASK));
+        s.m_StencilWriteMask = static_cast<u32>(GlGetInt(GL_STENCIL_WRITEMASK));
+        s.m_StencilBackWriteMask = static_cast<u32>(GlGetInt(GL_STENCIL_BACK_WRITEMASK));
+        s.m_StencilFail = GlGetInt(GL_STENCIL_FAIL);
+        s.m_StencilPassDepthFail = GlGetInt(GL_STENCIL_PASS_DEPTH_FAIL);
+        s.m_StencilPassDepthPass = GlGetInt(GL_STENCIL_PASS_DEPTH_PASS);
+        s.m_StencilBackFail = GlGetInt(GL_STENCIL_BACK_FAIL);
+        s.m_StencilBackPassDepthFail = GlGetInt(GL_STENCIL_BACK_PASS_DEPTH_FAIL);
+        s.m_StencilBackPassDepthPass = GlGetInt(GL_STENCIL_BACK_PASS_DEPTH_PASS);
 
         s.m_CullFace = GlGetBoolean(GL_CULL_FACE);
         s.m_CullFaceMode = GlGetInt(GL_CULL_FACE_MODE);
@@ -161,6 +169,8 @@ namespace OloEngine
 
     std::vector<std::string> GLStateSnapshot::DiffAgainst(const GLStateSnapshot& other) const
     {
+        OLO_PROFILE_FUNCTION();
+
         std::vector<std::string> diffs;
 
         AppendIfDifferentBool(diffs, "DepthTest", m_DepthTest, other.m_DepthTest);
@@ -179,6 +189,14 @@ namespace OloEngine
         AppendIfDifferent(diffs, "StencilFunc", m_StencilFunc, other.m_StencilFunc);
         AppendIfDifferent(diffs, "StencilRef", m_StencilRef, other.m_StencilRef);
         AppendIfDifferent(diffs, "StencilMask", static_cast<i64>(m_StencilMask), static_cast<i64>(other.m_StencilMask));
+        AppendIfDifferent(diffs, "StencilWriteMask", static_cast<i64>(m_StencilWriteMask), static_cast<i64>(other.m_StencilWriteMask));
+        AppendIfDifferent(diffs, "StencilBackWriteMask", static_cast<i64>(m_StencilBackWriteMask), static_cast<i64>(other.m_StencilBackWriteMask));
+        AppendIfDifferent(diffs, "StencilFail", m_StencilFail, other.m_StencilFail);
+        AppendIfDifferent(diffs, "StencilPassDepthFail", m_StencilPassDepthFail, other.m_StencilPassDepthFail);
+        AppendIfDifferent(diffs, "StencilPassDepthPass", m_StencilPassDepthPass, other.m_StencilPassDepthPass);
+        AppendIfDifferent(diffs, "StencilBackFail", m_StencilBackFail, other.m_StencilBackFail);
+        AppendIfDifferent(diffs, "StencilBackPassDepthFail", m_StencilBackPassDepthFail, other.m_StencilBackPassDepthFail);
+        AppendIfDifferent(diffs, "StencilBackPassDepthPass", m_StencilBackPassDepthPass, other.m_StencilBackPassDepthPass);
 
         AppendIfDifferentBool(diffs, "CullFace", m_CullFace, other.m_CullFace);
         AppendIfDifferent(diffs, "CullFaceMode", m_CullFaceMode, other.m_CullFaceMode);
@@ -251,6 +269,8 @@ namespace OloEngine
 
     GLStateGuard::~GLStateGuard()
     {
+        OLO_PROFILE_FUNCTION();
+
         // Destructor must not throw: Capture() performs GL calls, DiffAgainst()
         // allocates std::string / std::ostringstream, and the logger macros
         // may throw from fmt formatting. Swallow any exception — a leaked GL
@@ -283,6 +303,8 @@ namespace OloEngine
 
     std::vector<std::string> GLStateGuard::DetectLeaks()
     {
+        OLO_PROFILE_FUNCTION();
+
         // Flip m_Finalized up-front so if Capture()/DiffAgainst() throw,
         // the destructor won't try the same work again during unwinding.
         m_Finalized = true;

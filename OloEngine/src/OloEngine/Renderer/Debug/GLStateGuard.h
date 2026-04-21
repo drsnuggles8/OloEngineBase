@@ -55,6 +55,20 @@ namespace OloEngine
         i32 m_StencilFunc = 0;
         i32 m_StencilRef = 0;
         u32 m_StencilMask = 0;
+        // Persistent write masks — distinct from the read mask
+        // (GL_STENCIL_VALUE_MASK) captured in m_StencilMask. Front and back
+        // can diverge under glStencilMaskSeparate.
+        u32 m_StencilWriteMask = 0;
+        u32 m_StencilBackWriteMask = 0;
+        // Per-face ops. Stencil state is separable via glStencilOpSeparate /
+        // glStencilFuncSeparate, and a pass that mutates the back-face ops
+        // and forgets to restore them would go undetected without these.
+        i32 m_StencilFail = 0;
+        i32 m_StencilPassDepthFail = 0;
+        i32 m_StencilPassDepthPass = 0;
+        i32 m_StencilBackFail = 0;
+        i32 m_StencilBackPassDepthFail = 0;
+        i32 m_StencilBackPassDepthPass = 0;
 
         bool m_CullFace = false;
         i32 m_CullFaceMode = 0;

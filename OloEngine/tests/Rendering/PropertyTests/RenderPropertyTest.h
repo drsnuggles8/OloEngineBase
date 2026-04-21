@@ -84,6 +84,12 @@ namespace OloEngine::Tests
     // Creates a single-pixel RGBA32F texture with the given color.
     u32 CreateSinglePixelFloatTexture(f32 r, f32 g, f32 b, f32 a);
 
+    // Creates an RGBA8 texture from a host-side byte buffer. Returns the
+    // raw GL texture name; the caller owns it (call glDeleteTextures).
+    // `pixels` must contain width * height * 4 bytes. Internally guards
+    // GL_UNPACK_* state so prior tests can't corrupt the upload.
+    u32 CreateRgba8Texture2D(u32 width, u32 height, const u8* pixels);
+
     // -------------------------------------------------------------------------
     // Readback helpers
     // -------------------------------------------------------------------------
