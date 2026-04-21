@@ -673,6 +673,7 @@
 		"OloEngine/Physics3D/MeshColliderCache.cpp"
 		"OloEngine/Physics3D/JoltCaptureManager.h"
 		"OloEngine/Physics3D/JoltCaptureManager.cpp"
+		"OloEngine/Physics3D/JoltCapturePlatform.h"
 		"OloEngine/Physics3D/JoltJobSystemAdapter.h"
 		"OloEngine/Physics3D/JoltJobSystemAdapter.cpp"
 
@@ -1047,6 +1048,7 @@ if(WIN32)
 		"Platform/Windows/WindowsEvent.h"
 		"Platform/Windows/WindowsSemaphore.h"
 		"Platform/Windows/WindowsInput.cpp"
+		"Platform/Windows/WindowsJoltCapture.cpp"
 		"Platform/Windows/WindowsPlatformMemory.cpp"
 		"Platform/Windows/WindowsPlatformMisc.cpp"
 		"Platform/Windows/WindowsPlatformProcess.cpp"
@@ -1061,6 +1063,7 @@ elseif(UNIX AND NOT APPLE)
 		"Platform/Linux/LinuxEvent.h"
 		"Platform/Linux/LinuxSemaphore.h"
 		"Platform/Linux/LinuxInput.cpp"
+		"Platform/Linux/LinuxJoltCapture.cpp"
 		"Platform/Linux/LinuxPlatformMemory.cpp"
 		"Platform/Linux/LinuxPlatformMisc.cpp"
 		"Platform/Linux/LinuxPlatformProcess.cpp"

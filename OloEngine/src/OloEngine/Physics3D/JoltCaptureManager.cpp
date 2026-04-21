@@ -2,6 +2,7 @@
 #include "JoltCaptureManager.h"
 
 #include "OloEngine/Debug/Instrumentor.h"
+#include "OloEngine/Physics3D/JoltCapturePlatform.h"
 
 #include <algorithm>
 #include <chrono>
@@ -95,59 +96,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Set default captures directory with cross-platform support
-        std::filesystem::path capturesPath;
-        std::filesystem::path expectedRoot;
-
-#ifdef _WIN32
-        // Windows: Use APPDATA if available
-        const char* appData = std::getenv("APPDATA");
-        if (appData != nullptr)
-        {
-            capturesPath = std::filesystem::path(appData) / "OloEngine" / "Captures";
-            expectedRoot = std::filesystem::path(appData);
-        }
-        else
-        {
-            capturesPath = std::filesystem::current_path() / "Captures";
-            expectedRoot = std::filesystem::current_path();
-        }
-#elif defined(__APPLE__)
-        // macOS: Use HOME + Library/Application Support
-        const char* home = std::getenv("HOME");
-        if (home != nullptr)
-        {
-            capturesPath = std::filesystem::path(home) / "Library" / "Application Support" / "OloEngine" / "Captures";
-            expectedRoot = std::filesystem::path(home) / "Library" / "Application Support";
-        }
-        else
-        {
-            capturesPath = std::filesystem::current_path() / "Captures";
-            expectedRoot = std::filesystem::current_path();
-        }
-#else
-        // Linux/Unix: Use XDG_DATA_HOME or fallback to HOME + .local/share
-        const char* xdgDataHome = std::getenv("XDG_DATA_HOME");
-        if (xdgDataHome != nullptr)
-        {
-            capturesPath = std::filesystem::path(xdgDataHome) / "OloEngine" / "Captures";
-            expectedRoot = std::filesystem::path(xdgDataHome);
-        }
-        else
-        {
-            const char* home = std::getenv("HOME");
-            if (home != nullptr)
-            {
-                capturesPath = std::filesystem::path(home) / ".local" / "share" / "OloEngine" / "Captures";
-                expectedRoot = std::filesystem::path(home) / ".local" / "share";
-            }
-            else
-            {
-                capturesPath = std::filesystem::current_path() / "Captures";
-                expectedRoot = std::filesystem::current_path();
-            }
-        }
-#endif
+        // Set default captures directory using platform-specific conventions.
+        const auto platformPaths = JoltCapturePlatform::GetDefaultCapturePaths();
+        std::filesystem::path capturesPath = platformPaths.CapturesPath;
+        std::filesystem::path expectedRoot = platformPaths.ExpectedRoot;
 
         // Validate and canonicalize the path to prevent directory traversal
         std::filesystem::path validatedPath = ValidateAndCanonalizePath(capturesPath, expectedRoot);
@@ -662,62 +614,11 @@ namespace OloEngine
                 allowedBasePaths.push_back(canonicalCurrent);
 
                 // Add platform-specific app data directories
-#ifdef _WIN32
-                const char* appData = std::getenv("APPDATA");
-                if (appData != nullptr)
+                auto platformBases = JoltCapturePlatform::GetAllowedBasePaths();
+                for (auto& p : platformBases)
                 {
-                    try
-                    {
-                        allowedBasePaths.push_back(std::filesystem::weakly_canonical(std::filesystem::path(appData)));
-                    }
-                    catch (const std::filesystem::filesystem_error&)
-                    {
-                        // Ignore if canonicalization fails for app data path
-                    }
+                    allowedBasePaths.push_back(std::move(p));
                 }
-#elif defined(__APPLE__)
-                const char* home = std::getenv("HOME");
-                if (home != nullptr)
-                {
-                    try
-                    {
-                        std::filesystem::path appSupport = std::filesystem::path(home) / "Library" / "Application Support";
-                        allowedBasePaths.push_back(std::filesystem::weakly_canonical(appSupport));
-                    }
-                    catch (const std::filesystem::filesystem_error&)
-                    {
-                        // Ignore if canonicalization fails for app support path
-                    }
-                }
-#else
-                // Linux/Unix: Add XDG_DATA_HOME and ~/.local/share
-                const char* xdgDataHome = std::getenv("XDG_DATA_HOME");
-                if (xdgDataHome != nullptr)
-                {
-                    try
-                    {
-                        allowedBasePaths.push_back(std::filesystem::weakly_canonical(std::filesystem::path(xdgDataHome)));
-                    }
-                    catch (const std::filesystem::filesystem_error&)
-                    {
-                        // Ignore if canonicalization fails
-                    }
-                }
-
-                const char* home = std::getenv("HOME");
-                if (home != nullptr)
-                {
-                    try
-                    {
-                        std::filesystem::path localShare = std::filesystem::path(home) / ".local" / "share";
-                        allowedBasePaths.push_back(std::filesystem::weakly_canonical(localShare));
-                    }
-                    catch (const std::filesystem::filesystem_error&)
-                    {
-                        // Ignore if canonicalization fails
-                    }
-                }
-#endif
 
                 bool isContained = false;
 
