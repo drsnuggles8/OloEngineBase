@@ -135,8 +135,12 @@ namespace OloEngine::Tests
         // by value) so we can keep both move and copy deleted \u2014 NRVO of a
         // local is non-mandatory under C++17, so factories returning a local
         // by value would still need a move ctor on MSVC.
-        struct UnpackTag { };
-        struct PackTag { };
+        struct UnpackTag
+        {
+        };
+        struct PackTag
+        {
+        };
 
         struct PixelStoreDefaultsScope
         {
