@@ -6,6 +6,8 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Misc/Exec.h"
 
+#include <atomic>
+
 namespace OloEngine
 {
 
@@ -245,11 +247,37 @@ namespace OloEngine
 
     // @brief The global memory allocator.
     // Most callers should use FMemory::Malloc instead of accessing GMalloc directly.
-    // FMemory wraps GMalloc but also provides low-level memory tracking.
     namespace Private
     {
         extern FMalloc* GMalloc;
-    }
+
+        // @brief Atomic acquire-load of the global allocator pointer.
+        //
+        // The allocator is initialised lazily on first use (see
+        // `FMemory::GCreateMalloc`). Naked reads of `GMalloc` in the
+        // allocator fast path race with that initialisation when two
+        // threads make their first allocation simultaneously — even
+        // though the static-local initialiser guarantees `GCreateMalloc`
+        // runs exactly once, the write to `GMalloc` itself has no
+        // happens-before relationship with other threads' reads of the
+        // pointer until the read/write pair is made atomic.
+        //
+        // `std::atomic_ref` lets us keep the plain `FMalloc*` declaration
+        // (and the `FMalloc* const&` backwards-compat reference) while
+        // enforcing release-store / acquire-load on the hot paths. On
+        // x86 and ARM this compiles to the same machine instruction as a
+        // plain pointer load/store — the benefit is strictly for the
+        // memory model and the sanitizer.
+        OLO_FINLINE FMalloc* AtomicLoadGMalloc() noexcept
+        {
+            return std::atomic_ref<FMalloc*>(GMalloc).load(std::memory_order_acquire);
+        }
+
+        OLO_FINLINE void AtomicStoreGMalloc(FMalloc* Allocator) noexcept
+        {
+            std::atomic_ref<FMalloc*>(GMalloc).store(Allocator, std::memory_order_release);
+        }
+    } // namespace Private
 
     // @brief Un-namespaced GMalloc remains exposed for backwards compatibility.
     // Most callers should use FMemory::Malloc instead of accessing GMalloc directly.

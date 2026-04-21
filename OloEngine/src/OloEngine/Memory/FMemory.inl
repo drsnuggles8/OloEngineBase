@@ -8,6 +8,8 @@
 #include "OloEngine/Memory/MemoryBase.h"
 #include "OloEngine/Memory/UnrealMemory.h"
 
+#include <atomic>
+
 namespace OloEngine
 {
 
@@ -17,10 +19,24 @@ namespace OloEngine
     void FMemory_FreeInline(void* Original);
     sizet FMemory_GetAllocSizeInline(void* Original);
 
+    // @brief Acquire-load of the inline GMalloc pointer.
+    //
+    // See `Private::AtomicLoadGMalloc` for the rationale — naked reads of
+    // the allocator pointer race with lazy initialisation under TSan.
+    // Going through `std::atomic_ref` directly on the macro target works
+    // whether the macro points at the default `Private::GMalloc` or at a
+    // project-overridden concrete static allocator pointer, as long as
+    // that pointer is naturally aligned (required by the macro contract).
+    OLO_FINLINE FMalloc* FMemory_AtomicLoadInlineGMalloc() noexcept
+    {
+        return std::atomic_ref<FMalloc*>(FMEMORY_INLINE_GMalloc).load(std::memory_order_acquire);
+    }
+
     OLO_FINLINE void* FMemory_MallocInline(sizet Count, u32 Alignment)
     {
         void* Ptr = nullptr;
-        if (OLO_UNLIKELY(!FMEMORY_INLINE_GMalloc))
+        FMalloc* const Allocator = FMemory_AtomicLoadInlineGMalloc();
+        if (OLO_UNLIKELY(!Allocator))
         {
             Ptr = FMemory::MallocExternal(Count, Alignment);
         }
@@ -28,7 +44,7 @@ namespace OloEngine
         {
             DoGamethreadHook(0);
             FScopedMallocTimer Timer(0);
-            Ptr = FMEMORY_INLINE_GMalloc->Malloc(Count, Alignment);
+            Ptr = Allocator->Malloc(Count, Alignment);
         }
 
         return Ptr;
@@ -37,7 +53,8 @@ namespace OloEngine
     OLO_FINLINE void* FMemory_ReallocInline(void* Original, sizet Count, u32 Alignment)
     {
         void* Ptr = nullptr;
-        if (OLO_UNLIKELY(!FMEMORY_INLINE_GMalloc))
+        FMalloc* const Allocator = FMemory_AtomicLoadInlineGMalloc();
+        if (OLO_UNLIKELY(!Allocator))
         {
             Ptr = FMemory::ReallocExternal(Original, Count, Alignment);
         }
@@ -45,7 +62,7 @@ namespace OloEngine
         {
             DoGamethreadHook(1);
             FScopedMallocTimer Timer(1);
-            Ptr = FMEMORY_INLINE_GMalloc->Realloc(Original, Count, Alignment);
+            Ptr = Allocator->Realloc(Original, Count, Alignment);
         }
 
         return Ptr;
@@ -59,27 +76,29 @@ namespace OloEngine
             return;
         }
 
-        if (OLO_UNLIKELY(!FMEMORY_INLINE_GMalloc))
+        FMalloc* const Allocator = FMemory_AtomicLoadInlineGMalloc();
+        if (OLO_UNLIKELY(!Allocator))
         {
             FMemory::FreeExternal(Original);
             return;
         }
         DoGamethreadHook(2);
         FScopedMallocTimer Timer(2);
-        FMEMORY_INLINE_GMalloc->Free(Original);
+        Allocator->Free(Original);
     }
 
     OLO_FINLINE sizet FMemory_GetAllocSizeInline(void* Original)
     {
         sizet Result = 0;
-        if (OLO_UNLIKELY(!FMEMORY_INLINE_GMalloc))
+        FMalloc* const Allocator = FMemory_AtomicLoadInlineGMalloc();
+        if (OLO_UNLIKELY(!Allocator))
         {
             Result = FMemory::GetAllocSizeExternal(Original);
         }
         else
         {
             sizet Size = 0;
-            const bool bGotSize = FMEMORY_INLINE_GMalloc->GetAllocationSize(Original, Size);
+            const bool bGotSize = Allocator->GetAllocationSize(Original, Size);
             Result = bGotSize ? Size : 0;
         }
 
@@ -89,7 +108,8 @@ namespace OloEngine
     OLO_FINLINE void* FMemory_MallocZeroedInline(sizet Count, u32 Alignment)
     {
         void* Ptr = nullptr;
-        if (OLO_UNLIKELY(!FMEMORY_INLINE_GMalloc))
+        FMalloc* const Allocator = FMemory_AtomicLoadInlineGMalloc();
+        if (OLO_UNLIKELY(!Allocator))
         {
             Ptr = FMemory::MallocZeroedExternal(Count, Alignment);
         }
@@ -97,7 +117,7 @@ namespace OloEngine
         {
             DoGamethreadHook(0);
             FScopedMallocTimer Timer(0);
-            Ptr = FMEMORY_INLINE_GMalloc->MallocZeroed(Count, Alignment);
+            Ptr = Allocator->MallocZeroed(Count, Alignment);
         }
 
         return Ptr;
@@ -106,13 +126,14 @@ namespace OloEngine
     OLO_FINLINE sizet FMemory_QuantizeSizeInline(sizet Count, u32 Alignment)
     {
         sizet Result = 0;
-        if (OLO_UNLIKELY(!FMEMORY_INLINE_GMalloc))
+        FMalloc* const Allocator = FMemory_AtomicLoadInlineGMalloc();
+        if (OLO_UNLIKELY(!Allocator))
         {
             Result = Count;
         }
         else
         {
-            Result = FMEMORY_INLINE_GMalloc->QuantizeSize(Count, Alignment);
+            Result = Allocator->QuantizeSize(Count, Alignment);
         }
 
         return Result;
