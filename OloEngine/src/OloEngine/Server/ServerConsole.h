@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Server/ServerConsolePlatform.h"
 
 #include <atomic>
 #include <functional>
@@ -80,8 +81,8 @@ namespace OloEngine
         std::mutex m_InputQueueMutex;
         std::queue<std::string> m_InputQueue;
 
-        // Pipe used on POSIX to wake the input thread from blocking reads
-        int m_WakeupPipe[2]{ -1, -1 };
+        // Platform-specific state used to abort a blocking stdin read during shutdown.
+        ServerConsolePlatform::AbortStatePtr m_AbortState;
 
         MessageSendCallback m_MessageSendCallback;
     };
