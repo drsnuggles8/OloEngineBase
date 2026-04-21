@@ -117,10 +117,10 @@ namespace OloEngine::Tests
     // -------------------------------------------------------------------------
     // Fullscreen-triangle / quad helper for single-shader post-process tests.
     //
-    // Binds `inputTexture` at GL texture unit 0, binds the output framebuffer,
-    // sets viewport, disables blend/depth/cull, binds the shader + an internal
-    // fullscreen quad VAO, and issues the draw. Does NOT manage UBOs — caller
-    // binds any UBOs needed by the shader before calling this.
+    // Binds `inputTexture` at GL texture unit 0, binds the internal
+    // fullscreen quad VAO, and issues the draw. Callers are responsible for
+    // binding the output framebuffer, setting viewport / fixed-function state,
+    // and binding the shader + any required UBOs before calling this.
     // -------------------------------------------------------------------------
     class FullscreenPass
     {

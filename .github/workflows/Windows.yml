@@ -73,7 +73,7 @@ jobs:
       # the Task/Pipe/Event/Dependencies/etc. families — same failure mode
       # the Windows ASan job works around). Tracked separately; these are
       # not regressions introduced by this PR.
-      run: ctest -V --timeout 120 -C ${{env.BUILD_TYPE}} --exclude-regex "NetworkIntegration|TaskSystemTest|TaskEventTest|NestedTasksTest|PipeTest|TaskDependenciesTest|TaskStressTest|MakeCompletedTaskTest|IsAwaitableTest|WaitAnyTest|AnyTest|DeepRetractionTest|InlineTaskTest|MoveOnlyResultTest|TaskSelfAccessTest|NestedTaskStressTest|ConcurrentEventTriggerTest|CancellationTokenTest|WorkerRestartTest|TaskConcurrencyLimiterTest"
+      run: ctest -V --timeout 120 -C ${{env.BUILD_TYPE}} --exclude-regex '^NetworkIntegrationTest\.|^TaskSystemTest\.|^TaskEventTest\.|^NestedTasksTest\.|^PipeTest\.|^TaskDependenciesTest\.|^TaskStressTest\.|^MakeCompletedTaskTest\.|^IsAwaitableTest\.|^WaitAnyTest\.|^AnyTest\.|^DeepRetractionTest\.|^InlineTaskTest\.|^MoveOnlyResultTest\.|^TaskSelfAccessTest\.|^NestedTaskStressTest\.|^ConcurrentEventTriggerTest\.|^CancellationTokenTest\.|^WorkerRestartTest\.|^TaskConcurrencyLimiterTest\.'
 
     - name: Upload test results
       uses: actions/upload-artifact@v7

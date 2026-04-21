@@ -102,6 +102,9 @@ namespace OloEngine
         s.m_StencilFunc = GlGetInt(GL_STENCIL_FUNC);
         s.m_StencilRef = GlGetInt(GL_STENCIL_REF);
         s.m_StencilMask = static_cast<u32>(GlGetInt(GL_STENCIL_VALUE_MASK));
+        s.m_StencilBackFunc = GlGetInt(GL_STENCIL_BACK_FUNC);
+        s.m_StencilBackRef = GlGetInt(GL_STENCIL_BACK_REF);
+        s.m_StencilBackValueMask = static_cast<u32>(GlGetInt(GL_STENCIL_BACK_VALUE_MASK));
         s.m_StencilWriteMask = static_cast<u32>(GlGetInt(GL_STENCIL_WRITEMASK));
         s.m_StencilBackWriteMask = static_cast<u32>(GlGetInt(GL_STENCIL_BACK_WRITEMASK));
         s.m_StencilFail = GlGetInt(GL_STENCIL_FAIL);
@@ -189,6 +192,9 @@ namespace OloEngine
         AppendIfDifferent(diffs, "StencilFunc", m_StencilFunc, other.m_StencilFunc);
         AppendIfDifferent(diffs, "StencilRef", m_StencilRef, other.m_StencilRef);
         AppendIfDifferent(diffs, "StencilMask", static_cast<i64>(m_StencilMask), static_cast<i64>(other.m_StencilMask));
+        AppendIfDifferent(diffs, "StencilBackFunc", m_StencilBackFunc, other.m_StencilBackFunc);
+        AppendIfDifferent(diffs, "StencilBackRef", m_StencilBackRef, other.m_StencilBackRef);
+        AppendIfDifferent(diffs, "StencilBackValueMask", static_cast<i64>(m_StencilBackValueMask), static_cast<i64>(other.m_StencilBackValueMask));
         AppendIfDifferent(diffs, "StencilWriteMask", static_cast<i64>(m_StencilWriteMask), static_cast<i64>(other.m_StencilWriteMask));
         AppendIfDifferent(diffs, "StencilBackWriteMask", static_cast<i64>(m_StencilBackWriteMask), static_cast<i64>(other.m_StencilBackWriteMask));
         AppendIfDifferent(diffs, "StencilFail", m_StencilFail, other.m_StencilFail);

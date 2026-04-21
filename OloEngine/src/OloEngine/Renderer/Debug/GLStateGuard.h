@@ -55,6 +55,9 @@ namespace OloEngine
         i32 m_StencilFunc = 0;
         i32 m_StencilRef = 0;
         u32 m_StencilMask = 0;
+        i32 m_StencilBackFunc = 0;
+        i32 m_StencilBackRef = 0;
+        u32 m_StencilBackValueMask = 0;
         // Persistent write masks — distinct from the read mask
         // (GL_STENCIL_VALUE_MASK) captured in m_StencilMask. Front and back
         // can diverge under glStencilMaskSeparate.
@@ -94,14 +97,11 @@ namespace OloEngine
         // left selected on exit. Per-unit bindings are tracked below.
         u32 m_ActiveTextureUnit = 0;
 
-        // Per-slot bindings. OloEngine currently uses binding points up to
-        // at least unit 24 (shadow / IBL / foliage / terrain splat) and UBO
-        // binding 18 (post-process / fog). Size these generously at 32 —
-        // the OpenGL 4.6 guaranteed minimum for GL_MAX_TEXTURE_IMAGE_UNITS
-        // and GL_MAX_UNIFORM_BUFFER_BINDINGS — so no live binding escapes
-        // detection. Clamp the capture loops against the driver's actual
-        // limit in case it reports fewer (software renderers occasionally do).
-        static constexpr u32 kTextureSlots = 32;
+        // Per-slot bindings. OloEngine reserves texture units through
+        // TEX_SHADER_GRAPH_0 = 43, so track at least 44 slots to catch leaks
+        // in the engine-reserved range. Clamp the capture loop against the
+        // driver's actual limit in case it reports fewer than our local cap.
+        static constexpr u32 kTextureSlots = 44;
         static constexpr u32 kUboSlots = 32;
         // Per-texture-unit bindings for every target the engine actually
         // binds. 2D covers colour/normal/roughness/AO; 2D_ARRAY is used by
