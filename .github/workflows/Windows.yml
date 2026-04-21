@@ -59,9 +59,13 @@ jobs:
 
     - name: Run tests with CTest
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      # Execute tests defined by the CMake configuration.  
+      # Execute tests defined by the CMake configuration.
       # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
-      run: ctest -V
+      # `--timeout 120` prevents a stuck test (e.g. TaskSystemTest.TaskWithResultPostponed
+      # has been observed to hang indefinitely on the hosted runner) from
+      # deadlocking the entire job. Individual failures still surface in the
+      # JUnit XML so the test-reporter can flag them.
+      run: ctest -V --timeout 120
 
     - name: Upload test results
       uses: actions/upload-artifact@v7

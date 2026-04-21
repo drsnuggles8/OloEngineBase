@@ -173,7 +173,8 @@ jobs:
         -DBUILD_TESTS=ON
 
     - name: Build tests
-      run: cmake --build build --target OloEngine-Tests --parallel 2
+      # Auto-detect available cores on the runner instead of pinning to 2.
+      run: cmake --build build --target OloEngine-Tests --parallel
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
@@ -239,7 +240,8 @@ jobs:
         -DBUILD_TESTS=ON
 
     - name: Build tests
-      run: cmake --build build --target OloEngine-Tests --parallel 2
+      # Auto-detect available cores on the runner instead of pinning to 2.
+      run: cmake --build build --target OloEngine-Tests --parallel
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
@@ -305,7 +307,8 @@ jobs:
         -DBUILD_TESTS=ON
 
     - name: Build tests
-      run: cmake --build build --target OloEngine-Tests --parallel 2
+      # Auto-detect available cores on the runner instead of pinning to 2.
+      run: cmake --build build --target OloEngine-Tests --parallel
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"

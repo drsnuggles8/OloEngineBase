@@ -143,6 +143,8 @@ namespace OloEngine
         ::glGetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS, &driverUboBindings);
         const u32 textureSlotLimit = std::min<u32>(kTextureSlots, driverTextureUnits > 0 ? static_cast<u32>(driverTextureUnits) : kTextureSlots);
         const u32 uboSlotLimit = std::min<u32>(kUboSlots, driverUboBindings > 0 ? static_cast<u32>(driverUboBindings) : kUboSlots);
+        s.m_CapturedTextureSlotLimit = textureSlotLimit;
+        s.m_CapturedUboSlotLimit = uboSlotLimit;
 
         for (u32 i = 0; i < textureSlotLimit; ++i)
         {
@@ -205,7 +207,13 @@ namespace OloEngine
         AppendIfDifferent(diffs, "VAO", static_cast<i64>(m_Vao), static_cast<i64>(other.m_Vao));
         AppendIfDifferent(diffs, "ActiveTextureUnit", static_cast<i64>(m_ActiveTextureUnit), static_cast<i64>(other.m_ActiveTextureUnit));
 
-        for (u32 i = 0; i < kTextureSlots; ++i)
+        // Honour the captured driver limits from both snapshots. Taking the
+        // max of the two means a capture taken on a context that reports
+        // fewer slots won't mask a binding that showed up in the other.
+        const u32 textureDiffLimit = std::max(m_CapturedTextureSlotLimit, other.m_CapturedTextureSlotLimit);
+        const u32 uboDiffLimit = std::max(m_CapturedUboSlotLimit, other.m_CapturedUboSlotLimit);
+
+        for (u32 i = 0; i < textureDiffLimit; ++i)
         {
             std::ostringstream f2d;
             f2d << "Texture2D[" << i << "]";
@@ -217,7 +225,7 @@ namespace OloEngine
             fcube << "TextureCubeMap[" << i << "]";
             AppendIfDifferent(diffs, fcube.str(), static_cast<i64>(m_TexturesCubeMap[i]), static_cast<i64>(other.m_TexturesCubeMap[i]));
         }
-        for (u32 i = 0; i < kUboSlots; ++i)
+        for (u32 i = 0; i < uboDiffLimit; ++i)
         {
             std::ostringstream f;
             f << "UBO[" << i << "]";

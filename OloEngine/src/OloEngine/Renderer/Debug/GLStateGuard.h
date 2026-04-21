@@ -99,6 +99,14 @@ namespace OloEngine
         std::array<u32, kTextureSlots> m_TexturesCubeMap{};
         std::array<u32, kUboSlots> m_UniformBuffers{};
 
+        // Per-capture driver-reported limits. Clamped against kTextureSlots /
+        // kUboSlots, so they never exceed the array bounds. DiffAgainst uses
+        // max(this, other) of these so diffs over slots beyond the driver's
+        // reported range are skipped cleanly (software rasterisers such as
+        // llvmpipe sometimes report fewer than the GL 4.6 guaranteed minimums).
+        u32 m_CapturedTextureSlotLimit = kTextureSlots;
+        u32 m_CapturedUboSlotLimit = kUboSlots;
+
         // Capture the current GL pipeline state. Caller must have a live
         // GL context. Returns a populated snapshot.
         static GLStateSnapshot Capture();

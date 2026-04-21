@@ -87,7 +87,7 @@ jobs:
           # baseline set by committing assets/tests/golden/llvmpipe/*.png.
           OLOENGINE_GOLDEN_VENDOR: llvmpipe
         run: |
-          ..\build\OloEngine\tests\${{env.BUILD_TYPE}}\OloEngine-Tests.exe --gtest_output=xml:..\test_results\cross_vendor.xml
+          ..\build\OloEngine\tests\${{env.BUILD_TYPE}}\OloEngine-Tests.exe --gtest_catch_exceptions=1 --gtest_output=xml:..\test_results\cross_vendor.xml
 
       - name: Perf-history trend analysis
         if: always()

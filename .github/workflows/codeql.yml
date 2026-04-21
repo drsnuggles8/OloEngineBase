@@ -93,7 +93,11 @@ jobs:
         build-mode: manual
 
     - name: Build with CMake
-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+      # CodeQL's manual build-mode ties analysis accuracy to the translation
+      # units we actually compile. Enable --parallel so large targets don't
+      # serialize on a single core (prior runs were ~50 min vs ~30–42 min on
+      # the other CI workflows).
+      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} --parallel
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v4
@@ -117,4 +121,3 @@ jobs:
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v4
-
