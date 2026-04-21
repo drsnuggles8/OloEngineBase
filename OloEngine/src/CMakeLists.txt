@@ -410,6 +410,7 @@
 		"OloEngine/HAL/PlatformMisc.h"
 		"OloEngine/HAL/PlatformProcess.h"
 		"OloEngine/HAL/Runnable.h"
+		"OloEngine/HAL/RunnableThread.cpp"
 		"OloEngine/HAL/RunnableThread.h"
 		"OloEngine/HAL/Semaphore.h"
 		"OloEngine/HAL/Thread.h"

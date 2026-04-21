@@ -7,7 +7,11 @@
  * @file RunnableThread.h
  * @brief Base class for runnable threads with TLS support
  *
- * Ported from Unreal Engine's HAL/RunnableThread.h
+ * Ported from Unreal Engine's HAL/RunnableThread.h.
+ *
+ * The class is defined here with platform-opaque storage (uptr m_NativeHandle),
+ * and all bodies live in HAL/RunnableThread.cpp which includes the appropriate
+ * OS headers (Windows.h / pthread.h) privately.
  */
 
 #include "OloEngine/Core/Base.h"
@@ -19,15 +23,6 @@
 
 #include <atomic>
 #include <string>
-
-#ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-#elif defined(__linux__) || defined(__APPLE__)
-#include <pthread.h>
-#endif
 
 namespace OloEngine
 {
@@ -174,26 +169,9 @@ namespace OloEngine
             EThreadCreateFlags InCreateFlags);
 
         /**
-         * @brief Thread entry point (internal)
+         * @brief Thread entry point (internal, OS-agnostic stage)
          */
         void ThreadEntryPoint();
-
-#ifdef _WIN32
-        /**
-         * @brief Windows-specific thread entry point (called from CreateThread)
-         *
-         * Unlike ThreadEntryPoint(), this doesn't need to duplicate handle
-         * since we already have m_NativeHandle from CreateThread.
-         */
-        void ThreadEntryPointWindows();
-#elif defined(__linux__) || defined(__APPLE__)
-        /**
-         * @brief POSIX-specific thread entry point (called from pthread_create)
-         *
-         * Sets up TLS, runs the runnable, and cleans up on exit.
-         */
-        void ThreadEntryPointPosix();
-#endif
 
         /**
          * @brief Store this thread in TLS
@@ -214,13 +192,11 @@ namespace OloEngine
         std::atomic<bool> m_bIsRunning{ false };
         std::atomic<bool> m_bShouldStop{ false };
 
-        // Native thread handle for platform-specific operations
-#ifdef _WIN32
-        HANDLE m_NativeHandle = nullptr;
-#elif defined(__linux__) || defined(__APPLE__)
-        pthread_t m_PosixThread{};
-        bool m_bHasPosixThread = false;
-#endif
+        // Platform-opaque native thread handle.
+        // - On Windows: HANDLE (void*), reinterpret-cast to/from uptr in the .cpp.
+        // - On Linux:   pthread_t (unsigned long on glibc), stored directly in uptr.
+        uptr m_NativeHandle = 0;
+        bool m_HasNativeHandle = false;
 
         // Synchronization for thread startup - uses our FManualResetEvent
         FManualResetEvent m_InitEvent;
@@ -229,294 +205,5 @@ namespace OloEngine
         // TLS storage for current thread pointer
         static thread_local FRunnableThread* s_CurrentThread;
     };
-
-    //=============================================================================
-    // IMPLEMENTATION
-    //=============================================================================
-
-    // Static TLS storage
-    inline thread_local FRunnableThread* FRunnableThread::s_CurrentThread = nullptr;
-
-    inline FRunnableThread::FRunnableThread() = default;
-
-    inline FRunnableThread::~FRunnableThread()
-    {
-        // Ensure thread is stopped before destruction
-        Kill(true);
-
-#ifdef _WIN32
-        // Close the duplicated native handle
-        if (m_NativeHandle != nullptr)
-        {
-            ::CloseHandle(m_NativeHandle);
-            m_NativeHandle = nullptr;
-        }
-#endif
-    }
-
-    inline FRunnableThread* FRunnableThread::Create(
-        FRunnable* InRunnable,
-        const char* ThreadName,
-        u32 InStackSize,
-        EThreadPriority InThreadPri,
-        u64 InThreadAffinityMask,
-        EThreadCreateFlags InCreateFlags)
-    {
-        FRunnableThread* NewThread = new FRunnableThread();
-        if (NewThread->CreateInternal(InRunnable, ThreadName, InStackSize, InThreadPri, InThreadAffinityMask, InCreateFlags))
-        {
-            return NewThread;
-        }
-        delete NewThread;
-        return nullptr;
-    }
-
-    inline FRunnableThread* FRunnableThread::GetRunnableThread()
-    {
-        return s_CurrentThread;
-    }
-
-    inline bool FRunnableThread::CreateInternal(
-        FRunnable* InRunnable,
-        const char* InThreadName,
-        u32 InStackSize,
-        EThreadPriority InThreadPri,
-        u64 InThreadAffinityMask,
-        EThreadCreateFlags InCreateFlags)
-    {
-        (void)InCreateFlags; // SMT exclusive not implemented
-
-        m_Runnable = InRunnable;
-        m_ThreadName = InThreadName ? InThreadName : "UnnamedThread";
-        m_ThreadPriority = InThreadPri;
-        m_ThreadAffinityMask = InThreadAffinityMask;
-
-        // Reset the init event
-        m_InitEvent.Reset();
-
-#ifdef _WIN32
-        // Use CreateThread on Windows to support stack size configuration
-        // Stack size of 0 means use default (1MB on Windows)
-        m_NativeHandle = ::CreateThread(
-            nullptr,     // Default security attributes
-            InStackSize, // Stack size (0 = default)
-            [](LPVOID Param) -> DWORD
-            {
-                FRunnableThread* Thread = static_cast<FRunnableThread*>(Param);
-                Thread->ThreadEntryPointWindows();
-                return 0;
-            },
-            this,   // Thread parameter
-            0,      // Creation flags (start immediately)
-            nullptr // Thread ID (we get it inside the thread)
-        );
-
-        if (m_NativeHandle == nullptr)
-        {
-            return false;
-        }
-
-        // Wait for thread to initialize
-        m_InitEvent.Wait();
-
-        return true;
-#elif defined(__linux__) || defined(__APPLE__)
-        // Use pthread on POSIX platforms
-        pthread_attr_t Attr;
-        pthread_attr_init(&Attr);
-
-        // Set stack size if specified
-        if (InStackSize > 0)
-        {
-            pthread_attr_setstacksize(&Attr, InStackSize);
-        }
-
-        // Create the thread
-        int Result = pthread_create(&m_PosixThread, &Attr, [](void* Param) -> void*
-                                    {
-                FRunnableThread* Thread = static_cast<FRunnableThread*>(Param);
-                Thread->ThreadEntryPointPosix();
-                return nullptr; }, this);
-
-        pthread_attr_destroy(&Attr);
-
-        if (Result != 0)
-        {
-            return false;
-        }
-
-        m_bHasPosixThread = true;
-
-        // Wait for thread to initialize
-        m_InitEvent.Wait();
-
-        return true;
-#else
-        // Fallback - not supported
-        (void)InStackSize;
-        return false;
-#endif
-    }
-
-    inline void FRunnableThread::ThreadEntryPoint()
-    {
-        // This is the common thread entry logic - extracted for reuse
-        // Store thread ID using platform API (not std::hash)
-        m_ThreadID = FPlatformTLS::GetCurrentThreadId();
-
-        // Set up TLS
-        SetTls();
-
-        // Set thread name
-        FPlatformProcess::SetThreadName(m_ThreadName.c_str());
-
-        // Set thread priority
-        FPlatformProcess::SetThreadPriority(m_ThreadPriority);
-
-        // Set thread affinity (with default group 0)
-        if (m_ThreadAffinityMask != 0)
-        {
-            FPlatformProcess::SetThreadGroupAffinity(m_ThreadAffinityMask, 0);
-        }
-
-        // Signal that we're initialized
-        m_InitEvent.Notify();
-
-        m_bIsRunning.store(true, std::memory_order_release);
-
-        // Call runnable's Init
-        if (m_Runnable && m_Runnable->Init())
-        {
-            // Run the main work
-            m_Runnable->Run();
-        }
-
-        // Call runnable's Exit
-        if (m_Runnable)
-        {
-            m_Runnable->Exit();
-        }
-
-        m_bIsRunning.store(false, std::memory_order_release);
-
-        // Clear TLS
-        FreeTls();
-    }
-
-#ifdef _WIN32
-    inline void FRunnableThread::ThreadEntryPointWindows()
-    {
-        // Store thread ID using platform API
-        m_ThreadID = FPlatformTLS::GetCurrentThreadId();
-
-        // m_NativeHandle is already set by CreateThread
-
-        // Common thread initialization
-        ThreadEntryPoint();
-    }
-#endif
-
-#if defined(__linux__) || defined(__APPLE__)
-    inline void FRunnableThread::ThreadEntryPointPosix()
-    {
-        // Store thread ID using platform API
-        m_ThreadID = FPlatformTLS::GetCurrentThreadId();
-
-        // Common thread initialization
-        ThreadEntryPoint();
-    }
-#endif
-
-    inline void FRunnableThread::SetTls()
-    {
-        s_CurrentThread = this;
-    }
-
-    inline void FRunnableThread::FreeTls()
-    {
-        s_CurrentThread = nullptr;
-    }
-
-    inline void FRunnableThread::SetThreadPriority(EThreadPriority NewPriority)
-    {
-        m_ThreadPriority = NewPriority;
-
-        // If called from within the thread, apply immediately
-        if (s_CurrentThread == this)
-        {
-            FPlatformProcess::SetThreadPriority(NewPriority);
-        }
-        // Otherwise, priority will be applied next time the thread checks
-    }
-
-    inline bool FRunnableThread::SetThreadAffinity(const FThreadAffinity& Affinity)
-    {
-        m_ThreadAffinityMask = Affinity.ThreadAffinityMask;
-
-        // If called from within the thread, apply immediately
-        if (s_CurrentThread == this)
-        {
-            FPlatformProcess::SetThreadGroupAffinity(Affinity.ThreadAffinityMask, Affinity.ProcessorGroup);
-            return true;
-        }
-        return false;
-    }
-
-    inline void FRunnableThread::Suspend(bool bShouldPause)
-    {
-#ifdef _WIN32
-        // Use Windows SuspendThread/ResumeThread APIs
-        if (m_NativeHandle != nullptr)
-        {
-            if (bShouldPause)
-            {
-                ::SuspendThread(m_NativeHandle);
-            }
-            else
-            {
-                ::ResumeThread(m_NativeHandle);
-            }
-        }
-#else
-        // Note: POSIX doesn't have a standard suspend/resume mechanism
-        // pthread_kill with SIGSTOP/SIGCONT could work but is not portable
-        (void)bShouldPause;
-#endif
-    }
-
-    inline bool FRunnableThread::Kill(bool bShouldWait)
-    {
-        m_bShouldStop.store(true, std::memory_order_release);
-
-        if (m_Runnable)
-        {
-            m_Runnable->Stop();
-        }
-
-        if (bShouldWait)
-        {
-            WaitForCompletion();
-        }
-
-        return true;
-    }
-
-    inline void FRunnableThread::WaitForCompletion()
-    {
-#ifdef _WIN32
-        // On Windows, use native handle
-        if (m_NativeHandle != nullptr)
-        {
-            ::WaitForSingleObject(m_NativeHandle, INFINITE);
-        }
-#elif defined(__linux__) || defined(__APPLE__)
-        // On POSIX, use pthread_join
-        if (m_bHasPosixThread)
-        {
-            pthread_join(m_PosixThread, nullptr);
-            m_bHasPosixThread = false;
-        }
-#endif
-    }
 
 } // namespace OloEngine
