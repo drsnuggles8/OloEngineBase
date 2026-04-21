@@ -7,6 +7,7 @@
 #include "OloEngine/Misc/Exec.h"
 
 #include <atomic>
+#include <cstring> // std::memset used by FMalloc::MallocZeroed / TryMallocZeroed below
 
 namespace OloEngine
 {

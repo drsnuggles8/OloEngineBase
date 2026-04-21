@@ -11,6 +11,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
+#include <functional> // std::function used by GGameThreadMallocHook under MALLOC_GT_HOOKS
 #include <vector>
 
 namespace OloEngine
@@ -124,21 +125,28 @@ namespace OloEngine
     // Helper function called on first allocation to create and initialize GMalloc
     static int FMemory_GCreateMalloc_ThreadUnsafe()
     {
-        // Release-store so other threads observing `Private::GMalloc` via
-        // `Private::AtomicLoadGMalloc()` (or the inline equivalent) see a
-        // fully-constructed allocator. Without this TSan reports a data
-        // race between the naked write here and the naked null-check
-        // reads on the allocator fast path.
+        // Construct and fully initialise the allocator on a local pointer
+        // FIRST, and only then publish it via an atomic release-store.
+        // Publishing the pointer before `SetupMemoryPools` /
+        // `OnMallocInitialized` would let a concurrent thread acquire-load
+        // a non-null `GMalloc` and route an allocation through a
+        // half-initialised allocator — the very race the atomic load was
+        // added to close. The release-store pairs with the acquire-loads
+        // in `AtomicLoadGMalloc` / `FMemory_AtomicLoadInlineGMalloc`,
+        // guaranteeing the observer sees a fully-constructed allocator.
         FMalloc* const Allocator = FPlatformMemory::BaseAllocator();
-        Private::AtomicStoreGMalloc(Allocator);
 
-        // Setup memory pools
+        // Setup memory pools (safe to run against the local pointer; does
+        // not depend on `Private::GMalloc` being visible to other threads).
         FPlatformMemory::SetupMemoryPools();
 
         if (Allocator)
         {
             Allocator->OnMallocInitialized();
         }
+
+        // Publish only after the allocator is fully initialised.
+        Private::AtomicStoreGMalloc(Allocator);
 
         return 0;
     }

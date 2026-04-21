@@ -23,10 +23,22 @@ namespace OloEngine
     //
     // See `Private::AtomicLoadGMalloc` for the rationale — naked reads of
     // the allocator pointer race with lazy initialisation under TSan.
-    // Going through `std::atomic_ref` directly on the macro target works
-    // whether the macro points at the default `Private::GMalloc` or at a
-    // project-overridden concrete static allocator pointer, as long as
-    // that pointer is naturally aligned (required by the macro contract).
+    //
+    // Contract of `FMEMORY_INLINE_GMalloc`: the macro MUST expand to an
+    // lvalue naming an addressable `FMalloc*` storage object — typically
+    // `Private::GMalloc` (the default) or a project-supplied static
+    // `FMalloc*` variable. It MUST NOT expand to a concrete allocator
+    // instance, temporary, or member-of-class-template reference that
+    // cannot have its address taken, because `std::atomic_ref<FMalloc*>`
+    // requires a real, naturally-aligned pointer object to bind to.
+    //
+    // Example of a valid override in Memory.h:
+    //     // extern FMalloc* gMyEngineMalloc; // addressable pointer storage
+    //     // #define FMEMORY_INLINE_GMalloc gMyEngineMalloc
+    //
+    // An expression like `FMallocBinned2::MallocBinned2` only works if it
+    // names a static `FMalloc*` member variable; using a concrete
+    // allocator object or an rvalue there is ill-formed.
     OLO_FINLINE FMalloc* FMemory_AtomicLoadInlineGMalloc() noexcept
     {
         return std::atomic_ref<FMalloc*>(FMEMORY_INLINE_GMalloc).load(std::memory_order_acquire);
