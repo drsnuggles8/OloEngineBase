@@ -295,9 +295,12 @@ namespace OloEngine
         }
     } // namespace Private
 
-    // @brief Un-namespaced GMalloc remains exposed for backwards compatibility.
-    // Most callers should use FMemory::Malloc instead of accessing GMalloc directly.
-    extern FMalloc* const& GMalloc;
+    // NOTE: the raw `GMalloc` pointer is intentionally *not* re-exported here.
+    // All callers must go through `Private::AtomicLoadGMalloc()`,
+    // `Private::AtomicStoreGMalloc()`, or
+    // `Private::AtomicCompareExchangeGMalloc()` to avoid data races on the
+    // lazy-init write. Prefer `FMemory::Malloc` / `FMemory::Free` at call
+    // sites where possible.
 
     // Memory allocator pointer location when PLATFORM_USES_FIXED_GMalloc_CLASS is true.
     extern FMalloc** GFixedMallocLocationPtr;

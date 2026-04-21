@@ -310,9 +310,9 @@ namespace OloEngine
     void FGenericPlatformMemory::DumpPlatformAndAllocatorStats(FOutputDevice& Ar)
     {
         FPlatformMemory::DumpStats(Ar);
-        if (GMalloc)
+        if (FMalloc* const Allocator = Private::AtomicLoadGMalloc())
         {
-            GMalloc->DumpAllocatorStats(Ar);
+            Allocator->DumpAllocatorStats(Ar);
         }
     }
 

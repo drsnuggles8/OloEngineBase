@@ -26,9 +26,6 @@ namespace OloEngine
         FMalloc* GMalloc = nullptr;
     }
 
-    // Backwards compatibility reference to the namespaced GMalloc
-    FMalloc* const& GMalloc = Private::GMalloc;
-
     // Memory allocator pointer location when PLATFORM_USES_FIXED_GMalloc_CLASS is true
     FMalloc** GFixedMallocLocationPtr = nullptr;
 
@@ -75,10 +72,16 @@ namespace OloEngine
         }
         bOnce = true;
 
+        // Ensure GMalloc is initialised before wrapping it — otherwise the
+        // proxy would be constructed over a null backing allocator and
+        // published to other threads.
+        GCreateMalloc();
+
         // Atomically swap GMalloc to point to the purgatory proxy
         while (true)
         {
             FMalloc* LocalGMalloc = Private::AtomicLoadGMalloc();
+            OLO_CORE_ASSERT(LocalGMalloc, "GCreateMalloc failed to initialise GMalloc");
             FMalloc* Proxy = new FMallocPurgatoryProxy(LocalGMalloc);
 
             // Atomic compare-exchange to swap in the proxy
@@ -105,10 +108,16 @@ namespace OloEngine
         }
         bOnce = true;
 
+        // Ensure GMalloc is initialised before wrapping it — otherwise the
+        // proxy would be constructed over a null backing allocator and
+        // published to other threads.
+        GCreateMalloc();
+
         // Atomically swap GMalloc to point to the poison proxy
         while (true)
         {
             FMalloc* LocalGMalloc = Private::AtomicLoadGMalloc();
+            OLO_CORE_ASSERT(LocalGMalloc, "GCreateMalloc failed to initialise GMalloc");
             FMalloc* Proxy = new FMallocPoisonProxy(LocalGMalloc);
 
             // Atomic compare-exchange to swap in the proxy
@@ -125,28 +134,35 @@ namespace OloEngine
     // Helper function called on first allocation to create and initialize GMalloc
     static int FMemory_GCreateMalloc_ThreadUnsafe()
     {
-        // Construct and fully initialise the allocator on a local pointer
-        // FIRST, and only then publish it via an atomic release-store.
-        // Publishing the pointer before `SetupMemoryPools` /
-        // `OnMallocInitialized` would let a concurrent thread acquire-load
-        // a non-null `GMalloc` and route an allocation through a
-        // half-initialised allocator — the very race the atomic load was
-        // added to close. The release-store pairs with the acquire-loads
-        // in `AtomicLoadGMalloc` / `FMemory_AtomicLoadInlineGMalloc`,
-        // guaranteeing the observer sees a fully-constructed allocator.
+        // Ordering matters and follows the Unreal contract:
+        //   1. Construct the allocator on a local pointer.
+        //   2. Run `SetupMemoryPools()` — after this the allocator is
+        //      ready to service `Malloc` / `Free` calls.
+        //   3. **Publish** the pointer via an atomic release-store. The
+        //      release pairs with the acquire-loads in
+        //      `AtomicLoadGMalloc` / `FMemory_AtomicLoadInlineGMalloc`,
+        //      guaranteeing observers see a usable allocator.
+        //   4. Only then invoke `OnMallocInitialized()`, whose documented
+        //      purpose is to "initialize any extra features that require
+        //      'regular' allocations" — i.e. it may call back into
+        //      `FMemory::Malloc`. Because we publish in step 3, such a
+        //      callback hits the fast path instead of re-entering this
+        //      function (which would be UB under C++'s static-initialiser
+        //      recursion rules).
         FMalloc* const Allocator = FPlatformMemory::BaseAllocator();
 
         // Setup memory pools (safe to run against the local pointer; does
         // not depend on `Private::GMalloc` being visible to other threads).
         FPlatformMemory::SetupMemoryPools();
 
+        // Publish the fully-constructed allocator *before* running
+        // post-init hooks that may allocate.
+        Private::AtomicStoreGMalloc(Allocator);
+
         if (Allocator)
         {
             Allocator->OnMallocInitialized();
         }
-
-        // Publish only after the allocator is fully initialised.
-        Private::AtomicStoreGMalloc(Allocator);
 
         return 0;
     }
