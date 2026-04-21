@@ -11,23 +11,23 @@ namespace OloEngine::PlatformMemoryBackend
     /// Raw, OS-observable memory statistics. Fields are zero when the OS cannot provide them.
     struct BackendStats
     {
-        u64 TotalPhysical     = 0;
-        u64 TotalVirtual      = 0;
+        u64 TotalPhysical = 0;
+        u64 TotalVirtual = 0;
         u64 AvailablePhysical = 0;
-        u64 AvailableVirtual  = 0;
-        u64 UsedPhysical      = 0; // Current working set (0 if unknown)
-        u64 PeakUsedPhysical  = 0;
-        u64 UsedVirtual       = 0; // Current pagefile / commit charge (0 if unknown)
-        u64 PeakUsedVirtual   = 0;
+        u64 AvailableVirtual = 0;
+        u64 UsedPhysical = 0; // Current working set (0 if unknown)
+        u64 PeakUsedPhysical = 0;
+        u64 UsedVirtual = 0; // Current pagefile / commit charge (0 if unknown)
+        u64 PeakUsedVirtual = 0;
     };
 
     /// OS-defined constants queried once at startup.
     struct BackendConstants
     {
-        u32 PageSize                = 4096;
+        u32 PageSize = 4096;
         u32 OsAllocationGranularity = 65536;
-        u64 TotalPhysical           = 0;
-        u64 TotalVirtual            = 0;
+        u64 TotalPhysical = 0;
+        u64 TotalVirtual = 0;
     };
 
     /// Populate `outStats` with current OS memory info. Returns true on success.

@@ -23,19 +23,19 @@ namespace OloEngine::PlatformMemoryBackend
         memStatus.dwLength = sizeof(memStatus);
         if (GlobalMemoryStatusEx(&memStatus))
         {
-            outStats.TotalPhysical     = memStatus.ullTotalPhys;
-            outStats.TotalVirtual      = memStatus.ullTotalVirtual;
+            outStats.TotalPhysical = memStatus.ullTotalPhys;
+            outStats.TotalVirtual = memStatus.ullTotalVirtual;
             outStats.AvailablePhysical = memStatus.ullAvailPhys;
-            outStats.AvailableVirtual  = memStatus.ullAvailVirtual;
+            outStats.AvailableVirtual = memStatus.ullAvailVirtual;
         }
 
         PROCESS_MEMORY_COUNTERS pmc{};
         if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc)))
         {
-            outStats.UsedPhysical     = pmc.WorkingSetSize;
+            outStats.UsedPhysical = pmc.WorkingSetSize;
             outStats.PeakUsedPhysical = pmc.PeakWorkingSetSize;
-            outStats.UsedVirtual      = pmc.PagefileUsage;
-            outStats.PeakUsedVirtual  = pmc.PeakPagefileUsage;
+            outStats.UsedVirtual = pmc.PagefileUsage;
+            outStats.PeakUsedVirtual = pmc.PeakPagefileUsage;
         }
 
         return outStats.TotalPhysical != 0;
@@ -45,7 +45,7 @@ namespace OloEngine::PlatformMemoryBackend
     {
         SYSTEM_INFO si{};
         GetSystemInfo(&si);
-        outConstants.PageSize                = si.dwPageSize;
+        outConstants.PageSize = si.dwPageSize;
         outConstants.OsAllocationGranularity = si.dwAllocationGranularity;
 
         MEMORYSTATUSEX memStatus{};
@@ -53,7 +53,7 @@ namespace OloEngine::PlatformMemoryBackend
         if (GlobalMemoryStatusEx(&memStatus))
         {
             outConstants.TotalPhysical = memStatus.ullTotalPhys;
-            outConstants.TotalVirtual  = memStatus.ullTotalVirtual;
+            outConstants.TotalVirtual = memStatus.ullTotalVirtual;
         }
     }
 

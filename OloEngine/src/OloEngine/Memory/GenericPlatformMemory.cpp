@@ -129,14 +129,14 @@ namespace OloEngine
         PlatformMemoryBackend::BackendStats BackendStats;
         if (PlatformMemoryBackend::QueryStats(BackendStats))
         {
-            Stats.TotalPhysical     = BackendStats.TotalPhysical;
-            Stats.TotalVirtual      = BackendStats.TotalVirtual;
+            Stats.TotalPhysical = BackendStats.TotalPhysical;
+            Stats.TotalVirtual = BackendStats.TotalVirtual;
             Stats.AvailablePhysical = BackendStats.AvailablePhysical;
-            Stats.AvailableVirtual  = BackendStats.AvailableVirtual;
-            Stats.UsedPhysical      = BackendStats.UsedPhysical;
-            Stats.PeakUsedPhysical  = BackendStats.PeakUsedPhysical;
-            Stats.UsedVirtual       = BackendStats.UsedVirtual;
-            Stats.PeakUsedVirtual   = BackendStats.PeakUsedVirtual;
+            Stats.AvailableVirtual = BackendStats.AvailableVirtual;
+            Stats.UsedPhysical = BackendStats.UsedPhysical;
+            Stats.PeakUsedPhysical = BackendStats.PeakUsedPhysical;
+            Stats.UsedVirtual = BackendStats.UsedVirtual;
+            Stats.PeakUsedVirtual = BackendStats.PeakUsedVirtual;
             if (Stats.TotalPhysical != 0)
             {
                 Stats.TotalPhysicalGB = static_cast<u32>((Stats.TotalPhysical + 1024 * 1024 * 1024 - 1) / (1024 * 1024 * 1024));
@@ -176,13 +176,13 @@ namespace OloEngine
         {
             PlatformMemoryBackend::BackendConstants BackendConstants;
             PlatformMemoryBackend::QueryConstants(BackendConstants);
-            Constants.PageSize                = BackendConstants.PageSize;
+            Constants.PageSize = BackendConstants.PageSize;
             Constants.OsAllocationGranularity = BackendConstants.OsAllocationGranularity;
-            Constants.TotalPhysical           = BackendConstants.TotalPhysical;
-            Constants.TotalVirtual            = BackendConstants.TotalVirtual;
+            Constants.TotalPhysical = BackendConstants.TotalPhysical;
+            Constants.TotalVirtual = BackendConstants.TotalVirtual;
             Constants.TotalPhysicalGB = Constants.TotalPhysical != 0
-                ? static_cast<u32>((Constants.TotalPhysical + 1024 * 1024 * 1024 - 1) / (1024 * 1024 * 1024))
-                : 1u;
+                                            ? static_cast<u32>((Constants.TotalPhysical + 1024 * 1024 * 1024 - 1) / (1024 * 1024 * 1024))
+                                            : 1u;
 
             Constants.BinnedPageSize = 65536;
             Constants.BinnedAllocationGranularity = 0;

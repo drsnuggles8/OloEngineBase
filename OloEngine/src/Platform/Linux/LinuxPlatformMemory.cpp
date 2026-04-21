@@ -51,11 +51,11 @@ namespace OloEngine::PlatformMemoryBackend
 
     bool QueryStats(BackendStats& outStats)
     {
-        outStats.TotalPhysical     = ReadMemInfoValue("MemTotal");
+        outStats.TotalPhysical = ReadMemInfoValue("MemTotal");
         outStats.AvailablePhysical = ReadMemInfoValue("MemAvailable");
 
         const long pageSize = sysconf(_SC_PAGESIZE);
-        const long pages    = sysconf(_SC_PHYS_PAGES);
+        const long pages = sysconf(_SC_PHYS_PAGES);
         if (outStats.TotalPhysical == 0 && pageSize > 0 && pages > 0)
         {
             outStats.TotalPhysical = static_cast<u64>(pageSize) * static_cast<u64>(pages);
@@ -69,7 +69,7 @@ namespace OloEngine::PlatformMemoryBackend
             statm >> sizePages >> rssPages;
             if (pageSize > 0)
             {
-                outStats.UsedVirtual  = sizePages * static_cast<u64>(pageSize);
+                outStats.UsedVirtual = sizePages * static_cast<u64>(pageSize);
                 outStats.UsedPhysical = rssPages * static_cast<u64>(pageSize);
             }
         }
@@ -120,8 +120,10 @@ namespace OloEngine::PlatformMemoryBackend
     bool PageProtect(void* ptr, sizet size, bool canRead, bool canWrite)
     {
         int prot = PROT_NONE;
-        if (canRead)  prot |= PROT_READ;
-        if (canWrite) prot |= PROT_WRITE;
+        if (canRead)
+            prot |= PROT_READ;
+        if (canWrite)
+            prot |= PROT_WRITE;
         return mprotect(ptr, size, prot) == 0;
     }
 

@@ -11,8 +11,8 @@ namespace OloEngine::JoltCapturePlatform
 {
     struct CapturePaths
     {
-        std::filesystem::path CapturesPath;   // Default output directory
-        std::filesystem::path ExpectedRoot;   // Root the CapturesPath is anchored to
+        std::filesystem::path CapturesPath; // Default output directory
+        std::filesystem::path ExpectedRoot; // Root the CapturesPath is anchored to
     };
 
     /// Determine the default directory in which Jolt capture files should be written.
