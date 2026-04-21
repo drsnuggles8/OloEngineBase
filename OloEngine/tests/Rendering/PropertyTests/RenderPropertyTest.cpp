@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <filesystem>
+#include <mutex>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -27,7 +28,7 @@ namespace OloEngine::Tests
         // ---------------------------------------------------------------
         struct GpuContext
         {
-            bool m_Initialized = false;
+            std::once_flag m_InitOnce;
             bool m_Available = false;
             GLFWwindow* m_Window = nullptr;
 
@@ -39,47 +40,47 @@ namespace OloEngine::Tests
 
             void TryInitOnce()
             {
-                if (m_Initialized)
-                    return;
-                m_Initialized = true;
+                std::call_once(m_InitOnce,
+                               [this]()
+                               {
+                                   if (!ChangeToOloEditorDir())
+                                       return;
 
-                if (!ChangeToOloEditorDir())
-                    return;
+                                   if (!::glfwInit())
+                                       return;
 
-                if (!::glfwInit())
-                    return;
+                                   ::glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+                                   ::glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+                                   ::glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
+                                   ::glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+                                   ::glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
 
-                ::glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-                ::glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-                ::glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-                ::glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-                ::glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
+                                   m_Window = ::glfwCreateWindow(1, 1, "OloEngine-RenderPropertyTest", nullptr, nullptr);
+                                   if (!m_Window)
+                                   {
+                                       return;
+                                   }
 
-                m_Window = ::glfwCreateWindow(1, 1, "OloEngine-RenderPropertyTest", nullptr, nullptr);
-                if (!m_Window)
-                {
-                    return;
-                }
+                                   ::glfwMakeContextCurrent(m_Window);
+                                   const int version = ::gladLoadGL(reinterpret_cast<GLADloadfunc>(::glfwGetProcAddress));
+                                   if (version == 0)
+                                   {
+                                       ::glfwDestroyWindow(m_Window);
+                                       m_Window = nullptr;
+                                       return;
+                                   }
 
-                ::glfwMakeContextCurrent(m_Window);
-                const int version = ::gladLoadGL(reinterpret_cast<GLADloadfunc>(::glfwGetProcAddress));
-                if (version == 0)
-                {
-                    ::glfwDestroyWindow(m_Window);
-                    m_Window = nullptr;
-                    return;
-                }
+                                   const int major = GLAD_VERSION_MAJOR(version);
+                                   const int minor = GLAD_VERSION_MINOR(version);
+                                   if (major < 4 || (major == 4 && minor < 6))
+                                   {
+                                       ::glfwDestroyWindow(m_Window);
+                                       m_Window = nullptr;
+                                       return;
+                                   }
 
-                const int major = GLAD_VERSION_MAJOR(version);
-                const int minor = GLAD_VERSION_MINOR(version);
-                if (major < 4 || (major == 4 && minor < 6))
-                {
-                    ::glfwDestroyWindow(m_Window);
-                    m_Window = nullptr;
-                    return;
-                }
-
-                m_Available = true;
+                                   m_Available = true;
+                               });
             }
 
             // Walk up from CWD looking for <candidate>/OloEditor/assets/shaders.
@@ -310,6 +311,10 @@ namespace OloEngine::Tests
         stats.m_MinG = stats.m_MaxG = pixels[1];
         stats.m_MinB = stats.m_MaxB = pixels[2];
         stats.m_MinA = stats.m_MaxA = pixels[3];
+        bool hasFiniteR = std::isfinite(stats.m_MinR);
+        bool hasFiniteG = std::isfinite(stats.m_MinG);
+        bool hasFiniteB = std::isfinite(stats.m_MinB);
+        bool hasFiniteA = std::isfinite(stats.m_MinA);
 
         const std::size_t count = pixels.size() / 4;
         stats.m_PixelCount = static_cast<u32>(count);
@@ -325,18 +330,66 @@ namespace OloEngine::Tests
             if (std::isinf(r) || std::isinf(g) || std::isinf(b) || std::isinf(a))
                 ++stats.m_InfCount;
 
-            stats.m_MinR = std::min(stats.m_MinR, r);
-            stats.m_MinG = std::min(stats.m_MinG, g);
-            stats.m_MinB = std::min(stats.m_MinB, b);
-            stats.m_MinA = std::min(stats.m_MinA, a);
-            stats.m_MaxR = std::max(stats.m_MaxR, r);
-            stats.m_MaxG = std::max(stats.m_MaxG, g);
-            stats.m_MaxB = std::max(stats.m_MaxB, b);
-            stats.m_MaxA = std::max(stats.m_MaxA, a);
-            stats.m_SumR += r;
-            stats.m_SumG += g;
-            stats.m_SumB += b;
-            stats.m_SumA += a;
+            if (std::isfinite(r))
+            {
+                if (!hasFiniteR)
+                {
+                    stats.m_MinR = r;
+                    stats.m_MaxR = r;
+                    hasFiniteR = true;
+                }
+                else
+                {
+                    stats.m_MinR = std::min(stats.m_MinR, r);
+                    stats.m_MaxR = std::max(stats.m_MaxR, r);
+                }
+                stats.m_SumR += r;
+            }
+            if (std::isfinite(g))
+            {
+                if (!hasFiniteG)
+                {
+                    stats.m_MinG = g;
+                    stats.m_MaxG = g;
+                    hasFiniteG = true;
+                }
+                else
+                {
+                    stats.m_MinG = std::min(stats.m_MinG, g);
+                    stats.m_MaxG = std::max(stats.m_MaxG, g);
+                }
+                stats.m_SumG += g;
+            }
+            if (std::isfinite(b))
+            {
+                if (!hasFiniteB)
+                {
+                    stats.m_MinB = b;
+                    stats.m_MaxB = b;
+                    hasFiniteB = true;
+                }
+                else
+                {
+                    stats.m_MinB = std::min(stats.m_MinB, b);
+                    stats.m_MaxB = std::max(stats.m_MaxB, b);
+                }
+                stats.m_SumB += b;
+            }
+            if (std::isfinite(a))
+            {
+                if (!hasFiniteA)
+                {
+                    stats.m_MinA = a;
+                    stats.m_MaxA = a;
+                    hasFiniteA = true;
+                }
+                else
+                {
+                    stats.m_MinA = std::min(stats.m_MinA, a);
+                    stats.m_MaxA = std::max(stats.m_MaxA, a);
+                }
+                stats.m_SumA += a;
+            }
         }
         return stats;
     }

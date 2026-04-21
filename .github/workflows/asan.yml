@@ -122,6 +122,19 @@ jobs:
       # not a test-code bug — the same tests pass under Linux ASan/UBSan.
       # Excluding the affected suites until Steam networking init is made
       # ASan-compatible (or moved behind a test-time skip).
+      # TODO(open GitHub issue):
+      #   Title: Track SteamNetworkingSockets + MSVC ASan AV in Windows ASan CI
+      #   CI job / step: ASan (Windows/MSVC) / Run tests under ASan
+      #   Repro:
+      #     1. Run the Windows ASan workflow job from .github/workflows/asan.yml.
+      #     2. Configure/build OloEngine-Tests with OLO_ENABLE_ASAN=ON.
+      #     3. Run the ctest command below after re-enabling the excluded suites.
+      #     4. Observe the AV during Steam service-thread init at
+      #        `asan_thread_start -> SteamNetworkingSockets_SetServiceThreadInitCallback`.
+      #   Excluded suites regex:
+      #     ^NetworkIntegrationTest\.|^TaskSystemTest\.|^TaskEventTest\.|^NestedTasksTest\.|^PipeTest\.|^TaskDependenciesTest\.|^TaskStressTest\.|^MakeCompletedTaskTest\.|^IsAwaitableTest\.|^WaitAnyTest\.|^AnyTest\.|^DeepRetractionTest\.|^InlineTaskTest\.|^MoveOnlyResultTest\.|^TaskSelfAccessTest\.|^NestedTaskStressTest\.|^ConcurrentEventTriggerTest\.|^CancellationTokenTest\.|^WorkerRestartTest\.|^TaskConcurrencyLimiterTest\.
+      #   Suggested labels: github_actions, bug, help wanted
+      #   (or future repo labels: area:ci, technical-debt, needs-investigation)
       run: ctest -C Release --output-on-failure --timeout 120 --exclude-regex '^NetworkIntegrationTest\.|^TaskSystemTest\.|^TaskEventTest\.|^NestedTasksTest\.|^PipeTest\.|^TaskDependenciesTest\.|^TaskStressTest\.|^MakeCompletedTaskTest\.|^IsAwaitableTest\.|^WaitAnyTest\.|^AnyTest\.|^DeepRetractionTest\.|^InlineTaskTest\.|^MoveOnlyResultTest\.|^TaskSelfAccessTest\.|^NestedTaskStressTest\.|^ConcurrentEventTriggerTest\.|^CancellationTokenTest\.|^WorkerRestartTest\.|^TaskConcurrencyLimiterTest\.'
       env:
         ASAN_OPTIONS: halt_on_error=1
