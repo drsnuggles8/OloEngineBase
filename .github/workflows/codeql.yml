@@ -58,83 +58,63 @@ jobs:
             - 'OloEngine-ScriptCore/**'
             - '.github/workflows/codeql.yml'
 
-  analyze:
-    name: Analyze
+  analyze-cpp:
+    name: Analyze (C++)
     needs: detect-changes
-    # Job-level `if` cannot reference `matrix.*` (matrix is only bound per-step
-    # once the matrix has been expanded). Gate the whole job permissively here,
-    # then use step-level `if`s below to skip work for languages that haven't
-    # actually changed.
     if: >-
       ${{ github.event_name == 'workflow_dispatch'
-          || needs.detect-changes.outputs.cpp == 'true'
-          || needs.detect-changes.outputs.csharp == 'true' }}
+          || needs.detect-changes.outputs.cpp == 'true' }}
     runs-on: windows-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Analyze C++ with manual build for most accurate results
-          - language: c-cpp
-            build-mode: manual
-          # Analyze C# without build (faster, still accurate)
-          - language: csharp
-            build-mode: none
 
     steps:
     - uses: actions/checkout@v6
 
-    # Per-matrix gate: skip this matrix slice unless the language actually
-    # changed (workflow_dispatch always runs both).
-    - name: Should this language run?
-      id: gate
-      shell: bash
-      run: |
-        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-          echo "run=true" >> "$GITHUB_OUTPUT"
-        elif [[ "${{ matrix.language }}" == "c-cpp" && "${{ needs.detect-changes.outputs.cpp }}" == "true" ]]; then
-          echo "run=true" >> "$GITHUB_OUTPUT"
-        elif [[ "${{ matrix.language }}" == "csharp" && "${{ needs.detect-changes.outputs.csharp }}" == "true" ]]; then
-          echo "run=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "run=false" >> "$GITHUB_OUTPUT"
-        fi
-
-    - if: steps.gate.outputs.run == 'true'
-      name: Install Python 3.10
+    - name: Install Python 3.10
       uses: actions/setup-python@v6
       with:
        python-version: '3.10'
 
-    - if: steps.gate.outputs.run == 'true'
-      name: Install python dependencies
+    - name: Install python dependencies
       run: |
         python -m pip install --upgrade pip
         python -m pip install jinja2
         python -c "import jinja2; print(f'jinja2 {jinja2.__version__} installed at {jinja2.__file__}')"
 
-    - if: steps.gate.outputs.run == 'true' && matrix.build-mode == 'manual'
-      name: Setup Vulkan SDK
+    - name: Setup Vulkan SDK
       uses: ./.github/actions/setup-vulkan
 
-    - if: steps.gate.outputs.run == 'true' && matrix.build-mode == 'manual'
-      name: Configure CMake
+    - name: Configure CMake
       run: cmake -S . -B ${{github.workspace}}/build -DPython_EXECUTABLE="${{ env.pythonLocation }}/python.exe" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
-    # Initializes the CodeQL tools for scanning.
-    - if: steps.gate.outputs.run == 'true'
-      name: Initialize CodeQL
+    - name: Initialize CodeQL
       uses: github/codeql-action/init@v4
       with:
-        languages: ${{ matrix.language }}
-        build-mode: ${{ matrix.build-mode }}
+        languages: c-cpp
+        build-mode: manual
 
-    - if: steps.gate.outputs.run == 'true' && matrix.build-mode == 'manual'
-      name: Build with CMake
-      # Build your program with the given configuration
+    - name: Build with CMake
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
 
-    - if: steps.gate.outputs.run == 'true'
-      name: Perform CodeQL Analysis
+    - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v4
+
+  analyze-csharp:
+    name: Analyze (C#)
+    needs: detect-changes
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch'
+          || needs.detect-changes.outputs.csharp == 'true' }}
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v4
+      with:
+        languages: csharp
+        build-mode: none
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v4
+

@@ -35,12 +35,14 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <limits>
 #include <random>
 #include <string>
+#include <utility>
 #include <vector>
 
 #if defined(_WIN32)
@@ -78,6 +80,28 @@ namespace OloEngine::Tests
             ScopedIBLCacheGuard(const ScopedIBLCacheGuard&) = delete;
             ScopedIBLCacheGuard& operator=(const ScopedIBLCacheGuard&) = delete;
         };
+
+        // RAII owner for a GL texture handle — mirrors the ScopedTexture /
+        // ScopedGLTexture helpers in ShadowTerrainPropertyTests.cpp /
+        // GoldenImageTests.cpp. Keeps `::glDeleteTextures` reachable even
+        // when an ASSERT_* aborts the test early.
+        struct ScopedTexture
+        {
+            GLuint m_Id = 0;
+            ScopedTexture() = default;
+            explicit ScopedTexture(GLuint id) : m_Id(id) {}
+            ~ScopedTexture()
+            {
+                if (m_Id != 0)
+                    ::glDeleteTextures(1, &m_Id);
+            }
+            ScopedTexture(const ScopedTexture&) = delete;
+            ScopedTexture& operator=(const ScopedTexture&) = delete;
+            operator GLuint() const
+            {
+                return m_Id;
+            }
+        };
     } // namespace
 
     TEST(DataRoundTripTest, Rgba32FGpuBitIdentity)
@@ -98,6 +122,7 @@ namespace OloEngine::Tests
         }
 
         u32 tex = CreateFloatTexture2D(W, H, src.data());
+        ScopedTexture texOwner{ static_cast<GLuint>(tex) };
         std::vector<f32> dst(N, 0.0f);
         ReadbackRgbaFloat(tex, W, H, dst);
 
@@ -111,8 +136,6 @@ namespace OloEngine::Tests
                 ++diffs;
         }
         EXPECT_EQ(diffs, 0u) << "RGBA32F round-trip produced " << diffs << " bit-different texels";
-
-        ::glDeleteTextures(1, reinterpret_cast<const GLuint*>(&tex));
     }
 
     TEST(DataRoundTripTest, Rgba8GpuByteIdentity)
@@ -129,6 +152,7 @@ namespace OloEngine::Tests
 
         GLuint tex = 0;
         ::glCreateTextures(GL_TEXTURE_2D, 1, &tex);
+        ScopedTexture texOwner{ tex };
         ::glTextureStorage2D(tex, 1, GL_RGBA8, static_cast<GLsizei>(W), static_cast<GLsizei>(H));
         ::glTextureSubImage2D(tex, 0, 0, 0,
                               static_cast<GLsizei>(W), static_cast<GLsizei>(H), GL_RGBA, GL_UNSIGNED_BYTE, src.data());
@@ -141,8 +165,6 @@ namespace OloEngine::Tests
             if (src[i] != dst[i])
                 ++diffs;
         EXPECT_EQ(diffs, 0u) << "RGBA8 round-trip produced " << diffs << " different bytes";
-
-        ::glDeleteTextures(1, &tex);
     }
 
     // =========================================================================
@@ -335,14 +357,13 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
-    // Layer-11 fuzz surrogate: randomised stress over the RGBA32F GPU
-    // upload/readback path. Sweeps many (width, height, seed) tuples with a
-    // mix of interesting IEEE-754 value classes (zero, ±denormal, ±normal,
-    // ±large, signed zero, pow-of-two boundaries). Asserts bit-identity per
-    // iteration. Serves as a minimum-viable fuzzing proxy without pulling in
-    // libFuzzer — when a driver update or upload path regresses on a specific
-    // dimension or value class, this catches it without needing a curated
-    // corpus.
+    // Randomised L3 stress round-trip: sweeps many (width, height, seed)
+    // tuples over the RGBA32F GPU upload/readback path with a mix of
+    // interesting IEEE-754 value classes (zero, ±denormal, ±normal, ±large,
+    // signed zero, pow-of-two boundaries). Asserts bit-identity per
+    // iteration. Still an L3 round-trip test (pure upload→readback
+    // equivalence); dedicated L11 fuzz targets live under
+    // OloEngine/tests/Fuzzing/.
     //
     // Deterministic: seed is the iteration index, so failures reproduce
     // on replay.
@@ -400,9 +421,9 @@ namespace OloEngine::Tests
             }
 
             u32 tex = CreateFloatTexture2D(W, H, src.data());
+            ScopedTexture texOwner{ static_cast<GLuint>(tex) };
             std::vector<f32> dst(N, 0.0f);
             ReadbackRgbaFloat(tex, W, H, dst);
-            ::glDeleteTextures(1, reinterpret_cast<const GLuint*>(&tex));
 
             ASSERT_EQ(dst.size(), src.size());
             u32 diffs = 0;
@@ -424,7 +445,7 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
-    // Layer-11 fuzz surrogate for RGBA8: sweeps randomised dimensions and a
+    // Randomised L3 stress for RGBA8: sweeps randomised dimensions and a
     // full 0..255 byte palette. Any upload/readback regression that corrupts
     // specific byte values (e.g. a sign-extension bug at 0x80) would surface
     // here.
@@ -454,6 +475,7 @@ namespace OloEngine::Tests
 
             GLuint tex = 0;
             ::glCreateTextures(GL_TEXTURE_2D, 1, &tex);
+            ScopedTexture texOwner{ tex };
             ::glTextureStorage2D(tex, 1, GL_RGBA8,
                                  static_cast<GLsizei>(W), static_cast<GLsizei>(H));
             ::glTextureSubImage2D(tex, 0, 0, 0,
@@ -462,7 +484,6 @@ namespace OloEngine::Tests
 
             std::vector<u8> dst(N, 0);
             ReadbackRgba8(static_cast<u32>(tex), W, H, dst);
-            ::glDeleteTextures(1, &tex);
 
             u32 diffs = 0;
             for (u32 i = 0; i < N; ++i)

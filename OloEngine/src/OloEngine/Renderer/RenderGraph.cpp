@@ -26,6 +26,7 @@ namespace OloEngine
         m_PassLookup.clear();
         m_Dependencies.clear();
         m_FramebufferConnections.clear();
+        m_InsertionOrder.clear();
         m_PassOrder.clear();
         m_FinalPassName.clear();
     }
@@ -37,6 +38,13 @@ namespace OloEngine
         std::string name = pass->GetName();
         OLO_CORE_INFO("Adding RenderPass to graph: {}", name);
 
+        // Track insertion order so topological sort has a stable tie-break
+        // when multiple passes have no dependencies between them. Without
+        // this, the unordered_map iteration order leaks into m_PassOrder
+        // and varies between platforms/standard-library versions, causing
+        // the hazard validator to classify RAW vs WAR differently.
+        if (!m_PassLookup.contains(name))
+            m_InsertionOrder.push_back(name);
         m_PassLookup[name] = pass;
         m_DependencyGraphDirty = true;
     }
@@ -278,9 +286,12 @@ namespace OloEngine
             return true;
         };
 
-        // Visit all nodes
-        for (const auto& [name, _] : m_PassLookup)
+        // Visit all nodes in insertion order so ties are broken
+        // deterministically (independent of std::unordered_map hashing).
+        for (const auto& name : m_InsertionOrder)
         {
+            if (!m_PassLookup.contains(name))
+                continue;
             if (!visited.contains(name))
             {
                 if (!visit(name))

@@ -44,13 +44,13 @@ namespace OloEngine
             return static_cast<u32>(v);
         }
 
-        u32 GlGetTextureBinding2DAtUnit(u32 unit)
+        u32 GlGetTextureBindingAtUnit(u32 unit, GLenum target)
         {
             GLint prevActive = 0;
             ::glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActive);
             ::glActiveTexture(GL_TEXTURE0 + unit);
             GLint bound = 0;
-            ::glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound);
+            ::glGetIntegerv(target, &bound);
             ::glActiveTexture(static_cast<GLenum>(prevActive));
             return static_cast<u32>(bound);
         }
@@ -145,7 +145,11 @@ namespace OloEngine
         const u32 uboSlotLimit = std::min<u32>(kUboSlots, driverUboBindings > 0 ? static_cast<u32>(driverUboBindings) : kUboSlots);
 
         for (u32 i = 0; i < textureSlotLimit; ++i)
-            s.m_Textures2D[i] = GlGetTextureBinding2DAtUnit(i);
+        {
+            s.m_Textures2D[i] = GlGetTextureBindingAtUnit(i, GL_TEXTURE_BINDING_2D);
+            s.m_Textures2DArray[i] = GlGetTextureBindingAtUnit(i, GL_TEXTURE_BINDING_2D_ARRAY);
+            s.m_TexturesCubeMap[i] = GlGetTextureBindingAtUnit(i, GL_TEXTURE_BINDING_CUBE_MAP);
+        }
 
         for (u32 i = 0; i < uboSlotLimit; ++i)
             s.m_UniformBuffers[i] = GlGetIndexedUInt(GL_UNIFORM_BUFFER_BINDING, i);
@@ -203,9 +207,15 @@ namespace OloEngine
 
         for (u32 i = 0; i < kTextureSlots; ++i)
         {
-            std::ostringstream f;
-            f << "Texture2D[" << i << "]";
-            AppendIfDifferent(diffs, f.str(), static_cast<i64>(m_Textures2D[i]), static_cast<i64>(other.m_Textures2D[i]));
+            std::ostringstream f2d;
+            f2d << "Texture2D[" << i << "]";
+            AppendIfDifferent(diffs, f2d.str(), static_cast<i64>(m_Textures2D[i]), static_cast<i64>(other.m_Textures2D[i]));
+            std::ostringstream farr;
+            farr << "Texture2DArray[" << i << "]";
+            AppendIfDifferent(diffs, farr.str(), static_cast<i64>(m_Textures2DArray[i]), static_cast<i64>(other.m_Textures2DArray[i]));
+            std::ostringstream fcube;
+            fcube << "TextureCubeMap[" << i << "]";
+            AppendIfDifferent(diffs, fcube.str(), static_cast<i64>(m_TexturesCubeMap[i]), static_cast<i64>(other.m_TexturesCubeMap[i]));
         }
         for (u32 i = 0; i < kUboSlots; ++i)
         {

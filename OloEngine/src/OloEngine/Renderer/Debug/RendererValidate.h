@@ -39,16 +39,28 @@ namespace OloEngine::RendererValidate
         // glGetTextureImage itself reports a GL error — callers should
         // treat this as a hard validation failure.
         bool m_ReadbackFailed = false;
-        // True iff every valid (non-NaN, non-Inf) pixel is ≈ 0 across RGBA
-        // (|channel| ≤ 1e-6). A common bug signature for "pass didn't run"
-        // or "render target was cleared but never drawn into". Only
-        // meaningful when m_PixelCount > m_NanCount + m_InfCount.
+        // True iff every valid (non-NaN, non-Inf) pixel is RGB-black across
+        // R/G/B (|channel| ≤ 1e-6). Alpha is deliberately excluded so a
+        // glClear(0,0,0,1) surface that was never drawn into still trips
+        // the heuristic. Only meaningful when m_PixelCount > m_NanCount +
+        // m_InfCount.
         bool m_IsEntirelyBlack = false;
     };
 
     // Reads back the given color attachment of a float-format framebuffer
-    // (RGBA16F / RGBA32F) and returns aggregate stats. Returns all-zero stats
-    // (and logs) if the format is unsupported or the readback fails.
+    // (RGBA16F / RGBA32F) and returns aggregate stats.
+    //
+    // Return-value contract:
+    //   - On success, fields (min/max/avg/NaN/Inf counts, m_PixelCount,
+    //     m_IsEntirelyBlack) are populated; m_ReadbackFailed is false.
+    //   - On an *unsupported* attachment (non-float format, multisampled,
+    //     zero-sized, or out-of-range index) the function returns an
+    //     all-zero `AttachmentStats` with m_PixelCount == 0 — callers
+    //     should treat this as "no opinion", not a failure.
+    //   - On a *hard* readback failure (GL error from glGetTextureImage),
+    //     `AttachmentStats::m_ReadbackFailed` is set to true. Callers must
+    //     check this flag before using any other field — a failed readback
+    //     leaves them in an indeterminate state.
     AttachmentStats ReadFloatAttachmentStats(const Ref<Framebuffer>& fb, u32 attachmentIndex);
 
     // One-shot sanity check for a pass output. Performs the readback, logs an

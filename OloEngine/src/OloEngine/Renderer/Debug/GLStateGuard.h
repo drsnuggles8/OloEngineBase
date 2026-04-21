@@ -89,7 +89,14 @@ namespace OloEngine
         // limit in case it reports fewer (software renderers occasionally do).
         static constexpr u32 kTextureSlots = 32;
         static constexpr u32 kUboSlots = 32;
+        // Per-texture-unit bindings for every target the engine actually
+        // binds. 2D covers colour/normal/roughness/AO; 2D_ARRAY is used by
+        // CSM shadow maps; CUBE_MAP by IBL / environment maps. A pass
+        // that forgot to unbind e.g. a cubemap would go undetected if we
+        // only snapshot GL_TEXTURE_BINDING_2D.
         std::array<u32, kTextureSlots> m_Textures2D{};
+        std::array<u32, kTextureSlots> m_Textures2DArray{};
+        std::array<u32, kTextureSlots> m_TexturesCubeMap{};
         std::array<u32, kUboSlots> m_UniformBuffers{};
 
         // Capture the current GL pipeline state. Caller must have a live

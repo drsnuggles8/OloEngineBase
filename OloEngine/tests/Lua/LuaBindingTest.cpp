@@ -25,6 +25,14 @@
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 
+// Some components (TextComponent, UITextComponent, UIInputFieldComponent,
+// UIDropdownComponent) default-initialise a `Ref<Font>` member via
+// Font::GetDefault(), which eagerly creates GPU textures through
+// SlugFontProcessor::Process(). Without a GL context those calls access-
+// violate, so the tests that instantiate those components must first
+// ensure a GPU is available (or skip).
+#include "PropertyTests/RenderPropertyTest.h"
+
 #include <glm/glm.hpp>
 
 #include <algorithm>
@@ -303,6 +311,10 @@ TEST_F(LuaBindingTest, CircleRenderer_PropertyRoundTrip)
 
 TEST_F(LuaBindingTest, TextComponent_StringRoundTrip)
 {
+    // TextComponent eagerly loads the default font (GPU textures) in its
+    // default member initialiser, so we need a live GL context.
+    OLO_ENSURE_GPU_OR_SKIP();
+
     TextComponent tc;
     lua["tc"] = &tc;
 
@@ -315,6 +327,8 @@ TEST_F(LuaBindingTest, TextComponent_StringRoundTrip)
 
 TEST_F(LuaBindingTest, TextComponent_PropertyRoundTrip)
 {
+    OLO_ENSURE_GPU_OR_SKIP(); // see TextComponent_StringRoundTrip
+
     TextComponent tc;
     lua["tc"] = &tc;
 
@@ -423,6 +437,9 @@ TEST_F(LuaBindingTest, UIPanelComponent_PropertyRoundTrip)
 
 TEST_F(LuaBindingTest, UITextComponent_PropertyRoundTrip)
 {
+    // UITextComponent owns a default Ref<Font> that creates GPU textures.
+    OLO_ENSURE_GPU_OR_SKIP();
+
     UITextComponent text;
     lua["t"] = &text;
 
@@ -523,6 +540,9 @@ TEST_F(LuaBindingTest, UIProgressBarComponent_PropertyRoundTrip)
 
 TEST_F(LuaBindingTest, UIInputFieldComponent_PropertyRoundTrip)
 {
+    // UIInputFieldComponent owns a default Ref<Font> that creates GPU textures.
+    OLO_ENSURE_GPU_OR_SKIP();
+
     UIInputFieldComponent input;
     lua["i"] = &input;
 
@@ -559,6 +579,9 @@ TEST_F(LuaBindingTest, UIScrollViewComponent_PropertyRoundTrip)
 
 TEST_F(LuaBindingTest, UIDropdownComponent_PropertyRoundTrip)
 {
+    // UIDropdownComponent owns a default Ref<Font> that creates GPU textures.
+    OLO_ENSURE_GPU_OR_SKIP();
+
     UIDropdownComponent dd;
     lua["d"] = &dd;
 

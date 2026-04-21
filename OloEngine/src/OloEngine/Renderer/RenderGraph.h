@@ -113,6 +113,7 @@ namespace OloEngine
         std::unordered_map<std::string, Ref<RenderPass>> m_PassLookup;
         std::unordered_map<std::string, std::vector<std::string>> m_Dependencies;           // Execution ordering
         std::unordered_map<std::string, std::vector<std::string>> m_FramebufferConnections; // Framebuffer piping
+        std::vector<std::string> m_InsertionOrder;                                          // Pass names in AddPass() order (stable topo tie-break)
         std::vector<std::string> m_PassOrder;
         std::string m_FinalPassName;
         bool m_DependencyGraphDirty = false;

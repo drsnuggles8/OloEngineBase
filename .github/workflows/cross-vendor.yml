@@ -21,8 +21,10 @@ on:
     - cron: '47 3 * * *'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Only workflow_dispatch and schedule trigger this workflow, so cancelling
+  # stale runs is always safe (no pull_request/push paths to consider).
+  cancel-in-progress: true
 
 env:
   BUILD_TYPE: Release

@@ -51,6 +51,19 @@ namespace OloEngine::RendererValidate
             return stats;
         }
 
+        // Multisample attachments are backed by GL_TEXTURE_2D_MULTISAMPLE;
+        // glGetTextureImage on them yields GL_INVALID_OPERATION. Resolving
+        // to a single-sample texture via glBlitFramebuffer is possible but
+        // meaningful only if the caller wants validation on the resolved
+        // output (at which point they should validate the resolve target
+        // instead). Treat MS attachments as "unsupported / no opinion".
+        if (spec.Samples > 1)
+        {
+            OLO_CORE_WARN("RendererValidate: attachment {} is multisampled (Samples={}); skipping readback (validate the resolved target instead)",
+                          attachmentIndex, spec.Samples);
+            return stats;
+        }
+
         const u32 width = spec.Width;
         const u32 height = spec.Height;
         // Defensive overflow guard: width/height are u32 each, so their
@@ -129,8 +142,11 @@ namespace OloEngine::RendererValidate
 
             if (stats.m_IsEntirelyBlack &&
                 (std::fabs(r) > kBlackEps || std::fabs(g) > kBlackEps ||
-                 std::fabs(b) > kBlackEps || std::fabs(a) > kBlackEps))
+                 std::fabs(b) > kBlackEps))
             {
+                // RGB-only: (0,0,0,1) from a glClear is still "black output".
+                // Alpha is deliberately excluded so a cleared-but-unwritten
+                // render target with alpha=1 still trips the heuristic.
                 stats.m_IsEntirelyBlack = false;
             }
 
@@ -215,7 +231,7 @@ namespace OloEngine::RendererValidate
         }
         if (stats.m_IsEntirelyBlack)
         {
-            OLO_CORE_ERROR("[{}] attachment {}: output is entirely black (all channels ≈ 0) — pass may not have run",
+            OLO_CORE_ERROR("[{}] attachment {}: output is RGB-black (all R/G/B ≈ 0) — pass may not have run",
                            passName, attachmentIndex);
             ok = false;
         }

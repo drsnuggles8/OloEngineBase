@@ -630,9 +630,15 @@ namespace OloEngine::Tests
     } // namespace
 
     // =========================================================================
-    // SSIM cascade unit tests — prove the RMSE → SSIM escalation logic works
-    // without needing a GPU. Pins the perceptual-similarity math so that the
-    // §8 strategy-doc cascade stays honest even if goldens never regress.
+    // [Layer-1 — Unit] SSIM math property checks.
+    //
+    // These four `GoldenImageSsimTest` cases are plain CPU-side unit tests
+    // (no GPU required) that pin the perceptual-similarity math used by the
+    // §8 RMSE → SSIM cascade. They live in this file — rather than under a
+    // dedicated L1 target — because ComputeRgbSsim() and MakeCheckerboard()
+    // are file-private helpers; promoting them to a public API purely for
+    // test relocation would be over-engineering. Treat this block as an
+    // L1 island inside the L8 file.
     // =========================================================================
     TEST(GoldenImageSsimTest, IdenticalImagesYieldSsimOne)
     {
@@ -901,6 +907,11 @@ namespace OloEngine::Tests
         // non-trivial HDR distribution.
         std::vector<f32> hdrReadback;
         ReadbackRgbaFloat(hdrFB->GetColorAttachmentRendererID(0), kFrameW, kFrameH, hdrReadback);
+        // Defensive contract: if the readback produced an undersized buffer
+        // (driver bug, format mismatch, readback skipped), fail loudly
+        // instead of indexing out-of-bounds into `hdrReadback` below.
+        ASSERT_EQ(hdrReadback.size(), static_cast<std::size_t>(kFrameW) * kFrameH * 4)
+            << "HDR readback size mismatch for shadow pass";
         std::vector<f32> litHdr(hdrReadback.size());
         for (std::size_t i = 0; i < static_cast<std::size_t>(kFrameW) * kFrameH; ++i)
         {
@@ -1064,6 +1075,9 @@ namespace OloEngine::Tests
         // ---------------------------------------------------------------
         std::vector<f32> hdrReadback;
         ReadbackRgbaFloat(hdrFB->GetColorAttachmentRendererID(0), kSize, kSize, hdrReadback);
+        // Defensive contract: see the shadow-golden test above.
+        ASSERT_EQ(hdrReadback.size(), static_cast<std::size_t>(kSize) * kSize * 4)
+            << "HDR readback size mismatch for splatmap pass";
 
         PostProcessUBOData toneUbo = MakeDefaultPostProcessUBO(kSize, kSize);
         toneUbo.TonemapOperator = 1; // Reinhard
