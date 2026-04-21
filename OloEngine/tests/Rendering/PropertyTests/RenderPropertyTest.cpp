@@ -11,8 +11,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdlib>
 #include <filesystem>
+#include <vector>
 
 namespace OloEngine::Tests
 {
@@ -56,7 +58,6 @@ namespace OloEngine::Tests
                 m_Window = ::glfwCreateWindow(1, 1, "OloEngine-RenderPropertyTest", nullptr, nullptr);
                 if (!m_Window)
                 {
-                    ::glfwTerminate();
                     return;
                 }
 
@@ -66,17 +67,15 @@ namespace OloEngine::Tests
                 {
                     ::glfwDestroyWindow(m_Window);
                     m_Window = nullptr;
-                    ::glfwTerminate();
                     return;
                 }
 
                 const int major = GLAD_VERSION_MAJOR(version);
                 const int minor = GLAD_VERSION_MINOR(version);
-                if (major < 4 || (major == 4 && minor < 5))
+                if (major < 4 || (major == 4 && minor < 6))
                 {
                     ::glfwDestroyWindow(m_Window);
                     m_Window = nullptr;
-                    ::glfwTerminate();
                     return;
                 }
 
@@ -301,9 +300,10 @@ namespace OloEngine::Tests
     {
         FloatStats stats{};
         // Need a full RGBA quad to seed the min/max. A buffer with 1-3
-        // trailing floats is malformed — bail out with default stats
-        // rather than read past the end.
-        if (pixels.size() < 4)
+        // trailing floats is malformed, and any non-multiple-of-4 length
+        // would silently truncate during count = size / 4. Bail out with
+        // default stats rather than read past the end or ignore tail data.
+        if (pixels.size() < 4 || (pixels.size() % 4) != 0)
             return stats;
 
         stats.m_MinR = stats.m_MaxR = pixels[0];

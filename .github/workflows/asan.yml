@@ -122,7 +122,7 @@ jobs:
       # not a test-code bug — the same tests pass under Linux ASan/UBSan.
       # Excluding the affected suites until Steam networking init is made
       # ASan-compatible (or moved behind a test-time skip).
-      run: ctest -C Release --output-on-failure --timeout 120 --exclude-regex "NetworkIntegration|TaskSystemTest|TaskEventTest|NestedTasksTest|PipeTest|TaskDependenciesTest|TaskStressTest|MakeCompletedTaskTest|IsAwaitableTest|WaitAnyTest|AnyTest|DeepRetractionTest|InlineTaskTest|MoveOnlyResultTest|TaskSelfAccessTest|NestedTaskStressTest|ConcurrentEventTriggerTest|CancellationTokenTest|WorkerRestartTest|TaskConcurrencyLimiterTest"
+      run: ctest -C Release --output-on-failure --timeout 120 --exclude-regex '^NetworkIntegrationTest\.|^TaskSystemTest\.|^TaskEventTest\.|^NestedTasksTest\.|^PipeTest\.|^TaskDependenciesTest\.|^TaskStressTest\.|^MakeCompletedTaskTest\.|^IsAwaitableTest\.|^WaitAnyTest\.|^AnyTest\.|^DeepRetractionTest\.|^InlineTaskTest\.|^MoveOnlyResultTest\.|^TaskSelfAccessTest\.|^NestedTaskStressTest\.|^ConcurrentEventTriggerTest\.|^CancellationTokenTest\.|^WorkerRestartTest\.|^TaskConcurrencyLimiterTest\.'
       env:
         ASAN_OPTIONS: halt_on_error=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
@@ -271,7 +271,7 @@ jobs:
 
     - name: Run tests under UBSan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest --output-on-failure --timeout 120 --exclude-regex "NetworkIntegration|NetworkManager|NetworkThreadDispatch|TaskConcurrencyLimiter|LowLevelTaskUserData"
+      run: ctest --output-on-failure --timeout 120 --exclude-regex '^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^TaskConcurrencyLimiterTest\.|^LowLevelTaskUserDataTest\.'
       env:
         UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
@@ -345,7 +345,7 @@ jobs:
 
     - name: Run tests under TSan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest --output-on-failure --timeout 180 --exclude-regex "NetworkIntegration|WorkerRestart"
+      run: ctest --output-on-failure --timeout 180 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
       env:
         TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
