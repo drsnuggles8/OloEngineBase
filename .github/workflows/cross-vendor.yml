@@ -73,6 +73,10 @@ jobs:
 
       - name: Run tests under llvmpipe
         working-directory: OloEditor
+        # Expected llvmpipe runtime is ~25 minutes; cap at 45 so a hung
+        # OloEngine-Tests.exe process gets killed well before the default
+        # 6-hour job timeout would burn runner minutes.
+        timeout-minutes: 45
         env:
           # llvmpipe selectors (Mesa honours both GALLIUM_DRIVER and MESA_GL_VERSION_OVERRIDE).
           GALLIUM_DRIVER: llvmpipe
@@ -91,7 +95,10 @@ jobs:
 
       - name: Perf-history trend analysis
         if: always()
-        run: python OloEngine/tests/scripts/perf_trend.py
+        # Use the setup-python-provided interpreter path (same as the
+        # CMake configure step) instead of bare `python` so the trend
+        # script always runs under the pinned 3.10 toolchain.
+        run: ${{ steps.py.outputs.python-path }} OloEngine/tests/scripts/perf_trend.py
 
       - name: Upload cross-vendor test results
         if: always()

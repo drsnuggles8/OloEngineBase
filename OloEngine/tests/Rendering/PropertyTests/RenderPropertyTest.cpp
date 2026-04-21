@@ -119,11 +119,109 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // GL pixel-store save/restore RAII
+    //
+    // `glTextureSubImage2D` / `glGetTextureImage` respect the context-global
+    // GL_UNPACK_* / GL_PACK_* state. A prior test that left e.g. non-zero
+    // GL_UNPACK_ROW_LENGTH or a non-default GL_PACK_ALIGNMENT will silently
+    // corrupt tightly-packed uploads / readbacks. Wrap every helper that
+    // performs a transfer with this guard: it forces the defaults we expect
+    // (1-byte alignment, no row skipping, no sub-rectangle) and restores the
+    // caller's state on scope exit. Mirrors TestFailureCapture.cpp's pattern.
+    // -------------------------------------------------------------------------
+    namespace
+    {
+        struct PixelStoreDefaultsScope
+        {
+            bool m_Unpack = false;
+            GLint m_UnpackAlignment = 4;
+            GLint m_UnpackRowLength = 0;
+            GLint m_UnpackImageHeight = 0;
+            GLint m_UnpackSkipPixels = 0;
+            GLint m_UnpackSkipRows = 0;
+            GLint m_UnpackSkipImages = 0;
+            GLint m_PackAlignment = 4;
+            GLint m_PackRowLength = 0;
+            GLint m_PackImageHeight = 0;
+            GLint m_PackSkipPixels = 0;
+            GLint m_PackSkipRows = 0;
+            GLint m_PackSkipImages = 0;
+
+            PixelStoreDefaultsScope() = default;
+
+            static PixelStoreDefaultsScope ForUnpack()
+            {
+                PixelStoreDefaultsScope s;
+                s.m_Unpack = true;
+                ::glGetIntegerv(GL_UNPACK_ALIGNMENT, &s.m_UnpackAlignment);
+                ::glGetIntegerv(GL_UNPACK_ROW_LENGTH, &s.m_UnpackRowLength);
+                ::glGetIntegerv(GL_UNPACK_IMAGE_HEIGHT, &s.m_UnpackImageHeight);
+                ::glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &s.m_UnpackSkipPixels);
+                ::glGetIntegerv(GL_UNPACK_SKIP_ROWS, &s.m_UnpackSkipRows);
+                ::glGetIntegerv(GL_UNPACK_SKIP_IMAGES, &s.m_UnpackSkipImages);
+                ::glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+                ::glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+                ::glPixelStorei(GL_UNPACK_IMAGE_HEIGHT, 0);
+                ::glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+                ::glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+                ::glPixelStorei(GL_UNPACK_SKIP_IMAGES, 0);
+                return s;
+            }
+
+            static PixelStoreDefaultsScope ForPack()
+            {
+                PixelStoreDefaultsScope s;
+                s.m_Unpack = false;
+                ::glGetIntegerv(GL_PACK_ALIGNMENT, &s.m_PackAlignment);
+                ::glGetIntegerv(GL_PACK_ROW_LENGTH, &s.m_PackRowLength);
+                ::glGetIntegerv(GL_PACK_IMAGE_HEIGHT, &s.m_PackImageHeight);
+                ::glGetIntegerv(GL_PACK_SKIP_PIXELS, &s.m_PackSkipPixels);
+                ::glGetIntegerv(GL_PACK_SKIP_ROWS, &s.m_PackSkipRows);
+                ::glGetIntegerv(GL_PACK_SKIP_IMAGES, &s.m_PackSkipImages);
+                ::glPixelStorei(GL_PACK_ALIGNMENT, 1);
+                ::glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+                ::glPixelStorei(GL_PACK_IMAGE_HEIGHT, 0);
+                ::glPixelStorei(GL_PACK_SKIP_PIXELS, 0);
+                ::glPixelStorei(GL_PACK_SKIP_ROWS, 0);
+                ::glPixelStorei(GL_PACK_SKIP_IMAGES, 0);
+                return s;
+            }
+
+            ~PixelStoreDefaultsScope()
+            {
+                if (m_Unpack)
+                {
+                    ::glPixelStorei(GL_UNPACK_ALIGNMENT, m_UnpackAlignment);
+                    ::glPixelStorei(GL_UNPACK_ROW_LENGTH, m_UnpackRowLength);
+                    ::glPixelStorei(GL_UNPACK_IMAGE_HEIGHT, m_UnpackImageHeight);
+                    ::glPixelStorei(GL_UNPACK_SKIP_PIXELS, m_UnpackSkipPixels);
+                    ::glPixelStorei(GL_UNPACK_SKIP_ROWS, m_UnpackSkipRows);
+                    ::glPixelStorei(GL_UNPACK_SKIP_IMAGES, m_UnpackSkipImages);
+                }
+                else
+                {
+                    ::glPixelStorei(GL_PACK_ALIGNMENT, m_PackAlignment);
+                    ::glPixelStorei(GL_PACK_ROW_LENGTH, m_PackRowLength);
+                    ::glPixelStorei(GL_PACK_IMAGE_HEIGHT, m_PackImageHeight);
+                    ::glPixelStorei(GL_PACK_SKIP_PIXELS, m_PackSkipPixels);
+                    ::glPixelStorei(GL_PACK_SKIP_ROWS, m_PackSkipRows);
+                    ::glPixelStorei(GL_PACK_SKIP_IMAGES, m_PackSkipImages);
+                }
+            }
+
+            PixelStoreDefaultsScope(const PixelStoreDefaultsScope&) = delete;
+            PixelStoreDefaultsScope& operator=(const PixelStoreDefaultsScope&) = delete;
+            PixelStoreDefaultsScope(PixelStoreDefaultsScope&&) = default;
+        };
+    } // namespace
+
+    // -------------------------------------------------------------------------
     // Procedural input helpers
     // -------------------------------------------------------------------------
 
     u32 CreateFloatTexture2D(u32 width, u32 height, const f32* pixels)
     {
+        auto unpackScope = PixelStoreDefaultsScope::ForUnpack();
         GLuint tex = 0;
         ::glCreateTextures(GL_TEXTURE_2D, 1, &tex);
         ::glTextureStorage2D(tex, 1, GL_RGBA32F, static_cast<GLsizei>(width), static_cast<GLsizei>(height));
@@ -161,6 +259,7 @@ namespace OloEngine::Tests
 
     void ReadbackRgba8(u32 textureId, u32 width, u32 height, std::vector<u8>& out)
     {
+        auto packScope = PixelStoreDefaultsScope::ForPack();
         out.resize(static_cast<std::size_t>(width) * height * 4);
         ::glGetTextureImage(static_cast<GLuint>(textureId), 0, GL_RGBA, GL_UNSIGNED_BYTE,
                             static_cast<GLsizei>(out.size()), out.data());
@@ -168,6 +267,7 @@ namespace OloEngine::Tests
 
     void ReadbackRgbaFloat(u32 textureId, u32 width, u32 height, std::vector<f32>& out)
     {
+        auto packScope = PixelStoreDefaultsScope::ForPack();
         out.resize(static_cast<std::size_t>(width) * height * 4);
         ::glGetTextureImage(static_cast<GLuint>(textureId), 0, GL_RGBA, GL_FLOAT,
                             static_cast<GLsizei>(out.size() * sizeof(f32)), out.data());

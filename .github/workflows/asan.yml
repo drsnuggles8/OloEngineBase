@@ -20,6 +20,11 @@ concurrency:
 
 permissions:
   contents: read
+  # dorny/paths-filter@v4 falls back to the GitHub REST API for PR-base
+  # detection on forks / when the git shallow-clone lacks the base commit,
+  # which needs pull-requests: read. Granting it here keeps the detect-changes
+  # job working even when the default GITHUB_TOKEN has PR scope stripped.
+  pull-requests: read
 
 jobs:
   detect-changes:

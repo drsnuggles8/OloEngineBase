@@ -218,7 +218,11 @@ namespace OloEngine::Tests
         // Fail fast if the path already exists (symlink-follow attack
         // mitigation) — ScopedIBLCacheGuard will create it freshly.
         std::error_code probeEc;
-        ASSERT_FALSE(std::filesystem::exists(tempDir, probeEc))
+        const bool probeExists = std::filesystem::exists(tempDir, probeEc);
+        ASSERT_FALSE(probeEc)
+            << "temp cache path probe failed for " << tempDir.string()
+            << ": " << probeEc.message();
+        ASSERT_FALSE(probeExists)
             << "temp cache path unexpectedly exists: " << tempDir.string();
         ScopedIBLCacheGuard cacheGuard(tempDir);
 

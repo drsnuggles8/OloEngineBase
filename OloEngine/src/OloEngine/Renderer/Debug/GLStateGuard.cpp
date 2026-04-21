@@ -242,6 +242,11 @@ namespace OloEngine
     GLStateGuard::GLStateGuard(std::string_view passName, Policy policy)
         : m_PassName(passName), m_EntryState(GLStateSnapshot::Capture()), m_Policy(policy)
     {
+        // Note: we always capture on construction regardless of Policy.
+        // Policy::Ignore still needs a valid m_EntryState because callers may
+        // opt back into diff work via DetectLeaks() (see
+        // GLStateGuardTest.EmptyRegionHasNoLeaks). The destructor alone is
+        // what Policy::Ignore suppresses.
     }
 
     GLStateGuard::~GLStateGuard()
@@ -278,9 +283,10 @@ namespace OloEngine
 
     std::vector<std::string> GLStateGuard::DetectLeaks()
     {
-        const GLStateSnapshot exit = GLStateSnapshot::Capture();
-        auto diffs = m_EntryState.DiffAgainst(exit);
+        // Flip m_Finalized up-front so if Capture()/DiffAgainst() throw,
+        // the destructor won't try the same work again during unwinding.
         m_Finalized = true;
-        return diffs;
+        const GLStateSnapshot exit = GLStateSnapshot::Capture();
+        return m_EntryState.DiffAgainst(exit);
     }
 } // namespace OloEngine

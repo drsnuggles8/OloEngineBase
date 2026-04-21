@@ -64,8 +64,10 @@ jobs:
       # `--timeout 120` prevents a stuck test (e.g. TaskSystemTest.TaskWithResultPostponed
       # has been observed to hang indefinitely on the hosted runner) from
       # deadlocking the entire job. Individual failures still surface in the
-      # JUnit XML so the test-reporter can flag them.
-      run: ctest -V --timeout 120
+      # JUnit XML so the test-reporter can flag them. `-C ${{env.BUILD_TYPE}}`
+      # is required on the Visual Studio multi-config generator — without it
+      # CTest can't locate the per-config test binaries.
+      run: ctest -V --timeout 120 -C ${{env.BUILD_TYPE}}
 
     - name: Upload test results
       uses: actions/upload-artifact@v7
