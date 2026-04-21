@@ -212,10 +212,19 @@ namespace OloEngine::Tests
         };
 
         // Baseline images live next to shader assets so OloEditor's asset
-        // hot-reload is never confused by them.
+        // hot-reload is never confused by them. When OLOENGINE_GOLDEN_VENDOR
+        // is set (e.g. "llvmpipe" in cross-vendor CI), baselines are scoped
+        // to a per-vendor subdirectory so software-rasteriser results don't
+        // clobber hardware baselines.
         static fs::path GoldenBaselineDir()
         {
-            return fs::path("assets") / "tests" / "golden";
+            fs::path base = fs::path("assets") / "tests" / "golden";
+            const char* vendor = std::getenv("OLOENGINE_GOLDEN_VENDOR");
+            if (vendor != nullptr && vendor[0] != '\0')
+            {
+                base /= vendor;
+            }
+            return base;
         }
 
         // True if the caller has explicitly requested rebaselining via env var.
@@ -413,6 +422,18 @@ namespace OloEngine::Tests
                                                          const std::vector<u8>& actualRgba)
         {
             GoldenImageCheckResult result{};
+
+            // Guard all subsequent stbi_write_png / memcmp paths: a mis-sized
+            // buffer would cause out-of-bounds reads against actualRgba.data().
+            const std::size_t expectedBytes = static_cast<std::size_t>(width) * height * 4;
+            if (actualRgba.size() != expectedBytes)
+            {
+                result.m_Message = "actualRgba size mismatch: expected " +
+                                   std::to_string(expectedBytes) + " bytes for " +
+                                   std::to_string(width) + "x" + std::to_string(height) +
+                                   " RGBA, got " + std::to_string(actualRgba.size());
+                return result;
+            }
 
             fs::path dir = GoldenBaselineDir();
             std::error_code ec;

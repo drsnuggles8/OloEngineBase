@@ -109,4 +109,6 @@ jobs:
           path: |
             OloEditor/assets/tests/golden/*.actual.png
             OloEditor/assets/tests/golden/*.diff.png
+            OloEditor/assets/tests/golden/llvmpipe/*.actual.png
+            OloEditor/assets/tests/golden/llvmpipe/*.diff.png
           if-no-files-found: ignore

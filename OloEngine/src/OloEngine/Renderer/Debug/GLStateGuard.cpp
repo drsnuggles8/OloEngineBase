@@ -228,22 +228,33 @@ namespace OloEngine
 
     GLStateGuard::~GLStateGuard()
     {
-        if (m_Finalized || m_Policy == Policy::Ignore)
-            return;
-
-        const GLStateSnapshot exit = GLStateSnapshot::Capture();
-        const auto diffs = m_EntryState.DiffAgainst(exit);
-
-        if (!diffs.empty())
+        // Destructor must not throw: Capture() performs GL calls, DiffAgainst()
+        // allocates std::string / std::ostringstream, and the logger macros
+        // may throw from fmt formatting. Swallow any exception — a leaked GL
+        // state diff is a debugging aid, not worth terminating the process.
+        try
         {
-            OLO_CORE_ERROR("GLStateGuard[{}]: {} state mutation(s) escaped the pass:", m_PassName, diffs.size());
-            for (const auto& d : diffs)
-                OLO_CORE_ERROR("    {}", d);
+            if (m_Finalized || m_Policy == Policy::Ignore)
+                return;
 
-            if (m_Policy == Policy::Assert)
+            const GLStateSnapshot exit = GLStateSnapshot::Capture();
+            const auto diffs = m_EntryState.DiffAgainst(exit);
+
+            if (!diffs.empty())
             {
-                OLO_CORE_ASSERT(false, "GLStateGuard detected uncontained state mutation");
+                OLO_CORE_ERROR("GLStateGuard[{}]: {} state mutation(s) escaped the pass:", m_PassName, diffs.size());
+                for (const auto& d : diffs)
+                    OLO_CORE_ERROR("    {}", d);
+
+                if (m_Policy == Policy::Assert)
+                {
+                    OLO_CORE_ASSERT(false, "GLStateGuard detected uncontained state mutation");
+                }
             }
+        }
+        catch (...)
+        {
+            // Intentionally swallow — see comment above.
         }
     }
 

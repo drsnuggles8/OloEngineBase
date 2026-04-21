@@ -39,6 +39,11 @@ namespace OloEngine::RendererValidate
         // glGetTextureImage itself reports a GL error — callers should
         // treat this as a hard validation failure.
         bool m_ReadbackFailed = false;
+        // True iff every valid (non-NaN, non-Inf) pixel is ≈ 0 across RGBA
+        // (|channel| ≤ 1e-6). A common bug signature for "pass didn't run"
+        // or "render target was cleared but never drawn into". Only
+        // meaningful when m_PixelCount > m_NanCount + m_InfCount.
+        bool m_IsEntirelyBlack = false;
     };
 
     // Reads back the given color attachment of a float-format framebuffer

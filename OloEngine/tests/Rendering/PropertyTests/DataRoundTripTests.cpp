@@ -39,6 +39,7 @@
 #include <cstring>
 #include <filesystem>
 #include <limits>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -176,7 +177,11 @@ namespace OloEngine::Tests
         // Temp cache directory so we don't stomp on the real one.
         // ScopedIBLCacheGuard handles Initialize/Shutdown + remove_all
         // symmetrically across all exit paths, including ASSERT_* aborts.
-        // PID-suffixed path isolates parallel test runners / ctest -j N.
+        // PID + random suffix isolates parallel test runners (ctest -j N)
+        // AND defeats predictable-path attacks on world-writable tmp dirs
+        // (SonarQube cpp:S5443 — don't trust publicly-writeable locations).
+        std::random_device rd;
+        const auto randomTag = std::to_string(rd()) + "_" + std::to_string(rd());
         auto tempDir = std::filesystem::temp_directory_path() /
                        (std::string("olo_ibl_cache_test_") +
                         std::to_string(
@@ -185,7 +190,13 @@ namespace OloEngine::Tests
 #else
                             static_cast<unsigned long>(::getpid())
 #endif
-                                ));
+                                ) +
+                        "_" + randomTag);
+        // Fail fast if the path already exists (symlink-follow attack
+        // mitigation) — ScopedIBLCacheGuard will create it freshly.
+        std::error_code probeEc;
+        ASSERT_FALSE(std::filesystem::exists(tempDir, probeEc))
+            << "temp cache path unexpectedly exists: " << tempDir.string();
         ScopedIBLCacheGuard cacheGuard(tempDir);
 
         // -- Build the test prefilter cubemap with a distinct pattern per mip.

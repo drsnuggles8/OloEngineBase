@@ -98,6 +98,11 @@ namespace OloEngine::RendererValidate
         stats.m_MaxR = stats.m_MaxG = stats.m_MaxB = stats.m_MaxA = -std::numeric_limits<f32>::infinity();
         f64 sumR = 0.0, sumG = 0.0, sumB = 0.0, sumA = 0.0;
 
+        // "Entirely black" starts optimistic and is cleared the moment we
+        // find a single non-zero valid pixel.
+        stats.m_IsEntirelyBlack = true;
+        constexpr f32 kBlackEps = 1e-6f;
+
         for (u32 p = 0; p < pixelCount; ++p)
         {
             const f32 r = pixels[p * 4 + 0];
@@ -122,6 +127,13 @@ namespace OloEngine::RendererValidate
                 continue;
             }
 
+            if (stats.m_IsEntirelyBlack &&
+                (std::fabs(r) > kBlackEps || std::fabs(g) > kBlackEps ||
+                 std::fabs(b) > kBlackEps || std::fabs(a) > kBlackEps))
+            {
+                stats.m_IsEntirelyBlack = false;
+            }
+
             stats.m_MinR = std::min(stats.m_MinR, r);
             stats.m_MinG = std::min(stats.m_MinG, g);
             stats.m_MinB = std::min(stats.m_MinB, b);
@@ -138,6 +150,10 @@ namespace OloEngine::RendererValidate
 
         stats.m_PixelCount = pixelCount;
         const u32 valid = pixelCount - stats.m_NanCount - stats.m_InfCount;
+        // If no valid pixels survived NaN/Inf filtering, "entirely black" is
+        // meaningless — clear it so ValidateFramebuffer doesn't double-report.
+        if (valid == 0)
+            stats.m_IsEntirelyBlack = false;
         const f64 denom = valid > 0 ? static_cast<f64>(valid) : 1.0;
         stats.m_AvgR = sumR / denom;
         stats.m_AvgG = sumG / denom;
@@ -195,6 +211,12 @@ namespace OloEngine::RendererValidate
         {
             OLO_CORE_ERROR("[{}] attachment {}: {} Inf pixels detected", passName,
                            attachmentIndex, stats.m_InfCount);
+            ok = false;
+        }
+        if (stats.m_IsEntirelyBlack)
+        {
+            OLO_CORE_ERROR("[{}] attachment {}: output is entirely black (all channels ≈ 0) — pass may not have run",
+                           passName, attachmentIndex);
             ok = false;
         }
         // Numeric-range check is format-dependent:
