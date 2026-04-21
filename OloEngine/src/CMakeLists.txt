@@ -295,6 +295,7 @@
 		"OloEngine/Debug/AllocationTracker.h"
 		"OloEngine/Debug/CrashReporter.cpp"
 		"OloEngine/Debug/CrashReporter.h"
+		"OloEngine/Debug/CrashReporterPlatform.h"
 		"OloEngine/Debug/DebugOverlayLayer.cpp"
 		"OloEngine/Debug/DebugOverlayLayer.h"
 		"OloEngine/Debug/PerformanceLayer.cpp"
@@ -1040,6 +1041,7 @@
 # Platform-specific sources
 if(WIN32)
 	list(APPEND SOURCES
+		"Platform/Windows/WindowsCrashReporter.cpp"
 		"Platform/Windows/WindowsEvent.h"
 		"Platform/Windows/WindowsSemaphore.h"
 		"Platform/Windows/WindowsInput.cpp"
@@ -1051,6 +1053,7 @@ if(WIN32)
 	)
 elseif(UNIX AND NOT APPLE)
 	list(APPEND SOURCES
+		"Platform/Linux/LinuxCrashReporter.cpp"
 		"Platform/Linux/LinuxEvent.h"
 		"Platform/Linux/LinuxSemaphore.h"
 		"Platform/Linux/LinuxInput.cpp"
