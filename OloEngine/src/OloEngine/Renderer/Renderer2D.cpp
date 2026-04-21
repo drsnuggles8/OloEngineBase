@@ -142,11 +142,11 @@ namespace OloEngine
 
     ShaderLibrary Renderer2D::m_ShaderLibrary;
 
-    void Renderer2D::Init()
+    void Renderer2D::Init(Window* loadingWindow)
     {
         OLO_PROFILE_FUNCTION();
 
-        Window& window = Application::Get().GetWindow();
+        Window* window = loadingWindow;
 
         s_Data.QuadVertexArray = VertexArray::Create();
 

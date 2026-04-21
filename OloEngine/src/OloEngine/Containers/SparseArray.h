@@ -134,8 +134,8 @@ namespace OloEngine
     {
       protected:
         /** Constructor for intrusive optional unset state */
-        [[nodiscard]] explicit TSparseArrayBase(FIntrusiveUnsetOptionalState)
-            : Data(FIntrusiveUnsetOptionalState{})
+        [[nodiscard]] explicit TSparseArrayBase(FIntrusiveUnsetOptionalState Tag)
+            : Data(Tag)
         {
         }
 

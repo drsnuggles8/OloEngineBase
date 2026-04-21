@@ -153,7 +153,7 @@ namespace OloEngine
 
         bool TryAcquireFor(FMonotonicTimeSpan Timeout)
         {
-            return m_Semaphore.try_acquire_for(std::chrono::nanoseconds(static_cast<i64>(Timeout.ToNanoseconds())));
+            return m_Semaphore.try_acquire_for(std::chrono::duration<f64>(Timeout.ToSeconds()));
         }
 
         bool TryAcquireUntil(FMonotonicTimePoint Deadline)

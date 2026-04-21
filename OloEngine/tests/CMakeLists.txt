@@ -60,6 +60,7 @@ add_executable(OloEngine-Tests
 		Rendering/CommandBucketTest.cpp
 		#Rendering/CommandDispatchTest.cpp  # Requires full engine (calls CommandDispatch::Initialize which pulls in OpenGL statics)
 		Rendering/RenderGraphTest.cpp
+		Rendering/ResourceHazardValidationTests.cpp
 		Rendering/FramePipelineTest.cpp
 		Rendering/FrameCaptureTest.cpp
 		Rendering/CommandBucketBenchmarkTest.cpp
@@ -69,6 +70,19 @@ add_executable(OloEngine-Tests
 		Rendering/WaterRenderingTest.cpp
 		Rendering/RenderingRegressionTest.cpp
 		Rendering/SelectionOutlineTest.cpp
+		# Rendering property tests (require GL 4.5+ context; skip gracefully if unavailable)
+		Rendering/PropertyTests/RenderPropertyTest.cpp
+		Rendering/PropertyTests/PostProcessPropertyTests.cpp
+		Rendering/PropertyTests/PbrPropertyTests.cpp
+		Rendering/PropertyTests/GLStateGuardTest.cpp
+		Rendering/PropertyTests/RendererValidateTest.cpp
+		Rendering/PropertyTests/ShaderUnitTests.cpp
+		Rendering/PropertyTests/PerfRegressionTests.cpp
+		Rendering/PropertyTests/DataRoundTripTests.cpp
+		Rendering/PropertyTests/GoldenImageTests.cpp
+		Rendering/PropertyTests/ShadowTerrainPropertyTests.cpp
+		Rendering/PropertyTests/TestFailureCapture.cpp
+		Rendering/PropertyTests/TestFailureCaptureTest.cpp
 		Streaming/SceneStreamingTest.cpp
 		InputActionTest.cpp
 		GamepadTest.cpp
@@ -168,16 +182,25 @@ endif()
 
 target_include_directories(OloEngine-Tests PRIVATE
 	${CMAKE_SOURCE_DIR}/OloEngine/src
-	${CMAKE_SOURCE_DIR}/OloEngine/vendor/atomic_queue-src/include
-	${CMAKE_SOURCE_DIR}/OloEngine/vendor/spdlog-src/include
+	${atomic_queue_SOURCE_DIR}/include
+	${spdlog_SOURCE_DIR}/include
 	${CMAKE_CURRENT_SOURCE_DIR}/Rendering
 	${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser
 )
 
-# Copy required shared library DLLs next to the test executable
-if(WIN32)
-    add_custom_command(TARGET OloEngine-Tests POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_SOURCE_DIR}/OloEngine/vendor/zlib-build/$<CONFIG>/zlib$<$<CONFIG:Debug>:d>.dll"
-            $<TARGET_FILE_DIR:OloEngine-Tests>)
-endif()
+# Register tests with CTest so `ctest` discovers them. The WORKING_DIRECTORY
+# keeps repo-relative paths (shaders, assets) resolvable — many tests call
+# Shader::Create("assets/shaders/...") which only works when CWD is OloEditor.
+#
+# DISCOVERY_TIMEOUT: the default of 5s is too tight for ASan-instrumented
+# Release builds on CI runners — the sanitizer-wrapped startup + DLL load
+# path can push `--gtest_list_tests` past 5s, causing the build itself to
+# fail with "Process terminated due to timeout" before any test ever runs.
+# 120s is very generous under normal conditions but gives sanitizer builds
+# ample headroom without masking a genuinely hung binary.
+include(GoogleTest)
+gtest_discover_tests(OloEngine-Tests
+	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor
+	DISCOVERY_TIMEOUT 120
+)
+

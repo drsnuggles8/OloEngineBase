@@ -20,13 +20,18 @@ namespace OloEngine
         // Call between shader Load() calls to give visual feedback during
         // CPU-side SPIR-V compilation.  Also updates the window title.
         // phase: 0=2D shaders, 1=3D shaders, 2=post-process, 3=linking
-        static void RenderProgressFrame(f32 progress, Window& window, std::string_view label = "shaders",
+        //
+        // When `window` is nullptr (e.g. headless tests), this is a no-op.
+        static void RenderProgressFrame(f32 progress, Window* window, std::string_view label = "shaders",
                                         i32 current = 0, i32 total = 0, i32 phase = 0);
 
         // Block in a mini render loop, displaying a progress bar, until all
         // shaders in the given ShaderLibrary are ready. Polls OS events to
         // keep the window responsive.
-        static void RunWarmupScreen(class ShaderLibrary& library, Window& window);
+        //
+        // When `window` is nullptr (e.g. headless tests), falls back to
+        // library.FlushPendingShaders() (synchronous, no progress UI).
+        static void RunWarmupScreen(class ShaderLibrary& library, Window* window);
 
         // Release boot shader resources.
         static void Shutdown();

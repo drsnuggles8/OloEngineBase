@@ -1267,7 +1267,7 @@ namespace OloEngine
         OLO_PROFILE_RENDERER_SCOPE("3DInit");
         OLO_CORE_INFO("Initializing Renderer3D for 3D mode...");
         Renderer3D::SetSelectionOutlineEnabled(true);
-        Renderer3D::Init();
+        Renderer3D::Init(&Application::Get().GetWindow());
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
 
         // Resize to current viewport size

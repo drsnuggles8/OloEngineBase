@@ -1,0 +1,7 @@
+# Per-machine perf history TSVs (appended every test run).
+# Keep the directory in git but ignore the data files — they are
+# developer-local by default. CI jobs upload their TSV as an artifact
+# via OLOENGINE_PERF_MACHINE=ci-<vendor>.
+*.tsv
+!.gitignore
+!README.md

@@ -14,7 +14,7 @@ if(POLICY CMP0194)
     cmake_policy(SET CMP0194 NEW)  # MSVC assembler policy
 endif()
 
-if(MSVC)
+if(CMAKE_GENERATOR MATCHES "Visual Studio")
     project(OloEngineBase
             VERSION 0.0.1
             LANGUAGES CXX C CSharp)
@@ -33,6 +33,17 @@ option(OLO_ENABLE_UNITY_BUILD "Enable Unity (Jumbo) Builds for faster compilatio
 include(cmake/SetupConfigurations.cmake)
 include(cmake/CommonProperties.cmake)
 include(cmake/Sanitizers.cmake)
+
+# Default FetchContent downloads to PROJECT_SOURCE_DIR/OloEngine/vendor so vendor
+# libraries live in a predictable location alongside the checked-in vendor tree.
+# Must be set BEFORE include(cmake/CPM.cmake) — CPM internally does
+# include(FetchContent) which caches the default (_deps/) and would prevent a
+# later override.
+# Presets (e.g. clangcl) can still override via -DFETCHCONTENT_BASE_DIR=…
+if(NOT DEFINED CACHE{FETCHCONTENT_BASE_DIR})
+	set(FETCHCONTENT_BASE_DIR "${PROJECT_SOURCE_DIR}/OloEngine/vendor" CACHE PATH "" FORCE)
+endif()
+
 include(cmake/CPM.cmake)
 
 # Project wide setup - Configure module paths
@@ -47,7 +58,7 @@ set(CMAKE_CXX_EXTENSIONS ON)
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
-if(MSVC)
+if(CMAKE_GENERATOR MATCHES "Visual Studio")
     set(CMAKE_DOTNET_TARGET_FRAMEWORK_VERSION "v4.8.1")
     set(CMAKE_CSharp_FLAGS "/langversion:8")
 endif()
@@ -64,7 +75,7 @@ add_subdirectory(tools/OloHeaderTool)
 add_subdirectory(OloEngine)
 add_subdirectory(OloEngine-LuaScriptCore)
 
-if(MSVC)
+if(CMAKE_GENERATOR MATCHES "Visual Studio")
     add_subdirectory(OloEngine-ScriptCore)
     add_subdirectory(OloEditor/SandboxProject/Assets/Scripts)
     set_target_properties(OloEngine-ScriptCore PROPERTIES FOLDER "Scripting")
@@ -90,7 +101,7 @@ set_target_properties(OloServer PROPERTIES FOLDER "Applications")
 # OloEngine includes the generated .inl files; OloEngine-ScriptCore includes
 # the generated .cs files.
 add_dependencies(OloEngine GenerateBindings)
-if(MSVC)
+if(CMAKE_GENERATOR MATCHES "Visual Studio")
 	add_dependencies(OloEngine-ScriptCore GenerateBindings)
 endif()
 

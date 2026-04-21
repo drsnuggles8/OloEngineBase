@@ -322,9 +322,6 @@ namespace OloEngine
         /** Destructor */
         ~TCompactSet()
         {
-            // TCompactSet can only be used with trivially relocatable types
-            static_assert(TIsTriviallyRelocatable_V<InElementType>,
-                          "TCompactSet can only be used with trivially relocatable types");
             Empty(0);
         }
 

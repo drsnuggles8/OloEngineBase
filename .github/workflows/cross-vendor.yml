@@ -1,0 +1,123 @@
+name: Cross-Vendor Conformance
+
+# Layer 9 (renderer-testing-strategy.md §9) — run the Layer 1/3/5/6/8 test
+# suite against a software OpenGL implementation (Mesa3D llvmpipe) on top
+# of the standard windows-latest runner. The hardware GPU on GitHub-hosted
+# runners is GPU-of-the-day (often a virtualised Tesla T4 or none at all);
+# for deterministic CI regression detection we prefer llvmpipe, which gives
+# identical output regardless of the underlying host.
+#
+# Hardware-GPU cross-vendor coverage (NVIDIA / AMD / Intel) is tracked
+# separately on a self-hosted runner matrix — see issue tracker.
+#
+# Manual-dispatch + scheduled nightly: the llvmpipe job takes ~25 minutes
+# compared to ~6 minutes on hardware, so it is not wired into the per-PR
+# fast path.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Nightly at 03:47 UTC — odd minute to avoid the on-the-hour CI surge.
+    - cron: '47 3 * * *'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Only workflow_dispatch and schedule trigger this workflow, so cancelling
+  # stale runs is always safe (no pull_request/push paths to consider).
+  cancel-in-progress: true
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  llvmpipe:
+    name: Windows / Mesa llvmpipe (software)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Python 3.10
+        id: py
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+
+      - name: Install python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install jinja2
+
+      - name: Setup Vulkan SDK
+        uses: ./.github/actions/setup-vulkan
+
+      - name: Configure CMake
+        run: cmake -S . -B build -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
+
+      - name: Build tests
+        run: cmake --build build --target OloEngine-Tests --config ${{env.BUILD_TYPE}} --parallel
+
+      - name: Download Mesa3D llvmpipe (OpenGL 4.6 software renderer)
+        shell: pwsh
+        run: |
+          # Mesa3D llvmpipe — pinned version for reproducible software-renderer runs.
+          # Last verified: 2026-04-20. Bump when a newer release gates OpenGL 4.6
+          # feature support we rely on (compute shaders, DSA, etc.).
+          $url = 'https://github.com/pal1000/mesa-dist-win/releases/download/24.3.4/mesa3d-24.3.4-release-msvc.7z'
+          Invoke-WebRequest -Uri $url -OutFile mesa3d.7z
+          7z x mesa3d.7z -omesa3d -y | Out-Null
+          # Drop the llvmpipe opengl32.dll next to the test binary so it
+          # gets picked up over the system-provided driver.
+          $testDir = 'build\OloEngine\tests\${{env.BUILD_TYPE}}'
+          Copy-Item -Force mesa3d\x64\opengl32.dll $testDir\
+          Copy-Item -Force mesa3d\x64\libgallium_wgl.dll $testDir\ -ErrorAction SilentlyContinue
+
+      - name: Run tests under llvmpipe
+        working-directory: OloEditor
+        # Expected llvmpipe runtime is ~25 minutes; cap at 45 so a hung
+        # OloEngine-Tests.exe process gets killed well before the default
+        # 6-hour job timeout would burn runner minutes.
+        timeout-minutes: 45
+        env:
+          # llvmpipe selectors (Mesa honours both GALLIUM_DRIVER and MESA_GL_VERSION_OVERRIDE).
+          GALLIUM_DRIVER: llvmpipe
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          MESA_GL_VERSION_OVERRIDE: '4.6'
+          MESA_GLSL_VERSION_OVERRIDE: '460'
+          # Tag perf history rows so they don't clobber hardware baselines.
+          OLOENGINE_PERF_MACHINE: ci-llvmpipe-windows
+          # Goldens are baselined on real NVIDIA hardware; allow rebase during
+          # the first llvmpipe run so the artifact can be inspected offline.
+          # After the first successful run, maintainers promote a llvmpipe
+          # baseline set by committing assets/tests/golden/llvmpipe/*.png.
+          OLOENGINE_GOLDEN_VENDOR: llvmpipe
+        run: |
+          ..\build\OloEngine\tests\${{env.BUILD_TYPE}}\OloEngine-Tests.exe --gtest_catch_exceptions=1 --gtest_output=xml:..\test_results\cross_vendor.xml
+
+      - name: Perf-history trend analysis
+        if: always()
+        # Use the setup-python-provided interpreter path (same as the
+        # CMake configure step) instead of bare `python` so the trend
+        # script always runs under the pinned 3.10 toolchain.
+        run: ${{ steps.py.outputs.python-path }} OloEngine/tests/scripts/perf_trend.py
+
+      - name: Upload cross-vendor test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cross_vendor_results
+          path: |
+            test_results/cross_vendor.xml
+            OloEngine/tests/Rendering/PropertyTests/perf_history/*.tsv
+          if-no-files-found: warn
+
+      - name: Upload golden-image diffs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cross_vendor_golden_diffs
+          path: |
+            OloEditor/assets/tests/golden/*.actual.png
+            OloEditor/assets/tests/golden/*.diff.png
+            OloEditor/assets/tests/golden/llvmpipe/*.actual.png
+            OloEditor/assets/tests/golden/llvmpipe/*.diff.png
+          if-no-files-found: ignore

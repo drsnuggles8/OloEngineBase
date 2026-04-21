@@ -130,6 +130,13 @@ namespace OloEngine
             return LocalState != 0;
         }
 
+        // Infinite wait: delegate to the unbounded path to avoid inf -> time_t UB
+        if (WaitTime.IsInfinity())
+        {
+            WaitSlow();
+            return true;
+        }
+
         LowLevelTasks::FOversubscriptionScope Scope;
 
         const f64 WaitSeconds = WaitTime.ToSeconds();

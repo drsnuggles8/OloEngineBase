@@ -222,7 +222,7 @@ namespace OloEngine
         return data;
     }
 
-    void Renderer3D::Init()
+    void Renderer3D::Init(Window* loadingWindow)
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Initializing Renderer3D.");
@@ -294,7 +294,7 @@ namespace OloEngine
         ShaderWarmup::Init();
         ShaderLibrary::InitFallbackShader();
 
-        Window& window = Application::Get().GetWindow();
+        Window* window = loadingWindow;
 
         // All Load() calls issue glLinkProgram() back-to-back WITHOUT checking
         // GL_LINK_STATUS. When GL_ARB_parallel_shader_compile is available the
@@ -451,7 +451,11 @@ namespace OloEngine
         s_Data.Stats.Reset();
 
         s_Data.RGraph = Ref<RenderGraph>::Create();
-        SetupRenderGraph(window.GetFramebufferWidth(), window.GetFramebufferHeight());
+        // Headless init (window == nullptr) uses a placeholder framebuffer size;
+        // the real size is applied later via Renderer3D::OnWindowResize.
+        const u32 fbWidth = window ? window->GetFramebufferWidth() : 1280u;
+        const u32 fbHeight = window ? window->GetFramebufferHeight() : 720u;
+        SetupRenderGraph(fbWidth, fbHeight);
 
         // Initialize shadow mapping
         s_Data.Shadow.Init();
@@ -476,7 +480,7 @@ namespace OloEngine
         s_Data.FogTime = 0.0f;
 
         // Initialize Forward+ light culling system
-        s_Data.ForwardPlus.Initialize(window.GetFramebufferWidth(), window.GetFramebufferHeight());
+        s_Data.ForwardPlus.Initialize(fbWidth, fbHeight);
 
         OLO_CORE_INFO("Renderer3D initialization complete.");
     }
@@ -2692,6 +2696,36 @@ namespace OloEngine
         }
 
         s_Data.RGraph->SetFinalPass("FinalPass");
+
+        // Validate the resource-aware RDG contract: every pass's declared
+        // reads must have a transitive execution dependency on their
+        // producer. Hazards are logged to the engine logger; in debug
+        // builds we additionally assert so regressions surface immediately.
+        {
+            const auto hazards = s_Data.RGraph->ValidateResourceHazards();
+            if (!hazards.empty())
+            {
+                // Any Cycle entry means validation couldn't even run;
+                // surface that distinctly from genuine resource hazards.
+                const bool cycle = std::any_of(hazards.begin(), hazards.end(),
+                                               [](const auto& h)
+                                               { return h.Kind == RenderGraph::HazardKind::Cycle; });
+                if (cycle)
+                {
+                    OLO_CORE_ERROR("Renderer3D: RenderGraph dependency cycle detected — resource hazard validation aborted.");
+                    OLO_CORE_ASSERT(!cycle, "RenderGraph dependency cycle detected. Break the cycle and retry.");
+                }
+                else
+                {
+                    OLO_CORE_ERROR("Renderer3D: RenderGraph has {} resource hazards — see previous log entries for details.", hazards.size());
+                    OLO_CORE_ASSERT(hazards.empty(), "RenderGraph resource hazard detected (see log). Add ConnectPass / AddExecutionDependency for the reported producer -> consumer edge.");
+                }
+            }
+            else
+            {
+                OLO_CORE_INFO("Renderer3D: RenderGraph resource hazard validation passed.");
+            }
+        }
     }
 
     void Renderer3D::OnWindowResize(u32 width, u32 height)

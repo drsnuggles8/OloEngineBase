@@ -2,32 +2,73 @@ name: "CodeQL"
 on:
   push:
     branches: [ master ]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
   pull_request:
     types: [opened, synchronize, reopened]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 env:
   BUILD_TYPE: Release
 
 jobs:
-  analyze:
-    name: Analyze
-    runs-on: windows-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Analyze C++ with manual build for most accurate results
-          - language: c-cpp
-            build-mode: manual
-          # Analyze C# without build (faster, still accurate)
-          - language: csharp
-            build-mode: none
-          
+  detect-changes:
+    name: Detect language-relevant changes
+    runs-on: ubuntu-latest
+    outputs:
+      cpp: ${{ steps.filter.outputs.cpp }}
+      csharp: ${{ steps.filter.outputs.csharp }}
     steps:
     - uses: actions/checkout@v6
-    
+      with:
+        fetch-depth: 0
+    - name: Detect changed paths
+      id: filter
+      uses: dorny/paths-filter@v4
+      with:
+        filters: |
+          cpp:
+            - '**/*.c'
+            - '**/*.cc'
+            - '**/*.cpp'
+            - '**/*.cxx'
+            - '**/*.h'
+            - '**/*.hpp'
+            - '**/*.hh'
+            - '**/*.hxx'
+            - '**/*.ixx'
+            - '**/*.cppm'
+            - '**/*.glsl'
+            - 'CMakeLists.txt'
+            - 'cmake/**'
+            - '.github/actions/**'
+            - '.github/workflows/codeql.yml'
+          csharp:
+            - '**/*.cs'
+            - 'OloEngine-ScriptCore/**'
+            - '.github/workflows/codeql.yml'
+
+  analyze-cpp:
+    name: Analyze (C++)
+    needs: detect-changes
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch'
+          || needs.detect-changes.outputs.cpp == 'true' }}
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v6
+
     - name: Install Python 3.10
       uses: actions/setup-python@v6
       with:
@@ -38,26 +79,45 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install jinja2
         python -c "import jinja2; print(f'jinja2 {jinja2.__version__} installed at {jinja2.__file__}')"
-      
-    - if: matrix.build-mode == 'manual'
-      name: Setup Vulkan SDK
+
+    - name: Setup Vulkan SDK
       uses: ./.github/actions/setup-vulkan
 
-    - if: matrix.build-mode == 'manual'
-      name: Configure CMake
+    - name: Configure CMake
       run: cmake -S . -B ${{github.workspace}}/build -DPython_EXECUTABLE="${{ env.pythonLocation }}/python.exe" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-        
-    # Initializes the CodeQL tools for scanning.
+
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v4
       with:
-        languages: ${{ matrix.language }}
-        build-mode: ${{ matrix.build-mode }}
+        languages: c-cpp
+        build-mode: manual
 
-    - if: matrix.build-mode == 'manual'
-      name: Build with CMake
-      # Build your program with the given configuration
-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+    - name: Build with CMake
+      # CodeQL's manual build-mode ties analysis accuracy to the translation
+      # units we actually compile. Enable --parallel so large targets don't
+      # serialize on a single core (prior runs were ~50 min vs ~30–42 min on
+      # the other CI workflows).
+      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} --parallel
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v4
+
+  analyze-csharp:
+    name: Analyze (C#)
+    needs: detect-changes
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch'
+          || needs.detect-changes.outputs.csharp == 'true' }}
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v4
+      with:
+        languages: csharp
+        build-mode: none
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v4

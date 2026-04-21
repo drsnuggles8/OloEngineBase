@@ -29,6 +29,10 @@ namespace OloEngine
         shadowSpec.Height = spec.Height;
         shadowSpec.Attachments = { FramebufferTextureFormat::ShadowDepth };
         m_ShadowFramebuffer = Framebuffer::Create(shadowSpec);
+
+        // Resource-aware RDG: this pass produces the CSM shadow map that
+        // Scene / PostProcess (fog) / Terrain passes sample downstream.
+        DeclareWrite(ResourceNames::ShadowMapCSM, ResourceHandle::Kind::Texture2DArray);
     }
 
     void ShadowRenderPass::Execute()

@@ -24,3 +24,17 @@ repos:
       files: '\.(c|cc|cpp|cxx|h|hh|hpp|ipp|inl)$'
       exclude: '^OloEngine/(vendor|mono)/'
       args: ["--style=file"]
+
+- repo: local
+  hooks:
+    - id: test-catalogue-in-sync
+      name: renderer-testing catalogue is in sync
+      description: >-
+        Fails if a rendering test file has been added without a layer mapping
+        in OloEngine/tests/scripts/test_catalogue.json, or if the auto-generated
+        block in docs/renderer-testing.md is stale. Regenerate with
+        'python OloEngine/tests/scripts/generate_test_catalogue.py'.
+      entry: python OloEngine/tests/scripts/generate_test_catalogue.py --check
+      language: system
+      pass_filenames: false
+      files: '(OloEngine/tests/.*\.cpp|OloEngine/tests/scripts/(test_catalogue\.json|generate_test_catalogue\.py)|docs/renderer-testing\.md)$'

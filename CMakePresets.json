@@ -1,0 +1,91 @@
+{
+	"version": 6,
+	"cmakeMinimumRequired": {
+		"major": 4,
+		"minor": 2,
+		"patch": 0
+	},
+	"configurePresets": [
+		{
+			"name": "msvc",
+			"displayName": "MSVC (Visual Studio)",
+			"description": "Default MSVC build using Visual Studio generator",
+			"generator": "Visual Studio 18 2026",
+			"binaryDir": "${sourceDir}/build",
+			"cacheVariables": {
+				"BUILD_TESTS": "ON"
+			}
+		},
+		{
+			"name": "clangcl",
+			"displayName": "ClangCL (Clang with MSVC ABI)",
+			"description": "Clang-cl compiler via Ninja — catches Clang warnings with MSVC ABI",
+			"generator": "Ninja Multi-Config",
+			"binaryDir": "${sourceDir}/build-clang",
+			"toolchainFile": "${sourceDir}/cmake/ClangCLToolchain.cmake",
+			"cacheVariables": {
+				"FETCHCONTENT_BASE_DIR": "${sourceDir}/OloEngine/vendor/clang",
+				"BUILD_TESTS": "ON"
+			}
+		},
+		{
+			"name": "clangcl-asan",
+			"displayName": "ClangCL + ASan",
+			"description": "ClangCL with Address Sanitizer enabled",
+			"inherits": "clangcl",
+			"cacheVariables": {
+				"OLO_ENABLE_ASAN": "ON"
+			}
+		}
+	],
+	"buildPresets": [
+		{
+			"name": "msvc-debug",
+			"displayName": "MSVC Debug",
+			"configurePreset": "msvc",
+			"configuration": "Debug"
+		},
+		{
+			"name": "msvc-release",
+			"displayName": "MSVC Release",
+			"configurePreset": "msvc",
+			"configuration": "Release"
+		},
+		{
+			"name": "clangcl-debug",
+			"displayName": "ClangCL Debug",
+			"configurePreset": "clangcl",
+			"configuration": "Debug"
+		},
+		{
+			"name": "clangcl-release",
+			"displayName": "ClangCL Release",
+			"configurePreset": "clangcl",
+			"configuration": "Release"
+		},
+		{
+			"name": "clangcl-asan-relwithdebinfo",
+			"displayName": "ClangCL ASan RelWithDebInfo",
+			"configurePreset": "clangcl-asan",
+			"configuration": "RelWithDebInfo"
+		}
+	],
+	"testPresets": [
+		{
+			"name": "msvc-debug",
+			"configurePreset": "msvc",
+			"configuration": "Debug",
+			"output": {
+				"verbosity": "verbose"
+			}
+		},
+		{
+			"name": "clangcl-debug",
+			"configurePreset": "clangcl",
+			"configuration": "Debug",
+			"output": {
+				"verbosity": "verbose"
+			}
+		}
+	]
+}

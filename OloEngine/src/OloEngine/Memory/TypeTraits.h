@@ -13,6 +13,8 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Templates/UnrealTemplate.h"
+
+#include <string>
 #include <type_traits>
 #include <utility>
 

@@ -11,6 +11,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
+#include <functional> // std::function used by GGameThreadMallocHook under MALLOC_GT_HOOKS
 #include <vector>
 
 namespace OloEngine
@@ -24,9 +25,6 @@ namespace OloEngine
     {
         FMalloc* GMalloc = nullptr;
     }
-
-    // Backwards compatibility reference to the namespaced GMalloc
-    FMalloc* const& GMalloc = Private::GMalloc;
 
     // Memory allocator pointer location when PLATFORM_USES_FIXED_GMalloc_CLASS is true
     FMalloc** GFixedMallocLocationPtr = nullptr;
@@ -74,15 +72,21 @@ namespace OloEngine
         }
         bOnce = true;
 
+        // Ensure GMalloc is initialised before wrapping it — otherwise the
+        // proxy would be constructed over a null backing allocator and
+        // published to other threads.
+        GCreateMalloc();
+
         // Atomically swap GMalloc to point to the purgatory proxy
         while (true)
         {
-            FMalloc* LocalGMalloc = Private::GMalloc;
+            FMalloc* LocalGMalloc = Private::AtomicLoadGMalloc();
+            OLO_CORE_ASSERT(LocalGMalloc, "GCreateMalloc failed to initialise GMalloc");
             FMalloc* Proxy = new FMallocPurgatoryProxy(LocalGMalloc);
 
             // Atomic compare-exchange to swap in the proxy
             FMalloc* Expected = LocalGMalloc;
-            if (std::atomic_ref(Private::GMalloc).compare_exchange_strong(Expected, Proxy))
+            if (Private::AtomicCompareExchangeGMalloc(Expected, Proxy))
             {
                 OLO_CORE_INFO("Purgatory proxy is now on - use-after-free detection enabled.");
                 return;
@@ -104,15 +108,21 @@ namespace OloEngine
         }
         bOnce = true;
 
+        // Ensure GMalloc is initialised before wrapping it — otherwise the
+        // proxy would be constructed over a null backing allocator and
+        // published to other threads.
+        GCreateMalloc();
+
         // Atomically swap GMalloc to point to the poison proxy
         while (true)
         {
-            FMalloc* LocalGMalloc = Private::GMalloc;
+            FMalloc* LocalGMalloc = Private::AtomicLoadGMalloc();
+            OLO_CORE_ASSERT(LocalGMalloc, "GCreateMalloc failed to initialise GMalloc");
             FMalloc* Proxy = new FMallocPoisonProxy(LocalGMalloc);
 
             // Atomic compare-exchange to swap in the proxy
             FMalloc* Expected = LocalGMalloc;
-            if (std::atomic_ref(Private::GMalloc).compare_exchange_strong(Expected, Proxy))
+            if (Private::AtomicCompareExchangeGMalloc(Expected, Proxy))
             {
                 OLO_CORE_INFO("Poison proxy is now on - memory poisoning enabled (0xCD=new, 0xDD=freed).");
                 return;
@@ -124,14 +134,34 @@ namespace OloEngine
     // Helper function called on first allocation to create and initialize GMalloc
     static int FMemory_GCreateMalloc_ThreadUnsafe()
     {
-        Private::GMalloc = FPlatformMemory::BaseAllocator();
+        // Ordering matters and follows the Unreal contract:
+        //   1. Construct the allocator on a local pointer.
+        //   2. Run `SetupMemoryPools()` — after this the allocator is
+        //      ready to service `Malloc` / `Free` calls.
+        //   3. **Publish** the pointer via an atomic release-store. The
+        //      release pairs with the acquire-loads in
+        //      `AtomicLoadGMalloc` / `FMemory_AtomicLoadInlineGMalloc`,
+        //      guaranteeing observers see a usable allocator.
+        //   4. Only then invoke `OnMallocInitialized()`, whose documented
+        //      purpose is to "initialize any extra features that require
+        //      'regular' allocations" — i.e. it may call back into
+        //      `FMemory::Malloc`. Because we publish in step 3, such a
+        //      callback hits the fast path instead of re-entering this
+        //      function (which would be UB under C++'s static-initialiser
+        //      recursion rules).
+        FMalloc* const Allocator = FPlatformMemory::BaseAllocator();
 
-        // Setup memory pools
+        // Setup memory pools (safe to run against the local pointer; does
+        // not depend on `Private::GMalloc` being visible to other threads).
         FPlatformMemory::SetupMemoryPools();
 
-        if (Private::GMalloc)
+        // Publish the fully-constructed allocator *before* running
+        // post-init hooks that may allocate.
+        Private::AtomicStoreGMalloc(Allocator);
+
+        if (Allocator)
         {
-            Private::GMalloc->OnMallocInitialized();
+            Allocator->OnMallocInitialized();
         }
 
         return 0;
@@ -139,8 +169,8 @@ namespace OloEngine
 
     void FMemory::ExplicitInit(FMalloc& Allocator)
     {
-        OLO_CORE_ASSERT(!Private::GMalloc, "ExplicitInit called but GMalloc already exists");
-        Private::GMalloc = &Allocator;
+        OLO_CORE_ASSERT(!Private::AtomicLoadGMalloc(), "ExplicitInit called but GMalloc already exists");
+        Private::AtomicStoreGMalloc(&Allocator);
     }
 
     void FMemory::GCreateMalloc()
@@ -152,108 +182,124 @@ namespace OloEngine
 
     void* FMemory::MallocExternal(sizet Count, u32 Alignment)
     {
-        if (!Private::GMalloc)
+        FMalloc* Allocator = Private::AtomicLoadGMalloc();
+        if (!Allocator)
         {
             GCreateMalloc();
+            Allocator = Private::AtomicLoadGMalloc();
         }
-        return Private::GMalloc->Malloc(Count, Alignment);
+        return Allocator->Malloc(Count, Alignment);
     }
 
     void* FMemory::ReallocExternal(void* Original, sizet Count, u32 Alignment)
     {
-        if (!Private::GMalloc)
+        FMalloc* Allocator = Private::AtomicLoadGMalloc();
+        if (!Allocator)
         {
             GCreateMalloc();
+            Allocator = Private::AtomicLoadGMalloc();
         }
-        return Private::GMalloc->Realloc(Original, Count, Alignment);
+        return Allocator->Realloc(Original, Count, Alignment);
     }
 
     void FMemory::FreeExternal(void* Original)
     {
-        if (!Private::GMalloc)
+        FMalloc* Allocator = Private::AtomicLoadGMalloc();
+        if (!Allocator)
         {
             GCreateMalloc();
+            Allocator = Private::AtomicLoadGMalloc();
         }
         if (Original)
         {
-            Private::GMalloc->Free(Original);
+            Allocator->Free(Original);
         }
     }
 
     sizet FMemory::GetAllocSizeExternal(void* Original)
     {
-        if (!Private::GMalloc)
+        FMalloc* Allocator = Private::AtomicLoadGMalloc();
+        if (!Allocator)
         {
             GCreateMalloc();
+            Allocator = Private::AtomicLoadGMalloc();
         }
         sizet Size = 0;
-        return Private::GMalloc->GetAllocationSize(Original, Size) ? Size : 0;
+        return Allocator->GetAllocationSize(Original, Size) ? Size : 0;
     }
 
     void* FMemory::MallocZeroedExternal(sizet Count, u32 Alignment)
     {
-        if (!Private::GMalloc)
+        FMalloc* Allocator = Private::AtomicLoadGMalloc();
+        if (!Allocator)
         {
             GCreateMalloc();
+            Allocator = Private::AtomicLoadGMalloc();
         }
-        return Private::GMalloc->MallocZeroed(Count, Alignment);
+        return Allocator->MallocZeroed(Count, Alignment);
     }
 
     sizet FMemory::QuantizeSizeExternal(sizet Count, u32 Alignment)
     {
-        if (!Private::GMalloc)
+        FMalloc* Allocator = Private::AtomicLoadGMalloc();
+        if (!Allocator)
         {
             GCreateMalloc();
+            Allocator = Private::AtomicLoadGMalloc();
         }
-        return Private::GMalloc->QuantizeSize(Count, Alignment);
+        return Allocator->QuantizeSize(Count, Alignment);
     }
 
     void FMemory::Trim(bool bTrimThreadCaches)
     {
-        if (!Private::GMalloc)
+        FMalloc* Allocator = Private::AtomicLoadGMalloc();
+        if (!Allocator)
         {
             GCreateMalloc();
+            Allocator = Private::AtomicLoadGMalloc();
         }
-        Private::GMalloc->Trim(bTrimThreadCaches);
+        Allocator->Trim(bTrimThreadCaches);
     }
 
     void FMemory::SetupTLSCachesOnCurrentThread()
     {
-        if (!Private::GMalloc)
+        FMalloc* Allocator = Private::AtomicLoadGMalloc();
+        if (!Allocator)
         {
             GCreateMalloc();
+            Allocator = Private::AtomicLoadGMalloc();
         }
-        Private::GMalloc->SetupTLSCachesOnCurrentThread();
+        Allocator->SetupTLSCachesOnCurrentThread();
     }
 
     void FMemory::ClearAndDisableTLSCachesOnCurrentThread()
     {
-        if (Private::GMalloc)
+        if (FMalloc* Allocator = Private::AtomicLoadGMalloc())
         {
-            Private::GMalloc->ClearAndDisableTLSCachesOnCurrentThread();
+            Allocator->ClearAndDisableTLSCachesOnCurrentThread();
         }
     }
 
     void FMemory::MarkTLSCachesAsUsedOnCurrentThread()
     {
-        if (Private::GMalloc)
+        if (FMalloc* Allocator = Private::AtomicLoadGMalloc())
         {
-            Private::GMalloc->MarkTLSCachesAsUsedOnCurrentThread();
+            Allocator->MarkTLSCachesAsUsedOnCurrentThread();
         }
     }
 
     void FMemory::MarkTLSCachesAsUnusedOnCurrentThread()
     {
-        if (Private::GMalloc)
+        if (FMalloc* Allocator = Private::AtomicLoadGMalloc())
         {
-            Private::GMalloc->MarkTLSCachesAsUnusedOnCurrentThread();
+            Allocator->MarkTLSCachesAsUnusedOnCurrentThread();
         }
     }
 
     void FMemory::TestMemory()
     {
 #if !defined(OLO_DIST)
-        if (!Private::GMalloc)
+        if (!Private::AtomicLoadGMalloc())
         {
             GCreateMalloc();
         }

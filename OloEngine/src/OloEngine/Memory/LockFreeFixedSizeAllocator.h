@@ -45,8 +45,18 @@ namespace OloEngine
         enum
         {
             SIZE_PER_BUNDLE = 65536,
-            NUM_PER_BUNDLE = SIZE_PER_BUNDLE / SIZE
+            NUM_PER_BUNDLE = SIZE_PER_BUNDLE / SIZE,
+            // Largest power-of-2 factor of SIZE, used as bundle allocation alignment.
+            // Guarantees every chunk at stride SIZE within the bundle shares this alignment.
+            BLOCK_ALIGNMENT = SIZE & (-SIZE)
         };
+
+        // A SIZE larger than SIZE_PER_BUNDLE produces NUM_PER_BUNDLE == 0,
+        // which in turn breaks every invariant downstream (TLS.NumPartial
+        // underflow, bundle-never-full logic, empty-bundle recycling). Catch
+        // the misuse at compile time rather than at silent runtime corruption.
+        static_assert(NUM_PER_BUNDLE > 0,
+                      "TLockFreeFixedSizeAllocator: SIZE must be <= SIZE_PER_BUNDLE (65536) so each bundle holds at least one block.");
 
       public:
         TLockFreeFixedSizeAllocator_TLSCacheBase()
@@ -67,7 +77,7 @@ namespace OloEngine
         void* Allocate()
         {
 #if USE_NAIVE_TLockFreeFixedSizeAllocator_TLSCacheBase
-            return FMemory::Malloc(SIZE);
+            return FMemory::Malloc(SIZE, BLOCK_ALIGNMENT);
 #else
             FThreadLocalCache& TLS = GetTLS();
 
@@ -83,7 +93,7 @@ namespace OloEngine
                     TLS.PartialBundle = static_cast<void**>(m_GlobalFreeListBundles.Pop());
                     if (!TLS.PartialBundle)
                     {
-                        TLS.PartialBundle = static_cast<void**>(FMemory::Malloc(SIZE_PER_BUNDLE));
+                        TLS.PartialBundle = static_cast<void**>(FMemory::Malloc(SIZE_PER_BUNDLE, BLOCK_ALIGNMENT));
                         void** Next = TLS.PartialBundle;
                         for (i32 Index = 0; Index < NUM_PER_BUNDLE - 1; Index++)
                         {

@@ -11,7 +11,7 @@ add_subdirectory(vendor)
 # Sol2 - for Lua scripting
 CPMAddPackage(NAME sol2
   GIT_REPOSITORY https://github.com/ThePhD/sol2.git
-  VERSION 3.3.0
+  GIT_TAG develop
   DOWNLOAD_ONLY YES)
 if(sol2_ADDED)
   add_library(sol2 INTERFACE IMPORTED)
@@ -43,6 +43,9 @@ if(BUILD_TESTS)
 	add_subdirectory(tests)
 	set_target_properties(OloEngine-Tests PROPERTIES FOLDER "Test")
 endif()
+
+# Fuzz harnesses (Layer 11 / §11) — Clang only, opt-in via OLO_ENABLE_FUZZING.
+add_subdirectory(tests/Fuzzing)
 
 # Vulkan SDK
 if(MSVC)
@@ -97,39 +100,39 @@ olo_set_common_definitions(OloEngine)
 
 target_include_directories(OloEngine PUBLIC
 	src
-	vendor/assimp-src/include
-	vendor/atomic_queue-src/include
-	vendor/box2d-src/include/box2d
-	vendor/box2d-src/src
-	vendor/entt-src/single_include/entt
-	vendor/filewatch-src
+	${assimp_SOURCE_DIR}/include
+	${atomic_queue_SOURCE_DIR}/include
+	${box2d_SOURCE_DIR}/include/box2d
+	${box2d_SOURCE_DIR}/src
+	${entt_SOURCE_DIR}/single_include/entt
+	${filewatch_SOURCE_DIR}
 	vendor/glad-build/include
-	vendor/glfw-src/include
-	vendor/glm-src
-	vendor/joltphysics-src
-	vendor/meshoptimizer-src/src
-	vendor/miniaudio-src
-	vendor/lua-src
-	vendor/imgui-src
-	vendor/imgui-src/backends
-	vendor/imgui-src/examples
+	${glfw_SOURCE_DIR}/include
+	${glm_SOURCE_DIR}
+	${joltphysics_SOURCE_DIR}
+	${meshoptimizer_SOURCE_DIR}/src
+	${miniaudio_SOURCE_DIR}
+	${lua_SOURCE_DIR}
+	${imgui_SOURCE_DIR}
+	${imgui_SOURCE_DIR}/backends
+	${imgui_SOURCE_DIR}/examples
 	${imguizmo_SOURCE_DIR}
-	vendor/spdlog-src/include
-	vendor/tracy-src/public
-	vendor/sol2-src/include
+	${spdlog_SOURCE_DIR}/include
+	${tracy_SOURCE_DIR}/public
+	${sol2_SOURCE_DIR}/include
 	vendor/stb_image-build/include
-	vendor/recastnavigation-src/Recast/Include
-	vendor/recastnavigation-src/Detour/Include
-	vendor/recastnavigation-src/DetourCrowd/Include
-	vendor/recastnavigation-src/DetourTileCache/Include
+	${recastnavigation_SOURCE_DIR}/Recast/Include
+	${recastnavigation_SOURCE_DIR}/Detour/Include
+	${recastnavigation_SOURCE_DIR}/DetourCrowd/Include
+	${recastnavigation_SOURCE_DIR}/DetourTileCache/Include
 	mono/include
 	${Vulkan_INCLUDE_DIRS}
-	vendor/GameNetworkingSockets-src/include
+	${GameNetworkingSockets_SOURCE_DIR}/include
 )
 
 target_include_directories(OloEngine PRIVATE
-	vendor/zlib-src
-	vendor/zlib-build
+	${zlib_SOURCE_DIR}
+	${zlib_BINARY_DIR}
 )
 
 # Cross-platform link libraries
@@ -153,9 +156,7 @@ target_link_libraries(OloEngine
 	yaml-cpp
 	GameNetworkingSockets_s
 	Vulkan::Vulkan
-	$<$<CONFIG:Debug>:${ZLIB_LIBRARY_DEBUG}>
-	$<$<CONFIG:Release>:${ZLIB_LIBRARY_RELEASE}>
-	$<$<CONFIG:Dist>:${ZLIB_LIBRARY_DIST}>
+	zlibstatic
 )
 
 # OpenGL — platform-specific library name
@@ -170,16 +171,31 @@ if(MSVC)
 			"Install the Vulkan SDK from https://vulkan.lunarg.com/sdk/home and "
 			"ensure the VULKAN_SDK environment variable points to the installation directory.")
 	endif()
+
+	# Resolve debug/release library paths — CI headless SDK installs may lack debug libs.
+	set(_vk_lib "$ENV{VULKAN_SDK}/Lib")
+	foreach(_base shaderc_shared spirv-cross-core spirv-cross-glsl)
+		set(_dbg "${_vk_lib}/${_base}d.lib")
+		set(_rel "${_vk_lib}/${_base}.lib")
+		if(NOT EXISTS "${_rel}")
+			message(FATAL_ERROR
+				"Vulkan SDK release library not found at '${_rel}'. Install / repair "
+				"the Vulkan SDK from https://vulkan.lunarg.com/sdk/home and make sure "
+				"the shaderc_shared + spirv-cross-{core,glsl} components are present.")
+		endif()
+		if(EXISTS "${_dbg}")
+			list(APPEND _vk_shader_libs debug "${_dbg}" optimized "${_rel}")
+		else()
+			message(STATUS "Vulkan SDK debug lib not found (${_base}d.lib), using release for all configs")
+			list(APPEND _vk_shader_libs "${_rel}")
+		endif()
+	endforeach()
+
 	# Windows: link from Vulkan SDK + CMake imported targets
 	target_link_libraries(OloEngine
 		Vulkan::glslang
 		Vulkan::SPIRV-Tools
-		debug $ENV{VULKAN_SDK}/Lib/shaderc_sharedd.lib
-		debug $ENV{VULKAN_SDK}/Lib/spirv-cross-cored.lib
-		debug $ENV{VULKAN_SDK}/Lib/spirv-cross-glsld.lib
-		optimized $ENV{VULKAN_SDK}/Lib/shaderc_shared.lib
-		optimized $ENV{VULKAN_SDK}/Lib/spirv-cross-core.lib
-		optimized $ENV{VULKAN_SDK}/Lib/spirv-cross-glsl.lib
+		${_vk_shader_libs}
 	)
 else()
 	# Linux: find all shader-related libraries from system packages
@@ -245,7 +261,3 @@ else()
 		${CMAKE_DL_LIBS}
 	)
 endif()
-
-# Ensure zlib is built before OloEngine links against it (raw file paths above
-# don't create an implicit build dependency).
-add_dependencies(OloEngine zlib)

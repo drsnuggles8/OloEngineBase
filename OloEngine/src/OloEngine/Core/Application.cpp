@@ -67,7 +67,7 @@ namespace OloEngine
 #endif
 
                 m_Window->SetTitle(m_Specification.Name + " — Loading shaders...");
-                Renderer::Init(m_Specification.PreferredRenderer);
+                Renderer::Init(m_Specification.PreferredRenderer, m_Window.get());
                 m_Window->SetTitle(m_Specification.Name);
 
                 if (!AudioEngine::Init())

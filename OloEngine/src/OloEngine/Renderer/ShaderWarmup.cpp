@@ -208,10 +208,14 @@ void main()
         OLO_CORE_INFO("ShaderWarmup: Boot shader compiled");
     }
 
-    void ShaderWarmup::RenderProgressFrame(const f32 progress, Window& window, const std::string_view label,
+    void ShaderWarmup::RenderProgressFrame(const f32 progress, Window* window, const std::string_view label,
                                            const i32 current, const i32 total, const i32 phase)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Headless mode (tests, offline tooling): no window, no UI to draw.
+        if (!window)
+            return;
 
         OLO_CORE_TRACE("RenderProgressFrame: progress={:.2f}, label='{}', bootShader={}, bootReady={}, bootStatus={}",
                        progress, label, s_BootShader != nullptr, s_BootShader ? s_BootShader->IsReady() : false,
@@ -220,14 +224,14 @@ void main()
         if (!s_BootShader || !s_BootShader->IsReady())
             return;
 
-        window.PollEvents();
-        window.SetTitle("OloEngine — Loading " + std::string(label) + " (" +
-                        std::to_string(static_cast<int>(progress * 100.0f)) + "%)");
+        window->PollEvents();
+        window->SetTitle("OloEngine — Loading " + std::string(label) + " (" +
+                         std::to_string(static_cast<int>(progress * 100.0f)) + "%)");
 
         auto fullscreenTriangle = MeshPrimitives::GetFullscreenTriangle();
 
         RenderCommand::BindDefaultFramebuffer();
-        RenderCommand::SetViewport(0, 0, window.GetWidth(), window.GetHeight());
+        RenderCommand::SetViewport(0, 0, window->GetWidth(), window->GetHeight());
         RenderCommand::SetClearColor({ 0.08f, 0.08f, 0.08f, 1.0f });
         RenderCommand::Clear();
         RenderCommand::SetDepthTest(false);
@@ -244,13 +248,21 @@ void main()
         RenderCommand::DrawIndexed(fullscreenTriangle);
 
         OLO_CORE_TRACE("RenderProgressFrame: SwapBuffers...");
-        window.SwapBuffers();
+        window->SwapBuffers();
         OLO_CORE_TRACE("RenderProgressFrame: Done.");
     }
 
-    void ShaderWarmup::RunWarmupScreen(ShaderLibrary& library, Window& window)
+    void ShaderWarmup::RunWarmupScreen(ShaderLibrary& library, Window* window)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Headless mode: no window means we can't render a progress UI.
+        // Flush synchronously and return.
+        if (!window)
+        {
+            library.FlushPendingShaders();
+            return;
+        }
 
         if (!s_BootShader || !s_BootShader->IsReady())
         {

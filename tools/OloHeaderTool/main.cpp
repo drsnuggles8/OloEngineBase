@@ -225,6 +225,61 @@ static std::string ReplaceAll(std::string s, const std::string& from, const std:
     return s;
 }
 
+// Splits a multi-statement expression (separated by ';') and emits each
+// statement on its own line.  'if' statements without braces are split so
+// that the condition and body appear on separate lines (Allman-compatible).
+static void EmitStatements(std::ostream& out, const std::string& indent, const std::string& expr)
+{
+    // Split by ';'
+    std::vector<std::string> parts;
+    std::istringstream iss(expr);
+    std::string part;
+    while (std::getline(iss, part, ';'))
+    {
+        auto trimmed = Trim(part);
+        if (!trimmed.empty())
+            parts.push_back(trimmed);
+    }
+
+    for (auto const& stmt : parts)
+    {
+        // Detect "if (...) body" pattern — split condition and body onto separate lines.
+        if (stmt.starts_with("if ") || stmt.starts_with("if("))
+        {
+            if (auto openParen = stmt.find('('); openParen != std::string::npos)
+            {
+                int depth = 0;
+                size_t closeParen = std::string::npos;
+                for (size_t i = openParen; i < stmt.size(); ++i)
+                {
+                    if (stmt[i] == '(')
+                        ++depth;
+                    else if (stmt[i] == ')')
+                    {
+                        --depth;
+                        if (depth == 0)
+                        {
+                            closeParen = i;
+                            break;
+                        }
+                    }
+                }
+
+                if (closeParen != std::string::npos && closeParen + 1 < stmt.size())
+                {
+                    auto condition = stmt.substr(0, closeParen + 1);
+                    auto body = Trim(stmt.substr(closeParen + 1));
+                    out << indent << condition << "\n";
+                    out << indent << "    " << body << ";\n";
+                    continue;
+                }
+            }
+        }
+
+        out << indent << stmt << ";\n";
+    }
+}
+
 // ─── Metadata Parser ───────────────────────────────────────────────────────────
 
 // Parses key="value" pairs from OLO_PROPERTY(...) content.
@@ -552,10 +607,10 @@ static void EmitCppBindings(std::ostream& out, const std::vector<ComponentDef>& 
 
     for (auto const& comp : components)
     {
-        out << "    ///////////////////////////////////////////////////////////////////////////////////////////\n";
-        out << "    // " << comp.name << std::string(std::max(0, 85 - 7 - static_cast<int>(comp.name.size())), ' ')
+        out << "///////////////////////////////////////////////////////////////////////////////////////////\n";
+        out << "// " << comp.name << std::string(std::max(0, 85 - 7 - static_cast<int>(comp.name.size())), ' ')
             << " //\n";
-        out << "    ///////////////////////////////////////////////////////////////////////////////////////////\n\n";
+        out << "///////////////////////////////////////////////////////////////////////////////////////////\n\n";
 
         for (auto const& prop : comp.properties)
         {
@@ -567,129 +622,134 @@ static void EmitCppBindings(std::ostream& out, const std::vector<ComponentDef>& 
             // --- Getter ---
             if (isString)
             {
-                out << "    static MonoString* " << funcBase << "(UUID entityID)\n";
-                out << "    {\n";
-                out << "        Scene* scene = ScriptEngine::GetSceneContext();\n";
-                out << "        OLO_CORE_ASSERT(scene);\n";
-                out << "        Entity entity = scene->GetEntityByUUID(entityID);\n";
-                out << "        OLO_CORE_ASSERT(entity);\n";
-                out << "        auto& comp = entity.GetComponent<" << comp.name << ">();\n";
+                out << "static MonoString* " << funcBase << "(UUID entityID)\n";
+                out << "{\n";
+                out << "    Scene* scene = ScriptEngine::GetSceneContext();\n";
+                out << "    OLO_CORE_ASSERT(scene);\n";
+                out << "    Entity entity = scene->GetEntityByUUID(entityID);\n";
+                out << "    OLO_CORE_ASSERT(entity);\n";
+                out << "    auto& comp = entity.GetComponent<" << comp.name << ">();\n";
 
                 if (prop.customGet.empty())
-                    out << "        return ScriptEngine::CreateString(comp." << prop.cppField << ".c_str());\n";
+                    out << "    return ScriptEngine::CreateString(comp." << prop.cppField << ".c_str());\n";
                 else
-                    out << "        return ScriptEngine::CreateString((" << prop.customGet << ").c_str());\n";
+                    out << "    return ScriptEngine::CreateString((" << prop.customGet << ").c_str());\n";
 
-                out << "    }\n\n";
+                out << "}\n\n";
             }
             else if (scalar)
             {
-                out << "    static " << CppReturnType(prop.type) << " " << funcBase << "(UUID entityID)\n";
-                out << "    {\n";
-                out << "        Scene* scene = ScriptEngine::GetSceneContext();\n";
-                out << "        OLO_CORE_ASSERT(scene);\n";
-                out << "        Entity entity = scene->GetEntityByUUID(entityID);\n";
-                out << "        OLO_CORE_ASSERT(entity);\n";
-                out << "        auto& comp = entity.GetComponent<" << comp.name << ">();\n";
+                out << "static " << CppReturnType(prop.type) << " " << funcBase << "(UUID entityID)\n";
+                out << "{\n";
+                out << "    Scene* scene = ScriptEngine::GetSceneContext();\n";
+                out << "    OLO_CORE_ASSERT(scene);\n";
+                out << "    Entity entity = scene->GetEntityByUUID(entityID);\n";
+                out << "    OLO_CORE_ASSERT(entity);\n";
+                out << "    auto& comp = entity.GetComponent<" << comp.name << ">();\n";
 
                 if (prop.customGet.empty())
-                    out << "        return comp." << prop.cppField << ";\n";
+                    out << "    return comp." << prop.cppField << ";\n";
                 else
-                    out << "        return " << prop.customGet << ";\n";
+                    out << "    return " << prop.customGet << ";\n";
 
-                out << "    }\n\n";
+                out << "}\n\n";
             }
             else
             {
                 std::string glm = GlmType(prop.type);
-                out << "    static void " << funcBase << "(UUID entityID, " << glm << "* outValue)\n";
-                out << "    {\n";
-                out << "        Scene* scene = ScriptEngine::GetSceneContext();\n";
-                out << "        OLO_CORE_ASSERT(scene);\n";
-                out << "        Entity entity = scene->GetEntityByUUID(entityID);\n";
-                out << "        OLO_CORE_ASSERT(entity);\n";
-                out << "        auto& comp = entity.GetComponent<" << comp.name << ">();\n";
+                out << "static void " << funcBase << "(UUID entityID, " << glm << "* outValue)\n";
+                out << "{\n";
+                out << "    Scene* scene = ScriptEngine::GetSceneContext();\n";
+                out << "    OLO_CORE_ASSERT(scene);\n";
+                out << "    Entity entity = scene->GetEntityByUUID(entityID);\n";
+                out << "    OLO_CORE_ASSERT(entity);\n";
+                out << "    auto& comp = entity.GetComponent<" << comp.name << ">();\n";
 
                 if (prop.customGet.empty())
-                    out << "        *outValue = comp." << prop.cppField << ";\n";
+                    out << "    *outValue = comp." << prop.cppField << ";\n";
                 else
-                    out << "        *outValue = " << prop.customGet << ";\n";
+                    out << "    *outValue = " << prop.customGet << ";\n";
 
-                out << "    }\n\n";
+                out << "}\n\n";
             }
 
             // --- Setter ---
             if (isString)
             {
-                out << "    static void " << funcSet << "(UUID entityID, MonoString* value)\n";
-                out << "    {\n";
-                out << "        Scene* scene = ScriptEngine::GetSceneContext();\n";
-                out << "        OLO_CORE_ASSERT(scene);\n";
-                out << "        Entity entity = scene->GetEntityByUUID(entityID);\n";
-                out << "        OLO_CORE_ASSERT(entity);\n";
-                out << "        if (!value) return;\n";
-                out << "        auto& comp = entity.GetComponent<" << comp.name << ">();\n";
+                out << "static void " << funcSet << "(UUID entityID, MonoString* value)\n";
+                out << "{\n";
+                out << "    Scene* scene = ScriptEngine::GetSceneContext();\n";
+                out << "    OLO_CORE_ASSERT(scene);\n";
+                out << "    Entity entity = scene->GetEntityByUUID(entityID);\n";
+                out << "    OLO_CORE_ASSERT(entity);\n";
+                out << "    if (!value)\n";
+                out << "        return;\n";
+                out << "    auto& comp = entity.GetComponent<" << comp.name << ">();\n";
 
                 if (prop.customSet.empty())
-                    out << "        comp." << prop.cppField << " = Utils::MonoStringToString(value);\n";
+                    out << "    comp." << prop.cppField << " = Utils::MonoStringToString(value);\n";
                 else
                 {
-                    out << "        std::string converted = Utils::MonoStringToString(value);\n";
+                    out << "    std::string converted = Utils::MonoStringToString(value);\n";
                     std::string expr = ReplaceAll(prop.customSet, "{v}", "converted");
-                    out << "        " << expr << ";\n";
+                    EmitStatements(out, "    ", expr);
                 }
 
-                out << "    }\n\n";
+                out << "}\n\n";
             }
             else if (scalar)
             {
-                out << "    static void " << funcSet << "(UUID entityID, " << CppReturnType(prop.type) << " value)\n";
-                out << "    {\n";
-                out << "        Scene* scene = ScriptEngine::GetSceneContext();\n";
-                out << "        OLO_CORE_ASSERT(scene);\n";
-                out << "        Entity entity = scene->GetEntityByUUID(entityID);\n";
-                out << "        OLO_CORE_ASSERT(entity);\n";
+                out << "static void " << funcSet << "(UUID entityID, " << CppReturnType(prop.type) << " value)\n";
+                out << "{\n";
+                out << "    Scene* scene = ScriptEngine::GetSceneContext();\n";
+                out << "    OLO_CORE_ASSERT(scene);\n";
+                out << "    Entity entity = scene->GetEntityByUUID(entityID);\n";
+                out << "    OLO_CORE_ASSERT(entity);\n";
 
                 // Guard against NaN/Inf for floating-point scalars
                 if (prop.type == PropType::Float)
-                    out << "        if (!std::isfinite(value)) return;\n";
+                {
+                    out << "    if (!std::isfinite(value))\n";
+                    out << "        return;\n";
+                }
 
-                out << "        auto& comp = entity.GetComponent<" << comp.name << ">();\n";
+                out << "    auto& comp = entity.GetComponent<" << comp.name << ">();\n";
 
                 if (prop.customSet.empty())
-                    out << "        comp." << prop.cppField << " = value;\n";
+                    out << "    comp." << prop.cppField << " = value;\n";
                 else
                 {
                     std::string expr = ReplaceAll(prop.customSet, "{v}", "value");
-                    out << "        " << expr << ";\n";
+                    EmitStatements(out, "    ", expr);
                 }
 
-                out << "    }\n\n";
+                out << "}\n\n";
             }
             else
             {
                 std::string glm = GlmType(prop.type);
-                out << "    static void " << funcSet << "(UUID entityID, " << glm << " const* value)\n";
-                out << "    {\n";
-                out << "        Scene* scene = ScriptEngine::GetSceneContext();\n";
-                out << "        OLO_CORE_ASSERT(scene);\n";
-                out << "        Entity entity = scene->GetEntityByUUID(entityID);\n";
-                out << "        OLO_CORE_ASSERT(entity);\n";
-                out << "        auto& comp = entity.GetComponent<" << comp.name << ">();\n";
+                out << "static void " << funcSet << "(UUID entityID, " << glm << " const* value)\n";
+                out << "{\n";
+                out << "    Scene* scene = ScriptEngine::GetSceneContext();\n";
+                out << "    OLO_CORE_ASSERT(scene);\n";
+                out << "    Entity entity = scene->GetEntityByUUID(entityID);\n";
+                out << "    OLO_CORE_ASSERT(entity);\n";
+                out << "    auto& comp = entity.GetComponent<" << comp.name << ">();\n";
 
                 // Guard against NaN/Inf in any vector component
-                out << "        for (glm::length_t i = 0; i < value->length(); ++i)\n";
-                out << "            if (!std::isfinite((*value)[i])) return;\n";
+                out << "    for (glm::length_t i = 0; i < value->length(); ++i)\n";
+                out << "        if (!std::isfinite((*value)[i]))\n";
+                out << "            return;\n";
 
                 if (prop.customSet.empty())
-                    out << "        comp." << prop.cppField << " = *value;\n";
+                    out << "    comp." << prop.cppField << " = *value;\n";
                 else
                 {
                     std::string expr = ReplaceAll(prop.customSet, "{v}", "*value");
-                    out << "        " << expr << ";\n";
+                    EmitStatements(out, "    ", expr);
                 }
 
-                out << "    }\n\n";
+                out << "}\n\n";
             }
         }
     }
@@ -703,11 +763,11 @@ static void EmitCppRegistrations(std::ostream& out, const std::vector<ComponentD
 
     for (auto const& comp : components)
     {
-        out << "        // " << comp.name << "\n";
+        out << "// " << comp.name << "\n";
         for (auto const& prop : comp.properties)
         {
-            out << "        OLO_ADD_INTERNAL_CALL(" << comp.name << "_Get" << prop.scriptName << ");\n";
-            out << "        OLO_ADD_INTERNAL_CALL(" << comp.name << "_Set" << prop.scriptName << ");\n";
+            out << "OLO_ADD_INTERNAL_CALL(" << comp.name << "_Get" << prop.scriptName << ");\n";
+            out << "OLO_ADD_INTERNAL_CALL(" << comp.name << "_Set" << prop.scriptName << ");\n";
         }
         out << "\n";
     }

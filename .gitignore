@@ -54,6 +54,9 @@ OloEngine/vendor/*
 **.log
 **.tlog
 
+# Test failure capture artefacts (machine-specific timestamps / GL strings)
+OloEditor/assets/tests/captures/
+
 # Debug export files (Command Bucket Inspector)
 **/cmd_bucket_*.csv
 **/cmd_bucket_*.md
@@ -67,4 +70,6 @@ _codeql_detected_source_root
 
 # Game build output
 GameBuilds/
-build-clang/
+build-*/
+
+OloEditor/cmake_test_discovery_*.json

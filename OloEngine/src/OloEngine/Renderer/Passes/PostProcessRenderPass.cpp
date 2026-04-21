@@ -78,7 +78,7 @@ namespace OloEngine
         for (u32 ppIdx = 0; ppIdx < totalPPShaders; ++ppIdx)
         {
             *shaderRefs[ppIdx] = Shader::Create(s_ShaderPaths[ppIdx]);
-            ShaderWarmup::RenderProgressFrame(static_cast<f32>(ppIdx + 1) / static_cast<f32>(totalPPShaders), window, "post-process shaders", static_cast<i32>(ppIdx + 1), static_cast<i32>(totalPPShaders), 2);
+            ShaderWarmup::RenderProgressFrame(static_cast<f32>(ppIdx + 1) / static_cast<f32>(totalPPShaders), &window, "post-process shaders", static_cast<i32>(ppIdx + 1), static_cast<i32>(totalPPShaders), 2);
         }
         m_PrecipitationScreenUBO = UniformBuffer::Create(PrecipitationScreenUBOData::GetSize(), ShaderBindingLayout::UBO_PRECIPITATION_SCREEN);
 
@@ -97,6 +97,16 @@ namespace OloEngine
             m_FogHalfResFB = Framebuffer::Create(fogSpec);
             m_FogHistoryFB = Framebuffer::Create(fogSpec);
         }
+
+        // Resource-aware RDG: post-process consumes the accumulated HDR
+        // scene color (piped via SetInputFramebuffer) + scene depth (set
+        // explicitly via SetSceneDepthFramebuffer for DOF / MotionBlur /
+        // fog depth reconstruction), and emits the tonemapped LDR image
+        // that the UI composite / final passes read.
+        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::SceneDepth, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::ShadowMapCSM, ResourceHandle::Kind::Texture2DArray);
+        DeclareWrite(ResourceNames::PostProcessColor, ResourceHandle::Kind::Framebuffer);
 
         OLO_CORE_INFO("PostProcessRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
     }

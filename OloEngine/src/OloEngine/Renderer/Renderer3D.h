@@ -46,6 +46,7 @@ namespace OloEngine
     class CommandAllocator;
     class EditorCamera;
     class AssetReloadedEvent;
+    class Window;
 } // namespace OloEngine
 
 namespace OloEngine
@@ -145,7 +146,11 @@ namespace OloEngine
         };
 
       public:
-        static void Init();
+        // @param loadingWindow  Optional window used to draw the shader loading
+        //                       progress bar. Pass nullptr for headless init
+        //                       (tests, offline tools); async shader links are
+        //                       flushed synchronously without UI.
+        static void Init(Window* loadingWindow = nullptr);
         static void Shutdown();
         static bool IsInitialized();
 

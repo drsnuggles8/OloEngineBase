@@ -71,13 +71,49 @@ namespace OloEngine
             return m_PassOrder;
         }
 
+        // -------------------------------------------------------------------
+        // Resource-aware hazard validation
+        // -------------------------------------------------------------------
+        // Walks the topologically-sorted execution order and, using each
+        // pass's declared reads/writes (see RenderPass::DeclareRead/Write),
+        // validates that every read has a transitive execution dependency
+        // on its producer, that no two parallel passes write the same
+        // resource, and that writers don't overwrite live reads. Catches
+        // missing `ConnectPass` / `AddExecutionDependency` calls.
+        //
+        // Call this AFTER all passes are added and connections made — the
+        // first call forces topological sort if needed. Returns the list of
+        // hazards (empty vector = clean). Also logs each hazard as an error
+        // through the engine logger.
+        enum class HazardKind
+        {
+            ReadAfterWrite,  // reader does not depend on writer
+            WriteAfterWrite, // later writer does not depend on previous writer
+            WriteAfterRead,  // later writer does not depend on prior reader
+            Cycle,           // dependency graph has a cycle; hazards could not be validated
+        };
+        struct Hazard
+        {
+            HazardKind Kind;
+            std::string Resource;
+            std::string Producer; // writer (RAW / WAW) or reader (WAR)
+            std::string Consumer; // reader (RAW), later writer (WAW / WAR)
+            std::string Message;
+        };
+        [[nodiscard]] std::vector<Hazard> ValidateResourceHazards();
+
       private:
-        void UpdateDependencyGraph();
+        // Returns false if the graph contains a cycle (m_PassOrder will be
+        // partial/empty in that case). Callers must abort further work when
+        // false is returned — running validators or Execute() against a
+        // partial topo order produces misleading diagnostics.
+        [[nodiscard]] bool UpdateDependencyGraph();
         void ResolveFinalPass();
 
         std::unordered_map<std::string, Ref<RenderPass>> m_PassLookup;
         std::unordered_map<std::string, std::vector<std::string>> m_Dependencies;           // Execution ordering
         std::unordered_map<std::string, std::vector<std::string>> m_FramebufferConnections; // Framebuffer piping
+        std::vector<std::string> m_InsertionOrder;                                          // Pass names in AddPass() order (stable topo tie-break)
         std::vector<std::string> m_PassOrder;
         std::string m_FinalPassName;
         bool m_DependencyGraphDirty = false;
