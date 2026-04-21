@@ -793,7 +793,7 @@ namespace OloEngine::Tests
 
     // =========================================================================
     // Scene-level shadow golden: shadow caster (authored depth texture array)
-    // → lit "ground" pass (ShaderUnit_ShadowSelfShadow sampled across UVs)
+    // → lit "ground" pass (ShaderUnit_ShadowVisualize sampled across UVs)
     // → HDR accumulation → PostProcess_ToneMap → RGBA8.
     //
     // Models the production chain ShadowPass → ScenePass → PostProcessPass
@@ -801,9 +801,21 @@ namespace OloEngine::Tests
     // regressions in: depth-compare sampler configuration, PCF kernel
     // weights, HDR-to-framebuffer binding, tonemap shader.
     //
-    // The authored shadow map is non-uniform (diagonal step) so PCF taps
-    // produce intermediate shadow factors (1/9..8/9), exercising the full
-    // kernel rather than just lit/shadowed extremes.
+    // The authored shadow map has a diagonal step (upper-right triangle
+    // `x + y >= kShadowRes` → depth 0.8, lower-left triangle → depth 0.2).
+    // A single fragment-wide reference depth of 0.5 is placed between the
+    // two steps, so the lower-left triangle is shadowed (0.5 > 0.2) and the
+    // upper-right is lit (0.5 < 0.8). PCF across the diagonal boundary
+    // produces intermediate shadow factors (1/9..8/9), exercising the full
+    // 3×3 kernel rather than just lit/shadowed extremes.
+    //
+    // NOTE: the earlier probe `ShaderUnit_ShadowSelfShadow.glsl` cannot be
+    // used here — it sweeps depth along one screen axis and sample-XY along
+    // the other (to assert self-shadow / peter-panning invariants), which
+    // collapses 2D shadow maps into a 1D response and produces a
+    // checker-like image that does not match what a scene shadow mask
+    // should look like. `ShaderUnit_ShadowVisualize.glsl` is the 2D
+    // visualization sibling designed for scene-integration goldens.
     // =========================================================================
     TEST(GoldenImageTest, SceneShadowIntegrationGolden)
     {
@@ -813,15 +825,17 @@ namespace OloEngine::Tests
         constexpr u32 kFrameW = 128;
         constexpr u32 kFrameH = 128;
         constexpr f32 kBias = 0.005f;
+        constexpr f32 kReferenceDepth = 0.5f; // between the 0.2 / 0.8 steps
 
         // ---------------------------------------------------------------
         // Pass 1 (shadow): author a depth texture array whose layer 0
-        // contains a diagonal step — the upper-right triangle is "near"
-        // (depth 0.2, occluder close to light) and the lower-left is "far"
-        // (depth 0.8, occluder distant). Fragments sampling the near
-        // region will be shadowed for projCoords.z > 0.2; the far region
-        // for projCoords.z > 0.8. Non-uniform so PCF taps straddle the
-        // boundary and produce smooth shadow factors.
+        // contains a diagonal step — the lower-left triangle
+        // (`x + y < kShadowRes`) is "near" (depth 0.2, occluder close to
+        // light) and the upper-right triangle is "far" (depth 0.8,
+        // occluder distant). With a reference depth of 0.5 the lower-left
+        // triangle is shadowed (0.5 > 0.2) and the upper-right is lit
+        // (0.5 < 0.8). PCF taps straddle the diagonal boundary and produce
+        // smooth intermediate shadow factors.
         // ---------------------------------------------------------------
         ScopedGLTexture shadowTexGuard;
         ::glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &shadowTexGuard.m_Id);
@@ -853,7 +867,9 @@ namespace OloEngine::Tests
         }
         ::glBindTextureUnit(8, shadowTex);
 
-        // UBO for probe: bias + shadow resolution (std140 vec4 + ivec4 = 32B)
+        // UBO for probe: bias + reference depth + shadow resolution
+        // (std140 vec4 + ivec4 = 32B). Matches the layout declared in both
+        // ShaderUnit_ShadowSelfShadow.glsl and ShaderUnit_ShadowVisualize.glsl.
         struct ProbeUbo
         {
             f32 params[4];
@@ -861,7 +877,7 @@ namespace OloEngine::Tests
             i32 pad[3];
         };
         static_assert(sizeof(ProbeUbo) == 32, "std140 layout mismatch");
-        ProbeUbo uboData{ { kBias, 0.0f, 0.0f, 0.0f }, static_cast<i32>(kShadowRes), { 0, 0, 0 } };
+        ProbeUbo uboData{ { kBias, kReferenceDepth, 0.0f, 0.0f }, static_cast<i32>(kShadowRes), { 0, 0, 0 } };
         ScopedGLBuffer probeUboGuard;
         ::glCreateBuffers(1, &probeUboGuard.m_Id);
         const GLuint probeUbo = probeUboGuard.m_Id;
@@ -883,9 +899,9 @@ namespace OloEngine::Tests
         ASSERT_TRUE(hdrFB != nullptr) << "Framebuffer::Create returned null for HDR scene FBO";
 
         Ref<Shader> probeShader = Shader::Create(
-            "assets/shaders/tests/ShaderUnit_ShadowSelfShadow.glsl");
+            "assets/shaders/tests/ShaderUnit_ShadowVisualize.glsl");
         ASSERT_TRUE(probeShader != nullptr)
-            << "Failed to load ShaderUnit_ShadowSelfShadow.glsl — check asset path";
+            << "Failed to load ShaderUnit_ShadowVisualize.glsl — check asset path";
 
         FullscreenPass fullscreen;
         hdrFB->Bind();
@@ -957,9 +973,20 @@ namespace OloEngine::Tests
     // varying splatmap → ShaderUnit_SplatmapChannel blend → HDR →
     // PostProcess_ToneMap → RGBA8.
     //
-    // Covers the terrain blending path end-to-end. The splatmap is a radial
-    // gradient pattern so every pixel pulls a different mix of the four
-    // layers, exercising all four texture array slots and all four splatmap
+    // Covers the terrain blending path end-to-end. The splatmap uses
+    // edge-proximity weights:
+    //   w0 = max(0, 1 - 2u) → dominant at the left edge   (layer 0: red)
+    //   w1 = max(0, 1 - 2v) → dominant at the top edge    (layer 1: green)
+    //   w2 = max(0, 2u - 1) → dominant at the right edge  (layer 2: blue)
+    //   w3 = max(0, 2v - 1) → dominant at the bottom edge (layer 3: sand)
+    // normalised by Σw. Only two weights are non-zero in each quadrant, so
+    // the output is a 2×2 arrangement of pairwise layer blends
+    // (top-left = red+green, top-right = green+blue,
+    //  bottom-right = blue+sand, bottom-left = red+sand) meeting in a soft
+    // cross at the centre (where all pre-normalisation weights vanish and
+    // the `sum > 0` fallback picks layer 0, giving a single-texel red
+    // singularity that the 128×128 quad absorbs into the central cross).
+    // This exercises all four texture array slots and all four splatmap
     // channels simultaneously. Catches: channel swizzle regressions, array
     // layer index off-by-one, weight normalisation, tonemap clamping.
     // =========================================================================
