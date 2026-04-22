@@ -178,8 +178,7 @@ namespace OloEngine
         void Release(i32 Count = 1)
         {
             OLO_CORE_CHECK_SLOW(Count > 0);
-            BOOL bRes = ReleaseSemaphore(m_Semaphore, Count, nullptr);
-            if (!bRes)
+            if (!ReleaseSemaphore(m_Semaphore, Count, nullptr))
             {
                 // Most commonly: count would exceed max (caller bug) or handle is invalid.
                 // Surface this in every build rather than silently losing Release() calls

@@ -37,7 +37,6 @@ namespace OloEngine
             CPU_ZERO_S(DynSetSize, DynSet);
             if (sched_getaffinity(0, DynSetSize, DynSet) == 0)
             {
-                u16 MaxGroupUsed = 0;
                 for (int i = 0; i < MaxCpus; ++i)
                 {
                     if (!CPU_ISSET_S(i, DynSetSize, DynSet))
@@ -51,12 +50,20 @@ namespace OloEngine
                         break; // truncate excess bits beyond our fixed array
                     }
                     Result.ThreadAffinities[group] |= (1ULL << bit);
-                    if (group > MaxGroupUsed)
+                }
+                // Derive NumProcessorGroups directly from the populated mask array so
+                // sparse affinity (e.g. cpuset that only enables CPUs above index 63)
+                // can never leave a trailing zero group mistaken for a real entry.
+                u16 NumGroups = 0;
+                for (int g = static_cast<int>(MaxGroups) - 1; g >= 0; --g)
+                {
+                    if (Result.ThreadAffinities[g] != 0)
                     {
-                        MaxGroupUsed = group;
+                        NumGroups = static_cast<u16>(g + 1);
+                        break;
                     }
                 }
-                Result.NumProcessorGroups = static_cast<u16>(MaxGroupUsed + 1);
+                Result.NumProcessorGroups = NumGroups;
                 QuerySucceeded = true;
             }
             CPU_FREE(DynSet);
