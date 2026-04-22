@@ -8,6 +8,7 @@
 
 #include <sched.h>
 #include <unistd.h>
+#include <cerrno>
 
 namespace OloEngine
 {
@@ -24,20 +25,40 @@ namespace OloEngine
         // Linux has no native processor-group concept, so we emulate Windows-style
         // groups by splitting the affinity bitmap into 64-bit chunks.
         //
-        // Allocate a dynamic cpu_set via CPU_ALLOC so machines with more CPUs than
-        // the stock cpu_set_t (CPU_SETSIZE, typically 1024) can still be queried.
-        // Size it to cover MaxGroups * 64 CPUs, which matches the fixed affinity
-        // array we have to fill anyway.
-        cpu_set_t* DynSet = CPU_ALLOC(MaxCpus);
-        const sizet DynSetSize = (DynSet != nullptr) ? CPU_ALLOC_SIZE(MaxCpus) : 0;
-        bool QuerySucceeded = false;
-
-        if (DynSet != nullptr)
+        // sched_getaffinity returns EINVAL when the provided buffer is smaller than
+        // the kernel's internal cpumask (kernels built with large CONFIG_NR_CPUS can
+        // exceed CPU_SETSIZE). Size the initial buffer from sysconf and retry with
+        // a progressively larger allocation on EINVAL so we still work on huge boxes.
+        long ConfCpus = sysconf(_SC_NPROCESSORS_CONF);
+        int InitialCpus = (ConfCpus > 0) ? static_cast<int>(ConfCpus) : MaxCpus;
+        if (InitialCpus < MaxCpus)
         {
-            CPU_ZERO_S(DynSetSize, DynSet);
-            if (sched_getaffinity(0, DynSetSize, DynSet) == 0)
+            InitialCpus = MaxCpus;
+        }
+
+        cpu_set_t* DynSet = nullptr;
+        sizet DynSetSize = 0;
+        bool QuerySucceeded = false;
+        int AllocCpus = InitialCpus;
+        // Cap the retry loop so a pathological EINVAL can't spin forever.
+        constexpr int MaxRetryCpus = 1 << 20; // 1M CPUs
+
+        while (AllocCpus <= MaxRetryCpus)
+        {
+            DynSet = CPU_ALLOC(AllocCpus);
+            if (DynSet == nullptr)
             {
-                for (int i = 0; i < MaxCpus; ++i)
+                break;
+            }
+            DynSetSize = CPU_ALLOC_SIZE(AllocCpus);
+            CPU_ZERO_S(DynSetSize, DynSet);
+            const int rc = sched_getaffinity(0, DynSetSize, DynSet);
+            if (rc == 0)
+            {
+                // Only copy bits that fit into our fixed ThreadAffinities array;
+                // anything beyond MaxCpus is intentionally truncated.
+                const int IterCpus = (AllocCpus < MaxCpus) ? AllocCpus : MaxCpus;
+                for (int i = 0; i < IterCpus; ++i)
                 {
                     if (!CPU_ISSET_S(i, DynSetSize, DynSet))
                     {
@@ -47,7 +68,7 @@ namespace OloEngine
                     const sizet bit = static_cast<sizet>(i) % 64;
                     if (group >= MaxGroups)
                     {
-                        break; // truncate excess bits beyond our fixed array
+                        break;
                     }
                     Result.ThreadAffinities[group] |= (1ULL << bit);
                 }
@@ -65,8 +86,21 @@ namespace OloEngine
                 }
                 Result.NumProcessorGroups = NumGroups;
                 QuerySucceeded = true;
+                CPU_FREE(DynSet);
+                DynSet = nullptr;
+                break;
             }
+
             CPU_FREE(DynSet);
+            DynSet = nullptr;
+            if (errno != EINVAL)
+            {
+                // Any other error (EFAULT, ESRCH, EPERM) isn't fixable by growing the
+                // buffer, so bail out to the fallback path.
+                break;
+            }
+            // Kernel cpumask is larger than our buffer — double and retry.
+            AllocCpus *= 2;
         }
 
         if (!QuerySucceeded)
