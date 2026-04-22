@@ -102,19 +102,24 @@ namespace OloEngine
         {
             OLO_PROFILE_SCOPE("ServerConsole::InputThreadLoop");
 
-            // Block until stdin has input OR Shutdown() signals abort.
-            if (!m_AbortState || !ServerConsolePlatform::WaitForStdin(*m_AbortState))
-            {
-                break;
-            }
-            if (!m_InputThreadRunning)
+            if (!m_AbortState)
             {
                 break;
             }
 
-            if (!std::getline(std::cin, line))
+            // Platform backend performs the (possibly non-blocking) read and
+            // returns a complete line, or reports abort/EOF. This avoids the
+            // old poll+std::getline race where a redirected stdin could hand
+            // out bytes without a newline and leave std::getline blocked past
+            // Signal().
+            auto result = ServerConsolePlatform::ReadLine(*m_AbortState, line);
+            if (result != ServerConsolePlatform::ReadResult::Line)
             {
-                break; // EOF or stream error
+                break; // Aborted or EndOfStream
+            }
+            if (!m_InputThreadRunning)
+            {
+                break;
             }
 
             if (!line.empty())

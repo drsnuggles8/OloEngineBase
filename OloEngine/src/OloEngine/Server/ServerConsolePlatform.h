@@ -1,9 +1,10 @@
-// Platform-specific helper for aborting a blocking `std::getline(std::cin, ...)`
-// call from another thread. Used by ServerConsole.
+// Platform-specific helper for reading lines from stdin in a way that can be
+// aborted from another thread. Used by ServerConsole.
 //
-// The engine needs to wake a thread that is blocked inside `std::getline` on
-// stdin when the server shuts down. Windows exposes `CancelIoEx(stdin)` for
-// this; POSIX needs a self-pipe + `poll()` dance. This interface hides both.
+// The engine needs to wake a worker that is blocked reading stdin when the
+// server shuts down. Windows uses `CancelIoEx(stdin)` inside std::getline;
+// POSIX uses a self-pipe + poll() + non-blocking read to assemble lines while
+// remaining interruptible. This interface hides both.
 //
 // Typical usage:
 //
@@ -14,9 +15,10 @@
 //       return;
 //   }
 //   // ... worker thread ...
+//   std::string line;
 //   while (running) {
-//       if (!ServerConsolePlatform::WaitForStdin(*abort)) break;  // aborted/EOF
-//       if (!std::getline(std::cin, line)) break;
+//       auto r = ServerConsolePlatform::ReadLine(*abort, line);
+//       if (r != ServerConsolePlatform::ReadResult::Line) break;  // EOF or aborted
 //       // ... consume line ...
 //   }
 //   // ... shutdown thread ...
@@ -29,6 +31,7 @@
 #include "OloEngine/Core/Base.h"
 
 #include <memory>
+#include <string>
 
 namespace OloEngine::ServerConsolePlatform
 {
@@ -40,14 +43,23 @@ namespace OloEngine::ServerConsolePlatform
     };
     using AbortStatePtr = std::unique_ptr<AbortState, AbortStateDeleter>;
 
+    enum class ReadResult
+    {
+        Line,        ///< A full line was read into outLine (trailing newline stripped).
+        EndOfStream, ///< stdin hit EOF / hard error. Worker should exit.
+        Aborted,     ///< Signal() was called from another thread. Worker should exit.
+    };
+
     /// Create a new abort state. Returns an empty pointer on failure.
     AbortStatePtr Create();
 
-    /// Block until stdin has input available OR Signal() has been called.
-    /// Returns true if stdin is ready (caller should read), false if aborted / EOF.
-    bool WaitForStdin(AbortState& state);
+    /// Block until a full line is available on stdin, then return it in outLine.
+    /// Returns Aborted if Signal() is called concurrently, or EndOfStream on EOF /
+    /// unrecoverable stream error. `outLine` is always cleared on entry and only
+    /// populated for ReadResult::Line.
+    ReadResult ReadLine(AbortState& state, std::string& outLine);
 
-    /// Called from another thread to unblock a pending WaitForStdin / std::getline.
+    /// Called from another thread to unblock a pending ReadLine call.
     void Signal(AbortState& state);
 
 } // namespace OloEngine::ServerConsolePlatform
