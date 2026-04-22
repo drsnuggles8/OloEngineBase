@@ -92,8 +92,7 @@ namespace OloEngine
          */
         void Acquire()
         {
-            DWORD Res = WaitForSingleObject(m_Semaphore, INFINITE);
-            if (Res != WAIT_OBJECT_0)
+            if (DWORD Res = WaitForSingleObject(m_Semaphore, INFINITE); Res != WAIT_OBJECT_0)
             {
                 // WAIT_FAILED / WAIT_ABANDONED are non-recoverable for a semaphore wait:
                 // log and assert so bugs surface deterministically in every configuration,
@@ -110,15 +109,18 @@ namespace OloEngine
          */
         bool TryAcquire()
         {
-            DWORD Res = WaitForSingleObject(m_Semaphore, 0);
-            if (Res != WAIT_OBJECT_0 && Res != WAIT_TIMEOUT)
+            if (DWORD Res = WaitForSingleObject(m_Semaphore, 0);
+                Res != WAIT_OBJECT_0 && Res != WAIT_TIMEOUT)
             {
                 OLO_CORE_ERROR("FWindowsSemaphore::TryAcquire: WaitForSingleObject returned {} (GetLastError={})",
                                static_cast<u32>(Res), static_cast<u32>(GetLastError()));
                 OLO_CORE_ASSERT(false, "WaitForSingleObject failed in FWindowsSemaphore::TryAcquire");
                 return false;
             }
-            return Res == WAIT_OBJECT_0;
+            else
+            {
+                return Res == WAIT_OBJECT_0;
+            }
         }
 
         /**
@@ -140,15 +142,18 @@ namespace OloEngine
             const DWORD TimeoutMs = (ms >= static_cast<f64>(INFINITE))
                                         ? INFINITE
                                         : static_cast<DWORD>(ms);
-            DWORD Res = WaitForSingleObject(m_Semaphore, TimeoutMs);
-            if (Res != WAIT_OBJECT_0 && Res != WAIT_TIMEOUT)
+            if (DWORD Res = WaitForSingleObject(m_Semaphore, TimeoutMs);
+                Res != WAIT_OBJECT_0 && Res != WAIT_TIMEOUT)
             {
                 OLO_CORE_ERROR("FWindowsSemaphore::TryAcquireFor: WaitForSingleObject returned {} (GetLastError={})",
                                static_cast<u32>(Res), static_cast<u32>(GetLastError()));
                 OLO_CORE_ASSERT(false, "WaitForSingleObject failed in FWindowsSemaphore::TryAcquireFor");
                 return false;
             }
-            return Res == WAIT_OBJECT_0;
+            else
+            {
+                return Res == WAIT_OBJECT_0;
+            }
         }
 
         /**

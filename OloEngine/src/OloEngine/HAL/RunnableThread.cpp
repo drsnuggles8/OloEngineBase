@@ -8,6 +8,7 @@
 #include "Platform/Windows/WindowsHWrapper.h"
 #elif defined(OLO_PLATFORM_LINUX)
 #include <cerrno>
+#include <climits>
 #include <pthread.h>
 #include <signal.h>
 #endif
@@ -152,10 +153,26 @@ namespace OloEngine
         pthread_attr_t Attr;
         pthread_attr_init(&Attr);
 
-        // Set stack size if specified
+        // Set stack size if specified. Validate against PTHREAD_STACK_MIN and log
+        // the rc+InStackSize on failure so callers can diagnose bad sizes instead
+        // of silently ending up with an implementation-default stack.
         if (InStackSize > 0)
         {
-            pthread_attr_setstacksize(&Attr, InStackSize);
+            sizet StackSize = static_cast<sizet>(InStackSize);
+            if (StackSize < static_cast<sizet>(PTHREAD_STACK_MIN))
+            {
+                OLO_CORE_WARN("FRunnableThread::Create: requested stack size {} < PTHREAD_STACK_MIN ({}); clamping",
+                              StackSize, static_cast<sizet>(PTHREAD_STACK_MIN));
+                StackSize = static_cast<sizet>(PTHREAD_STACK_MIN);
+            }
+            const int rc = pthread_attr_setstacksize(&Attr, StackSize);
+            if (rc != 0)
+            {
+                OLO_CORE_ERROR("FRunnableThread::Create: pthread_attr_setstacksize({}) failed rc={}; falling back to default",
+                               StackSize, rc);
+                // Don't fail the whole create; pthread_create below will use the
+                // attribute's current (default) stack size.
+            }
         }
 
         // Create the thread
@@ -306,21 +323,28 @@ namespace OloEngine
         // cross-thread signaling if automatic re-apply is required.
     }
 
+    /**
+     * Update this thread's cached affinity mask, and if invoked from the target
+     * thread itself also apply it via FPlatformProcess::SetThreadGroupAffinity.
+     *
+     * Returns true if the mask was successfully cached on the FRunnableThread
+     * object. When called from the target thread the OS-level affinity is also
+     * applied immediately. When called from a different thread the mask is only
+     * cached — the target thread does not automatically re-read
+     * m_ThreadAffinityMask, so callers must either invoke this from the target
+     * thread or arrange their own re-apply signalling. In either case the value
+     * is successfully stored, so we return true.
+     */
     bool FRunnableThread::SetThreadAffinity(const FThreadAffinity& Affinity)
     {
         m_ThreadAffinityMask = Affinity.ThreadAffinityMask;
 
-        // If called from within the target thread, apply immediately.
+        // Actual OS-level application only happens when we are the target thread.
         if (s_CurrentThread == this)
         {
             FPlatformProcess::SetThreadGroupAffinity(Affinity.ThreadAffinityMask, Affinity.ProcessorGroup);
-            return true;
         }
-        // Cross-thread call: like SetThreadPriority, we only cache the new mask on
-        // the FRunnableThread object. The target thread does not automatically
-        // re-read m_ThreadAffinityMask, so callers must either invoke this from the
-        // target thread or arrange their own re-apply signaling.
-        return false;
+        return true;
     }
 
     void FRunnableThread::Suspend(bool bShouldPause)

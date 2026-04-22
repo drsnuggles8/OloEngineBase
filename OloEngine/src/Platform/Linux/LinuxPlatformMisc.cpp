@@ -13,15 +13,12 @@ namespace OloEngine
 {
     FProcessorGroupDesc FPlatformMisc::QueryProcessorGroupDesc()
     {
-        FProcessorGroupDesc Result;
-        Result.NumProcessorGroups = 0;
+        // FProcessorGroupDesc already zero-initialises its members via in-class
+        // initialisers, so we don't need an explicit zeroing pass here.
+        FProcessorGroupDesc Result{};
 
-        constexpr sizet MaxGroups = sizeof(Result.ThreadAffinities) / sizeof(Result.ThreadAffinities[0]);
+        constexpr u16 MaxGroups = FProcessorGroupDesc::MaxNumProcessorGroups;
         constexpr int MaxCpus = static_cast<int>(MaxGroups) * 64;
-        for (sizet g = 0; g < MaxGroups; ++g)
-        {
-            Result.ThreadAffinities[g] = 0;
-        }
 
         // On Linux, use sched_getaffinity to get available CPUs.
         // Linux has no native processor-group concept, so we emulate Windows-style
@@ -47,16 +44,16 @@ namespace OloEngine
                     {
                         continue;
                     }
-                    const sizet group = static_cast<sizet>(i) / 64;
+                    const u16 group = static_cast<u16>(i / 64);
                     const sizet bit = static_cast<sizet>(i) % 64;
                     if (group >= MaxGroups)
                     {
                         break; // truncate excess bits beyond our fixed array
                     }
                     Result.ThreadAffinities[group] |= (1ULL << bit);
-                    if (static_cast<u16>(group) > MaxGroupUsed)
+                    if (group > MaxGroupUsed)
                     {
-                        MaxGroupUsed = static_cast<u16>(group);
+                        MaxGroupUsed = group;
                     }
                 }
                 Result.NumProcessorGroups = static_cast<u16>(MaxGroupUsed + 1);
