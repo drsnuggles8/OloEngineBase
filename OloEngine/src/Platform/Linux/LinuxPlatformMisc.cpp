@@ -85,15 +85,21 @@ namespace OloEngine
                     }
                 }
                 Result.NumProcessorGroups = NumGroups;
-                QuerySucceeded = true;
+                // Only treat the query as successful if we actually captured at least
+                // one CPU bit. A zero result typically means we truncated every set
+                // bit to beyond MaxCpus, in which case the sysconf-based fallback
+                // below produces a more useful mask than an all-zero affinity.
+                QuerySucceeded = (NumGroups > 0);
                 CPU_FREE(DynSet);
                 DynSet = nullptr;
                 break;
             }
 
+            // Snapshot errno before any libc call (CPU_FREE) can overwrite it.
+            const int savedErrno = errno;
             CPU_FREE(DynSet);
             DynSet = nullptr;
-            if (errno != EINVAL)
+            if (savedErrno != EINVAL)
             {
                 // Any other error (EFAULT, ESRCH, EPERM) isn't fixable by growing the
                 // buffer, so bail out to the fallback path.
