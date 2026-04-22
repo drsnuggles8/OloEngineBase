@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <sys/resource.h> // For setpriority, PRIO_PROCESS
+#include <cerrno>         // For errno (setpriority result check)
 #include <cstring>        // For strncpy
 #include <type_traits>    // For static_assert on pthread_t size
 
@@ -44,8 +45,32 @@ namespace OloEngine
 
     namespace
     {
+        // Map non-real-time priorities to a nice value. Lower nice = higher priority.
+        // Range is [-20, 19]; we pick representative values for each step.
+        int ThreadPriorityToNice(EThreadPriority Priority)
+        {
+            switch (Priority)
+            {
+                case EThreadPriority::TPri_AboveNormal:
+                    return -5;
+                case EThreadPriority::TPri_Normal:
+                    return 0;
+                case EThreadPriority::TPri_SlightlyBelowNormal:
+                    return 1;
+                case EThreadPriority::TPri_BelowNormal:
+                    return 5;
+                case EThreadPriority::TPri_Lowest:
+                    return 10;
+                default:
+                    return 0;
+            }
+        }
+
         // Choose scheduling policy + priority for a given EThreadPriority.
-        // Returns true if the policy was changed (elevated), false if it should stay SCHED_OTHER.
+        // Returns true if an RT policy (SCHED_RR) was selected, false for SCHED_OTHER.
+        // For SCHED_OTHER the caller should additionally apply ThreadPriorityToNice()
+        // via setpriority() to get a distinguishable priority (kernel ignores
+        // sched_priority for SCHED_OTHER).
         bool SelectSchedPolicy(EThreadPriority Priority, int& OutPolicy, int& OutPriority)
         {
             if (Priority == EThreadPriority::TPri_TimeCritical ||
@@ -54,7 +79,12 @@ namespace OloEngine
                 OutPolicy = SCHED_RR;
                 const int MinPri = sched_get_priority_min(SCHED_RR);
                 const int MaxPri = sched_get_priority_max(SCHED_RR);
-                if (Priority == EThreadPriority::TPri_TimeCritical)
+                if (MinPri < 0 || MaxPri < 0)
+                {
+                    // sched_get_priority_* failed; fall back to a conservative value.
+                    OutPriority = 1;
+                }
+                else if (Priority == EThreadPriority::TPri_TimeCritical)
                 {
                     OutPriority = MaxPri;
                 }
@@ -69,42 +99,61 @@ namespace OloEngine
             OutPriority = 0; // Must be 0 for SCHED_OTHER.
             return false;
         }
-    } // namespace
 
-    void FPlatformProcess::SetThreadPriority(EThreadPriority Priority)
-    {
-        // Keep both overloads in sync: use pthread_setschedparam on the current thread
-        // rather than the older setpriority/nice path (which only affects SCHED_OTHER).
-        pthread_t Handle = pthread_self();
-        int CurrentPolicy = 0;
-        struct sched_param CurrentParam{};
-        pthread_getschedparam(Handle, &CurrentPolicy, &CurrentParam);
-
-        int NewPolicy = CurrentPolicy;
-        int NewPri = CurrentParam.sched_priority;
-        SelectSchedPolicy(Priority, NewPolicy, NewPri);
-
-        struct sched_param NewParam{};
-        NewParam.sched_priority = NewPri;
-        pthread_setschedparam(Handle, NewPolicy, &NewParam);
-    }
-
-    void FPlatformProcess::SetThreadPriority(std::thread& Thread, EThreadPriority Priority)
-    {
-        if (Thread.joinable())
+        // Apply priority to a given pthread handle. Returns true if the kernel
+        // accepted the change. Errors (typically EPERM without CAP_SYS_NICE) are
+        // logged but not fatal — callers use Linux thread priority as advisory.
+        bool ApplyThreadPriority(pthread_t Handle, EThreadPriority Priority, bool IsSelf)
         {
-            pthread_t Handle = Thread.native_handle();
             int CurrentPolicy = 0;
             struct sched_param CurrentParam{};
             pthread_getschedparam(Handle, &CurrentPolicy, &CurrentParam);
 
             int NewPolicy = CurrentPolicy;
             int NewPri = CurrentParam.sched_priority;
-            SelectSchedPolicy(Priority, NewPolicy, NewPri);
+            const bool isRealtime = SelectSchedPolicy(Priority, NewPolicy, NewPri);
 
             struct sched_param NewParam{};
             NewParam.sched_priority = NewPri;
-            pthread_setschedparam(Handle, NewPolicy, &NewParam);
+            const int rc = pthread_setschedparam(Handle, NewPolicy, &NewParam);
+            bool accepted = (rc == 0);
+            if (!accepted)
+            {
+                OLO_CORE_WARN("[PlatformProcess] pthread_setschedparam failed ({}); "
+                              "Linux thread priority changes typically require CAP_SYS_NICE.",
+                              rc);
+            }
+            // For SCHED_OTHER apply a nice value so different non-RT priorities are
+            // still distinguishable. This only affects the calling thread (setpriority
+            // operates on the caller's tid via SYS_gettid), so we only do it when
+            // IsSelf is true.
+            if (!isRealtime && IsSelf)
+            {
+                const int nice = ThreadPriorityToNice(Priority);
+                const pid_t tid = static_cast<pid_t>(syscall(SYS_gettid));
+                errno = 0;
+                const int niceRc = setpriority(PRIO_PROCESS, static_cast<id_t>(tid), nice);
+                if (niceRc == -1 && errno != 0)
+                {
+                    OLO_CORE_WARN("[PlatformProcess] setpriority(nice={}) failed (errno={}); "
+                                  "non-RT priority changes typically require CAP_SYS_NICE.",
+                                  nice, errno);
+                }
+            }
+            return accepted;
+        }
+    } // namespace
+
+    void FPlatformProcess::SetThreadPriority(EThreadPriority Priority)
+    {
+        (void)ApplyThreadPriority(pthread_self(), Priority, /*IsSelf=*/true);
+    }
+
+    void FPlatformProcess::SetThreadPriority(std::thread& Thread, EThreadPriority Priority)
+    {
+        if (Thread.joinable())
+        {
+            (void)ApplyThreadPriority(Thread.native_handle(), Priority, /*IsSelf=*/false);
         }
     }
 

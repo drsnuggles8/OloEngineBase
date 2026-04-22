@@ -15,6 +15,7 @@
 
 #include <cerrno>
 #include <fcntl.h>
+#include <new>
 #include <poll.h>
 #include <string>
 #include <unistd.h>
@@ -27,6 +28,12 @@ namespace OloEngine::ServerConsolePlatform
         std::string PendingBuffer; ///< Bytes read from stdin that don't yet form a complete line.
         bool EndOfStream = false;  ///< Set once stdin reports EOF or a hard error.
 
+        // Original STDIN_FILENO flags captured before Create() flips O_NONBLOCK.
+        // Restored in the destructor so the process-wide mode change doesn't leak
+        // to code that runs after ServerConsole::Shutdown().
+        int OriginalStdinFlags = -1;
+        bool DidModifyStdinFlags = false;
+
         ~AbortState()
         {
             for (auto& fd : WakeupPipe)
@@ -36,6 +43,11 @@ namespace OloEngine::ServerConsolePlatform
                     ::close(fd);
                     fd = -1;
                 }
+            }
+            // Restore STDIN's original flags if we changed them.
+            if (DidModifyStdinFlags && OriginalStdinFlags != -1)
+            {
+                (void)::fcntl(STDIN_FILENO, F_SETFL, OriginalStdinFlags);
             }
         }
     };
@@ -85,7 +97,15 @@ namespace OloEngine::ServerConsolePlatform
 
     AbortStatePtr Create()
     {
-        auto state = std::unique_ptr<AbortState, AbortStateDeleter>(new AbortState());
+        // std::nothrow so allocation failure surfaces as an empty AbortStatePtr
+        // rather than a std::bad_alloc escaping a platform factory.
+        AbortState* raw = new (std::nothrow) AbortState();
+        if (raw == nullptr)
+        {
+            OLO_CORE_ERROR("[ServerConsolePlatform] Failed to allocate AbortState");
+            return nullptr;
+        }
+        auto state = std::unique_ptr<AbortState, AbortStateDeleter>(raw);
         if (::pipe(state->WakeupPipe) != 0)
         {
             OLO_CORE_ERROR("[ServerConsolePlatform] Failed to create wakeup pipe");
@@ -98,10 +118,18 @@ namespace OloEngine::ServerConsolePlatform
             OLO_CORE_ERROR("[ServerConsolePlatform] Failed to set wakeup pipe non-blocking");
             return nullptr;
         }
-        // Best-effort: put STDIN into non-blocking mode so ReadLine never blocks
-        // inside read(). If this fails (e.g. stdin is a tty the OS refuses to flip),
-        // ReadLine still works but may block in read() until data or EOF arrives.
-        (void)SetNonBlocking(STDIN_FILENO);
+        // Capture the current STDIN flags so the destructor can restore them, then
+        // best-effort put STDIN into non-blocking mode so ReadLine never blocks
+        // inside read(). If the fcntl(F_SETFL) fails (e.g. OS refuses to flip a
+        // tty), ReadLine still works but may block in read() until data arrives.
+        state->OriginalStdinFlags = ::fcntl(STDIN_FILENO, F_GETFL, 0);
+        if (state->OriginalStdinFlags != -1 && (state->OriginalStdinFlags & O_NONBLOCK) == 0)
+        {
+            if (::fcntl(STDIN_FILENO, F_SETFL, state->OriginalStdinFlags | O_NONBLOCK) != -1)
+            {
+                state->DidModifyStdinFlags = true;
+            }
+        }
         return state;
     }
 
@@ -154,6 +182,14 @@ namespace OloEngine::ServerConsolePlatform
                     // keep draining until empty
                 }
                 return ReadResult::Aborted;
+            }
+
+            // Check stdin error conditions BEFORE POLLIN/POLLHUP so a broken or
+            // invalid descriptor breaks out of the loop instead of spinning.
+            if ((fds[0].revents & (POLLERR | POLLNVAL)) != 0)
+            {
+                state.EndOfStream = true;
+                return ReadResult::EndOfStream;
             }
 
             if ((fds[0].revents & (POLLIN | POLLHUP)) == 0)

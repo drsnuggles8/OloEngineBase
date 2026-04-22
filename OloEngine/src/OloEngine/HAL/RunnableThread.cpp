@@ -104,6 +104,15 @@ namespace OloEngine
         // Wait for thread to initialize
         m_InitEvent.Wait();
 
+        // If FRunnable::Init() reported failure, surface it as a Create() failure.
+        // The worker will still run Exit() and terminate cleanly; we just refuse
+        // to hand back a "successfully created" thread to the caller.
+        if (!m_bInitSucceeded.load(std::memory_order_acquire))
+        {
+            WaitForCompletion();
+            return false;
+        }
+
         return true;
 
 #elif defined(OLO_PLATFORM_LINUX)
@@ -139,6 +148,12 @@ namespace OloEngine
         // Wait for thread to initialize
         m_InitEvent.Wait();
 
+        if (!m_bInitSucceeded.load(std::memory_order_acquire))
+        {
+            WaitForCompletion();
+            return false;
+        }
+
         return true;
 
 #else
@@ -169,19 +184,28 @@ namespace OloEngine
             FPlatformProcess::SetThreadGroupAffinity(m_ThreadAffinityMask, 0);
         }
 
-        // Signal that we're initialized. Publish the running flag BEFORE Notify()
-        // so any thread woken from the init event observes m_bIsRunning == true.
-        m_bIsRunning.store(true, std::memory_order_release);
+        // Run the runnable's Init() BEFORE signalling m_InitEvent so that
+        // CreateInternal observes the real success/failure result and can fail
+        // thread creation if Init returned false.
+        const bool initOk = (m_Runnable == nullptr) || m_Runnable->Init();
+        m_bInitSucceeded.store(initOk, std::memory_order_release);
+
+        // Publish the running flag BEFORE Notify() so any thread woken from the
+        // init event observes m_bIsRunning == true (only if init succeeded).
+        if (initOk)
+        {
+            m_bIsRunning.store(true, std::memory_order_release);
+        }
         m_InitEvent.Notify();
 
-        // Call runnable's Init
-        if (m_Runnable && m_Runnable->Init())
+        if (initOk && m_Runnable)
         {
             // Run the main work
             m_Runnable->Run();
         }
 
-        // Call runnable's Exit
+        // Call runnable's Exit (always, even if Init failed, to give the runnable
+        // a chance to release anything allocated before Init's failure point).
         if (m_Runnable)
         {
             m_Runnable->Exit();

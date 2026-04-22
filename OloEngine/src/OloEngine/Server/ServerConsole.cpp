@@ -5,6 +5,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Server/ServerConsolePlatform.h"
 
+#include <algorithm>
 #include <cctype>
 #include <iostream>
 #include <sstream>

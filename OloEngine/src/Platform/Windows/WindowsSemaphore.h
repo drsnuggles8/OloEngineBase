@@ -39,8 +39,9 @@ namespace OloEngine
          * @param InitialCount The initial count of the semaphore (must be >= 0)
          */
         explicit FWindowsSemaphore(i32 InitialCount)
-            : m_Semaphore(CreateSemaphoreW(nullptr, InitialCount, LONG_MAX, nullptr))
         {
+            OLO_CORE_CHECK_SLOW(InitialCount >= 0);
+            m_Semaphore = CreateSemaphoreW(nullptr, InitialCount, LONG_MAX, nullptr);
             OLO_CORE_CHECK_SLOW(m_Semaphore != nullptr);
         }
 
@@ -50,8 +51,11 @@ namespace OloEngine
          * @param MaxCount The maximum count the semaphore can reach
          */
         FWindowsSemaphore(i32 InitialCount, i32 MaxCount)
-            : m_Semaphore(CreateSemaphoreW(nullptr, InitialCount, MaxCount, nullptr))
         {
+            OLO_CORE_CHECK_SLOW(InitialCount >= 0);
+            OLO_CORE_CHECK_SLOW(MaxCount > 0);
+            OLO_CORE_CHECK_SLOW(InitialCount <= MaxCount);
+            m_Semaphore = CreateSemaphoreW(nullptr, InitialCount, MaxCount, nullptr);
             OLO_CORE_CHECK_SLOW(m_Semaphore != nullptr);
         }
 
@@ -112,7 +116,7 @@ namespace OloEngine
          */
         bool TryAcquireUntil(FMonotonicTimePoint Deadline)
         {
-            FMonotonicTimePoint Now = FMonotonicTimePoint::Now();
+            auto Now = FMonotonicTimePoint::Now();
             if (Deadline <= Now)
             {
                 return TryAcquire();
@@ -132,7 +136,7 @@ namespace OloEngine
         }
 
       private:
-        HANDLE m_Semaphore;
+        HANDLE m_Semaphore = nullptr;
     };
 
     using FSemaphore = FWindowsSemaphore;

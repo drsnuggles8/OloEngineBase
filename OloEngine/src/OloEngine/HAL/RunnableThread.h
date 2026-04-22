@@ -191,6 +191,9 @@ namespace OloEngine
         u32 m_ThreadID = 0;
         std::atomic<bool> m_bIsRunning{ false };
         std::atomic<bool> m_bShouldStop{ false };
+        // True iff FRunnable::Init() returned true. Read by CreateInternal after
+        // m_InitEvent.Notify() to decide whether thread creation succeeded.
+        std::atomic<bool> m_bInitSucceeded{ false };
 
         // Platform-opaque native thread handle.
         // - On Windows: HANDLE (void*), reinterpret-cast to/from uptr in the .cpp.

@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <iostream>
+#include <new>
 #include <string>
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -35,7 +36,10 @@ namespace OloEngine::ServerConsolePlatform
 
     AbortStatePtr Create()
     {
-        return AbortStatePtr(new AbortState());
+        // Use std::nothrow so an allocation failure surfaces as an empty
+        // AbortStatePtr (per the header's documented contract) rather than
+        // propagating std::bad_alloc out of a platform factory.
+        return AbortStatePtr(new (std::nothrow) AbortState());
     }
 
     ReadResult ReadLine(AbortState& state, std::string& outLine)

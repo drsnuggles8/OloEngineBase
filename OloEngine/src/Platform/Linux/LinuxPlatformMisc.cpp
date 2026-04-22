@@ -52,22 +52,43 @@ namespace OloEngine
         }
         else
         {
-            // Fallback when sched_getaffinity failed: query the number of online CPUs
-            // via sysconf and build a mask matching the real count instead of advertising
-            // a fictional 64-CPU machine with ~0ULL.
+            // Fallback when sched_getaffinity failed: distribute the online CPU count
+            // reported by sysconf across as many 64-bit groups as needed instead of
+            // capping at a single group of 64.
+            constexpr sizet MaxGroups = sizeof(Result.ThreadAffinities) / sizeof(Result.ThreadAffinities[0]);
+            for (sizet g = 0; g < MaxGroups; ++g)
+            {
+                Result.ThreadAffinities[g] = 0;
+            }
+
             long numCpus = sysconf(_SC_NPROCESSORS_ONLN);
             if (numCpus <= 0)
             {
                 numCpus = 1;
             }
-            if (numCpus > 64)
+            const sizet maxCpus = MaxGroups * 64;
+            if (static_cast<sizet>(numCpus) > maxCpus)
             {
-                numCpus = 64;
+                numCpus = static_cast<long>(maxCpus);
             }
-            Result.NumProcessorGroups = 1;
-            Result.ThreadAffinities[0] = (numCpus >= 64)
-                                             ? ~0ULL
-                                             : ((1ULL << static_cast<u32>(numCpus)) - 1ULL);
+            const sizet total = static_cast<sizet>(numCpus);
+            const sizet fullGroups = total / 64;
+            const sizet remainder = total % 64;
+            for (sizet g = 0; g < fullGroups; ++g)
+            {
+                Result.ThreadAffinities[g] = ~0ULL;
+            }
+            if (remainder != 0 && fullGroups < MaxGroups)
+            {
+                Result.ThreadAffinities[fullGroups] = (1ULL << remainder) - 1ULL;
+            }
+            const sizet groupsUsed = fullGroups + (remainder != 0 ? 1 : 0);
+            Result.NumProcessorGroups = static_cast<u16>(groupsUsed == 0 ? 1 : groupsUsed);
+            if (Result.ThreadAffinities[0] == 0)
+            {
+                // Guarantee at least one runnable CPU so callers never see an empty mask.
+                Result.ThreadAffinities[0] = 1ULL;
+            }
         }
 
         return Result;
