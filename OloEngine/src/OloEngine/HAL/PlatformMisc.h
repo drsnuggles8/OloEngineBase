@@ -4,6 +4,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/HAL/PlatformProcess.h" // for EThreadPriority
 
 #include <atomic>
 #include <cstring>
@@ -18,16 +19,9 @@
 #define PLATFORM_SUPPORTS_ASYMMETRIC_FENCES 0
 #endif
 
-#ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
+// CPU-architecture intrinsics for inline helpers (MemoryBarrier, CountBits)
+#ifdef _MSC_VER
 #include <intrin.h>
-#elif defined(__linux__)
-#include <sched.h>
-#elif defined(__APPLE__)
-#include <sys/sysctl.h>
 #endif
 
 namespace OloEngine
@@ -228,109 +222,15 @@ namespace OloEngine
       private:
         /**
          * @brief Queries the system for processor group information.
+         *
+         * Implementation lives in Platform/<OS>/<OS>PlatformMisc.cpp.
          * @return Populated processor group descriptor
          */
-        static FProcessorGroupDesc QueryProcessorGroupDesc()
-        {
-            FProcessorGroupDesc Result;
-#ifdef _WIN32
-            // Use GetLogicalProcessorInformationEx to query processor groups
-            using FnGetLogicalProcessorInformationEx = BOOL(WINAPI*)(
-                LOGICAL_PROCESSOR_RELATIONSHIP,
-                PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX,
-                PDWORD);
-
-            static FnGetLogicalProcessorInformationEx GetLogicalProcessorInformationExFn =
-                reinterpret_cast<FnGetLogicalProcessorInformationEx>(
-                    GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "GetLogicalProcessorInformationEx"));
-
-            if (GetLogicalProcessorInformationExFn)
-            {
-                DWORD BufferSize = 0;
-                GetLogicalProcessorInformationExFn(RelationGroup, nullptr, &BufferSize);
-
-                if (BufferSize > 0)
-                {
-                    auto* Buffer = static_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(
-                        HeapAlloc(GetProcessHeap(), 0, BufferSize));
-
-                    if (Buffer && GetLogicalProcessorInformationExFn(RelationGroup, Buffer, &BufferSize))
-                    {
-                        Result.NumProcessorGroups = static_cast<u16>(Buffer->Group.ActiveGroupCount);
-
-                        for (u16 GroupIndex = 0;
-                             GroupIndex < Result.NumProcessorGroups &&
-                             GroupIndex < FProcessorGroupDesc::MaxNumProcessorGroups;
-                             ++GroupIndex)
-                        {
-                            Result.ThreadAffinities[GroupIndex] =
-                                Buffer->Group.GroupInfo[GroupIndex].ActiveProcessorMask;
-                        }
-                    }
-
-                    if (Buffer)
-                    {
-                        HeapFree(GetProcessHeap(), 0, Buffer);
-                    }
-                }
-            }
-
-            // Fallback for single-group systems or if query failed
-            if (Result.NumProcessorGroups == 0)
-            {
-                SYSTEM_INFO SysInfo;
-                GetSystemInfo(&SysInfo);
-                Result.NumProcessorGroups = 1;
-                Result.ThreadAffinities[0] = SysInfo.dwActiveProcessorMask;
-            }
-#else
-            // Non-Windows platforms: single group with all available CPUs
-            Result.NumProcessorGroups = 1;
-
-#if defined(__linux__)
-            // On Linux, use sched_getaffinity to get available CPUs
-            cpu_set_t CpuSet;
-            CPU_ZERO(&CpuSet);
-            if (sched_getaffinity(0, sizeof(CpuSet), &CpuSet) == 0)
-            {
-                Result.ThreadAffinities[0] = 0;
-                for (int i = 0; i < 64 && i < CPU_SETSIZE; ++i)
-                {
-                    if (CPU_ISSET(i, &CpuSet))
-                    {
-                        Result.ThreadAffinities[0] |= (1ULL << i);
-                    }
-                }
-            }
-            else
-            {
-                // Fallback: assume all 64 bits available
-                Result.ThreadAffinities[0] = ~0ULL;
-            }
-#elif defined(__APPLE__)
-            // macOS: use hw.ncpu or hw.activecpu
-            int NumCpus = 0;
-            size_t Size = sizeof(NumCpus);
-            if (sysctlbyname("hw.ncpu", &NumCpus, &Size, nullptr, 0) == 0 && NumCpus > 0)
-            {
-                Result.ThreadAffinities[0] = (NumCpus >= 64) ? ~0ULL : ((1ULL << NumCpus) - 1);
-            }
-            else
-            {
-                Result.ThreadAffinities[0] = ~0ULL;
-            }
-#else
-            // Generic fallback
-            Result.ThreadAffinities[0] = ~0ULL;
-#endif
-#endif
-            return Result;
-        }
+        static FProcessorGroupDesc QueryProcessorGroupDesc();
     };
 
     // Forward declare EThreadPriority - actual enum is in PlatformProcess.h
     // We use the TPri_ prefixed enum values there to match UE5.7's naming
-    enum class EThreadPriority : u8;
 
     /**
      * @enum EThreadCreateFlags

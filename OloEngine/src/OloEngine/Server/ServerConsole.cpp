@@ -3,18 +3,12 @@
 
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Server/ServerConsolePlatform.h"
 
+#include <algorithm>
 #include <cctype>
 #include <iostream>
 #include <sstream>
-
-#ifdef OLO_PLATFORM_WINDOWS
-#include <io.h>
-#include <windows.h>
-#else
-#include <poll.h>
-#include <unistd.h>
-#endif
 
 namespace OloEngine
 {
@@ -44,16 +38,15 @@ namespace OloEngine
         // Clear any prior EOF state so std::getline succeeds
         std::cin.clear();
 
-#ifndef OLO_PLATFORM_WINDOWS
-        // Create a self-pipe so Shutdown() can wake the input thread
-        if (::pipe(m_WakeupPipe) != 0)
+        // Platform-specific state used to abort a blocking stdin read during shutdown.
+        m_AbortState = ServerConsolePlatform::Create();
+        if (!m_AbortState)
         {
-            OLO_CORE_ERROR("[ServerConsole] Failed to create wakeup pipe — aborting initialization");
+            OLO_CORE_ERROR("[ServerConsole] Failed to create platform abort state — aborting initialization");
             m_Commands.clear();
             m_Initialized = false;
             return;
         }
-#endif
 
         // Launch background thread that blocks on std::getline
         m_InputThreadRunning = true;
@@ -75,37 +68,18 @@ namespace OloEngine
 
         // The input thread may be blocked on std::getline.
         // Cancel the pending stdin read so the thread can observe the flag and exit.
-#ifdef OLO_PLATFORM_WINDOWS
-        HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
-        if (hStdin != INVALID_HANDLE_VALUE)
+        if (m_AbortState)
         {
-            CancelIoEx(hStdin, nullptr);
+            ServerConsolePlatform::Signal(*m_AbortState);
         }
-#else
-        // Write a byte to the wakeup pipe to unblock poll() in the input thread
-        if (m_WakeupPipe[1] != -1)
-        {
-            char dummy = 0;
-            (void)::write(m_WakeupPipe[1], &dummy, 1);
-        }
-#endif
 
         if (m_InputThread.joinable())
         {
             m_InputThread.join();
         }
 
-#ifndef OLO_PLATFORM_WINDOWS
-        // Close the wakeup pipe
-        for (auto& fd : m_WakeupPipe)
-        {
-            if (fd != -1)
-            {
-                ::close(fd);
-                fd = -1;
-            }
-        }
-#endif
+        // Release platform abort state (closes pipes on POSIX).
+        m_AbortState.reset();
 
         // Restore stdin so future console instances can read
         std::cin.clear();
@@ -129,34 +103,24 @@ namespace OloEngine
         {
             OLO_PROFILE_SCOPE("ServerConsole::InputThreadLoop");
 
-#ifndef OLO_PLATFORM_WINDOWS
-            // On POSIX, poll stdin and the wakeup pipe so Shutdown() can unblock us
-            struct pollfd fds[2]{};
-            fds[0].fd = STDIN_FILENO;
-            fds[0].events = POLLIN;
-            fds[1].fd = m_WakeupPipe[0];
-            fds[1].events = POLLIN;
-
-            int ret = ::poll(fds, 2, -1); // block until ready
-            if (ret <= 0 || !m_InputThreadRunning)
+            if (!m_AbortState)
             {
                 break;
             }
-            // Wakeup pipe signalled — time to exit
-            if (fds[1].revents & POLLIN)
+
+            // Platform backend performs the (possibly non-blocking) read and
+            // returns a complete line, or reports abort/EOF. This avoids the
+            // old poll+std::getline race where a redirected stdin could hand
+            // out bytes without a newline and leave std::getline blocked past
+            // Signal().
+            auto result = ServerConsolePlatform::ReadLine(*m_AbortState, line);
+            if (result != ServerConsolePlatform::ReadResult::Line)
+            {
+                break; // Aborted or EndOfStream
+            }
+            if (!m_InputThreadRunning)
             {
                 break;
-            }
-            // stdin not ready (shouldn't happen, but guard)
-            if (!(fds[0].revents & POLLIN))
-            {
-                continue;
-            }
-#endif
-
-            if (!std::getline(std::cin, line))
-            {
-                break; // EOF or stream error
             }
 
             if (!line.empty())

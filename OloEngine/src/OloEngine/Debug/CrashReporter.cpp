@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Debug/CrashReporter.h"
+#include "OloEngine/Debug/CrashReporterPlatform.h"
 
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Log.h"
@@ -13,17 +14,6 @@
 #include <string>
 #include <filesystem>
 
-#ifdef OLO_PLATFORM_WINDOWS
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <Windows.h>
-#include <DbgHelp.h>
-#endif
-
 namespace OloEngine
 {
     // -------------------------------------------------------------------
@@ -35,184 +25,6 @@ namespace OloEngine
     static std::string s_GPUInfo;
     static bool s_Initialized = false;
     static bool s_IsHeadless = false;
-
-#ifdef OLO_PLATFORM_WINDOWS
-    static LPTOP_LEVEL_EXCEPTION_FILTER s_PreviousFilter = nullptr;
-    static std::terminate_handler s_PreviousTerminateHandler = nullptr;
-
-    // -------------------------------------------------------------------
-    // SEH exception code → human-readable name
-    // -------------------------------------------------------------------
-    static const char* ExceptionCodeToString(DWORD code)
-    {
-        switch (code)
-        {
-            case EXCEPTION_ACCESS_VIOLATION:
-                return "EXCEPTION_ACCESS_VIOLATION";
-            case EXCEPTION_ARRAY_BOUNDS_EXCEEDED:
-                return "EXCEPTION_ARRAY_BOUNDS_EXCEEDED";
-            case EXCEPTION_BREAKPOINT:
-                return "EXCEPTION_BREAKPOINT";
-            case EXCEPTION_DATATYPE_MISALIGNMENT:
-                return "EXCEPTION_DATATYPE_MISALIGNMENT";
-            case EXCEPTION_FLT_DENORMAL_OPERAND:
-                return "EXCEPTION_FLT_DENORMAL_OPERAND";
-            case EXCEPTION_FLT_DIVIDE_BY_ZERO:
-                return "EXCEPTION_FLT_DIVIDE_BY_ZERO";
-            case EXCEPTION_FLT_INEXACT_RESULT:
-                return "EXCEPTION_FLT_INEXACT_RESULT";
-            case EXCEPTION_FLT_INVALID_OPERATION:
-                return "EXCEPTION_FLT_INVALID_OPERATION";
-            case EXCEPTION_FLT_OVERFLOW:
-                return "EXCEPTION_FLT_OVERFLOW";
-            case EXCEPTION_FLT_STACK_CHECK:
-                return "EXCEPTION_FLT_STACK_CHECK";
-            case EXCEPTION_FLT_UNDERFLOW:
-                return "EXCEPTION_FLT_UNDERFLOW";
-            case EXCEPTION_ILLEGAL_INSTRUCTION:
-                return "EXCEPTION_ILLEGAL_INSTRUCTION";
-            case EXCEPTION_IN_PAGE_ERROR:
-                return "EXCEPTION_IN_PAGE_ERROR";
-            case EXCEPTION_INT_DIVIDE_BY_ZERO:
-                return "EXCEPTION_INT_DIVIDE_BY_ZERO";
-            case EXCEPTION_INT_OVERFLOW:
-                return "EXCEPTION_INT_OVERFLOW";
-            case EXCEPTION_INVALID_DISPOSITION:
-                return "EXCEPTION_INVALID_DISPOSITION";
-            case EXCEPTION_NONCONTINUABLE_EXCEPTION:
-                return "EXCEPTION_NONCONTINUABLE_EXCEPTION";
-            case EXCEPTION_PRIV_INSTRUCTION:
-                return "EXCEPTION_PRIV_INSTRUCTION";
-            case EXCEPTION_SINGLE_STEP:
-                return "EXCEPTION_SINGLE_STEP";
-            case EXCEPTION_STACK_OVERFLOW:
-                return "EXCEPTION_STACK_OVERFLOW";
-            default:
-                return "UNKNOWN_EXCEPTION";
-        }
-    }
-
-    // -------------------------------------------------------------------
-    // Write a minidump file alongside the crash report
-    // -------------------------------------------------------------------
-    static void WriteMiniDump(const std::filesystem::path& dumpPath, EXCEPTION_POINTERS* exceptionPointers)
-    {
-        const HANDLE hFile = CreateFileW(
-            dumpPath.c_str(),
-            GENERIC_WRITE, 0, nullptr,
-            CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-
-        if (hFile == INVALID_HANDLE_VALUE)
-        {
-            return;
-        }
-
-        MINIDUMP_EXCEPTION_INFORMATION mdei{};
-        mdei.ThreadId = GetCurrentThreadId();
-        mdei.ExceptionPointers = exceptionPointers;
-        mdei.ClientPointers = FALSE;
-
-        // MiniDumpWithDataSegs gives us global variables which is useful for debugging
-        const auto dumpType = static_cast<MINIDUMP_TYPE>(MiniDumpNormal | MiniDumpWithDataSegs | MiniDumpWithThreadInfo);
-
-        BOOL dumpResult = MiniDumpWriteDump(
-            GetCurrentProcess(),
-            GetCurrentProcessId(),
-            hFile,
-            dumpType,
-            exceptionPointers ? &mdei : nullptr,
-            nullptr, nullptr);
-
-        if (!dumpResult)
-        {
-            // Log failure — disk full, permissions, etc.
-            DWORD err = GetLastError();
-            OutputDebugStringA(("[CrashReporter] MiniDumpWriteDump failed, error: " + std::to_string(err) + "\n").c_str());
-        }
-
-        CloseHandle(hFile);
-    }
-
-    // -------------------------------------------------------------------
-    // Windows SEH top-level exception filter
-    // -------------------------------------------------------------------
-    static LONG WINAPI UnhandledExceptionHandler(EXCEPTION_POINTERS* exceptionPointers)
-    {
-        const DWORD code = exceptionPointers->ExceptionRecord->ExceptionCode;
-
-        // Skip breakpoints in debug builds
-        if (code == EXCEPTION_BREAKPOINT || code == EXCEPTION_SINGLE_STEP)
-        {
-            if (s_PreviousFilter)
-            {
-                return s_PreviousFilter(exceptionPointers);
-            }
-            return EXCEPTION_CONTINUE_SEARCH;
-        }
-
-        std::string detail;
-        if (code == EXCEPTION_ACCESS_VIOLATION && exceptionPointers->ExceptionRecord->NumberParameters >= 2)
-        {
-            auto accessType = exceptionPointers->ExceptionRecord->ExceptionInformation[0];
-            auto address = exceptionPointers->ExceptionRecord->ExceptionInformation[1];
-            detail = fmt::format("{} at address 0x{:016X} ({})",
-                                 ExceptionCodeToString(code),
-                                 address,
-                                 accessType == 0 ? "read" : (accessType == 1 ? "write" : "execute"));
-        }
-        else
-        {
-            detail = fmt::format("{} (code 0x{:08X})", ExceptionCodeToString(code), code);
-        }
-
-        CrashReporter::WriteCrashReport("Windows SEH Exception", detail, exceptionPointers);
-
-        // Chain to the previous handler if one existed
-        if (s_PreviousFilter)
-        {
-            return s_PreviousFilter(exceptionPointers);
-        }
-
-        return EXCEPTION_EXECUTE_HANDLER;
-    }
-
-    // -------------------------------------------------------------------
-    // std::terminate handler
-    // -------------------------------------------------------------------
-    static void TerminateHandler()
-    {
-        std::string detail = "std::terminate() called";
-
-        // Try to get info from a current exception
-        if (auto eptr = std::current_exception())
-        {
-            try
-            {
-                std::rethrow_exception(eptr);
-            }
-            catch (const std::exception& e)
-            {
-                detail = fmt::format("std::terminate() with exception: {}", e.what());
-            }
-            catch (...)
-            {
-                detail = "std::terminate() with unknown exception type";
-            }
-        }
-
-        CrashReporter::WriteCrashReport("std::terminate", detail, nullptr);
-
-        // Call the previous terminate handler or abort
-        if (s_PreviousTerminateHandler)
-        {
-            s_PreviousTerminateHandler();
-        }
-        else
-        {
-            std::abort();
-        }
-    }
-#endif // OLO_PLATFORM_WINDOWS
 
     // ===================================================================
     // Public API
@@ -291,20 +103,12 @@ namespace OloEngine
 
     void CrashReporter::InstallPlatformHandlers()
     {
-#ifdef OLO_PLATFORM_WINDOWS
-        s_PreviousFilter = SetUnhandledExceptionFilter(UnhandledExceptionHandler);
-        s_PreviousTerminateHandler = std::set_terminate(TerminateHandler);
-#endif
+        CrashReporterPlatform::InstallHandlers(&CrashReporter::WriteCrashReport);
     }
 
     void CrashReporter::UninstallPlatformHandlers()
     {
-#ifdef OLO_PLATFORM_WINDOWS
-        SetUnhandledExceptionFilter(s_PreviousFilter);
-        s_PreviousFilter = nullptr;
-        std::set_terminate(s_PreviousTerminateHandler);
-        s_PreviousTerminateHandler = nullptr;
-#endif
+        CrashReporterPlatform::UninstallHandlers();
     }
 
     // ===================================================================
@@ -322,14 +126,12 @@ namespace OloEngine
         const std::string baseName = fmt::format("crash_{}", timestamp);
         const auto reportPath = s_CrashReportDir / (baseName + ".txt");
 
-#ifdef OLO_PLATFORM_WINDOWS
-        // Write minidump if we have exception pointers
+        // Write minidump (OS-specific) if we have an exception context
         if (exceptionPointersOrNull)
         {
             const auto dumpPath = s_CrashReportDir / (baseName + ".dmp");
-            WriteMiniDump(dumpPath, static_cast<EXCEPTION_POINTERS*>(exceptionPointersOrNull));
+            CrashReporterPlatform::WriteMiniDump(dumpPath, exceptionPointersOrNull);
         }
-#endif
 
         // Build the crash report text
         std::ostringstream report;
@@ -383,9 +185,7 @@ namespace OloEngine
                 // Partial write — fall back to stderr
                 std::cerr << "[CrashReporter] Failed to write crash report to: " << reportPath.string() << "\n";
                 std::cerr << report.str() << std::flush;
-#ifdef OLO_PLATFORM_WINDOWS
-                OutputDebugStringA(report.str().c_str());
-#endif
+                CrashReporterPlatform::EmitToDebugOutput(report.str());
             }
             file.close();
         }
@@ -394,9 +194,7 @@ namespace OloEngine
             // Cannot open file — emit to stderr as fallback
             std::cerr << "[CrashReporter] Could not open crash report file: " << reportPath.string() << "\n";
             std::cerr << report.str() << std::flush;
-#ifdef OLO_PLATFORM_WINDOWS
-            OutputDebugStringA(report.str().c_str());
-#endif
+            CrashReporterPlatform::EmitToDebugOutput(report.str());
         }
 
         // Also log the crash (this goes to OloEngine.log and console)
@@ -406,20 +204,14 @@ namespace OloEngine
             OLO_CORE_FATAL("Crash report written to: {}", reportPath.string());
         }
 
-#ifdef OLO_PLATFORM_WINDOWS
-        // Show a message box so the user knows something went wrong — only in interactive mode
-        if (!s_IsHeadless)
-        {
-            const std::string msg = fmt::format(
-                "{} has crashed.\n\n"
-                "Error: {}\n\n"
-                "A crash report has been saved to:\n{}\n\n"
-                "Please send this file (and the .dmp file if present) to the developers.",
-                s_AppName, exceptionDetail, reportPath.string());
-
-            MessageBoxA(nullptr, msg.c_str(), "Crash Report", MB_OK | MB_ICONERROR | MB_TASKMODAL);
-        }
-#endif
+        // Show a crash dialog (no-op in headless / non-GUI environments)
+        const std::string msg = fmt::format(
+            "{} has crashed.\n\n"
+            "Error: {}\n\n"
+            "A crash report has been saved to:\n{}\n\n"
+            "Please send this file (and the .dmp file if present) to the developers.",
+            s_AppName, exceptionDetail, reportPath.string());
+        CrashReporterPlatform::ShowCrashDialog("Crash Report", msg, s_IsHeadless);
     }
 
     // ===================================================================
@@ -429,57 +221,7 @@ namespace OloEngine
     std::string CrashReporter::CollectSystemInfo()
     {
         std::ostringstream info;
-
-#ifdef OLO_PLATFORM_WINDOWS
-        // OS version
-        OSVERSIONINFOEXW osvi{};
-        osvi.dwOSVersionInfoSize = sizeof(osvi);
-
-        // RtlGetVersion is always available and not subject to the manifest-based lies of GetVersionEx
-        using RtlGetVersionFn = LONG(WINAPI*)(PRTL_OSVERSIONINFOW);
-        if (auto* const ntdll = GetModuleHandleW(L"ntdll.dll"))
-        {
-            if (auto const rtlGetVersion = reinterpret_cast<RtlGetVersionFn>( // NOLINT
-                    GetProcAddress(ntdll, "RtlGetVersion")))
-            {
-                rtlGetVersion(reinterpret_cast<PRTL_OSVERSIONINFOW>(&osvi)); // NOLINT
-            }
-        }
-        info << "OS: Windows " << osvi.dwMajorVersion << "." << osvi.dwMinorVersion
-             << " (Build " << osvi.dwBuildNumber << ")\n";
-
-        // CPU
-        SYSTEM_INFO si{};
-        GetNativeSystemInfo(&si);
-        info << "CPU: " << si.dwNumberOfProcessors << " logical processors\n";
-        info << "CPU Architecture: ";
-        switch (si.wProcessorArchitecture)
-        {
-            case PROCESSOR_ARCHITECTURE_AMD64:
-                info << "x64";
-                break;
-            case PROCESSOR_ARCHITECTURE_ARM64:
-                info << "ARM64";
-                break;
-            default:
-                info << "other (" << si.wProcessorArchitecture << ")";
-                break;
-        }
-        info << "\n";
-
-        // Memory
-        MEMORYSTATUSEX memStatus{};
-        memStatus.dwLength = sizeof(memStatus);
-        if (GlobalMemoryStatusEx(&memStatus))
-        {
-            info << "Physical Memory: " << (memStatus.ullTotalPhys / (1024 * 1024)) << " MB total, "
-                 << (memStatus.ullAvailPhys / (1024 * 1024)) << " MB available\n";
-            info << "Virtual Memory:  " << (memStatus.ullTotalVirtual / (1024 * 1024)) << " MB total, "
-                 << (memStatus.ullAvailVirtual / (1024 * 1024)) << " MB available\n";
-        }
-#else
-        info << "OS: Linux (details unavailable in this build)\n";
-#endif
+        info << CrashReporterPlatform::CollectSystemInfo();
 
         // GPU (set via SetGPUInfo from the renderer)
         if (!s_GPUInfo.empty())

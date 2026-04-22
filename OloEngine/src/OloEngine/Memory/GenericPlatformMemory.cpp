@@ -4,23 +4,13 @@
 #include "OloEngine/Memory/GenericPlatformMemory.h"
 #include "OloEngine/Memory/MemoryBase.h"
 #include "OloEngine/Memory/MallocAnsi.h"
+#include "OloEngine/Memory/PlatformMemoryBackend.h"
 
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
-
-#ifdef OLO_PLATFORM_WINDOWS
-#include <windows.h>
-#include <psapi.h>
-#elif defined(OLO_PLATFORM_LINUX) || defined(OLO_PLATFORM_MACOS)
-#include <sys/resource.h>
-#include <unistd.h>
-#ifdef OLO_PLATFORM_MACOS
-#include <mach/mach.h>
-#endif
-#endif
 
 namespace OloEngine
 {
@@ -136,35 +126,26 @@ namespace OloEngine
     {
         FPlatformMemoryStats Stats;
 
-#ifdef OLO_PLATFORM_WINDOWS
-        MEMORYSTATUSEX MemoryStatus;
-        MemoryStatus.dwLength = sizeof(MemoryStatus);
-        if (GlobalMemoryStatusEx(&MemoryStatus))
+        PlatformMemoryBackend::BackendStats BackendStats;
+        if (PlatformMemoryBackend::QueryStats(BackendStats))
         {
-            Stats.TotalPhysical = MemoryStatus.ullTotalPhys;
-            Stats.TotalVirtual = MemoryStatus.ullTotalVirtual;
-            Stats.AvailablePhysical = MemoryStatus.ullAvailPhys;
-            Stats.AvailableVirtual = MemoryStatus.ullAvailVirtual;
-            Stats.TotalPhysicalGB = static_cast<u32>((Stats.TotalPhysical + 1024 * 1024 * 1024 - 1) / (1024 * 1024 * 1024));
+            Stats.TotalPhysical = BackendStats.TotalPhysical;
+            Stats.TotalVirtual = BackendStats.TotalVirtual;
+            Stats.AvailablePhysical = BackendStats.AvailablePhysical;
+            Stats.AvailableVirtual = BackendStats.AvailableVirtual;
+            Stats.UsedPhysical = BackendStats.UsedPhysical;
+            Stats.PeakUsedPhysical = BackendStats.PeakUsedPhysical;
+            Stats.UsedVirtual = BackendStats.UsedVirtual;
+            Stats.PeakUsedVirtual = BackendStats.PeakUsedVirtual;
+            if (Stats.TotalPhysical != 0)
+            {
+                Stats.TotalPhysicalGB = static_cast<u32>((Stats.TotalPhysical + 1024 * 1024 * 1024 - 1) / (1024 * 1024 * 1024));
+            }
         }
-
-        PROCESS_MEMORY_COUNTERS ProcessMemoryCounters;
-        if (GetProcessMemoryInfo(GetCurrentProcess(), &ProcessMemoryCounters, sizeof(ProcessMemoryCounters)))
+        else
         {
-            Stats.UsedPhysical = ProcessMemoryCounters.WorkingSetSize;
-            Stats.PeakUsedPhysical = ProcessMemoryCounters.PeakWorkingSetSize;
-            Stats.UsedVirtual = ProcessMemoryCounters.PagefileUsage;
-            Stats.PeakUsedVirtual = ProcessMemoryCounters.PeakPagefileUsage;
+            OLO_CORE_WARN("FGenericPlatformMemory::GetStats — backend returned no data on this platform");
         }
-#elif defined(OLO_PLATFORM_LINUX)
-        // Linux implementation would read from /proc/meminfo and /proc/self/status
-        OLO_CORE_WARN("FGenericPlatformMemory::GetStats not fully implemented on this platform");
-#elif defined(OLO_PLATFORM_MACOS)
-        // macOS implementation would use mach_task_basic_info
-        OLO_CORE_WARN("FGenericPlatformMemory::GetStats not fully implemented on this platform");
-#else
-        OLO_CORE_WARN("FGenericPlatformMemory::GetStats not implemented on this platform");
-#endif
 
         return Stats;
     }
@@ -193,28 +174,16 @@ namespace OloEngine
 
         if (!bInitialized)
         {
-#ifdef OLO_PLATFORM_WINDOWS
-            SYSTEM_INFO SystemInfo;
-            GetSystemInfo(&SystemInfo);
-            Constants.PageSize = SystemInfo.dwPageSize;
-            Constants.OsAllocationGranularity = SystemInfo.dwAllocationGranularity;
+            PlatformMemoryBackend::BackendConstants BackendConstants;
+            PlatformMemoryBackend::QueryConstants(BackendConstants);
+            Constants.PageSize = BackendConstants.PageSize;
+            Constants.OsAllocationGranularity = BackendConstants.OsAllocationGranularity;
+            Constants.TotalPhysical = BackendConstants.TotalPhysical;
+            Constants.TotalVirtual = BackendConstants.TotalVirtual;
+            Constants.TotalPhysicalGB = Constants.TotalPhysical != 0
+                                            ? static_cast<u32>((Constants.TotalPhysical + 1024 * 1024 * 1024 - 1) / (1024 * 1024 * 1024))
+                                            : 1u;
 
-            MEMORYSTATUSEX MemoryStatus;
-            MemoryStatus.dwLength = sizeof(MemoryStatus);
-            if (GlobalMemoryStatusEx(&MemoryStatus))
-            {
-                Constants.TotalPhysical = MemoryStatus.ullTotalPhys;
-                Constants.TotalVirtual = MemoryStatus.ullTotalVirtual;
-                Constants.TotalPhysicalGB = static_cast<u32>((Constants.TotalPhysical + 1024 * 1024 * 1024 - 1) / (1024 * 1024 * 1024));
-            }
-#else
-            // Default values for other platforms
-            Constants.PageSize = 4096;
-            Constants.OsAllocationGranularity = 65536;
-            Constants.TotalPhysical = 0;
-            Constants.TotalVirtual = 0;
-            Constants.TotalPhysicalGB = 1;
-#endif
             Constants.BinnedPageSize = 65536;
             Constants.BinnedAllocationGranularity = 0;
             Constants.AddressStart = 0;
@@ -233,55 +202,17 @@ namespace OloEngine
 
     void* FGenericPlatformMemory::BinnedAllocFromOS(sizet Size)
     {
-#ifdef OLO_PLATFORM_WINDOWS
-        return VirtualAlloc(nullptr, Size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-#else
-        void* Ptr = nullptr;
-        if (posix_memalign(&Ptr, 65536, Size) != 0)
-        {
-            return nullptr;
-        }
-        return Ptr;
-#endif
+        return PlatformMemoryBackend::AllocateFromOS(Size);
     }
 
     void FGenericPlatformMemory::BinnedFreeToOS(void* Ptr, sizet Size)
     {
-        (void)Size;
-#ifdef OLO_PLATFORM_WINDOWS
-        VirtualFree(Ptr, 0, MEM_RELEASE);
-#else
-        std::free(Ptr);
-#endif
+        PlatformMemoryBackend::FreeToOS(Ptr, Size);
     }
 
     bool FGenericPlatformMemory::PageProtect(void* const Ptr, const sizet Size, const bool bCanRead, const bool bCanWrite)
     {
-#ifdef OLO_PLATFORM_WINDOWS
-        DWORD NewProtect = PAGE_NOACCESS;
-        if (bCanRead && bCanWrite)
-        {
-            NewProtect = PAGE_READWRITE;
-        }
-        else if (bCanRead)
-        {
-            NewProtect = PAGE_READONLY;
-        }
-        else if (bCanWrite)
-        {
-            NewProtect = PAGE_READWRITE; // Write-only not supported, use read-write
-        }
-
-        DWORD OldProtect;
-        return VirtualProtect(Ptr, Size, NewProtect, &OldProtect) != 0;
-#else
-        (void)Ptr;
-        (void)Size;
-        (void)bCanRead;
-        (void)bCanWrite;
-        OLO_CORE_WARN("FGenericPlatformMemory::PageProtect not implemented on this platform");
-        return false;
-#endif
+        return PlatformMemoryBackend::PageProtect(Ptr, Size, bCanRead, bCanWrite);
     }
 
     void FGenericPlatformMemory::DumpStats(FOutputDevice& Ar)
