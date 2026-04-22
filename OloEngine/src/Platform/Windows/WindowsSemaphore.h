@@ -7,6 +7,15 @@
 #include "OloEngine/Core/Assert.h"
 #include "OloEngine/Core/MonotonicTime.h"
 
+#include <algorithm>
+#include <cmath>
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <Windows.h>
 
 namespace OloEngine
@@ -78,7 +87,18 @@ namespace OloEngine
          */
         bool TryAcquireFor(FMonotonicTimeSpan Timeout)
         {
-            DWORD TimeoutMs = static_cast<DWORD>(Timeout.ToMilliseconds());
+            double ms = Timeout.ToMilliseconds();
+            if (std::isnan(ms))
+            {
+                ms = 0.0;
+            }
+            ms = (std::max)(0.0, ms);
+            // INFINITE is the WinAPI sentinel for "wait forever"; clamp any value at or
+            // above it (and any value that would overflow DWORD) to INFINITE to avoid
+            // wrapping around to an unintended short timeout.
+            const DWORD TimeoutMs = (ms >= static_cast<double>(INFINITE))
+                                        ? INFINITE
+                                        : static_cast<DWORD>(ms);
             DWORD Res = WaitForSingleObject(m_Semaphore, TimeoutMs);
             OLO_CORE_CHECK_SLOW(Res == WAIT_OBJECT_0 || Res == WAIT_TIMEOUT);
             return Res == WAIT_OBJECT_0;

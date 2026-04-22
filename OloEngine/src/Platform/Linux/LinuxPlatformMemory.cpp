@@ -104,17 +104,29 @@ namespace OloEngine::PlatformMemoryBackend
 
     void* AllocateFromOS(sizet size)
     {
-        void* ptr = nullptr;
-        if (posix_memalign(&ptr, 65536, size) != 0)
+        if (size == 0)
+        {
+            return nullptr;
+        }
+        // Use mmap so callers can later change protection via mprotect (PageProtect).
+        // posix_memalign / malloc-backed memory is not safe to mprotect because the
+        // allocator may share pages across multiple allocations and merge/split them.
+        void* ptr = ::mmap(nullptr, size, PROT_READ | PROT_WRITE,
+                           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (ptr == MAP_FAILED)
         {
             return nullptr;
         }
         return ptr;
     }
 
-    void FreeToOS(void* ptr, sizet /*size*/)
+    void FreeToOS(void* ptr, sizet size)
     {
-        std::free(ptr);
+        if (ptr == nullptr || size == 0)
+        {
+            return;
+        }
+        ::munmap(ptr, size);
     }
 
     bool PageProtect(void* ptr, sizet size, bool canRead, bool canWrite)

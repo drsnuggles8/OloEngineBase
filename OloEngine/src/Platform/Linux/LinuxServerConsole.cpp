@@ -8,6 +8,7 @@
 
 #include "OloEngine/Core/Log.h"
 
+#include <cerrno>
 #include <poll.h>
 #include <unistd.h>
 
@@ -54,9 +55,15 @@ namespace OloEngine::ServerConsolePlatform
         fds[1].fd = state.WakeupPipe[0];
         fds[1].events = POLLIN;
 
-        int ret = ::poll(fds, 2, -1);
+        int ret;
+        do
+        {
+            ret = ::poll(fds, 2, -1);
+        } while (ret == -1 && errno == EINTR);
+
         if (ret <= 0)
         {
+            // Real error (not an interrupted syscall) — treat as abort.
             return false;
         }
         if (fds[1].revents & POLLIN)

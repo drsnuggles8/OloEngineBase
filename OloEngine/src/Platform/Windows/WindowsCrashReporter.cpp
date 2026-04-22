@@ -8,6 +8,7 @@
 
 #include "OloEngine/Core/Log.h"
 
+#include <atomic>
 #include <exception>
 #include <sstream>
 #include <string>
@@ -25,9 +26,14 @@ namespace OloEngine::CrashReporterPlatform
 {
     namespace
     {
+        // Filter + terminate handlers are installed once from the main thread before
+        // any worker threads start, and uninstalled after they've all joined, so the
+        // pointers themselves are effectively const during multi-threaded execution.
+        // The user callback can be swapped at runtime, so it is stored atomically to
+        // avoid torn reads on platforms where pointer stores aren't inherently atomic.
         LPTOP_LEVEL_EXCEPTION_FILTER s_PreviousFilter = nullptr;
         std::terminate_handler s_PreviousTerminateHandler = nullptr;
-        WriteCrashReportFn s_WriteCrashReport = nullptr;
+        std::atomic<WriteCrashReportFn> s_WriteCrashReport{ nullptr };
 
         const char* ExceptionCodeToString(DWORD code)
         {
@@ -107,9 +113,9 @@ namespace OloEngine::CrashReporterPlatform
                 detail = fmt::format("{} (code 0x{:08X})", ExceptionCodeToString(code), code);
             }
 
-            if (s_WriteCrashReport)
+            if (auto Cb = s_WriteCrashReport.load(std::memory_order_acquire))
             {
-                s_WriteCrashReport("Windows SEH Exception", detail, exceptionPointers);
+                Cb("Windows SEH Exception", detail, exceptionPointers);
             }
 
             // Chain to the previous handler if one existed
@@ -121,7 +127,7 @@ namespace OloEngine::CrashReporterPlatform
             return EXCEPTION_EXECUTE_HANDLER;
         }
 
-        void TerminateHandler()
+        [[noreturn]] void TerminateHandler()
         {
             std::string detail = "std::terminate() called";
 
@@ -142,26 +148,25 @@ namespace OloEngine::CrashReporterPlatform
                 }
             }
 
-            if (s_WriteCrashReport)
+            if (auto Cb = s_WriteCrashReport.load(std::memory_order_acquire))
             {
-                s_WriteCrashReport("std::terminate", detail, nullptr);
+                Cb("std::terminate", detail, nullptr);
             }
 
-            // Call the previous terminate handler or abort
+            // Call the previous terminate handler if one was installed.
+            // If it returns (which it should not per the std::terminate contract),
+            // we fall through to std::abort() to guarantee [[noreturn]].
             if (s_PreviousTerminateHandler)
             {
                 s_PreviousTerminateHandler();
             }
-            else
-            {
-                std::abort();
-            }
+            std::abort();
         }
     } // namespace
 
     void InstallHandlers(WriteCrashReportFn callback)
     {
-        s_WriteCrashReport = callback;
+        s_WriteCrashReport.store(callback, std::memory_order_release);
         s_PreviousFilter = SetUnhandledExceptionFilter(UnhandledExceptionHandler);
         s_PreviousTerminateHandler = std::set_terminate(TerminateHandler);
     }
@@ -172,7 +177,7 @@ namespace OloEngine::CrashReporterPlatform
         s_PreviousFilter = nullptr;
         std::set_terminate(s_PreviousTerminateHandler);
         s_PreviousTerminateHandler = nullptr;
-        s_WriteCrashReport = nullptr;
+        s_WriteCrashReport.store(nullptr, std::memory_order_release);
     }
 
     bool WriteMiniDump(const std::filesystem::path& dumpPath, void* platformContext)

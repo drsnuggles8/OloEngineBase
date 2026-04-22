@@ -12,6 +12,7 @@
 #include <sys/syscall.h>
 #include <sys/resource.h> // For setpriority, PRIO_PROCESS
 #include <cstring>        // For strncpy
+#include <type_traits>    // For static_assert on pthread_t size
 
 namespace OloEngine
 {
@@ -43,6 +44,10 @@ namespace OloEngine
 
     void* FPlatformProcess::GetCurrentThreadHandle()
     {
+        // pthread_t is opaque and its concrete width is implementation-defined;
+        // we require it fits into a uintptr_t so we can round-trip it through void*.
+        static_assert(sizeof(pthread_t) <= sizeof(uintptr_t),
+                      "pthread_t does not fit into uintptr_t; update GetCurrentThreadHandle encoding.");
         return reinterpret_cast<void*>(static_cast<uptr>(pthread_self()));
     }
 
@@ -63,39 +68,69 @@ namespace OloEngine
         }
     }
 
+    namespace
+    {
+        // Choose scheduling policy + priority for a given EThreadPriority.
+        // Returns true if the policy was changed (elevated), false if it should stay SCHED_OTHER.
+        bool SelectSchedPolicy(EThreadPriority Priority, int& OutPolicy, int& OutPriority)
+        {
+            if (Priority == EThreadPriority::TPri_TimeCritical ||
+                Priority == EThreadPriority::TPri_Highest)
+            {
+                OutPolicy = SCHED_RR;
+                const int MinPri = sched_get_priority_min(SCHED_RR);
+                const int MaxPri = sched_get_priority_max(SCHED_RR);
+                if (Priority == EThreadPriority::TPri_TimeCritical)
+                {
+                    OutPriority = MaxPri;
+                }
+                else
+                {
+                    // Midpoint of the valid RR range instead of a hardcoded 50.
+                    OutPriority = MinPri + (MaxPri - MinPri) / 2;
+                }
+                return true;
+            }
+            OutPolicy = SCHED_OTHER;
+            OutPriority = 0; // Must be 0 for SCHED_OTHER.
+            return false;
+        }
+    } // namespace
+
     void FPlatformProcess::SetThreadPriority(EThreadPriority Priority)
     {
-        // setpriority affects the thread's nice value
-        // Note: This may fail without appropriate permissions
-        int NiceValue = TranslateThreadPriority(Priority);
-        pid_t Tid = static_cast<pid_t>(syscall(SYS_gettid));
-        setpriority(PRIO_PROCESS, static_cast<id_t>(Tid), NiceValue);
+        // Keep both overloads in sync: use pthread_setschedparam on the current thread
+        // rather than the older setpriority/nice path (which only affects SCHED_OTHER).
+        pthread_t Handle = pthread_self();
+        int CurrentPolicy = 0;
+        struct sched_param CurrentParam{};
+        pthread_getschedparam(Handle, &CurrentPolicy, &CurrentParam);
+
+        int NewPolicy = CurrentPolicy;
+        int NewPri = CurrentParam.sched_priority;
+        SelectSchedPolicy(Priority, NewPolicy, NewPri);
+
+        struct sched_param NewParam{};
+        NewParam.sched_priority = NewPri;
+        pthread_setschedparam(Handle, NewPolicy, &NewParam);
     }
 
     void FPlatformProcess::SetThreadPriority(std::thread& Thread, EThreadPriority Priority)
     {
         if (Thread.joinable())
         {
-            // On Linux, we need to use pthread_setschedparam for external threads
             pthread_t Handle = Thread.native_handle();
-            int Policy;
-            struct sched_param Param;
-            pthread_getschedparam(Handle, &Policy, &Param);
+            int CurrentPolicy = 0;
+            struct sched_param CurrentParam{};
+            pthread_getschedparam(Handle, &CurrentPolicy, &CurrentParam);
 
-            // For SCHED_OTHER (normal scheduling), priority must be 0
-            // We use SCHED_RR or SCHED_FIFO for elevated priorities (requires root)
-            if (Priority == EThreadPriority::TPri_TimeCritical ||
-                Priority == EThreadPriority::TPri_Highest)
-            {
-                Policy = SCHED_RR;
-                Param.sched_priority = (Priority == EThreadPriority::TPri_TimeCritical) ? 99 : 50;
-            }
-            else
-            {
-                Policy = SCHED_OTHER;
-                Param.sched_priority = 0; // Must be 0 for SCHED_OTHER
-            }
-            pthread_setschedparam(Handle, Policy, &Param);
+            int NewPolicy = CurrentPolicy;
+            int NewPri = CurrentParam.sched_priority;
+            SelectSchedPolicy(Priority, NewPolicy, NewPri);
+
+            struct sched_param NewParam{};
+            NewParam.sched_priority = NewPri;
+            pthread_setschedparam(Handle, NewPolicy, &NewParam);
         }
     }
 
@@ -133,7 +168,11 @@ namespace OloEngine
             {
                 if (AffinityMask & (1ULL << i))
                 {
-                    CPU_SET(BaseOffset + i, &CpuSet);
+                    const u32 idx = BaseOffset + i;
+                    if (idx < static_cast<u32>(CPU_SETSIZE))
+                    {
+                        CPU_SET(idx, &CpuSet);
+                    }
                 }
             }
             pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &CpuSet);

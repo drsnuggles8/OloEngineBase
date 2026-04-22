@@ -3,6 +3,7 @@
 
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Server/ServerConsolePlatform.h"
 
 #include <cctype>
 #include <iostream>

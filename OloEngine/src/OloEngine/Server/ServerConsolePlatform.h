@@ -7,7 +7,7 @@
 //
 // Typical usage:
 //
-//   auto abort = ServerConsolePlatform::Create();
+//   auto abort = ServerConsolePlatform::Create();  // AbortStatePtr (unique_ptr)
 //   // ... worker thread ...
 //   while (running) {
 //       if (!ServerConsolePlatform::WaitForStdin(*abort)) break;  // aborted/EOF
@@ -17,7 +17,7 @@
 //   // ... shutdown thread ...
 //   ServerConsolePlatform::Signal(*abort);
 //   worker.join();
-//   ServerConsolePlatform::Destroy(abort);
+//   // `abort` goes out of scope here; AbortStateDeleter runs automatically.
 
 #pragma once
 

@@ -36,11 +36,14 @@ namespace OloEngine
 
                 if (Buffer && GetLogicalProcessorInformationExFn(RelationGroup, Buffer, &BufferSize))
                 {
-                    Result.NumProcessorGroups = static_cast<u16>(Buffer->Group.ActiveGroupCount);
+                    const u16 ReportedGroups = static_cast<u16>(Buffer->Group.ActiveGroupCount);
+                    Result.NumProcessorGroups =
+                        (ReportedGroups < FProcessorGroupDesc::MaxNumProcessorGroups)
+                            ? ReportedGroups
+                            : FProcessorGroupDesc::MaxNumProcessorGroups;
 
                     for (u16 GroupIndex = 0;
-                         GroupIndex < Result.NumProcessorGroups &&
-                         GroupIndex < FProcessorGroupDesc::MaxNumProcessorGroups;
+                         GroupIndex < Result.NumProcessorGroups;
                          ++GroupIndex)
                     {
                         Result.ThreadAffinities[GroupIndex] =

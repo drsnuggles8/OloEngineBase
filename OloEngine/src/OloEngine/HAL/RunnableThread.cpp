@@ -150,9 +150,9 @@ namespace OloEngine
 
     void FRunnableThread::ThreadEntryPoint()
     {
-        // This is the common thread entry logic - extracted for reuse
-        // Store thread ID using platform API (not std::hash)
-        m_ThreadID = FPlatformTLS::GetCurrentThreadId();
+        // This is the common thread entry logic - extracted for reuse.
+        // m_ThreadID is already set by the platform-specific thread lambda
+        // (before this function is invoked) so no duplicate write here.
 
         // Set up TLS
         SetTls();
@@ -271,10 +271,15 @@ namespace OloEngine
     void FRunnableThread::WaitForCompletion()
     {
 #ifdef OLO_PLATFORM_WINDOWS
-        // On Windows, use native handle
+        // On Windows, use native handle. Close after waiting so the destructor
+        // doesn't attempt to close a stale handle (mirrors Linux pthread_join).
         if (m_HasNativeHandle && m_NativeHandle != 0)
         {
-            ::WaitForSingleObject(reinterpret_cast<HANDLE>(m_NativeHandle), INFINITE);
+            HANDLE Handle = reinterpret_cast<HANDLE>(m_NativeHandle);
+            ::WaitForSingleObject(Handle, INFINITE);
+            ::CloseHandle(Handle);
+            m_NativeHandle = 0;
+            m_HasNativeHandle = false;
         }
 #elif defined(OLO_PLATFORM_LINUX)
         // On POSIX, use pthread_join

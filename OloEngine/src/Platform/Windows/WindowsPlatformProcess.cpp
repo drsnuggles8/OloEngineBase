@@ -8,6 +8,7 @@
 
 #include "Platform/Windows/WindowsHWrapper.h"
 #include <malloc.h> // For _alloca
+#include <vector>
 
 namespace OloEngine
 {
@@ -72,32 +73,51 @@ namespace OloEngine
         {
             // Convert UTF-8 to wide string
             int WideLen = ::MultiByteToWideChar(CP_UTF8, 0, Name, -1, nullptr, 0);
-            if (WideLen > 0)
+            if (WideLen <= 0)
             {
-                wchar_t* WideName = static_cast<wchar_t*>(_alloca(WideLen * sizeof(wchar_t)));
-                ::MultiByteToWideChar(CP_UTF8, 0, Name, -1, WideName, WideLen);
+                return;
+            }
 
-                // SetThreadDescription is available on Windows 10 1607+
-                // We use GetProcAddress to avoid requiring the newer SDK
-                typedef HRESULT(WINAPI * SetThreadDescriptionFn)(HANDLE, PCWSTR);
-                static SetThreadDescriptionFn SetThreadDescriptionPtr = nullptr;
-                static bool bChecked = false;
+            // Use stack allocation for reasonably-sized names; fall back to heap
+            // for anything that could risk a stack overflow via _alloca.
+            constexpr int MaxStackWideLen = 4096;
+            wchar_t* WideName = nullptr;
+            std::vector<wchar_t> HeapBuffer;
+            if (WideLen <= MaxStackWideLen)
+            {
+                WideName = static_cast<wchar_t*>(_alloca(static_cast<sizet>(WideLen) * sizeof(wchar_t)));
+            }
+            else
+            {
+                HeapBuffer.resize(static_cast<sizet>(WideLen));
+                WideName = HeapBuffer.data();
+            }
 
-                if (!bChecked)
+            if (::MultiByteToWideChar(CP_UTF8, 0, Name, -1, WideName, WideLen) == 0)
+            {
+                return;
+            }
+
+            // SetThreadDescription is available on Windows 10 1607+
+            // We use GetProcAddress to avoid requiring the newer SDK
+            typedef HRESULT(WINAPI * SetThreadDescriptionFn)(HANDLE, PCWSTR);
+            static SetThreadDescriptionFn SetThreadDescriptionPtr = nullptr;
+            static bool bChecked = false;
+
+            if (!bChecked)
+            {
+                HMODULE hKernel32 = ::GetModuleHandleW(L"kernel32.dll");
+                if (hKernel32)
                 {
-                    HMODULE hKernel32 = ::GetModuleHandleW(L"kernel32.dll");
-                    if (hKernel32)
-                    {
-                        SetThreadDescriptionPtr = reinterpret_cast<SetThreadDescriptionFn>(
-                            ::GetProcAddress(hKernel32, "SetThreadDescription"));
-                    }
-                    bChecked = true;
+                    SetThreadDescriptionPtr = reinterpret_cast<SetThreadDescriptionFn>(
+                        ::GetProcAddress(hKernel32, "SetThreadDescription"));
                 }
+                bChecked = true;
+            }
 
-                if (SetThreadDescriptionPtr)
-                {
-                    SetThreadDescriptionPtr(::GetCurrentThread(), WideName);
-                }
+            if (SetThreadDescriptionPtr)
+            {
+                SetThreadDescriptionPtr(::GetCurrentThread(), WideName);
             }
         }
     }

@@ -5,7 +5,7 @@
 
 ## Guiding Pattern
 
-```
+```text
 OloEngine/src/OloEngine/<Subsystem>/Foo.h       ← public API / generic interface
 OloEngine/src/OloEngine/<Subsystem>/Foo.cpp     ← generic code + platform-agnostic dispatch
 OloEngine/src/Platform/Windows/WindowsFoo.cpp   ← Win32 impl
