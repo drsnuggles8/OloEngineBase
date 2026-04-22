@@ -16,32 +16,6 @@
 
 namespace OloEngine
 {
-    int FPlatformProcess::TranslateThreadPriority(EThreadPriority Priority)
-    {
-        // Linux uses nice values: -20 (highest) to 19 (lowest)
-        // Normal threads typically use nice 0
-        // Note: Setting thread priority on Linux often requires root or CAP_SYS_NICE
-        switch (Priority)
-        {
-            case EThreadPriority::TPri_TimeCritical:
-                return -15;
-            case EThreadPriority::TPri_Highest:
-                return -10;
-            case EThreadPriority::TPri_AboveNormal:
-                return -5;
-            case EThreadPriority::TPri_Normal:
-                return 0;
-            case EThreadPriority::TPri_SlightlyBelowNormal:
-                return 1;
-            case EThreadPriority::TPri_BelowNormal:
-                return 5;
-            case EThreadPriority::TPri_Lowest:
-                return 10;
-            default:
-                return 0;
-        }
-    }
-
     void* FPlatformProcess::GetCurrentThreadHandle()
     {
         // pthread_t is opaque and its concrete width is implementation-defined;

@@ -8,6 +8,11 @@
 // Typical usage:
 //
 //   auto abort = ServerConsolePlatform::Create();  // AbortStatePtr (unique_ptr)
+//   if (!abort) {
+//       // Create() failed (e.g. pipe/handle exhaustion) — skip stdin handling
+//       // or bail out of initialization. *abort must not be dereferenced.
+//       return;
+//   }
 //   // ... worker thread ...
 //   while (running) {
 //       if (!ServerConsolePlatform::WaitForStdin(*abort)) break;  // aborted/EOF

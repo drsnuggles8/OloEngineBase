@@ -7,6 +7,7 @@
 #ifdef OLO_PLATFORM_LINUX
 
 #include <sched.h>
+#include <unistd.h>
 
 namespace OloEngine
 {
@@ -51,9 +52,22 @@ namespace OloEngine
         }
         else
         {
-            // Fallback: assume all 64 bits available in a single group.
+            // Fallback when sched_getaffinity failed: query the number of online CPUs
+            // via sysconf and build a mask matching the real count instead of advertising
+            // a fictional 64-CPU machine with ~0ULL.
+            long numCpus = sysconf(_SC_NPROCESSORS_ONLN);
+            if (numCpus <= 0)
+            {
+                numCpus = 1;
+            }
+            if (numCpus > 64)
+            {
+                numCpus = 64;
+            }
             Result.NumProcessorGroups = 1;
-            Result.ThreadAffinities[0] = ~0ULL;
+            Result.ThreadAffinities[0] = (numCpus >= 64)
+                                             ? ~0ULL
+                                             : ((1ULL << static_cast<u32>(numCpus)) - 1ULL);
         }
 
         return Result;

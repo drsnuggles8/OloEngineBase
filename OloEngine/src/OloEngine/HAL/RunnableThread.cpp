@@ -169,10 +169,10 @@ namespace OloEngine
             FPlatformProcess::SetThreadGroupAffinity(m_ThreadAffinityMask, 0);
         }
 
-        // Signal that we're initialized
-        m_InitEvent.Notify();
-
+        // Signal that we're initialized. Publish the running flag BEFORE Notify()
+        // so any thread woken from the init event observes m_bIsRunning == true.
         m_bIsRunning.store(true, std::memory_order_release);
+        m_InitEvent.Notify();
 
         // Call runnable's Init
         if (m_Runnable && m_Runnable->Init())
@@ -207,24 +207,33 @@ namespace OloEngine
     {
         m_ThreadPriority = NewPriority;
 
-        // If called from within the thread, apply immediately
+        // If called from within the target thread, apply immediately via the OS.
         if (s_CurrentThread == this)
         {
             FPlatformProcess::SetThreadPriority(NewPriority);
         }
-        // Otherwise, priority will be applied next time the thread checks
+        // If called from another thread, only m_ThreadPriority is updated — there is
+        // NO background polling that would automatically re-apply it to the target
+        // thread. The target thread must call SetThreadPriority on itself (e.g. from
+        // its runnable's Run loop) if the new value should take effect while the
+        // thread is already executing. Alternatively callers can implement explicit
+        // cross-thread signaling if automatic re-apply is required.
     }
 
     bool FRunnableThread::SetThreadAffinity(const FThreadAffinity& Affinity)
     {
         m_ThreadAffinityMask = Affinity.ThreadAffinityMask;
 
-        // If called from within the thread, apply immediately
+        // If called from within the target thread, apply immediately.
         if (s_CurrentThread == this)
         {
             FPlatformProcess::SetThreadGroupAffinity(Affinity.ThreadAffinityMask, Affinity.ProcessorGroup);
             return true;
         }
+        // Cross-thread call: like SetThreadPriority, we only cache the new mask on
+        // the FRunnableThread object. The target thread does not automatically
+        // re-read m_ThreadAffinityMask, so callers must either invoke this from the
+        // target thread or arrange their own re-apply signaling.
         return false;
     }
 

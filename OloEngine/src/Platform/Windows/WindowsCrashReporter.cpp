@@ -10,6 +10,7 @@
 
 #include <atomic>
 #include <exception>
+#include <memory>
 #include <sstream>
 #include <string>
 
@@ -184,15 +185,29 @@ namespace OloEngine::CrashReporterPlatform
     {
         auto* exceptionPointers = static_cast<EXCEPTION_POINTERS*>(platformContext);
 
-        const HANDLE hFile = CreateFileW(
+        const HANDLE rawFile = CreateFileW(
             dumpPath.c_str(),
             GENERIC_WRITE, 0, nullptr,
             CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
 
-        if (hFile == INVALID_HANDLE_VALUE)
+        if (rawFile == INVALID_HANDLE_VALUE)
         {
             return false;
         }
+
+        // RAII guard so the Win32 HANDLE is always closed, even on early returns.
+        struct HandleCloser
+        {
+            void operator()(HANDLE h) const noexcept
+            {
+                if (h && h != INVALID_HANDLE_VALUE)
+                {
+                    ::CloseHandle(h);
+                }
+            }
+        };
+        std::unique_ptr<void, HandleCloser> hFileGuard(rawFile);
+        const HANDLE hFile = hFileGuard.get();
 
         MINIDUMP_EXCEPTION_INFORMATION mdei{};
         mdei.ThreadId = GetCurrentThreadId();
@@ -210,14 +225,13 @@ namespace OloEngine::CrashReporterPlatform
             exceptionPointers ? &mdei : nullptr,
             nullptr, nullptr);
 
-        if (!dumpResult)
+        if (dumpResult == FALSE)
         {
             // Log failure — disk full, permissions, etc.
             DWORD err = GetLastError();
             OutputDebugStringA(("[CrashReporter] MiniDumpWriteDump failed, error: " + std::to_string(err) + "\n").c_str());
         }
 
-        CloseHandle(hFile);
         return dumpResult != FALSE;
     }
 

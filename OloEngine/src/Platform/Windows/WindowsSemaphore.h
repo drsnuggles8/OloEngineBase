@@ -8,6 +8,7 @@
 #include "OloEngine/Core/MonotonicTime.h"
 
 #include <algorithm>
+#include <climits>
 #include <cmath>
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -87,7 +88,7 @@ namespace OloEngine
          */
         bool TryAcquireFor(FMonotonicTimeSpan Timeout)
         {
-            double ms = Timeout.ToMilliseconds();
+            f64 ms = Timeout.ToMilliseconds();
             if (std::isnan(ms))
             {
                 ms = 0.0;
@@ -96,7 +97,7 @@ namespace OloEngine
             // INFINITE is the WinAPI sentinel for "wait forever"; clamp any value at or
             // above it (and any value that would overflow DWORD) to INFINITE to avoid
             // wrapping around to an unintended short timeout.
-            const DWORD TimeoutMs = (ms >= static_cast<double>(INFINITE))
+            const DWORD TimeoutMs = (ms >= static_cast<f64>(INFINITE))
                                         ? INFINITE
                                         : static_cast<DWORD>(ms);
             DWORD Res = WaitForSingleObject(m_Semaphore, TimeoutMs);

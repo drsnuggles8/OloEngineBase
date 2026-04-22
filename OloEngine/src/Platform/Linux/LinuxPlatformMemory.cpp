@@ -51,6 +51,10 @@ namespace OloEngine::PlatformMemoryBackend
 
     bool QueryStats(BackendStats& outStats)
     {
+        // Zero all fields up front so unsupported stats are reported as 0
+        // rather than whatever the caller happened to pass in.
+        outStats = {};
+
         outStats.TotalPhysical = ReadMemInfoValue("MemTotal");
         outStats.AvailablePhysical = ReadMemInfoValue("MemAvailable");
 
@@ -86,12 +90,18 @@ namespace OloEngine::PlatformMemoryBackend
 
     void QueryConstants(BackendConstants& outConstants)
     {
+        // Zero all fields up front so callers can rely on a clean baseline.
+        outConstants = {};
+
         const long pageSize = sysconf(_SC_PAGESIZE);
         if (pageSize > 0)
         {
             outConstants.PageSize = static_cast<u32>(pageSize);
+            // On Linux, mmap / mprotect operate at page-size granularity — there is
+            // no separate "allocation granularity" the way Windows distinguishes
+            // page size (4 KB) from VirtualAlloc granularity (64 KB).
+            outConstants.OsAllocationGranularity = static_cast<u32>(pageSize);
         }
-        outConstants.OsAllocationGranularity = 65536;
 
         outConstants.TotalPhysical = ReadMemInfoValue("MemTotal");
         const long pages = sysconf(_SC_PHYS_PAGES);
