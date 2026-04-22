@@ -74,7 +74,15 @@ namespace OloEngine
         {
             if (m_Semaphore != nullptr)
             {
-                CloseHandle(m_Semaphore);
+                if (!CloseHandle(m_Semaphore))
+                {
+                    // Non-fatal but should never happen for a handle we own; log
+                    // GetLastError so silent handle leaks don't slip through.
+                    OLO_CORE_ERROR("FWindowsSemaphore: CloseHandle failed (GetLastError={})",
+                                   static_cast<u32>(GetLastError()));
+                    OLO_CORE_ASSERT(false, "CloseHandle failed in ~FWindowsSemaphore");
+                }
+                m_Semaphore = nullptr;
             }
         }
 
