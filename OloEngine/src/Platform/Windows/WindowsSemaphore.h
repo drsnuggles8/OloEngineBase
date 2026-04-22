@@ -5,6 +5,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Assert.h"
+#include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/MonotonicTime.h"
 
 #include <algorithm>
@@ -42,7 +43,12 @@ namespace OloEngine
         {
             OLO_CORE_CHECK_SLOW(InitialCount >= 0);
             m_Semaphore = CreateSemaphoreW(nullptr, InitialCount, LONG_MAX, nullptr);
-            OLO_CORE_CHECK_SLOW(m_Semaphore != nullptr);
+            if (m_Semaphore == nullptr)
+            {
+                OLO_CORE_ERROR("FWindowsSemaphore: CreateSemaphoreW failed (GetLastError={})",
+                               static_cast<u32>(GetLastError()));
+                OLO_CORE_ASSERT(false, "CreateSemaphoreW failed");
+            }
         }
 
         /**
@@ -56,12 +62,20 @@ namespace OloEngine
             OLO_CORE_CHECK_SLOW(MaxCount > 0);
             OLO_CORE_CHECK_SLOW(InitialCount <= MaxCount);
             m_Semaphore = CreateSemaphoreW(nullptr, InitialCount, MaxCount, nullptr);
-            OLO_CORE_CHECK_SLOW(m_Semaphore != nullptr);
+            if (m_Semaphore == nullptr)
+            {
+                OLO_CORE_ERROR("FWindowsSemaphore: CreateSemaphoreW failed (GetLastError={})",
+                               static_cast<u32>(GetLastError()));
+                OLO_CORE_ASSERT(false, "CreateSemaphoreW failed");
+            }
         }
 
         ~FWindowsSemaphore()
         {
-            CloseHandle(m_Semaphore);
+            if (m_Semaphore != nullptr)
+            {
+                CloseHandle(m_Semaphore);
+            }
         }
 
         /**
@@ -71,7 +85,15 @@ namespace OloEngine
         void Acquire()
         {
             DWORD Res = WaitForSingleObject(m_Semaphore, INFINITE);
-            OLO_CORE_CHECK_SLOW(Res == WAIT_OBJECT_0);
+            if (Res != WAIT_OBJECT_0)
+            {
+                // WAIT_FAILED / WAIT_ABANDONED are non-recoverable for a semaphore wait:
+                // log and assert so bugs surface deterministically in every configuration,
+                // instead of silently returning with the count in an unknown state.
+                OLO_CORE_ERROR("FWindowsSemaphore::Acquire: WaitForSingleObject returned {} (GetLastError={})",
+                               static_cast<u32>(Res), static_cast<u32>(GetLastError()));
+                OLO_CORE_ASSERT(false, "WaitForSingleObject failed in FWindowsSemaphore::Acquire");
+            }
         }
 
         /**
@@ -81,7 +103,13 @@ namespace OloEngine
         bool TryAcquire()
         {
             DWORD Res = WaitForSingleObject(m_Semaphore, 0);
-            OLO_CORE_CHECK_SLOW(Res == WAIT_OBJECT_0 || Res == WAIT_TIMEOUT);
+            if (Res != WAIT_OBJECT_0 && Res != WAIT_TIMEOUT)
+            {
+                OLO_CORE_ERROR("FWindowsSemaphore::TryAcquire: WaitForSingleObject returned {} (GetLastError={})",
+                               static_cast<u32>(Res), static_cast<u32>(GetLastError()));
+                OLO_CORE_ASSERT(false, "WaitForSingleObject failed in FWindowsSemaphore::TryAcquire");
+                return false;
+            }
             return Res == WAIT_OBJECT_0;
         }
 
@@ -105,7 +133,13 @@ namespace OloEngine
                                         ? INFINITE
                                         : static_cast<DWORD>(ms);
             DWORD Res = WaitForSingleObject(m_Semaphore, TimeoutMs);
-            OLO_CORE_CHECK_SLOW(Res == WAIT_OBJECT_0 || Res == WAIT_TIMEOUT);
+            if (Res != WAIT_OBJECT_0 && Res != WAIT_TIMEOUT)
+            {
+                OLO_CORE_ERROR("FWindowsSemaphore::TryAcquireFor: WaitForSingleObject returned {} (GetLastError={})",
+                               static_cast<u32>(Res), static_cast<u32>(GetLastError()));
+                OLO_CORE_ASSERT(false, "WaitForSingleObject failed in FWindowsSemaphore::TryAcquireFor");
+                return false;
+            }
             return Res == WAIT_OBJECT_0;
         }
 
@@ -132,7 +166,15 @@ namespace OloEngine
         {
             OLO_CORE_CHECK_SLOW(Count > 0);
             BOOL bRes = ReleaseSemaphore(m_Semaphore, Count, nullptr);
-            OLO_CORE_CHECK_SLOW(bRes);
+            if (!bRes)
+            {
+                // Most commonly: count would exceed max (caller bug) or handle is invalid.
+                // Surface this in every build rather than silently losing Release() calls
+                // which would corrupt the waiter count.
+                OLO_CORE_ERROR("FWindowsSemaphore::Release: ReleaseSemaphore failed Count={} (GetLastError={})",
+                               Count, static_cast<u32>(GetLastError()));
+                OLO_CORE_ASSERT(false, "ReleaseSemaphore failed");
+            }
         }
 
       private:

@@ -16,60 +16,67 @@ namespace OloEngine
         FProcessorGroupDesc Result;
         Result.NumProcessorGroups = 0;
 
+        constexpr sizet MaxGroups = sizeof(Result.ThreadAffinities) / sizeof(Result.ThreadAffinities[0]);
+        constexpr int MaxCpus = static_cast<int>(MaxGroups) * 64;
+        for (sizet g = 0; g < MaxGroups; ++g)
+        {
+            Result.ThreadAffinities[g] = 0;
+        }
+
         // On Linux, use sched_getaffinity to get available CPUs.
         // Linux has no native processor-group concept, so we emulate Windows-style
         // groups by splitting the affinity bitmap into 64-bit chunks.
-        cpu_set_t CpuSet;
-        CPU_ZERO(&CpuSet);
-        if (sched_getaffinity(0, sizeof(CpuSet), &CpuSet) == 0)
-        {
-            constexpr sizet MaxGroups = sizeof(Result.ThreadAffinities) / sizeof(Result.ThreadAffinities[0]);
-            for (sizet g = 0; g < MaxGroups; ++g)
-            {
-                Result.ThreadAffinities[g] = 0;
-            }
+        //
+        // Allocate a dynamic cpu_set via CPU_ALLOC so machines with more CPUs than
+        // the stock cpu_set_t (CPU_SETSIZE, typically 1024) can still be queried.
+        // Size it to cover MaxGroups * 64 CPUs, which matches the fixed affinity
+        // array we have to fill anyway.
+        cpu_set_t* DynSet = CPU_ALLOC(MaxCpus);
+        const sizet DynSetSize = (DynSet != nullptr) ? CPU_ALLOC_SIZE(MaxCpus) : 0;
+        bool QuerySucceeded = false;
 
-            u16 MaxGroupUsed = 0;
-            for (int i = 0; i < CPU_SETSIZE; ++i)
+        if (DynSet != nullptr)
+        {
+            CPU_ZERO_S(DynSetSize, DynSet);
+            if (sched_getaffinity(0, DynSetSize, DynSet) == 0)
             {
-                if (!CPU_ISSET(i, &CpuSet))
+                u16 MaxGroupUsed = 0;
+                for (int i = 0; i < MaxCpus; ++i)
                 {
-                    continue;
+                    if (!CPU_ISSET_S(i, DynSetSize, DynSet))
+                    {
+                        continue;
+                    }
+                    const sizet group = static_cast<sizet>(i) / 64;
+                    const sizet bit = static_cast<sizet>(i) % 64;
+                    if (group >= MaxGroups)
+                    {
+                        break; // truncate excess bits beyond our fixed array
+                    }
+                    Result.ThreadAffinities[group] |= (1ULL << bit);
+                    if (static_cast<u16>(group) > MaxGroupUsed)
+                    {
+                        MaxGroupUsed = static_cast<u16>(group);
+                    }
                 }
-                const sizet group = static_cast<sizet>(i) / 64;
-                const sizet bit = static_cast<sizet>(i) % 64;
-                if (group >= MaxGroups)
-                {
-                    break;
-                }
-                Result.ThreadAffinities[group] |= (1ULL << bit);
-                if (static_cast<u16>(group) > MaxGroupUsed)
-                {
-                    MaxGroupUsed = static_cast<u16>(group);
-                }
+                Result.NumProcessorGroups = static_cast<u16>(MaxGroupUsed + 1);
+                QuerySucceeded = true;
             }
-            Result.NumProcessorGroups = static_cast<u16>(MaxGroupUsed + 1);
+            CPU_FREE(DynSet);
         }
-        else
-        {
-            // Fallback when sched_getaffinity failed: distribute the online CPU count
-            // reported by sysconf across as many 64-bit groups as needed instead of
-            // capping at a single group of 64.
-            constexpr sizet MaxGroups = sizeof(Result.ThreadAffinities) / sizeof(Result.ThreadAffinities[0]);
-            for (sizet g = 0; g < MaxGroups; ++g)
-            {
-                Result.ThreadAffinities[g] = 0;
-            }
 
+        if (!QuerySucceeded)
+        {
+            // Fallback when CPU_ALLOC/sched_getaffinity failed: distribute the online
+            // CPU count reported by sysconf across as many 64-bit groups as needed.
             long numCpus = sysconf(_SC_NPROCESSORS_ONLN);
             if (numCpus <= 0)
             {
                 numCpus = 1;
             }
-            const sizet maxCpus = MaxGroups * 64;
-            if (static_cast<sizet>(numCpus) > maxCpus)
+            if (static_cast<int>(numCpus) > MaxCpus)
             {
-                numCpus = static_cast<long>(maxCpus);
+                numCpus = MaxCpus;
             }
             const sizet total = static_cast<sizet>(numCpus);
             const sizet fullGroups = total / 64;

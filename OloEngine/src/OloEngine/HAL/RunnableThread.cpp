@@ -7,7 +7,9 @@
 #ifdef OLO_PLATFORM_WINDOWS
 #include "Platform/Windows/WindowsHWrapper.h"
 #elif defined(OLO_PLATFORM_LINUX)
+#include <cerrno>
 #include <pthread.h>
+#include <signal.h>
 #endif
 
 namespace OloEngine
@@ -101,8 +103,38 @@ namespace OloEngine
         m_NativeHandle = reinterpret_cast<uptr>(Handle);
         m_HasNativeHandle = true;
 
-        // Wait for thread to initialize
-        m_InitEvent.Wait();
+        // Wait for thread to initialize, but bound the wait with periodic liveness
+        // checks so a thread that crashes (or never reaches Notify) can't hang
+        // CreateInternal forever. If the thread is no longer alive or a generous
+        // overall deadline elapses, treat it as a creation failure.
+        {
+            constexpr auto PollMs = FMonotonicTimeSpan::FromMilliseconds(100.0);
+            // Overall budget: 5 minutes. Long enough to never regress legitimate
+            // slow Init() paths, short enough to bound pathological hangs.
+            constexpr auto OverallBudgetMs = FMonotonicTimeSpan::FromMilliseconds(5.0 * 60.0 * 1000.0);
+            const FMonotonicTimePoint Deadline = FMonotonicTimePoint::Now() + OverallBudgetMs;
+
+            while (!m_InitEvent.WaitFor(PollMs))
+            {
+                // Liveness check: if the thread exited without ever signalling the event
+                // (crash, unhandled exception, early return), bail out instead of blocking.
+                DWORD ExitCode = 0;
+                if (::GetExitCodeThread(Handle, &ExitCode) && ExitCode != STILL_ACTIVE)
+                {
+                    OLO_CORE_ERROR("FRunnableThread::Create: worker thread '{}' exited (code={}) before signalling init",
+                                   m_ThreadName, static_cast<u32>(ExitCode));
+                    WaitForCompletion();
+                    return false;
+                }
+                if (FMonotonicTimePoint::Now() >= Deadline)
+                {
+                    OLO_CORE_ERROR("FRunnableThread::Create: worker thread '{}' did not signal init within the overall deadline",
+                                   m_ThreadName);
+                    WaitForCompletion();
+                    return false;
+                }
+            }
+        }
 
         // If FRunnable::Init() reported failure, surface it as a Create() failure.
         // The worker will still run Exit() and terminate cleanly; we just refuse
@@ -128,12 +160,17 @@ namespace OloEngine
 
         // Create the thread
         pthread_t PosixThread{};
-        int Result = pthread_create(&PosixThread, &Attr, [](void* Param) -> void*
-                                    {
+        int Result = pthread_create(
+            &PosixThread,
+            &Attr,
+            [](void* Param) -> void*
+            {
                 FRunnableThread* Thread = static_cast<FRunnableThread*>(Param);
                 Thread->m_ThreadID = FPlatformTLS::GetCurrentThreadId();
                 Thread->ThreadEntryPoint();
-                return nullptr; }, this);
+                return nullptr;
+            },
+            this);
 
         pthread_attr_destroy(&Attr);
 
@@ -145,8 +182,33 @@ namespace OloEngine
         m_NativeHandle = static_cast<uptr>(PosixThread);
         m_HasNativeHandle = true;
 
-        // Wait for thread to initialize
-        m_InitEvent.Wait();
+        // Bound the init wait with a periodic liveness check (see Windows branch).
+        {
+            constexpr auto PollMs = FMonotonicTimeSpan::FromMilliseconds(100.0);
+            constexpr auto OverallBudgetMs = FMonotonicTimeSpan::FromMilliseconds(5.0 * 60.0 * 1000.0);
+            const FMonotonicTimePoint Deadline = FMonotonicTimePoint::Now() + OverallBudgetMs;
+
+            while (!m_InitEvent.WaitFor(PollMs))
+            {
+                // pthread_kill with signal 0 is the portable liveness probe: returns
+                // ESRCH if the thread has exited, 0 if still alive.
+                const int AliveRc = pthread_kill(PosixThread, 0);
+                if (AliveRc == ESRCH)
+                {
+                    OLO_CORE_ERROR("FRunnableThread::Create: worker thread '{}' exited before signalling init",
+                                   m_ThreadName);
+                    WaitForCompletion();
+                    return false;
+                }
+                if (FMonotonicTimePoint::Now() >= Deadline)
+                {
+                    OLO_CORE_ERROR("FRunnableThread::Create: worker thread '{}' did not signal init within the overall deadline",
+                                   m_ThreadName);
+                    WaitForCompletion();
+                    return false;
+                }
+            }
+        }
 
         if (!m_bInitSucceeded.load(std::memory_order_acquire))
         {
