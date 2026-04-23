@@ -18,6 +18,12 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    // Previous-frame VP for scene FB RT3 velocity. Water waves are time-
+    // varying so wave displacement itself is *not* reprojected (that would
+    // need a prev-time uniform to re-evaluate the Gerstner sum); camera and
+    // per-object transform motion are captured, matching the mesh-level
+    // fidelity the rest of the forward path produces.
+    mat4 u_PrevViewProjection;
 };
 
 // Model UBO (binding 3)
@@ -29,6 +35,7 @@ layout(std140, binding = 3) uniform ModelMatrices
     int _paddingEntity0;
     int _paddingEntity1;
     int _paddingEntity2;
+    mat4 u_PrevModel;
 };
 
 // Water UBO (binding 23)
@@ -127,6 +134,7 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 u_PrevViewProjection;
 };
 
 layout(std140, binding = 23) uniform WaterParams
@@ -210,6 +218,7 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 u_PrevViewProjection;
 };
 
 layout(std140, binding = 3) uniform ModelMatrices
@@ -220,6 +229,7 @@ layout(std140, binding = 3) uniform ModelMatrices
     int _paddingEntity0;
     int _paddingEntity1;
     int _paddingEntity2;
+    mat4 u_PrevModel;
 };
 
 layout(std140, binding = 23) uniform WaterParams
@@ -314,6 +324,14 @@ layout(location = 6) in float v_WaveHeight;
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
 layout(location = 2) out vec2 o_ViewNormal;
+// Scene FB RT3 velocity. We emit camera-motion-only velocity using the
+// current-frame displaced world position for both current and previous
+// clip-space computations — wave displacement itself is *not* reprojected
+// (would require a prev-time uniform to re-sum Gerstner waves). This
+// matches the mesh-level fidelity the forward path produces; TAA falls
+// back to neighborhood clipping on pure wave motion, which is fine for
+// the relatively slow Gerstner animation frequency.
+layout(location = 3) out vec2 o_Velocity;
 
 // Octahedral encode: unit normal -> RG16F [-1,1]^2
 vec2 octEncode(vec3 n)
@@ -332,6 +350,7 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 u_PrevViewProjection;
 };
 
 // Model UBO (binding 3) for entity ID
@@ -343,6 +362,7 @@ layout(std140, binding = 3) uniform ModelMatrices
     int _paddingEntity0;
     int _paddingEntity1;
     int _paddingEntity2;
+    mat4 u_PrevModel;
 };
 
 // Water UBO (binding 23)
@@ -766,4 +786,11 @@ void main()
     o_Color = vec4(finalColor, transparency);
     o_EntityID = u_EntityID;
     o_ViewNormal = octEncode(normalize(mat3(u_View) * normal));
+
+    // Camera-motion velocity from the interpolated (displaced) world pos.
+    vec4 clipCurr = u_ViewProjection     * vec4(v_WorldPos, 1.0);
+    vec4 clipPrev = u_PrevViewProjection * vec4(v_WorldPos, 1.0);
+    vec2 ndcCurr = clipCurr.xy / clipCurr.w;
+    vec2 ndcPrev = clipPrev.xy / clipPrev.w;
+    o_Velocity = (ndcCurr - ndcPrev) * 0.5;
 }

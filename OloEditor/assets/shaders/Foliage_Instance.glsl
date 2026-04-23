@@ -24,6 +24,9 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    // Previous-frame VP for scene FB RT3 velocity. Wind displacement is
+    // time-varying and not reprojected; camera + per-object motion only.
+    mat4 u_PrevViewProjection;
 };
 
 // Model UBO (binding 3)
@@ -35,6 +38,7 @@ layout(std140, binding = 3) uniform ModelMatrices
     int _paddingEntity0;
     int _paddingEntity1;
     int _paddingEntity2;
+    mat4 u_PrevModel;
 };
 
 // Foliage UBO (binding 12)
@@ -122,6 +126,9 @@ void main()
 #version 460 core
 
 layout(location = 0) out vec4 FragColor;
+// Scene FB RT3 velocity. Mirrors the camera-motion-only approximation used
+// by Water.glsl: per-pixel wind sway is *not* reprojected.
+layout(location = 3) out vec2 o_Velocity;
 
 // Inputs
 layout(location = 0) in vec3 v_WorldPos;
@@ -139,6 +146,7 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 u_PrevViewProjection;
 };
 
 // Multi-light UBO (binding 5)
@@ -209,4 +217,11 @@ void main()
     vec3 litColor = ambient + diffuse;
 
     FragColor = vec4(litColor, color.a);
+
+    // Camera-motion velocity from interpolated world pos.
+    vec4 clipCurr = u_ViewProjection     * vec4(v_WorldPos, 1.0);
+    vec4 clipPrev = u_PrevViewProjection * vec4(v_WorldPos, 1.0);
+    vec2 ndcCurr = clipCurr.xy / clipCurr.w;
+    vec2 ndcPrev = clipPrev.xy / clipPrev.w;
+    o_Velocity = (ndcCurr - ndcPrev) * 0.5;
 }

@@ -123,15 +123,23 @@ shader (`PBR_MultiLight.glsl`) for opaque surfaces:
 
 ## Known limitations (future work)
 
-- **Non-PBR forward shaders emit zero velocity.** Terrain, water,
-  foliage, decals, particles, skybox, the infinite grid, and other
-  non-`PBR_MultiLight` forward shaders leave RT3 at its cleared value
-  (SceneRenderPass explicitly zero-clears the velocity attachment so
-  those pixels read "no motion" for TAA). Animated material effects
-  on those surfaces (wind on foliage, water flow) therefore fall back
-  to TAA's neighborhood clip rather than a per-pixel reprojection.
-  Mirroring the velocity-emit block from `PBR_MultiLight.glsl` into
-  each shader would close this; kept as opt-in future work.
+- **Particle forward shaders emit zero velocity.** The
+  `Particle_Billboard`, `Particle_Billboard_GPU`, `Particle_Mesh`, and
+  `Particle_Trail` shaders still leave scene FB RT3 at its cleared
+  value. Because SceneRenderPass zero-clears the velocity attachment
+  each frame this reads as "no motion" for TAA, which then falls
+  back to its neighborhood clip on particle pixels. All other forward
+  shaders — terrain (`Terrain_PBR`, `Terrain_Voxel`), water, foliage,
+  skybox, decals, the infinite grid and light-cube gizmos — now emit
+  per-pixel motion vectors.
+- **Time-varying forward displacement is approximated.** Water
+  (Gerstner waves) and foliage (wind sway) emit velocity that
+  captures camera and per-object motion only; the on-surface
+  animation itself is *not* reprojected (doing so would require a
+  prev-time uniform so the shader could re-evaluate displacement at
+  `t - dt`). Rigid motion, zoom, panning, and strafing look correct
+  under TAA; pure wave/wind motion still falls back to neighborhood
+  clip which is fine for their relatively slow animation frequencies.
 
 ## Renderer capability matrix
 
