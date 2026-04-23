@@ -1297,12 +1297,29 @@ namespace OloEngine
                 s_Data.PostProcessPass->SetSSAOTexture(0);
             }
 
-            // TAA velocity source: G-Buffer RT3 in Deferred, zero elsewhere
-            // (the shader falls back to camera-only reprojection via depth).
+            // TAA velocity source: in Deferred the G-Buffer RT3 carries
+            // full per-object + per-bone motion and is the authoritative
+            // source; in Forward / Forward+ the scene FB RT3 is populated
+            // by PBR_MultiLight (static) and PBR_MultiLight_Skinned (per-
+            // object motion only \u2014 skinned intra-skeleton motion is not
+            // tracked in forward). Non-PBR forward shaders leave their
+            // pixels at zero velocity, which the TAA shader treats as
+            // \u201Cno motion\u201D and falls back to neighborhood clip. A
+            // zero-bound here forces the camera-only reconstruction path.
             if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.ScenePass && s_Data.ScenePass->GetGBuffer())
             {
                 s_Data.PostProcessPass->SetVelocityTextureID(
                     s_Data.ScenePass->GetGBuffer()->GetColorAttachmentID(GBuffer::Velocity));
+            }
+            else if (s_Data.ScenePass && s_Data.ScenePass->GetTarget())
+            {
+                // Scene FB attachment index 3 is the RG16F velocity target
+                // (see FramebufferSpecification assembled in Init()). Binding
+                // it unconditionally in Forward / Forward+ is safe: static
+                // geometry writes zero velocity (prev == curr), non-PBR
+                // shaders don\u2019t touch RT3 and it stays at its cleared value.
+                s_Data.PostProcessPass->SetVelocityTextureID(
+                    s_Data.ScenePass->GetTarget()->GetColorAttachmentRendererID(3));
             }
             else
             {
@@ -2475,9 +2492,12 @@ namespace OloEngine
         cmd->indexCount = meshToUse->GetIndexCount();
         cmd->baseIndex = meshToUse->GetBaseIndex();
         cmd->transform = glm::mat4(modelMatrix);
-        cmd->prevTransform = (s_Data.Settings.Path == RenderingPath::Deferred)
-                                 ? GetAndRecordPrevTransform(entityID, cmd->transform)
-                                 : cmd->transform;
+        // Prev-transform is recorded for every path — forward PBR shaders
+        // now emit screen-space velocity into scene FB RT3 alongside the
+        // deferred G-Buffer variant, so TAA consumes per-object motion in
+        // Forward / Forward+ too. Static meshes self-alias (prev == curr)
+        // so their velocity reads zero.
+        cmd->prevTransform = GetAndRecordPrevTransform(entityID, cmd->transform);
         cmd->entityID = entityID;
         cmd->shaderHandle = shaderToUse->GetHandle();
 
@@ -2787,6 +2807,12 @@ namespace OloEngine
         cameraData.Projection = projection;
         cameraData.Position = s_Data.ViewPos;
         cameraData._padding0 = 0.0f;
+        // Previous-frame view-projection is maintained by BeginSceneCommon
+        // in `s_Data.PrevViewProjectionMatrix`. Forward PBR shaders consume
+        // this through the CameraMatrices UBO (binding 0) to emit screen-
+        // space velocity into scene FB RT3 — mirroring what the deferred
+        // G-Buffer PBR shader does through u_PrevViewProjection.
+        cameraData.PrevViewProjection = s_Data.PrevViewProjectionMatrix;
 
         constexpr u32 expectedSize = ShaderBindingLayout::CameraUBO::GetSize();
         static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch");
@@ -2860,6 +2886,7 @@ namespace OloEngine
             FramebufferTextureFormat::RGBA16F,     // [0] HDR color output
             FramebufferTextureFormat::RED_INTEGER, // [1] Entity ID attachment
             FramebufferTextureFormat::RG16F,       // [2] View-space normals (octahedral encoded for SSAO)
+            FramebufferTextureFormat::RG16F,       // [3] Screen-space velocity (forward-path TAA input; unused in Deferred, which reads G-Buffer RT3)
             FramebufferTextureFormat::Depth
         };
 
@@ -3311,9 +3338,13 @@ namespace OloEngine
         cmd->indexCount = mesh->GetIndexCount();
         cmd->baseIndex = mesh->GetBaseIndex();
         cmd->transform = modelMatrix;
-        cmd->prevTransform = (s_Data.Settings.Path == RenderingPath::Deferred)
-                                 ? GetAndRecordPrevTransform(entityID, cmd->transform)
-                                 : cmd->transform;
+        // Prev-transform applies to all paths — see DrawMesh() comment.
+        // Note: per-bone velocity is only emitted in Deferred (via the
+        // prevBoneBufferOffset stream above). Forward skinned meshes get
+        // per-object velocity from u_PrevModel; intra-skeleton motion
+        // resolves to zero velocity which is acceptable (TAA still
+        // benefits from correct whole-body motion reprojection).
+        cmd->prevTransform = GetAndRecordPrevTransform(entityID, cmd->transform);
         cmd->shaderHandle = shaderToUse->GetHandle();
 
         // Material data via table

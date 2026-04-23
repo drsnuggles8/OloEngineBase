@@ -18,6 +18,11 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    // Forward-path velocity support: previous-frame view-projection used
+    // together with u_PrevModel to reconstruct per-object screen-space
+    // motion into scene FB RT3. Equals ViewProjection on the first frame
+    // so velocity starts at zero.
+    mat4 u_PrevViewProjection;
 };
 
 // Model UBO (binding 3)
@@ -28,12 +33,22 @@ layout(std140, binding = 3) uniform ModelMatrices {
     int _paddingEntity0;
     int _paddingEntity1;
     int _paddingEntity2;
+    // Previous-frame world transform maintained per-entity by Renderer3D.
+    // Static meshes satisfy u_PrevModel == u_Model so the emitted velocity
+    // is exactly zero; moving meshes produce a per-pixel motion vector.
+    mat4 u_PrevModel;
 };
 
 // Output to fragment shader
 layout(location = 0) out vec3 v_WorldPos;
 layout(location = 1) out vec3 v_Normal;
 layout(location = 2) out vec2 v_TexCoord;
+// Clip-space positions for per-pixel velocity reconstruction in the fragment
+// shader. Passing them through the interpolators (rather than recomputing
+// from v_WorldPos) gives correct perspective-interpolated motion on moving
+// objects, matching the deferred G-Buffer path.
+layout(location = 3) out vec4 v_ClipPosCurr;
+layout(location = 4) out vec4 v_ClipPosPrev;
 
 void main()
 {
@@ -41,7 +56,14 @@ void main()
     v_Normal = mat3(u_Normal) * a_Normal;
     v_TexCoord = a_TexCoord;
 
-    gl_Position = u_ViewProjection * vec4(v_WorldPos, 1.0);
+    vec4 clipCurr = u_ViewProjection * vec4(v_WorldPos, 1.0);
+    vec4 prevWorldPos = u_PrevModel * vec4(a_Position, 1.0);
+    vec4 clipPrev = u_PrevViewProjection * prevWorldPos;
+
+    v_ClipPosCurr = clipCurr;
+    v_ClipPosPrev = clipPrev;
+
+    gl_Position = clipCurr;
 }
 
 #type fragment
@@ -153,11 +175,17 @@ layout(std140, binding = 6) uniform ShadowData {
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;
 layout(location = 2) in vec2 v_TexCoord;
+layout(location = 3) in vec4 v_ClipPosCurr;
+layout(location = 4) in vec4 v_ClipPosPrev;
 
 // Output
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
 layout(location = 2) out vec2 o_ViewNormal;
+// Forward-path TAA motion vector. Scene FB attachment 3 is RG16F; the
+// PostProcessRenderPass binds it as u_Velocity for TAA in Forward /
+// Forward+ (Deferred reads G-Buffer RT3 instead).
+layout(location = 3) out vec2 o_Velocity;
 
 // Octahedral encode: unit normal → RG16F [-1,1]²
 vec2 octEncode(vec3 n)
@@ -425,4 +453,11 @@ void main()
         outputN = normalize(mix(N, vec3(0.0, 1.0, 0.0), snowWeight * 0.6));
     }
     o_ViewNormal = octEncode(normalize(mat3(u_View) * outputN));
+
+    // Screen-space velocity in NDC units. Matches PBR_GBuffer.glsl's
+    // derivation so forward-path TAA sees identically-scaled motion
+    // vectors. Static meshes report (0,0) because prevWorldPos == worldPos.
+    vec2 ndcCurr = v_ClipPosCurr.xy / v_ClipPosCurr.w;
+    vec2 ndcPrev = v_ClipPosPrev.xy / v_ClipPosPrev.w;
+    o_Velocity = (ndcCurr - ndcPrev) * 0.5;
 }

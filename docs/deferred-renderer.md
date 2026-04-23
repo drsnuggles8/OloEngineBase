@@ -123,29 +123,25 @@ shader (`PBR_MultiLight.glsl`) for opaque surfaces:
 
 ## Known limitations (future work)
 
-- **TAA projection jitter (optional enhancement).** The Temporal
-  Anti-Aliasing pass (`PostProcess_TAA.glsl`) ships with neighborhood
-  variance clipping, velocity-dilated reprojection, and a built-in
-  sharpen filter. It does **not** inject per-frame Halton sub-pixel
-  jitter into the projection matrix, so it primarily reduces temporal
-  aliasing (crawl during motion) rather than resolving spatial
-  sub-pixel detail. Adding jitter requires a small change to the
-  `CameraMatrices` upload path plus an unjitter uniform for the depth
-  reconstruction in the TAA shader — no G-Buffer / pass-graph changes.
-- **Stacked emissive decals overwrite rather than accumulate.**
-  `Decal_GBuffer_Emissive` writes RT2.rgb directly with the channel
-  mask configured to preserve RT2.a (the unlit flag). Multiple emissive
-  decals stacking on the same pixel therefore replace rather than sum.
-  A dedicated accumulation RT (or dual-source blending) would enable
-  additive stacking.
-- **Forward / Forward+ TAA uses camera-only velocity.** In Deferred
-  mode TAA consumes G-Buffer RT3 which includes per-entity,
-  per-bone (skinned), and per-instance motion; in Forward / Forward+
-  the shader reconstructs velocity from depth + previous view-projection
-  only (camera motion). Moving objects ghost during motion in those
-  paths. Emitting a dedicated velocity target from forward shaders
-  would close this gap; kept as future work so the forward paths stay
-  lean.
+- **Forward / Forward+ skinned meshes: per-bone velocity not tracked.**
+  The forward PBR variants (`PBR_MultiLight.glsl`,
+  `PBR_MultiLight_Skinned.glsl`) now emit screen-space velocity into
+  scene framebuffer RT3 so TAA consumes per-object motion for static
+  meshes and whole-body motion for animated meshes. Intra-skeleton
+  bone deltas are *not* tracked on the forward paths — that would
+  require streaming a second bone palette (as the deferred G-Buffer
+  skinned shader does). Rigid object motion and camera reprojection
+  are correct; fast-moving limbs may still exhibit slight ghosting
+  during TAA feedback.
+- **Non-PBR forward shaders emit zero velocity.** Terrain, water,
+  foliage, decals, particles, skybox, the infinite grid, and other
+  non-`PBR_MultiLight` forward shaders leave RT3 at its cleared value
+  (SceneRenderPass explicitly zero-clears the velocity attachment so
+  those pixels read "no motion" for TAA). Animated material effects
+  on those surfaces (wind on foliage, water flow) therefore fall back
+  to TAA's neighborhood clip rather than a per-pixel reprojection.
+  Mirroring the velocity-emit block from `PBR_MultiLight.glsl` into
+  each shader would close this; kept as opt-in future work.
 
 ## Renderer capability matrix
 
@@ -161,7 +157,7 @@ lights are accumulated.
 | Point + spot shadow maps (up to 4 each)     |   ✅    |    ✅    |    ✅    |
 | Animated skeletal meshes                    |   ✅    |    ✅    |    ✅    |
 | Skinned per-bone motion vectors             |   ➖    |    ➖    |    ✅    |
-| Per-instance motion vectors                 |   ➖    |    ➖    |    ✅    |
+| Per-instance motion vectors                 |   ✅    |    ✅    |    ✅    |
 | Tile-based light culling (many point/spot)  |   ➖    |    ✅    |    ✅    |
 | Auto-upgrade to Forward+ at light threshold |   ✅    |    —     |    —     |
 | MSAA                                        |   ✅    |    ✅    | ✅ (per-sample lighting) |
@@ -183,7 +179,7 @@ lights are accumulated.
 | Tone mapping (Reinhard / ACES / Uncharted2) |   ✅    |    ✅    |    ✅    |
 | Color grading                               |   ✅    |    ✅    |    ✅    |
 | Vignette / FXAA                             |   ✅    |    ✅    |    ✅    |
-| Temporal AA (TAA)                           | ✅ (camera velocity only) | ✅ (camera velocity only) | ✅ (full G-Buffer velocity) |
+| Temporal AA (TAA)                           | ✅ (per-object PBR velocity + Halton jitter) | ✅ (per-object PBR velocity + Halton jitter) | ✅ (full G-Buffer velocity + Halton jitter) |
 | Subsurface scattering (SSS blur pass)       |   ✅    |    ✅    |    ✅    |
 | Morph-target animation                      |   ✅    |    ✅    |    ✅    |
 | Particle system (CPU + GPU)                 |   ✅    |    ✅    |    ✅    |

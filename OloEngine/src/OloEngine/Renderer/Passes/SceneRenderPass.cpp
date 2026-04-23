@@ -107,6 +107,20 @@ namespace OloEngine
         // iterates the attachment list so it is safe either way.
         renderFB->ClearAllAttachments({ 0.1f, 0.1f, 0.1f, 1.0f }, -1);
 
+        // Velocity RT (scene FB attachment 3 in Forward / Forward+) must clear
+        // to zero so non-PBR forward shaders that don't emit location=3 leave
+        // sky / terrain / water / particle pixels at "no motion". The generic
+        // ClearAllAttachments path uses the same colour for every float RT,
+        // which would write (0.1, 0.1) and produce bogus TAA reprojection at
+        // uncovered pixels. Deferred mode ignores this RT (TAA reads G-Buffer
+        // velocity instead) so the zero-clear is a cheap no-op there.
+        if (!deferredActive && m_Target)
+        {
+            const auto& attachments = m_Target->GetSpecification().Attachments.Attachments;
+            if (attachments.size() > 3 && attachments[3].TextureFormat == FramebufferTextureFormat::RG16F)
+                m_Target->ClearAttachment(3, glm::vec4(0.0f));
+        }
+
         // Reset to default OpenGL state to ensure consistent rendering
         auto& rendererAPI = RenderCommand::GetRendererAPI();
         rendererAPI.SetDepthTest(true);

@@ -24,6 +24,13 @@ namespace OloEngine
             glm::mat4 Projection;
             glm::vec3 Position;
             f32 _padding0;
+            // Previous-frame view-projection for forward-path velocity
+            // reconstruction in PBR_MultiLight / PBR_MultiLight_Skinned.
+            // Equals ViewProjection on the first frame so velocity is zero
+            // on static pixels. Shaders that do not need it declare a
+            // CameraMatrices block that stops at _padding0; std140 allows
+            // the C++-side buffer to carry extra trailing bytes.
+            glm::mat4 PrevViewProjection;
 
             static constexpr u32 GetSize()
             {

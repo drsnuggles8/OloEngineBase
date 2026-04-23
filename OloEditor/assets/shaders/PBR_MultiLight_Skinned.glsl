@@ -20,6 +20,9 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    // Previous-frame view-projection for forward-path TAA velocity
+    // emission. See PBR_MultiLight.glsl for the full design note.
+    mat4 u_PrevViewProjection;
 };
 
 // Model UBO (binding 3)
@@ -30,6 +33,12 @@ layout(std140, binding = 3) uniform ModelMatrices {
     int _paddingEntity0;
     int _paddingEntity1;
     int _paddingEntity2;
+    // Previous-frame world transform. For skinned meshes we reuse the
+    // current bone palette (prev-bone matrices are only streamed in the
+    // Deferred G-Buffer skinned shader), so the emitted velocity covers
+    // rigid whole-body motion only — intra-skeleton bone deltas resolve
+    // to zero, which is acceptable for TAA reprojection on forward paths.
+    mat4 u_PrevModel;
 };
 
 // Bone Matrices UBO (binding 4)
@@ -41,6 +50,8 @@ layout(std140, binding = 4) uniform BoneMatrices {
 layout(location = 0) out vec3 v_WorldPos;
 layout(location = 1) out vec3 v_Normal;
 layout(location = 2) out vec2 v_TexCoord;
+layout(location = 3) out vec4 v_ClipPosCurr;
+layout(location = 4) out vec4 v_ClipPosPrev;
 
 void main()
 {
@@ -73,7 +84,16 @@ void main()
     v_Normal = mat3(u_Normal) * localNormal;
     v_TexCoord = a_TexCoord;
 
-    gl_Position = u_ViewProjection * vec4(v_WorldPos, 1.0);
+    vec4 clipCurr = u_ViewProjection * vec4(v_WorldPos, 1.0);
+    // Forward skinned prev uses the same bone palette — prev-bone tracking
+    // for per-joint velocity is a deferred-only feature today.
+    vec3 prevWorldPos = vec3(u_PrevModel * localPosition);
+    vec4 clipPrev = u_PrevViewProjection * vec4(prevWorldPos, 1.0);
+
+    v_ClipPosCurr = clipCurr;
+    v_ClipPosPrev = clipPrev;
+
+    gl_Position = clipCurr;
 }
 
 #type fragment
@@ -180,11 +200,15 @@ layout(std140, binding = 6) uniform ShadowData {
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;
 layout(location = 2) in vec2 v_TexCoord;
+layout(location = 3) in vec4 v_ClipPosCurr;
+layout(location = 4) in vec4 v_ClipPosPrev;
 
 // Output
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
 layout(location = 2) out vec2 o_ViewNormal;
+// Forward-path TAA motion vector (matches PBR_MultiLight.glsl).
+layout(location = 3) out vec2 o_Velocity;
 
 // Octahedral encode: unit normal → RG16F [-1,1]²
 vec2 octEncode(vec3 n)
@@ -419,4 +443,11 @@ void main()
         outputN = normalize(mix(N, vec3(0.0, 1.0, 0.0), snowWeight * 0.6));
     }
     o_ViewNormal = octEncode(normalize(mat3(u_View) * outputN));
+
+    // Screen-space velocity - see PBR_MultiLight.glsl for the derivation.
+    // Skinned meshes emit whole-body motion only; per-bone deltas remain a
+    // deferred-only feature (needs prev-bone palette streaming).
+    vec2 ndcCurr = v_ClipPosCurr.xy / v_ClipPosCurr.w;
+    vec2 ndcPrev = v_ClipPosPrev.xy / v_ClipPosPrev.w;
+    o_Velocity = (ndcCurr - ndcPrev) * 0.5;
 }
