@@ -4,6 +4,12 @@
 // other emissive surface. The caller gates draw-buffers to attachment 2 only
 // and keeps RT0/RT1/RT3 untouched via glColorMaski.
 //
+// Blending: DecalRenderPass enables additive blending on RT2 for Emissive
+// decals (glBlendFunci(2, GL_ONE, GL_ONE) + glEnablei(GL_BLEND, 2)), so
+// stacking multiple emissive decals SUMS their contributions (HDR RT2 is
+// RGBA16F so there is ample headroom). Non-emissive decal modes leave blend
+// off on RT2, preserving their overwrite behaviour.
+//
 // Input texture layout: RGB = emissive colour (HDR-capable), A = fade mask.
 // The emissive sample is multiplied by u_DecalColor.rgb to tint it; the
 // w component of u_DecalColor is applied to the fade mask (like every other

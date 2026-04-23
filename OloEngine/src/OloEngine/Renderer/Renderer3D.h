@@ -1170,6 +1170,18 @@ namespace OloEngine
             PrecipitationSettings Precipitation;
             glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
 
+            // TAA projection jitter state (Halton(2,3) sub-pixel sequence).
+            // BeginSceneCommon rotates CurrJitterUV -> PrevJitterUV and then
+            // samples the next Halton pair when PostProcess.TAAEnabled; the
+            // jitter offset is baked into `ProjectionMatrix` (and therefore
+            // `ViewProjectionMatrix`) so all downstream passes observe the
+            // jittered camera consistently. In Forward / Forward+ without
+            // TAA, and in any path with TAA disabled, both jitters stay at
+            // zero — no behavioural change.
+            u32 TAAJitterFrameIndex = 0;
+            glm::vec2 CurrJitterUV = glm::vec2(0.0f);
+            glm::vec2 PrevJitterUV = glm::vec2(0.0f);
+
             // Global IBL fallback (from scene's EnvironmentMap)
             RendererID GlobalIrradianceMapID = 0;
             RendererID GlobalPrefilterMapID = 0;

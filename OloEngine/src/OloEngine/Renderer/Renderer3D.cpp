@@ -61,6 +61,24 @@ namespace OloEngine
     Renderer3D::Renderer3DData Renderer3D::s_Data;
     ShaderLibrary Renderer3D::m_ShaderLibrary;
 
+    // Halton low-discrepancy sequence used for TAA sub-pixel jitter. Index is
+    // 1-based (index 0 is undefined for Halton); the sequence repeats every
+    // kHaltonSequenceLength samples which is long enough to de-correlate the
+    // jitter pattern from any typical framerate / scene loop.
+    static constexpr u32 kHaltonSequenceLength = 8;
+    static f32 HaltonSample(u32 index, u32 base)
+    {
+        f32 f = 1.0f;
+        f32 r = 0.0f;
+        while (index > 0)
+        {
+            f /= static_cast<f32>(base);
+            r += f * static_cast<f32>(index % base);
+            index /= base;
+        }
+        return r;
+    }
+
     // Helper function to compute depth from camera space for sort key
     // Returns a quantized depth value in range [0, 0xFFFFFF] for 24-bit depth
     // @param modelMatrix The model transformation matrix
@@ -697,6 +715,56 @@ namespace OloEngine
             s_Data.ForwardOverlayPass->GetCommandBucket().SetAllocator(frameAllocator);
         if (s_Data.WaterPass)
             s_Data.WaterPass->GetCommandBucket().SetAllocator(frameAllocator);
+
+        // TAA projection jitter. We bake a sub-pixel Halton offset into the
+        // projection matrix so the same pixel samples a slightly different
+        // geometric position each frame; the TAA accumulator then averages
+        // across frames for sub-pixel anti-aliasing. The jitter is applied
+        // uniformly to ProjectionMatrix and therefore ViewProjectionMatrix,
+        // so every downstream pass (G-Buffer, lighting, decals, water,
+        // SSAO/GTAO, post-process) observes the same jittered camera. Both
+        // the current and previous ViewProjection carry their respective
+        // jitters so depth-based reprojection in TAA remains self-consistent
+        // without requiring an explicit unjitter uniform.
+        s_Data.PrevJitterUV = s_Data.CurrJitterUV;
+        s_Data.CurrJitterUV = glm::vec2(0.0f);
+        if (s_Data.PostProcess.TAAEnabled && s_Data.ScenePass && s_Data.ScenePass->GetTarget())
+        {
+            const auto& spec = s_Data.ScenePass->GetTarget()->GetSpecification();
+            if (spec.Width > 0 && spec.Height > 0)
+            {
+                // 1-based Halton index; Halton(0) is undefined. Loop modulo
+                // kHaltonSequenceLength keeps the pattern short and stable.
+                const u32 idx = (s_Data.TAAJitterFrameIndex % kHaltonSequenceLength) + 1;
+                // Halton samples land in [0, 1]; remap to [-0.5, 0.5] so the
+                // jitter is centred around the unperturbed pixel.
+                const f32 jx = HaltonSample(idx, 2) - 0.5f;
+                const f32 jy = HaltonSample(idx, 3) - 0.5f;
+
+                // Convert pixel offset to NDC — 2 NDC units span the screen,
+                // so one pixel in NDC = 2 / resolution.
+                const f32 jitterNdcX = jx * (2.0f / static_cast<f32>(spec.Width));
+                const f32 jitterNdcY = jy * (2.0f / static_cast<f32>(spec.Height));
+
+                // Inject jitter via the z-column of the projection matrix.
+                // After the perspective divide this becomes a constant NDC
+                // offset (x_ndc = P[2][0] * z / w_clip = P[2][0] * z / -z = -P[2][0])
+                // which is exactly the sub-pixel shift we want.
+                s_Data.ProjectionMatrix[2][0] += jitterNdcX;
+                s_Data.ProjectionMatrix[2][1] += jitterNdcY;
+                s_Data.ViewProjectionMatrix = s_Data.ProjectionMatrix * s_Data.ViewMatrix;
+
+                // Track jitter in UV-space so the TAA shader (or any future
+                // consumer) can subtract it if needed. NDC -> UV is * 0.5.
+                s_Data.CurrJitterUV = glm::vec2(jitterNdcX * 0.5f, jitterNdcY * 0.5f);
+
+                s_Data.TAAJitterFrameIndex = (s_Data.TAAJitterFrameIndex + 1) % kHaltonSequenceLength;
+            }
+        }
+        else
+        {
+            s_Data.TAAJitterFrameIndex = 0;
+        }
 
         CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
         CommandDispatch::SetViewMatrix(s_Data.ViewMatrix);

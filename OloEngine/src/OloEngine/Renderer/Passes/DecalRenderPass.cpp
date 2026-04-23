@@ -210,6 +210,17 @@ namespace OloEngine
 
             if (packetMode != currentMode)
             {
+                // Emissive mode additively accumulates into RT2.rgb so
+                // overlapping emissive decals sum their contributions; all
+                // other modes overwrite (the previous value is preserved for
+                // channels outside the colour mask).
+                const bool wantAdditive = (packetMode == 3);
+                glBlendFunci(2, GL_ONE, GL_ONE);
+                if (wantAdditive)
+                    glEnablei(GL_BLEND, 2);
+                else
+                    glDisablei(GL_BLEND, 2);
+
                 switch (packetMode)
                 {
                     case 1: // Normal — RT1 only, xy writable, zw preserved
@@ -256,6 +267,11 @@ namespace OloEngine
         for (GLuint rt = 0; rt < 4; ++rt)
             glColorMaski(rt, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glNamedFramebufferDrawBuffers(gbufferID, 4, fullDrawBufs);
+
+        // Restore RT2 blend state — emissive additive blending leaks into
+        // the next pass otherwise (observed as SSAO / GTAO darkening the
+        // emissive channel during composite).
+        glDisablei(GL_BLEND, 2);
 
         writeTargetFB->Unbind();
 
