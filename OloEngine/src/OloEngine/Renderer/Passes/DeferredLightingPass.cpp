@@ -48,6 +48,11 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Only runs when registered in the graph, which `Renderer3D::
+        // ConfigureRenderGraph` does solely for RenderingPath::Deferred.
+        // The guards here are for genuine invalid states (shader load
+        // failure, G-Buffer not yet lazily created, explicit debug-channel
+        // override bypassing lighting) — not for path selection.
         if (!m_Shader || !m_GBuffer || !m_SceneFramebuffer || m_DebugChannel != 0)
             return;
 

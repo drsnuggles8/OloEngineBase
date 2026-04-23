@@ -31,6 +31,24 @@ namespace OloEngine
         m_FinalPassName.clear();
     }
 
+    void RenderGraph::ResetTopology()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Wipe topology bookkeeping but leave pass framebuffers / internal
+        // state alone — the passes themselves are owned externally and will
+        // be re-registered by the caller as part of the new topology.
+        m_PassLookup.clear();
+        m_Dependencies.clear();
+        m_FramebufferConnections.clear();
+        m_InsertionOrder.clear();
+        m_PassOrder.clear();
+        m_FinalPassName.clear();
+        m_CachedPipes.clear();
+        m_CachedExecutionOrder.clear();
+        m_DependencyGraphDirty = true;
+    }
+
     void RenderGraph::AddPass(const Ref<RenderPass>& pass)
     {
         OLO_PROFILE_FUNCTION();

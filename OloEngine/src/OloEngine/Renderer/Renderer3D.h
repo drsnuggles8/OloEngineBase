@@ -1015,6 +1015,13 @@ namespace OloEngine
         static void UpdateCameraMatricesUBO(const glm::mat4& view, const glm::mat4& projection);
         static void UpdateLightPropertiesUBO();
         static void SetupRenderGraph(u32 width, u32 height);
+        // Rebuild the RenderGraph topology (registered passes + edges) for
+        // the given rendering path. Called from SetupRenderGraph on startup
+        // and from ApplyRendererSettings when the user switches between
+        // Forward / Forward+ / Deferred. Passes that are no-ops in the
+        // target path (DeferredLightingPass / ForwardOverlayPass in
+        // Forward+/Forward) are simply NOT registered in that topology.
+        static void ConfigureRenderGraph(RenderingPath path);
 
       private:
         struct Renderer3DData
@@ -1200,6 +1207,13 @@ namespace OloEngine
 
             // Global renderer settings (path selection, culling toggles, etc.)
             RendererSettings Settings;
+
+            // RenderingPath the current RenderGraph topology was built for.
+            // Compared against Settings.Path in ApplyRendererSettings to
+            // detect a mode switch and trigger ConfigureRenderGraph.
+            // Initialised to a sentinel so the first ConfigureRenderGraph
+            // in SetupRenderGraph always runs.
+            RenderingPath ActiveGraphPath = static_cast<RenderingPath>(0xFF);
 
             // Editor-only features gated behind opt-in flags
             bool EnableSelectionOutline = false;

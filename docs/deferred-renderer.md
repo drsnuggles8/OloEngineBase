@@ -40,16 +40,34 @@ The class wrapping this is [`GBuffer`](../OloEngine/src/OloEngine/Renderer/GBuff
 
 ## Render graph
 
+The RenderGraph is rebuilt whenever `RendererSettings.Path` changes
+(`Renderer3D::ConfigureRenderGraph` via `RenderGraph::ResetTopology`),
+so the pass list only ever contains the passes that are relevant for
+the active path.
+
+**Deferred path**:
+
 ```
 ShadowPass → ScenePass → DeferredLightingPass → ForwardOverlayPass
          → FoliagePass → DecalPass → WaterPass
          → SSAO/GTAO → ParticlePass → SSSPass → PostProcessPass → … → FinalPass
 ```
 
-In `Forward` / `ForwardPlus`, `DeferredLightingPass::Execute` and
-`ForwardOverlayRenderPass::Execute` are both no-ops — they only run
-when `Settings.Path == RenderingPath::Deferred` and `SceneRenderPass`
-has produced a G-Buffer for them to sample.
+**Forward / Forward+ paths** omit `DeferredLightingPass` and
+`ForwardOverlayPass` entirely — they are not registered in the graph
+rather than being no-op-guarded at runtime:
+
+```
+ShadowPass → ScenePass → FoliagePass → DecalPass → WaterPass
+         → SSAO/GTAO → ParticlePass → SSSPass → PostProcessPass → … → FinalPass
+```
+
+The internal `if (!m_GBuffer) return;` and bucket-empty guards in those
+two passes now exist purely as invalid-state defences, not as path
+selectors. For the longer-term plan to replace the current static
+wiring with a true adaptive render graph (transient resources,
+reachability culling, automatic barriers), see
+[render-graph-roadmap.md](render-graph-roadmap.md).
 
 `DeferredLightingPass` writes its lit RGBA16F output directly into the
 `ScenePass` framebuffer's colour attachment 0 *and* blits the G-Buffer

@@ -2295,6 +2295,17 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         auto& settings = s_Data.Settings;
 
+        // Detect a RenderingPath switch and rebuild the graph topology
+        // BEFORE touching the Forward+ mode / culling toggles below so that
+        // downstream code always observes a graph whose registered pass
+        // list matches the active path. RGraph must exist — if we're called
+        // pre-Init (defensive), skip the rebuild and let SetupRenderGraph
+        // do the first configure.
+        if (s_Data.RGraph && settings.Path != s_Data.ActiveGraphPath)
+        {
+            ConfigureRenderGraph(settings.Path);
+        }
+
         // Sync culling toggles
         EnableFrustumCulling(settings.FrustumCullingEnabled);
         EnableOcclusionCulling(settings.OcclusionCullingEnabled);
@@ -3027,10 +3038,45 @@ namespace OloEngine
         s_Data.FinalPass->SetName("FinalPass");
         s_Data.FinalPass->Init(finalPassSpec);
 
+        // All passes are now constructed. Build the initial graph topology
+        // for the currently-configured rendering path. Runtime switches
+        // between Forward / Forward+ / Deferred re-run ConfigureRenderGraph
+        // from ApplyRendererSettings so the graph only ever contains the
+        // passes that are relevant for the active path.
+        ConfigureRenderGraph(s_Data.Settings.Path);
+    }
+
+    void Renderer3D::ConfigureRenderGraph(RenderingPath path)
+    {
+        OLO_PROFILE_FUNCTION();
+        OLO_CORE_INFO("Renderer3D: Configuring RenderGraph for path = {}",
+                      path == RenderingPath::Forward       ? "Forward"
+                      : path == RenderingPath::ForwardPlus ? "Forward+"
+                                                           : "Deferred");
+
+        // Wipe any prior topology. Passes themselves are owned by s_Data
+        // as Ref<>s and survive the reset — only the graph's bookkeeping
+        // (pass lookup, edges, framebuffer piping, cached execution order)
+        // is cleared.
+        s_Data.RGraph->ResetTopology();
+
+        const bool deferred = (path == RenderingPath::Deferred);
+
+        // Core passes shared by every path
         s_Data.RGraph->AddPass(s_Data.ShadowPass);
         s_Data.RGraph->AddPass(s_Data.ScenePass);
-        s_Data.RGraph->AddPass(s_Data.DeferredLightPass);
-        s_Data.RGraph->AddPass(s_Data.ForwardOverlayPass);
+
+        // Deferred-only passes: the G-Buffer lighting composition + the
+        // forward overlay that renders skybox/terrain/voxel/grid/debug
+        // geometry on top of the lit result. In Forward / Forward+ these
+        // are simply NOT registered, so the graph executor never dispatches
+        // them and the execution edges that reference them are skipped.
+        if (deferred)
+        {
+            s_Data.RGraph->AddPass(s_Data.DeferredLightPass);
+            s_Data.RGraph->AddPass(s_Data.ForwardOverlayPass);
+        }
+
         s_Data.RGraph->AddPass(s_Data.FoliagePass);
         s_Data.RGraph->AddPass(s_Data.WaterPass);
         s_Data.RGraph->AddPass(s_Data.DecalPass);
@@ -3049,22 +3095,24 @@ namespace OloEngine
 
         // ShadowPass -> ScenePass: ordering only (shadow textures are bound via UBO/texture slots)
         s_Data.RGraph->AddExecutionDependency("ShadowPass", "ScenePass");
-        // ScenePass -> DeferredLightingPass: G-Buffer MRT must be fully written
-        // before the lighting pass samples it. In Forward/Forward+ the pass
-        // no-ops (SetGBuffer(nullptr) each frame), so this edge is inert.
-        s_Data.RGraph->AddExecutionDependency("ScenePass", "DeferredLightingPass");
-        // DeferredLightingPass -> ForwardOverlayPass: overlay geometry (skybox,
-        // terrain, voxel, grid, debug) relies on the G-Buffer depth that
-        // DeferredLightingPass blits into the scene FB depth attachment.
-        s_Data.RGraph->AddExecutionDependency("DeferredLightingPass", "ForwardOverlayPass");
-        // ForwardOverlayPass -> FoliagePass: foliage overlays the lit scene
-        // plus forward-overlay geometry. Edge is inert in Forward/Forward+
-        // because ForwardOverlayPass no-ops there.
-        s_Data.RGraph->AddExecutionDependency("ForwardOverlayPass", "FoliagePass");
-        // DeferredLightingPass -> FoliagePass: in Deferred, foliage blends
-        // over the lit result written into ScenePass's colour[0]; in
-        // Forward/Forward+ the edge is an inert no-op.
-        s_Data.RGraph->AddExecutionDependency("DeferredLightingPass", "FoliagePass");
+
+        if (deferred)
+        {
+            // ScenePass -> DeferredLightingPass: G-Buffer MRT must be fully
+            // written before the lighting pass samples it.
+            s_Data.RGraph->AddExecutionDependency("ScenePass", "DeferredLightingPass");
+            // DeferredLightingPass -> ForwardOverlayPass: overlay geometry
+            // (skybox, terrain, voxel, grid, debug) relies on the G-Buffer
+            // depth that DeferredLightingPass blits into the scene FB.
+            s_Data.RGraph->AddExecutionDependency("DeferredLightingPass", "ForwardOverlayPass");
+            // ForwardOverlayPass -> FoliagePass: foliage overlays the lit scene
+            // plus forward-overlay geometry.
+            s_Data.RGraph->AddExecutionDependency("ForwardOverlayPass", "FoliagePass");
+            // DeferredLightingPass -> FoliagePass: foliage blends over the lit
+            // result written into ScenePass's colour[0].
+            s_Data.RGraph->AddExecutionDependency("DeferredLightingPass", "FoliagePass");
+        }
+
         // ScenePass -> FoliagePass: ordering (foliage renders into scene FB after opaque geometry)
         s_Data.RGraph->AddExecutionDependency("ScenePass", "FoliagePass");
         // FoliagePass -> DecalPass: ordering (decals render on opaque surfaces before translucent water)
@@ -3110,13 +3158,17 @@ namespace OloEngine
         // PostProcessPass initial input is the scene FB (overridden by graph's SSSPass -> PostProcessPass
         // piping each frame, which passes SSSPass::GetTarget() = scene FB when SSS is disabled).
         s_Data.PostProcessPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
-        if (s_Data.EnableSelectionOutline)
+
+        if (deferred)
         {
-            OLO_CORE_INFO("Renderer3D: Render graph: Shadow -> Scene -> Foliage -> Decal -> Water -> SSAO -> Particle -> SSS -> PostProcess -> SelectionOutline -> UIComposite -> Final");
+            OLO_CORE_INFO("Renderer3D: Render graph (Deferred): Shadow -> Scene -> DeferredLighting -> ForwardOverlay -> Foliage -> Decal -> Water -> SSAO/GTAO -> Particle -> OITResolve -> SSS -> PostProcess{} -> UIComposite -> Final",
+                          s_Data.EnableSelectionOutline ? " -> SelectionOutline" : "");
         }
         else
         {
-            OLO_CORE_INFO("Renderer3D: Render graph: Shadow -> Scene -> Foliage -> Decal -> Water -> SSAO -> Particle -> SSS -> PostProcess -> UIComposite -> Final");
+            OLO_CORE_INFO("Renderer3D: Render graph ({}): Shadow -> Scene -> Foliage -> Decal -> Water -> SSAO/GTAO -> Particle -> OITResolve -> SSS -> PostProcess{} -> UIComposite -> Final",
+                          path == RenderingPath::ForwardPlus ? "Forward+" : "Forward",
+                          s_Data.EnableSelectionOutline ? " -> SelectionOutline" : "");
         }
 
         s_Data.RGraph->SetFinalPass("FinalPass");
@@ -3150,6 +3202,8 @@ namespace OloEngine
                 OLO_CORE_INFO("Renderer3D: RenderGraph resource hazard validation passed.");
             }
         }
+
+        s_Data.ActiveGraphPath = path;
     }
 
     void Renderer3D::OnWindowResize(u32 width, u32 height)

@@ -25,19 +25,11 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_SceneFramebuffer)
-        {
-            ResetCommandBucket();
-            return;
-        }
-
-        // Early out in Forward / Forward+ — these paths keep routing overlay
-        // commands through SceneRenderPass so our bucket is empty. The
-        // DeferredLightingPass depth-blit that we rely on is also skipped in
-        // non-deferred modes, so executing here would depth-test against
-        // cleared scene-FB depth and draw over everything.
-        if (Renderer3D::GetRendererSettings().Path != RenderingPath::Deferred ||
-            m_CommandBucket.GetCommandCount() == 0)
+        // Only runs when registered in the graph, which `Renderer3D::
+        // ConfigureRenderGraph` does solely for RenderingPath::Deferred
+        // (Forward/Forward+ route overlay draws through SceneRenderPass).
+        // Remaining guards are for invalid-state safety only.
+        if (!m_SceneFramebuffer || m_CommandBucket.GetCommandCount() == 0)
         {
             ResetCommandBucket();
             return;

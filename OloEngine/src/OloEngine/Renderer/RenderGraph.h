@@ -20,6 +20,17 @@ namespace OloEngine
         void Init(u32 width, u32 height);
         void Shutdown();
 
+        // Clear all topology bookkeeping (passes, edges, framebuffer piping,
+        // cached execution order) WITHOUT touching the passes themselves.
+        // Used by `Renderer3D::ConfigureRenderGraph(RenderingPath)` to rebuild
+        // the graph when the user switches between Forward / Forward+ /
+        // Deferred at runtime. Because passes are owned externally as
+        // `Ref<>`s on `Renderer3D::s_Data`, their framebuffers and internal
+        // state survive the reset. Callers must re-`AddPass` every pass they
+        // want in the new topology and re-issue all edges before calling
+        // `SetFinalPass` / `ValidateResourceHazards` again.
+        void ResetTopology();
+
         // Only support RenderPass
         void AddPass(const Ref<RenderPass>& pass);
         // Connect two passes: establishes execution ordering AND framebuffer piping
