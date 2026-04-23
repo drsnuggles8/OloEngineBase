@@ -27,6 +27,7 @@ bool  windEnabled()       { return w_TimeAndFlags.y > 0.5; }
 vec3  windDirection()     { return w_DirectionAndSpeed.xyz; }
 float windSpeed()         { return w_DirectionAndSpeed.w; }
 float windTime()          { return w_TimeAndFlags.x; }
+float windPrevTime()      { return w_TimeAndFlags.w; }
 float windGridSize()      { return w_GridMinAndSize.w; }
 
 /**
@@ -72,6 +73,31 @@ vec3 analyticalWind(vec3 worldPos)
     float gustStr = w_GustAndTurbulence.x;
     float gustFreq = w_GustAndTurbulence.y;
     float time = w_TimeAndFlags.x;
+
+    float gustPhase = time * gustFreq * 6.2831853;
+    float spatial = dot(worldPos, dir) * 0.05;
+    float gust = 1.0 + gustStr * sin(gustPhase + spatial);
+
+    return dir * speed * gust;
+}
+
+/**
+ * @brief Analytical wind evaluated at an arbitrary time.
+ *
+ * Used to reproject per-fragment wind displacement at `t - dt` when
+ * producing velocity vectors for TAA / motion blur. Matches the spatial
+ * model of analyticalWind() exactly so current and previous samples are
+ * consistent.
+ */
+vec3 analyticalWindAtTime(vec3 worldPos, float time)
+{
+    if (!windEnabled())
+        return vec3(0.0);
+
+    vec3 dir = w_DirectionAndSpeed.xyz;
+    float speed = w_DirectionAndSpeed.w;
+    float gustStr = w_GustAndTurbulence.x;
+    float gustFreq = w_GustAndTurbulence.y;
 
     float gustPhase = time * gustFreq * 6.2831853;
     float spatial = dot(worldPos, dir) * 0.05;

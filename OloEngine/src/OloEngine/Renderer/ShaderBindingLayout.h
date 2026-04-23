@@ -254,7 +254,7 @@ namespace OloEngine
             f32 ViewDistance;
             f32 FadeStart;
             f32 AlphaCutoff;
-            f32 _pad0 = 0.0f;
+            f32 PrevTime = 0.0f; // Previous-frame time for per-fragment wind reprojection
             f32 _pad1 = 0.0f;
             glm::vec4 BaseColor; // xyz = color, w = unused
 
@@ -331,7 +331,7 @@ namespace OloEngine
             glm::vec4 WaterDeepColor;        // rgb = deep color,    a = Reflectivity
             glm::vec4 VisualParams;          // x = FresnelPower, y = SpecularIntensity, z = NormalMapTiling, w = NoiseIntensity
             glm::vec4 NormalMapScroll;       // xy = scroll0 dir, zw = scroll1 dir (scrolled by time * speed)
-            glm::vec4 NormalMapSpeed;        // x = speed0, y = speed1, z/w = unused
+            glm::vec4 NormalMapSpeed;        // x = speed0, y = speed1, z = PrevTime (for Gerstner reprojection), w = unused
             glm::vec4 LightDirection;        // xyz = directional light dir (normalized), w = unused
             glm::vec4 ScreenParams;          // x = width, y = height, z = 1/width, w = 1/height
             glm::vec4 DepthRefractionParams; // x = depthSofteningDist, y = refractionDistortion, z = refractionHeightFactor, w = unused
@@ -1004,7 +1004,7 @@ layout(std140, binding = 23) uniform WaterParams {
     vec4 u_WaterDeepColor;          // rgb = deep color,    a = Reflectivity
     vec4 u_VisualParams;            // x = FresnelPower, y = SpecularIntensity, z = NormalMapTiling, w = NoiseIntensity
     vec4 u_NormalMapScroll;         // xy = scroll0 offset, zw = scroll1 offset
-    vec4 u_NormalMapSpeed;          // x = speed0, y = speed1, z/w = unused
+    vec4 u_NormalMapSpeed;          // x = speed0, y = speed1, z = PrevTime (for Gerstner reprojection), w = unused
     vec4 u_LightDirection;          // xyz = directional light dir (normalized), w = unused
     vec4 u_ScreenParams;            // x = width, y = height, z = 1/width, w = 1/height
     vec4 u_DepthRefractionParams;   // x = depthSofteningDist, y = refractionDistortion, z = refractionHeightFactor, w = unused

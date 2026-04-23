@@ -317,6 +317,18 @@ namespace OloEngine
         // 2. Apply modules — independent modules run concurrently with the velocity chain
         // Color, Size, and Rotation only write m_Colors/m_Sizes/m_Rotations respectively,
         // so they are safe to run in parallel with the velocity chain (Gravity→Drag→Noise→Velocity).
+        // Snapshot prev rotation & size before integration so renderers can reconstruct
+        // the previous-frame billboard quad basis / mesh model matrix for RT3 velocity.
+        // Newly-emitted particles already have m_PrevRotations / m_PrevSizes seeded to
+        // their spawn values in ParticleEmitter, matching the m_PrevPositions contract.
+        {
+            u32 snapshotCount = m_Pool.GetAliveCount();
+            for (u32 i = 0; i < snapshotCount; ++i)
+            {
+                m_Pool.m_PrevRotations[i] = m_Pool.m_Rotations[i];
+                m_Pool.m_PrevSizes[i] = m_Pool.m_Sizes[i];
+            }
+        }
         bool useParallelModules = m_Pool.GetAliveCount() >= 256 && (ColorModule.Enabled || SizeModule.Enabled || RotationModule.Enabled);
 
         Tasks::TTask<void> colorTask;
@@ -506,7 +518,9 @@ namespace OloEngine
                 f32 size = Emitter.InitialSize + rng.GetFloat32InRange(-Emitter.SizeVariance, Emitter.SizeVariance);
                 m_Pool.m_Sizes[idx] = size;
                 m_Pool.m_InitialSizes[idx] = size;
+                m_Pool.m_PrevSizes[idx] = size;
                 m_Pool.m_Rotations[idx] = Emitter.InitialRotation + rng.GetFloat32InRange(-Emitter.RotationVariance, Emitter.RotationVariance);
+                m_Pool.m_PrevRotations[idx] = m_Pool.m_Rotations[idx];
 
                 f32 lifetime = rng.GetFloat32InRange(Emitter.LifetimeMin, Emitter.LifetimeMax);
                 m_Pool.m_Lifetimes[idx] = lifetime;

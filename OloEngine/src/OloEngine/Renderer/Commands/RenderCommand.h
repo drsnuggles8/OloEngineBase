@@ -771,7 +771,7 @@ namespace OloEngine
         f32 viewDistance = 100.0f;
         f32 fadeStart = 80.0f;
         f32 alphaCutoff = 0.5f;
-        f32 _pad0 = 0.0f;
+        f32 prevTime = 0.0f; // Previous-frame time for wind velocity reprojection
         f32 _pad1 = 0.0f;
         glm::vec4 baseColor = glm::vec4(1.0f); // xyz = color, w = unused
 

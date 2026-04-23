@@ -123,23 +123,30 @@ shader (`PBR_MultiLight.glsl`) for opaque surfaces:
 
 ## Known limitations (future work)
 
-- **Time-varying forward displacement is approximated.** Water
-  (Gerstner waves) and foliage (wind sway) emit velocity that
-  captures camera and per-object motion only; the on-surface
-  animation itself is *not* reprojected (doing so would require a
-  prev-time uniform so the shader could re-evaluate displacement at
-  `t - dt`). Rigid motion, zoom, panning, and strafing look correct
-  under TAA; pure wave/wind motion still falls back to neighborhood
-  clip which is fine for their relatively slow animation frequencies.
-- **Particle rotation / size animation is not reprojected.** Per-
-  particle motion vectors reproject the particle *centre* only:
-  CPU billboard + stretched particles use the current-frame camera
-  basis for both frames; mesh particles reuse the current-frame
-  rotation / scale in `u_PrevModel` (only translation is snapshotted
-  in `ParticlePool::m_PrevPositions`). For the typical case of
-  spinning / size-modulated particles this under-estimates motion by
-  the quad-basis / scale delta, which is negligible compared to the
-  centre translation.
+- *(none currently tracked — time-varying forward displacement and
+  particle rotation/size are now reprojected.)*
+
+### Previously tracked (now resolved)
+
+- ~~**Time-varying forward displacement is approximated.**~~ Water
+  (Gerstner waves) and foliage (wind sway) shaders now snapshot a
+  `PrevTime` alongside the current time and re-evaluate displacement
+  at `t - dt` for the prev-frame world position; the resulting
+  per-fragment world-space delta is reprojected through
+  `u_PrevViewProjection` so TAA resolves moving waves / wind-swayed
+  foliage cleanly. `PrevTime` rides in the existing UBO padding
+  slots (`FoliageUBO._pad0 → PrevTime`, `WaterUBO.NormalMapSpeed.z`,
+  `WindUBO.TimeAndFlags.w`) so struct sizes are unchanged.
+- ~~**Particle rotation / size animation is not reprojected.**~~
+  `ParticlePool` now carries parallel `m_PrevRotations` /
+  `m_PrevSizes` SOA arrays that are snapshotted right before rotation
+  / size integration (and seeded on spawn in `ParticleEmitter` +
+  sub-emitter triggers). CPU billboards reconstruct the prev-frame
+  quad basis from `a_PrevRotation` + `a_PrevPosition.w`; mesh
+  particles build `u_PrevModel` from snapshotted prev translation /
+  rotation / size; the GPU `PrevPositionBuffer` SSBO (binding 14)
+  was extended to a `PrevParticleData` struct carrying prev rotation
+  and size alongside prev position.
 
 ## Renderer capability matrix
 

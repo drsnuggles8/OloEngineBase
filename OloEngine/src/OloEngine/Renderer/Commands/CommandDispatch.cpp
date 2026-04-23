@@ -1791,6 +1791,7 @@ namespace OloEngine
             foliageData.ViewDistance = cmd->viewDistance;
             foliageData.FadeStart = cmd->fadeStart;
             foliageData.AlphaCutoff = cmd->alphaCutoff;
+            foliageData.PrevTime = cmd->prevTime;
             foliageData.BaseColor = cmd->baseColor;
             foliageUBO->SetData(&foliageData, ShaderBindingLayout::FoliageUBO::GetSize());
             glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_FOLIAGE, foliageUBO->GetRendererID());

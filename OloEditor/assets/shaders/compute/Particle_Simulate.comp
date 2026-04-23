@@ -18,13 +18,19 @@ layout(std430, binding = 0) buffer ParticleBuffer
     GPUParticle particles[];
 };
 
-// Previous-frame positions captured at the start of each simulation step
-// (BEFORE velocity integration). The billboard vertex shader reads this
-// SSBO to reproject particles through the previous-frame view-projection
-// and emit screen-space motion vectors to scene FB RT3 for TAA.
+// Previous-frame particle snapshot captured at the start of each simulation
+// step (BEFORE integration). Carries prev position, rotation, and size so the
+// billboard vertex shader can reconstruct the previous-frame quad basis for
+// scene FB RT3 velocity (TAA reprojection of rotating / scaling particles).
+struct PrevParticleData
+{
+    vec4 Position;      // xyz = prev world position, w unused
+    vec4 RotationSize;  // x = prev rotation (radians), y = prev size, zw unused
+};
+
 layout(std430, binding = 14) buffer PrevPositionBuffer
 {
-    vec4 prevPositions[];
+    PrevParticleData prevData[];
 };
 
 // --- Core simulation uniforms ---
@@ -88,10 +94,15 @@ void main()
     float lifetime = particles[idx].PositionLifetime.w;
     vec3 vel = particles[idx].VelocityMaxLifetime.xyz;
 
-    // Snapshot previous-frame position before any forces / integration run.
-    // Newly emitted particles already have prevPositions seeded in
+    // Snapshot previous-frame state before any forces / integration run.
+    // Newly emitted particles already have prevData seeded in
     // Particle_Emit.comp, so this path only fires for already-alive particles.
-    prevPositions[idx] = vec4(pos, 0.0);
+    prevData[idx].Position = vec4(pos, 0.0);
+    // Misc.y = rotation, InitialVelocitySize.w = current size.
+    prevData[idx].RotationSize = vec4(
+        particles[idx].Misc.y,
+        particles[idx].InitialVelocitySize.w,
+        0.0, 0.0);
 
     // Decrement lifetime
     lifetime -= u_DeltaTime;

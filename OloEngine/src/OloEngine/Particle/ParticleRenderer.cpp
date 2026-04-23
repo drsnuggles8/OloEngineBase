@@ -91,6 +91,8 @@ namespace OloEngine
             const glm::vec3 prevPos = pool.m_PrevPositions[i] + worldOffset;
             f32 size = pool.m_Sizes[i];
             f32 rotation = glm::radians(pool.m_Rotations[i]);
+            f32 prevSize = pool.m_PrevSizes[i];
+            f32 prevRotation = glm::radians(pool.m_PrevRotations[i]);
             const auto& color = pool.m_Colors[i];
 
             glm::vec4 uvRect = s_DefaultUV;
@@ -102,7 +104,7 @@ namespace OloEngine
                 uvRect = { uvMin.x, uvMin.y, uvMax.x, uvMax.y };
             }
 
-            ParticleBatchRenderer::Submit(pos, size, rotation, color, uvRect, entityID, prevPos);
+            ParticleBatchRenderer::Submit(pos, size, rotation, color, uvRect, entityID, prevPos, prevSize, prevRotation);
         }
     }
 
@@ -127,6 +129,10 @@ namespace OloEngine
             const glm::vec3 pos = pool.m_Positions[i] + worldOffset;
             const glm::vec3 prevPos = pool.m_PrevPositions[i] + worldOffset;
             f32 size = pool.m_Sizes[i];
+            f32 prevSize = pool.m_PrevSizes[i];
+            // Stretched billboards use velocity rather than rotation, but we still pass
+            // prev rotation in case the shader chooses to fall back to rotation path.
+            f32 prevRotation = glm::radians(pool.m_PrevRotations[i]);
             const auto& color = pool.m_Colors[i];
             const glm::vec3& vel = pool.m_Velocities[i];
 
@@ -139,7 +145,7 @@ namespace OloEngine
                 uvRect = { uvMin.x, uvMin.y, uvMax.x, uvMax.y };
             }
 
-            ParticleBatchRenderer::SubmitStretched(pos, size, vel, lengthScale, color, uvRect, entityID, prevPos);
+            ParticleBatchRenderer::SubmitStretched(pos, size, vel, lengthScale, color, uvRect, entityID, prevPos, prevSize, prevRotation);
         }
     }
 
@@ -176,14 +182,16 @@ namespace OloEngine
             const glm::vec3 prevPos = pool.m_PrevPositions[i] + worldOffset;
             f32 size = pool.m_Sizes[i];
             f32 rotation = glm::radians(pool.m_Rotations[i]);
+            f32 prevSize = pool.m_PrevSizes[i];
+            f32 prevRotation = glm::radians(pool.m_PrevRotations[i]);
             const auto& color = pool.m_Colors[i];
 
             // Build model matrix: translate * rotate * scale (Y-axis rotation is the default for mesh particles)
             glm::mat4 model = glm::translate(glm::mat4(1.0f), pos) * glm::rotate(glm::mat4(1.0f), rotation, { 0.0f, 1.0f, 0.0f }) * glm::scale(glm::mat4(1.0f), glm::vec3(size));
-            // Prev-frame model reuses current rotation/size (only translation is snapshotted) —
-            // rotation/size animation contribution to motion vectors is small in practice and
-            // tracking those separately would require additional pool SOA arrays.
-            glm::mat4 prevModel = glm::translate(glm::mat4(1.0f), prevPos) * glm::rotate(glm::mat4(1.0f), rotation, { 0.0f, 1.0f, 0.0f }) * glm::scale(glm::mat4(1.0f), glm::vec3(size));
+            // Prev-frame model built from snapshotted prev translation, rotation and size so
+            // RT3 velocity captures every component of per-particle motion (TAA reprojects
+            // scaling/rotating particles cleanly instead of smearing).
+            glm::mat4 prevModel = glm::translate(glm::mat4(1.0f), prevPos) * glm::rotate(glm::mat4(1.0f), prevRotation, { 0.0f, 1.0f, 0.0f }) * glm::scale(glm::mat4(1.0f), glm::vec3(prevSize));
 
             auto& inst = s_Instances[iter];
             inst.Model = model;

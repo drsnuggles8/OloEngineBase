@@ -49,6 +49,13 @@ namespace OloEngine
         std::vector<glm::vec4> m_Colors;
         std::vector<f32> m_Sizes;
         std::vector<f32> m_Rotations;
+        // Previous-frame rotation and size, snapshotted by ParticleSystem
+        // right before rotation/size integration. Enables proper billboard
+        // quad basis reconstruction and per-mesh prev-model computation for
+        // RT3 velocity reprojection (scaling/rotating particles resolve
+        // cleanly under TAA instead of smearing).
+        std::vector<f32> m_PrevRotations;
+        std::vector<f32> m_PrevSizes;
         std::vector<f32> m_Lifetimes;    // Remaining lifetime
         std::vector<f32> m_MaxLifetimes; // Initial lifetime (for age calculation)
 

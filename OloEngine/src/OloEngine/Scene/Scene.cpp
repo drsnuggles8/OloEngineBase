@@ -3011,7 +3011,13 @@ namespace OloEngine
 
             // Submit terrain + voxel command packets (sorted with other opaque geometry)
             // and shadow casters for terrain, voxel, and foliage.
+            // Track previous-frame animation time so water/foliage/wind shaders can
+            // reproject their on-surface displacement (Gerstner waves, wind sway) for
+            // accurate per-fragment velocity output.
+            static f32 s_LastAnimationTime = -1.0f;
             const f32 animationTime = Time::GetTime();
+            const f32 prevAnimationTime = (s_LastAnimationTime < 0.0f) ? animationTime : s_LastAnimationTime;
+            s_LastAnimationTime = animationTime;
             {
                 auto terrainShader = Renderer3D::GetTerrainPBRShader();
                 auto voxelShader = Renderer3D::GetVoxelPBRShader();
@@ -3260,7 +3266,7 @@ namespace OloEngine
                         continue;
                     }
 
-                    foliage.m_Renderer->SetTime(animationTime);
+                    foliage.m_Renderer->SetTime(animationTime, prevAnimationTime);
                     i32 entityID = static_cast<i32>(static_cast<u32>(foliageEntity));
                     glm::mat4 modelMat = foliageTransform.GetTransform();
 
@@ -3272,6 +3278,7 @@ namespace OloEngine
                             layer.AlbedoTextureID,
                             modelMat,
                             animationTime,
+                            prevAnimationTime,
                             layer.WindStrength, layer.WindSpeed,
                             layer.ViewDistance, layer.FadeStartDistance, layer.AlphaCutoff,
                             glm::vec4(layer.BaseColor, 0.0f),
@@ -3544,6 +3551,7 @@ namespace OloEngine
                         va->GetRendererID(), submesh.m_IndexCount,
                         modelMat,
                         animationTime,
+                        prevAnimationTime,
                         waterParams,
                         bounds,
                         entityID);

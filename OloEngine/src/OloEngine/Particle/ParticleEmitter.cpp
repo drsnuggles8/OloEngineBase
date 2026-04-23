@@ -92,8 +92,10 @@ namespace OloEngine
         f32 size = std::max(InitialSize + rng.GetFloat32InRange(-SizeVariance, SizeVariance), 0.0f);
         pool.m_Sizes[index] = size;
         pool.m_InitialSizes[index] = size;
+        pool.m_PrevSizes[index] = size;
 
         pool.m_Rotations[index] = InitialRotation + rng.GetFloat32InRange(-RotationVariance, RotationVariance);
+        pool.m_PrevRotations[index] = pool.m_Rotations[index];
 
         f32 lifetime = rng.GetFloat32InRange(std::min(LifetimeMin, LifetimeMax), std::max(LifetimeMin, LifetimeMax));
         pool.m_Lifetimes[index] = lifetime;

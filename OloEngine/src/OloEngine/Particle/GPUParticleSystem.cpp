@@ -107,12 +107,15 @@ namespace OloEngine
             ShaderBindingLayout::SSBO_EMIT_STAGING,
             StorageBufferUsage::DynamicDraw);
 
-        // Previous-frame positions (vec4 per particle — xyz = pos, w unused).
+        // Previous-frame particle snapshot. Each slot carries:
+        //   - prev position (vec4 xyz; w unused)
+        //   - prev rotation + size (vec4 x = rot, y = size; zw unused)
         // Written by Particle_Simulate.comp at the start of each frame before
-        // position integration, and by Particle_Emit.comp on spawn so newly
-        // emitted particles emit zero per-particle motion on their first render.
+        // integration, and by Particle_Emit.comp on spawn so newly-emitted
+        // particles emit zero per-particle motion on their first render.
+        // Matches PrevParticleData struct layout in Particle_{Emit,Simulate,Billboard_GPU}.glsl.
         m_PrevPositionSSBO = StorageBuffer::Create(
-            maxParticles * sizeof(glm::vec4),
+            maxParticles * 2 * sizeof(glm::vec4),
             ShaderBindingLayout::SSBO_GPU_PARTICLES_PREV,
             StorageBufferUsage::DynamicCopy);
         m_PrevPositionSSBO->ClearData();

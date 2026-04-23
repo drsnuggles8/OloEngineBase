@@ -124,7 +124,9 @@ namespace OloEngine
                                         { ShaderDataType::Float4, "a_VelocityRotation" },
                                         { ShaderDataType::Float, "a_StretchFactor" },
                                         { ShaderDataType::Int, "a_EntityID" },
-                                        { ShaderDataType::Float4, "a_PrevPosition" } });
+                                        { ShaderDataType::Float4, "a_PrevPosition" },
+                                        { ShaderDataType::Float, "a_PrevRotation" },
+                                        { ShaderDataType::Float, "a_Pad0" } });
         s_Data.VAO->AddInstanceBuffer(s_Data.InstanceVBO);
 
         // CPU-side staging buffer
@@ -249,7 +251,8 @@ namespace OloEngine
 
     void ParticleBatchRenderer::Submit(const glm::vec3& position, f32 size, f32 rotation,
                                        const glm::vec4& color, const glm::vec4& uvRect,
-                                       int entityID, const glm::vec3& prevPosition)
+                                       int entityID, const glm::vec3& prevPosition,
+                                       f32 prevSize, f32 prevRotation)
     {
         if (s_Data.InstanceCount >= ParticleBatchData::MaxInstances)
         {
@@ -264,7 +267,9 @@ namespace OloEngine
         inst.VelocityRotation = { 0.0f, 0.0f, 0.0f, rotation };
         inst.StretchFactor = 0.0f;
         inst.EntityID = entityID;
-        inst.PrevPosition = { prevPosition.x, prevPosition.y, prevPosition.z, 0.0f };
+        inst.PrevPosition = { prevPosition.x, prevPosition.y, prevPosition.z, prevSize };
+        inst.PrevRotation = prevRotation;
+        inst._Pad0 = 0.0f;
 
         ++s_Data.InstancePtr;
         ++s_Data.InstanceCount;
@@ -273,7 +278,8 @@ namespace OloEngine
     void ParticleBatchRenderer::SubmitStretched(const glm::vec3& position, f32 size,
                                                 const glm::vec3& velocity, f32 stretchFactor,
                                                 const glm::vec4& color, const glm::vec4& uvRect,
-                                                int entityID, const glm::vec3& prevPosition)
+                                                int entityID, const glm::vec3& prevPosition,
+                                                f32 prevSize, f32 prevRotation)
     {
         if (s_Data.InstanceCount >= ParticleBatchData::MaxInstances)
         {
@@ -288,7 +294,9 @@ namespace OloEngine
         inst.VelocityRotation = { velocity.x, velocity.y, velocity.z, 0.0f };
         inst.StretchFactor = stretchFactor;
         inst.EntityID = entityID;
-        inst.PrevPosition = { prevPosition.x, prevPosition.y, prevPosition.z, 0.0f };
+        inst.PrevPosition = { prevPosition.x, prevPosition.y, prevPosition.z, prevSize };
+        inst.PrevRotation = prevRotation;
+        inst._Pad0 = 0.0f;
 
         ++s_Data.InstancePtr;
         ++s_Data.InstanceCount;

@@ -6,8 +6,9 @@
 // (G-Buffer has no alpha blending).
 //
 // `emissive.a = 0.0` → lit (full PBR + directional shadow via DeferredLightingPass).
-// Zero velocity (foliage is animated by wind in VS only; per-instance velocity
-// would require previous-frame instance data — future work).
+// Velocity captures camera + per-object motion and also reprojects per-fragment
+// wind sway by re-evaluating the wind function at `u_PrevTime` in the VS and
+// passing a prev-frame world position through to the fragment stage.
 // =============================================================================
 
 #type vertex
@@ -26,6 +27,7 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 u_PrevViewProjection;
 };
 
 layout(std140, binding = 3) uniform ModelMatrices
@@ -36,6 +38,7 @@ layout(std140, binding = 3) uniform ModelMatrices
     int _paddingEntity0;
     int _paddingEntity1;
     int _paddingEntity2;
+    mat4 u_PrevModel;
 };
 
 layout(std140, binding = 12) uniform FoliageParams
@@ -46,7 +49,7 @@ layout(std140, binding = 12) uniform FoliageParams
     float u_ViewDistance;
     float u_FadeStart;
     float u_AlphaCutoff;
-    float _foliagePad0;
+    float u_PrevTime;
     float _foliagePad1;
     vec3  u_FoliageBaseColor;
     float _foliagePad2;
@@ -60,6 +63,7 @@ layout(location = 2) out vec2 v_TexCoord;
 layout(location = 3) out vec3 v_Color;
 layout(location = 4) out float v_AlphaCutoff;
 layout(location = 5) out float v_Fade;
+layout(location = 6) out vec3 v_PrevWorldPos;
 
 void main()
 {
@@ -80,24 +84,34 @@ void main()
     rotatedPos.z = localPos.x * sinR + localPos.z * cosR;
 
     float windInfluence = a_Position.y;
+    vec3 rotatedPosPrev = rotatedPos;
     if (windEnabled())
     {
-        vec3 bladeWorldPos = (u_Model * vec4(a_PositionScale.xyz, 1.0)).xyz;
-        vec3 windVel = analyticalWind(bladeWorldPos);
-        rotatedPos.xyz += windVel * u_WindStrength * windInfluence * 0.1;
+        vec3 bladeWorldPos     = (u_Model     * vec4(a_PositionScale.xyz, 1.0)).xyz;
+        vec3 bladeWorldPosPrev = (u_PrevModel * vec4(a_PositionScale.xyz, 1.0)).xyz;
+        vec3 windVel     = analyticalWind(bladeWorldPos);
+        vec3 windVelPrev = analyticalWindAtTime(bladeWorldPosPrev, windPrevTime());
+        rotatedPos.xyz     += windVel     * u_WindStrength * windInfluence * 0.1;
+        rotatedPosPrev.xyz += windVelPrev * u_WindStrength * windInfluence * 0.1;
     }
     else
     {
-        float windPhase = (a_PositionScale.x + a_PositionScale.z) * 0.1 + u_Time * u_WindSpeed;
-        float wind = sin(windPhase) * cos(windPhase * 0.7 + 1.3) * u_WindStrength * windInfluence;
-        rotatedPos.x += wind;
-        rotatedPos.z += wind * 0.5;
+        float windPhase     = (a_PositionScale.x + a_PositionScale.z) * 0.1 + u_Time     * u_WindSpeed;
+        float windPhasePrev = (a_PositionScale.x + a_PositionScale.z) * 0.1 + u_PrevTime * u_WindSpeed;
+        float wind     = sin(windPhase)     * cos(windPhase * 0.7 + 1.3)         * u_WindStrength * windInfluence;
+        float windPrev = sin(windPhasePrev) * cos(windPhasePrev * 0.7 + 1.3)     * u_WindStrength * windInfluence;
+        rotatedPos.x     += wind;
+        rotatedPos.z     += wind * 0.5;
+        rotatedPosPrev.x += windPrev;
+        rotatedPosPrev.z += windPrev * 0.5;
     }
 
     vec3 instancePos = a_PositionScale.xyz;
-    vec3 worldPos = (u_Model * vec4(instancePos + rotatedPos, 1.0)).xyz;
+    vec3 worldPos     = (u_Model     * vec4(instancePos + rotatedPos,     1.0)).xyz;
+    vec3 worldPosPrev = (u_PrevModel * vec4(instancePos + rotatedPosPrev, 1.0)).xyz;
 
     v_WorldPos = worldPos;
+    v_PrevWorldPos = worldPosPrev;
     v_Normal = normalize(mat3(u_Normal) * vec3(0.0, 1.0, 0.0));
     v_TexCoord = a_TexCoord;
     v_Color = a_ColorAlpha.rgb;
@@ -116,6 +130,7 @@ layout(location = 2) in vec2 v_TexCoord;
 layout(location = 3) in vec3 v_Color;
 layout(location = 4) in float v_AlphaCutoff;
 layout(location = 5) in float v_Fade;
+layout(location = 6) in vec3 v_PrevWorldPos;
 
 layout(std140, binding = 0) uniform CameraMatrices
 {
@@ -124,6 +139,7 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 u_PrevViewProjection;
 };
 
 layout(std140, binding = 12) uniform FoliageParams
@@ -134,7 +150,7 @@ layout(std140, binding = 12) uniform FoliageParams
     float u_ViewDistance;
     float u_FadeStart;
     float u_AlphaCutoff;
-    float _foliagePad0;
+    float u_PrevTime;
     float _foliagePad1;
     vec3  u_FoliageBaseColor;
     float _foliagePad2;
@@ -184,5 +200,12 @@ void main()
     o_GBufferAlbedo   = vec4(albedo, metallic);
     o_GBufferNormal   = vec4(octEncodeGB(N), roughness, ao);
     o_GBufferEmissive = vec4(0.0, 0.0, 0.0, 0.0); // lit
-    o_GBufferVelocity = vec2(0.0);
+
+    // Camera + wind-reprojection velocity. v_PrevWorldPos already includes the
+    // prev-frame wind displacement (evaluated at u_PrevTime in the VS).
+    vec4 clipCurr = u_ViewProjection     * vec4(v_WorldPos,     1.0);
+    vec4 clipPrev = u_PrevViewProjection * vec4(v_PrevWorldPos, 1.0);
+    vec2 ndcCurr = clipCurr.xy / clipCurr.w;
+    vec2 ndcPrev = clipPrev.xy / clipPrev.w;
+    o_GBufferVelocity = (ndcCurr - ndcPrev) * 0.5;
 }

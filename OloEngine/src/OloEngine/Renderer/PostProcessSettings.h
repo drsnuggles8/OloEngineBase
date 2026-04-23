@@ -675,7 +675,9 @@ namespace OloEngine
         glm::vec4 GustAndTurbulence = glm::vec4(0.3f, 0.5f, 0.5f, 0.1f);
         // vec4(GridMin.xyz, GridWorldSize)
         glm::vec4 GridMinAndSize = glm::vec4(0.0f);
-        // vec4(Time, Enabled, GridResolution, pad)
+        // vec4(Time, Enabled, GridResolution, PrevTime)
+        // PrevTime is used by consumers (e.g. Foliage_Instance.glsl) to re-evaluate
+        // the analytical wind at `t - dt` for per-fragment velocity reprojection.
         glm::vec4 TimeAndFlags = glm::vec4(0.0f);
 
         static constexpr u32 GetSize()

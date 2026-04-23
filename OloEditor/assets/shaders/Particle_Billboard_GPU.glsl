@@ -30,12 +30,18 @@ layout(std430, binding = 1) readonly buffer AliveIndexBuffer
 	uint aliveIndices[];
 };
 
-// Previous-frame positions (one vec4 per particle slot, indexed by
+// Previous-frame particle snapshot (one entry per particle slot, indexed by
 // particle slot — NOT by aliveIndex). Written by Particle_Simulate.comp
 // before integration and by Particle_Emit.comp on spawn.
+struct PrevParticleData
+{
+	vec4 Position;      // xyz = prev world position, w unused
+	vec4 RotationSize;  // x = prev rotation (radians), y = prev size, zw unused
+};
+
 layout(std430, binding = 14) readonly buffer PrevPositionBuffer
 {
-	vec4 prevPositions[];
+	PrevParticleData prevData[];
 };
 
 layout(std140, binding = 0) uniform Camera
@@ -101,13 +107,30 @@ void main()
 		up = newUp;
 	}
 
-	// Construct world position from unit quad corner offset.
-	// For the prev-frame reprojection we take the particle centre from
-	// prevPositions[particleIdx] and reuse the current-frame quad basis
-	// (camera motion between frames dominates the quad-offset delta).
+	// Construct world position from unit quad corner offset. For the prev
+	// frame we reconstruct a full quad basis from the snapshotted prev
+	// rotation/size so rotating / scaling particles emit correct motion
+	// vectors into scene FB RT3 (TAA reprojects them cleanly).
 	vec3 worldPos = position + a_QuadPos.x * right + a_QuadPos.y * up;
-	vec3 prevCenter = prevPositions[particleIdx].xyz;
-	vec3 prevWorldPos = prevCenter + a_QuadPos.x * right + a_QuadPos.y * up;
+
+	PrevParticleData prev = prevData[particleIdx];
+	vec3 prevCenter = prev.Position.xyz;
+	float prevRotation = prev.RotationSize.x;
+	float prevSize = prev.RotationSize.y;
+
+	float prevHalf = prevSize * 0.5;
+	vec3 prevRight = u_CameraRight * prevHalf;
+	vec3 prevUp = u_CameraUp * prevHalf;
+	if (abs(prevRotation) > 0.001)
+	{
+		float cosR = cos(prevRotation);
+		float sinR = sin(prevRotation);
+		vec3 newRight = prevRight * cosR + prevUp * sinR;
+		vec3 newUp = -prevRight * sinR + prevUp * cosR;
+		prevRight = newRight;
+		prevUp = newUp;
+	}
+	vec3 prevWorldPos = prevCenter + a_QuadPos.x * prevRight + a_QuadPos.y * prevUp;
 	vec4 clipCurr = u_ViewProjection     * vec4(worldPos, 1.0);
 	vec4 clipPrev = u_PrevViewProjection * vec4(prevWorldPos, 1.0);
 	gl_Position = clipCurr;

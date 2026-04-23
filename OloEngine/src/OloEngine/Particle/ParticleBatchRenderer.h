@@ -22,7 +22,9 @@ namespace OloEngine
         glm::vec4 VelocityRotation; // xyz = velocity, w = rotation (radians)
         f32 StretchFactor;          // 0 = billboard, >0 = stretched (speed * lengthScale)
         int EntityID;               // editor picking
-        glm::vec4 PrevPosition;     // xyz = previous-frame world position (for motion vectors), w unused
+        glm::vec4 PrevPosition;     // xyz = previous-frame world position, w = previous-frame size (for RT3 velocity)
+        f32 PrevRotation;           // previous-frame rotation in radians (for RT3 velocity quad basis)
+        f32 _Pad0;                  // pad to 16-byte alignment for next instance
     };
 
     // Per-instance data for mesh particle rendering (std140 UBO layout).
@@ -70,16 +72,20 @@ namespace OloEngine
         // Set soft particle parameters (call after BeginBatch, before Submit)
         static void SetSoftParticleParams(const SoftParticleParams& params);
 
-        // Submit a billboard particle
+        // Submit a billboard particle. `prevPosition`, `prevSize` and `prevRotation`
+        // are the last-frame snapshot used to reconstruct the previous-frame quad
+        // basis for RT3 velocity (TAA reprojection of rotating / scaling particles).
         static void Submit(const glm::vec3& position, f32 size, f32 rotation,
                            const glm::vec4& color, const glm::vec4& uvRect,
-                           int entityID, const glm::vec3& prevPosition);
+                           int entityID, const glm::vec3& prevPosition,
+                           f32 prevSize, f32 prevRotation);
 
-        // Submit a stretched billboard particle
+        // Submit a stretched billboard particle (prev snapshot as above).
         static void SubmitStretched(const glm::vec3& position, f32 size,
                                     const glm::vec3& velocity, f32 stretchFactor,
                                     const glm::vec4& color, const glm::vec4& uvRect,
-                                    int entityID, const glm::vec3& prevPosition);
+                                    int entityID, const glm::vec3& prevPosition,
+                                    f32 prevSize, f32 prevRotation);
 
         // Set texture for upcoming submissions (flushes if texture changes)
         static void SetTexture(const Ref<Texture2D>& texture);

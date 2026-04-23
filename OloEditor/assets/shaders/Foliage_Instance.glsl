@@ -50,7 +50,7 @@ layout(std140, binding = 12) uniform FoliageParams
     float u_ViewDistance;
     float u_FadeStart;
     float u_AlphaCutoff;
-    float _foliagePad0;
+    float u_PrevTime;       // Previous-frame time for wind velocity reprojection
     float _foliagePad1;
     vec3  u_FoliageBaseColor;
     float _foliagePad2;
@@ -66,6 +66,8 @@ layout(location = 2) out vec2 v_TexCoord;
 layout(location = 3) out vec3 v_Color;
 layout(location = 4) out float v_AlphaCutoff;
 layout(location = 5) out float v_Fade;
+// Previous-frame world position (wind + model reprojection) for RT3 velocity.
+layout(location = 6) out vec3 v_PrevWorldPos;
 
 void main()
 {
@@ -91,28 +93,42 @@ void main()
     // otherwise falls back to legacy sine-wave model.
     float windInfluence = a_Position.y; // 0 at base, 1 at top
 
+    // Compute both current and previous rotated tip positions so the fragment
+    // stage can emit a per-fragment motion vector that captures the wind sway
+    // itself (not just camera/rigid motion).
+    vec3 rotatedPosPrev = rotatedPos;
+
     if (windEnabled())
     {
         // Sample wind field at blade root world position
         vec3 bladeWorldPos = (u_Model * vec4(a_PositionScale.xyz, 1.0)).xyz;
+        vec3 bladeWorldPosPrev = (u_PrevModel * vec4(a_PositionScale.xyz, 1.0)).xyz;
         vec3 windVel = analyticalWind(bladeWorldPos); // Fast analytical path for vertex shader
+        vec3 windVelPrev = analyticalWindAtTime(bladeWorldPosPrev, windPrevTime());
         // Displace blade tip along wind direction, scaled by per-layer strength
-        rotatedPos.xyz += windVel * u_WindStrength * windInfluence * 0.1;
+        rotatedPos.xyz     += windVel     * u_WindStrength * windInfluence * 0.1;
+        rotatedPosPrev.xyz += windVelPrev * u_WindStrength * windInfluence * 0.1;
     }
     else
     {
         // Legacy sine-wave wind
-        float windPhase = (a_PositionScale.x + a_PositionScale.z) * 0.1 + u_Time * u_WindSpeed;
-        float wind = sin(windPhase) * cos(windPhase * 0.7 + 1.3) * u_WindStrength * windInfluence;
-        rotatedPos.x += wind;
-        rotatedPos.z += wind * 0.5;
+        float windPhase     = (a_PositionScale.x + a_PositionScale.z) * 0.1 + u_Time     * u_WindSpeed;
+        float windPhasePrev = (a_PositionScale.x + a_PositionScale.z) * 0.1 + u_PrevTime * u_WindSpeed;
+        float wind     = sin(windPhase)     * cos(windPhase * 0.7 + 1.3)         * u_WindStrength * windInfluence;
+        float windPrev = sin(windPhasePrev) * cos(windPhasePrev * 0.7 + 1.3)     * u_WindStrength * windInfluence;
+        rotatedPos.x     += wind;
+        rotatedPos.z     += wind * 0.5;
+        rotatedPosPrev.x += windPrev;
+        rotatedPosPrev.z += windPrev * 0.5;
     }
 
     // World position
     vec3 instancePos = a_PositionScale.xyz;
-    vec3 worldPos = (u_Model * vec4(instancePos + rotatedPos, 1.0)).xyz;
+    vec3 worldPos     = (u_Model     * vec4(instancePos + rotatedPos,     1.0)).xyz;
+    vec3 worldPosPrev = (u_PrevModel * vec4(instancePos + rotatedPosPrev, 1.0)).xyz;
 
     v_WorldPos = worldPos;
+    v_PrevWorldPos = worldPosPrev;
     v_Normal = normalize(mat3(u_Normal) * vec3(0.0, 1.0, 0.0));
     v_TexCoord = a_TexCoord;
     v_Color = a_ColorAlpha.rgb;
@@ -126,8 +142,9 @@ void main()
 #version 460 core
 
 layout(location = 0) out vec4 FragColor;
-// Scene FB RT3 velocity. Mirrors the camera-motion-only approximation used
-// by Water.glsl: per-pixel wind sway is *not* reprojected.
+// Scene FB RT3 velocity. Captures camera, per-instance motion, AND the
+// per-fragment wind-sway reprojection (via v_PrevWorldPos from the vertex
+// stage, which re-evaluates the wind function at `t - dt`).
 layout(location = 3) out vec2 o_Velocity;
 
 // Inputs
@@ -137,6 +154,7 @@ layout(location = 2) in vec2 v_TexCoord;
 layout(location = 3) in vec3 v_Color;
 layout(location = 4) in float v_AlphaCutoff;
 layout(location = 5) in float v_Fade;
+layout(location = 6) in vec3 v_PrevWorldPos;
 
 // Camera UBO (binding 0)
 layout(std140, binding = 0) uniform CameraMatrices
@@ -175,7 +193,7 @@ layout(std140, binding = 12) uniform FoliageParams
     float u_ViewDistance;
     float u_FadeStart;
     float u_AlphaCutoff;
-    float _foliagePad0;
+    float u_PrevTime;
     float _foliagePad1;
     vec3  u_FoliageBaseColor;
     float _foliagePad2;
@@ -218,9 +236,10 @@ void main()
 
     FragColor = vec4(litColor, color.a);
 
-    // Camera-motion velocity from interpolated world pos.
-    vec4 clipCurr = u_ViewProjection     * vec4(v_WorldPos, 1.0);
-    vec4 clipPrev = u_PrevViewProjection * vec4(v_WorldPos, 1.0);
+    // Camera-motion + wind-reprojection velocity. v_PrevWorldPos already
+    // includes the prev-frame wind displacement (re-evaluated at u_PrevTime).
+    vec4 clipCurr = u_ViewProjection     * vec4(v_WorldPos,     1.0);
+    vec4 clipPrev = u_PrevViewProjection * vec4(v_PrevWorldPos, 1.0);
     vec2 ndcCurr = clipCurr.xy / clipCurr.w;
     vec2 ndcPrev = clipPrev.xy / clipPrev.w;
     o_Velocity = (ndcCurr - ndcPrev) * 0.5;

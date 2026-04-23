@@ -21,6 +21,8 @@ namespace OloEngine
         m_Colors.resize(maxParticles);
         m_Sizes.resize(maxParticles);
         m_Rotations.resize(maxParticles);
+        m_PrevRotations.resize(maxParticles);
+        m_PrevSizes.resize(maxParticles);
         m_Lifetimes.resize(maxParticles);
         m_MaxLifetimes.resize(maxParticles);
         m_InitialColors.resize(maxParticles);
@@ -96,6 +98,8 @@ namespace OloEngine
         std::swap(m_Colors[a], m_Colors[b]);
         std::swap(m_Sizes[a], m_Sizes[b]);
         std::swap(m_Rotations[a], m_Rotations[b]);
+        std::swap(m_PrevRotations[a], m_PrevRotations[b]);
+        std::swap(m_PrevSizes[a], m_PrevSizes[b]);
         std::swap(m_Lifetimes[a], m_Lifetimes[b]);
         std::swap(m_MaxLifetimes[a], m_MaxLifetimes[b]);
         std::swap(m_InitialColors[a], m_InitialColors[b]);

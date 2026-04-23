@@ -86,6 +86,7 @@ namespace OloEngine
             WindUBOData m_GPUData;
 
             f32 m_AccumulatedTime = 0.0f;
+            f32 m_PrevAccumulatedTime = 0.0f;
             bool m_Initialized = false;
         };
 

@@ -812,6 +812,7 @@ namespace OloEngine
             RendererID albedoTextureID,
             const glm::mat4& modelTransform,
             f32 time,
+            f32 prevTime,
             f32 windStrength, f32 windSpeed,
             f32 viewDistance, f32 fadeStart, f32 alphaCutoff,
             const glm::vec4& baseColor,
@@ -851,6 +852,7 @@ namespace OloEngine
             RendererID vertexArrayID, u32 indexCount,
             const glm::mat4& modelTransform,
             f32 time,
+            f32 prevTime,
             const WaterDrawParams& params,
             const BoundingBox& bounds,
             i32 entityID = -1);

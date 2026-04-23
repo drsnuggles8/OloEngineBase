@@ -36,11 +36,18 @@ layout(std430, binding = 5) buffer EmitStagingBuffer
     GPUParticle staged[];
 };
 
-// Previous-frame positions — seeded to the spawn position so the first
-// rendered frame of a newly emitted particle emits zero motion.
+// Previous-frame particle snapshot (xyz pos, w unused; then x rot, y size, zw unused) —
+// seeded on spawn so the first rendered frame of a newly emitted particle emits
+// zero motion (prev quad basis matches current exactly).
+struct PrevParticleData
+{
+    vec4 Position;      // xyz = prev world position, w unused
+    vec4 RotationSize;  // x = prev rotation (radians), y = prev size, zw unused
+};
+
 layout(std430, binding = 14) buffer PrevPositionBuffer
 {
-    vec4 prevPositions[];
+    PrevParticleData prevData[];
 };
 
 uniform int u_EmitCount;
@@ -77,5 +84,7 @@ void main()
     // Copy staged particle data into the particle buffer
     particles[slot] = staged[idx];
     particles[slot].Misc.z = 1.0; // Mark alive
-    prevPositions[slot] = vec4(staged[idx].PositionLifetime.xyz, 0.0);
+    prevData[slot].Position = vec4(staged[idx].PositionLifetime.xyz, 0.0);
+    // Misc.y = rotation, InitialVelocitySize.w = current size
+    prevData[slot].RotationSize = vec4(staged[idx].Misc.y, staged[idx].InitialVelocitySize.w, 0.0, 0.0);
 }
