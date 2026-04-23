@@ -477,9 +477,11 @@ namespace OloEngine
             BindUBOIfNeeded(ShaderBindingLayout::UBO_ANIMATION, s_Data.BoneMatricesUBO->GetRendererID());
         }
 
-        // Previous-frame bone matrices (for Deferred G-Buffer per-bone velocity).
-        // Upload only when the caller provided a distinct offset (UINT32_MAX sentinel
-        // means "reuse current", which matches static / first-frame animated meshes).
+        // Previous-frame bone matrices for per-bone velocity. Both the forward
+        // PBR_MultiLight_Skinned (scene FB RT3) and deferred PBR_GBuffer_Skinned
+        // (G-Buffer RT3) variants bind this UBO at binding 31. Upload only when
+        // the caller provided a distinct offset (UINT32_MAX sentinel means
+        // "reuse current", which matches static / first-frame animated meshes).
         if (s_Data.PrevBoneMatricesUBO && prevBoneBufferOffset != UINT32_MAX)
         {
             const glm::mat4* prevBoneMatrices = FrameDataBufferManager::Get().GetBoneMatrixPtr(prevBoneBufferOffset);
@@ -492,7 +494,7 @@ namespace OloEngine
         else if (s_Data.PrevBoneMatricesUBO && boneMatrices)
         {
             // No separate prev stream: bind current data into the prev slot so the
-            // skinned G-Buffer shader computes zero motion instead of reading stale
+            // skinned shaders compute zero bone-motion instead of reading stale
             // bytes from a previous frame's entity.
             s_Data.PrevBoneMatricesUBO->SetData(boneMatrices, static_cast<u32>(count * sizeof(glm::mat4)));
             BindUBOIfNeeded(ShaderBindingLayout::UBO_ANIMATION_PREV, s_Data.PrevBoneMatricesUBO->GetRendererID());

@@ -46,6 +46,14 @@ layout(std140, binding = 4) uniform BoneMatrices {
     mat4 u_BoneTransforms[100];
 };
 
+// Previous-frame bone matrices for per-bone velocity. CommandDispatch always
+// populates this UBO — when the caller has no actual prev pose it aliases
+// the current palette here, so a read returns either the real previous pose
+// or the current pose (zero bone motion) and never undefined memory.
+layout(std140, binding = 31) uniform PrevBoneMatrices {
+    mat4 u_PrevBoneTransforms[100];
+};
+
 // Output to fragment shader
 layout(location = 0) out vec3 v_WorldPos;
 layout(location = 1) out vec3 v_Normal;
@@ -57,6 +65,7 @@ void main()
 {
     // Calculate bone transformation
     mat4 boneTransform = mat4(0.0);
+    mat4 prevBoneTransform = mat4(0.0);
     float totalWeight = a_BoneWeights.x + a_BoneWeights.y + a_BoneWeights.z + a_BoneWeights.w;
     if (totalWeight > 0.001)
     {
@@ -65,7 +74,8 @@ void main()
             int boneID = a_BoneIDs[i];
             if (boneID >= 0 && boneID < 100)
             {
-                boneTransform += u_BoneTransforms[boneID] * a_BoneWeights[i];
+                boneTransform     += u_BoneTransforms[boneID]     * a_BoneWeights[i];
+                prevBoneTransform += u_PrevBoneTransforms[boneID] * a_BoneWeights[i];
             }
         }
     }
@@ -73,11 +83,13 @@ void main()
     {
         // Vertex has no bone influence — pass through without skinning
         boneTransform = mat4(1.0);
+        prevBoneTransform = mat4(1.0);
     }
 
     // Transform position and normal by bones
     vec4 localPosition = boneTransform * vec4(a_Position, 1.0);
     vec3 localNormal = mat3(boneTransform) * a_Normal;
+    vec4 prevLocalPosition = prevBoneTransform * vec4(a_Position, 1.0);
 
     // Transform to world space
     v_WorldPos = vec3(u_Model * localPosition);
@@ -85,10 +97,11 @@ void main()
     v_TexCoord = a_TexCoord;
 
     vec4 clipCurr = u_ViewProjection * vec4(v_WorldPos, 1.0);
-    // Forward skinned prev uses the same bone palette — prev-bone tracking
-    // for per-joint velocity is a deferred-only feature today.
-    vec3 prevWorldPos = vec3(u_PrevModel * localPosition);
-    vec4 clipPrev = u_PrevViewProjection * vec4(prevWorldPos, 1.0);
+    // Combine per-bone previous pose with u_PrevModel so the emitted motion
+    // vector captures both rigid entity motion and intra-skeleton bone
+    // deltas — matching what PBR_GBuffer_Skinned.glsl does in Deferred.
+    vec4 prevWorldPos = u_PrevModel * prevLocalPosition;
+    vec4 clipPrev = u_PrevViewProjection * prevWorldPos;
 
     v_ClipPosCurr = clipCurr;
     v_ClipPosPrev = clipPrev;
@@ -445,8 +458,9 @@ void main()
     o_ViewNormal = octEncode(normalize(mat3(u_View) * outputN));
 
     // Screen-space velocity - see PBR_MultiLight.glsl for the derivation.
-    // Skinned meshes emit whole-body motion only; per-bone deltas remain a
-    // deferred-only feature (needs prev-bone palette streaming).
+    // Skinned meshes combine per-bone pose delta (PrevBoneMatrices, binding 31)
+    // with u_PrevModel so both rigid motion and intra-skeleton animation
+    // contribute to the motion vector.
     vec2 ndcCurr = v_ClipPosCurr.xy / v_ClipPosCurr.w;
     vec2 ndcPrev = v_ClipPosPrev.xy / v_ClipPosPrev.w;
     o_Velocity = (ndcCurr - ndcPrev) * 0.5;

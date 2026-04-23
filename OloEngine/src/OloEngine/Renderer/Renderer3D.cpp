@@ -3308,13 +3308,15 @@ namespace OloEngine
         }
         frameBuffer.WriteBoneMatrices(boneBufferOffset, boneMatrices.data(), boneCount);
 
-        // Previous-frame bones: in Deferred mode we upload a parallel stream used by the
-        // G-Buffer skinned shader for per-bone velocity. If the caller didn't provide
-        // prev data (or we're not in Deferred), leave prevBoneBufferOffset at its default
-        // (UINT32_MAX = alias current) so CommandDispatch skips the second upload.
+        // Previous-frame bones: the skinned shader variants (PBR_GBuffer_Skinned
+        // in Deferred, PBR_MultiLight_Skinned in Forward/Forward+) bind a
+        // parallel PrevBoneMatrices UBO at binding 31 and use it to emit per-
+        // bone velocity alongside u_PrevModel. When the caller doesn't provide
+        // a prev pose, CommandDispatch::UploadBoneMatrices aliases the current
+        // palette into the prev UBO so the shader always reads valid data and
+        // the resulting bone-motion term is zero.
         u32 prevBoneBufferOffset = UINT32_MAX;
-        const bool wantPrevStream = (s_Data.Settings.Path == RenderingPath::Deferred) &&
-                                    !prevBoneMatrices.empty() &&
+        const bool wantPrevStream = !prevBoneMatrices.empty() &&
                                     prevBoneMatrices.size() == boneMatrices.size();
         if (wantPrevStream)
         {
@@ -3338,12 +3340,11 @@ namespace OloEngine
         cmd->indexCount = mesh->GetIndexCount();
         cmd->baseIndex = mesh->GetBaseIndex();
         cmd->transform = modelMatrix;
-        // Prev-transform applies to all paths — see DrawMesh() comment.
-        // Note: per-bone velocity is only emitted in Deferred (via the
-        // prevBoneBufferOffset stream above). Forward skinned meshes get
-        // per-object velocity from u_PrevModel; intra-skeleton motion
-        // resolves to zero velocity which is acceptable (TAA still
-        // benefits from correct whole-body motion reprojection).
+        // Prev-transform applies to all paths — see DrawMesh() comment. Both
+        // the forward PBR_MultiLight_Skinned and deferred PBR_GBuffer_Skinned
+        // variants consume u_PrevModel + the prev-bone palette (binding 31)
+        // to emit per-bone velocity into their respective velocity targets
+        // (scene FB RT3 in Forward/Forward+, G-Buffer RT3 in Deferred).
         cmd->prevTransform = GetAndRecordPrevTransform(entityID, cmd->transform);
         cmd->shaderHandle = shaderToUse->GetHandle();
 

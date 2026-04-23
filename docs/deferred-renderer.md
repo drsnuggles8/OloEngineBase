@@ -123,16 +123,6 @@ shader (`PBR_MultiLight.glsl`) for opaque surfaces:
 
 ## Known limitations (future work)
 
-- **Forward / Forward+ skinned meshes: per-bone velocity not tracked.**
-  The forward PBR variants (`PBR_MultiLight.glsl`,
-  `PBR_MultiLight_Skinned.glsl`) now emit screen-space velocity into
-  scene framebuffer RT3 so TAA consumes per-object motion for static
-  meshes and whole-body motion for animated meshes. Intra-skeleton
-  bone deltas are *not* tracked on the forward paths — that would
-  require streaming a second bone palette (as the deferred G-Buffer
-  skinned shader does). Rigid object motion and camera reprojection
-  are correct; fast-moving limbs may still exhibit slight ghosting
-  during TAA feedback.
 - **Non-PBR forward shaders emit zero velocity.** Terrain, water,
   foliage, decals, particles, skybox, the infinite grid, and other
   non-`PBR_MultiLight` forward shaders leave RT3 at its cleared value
@@ -156,7 +146,7 @@ lights are accumulated.
 | Directional + CSM shadows                   |   ✅    |    ✅    |    ✅    |
 | Point + spot shadow maps (up to 4 each)     |   ✅    |    ✅    |    ✅    |
 | Animated skeletal meshes                    |   ✅    |    ✅    |    ✅    |
-| Skinned per-bone motion vectors             |   ➖    |    ➖    |    ✅    |
+| Skinned per-bone motion vectors             |   ✅    |    ✅    |    ✅    |
 | Per-instance motion vectors                 |   ✅    |    ✅    |    ✅    |
 | Tile-based light culling (many point/spot)  |   ➖    |    ✅    |    ✅    |
 | Auto-upgrade to Forward+ at light threshold |   ✅    |    —     |    —     |
