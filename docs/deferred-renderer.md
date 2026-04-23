@@ -123,15 +123,17 @@ shader (`PBR_MultiLight.glsl`) for opaque surfaces:
 
 ## Known limitations (future work)
 
-- **Particle forward shaders emit zero velocity.** The
-  `Particle_Billboard`, `Particle_Billboard_GPU`, `Particle_Mesh`, and
-  `Particle_Trail` shaders still leave scene FB RT3 at its cleared
-  value. Because SceneRenderPass zero-clears the velocity attachment
-  each frame this reads as "no motion" for TAA, which then falls
-  back to its neighborhood clip on particle pixels. All other forward
-  shaders — terrain (`Terrain_PBR`, `Terrain_Voxel`), water, foliage,
-  skybox, decals, the infinite grid and light-cube gizmos — now emit
-  per-pixel motion vectors.
+- **Particle motion between frames is not captured.** The four
+  particle forward shaders (`Particle_Billboard`,
+  `Particle_Billboard_GPU`, `Particle_Mesh`, `Particle_Trail`) now
+  emit velocity for scene FB RT3, but only for camera motion: the
+  billboard vertex buffer and the `MeshInstanceData` UBO carry no
+  previous-frame particle/instance position, so per-particle motion
+  between frames is treated as zero. Static and slow-moving particle
+  fields reproject correctly under camera motion; fast-moving
+  particles still fall back to TAA's neighborhood clip on their own
+  trajectory. Closing this gap requires a prev-instance stream
+  (CPU) or a prev-particle SSBO (GPU path).
 - **Time-varying forward displacement is approximated.** Water
   (Gerstner waves) and foliage (wind sway) emit velocity that
   captures camera and per-object motion only; the on-surface

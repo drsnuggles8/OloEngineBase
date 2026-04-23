@@ -15,6 +15,10 @@ layout(location = 2) in vec2 a_TexCoord;
 layout(std140, binding = 0) uniform Camera
 {
 	mat4 u_ViewProjection;
+	mat4 _camera_pad_view;
+	mat4 _camera_pad_proj;
+	vec4 _camera_pad_position;
+	mat4 u_PrevViewProjection;
 };
 
 layout(std140, binding = 3) uniform MeshInstanceData
@@ -32,11 +36,17 @@ struct VertexOutput
 
 layout(location = 0) out VertexOutput Output;
 layout(location = 2) out flat int v_EntityID;
+layout(location = 3) out vec4 v_ClipPosCurr;
+layout(location = 4) out vec4 v_ClipPosPrev;
 
 void main()
 {
 	vec4 worldPos = u_Model * vec4(a_Position, 1.0);
-	gl_Position = u_ViewProjection * worldPos;
+	vec4 clipCurr = u_ViewProjection     * worldPos;
+	vec4 clipPrev = u_PrevViewProjection * worldPos;
+	gl_Position = clipCurr;
+	v_ClipPosCurr = clipCurr;
+	v_ClipPosPrev = clipPrev;
 	Output.Color = u_Color;
 	Output.TexCoord = a_TexCoord;
 	v_EntityID = u_IDs.x;
@@ -48,6 +58,9 @@ void main()
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
 layout(location = 2) out vec2 o_ViewNormal;
+// Scene FB RT3 velocity — camera motion only (MeshInstanceData UBO carries
+// no u_PrevModel; per-instance motion between frames is not tracked).
+layout(location = 3) out vec2 o_Velocity;
 
 struct VertexOutput
 {
@@ -57,6 +70,8 @@ struct VertexOutput
 
 layout(location = 0) in VertexOutput Input;
 layout(location = 2) in flat int v_EntityID;
+layout(location = 3) in vec4 v_ClipPosCurr;
+layout(location = 4) in vec4 v_ClipPosPrev;
 
 layout(binding = 0) uniform sampler2D u_Texture;
 layout(binding = 1) uniform sampler2D u_DepthTexture;
@@ -108,4 +123,8 @@ void main()
 	o_Color = texColor;
 	o_EntityID = v_EntityID;
 	o_ViewNormal = vec2(-2.0);
+
+	vec2 ndcCurr = v_ClipPosCurr.xy / v_ClipPosCurr.w;
+	vec2 ndcPrev = v_ClipPosPrev.xy / v_ClipPosPrev.w;
+	o_Velocity = (ndcCurr - ndcPrev) * 0.5;
 }
