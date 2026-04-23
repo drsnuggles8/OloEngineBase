@@ -30,6 +30,7 @@ namespace OloEngine
         void DrawChromaticAberrationSection();
         void DrawColorGradingSection();
         void DrawFXAASection();
+        void DrawTAASection();
         void DrawDOFSection();
         void DrawMotionBlurSection();
         void DrawAOSection();

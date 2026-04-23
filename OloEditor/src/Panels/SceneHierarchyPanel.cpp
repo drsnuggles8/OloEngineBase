@@ -4507,24 +4507,40 @@ namespace OloEngine
                 ImGui::DragFloat("Fade Distance##Decal", &component.m_FadeDistance, 0.01f, 0.0f, 10.0f, "%.2f");
                 ImGui::SliderFloat("Normal Threshold##Decal", &component.m_NormalAngleThreshold, 0.0f, 1.0f, "%.2f");
 
-                ImGui::Button("Albedo Texture", ImVec2(100.0f, 0.0f));
-                if (ImGui::BeginDragDropTarget())
+                // Deferred G-Buffer target channel.
+                static const char* kDecalModes[] = { "Albedo", "Normal", "RMA", "Emissive" };
+                int currentMode = static_cast<int>(component.m_Mode);
+                if (ImGui::Combo("Mode##Decal", &currentMode, kDecalModes, IM_ARRAYSIZE(kDecalModes)))
                 {
-                    if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                    component.m_Mode = static_cast<DecalMode>(currentMode);
+                }
+
+                auto drawTextureSlot = [](const char* label, Ref<Texture2D>& slot)
+                {
+                    ImGui::Button(label, ImVec2(100.0f, 0.0f));
+                    if (ImGui::BeginDragDropTarget())
                     {
-                        std::filesystem::path texturePath = PathFromUtf8Payload(*payload);
-                        Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
-                        if (texture->IsLoaded())
+                        if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
                         {
-                            component.m_AlbedoTexture = texture;
+                            std::filesystem::path texturePath = PathFromUtf8Payload(*payload);
+                            Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
+                            if (texture->IsLoaded())
+                            {
+                                slot = texture;
+                            }
+                            else
+                            {
+                                OLO_WARN("Could not load texture {0}", texturePath.filename().string());
+                            }
                         }
-                        else
-                        {
-                            OLO_WARN("Could not load texture {0}", texturePath.filename().string());
-                        }
+                        ImGui::EndDragDropTarget();
                     }
-                    ImGui::EndDragDropTarget();
-                } });
+                };
+
+                drawTextureSlot("Albedo Texture", component.m_AlbedoTexture);
+                drawTextureSlot("Normal Texture", component.m_NormalTexture);
+                drawTextureSlot("RMA Texture", component.m_RMATexture);
+                drawTextureSlot("Emissive Texture", component.m_EmissiveTexture); });
 
         DrawComponent<LightProbeComponent>("Light Probe", entity, [](auto& component)
                                            {

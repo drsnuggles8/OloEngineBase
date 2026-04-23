@@ -9,7 +9,9 @@
 #include "OloEngine/Renderer/LOD.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
+#include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
 #include "OloEngine/Renderer/Passes/FoliageRenderPass.h"
+#include "OloEngine/Renderer/Passes/ForwardOverlayRenderPass.h"
 #include "OloEngine/Renderer/Passes/WaterRenderPass.h"
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"
 #include "OloEngine/Renderer/Passes/ParticleRenderPass.h"
@@ -21,6 +23,7 @@
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
 #include "OloEngine/Renderer/Passes/GTAORenderPass.h"
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
+#include "OloEngine/Renderer/Passes/OITResolveRenderPass.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Core/Timestep.h"
@@ -164,6 +167,10 @@ namespace OloEngine
         static CommandPacket* DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true, i32 entityID = -1, const LODGroup* lodGroup = nullptr);
         // Animated drawing commands
         static CommandPacket* DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic = false, i32 entityID = -1);
+        // Same as DrawAnimatedMesh but also carries the previous-frame bone matrices used by the
+        // Deferred G-Buffer path to compute per-bone motion vectors. Pass empty prevBoneMatrices
+        // (or the same data as boneMatrices) to indicate zero per-bone motion.
+        static CommandPacket* DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, const std::vector<glm::mat4>& prevBoneMatrices, bool isStatic = false, i32 entityID = -1);
         static CommandPacket* DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
         static CommandPacket* DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true);
         static CommandPacket* DrawLightCube(const glm::mat4& modelMatrix);
@@ -674,6 +681,34 @@ namespace OloEngine
             return s_Data.Shadow;
         }
 
+        // @brief Record this frame's transform for an entity and return the
+        // previous frame's transform (or the current one if no history exists
+        // yet, producing zero velocity). Only called from Deferred submission
+        // paths so the cache stays empty when Deferred is not active.
+        static const glm::mat4& GetAndRecordPrevTransform(i32 entityID, const glm::mat4& currTransform)
+        {
+            if (entityID < 0)
+                return currTransform;
+            auto [it, inserted] = s_Data.CurrEntityTransforms.insert_or_assign(entityID, currTransform);
+            auto prevIt = s_Data.PrevEntityTransforms.find(entityID);
+            return prevIt != s_Data.PrevEntityTransforms.end() ? prevIt->second : currTransform;
+        }
+
+        // @brief Instanced variant: record this frame's full transform array for a
+        // mesh and return the previous frame's array (or a copy of current if no
+        // history exists yet, producing zero velocity). Called only from Deferred
+        // submission of DrawMeshInstanced so the cache stays empty in Forward/+.
+        // Instance ordering is assumed stable frame-to-frame (foliage / particle /
+        // constant-count emitters).
+        static std::vector<glm::mat4> GetAndRecordPrevInstanceTransforms(u64 meshKey, const std::vector<glm::mat4>& currTransforms)
+        {
+            s_Data.CurrInstanceTransforms.insert_or_assign(meshKey, currTransforms);
+            auto prevIt = s_Data.PrevInstanceTransforms.find(meshKey);
+            if (prevIt != s_Data.PrevInstanceTransforms.end() && prevIt->second.size() == currTransforms.size())
+                return prevIt->second;
+            return currTransforms; // First frame or instance-count mismatch → zero motion
+        }
+
         static Ref<Shader> GetTerrainPBRShader()
         {
             return s_Data.TerrainPBRShader;
@@ -755,6 +790,20 @@ namespace OloEngine
             const glm::vec4& decalColor,
             const glm::vec4& decalParams,
             RendererID albedoTextureID,
+            i32 entityID = -1);
+
+        // Extended decal rendering — mode picks the G-Buffer channel (0=Albedo,
+        // 1=Normal, 2=RMA) and the corresponding shader variant. Pass the matching
+        // texture for that mode in the relevant slot; unused slots can be 0.
+        static CommandPacket* DrawDecal(
+            const glm::mat4& decalTransform,
+            const glm::mat4& inverseDecalTransform,
+            const glm::vec4& decalColor,
+            const glm::vec4& decalParams,
+            RendererID albedoTextureID,
+            RendererID normalTextureID,
+            RendererID rmaTextureID,
+            u8 mode,
             i32 entityID = -1);
 
         // Foliage rendering (submits DrawFoliageLayerCommand to FoliageRenderPass bucket)
@@ -904,6 +953,34 @@ namespace OloEngine
         }
 
         template<typename T>
+        static CommandPacket* CreateForwardOverlayDrawCall()
+        {
+            OLO_PROFILE_FUNCTION();
+            if (!s_Data.ForwardOverlayPass)
+            {
+                OLO_CORE_WARN("Renderer3D::CreateForwardOverlayDrawCall: ForwardOverlayPass is null!");
+                return nullptr;
+            }
+            return s_Data.ForwardOverlayPass->GetCommandBucket().CreateDrawCall<T>();
+        }
+
+        static void SubmitForwardOverlayPacket(CommandPacket* packet)
+        {
+            OLO_PROFILE_FUNCTION();
+            if (!packet)
+            {
+                OLO_CORE_WARN("Renderer3D::SubmitForwardOverlayPacket: Attempted to submit a null CommandPacket pointer!");
+                return;
+            }
+            if (!s_Data.ForwardOverlayPass)
+            {
+                OLO_CORE_WARN("Renderer3D::SubmitForwardOverlayPacket: ForwardOverlayPass is null!");
+                return;
+            }
+            s_Data.ForwardOverlayPass->SubmitPacket(packet);
+        }
+
+        template<typename T>
         static CommandPacket* CreateWaterDrawCall()
         {
             OLO_PROFILE_FUNCTION();
@@ -952,8 +1029,13 @@ namespace OloEngine
             Ref<Shader> PBRSkinnedShader;
             Ref<Shader> PBRMultiLightShader;
             Ref<Shader> PBRMultiLightSkinnedShader;
+            Ref<Shader> PBRGBufferShader;        // Deferred: PBR_GBuffer.glsl
+            Ref<Shader> PBRGBufferSkinnedShader; // Deferred: PBR_GBuffer_Skinned.glsl
             Ref<Shader> SkyboxShader;
+            Ref<Shader> SkyboxGBufferShader;    // Deferred: Skybox_GBuffer.glsl (emissive unlit)
+            Ref<Shader> LightCubeGBufferShader; // Deferred: LightCube_GBuffer.glsl (emissive unlit)
             Ref<Shader> InfiniteGridShader;
+            Ref<Shader> InfiniteGridGBufferShader; // Deferred: InfiniteGrid_GBuffer.glsl (emissive unlit)
             Ref<Shader> ForwardPlusDebugShader;
             Ref<VertexArray> FullscreenQuadVAO; // Fullscreen quad for grid and post-processing
             Ref<UniformBuffer> CameraUBO;
@@ -961,6 +1043,7 @@ namespace OloEngine
             Ref<UniformBuffer> LightPropertiesUBO;
             Ref<UniformBuffer> MultiLightBuffer;
             Ref<UniformBuffer> BoneMatricesUBO;
+            Ref<UniformBuffer> PrevBoneMatricesUBO;
             Ref<UniformBuffer> ModelMatrixUBO;
             Ref<UniformBuffer> PostProcessUBO;
             Ref<UniformBuffer> MotionBlurUBO;
@@ -1003,15 +1086,34 @@ namespace OloEngine
             // Shader registry management
             std::unordered_map<u32, ShaderResourceRegistry*> ShaderRegistries;
 
+            // Per-entity transform history for G-Buffer motion vectors. Prev
+            // holds the previous frame's world transform keyed by entityID;
+            // Curr accumulates this frame's transforms and becomes Prev at the
+            // next BeginScene. Only populated / consulted when Deferred is
+            // active — Forward / Forward+ leave these empty.
+            std::unordered_map<i32, glm::mat4> PrevEntityTransforms;
+            std::unordered_map<i32, glm::mat4> CurrEntityTransforms;
+
+            // Per-mesh per-instance previous-frame transform cache for DrawMeshInstanced.
+            // Keyed by mesh AssetHandle; the std::vector preserves per-instance order
+            // frame-to-frame — callers are expected to submit stable ordering, which
+            // matches how foliage / particle emitters allocate their instance streams.
+            // Only touched from Deferred submission (stays empty in Forward / Forward+).
+            std::unordered_map<u64, std::vector<glm::mat4>> PrevInstanceTransforms;
+            std::unordered_map<u64, std::vector<glm::mat4>> CurrInstanceTransforms;
+
             Ref<RenderGraph> RGraph;
             Ref<ShadowRenderPass> ShadowPass;
             Ref<SceneRenderPass> ScenePass;
+            Ref<DeferredLightingPass> DeferredLightPass;
+            Ref<ForwardOverlayRenderPass> ForwardOverlayPass;
             Ref<FoliageRenderPass> FoliagePass;
             Ref<WaterRenderPass> WaterPass;
             Ref<DecalRenderPass> DecalPass;
             Ref<SSAORenderPass> SSAOPass;
             Ref<GTAORenderPass> GTAOPass;
             Ref<ParticleRenderPass> ParticlePass;
+            Ref<OITResolveRenderPass> OITResolvePass;
             Ref<SSSRenderPass> SSSPass;
             Ref<PostProcessRenderPass> PostProcessPass;
             Ref<SelectionOutlineRenderPass> SelectionOutlinePass;
@@ -1026,10 +1128,13 @@ namespace OloEngine
 
             // Terrain
             Ref<Shader> TerrainPBRShader;
+            Ref<Shader> TerrainGBufferShader; // Deferred: Terrain_GBuffer.glsl
             Ref<Shader> TerrainDepthShader;
             Ref<Shader> VoxelPBRShader;
+            Ref<Shader> VoxelGBufferShader; // Deferred: Terrain_Voxel_GBuffer.glsl
             Ref<Shader> VoxelDepthShader;
             Ref<Shader> FoliageShader;
+            Ref<Shader> FoliageGBufferShader; // Deferred: Foliage_Instance_GBuffer.glsl
             Ref<Shader> FoliageDepthShader;
 
             // Water
@@ -1037,6 +1142,10 @@ namespace OloEngine
 
             // Decals
             Ref<Shader> DecalShader;
+            Ref<Shader> DecalGBufferShader;
+            Ref<Shader> DecalGBufferNormalShader;
+            Ref<Shader> DecalGBufferRMAShader;
+            Ref<Shader> DecalGBufferEmissiveShader;
             Ref<Mesh> DecalCubeMesh;
             Ref<Texture2D> WhiteTexture; // 1x1 fallback for untextured decals
 

@@ -118,6 +118,12 @@ namespace OloEngine
         // Call before GL state changes (blend mode) that affect rendering.
         static void Flush();
 
+        // Phase 6: enable the weighted-blended OIT shader variant for the
+        // rest of the frame. ParticleRenderPass toggles this on when the
+        // OIT path is active, and off before returning so the normal
+        // alpha-blended shader is used when OIT is disabled.
+        static void SetOITMode(bool enabled);
+
       private:
         static void StartNewBatch();
     };

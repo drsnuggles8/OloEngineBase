@@ -143,6 +143,13 @@ namespace OloEngine
             glm::mat4 Normal; // transpose(inverse(model))
             i32 EntityID;
             i32 _paddingEntity[3];
+            // Previous-frame world transform for per-object motion vectors in
+            // the deferred G-Buffer path. Equals Model for static objects or
+            // on the first frame so the resulting velocity is zero. Other
+            // shaders that bind UBO_MODEL ignore this tail by declaring a
+            // ModelMatrices block that stops at EntityID; std140 allows the
+            // C++-side buffer to carry extra trailing bytes.
+            glm::mat4 PrevModel;
 
             static constexpr u32 GetSize()
             {
@@ -519,6 +526,9 @@ namespace OloEngine
         static constexpr u32 UBO_SELECTION_OUTLINE = 27;    // Selection outline parameters (editor)
         static constexpr u32 UBO_GTAO = 28;                 // GTAO (Ground Truth AO) parameters
         static constexpr u32 UBO_JUMP_FLOOD = 29;           // Jump Flood Algorithm parameters (editor)
+        static constexpr u32 UBO_DEFERRED_LIGHTING = 30;    // Deferred lighting composition controls
+        static constexpr u32 UBO_ANIMATION_PREV = 31;       // Previous-frame bone matrices (Deferred G-Buffer per-bone velocity)
+        static constexpr u32 UBO_TAA = 32;                  // Temporal Anti-Aliasing parameters
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -567,7 +577,22 @@ namespace OloEngine
         static constexpr u32 TEX_WATER_REFRACTION = 40;     // Pre-water scene color for refraction
         static constexpr u32 TEX_WATER_FOAM = 41;           // Foam texture
         static constexpr u32 TEX_WATER_SSR = 42;            // SSR reflection result for water
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 43;       // First shader graph user texture slot (must be after all engine-reserved slots)
+        // Deferred renderer G-Buffer sampler slots (consumed by DeferredLightingPass).
+        // RT0: Albedo (RGB) + Metallic (A) — RGBA8
+        // RT1: Octahedral Normal (RG) + Roughness + AO — RGBA16F (packed)
+        // RT2: Emissive (RGB) + Material flags (A) — RGBA16F
+        // RT3: Velocity (RG) — RG16F
+        static constexpr u32 TEX_GBUFFER_ALBEDO = 43;   // G-Buffer RT0 (albedo + metallic)
+        static constexpr u32 TEX_GBUFFER_NORMAL = 44;   // G-Buffer RT1 (normal + roughness + AO)
+        static constexpr u32 TEX_GBUFFER_EMISSIVE = 45; // G-Buffer RT2 (emissive + flags)
+        static constexpr u32 TEX_GBUFFER_VELOCITY = 46; // G-Buffer RT3 (velocity)
+        static constexpr u32 TEX_GBUFFER_DEPTH = 47;    // G-Buffer depth attachment
+        // Weighted-blended OIT accumulation targets. Sampled by
+        // OIT_Resolve.glsl; written to (not sampled) by transparent passes
+        // when RendererSettings::DeferredSettings::OITEnabled is on.
+        static constexpr u32 TEX_OIT_ACCUM = 48;      // OIT accum buffer (RGBA16F: sum(Ci*ai*wi), sum(ai*wi))
+        static constexpr u32 TEX_OIT_REVEALAGE = 49;  // OIT revealage buffer (R16F: prod(1 - ai))
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 50; // First shader graph user texture slot (must be after all engine-reserved slots)
 
         // Ensure all engine-reserved texture slots fit within the GL 4.6 minimum guarantee (80 combined units).
         static_assert(TEX_SHADER_GRAPH_0 < 80, "Engine texture slots exceed GL 4.6 minimum GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS");
@@ -638,6 +663,9 @@ namespace OloEngine
                 case UBO_ANIMATION:
                     return name.contains("Animation") || name.contains("animation") ||
                            name.contains("Bone") || name.contains("bone");
+                case UBO_ANIMATION_PREV:
+                    return name.contains("PrevBone") || name.contains("prevBone") ||
+                           name.contains("PreviousBone") || name.contains("previousBone");
                 case UBO_MULTI_LIGHTS:
                     return name.contains("MultiLight") || name.contains("multiLight");
                 case UBO_SHADOW:
@@ -756,6 +784,18 @@ namespace OloEngine
                 case TEX_WATER_SSR:
                     return name.contains("SSR") || name.contains("ssr") ||
                            (name.contains("Screen") && name.contains("Reflection"));
+                case TEX_GBUFFER_ALBEDO:
+                case TEX_GBUFFER_NORMAL:
+                case TEX_GBUFFER_EMISSIVE:
+                case TEX_GBUFFER_VELOCITY:
+                case TEX_GBUFFER_DEPTH:
+                    return name.contains("GBuffer") || name.contains("gBuffer") ||
+                           name.contains("gbuffer");
+                case TEX_OIT_ACCUM:
+                case TEX_OIT_REVEALAGE:
+                    return name.contains("OIT") || name.contains("oit") ||
+                           name.contains("Accum") || name.contains("accum") ||
+                           name.contains("Revealage") || name.contains("revealage");
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_WATER_SSR, i.e. 10–42)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)

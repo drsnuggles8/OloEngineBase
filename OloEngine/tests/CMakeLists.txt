@@ -81,6 +81,10 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/DataRoundTripTests.cpp
 		Rendering/PropertyTests/GoldenImageTests.cpp
 		Rendering/PropertyTests/ShadowTerrainPropertyTests.cpp
+		Rendering/PropertyTests/DeferredPropertyTests.cpp
+		Rendering/PropertyTests/DeferredOverlayPassTests.cpp
+		Rendering/PropertyTests/OITPropertyTests.cpp
+		Rendering/PropertyTests/ShaderCompilationTest.cpp
 		Rendering/PropertyTests/TestFailureCapture.cpp
 		Rendering/PropertyTests/TestFailureCaptureTest.cpp
 		Streaming/SceneStreamingTest.cpp

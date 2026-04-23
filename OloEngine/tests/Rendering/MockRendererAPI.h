@@ -366,6 +366,11 @@ namespace OloEngine::Testing
             Record("SetBlendStateForAttachment");
         }
 
+        void SetBlendFuncForAttachment(u32 /*attachment*/, GLenum /*src*/, GLenum /*dst*/) override
+        {
+            Record("SetBlendFuncForAttachment");
+        }
+
         void CopyImageSubData(u32 /*src*/, TextureTargetType /*srcT*/, u32 /*dst*/, TextureTargetType /*dstT*/,
                               u32 /*w*/, u32 /*h*/) override
         {

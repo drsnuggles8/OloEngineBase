@@ -541,6 +541,11 @@ namespace OloEngine
         u32 indexCount;
         u32 baseIndex = 0; // Starting index offset in shared index buffer (for multi-submesh MeshSources)
         glm::mat4 transform;
+        // Previous-frame world transform for per-object motion-vector
+        // generation in the G-Buffer path. Renderer3D fills this from a
+        // per-entity cache on submission; equals `transform` for static /
+        // first-frame objects so velocity is zero.
+        glm::mat4 prevTransform;
 
         // Entity ID for picking (editor support)
         i32 entityID = -1;
@@ -556,10 +561,11 @@ namespace OloEngine
 
         // Animation support
         bool isAnimatedMesh = false;
-        u32 boneBufferOffset = 0;          // Offset into FrameDataBuffer for bone matrices
-        u32 boneCount = 0;                 // Number of bone matrices
-        u8 workerIndex = 0;                // Worker index for parallel submission (used to remap local bone offset to global)
-        bool needsBoneOffsetRemap = false; // True if boneBufferOffset is worker-local and needs remapping
+        u32 boneBufferOffset = 0;              // Offset into FrameDataBuffer for bone matrices
+        u32 prevBoneBufferOffset = UINT32_MAX; // Offset into FrameDataBuffer for previous-frame bone matrices; UINT32_MAX = alias current (no motion)
+        u32 boneCount = 0;                     // Number of bone matrices
+        u8 workerIndex = 0;                    // Worker index for parallel submission (used to remap local bone offset to global)
+        bool needsBoneOffsetRemap = false;     // True if boneBufferOffset is worker-local and needs remapping
 
         // Occlusion culling: query index for conditional rendering (UINT32_MAX = no query)
         u32 occlusionQueryIndex = UINT32_MAX;
@@ -578,8 +584,9 @@ namespace OloEngine
         u32 indexCount;
         u32 baseIndex = 0; // Starting index offset in shared index buffer (for multi-submesh MeshSources)
         u32 instanceCount;
-        u32 transformBufferOffset = 0; // Offset into FrameDataBuffer for instance transforms
-        u32 transformCount = 0;        // Number of instance transforms
+        u32 transformBufferOffset = 0;              // Offset into FrameDataBuffer for instance transforms
+        u32 prevTransformBufferOffset = UINT32_MAX; // Offset into FrameDataBuffer for previous-frame per-instance transforms; UINT32_MAX = alias current (no motion)
+        u32 transformCount = 0;                     // Number of instance transforms
 
         // Shader handle (for asset tracking — shaderRendererID lives in PODMaterialData)
         AssetHandle shaderHandle;
@@ -724,6 +731,12 @@ namespace OloEngine
         glm::vec4 decalColor = glm::vec4(1.0f);
         glm::vec4 decalParams = glm::vec4(0.0f); // x = fadeDistance, y = normalAngleThreshold, z/w = unused
         RendererID albedoTextureID = 0;
+        RendererID normalTextureID = 0; // Bound at TEX_NORMAL for Normal-mode decals
+        RendererID rmaTextureID = 0;    // Bound at TEX_SPECULAR for RMA-mode decals (R=rough, G=metal, B=AO)
+
+        // Decal mode: 0=Albedo, 1=Normal, 2=RMA — matches Scene::DecalMode enum.
+        // DecalRenderPass::ExecuteOnGBuffer uses this to pick draw-buffer + colour mask.
+        u8 mode = 0;
 
         // Entity ID for picking
         i32 entityID = -1;

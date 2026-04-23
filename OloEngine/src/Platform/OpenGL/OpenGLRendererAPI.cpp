@@ -647,6 +647,22 @@ namespace OloEngine
         }
     }
 
+    void OpenGLRendererAPI::SetBlendFuncForAttachment(u32 attachment, GLenum src, GLenum dst)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        GLint maxDrawBuffers = 0;
+        glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxDrawBuffers);
+        if (attachment >= static_cast<u32>(maxDrawBuffers))
+        {
+            OLO_CORE_ERROR("OpenGLRendererAPI::SetBlendFuncForAttachment - attachment index {} exceeds GL_MAX_DRAW_BUFFERS {}",
+                           attachment, maxDrawBuffers);
+            return;
+        }
+
+        glBlendFunci(attachment, src, dst);
+    }
+
     static GLenum ToGLTextureTarget(RendererAPI::TextureTargetType target)
     {
         switch (target)

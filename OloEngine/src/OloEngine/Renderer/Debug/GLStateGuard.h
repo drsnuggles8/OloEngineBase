@@ -98,10 +98,10 @@ namespace OloEngine
         u32 m_ActiveTextureUnit = 0;
 
         // Per-slot bindings. OloEngine reserves texture units through
-        // TEX_SHADER_GRAPH_0 = 43, so track at least 44 slots to catch leaks
+        // TEX_SHADER_GRAPH_0 = 50, so track at least 51 slots to catch leaks
         // in the engine-reserved range. Clamp the capture loop against the
         // driver's actual limit in case it reports fewer than our local cap.
-        static constexpr u32 kTextureSlots = 44;
+        static constexpr u32 kTextureSlots = 51;
         static constexpr u32 kUboSlots = 32;
         // Per-texture-unit bindings for every target the engine actually
         // binds. 2D covers colour/normal/roughness/AO; 2D_ARRAY is used by

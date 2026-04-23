@@ -90,6 +90,78 @@ namespace OloEngine
             return;
         }
 
+        const bool useOIT = m_OITEnabled && m_OITBuffer && m_OITBuffer->GetFramebuffer() && m_OITShader;
+
+        if (useOIT)
+        {
+            // Weighted-blended OIT path. Water surfaces accumulate into the
+            // shared OITBuffer (RGBA16F accum + RG16F revealage) with
+            // per-attachment blend funcs; `OITResolveRenderPass` composites
+            // the result over the scene FB. No refraction copy here —
+            // `Water_OIT.glsl` pulls its colour blend from the accum buffer
+            // instead of sampling a scene copy.
+            Ref<Framebuffer> oitFB = m_OITBuffer->GetFramebuffer();
+
+            m_OITBuffer->ClearForFrame();
+            oitFB->Bind();
+
+            RenderCommand::SetDepthTest(true);
+            RenderCommand::SetDepthFunc(GL_LEQUAL);
+            RenderCommand::SetDepthMask(false);
+
+            RenderCommand::SetBlendStateForAttachment(0, true);
+            RenderCommand::SetBlendStateForAttachment(1, true);
+            RenderCommand::SetBlendFuncForAttachment(0, GL_ONE, GL_ONE);                  // accum: additive
+            RenderCommand::SetBlendFuncForAttachment(1, GL_ZERO, GL_ONE_MINUS_SRC_COLOR); // revealage: multiplicative
+
+            // Install Water_OIT program override so `CommandDispatch::DrawWater`
+            // substitutes it in place of the submitted forward Water shader.
+            CommandDispatch::SetWaterOITShaderOverride(m_OITShader->GetRendererID());
+
+            // Bind scene depth (for depth softening / shoreline foam) and
+            // scene normals (for SSR). OIT variant still samples these.
+            u32 const sceneDepthID = m_SceneFramebuffer->GetDepthAttachmentRendererID();
+            RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, sceneDepthID);
+            u32 const sceneNormalsID = m_SceneFramebuffer->GetColorAttachmentRendererID(2);
+            RenderCommand::BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, sceneNormalsID);
+            // Refraction sampler gets bound to the scene color FB directly
+            // (no copy) — reading and writing the same texture is illegal,
+            // but with OIT we accumulate separately so scene color is safe to sample.
+            u32 const sceneColorID = m_SceneFramebuffer->GetColorAttachmentRendererID(0);
+            RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, sceneColorID);
+
+            m_CommandBucket.SortCommands();
+            auto& rendererAPI = RenderCommand::GetRendererAPI();
+            m_CommandBucket.Execute(rendererAPI);
+
+            // Clear the override so subsequent frames / other passes that
+            // happen to dispatch DrawWater commands (none by design, but
+            // defensive) don't pick up the override.
+            CommandDispatch::SetWaterOITShaderOverride(0);
+
+            // Tell OITResolvePass there's fresh accumulation to composite.
+            if (m_AccumMarker)
+                m_AccumMarker();
+
+            // Restore global blend state.
+            RenderCommand::SetBlendStateForAttachment(0, false);
+            RenderCommand::SetBlendStateForAttachment(1, false);
+            RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            RenderCommand::SetBlendState(false);
+
+            RenderCommand::SetDepthMask(true);
+            RenderCommand::SetDepthFunc(GL_LESS);
+            RenderCommand::BackCull();
+            CommandDispatch::InvalidateRenderStateCache();
+
+            oitFB->Unbind();
+
+            ResetCommandBucket();
+            return;
+        }
+
+        // Classic forward alpha-blend path (default). Copy scene colour for
+        // refraction sampling, then render water into the scene FB directly.
         // Copy scene color for refraction (before water renders over it)
         u32 const sceneColorID = m_SceneFramebuffer->GetColorAttachmentRendererID(0);
         EnsureRefractionTexture(fbWidth, fbHeight);

@@ -848,6 +848,36 @@ namespace OloEngine
                 dc.m_AlbedoTexture = Texture2D::Create(texPath);
             }
         }
+        if (node["NormalTexturePath"])
+        {
+            auto texPath = node["NormalTexturePath"].as<std::string>("");
+            if (!texPath.empty())
+            {
+                dc.m_NormalTexture = Texture2D::Create(texPath);
+            }
+        }
+        if (node["RMATexturePath"])
+        {
+            auto texPath = node["RMATexturePath"].as<std::string>("");
+            if (!texPath.empty())
+            {
+                dc.m_RMATexture = Texture2D::Create(texPath);
+            }
+        }
+        if (node["EmissiveTexturePath"])
+        {
+            auto texPath = node["EmissiveTexturePath"].as<std::string>("");
+            if (!texPath.empty())
+            {
+                dc.m_EmissiveTexture = Texture2D::Create(texPath);
+            }
+        }
+        if (node["Mode"])
+        {
+            u32 mode = node["Mode"].as<u32>(0);
+            if (mode <= 3)
+                dc.m_Mode = static_cast<DecalMode>(mode);
+        }
 
         // Validate
         SanitizeVec3(dc.m_Size, glm::vec3(1.0f));
@@ -4340,6 +4370,19 @@ namespace OloEngine
             {
                 out << YAML::Key << "AlbedoTexturePath" << YAML::Value << dc.m_AlbedoTexture->GetPath();
             }
+            if (dc.m_NormalTexture)
+            {
+                out << YAML::Key << "NormalTexturePath" << YAML::Value << dc.m_NormalTexture->GetPath();
+            }
+            if (dc.m_RMATexture)
+            {
+                out << YAML::Key << "RMATexturePath" << YAML::Value << dc.m_RMATexture->GetPath();
+            }
+            if (dc.m_EmissiveTexture)
+            {
+                out << YAML::Key << "EmissiveTexturePath" << YAML::Value << dc.m_EmissiveTexture->GetPath();
+            }
+            out << YAML::Key << "Mode" << YAML::Value << static_cast<u32>(dc.m_Mode);
 
             out << YAML::EndMap; // DecalComponent
         }

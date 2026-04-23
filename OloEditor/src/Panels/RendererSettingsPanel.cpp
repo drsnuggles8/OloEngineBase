@@ -182,7 +182,8 @@ namespace OloEngine
 
             static const char* pathItems[] = {
                 "Forward",
-                "Forward+"
+                "Forward+",
+                "Deferred"
             };
             int currentPath = static_cast<int>(settings.Path);
             if (ImGui::Combo("Active Path", &currentPath, pathItems, IM_ARRAYSIZE(pathItems)))
@@ -210,11 +211,88 @@ namespace OloEngine
                     ImGui::TextDisabled("Switch to Forward+ when point+spot lights exceed this.");
                 }
             }
+            else if (settings.Path == RenderingPath::Deferred)
+            {
+                ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f),
+                                   "Deferred pipeline active.");
+                ImGui::TextDisabled("G-Buffer MRT + PBR lighting + shadows + IBL + Forward+ tiles.");
+                ImGui::TextDisabled("MSAA G-Buffer with hardware resolve before lighting.");
+
+                ImGui::Spacing();
+                auto& deferred = settings.Deferred;
+
+                static const char* sampleItems[] = { "1x (off)", "2x", "4x", "8x" };
+                static const u32 sampleValues[] = { 1, 2, 4, 8 };
+                int sampleIdx = 0;
+                for (int i = 0; i < IM_ARRAYSIZE(sampleValues); ++i)
+                {
+                    if (sampleValues[i] == deferred.MSAASampleCount)
+                    {
+                        sampleIdx = i;
+                        break;
+                    }
+                }
+                if (ImGui::Combo("G-Buffer MSAA", &sampleIdx, sampleItems, IM_ARRAYSIZE(sampleItems)))
+                {
+                    deferred.MSAASampleCount = sampleValues[sampleIdx];
+                    Renderer3D::ApplyRendererSettings();
+                }
+
+                // Per-sample shading is only meaningful when MSAA is active.
+                // Greyed when sample count == 1 but still togglable so the
+                // setting survives round-trips through 1x.
+                {
+                    const bool msaaActive = deferred.MSAASampleCount > 1;
+                    if (!msaaActive)
+                        ImGui::BeginDisabled();
+                    if (ImGui::Checkbox("Per-sample Deferred Lighting", &deferred.PerSampleLighting))
+                    {
+                        Renderer3D::ApplyRendererSettings();
+                    }
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("When enabled, PBR lighting is evaluated for every MSAA\n"
+                                          "sub-sample and averaged (correct edge AA on materials).\n"
+                                          "When disabled, the G-Buffer is resolved before lighting\n"
+                                          "(cheaper, but edges only anti-alias at geometry boundaries).");
+                    }
+                    if (!msaaActive)
+                        ImGui::EndDisabled();
+                }
+
+                if (ImGui::Checkbox("Weighted-Blended OIT", &deferred.OITEnabled))
+                {
+                    Renderer3D::ApplyRendererSettings();
+                }
+                if (ImGui::Checkbox("G-Buffer Decals (Phase 4)", &deferred.GBufferDecalsEnabled))
+                {
+                    Renderer3D::ApplyRendererSettings();
+                }
+
+                static const char* channelItems[] = {
+                    "Off (lit)",
+                    "Albedo",
+                    "Normal",
+                    "Roughness / Metallic / AO",
+                    "Emissive",
+                    "Velocity"
+                };
+                int channelIdx = static_cast<int>(std::min<u32>(deferred.DebugChannel, 5));
+                if (ImGui::Combo("Debug G-Buffer Channel", &channelIdx, channelItems, IM_ARRAYSIZE(channelItems)))
+                {
+                    deferred.DebugChannel = static_cast<u32>(channelIdx);
+                    Renderer3D::ApplyRendererSettings();
+                }
+            }
 
             // Show active path status
             ImGui::Separator();
             auto& fplus = Renderer3D::GetForwardPlus();
-            if (fplus.IsActive())
+            if (settings.Path == RenderingPath::Deferred)
+            {
+                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Active: Deferred");
+            }
+            else if (fplus.IsActive())
             {
                 ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Active: Forward+");
             }
@@ -230,7 +308,7 @@ namespace OloEngine
     void RendererSettingsPanel::DrawCullingSection()
     {
         auto& settings = Renderer3D::GetRendererSettings();
-        const bool forwardPlusForced = (settings.Path == RenderingPath::ForwardPlus);
+        const bool forwardPlusForced = (settings.Path == RenderingPath::ForwardPlus) || (settings.Path == RenderingPath::Deferred);
 
         if (ImGui::CollapsingHeader("Culling & Optimization"))
         {

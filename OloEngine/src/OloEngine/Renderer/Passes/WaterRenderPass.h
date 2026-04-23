@@ -1,7 +1,11 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/OITBuffer.h"
 #include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
+#include "OloEngine/Renderer/Shader.h"
+
+#include <functional>
 
 namespace OloEngine
 {
@@ -34,6 +38,30 @@ namespace OloEngine
 
         void SetSceneFramebuffer(const Ref<Framebuffer>& fb);
 
+        // WB-OIT wiring (mirrors ParticleRenderPass). When a valid OITBuffer
+        // is attached AND `SetOITEnabled(true)` is called, `Execute` routes
+        // water draws into the OITBuffer attachments with per-attachment
+        // blend funcs and installs a `CommandDispatch` shader override so
+        // the Water_OIT variant is used in place of the forward Water shader.
+        // `SetOITAccumulationMarker` is invoked after a non-empty dispatch so
+        // `OITResolveRenderPass` knows it has fresh accumulation to composite.
+        void SetOITBuffer(const Ref<OITBuffer>& oitBuffer) noexcept
+        {
+            m_OITBuffer = oitBuffer;
+        }
+        void SetOITEnabled(bool enabled) noexcept
+        {
+            m_OITEnabled = enabled;
+        }
+        void SetOITAccumulationMarker(std::function<void()> marker)
+        {
+            m_AccumMarker = std::move(marker);
+        }
+        void SetOITShader(const Ref<Shader>& shader) noexcept
+        {
+            m_OITShader = shader;
+        }
+
       private:
         void EnsureRefractionTexture(u32 width, u32 height);
 
@@ -41,5 +69,10 @@ namespace OloEngine
         u32 m_RefractionTextureID = 0;
         u32 m_RefractionWidth = 0;
         u32 m_RefractionHeight = 0;
+
+        Ref<OITBuffer> m_OITBuffer;
+        Ref<Shader> m_OITShader;
+        std::function<void()> m_AccumMarker;
+        bool m_OITEnabled = false;
     };
 } // namespace OloEngine

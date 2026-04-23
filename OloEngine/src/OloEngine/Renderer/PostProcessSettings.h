@@ -58,6 +58,17 @@ namespace OloEngine
         f32 MotionBlurStrength = 0.5f;
         i32 MotionBlurSamples = 8;
 
+        // Temporal Anti-Aliasing (TAA)
+        // Velocity-reprojected temporal accumulation with 3x3 neighborhood
+        // colour clamping. In Deferred mode consumes G-Buffer RT3 velocity;
+        // in Forward / Forward+ reconstructs camera-motion velocity from
+        // depth. Does not currently inject projection jitter (sub-pixel AA
+        // quality is reduced; ghost-elimination + temporal-aliasing smoothing
+        // still function).
+        bool TAAEnabled = false;
+        f32 TAAFeedback = 0.9f;   // History blend weight (0..1); higher = smoother, slower response
+        f32 TAASharpness = 0.25f; // Post-TAA sharpen amount to offset blur (0 = off)
+
         // Color Grading
         bool ColorGradingEnabled = false;
 
@@ -132,6 +143,20 @@ namespace OloEngine
         static constexpr u32 GetSize()
         {
             return sizeof(MotionBlurUBOData);
+        }
+    };
+
+    // GPU-side UBO layout for TAA (std140, binding 32)
+    struct TAAUBOData
+    {
+        // xyzw = feedback, sharpness, hasVelocityTexture (0/1), pad
+        glm::vec4 FeedbackSharpnessHasVelocity = glm::vec4(0.9f, 0.25f, 0.0f, 0.0f);
+        // xyzw = 1/width, 1/height, pad, pad
+        glm::vec4 TexelSize = glm::vec4(0.0f);
+
+        static constexpr u32 GetSize()
+        {
+            return sizeof(TAAUBOData);
         }
     };
 

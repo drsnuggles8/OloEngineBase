@@ -6,19 +6,56 @@ namespace OloEngine
 {
     // @brief Selects the high-level rendering strategy for the scene.
     //
-    // The engine currently ships Forward and Forward+ paths.
+    // The engine ships Forward, Forward+ and Deferred paths. Deferred reuses
+    // the Forward+ tile-culling infrastructure to drive the tiled-deferred
+    // lighting pass — selecting Deferred implicitly activates the tile
+    // culling compute so the G-Buffer lighting shader can sample per-tile
+    // light lists.
+    //
     // The enum is intentionally extensible so that future paths
-    // (Deferred, Visibility Buffer, Hybrid RT, etc.) can be added
-    // without restructuring the existing pipeline.
+    // (Visibility Buffer, Hybrid RT, etc.) can be added without
+    // restructuring the existing pipeline.
     enum class RenderingPath : u8
     {
         Forward,     // Classic forward: all lights via UBO loop (low overhead, < ~8 lights)
         ForwardPlus, // Tiled Forward+: compute-culled per-tile light lists (scales to 256+ lights)
+        Deferred,    // G-buffer + tiled deferred lighting (see docs/deferred-renderer.md)
 
         // ----- Future paths (reserved, not yet implemented) -----
-        // Deferred,         // G-buffer + fullscreen lighting pass
         // VisibilityBuffer, // Visibility buffer + material resolve
         // HybridRT,         // Forward+ with ray-traced shadows/GI
+    };
+
+    // @brief Deferred renderer configuration.
+    //
+    // Exposed in RendererSettingsPanel when Path == Deferred. Full pipeline
+    // support (G-Buffer write, lighting, decals, MSAA, OIT) arrives in
+    // subsequent phases; the struct ships now so settings can be serialized
+    // and so UI controls have a stable target.
+    struct DeferredSettings
+    {
+        // Multisample sample count for the G-Buffer. 1 = no MSAA.
+        // Supported values: 1, 2, 4, 8 — validated at G-Buffer creation time.
+        u32 MSAASampleCount = 1;
+
+        // Per-sample deferred lighting. When true (and MSAASampleCount > 1),
+        // DeferredLightingPass selects the MSAA shader variant and evaluates
+        // PBR lighting for every sub-sample, averaging the result. This
+        // produces correct anti-aliasing at material boundaries at the cost
+        // of roughly Nx shading rate on covered pixels. When false, the
+        // G-Buffer is resolved pre-lighting (hardware edge averaging only).
+        bool PerSampleLighting = true;
+
+        // Weighted-blended OIT for transparents (particles).
+        // Disabled by default until OIT accumulation passes are wired.
+        bool OITEnabled = false;
+
+        // Debug view of a single G-Buffer channel (0 = off, 1 = albedo,
+        // 2 = normal, 3 = roughness/metallic/AO, 4 = emissive, 5 = velocity).
+        u32 DebugChannel = 0;
+
+        // Route decal pass into G-Buffer writes instead of post-lighting.
+        bool GBufferDecalsEnabled = true;
     };
 
     // @brief Global renderer settings that live alongside PostProcessSettings.
@@ -43,6 +80,9 @@ namespace OloEngine
         u32 ForwardPlusLightThreshold = 8;
         u32 ForwardPlusTileSize = 16; // 8, 16, or 32
         bool ForwardPlusDebugHeatmap = false;
+
+        // --- Deferred tuning (when Path == Deferred) ---
+        DeferredSettings Deferred;
 
         // --- Debug overlays ---
         bool WireframeOverlay = false;

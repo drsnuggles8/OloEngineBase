@@ -56,6 +56,12 @@ namespace OloEngine
         {
             m_PrecipitationScreenEffectsEnabled = enabled;
         }
+        // Set the G-Buffer velocity texture (RT3) — pass 0 in Forward /
+        // Forward+ to fall back to camera-only depth reprojection.
+        void SetVelocityTextureID(u32 textureID)
+        {
+            m_VelocityTextureID = textureID;
+        }
 
         // Hot-reload a post-process shader by name (stem, e.g. "PostProcess_BloomThreshold")
         void ReloadShader(const std::string& name);
@@ -87,6 +93,7 @@ namespace OloEngine
         Ref<Shader> m_FXAAShader;
         Ref<Shader> m_DOFShader;
         Ref<Shader> m_MotionBlurShader;
+        Ref<Shader> m_TAAShader;
         Ref<Shader> m_FogShader;
         Ref<Shader> m_SSAOApplyShader;
         Ref<Shader> m_PrecipitationShader;
@@ -99,6 +106,7 @@ namespace OloEngine
 
         u32 m_SSAOTextureID = 0;
         u32 m_ShadowMapCSMTextureID = 0;
+        u32 m_VelocityTextureID = 0; // G-Buffer RT3 (Deferred only)
         bool m_FogEnabled = false;
         bool m_PrecipitationScreenEffectsEnabled = false;
         Ref<UniformBuffer> m_PrecipitationScreenUBO;
@@ -113,6 +121,13 @@ namespace OloEngine
         // Bloom mip chain framebuffers (RGBA16F, progressively smaller)
         static constexpr u32 MAX_BLOOM_MIPS = 5;
         std::vector<Ref<Framebuffer>> m_BloomMipChain;
+
+        // TAA history framebuffer (persists across frames). RGBA16F full-res.
+        // After each TAA resolve we blit the resolved colour into this FB so
+        // the next frame's TAA pass can sample it as "previous".
+        Ref<Framebuffer> m_TAAHistoryFB;
+        bool m_TAAHistoryValid = false; // false on first frame / after resize
+        Ref<UniformBuffer> m_TAAUBO;    // binding 32 (TAAParams)
 
         // Tracks which ping-pong buffer was last written to
         bool m_LastWrittenIsPing = true;

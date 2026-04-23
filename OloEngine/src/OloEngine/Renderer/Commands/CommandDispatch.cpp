@@ -42,6 +42,7 @@ namespace OloEngine
         Ref<UniformBuffer> MaterialUBO = nullptr;
         Ref<UniformBuffer> LightUBO = nullptr;
         Ref<UniformBuffer> BoneMatricesUBO = nullptr;
+        Ref<UniformBuffer> PrevBoneMatricesUBO = nullptr;
         Ref<UniformBuffer> ModelMatrixUBO = nullptr;
         glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
         glm::mat4 ViewMatrix = glm::mat4(1.0f);
@@ -67,6 +68,14 @@ namespace OloEngine
 
         // Snow accumulation depth texture (set per-frame)
         u32 SnowDepthTextureID = 0;
+
+        // WB-OIT shader override program IDs. Populated by WaterRenderPass /
+        // DecalRenderPass at the entry of their OIT dispatch paths and
+        // reset to 0 on exit. Zero means: use the shader stored on the
+        // command packet (classic forward path). See `DrawWater` /
+        // `DrawDecal` dispatch functions for the substitution site.
+        u32 WaterOITShaderOverride = 0;
+        u32 DecalOITShaderOverride = 0;
 
         // Depth prepass override: when true, ApplyPODRenderState forces depth-only state
         bool DepthPrepassActive = false;
@@ -234,14 +243,35 @@ namespace OloEngine
             api.DisableMultisampling();
 
         // During depth prepass, override to depth-only state after applying
-        // the command's full state (so culling, stencil, etc. are still correct)
+        // the command's full state (so culling, stencil, etc. are still correct).
+        // EXCEPTION: transparent objects (blendEnabled) MUST NOT participate
+        // in the depth prepass — if they do, they write the prepass depth for
+        // their own surface which then occludes later transparent passes.
+        // Concretely: the InfiniteGrid (alpha-blended) would write depth at
+        // the ground plane, and the WaterRenderPass (running after the scene
+        // pass) would then fail its GL_LEQUAL depth test wherever a water
+        // trough sits below the grid plane — holes through which the grid
+        // became visible in Forward+/Deferred modes (depth prepass on).
+        // For transparent commands we disable both color and depth writes so
+        // the draw becomes a no-op during the depth prepass; the full command
+        // still runs normally in the following color pass.
         if (s_Data.DepthPrepassActive)
         {
-            api.SetColorMask(false, false, false, false);
-            api.SetDepthTest(true);
-            api.SetDepthMask(true);
-            api.SetDepthFunc(GL_LESS);
-            api.SetBlendState(false);
+            if (state.blendEnabled)
+            {
+                api.SetColorMask(false, false, false, false);
+                api.SetDepthTest(false);
+                api.SetDepthMask(false);
+                api.SetBlendState(false);
+            }
+            else
+            {
+                api.SetColorMask(false, false, false, false);
+                api.SetDepthTest(true);
+                api.SetDepthMask(true);
+                api.SetDepthFunc(GL_LESS);
+                api.SetBlendState(false);
+            }
         }
         // During color pass of depth prepass, override depth to GL_LEQUAL + no writes
         else if (s_Data.DepthPrepassColorPassActive)
@@ -425,7 +455,7 @@ namespace OloEngine
     }
 
     // Helper: Upload bone matrices from FrameDataBuffer.
-    static void UploadBoneMatrices(bool isAnimated, u32 boneBufferOffset, u32 boneCount)
+    static void UploadBoneMatrices(bool isAnimated, u32 boneBufferOffset, u32 boneCount, u32 prevBoneBufferOffset = UINT32_MAX)
     {
         if (!isAnimated || !s_Data.BoneMatricesUBO || boneCount == 0)
             return;
@@ -445,6 +475,27 @@ namespace OloEngine
         {
             s_Data.BoneMatricesUBO->SetData(boneMatrices, static_cast<u32>(count * sizeof(glm::mat4)));
             BindUBOIfNeeded(ShaderBindingLayout::UBO_ANIMATION, s_Data.BoneMatricesUBO->GetRendererID());
+        }
+
+        // Previous-frame bone matrices (for Deferred G-Buffer per-bone velocity).
+        // Upload only when the caller provided a distinct offset (UINT32_MAX sentinel
+        // means "reuse current", which matches static / first-frame animated meshes).
+        if (s_Data.PrevBoneMatricesUBO && prevBoneBufferOffset != UINT32_MAX)
+        {
+            const glm::mat4* prevBoneMatrices = FrameDataBufferManager::Get().GetBoneMatrixPtr(prevBoneBufferOffset);
+            if (prevBoneMatrices)
+            {
+                s_Data.PrevBoneMatricesUBO->SetData(prevBoneMatrices, static_cast<u32>(count * sizeof(glm::mat4)));
+                BindUBOIfNeeded(ShaderBindingLayout::UBO_ANIMATION_PREV, s_Data.PrevBoneMatricesUBO->GetRendererID());
+            }
+        }
+        else if (s_Data.PrevBoneMatricesUBO && boneMatrices)
+        {
+            // No separate prev stream: bind current data into the prev slot so the
+            // skinned G-Buffer shader computes zero motion instead of reading stale
+            // bytes from a previous frame's entity.
+            s_Data.PrevBoneMatricesUBO->SetData(boneMatrices, static_cast<u32>(count * sizeof(glm::mat4)));
+            BindUBOIfNeeded(ShaderBindingLayout::UBO_ANIMATION_PREV, s_Data.PrevBoneMatricesUBO->GetRendererID());
         }
     }
 
@@ -547,6 +598,7 @@ namespace OloEngine
         s_Data.MaterialUBO.Reset();
         s_Data.LightUBO.Reset();
         s_Data.BoneMatricesUBO.Reset();
+        s_Data.PrevBoneMatricesUBO.Reset();
         s_Data.ModelMatrixUBO.Reset();
     }
 
@@ -555,13 +607,15 @@ namespace OloEngine
         const Ref<UniformBuffer>& materialUBO,
         const Ref<UniformBuffer>& lightUBO,
         const Ref<UniformBuffer>& boneMatricesUBO,
-        const Ref<UniformBuffer>& modelMatrixUBO)
+        const Ref<UniformBuffer>& modelMatrixUBO,
+        const Ref<UniformBuffer>& prevBoneMatricesUBO)
     {
         s_Data.CameraUBO = cameraUBO;
         s_Data.MaterialUBO = materialUBO;
         s_Data.LightUBO = lightUBO;
         s_Data.BoneMatricesUBO = boneMatricesUBO;
         s_Data.ModelMatrixUBO = modelMatrixUBO;
+        s_Data.PrevBoneMatricesUBO = prevBoneMatricesUBO;
     }
 
     void CommandDispatch::ResetState()
@@ -576,6 +630,8 @@ namespace OloEngine
         s_Data.SpotShadowTextureID = 0;
         s_Data.PointShadowTextureIDs.fill(0);
         s_Data.SnowDepthTextureID = 0;
+        s_Data.WaterOITShaderOverride = 0;
+        s_Data.DecalOITShaderOverride = 0;
         s_Data.DepthPrepassActive = false;
         s_Data.DepthPrepassColorPassActive = false;
         s_Data.Stats.Reset();
@@ -667,6 +723,26 @@ namespace OloEngine
     void CommandDispatch::SetSnowDepthTextureID(u32 textureID)
     {
         s_Data.SnowDepthTextureID = textureID;
+    }
+
+    void CommandDispatch::SetWaterOITShaderOverride(u32 programID)
+    {
+        s_Data.WaterOITShaderOverride = programID;
+    }
+
+    void CommandDispatch::SetDecalOITShaderOverride(u32 programID)
+    {
+        s_Data.DecalOITShaderOverride = programID;
+    }
+
+    u32 CommandDispatch::GetWaterOITShaderOverride()
+    {
+        return s_Data.WaterOITShaderOverride;
+    }
+
+    u32 CommandDispatch::GetDecalOITShaderOverride()
+    {
+        return s_Data.DecalOITShaderOverride;
     }
 
     CommandDispatch::Statistics& CommandDispatch::GetStatistics()
@@ -993,14 +1069,18 @@ namespace OloEngine
                 modelData._paddingEntity[0] = 0;
                 modelData._paddingEntity[1] = 0;
                 modelData._paddingEntity[2] = 0;
+                modelData.PrevModel = cmd->prevTransform;
 
                 constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
                 s_Data.ModelMatrixUBO->SetData(&modelData, expectedSize);
                 BindUBOIfNeeded(ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
             }
 
-            // Bone matrices are still needed for skinned mesh vertex positions
-            UploadBoneMatrices(cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCount);
+            // Bone matrices are still needed for skinned mesh vertex positions.
+            // prevBoneBufferOffset uses UINT32_MAX as a sentinel meaning "alias current"
+            // (static / first-frame / non-Deferred path) — the helper then skips the second
+            // upload and the skinned shader reads the same data for both current and prev.
+            UploadBoneMatrices(cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCount, cmd->prevBoneBufferOffset);
         }
         else
         {
@@ -1029,6 +1109,7 @@ namespace OloEngine
                 modelData._paddingEntity[0] = 0;
                 modelData._paddingEntity[1] = 0;
                 modelData._paddingEntity[2] = 0;
+                modelData.PrevModel = cmd->prevTransform;
 
                 constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
                 static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");
@@ -1045,7 +1126,7 @@ namespace OloEngine
                 BindShadowTextures();
 
             // Bone matrices
-            UploadBoneMatrices(cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCount);
+            UploadBoneMatrices(cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCount, cmd->prevBoneBufferOffset);
         }
 
         if (cmd->indexCount == 0)
@@ -1149,6 +1230,24 @@ namespace OloEngine
             if (instanceCountLoc != -1)
             {
                 glUniform1i(instanceCountLoc, static_cast<GLint>(instanceCount));
+            }
+        }
+
+        // Previous-frame per-instance transforms for Deferred velocity. When the caller
+        // used UINT32_MAX (no prev stream / first frame), fall back to the current
+        // transforms — the skinned G-Buffer shader then computes zero motion for this
+        // instance instead of reading stale data.
+        GLint prevBaseLocation = glGetUniformLocation(mat.shaderRendererID, "u_PrevModelMatrices[0]");
+        if (prevBaseLocation != -1)
+        {
+            const glm::mat4* prevTransforms = nullptr;
+            if (cmd->prevTransformBufferOffset != UINT32_MAX)
+                prevTransforms = FrameDataBufferManager::Get().GetTransformPtr(cmd->prevTransformBufferOffset);
+            if (!prevTransforms)
+                prevTransforms = transforms;
+            if (prevTransforms)
+            {
+                glUniformMatrix4fv(prevBaseLocation, static_cast<GLsizei>(instanceCount), GL_FALSE, glm::value_ptr(prevTransforms[0]));
             }
         }
 
@@ -1259,6 +1358,7 @@ namespace OloEngine
             modelData._paddingEntity[0] = 0;
             modelData._paddingEntity[1] = 0;
             modelData._paddingEntity[2] = 0;
+            modelData.PrevModel = cmd->transform; // skybox: no motion contribution
 
             constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
             static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");
@@ -1373,6 +1473,7 @@ namespace OloEngine
             modelData._paddingEntity[0] = 0;
             modelData._paddingEntity[1] = 0;
             modelData._paddingEntity[2] = 0;
+            modelData.PrevModel = cmd->transform; // terrain: routed through ForwardOverlayPass, no motion tracking
             s_Data.ModelMatrixUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
             BindUBOIfNeeded(ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
         }
@@ -1512,6 +1613,7 @@ namespace OloEngine
             modelData._paddingEntity[0] = 0;
             modelData._paddingEntity[1] = 0;
             modelData._paddingEntity[2] = 0;
+            modelData.PrevModel = cmd->transform; // voxel: routed through ForwardOverlayPass, no motion tracking
             s_Data.ModelMatrixUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
             BindUBOIfNeeded(ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
         }
@@ -1568,11 +1670,17 @@ namespace OloEngine
         // Resolve and apply render state from table
         ApplyPODRenderState(cmd->renderStateIndex, api);
 
-        // Bind shader (cached)
-        if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
+        // Bind shader (cached). DecalRenderPass may have installed an OIT
+        // override — substitute the Decal_OIT program when set so forward
+        // decal commands composite via the OITBuffer's 2-attachment layout
+        // without requiring resubmission of the bucket.
+        u32 decalProgramID = (s_Data.DecalOITShaderOverride != 0)
+                                 ? s_Data.DecalOITShaderOverride
+                                 : cmd->shaderRendererID;
+        if (s_Data.CurrentBoundShaderID != decalProgramID)
         {
-            glUseProgram(cmd->shaderRendererID);
-            s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
+            glUseProgram(decalProgramID);
+            s_Data.CurrentBoundShaderID = decalProgramID;
             ++s_Data.Stats.ShaderBinds;
         }
 
@@ -1609,6 +1717,24 @@ namespace OloEngine
                 s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] = cmd->albedoTextureID;
                 ++s_Data.Stats.TextureBinds;
             }
+        }
+
+        // Bind optional decal normal + RMA textures (used by Decal_GBuffer_Normal
+        // and Decal_GBuffer_RMA variants). Unused modes pass 0 and the slot is
+        // left alone — the variant shader only samples the slot it needs.
+        if (cmd->normalTextureID != 0 &&
+            s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_1] != cmd->normalTextureID)
+        {
+            glBindTextureUnit(ShaderBindingLayout::TEX_USER_1, cmd->normalTextureID);
+            s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_1] = cmd->normalTextureID;
+            ++s_Data.Stats.TextureBinds;
+        }
+        if (cmd->rmaTextureID != 0 &&
+            s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_2] != cmd->rmaTextureID)
+        {
+            glBindTextureUnit(ShaderBindingLayout::TEX_USER_2, cmd->rmaTextureID);
+            s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_2] = cmd->rmaTextureID;
+            ++s_Data.Stats.TextureBinds;
         }
 
         // Bind VAO (cached) and draw decal cube
@@ -1696,15 +1822,36 @@ namespace OloEngine
                            cmd ? cmd->indexCount : 0);
             return;
         }
-
-        // Resolve and apply render state from table
+        // Resolve and apply render state from table (cull, depth, blend
+        // enable). When an OIT override is active the WB-OIT per-attachment
+        // blend funcs set up by WaterRenderPass (glBlendFunci 0 = ONE,ONE and
+        // 1 = ZERO, ONE_MINUS_SRC_COLOR) must be re-applied AFTER the POD
+        // state is written, because `ApplyPODRenderState` calls the global
+        // `glBlendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA)` from the water POD
+        // state, which overrides every per-buffer blend setting set earlier.
+        // Without this re-apply, revealage drops to 0 everywhere (water
+        // fully opaque) and the OITResolve composites black across the
+        // entire scene FB.
         ApplyPODRenderState(cmd->renderStateIndex, api);
-
-        // Bind shader (cached)
-        if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
+        if (s_Data.WaterOITShaderOverride != 0)
         {
-            glUseProgram(cmd->shaderRendererID);
-            s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
+            api.SetBlendStateForAttachment(0, true);
+            api.SetBlendStateForAttachment(1, true);
+            api.SetBlendFuncForAttachment(0, GL_ONE, GL_ONE);
+            api.SetBlendFuncForAttachment(1, GL_ZERO, GL_ONE_MINUS_SRC_COLOR);
+        }
+
+        // Bind shader (cached). WaterRenderPass may have installed an OIT
+        // override — substitute the Water_OIT program when set so water
+        // commands composited through the OITBuffer use the correct
+        // 2-attachment output layout without re-submission.
+        u32 waterProgramID = (s_Data.WaterOITShaderOverride != 0)
+                                 ? s_Data.WaterOITShaderOverride
+                                 : cmd->shaderRendererID;
+        if (s_Data.CurrentBoundShaderID != waterProgramID)
+        {
+            glUseProgram(waterProgramID);
+            s_Data.CurrentBoundShaderID = waterProgramID;
             ++s_Data.Stats.ShaderBinds;
         }
 

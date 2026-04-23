@@ -3571,9 +3571,15 @@ namespace OloEngine
                                                glm::scale(glm::mat4(1.0f), safeSize);
                     glm::mat4 inverseDecalTransform = glm::inverse(decalTransform);
 
-                    // Resolve albedo texture ID (fallback to white if none assigned)
+                    // Resolve albedo texture ID (fallback to white if none assigned).
+                    // Emissive-mode decals reuse the primary slot for the emissive
+                    // texture (DecalShader samples the same TEX_USER_0 binding).
                     RendererID albedoTextureID = 0;
-                    if (decal.m_AlbedoTexture)
+                    if (decal.m_Mode == DecalMode::Emissive && decal.m_EmissiveTexture)
+                    {
+                        albedoTextureID = decal.m_EmissiveTexture->GetRendererID();
+                    }
+                    else if (decal.m_AlbedoTexture)
                     {
                         albedoTextureID = decal.m_AlbedoTexture->GetRendererID();
                     }
@@ -3586,6 +3592,15 @@ namespace OloEngine
                         }
                     }
 
+                    // Optional normal / RMA textures. Only meaningful in the matching mode;
+                    // otherwise pass 0 and the dispatcher will skip the bind.
+                    RendererID normalTextureID = (decal.m_Mode == DecalMode::Normal && decal.m_NormalTexture)
+                                                     ? decal.m_NormalTexture->GetRendererID()
+                                                     : 0u;
+                    RendererID rmaTextureID = (decal.m_Mode == DecalMode::RMA && decal.m_RMATexture)
+                                                  ? decal.m_RMATexture->GetRendererID()
+                                                  : 0u;
+
                     glm::vec4 decalParams = glm::vec4(
                         decal.m_FadeDistance, decal.m_NormalAngleThreshold, 0.0f, 0.0f);
 
@@ -3595,6 +3610,9 @@ namespace OloEngine
                         decal.m_Color,
                         decalParams,
                         albedoTextureID,
+                        normalTextureID,
+                        rmaTextureID,
+                        static_cast<u8>(decal.m_Mode),
                         static_cast<i32>(static_cast<u32>(entity)));
 
                     if (packet)
@@ -3767,6 +3785,7 @@ namespace OloEngine
 
                 // Get bone matrices from skeleton
                 const auto& boneMatrices = skeleton.m_Skeleton->m_FinalBoneMatrices;
+                const auto& prevBoneMatrices = skeleton.m_Skeleton->m_PrevFinalBoneMatrices;
 
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
@@ -3781,7 +3800,7 @@ namespace OloEngine
                     for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
                     {
                         auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
-                        auto* packet = Renderer3D::DrawAnimatedMesh(submesh, transform.GetTransform(), material, boneMatrices, false, entityID);
+                        auto* packet = Renderer3D::DrawAnimatedMesh(submesh, transform.GetTransform(), material, boneMatrices, prevBoneMatrices, false, entityID);
                         if (packet)
                         {
                             Renderer3D::SubmitPacket(packet);

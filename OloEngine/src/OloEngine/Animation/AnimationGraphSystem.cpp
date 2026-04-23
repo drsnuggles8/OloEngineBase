@@ -40,6 +40,10 @@ namespace OloEngine::Animation
         skeleton.m_GlobalTransforms.resize(boneCount, glm::mat4(1.0f));
         skeleton.m_FinalBoneMatrices.resize(boneCount, glm::mat4(1.0f));
 
+        // Rotate current final bones into the previous-frame slot so the
+        // G-Buffer skinned pass can compute per-bone motion vectors.
+        skeleton.RotateBoneHistory();
+
         // Apply IK pass between pose evaluation and forward kinematics
         if (ikTarget && (ikTarget->AimIKEnabled || ikTarget->LimbIKEnabled))
         {
