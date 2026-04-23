@@ -18,6 +18,15 @@ layout(std430, binding = 0) buffer ParticleBuffer
     GPUParticle particles[];
 };
 
+// Previous-frame positions captured at the start of each simulation step
+// (BEFORE velocity integration). The billboard vertex shader reads this
+// SSBO to reproject particles through the previous-frame view-projection
+// and emit screen-space motion vectors to scene FB RT3 for TAA.
+layout(std430, binding = 14) buffer PrevPositionBuffer
+{
+    vec4 prevPositions[];
+};
+
 // --- Core simulation uniforms ---
 uniform float u_DeltaTime;
 uniform vec3 u_Gravity;
@@ -78,6 +87,11 @@ void main()
     vec3 pos = particles[idx].PositionLifetime.xyz;
     float lifetime = particles[idx].PositionLifetime.w;
     vec3 vel = particles[idx].VelocityMaxLifetime.xyz;
+
+    // Snapshot previous-frame position before any forces / integration run.
+    // Newly emitted particles already have prevPositions seeded in
+    // Particle_Emit.comp, so this path only fires for already-alive particles.
+    prevPositions[idx] = vec4(pos, 0.0);
 
     // Decrement lifetime
     lifetime -= u_DeltaTime;

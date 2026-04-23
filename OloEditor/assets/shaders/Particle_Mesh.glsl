@@ -23,9 +23,10 @@ layout(std140, binding = 0) uniform Camera
 
 layout(std140, binding = 3) uniform MeshInstanceData
 {
-	mat4 u_Model;      // 64 bytes
-	vec4 u_Color;      // 16 bytes
-	ivec4 u_IDs;       // 16 bytes (x = EntityID, yzw = unused)
+	mat4 u_Model;        // 64 bytes
+	vec4 u_Color;        // 16 bytes
+	ivec4 u_IDs;         // 16 bytes (x = EntityID, yzw = unused)
+	mat4 u_PrevModel;    // 64 bytes — previous-frame model matrix for motion vectors
 };
 
 struct VertexOutput
@@ -41,9 +42,10 @@ layout(location = 4) out vec4 v_ClipPosPrev;
 
 void main()
 {
-	vec4 worldPos = u_Model * vec4(a_Position, 1.0);
+	vec4 worldPos = u_Model     * vec4(a_Position, 1.0);
+	vec4 worldPosPrev = u_PrevModel * vec4(a_Position, 1.0);
 	vec4 clipCurr = u_ViewProjection     * worldPos;
-	vec4 clipPrev = u_PrevViewProjection * worldPos;
+	vec4 clipPrev = u_PrevViewProjection * worldPosPrev;
 	gl_Position = clipCurr;
 	v_ClipPosCurr = clipCurr;
 	v_ClipPosPrev = clipPrev;
@@ -58,8 +60,8 @@ void main()
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
 layout(location = 2) out vec2 o_ViewNormal;
-// Scene FB RT3 velocity — camera motion only (MeshInstanceData UBO carries
-// no u_PrevModel; per-instance motion between frames is not tracked).
+// Scene FB RT3 velocity — camera + per-particle motion (uses u_PrevModel
+// built from pool.m_PrevPositions in ParticleRenderer::RenderParticlesMesh).
 layout(location = 3) out vec2 o_Velocity;
 
 struct VertexOutput

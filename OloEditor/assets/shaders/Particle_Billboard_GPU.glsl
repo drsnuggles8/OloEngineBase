@@ -30,6 +30,14 @@ layout(std430, binding = 1) readonly buffer AliveIndexBuffer
 	uint aliveIndices[];
 };
 
+// Previous-frame positions (one vec4 per particle slot, indexed by
+// particle slot — NOT by aliveIndex). Written by Particle_Simulate.comp
+// before integration and by Particle_Emit.comp on spawn.
+layout(std430, binding = 14) readonly buffer PrevPositionBuffer
+{
+	vec4 prevPositions[];
+};
+
 layout(std140, binding = 0) uniform Camera
 {
 	mat4 u_ViewProjection;
@@ -93,10 +101,15 @@ void main()
 		up = newUp;
 	}
 
-	// Construct world position from unit quad corner offset
+	// Construct world position from unit quad corner offset.
+	// For the prev-frame reprojection we take the particle centre from
+	// prevPositions[particleIdx] and reuse the current-frame quad basis
+	// (camera motion between frames dominates the quad-offset delta).
 	vec3 worldPos = position + a_QuadPos.x * right + a_QuadPos.y * up;
+	vec3 prevCenter = prevPositions[particleIdx].xyz;
+	vec3 prevWorldPos = prevCenter + a_QuadPos.x * right + a_QuadPos.y * up;
 	vec4 clipCurr = u_ViewProjection     * vec4(worldPos, 1.0);
-	vec4 clipPrev = u_PrevViewProjection * vec4(worldPos, 1.0);
+	vec4 clipPrev = u_PrevViewProjection * vec4(prevWorldPos, 1.0);
 	gl_Position = clipCurr;
 	v_ClipPosCurr = clipCurr;
 	v_ClipPosPrev = clipPrev;
@@ -114,7 +127,8 @@ void main()
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
 layout(location = 2) out vec2 o_ViewNormal;
-// Scene FB RT3 velocity — camera motion only.
+// Scene FB RT3 velocity \u2014 camera + per-particle motion (prev positions
+// live in binding 14, written by Particle_Simulate.comp pre-integration).
 layout(location = 3) out vec2 o_Velocity;
 
 struct VertexOutput

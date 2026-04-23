@@ -73,6 +73,11 @@ namespace OloEngine
         // Use combined sampler to ensure mesh shapes pick position+direction from the same triangle
         auto emission = SampleEmissionCombined(Shape);
         pool.m_Positions[index] = emitterPosition + emitterRotation * emission.Position;
+        // Seed prev position to spawn position so the first rendered frame
+        // emits zero per-particle motion vector (avoids popping into view
+        // with stale motion data left over from whichever particle
+        // previously occupied this slot).
+        pool.m_PrevPositions[index] = pool.m_Positions[index];
 
         // Apply entity rotation so emission shapes orient with the entity
         glm::vec3 dir = emitterRotation * emission.Direction;

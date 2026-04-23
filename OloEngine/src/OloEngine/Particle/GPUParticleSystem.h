@@ -48,6 +48,10 @@ namespace OloEngine
         {
             return m_IndirectDrawSSBO;
         }
+        [[nodiscard]] const Ref<StorageBuffer>& GetPrevPositionSSBO() const
+        {
+            return m_PrevPositionSSBO;
+        }
 
         // CPU readback (debug/UI only — involves GPU sync)
         [[nodiscard]] u32 GetAliveCount() const;
@@ -72,6 +76,7 @@ namespace OloEngine
         Ref<StorageBuffer> m_FreeListSSBO;     // binding 3: u32[maxParticles]
         Ref<StorageBuffer> m_IndirectDrawSSBO; // binding 4: DrawElementsIndirectCommand
         Ref<StorageBuffer> m_EmitStagingSSBO;  // binding 5: GPUParticle[emitBatchSize]
+        Ref<StorageBuffer> m_PrevPositionSSBO; // binding 14: vec4[maxParticles] — previous-frame position snapshot (for motion vectors)
 
         // Compute shaders
         Ref<ComputeShader> m_EmitShader;

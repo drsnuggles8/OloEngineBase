@@ -624,6 +624,7 @@ namespace OloEngine
         static constexpr u32 SSBO_FPLUS_LIGHT_INDICES = 11; // Forward+ per-tile light index list
         static constexpr u32 SSBO_FPLUS_LIGHT_GRID = 12;    // Forward+ per-tile (offset, count) pairs
         static constexpr u32 SSBO_FPLUS_GLOBAL_INDEX = 13;  // Forward+ atomic counter for light index append
+        static constexpr u32 SSBO_GPU_PARTICLES_PREV = 14;  // GPU particle previous-frame positions (vec4[maxParticles]) for motion vectors
 
         // =============================================================================
         // TYPE ALIASES FOR CONVENIENCE

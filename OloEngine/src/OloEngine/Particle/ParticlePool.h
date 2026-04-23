@@ -40,6 +40,11 @@ namespace OloEngine
 
         // SOA arrays — public for direct module access (performance critical)
         std::vector<glm::vec3> m_Positions;
+        // Previous-frame positions, snapshotted by ParticleSystem right before
+        // position integration. Used by renderers to compute per-particle
+        // motion vectors (scene FB RT3) so TAA can reproject fast-moving
+        // particles instead of falling back to neighborhood clip.
+        std::vector<glm::vec3> m_PrevPositions;
         std::vector<glm::vec3> m_Velocities;
         std::vector<glm::vec4> m_Colors;
         std::vector<f32> m_Sizes;

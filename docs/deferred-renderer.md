@@ -123,17 +123,6 @@ shader (`PBR_MultiLight.glsl`) for opaque surfaces:
 
 ## Known limitations (future work)
 
-- **Particle motion between frames is not captured.** The four
-  particle forward shaders (`Particle_Billboard`,
-  `Particle_Billboard_GPU`, `Particle_Mesh`, `Particle_Trail`) now
-  emit velocity for scene FB RT3, but only for camera motion: the
-  billboard vertex buffer and the `MeshInstanceData` UBO carry no
-  previous-frame particle/instance position, so per-particle motion
-  between frames is treated as zero. Static and slow-moving particle
-  fields reproject correctly under camera motion; fast-moving
-  particles still fall back to TAA's neighborhood clip on their own
-  trajectory. Closing this gap requires a prev-instance stream
-  (CPU) or a prev-particle SSBO (GPU path).
 - **Time-varying forward displacement is approximated.** Water
   (Gerstner waves) and foliage (wind sway) emit velocity that
   captures camera and per-object motion only; the on-surface
@@ -142,6 +131,15 @@ shader (`PBR_MultiLight.glsl`) for opaque surfaces:
   `t - dt`). Rigid motion, zoom, panning, and strafing look correct
   under TAA; pure wave/wind motion still falls back to neighborhood
   clip which is fine for their relatively slow animation frequencies.
+- **Particle rotation / size animation is not reprojected.** Per-
+  particle motion vectors reproject the particle *centre* only:
+  CPU billboard + stretched particles use the current-frame camera
+  basis for both frames; mesh particles reuse the current-frame
+  rotation / scale in `u_PrevModel` (only translation is snapshotted
+  in `ParticlePool::m_PrevPositions`). For the typical case of
+  spinning / size-modulated particles this under-estimates motion by
+  the quad-basis / scale delta, which is negligible compared to the
+  centre translation.
 
 ## Renderer capability matrix
 

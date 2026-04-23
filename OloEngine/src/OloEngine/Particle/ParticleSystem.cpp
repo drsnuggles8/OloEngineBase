@@ -403,9 +403,15 @@ namespace OloEngine
         }
 
         // 4. Integrate positions
+        //    Snapshot previous positions first so renderers can emit accurate
+        //    per-particle motion vectors (scene FB RT3) for TAA reprojection.
+        //    Newly-emitted particles already have m_PrevPositions seeded to
+        //    their spawn position in ParticleEmitter, so their first rendered
+        //    frame shows zero per-particle motion.
         u32 count = m_Pool.GetAliveCount();
         for (u32 i = 0; i < count; ++i)
         {
+            m_Pool.m_PrevPositions[i] = m_Pool.m_Positions[i];
             m_Pool.m_Positions[i] += m_Pool.m_Velocities[i] * scaledDt;
         }
 
@@ -480,6 +486,7 @@ namespace OloEngine
             {
                 u32 idx = firstSlot + i;
                 m_Pool.m_Positions[idx] = trigger.Position;
+                m_Pool.m_PrevPositions[idx] = trigger.Position;
 
                 // Random direction + inherited velocity
                 glm::vec3 randomVec(

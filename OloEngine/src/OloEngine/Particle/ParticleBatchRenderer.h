@@ -22,15 +22,17 @@ namespace OloEngine
         glm::vec4 VelocityRotation; // xyz = velocity, w = rotation (radians)
         f32 StretchFactor;          // 0 = billboard, >0 = stretched (speed * lengthScale)
         int EntityID;               // editor picking
+        glm::vec4 PrevPosition;     // xyz = previous-frame world position (for motion vectors), w unused
     };
 
     // Per-instance data for mesh particle rendering (std140 UBO layout).
     // NOTE: PascalCase fields are intentional — this struct maps directly to GPU uniform data.
     struct MeshParticleInstance
     {
-        glm::mat4 Model; // 64 bytes
-        glm::vec4 Color; // 16 bytes
-        glm::ivec4 IDs;  // 16 bytes (x = EntityID, yzw = padding)
+        glm::mat4 Model;     // 64 bytes
+        glm::vec4 Color;     // 16 bytes
+        glm::ivec4 IDs;      // 16 bytes (x = EntityID, yzw = padding)
+        glm::mat4 PrevModel; // 64 bytes — previous-frame model matrix for motion vectors
     };
 
     // Per-vertex data for trail quad rendering.
@@ -71,13 +73,13 @@ namespace OloEngine
         // Submit a billboard particle
         static void Submit(const glm::vec3& position, f32 size, f32 rotation,
                            const glm::vec4& color, const glm::vec4& uvRect,
-                           int entityID);
+                           int entityID, const glm::vec3& prevPosition);
 
         // Submit a stretched billboard particle
         static void SubmitStretched(const glm::vec3& position, f32 size,
                                     const glm::vec3& velocity, f32 stretchFactor,
                                     const glm::vec4& color, const glm::vec4& uvRect,
-                                    int entityID);
+                                    int entityID, const glm::vec3& prevPosition);
 
         // Set texture for upcoming submissions (flushes if texture changes)
         static void SetTexture(const Ref<Texture2D>& texture);

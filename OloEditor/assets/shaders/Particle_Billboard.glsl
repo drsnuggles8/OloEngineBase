@@ -16,6 +16,8 @@ layout(location = 3) in vec4 a_UVRect;              // minU, minV, maxU, maxV
 layout(location = 4) in vec4 a_VelocityRotation;    // xyz = velocity, w = rotation (radians)
 layout(location = 5) in float a_StretchFactor;      // 0 = billboard, >0 = stretched
 layout(location = 6) in int a_EntityID;
+// xyz = previous-frame world position (for per-particle motion vectors). w unused.
+layout(location = 7) in vec4 a_PrevPosition;
 
 layout(std140, binding = 0) uniform Camera
 {
@@ -23,9 +25,8 @@ layout(std140, binding = 0) uniform Camera
 	mat4 _camera_pad_view;     // View matrix (unused here, present for layout match)
 	mat4 _camera_pad_proj;     // Projection matrix (same)
 	vec4 _camera_pad_position; // vec3 camera pos + pad
-	// Previous-frame VP for scene FB RT3 velocity. Particles reproject
-	// on camera motion only; per-particle motion between frames would
-	// need a prev-instance stream which the billboard VB doesn't carry.
+	// Previous-frame VP combines with a_PrevPosition to emit accurate
+	// per-particle motion vectors to scene FB RT3 (used by TAA).
 	mat4 u_PrevViewProjection;
 };
 
@@ -100,10 +101,17 @@ void main()
 		}
 	}
 
-	// Construct world position from unit quad corner offset
+	// Construct world position from unit quad corner offset. For the
+	// previous frame we reproject the particle centre via a_PrevPosition
+	// and reuse the current-frame billboard quad basis: the quad offset
+	// delta between frames is dominated by camera rotation (which we
+	// don't track here), and for the motion-vector signal the particle
+	// *centre* motion is what drives TAA reprojection.
 	vec3 worldPos = position + a_QuadPos.x * right + a_QuadPos.y * up;
+	vec3 prevCenter = a_PrevPosition.xyz;
+	vec3 prevWorldPos = prevCenter + a_QuadPos.x * right + a_QuadPos.y * up;
 	vec4 clipCurr = u_ViewProjection     * vec4(worldPos, 1.0);
-	vec4 clipPrev = u_PrevViewProjection * vec4(worldPos, 1.0);
+	vec4 clipPrev = u_PrevViewProjection * vec4(prevWorldPos, 1.0);
 	gl_Position = clipCurr;
 	v_ClipPosCurr = clipCurr;
 	v_ClipPosPrev = clipPrev;

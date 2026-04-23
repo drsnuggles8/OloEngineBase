@@ -88,6 +88,7 @@ namespace OloEngine
         {
             u32 i = useSorted ? (*sortedIndices)[iter] : iter;
             const glm::vec3 pos = pool.m_Positions[i] + worldOffset;
+            const glm::vec3 prevPos = pool.m_PrevPositions[i] + worldOffset;
             f32 size = pool.m_Sizes[i];
             f32 rotation = glm::radians(pool.m_Rotations[i]);
             const auto& color = pool.m_Colors[i];
@@ -101,7 +102,7 @@ namespace OloEngine
                 uvRect = { uvMin.x, uvMin.y, uvMax.x, uvMax.y };
             }
 
-            ParticleBatchRenderer::Submit(pos, size, rotation, color, uvRect, entityID);
+            ParticleBatchRenderer::Submit(pos, size, rotation, color, uvRect, entityID, prevPos);
         }
     }
 
@@ -124,6 +125,7 @@ namespace OloEngine
         {
             u32 i = useSorted ? (*sortedIndices)[iter] : iter;
             const glm::vec3 pos = pool.m_Positions[i] + worldOffset;
+            const glm::vec3 prevPos = pool.m_PrevPositions[i] + worldOffset;
             f32 size = pool.m_Sizes[i];
             const auto& color = pool.m_Colors[i];
             const glm::vec3& vel = pool.m_Velocities[i];
@@ -137,7 +139,7 @@ namespace OloEngine
                 uvRect = { uvMin.x, uvMin.y, uvMax.x, uvMax.y };
             }
 
-            ParticleBatchRenderer::SubmitStretched(pos, size, vel, lengthScale, color, uvRect, entityID);
+            ParticleBatchRenderer::SubmitStretched(pos, size, vel, lengthScale, color, uvRect, entityID, prevPos);
         }
     }
 
@@ -171,17 +173,23 @@ namespace OloEngine
         {
             u32 i = useSorted ? (*sortedIndices)[iter] : iter;
             const glm::vec3 pos = pool.m_Positions[i] + worldOffset;
+            const glm::vec3 prevPos = pool.m_PrevPositions[i] + worldOffset;
             f32 size = pool.m_Sizes[i];
             f32 rotation = glm::radians(pool.m_Rotations[i]);
             const auto& color = pool.m_Colors[i];
 
             // Build model matrix: translate * rotate * scale (Y-axis rotation is the default for mesh particles)
             glm::mat4 model = glm::translate(glm::mat4(1.0f), pos) * glm::rotate(glm::mat4(1.0f), rotation, { 0.0f, 1.0f, 0.0f }) * glm::scale(glm::mat4(1.0f), glm::vec3(size));
+            // Prev-frame model reuses current rotation/size (only translation is snapshotted) —
+            // rotation/size animation contribution to motion vectors is small in practice and
+            // tracking those separately would require additional pool SOA arrays.
+            glm::mat4 prevModel = glm::translate(glm::mat4(1.0f), prevPos) * glm::rotate(glm::mat4(1.0f), rotation, { 0.0f, 1.0f, 0.0f }) * glm::scale(glm::mat4(1.0f), glm::vec3(size));
 
             auto& inst = s_Instances[iter];
             inst.Model = model;
             inst.Color = color;
             inst.IDs = glm::ivec4(entityID, 0, 0, 0);
+            inst.PrevModel = prevModel;
         }
 
         ParticleBatchRenderer::RenderMeshParticles(mesh, std::span{ s_Instances.data(), count }, texture);

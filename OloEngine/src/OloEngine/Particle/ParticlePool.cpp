@@ -16,6 +16,7 @@ namespace OloEngine
         m_AliveCount = 0;
 
         m_Positions.resize(maxParticles);
+        m_PrevPositions.resize(maxParticles);
         m_Velocities.resize(maxParticles);
         m_Colors.resize(maxParticles);
         m_Sizes.resize(maxParticles);
@@ -90,6 +91,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         std::swap(m_Positions[a], m_Positions[b]);
+        std::swap(m_PrevPositions[a], m_PrevPositions[b]);
         std::swap(m_Velocities[a], m_Velocities[b]);
         std::swap(m_Colors[a], m_Colors[b]);
         std::swap(m_Sizes[a], m_Sizes[b]);
