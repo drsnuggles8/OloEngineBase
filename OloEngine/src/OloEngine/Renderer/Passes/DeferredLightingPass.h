@@ -40,23 +40,35 @@ namespace OloEngine
 
         // The G-Buffer is provided by SceneRenderPass each frame; null
         // turns the pass into a no-op.
-        void SetGBuffer(const Ref<GBuffer>& gbuffer) noexcept { m_GBuffer = gbuffer; }
+        void SetGBuffer(const Ref<GBuffer>& gbuffer) noexcept
+        {
+            m_GBuffer = gbuffer;
+        }
         // Destination framebuffer — Renderer3D points this at ScenePass
         // so PostProcess and friends transparently read the lit output.
-        void SetSceneFramebuffer(const Ref<Framebuffer>& sceneFB) noexcept { m_SceneFramebuffer = sceneFB; }
+        void SetSceneFramebuffer(const Ref<Framebuffer>& sceneFB) noexcept
+        {
+            m_SceneFramebuffer = sceneFB;
+        }
         // Forwarded from RendererSettings; 0 = lighting, non-zero = skip
         // (SceneRenderPass's BlitGBufferDebug already wrote a channel).
-        void SetDebugChannel(u32 channel) noexcept { m_DebugChannel = channel; }
+        void SetDebugChannel(u32 channel) noexcept
+        {
+            m_DebugChannel = channel;
+        }
 
         // Controls per-sample MSAA shading. When true (and GBuffer sample
         // count > 1), Execute() binds the multisample G-Buffer attachments
         // and uses the sampler2DMS shader variant; otherwise it samples
         // the resolved single-sample copy via the default shader.
-        void SetPerSampleLighting(bool enable) noexcept { m_PerSampleLighting = enable; }
+        void SetPerSampleLighting(bool enable) noexcept
+        {
+            m_PerSampleLighting = enable;
+        }
 
       private:
-        Ref<Shader> m_Shader;        // sampler2D variant (non-MSAA / resolved)
-        Ref<Shader> m_ShaderMSAA;    // sampler2DMS variant (per-sample)
+        Ref<Shader> m_Shader;     // sampler2D variant (non-MSAA / resolved)
+        Ref<Shader> m_ShaderMSAA; // sampler2DMS variant (per-sample)
         Ref<GBuffer> m_GBuffer;
         Ref<Framebuffer> m_SceneFramebuffer;
         Ref<UniformBuffer> m_ControlsUBO;

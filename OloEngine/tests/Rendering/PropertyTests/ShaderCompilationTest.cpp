@@ -83,12 +83,18 @@ namespace OloEngine::Tests
 
         shaderc_shader_kind StageFromToken(const std::string& tok)
         {
-            if (tok == "vertex")      return shaderc_glsl_vertex_shader;
-            if (tok == "fragment")    return shaderc_glsl_fragment_shader;
-            if (tok == "geometry")    return shaderc_glsl_geometry_shader;
-            if (tok == "tess_control") return shaderc_glsl_tess_control_shader;
-            if (tok == "tess_eval" || tok == "tess_evaluation") return shaderc_glsl_tess_evaluation_shader;
-            if (tok == "compute")     return shaderc_glsl_compute_shader;
+            if (tok == "vertex")
+                return shaderc_glsl_vertex_shader;
+            if (tok == "fragment")
+                return shaderc_glsl_fragment_shader;
+            if (tok == "geometry")
+                return shaderc_glsl_geometry_shader;
+            if (tok == "tess_control")
+                return shaderc_glsl_tess_control_shader;
+            if (tok == "tess_eval" || tok == "tess_evaluation")
+                return shaderc_glsl_tess_evaluation_shader;
+            if (tok == "compute")
+                return shaderc_glsl_compute_shader;
             return static_cast<shaderc_shader_kind>(-1);
         }
 
@@ -106,9 +112,11 @@ namespace OloEngine::Tests
                     break;
 
                 std::size_t s = pos + kToken.size();
-                while (s < eol && (src[s] == ' ' || src[s] == '\t')) ++s;
+                while (s < eol && (src[s] == ' ' || src[s] == '\t'))
+                    ++s;
                 std::size_t e = s;
-                while (e < eol && src[e] != ' ' && src[e] != '\t' && src[e] != '\r' && src[e] != '\n') ++e;
+                while (e < eol && src[e] != ' ' && src[e] != '\t' && src[e] != '\r' && src[e] != '\n')
+                    ++e;
                 const std::string tok = src.substr(s, e - s);
 
                 const std::size_t next = src.find_first_not_of("\r\n", eol);
@@ -141,7 +149,7 @@ namespace OloEngine::Tests
         // assets/shaders/).
         class Includer : public shaderc::CompileOptions::IncluderInterface
         {
-        public:
+          public:
             explicit Includer(fs::path root) : m_Root(std::move(root)) {}
 
             shaderc_include_result* GetInclude(const char* requested_source,
@@ -186,10 +194,10 @@ namespace OloEngine::Tests
                 delete static_cast<Payload*>(data->user_data);
             }
 
-        private:
+          private:
             struct Payload
             {
-                shaderc_include_result Result {};
+                shaderc_include_result Result{};
                 std::string Name;
                 std::string Content;
             };
@@ -202,8 +210,10 @@ namespace OloEngine::Tests
             std::vector<fs::path> out;
             for (auto& entry : fs::recursive_directory_iterator(root))
             {
-                if (!entry.is_regular_file()) continue;
-                if (entry.path().extension() != ".glsl") continue;
+                if (!entry.is_regular_file())
+                    continue;
+                if (entry.path().extension() != ".glsl")
+                    continue;
 
                 // Skip include/ (headers, no #type stages) and tests/
                 // (compute-shader test harnesses covered elsewhere).
@@ -284,7 +294,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " shader(s) failed to compile under Vulkan target env:\n";
             for (const auto& f : failures)
-                oss << "----\n" << f << "\n";
+                oss << "----\n"
+                    << f << "\n";
             FAIL() << oss.str();
         }
 

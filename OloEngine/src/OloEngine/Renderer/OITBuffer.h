@@ -36,11 +36,20 @@ namespace OloEngine
 
         void Resize(u32 width, u32 height);
 
-        [[nodiscard]] u32 GetWidth() const noexcept { return m_Width; }
-        [[nodiscard]] u32 GetHeight() const noexcept { return m_Height; }
+        [[nodiscard]] u32 GetWidth() const noexcept
+        {
+            return m_Width;
+        }
+        [[nodiscard]] u32 GetHeight() const noexcept
+        {
+            return m_Height;
+        }
 
         // Underlying framebuffer for MRT bind during transparent passes.
-        [[nodiscard]] const Ref<Framebuffer>& GetFramebuffer() const noexcept { return m_Framebuffer; }
+        [[nodiscard]] const Ref<Framebuffer>& GetFramebuffer() const noexcept
+        {
+            return m_Framebuffer;
+        }
 
         // Texture IDs for the resolve shader.
         [[nodiscard]] u32 GetAccumAttachmentID() const;
@@ -56,7 +65,10 @@ namespace OloEngine
 
         // Called by OITResolvePass after compositing to re-arm the clear for
         // the next frame's first transparent pass. Does NOT clear the buffer.
-        void ResetClearFlag() noexcept { m_ClearedThisFrame = false; }
+        void ResetClearFlag() noexcept
+        {
+            m_ClearedThisFrame = false;
+        }
 
       private:
         OITBuffer(u32 width, u32 height);

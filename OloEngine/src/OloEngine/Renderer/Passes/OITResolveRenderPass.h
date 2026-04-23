@@ -46,16 +46,25 @@ namespace OloEngine
         {
             m_Enabled = enabled;
         }
-        [[nodiscard]] bool IsEnabled() const noexcept { return m_Enabled; }
+        [[nodiscard]] bool IsEnabled() const noexcept
+        {
+            return m_Enabled;
+        }
 
         // Transparent passes call this to obtain the accumulation FBs and
         // switch their render target. Returns null until Init() has run.
-        [[nodiscard]] const Ref<OITBuffer>& GetOITBuffer() const noexcept { return m_OITBuffer; }
+        [[nodiscard]] const Ref<OITBuffer>& GetOITBuffer() const noexcept
+        {
+            return m_OITBuffer;
+        }
 
         // Flag set by transparent passes when they successfully emitted
         // into the OIT buffer. Reset on every frame in Execute(); when
         // false the composite step is skipped.
-        void MarkAccumulationWritten() noexcept { m_HasAccumulation = true; }
+        void MarkAccumulationWritten() noexcept
+        {
+            m_HasAccumulation = true;
+        }
 
       private:
         void DrawFullscreenTriangle();

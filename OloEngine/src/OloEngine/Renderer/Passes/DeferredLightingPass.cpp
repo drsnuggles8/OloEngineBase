@@ -20,10 +20,10 @@ namespace OloEngine
         // bytes std140).
         struct DeferredControlsData
         {
-            glm::vec4 Controls;    // x=EnableIBL, y=EnableProbes, z=IBLIntensity, w=CascadeDebug
-            glm::vec4 MSAAParams;  // x=SampleCount (float), yzw reserved
+            glm::vec4 Controls;   // x=EnableIBL, y=EnableProbes, z=IBLIntensity, w=CascadeDebug
+            glm::vec4 MSAAParams; // x=SampleCount (float), yzw reserved
         };
-    }
+    } // namespace
 
     DeferredLightingPass::DeferredLightingPass()
     {
@@ -35,7 +35,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         m_FramebufferSpec = spec;
-        m_Shader     = Shader::Create("assets/shaders/DeferredLighting.glsl");
+        m_Shader = Shader::Create("assets/shaders/DeferredLighting.glsl");
         m_ShaderMSAA = Shader::Create("assets/shaders/DeferredLighting_MSAA.glsl");
         m_ControlsUBO = UniformBuffer::Create(sizeof(DeferredControlsData),
                                               ShaderBindingLayout::UBO_DEFERRED_LIGHTING);
@@ -77,9 +77,7 @@ namespace OloEngine
         // flag. Light-probe toggle is driven from RendererSettings once the
         // deferred panel exposes it; default it on if the probe grid is valid.
         DeferredControlsData controls{};
-        const bool iblAvailable = Renderer3D::GetGlobalIrradianceMapID() != 0
-                               && Renderer3D::GetGlobalPrefilterMapID() != 0
-                               && Renderer3D::GetGlobalBRDFLutMapID() != 0;
+        const bool iblAvailable = Renderer3D::GetGlobalIrradianceMapID() != 0 && Renderer3D::GetGlobalPrefilterMapID() != 0 && Renderer3D::GetGlobalBRDFLutMapID() != 0;
         controls.Controls.x = iblAvailable ? 1.0f : 0.0f;
         controls.Controls.y = 0.0f; // light probes — disabled until grid bind is in place
         controls.Controls.z = 1.0f;
@@ -135,8 +133,8 @@ namespace OloEngine
         // Shadow maps — reuse the same slots the Forward shader expects so
         // shadow UBO binding 6 carries compatible matrices.
         auto& shadow = Renderer3D::GetShadowMap();
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW,       shadow.GetCSMRendererID());
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW_SPOT,  shadow.GetSpotRendererID());
+        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW, shadow.GetCSMRendererID());
+        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW_SPOT, shadow.GetSpotRendererID());
         RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW_POINT_0, shadow.GetPointRendererID(0));
         RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW_POINT_1, shadow.GetPointRendererID(1));
         RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW_POINT_2, shadow.GetPointRendererID(2));

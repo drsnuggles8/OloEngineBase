@@ -70,7 +70,7 @@ namespace OloEngine
         RenderCommand::SetColorMaskForAttachment(2, false, false, false, false);
 
         m_ResolveShader->Bind();
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_OIT_ACCUM,     m_OITBuffer->GetAccumAttachmentID());
+        RenderCommand::BindTexture(ShaderBindingLayout::TEX_OIT_ACCUM, m_OITBuffer->GetAccumAttachmentID());
         RenderCommand::BindTexture(ShaderBindingLayout::TEX_OIT_REVEALAGE, m_OITBuffer->GetRevealageAttachmentID());
 
         DrawFullscreenTriangle();

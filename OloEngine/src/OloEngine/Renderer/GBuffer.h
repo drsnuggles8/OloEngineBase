@@ -26,10 +26,10 @@ namespace OloEngine
       public:
         enum AttachmentIndex : u32
         {
-            Albedo = 0,    // RGBA8   — base colour + metallic
-            Normal = 1,    // RGBA16F — octahedral normal + roughness + AO
-            Emissive = 2,  // RGBA16F — emissive + material flags
-            Velocity = 3,  // RG16F   — screen-space velocity
+            Albedo = 0,   // RGBA8   — base colour + metallic
+            Normal = 1,   // RGBA16F — octahedral normal + roughness + AO
+            Emissive = 2, // RGBA16F — emissive + material flags
+            Velocity = 3, // RG16F   — screen-space velocity
             Count = 4
         };
 
@@ -44,14 +44,26 @@ namespace OloEngine
         void Resize(u32 width, u32 height);
 
         // Current dimensions.
-        [[nodiscard]] u32 GetWidth() const noexcept { return m_Width; }
-        [[nodiscard]] u32 GetHeight() const noexcept { return m_Height; }
-        [[nodiscard]] u32 GetSampleCount() const noexcept { return m_SampleCount; }
+        [[nodiscard]] u32 GetWidth() const noexcept
+        {
+            return m_Width;
+        }
+        [[nodiscard]] u32 GetHeight() const noexcept
+        {
+            return m_Height;
+        }
+        [[nodiscard]] u32 GetSampleCount() const noexcept
+        {
+            return m_SampleCount;
+        }
 
         // Underlying framebuffer for passes that need MRT bind/clear.
         // In MSAA mode this is the multisample G-Buffer that geometry
         // writes into; sample textures come from GetSamplingFramebuffer.
-        [[nodiscard]] const Ref<Framebuffer>& GetFramebuffer() const noexcept { return m_Framebuffer; }
+        [[nodiscard]] const Ref<Framebuffer>& GetFramebuffer() const noexcept
+        {
+            return m_Framebuffer;
+        }
 
         // Framebuffer whose texture attachments should be bound as samplers
         // by DeferredLightingPass / OITResolvePass. For sampleCount == 1

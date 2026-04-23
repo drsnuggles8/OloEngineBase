@@ -18,8 +18,8 @@ namespace OloEngine
             spec.Height = height;
             spec.Samples = 1; // WB-OIT accumulation doesn't need MSAA
             spec.Attachments = FramebufferAttachmentSpecification{
-                FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA16F }, // Accum
-                FramebufferTextureSpecification{ FramebufferTextureFormat::RG16F },   // Revealage (uses R channel only; RG16F chosen for broad driver support)
+                FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA16F },           // Accum
+                FramebufferTextureSpecification{ FramebufferTextureFormat::RG16F },             // Revealage (uses R channel only; RG16F chosen for broad driver support)
                 FramebufferTextureSpecification{ FramebufferTextureFormat::DEPTH_COMPONENT32F } // Depth (blitted from scene)
             };
             return spec;

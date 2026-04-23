@@ -16,10 +16,10 @@ namespace OloEngine
             spec.Height = height;
             spec.Samples = sampleCount;
             spec.Attachments = FramebufferAttachmentSpecification{
-                FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA8 },           // RT0 Albedo + Metallic
-                FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA16F },         // RT1 Normal + Roughness + AO
-                FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA16F },         // RT2 Emissive + Flags
-                FramebufferTextureSpecification{ FramebufferTextureFormat::RG16F },           // RT3 Velocity
+                FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA8 },   // RT0 Albedo + Metallic
+                FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA16F }, // RT1 Normal + Roughness + AO
+                FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA16F }, // RT2 Emissive + Flags
+                FramebufferTextureSpecification{ FramebufferTextureFormat::RG16F },   // RT3 Velocity
                 // Depth must match the scene framebuffer's depth format
                 // (`FramebufferTextureFormat::Depth` = DEPTH24STENCIL8) so that
                 // `glBlitNamedFramebuffer(GL_DEPTH_BUFFER_BIT, …)` — the path used
@@ -90,8 +90,10 @@ namespace OloEngine
     {
         if (width == 0 || height == 0)
             return;
-        if (width > kMaxGBufferSize) width = kMaxGBufferSize;
-        if (height > kMaxGBufferSize) height = kMaxGBufferSize;
+        if (width > kMaxGBufferSize)
+            width = kMaxGBufferSize;
+        if (height > kMaxGBufferSize)
+            height = kMaxGBufferSize;
 
         if (width == m_Width && height == m_Height)
             return;
