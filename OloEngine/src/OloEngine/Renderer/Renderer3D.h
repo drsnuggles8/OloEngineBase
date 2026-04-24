@@ -175,7 +175,7 @@ namespace OloEngine
         static CommandPacket* DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
         // `ownerKey` lets callers produce stable per-instance motion vectors
         // when multiple submission sources (entities / emitters / foliage
-        // chunks) render the same mesh with independent instance arrays \u2014
+        // chunks) render the same mesh with independent instance arrays --
         // see GetAndRecordPrevInstanceTransforms. Leaving it at 0 preserves
         // the legacy mesh-handle-only cache key.
         static CommandPacket* DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true, u64 ownerKey = 0);
@@ -399,7 +399,13 @@ namespace OloEngine
                                                const Material& material,
                                                bool isStatic = true,
                                                i32 entityID = -1,
-                                               const LODGroup* lodGroup = nullptr);
+                                               const LODGroup* lodGroup = nullptr,
+                                               // Previous-frame transform for this mesh. When null the
+                                               // worker aliases current->prev (zero object motion) --
+                                               // parallel workers cannot touch the main-thread entity
+                                               // motion-history map, so the caller is responsible for
+                                               // supplying prev data when per-object velocity matters.
+                                               const glm::mat4* prevModelMatrix = nullptr);
 
         /**
          * @brief Thread-safe animated mesh drawing for parallel submission
@@ -456,12 +462,12 @@ namespace OloEngine
             const std::vector<glm::mat4>* BoneMatrices = nullptr;
             // Optional previous-frame pose for motion-vector generation. When
             // null (or empty / size-mismatched) the consumer aliases current
-            // bones / transform into the prev slot \u2014 zero per-bone and per-
+            // bones / transform into the prev slot -- zero per-bone and per-
             // object motion. Lifetime: caller must keep the referenced vector
             // alive until SubmitMeshesParallel returns.
             const std::vector<glm::mat4>* PrevBoneMatrices = nullptr;
             glm::mat4 PrevTransform = glm::mat4(1.0f);
-            bool HasPrevTransform = false; // False \u21d2 prev == current (zero object motion).
+            bool HasPrevTransform = false; // False => prev == current (zero object motion).
             // For LOD selection
             const LODGroup* LODGroupPtr = nullptr;
         };
@@ -747,7 +753,7 @@ namespace OloEngine
         // constant-count emitters).
         //
         // `ownerKey` identifies the submission source (entity UUID, emitter ID,
-        // foliage chunk index, \u2026). When two different owners render the same
+        // foliage chunk index, ...). When two different owners render the same
         // mesh with their own instance arrays, keying by meshHandle alone would
         // make them overwrite each other's history and produce garbage motion
         // vectors; compose with the owner so each owner keeps its own stream.
@@ -755,7 +761,7 @@ namespace OloEngine
         static std::vector<glm::mat4> GetAndRecordPrevInstanceTransforms(u64 meshKey, u64 ownerKey,
                                                                          const std::vector<glm::mat4>& currTransforms)
         {
-            // Hash-combine (Boost formula) \u2014 cheap, order-sensitive, and the
+            // Hash-combine (Boost formula) -- cheap, order-sensitive, and the
             // result preserves the original mesh-only key when ownerKey == 0.
             u64 combinedKey = meshKey;
             if (ownerKey != 0)
@@ -764,7 +770,7 @@ namespace OloEngine
             auto prevIt = s_Data.PrevInstanceTransforms.find(combinedKey);
             if (prevIt != s_Data.PrevInstanceTransforms.end() && prevIt->second.size() == currTransforms.size())
                 return prevIt->second;
-            return currTransforms; // First frame or instance-count mismatch \u2192 zero motion
+            return currTransforms; // First frame or instance-count mismatch -> zero motion
         }
 
         static Ref<Shader> GetTerrainPBRShader()

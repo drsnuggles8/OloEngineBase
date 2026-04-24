@@ -65,7 +65,7 @@ namespace OloEngine
     // Load a texture referenced by scene YAML through the asset registry so
     // it participates in hot-reload and is de-duplicated across the scene
     // graph. Falls back to a raw Texture2D::Create() when no EditorAssetManager
-    // is active (e.g. the runtime path loading a v0 scene with raw paths) \u2014
+    // is active (e.g. the runtime path loading a v0 scene with raw paths) --
     // matches the legacy behaviour exactly in that case.
     static Ref<Texture2D> LoadSceneTexture(const std::string& texPath)
     {
@@ -74,11 +74,20 @@ namespace OloEngine
 
         if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
         {
+            // ImportAsset returns an AssetHandle, registers the path for hot-
+            // reload watchers and dedupes repeated imports of the same file.
+            // We then go through the standard AssetManager::GetAsset<T>(handle)
+            // flow so the returned Ref participates in AssetReloadedEvent
+            // invalidation.
             const AssetHandle imported = assetManager->ImportAsset(texPath);
             if (imported != 0 && AssetManager::GetAssetType(imported) == AssetType::Texture2D)
                 return AssetManager::GetAsset<Texture2D>(imported);
         }
 
+        // Runtime path (no EditorAssetManager): legacy raw load. The runtime
+        // asset manager works off handles, not paths, so a scene that still
+        // carries raw paths can only be loaded via Texture2D::Create(). This
+        // bypass is intentional and scoped to the runtime fallback.
         return Texture2D::Create(texPath);
     }
 

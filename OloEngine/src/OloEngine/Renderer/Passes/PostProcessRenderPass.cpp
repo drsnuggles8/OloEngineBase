@@ -348,6 +348,15 @@ namespace OloEngine
             // stale frames back in on re-enable.
             m_TAAHistoryValid = false;
         }
+        else
+        {
+            // TAA requested but a required resource (shader / history FB /
+            // scene depth) is missing this frame — the pass did not run, so
+            // treat the history as stale. Without this, a subsequent frame
+            // that does have the resources would blend in arbitrarily old
+            // content (post-resize ghosting, post-hot-reload smears).
+            m_TAAHistoryValid = false;
+        }
 
         // 3.25. Precipitation screen-space effects (streaks + lens impacts)
         if (m_PrecipitationScreenEffectsEnabled && m_PrecipitationShader && m_PrecipitationScreenUBO)

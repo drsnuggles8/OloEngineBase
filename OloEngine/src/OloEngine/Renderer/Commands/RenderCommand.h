@@ -748,7 +748,6 @@ namespace OloEngine
             Emissive = 3
         };
         DecalMode mode = DecalMode::Albedo;
-        static_assert(sizeof(DecalMode) == 1, "DecalMode must be 1 byte to preserve POD layout");
 
         // Transparency override. When non-zero, this decal must be routed
         // through the forward (WB-OIT or blended) pipeline instead of the
@@ -767,6 +766,7 @@ namespace OloEngine
         u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;
     };
 
+    static_assert(sizeof(DrawDecalCommand::DecalMode) == 1, "DecalMode must be 1 byte to preserve POD layout");
     static_assert(std::is_trivially_copyable_v<DrawDecalCommand>, "DrawDecalCommand must be trivially copyable for radix sort");
 
     // Foliage instanced layer command — one command per foliage layer

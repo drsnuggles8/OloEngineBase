@@ -481,7 +481,7 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) % 16 == 0, "LightProbeVolumeUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) == 80, "LightProbeVolumeUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::WaterUBO) % 16 == 0, "WaterUBO size must be 16-byte aligned for std140");
-    static_assert(sizeof(UBOStructures::WaterUBO) == 272, "WaterUBO unexpected size \u2014 update GLSL layout");
+    static_assert(sizeof(UBOStructures::WaterUBO) == 272, "WaterUBO unexpected size -- update GLSL layout");
     static_assert(sizeof(UBOStructures::ForwardPlusUBO) % 16 == 0, "ForwardPlusUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::ForwardPlusUBO) == 16, "ForwardPlusUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::PBRMaterialUBO) % 16 == 0, "PBRMaterialUBO size must be 16-byte aligned for std140");
@@ -600,6 +600,12 @@ namespace OloEngine
         static constexpr u32 TEX_OIT_ACCUM = 48;      // OIT accum buffer (RGBA16F: sum(Ci*ai*wi), sum(ai*wi))
         static constexpr u32 TEX_OIT_REVEALAGE = 49;  // OIT revealage buffer (R16F: prod(1 - ai))
         static constexpr u32 TEX_SHADER_GRAPH_0 = 50; // First shader graph user texture slot (must be after all engine-reserved slots)
+
+        // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
+        // strictly greater than the highest engine-reserved slot so redundant-
+        // bind tracking writes never go out of bounds. Grows with any new
+        // TEX_* constant added above.
+        static constexpr u32 MAX_ENGINE_TEXTURE_SLOTS = TEX_SHADER_GRAPH_0 + 1;
 
         // Ensure all engine-reserved texture slots fit within the GL 4.6 minimum guarantee (80 combined units).
         static_assert(TEX_SHADER_GRAPH_0 < 80, "Engine texture slots exceed GL 4.6 minimum GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS");

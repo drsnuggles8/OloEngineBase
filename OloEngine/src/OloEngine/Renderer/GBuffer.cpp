@@ -68,17 +68,14 @@ namespace OloEngine
         }
 
         // Clamp to the device's reported MSAA capability. Drivers will silently
-        // refuse to allocate multisample storage above GL_MAX_SAMPLES (and
-        // GL_MAX_INTEGER_SAMPLES for the entityID/integer attachments); on
+        // refuse to allocate multisample storage above GL_MAX_SAMPLES; on
         // capped hardware (4-sample) requesting 8 leaves the framebuffer
         // incomplete and every subsequent blit/lighting pass silently no-ops.
         if (sampleCount > 1)
         {
             GLint maxSamples = 1;
-            GLint maxIntSamples = 1;
             glGetIntegerv(GL_MAX_SAMPLES, &maxSamples);
-            glGetIntegerv(GL_MAX_INTEGER_SAMPLES, &maxIntSamples);
-            const u32 deviceMax = static_cast<u32>(std::min(maxSamples, maxIntSamples));
+            const u32 deviceMax = static_cast<u32>(maxSamples);
             if (sampleCount > deviceMax)
             {
                 OLO_CORE_WARN("GBuffer::Create: requested sample count {} exceeds device max {}; clamping.",
@@ -221,10 +218,10 @@ namespace OloEngine
 
     void GBuffer::ResolveDepthOnly()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_SampleCount <= 1 || !m_Framebuffer || !m_ResolvedFramebuffer)
             return;
-
-        OLO_PROFILE_FUNCTION();
 
         const u32 srcFB = m_Framebuffer->GetRendererID();
         const u32 dstFB = m_ResolvedFramebuffer->GetRendererID();

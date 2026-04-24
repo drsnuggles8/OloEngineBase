@@ -71,7 +71,7 @@ namespace OloEngine
         RenderCommand::SetBlendState(false);
         RenderCommand::SetCullFace(GL_BACK);
 
-        const u32 sampleCount = m_GBuffer ? m_GBuffer->GetSampleCount() : 1u;
+        const u32 sampleCount = m_GBuffer->GetSampleCount();
         const bool useMSAAShading = m_PerSampleLighting && sampleCount > 1u && m_ShaderMSAA;
         Ref<Shader>& shader = useMSAAShading ? m_ShaderMSAA : m_Shader;
         shader->Bind();

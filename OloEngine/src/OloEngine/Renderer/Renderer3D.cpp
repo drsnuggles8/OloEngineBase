@@ -1337,10 +1337,10 @@ namespace OloEngine
             // full per-object + per-bone motion and is the authoritative
             // source; in Forward / Forward+ the scene FB RT3 is populated
             // by PBR_MultiLight (static) and PBR_MultiLight_Skinned (per-
-            // object motion only \u2014 skinned intra-skeleton motion is not
+            // object motion only -- skinned intra-skeleton motion is not
             // tracked in forward). Non-PBR forward shaders leave their
             // pixels at zero velocity, which the TAA shader treats as
-            // \u201Cno motion\u201D and falls back to neighborhood clip. A
+            // "no motion" and falls back to neighborhood clip. A
             // zero-bound here forces the camera-only reconstruction path.
             if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.ScenePass && s_Data.ScenePass->GetGBuffer())
             {
@@ -1353,7 +1353,7 @@ namespace OloEngine
                 // (see FramebufferSpecification assembled in Init()). Binding
                 // it unconditionally in Forward / Forward+ is safe: static
                 // geometry writes zero velocity (prev == curr), non-PBR
-                // shaders don\u2019t touch RT3 and it stays at its cleared value.
+                // shaders don't touch RT3 and it stays at its cleared value.
                 s_Data.PostProcessPass->SetVelocityTextureID(
                     s_Data.ScenePass->GetTarget()->GetColorAttachmentRendererID(3));
             }
@@ -1698,7 +1698,8 @@ namespace OloEngine
                                                 const Material& material,
                                                 bool isStatic,
                                                 i32 entityID,
-                                                const LODGroup* lodGroup)
+                                                const LODGroup* lodGroup,
+                                                const glm::mat4* prevModelMatrix)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1786,7 +1787,12 @@ namespace OloEngine
         cmd->indexCount = meshToUse->GetIndexCount();
         cmd->baseIndex = meshToUse->GetBaseIndex();
         cmd->transform = glm::mat4(modelMatrix);
-        cmd->prevTransform = cmd->transform; // parallel worker: motion history lookup happens on main thread
+        // When the caller has prev-frame history, use it; otherwise alias
+        // current so motion vectors are zero for this draw. Parallel workers
+        // cannot touch the main-thread entity motion-history map, so the
+        // caller (typically via MeshSubmitDesc::PrevTransform) must supply
+        // the history for per-object velocity to be correct.
+        cmd->prevTransform = prevModelMatrix ? *prevModelMatrix : cmd->transform;
         cmd->shaderHandle = shaderToUse->GetHandle();
 
         // Material data via table
@@ -2075,7 +2081,7 @@ namespace OloEngine
                 {
                     // Route through the prev-aware overload when the caller
                     // supplied prev-pose data; otherwise fall back to the
-                    // legacy entry which aliases current\u2192prev (zero motion).
+                    // legacy entry which aliases current->prev (zero motion).
                     if (desc.PrevBoneMatrices || desc.HasPrevTransform)
                     {
                         static const std::vector<glm::mat4> s_EmptyPrev;
@@ -2105,6 +2111,7 @@ namespace OloEngine
                 }
                 else
                 {
+                    const glm::mat4* prevXform = desc.HasPrevTransform ? &desc.PrevTransform : nullptr;
                     packet = Renderer3D::DrawMeshParallel(
                         stats.Context,
                         desc.Mesh,
@@ -2112,7 +2119,8 @@ namespace OloEngine
                         desc.MaterialData,
                         desc.IsStatic,
                         desc.EntityID,
-                        desc.LODGroupPtr);
+                        desc.LODGroupPtr,
+                        prevXform);
                 }
 
                 if (packet)
@@ -2778,7 +2786,7 @@ namespace OloEngine
         // (mesh, ownerKey) so two submission sources that render the same mesh with
         // independent instance arrays don't overwrite each other's history;
         // caller-ordering stability within an owner is still required. First frame
-        // / count mismatches alias the current data \u2192 zero velocity.
+        // / count mismatches alias the current data -> zero velocity.
         u32 prevTransformOffset = UINT32_MAX;
         if (s_Data.Settings.Path == RenderingPath::Deferred && mesh)
         {

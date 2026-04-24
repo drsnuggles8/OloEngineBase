@@ -54,7 +54,7 @@ namespace OloEngine
         u32 CurrentBoundVAO = 0;
         u16 LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
         u16 LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
-        std::array<u32, 32> BoundTextureIDs = { 0 };
+        std::array<u32, ShaderBindingLayout::MAX_ENGINE_TEXTURE_SLOTS> BoundTextureIDs = { 0 };
 
         // Track currently bound UBO renderer IDs per binding point to avoid
         // redundant glBindBufferBase calls. Indexed by ShaderBindingLayout::UBO_*.
@@ -1458,12 +1458,17 @@ namespace OloEngine
         // Upload camera UBO
         if (s_Data.CameraUBO)
         {
-            ShaderBindingLayout::CameraUBO cameraData;
+            ShaderBindingLayout::CameraUBO cameraData{};
             cameraData.ViewProjection = s_Data.ViewProjectionMatrix;
             cameraData.View = s_Data.ViewMatrix;
             cameraData.Projection = s_Data.ViewProjectionMatrix * glm::inverse(s_Data.ViewMatrix);
             cameraData.Position = s_Data.ViewPos;
             cameraData._padding0 = 0.0f;
+            // Terrain doesn't track per-frame view-projection history; alias
+            // current into PrevViewProjection so velocity reconstruction in
+            // shaders that read the full CameraUBO sees zero motion rather
+            // than an uninitialized matrix.
+            cameraData.PrevViewProjection = s_Data.ViewProjectionMatrix;
             s_Data.CameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
             BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
         }
@@ -1598,12 +1603,16 @@ namespace OloEngine
         // Upload camera UBO
         if (s_Data.CameraUBO)
         {
-            ShaderBindingLayout::CameraUBO cameraData;
+            ShaderBindingLayout::CameraUBO cameraData{};
             cameraData.ViewProjection = s_Data.ViewProjectionMatrix;
             cameraData.View = s_Data.ViewMatrix;
             cameraData.Projection = s_Data.ViewProjectionMatrix * glm::inverse(s_Data.ViewMatrix);
             cameraData.Position = s_Data.ViewPos;
             cameraData._padding0 = 0.0f;
+            // Voxel path doesn't track per-frame view-projection history;
+            // alias current into PrevViewProjection so the trailing field is
+            // well-defined for shaders that read the full CameraUBO.
+            cameraData.PrevViewProjection = s_Data.ViewProjectionMatrix;
             s_Data.CameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
             BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
         }

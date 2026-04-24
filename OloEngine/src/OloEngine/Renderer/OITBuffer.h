@@ -10,7 +10,7 @@ namespace OloEngine
     //
     // Layout (McGuire & Bavoil 2013):
     //   RT0 (RGBA16F) — Accum: sum(Ci * ai * wi) in RGB, sum(ai * wi) in A
-    //   RT1 (R16F)    — Revealage: prod(1 - ai) for final alpha reveal
+    //   RT1 (RG16F)   — Revealage: prod(1 - ai) for final alpha reveal
     //   Depth         — Read-only scene depth (blit-copied from scene FB)
     //
     // Transparent passes render with per-attachment blend funcs:

@@ -639,6 +639,11 @@ namespace OloEngine
 
         m_RuntimeSnowPrevPositions.Empty();
         m_EditorSnowPrevPositions.Empty();
+
+        // Reset animation clock on stop so re-entering runtime (or switching
+        // to edit mode) seeds a fresh baseline instead of leaking a stale
+        // PrevAnimationTime into TAA / motion-blur / wind / water shaders.
+        m_LastAnimationTime = -1.0f;
     }
 
     void Scene::OnSimulationStart()
@@ -655,6 +660,10 @@ namespace OloEngine
     {
         OnPhysics2DStop();
         OnPhysics3DStop();
+
+        // Mirror OnRuntimeStop so returning to edit mode doesn't leak stale
+        // animation-clock history into shaders that consume PrevAnimationTime.
+        m_LastAnimationTime = -1.0f;
     }
 
     void Scene::SetNavMesh(const Ref<NavMesh>& navMesh)

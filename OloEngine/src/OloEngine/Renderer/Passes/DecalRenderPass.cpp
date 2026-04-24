@@ -198,6 +198,10 @@ namespace OloEngine
     void DecalRenderPass::OnReset()
     {
         OLO_PROFILE_FUNCTION();
+        // Clear the opaque-drain guard so a graph reset (resize, path switch,
+        // hot-reload) doesn't leave it latched to "true" from the previous
+        // frame, which would cause ExecuteOnGBuffer to skip all opaque decals.
+        m_OpaqueDecalsDrained = false;
         // No own framebuffer to reset
     }
 

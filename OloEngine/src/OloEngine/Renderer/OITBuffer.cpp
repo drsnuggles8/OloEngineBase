@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/OITBuffer.h"
 
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Debug/Instrumentor.h"
 
 #include <glad/gl.h>
 #include <glm/glm.hpp>
@@ -99,6 +100,8 @@ namespace OloEngine
 
     void OITBuffer::ClearForFrame(const Ref<Framebuffer>& sourceDepth)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_Framebuffer)
             return;
         // Idempotent per frame — OITResolvePass resets the flag after composite.
