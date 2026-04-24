@@ -500,9 +500,12 @@ TEST(RenderGraphResetTopology, ClearsPassesAndAllowsRebuild)
 
 TEST(RenderGraphResetTopology, PreservesPassReferenceOwnership)
 {
-    // The graph stores passes by weak lookup; ResetTopology must only
-    // drop the graph's references, not destroy passes still held by
-    // external owners (in the real engine that's Renderer3D::s_Data).
+    // The graph stores passes by strong lookup in m_PassLookup
+    // (std::unordered_map<std::string, Ref<RenderPass>>). ResetTopology
+    // must only drop the graph's references, not destroy passes still
+    // held by external owners (in the real engine that's
+    // Renderer3D::s_Data). The test below verifies that an external Ref
+    // to a RenderPass keeps it alive after the graph forgets it.
     RenderGraph graph;
     auto a = Ref<StubRenderPass>::Create("A");
     a->SetName("A");

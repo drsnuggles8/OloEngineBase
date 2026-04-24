@@ -178,14 +178,29 @@ namespace OloEngine::Tests
                         resolved = candidate; // report missing path in error
                 }
 
-                payload->Name = resolved.generic_string();
                 if (fs::exists(resolved, ec))
+                {
+                    payload->Name = resolved.generic_string();
                     payload->Content = ReadWholeFile(resolved);
-
-                payload->Result.source_name = payload->Name.c_str();
-                payload->Result.source_name_length = payload->Name.size();
-                payload->Result.content = payload->Content.c_str();
-                payload->Result.content_length = payload->Content.size();
+                    payload->Result.source_name = payload->Name.c_str();
+                    payload->Result.source_name_length = payload->Name.size();
+                    payload->Result.content = payload->Content.c_str();
+                    payload->Result.content_length = payload->Content.size();
+                }
+                else
+                {
+                    // Signal include failure to shaderc by leaving source_name
+                    // empty and stuffing a descriptive error into content.
+                    // shaderc treats this as a missing include and surfaces
+                    // the message in the compile diagnostics.
+                    payload->Name.clear();
+                    payload->Content = "failed to resolve include '" + std::string(requested_source) +
+                                       "' from '" + std::string(requesting_source) + "'";
+                    payload->Result.source_name = payload->Name.c_str();
+                    payload->Result.source_name_length = 0;
+                    payload->Result.content = payload->Content.c_str();
+                    payload->Result.content_length = payload->Content.size();
+                }
                 payload->Result.user_data = payload;
                 return &payload->Result;
             }

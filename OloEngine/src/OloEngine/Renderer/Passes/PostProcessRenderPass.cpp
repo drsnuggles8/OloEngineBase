@@ -10,6 +10,8 @@
 
 #include <glad/gl.h>
 
+#include <algorithm>
+
 namespace OloEngine
 {
     std::vector<Ref<Shader>*> PostProcessRenderPass::GetAllShaderRefs()

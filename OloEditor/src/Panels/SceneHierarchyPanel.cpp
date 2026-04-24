@@ -4509,7 +4509,7 @@ namespace OloEngine
 
                 // Deferred G-Buffer target channel.
                 static const char* kDecalModes[] = { "Albedo", "Normal", "RMA", "Emissive" };
-                int currentMode = static_cast<int>(component.m_Mode);
+                i32 currentMode = static_cast<i32>(component.m_Mode);
                 if (ImGui::Combo("Mode##Decal", &currentMode, kDecalModes, IM_ARRAYSIZE(kDecalModes)))
                 {
                     component.m_Mode = static_cast<DecalMode>(currentMode);

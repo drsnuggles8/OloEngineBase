@@ -1,11 +1,16 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/OITResolveRenderPass.h"
 
+#include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <glad/gl.h>
+
+#include <algorithm>
+#include <array>
+#include <span>
 
 namespace OloEngine
 {
@@ -55,10 +60,10 @@ namespace OloEngine
         // Restrict the draw-buffer set to COLOR_ATTACHMENT0 so the fullscreen
         // fragment shader cannot accidentally clobber entity-ID / view-normal
         // attachments — colour-mask writes still leave an undefined-output
-        // hazard on some drivers when MRT is enabled.
-        const u32 inputFBID = m_InputFramebuffer->GetRendererID();
-        const GLenum oitResolveDrawBuf = GL_COLOR_ATTACHMENT0;
-        glNamedFramebufferDrawBuffers(inputFBID, 1, &oitResolveDrawBuf);
+        // hazard on some drivers when MRT is enabled. Goes through
+        // RenderCommand so MockRendererAPI sees the change in tests.
+        const u32 oitResolveDrawAttachment = 0u;
+        RenderCommand::SetDrawBuffers(std::span<const u32>(&oitResolveDrawAttachment, 1));
 
         // No depth interaction: the accum already baked in depth-weighting.
         RenderCommand::SetDepthTest(false);
@@ -92,13 +97,30 @@ namespace OloEngine
         RenderCommand::SetDepthTest(true);
 
         // Restore the full MRT draw-buffer set we narrowed above so the next
-        // pass binding this framebuffer writes to all attachments again.
-        const GLenum fullDrawBufs[3] = {
-            GL_COLOR_ATTACHMENT0,
-            GL_COLOR_ATTACHMENT1,
-            GL_COLOR_ATTACHMENT2
-        };
-        glNamedFramebufferDrawBuffers(inputFBID, 3, fullDrawBufs);
+        // pass binding this framebuffer writes to all attachments again. Use
+        // the actual attachment count from the framebuffer spec rather than
+        // hard-coding 3, so deferred / forward FBs (which have different
+        // colour-attachment counts) all restore correctly.
+        const auto& inputAttachments = m_InputFramebuffer->GetSpecification().Attachments.Attachments;
+        u32 colorAttachmentCount = 0;
+        for (const auto& att : inputAttachments)
+        {
+            if (att.TextureFormat != FramebufferTextureFormat::Depth &&
+                att.TextureFormat != FramebufferTextureFormat::DEPTH24STENCIL8 &&
+                att.TextureFormat != FramebufferTextureFormat::DEPTH_COMPONENT32F &&
+                att.TextureFormat != FramebufferTextureFormat::ShadowDepth)
+            {
+                ++colorAttachmentCount;
+            }
+        }
+        if (colorAttachmentCount > 0)
+        {
+            std::array<u32, 8> restoreAttachments{};
+            const u32 count = std::min<u32>(colorAttachmentCount, static_cast<u32>(restoreAttachments.size()));
+            for (u32 i = 0; i < count; ++i)
+                restoreAttachments[i] = i;
+            RenderCommand::SetDrawBuffers(std::span<const u32>(restoreAttachments.data(), count));
+        }
 
         m_InputFramebuffer->Unbind();
     }

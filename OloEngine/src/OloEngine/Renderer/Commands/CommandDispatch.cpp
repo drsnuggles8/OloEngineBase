@@ -484,22 +484,23 @@ namespace OloEngine
         // (G-Buffer RT3) variants bind this UBO at binding 31. Upload only when
         // the caller provided a distinct offset (UINT32_MAX sentinel means
         // "reuse current", which matches static / first-frame animated meshes).
-        if (s_Data.PrevBoneMatricesUBO && prevBoneBufferOffset != UINT32_MAX)
+        if (s_Data.PrevBoneMatricesUBO)
         {
-            const glm::mat4* prevBoneMatrices = FrameDataBufferManager::Get().GetBoneMatrixPtr(prevBoneBufferOffset);
-            if (prevBoneMatrices)
+            const glm::mat4* prevBoneMatrices = nullptr;
+            if (prevBoneBufferOffset != UINT32_MAX)
+                prevBoneMatrices = FrameDataBufferManager::Get().GetBoneMatrixPtr(prevBoneBufferOffset);
+
+            // Fall back to current bones whenever the prev stream is missing
+            // (sentinel offset OR allocator pointer lookup returned null) so
+            // the prev UBO never carries stale bytes from a previous draw —
+            // skinned shaders then compute zero bone-motion instead of
+            // garbage / leftover entity data.
+            const glm::mat4* sourceData = prevBoneMatrices ? prevBoneMatrices : boneMatrices;
+            if (sourceData)
             {
-                s_Data.PrevBoneMatricesUBO->SetData(prevBoneMatrices, static_cast<u32>(count * sizeof(glm::mat4)));
+                s_Data.PrevBoneMatricesUBO->SetData(sourceData, static_cast<u32>(count * sizeof(glm::mat4)));
                 BindUBOIfNeeded(ShaderBindingLayout::UBO_ANIMATION_PREV, s_Data.PrevBoneMatricesUBO->GetRendererID());
             }
-        }
-        else if (s_Data.PrevBoneMatricesUBO && boneMatrices)
-        {
-            // No separate prev stream: bind current data into the prev slot so the
-            // skinned shaders compute zero bone-motion instead of reading stale
-            // bytes from a previous frame's entity.
-            s_Data.PrevBoneMatricesUBO->SetData(boneMatrices, static_cast<u32>(count * sizeof(glm::mat4)));
-            BindUBOIfNeeded(ShaderBindingLayout::UBO_ANIMATION_PREV, s_Data.PrevBoneMatricesUBO->GetRendererID());
         }
     }
 

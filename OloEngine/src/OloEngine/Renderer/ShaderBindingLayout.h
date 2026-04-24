@@ -821,6 +821,12 @@ namespace OloEngine
         // GLSL LAYOUT STRINGS FOR CODE GENERATION
         // =============================================================================
 
+        // Vestigial: kept only for documentation / tools that still snapshot
+        // it. The runtime CameraUBO has additional trailing fields
+        // (u_PrevViewProjection) that this string deliberately omits so
+        // shaders requesting the older layout still bind correctly. New
+        // shader code should declare the extended block manually — see
+        // CameraUBO in the structs section above for the full member list.
         static const char* GetCameraUBOLayout()
         {
             return R"(
@@ -909,6 +915,10 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
 };)";
         }
 
+        // Vestigial: see GetCameraUBOLayout above. The runtime ModelUBO
+        // includes u_PrevModel for per-object motion vectors; this string
+        // omits it for legacy shaders that don't sample it. Declare the
+        // extended block manually in shader sources that need it.
         static const char* GetModelUBOLayout()
         {
             return R"(

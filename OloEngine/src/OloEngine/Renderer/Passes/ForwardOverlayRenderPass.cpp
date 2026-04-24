@@ -76,6 +76,10 @@ namespace OloEngine
         rendererAPI.SetDepthMask(true);
         rendererAPI.SetDepthFunc(GL_LESS);
         rendererAPI.SetBlendState(false);
+        // Restore cull face + polygon mode — skybox / debug commands inside the
+        // bucket may flip these and would otherwise leak into the next pass.
+        rendererAPI.SetCullFace(GL_BACK);
+        rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
         m_SceneFramebuffer->Unbind();
 

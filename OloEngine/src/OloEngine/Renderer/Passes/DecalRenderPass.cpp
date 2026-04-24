@@ -339,6 +339,12 @@ namespace OloEngine
         // emissive channel during composite).
         glDisablei(GL_BLEND, 2);
 
+        // The raw glColorMaski/glDisablei/glNamedFramebufferDrawBuffers calls
+        // above bypass the cached render-state tracking; invalidate so the
+        // next pass's first packet reapplies its POD state instead of being
+        // elided as a no-op against the now-stale cache snapshot.
+        CommandDispatch::InvalidateRenderStateCache();
+
         writeTargetFB->Unbind();
 
         // If any transparent decals are still queued, preserve the bucket so

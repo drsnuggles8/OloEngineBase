@@ -392,6 +392,14 @@ namespace OloEngine
     {
         m_IsRunning = true;
 
+        // Reset animation-time history so the first runtime frame seeds itself
+        // (see OnUpdateRender's m_LastAnimationTime < 0.0f branch). Without
+        // this, a stale value carried over from a previous edit-mode session
+        // produces a huge dt on the first runtime frame, which shows up as
+        // bogus motion vectors in TAA / motion blur for the wind / water /
+        // foliage shaders that consume PrevAnimationTime.
+        m_LastAnimationTime = -1.0f;
+
         // In headless mode, disable rendering
         if (Application::Get().IsHeadless())
         {
@@ -635,6 +643,10 @@ namespace OloEngine
 
     void Scene::OnSimulationStart()
     {
+        // Same reset as OnRuntimeStart — simulation mode also re-baselines the
+        // animation clock so first-frame velocity reprojection isn't bogus.
+        m_LastAnimationTime = -1.0f;
+
         OnPhysics2DStart();
         OnPhysics3DStart();
     }
@@ -3582,9 +3594,17 @@ namespace OloEngine
                     // Emissive-mode decals reuse the primary slot for the emissive
                     // texture (DecalShader samples the same TEX_USER_0 binding).
                     RendererID albedoTextureID = 0;
-                    if (decal.m_Mode == DecalMode::Emissive && decal.m_EmissiveTexture)
+                    if (decal.m_Mode == DecalMode::Emissive)
                     {
-                        albedoTextureID = decal.m_EmissiveTexture->GetRendererID();
+                        // Emissive-mode decals reuse the primary slot for the
+                        // emissive texture (DecalShader samples the same
+                        // TEX_USER_0 binding). When no emissive texture is
+                        // assigned, leave the slot at 0 — do NOT fall back to
+                        // the albedo texture (it would project the diffuse
+                        // colour into the emissive G-Buffer channel, painting
+                        // unintended self-illumination onto the surface).
+                        if (decal.m_EmissiveTexture)
+                            albedoTextureID = decal.m_EmissiveTexture->GetRendererID();
                     }
                     else if (decal.m_AlbedoTexture)
                     {

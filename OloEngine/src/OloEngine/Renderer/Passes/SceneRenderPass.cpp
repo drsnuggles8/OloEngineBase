@@ -509,14 +509,16 @@ namespace OloEngine
             GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
         // Restore the draw FB's draw-buffer list — the forward scene FB has
-        // multiple attachments (color/entityID/viewNormal) that expect all
-        // MRT slots active for downstream passes.
+        // four attachments (color, entityID, viewNormal, velocity); narrowing
+        // to three drops layout(location=3) writes from later forward shaders
+        // (PBR_MultiLight motion-vector output), breaking TAA/MotionBlur.
         const GLenum fullDrawBufs[] = {
             GL_COLOR_ATTACHMENT0,
             GL_COLOR_ATTACHMENT1,
-            GL_COLOR_ATTACHMENT2
+            GL_COLOR_ATTACHMENT2,
+            GL_COLOR_ATTACHMENT3
         };
-        glNamedFramebufferDrawBuffers(dstFB, 3, fullDrawBufs);
+        glNamedFramebufferDrawBuffers(dstFB, 4, fullDrawBufs);
 
         // Also copy depth so downstream passes (post-process, selection
         // outline, UI) have a coherent depth buffer.
@@ -549,10 +551,13 @@ namespace OloEngine
         // Blit attachment 3 (RG16F velocity) into attachment 0 (RGBA16F).
         // GL converts channels: R,G populated, B=0, A=1. Result is a
         // pseudo-colour visualisation (red = +X motion, green = +Y).
+        // Include attachment 3 in the restore list so velocity writes by any
+        // subsequent forward shader continue to land on the correct slot.
         const GLenum prevDrawBufs[] = {
             GL_COLOR_ATTACHMENT0,
             GL_COLOR_ATTACHMENT1,
-            GL_COLOR_ATTACHMENT2
+            GL_COLOR_ATTACHMENT2,
+            GL_COLOR_ATTACHMENT3
         };
 
         glNamedFramebufferReadBuffer(fb, GL_COLOR_ATTACHMENT3);
@@ -565,9 +570,9 @@ namespace OloEngine
             0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
             GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
-        // Restore the scene FB's multi-attachment draw-buffer list for
-        // downstream passes (post-process, UI composite).
-        glNamedFramebufferDrawBuffers(fb, 3, prevDrawBufs);
+        // Restore the scene FB's full multi-attachment draw-buffer list for
+        // downstream passes (post-process, UI composite); see comment above.
+        glNamedFramebufferDrawBuffers(fb, 4, prevDrawBufs);
     }
 
     void SceneRenderPass::OnReset()

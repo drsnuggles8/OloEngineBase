@@ -56,6 +56,10 @@ namespace OloEngine
     void OITBuffer::Recreate()
     {
         m_Framebuffer = Framebuffer::Create(BuildSpec(m_Width, m_Height));
+        // The new framebuffer's attachments contain undefined contents until the
+        // first ClearForFrame(); reset the per-frame guard so ClearForFrame()
+        // doesn't early-out on stale state.
+        m_ClearedThisFrame = false;
     }
 
     void OITBuffer::Resize(u32 width, u32 height)
@@ -69,7 +73,12 @@ namespace OloEngine
         m_Width = width;
         m_Height = height;
         if (m_Framebuffer)
+        {
             m_Framebuffer->Resize(m_Width, m_Height);
+            // Resize re-allocates attachment storage on the GL side; treat the
+            // contents as stale just like a full Recreate().
+            m_ClearedThisFrame = false;
+        }
         else
             Recreate();
     }

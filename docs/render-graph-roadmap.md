@@ -23,9 +23,12 @@ The current `OloEngine::RenderGraph`
 **topologically-ordered, statically-wired pass list with a hazard
 validator**:
 
-* Passes are `Ref<RenderPass>` instances **owned** by `Renderer3D::s_Data`,
-  not by the graph. The graph only holds weak references via a name→pass
-  lookup (`m_PassLookup`).
+* Passes are `Ref<RenderPass>` instances. `Renderer3D::s_Data` keeps a
+  long-lived strong reference to each pass while it is registered, and
+  `RenderGraph::m_PassLookup` is a `std::unordered_map<std::string,
+  Ref<RenderPass>>` — also a strong reference. `RenderGraph::ResetTopology()`
+  drops the graph's references but external owners (s_Data) continue to keep
+  the pass alive.
 * Wiring is done manually during `Renderer3D::ConfigureRenderGraph` via
   explicit calls to:
   * `AddPass(ref)` — register a pass in insertion order.

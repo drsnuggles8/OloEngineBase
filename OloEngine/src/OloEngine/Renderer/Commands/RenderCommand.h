@@ -731,8 +731,12 @@ namespace OloEngine
         glm::vec4 decalColor = glm::vec4(1.0f);
         glm::vec4 decalParams = glm::vec4(0.0f); // x = fadeDistance, y = normalAngleThreshold, z/w = unused
         RendererID albedoTextureID = 0;
-        RendererID normalTextureID = 0; // Bound at TEX_NORMAL for Normal-mode decals
-        RendererID rmaTextureID = 0;    // Bound at TEX_SPECULAR for RMA-mode decals (R=rough, G=metal, B=AO)
+        RendererID normalTextureID = 0; // Bound at ShaderBindingLayout::TEX_USER_1 for Normal-mode decals (see CommandDispatch::DrawDecal)
+        RendererID rmaTextureID = 0;    // Bound at ShaderBindingLayout::TEX_USER_2 for RMA-mode decals (R=roughness, G=metal, B=AO)
+        // Inserting fields between members above is safe: every Renderer3D::DrawDecal
+        // call site assigns members by name (`cmd->normalTextureID = …`) rather than
+        // positional brace initialization, and the same convention applies to
+        // DrawMeshCommand / DrawMeshInstancedCommand.
 
         // Decal mode: matches Scene::DecalMode enum. DecalRenderPass::
         // ExecuteOnGBuffer uses this to pick draw-buffer + colour mask.

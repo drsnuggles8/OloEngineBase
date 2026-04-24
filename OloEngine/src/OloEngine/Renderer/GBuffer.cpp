@@ -67,6 +67,34 @@ namespace OloEngine
             sampleCount = 1;
         }
 
+        // Clamp to the device's reported MSAA capability. Drivers will silently
+        // refuse to allocate multisample storage above GL_MAX_SAMPLES (and
+        // GL_MAX_INTEGER_SAMPLES for the entityID/integer attachments); on
+        // capped hardware (4-sample) requesting 8 leaves the framebuffer
+        // incomplete and every subsequent blit/lighting pass silently no-ops.
+        if (sampleCount > 1)
+        {
+            GLint maxSamples = 1;
+            GLint maxIntSamples = 1;
+            glGetIntegerv(GL_MAX_SAMPLES, &maxSamples);
+            glGetIntegerv(GL_MAX_INTEGER_SAMPLES, &maxIntSamples);
+            const u32 deviceMax = static_cast<u32>(std::min(maxSamples, maxIntSamples));
+            if (sampleCount > deviceMax)
+            {
+                OLO_CORE_WARN("GBuffer::Create: requested sample count {} exceeds device max {}; clamping.",
+                              sampleCount, deviceMax);
+                // Snap to the largest power-of-two from {1,2,4,8} that fits.
+                if (deviceMax >= 8)
+                    sampleCount = 8;
+                else if (deviceMax >= 4)
+                    sampleCount = 4;
+                else if (deviceMax >= 2)
+                    sampleCount = 2;
+                else
+                    sampleCount = 1;
+            }
+        }
+
         return Ref<GBuffer>(new GBuffer(width, height, sampleCount));
     }
 
