@@ -223,6 +223,36 @@ namespace OloEngine
                     ImGui::TextDisabled("Hysteresis floor — once Forward+ is active, drop back to\n"
                                         "Forward only when lights fall to/below this value.");
                 }
+
+                // Velocity debug overlay (parity with Deferred DebugChannel=5).
+                if (ImGui::Checkbox("Debug: Velocity Overlay", &settings.DebugVelocityOverlayForward))
+                {
+                    Renderer3D::ApplyRendererSettings();
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Visualise the per-object screen-space velocity buffer.\n"
+                                      "Red = +X motion, green = +Y motion.\n"
+                                      "Scene FB attachment 3 (RG16F) → colour[0].");
+                }
+            }
+            else if (settings.Path == RenderingPath::ForwardPlus)
+            {
+                ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f),
+                                   "Forward+ pipeline active.");
+                ImGui::TextDisabled("Tile-based clustered culling for many lights.");
+
+                // Velocity debug overlay (parity with Deferred DebugChannel=5).
+                if (ImGui::Checkbox("Debug: Velocity Overlay", &settings.DebugVelocityOverlayForward))
+                {
+                    Renderer3D::ApplyRendererSettings();
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Visualise the per-object screen-space velocity buffer.\n"
+                                      "Red = +X motion, green = +Y motion.\n"
+                                      "Scene FB attachment 3 (RG16F) → colour[0].");
+                }
             }
             else if (settings.Path == RenderingPath::Deferred)
             {

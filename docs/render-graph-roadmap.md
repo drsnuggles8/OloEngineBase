@@ -312,3 +312,12 @@ Option 4. Landing them here so we don't lose sight.
 * **Initial entry** — Option 3 landed (per-RenderingPath topology rebuild
   via `RenderGraph::ResetTopology` + `Renderer3D::ConfigureRenderGraph`).
   This document records the rationale and the Option 4 target.
+* **§6.2 / §6.3 / §6.5 / §6.6 / §6.7** — live pass list + DOT dump in the
+  renderer panel, Forward+ auto-switch hysteresis with a configurable
+  downgrade threshold, MSAA driver-capability clamp, and L1 tests for
+  `RenderGraph::ResetTopology`.
+* **§6.4** — Forward / Forward+ velocity debug overlay. New
+  `RendererSettings::DebugVelocityOverlayForward`; `SceneRenderPass`
+  blits RG16F attachment 3 (velocity) into colour[0] at end-of-execute
+  when active and the path is not Deferred. Panel checkbox surfaces the
+  toggle in the Forward and Forward+ branches.

@@ -312,6 +312,12 @@ namespace OloEngine
         {
             BlitGBufferDebug(rendererSettings.Deferred.DebugChannel);
         }
+        else if (!deferredActive && rendererSettings.DebugVelocityOverlayForward)
+        {
+            // Forward / Forward+ velocity overlay: mirror the Deferred
+            // DebugChannel=5 capability for the forward paths.
+            BlitForwardVelocityDebug();
+        }
     }
 
     Ref<Framebuffer> SceneRenderPass::GetTarget() const
@@ -512,6 +518,49 @@ namespace OloEngine
             0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
             0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
             GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    }
+
+    void SceneRenderPass::BlitForwardVelocityDebug()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_Target)
+            return;
+
+        // Velocity is attachment 3 on the forward scene FB. If the scene FB
+        // wasn't created with it (deferred path swaps to G-Buffer) just
+        // bail — the caller already checks deferred state, but defensive.
+        const auto& attachments = m_Target->GetSpecification().Attachments.Attachments;
+        if (attachments.size() <= 3 ||
+            attachments[3].TextureFormat != FramebufferTextureFormat::RG16F)
+            return;
+
+        const u32 fb = m_Target->GetRendererID();
+        const u32 w = m_Target->GetSpecification().Width;
+        const u32 h = m_Target->GetSpecification().Height;
+
+        // Blit attachment 3 (RG16F velocity) into attachment 0 (RGBA16F).
+        // GL converts channels: R,G populated, B=0, A=1. Result is a
+        // pseudo-colour visualisation (red = +X motion, green = +Y).
+        const GLenum prevDrawBufs[] = {
+            GL_COLOR_ATTACHMENT0,
+            GL_COLOR_ATTACHMENT1,
+            GL_COLOR_ATTACHMENT2
+        };
+
+        glNamedFramebufferReadBuffer(fb, GL_COLOR_ATTACHMENT3);
+        const GLenum drawBufs[] = { GL_COLOR_ATTACHMENT0 };
+        glNamedFramebufferDrawBuffers(fb, 1, drawBufs);
+
+        glBlitNamedFramebuffer(
+            fb, fb,
+            0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
+            0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
+            GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+        // Restore the scene FB's multi-attachment draw-buffer list for
+        // downstream passes (post-process, UI composite).
+        glNamedFramebufferDrawBuffers(fb, 3, prevDrawBufs);
     }
 
     void SceneRenderPass::OnReset()

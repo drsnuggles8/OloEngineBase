@@ -94,5 +94,12 @@ namespace OloEngine
         bool ShowGrid = true;
         bool ShowPhysicsColliders = false;
         bool ShowLightGizmos = true;
+        // Visualise the per-object screen-space velocity buffer in Forward
+        // and Forward+ paths. Ignored in Deferred (which has its own
+        // G-Buffer velocity debug channel — DeferredSettings::DebugChannel
+        // = 5). When enabled, SceneRenderPass blits the scene FB's RG16F
+        // velocity attachment into colour[0] right after scene rendering
+        // (pre post-process), so the viewport shows the velocity buffer.
+        bool DebugVelocityOverlayForward = false;
     };
 } // namespace OloEngine

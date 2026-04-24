@@ -57,6 +57,13 @@ namespace OloEngine
         // editor viewport shows something meaningful before Phase 3 lighting.
         void BlitGBufferDebug(u32 channel);
 
+        // Blit the forward scene FB's velocity attachment (RG16F at slot 3)
+        // into colour[0] for visualisation in Forward / Forward+ paths.
+        // Called when RendererSettings::DebugVelocityOverlayForward is true
+        // and the active path is not Deferred (the Deferred path has its
+        // own velocity debug visualisation through BlitGBufferDebug(5)).
+        void BlitForwardVelocityDebug();
+
         u32 m_FrameCounter = 0;
         Ref<GBuffer> m_GBuffer;
         u32 m_GBufferSampleCount = 1;
