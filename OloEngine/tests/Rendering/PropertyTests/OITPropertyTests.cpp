@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 #include "OloEngine/Core/Base.h"
 

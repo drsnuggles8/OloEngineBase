@@ -4528,6 +4528,7 @@ namespace OloEngine
 
                 auto drawTextureSlot = [](const char* label, Ref<Texture2D>& slot)
                 {
+                    ImGui::PushID(label);
                     ImGui::Button(label, ImVec2(100.0f, 0.0f));
                     if (ImGui::BeginDragDropTarget())
                     {
@@ -4546,6 +4547,14 @@ namespace OloEngine
                         }
                         ImGui::EndDragDropTarget();
                     }
+                    ImGui::SameLine();
+                    ImGui::BeginDisabled(!slot);
+                    if (ImGui::Button("X", ImVec2(20.0f, 0.0f)))
+                        slot = nullptr;
+                    ImGui::EndDisabled();
+                    if (slot && ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Clear texture slot");
+                    ImGui::PopID();
                 };
 
                 drawTextureSlot("Albedo Texture", component.m_AlbedoTexture);

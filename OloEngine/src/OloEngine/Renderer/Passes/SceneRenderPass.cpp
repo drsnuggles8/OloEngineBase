@@ -441,13 +441,15 @@ namespace OloEngine
             RenderCommand::DrawIndexed(va);
 
             // Restore the scene FB's multi-attachment draw-buffer list so the
-            // downstream passes (post-process, UI) find the expected slots.
+            // downstream passes (post-process, UI) find the expected slots
+            // (including RT3 velocity for TAA).
             const GLenum fullDrawBufs[] = {
                 GL_COLOR_ATTACHMENT0,
                 GL_COLOR_ATTACHMENT1,
-                GL_COLOR_ATTACHMENT2
+                GL_COLOR_ATTACHMENT2,
+                GL_COLOR_ATTACHMENT3
             };
-            glNamedFramebufferDrawBuffers(dstFB, 3, fullDrawBufs);
+            glNamedFramebufferDrawBuffers(dstFB, 4, fullDrawBufs);
 
             RenderCommand::SetDepthMask(true);
             RenderCommand::SetDepthTest(true);

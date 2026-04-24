@@ -63,13 +63,15 @@ namespace OloEngine
         }
 
         // Restore multi-attachment draw buffers so later passes (e.g. decal
-        // pass writing to RT1/RT2 of the scene FB) see the full target set.
+        // pass writing to RT1/RT2 of the scene FB, or TAA sampling RT3
+        // velocity) see the full target set.
         const GLenum fullDrawBufs[] = {
             GL_COLOR_ATTACHMENT0,
             GL_COLOR_ATTACHMENT1,
-            GL_COLOR_ATTACHMENT2
+            GL_COLOR_ATTACHMENT2,
+            GL_COLOR_ATTACHMENT3
         };
-        glNamedFramebufferDrawBuffers(sceneFBID, 3, fullDrawBufs);
+        glNamedFramebufferDrawBuffers(sceneFBID, 4, fullDrawBufs);
 
         rendererAPI.SetDepthMask(true);
         rendererAPI.SetDepthFunc(GL_LESS);

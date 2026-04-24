@@ -3014,10 +3014,9 @@ namespace OloEngine
             // Track previous-frame animation time so water/foliage/wind shaders can
             // reproject their on-surface displacement (Gerstner waves, wind sway) for
             // accurate per-fragment velocity output.
-            static f32 s_LastAnimationTime = -1.0f;
             const f32 animationTime = Time::GetTime();
-            const f32 prevAnimationTime = (s_LastAnimationTime < 0.0f) ? animationTime : s_LastAnimationTime;
-            s_LastAnimationTime = animationTime;
+            const f32 prevAnimationTime = (m_LastAnimationTime < 0.0f) ? animationTime : m_LastAnimationTime;
+            m_LastAnimationTime = animationTime;
             {
                 auto terrainShader = Renderer3D::GetTerrainPBRShader();
                 auto voxelShader = Renderer3D::GetVoxelPBRShader();

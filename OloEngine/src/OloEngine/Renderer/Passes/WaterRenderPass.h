@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Shader.h"
 
 #include <functional>
+#include <utility>
 
 namespace OloEngine
 {

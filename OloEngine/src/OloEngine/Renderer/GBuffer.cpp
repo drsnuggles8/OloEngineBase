@@ -5,6 +5,8 @@
 
 #include <glad/gl.h>
 
+#include <algorithm>
+
 namespace OloEngine
 {
     namespace

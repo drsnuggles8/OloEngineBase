@@ -79,9 +79,11 @@ validator**:
 6. **Async compute isn't expressible.** All work is serial across a single
    timeline; there's no way to hint that two passes with no data
    dependency should overlap on different queues.
-7. **Graph visualisation is out-of-band.** We have `ValidateResourceHazards`
-   reporting but no runtime dump of "what did the graph look like this
-   frame" — useful when tracking down correctness bugs.
+7. **Graph visualisation was out-of-band.** We have `ValidateResourceHazards`
+   reporting and `RenderGraph::DumpToDot(path)` now emits a GraphViz DOT
+   snapshot of the current topology — useful when tracking down correctness
+   bugs or verifying per-path rebuilds. Live per-frame metrics (timings,
+   resource-access traces) are still out of scope.
 
 Limitations 3–5 are what tipped us toward Option 4 as the long-term
 target: they aren't structural to rendering, they're artefacts of the

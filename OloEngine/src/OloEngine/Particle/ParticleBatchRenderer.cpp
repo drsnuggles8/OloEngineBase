@@ -394,6 +394,11 @@ namespace OloEngine
 
         s_Data.Stats.DrawCalls++;
         s_Data.Stats.InstanceCount += s_Data.InstanceCount;
+
+        // Reset write cursor so Flush is self-contained even in code paths that
+        // don't immediately call StartNewBatch (e.g. EndBatch).
+        s_Data.InstanceCount = 0;
+        s_Data.InstancePtr = s_Data.InstanceBase.get();
     }
 
     void ParticleBatchRenderer::RenderMeshParticles(const Ref<Mesh>& mesh,

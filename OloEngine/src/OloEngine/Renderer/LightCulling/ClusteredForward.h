@@ -77,6 +77,9 @@ namespace OloEngine
         void SetLightCountThreshold(u32 threshold)
         {
             m_LightCountThreshold = threshold;
+            // Preserve invariant: down-threshold must stay strictly below the upgrade threshold.
+            if (m_LightCountThresholdDown >= threshold)
+                m_LightCountThresholdDown = threshold > 0 ? threshold - 1 : 0;
         }
         // Lower bound for Auto-mode hysteresis. Once Forward+ is active it
         // stays active until total light count falls to/below this value,
@@ -85,7 +88,9 @@ namespace OloEngine
         // any hysteresis; callers should clamp.
         void SetLightCountThresholdDown(u32 threshold)
         {
-            m_LightCountThresholdDown = threshold;
+            // Clamp to < upgrade threshold so the invariant never breaks.
+            const u32 maxAllowed = m_LightCountThreshold > 0 ? m_LightCountThreshold - 1 : 0;
+            m_LightCountThresholdDown = threshold < maxAllowed ? threshold : maxAllowed;
         }
 
         // Debug

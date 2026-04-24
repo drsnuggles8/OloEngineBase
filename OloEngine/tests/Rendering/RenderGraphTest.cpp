@@ -526,7 +526,7 @@ TEST(RenderGraphResetTopology, MultipleResetsAreSafe)
     // Rebuilding repeatedly (e.g. user toggling RenderingPath rapidly)
     // must not accumulate state or crash.
     RenderGraph graph;
-    for (int i = 0; i < 5; ++i)
+    for (i32 i = 0; i < 5; ++i)
     {
         graph.ResetTopology();
         AddStub(graph, "P");

@@ -619,6 +619,8 @@ namespace OloEngine
         s_Data.FoliagePass.Reset();
         s_Data.WaterPass.Reset();
         s_Data.DecalPass.Reset();
+        s_Data.DeferredLightPass.Reset();
+        s_Data.ForwardOverlayPass.Reset();
         s_Data.RGraph.Reset();
 
         // Release UBOs explicitly while the GL context is still alive
@@ -641,6 +643,7 @@ namespace OloEngine
         s_Data.DecalUBO.Reset();
         s_Data.LightProbeVolumeUBO.Reset();
         s_Data.LightProbeSHBuffer.Reset();
+        s_Data.PrevBoneMatricesUBO.Reset();
 
         FrameResourceManager::Get().Shutdown();
         FrameDataBufferManager::Shutdown();

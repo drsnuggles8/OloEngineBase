@@ -52,6 +52,10 @@ namespace OloEngine
         EnableStencilTest();
         SetStencilFunc(GL_ALWAYS, 1, 0xFF);
         SetStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+
+        // Cache GL_MAX_DRAW_BUFFERS once — SetBlend*ForAttachment are hot paths
+        // and glGetIntegerv on every call costs a driver round-trip.
+        glGetIntegerv(GL_MAX_DRAW_BUFFERS, &m_MaxDrawBuffers);
     }
     void OpenGLRendererAPI::SetViewport(const u32 x, const u32 y, const u32 width, const u32 height)
     {
@@ -628,12 +632,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        GLint maxDrawBuffers = 0;
-        glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxDrawBuffers);
-        if (attachment >= static_cast<u32>(maxDrawBuffers))
+        if (attachment >= static_cast<u32>(m_MaxDrawBuffers))
         {
             OLO_CORE_ERROR("OpenGLRendererAPI::SetBlendStateForAttachment - attachment index {} exceeds GL_MAX_DRAW_BUFFERS {}",
-                           attachment, maxDrawBuffers);
+                           attachment, m_MaxDrawBuffers);
             return;
         }
 
@@ -651,12 +653,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        GLint maxDrawBuffers = 0;
-        glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxDrawBuffers);
-        if (attachment >= static_cast<u32>(maxDrawBuffers))
+        if (attachment >= static_cast<u32>(m_MaxDrawBuffers))
         {
             OLO_CORE_ERROR("OpenGLRendererAPI::SetBlendFuncForAttachment - attachment index {} exceeds GL_MAX_DRAW_BUFFERS {}",
-                           attachment, maxDrawBuffers);
+                           attachment, m_MaxDrawBuffers);
             return;
         }
 

@@ -35,6 +35,7 @@
 #include "OloEngine/Renderer/LightCulling/ClusteredForward.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 
+#include <algorithm>
 #include <chrono>
 
 // Forward declarations

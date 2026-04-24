@@ -89,9 +89,10 @@ namespace OloEngine::Tests
                 return shaderc_glsl_fragment_shader;
             if (tok == "geometry")
                 return shaderc_glsl_geometry_shader;
-            if (tok == "tess_control")
+            if (tok == "tess_control" || tok == "tesscontrol" || tok == "tessellation_control")
                 return shaderc_glsl_tess_control_shader;
-            if (tok == "tess_eval" || tok == "tess_evaluation")
+            if (tok == "tess_eval" || tok == "tess_evaluation" || tok == "tesseval" ||
+                tok == "tessevaluation" || tok == "tessellation_evaluation")
                 return shaderc_glsl_tess_evaluation_shader;
             if (tok == "compute")
                 return shaderc_glsl_compute_shader;

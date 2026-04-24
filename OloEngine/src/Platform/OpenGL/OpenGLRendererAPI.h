@@ -96,5 +96,6 @@ namespace OloEngine
         bool m_DepthTestEnabled = false;
         bool m_DepthMaskEnabled = true;
         bool m_StencilTestEnabled = false;
+        GLint m_MaxDrawBuffers = 0; // Cached from glGetIntegerv(GL_MAX_DRAW_BUFFERS) in Init().
     };
 } // namespace OloEngine

@@ -724,6 +724,11 @@ namespace OloEngine
                     return name.contains("GTAO") || name.contains("gtao");
                 case UBO_JUMP_FLOOD:
                     return name.contains("JumpFlood") || name.contains("jumpFlood");
+                case UBO_DEFERRED_LIGHTING:
+                    return name.contains("DeferredLighting") || name.contains("deferredLighting");
+                case UBO_TAA:
+                    return name.contains("TAA") || name.contains("taa") ||
+                           name.contains("TemporalAA") || name.contains("temporalAA");
                 default:
                     return false;
             }

@@ -436,6 +436,7 @@ namespace OloEngine
         bool m_ShowGrid = true;                                // Viewport grid visibility
         bool m_ShowLightGizmos = true;                         // Light gizmo visibility
         f32 m_GridSpacing = 1.0f;                              // Viewport grid spacing
+        f32 m_LastAnimationTime = -1.0f;                       // Tracks previous-frame animation time for wind/water/foliage velocity reprojection
         bool m_PreviousMouseButtonDown = false;                // Track mouse state for UI input
         bool m_UILayoutResolvedThisFrame = false;              // Guard against double ResolveLayout per frame
         glm::vec2 m_RuntimeCameraLastMouse{ 0.0f, 0.0f };      // FPS fly-camera mouse tracking

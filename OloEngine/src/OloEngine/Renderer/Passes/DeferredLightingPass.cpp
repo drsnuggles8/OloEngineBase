@@ -156,9 +156,10 @@ namespace OloEngine
         const GLenum fullDrawBufs[] = {
             GL_COLOR_ATTACHMENT0,
             GL_COLOR_ATTACHMENT1,
-            GL_COLOR_ATTACHMENT2
+            GL_COLOR_ATTACHMENT2,
+            GL_COLOR_ATTACHMENT3
         };
-        glNamedFramebufferDrawBuffers(sceneFBID, 3, fullDrawBufs);
+        glNamedFramebufferDrawBuffers(sceneFBID, 4, fullDrawBufs);
 
         RenderCommand::SetDepthTest(true);
         RenderCommand::SetDepthMask(true);

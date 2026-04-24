@@ -206,15 +206,15 @@ namespace OloEngine
                     if (ImGui::SliderInt("Light Threshold", &threshold, 1, 64))
                     {
                         settings.ForwardPlusLightThreshold = static_cast<u32>(threshold);
-                        // Keep the downgrade floor < upgrade threshold.
+                        // Keep the downgrade floor < upgrade threshold (allow 0 when threshold == 1).
                         if (settings.ForwardPlusLightThresholdDown >= settings.ForwardPlusLightThreshold)
-                            settings.ForwardPlusLightThresholdDown = std::max<u32>(1u, settings.ForwardPlusLightThreshold - 1);
+                            settings.ForwardPlusLightThresholdDown = settings.ForwardPlusLightThreshold > 0 ? settings.ForwardPlusLightThreshold - 1 : 0;
                         Renderer3D::ApplyRendererSettings();
                     }
                     ImGui::TextDisabled("Switch to Forward+ when point+spot lights exceed this.");
 
                     int downThreshold = static_cast<int>(settings.ForwardPlusLightThresholdDown);
-                    const int downMax = std::max(1, static_cast<int>(settings.ForwardPlusLightThreshold) - 1);
+                    const int downMax = std::max(0, static_cast<int>(settings.ForwardPlusLightThreshold) - 1);
                     if (ImGui::SliderInt("Downgrade Threshold", &downThreshold, 0, downMax))
                     {
                         settings.ForwardPlusLightThresholdDown = static_cast<u32>(downThreshold);
