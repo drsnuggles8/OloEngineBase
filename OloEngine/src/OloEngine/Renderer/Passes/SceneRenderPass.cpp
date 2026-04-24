@@ -113,9 +113,11 @@ namespace OloEngine
         // sky / terrain / water / particle pixels at "no motion". The generic
         // ClearAllAttachments path uses the same colour for every float RT,
         // which would write (0.1, 0.1) and produce bogus TAA reprojection at
-        // uncovered pixels. Deferred mode ignores this RT (TAA reads G-Buffer
-        // velocity instead) so the zero-clear is a cheap no-op there.
-        if (!deferredActive && m_Target)
+        // uncovered pixels. Also run in Deferred mode: the ForwardOverlayPass
+        // writes into this same scene-FB RT3 for skybox / terrain / infinite-
+        // grid overlays and TAA samples it there, so leaving it at 0.1 from
+        // ClearAllAttachments produces the same bogus motion at overlay pixels.
+        if (m_Target)
         {
             const auto& attachments = m_Target->GetSpecification().Attachments.Attachments;
             if (attachments.size() > 3 && attachments[3].TextureFormat == FramebufferTextureFormat::RG16F)

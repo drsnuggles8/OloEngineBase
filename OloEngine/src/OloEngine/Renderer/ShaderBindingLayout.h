@@ -38,6 +38,15 @@ namespace OloEngine
             }
         };
 
+        // std140 layout sanity check for CameraUBO — mirrors the GLSL
+        // CameraMatrices block. A drift (ABI change, padding tweak, extra
+        // field) fails compile-time instead of producing silently-wrong
+        // matrices at runtime. Expected: 3*mat4(192) + vec3+pad(16) +
+        // mat4(64) = 272 B. Alignment is not asserted: GLM mat4 is not
+        // 16-byte-aligned by default, but the C++-side SetData() call
+        // uploads the raw byte buffer so only total size matters.
+        static_assert(sizeof(CameraUBO) == 272, "CameraUBO std140 size drifted from GLSL expectation (272 B)");
+
         struct LightUBO
         {
             glm::vec4 LightPosition;
@@ -163,6 +172,13 @@ namespace OloEngine
                 return sizeof(ModelUBO);
             }
         };
+
+        // std140 layout sanity check. A mismatch here means the C++-side
+        // buffer no longer mirrors the GLSL ModelMatrices block and any
+        // SetData() call will produce garbage (shader reads wrong offsets,
+        // resulting in black geometry / broken normals / wrong entity IDs).
+        // Expected: mat4(64) + mat4(64) + int+pad(16) + mat4(64) = 208 B.
+        static_assert(sizeof(ModelUBO) == 208, "ModelUBO std140 size drifted from GLSL expectation (208 B)");
 
         struct AnimationUBO
         {

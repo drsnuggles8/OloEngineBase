@@ -767,12 +767,28 @@ namespace OloEngine
                 const f32 jitterNdcX = jx * (2.0f / static_cast<f32>(spec.Width));
                 const f32 jitterNdcY = jy * (2.0f / static_cast<f32>(spec.Height));
 
-                // Inject jitter via the z-column of the projection matrix.
+                // For perspective projections (P[3][3] == 0, P[2][3] == -1),
+                // inject jitter via the z-column of the projection matrix.
                 // After the perspective divide this becomes a constant NDC
                 // offset (x_ndc = P[2][0] * z / w_clip = P[2][0] * z / -z = -P[2][0])
                 // which is exactly the sub-pixel shift we want.
-                s_Data.ProjectionMatrix[2][0] += jitterNdcX;
-                s_Data.ProjectionMatrix[2][1] += jitterNdcY;
+                //
+                // For orthographic projections (P[3][3] == 1, P[2][3] == 0),
+                // writing to P[2][0/1] produces a *depth-dependent* shear:
+                // x_ndc = P[0][0]*x + P[2][0]*z + P[3][0]. Instead, add the
+                // jitter to the translation row so every fragment gets the
+                // same sub-pixel shift independent of depth.
+                const bool isOrthographic = glm::abs(s_Data.ProjectionMatrix[3][3] - 1.0f) < 1e-5f;
+                if (isOrthographic)
+                {
+                    s_Data.ProjectionMatrix[3][0] += jitterNdcX;
+                    s_Data.ProjectionMatrix[3][1] += jitterNdcY;
+                }
+                else
+                {
+                    s_Data.ProjectionMatrix[2][0] += jitterNdcX;
+                    s_Data.ProjectionMatrix[2][1] += jitterNdcY;
+                }
                 s_Data.ViewProjectionMatrix = s_Data.ProjectionMatrix * s_Data.ViewMatrix;
 
                 // Track jitter in UV-space so the TAA shader (or any future
@@ -2051,7 +2067,16 @@ namespace OloEngine
                     // DrawMesh internally records prev-transform via the shared
                     // per-entity cache (GetAndRecordPrevTransform) keyed on
                     // entityID, so object motion is preserved even without an
-                    // explicit prev-aware overload on this path.
+                    // explicit prev-aware overload on this path. When the
+                    // caller has already computed a prev-transform (e.g. for
+                    // animated-mesh fallback paths that store it in desc), seed
+                    // the cache so DrawMesh's internal lookup returns the
+                    // caller-authoritative value instead of potentially stale
+                    // prior-frame history.
+                    if (desc.HasPrevTransform && desc.EntityID >= 0)
+                    {
+                        s_Data.PrevEntityTransforms.insert_or_assign(desc.EntityID, desc.PrevTransform);
+                    }
                     packet = DrawMesh(desc.Mesh, desc.Transform, desc.MaterialData, desc.IsStatic, desc.EntityID, desc.LODGroupPtr);
                 }
                 if (packet)
@@ -2810,12 +2835,12 @@ namespace OloEngine
         if (s_Data.Settings.Path == RenderingPath::Deferred && mesh)
         {
             const u64 meshKey = static_cast<u64>(mesh->GetHandle());
-            std::vector<glm::mat4> prevTransforms = GetAndRecordPrevInstanceTransforms(meshKey, ownerKey, *activeTransforms);
-            // GetAndRecordPrevInstanceTransforms returns currTransforms when there is no
-            // prior history — comparing data() is a cheap way to detect that and skip
-            // the redundant allocation/upload.
-            if (!prevTransforms.empty() && prevTransforms.size() == activeTransforms->size() &&
-                prevTransforms.data() != activeTransforms->data())
+            bool usedFallback = false;
+            std::vector<glm::mat4> prevTransforms = GetAndRecordPrevInstanceTransforms(meshKey, ownerKey, *activeTransforms, &usedFallback);
+            // Use the explicit flag rather than pointer identity — the function
+            // returns currTransforms by value in the fallback path, so
+            // prevTransforms.data() is always a distinct buffer.
+            if (!usedFallback && prevTransforms.size() == activeTransforms->size())
             {
                 u32 prevOffset = frameBuffer.AllocateTransforms(transformCount);
                 if (prevOffset != UINT32_MAX)

@@ -1760,6 +1760,7 @@ namespace OloEngine
             modelData.Model = cmd->modelTransform;
             modelData.Normal = cmd->normalMatrix;
             modelData.EntityID = cmd->entityID;
+            modelData.PrevModel = cmd->modelTransform; // foliage: no per-instance prev history — alias current for zero motion
             s_Data.ModelMatrixUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
             BindUBOIfNeeded(ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
         }
@@ -1851,6 +1852,7 @@ namespace OloEngine
             modelData.Model = cmd->modelTransform;
             modelData.Normal = cmd->normalMatrix;
             modelData.EntityID = cmd->entityID;
+            modelData.PrevModel = cmd->modelTransform; // water: surface is animated in-shader; mesh transform stable — alias for zero rigid motion
             s_Data.ModelMatrixUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
             glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
         }

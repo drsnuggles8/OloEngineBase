@@ -759,7 +759,8 @@ namespace OloEngine
         // vectors; compose with the owner so each owner keeps its own stream.
         // Pass `0` to preserve legacy mesh-only keying.
         static std::vector<glm::mat4> GetAndRecordPrevInstanceTransforms(u64 meshKey, u64 ownerKey,
-                                                                         const std::vector<glm::mat4>& currTransforms)
+                                                                         const std::vector<glm::mat4>& currTransforms,
+                                                                         bool* outUsedFallback = nullptr)
         {
             // Hash-combine (Boost formula) -- cheap, order-sensitive, and the
             // result preserves the original mesh-only key when ownerKey == 0.
@@ -769,8 +770,18 @@ namespace OloEngine
             s_Data.CurrInstanceTransforms.insert_or_assign(combinedKey, currTransforms);
             auto prevIt = s_Data.PrevInstanceTransforms.find(combinedKey);
             if (prevIt != s_Data.PrevInstanceTransforms.end() && prevIt->second.size() == currTransforms.size())
+            {
+                if (outUsedFallback)
+                    *outUsedFallback = false;
                 return prevIt->second;
-            return currTransforms; // First frame or instance-count mismatch -> zero motion
+            }
+            // First frame or instance-count mismatch -> zero motion. Signal the
+            // caller so it can skip the redundant allocation/upload instead of
+            // relying on pointer identity (which never matches because we
+            // return-by-value).
+            if (outUsedFallback)
+                *outUsedFallback = true;
+            return currTransforms;
         }
 
         static Ref<Shader> GetTerrainPBRShader()

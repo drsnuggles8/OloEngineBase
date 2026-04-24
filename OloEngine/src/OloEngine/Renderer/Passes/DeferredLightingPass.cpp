@@ -111,8 +111,14 @@ namespace OloEngine
         const bool iblAvailable = Renderer3D::GetGlobalIrradianceMapID() != 0 && Renderer3D::GetGlobalPrefilterMapID() != 0 && Renderer3D::GetGlobalBRDFLutMapID() != 0;
         controls.Controls.x = iblAvailable ? 1.0f : 0.0f;
         controls.Controls.y = Renderer3D::GetRendererSettings().Deferred.EnableLightProbes ? 1.0f : 0.0f;
-        controls.Controls.z = 1.0f;
-        controls.Controls.w = 0.0f;
+        // Runtime IBL strength multiplier: plumb the global scalar set via
+        // Renderer3D::SetGlobalIBL() so the ImGui slider actually reaches
+        // DeferredLighting.glsl. Before, this was pinned at 1.0 and IBL
+        // intensity tweaks only applied to forward PBR draws.
+        controls.Controls.z = Renderer3D::GetGlobalIBLIntensity();
+        // Cascade-debug visualization flag mirrors ShadowMap::SetCascadeDebugEnabled,
+        // which is the single source of truth across forward and deferred paths.
+        controls.Controls.w = Renderer3D::GetShadowMap().IsCascadeDebugEnabled() ? 1.0f : 0.0f;
         controls.MSAAParams.x = static_cast<f32>(useMSAAShading ? sampleCount : 1u);
         controls.MSAAParams.y = 0.0f;
         controls.MSAAParams.z = 0.0f;
