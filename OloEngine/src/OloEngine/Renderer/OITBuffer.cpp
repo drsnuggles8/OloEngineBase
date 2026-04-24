@@ -62,9 +62,10 @@ namespace OloEngine
     {
         m_Framebuffer = Framebuffer::Create(BuildSpec(m_Width, m_Height));
         // The new framebuffer's attachments contain undefined contents until the
-        // first ClearForFrame(); reset the per-frame guard so ClearForFrame()
-        // doesn't early-out on stale state.
-        m_ClearedThisFrame = false;
+        // first ClearForFrame(); reset both the token and the legacy bool guard
+        // so ClearForFrame() doesn't early-out on stale state.
+        m_LastClearedFrameToken = 0;
+        m_LegacyClearedThisFrame = false;
     }
 
     void OITBuffer::Resize(u32 width, u32 height)
@@ -82,7 +83,8 @@ namespace OloEngine
             m_Framebuffer->Resize(m_Width, m_Height);
             // Resize re-allocates attachment storage on the GL side; treat the
             // contents as stale just like a full Recreate().
-            m_ClearedThisFrame = false;
+            m_LastClearedFrameToken = 0;
+            m_LegacyClearedThisFrame = false;
         }
         else
             Recreate();
@@ -100,17 +102,28 @@ namespace OloEngine
 
     void OITBuffer::ClearForFrame(const Ref<Framebuffer>& sourceDepth)
     {
+        // Legacy bool-guarded path. Re-enters the token path with an internal
+        // monotonic counter so there's a single clear implementation.
+        if (m_LegacyClearedThisFrame)
+            return;
+        m_LegacyClearedThisFrame = true;
+        static u64 s_InternalToken = 0;
+        ClearForFrame(++s_InternalToken, sourceDepth);
+    }
+
+    void OITBuffer::ClearForFrame(u64 frameToken, const Ref<Framebuffer>& sourceDepth)
+    {
         OLO_PROFILE_FUNCTION();
 
         if (!m_Framebuffer)
             return;
-        // Idempotent per frame — OITResolvePass resets the flag after composite.
-        // Without this guard, whichever transparent pass runs last (e.g. particles
-        // after water) would wipe prior accumulation, leaving OITResolve to
-        // composite an empty buffer (water/decals appear to vanish).
-        if (m_ClearedThisFrame)
+        // Token-guarded: skip when the caller has already cleared this buffer
+        // for `frameToken`. With `frameToken == 0` (never-cleared sentinel on
+        // the buffer side) the match is always-false, so a caller explicitly
+        // passing 0 will always clear.
+        if (frameToken != 0 && frameToken == m_LastClearedFrameToken)
             return;
-        m_ClearedThisFrame = true;
+        m_LastClearedFrameToken = frameToken;
         // Use DSA so this does NOT depend on the currently-bound draw FB —
         // callers invoke ClearForFrame() before binding the OIT FB, and the
         // previous (non-DSA) path ended up clearing the scene framebuffer's

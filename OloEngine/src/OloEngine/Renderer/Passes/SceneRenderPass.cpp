@@ -274,14 +274,15 @@ namespace OloEngine
         //      path for non-MSAA and resolve-path MSAA.
         //   Non-MSAA always falls into #2 (Resolve is a no-op).
         const bool perSampleLighting = deferredActive && m_GBuffer && m_GBuffer->GetSampleCount() > 1 && rendererSettings.Deferred.PerSampleLighting;
+        const bool debugNeedsColour = rendererSettings.Deferred.DebugChannel != 0;
         if (deferredActive && m_GBuffer)
         {
-            // If the debug overlay is active AND per-sample lighting skipped
-            // the colour resolve, force a full resolve so BlitGBufferDebug has
-            // single-sample texels to sample. Otherwise we'd blit stale /
-            // uninitialised resolved-FB colour attachments.
-            const bool debugNeedsColour = rendererSettings.Deferred.DebugChannel != 0;
-            if (perSampleLighting && !debugNeedsColour)
+            // When per-sample lighting is active, resolve ONLY depth here so
+            // decals can reconstruct world position from single-sample depth.
+            // Colour resolve is deferred until after decals so the debug blit
+            // (if any) sees post-decal texels. When per-sample is off, do a
+            // full resolve now — decals write into the resolved FB directly.
+            if (perSampleLighting)
                 m_GBuffer->ResolveDepthOnly();
             else
                 m_GBuffer->Resolve();
@@ -308,6 +309,14 @@ namespace OloEngine
                 else
                     decalPass->ExecuteOnGBuffer(m_GBuffer->GetSamplingFramebuffer());
             }
+        }
+
+        // Per-sample path: if debug overlay is active we deferred the colour
+        // resolve above so the blit samples *post-decal* colour. Do the full
+        // resolve now that decals have been drained into the MS G-Buffer.
+        if (perSampleLighting && debugNeedsColour)
+        {
+            m_GBuffer->Resolve();
         }
 
         // Deferred debug visualisation: until DeferredLightingPass lands in

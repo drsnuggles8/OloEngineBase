@@ -492,11 +492,12 @@ namespace
         Ref<DeclarativeStubPass> OITResolve;
         Ref<DeclarativeStubPass> SSS;
         Ref<DeclarativeStubPass> PostProcess;
+        Ref<DeclarativeStubPass> SelectionOutline; // may be null when the feature is off
         Ref<DeclarativeStubPass> UIComposite;
         Ref<DeclarativeStubPass> Final;
     };
 
-    void BuildPathTopology(ConfiguredGraphFixture& f, bool deferred)
+    void BuildPathTopology(ConfiguredGraphFixture& f, bool deferred, bool enableSelectionOutline = false)
     {
         f.Shadow = AddDeclStub(f.Graph, "ShadowPass");
         f.Shadow->TestDeclareWrite(std::string(ResourceNames::ShadowMapCSM));
@@ -555,6 +556,19 @@ namespace
         f.PostProcess->TestDeclareRead(std::string(ResourceNames::SceneDepth));
         f.PostProcess->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
 
+        if (enableSelectionOutline)
+        {
+            // Mirrors Renderer3D::ConfigureRenderGraph's EnableSelectionOutline
+            // branch: the pass slots between PostProcessPass and UICompositePass,
+            // reads the post-process colour plus scene depth (for entity-ID
+            // lookups), and writes back into PostProcessColor so UICompositePass
+            // consumes the outlined image unchanged.
+            f.SelectionOutline = AddDeclStub(f.Graph, "SelectionOutlinePass");
+            f.SelectionOutline->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+            f.SelectionOutline->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+            f.SelectionOutline->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+        }
+
         f.UIComposite = AddDeclStub(f.Graph, "UICompositePass");
         f.UIComposite->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
         f.UIComposite->TestDeclareWrite(std::string(ResourceNames::UIComposite));
@@ -589,7 +603,15 @@ namespace
         f.Graph.ConnectPass("ParticlePass", "OITResolvePass");
         f.Graph.ConnectPass("OITResolvePass", "SSSPass");
         f.Graph.ConnectPass("SSSPass", "PostProcessPass");
-        f.Graph.ConnectPass("PostProcessPass", "UICompositePass");
+        if (enableSelectionOutline)
+        {
+            f.Graph.ConnectPass("PostProcessPass", "SelectionOutlinePass");
+            f.Graph.ConnectPass("SelectionOutlinePass", "UICompositePass");
+        }
+        else
+        {
+            f.Graph.ConnectPass("PostProcessPass", "UICompositePass");
+        }
         f.Graph.ConnectPass("UICompositePass", "FinalPass");
 
         f.Graph.SetFinalPass("FinalPass");
@@ -626,6 +648,27 @@ TEST(RenderGraphConfigureTopology, DeferredPathIsHazardFree)
     // declared resource without a transitive producer edge.
     ConfiguredGraphFixture f;
     BuildPathTopology(f, /*deferred=*/true);
+    const auto hazards = f.Graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, ForwardPathWithSelectionOutlineIsHazardFree)
+{
+    // Toggling EnableSelectionOutline on must introduce
+    // PostProcessPass -> SelectionOutlinePass -> UICompositePass wiring
+    // without producing any RAW/WAW on PostProcessColor.
+    ConfiguredGraphFixture f;
+    BuildPathTopology(f, /*deferred=*/false, /*enableSelectionOutline=*/true);
+    const auto hazards = f.Graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(static_cast<bool>(f.SelectionOutline))
+        << "SelectionOutline stub must be populated when the feature flag is on";
+}
+
+TEST(RenderGraphConfigureTopology, DeferredPathWithSelectionOutlineIsHazardFree)
+{
+    ConfiguredGraphFixture f;
+    BuildPathTopology(f, /*deferred=*/true, /*enableSelectionOutline=*/true);
     const auto hazards = f.Graph.ValidateResourceHazards();
     EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
 }

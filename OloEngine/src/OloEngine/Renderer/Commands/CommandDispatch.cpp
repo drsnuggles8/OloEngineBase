@@ -1333,7 +1333,7 @@ namespace OloEngine
             modelData._paddingEntity[0] = 0;
             modelData._paddingEntity[1] = 0;
             modelData._paddingEntity[2] = 0;
-            modelData.PrevModel = cmd->transform; // skybox: no motion contribution
+            modelData.PrevModel = cmd->transform; // static quad: no motion contribution
 
             constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
             static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");

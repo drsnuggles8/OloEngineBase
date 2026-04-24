@@ -64,18 +64,27 @@ namespace OloEngine
         // render on top of everything — same behaviour as before the depth
         // blit was introduced.
         //
-        // Idempotent per frame: the first call clears; subsequent calls no-op
-        // until `ResetClearFlag()` is invoked (typically by OITResolvePass at
-        // the end of its Execute). This allows multiple transparent passes
-        // (water, decals, particles) to safely call ClearForFrame() before
-        // accumulating, without wiping each other's contributions.
+        // Frame-token variant: the clear only runs when `frameToken !=
+        // m_LastClearedFrameToken`, making the clear ordering an explicit
+        // caller-owned dependency rather than hidden per-frame state. Pass
+        // the same token from every transparent pass in a frame (water,
+        // decals, particles) so the first call clears and subsequent calls
+        // no-op. OITResolvePass does NOT need to reset any flag; the next
+        // frame's higher token value auto-re-arms the clear.
+        void ClearForFrame(u64 frameToken, const Ref<Framebuffer>& sourceDepth = nullptr);
+
+        // Legacy bool-guarded overload. Uses an internal monotonic counter
+        // so existing callers that don't plumb a frame token still get the
+        // "idempotent per frame" behaviour. Prefer the token variant for
+        // new code. `ResetClearFlag()` re-arms this counter path.
         void ClearForFrame(const Ref<Framebuffer>& sourceDepth = nullptr);
 
-        // Called by OITResolvePass after compositing to re-arm the clear for
-        // the next frame's first transparent pass. Does NOT clear the buffer.
+        // Re-arms the legacy bool-guarded path (no-op for the token variant).
+        // OITResolvePass calls this after compositing so the next frame's
+        // first transparent pass clears.
         void ResetClearFlag() noexcept
         {
-            m_ClearedThisFrame = false;
+            m_LegacyClearedThisFrame = false;
         }
 
       private:
@@ -85,6 +94,12 @@ namespace OloEngine
         u32 m_Width = 0;
         u32 m_Height = 0;
         Ref<Framebuffer> m_Framebuffer;
-        bool m_ClearedThisFrame = false;
+        // Token of the most recent frame this buffer was cleared for. 0 is
+        // reserved as "never cleared" so a caller passing frameToken==0 will
+        // always clear. Flipped by the token-based ClearForFrame() only.
+        u64 m_LastClearedFrameToken = 0;
+        // Legacy flag path: true if the bool-guarded ClearForFrame() overload
+        // ran this frame. ResetClearFlag() resets it.
+        bool m_LegacyClearedThisFrame = false;
     };
 } // namespace OloEngine

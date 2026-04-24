@@ -827,12 +827,12 @@ namespace OloEngine
         // GLSL LAYOUT STRINGS FOR CODE GENERATION
         // =============================================================================
 
-        // Vestigial: kept only for documentation / tools that still snapshot
-        // it. The runtime CameraUBO has additional trailing fields
-        // (u_PrevViewProjection) that this string deliberately omits so
-        // shaders requesting the older layout still bind correctly. New
-        // shader code should declare the extended block manually — see
-        // CameraUBO in the structs section above for the full member list.
+        // Documentation helper: the GLSL block text below mirrors the runtime
+        // `UBOStructures::CameraUBO` struct verbatim (including the trailing
+        // `u_PrevViewProjection`). Shaders that don't need the prev-frame
+        // matrix can still declare a shorter block thanks to std140 trailing-
+        // byte tolerance; new shaders should prefer this full layout so
+        // motion-vector aware pipelines get the correct member offsets.
         static const char* GetCameraUBOLayout()
         {
             return R"(
@@ -842,6 +842,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 u_PrevViewProjection;
 };)";
         }
 
@@ -921,10 +922,12 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
 };)";
         }
 
-        // Vestigial: see GetCameraUBOLayout above. The runtime ModelUBO
-        // includes u_PrevModel for per-object motion vectors; this string
-        // omits it for legacy shaders that don't sample it. Declare the
-        // extended block manually in shader sources that need it.
+        // Documentation helper: the GLSL block text below mirrors the runtime
+        // `UBOStructures::ModelUBO` struct verbatim (including the trailing
+        // `u_PrevModel`). Legacy shaders that don't sample the prev-frame
+        // world transform can still declare a shorter block thanks to std140
+        // trailing-byte tolerance; new shaders should prefer this full layout
+        // so per-object motion-vector paths get the correct member offsets.
         static const char* GetModelUBOLayout()
         {
             return R"(
@@ -935,6 +938,7 @@ layout(std140, binding = 3) uniform ModelMatrices {
     int _paddingEntity0;
     int _paddingEntity1;
     int _paddingEntity2;
+    mat4 u_PrevModel;
 };)";
         }
 

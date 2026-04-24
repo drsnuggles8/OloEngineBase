@@ -871,7 +871,7 @@ namespace OloEngine
             RendererID albedoTextureID,
             RendererID normalTextureID,
             RendererID rmaTextureID,
-            u8 mode,
+            DrawDecalCommand::DecalMode mode,
             bool transparent,
             i32 entityID = -1);
 

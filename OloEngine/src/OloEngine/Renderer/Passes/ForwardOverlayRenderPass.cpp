@@ -6,6 +6,8 @@
 
 #include <glad/gl.h>
 
+#include <array>
+
 namespace OloEngine
 {
     ForwardOverlayRenderPass::ForwardOverlayRenderPass()

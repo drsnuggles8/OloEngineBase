@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
 
+#include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -10,6 +11,8 @@
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 
 #include <glad/gl.h>
+
+#include <array>
 
 namespace OloEngine
 {
@@ -56,6 +59,11 @@ namespace OloEngine
         if (!m_Shader || !m_GBuffer || !m_SceneFramebuffer || !m_ControlsUBO || m_DebugChannel != 0)
             return;
 
+        // Detector guard — validates that the pass leaves GL state matching
+        // entry (the manual restores below are still required; the guard only
+        // logs leaks, it does not roll state back).
+        GLStateGuard guard("DeferredLightingPass");
+
         m_SceneFramebuffer->Bind();
 
         const u32 w = m_GBuffer->GetWidth();
@@ -63,6 +71,20 @@ namespace OloEngine
         RenderCommand::SetViewport(0, 0, w, h);
 
         const u32 sceneFBID = m_SceneFramebuffer->GetRendererID();
+
+        // Count color attachments on the scene FB from its specification so
+        // the full-layout restore below is exact regardless of the configured
+        // attachment set (TAA velocity RT3 may or may not be present).
+        const auto& sceneSpec = m_SceneFramebuffer->GetSpecification();
+        u32 sceneColorAttachmentCount = 0;
+        for (const auto& att : sceneSpec.Attachments.Attachments)
+        {
+            const bool isDepth = (att.TextureFormat == FramebufferTextureFormat::DEPTH24STENCIL8 ||
+                                  att.TextureFormat == FramebufferTextureFormat::DEPTH_COMPONENT32F);
+            if (!isDepth && att.TextureFormat != FramebufferTextureFormat::None)
+                ++sceneColorAttachmentCount;
+        }
+
         const GLenum drawBuf = GL_COLOR_ATTACHMENT0;
         glNamedFramebufferDrawBuffers(sceneFBID, 1, &drawBuf);
 
@@ -153,13 +175,19 @@ namespace OloEngine
         va->Bind();
         RenderCommand::DrawIndexed(va);
 
-        const GLenum fullDrawBufs[] = {
-            GL_COLOR_ATTACHMENT0,
-            GL_COLOR_ATTACHMENT1,
-            GL_COLOR_ATTACHMENT2,
-            GL_COLOR_ATTACHMENT3
-        };
-        glNamedFramebufferDrawBuffers(sceneFBID, 4, fullDrawBufs);
+        // Restore the full multi-attachment draw-buffer list so later passes
+        // writing into RT1 (normal) / RT2 (emissive) / RT3 (velocity) target
+        // the correct attachments. Build the list dynamically from the scene
+        // FB spec so removing e.g. the velocity RT doesn't leave dangling
+        // GL_COLOR_ATTACHMENT3 entries.
+        if (sceneColorAttachmentCount > 0)
+        {
+            std::array<GLenum, 16> fullDrawBufs{};
+            const u32 n = std::min<u32>(sceneColorAttachmentCount, static_cast<u32>(fullDrawBufs.size()));
+            for (u32 i = 0; i < n; ++i)
+                fullDrawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
+            glNamedFramebufferDrawBuffers(sceneFBID, static_cast<GLsizei>(n), fullDrawBufs.data());
+        }
 
         RenderCommand::SetDepthTest(true);
         RenderCommand::SetDepthMask(true);

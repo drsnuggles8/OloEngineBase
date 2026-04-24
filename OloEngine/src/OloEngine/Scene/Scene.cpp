@@ -3648,7 +3648,7 @@ namespace OloEngine
                         albedoTextureID,
                         normalTextureID,
                         rmaTextureID,
-                        static_cast<u8>(decal.m_Mode),
+                        static_cast<DrawDecalCommand::DecalMode>(decal.m_Mode),
                         decal.m_Transparent,
                         static_cast<i32>(static_cast<u32>(entity)));
 

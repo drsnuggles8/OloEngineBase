@@ -3,6 +3,7 @@
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
+#include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
@@ -74,6 +75,11 @@ namespace OloEngine
             ResetCommandBucket();
             return;
         }
+
+        // Detector guard — validates the pass restores FBO / blend / depth /
+        // UBO / texture state. Guard is detector-only; the manual restores
+        // in both OIT and forward branches below still perform the rollback.
+        GLStateGuard guard("WaterRenderPass");
 
         u32 const fbWidth = m_SceneFramebuffer->GetSpecification().Width;
         u32 const fbHeight = m_SceneFramebuffer->GetSpecification().Height;

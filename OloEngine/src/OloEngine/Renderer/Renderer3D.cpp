@@ -928,7 +928,8 @@ namespace OloEngine
     {
         // Delegate to the extended variant with Albedo mode + zero extra textures.
         return DrawDecal(decalTransform, inverseDecalTransform, decalColor, decalParams,
-                         albedoTextureID, /*normal*/ 0u, /*rma*/ 0u, /*mode*/ 0u,
+                         albedoTextureID, /*normal*/ 0u, /*rma*/ 0u,
+                         DrawDecalCommand::DecalMode::Albedo,
                          /*transparent*/ false, entityID);
     }
 
@@ -940,7 +941,7 @@ namespace OloEngine
         RendererID albedoTextureID,
         RendererID normalTextureID,
         RendererID rmaTextureID,
-        u8 mode,
+        DrawDecalCommand::DecalMode mode,
         bool transparent,
         i32 entityID)
     {
@@ -987,24 +988,25 @@ namespace OloEngine
         {
             switch (mode)
             {
-                case 1: // Normal
+                case DrawDecalCommand::DecalMode::Normal:
                     if (s_Data.DecalGBufferNormalShader)
                         decalShader = s_Data.DecalGBufferNormalShader;
                     else
                         decalShader = s_Data.DecalGBufferShader;
                     break;
-                case 2: // RMA
+                case DrawDecalCommand::DecalMode::RMA:
                     if (s_Data.DecalGBufferRMAShader)
                         decalShader = s_Data.DecalGBufferRMAShader;
                     else
                         decalShader = s_Data.DecalGBufferShader;
                     break;
-                case 3: // Emissive
+                case DrawDecalCommand::DecalMode::Emissive:
                     if (s_Data.DecalGBufferEmissiveShader)
                         decalShader = s_Data.DecalGBufferEmissiveShader;
                     else
                         decalShader = s_Data.DecalGBufferShader;
                     break;
+                case DrawDecalCommand::DecalMode::Albedo:
                 default:
                     decalShader = s_Data.DecalGBufferShader;
                     break;
@@ -1023,7 +1025,7 @@ namespace OloEngine
         cmd->normalTextureID = normalTextureID;
         cmd->rmaTextureID = rmaTextureID;
         cmd->mode = deferredPath
-                        ? static_cast<DrawDecalCommand::DecalMode>(mode)
+                        ? mode
                         : DrawDecalCommand::DecalMode::Albedo; // Forward path always albedo.
         cmd->transparent = transparent ? u8{ 1 } : u8{ 0 };
         cmd->entityID = entityID;
@@ -2029,10 +2031,27 @@ namespace OloEngine
                 CommandPacket* packet = nullptr;
                 if (desc.IsAnimated && desc.BoneMatrices)
                 {
-                    packet = DrawAnimatedMesh(desc.Mesh, desc.Transform, desc.MaterialData, *desc.BoneMatrices, desc.IsStatic);
+                    // Route through the prev-aware DrawAnimatedMesh overload
+                    // when the caller supplied prev-pose data; otherwise the
+                    // legacy entry aliases current->prev (zero motion).
+                    if (desc.PrevBoneMatrices)
+                    {
+                        packet = DrawAnimatedMesh(desc.Mesh, desc.Transform, desc.MaterialData,
+                                                  *desc.BoneMatrices, *desc.PrevBoneMatrices,
+                                                  desc.IsStatic, desc.EntityID);
+                    }
+                    else
+                    {
+                        packet = DrawAnimatedMesh(desc.Mesh, desc.Transform, desc.MaterialData,
+                                                  *desc.BoneMatrices, desc.IsStatic, desc.EntityID);
+                    }
                 }
                 else
                 {
+                    // DrawMesh internally records prev-transform via the shared
+                    // per-entity cache (GetAndRecordPrevTransform) keyed on
+                    // entityID, so object motion is preserved even without an
+                    // explicit prev-aware overload on this path.
                     packet = DrawMesh(desc.Mesh, desc.Transform, desc.MaterialData, desc.IsStatic, desc.EntityID, desc.LODGroupPtr);
                 }
                 if (packet)
@@ -3702,6 +3721,16 @@ namespace OloEngine
                                 submeshMaterial = submeshEntityOpt->GetComponent<MaterialComponent>().m_Material;
                             }
 
+                            // Populate prev-world-transform from the shared
+                            // per-entity cache on the main thread before we hand
+                            // the desc to the parallel worker. Without this the
+                            // parallel path drops object motion and TAA /
+                            // MotionBlur see zero velocity for moving skinned
+                            // meshes. The cache is maintained in Deferred paths
+                            // via GetAndRecordPrevTransform; when no history
+                            // exists yet it returns current, giving zero motion.
+                            const glm::mat4 prevWorldTransform =
+                                GetAndRecordPrevTransform(pickEntityID, worldTransform);
                             MeshSubmitDesc desc{};
                             desc.Mesh = submeshComponent.m_Mesh;
                             desc.Transform = worldTransform;
@@ -3711,8 +3740,8 @@ namespace OloEngine
                             desc.IsAnimated = true;
                             desc.BoneMatrices = &boneMatrices;
                             desc.PrevBoneMatrices = &prevBoneMatrices;
-                            desc.PrevTransform = worldTransform; // non-parallel path has no per-frame cache of prev object transform; TAA will see zero object motion
-                            desc.HasPrevTransform = false;
+                            desc.PrevTransform = prevWorldTransform;
+                            desc.HasPrevTransform = true;
                             meshDescriptors.push_back(std::move(desc));
                             foundSubmeshes = true;
                         }
@@ -3724,6 +3753,8 @@ namespace OloEngine
             if (!foundSubmeshes && meshComp.m_MeshSource->GetSubmeshes().Num() > 0)
             {
                 auto mesh = Ref<Mesh>::Create(meshComp.m_MeshSource, 0);
+                const glm::mat4 prevWorldTransform =
+                    GetAndRecordPrevTransform(pickEntityID, worldTransform);
                 MeshSubmitDesc desc{};
                 desc.Mesh = mesh;
                 desc.Transform = worldTransform;
@@ -3733,8 +3764,8 @@ namespace OloEngine
                 desc.IsAnimated = true;
                 desc.BoneMatrices = &boneMatrices;
                 desc.PrevBoneMatrices = &prevBoneMatrices;
-                desc.PrevTransform = worldTransform;
-                desc.HasPrevTransform = false;
+                desc.PrevTransform = prevWorldTransform;
+                desc.HasPrevTransform = true;
                 meshDescriptors.push_back(std::move(desc));
             }
 
@@ -4375,15 +4406,14 @@ namespace OloEngine
         // Submit packet to the appropriate bucket. Despite both `CreateForwardOverlayDrawCall`
         // / `CreateDrawCall` being named "CreateDrawCall", they ONLY allocate via
         // `CommandBucket::CreateDrawCall<T>()` (which does not push into the bucket's
-        // packet list). The actual submission happens here — exactly once — so there
-        // is no double-submit even though the function also returns the packet pointer
-        // for caller-side inspection. Callers are NOT required to submit the returned
-        // packet; the return value is informational only (matches DrawMesh/DrawSkybox).
+        // packet list). The actual submission happens here — exactly once. We return
+        // nullptr afterwards to match the other overlay helpers and prevent callers
+        // from accidentally double-submitting the packet.
         if (overlayRoute)
             SubmitForwardOverlayPacket(packet);
         else
             SubmitPacket(packet);
-        return packet;
+        return nullptr;
     }
 
     CommandPacket* Renderer3D::DrawTerrainPatch(
