@@ -626,6 +626,17 @@ namespace OloEngine
             return s_Data.RGraph;
         }
 
+        // Driver-advertised max MSAA samples (min of colour/depth texture
+        // caps). Zero until Renderer3D::Init has queried the GL limits.
+        // The editor settings panel uses this to disable combo entries
+        // the GPU can't support.
+        static u32 GetMaxMSAASamples()
+        {
+            if (s_Data.MaxMSAASamplesColor == 0 || s_Data.MaxMSAASamplesDepth == 0)
+                return 0;
+            return std::min(s_Data.MaxMSAASamplesColor, s_Data.MaxMSAASamplesDepth);
+        }
+
         static const Ref<SceneRenderPass>& GetScenePass()
         {
             return s_Data.ScenePass;
@@ -1207,6 +1218,14 @@ namespace OloEngine
 
             // Global renderer settings (path selection, culling toggles, etc.)
             RendererSettings Settings;
+
+            // Driver-advertised MSAA sample-count caps, queried once in
+            // Renderer3D::Init. Zero until queried. ApplyRendererSettings
+            // clamps Settings.Deferred.MSAASampleCount to min(color, depth).
+            // Exposed via GetMaxMSAASamples() so the editor panel can disable
+            // unsupported combo entries rather than accepting silent clamps.
+            u32 MaxMSAASamplesColor = 0;
+            u32 MaxMSAASamplesDepth = 0;
 
             // RenderingPath the current RenderGraph topology was built for.
             // Compared against Settings.Path in ApplyRendererSettings to

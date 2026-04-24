@@ -206,9 +206,22 @@ namespace OloEngine
                     if (ImGui::SliderInt("Light Threshold", &threshold, 1, 64))
                     {
                         settings.ForwardPlusLightThreshold = static_cast<u32>(threshold);
+                        // Keep the downgrade floor < upgrade threshold.
+                        if (settings.ForwardPlusLightThresholdDown >= settings.ForwardPlusLightThreshold)
+                            settings.ForwardPlusLightThresholdDown = std::max<u32>(1u, settings.ForwardPlusLightThreshold - 1);
                         Renderer3D::ApplyRendererSettings();
                     }
                     ImGui::TextDisabled("Switch to Forward+ when point+spot lights exceed this.");
+
+                    int downThreshold = static_cast<int>(settings.ForwardPlusLightThresholdDown);
+                    const int downMax = std::max(1, static_cast<int>(settings.ForwardPlusLightThreshold) - 1);
+                    if (ImGui::SliderInt("Downgrade Threshold", &downThreshold, 0, downMax))
+                    {
+                        settings.ForwardPlusLightThresholdDown = static_cast<u32>(downThreshold);
+                        Renderer3D::ApplyRendererSettings();
+                    }
+                    ImGui::TextDisabled("Hysteresis floor — once Forward+ is active, drop back to\n"
+                                        "Forward only when lights fall to/below this value.");
                 }
             }
             else if (settings.Path == RenderingPath::Deferred)
@@ -232,10 +245,36 @@ namespace OloEngine
                         break;
                     }
                 }
-                if (ImGui::Combo("G-Buffer MSAA", &sampleIdx, sampleItems, IM_ARRAYSIZE(sampleItems)))
+
+                // Reflect the driver cap in the UI: disable combo entries
+                // the GPU can't satisfy. Zero means "not queried yet" — in
+                // that case we show everything and trust ApplyRendererSettings
+                // to clamp on first use.
+                const u32 driverMax = Renderer3D::GetMaxMSAASamples();
+                if (ImGui::BeginCombo("G-Buffer MSAA", sampleItems[sampleIdx]))
                 {
-                    deferred.MSAASampleCount = sampleValues[sampleIdx];
-                    Renderer3D::ApplyRendererSettings();
+                    for (int i = 0; i < IM_ARRAYSIZE(sampleValues); ++i)
+                    {
+                        const bool supported = (driverMax == 0) || (sampleValues[i] <= driverMax);
+                        if (!supported)
+                            ImGui::BeginDisabled();
+                        const bool isSelected = (sampleIdx == i);
+                        if (ImGui::Selectable(sampleItems[i], isSelected))
+                        {
+                            sampleIdx = i;
+                            deferred.MSAASampleCount = sampleValues[sampleIdx];
+                            Renderer3D::ApplyRendererSettings();
+                        }
+                        if (isSelected)
+                            ImGui::SetItemDefaultFocus();
+                        if (!supported)
+                        {
+                            ImGui::EndDisabled();
+                            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                                ImGui::SetTooltip("Driver supports up to %ux MSAA.", driverMax);
+                        }
+                    }
+                    ImGui::EndCombo();
                 }
 
                 // Per-sample shading is only meaningful when MSAA is active.
@@ -299,6 +338,39 @@ namespace OloEngine
             else
             {
                 ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "Active: Forward");
+            }
+
+            // Live RenderGraph topology — rebuilt per RenderingPath, so the
+            // pass list here reflects exactly what runs this frame.
+            if (const auto& graph = Renderer3D::GetRenderGraph(); graph)
+            {
+                if (ImGui::TreeNode("Render Graph (live topology)"))
+                {
+                    const auto& order = graph->GetPassOrder();
+                    if (order.empty())
+                    {
+                        ImGui::TextDisabled("(Execution order not yet computed — run a frame first.)");
+                    }
+                    else
+                    {
+                        ImGui::Text("%zu passes in execution order:", order.size());
+                        for (std::size_t i = 0; i < order.size(); ++i)
+                            ImGui::BulletText("%zu. %s", i + 1, order[i].c_str());
+                    }
+
+                    ImGui::Separator();
+                    if (ImGui::Button("Export DOT..."))
+                    {
+                        const std::string path = "rendergraph.dot";
+                        if (graph->DumpToDot(path))
+                            OLO_CORE_INFO("RenderGraph exported to '{}'. Render with 'dot -Tsvg {} -o graph.svg'.",
+                                          path, path);
+                    }
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("→ rendergraph.dot (cwd)");
+
+                    ImGui::TreePop();
+                }
             }
 
             ImGui::Unindent();

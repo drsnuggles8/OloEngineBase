@@ -78,6 +78,15 @@ namespace OloEngine
         {
             m_LightCountThreshold = threshold;
         }
+        // Lower bound for Auto-mode hysteresis. Once Forward+ is active it
+        // stays active until total light count falls to/below this value,
+        // avoiding per-frame path-flip when counts oscillate near the
+        // upgrade threshold. Must be < SetLightCountThreshold to produce
+        // any hysteresis; callers should clamp.
+        void SetLightCountThresholdDown(u32 threshold)
+        {
+            m_LightCountThresholdDown = threshold;
+        }
 
         // Debug
         void SetDebugVisualization(bool enabled)
@@ -134,6 +143,7 @@ namespace OloEngine
 
         ForwardPlusMode m_Mode = ForwardPlusMode::Auto;
         u32 m_LightCountThreshold = 8;
+        u32 m_LightCountThresholdDown = 4; // Hysteresis floor for Auto mode
         bool m_DebugVisualization = false;
         bool m_Initialized = false;
         bool m_ActiveThisFrame = false;

@@ -78,6 +78,11 @@ namespace OloEngine
         // --- Forward+ tuning (when Path == ForwardPlus or Auto) ---
         bool ForwardPlusAutoSwitch = true; // Auto-switch from Forward to Forward+ at threshold
         u32 ForwardPlusLightThreshold = 8;
+        // Lower-bound hysteresis: once Forward+ is active, stay active until
+        // the total light count drops to/below this value. Prevents per-frame
+        // path oscillation when light counts hover around the upgrade
+        // threshold. Ignored if >= ForwardPlusLightThreshold (no hysteresis).
+        u32 ForwardPlusLightThresholdDown = 4;
         u32 ForwardPlusTileSize = 16; // 8, 16, or 32
         bool ForwardPlusDebugHeatmap = false;
 

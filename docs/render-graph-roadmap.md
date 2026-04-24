@@ -271,7 +271,43 @@ demand isn't favourable.
 
 ---
 
-## 6. Change log
+## 6. Small improvements tracked for this branch
+
+Short, self-contained items that build on Option 3 without requiring
+Option 4. Landing them here so we don't lose sight.
+
+1. **Light-probe ambient wiring.** `DeferredLighting.glsl` already has
+   the probe-blend scaffolding; finish the volume SSBO bind + CPU upload
+   so probes contribute to the deferred ambient term.
+2. **Panel: live graph pass list.** Surface `RGraph->GetPassOrder()` in
+   `RendererSettingsPanel` so topology rebuilds are visible at runtime.
+3. **Graph dump.** `Renderer3D::DumpRenderGraph(path)` that writes a
+   DOT / JSON snapshot of the current topology for external viewing.
+   Also forward-work toward Phase A tooling.
+4. **Motion-vector debug channel in Forward / Forward+.** The two
+   forward paths currently expose no per-object velocity visualisation;
+   the Deferred debug-channel switcher has `5 = velocity`. Mirror a
+   velocity debug toggle on the forward paths for parity.
+5. **Forward+ auto-switch hysteresis.** Today a single light-count
+   threshold flips Forward ↔ Forward+. Add a lower "downgrade"
+   threshold so a scene whose light count hovers at the trip point
+   doesn't oscillate the path every frame.
+6. **MSAA sample-count driver validation.** Query
+   `GL_MAX_COLOR_TEXTURE_SAMPLES` / `GL_MAX_DEPTH_TEXTURE_SAMPLES` on
+   init and clamp the settings-panel selection to what the driver
+   actually supports (today we hard-clamp to 8).
+7. **L1 coverage for `ConfigureRenderGraph`.** Expand
+   `DeferredPropertyTests` with a test that builds the graph for each
+   `RenderingPath` value and asserts the registered pass set matches
+   expectation — locks in the Option 3 per-path rebuild behaviour.
+8. **Transparent forward decals in Deferred.** Deferred decals land in
+   the G-Buffer pre-lighting so they're opaque-only. Add an optional
+   post-lighting forward overlay decal path (behind a material flag)
+   to restore the translucent-decal capability Forward/Forward+ have.
+
+---
+
+## 7. Change log
 
 * **Initial entry** — Option 3 landed (per-RenderingPath topology rebuild
   via `RenderGraph::ResetTopology` + `Renderer3D::ConfigureRenderGraph`).

@@ -113,6 +113,19 @@ namespace OloEngine
         };
         [[nodiscard]] std::vector<Hazard> ValidateResourceHazards();
 
+        // @brief Dump the current graph as a Graphviz DOT file.
+        //
+        // Emits a directed graph where nodes are passes (insertion order,
+        // with the final pass double-ringed) and edges are coloured by
+        // kind — solid black for framebuffer piping (ConnectPass), dashed
+        // grey for ordering-only edges (AddExecutionDependency). Useful
+        // for one-off visualisation and for debugging RenderGraph topology
+        // changes. Render with `dot -Tsvg graph.dot -o graph.svg`.
+        //
+        // Returns true on success, false if the file could not be written.
+        // The call is read-only — it does not force a topo sort.
+        [[nodiscard]] bool DumpToDot(const std::string& filePath) const;
+
       private:
         // Returns false if the graph contains a cycle (m_PassOrder will be
         // partial/empty in that case). Callers must abort further work when

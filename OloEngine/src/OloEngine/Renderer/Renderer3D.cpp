@@ -247,6 +247,24 @@ namespace OloEngine
 
         RendererProfiler::GetInstance().Initialize();
 
+        // Query driver MSAA caps once so the settings panel and the
+        // ApplyRendererSettings clamp logic have the true max the GPU
+        // supports. We take the min of colour-attachment and depth-texture
+        // caps because the G-Buffer needs matching sample counts on both.
+        {
+            GLint colorSamples = 0;
+            GLint depthSamples = 0;
+            glGetIntegerv(GL_MAX_COLOR_TEXTURE_SAMPLES, &colorSamples);
+            glGetIntegerv(GL_MAX_DEPTH_TEXTURE_SAMPLES, &depthSamples);
+            s_Data.MaxMSAASamplesColor = static_cast<u32>(std::max(colorSamples, 1));
+            s_Data.MaxMSAASamplesDepth = static_cast<u32>(std::max(depthSamples, 1));
+            OLO_CORE_INFO("Renderer3D: Driver MSAA caps — GL_MAX_COLOR_TEXTURE_SAMPLES={}, "
+                          "GL_MAX_DEPTH_TEXTURE_SAMPLES={} (usable max = {})",
+                          s_Data.MaxMSAASamplesColor,
+                          s_Data.MaxMSAASamplesDepth,
+                          std::min(s_Data.MaxMSAASamplesColor, s_Data.MaxMSAASamplesDepth));
+        }
+
         FrameDataBufferManager::Init();
         FrameResourceManager::Get().Init();
 
@@ -2295,6 +2313,20 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         auto& settings = s_Data.Settings;
 
+        // Clamp MSAA sample count to what the driver advertises. The combo
+        // box exposes 1/2/4/8 but older or mobile GPUs may cap at 4. Logs
+        // on clamp so users notice rather than silently dropping samples.
+        if (const u32 maxSamples = GetMaxMSAASamples(); maxSamples > 0)
+        {
+            const u32 requested = settings.Deferred.MSAASampleCount;
+            if (requested > maxSamples)
+            {
+                OLO_CORE_WARN("Renderer3D: MSAASampleCount={} exceeds driver cap {}. Clamping.",
+                              requested, maxSamples);
+                settings.Deferred.MSAASampleCount = maxSamples;
+            }
+        }
+
         // Detect a RenderingPath switch and rebuild the graph topology
         // BEFORE touching the Forward+ mode / culling toggles below so that
         // downstream code always observes a graph whose registered pass
@@ -2319,6 +2351,7 @@ namespace OloEngine
                 {
                     fplus.SetMode(ForwardPlusMode::Auto);
                     fplus.SetLightCountThreshold(settings.ForwardPlusLightThreshold);
+                    fplus.SetLightCountThresholdDown(settings.ForwardPlusLightThresholdDown);
                 }
                 else
                 {
