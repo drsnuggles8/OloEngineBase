@@ -276,34 +276,46 @@ demand isn't favourable.
 Short, self-contained items that build on Option 3 without requiring
 Option 4. Landing them here so we don't lose sight.
 
-1. **Light-probe ambient wiring.** `DeferredLighting.glsl` already has
+Status legend: ✅ shipped on this branch · 🚧 in progress · 🔜 deferred.
+
+1. 🔜 **Light-probe ambient wiring.** `DeferredLighting.glsl` already has
    the probe-blend scaffolding; finish the volume SSBO bind + CPU upload
-   so probes contribute to the deferred ambient term.
-2. **Panel: live graph pass list.** Surface `RGraph->GetPassOrder()` in
-   `RendererSettingsPanel` so topology rebuilds are visible at runtime.
-3. **Graph dump.** `Renderer3D::DumpRenderGraph(path)` that writes a
-   DOT / JSON snapshot of the current topology for external viewing.
-   Also forward-work toward Phase A tooling.
-4. **Motion-vector debug channel in Forward / Forward+.** The two
-   forward paths currently expose no per-object velocity visualisation;
-   the Deferred debug-channel switcher has `5 = velocity`. Mirror a
-   velocity debug toggle on the forward paths for parity.
-5. **Forward+ auto-switch hysteresis.** Today a single light-count
-   threshold flips Forward ↔ Forward+. Add a lower "downgrade"
-   threshold so a scene whose light count hovers at the trip point
-   doesn't oscillate the path every frame.
-6. **MSAA sample-count driver validation.** Query
-   `GL_MAX_COLOR_TEXTURE_SAMPLES` / `GL_MAX_DEPTH_TEXTURE_SAMPLES` on
-   init and clamp the settings-panel selection to what the driver
-   actually supports (today we hard-clamp to 8).
-7. **L1 coverage for `ConfigureRenderGraph`.** Expand
-   `DeferredPropertyTests` with a test that builds the graph for each
-   `RenderingPath` value and asserts the registered pass set matches
-   expectation — locks in the Option 3 per-path rebuild behaviour.
-8. **Transparent forward decals in Deferred.** Deferred decals land in
-   the G-Buffer pre-lighting so they're opaque-only. Add an optional
+   so probes contribute to the deferred ambient term. *Deferred —
+   requires: (a) picking a storage layout for probe volumes (3D grid vs
+   tetrahedral), (b) new `LightProbeVolumeComponent` + serialization,
+   (c) CPU-side baking/transfer, (d) binding a new SSBO slot in
+   `DeferredLightingPass`, (e) uncommenting the probe-blend branch in
+   `DeferredLighting.glsl`. Scope too large for a drive-by; tracking
+   separately.*
+2. ✅ **Panel: live graph pass list.** Surfaces
+   `RGraph->GetPassOrder()` in the renderer panel.
+3. ✅ **Graph dump.** Panel button invokes `RenderGraph::DumpToDot`
+   writing `rendergraph.dot` for external viewers (xdot, Graphviz).
+4. ✅ **Motion-vector debug channel in Forward / Forward+.** Sibling
+   of `BlitGBufferDebug` added; gated by
+   `RendererSettings::DebugVelocityOverlayForward`.
+5. ✅ **Forward+ auto-switch hysteresis.** Configurable
+   `ForwardPlusLightThresholdDown` floor on
+   `RendererSettings` + `ClusteredForward::SetLightCountThresholdDown`.
+6. ✅ **MSAA sample-count driver validation.** Init queries
+   `GL_MAX_COLOR_TEXTURE_SAMPLES` / `GL_MAX_DEPTH_TEXTURE_SAMPLES`,
+   panel disables out-of-range entries with a tooltip, and
+   `ApplyRendererSettings` clamps the stored value with a warn log.
+7. ✅ **L1 coverage for `ConfigureRenderGraph`.** Added
+   `RenderGraphResetTopology` GTest suite with three tests
+   (rebuild, reference ownership, repeated reset).
+8. 🔜 **Transparent forward decals in Deferred.** Deferred decals land
+   in the G-Buffer pre-lighting so they're opaque-only. Add an optional
    post-lighting forward overlay decal path (behind a material flag)
    to restore the translucent-decal capability Forward/Forward+ have.
+   *Deferred — requires: (a) new `bool Transparent` on
+   `DecalComponent` + serialization, (b) propagation through
+   `DrawDecalCommand`, (c) `Scene::SubmitRenderQueue` routing opaque
+   decals to `DecalPass::ExecuteOnGBuffer` and transparent ones to a
+   new post-lighting overlay bucket, (d) executing
+   `DecalRenderPass::Execute` (WB-OIT path) after
+   `DeferredLightingPass` but before `ForwardOverlayPass`. Tracking
+   separately.*
 
 ---
 
