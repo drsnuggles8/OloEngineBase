@@ -98,7 +98,8 @@ namespace
     {
         const auto passes = graph.GetAllPasses();
         return std::any_of(passes.begin(), passes.end(),
-                           [&](const Ref<RenderPass>& p) { return p && p->GetName() == name; });
+                           [&](const Ref<RenderPass>& p)
+                           { return p && p->GetName() == name; });
     }
 
     // Minimal production-shaped topology. Only the passes relevant to the
