@@ -925,7 +925,8 @@ namespace OloEngine
     {
         // Delegate to the extended variant with Albedo mode + zero extra textures.
         return DrawDecal(decalTransform, inverseDecalTransform, decalColor, decalParams,
-                         albedoTextureID, /*normal*/ 0u, /*rma*/ 0u, /*mode*/ 0u, entityID);
+                         albedoTextureID, /*normal*/ 0u, /*rma*/ 0u, /*mode*/ 0u,
+                         /*transparent*/ false, entityID);
     }
 
     CommandPacket* Renderer3D::DrawDecal(
@@ -937,6 +938,7 @@ namespace OloEngine
         RendererID normalTextureID,
         RendererID rmaTextureID,
         u8 mode,
+        bool transparent,
         i32 entityID)
     {
         OLO_PROFILE_FUNCTION();
@@ -971,8 +973,11 @@ namespace OloEngine
         // the decal mode (Albedo → RT0, Normal → RT1, RMA → RT0.a+RT1.zw) BEFORE
         // the lighting pass, so they are re-lit by DeferredLightingPass. In
         // Forward/Forward+, every mode collapses to the existing transparent
-        // overlay shader — there is no forward-path normal/RMA decal.
-        const bool deferredPath = s_Data.Settings.Path == RenderingPath::Deferred &&
+        // overlay shader — there is no forward-path normal/RMA decal. Transparent
+        // decals always route through the forward shader even in Deferred, so
+        // they composite over the lit scene colour after DeferredLightingPass.
+        const bool deferredPath = !transparent &&
+                                  s_Data.Settings.Path == RenderingPath::Deferred &&
                                   s_Data.DecalGBufferShader != nullptr;
         Ref<Shader> decalShader = s_Data.DecalShader;
         if (deferredPath)
@@ -1015,6 +1020,7 @@ namespace OloEngine
         cmd->normalTextureID = normalTextureID;
         cmd->rmaTextureID = rmaTextureID;
         cmd->mode = deferredPath ? mode : 0u; // Forward path always albedo.
+        cmd->transparent = transparent ? u8{ 1 } : u8{ 0 };
         cmd->entityID = entityID;
 
         // Decal render state: blend on for albedo (soft edges), blend off for

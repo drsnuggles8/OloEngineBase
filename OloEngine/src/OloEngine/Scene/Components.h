@@ -1576,12 +1576,21 @@ namespace OloEngine
         f32 m_FadeDistance = 0.5f;
         f32 m_NormalAngleThreshold = 0.5f;
         DecalMode m_Mode = DecalMode::Albedo;
+        // Force the forward (alpha-blended / WB-OIT) decal path even when
+        // the active RenderingPath is Deferred. Opaque deferred decals are
+        // baked into the G-Buffer pre-lighting and can't blend against the
+        // lit scene; transparent decals bypass the G-Buffer overlay and
+        // composite over the lit scene colour in the graph-scheduled
+        // DecalRenderPass::Execute that runs after DeferredLightingPass.
+        bool m_Transparent = false;
 
         DecalComponent() = default;
         DecalComponent(const DecalComponent&) = default;
         DecalComponent& operator=(const DecalComponent&) = default;
         DecalComponent(DecalComponent&&) noexcept = default;
         DecalComponent& operator=(DecalComponent&&) noexcept = default;
+
+        auto operator==(const DecalComponent& other) const -> bool = default;
     };
 
     // ── LOD Group ────────────────────────────────────────────────────

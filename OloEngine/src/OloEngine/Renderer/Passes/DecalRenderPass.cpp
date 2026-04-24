@@ -28,14 +28,51 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Helper: decide whether a packet should be drained by *this*
+        // (the graph-scheduled) Execute. In the Deferred path the opaque
+        // decals were already written into the G-Buffer by
+        // `ExecuteOnGBuffer`, so here we only want the `transparent == 1`
+        // packets that need to composite over the already-lit scene colour.
+        // In Forward / Forward+, every packet is owned by this pass.
+        const bool opaqueAlreadyDrained = m_OpaqueDecalsDrained;
+        m_OpaqueDecalsDrained = false; // one-shot
+        auto shouldDrawHere = [opaqueAlreadyDrained](const CommandPacket* p) -> bool
+        {
+            if (!p)
+                return false;
+            if (!opaqueAlreadyDrained)
+                return true;
+            if (p->GetCommandType() != CommandType::DrawDecal)
+                return true; // defensive — pass-through unknown commands
+            const auto* dc = p->GetCommandData<DrawDecalCommand>();
+            return dc && dc->transparent != 0;
+        };
+
         if (!m_SceneFramebuffer)
         {
             ResetCommandBucket();
             return;
         }
 
-        // Early out if no decal commands were submitted this frame
+        // Early out if no decal commands were submitted this frame, or if
+        // every queued packet was already drained by ExecuteOnGBuffer (pure
+        // opaque deferred scene with no transparent overlays).
         if (m_CommandBucket.GetCommandCount() == 0)
+        {
+            ResetCommandBucket();
+            return;
+        }
+
+        bool hasAnyToDraw = false;
+        for (const auto* packet : m_CommandBucket.GetPackets())
+        {
+            if (shouldDrawHere(packet))
+            {
+                hasAnyToDraw = true;
+                break;
+            }
+        }
+        if (!hasAnyToDraw)
         {
             ResetCommandBucket();
             return;
@@ -75,7 +112,11 @@ namespace OloEngine
 
             m_CommandBucket.SortCommands();
             auto& rendererAPI = RenderCommand::GetRendererAPI();
-            m_CommandBucket.Execute(rendererAPI);
+            for (const auto* packet : m_CommandBucket.GetPackets())
+            {
+                if (shouldDrawHere(packet))
+                    packet->Execute(rendererAPI);
+            }
 
             CommandDispatch::SetDecalOITShaderOverride(0);
 
@@ -108,7 +149,11 @@ namespace OloEngine
         m_CommandBucket.SortCommands();
 
         auto& rendererAPI = RenderCommand::GetRendererAPI();
-        m_CommandBucket.Execute(rendererAPI);
+        for (const auto* packet : m_CommandBucket.GetPackets())
+        {
+            if (shouldDrawHere(packet))
+                packet->Execute(rendererAPI);
+        }
 
         // Restore render state after decals
         RenderCommand::SetDepthMask(true);
@@ -195,6 +240,7 @@ namespace OloEngine
         };
 
         u8 currentMode = 0xFF; // force first-time configure
+        bool anyTransparentQueued = false;
 
         for (const auto* packet : m_CommandBucket.GetPackets())
         {
@@ -202,10 +248,21 @@ namespace OloEngine
                 continue;
 
             u8 packetMode = 0;
+            bool packetTransparent = false;
             if (packet->GetCommandType() == CommandType::DrawDecal)
             {
                 const auto* decalCmd = packet->GetCommandData<DrawDecalCommand>();
                 packetMode = decalCmd ? decalCmd->mode : 0;
+                packetTransparent = decalCmd && decalCmd->transparent != 0;
+            }
+
+            // Transparent decals don't belong in the G-Buffer overlay drain;
+            // leave them for the graph-scheduled Execute() to composite over
+            // the lit scene colour after DeferredLightingPass.
+            if (packetTransparent)
+            {
+                anyTransparentQueued = true;
+                continue;
             }
 
             if (packetMode != currentMode)
@@ -275,8 +332,20 @@ namespace OloEngine
 
         writeTargetFB->Unbind();
 
-        // Bucket is drained here — the regular graph-scheduled Execute()
-        // will observe an empty bucket and no-op this frame.
-        ResetCommandBucket();
+        // If any transparent decals are still queued, preserve the bucket so
+        // the graph-scheduled Execute() (running after DeferredLightingPass)
+        // can composite them over the lit scene colour. Mark the opaque
+        // drain so Execute knows to skip already-rendered opaque packets.
+        // Otherwise drain the bucket here — Execute will early-out on empty.
+        if (anyTransparentQueued)
+        {
+            m_OpaqueDecalsDrained = true;
+        }
+        else
+        {
+            // Bucket is drained here — the regular graph-scheduled Execute()
+            // will observe an empty bucket and no-op this frame.
+            ResetCommandBucket();
+        }
     }
 } // namespace OloEngine

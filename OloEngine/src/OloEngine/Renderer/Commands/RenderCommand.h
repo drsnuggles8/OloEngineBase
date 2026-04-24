@@ -738,6 +738,16 @@ namespace OloEngine
         // DecalRenderPass::ExecuteOnGBuffer uses this to pick draw-buffer + colour mask.
         u8 mode = 0;
 
+        // Transparency override. When non-zero, this decal must be routed
+        // through the forward (WB-OIT or blended) pipeline instead of the
+        // deferred G-Buffer overlay path, regardless of the active
+        // RenderingPath. Used by DecalRenderPass to decide which drain
+        // phase owns the packet: ExecuteOnGBuffer skips `transparent == 1`
+        // entries so that the graph-scheduled Execute() (which runs after
+        // DeferredLightingPass in the Deferred path) can render them with
+        // the forward shader over the already-lit scene colour.
+        u8 transparent = 0;
+
         // Entity ID for picking
         i32 entityID = -1;
 

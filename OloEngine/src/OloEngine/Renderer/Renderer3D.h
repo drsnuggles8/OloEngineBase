@@ -806,6 +806,10 @@ namespace OloEngine
         // Extended decal rendering — mode picks the G-Buffer channel (0=Albedo,
         // 1=Normal, 2=RMA) and the corresponding shader variant. Pass the matching
         // texture for that mode in the relevant slot; unused slots can be 0.
+        // `transparent` forces the forward (alpha-blended / WB-OIT) path even
+        // when the active RenderingPath is Deferred — the packet is then drained
+        // by the graph-scheduled DecalRenderPass::Execute() instead of the
+        // in-scene G-Buffer overlay drain.
         static CommandPacket* DrawDecal(
             const glm::mat4& decalTransform,
             const glm::mat4& inverseDecalTransform,
@@ -815,6 +819,7 @@ namespace OloEngine
             RendererID normalTextureID,
             RendererID rmaTextureID,
             u8 mode,
+            bool transparent,
             i32 entityID = -1);
 
         // Foliage rendering (submits DrawFoliageLayerCommand to FoliageRenderPass bucket)

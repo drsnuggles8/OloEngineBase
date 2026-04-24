@@ -271,65 +271,16 @@ demand isn't favourable.
 
 ---
 
-## 6. Small improvements tracked for this branch
-
-Short, self-contained items that build on Option 3 without requiring
-Option 4. Landing them here so we don't lose sight.
-
-Status legend: ✅ shipped on this branch · 🚧 in progress · 🔜 deferred.
-
-1. 🔜 **Light-probe ambient wiring.** `DeferredLighting.glsl` already has
-   the probe-blend scaffolding; finish the volume SSBO bind + CPU upload
-   so probes contribute to the deferred ambient term. *Deferred —
-   requires: (a) picking a storage layout for probe volumes (3D grid vs
-   tetrahedral), (b) new `LightProbeVolumeComponent` + serialization,
-   (c) CPU-side baking/transfer, (d) binding a new SSBO slot in
-   `DeferredLightingPass`, (e) uncommenting the probe-blend branch in
-   `DeferredLighting.glsl`. Scope too large for a drive-by; tracking
-   separately.*
-2. ✅ **Panel: live graph pass list.** Surfaces
-   `RGraph->GetPassOrder()` in the renderer panel.
-3. ✅ **Graph dump.** Panel button invokes `RenderGraph::DumpToDot`
-   writing `rendergraph.dot` for external viewers (xdot, Graphviz).
-4. ✅ **Motion-vector debug channel in Forward / Forward+.** Sibling
-   of `BlitGBufferDebug` added; gated by
-   `RendererSettings::DebugVelocityOverlayForward`.
-5. ✅ **Forward+ auto-switch hysteresis.** Configurable
-   `ForwardPlusLightThresholdDown` floor on
-   `RendererSettings` + `ClusteredForward::SetLightCountThresholdDown`.
-6. ✅ **MSAA sample-count driver validation.** Init queries
-   `GL_MAX_COLOR_TEXTURE_SAMPLES` / `GL_MAX_DEPTH_TEXTURE_SAMPLES`,
-   panel disables out-of-range entries with a tooltip, and
-   `ApplyRendererSettings` clamps the stored value with a warn log.
-7. ✅ **L1 coverage for `ConfigureRenderGraph`.** Added
-   `RenderGraphResetTopology` GTest suite with three tests
-   (rebuild, reference ownership, repeated reset).
-8. 🔜 **Transparent forward decals in Deferred.** Deferred decals land
-   in the G-Buffer pre-lighting so they're opaque-only. Add an optional
-   post-lighting forward overlay decal path (behind a material flag)
-   to restore the translucent-decal capability Forward/Forward+ have.
-   *Deferred — requires: (a) new `bool Transparent` on
-   `DecalComponent` + serialization, (b) propagation through
-   `DrawDecalCommand`, (c) `Scene::SubmitRenderQueue` routing opaque
-   decals to `DecalPass::ExecuteOnGBuffer` and transparent ones to a
-   new post-lighting overlay bucket, (d) executing
-   `DecalRenderPass::Execute` (WB-OIT path) after
-   `DeferredLightingPass` but before `ForwardOverlayPass`. Tracking
-   separately.*
-
----
-
-## 7. Change log
+## 6. Change log
 
 * **Initial entry** — Option 3 landed (per-RenderingPath topology rebuild
   via `RenderGraph::ResetTopology` + `Renderer3D::ConfigureRenderGraph`).
   This document records the rationale and the Option 4 target.
-* **§6.2 / §6.3 / §6.5 / §6.6 / §6.7** — live pass list + DOT dump in the
-  renderer panel, Forward+ auto-switch hysteresis with a configurable
-  downgrade threshold, MSAA driver-capability clamp, and L1 tests for
-  `RenderGraph::ResetTopology`.
-* **§6.4** — Forward / Forward+ velocity debug overlay. New
-  `RendererSettings::DebugVelocityOverlayForward`; `SceneRenderPass`
-  blits RG16F attachment 3 (velocity) into colour[0] at end-of-execute
-  when active and the path is not Deferred. Panel checkbox surfaces the
-  toggle in the Forward and Forward+ branches.
+* **Graph introspection.** `RenderGraph::DumpToDot(path)` writes a
+  Graphviz snapshot of the current topology (final pass double-ringed;
+  solid blue edges = framebuffer-producer, dashed grey = execution
+  order); editor panel lists `GetPassOrder()` live and exposes the
+  dump-to-DOT button.
+* **L1 coverage.** `RenderGraphResetTopology` GTest suite (3 tests:
+  rebuild, reference ownership, repeated reset) locks in the Option 3
+  per-path rebuild behaviour.

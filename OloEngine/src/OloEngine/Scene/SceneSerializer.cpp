@@ -878,6 +878,7 @@ namespace OloEngine
             if (mode <= 3)
                 dc.m_Mode = static_cast<DecalMode>(mode);
         }
+        TrySet(dc.m_Transparent, node["Transparent"]);
 
         // Validate
         SanitizeVec3(dc.m_Size, glm::vec3(1.0f));
@@ -4383,6 +4384,7 @@ namespace OloEngine
                 out << YAML::Key << "EmissiveTexturePath" << YAML::Value << dc.m_EmissiveTexture->GetPath();
             }
             out << YAML::Key << "Mode" << YAML::Value << static_cast<u32>(dc.m_Mode);
+            out << YAML::Key << "Transparent" << YAML::Value << dc.m_Transparent;
 
             out << YAML::EndMap; // DecalComponent
         }

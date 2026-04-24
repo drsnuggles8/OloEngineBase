@@ -1181,6 +1181,7 @@ namespace OloEngine
     {
         ar << c.m_Color << c.m_Size;
         ar << c.m_FadeDistance << c.m_NormalAngleThreshold;
+        ar << c.m_Transparent;
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, LODGroupComponent& c)

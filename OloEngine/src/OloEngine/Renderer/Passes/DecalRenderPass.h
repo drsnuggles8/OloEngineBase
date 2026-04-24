@@ -84,5 +84,13 @@ namespace OloEngine
         Ref<Shader> m_OITShader;
         std::function<void()> m_AccumMarker;
         bool m_OITEnabled = false;
+
+        // Set by `ExecuteOnGBuffer` (deferred path) after it has drained the
+        // opaque decal packets into the G-Buffer. The graph-scheduled
+        // `Execute()` then knows to skip already-rendered opaque packets and
+        // only drain `transparent == 1` packets (compositing them over the
+        // already-lit scene colour). Cleared by `Execute()` once it has
+        // reset the bucket.
+        bool m_OpaqueDecalsDrained = false;
     };
 } // namespace OloEngine

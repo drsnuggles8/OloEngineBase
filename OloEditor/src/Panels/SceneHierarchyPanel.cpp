@@ -4515,6 +4515,17 @@ namespace OloEngine
                     component.m_Mode = static_cast<DecalMode>(currentMode);
                 }
 
+                ImGui::Checkbox("Transparent##Decal", &component.m_Transparent);
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Route this decal through the forward (alpha-blended /\n"
+                                      "WB-OIT) pipeline instead of the deferred G-Buffer\n"
+                                      "overlay. Required for decals that need to blend\n"
+                                      "against the lit scene colour (glass stickers, smoke\n"
+                                      "puddles). Ignored in Forward/Forward+ paths — all\n"
+                                      "forward decals are already transparent overlays.");
+                }
+
                 auto drawTextureSlot = [](const char* label, Ref<Texture2D>& slot)
                 {
                     ImGui::Button(label, ImVec2(100.0f, 0.0f));
