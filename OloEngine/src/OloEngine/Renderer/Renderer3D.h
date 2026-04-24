@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
+#include "OloEngine/Renderer/Passes/DeferredOpaqueDecalPass.h"
 #include "OloEngine/Renderer/Passes/FoliageRenderPass.h"
 #include "OloEngine/Renderer/Passes/ForwardOverlayRenderPass.h"
 #include "OloEngine/Renderer/Passes/WaterRenderPass.h"
@@ -1213,6 +1214,7 @@ namespace OloEngine
             Ref<ShadowRenderPass> ShadowPass;
             Ref<SceneRenderPass> ScenePass;
             Ref<DeferredLightingPass> DeferredLightPass;
+            Ref<DeferredOpaqueDecalPass> OpaqueDecalPass;
             Ref<ForwardOverlayRenderPass> ForwardOverlayPass;
             Ref<FoliageRenderPass> FoliagePass;
             Ref<WaterRenderPass> WaterPass;

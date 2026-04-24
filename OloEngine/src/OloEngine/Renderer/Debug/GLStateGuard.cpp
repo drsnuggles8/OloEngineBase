@@ -259,6 +259,84 @@ namespace OloEngine
         return diffs;
     }
 
+    void GLStateSnapshot::ApplyCore() const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // FBO bindings FIRST — subsequent state-setting calls are global so
+        // their order doesn't matter, but `glNamedFramebuffer*` DSA calls
+        // (not used here) would still target the snapshot's FBO regardless.
+        ::glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_FboDraw);
+        ::glBindFramebuffer(GL_READ_FRAMEBUFFER, m_FboRead);
+
+        ::glUseProgram(m_ActiveProgram);
+        ::glBindVertexArray(m_Vao);
+
+        // Depth
+        if (m_DepthTest)
+            ::glEnable(GL_DEPTH_TEST);
+        else
+            ::glDisable(GL_DEPTH_TEST);
+        ::glDepthMask(m_DepthMask ? GL_TRUE : GL_FALSE);
+        ::glDepthFunc(static_cast<GLenum>(m_DepthFunc));
+
+        // Blend (global enable + separate RGB/A funcs + equations). Per-
+        // attachment enables / funcs (`glEnablei(GL_BLEND, N)`,
+        // `glBlendFunci`, `glBlendEquationi`) are NOT captured in the
+        // snapshot and therefore not restored here — passes that mutate
+        // them must still manage that subset explicitly.
+        if (m_Blend)
+            ::glEnable(GL_BLEND);
+        else
+            ::glDisable(GL_BLEND);
+        ::glBlendFuncSeparate(static_cast<GLenum>(m_BlendSrcRgb), static_cast<GLenum>(m_BlendDstRgb),
+                              static_cast<GLenum>(m_BlendSrcAlpha), static_cast<GLenum>(m_BlendDstAlpha));
+        ::glBlendEquationSeparate(static_cast<GLenum>(m_BlendEqRgb), static_cast<GLenum>(m_BlendEqAlpha));
+
+        // Stencil
+        if (m_StencilTest)
+            ::glEnable(GL_STENCIL_TEST);
+        else
+            ::glDisable(GL_STENCIL_TEST);
+        ::glStencilFuncSeparate(GL_FRONT, static_cast<GLenum>(m_StencilFunc), m_StencilRef, m_StencilMask);
+        ::glStencilFuncSeparate(GL_BACK, static_cast<GLenum>(m_StencilBackFunc), m_StencilBackRef, m_StencilBackValueMask);
+        ::glStencilMaskSeparate(GL_FRONT, m_StencilWriteMask);
+        ::glStencilMaskSeparate(GL_BACK, m_StencilBackWriteMask);
+        ::glStencilOpSeparate(GL_FRONT, static_cast<GLenum>(m_StencilFail),
+                              static_cast<GLenum>(m_StencilPassDepthFail),
+                              static_cast<GLenum>(m_StencilPassDepthPass));
+        ::glStencilOpSeparate(GL_BACK, static_cast<GLenum>(m_StencilBackFail),
+                              static_cast<GLenum>(m_StencilBackPassDepthFail),
+                              static_cast<GLenum>(m_StencilBackPassDepthPass));
+
+        // Cull + front-face
+        if (m_CullFace)
+            ::glEnable(GL_CULL_FACE);
+        else
+            ::glDisable(GL_CULL_FACE);
+        ::glCullFace(static_cast<GLenum>(m_CullFaceMode));
+        ::glFrontFace(static_cast<GLenum>(m_FrontFace));
+
+        // Polygon mode — in 4.6 core front + back must match, so only
+        // issue the front value (back is captured solely for the diff).
+        ::glPolygonMode(GL_FRONT_AND_BACK, static_cast<GLenum>(m_PolygonMode[0]));
+
+        // Viewport + scissor
+        ::glViewport(m_Viewport[0], m_Viewport[1], m_Viewport[2], m_Viewport[3]);
+        ::glScissor(m_Scissor[0], m_Scissor[1], m_Scissor[2], m_Scissor[3]);
+        if (m_ScissorTest)
+            ::glEnable(GL_SCISSOR_TEST);
+        else
+            ::glDisable(GL_SCISSOR_TEST);
+
+        // Active texture unit — restore the enum a caller selected, so
+        // subsequent non-DSA texture mutation in another pass doesn't pick
+        // up the wrong unit. Per-unit bindings themselves are not
+        // restored (see the class comment for rationale).
+        if (m_ActiveTextureUnit >= GL_TEXTURE0 && m_ActiveTextureUnit <= GL_TEXTURE31)
+            ::glActiveTexture(m_ActiveTextureUnit);
+    }
+
     // -------------------------------------------------------------------------
     // GLStateGuard
     // -------------------------------------------------------------------------
@@ -291,15 +369,31 @@ namespace OloEngine
 
             if (!diffs.empty())
             {
-                OLO_CORE_ERROR("GLStateGuard[{}]: {} state mutation(s) escaped the pass:", m_PassName, diffs.size());
-                for (const auto& d : diffs)
-                    OLO_CORE_ERROR("    {}", d);
-
-                if (m_Policy == Policy::Assert)
+                // Policy::Restore logs at warning level (the diff is useful
+                // diagnostic noise but not a correctness problem because
+                // we're about to roll the state back). Log/Assert surface
+                // at error level.
+                if (m_Policy == Policy::Restore)
                 {
-                    OLO_CORE_ASSERT(false, "GLStateGuard detected uncontained state mutation");
+                    OLO_CORE_WARN("GLStateGuard[{}]: {} state mutation(s) escaped the pass (restoring):", m_PassName, diffs.size());
+                    for (const auto& d : diffs)
+                        OLO_CORE_WARN("    {}", d);
+                }
+                else
+                {
+                    OLO_CORE_ERROR("GLStateGuard[{}]: {} state mutation(s) escaped the pass:", m_PassName, diffs.size());
+                    for (const auto& d : diffs)
+                        OLO_CORE_ERROR("    {}", d);
+
+                    if (m_Policy == Policy::Assert)
+                    {
+                        OLO_CORE_ASSERT(false, "GLStateGuard detected uncontained state mutation");
+                    }
                 }
             }
+
+            if (m_Policy == Policy::Restore)
+                m_EntryState.ApplyCore();
         }
         catch (...)
         {

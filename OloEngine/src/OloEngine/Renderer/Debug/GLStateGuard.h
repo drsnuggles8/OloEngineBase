@@ -129,6 +129,23 @@ namespace OloEngine
         // which this snapshot differs from `other`. Empty vector means
         // identical state.
         std::vector<std::string> DiffAgainst(const GLStateSnapshot& other) const;
+
+        // Re-issue the GL calls needed to bring the pipeline state back to
+        // the values in this snapshot. Covers the *core* subset that passes
+        // typically leak (depth / blend / stencil enables and functions,
+        // cull face, polygon mode, scissor box + enable, viewport,
+        // draw/read FBO, active program + VAO, and each framebuffer's
+        // draw-buffer list is NOT restored — callers needing that should
+        // manage it explicitly because the snapshot only captures the
+        // currently-bound FBO's draw buffers implicitly via GL_DRAW_BUFFER*
+        // which is an FBO property, not global state).
+        //
+        // Per-slot texture / UBO bindings are intentionally NOT restored:
+        // they require up to (3 * kTextureSlots + kUboSlots) = 185 GL calls
+        // per pass boundary, which is cost we only pay for leak *detection*.
+        // If a pass leaks a binding that matters, the detector surfaces it
+        // and the offending pass should explicitly unbind before return.
+        void ApplyCore() const;
     };
 
     class GLStateGuard
@@ -140,6 +157,12 @@ namespace OloEngine
             Log,
             // On destruction, print each mutation and abort (OLO_CORE_ASSERT).
             Assert,
+            // On destruction, restore the core state subset via
+            // `GLStateSnapshot::ApplyCore()` and log any field that was
+            // already restored by the caller (so the log still flags
+            // leaks; the apply is idempotent). Use this when a pass does
+            // enough state flipping that a manual restore is error-prone.
+            Restore,
             // Skip the compare entirely — used to temporarily disable a
             // known-leaking region without removing the guard.
             Ignore,

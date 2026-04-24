@@ -607,6 +607,8 @@
 		"OloEngine/Renderer/Passes/SceneRenderPass.cpp"
 		"OloEngine/Renderer/Passes/DeferredLightingPass.h"
 		"OloEngine/Renderer/Passes/DeferredLightingPass.cpp"
+		"OloEngine/Renderer/Passes/DeferredOpaqueDecalPass.h"
+		"OloEngine/Renderer/Passes/DeferredOpaqueDecalPass.cpp"
 		"OloEngine/Renderer/Passes/ShadowRenderPass.h"
 		"OloEngine/Renderer/Passes/ShadowRenderPass.cpp"
 		"OloEngine/Renderer/Passes/PostProcessRenderPass.h"

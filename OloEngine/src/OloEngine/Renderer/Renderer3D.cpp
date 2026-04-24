@@ -651,6 +651,7 @@ namespace OloEngine
         s_Data.WaterPass.Reset();
         s_Data.DecalPass.Reset();
         s_Data.DeferredLightPass.Reset();
+        s_Data.OpaqueDecalPass.Reset();
         s_Data.ForwardOverlayPass.Reset();
         s_Data.RGraph.Reset();
 
@@ -1599,6 +1600,18 @@ namespace OloEngine
             s_Data.DeferredLightPass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
             s_Data.DeferredLightPass->SetDebugChannel(deferred ? s_Data.Settings.Deferred.DebugChannel : 0);
             s_Data.DeferredLightPass->SetPerSampleLighting(deferred && s_Data.Settings.Deferred.PerSampleLighting);
+        }
+
+        // Wire the opaque-decal graph shim: in Deferred mode it drains the
+        // DecalRenderPass bucket into the G-Buffer between ScenePass and
+        // DeferredLightingPass. Safe to update unconditionally — the pass
+        // no-ops when it isn't registered in the graph (Forward paths).
+        if (s_Data.OpaqueDecalPass && s_Data.DecalPass && s_Data.ScenePass)
+        {
+            const bool deferred = (s_Data.Settings.Path == RenderingPath::Deferred);
+            s_Data.OpaqueDecalPass->SetDecalPass(s_Data.DecalPass);
+            s_Data.OpaqueDecalPass->SetGBuffer(deferred ? s_Data.ScenePass->GetGBuffer() : nullptr);
+            s_Data.OpaqueDecalPass->SetPerSampleLighting(deferred && s_Data.Settings.Deferred.PerSampleLighting);
         }
 
         // Phase 6: propagate OIT toggle to transparent passes + resolve
@@ -3208,6 +3221,14 @@ namespace OloEngine
         s_Data.DeferredLightPass->Init(scenePassSpec);
         s_Data.DeferredLightPass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
 
+        // Graph-scheduled opaque-decal shim. Pulls the decal bucket into
+        // the G-Buffer between ScenePass and DeferredLightingPass (was
+        // previously a synchronous call inside SceneRenderPass::Execute,
+        // now a proper graph node with declared resource edges).
+        s_Data.OpaqueDecalPass = Ref<DeferredOpaqueDecalPass>::Create();
+        s_Data.OpaqueDecalPass->SetName("DeferredOpaqueDecalPass");
+        s_Data.OpaqueDecalPass->Init(scenePassSpec);
+
         // Forward overlay pass — runs after DeferredLightingPass in Deferred
         // mode to render skybox / terrain / voxel terrain / infinite grid /
         // light-cube geometry that cannot participate in the G-Buffer MRT
@@ -3359,6 +3380,13 @@ namespace OloEngine
         {
             s_Data.RGraph->AddPass(s_Data.DeferredLightPass);
             s_Data.RGraph->AddPass(s_Data.ForwardOverlayPass);
+            // Graph-scheduled opaque decal drain — sits between ScenePass
+            // and DeferredLightingPass so the "opaque decals composite
+            // into the G-Buffer before lighting" contract is visible in
+            // the render graph rather than being an implicit side-effect
+            // of SceneRenderPass::Execute calling ExecuteOnGBuffer().
+            if (s_Data.OpaqueDecalPass)
+                s_Data.RGraph->AddPass(s_Data.OpaqueDecalPass);
         }
 
         s_Data.RGraph->AddPass(s_Data.FoliagePass);
@@ -3385,6 +3413,15 @@ namespace OloEngine
             // ScenePass -> DeferredLightingPass: G-Buffer MRT must be fully
             // written before the lighting pass samples it.
             s_Data.RGraph->AddExecutionDependency("ScenePass", "DeferredLightingPass");
+            // ScenePass -> DeferredOpaqueDecalPass -> DeferredLightingPass:
+            // opaque decals composite into the G-Buffer albedo/normal/RMA/
+            // emissive channels after the main MRT write but before
+            // lighting, so lighting sees the decal contribution.
+            if (s_Data.OpaqueDecalPass)
+            {
+                s_Data.RGraph->AddExecutionDependency("ScenePass", "DeferredOpaqueDecalPass");
+                s_Data.RGraph->AddExecutionDependency("DeferredOpaqueDecalPass", "DeferredLightingPass");
+            }
             // DeferredLightingPass -> ForwardOverlayPass: overlay geometry
             // (skybox, terrain, voxel, grid, debug) relies on the G-Buffer
             // depth that DeferredLightingPass blits into the scene FB.

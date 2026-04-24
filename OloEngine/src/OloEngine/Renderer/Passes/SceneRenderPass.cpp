@@ -290,32 +290,27 @@ namespace OloEngine
                 m_GBuffer->Resolve();
         }
 
-        // Deferred G-Buffer decals. Drain the DecalPass command
-        // bucket while the G-Buffer is still available so decals are
-        // composited into RT0 (albedo) *before* DeferredLightingPass runs.
-        // The regular graph-scheduled DecalPass::Execute() later in the
-        // frame will observe an empty bucket and no-op.
+        // Deferred opaque decals are drained by the dedicated
+        // `DeferredOpaqueDecalPass` graph node (runs between ScenePass and
+        // DeferredLightingPass) — see `Renderer3D::ConfigureRenderGraph`.
+        // The pass's resource declarations make the dependency visible to
+        // the L5 hazard validator.
         //
-        // MSAA per-sample: decals rasterize into the MS G-Buffer (covered
-        // samples each receive the broadcast fragment shader output) but
-        // sample resolved single-sample depth to reconstruct world pos.
-        // Otherwise both reads and writes target the resolved FB.
-        if (deferredActive && m_GBuffer)
-        {
-            auto decalPass = Renderer3D::GetDecalPass();
-            if (decalPass)
-            {
-                if (perSampleLighting)
-                    decalPass->ExecuteOnGBuffer(m_GBuffer->GetFramebuffer(),
-                                                m_GBuffer->GetSamplingFramebuffer());
-                else
-                    decalPass->ExecuteOnGBuffer(m_GBuffer->GetSamplingFramebuffer());
-            }
-        }
+        // The per-sample "post-decal colour resolve" below still runs here
+        // because it must be observable to `BlitGBufferDebug` in the same
+        // Execute() call. By the time we reach this point the graph
+        // scheduler has NOT yet executed the opaque-decal pass (this is
+        // still inside ScenePass), so the debug blit will see *pre-decal*
+        // colour in per-sample + debug-channel mode. That matches the
+        // behaviour pre-extraction for every case except
+        // `perSampleLighting && debugNeedsColour`; callers relying on the
+        // debug overlay to reflect decal contributions should disable
+        // per-sample lighting. Documented as a known limitation of the
+        // debug overlay; non-debug paths are unaffected.
 
-        // Per-sample path: if debug overlay is active we deferred the colour
-        // resolve above so the blit samples *post-decal* colour. Do the full
-        // resolve now that decals have been drained into the MS G-Buffer.
+        // Per-sample path: if debug overlay is active keep the pre-extraction
+        // resolve so the debug blit samples resolved single-sample colour
+        // (even though it will be pre-decal — see comment above).
         if (perSampleLighting && debugNeedsColour)
         {
             m_GBuffer->Resolve();
@@ -424,10 +419,15 @@ namespace OloEngine
         if (channel == 0)
             return;
 
-        // Detector-only GL state guard — logs any state this debug path
-        // fails to restore. Explicit restores below still perform the
-        // actual rollback.
-        GLStateGuard guard("SceneRenderPass::BlitGBufferDebug");
+        // RAII guard: captures GL state at entry and restores the core
+        // subset (depth / blend / stencil / cull / polygon mode / scissor /
+        // viewport / FBO bindings / active program) on destruction. The
+        // explicit restore calls that previously lived at the end of each
+        // branch are now redundant for the covered subset. Per-attachment
+        // blend state and per-slot texture bindings are still NOT
+        // automatically restored — callers managing those must do so
+        // explicitly (none of the debug blit paths touch them).
+        GLStateGuard guard("SceneRenderPass::BlitGBufferDebug", GLStateGuard::Policy::Restore);
 
         // Build the target FB's full multi-attachment draw-buffer list from
         // its spec. The previous hardcoded 4-entry restore broke when a
@@ -569,7 +569,11 @@ namespace OloEngine
             return;
 
         // Detector-only GL state guard.
-        GLStateGuard guard("SceneRenderPass::BlitForwardVelocityDebug");
+        // RAII guard as above — restores core state on return so the
+        // manual restore calls at the end of this helper only need to
+        // cover state outside the ApplyCore() subset (e.g. per-attachment
+        // blend).
+        GLStateGuard guard("SceneRenderPass::BlitForwardVelocityDebug", GLStateGuard::Policy::Restore);
 
         const u32 fb = m_Target->GetRendererID();
         const u32 w = m_Target->GetSpecification().Width;
