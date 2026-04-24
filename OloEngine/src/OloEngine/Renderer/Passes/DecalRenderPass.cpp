@@ -90,7 +90,7 @@ namespace OloEngine
             // matches opaque geometry.
             Ref<Framebuffer> oitFB = m_OITBuffer->GetFramebuffer();
 
-            m_OITBuffer->ClearForFrame();
+            m_OITBuffer->ClearForFrame(m_SceneFramebuffer);
             oitFB->Bind();
 
             RenderCommand::SetDepthTest(true);

@@ -8,6 +8,7 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Particle/EmissionShapeUtils.h"
@@ -59,6 +60,26 @@ namespace OloEngine
             value = (T)node.as<int>((int)value);
         }
         return value;
+    }
+
+    // Load a texture referenced by scene YAML through the asset registry so
+    // it participates in hot-reload and is de-duplicated across the scene
+    // graph. Falls back to a raw Texture2D::Create() when no EditorAssetManager
+    // is active (e.g. the runtime path loading a v0 scene with raw paths) \u2014
+    // matches the legacy behaviour exactly in that case.
+    static Ref<Texture2D> LoadSceneTexture(const std::string& texPath)
+    {
+        if (texPath.empty())
+            return nullptr;
+
+        if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+        {
+            const AssetHandle imported = assetManager->ImportAsset(texPath);
+            if (imported != 0 && AssetManager::GetAssetType(imported) == AssetType::Texture2D)
+                return AssetManager::GetAsset<Texture2D>(imported);
+        }
+
+        return Texture2D::Create(texPath);
     }
 
     // ---------- Sanitization helpers (shared across all Deserialize* functions) ----------
@@ -843,34 +864,22 @@ namespace OloEngine
         if (node["AlbedoTexturePath"])
         {
             auto texPath = node["AlbedoTexturePath"].as<std::string>("");
-            if (!texPath.empty())
-            {
-                dc.m_AlbedoTexture = Texture2D::Create(texPath);
-            }
+            dc.m_AlbedoTexture = LoadSceneTexture(texPath);
         }
         if (node["NormalTexturePath"])
         {
             auto texPath = node["NormalTexturePath"].as<std::string>("");
-            if (!texPath.empty())
-            {
-                dc.m_NormalTexture = Texture2D::Create(texPath);
-            }
+            dc.m_NormalTexture = LoadSceneTexture(texPath);
         }
         if (node["RMATexturePath"])
         {
             auto texPath = node["RMATexturePath"].as<std::string>("");
-            if (!texPath.empty())
-            {
-                dc.m_RMATexture = Texture2D::Create(texPath);
-            }
+            dc.m_RMATexture = LoadSceneTexture(texPath);
         }
         if (node["EmissiveTexturePath"])
         {
             auto texPath = node["EmissiveTexturePath"].as<std::string>("");
-            if (!texPath.empty())
-            {
-                dc.m_EmissiveTexture = Texture2D::Create(texPath);
-            }
+            dc.m_EmissiveTexture = LoadSceneTexture(texPath);
         }
         if (node["Mode"])
         {
@@ -1567,7 +1576,7 @@ namespace OloEngine
             src.Color = spriteRendererComponent["Color"].as<glm::vec4>();
             if (spriteRendererComponent["TexturePath"])
             {
-                src.Texture = Texture2D::Create(spriteRendererComponent["TexturePath"].as<std::string>());
+                src.Texture = LoadSceneTexture(spriteRendererComponent["TexturePath"].as<std::string>());
             }
 
             if (spriteRendererComponent["TilingFactor"])
@@ -2107,7 +2116,7 @@ namespace OloEngine
             auto& image = deserializedEntity.AddComponent<UIImageComponent>();
             if (uiImageComponent["TexturePath"])
             {
-                image.m_Texture = Texture2D::Create(uiImageComponent["TexturePath"].as<std::string>());
+                image.m_Texture = LoadSceneTexture(uiImageComponent["TexturePath"].as<std::string>());
             }
             TrySet(image.m_Color, uiImageComponent["Color"]);
             TrySet(image.m_BorderInsets, uiImageComponent["BorderInsets"]);
@@ -2119,7 +2128,7 @@ namespace OloEngine
             TrySet(panel.m_BackgroundColor, uiPanelComponent["BackgroundColor"]);
             if (uiPanelComponent["BackgroundTexturePath"])
             {
-                panel.m_BackgroundTexture = Texture2D::Create(uiPanelComponent["BackgroundTexturePath"].as<std::string>());
+                panel.m_BackgroundTexture = LoadSceneTexture(uiPanelComponent["BackgroundTexturePath"].as<std::string>());
             }
         }
 

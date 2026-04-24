@@ -1028,6 +1028,14 @@ namespace OloEngine
                 {
                     u32 globalOffset = frameDataBuffer.GetGlobalBoneOffset(cmd->workerIndex, cmd->boneBufferOffset);
                     cmd->boneBufferOffset = globalOffset;
+                    // Also remap the previous-frame bone offset when present.
+                    // UINT32_MAX is the alias-current sentinel and must be left
+                    // untouched so CommandDispatch::UploadBoneMatrices uploads
+                    // the current palette into both current and prev slots.
+                    if (cmd->prevBoneBufferOffset != UINT32_MAX)
+                    {
+                        cmd->prevBoneBufferOffset = frameDataBuffer.GetGlobalBoneOffset(cmd->workerIndex, cmd->prevBoneBufferOffset);
+                    }
                     cmd->needsBoneOffsetRemap = false;
                     remappedCount++;
                 }

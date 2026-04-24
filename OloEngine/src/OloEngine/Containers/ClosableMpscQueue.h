@@ -103,8 +103,22 @@ namespace OloEngine
             FNode* New = new FNode;
             ::new (static_cast<void*>(&New->Value)) T(Forward<ArgTypes>(Args)...);
 
-            // Linearization point: atomically link the new node
-            while (!m_Head.compare_exchange_weak(Prev, New, std::memory_order_release) && Prev != nullptr)
+            // Linearization point: atomically link the new node.
+            //
+            // We must pass an explicit failure memory order of `memory_order_acquire`.
+            // With only the success order provided, C++ downgrades the failure order
+            // to `memory_order_relaxed` (since release can't apply to a pure load),
+            // so on a failed CAS `Prev` would be reloaded without acquire semantics.
+            // That means the thread couldn't synchronize with the producer that
+            // just published `Prev`, and the subsequent `Prev->Next.store(...)` below
+            // would race with that producer's (non-atomic) initialization of
+            // `FNode::Next` in the `new FNode` constructor. ThreadSanitizer
+            // correctly flags this as a data race; the acquire failure order
+            // closes the synchronization gap.
+            while (!m_Head.compare_exchange_weak(Prev, New,
+                                                 std::memory_order_acq_rel,
+                                                 std::memory_order_acquire) &&
+                   Prev != nullptr)
             {
                 // Retry until success or queue is closed
             }

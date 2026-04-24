@@ -40,7 +40,7 @@ namespace OloEngine
             Ref<Framebuffer> oitFB = m_OITBuffer->GetFramebuffer();
 
             // Fresh per-frame accumulation state.
-            m_OITBuffer->ClearForFrame();
+            m_OITBuffer->ClearForFrame(m_SceneFramebuffer);
 
             oitFB->Bind();
 

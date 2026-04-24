@@ -173,7 +173,12 @@ namespace OloEngine
         // (or the same data as boneMatrices) to indicate zero per-bone motion.
         static CommandPacket* DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, const std::vector<glm::mat4>& prevBoneMatrices, bool isStatic = false, i32 entityID = -1);
         static CommandPacket* DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
-        static CommandPacket* DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true);
+        // `ownerKey` lets callers produce stable per-instance motion vectors
+        // when multiple submission sources (entities / emitters / foliage
+        // chunks) render the same mesh with independent instance arrays \u2014
+        // see GetAndRecordPrevInstanceTransforms. Leaving it at 0 preserves
+        // the legacy mesh-handle-only cache key.
+        static CommandPacket* DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true, u64 ownerKey = 0);
         static CommandPacket* DrawLightCube(const glm::mat4& modelMatrix);
         static CommandPacket* DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
         static CommandPacket* DrawSkybox(const Ref<TextureCubemap>& skyboxTexture);
@@ -407,6 +412,26 @@ namespace OloEngine
                                                        bool isStatic = false);
 
         /**
+         * @brief Thread-safe animated mesh drawing with previous-frame pose
+         *
+         * Same as DrawAnimatedMeshParallel above but also carries the prev-
+         * frame pose so the worker can upload the prev-bone palette alongside
+         * the current one and populate `prevTransform` for correct TAA /
+         * motion-blur velocity. `prevBoneMatrices` must either be empty or
+         * have the same size as `boneMatrices`; `hasPrevTransform` lets the
+         * caller distinguish "identity" from "explicitly unchanged".
+         */
+        static CommandPacket* DrawAnimatedMeshParallel(WorkerSubmitContext& ctx,
+                                                       const Ref<Mesh>& mesh,
+                                                       const glm::mat4& modelMatrix,
+                                                       const Material& material,
+                                                       const std::vector<glm::mat4>& boneMatrices,
+                                                       const std::vector<glm::mat4>& prevBoneMatrices,
+                                                       const glm::mat4& prevModelMatrix,
+                                                       bool hasPrevTransform,
+                                                       bool isStatic = false);
+
+        /**
          * @brief Submit a packet to the worker's bucket (thread-safe)
          */
         static void SubmitPacketParallel(WorkerSubmitContext& ctx, CommandPacket* packet);
@@ -429,6 +454,14 @@ namespace OloEngine
             // For animated meshes
             bool IsAnimated = false;
             const std::vector<glm::mat4>* BoneMatrices = nullptr;
+            // Optional previous-frame pose for motion-vector generation. When
+            // null (or empty / size-mismatched) the consumer aliases current
+            // bones / transform into the prev slot \u2014 zero per-bone and per-
+            // object motion. Lifetime: caller must keep the referenced vector
+            // alive until SubmitMeshesParallel returns.
+            const std::vector<glm::mat4>* PrevBoneMatrices = nullptr;
+            glm::mat4 PrevTransform = glm::mat4(1.0f);
+            bool HasPrevTransform = false; // False \u21d2 prev == current (zero object motion).
             // For LOD selection
             const LODGroup* LODGroupPtr = nullptr;
         };
@@ -712,13 +745,26 @@ namespace OloEngine
         // submission of DrawMeshInstanced so the cache stays empty in Forward/+.
         // Instance ordering is assumed stable frame-to-frame (foliage / particle /
         // constant-count emitters).
-        static std::vector<glm::mat4> GetAndRecordPrevInstanceTransforms(u64 meshKey, const std::vector<glm::mat4>& currTransforms)
+        //
+        // `ownerKey` identifies the submission source (entity UUID, emitter ID,
+        // foliage chunk index, \u2026). When two different owners render the same
+        // mesh with their own instance arrays, keying by meshHandle alone would
+        // make them overwrite each other's history and produce garbage motion
+        // vectors; compose with the owner so each owner keeps its own stream.
+        // Pass `0` to preserve legacy mesh-only keying.
+        static std::vector<glm::mat4> GetAndRecordPrevInstanceTransforms(u64 meshKey, u64 ownerKey,
+                                                                         const std::vector<glm::mat4>& currTransforms)
         {
-            s_Data.CurrInstanceTransforms.insert_or_assign(meshKey, currTransforms);
-            auto prevIt = s_Data.PrevInstanceTransforms.find(meshKey);
+            // Hash-combine (Boost formula) \u2014 cheap, order-sensitive, and the
+            // result preserves the original mesh-only key when ownerKey == 0.
+            u64 combinedKey = meshKey;
+            if (ownerKey != 0)
+                combinedKey ^= ownerKey + 0x9e3779b97f4a7c15ULL + (combinedKey << 6) + (combinedKey >> 2);
+            s_Data.CurrInstanceTransforms.insert_or_assign(combinedKey, currTransforms);
+            auto prevIt = s_Data.PrevInstanceTransforms.find(combinedKey);
             if (prevIt != s_Data.PrevInstanceTransforms.end() && prevIt->second.size() == currTransforms.size())
                 return prevIt->second;
-            return currTransforms; // First frame or instance-count mismatch → zero motion
+            return currTransforms; // First frame or instance-count mismatch \u2192 zero motion
         }
 
         static Ref<Shader> GetTerrainPBRShader()

@@ -20,9 +20,13 @@ namespace OloEngine
             spec.Height = height;
             spec.Samples = 1; // WB-OIT accumulation doesn't need MSAA
             spec.Attachments = FramebufferAttachmentSpecification{
-                FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA16F },           // Accum
-                FramebufferTextureSpecification{ FramebufferTextureFormat::RG16F },             // Revealage (uses R channel only; RG16F chosen for broad driver support)
-                FramebufferTextureSpecification{ FramebufferTextureFormat::DEPTH_COMPONENT32F } // Depth (blitted from scene)
+                FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA16F }, // Accum
+                FramebufferTextureSpecification{ FramebufferTextureFormat::RG16F },   // Revealage (uses R channel only; RG16F chosen for broad driver support)
+                // Depth: DEPTH24STENCIL8 to match SceneRenderPass's default
+                // framebuffer format so ClearForFrame() can glBlitNamedFramebuffer
+                // the scene's opaque depth into this attachment with matching
+                // internal format (required by the GL spec for depth blits).
+                FramebufferTextureSpecification{ FramebufferTextureFormat::Depth }
             };
             return spec;
         }
@@ -93,7 +97,7 @@ namespace OloEngine
         return m_Framebuffer ? m_Framebuffer->GetColorAttachmentRendererID(Revealage) : 0u;
     }
 
-    void OITBuffer::ClearForFrame()
+    void OITBuffer::ClearForFrame(const Ref<Framebuffer>& sourceDepth)
     {
         if (!m_Framebuffer)
             return;
@@ -117,12 +121,48 @@ namespace OloEngine
         // Revealage: 1.0 in R (fully revealed, product starts at 1).
         const glm::vec4 revealClear(1.0f, 0.0f, 0.0f, 0.0f);
         glClearNamedFramebufferfv(fbo, GL_COLOR, static_cast<GLint>(Revealage), glm::value_ptr(revealClear));
-        // Depth: far plane. Without this the attachment carries driver-default
-        // content (often 0 = near plane), which causes every subsequent
-        // water/decal/particle fragment to fail GL_LEQUAL and get discarded
-        // — water appears to vanish in Deferred+OIT because nothing ever
-        // writes into the accumulation buffer.
-        const GLfloat depthClear = 1.0f;
-        glClearNamedFramebufferfv(fbo, GL_DEPTH, 0, &depthClear);
+
+        // Seed depth. Prefer a blit from the scene's opaque depth so
+        // transparent fragments are correctly occluded by opaque geometry
+        // (WB-OIT still renders with depth-test enabled, depth-write off).
+        // Fall back to clearing to the far plane when no source is provided
+        // or the source lacks a usable depth attachment — older callers that
+        // don't yet plumb the scene FB through still get the previous (far
+        // clear) behaviour, which means transparent fragments render on top
+        // of everything but nothing crashes.
+        bool seededFromSource = false;
+        if (sourceDepth && sourceDepth->GetRendererID() != 0)
+        {
+            const auto& srcAttachments = sourceDepth->GetSpecification().Attachments.Attachments;
+            const bool srcHasCompatibleDepth = std::any_of(
+                srcAttachments.begin(), srcAttachments.end(),
+                [](const FramebufferTextureSpecification& a)
+                {
+                    // Depth formats we support blitting into OIT (Depth is
+                    // DEPTH24STENCIL8, matches OIT's depth attachment).
+                    return a.TextureFormat == FramebufferTextureFormat::Depth;
+                });
+            if (srcHasCompatibleDepth &&
+                sourceDepth->GetSpecification().Width == m_Width &&
+                sourceDepth->GetSpecification().Height == m_Height)
+            {
+                glBlitNamedFramebuffer(
+                    sourceDepth->GetRendererID(), fbo,
+                    0, 0, static_cast<GLint>(m_Width), static_cast<GLint>(m_Height),
+                    0, 0, static_cast<GLint>(m_Width), static_cast<GLint>(m_Height),
+                    GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+                seededFromSource = true;
+            }
+        }
+        if (!seededFromSource)
+        {
+            // Depth: far plane. Without this the attachment carries driver-default
+            // content (often 0 = near plane), which causes every subsequent
+            // water/decal/particle fragment to fail GL_LEQUAL and get discarded
+            // — water appears to vanish in Deferred+OIT because nothing ever
+            // writes into the accumulation buffer.
+            const GLfloat depthClear = 1.0f;
+            glClearNamedFramebufferfv(fbo, GL_DEPTH, 0, &depthClear);
+        }
     }
 } // namespace OloEngine

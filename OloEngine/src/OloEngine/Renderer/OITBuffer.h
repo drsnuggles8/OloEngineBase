@@ -56,12 +56,20 @@ namespace OloEngine
         [[nodiscard]] u32 GetRevealageAttachmentID() const;
 
         // Clears accum to (0,0,0,0) and revealage to 1.0 (fully-revealed background).
+        // When a source framebuffer is supplied, its depth attachment is
+        // blit-copied into the OIT depth attachment so WB-OIT fragments are
+        // correctly occluded by opaque geometry (water/decals behind walls
+        // don't bleed through). With no source or a format-incompatible
+        // source, depth is cleared to the far plane and transparent fragments
+        // render on top of everything — same behaviour as before the depth
+        // blit was introduced.
+        //
         // Idempotent per frame: the first call clears; subsequent calls no-op
         // until `ResetClearFlag()` is invoked (typically by OITResolvePass at
         // the end of its Execute). This allows multiple transparent passes
         // (water, decals, particles) to safely call ClearForFrame() before
         // accumulating, without wiping each other's contributions.
-        void ClearForFrame();
+        void ClearForFrame(const Ref<Framebuffer>& sourceDepth = nullptr);
 
         // Called by OITResolvePass after compositing to re-arm the clear for
         // the next frame's first transparent pass. Does NOT clear the buffer.

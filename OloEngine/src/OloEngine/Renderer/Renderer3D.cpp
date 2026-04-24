@@ -1832,6 +1832,24 @@ namespace OloEngine
                                                         const std::vector<glm::mat4>& boneMatrices,
                                                         bool isStatic)
     {
+        // Legacy entry point: no prev-pose information available. Alias current
+        // bones and transform into the prev slot so motion-vector shaders see
+        // zero per-bone and per-object motion for this draw.
+        static const std::vector<glm::mat4> s_EmptyPrev;
+        return DrawAnimatedMeshParallel(ctx, mesh, modelMatrix, material, boneMatrices,
+                                        s_EmptyPrev, modelMatrix, /*hasPrevTransform*/ false, isStatic);
+    }
+
+    CommandPacket* Renderer3D::DrawAnimatedMeshParallel(WorkerSubmitContext& ctx,
+                                                        const Ref<Mesh>& mesh,
+                                                        const glm::mat4& modelMatrix,
+                                                        const Material& material,
+                                                        const std::vector<glm::mat4>& boneMatrices,
+                                                        const std::vector<glm::mat4>& prevBoneMatrices,
+                                                        const glm::mat4& prevModelMatrix,
+                                                        bool hasPrevTransform,
+                                                        bool isStatic)
+    {
         OLO_PROFILE_FUNCTION();
 
         if (!ctx.Allocator || !ctx.SceneContext)
@@ -1902,6 +1920,26 @@ namespace OloEngine
         }
         frameBuffer.WriteBoneMatricesParallel(ctx.WorkerIndex, localBoneOffset, boneMatrices.data(), boneCount);
 
+        // Previous-frame pose: allocate a second palette in the same worker
+        // scratch so skinned shaders (PBR_MultiLight_Skinned, PBR_GBuffer_Skinned)
+        // can emit per-bone velocity via binding 31. Only do this when the
+        // caller supplied a matching-size prev palette; otherwise we leave the
+        // sentinel UINT32_MAX in the command so CommandDispatch::UploadBoneMatrices
+        // aliases current into prev (zero per-bone motion). Allocation failure
+        // silently falls back to alias-current for this draw only.
+        u32 localPrevBoneOffset = UINT32_MAX;
+        const bool wantPrevBones = !prevBoneMatrices.empty() &&
+                                   prevBoneMatrices.size() == boneMatrices.size();
+        if (wantPrevBones)
+        {
+            u32 prevOffset = frameBuffer.AllocateBoneMatricesParallel(ctx.WorkerIndex, boneCount);
+            if (prevOffset != UINT32_MAX)
+            {
+                frameBuffer.WriteBoneMatricesParallel(ctx.WorkerIndex, prevOffset, prevBoneMatrices.data(), boneCount);
+                localPrevBoneOffset = prevOffset;
+            }
+        }
+
         // Create POD command using worker's allocator
         PacketMetadata initialMetadata;
         CommandPacket* packet = ctx.Allocator->AllocatePacketWithCommand<DrawMeshCommand>(initialMetadata);
@@ -1919,7 +1957,9 @@ namespace OloEngine
         cmd->indexCount = mesh->GetIndexCount();
         cmd->baseIndex = mesh->GetBaseIndex();
         cmd->transform = modelMatrix;
-        cmd->prevTransform = modelMatrix; // parallel worker: motion history not tracked on workers
+        // Use caller-supplied prev transform when available; otherwise alias
+        // current so u_PrevModel - u_Model = 0 and shader velocity is 0.
+        cmd->prevTransform = hasPrevTransform ? prevModelMatrix : modelMatrix;
         cmd->shaderHandle = shaderToUse->GetHandle();
 
         // Material data via table
@@ -1928,10 +1968,12 @@ namespace OloEngine
 
         cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreatePODRenderStateForMaterial(material));
 
-        // Animation support - store worker-local offset with remapping info
-        // The offset will be remapped to global in EndParallelSubmission()
+        // Animation support - store worker-local offsets with remapping info.
+        // Both current and (when present) prev offsets are worker-local and
+        // must be remapped to global during EndParallelSubmission().
         cmd->isAnimatedMesh = true;
         cmd->boneBufferOffset = localBoneOffset;
+        cmd->prevBoneBufferOffset = localPrevBoneOffset;
         cmd->boneCount = boneCount;
         cmd->workerIndex = static_cast<u8>(ctx.WorkerIndex);
         cmd->needsBoneOffsetRemap = true;
@@ -2031,13 +2073,35 @@ namespace OloEngine
                 CommandPacket* packet = nullptr;
                 if (desc.IsAnimated && desc.BoneMatrices)
                 {
-                    packet = Renderer3D::DrawAnimatedMeshParallel(
-                        stats.Context,
-                        desc.Mesh,
-                        desc.Transform,
-                        desc.MaterialData,
-                        *desc.BoneMatrices,
-                        desc.IsStatic);
+                    // Route through the prev-aware overload when the caller
+                    // supplied prev-pose data; otherwise fall back to the
+                    // legacy entry which aliases current\u2192prev (zero motion).
+                    if (desc.PrevBoneMatrices || desc.HasPrevTransform)
+                    {
+                        static const std::vector<glm::mat4> s_EmptyPrev;
+                        const std::vector<glm::mat4>& prevBones =
+                            desc.PrevBoneMatrices ? *desc.PrevBoneMatrices : s_EmptyPrev;
+                        packet = Renderer3D::DrawAnimatedMeshParallel(
+                            stats.Context,
+                            desc.Mesh,
+                            desc.Transform,
+                            desc.MaterialData,
+                            *desc.BoneMatrices,
+                            prevBones,
+                            desc.PrevTransform,
+                            desc.HasPrevTransform,
+                            desc.IsStatic);
+                    }
+                    else
+                    {
+                        packet = Renderer3D::DrawAnimatedMeshParallel(
+                            stats.Context,
+                            desc.Mesh,
+                            desc.Transform,
+                            desc.MaterialData,
+                            *desc.BoneMatrices,
+                            desc.IsStatic);
+                    }
                 }
                 else
                 {
@@ -2658,7 +2722,7 @@ namespace OloEngine
         return packet;
     }
 
-    CommandPacket* Renderer3D::DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic)
+    CommandPacket* Renderer3D::DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic, u64 ownerKey)
     {
         OLO_PROFILE_FUNCTION();
         if (!s_Data.ScenePass)
@@ -2711,13 +2775,15 @@ namespace OloEngine
         frameBuffer.WriteTransforms(transformOffset, activeTransforms->data(), transformCount);
 
         // Previous-frame transforms (Deferred per-instance velocity). Cache keyed by
-        // mesh handle; caller-ordering stability is assumed. First frame / count
-        // mismatches alias the current data → zero velocity.
+        // (mesh, ownerKey) so two submission sources that render the same mesh with
+        // independent instance arrays don't overwrite each other's history;
+        // caller-ordering stability within an owner is still required. First frame
+        // / count mismatches alias the current data \u2192 zero velocity.
         u32 prevTransformOffset = UINT32_MAX;
         if (s_Data.Settings.Path == RenderingPath::Deferred && mesh)
         {
             const u64 meshKey = static_cast<u64>(mesh->GetHandle());
-            std::vector<glm::mat4> prevTransforms = GetAndRecordPrevInstanceTransforms(meshKey, *activeTransforms);
+            std::vector<glm::mat4> prevTransforms = GetAndRecordPrevInstanceTransforms(meshKey, ownerKey, *activeTransforms);
             // GetAndRecordPrevInstanceTransforms returns currTransforms when there is no
             // prior history — comparing data() is a cheap way to detect that and skip
             // the redundant allocation/upload.
