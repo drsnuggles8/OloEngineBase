@@ -337,6 +337,17 @@ namespace OloEngine
                 {
                     Renderer3D::ApplyRendererSettings();
                 }
+                if (ImGui::Checkbox("Enable Light Probes", &deferred.EnableLightProbes))
+                {
+                    Renderer3D::ApplyRendererSettings();
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Contribute the active light-probe volume's SH\n"
+                                      "coefficients to the deferred ambient term. When\n"
+                                      "disabled (or no active volume), the shader falls\n"
+                                      "back to the global IBL cubemap only.");
+                }
 
                 static const char* channelItems[] = {
                     "Off (lit)",

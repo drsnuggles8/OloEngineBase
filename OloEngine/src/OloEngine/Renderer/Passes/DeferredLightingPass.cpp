@@ -79,12 +79,16 @@ namespace OloEngine
         Renderer3D::BindSceneUBOs();
 
         // Upload per-frame controls — IBL enable + intensity + cascade-debug
-        // flag. Light-probe toggle is driven from RendererSettings once the
-        // deferred panel exposes it; default it on if the probe grid is valid.
+        // flag. Light-probe toggle mirrors RendererSettings::Deferred
+        // .EnableLightProbes: Scene::OnUpdateRender always uploads the
+        // LightProbeVolume UBO + SH SSBO every frame (a "disabled" UBO is
+        // uploaded when no active volume exists), so the shader can safely
+        // sample whenever this flag is on. When off, the shader falls back
+        // to the global IBL cubemap.
         DeferredControlsData controls{};
         const bool iblAvailable = Renderer3D::GetGlobalIrradianceMapID() != 0 && Renderer3D::GetGlobalPrefilterMapID() != 0 && Renderer3D::GetGlobalBRDFLutMapID() != 0;
         controls.Controls.x = iblAvailable ? 1.0f : 0.0f;
-        controls.Controls.y = 0.0f; // light probes — disabled until grid bind is in place
+        controls.Controls.y = Renderer3D::GetRendererSettings().Deferred.EnableLightProbes ? 1.0f : 0.0f;
         controls.Controls.z = 1.0f;
         controls.Controls.w = 0.0f;
         controls.MSAAParams.x = static_cast<f32>(useMSAAShading ? sampleCount : 1u);

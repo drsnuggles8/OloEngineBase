@@ -56,6 +56,14 @@ namespace OloEngine
 
         // Route decal pass into G-Buffer writes instead of post-lighting.
         bool GBufferDecalsEnabled = true;
+
+        // Enable light-probe contribution to the deferred ambient term.
+        // When true, `DeferredLighting.glsl` samples the active light-probe
+        // volume's SH coefficients (bound by `Scene::OnUpdateRender`) and
+        // blends them trilinearly with the global IBL cubemap. When false
+        // (or when no volume is active), the shader falls back to the
+        // global IBL cubemap only. Runtime-switchable.
+        bool EnableLightProbes = true;
     };
 
     // @brief Global renderer settings that live alongside PostProcessSettings.
