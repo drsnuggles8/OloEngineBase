@@ -68,9 +68,10 @@ namespace OloEngine
 
         // Deferred-path capability introspection. Returns true when the
         // fragment stage declares at least one G-Buffer MRT output using
-        // the engine's opt-in naming convention (see
-        // `OpenGLShader::DetectGBufferOutputs` for the marker set:
-        // `o_GBuffer*`, `gAlbedo`, `gNormalRoughAO`, `gEmissive`).
+        // the engine's opt-in naming convention (marker set:
+        // `o_GBuffer*`, `gAlbedo`, `gNormalRoughAO`, `gEmissive`). Detection
+        // is performed inline in `OpenGLShader::Reflect` by scanning the
+        // fragment stage's `stage_outputs` via spirv_cross.
         // Reflection-populated backends (OpenGL today, Vulkan tomorrow)
         // override this; the base default is false so unimplemented
         // backends keep the conservative "treat as forward-only" behaviour.

@@ -93,10 +93,19 @@ namespace OloEngine
         u32 m_FboRead = 0;
         u32 m_ActiveProgram = 0;
         u32 m_Vao = 0;
-        // Enum in [GL_TEXTURE0, GL_TEXTURE0 + kTextureSlots - 1] indicating
-        // the unit a pass left selected on exit. Per-unit bindings are
-        // tracked below; the upper bound is clamped to the driver's
-        // `GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS` at capture time.
+        // Enum naming the active texture unit on exit. Covers the engine-
+        // reserved tracked range: slot indices `[0, kTextureSlots - 1]`,
+        // i.e. the raw GL enums `GL_TEXTURE0 .. GL_TEXTURE0 + kTextureSlots - 1`.
+        // This spans all slots the engine actually binds into — including
+        // OIT accumulation / revealage (TEX_OIT_ACCUM / _REVEALAGE) and
+        // the shader-graph slots (TEX_SHADER_GRAPH_0 = 50). Per-unit
+        // bindings for GL_TEXTURE_2D / _2D_ARRAY / _CUBE_MAP are tracked
+        // in the arrays below. Caveat: drivers that report a
+        // `GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS` lower than `kTextureSlots`
+        // (rare software rasterisers like llvmpipe) have the capture loop
+        // clamped to the reported max at Capture() time; the stored
+        // `m_ActiveTextureUnit` value is always a valid enum for the
+        // current context.
         u32 m_ActiveTextureUnit = 0;
 
         // Per-slot bindings. OloEngine reserves texture units through

@@ -853,6 +853,11 @@ TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
         scene->TestDeclareRead(std::string(ResourceNames::ShadowMapCSM));
         scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
         scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+        // Mirror BuildPathTopology: ScenePass writes SceneNormals so the
+        // Deferred branch's normals handoff into DeferredLightingPass /
+        // DeferredOpaqueDecalPass actually has a declared producer edge
+        // for the L5 validator to verify on each rebuild cycle.
+        scene->TestDeclareWrite(std::string(ResourceNames::SceneNormals));
         graph.AddPass(scene);
 
         if (deferred)
@@ -860,6 +865,7 @@ TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
             auto deferredLight = Ref<DeclarativeStubPass>::Create("DeferredLightingPass");
             deferredLight->SetName("DeferredLightingPass");
             deferredLight->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+            deferredLight->TestDeclareRead(std::string(ResourceNames::SceneNormals));
             deferredLight->TestDeclareWrite(std::string(ResourceNames::SceneColor));
             graph.AddPass(deferredLight);
 
@@ -869,6 +875,7 @@ TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
             auto decal = Ref<DeclarativeStubPass>::Create("DeferredOpaqueDecalPass");
             decal->SetName("DeferredOpaqueDecalPass");
             decal->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+            decal->TestDeclareRead(std::string(ResourceNames::SceneNormals));
             decal->TestDeclareWrite(std::string(ResourceNames::SceneColor));
             graph.AddPass(decal);
 

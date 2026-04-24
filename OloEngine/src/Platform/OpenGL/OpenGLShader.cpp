@@ -1463,7 +1463,7 @@ namespace OloEngine
         // used across the current shader set (PBR_GBuffer*, Decal_GBuffer*,
         // Foliage_Instance_GBuffer, skybox / grid / light cube / terrain /
         // voxel GBuffer variants).
-        if (stage == 0x8B30 /* GL_FRAGMENT_SHADER */)
+        if (stage == GL_FRAGMENT_SHADER)
         {
             // Marker prefixes / full names. Using string_view to avoid
             // per-shader heap allocations; inputs from SPIR-V reflection

@@ -591,7 +591,7 @@ replaces manual doc edits.
 
 | File | Tests | Cases |
 |---|---:|---|
-| [GLStateGuardTest.cpp](../OloEngine/tests/Rendering/PropertyTests/GLStateGuardTest.cpp) | 8 | **GLStateGuardTest** &mdash; `EmptyRegionHasNoLeaks`, `LeakedBlendIsDetected`, `LeakedDepthMaskIsDetected`, `LeakedDrawFboIsDetected`, `LeakedTextureBindingIsDetected`, `LeakedUboBindingIsDetected`, `MultipleLeaksAreAllReported`, `RestoredStateShowsNoLeaks` |
+| [GLStateGuardTest.cpp](../OloEngine/tests/Rendering/PropertyTests/GLStateGuardTest.cpp) | 10 | **GLStateGuardTest** &mdash; `EmptyRegionHasNoLeaks`, `LeakedBlendIsDetected`, `LeakedDepthMaskIsDetected`, `LeakedDrawFboIsDetected`, `LeakedTextureBindingIsDetected`, `LeakedUboBindingIsDetected`, `MultipleLeaksAreAllReported`, `RestoredStateShowsNoLeaks`, `RestorePolicy_RestoresCoreStateOnDtor`, `RestorePolicy_DoesNotUnbindTexturesOrUbosButLogsLeak` |
 | [RenderStateTest.cpp](../OloEngine/tests/Rendering/RenderStateTest.cpp) | 33 | **RenderState** &mdash; `DefaultsAreCorrect`, `TriviallyCopyable`, `BlendedObjectsUseTransparentSortKey`, `InfiniteGridSortKeyIsTransparent`, `OpaqueObjectHasCorrectState`, `TransparentObjectHasCorrectState`, `TwoSidedMaterialDisablesCulling`, `WireframeModeUsesLinePolygonMode`, `PolygonOffsetForDecals`, `DepthOnlyPassDisablesColorMask`, `CubeWindingOrderIsCCW`, `CubeHas36Indices`, `CubeHas24Vertices`, `CubeNormalsAreUnitLength`, `CubeIndicesInRange`, `ShaderIncludeSkipsComments`, `ShaderIncludePathNoDuplication`, `WireframeCubeState`, `TransparentSphereState`, `PolygonOffsetOverlayState`, `BlendEnabledRequiresTransparentKey`, `OpaqueBeforeTransparentSortInvariant`, `StencilOutlinePassWriteState`, `StencilOutlinePassReadState`, `CylinderTopCapWindingIsCCW`, `CylinderBottomCapWindingIsCCW`, `CylinderSideWindingIsCCW`, `ConeBaseWindingIsCCW`, `ConeSideWindingIsCCW`, `TorusWindingIsCCW`, `MaterialBlendFlagDeterminesSortKeyType`, `TransparentDepthSortsBackToFront`, `BlendedObjectShouldNotWriteDepth` |
 
 ### L5 — [Render graph / hazard validation](#35-layer-5--render-graph--hazard-validation)
@@ -679,7 +679,7 @@ replaces manual doc edits.
 |---|---:|---|
 | [TestFailureCaptureTest.cpp](../OloEngine/tests/Rendering/PropertyTests/TestFailureCaptureTest.cpp) | 6 | **TestFailureCaptureTest** &mdash; `DirectoryForSanitizesNames`, `MetadataIsWrittenWithoutGlContext`, `LatestFrameSummaryIsNoOpWithoutCaptures`, `GLStateSnapshotIsWrittenWhenGpuAvailable`, `FboPngIsWrittenWhenGpuAvailable`, `CaptureAllProducesExpectedArtefacts` |
 
-**Totals.** 51 rendering-scope test files, 746 TEST / TEST_F / TEST_P declarations across all layers. Non-rendering subsystems (audio, networking, gameplay, save-game, &hellip;) are catalogued separately and are not listed here by design.
+**Totals.** 51 rendering-scope test files, 748 TEST / TEST_F / TEST_P declarations across all layers. Non-rendering subsystems (audio, networking, gameplay, save-game, &hellip;) are catalogued separately and are not listed here by design.
 
 <!-- END: auto-catalogue -->
 
