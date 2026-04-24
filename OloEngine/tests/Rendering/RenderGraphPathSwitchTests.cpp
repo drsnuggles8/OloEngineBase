@@ -302,3 +302,232 @@ TEST(RenderGraphPathSwitch, PassOrderReflectsCurrentTopologyAfterSwitch)
             << "ForwardOverlayPass must not appear in Forward pass order";
     }
 }
+
+// =============================================================================
+// Three-path coverage: Forward / Forward+ / Deferred.
+//
+// Forward+ adds a `LightCullingPass` that writes a LightGrid SSBO; ScenePass
+// reads that SSBO to select per-tile light lists. Deferred adds the G-Buffer
+// lighting + overlay passes AND the DeferredOpaqueDecalPass introduced in
+// Phase 2 (PR #216): DecalPass reads SceneDepth + SceneNormals and writes
+// back into the G-Buffer (SceneColor / SceneNormals) before lighting.
+//
+// These tests exercise path transitions beyond the Forward↔Deferred pair the
+// original suite covered — they guard against regressions in the Forward+
+// and decal edges that Phase 2 made production-required.
+// =============================================================================
+namespace
+{
+    inline constexpr std::string_view kLightGridResource = "LightGrid";
+
+    enum class TestPath : u8
+    {
+        Forward = 0,
+        ForwardPlus,
+        Deferred
+    };
+
+    // Rebuild a richer topology that models Forward+ (LightCullingPass) and
+    // the DeferredOpaqueDecalPass insertion point. Decal-edge and light-edge
+    // can be individually skipped to test negative/hazard cases.
+    void RebuildTopologyMultiPath(RenderGraph& graph, TestPath path,
+                                  bool skipDecalEdge = false,
+                                  bool skipLightGridEdge = false)
+    {
+        graph.ResetTopology();
+
+        // LightCulling runs before ScenePass on Forward+. Model it first so
+        // the producer's DeclareWrite of LightGrid precedes ScenePass' read.
+        if (path == TestPath::ForwardPlus)
+        {
+            auto lc = AddDeclStub(graph, "LightCullingPass");
+            lc->TestDeclareWrite(std::string(kLightGridResource));
+        }
+
+        auto scene = AddDeclStub(graph, "ScenePass");
+        scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+        scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+        scene->TestDeclareWrite(std::string(ResourceNames::SceneNormals));
+        if (path == TestPath::ForwardPlus)
+            scene->TestDeclareRead(std::string(kLightGridResource));
+
+        if (path == TestPath::Deferred)
+        {
+            // DeferredOpaqueDecalPass reads depth+normals, writes color+normals
+            // back into the G-Buffer before DeferredLightingPass composites.
+            auto decal = AddDeclStub(graph, "DeferredOpaqueDecalPass");
+            decal->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+            decal->TestDeclareRead(std::string(ResourceNames::SceneNormals));
+            decal->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+            decal->TestDeclareWrite(std::string(ResourceNames::SceneNormals));
+
+            auto lighting = AddDeclStub(graph, "DeferredLightingPass");
+            lighting->TestDeclareRead(std::string(ResourceNames::SceneNormals));
+            lighting->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+            lighting->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+            auto overlay = AddDeclStub(graph, "ForwardOverlayPass");
+            overlay->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+            overlay->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+        }
+
+        auto oit = AddDeclStub(graph, "OITResolvePass");
+        oit->TestDeclareRead(std::string(ResourceNames::SceneColor));
+        oit->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+        auto fin = AddDeclStub(graph, "FinalPass");
+        fin->TestDeclareRead(std::string(ResourceNames::SceneColor));
+        fin->TestDeclareWrite(std::string(ResourceNames::FinalColor));
+
+        if (path == TestPath::ForwardPlus)
+        {
+            if (!skipLightGridEdge)
+                graph.AddExecutionDependency("LightCullingPass", "ScenePass");
+            graph.AddExecutionDependency("ScenePass", "OITResolvePass");
+        }
+        else if (path == TestPath::Deferred)
+        {
+            if (!skipDecalEdge)
+                graph.AddExecutionDependency("ScenePass", "DeferredOpaqueDecalPass");
+            graph.AddExecutionDependency("DeferredOpaqueDecalPass", "DeferredLightingPass");
+            graph.AddExecutionDependency("DeferredLightingPass", "ForwardOverlayPass");
+            graph.AddExecutionDependency("ForwardOverlayPass", "OITResolvePass");
+        }
+        else
+        {
+            graph.AddExecutionDependency("ScenePass", "OITResolvePass");
+        }
+        graph.AddExecutionDependency("OITResolvePass", "FinalPass");
+
+        graph.SetFinalPass("FinalPass");
+    }
+} // namespace
+
+// Full 3-way cycle: Forward → Forward+ → Deferred → Forward+ → Forward, with
+// hazard-set and pass-count assertions at every step. Guards against
+// ResetTopology leaving stale decal or light-culling passes behind.
+TEST(RenderGraphPathSwitch, ThreeWayCycleCleansUpAllPathSpecificPasses)
+{
+    RenderGraph graph;
+
+    // Forward = ScenePass + OITResolve + Final.
+    constexpr sizet kForwardCount = 3u;
+    // Forward+ adds LightCullingPass.
+    constexpr sizet kForwardPlusCount = 4u;
+    // Deferred adds DeferredOpaqueDecalPass + DeferredLightingPass +
+    // ForwardOverlayPass (no LightCullingPass).
+    constexpr sizet kDeferredCount = 6u;
+
+    struct Step
+    {
+        TestPath path;
+        sizet expected;
+    };
+    const Step steps[] = {
+        { TestPath::Forward, kForwardCount },
+        { TestPath::ForwardPlus, kForwardPlusCount },
+        { TestPath::Deferred, kDeferredCount },
+        { TestPath::ForwardPlus, kForwardPlusCount },
+        { TestPath::Forward, kForwardCount },
+        { TestPath::Deferred, kDeferredCount },
+        { TestPath::Forward, kForwardCount },
+    };
+
+    for (sizet i = 0; i < std::size(steps); ++i)
+    {
+        RebuildTopologyMultiPath(graph, steps[i].path);
+
+        const auto hazards = graph.ValidateResourceHazards();
+        EXPECT_TRUE(hazards.empty())
+            << "Cycle " << i << " path=" << static_cast<i32>(steps[i].path)
+            << ": " << HazardsToString(hazards);
+
+        EXPECT_EQ(graph.GetAllPasses().size(), steps[i].expected)
+            << "Cycle " << i << ": pass count drift — ResetTopology leak";
+
+        // Path-specific passes must be present iff path matches.
+        const bool isFwdPlus = steps[i].path == TestPath::ForwardPlus;
+        const bool isDeferred = steps[i].path == TestPath::Deferred;
+
+        EXPECT_EQ(ContainsPass(graph, "LightCullingPass"), isFwdPlus);
+        EXPECT_EQ(ContainsPass(graph, "DeferredOpaqueDecalPass"), isDeferred);
+        EXPECT_EQ(ContainsPass(graph, "DeferredLightingPass"), isDeferred);
+        EXPECT_EQ(ContainsPass(graph, "ForwardOverlayPass"), isDeferred);
+    }
+}
+
+// Negative: Forward → Deferred without registering the
+// ScenePass→DeferredOpaqueDecalPass edge must surface a RAW hazard. This
+// specifically guards the Phase 2 decal-integration edge — a regression
+// would let the decal pass read the G-Buffer before ScenePass finishes.
+TEST(RenderGraphPathSwitch, MissingDecalEdgeSurfacesHazard)
+{
+    RenderGraph graph;
+    RebuildTopologyMultiPath(graph, TestPath::Forward);
+    RebuildTopologyMultiPath(graph, TestPath::Deferred, /*skipDecalEdge=*/true);
+
+    const auto hazards = graph.ValidateResourceHazards();
+    ASSERT_FALSE(hazards.empty())
+        << "Missing ScenePass→DeferredOpaqueDecalPass edge must be flagged as a hazard";
+
+    const bool namesSceneResource = std::any_of(
+        hazards.begin(), hazards.end(),
+        [](const auto& h)
+        {
+            return h.Resource == ResourceNames::SceneDepth ||
+                   h.Resource == ResourceNames::SceneNormals;
+        });
+    EXPECT_TRUE(namesSceneResource)
+        << "Expected RAW hazard on SceneDepth / SceneNormals: " << HazardsToString(hazards);
+}
+
+// Negative: Forward+ without the LightCullingPass→ScenePass edge must be
+// flagged. Guards the Forward+ producer→consumer contract; a regression
+// would silently let ScenePass read stale/uninitialised LightGrid data.
+TEST(RenderGraphPathSwitch, MissingLightGridEdgeSurfacesHazard)
+{
+    RenderGraph graph;
+    RebuildTopologyMultiPath(graph, TestPath::Forward);
+    RebuildTopologyMultiPath(graph, TestPath::ForwardPlus, /*skipDecalEdge=*/false, /*skipLightGridEdge=*/true);
+
+    const auto hazards = graph.ValidateResourceHazards();
+    ASSERT_FALSE(hazards.empty())
+        << "Missing LightCullingPass→ScenePass edge must surface a hazard";
+
+    const bool namesLightGrid = std::any_of(
+        hazards.begin(), hazards.end(),
+        [](const auto& h)
+        { return h.Resource == kLightGridResource; });
+    EXPECT_TRUE(namesLightGrid)
+        << "Expected hazard naming LightGrid resource: " << HazardsToString(hazards);
+}
+
+// Topological-order invariants for Deferred with decal: decal runs AFTER
+// scene and BEFORE lighting; lighting runs BEFORE overlay.
+TEST(RenderGraphPathSwitch, DeferredDecalOrderingIsTopologicallyValid)
+{
+    RenderGraph graph;
+    RebuildTopologyMultiPath(graph, TestPath::Deferred);
+    (void)graph.ValidateResourceHazards();
+
+    const auto& order = graph.GetPassOrder();
+    auto indexOf = [&](const char* name) -> i64
+    {
+        const auto it = std::find(order.begin(), order.end(), name);
+        return (it == order.end()) ? -1 : (it - order.begin());
+    };
+
+    const i64 scene = indexOf("ScenePass");
+    const i64 decal = indexOf("DeferredOpaqueDecalPass");
+    const i64 lighting = indexOf("DeferredLightingPass");
+    const i64 overlay = indexOf("ForwardOverlayPass");
+
+    ASSERT_GE(scene, 0);
+    ASSERT_GE(decal, 0);
+    ASSERT_GE(lighting, 0);
+    ASSERT_GE(overlay, 0);
+
+    EXPECT_LT(scene, decal) << "Decal must run after ScenePass populates the G-Buffer";
+    EXPECT_LT(decal, lighting) << "Decal must run before DeferredLightingPass composites";
+    EXPECT_LT(lighting, overlay) << "Overlay runs after DeferredLighting";
+}

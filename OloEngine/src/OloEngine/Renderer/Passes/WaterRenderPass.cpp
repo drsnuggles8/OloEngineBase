@@ -222,6 +222,17 @@ namespace OloEngine
         RenderCommand::BackCull();
         CommandDispatch::InvalidateRenderStateCache();
 
+        // Unbind the three texture slots we sampled into — leaving them
+        // bound lets water-depth / scene-normals / refraction slots leak
+        // into subsequent passes that share the same sampler layout. The
+        // OIT branch above already performs the equivalent unbinds; mirror
+        // them here so the detector `GLStateGuard("WaterRenderPass")` sees
+        // matching entry/exit per-slot bindings regardless of which
+        // transparency branch ran.
+        RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, 0);
+        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, 0);
+        RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, 0);
+
         m_SceneFramebuffer->Unbind();
 
         // Reset bucket for next frame

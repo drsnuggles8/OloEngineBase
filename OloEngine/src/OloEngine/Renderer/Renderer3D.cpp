@@ -77,7 +77,26 @@ namespace OloEngine
         const u64 handle = static_cast<u64>(shader->GetHandle());
         if (handle == 0)
             return false;
-        // Compare by AssetHandle rather than RendererID - the latter is
+
+        // Primary path: ask the shader itself. `Shader::IsDeferredCapable()`
+        // is populated by the backend's reflection pass (for OpenGL, at
+        // Reflect() time by scanning the fragment stage's declared outputs
+        // for the G-Buffer marker names — see `OpenGLShader::Reflect`).
+        // This correctly classifies CUSTOM shaders that weren't loaded via
+        // the built-in handle set, as long as they follow the engine's
+        // opt-in naming convention (o_GBuffer* / gAlbedo / gNormalRoughAO /
+        // gEmissive).
+        if (shader->IsDeferredCapable())
+            return true;
+
+        // Compatibility shim: some built-in shaders are cached in s_Data
+        // and may be queried before their reflection has run (e.g. during
+        // engine startup, before the first Bind()/EnsureLinked()). Fall
+        // back to identity comparison against the known deferred handle
+        // set so those queries don't misclassify a not-yet-reflected shader
+        // as forward-only.
+        //
+        // Compare by AssetHandle rather than RendererID — the latter is
         // re-issued on hot-reload whereas the handle is stable across the
         // asset lifetime.
         auto matches = [handle](const Ref<Shader>& candidate)
@@ -1843,25 +1862,25 @@ namespace OloEngine
         // per-thread bucket, which is the G-Buffer producer. Non-PBR /
         // forward-only override shaders on this path would alias forward
         // outputs onto G-Buffer slots (breaking lighting for every
-        // subsequent pixel). ForwardOverlayPass has no worker-context
-        // bucket to reroute into, so the safest behaviour is to drop the
-        // draw and surface a diagnostic — missing a draw is strictly less
-        // harmful than corrupting the G-Buffer for the whole frame. Callers
-        // submitting non-PBR materials on the Deferred path should use the
-        // serial `DrawMesh` entry-point, which handles the reroute. Note:
-        // in Deferred `ctx.SceneContext->PBRShader` is already swapped to
+        // subsequent pixel). Instead of dropping the draw we reroute the
+        // fully-assembled packet into ForwardOverlayPass's global bucket,
+        // matching the serial `DrawMesh` overlay-reroute behaviour so
+        // worker-submitted forward-only materials render as overlays
+        // after DeferredLightingPass composes the G-Buffer.
+        //
+        // Note: `ForwardOverlayPass::SubmitPacket` is mutex-protected
+        // (CommandBucket's internal lock) so calling it from a worker is
+        // safe — the serialisation cost is acceptable for rare forward-
+        // only materials on the Deferred path. The packet memory is still
+        // owned by the worker's allocator (both allocators reset at end-
+        // of-frame; the overlay bucket stores pointers, not copies).
+        //
+        // In Deferred `ctx.SceneContext->PBRShader` is already swapped to
         // `PBRGBufferShader` (see ParallelContext init), so an un-overridden
-        // PBR material passes this guard naturally.
-        if (s_Data.Settings.Path == RenderingPath::Deferred &&
-            !IsDeferredCapableShader(shaderToUse))
-        {
-            static std::atomic<u64> s_WarnCount{ 0 };
-            if (s_WarnCount.fetch_add(1, std::memory_order_relaxed) < 8)
-            {
-                OLO_CORE_WARN("Renderer3D::DrawMeshParallel: forward-only shader on Deferred path — draw dropped (use serial DrawMesh for overlay reroute)");
-            }
-            return nullptr;
-        }
+        // PBR material never triggers this reroute.
+        const bool overlayReroute = (s_Data.Settings.Path == RenderingPath::Deferred) &&
+                                    !IsDeferredCapableShader(shaderToUse) &&
+                                    s_Data.ForwardOverlayPass;
 
         // Create POD command using worker's allocator
         PacketMetadata initialMetadata;
@@ -1921,6 +1940,18 @@ namespace OloEngine
             metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depthKey);
         metadata.m_IsStatic = isStatic;
         packet->SetMetadata(metadata);
+
+        if (overlayReroute)
+        {
+            // Hand the packet off to the overlay bucket directly and return
+            // nullptr so the caller's follow-up SubmitPacketParallel becomes
+            // a no-op (mirrors the serial DrawMesh overlay-reroute pattern).
+            // The global bucket's mutex serialises worker submissions; the
+            // volume of forward-only draws on Deferred is expected to be
+            // small enough that this doesn't become a contention point.
+            s_Data.ForwardOverlayPass->SubmitPacket(packet);
+            return nullptr;
+        }
 
         return packet;
     }
@@ -2918,6 +2949,11 @@ namespace OloEngine
 
         const std::vector<glm::mat4>* activeTransforms = &transforms;
         std::vector<glm::mat4> filteredTransforms;
+        // Index map from post-cull visible slot -> pre-cull stable instance
+        // index. Passed to GetAndRecordPrevInstanceTransforms so history
+        // lookup uses the full pre-cull array for identity stability, then
+        // projects prev onto the visible subset. Empty when no culling ran.
+        std::vector<u32> visibleIndices;
 
         if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
         {
@@ -2926,12 +2962,15 @@ namespace OloEngine
             BoundingSphere localSphere = mesh->GetBoundingSphere();
             localSphere.Radius *= 1.3f; // Match expansion factor from IsVisibleInFrustum
             filteredTransforms.reserve(transforms.size());
-            for (const auto& t : transforms)
+            visibleIndices.reserve(transforms.size());
+            for (sizet i = 0; i < transforms.size(); ++i)
             {
+                const auto& t = transforms[i];
                 BoundingSphere worldSphere = localSphere.Transform(t);
                 if (s_Data.ViewFrustum.IsBoundingSphereVisible(worldSphere))
                 {
                     filteredTransforms.push_back(t);
+                    visibleIndices.push_back(static_cast<u32>(i));
                 }
             }
             s_Data.Stats.CulledMeshes += static_cast<u32>(transforms.size() - filteredTransforms.size());
@@ -2971,9 +3010,16 @@ namespace OloEngine
         {
             const u64 meshKey = static_cast<u64>(mesh->GetHandle());
             bool usedFallback = false;
-            std::vector<glm::mat4> prevTransforms = GetAndRecordPrevInstanceTransforms(meshKey, ownerKey, *activeTransforms, &usedFallback);
+            // Pass the **full pre-cull** transform list so history is keyed by
+            // stable per-instance identity. When culling dropped instances,
+            // `visibleIndices` projects the prev array onto the visible subset
+            // so slot i in prevTransforms lines up with slot i in
+            // activeTransforms. Without this, a different frustum-visible
+            // subset next frame would silently alias unrelated instances.
+            const std::vector<u32>* idxPtr = visibleIndices.empty() ? nullptr : &visibleIndices;
+            std::vector<glm::mat4> prevTransforms = GetAndRecordPrevInstanceTransforms(meshKey, ownerKey, transforms, idxPtr, &usedFallback);
             // Use the explicit flag rather than pointer identity — the function
-            // returns currTransforms by value in the fallback path, so
+            // returns a projected vector by value in the fallback path, so
             // prevTransforms.data() is always a distinct buffer.
             if (!usedFallback && prevTransforms.size() == activeTransforms->size())
             {

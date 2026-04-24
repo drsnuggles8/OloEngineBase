@@ -52,10 +52,15 @@ namespace OloEngine
     Ref<Framebuffer> DeferredOpaqueDecalPass::GetTarget() const
     {
         // No owned framebuffer — decals rasterize into the GBuffer FBO via
-        // DecalRenderPass::ExecuteOnGBuffer. Expose the write target so
-        // graph consumers see something meaningful.
-        if (m_GBuffer)
-            return m_GBuffer->GetSamplingFramebuffer();
-        return nullptr;
+        // DecalRenderPass::ExecuteOnGBuffer. Expose the actual write target
+        // so graph consumers (and the hazard validator) see the FB this
+        // pass mutates. In MSAA per-sample mode decals are broadcast into
+        // the multisample FB (samples resolved depth from the single-
+        // sample FB); otherwise writes go directly into the resolved FB.
+        if (!m_GBuffer)
+            return nullptr;
+        if (m_PerSampleLighting && m_GBuffer->GetSampleCount() > 1)
+            return m_GBuffer->GetFramebuffer();
+        return m_GBuffer->GetSamplingFramebuffer();
     }
 } // namespace OloEngine

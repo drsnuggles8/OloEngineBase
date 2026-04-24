@@ -332,8 +332,12 @@ namespace OloEngine
         // Active texture unit — restore the enum a caller selected, so
         // subsequent non-DSA texture mutation in another pass doesn't pick
         // up the wrong unit. Per-unit bindings themselves are not
-        // restored (see the class comment for rationale).
-        if (m_ActiveTextureUnit >= GL_TEXTURE0 && m_ActiveTextureUnit <= GL_TEXTURE31)
+        // restored (see the class comment for rationale). The valid range
+        // matches the snapshot's `kTextureSlots` cap (engine reserves up
+        // to TEX_SHADER_GRAPH_0 = 50) so units in GL_TEXTURE32..GL_TEXTURE50
+        // are also restored — the earlier GL_TEXTURE31 cap dropped those.
+        const u32 kMaxActive = GL_TEXTURE0 + kTextureSlots - 1;
+        if (m_ActiveTextureUnit >= GL_TEXTURE0 && m_ActiveTextureUnit <= kMaxActive)
             ::glActiveTexture(m_ActiveTextureUnit);
     }
 

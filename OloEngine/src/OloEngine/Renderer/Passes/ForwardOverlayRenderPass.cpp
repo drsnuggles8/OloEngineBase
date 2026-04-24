@@ -38,10 +38,16 @@ namespace OloEngine
             return;
         }
 
-        // Detector-only guard: captures GL state on entry and logs any
-        // field this pass failed to restore on exit. The explicit restore
-        // calls below still perform the actual restoration.
-        GLStateGuard guard("ForwardOverlayPass");
+        // Restoring guard: captures core GL state on entry (FBO / program /
+        // depth / blend / stencil / cull / polygon / viewport / scissor)
+        // and rolls it back in the destructor. Explicit restore calls
+        // below remain in place for clarity and to keep invariants close
+        // to the mutations, but the guard now also acts as a safety net if
+        // a command path inside the bucket forgets a revert. Per-slot
+        // texture/UBO bindings are NOT covered by ApplyCore — passes that
+        // mutate those must still clean up themselves (which the overlay
+        // pass does implicitly via its own SceneFramebuffer::Unbind).
+        GLStateGuard guard("ForwardOverlayPass", GLStateGuard::Policy::Restore);
 
         m_SceneFramebuffer->Bind();
 

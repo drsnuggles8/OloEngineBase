@@ -66,6 +66,19 @@ namespace OloEngine
         // Block until the shader is fully linked (lazy finalization on first Bind).
         virtual void EnsureLinked() {}
 
+        // Deferred-path capability introspection. Returns true when the
+        // fragment stage declares at least one G-Buffer MRT output using
+        // the engine's opt-in naming convention (see
+        // `OpenGLShader::DetectGBufferOutputs` for the marker set:
+        // `o_GBuffer*`, `gAlbedo`, `gNormalRoughAO`, `gEmissive`).
+        // Reflection-populated backends (OpenGL today, Vulkan tomorrow)
+        // override this; the base default is false so unimplemented
+        // backends keep the conservative "treat as forward-only" behaviour.
+        [[nodiscard]] virtual bool IsDeferredCapable() const
+        {
+            return false;
+        }
+
         // Resource registry access (safe interface)
         virtual ShaderResourceRegistry* GetResourceRegistry() = 0;
         virtual const ShaderResourceRegistry* GetResourceRegistry() const = 0;

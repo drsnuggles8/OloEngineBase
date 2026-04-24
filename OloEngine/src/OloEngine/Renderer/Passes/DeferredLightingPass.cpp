@@ -59,10 +59,14 @@ namespace OloEngine
         if (!m_Shader || !m_GBuffer || !m_SceneFramebuffer || !m_ControlsUBO || m_DebugChannel != 0)
             return;
 
-        // Detector guard — validates that the pass leaves GL state matching
-        // entry (the manual restores below are still required; the guard only
-        // logs leaks, it does not roll state back).
-        GLStateGuard guard("DeferredLightingPass");
+        // Restoring guard: captures core GL state on entry (FBO / program /
+        // depth / blend / stencil / cull / polygon / viewport / scissor)
+        // and rolls it back in the destructor. Explicit restore calls
+        // below remain for clarity and to keep invariants close to the
+        // mutations, but the guard now also serves as a safety net for
+        // any intermediate state this function forgets to revert. Per-
+        // slot texture / UBO bindings are out of scope for ApplyCore.
+        GLStateGuard guard("DeferredLightingPass", GLStateGuard::Policy::Restore);
 
         m_SceneFramebuffer->Bind();
 

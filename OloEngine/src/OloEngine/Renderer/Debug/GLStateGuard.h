@@ -93,8 +93,10 @@ namespace OloEngine
         u32 m_FboRead = 0;
         u32 m_ActiveProgram = 0;
         u32 m_Vao = 0;
-        // Enum in [GL_TEXTURE0, GL_TEXTURE31] indicating the unit a pass
-        // left selected on exit. Per-unit bindings are tracked below.
+        // Enum in [GL_TEXTURE0, GL_TEXTURE0 + kTextureSlots - 1] indicating
+        // the unit a pass left selected on exit. Per-unit bindings are
+        // tracked below; the upper bound is clamped to the driver's
+        // `GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS` at capture time.
         u32 m_ActiveTextureUnit = 0;
 
         // Per-slot bindings. OloEngine reserves texture units through

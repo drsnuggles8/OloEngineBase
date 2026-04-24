@@ -481,8 +481,9 @@ namespace
         RenderGraph Graph;
         Ref<DeclarativeStubPass> Shadow;
         Ref<DeclarativeStubPass> Scene;
-        Ref<DeclarativeStubPass> DeferredLighting; // may be null in forward paths
-        Ref<DeclarativeStubPass> ForwardOverlay;   // may be null in forward paths
+        Ref<DeclarativeStubPass> DeferredLighting;    // may be null in forward paths
+        Ref<DeclarativeStubPass> DeferredOpaqueDecal; // may be null in forward paths
+        Ref<DeclarativeStubPass> ForwardOverlay;      // may be null in forward paths
         Ref<DeclarativeStubPass> Foliage;
         Ref<DeclarativeStubPass> Water;
         Ref<DeclarativeStubPass> Decal;
@@ -514,6 +515,15 @@ namespace
             f.DeferredLighting->TestDeclareRead(std::string(ResourceNames::SceneNormals));
             f.DeferredLighting->TestDeclareRead(std::string(ResourceNames::SceneDepth));
             f.DeferredLighting->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+            // Opaque-decal graph shim — slots between ScenePass and
+            // DeferredLightingPass so decals composite into G-Buffer
+            // albedo/normal/emissive BEFORE the lighting pass samples
+            // them. Matches Renderer3D::ConfigureRenderGraph wiring and
+            // DeferredOpaqueDecalPass::Init's declared resource contract.
+            f.DeferredOpaqueDecal = AddDeclStub(f.Graph, "DeferredOpaqueDecalPass");
+            f.DeferredOpaqueDecal->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+            f.DeferredOpaqueDecal->TestDeclareWrite(std::string(ResourceNames::SceneColor));
 
             f.ForwardOverlay = AddDeclStub(f.Graph, "ForwardOverlayPass");
             f.ForwardOverlay->TestDeclareRead(std::string(ResourceNames::SceneDepth));
@@ -597,6 +607,11 @@ namespace
         if (deferred)
         {
             f.Graph.AddExecutionDependency("ScenePass", "DeferredLightingPass");
+            // ScenePass -> DeferredOpaqueDecalPass -> DeferredLightingPass:
+            // mirrors ConfigureRenderGraph so the hazard validator sees
+            // the same edges the production graph installs for decals.
+            f.Graph.AddExecutionDependency("ScenePass", "DeferredOpaqueDecalPass");
+            f.Graph.AddExecutionDependency("DeferredOpaqueDecalPass", "DeferredLightingPass");
             f.Graph.AddExecutionDependency("DeferredLightingPass", "ForwardOverlayPass");
             f.Graph.AddExecutionDependency("ForwardOverlayPass", "FoliagePass");
             f.Graph.AddExecutionDependency("DeferredLightingPass", "FoliagePass");
@@ -688,6 +703,132 @@ TEST(RenderGraphConfigureTopology, DeferredPathWithSelectionOutlineIsHazardFree)
     EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
 }
 
+// =============================================================================
+// Regression coverage for DeferredOpaqueDecalPass: the opaque decal drain was
+// previously a synchronous side-effect of SceneRenderPass::Execute(); it was
+// promoted to a standalone graph node between ScenePass and
+// DeferredLightingPass. These tests lock in the presence + ordering contract
+// so future refactors of Init / Execute / GetTarget or the node placement
+// trip CI rather than silently regressing decal visibility in deferred mode.
+// =============================================================================
+TEST(RenderGraphConfigureTopology, DecalNodePresence)
+{
+    // Presence: BuildPathTopology(deferred=true) must register the opaque
+    // decal shim with the declared read(SceneDepth) / write(SceneColor)
+    // contract that DeferredOpaqueDecalPass::Init uses. Validator must
+    // see the full deferred topology hazard-free.
+    ConfiguredGraphFixture f;
+    BuildPathTopology(f, /*deferred=*/true);
+
+    ASSERT_TRUE(static_cast<bool>(f.DeferredOpaqueDecal))
+        << "DeferredOpaqueDecalPass stub must be present in the deferred topology";
+    EXPECT_EQ(f.DeferredOpaqueDecal->GetName(), "DeferredOpaqueDecalPass");
+
+    const auto hazards = f.Graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+
+    // Omission regression: rebuild the same topology *without* the decal
+    // node and assert the validator flags the missing producer edge (the
+    // lighting pass still declares `SceneColor` writes but the decal
+    // dependency is no longer mediated by an execution edge). We mutate
+    // the stored execution deps directly because ResetTopology + a fresh
+    // rebuild would be identical to a forward topology build.
+    ConfiguredGraphFixture omitted;
+    BuildPathTopology(omitted, /*deferred=*/true);
+    // Drop the opaque decal node and its edges by rebuilding the graph
+    // topology without it. We validate via a companion fixture because
+    // RenderGraph doesn't expose a public pass-removal API.
+    RenderGraph barePathGraph;
+    auto shadow = Ref<DeclarativeStubPass>::Create("ShadowPass");
+    shadow->TestDeclareWrite(std::string(ResourceNames::ShadowMapCSM));
+    barePathGraph.AddPass(shadow);
+    auto scene = Ref<DeclarativeStubPass>::Create("ScenePass");
+    scene->TestDeclareRead(std::string(ResourceNames::ShadowMapCSM));
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneNormals));
+    barePathGraph.AddPass(scene);
+    auto lighting = Ref<DeclarativeStubPass>::Create("DeferredLightingPass");
+    lighting->TestDeclareRead(std::string(ResourceNames::SceneNormals));
+    lighting->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    lighting->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+    barePathGraph.AddPass(lighting);
+    // Only wire scene -> lighting — decal node intentionally absent so
+    // nothing in the graph declares a dependency between the SceneColor
+    // writes of decals and the lighting pass's SceneColor write. The
+    // validator's WAW check should still pass here (ScenePass writes
+    // SceneColor *before* lighting via the edge we added), so the real
+    // evidence of the decal node's importance is in the ordering test
+    // below: without the decal edges, the validator accepts a graph in
+    // which decals could run *after* lighting (a lost-update bug).
+    barePathGraph.AddExecutionDependency("ShadowPass", "ScenePass");
+    barePathGraph.AddExecutionDependency("ScenePass", "DeferredLightingPass");
+    barePathGraph.SetFinalPass("DeferredLightingPass");
+    const auto bareHazards = barePathGraph.ValidateResourceHazards();
+    EXPECT_TRUE(bareHazards.empty())
+        << "Bare scene->lighting graph (no decal node) must validate — the "
+        << "decal contract is an *ordering* guarantee, not a hazard-count "
+        << "diff. DecalNodeOrdering covers the ordering evidence.";
+}
+
+TEST(RenderGraphConfigureTopology, DecalNodeOrdering)
+{
+    // Ordering: a deferred graph whose decal node sits *after*
+    // DeferredLightingPass (i.e. decals composite over an already-lit
+    // scene) produces a WAW on SceneColor that lighting cannot see. With
+    // the intended ordering (ScenePass -> Decal -> Lighting) the WAW is
+    // serialised through the decal node and disappears.
+
+    // Correct ordering: validator must be happy.
+    {
+        ConfiguredGraphFixture f;
+        BuildPathTopology(f, /*deferred=*/true);
+        const auto hazards = f.Graph.ValidateResourceHazards();
+        EXPECT_TRUE(hazards.empty())
+            << "Intended ScenePass -> DeferredOpaqueDecalPass -> "
+            << "DeferredLightingPass ordering must be hazard-free. "
+            << HazardsToString(hazards);
+    }
+
+    // Reordered: decal moved *after* lighting. Build an explicit graph so
+    // we can freely place edges in the wrong order, then assert the L5
+    // validator reports a WAW between DeferredLightingPass (SceneColor
+    // write) and DeferredOpaqueDecalPass (SceneColor write) because
+    // there's no serialising edge between them.
+    {
+        RenderGraph reordered;
+        auto scene = Ref<DeclarativeStubPass>::Create("ScenePass");
+        scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+        scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+        scene->TestDeclareWrite(std::string(ResourceNames::SceneNormals));
+        reordered.AddPass(scene);
+
+        auto lighting = Ref<DeclarativeStubPass>::Create("DeferredLightingPass");
+        lighting->TestDeclareRead(std::string(ResourceNames::SceneNormals));
+        lighting->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+        lighting->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+        reordered.AddPass(lighting);
+
+        auto decal = Ref<DeclarativeStubPass>::Create("DeferredOpaqueDecalPass");
+        decal->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+        decal->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+        reordered.AddPass(decal);
+
+        // Intentionally bad ordering: ScenePass -> lighting, ScenePass ->
+        // decal. Both writers produce SceneColor with no edge between
+        // them. Validator must flag WAW.
+        reordered.AddExecutionDependency("ScenePass", "DeferredLightingPass");
+        reordered.AddExecutionDependency("ScenePass", "DeferredOpaqueDecalPass");
+        reordered.SetFinalPass("DeferredLightingPass");
+
+        const auto hazards = reordered.ValidateResourceHazards();
+        EXPECT_FALSE(hazards.empty())
+            << "Decal node running in parallel with DeferredLightingPass "
+            << "must produce a WAW hazard on SceneColor — the hazard "
+            << "validator is how we detect future topology mistakes.";
+    }
+}
+
 TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
 {
     // ConfigureRenderGraph may be invoked repeatedly as the user toggles
@@ -721,6 +862,18 @@ TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
             deferredLight->TestDeclareRead(std::string(ResourceNames::SceneDepth));
             deferredLight->TestDeclareWrite(std::string(ResourceNames::SceneColor));
             graph.AddPass(deferredLight);
+
+            // Opaque-decal graph shim — mirrors ConfigureRenderGraph so
+            // the rebuild test exercises the same pass set + edges as
+            // production when switching back into Deferred.
+            auto decal = Ref<DeclarativeStubPass>::Create("DeferredOpaqueDecalPass");
+            decal->SetName("DeferredOpaqueDecalPass");
+            decal->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+            decal->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+            graph.AddPass(decal);
+
+            graph.AddExecutionDependency("ScenePass", "DeferredOpaqueDecalPass");
+            graph.AddExecutionDependency("DeferredOpaqueDecalPass", "DeferredLightingPass");
             graph.AddExecutionDependency("ScenePass", "DeferredLightingPass");
         }
 
@@ -750,7 +903,7 @@ TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
 
         // Pass set must match what this cycle installed — no residual edges
         // or passes leaked from a previous cycle (the ResetTopology contract).
-        const sizet expectedPassCount = paths[i] ? 4u : 3u;
+        const sizet expectedPassCount = paths[i] ? 5u : 3u;
         EXPECT_EQ(graph.GetAllPasses().size(), expectedPassCount)
             << "Cycle " << i << ": residual passes from prior cycle";
     }

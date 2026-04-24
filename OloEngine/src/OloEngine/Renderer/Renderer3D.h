@@ -768,8 +768,18 @@ namespace OloEngine
         // make them overwrite each other's history and produce garbage motion
         // vectors; compose with the owner so each owner keeps its own stream.
         // Pass `0` to preserve legacy mesh-only keying.
+        //
+        // History is keyed and recorded from the **full, stable pre-cull**
+        // `currFullTransforms` list so per-instance identity is preserved
+        // across frames even when frustum culling drops different subsets each
+        // frame. If `visibleIndices` is non-null, the returned prev array is
+        // projected onto the visible subset (prevOut[i] = prevFull[visibleIndices[i]]);
+        // otherwise the full prev array is returned. Sizing compatibility is
+        // checked against `currFullTransforms.size()`, so a stable full-list
+        // size keeps history valid even as visible counts fluctuate.
         static std::vector<glm::mat4> GetAndRecordPrevInstanceTransforms(u64 meshKey, u64 ownerKey,
-                                                                         const std::vector<glm::mat4>& currTransforms,
+                                                                         const std::vector<glm::mat4>& currFullTransforms,
+                                                                         const std::vector<u32>* visibleIndices = nullptr,
                                                                          bool* outUsedFallback = nullptr)
         {
             // Hash-combine (Boost formula) -- cheap, order-sensitive, and the
@@ -777,21 +787,45 @@ namespace OloEngine
             u64 combinedKey = meshKey;
             if (ownerKey != 0)
                 combinedKey ^= ownerKey + 0x9e3779b97f4a7c15ULL + (combinedKey << 6) + (combinedKey >> 2);
-            s_Data.CurrInstanceTransforms.insert_or_assign(combinedKey, currTransforms);
+
+            // Record the **full pre-cull** list so per-instance identity
+            // survives across frames regardless of which instances were
+            // visible this frame.
+            s_Data.CurrInstanceTransforms.insert_or_assign(combinedKey, currFullTransforms);
+
             auto prevIt = s_Data.PrevInstanceTransforms.find(combinedKey);
-            if (prevIt != s_Data.PrevInstanceTransforms.end() && prevIt->second.size() == currTransforms.size())
+            const bool haveHistory = (prevIt != s_Data.PrevInstanceTransforms.end()) &&
+                                     (prevIt->second.size() == currFullTransforms.size());
+
+            auto project = [&](const std::vector<glm::mat4>& src) -> std::vector<glm::mat4>
+            {
+                if (!visibleIndices)
+                    return src;
+                std::vector<glm::mat4> out;
+                out.reserve(visibleIndices->size());
+                for (u32 idx : *visibleIndices)
+                {
+                    if (idx < src.size())
+                        out.push_back(src[idx]);
+                    else
+                        out.push_back(glm::mat4(1.0f)); // Defensive guard — should not happen.
+                }
+                return out;
+            };
+
+            if (haveHistory)
             {
                 if (outUsedFallback)
                     *outUsedFallback = false;
-                return prevIt->second;
+                return project(prevIt->second);
             }
-            // First frame or instance-count mismatch -> zero motion. Signal the
-            // caller so it can skip the redundant allocation/upload instead of
-            // relying on pointer identity (which never matches because we
-            // return-by-value).
+
+            // First frame or size mismatch -> alias current visible subset
+            // (zero motion). Signal the caller so it can skip the redundant
+            // allocation/upload instead of relying on pointer identity.
             if (outUsedFallback)
                 *outUsedFallback = true;
-            return currTransforms;
+            return project(currFullTransforms);
         }
 
         static Ref<Shader> GetTerrainPBRShader()
