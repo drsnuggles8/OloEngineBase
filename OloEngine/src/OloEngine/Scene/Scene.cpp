@@ -1358,6 +1358,16 @@ namespace OloEngine
             }
             else
             {
+                // 2D-only frame: the 3D render path is skipped, so the
+                // animation-time cache wasn't advanced. If the next frame
+                // toggles back into 3D, `prevAnimationTime` would be the
+                // stale timestamp from the last 3D frame — producing a
+                // spurious per-fragment velocity spike on water/foliage/
+                // wind shaders (dt == however long we spent in 2D). Reset
+                // the sentinel so 3D resume re-seeds `prevAnimationTime ==
+                // animationTime` (zero rigid motion for that first frame).
+                m_LastAnimationTime = -1.0f;
+
                 // 2D mode - render directly (no render graph)
                 Renderer2D::BeginScene(*mainCamera, cameraTransform);
 
@@ -1484,6 +1494,10 @@ namespace OloEngine
             }
             else
             {
+                // 2D-only simulation frame: reset so resuming 3D doesn't emit
+                // a spurious velocity spike from the stale PrevAnimationTime.
+                m_LastAnimationTime = -1.0f;
+
                 RenderScene(camera);
                 RenderUIOverlay();
             }
@@ -1654,6 +1668,11 @@ namespace OloEngine
             }
             else
             {
+                // 2D-only editor frame: same reset as the runtime branch so
+                // toggling between 2D and 3D modes doesn't leak a stale
+                // `prevAnimationTime` into water/foliage/wind on resume.
+                m_LastAnimationTime = -1.0f;
+
                 RenderScene(camera);
                 RenderUIOverlay();
             }

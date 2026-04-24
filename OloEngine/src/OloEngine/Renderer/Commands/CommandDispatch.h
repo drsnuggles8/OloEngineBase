@@ -44,6 +44,11 @@ namespace OloEngine
         static void SetViewProjectionMatrix(const glm::mat4& vp);
         static void SetViewMatrix(const glm::mat4& view);
         static void SetProjectionMatrix(const glm::mat4& projection);
+        // @brief Mirror the previous-frame view-projection from Renderer3D
+        // so dispatch paths that drive the shared CameraUBO themselves
+        // (terrain / voxel / decal) can fill CameraUBO::PrevViewProjection
+        // without aliasing the current-frame VP.
+        static void SetPrevViewProjectionMatrix(const glm::mat4& prevVP);
         static void SetSceneLight(const Light& light);
         static void SetViewPosition(const glm::vec3& viewPos);
 

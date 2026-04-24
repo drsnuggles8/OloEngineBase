@@ -47,6 +47,15 @@ namespace OloEngine
         glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
         glm::mat4 ViewMatrix = glm::mat4(1.0f);
         glm::mat4 ProjectionMatrix = glm::mat4(1.0f);
+        // Previous-frame view-projection mirrored from `Renderer3D::s_Data
+        // .PrevViewProjectionMatrix` once per `BeginScene`. Used by the
+        // Terrain / Voxel / Decal dispatchers that upload the shared
+        // CameraUBO themselves (they cannot reach into Renderer3D's private
+        // `s_Data`) — previous revisions aliased this slot to the current
+        // `ViewProjectionMatrix`, which silently clobbered the true history
+        // for any later shader reading the full CameraUBO (TAA velocity
+        // reconstruction, motion blur).
+        glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
         Light SceneLight;
         glm::vec3 ViewPos = glm::vec3(0.0f);
 
@@ -672,6 +681,11 @@ namespace OloEngine
     void CommandDispatch::SetProjectionMatrix(const glm::mat4& projection)
     {
         s_Data.ProjectionMatrix = projection;
+    }
+
+    void CommandDispatch::SetPrevViewProjectionMatrix(const glm::mat4& prevVP)
+    {
+        s_Data.PrevViewProjectionMatrix = prevVP;
     }
 
     const glm::mat4& CommandDispatch::GetViewMatrix()
@@ -1434,11 +1448,14 @@ namespace OloEngine
             cameraData.Projection = s_Data.ViewProjectionMatrix * glm::inverse(s_Data.ViewMatrix);
             cameraData.Position = s_Data.ViewPos;
             cameraData._padding0 = 0.0f;
-            // Terrain doesn't track per-frame view-projection history; alias
-            // current into PrevViewProjection so velocity reconstruction in
-            // shaders that read the full CameraUBO sees zero motion rather
-            // than an uninitialized matrix.
-            cameraData.PrevViewProjection = s_Data.ViewProjectionMatrix;
+            // Use the true previous-frame VP propagated from
+            // `Renderer3D::BeginScene` — earlier revisions aliased the
+            // current-frame VP here, which silently clobbered history for
+            // every subsequent consumer of CameraUBO (TAA velocity
+            // reconstruction, motion blur). Terrain itself doesn't emit
+            // object motion; per-draw "no rigid motion" is handled via
+            // `ModelUBO::PrevModel` below, not the shared CameraUBO.
+            cameraData.PrevViewProjection = s_Data.PrevViewProjectionMatrix;
             s_Data.CameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
             BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
         }
@@ -1579,10 +1596,10 @@ namespace OloEngine
             cameraData.Projection = s_Data.ViewProjectionMatrix * glm::inverse(s_Data.ViewMatrix);
             cameraData.Position = s_Data.ViewPos;
             cameraData._padding0 = 0.0f;
-            // Voxel path doesn't track per-frame view-projection history;
-            // alias current into PrevViewProjection so the trailing field is
-            // well-defined for shaders that read the full CameraUBO.
-            cameraData.PrevViewProjection = s_Data.ViewProjectionMatrix;
+            // True previous-frame VP from Renderer3D::BeginScene — never
+            // alias the current VP into this slot (breaks TAA / motion
+            // blur for every consumer of the shared CameraUBO).
+            cameraData.PrevViewProjection = s_Data.PrevViewProjectionMatrix;
             s_Data.CameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
             BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
         }
@@ -1677,6 +1694,12 @@ namespace OloEngine
             modelData.Model = cmd->decalTransform;
             modelData.Normal = glm::transpose(glm::inverse(cmd->decalTransform));
             modelData.EntityID = cmd->entityID;
+            // Decals don't currently track per-frame transform history — alias
+            // current into PrevModel so motion-vector outputs see zero rigid
+            // motion instead of reading the zero-initialised identity that
+            // `modelData{}` would otherwise leave, which produces bogus
+            // per-fragment velocity for every decal under TAA/motion blur.
+            modelData.PrevModel = cmd->decalTransform;
             s_Data.ModelMatrixUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
             BindUBOIfNeeded(ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
         }

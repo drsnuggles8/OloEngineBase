@@ -155,11 +155,25 @@ namespace OloEngine
             if (m_AccumMarker)
                 m_AccumMarker();
 
-            // Restore global blend state.
+            // Restore global blend state. GLStateGuard only *detects* leaks —
+            // it doesn't roll state back — so we must explicitly reset both
+            // the per-attachment blend enable and the per-attachment blend
+            // function. Leaving attachment-1 at `(GL_ZERO, GL_ONE_MINUS_SRC_COLOR)`
+            // would bleed through the next pass that re-enables blending on
+            // that attachment (the OIT resolve composite, in particular).
             RenderCommand::SetBlendStateForAttachment(0, false);
             RenderCommand::SetBlendStateForAttachment(1, false);
+            RenderCommand::SetBlendFuncForAttachment(0, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            RenderCommand::SetBlendFuncForAttachment(1, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             RenderCommand::SetBlendState(false);
+
+            // Unbind the three texture slots we sampled into — leaving them
+            // bound lets the refraction / scene-normals / water-depth slots
+            // leak into subsequent passes that share the same sampler layout.
+            RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, 0);
+            RenderCommand::BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, 0);
+            RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, 0);
 
             RenderCommand::SetDepthMask(true);
             RenderCommand::SetDepthFunc(GL_LESS);

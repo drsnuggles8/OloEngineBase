@@ -129,32 +129,31 @@ namespace OloEngine
         // G-Buffer samplers (slots 43-47). In per-sample shading mode we
         // bind the raw multisample attachments; otherwise bind the resolved
         // single-sample copies produced by GBuffer::Resolve().
-        if (useMSAAShading)
+        //
+        // Defensive: if any required attachment ID is zero we bail before
+        // issuing the fullscreen draw. A zero ID means the G-Buffer was
+        // constructed but a format/attachment was dropped (e.g. velocity RT
+        // disabled in a non-TAA configuration). Binding 0 to a sampler
+        // reads undefined data, which on NVIDIA surfaces as random black
+        // pixels and on AMD as driver crashes.
+        const u32 albedoID = useMSAAShading ? m_GBuffer->GetMSColorAttachmentID(GBuffer::Albedo) : m_GBuffer->GetColorAttachmentID(GBuffer::Albedo);
+        const u32 normalID = useMSAAShading ? m_GBuffer->GetMSColorAttachmentID(GBuffer::Normal) : m_GBuffer->GetColorAttachmentID(GBuffer::Normal);
+        const u32 emissiveID = useMSAAShading ? m_GBuffer->GetMSColorAttachmentID(GBuffer::Emissive) : m_GBuffer->GetColorAttachmentID(GBuffer::Emissive);
+        const u32 velocityID = useMSAAShading ? m_GBuffer->GetMSColorAttachmentID(GBuffer::Velocity) : m_GBuffer->GetColorAttachmentID(GBuffer::Velocity);
+        const u32 depthID = useMSAAShading ? m_GBuffer->GetMSDepthAttachmentID() : m_GBuffer->GetDepthAttachmentID();
+        if (albedoID == 0 || normalID == 0 || emissiveID == 0 || depthID == 0)
         {
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_ALBEDO,
-                                       m_GBuffer->GetMSColorAttachmentID(GBuffer::Albedo));
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_NORMAL,
-                                       m_GBuffer->GetMSColorAttachmentID(GBuffer::Normal));
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_EMISSIVE,
-                                       m_GBuffer->GetMSColorAttachmentID(GBuffer::Emissive));
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_VELOCITY,
-                                       m_GBuffer->GetMSColorAttachmentID(GBuffer::Velocity));
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_DEPTH,
-                                       m_GBuffer->GetMSDepthAttachmentID());
+            OLO_CORE_ERROR("DeferredLightingPass: required G-Buffer attachment missing (albedo={}, normal={}, emissive={}, depth={}) - aborting lighting",
+                           albedoID, normalID, emissiveID, depthID);
+            return;
         }
-        else
-        {
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_ALBEDO,
-                                       m_GBuffer->GetColorAttachmentID(GBuffer::Albedo));
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_NORMAL,
-                                       m_GBuffer->GetColorAttachmentID(GBuffer::Normal));
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_EMISSIVE,
-                                       m_GBuffer->GetColorAttachmentID(GBuffer::Emissive));
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_VELOCITY,
-                                       m_GBuffer->GetColorAttachmentID(GBuffer::Velocity));
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_DEPTH,
-                                       m_GBuffer->GetDepthAttachmentID());
-        }
+        RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_ALBEDO, albedoID);
+        RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_NORMAL, normalID);
+        RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_EMISSIVE, emissiveID);
+        // Velocity RT is optional (skipped outside TAA-enabled configs);
+        // the fragment shader already handles a zero bind as "no motion".
+        RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_VELOCITY, velocityID);
+        RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_DEPTH, depthID);
 
         // IBL (safe to rebind regardless — shader branches on DeferredControls).
         if (iblAvailable)

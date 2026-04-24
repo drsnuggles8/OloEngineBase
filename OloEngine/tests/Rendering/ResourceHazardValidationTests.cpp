@@ -525,6 +525,15 @@ namespace
 
         f.Water = AddDeclStub(f.Graph, "WaterPass");
         f.Water->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+        // In weighted-blended OIT mode the water pass writes into the shared
+        // OIT accumulation / revealage attachments rather than SceneColor \u2014
+        // SceneColor is only modified later when OITResolvePass composites
+        // the accum buffer back onto the scene framebuffer. Modelling both
+        // writes lets the L5 validator catch a missing Water -> OITResolve
+        // handoff (RAW on OITAccum) that the previous "both write SceneColor"
+        // approximation silently masked.
+        f.Water->TestDeclareWrite(std::string(ResourceNames::OITAccum));
+        f.Water->TestDeclareWrite(std::string(ResourceNames::OITRevealage));
         f.Water->TestDeclareWrite(std::string(ResourceNames::SceneColor));
 
         f.Decal = AddDeclStub(f.Graph, "DecalPass");
@@ -542,9 +551,15 @@ namespace
         f.GTAO->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
 
         f.Particle = AddDeclStub(f.Graph, "ParticlePass");
+        // Particle OIT shares the same accumulation buffers as water, then
+        // falls back to SceneColor for the final composite path.
+        f.Particle->TestDeclareWrite(std::string(ResourceNames::OITAccum));
+        f.Particle->TestDeclareWrite(std::string(ResourceNames::OITRevealage));
         f.Particle->TestDeclareWrite(std::string(ResourceNames::SceneColor));
 
         f.OITResolve = AddDeclStub(f.Graph, "OITResolvePass");
+        f.OITResolve->TestDeclareRead(std::string(ResourceNames::OITAccum));
+        f.OITResolve->TestDeclareRead(std::string(ResourceNames::OITRevealage));
         f.OITResolve->TestDeclareRead(std::string(ResourceNames::SceneColor));
         f.OITResolve->TestDeclareWrite(std::string(ResourceNames::SceneColor));
 

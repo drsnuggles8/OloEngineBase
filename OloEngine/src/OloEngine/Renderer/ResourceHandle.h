@@ -99,4 +99,13 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view PostProcessColor = "PostProcessColor"; // Tonemapped/bloom/etc output
     inline constexpr std::string_view UIComposite = "UIComposite";           // UI composite over post-processed scene
     inline constexpr std::string_view FinalColor = "FinalColor";             // Final swapchain image
+
+    // Weighted-blended OIT accumulation targets (Water / Particle OIT modes
+    // write these; OITResolvePass reads them and composites back onto
+    // SceneColor). Modelled as separate resources so the L5 hazard
+    // validator can catch a missing Water -> OITResolve handoff (a RAW on
+    // OITAccum rather than the older "both write SceneColor" approximation,
+    // which let the real bug slip through).
+    inline constexpr std::string_view OITAccum = "OITAccum";         // RGBA16F accumulation attachment
+    inline constexpr std::string_view OITRevealage = "OITRevealage"; // RG16F revealage attachment
 } // namespace OloEngine::ResourceNames

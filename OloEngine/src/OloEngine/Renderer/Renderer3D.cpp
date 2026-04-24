@@ -61,6 +61,37 @@ namespace OloEngine
     Renderer3D::Renderer3DData Renderer3D::s_Data;
     ShaderLibrary Renderer3D::m_ShaderLibrary;
 
+    // @brief Identifies shaders that are safe to submit into the Deferred
+    // ScenePass (i.e. write the G-Buffer MRT layout: Albedo/Metallic,
+    // Normal/Roughness/AO, Emissive/Flags, Velocity). Any shader outside
+    // this set uses the forward fragment layout and would alias its outputs
+    // onto the G-Buffer slots - corrupting lighting for every subsequent
+    // pixel in the frame. `material.GetShader()` overrides are checked
+    // through this helper at every serial/parallel submission site so a
+    // forward-only custom shader on a deferred-path draw is transparently
+    // rerouted to ForwardOverlayPass (see the `overlayRoute` branches).
+    bool Renderer3D::IsDeferredCapableShader(const Ref<Shader>& shader)
+    {
+        if (!shader)
+            return false;
+        const u64 handle = static_cast<u64>(shader->GetHandle());
+        if (handle == 0)
+            return false;
+        // Compare by AssetHandle rather than RendererID - the latter is
+        // re-issued on hot-reload whereas the handle is stable across the
+        // asset lifetime.
+        auto matches = [handle](const Ref<Shader>& candidate)
+        {
+            return candidate && static_cast<u64>(candidate->GetHandle()) == handle;
+        };
+        return matches(s_Data.PBRGBufferShader) || matches(s_Data.PBRGBufferSkinnedShader) ||
+               matches(s_Data.SkyboxGBufferShader) || matches(s_Data.LightCubeGBufferShader) ||
+               matches(s_Data.InfiniteGridGBufferShader) || matches(s_Data.TerrainGBufferShader) ||
+               matches(s_Data.VoxelGBufferShader) || matches(s_Data.FoliageGBufferShader) ||
+               matches(s_Data.DecalGBufferShader) || matches(s_Data.DecalGBufferNormalShader) ||
+               matches(s_Data.DecalGBufferRMAShader) || matches(s_Data.DecalGBufferEmissiveShader);
+    }
+
     // Halton low-discrepancy sequence used for TAA sub-pixel jitter. Index is
     // 1-based (index 0 is undefined for Halton); the sequence repeats every
     // kHaltonSequenceLength samples which is long enough to de-correlate the
@@ -806,6 +837,14 @@ namespace OloEngine
         CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
         CommandDispatch::SetViewMatrix(s_Data.ViewMatrix);
         CommandDispatch::SetProjectionMatrix(s_Data.ProjectionMatrix);
+        // Mirror the previous-frame view-projection into CommandDispatch so
+        // dispatch paths that upload the shared CameraUBO themselves
+        // (Terrain / Voxel / Decal) can fill
+        // `CameraUBO::PrevViewProjection` with the true history instead of
+        // aliasing the current VP — the latter wipes the matrix any other
+        // consumer (TAA velocity reconstruction, motion blur) reads this
+        // frame.
+        CommandDispatch::SetPrevViewProjectionMatrix(s_Data.PrevViewProjectionMatrix);
 
         s_Data.InverseViewProjectionMatrix = glm::inverse(s_Data.ViewProjectionMatrix);
         s_Data.ViewFrustum.Update(s_Data.ViewProjectionMatrix);
@@ -1787,6 +1826,30 @@ namespace OloEngine
             return nullptr;
         }
 
+        // Deferred-path gating: workers submit exclusively into ScenePass's
+        // per-thread bucket, which is the G-Buffer producer. Non-PBR /
+        // forward-only override shaders on this path would alias forward
+        // outputs onto G-Buffer slots (breaking lighting for every
+        // subsequent pixel). ForwardOverlayPass has no worker-context
+        // bucket to reroute into, so the safest behaviour is to drop the
+        // draw and surface a diagnostic — missing a draw is strictly less
+        // harmful than corrupting the G-Buffer for the whole frame. Callers
+        // submitting non-PBR materials on the Deferred path should use the
+        // serial `DrawMesh` entry-point, which handles the reroute. Note:
+        // in Deferred `ctx.SceneContext->PBRShader` is already swapped to
+        // `PBRGBufferShader` (see ParallelContext init), so an un-overridden
+        // PBR material passes this guard naturally.
+        if (s_Data.Settings.Path == RenderingPath::Deferred &&
+            !IsDeferredCapableShader(shaderToUse))
+        {
+            static std::atomic<u64> s_WarnCount{ 0 };
+            if (s_WarnCount.fetch_add(1, std::memory_order_relaxed) < 8)
+            {
+                OLO_CORE_WARN("Renderer3D::DrawMeshParallel: forward-only shader on Deferred path — draw dropped (use serial DrawMesh for overlay reroute)");
+            }
+            return nullptr;
+        }
+
         // Create POD command using worker's allocator
         PacketMetadata initialMetadata;
         CommandPacket* packet = ctx.Allocator->AllocatePacketWithCommand<DrawMeshCommand>(initialMetadata);
@@ -1923,6 +1986,19 @@ namespace OloEngine
         if (!shaderToUse)
         {
             shaderToUse = ctx.SceneContext->LightingShader;
+        }
+
+        // Same Deferred gating as DrawMeshParallel — forward-only skinned
+        // shaders submitted from a worker would corrupt the G-Buffer.
+        if (s_Data.Settings.Path == RenderingPath::Deferred &&
+            !IsDeferredCapableShader(shaderToUse))
+        {
+            static std::atomic<u64> s_WarnCount{ 0 };
+            if (s_WarnCount.fetch_add(1, std::memory_order_relaxed) < 8)
+            {
+                OLO_CORE_WARN("Renderer3D::DrawAnimatedMeshParallel: forward-only skinned shader on Deferred path — draw dropped (use serial DrawAnimatedMesh for overlay reroute)");
+            }
+            return nullptr;
         }
 
         if (!shaderToUse)
@@ -2650,6 +2726,15 @@ namespace OloEngine
         if (material.GetShader())
         {
             shaderToUse = material.GetShader();
+            // Forward-only override on the Deferred path would alias its
+            // output locations onto G-Buffer slots. Reroute to
+            // ForwardOverlayPass so the override gets the forward FB layout
+            // it was authored against.
+            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.ForwardOverlayPass &&
+                !IsDeferredCapableShader(shaderToUse))
+            {
+                overlayRoute = true;
+            }
         }
         else if (material.GetType() == MaterialType::PBR)
         {
@@ -2860,8 +2945,16 @@ namespace OloEngine
         // independent instance arrays don't overwrite each other's history;
         // caller-ordering stability within an owner is still required. First frame
         // / count mismatches alias the current data -> zero velocity.
+        // Record per-instance transform history on every render path, not
+        // just Deferred: in Forward/Forward+ the PBR shader writes velocity
+        // into scene-FB RT3 via the CameraMatrices UBO, and instanced draws
+        // without `prevTransformBufferOffset` set fall back to the
+        // static-geometry path (prev == curr) — which silently zeroes
+        // per-object motion for TAA when the velocity source is scene FB RT3
+        // (Forward/Forward+). See EndScene velocity-source selection: the
+        // scene FB path is now taken whenever RenderingPath != Deferred.
         u32 prevTransformOffset = UINT32_MAX;
-        if (s_Data.Settings.Path == RenderingPath::Deferred && mesh)
+        if (mesh)
         {
             const u64 meshKey = static_cast<u64>(mesh->GetHandle());
             bool usedFallback = false;
@@ -3517,6 +3610,15 @@ namespace OloEngine
         if (material.GetShader())
         {
             shaderToUse = material.GetShader();
+            // Same deferred-capability guard as DrawMesh — a forward-only
+            // override on the Deferred path must be rerouted to
+            // ForwardOverlayPass so it doesn't alias forward outputs onto
+            // G-Buffer slots.
+            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.ForwardOverlayPass &&
+                !IsDeferredCapableShader(shaderToUse))
+            {
+                overlayRoute = true;
+            }
         }
         else if (material.GetType() == MaterialType::PBR)
         {

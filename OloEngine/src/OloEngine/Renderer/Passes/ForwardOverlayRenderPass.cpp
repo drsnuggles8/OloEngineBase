@@ -60,8 +60,22 @@ namespace OloEngine
                 ++sceneColorAttachmentCount;
         }
 
-        const GLenum drawBuf = GL_COLOR_ATTACHMENT0;
-        glNamedFramebufferDrawBuffers(sceneFBID, 1, &drawBuf);
+        // Forward-overlay draws (skybox / terrain / voxel / non-PBR mesh /
+        // grid / debug) use the forward fragment layout that writes o_Color
+        // (location 0), o_EntityID (location 1) and o_ViewNormal (location 2).
+        // Binding only attachment 0 silently discards the entity-ID and
+        // view-normal writes — breaking picking for any entity rendered
+        // through this pass and leaving stale SSAO/SSR normals in RT2.
+        // Bind attachments 0-2 (clamped to what the scene FB actually has) so
+        // those side buffers are repopulated per-frame. RT3 (velocity) is
+        // intentionally left off: overlay shaders don't track motion vectors.
+        std::array<GLenum, 3> drawBufs = {
+            GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2
+        };
+        const GLsizei overlayDrawBufCount =
+            static_cast<GLsizei>(std::min<u32>(sceneColorAttachmentCount, static_cast<u32>(drawBufs.size())));
+        if (overlayDrawBufCount > 0)
+            glNamedFramebufferDrawBuffers(sceneFBID, overlayDrawBufCount, drawBufs.data());
 
         auto& rendererAPI = RenderCommand::GetRendererAPI();
         rendererAPI.SetDepthTest(true);

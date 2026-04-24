@@ -37,6 +37,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 // Forward declarations
 namespace OloEngine
@@ -736,11 +739,17 @@ namespace OloEngine
         // previous frame's transform (or the current one if no history exists
         // yet, producing zero velocity). Only called from Deferred submission
         // paths so the cache stays empty when Deferred is not active.
-        static const glm::mat4& GetAndRecordPrevTransform(i32 entityID, const glm::mat4& currTransform)
+        //
+        // Returns by value so the early-out path (entityID < 0) does not hand
+        // back a reference to the caller's `currTransform` argument — which
+        // would dangle once the submission helper's stack frame exited — and
+        // the map-miss branch does not rely on the lifetime of the node
+        // returned by `insert_or_assign`.
+        static glm::mat4 GetAndRecordPrevTransform(i32 entityID, const glm::mat4& currTransform)
         {
             if (entityID < 0)
                 return currTransform;
-            auto [it, inserted] = s_Data.CurrEntityTransforms.insert_or_assign(entityID, currTransform);
+            s_Data.CurrEntityTransforms.insert_or_assign(entityID, currTransform);
             auto prevIt = s_Data.PrevEntityTransforms.find(entityID);
             return prevIt != s_Data.PrevEntityTransforms.end() ? prevIt->second : currTransform;
         }
@@ -1102,6 +1111,15 @@ namespace OloEngine
         // target path (DeferredLightingPass / ForwardOverlayPass in
         // Forward+/Forward) are simply NOT registered in that topology.
         static void ConfigureRenderGraph(RenderingPath path);
+
+        // @brief Returns true if `shader` is one of the engine's
+        // G-Buffer-writing variants (PBR / Skybox / LightCube / InfiniteGrid
+        // / Terrain / Voxel / Foliage / Decal). Used at material-override
+        // submission sites to decide whether a `material.GetShader()` can
+        // safely run inside the Deferred ScenePass or whether it has to be
+        // rerouted to ForwardOverlayPass to avoid aliasing its outputs onto
+        // G-Buffer slots.
+        static bool IsDeferredCapableShader(const Ref<Shader>& shader);
 
       private:
         struct Renderer3DData
