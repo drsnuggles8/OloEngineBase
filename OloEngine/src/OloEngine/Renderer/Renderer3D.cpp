@@ -3672,6 +3672,8 @@ namespace OloEngine
 
             glm::mat4 worldTransform = transformComp.GetTransform();
             const auto& boneMatrices = skeletonComp.m_Skeleton->m_FinalBoneMatrices;
+            const auto& prevBoneMatrices = skeletonComp.m_Skeleton->m_PrevFinalBoneMatrices;
+            const i32 pickEntityID = static_cast<i32>(static_cast<u32>(entityID));
 
             // Get material from entity or use default
             Material material = defaultMaterial;
@@ -3700,13 +3702,18 @@ namespace OloEngine
                                 submeshMaterial = submeshEntityOpt->GetComponent<MaterialComponent>().m_Material;
                             }
 
-                            meshDescriptors.push_back({ submeshComponent.m_Mesh,
-                                                        worldTransform,
-                                                        submeshMaterial,
-                                                        false, // IsStatic
-                                                        -1,    // EntityID
-                                                        true,  // IsAnimated
-                                                        &boneMatrices });
+                            MeshSubmitDesc desc{};
+                            desc.Mesh = submeshComponent.m_Mesh;
+                            desc.Transform = worldTransform;
+                            desc.MaterialData = submeshMaterial;
+                            desc.IsStatic = false;
+                            desc.EntityID = pickEntityID;
+                            desc.IsAnimated = true;
+                            desc.BoneMatrices = &boneMatrices;
+                            desc.PrevBoneMatrices = &prevBoneMatrices;
+                            desc.PrevTransform = worldTransform; // non-parallel path has no per-frame cache of prev object transform; TAA will see zero object motion
+                            desc.HasPrevTransform = false;
+                            meshDescriptors.push_back(std::move(desc));
                             foundSubmeshes = true;
                         }
                     }
@@ -3717,13 +3724,18 @@ namespace OloEngine
             if (!foundSubmeshes && meshComp.m_MeshSource->GetSubmeshes().Num() > 0)
             {
                 auto mesh = Ref<Mesh>::Create(meshComp.m_MeshSource, 0);
-                meshDescriptors.push_back({ mesh,
-                                            worldTransform,
-                                            material,
-                                            false, // IsStatic
-                                            -1,    // EntityID
-                                            true,  // IsAnimated
-                                            &boneMatrices });
+                MeshSubmitDesc desc{};
+                desc.Mesh = mesh;
+                desc.Transform = worldTransform;
+                desc.MaterialData = material;
+                desc.IsStatic = false;
+                desc.EntityID = pickEntityID;
+                desc.IsAnimated = true;
+                desc.BoneMatrices = &boneMatrices;
+                desc.PrevBoneMatrices = &prevBoneMatrices;
+                desc.PrevTransform = worldTransform;
+                desc.HasPrevTransform = false;
+                meshDescriptors.push_back(std::move(desc));
             }
 
             s_Data.Stats.RenderedAnimatedMeshes++;
@@ -3771,8 +3783,15 @@ namespace OloEngine
 
         glm::mat4 worldTransform = transformComp.GetTransform();
 
-        // Get bone matrices from the skeleton
+        // Get current + previous bone matrices from the skeleton. The prev
+        // pose feeds motion-vector computation in animated PBR shaders so
+        // TAA / MotionBlur get correct per-bone velocity rather than a
+        // stale-identity fallback.
         const auto& boneMatrices = skeletonComp.m_Skeleton->m_FinalBoneMatrices;
+        const auto& prevBoneMatrices = skeletonComp.m_Skeleton->m_PrevFinalBoneMatrices;
+
+        // Convert entt entity id to the i32 picking ID used by the editor.
+        const i32 entityID = static_cast<i32>(static_cast<u32>(entity));
 
         // Use MaterialComponent if available, otherwise use default material
         Material material = defaultMaterial;
@@ -3807,13 +3826,14 @@ namespace OloEngine
                         submeshMaterial = submeshEntityOpt->GetComponent<MaterialComponent>().m_Material;
                     }
 
-                    // Use the new MeshSource with bone influences directly
                     auto* packet = DrawAnimatedMesh(
                         submeshComponent.m_Mesh,
                         worldTransform,
                         submeshMaterial,
                         boneMatrices,
-                        false);
+                        prevBoneMatrices,
+                        false,
+                        entityID);
 
                     if (packet)
                     {
@@ -3836,7 +3856,9 @@ namespace OloEngine
                     worldTransform,
                     material,
                     boneMatrices,
-                    false);
+                    prevBoneMatrices,
+                    false,
+                    entityID);
 
                 if (packet)
                 {
@@ -4350,7 +4372,13 @@ namespace OloEngine
             metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, 0, 0x800000);
         packet->SetMetadata(metadata);
 
-        // Submit packet to the appropriate bucket
+        // Submit packet to the appropriate bucket. Despite both `CreateForwardOverlayDrawCall`
+        // / `CreateDrawCall` being named "CreateDrawCall", they ONLY allocate via
+        // `CommandBucket::CreateDrawCall<T>()` (which does not push into the bucket's
+        // packet list). The actual submission happens here — exactly once — so there
+        // is no double-submit even though the function also returns the packet pointer
+        // for caller-side inspection. Callers are NOT required to submit the returned
+        // packet; the return value is informational only (matches DrawMesh/DrawSkybox).
         if (overlayRoute)
             SubmitForwardOverlayPacket(packet);
         else

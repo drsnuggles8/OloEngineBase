@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/WaterRenderPass.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Commands/CommandPacket.h"
+#include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
@@ -114,9 +116,18 @@ namespace OloEngine
             RenderCommand::SetBlendFuncForAttachment(0, GL_ONE, GL_ONE);                  // accum: additive
             RenderCommand::SetBlendFuncForAttachment(1, GL_ZERO, GL_ONE_MINUS_SRC_COLOR); // revealage: multiplicative
 
-            // Install Water_OIT program override so `CommandDispatch::DrawWater`
-            // substitutes it in place of the submitted forward Water shader.
-            CommandDispatch::SetWaterOITShaderOverride(m_OITShader->GetRendererID());
+            // Install Water_OIT program override directly on each queued
+            // DrawWaterCommand packet. Keeping the override on the command
+            // (instead of a global on CommandDispatch) preserves the
+            // stateless, replay-safe contract of the bucket.
+            const u32 oitProgramID = m_OITShader->GetRendererID();
+            for (CommandPacket* packet : m_CommandBucket.GetPackets())
+            {
+                if (!packet || packet->GetCommandType() != CommandType::DrawWater)
+                    continue;
+                if (auto* cmd = packet->GetCommandData<DrawWaterCommand>())
+                    cmd->oitProgramOverride = oitProgramID;
+            }
 
             // Bind scene depth (for depth softening / shoreline foam) and
             // scene normals (for SSR). OIT variant still samples these.
@@ -133,11 +144,6 @@ namespace OloEngine
             m_CommandBucket.SortCommands();
             auto& rendererAPI = RenderCommand::GetRendererAPI();
             m_CommandBucket.Execute(rendererAPI);
-
-            // Clear the override so subsequent frames / other passes that
-            // happen to dispatch DrawWater commands (none by design, but
-            // defensive) don't pick up the override.
-            CommandDispatch::SetWaterOITShaderOverride(0);
 
             // Tell OITResolvePass there's fresh accumulation to composite.
             if (m_AccumMarker)

@@ -451,3 +451,249 @@ TEST(RenderGraphResourceHazards, ResourceHandleEqualityIsNameBased)
     std::hash<ResourceHandle> hasher;
     EXPECT_EQ(hasher(a), hasher(b));
 }
+
+// =============================================================================
+// Per-RenderingPath topology: mirror the pass ordering + dependency wiring
+// that `Renderer3D::ConfigureRenderGraph` installs for each of the three
+// supported paths and verify the declared-resource graph is hazard-free.
+//
+// These are stub-based: the real passes live inside Renderer3D which needs
+// a full GL context. By mirroring the topology with DeclarativeStubPass
+// instances we can validate the `AddExecutionDependency` / `ConnectPass`
+// wiring in Renderer3D — any drift between the resource declarations in a
+// real pass and the edges wired here will surface as a RAW/WAR/WAW hazard.
+//
+// The declared read/write set here is a *representative* subset — enough
+// to cover the canonical handoffs (Shadow -> Scene, Scene -> Decal ->
+// Water -> AO -> Particles -> OITResolve -> SSS -> PostProcess ->
+// UIComposite -> Final). If a new cross-pass resource is introduced in
+// production code, extend both the stubs here and the real pass.
+// =============================================================================
+namespace
+{
+    // Common pass-graph builder shared by the three topology tests. Adds
+    // every pass that ConfigureRenderGraph creates, hooks up the declared
+    // reads/writes, and returns the handles that path-specific code needs
+    // to tweak (only the deferred path adds DeferredLighting + ForwardOverlay
+    // on top of the shared chain).
+    struct ConfiguredGraphFixture
+    {
+        RenderGraph Graph;
+        Ref<DeclarativeStubPass> Shadow;
+        Ref<DeclarativeStubPass> Scene;
+        Ref<DeclarativeStubPass> DeferredLighting; // may be null in forward paths
+        Ref<DeclarativeStubPass> ForwardOverlay;   // may be null in forward paths
+        Ref<DeclarativeStubPass> Foliage;
+        Ref<DeclarativeStubPass> Water;
+        Ref<DeclarativeStubPass> Decal;
+        Ref<DeclarativeStubPass> SSAO;
+        Ref<DeclarativeStubPass> GTAO;
+        Ref<DeclarativeStubPass> Particle;
+        Ref<DeclarativeStubPass> OITResolve;
+        Ref<DeclarativeStubPass> SSS;
+        Ref<DeclarativeStubPass> PostProcess;
+        Ref<DeclarativeStubPass> UIComposite;
+        Ref<DeclarativeStubPass> Final;
+    };
+
+    void BuildPathTopology(ConfiguredGraphFixture& f, bool deferred)
+    {
+        f.Shadow = AddDeclStub(f.Graph, "ShadowPass");
+        f.Shadow->TestDeclareWrite(std::string(ResourceNames::ShadowMapCSM));
+
+        f.Scene = AddDeclStub(f.Graph, "ScenePass");
+        f.Scene->TestDeclareRead(std::string(ResourceNames::ShadowMapCSM));
+        f.Scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+        f.Scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+        f.Scene->TestDeclareWrite(std::string(ResourceNames::SceneNormals));
+
+        if (deferred)
+        {
+            f.DeferredLighting = AddDeclStub(f.Graph, "DeferredLightingPass");
+            f.DeferredLighting->TestDeclareRead(std::string(ResourceNames::SceneNormals));
+            f.DeferredLighting->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+            f.DeferredLighting->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+            f.ForwardOverlay = AddDeclStub(f.Graph, "ForwardOverlayPass");
+            f.ForwardOverlay->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+            f.ForwardOverlay->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+        }
+
+        f.Foliage = AddDeclStub(f.Graph, "FoliagePass");
+        f.Foliage->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+        f.Water = AddDeclStub(f.Graph, "WaterPass");
+        f.Water->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+        f.Water->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+        f.Decal = AddDeclStub(f.Graph, "DecalPass");
+        f.Decal->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+        f.Decal->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+        f.SSAO = AddDeclStub(f.Graph, "SSAOPass");
+        f.SSAO->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+        f.SSAO->TestDeclareRead(std::string(ResourceNames::SceneNormals));
+        f.SSAO->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
+
+        f.GTAO = AddDeclStub(f.Graph, "GTAOPass");
+        f.GTAO->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+        f.GTAO->TestDeclareRead(std::string(ResourceNames::SceneNormals));
+        f.GTAO->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
+
+        f.Particle = AddDeclStub(f.Graph, "ParticlePass");
+        f.Particle->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+        f.OITResolve = AddDeclStub(f.Graph, "OITResolvePass");
+        f.OITResolve->TestDeclareRead(std::string(ResourceNames::SceneColor));
+        f.OITResolve->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+        f.SSS = AddDeclStub(f.Graph, "SSSPass");
+        f.SSS->TestDeclareRead(std::string(ResourceNames::SceneColor));
+
+        f.PostProcess = AddDeclStub(f.Graph, "PostProcessPass");
+        f.PostProcess->TestDeclareRead(std::string(ResourceNames::SceneColor));
+        f.PostProcess->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+        f.PostProcess->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+        f.UIComposite = AddDeclStub(f.Graph, "UICompositePass");
+        f.UIComposite->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+        f.UIComposite->TestDeclareWrite(std::string(ResourceNames::UIComposite));
+
+        f.Final = AddDeclStub(f.Graph, "FinalPass");
+        f.Final->TestDeclareRead(std::string(ResourceNames::UIComposite));
+        f.Final->TestDeclareWrite(std::string(ResourceNames::FinalColor));
+
+        // Wire dependencies identically to Renderer3D::ConfigureRenderGraph.
+        f.Graph.AddExecutionDependency("ShadowPass", "ScenePass");
+        if (deferred)
+        {
+            f.Graph.AddExecutionDependency("ScenePass", "DeferredLightingPass");
+            f.Graph.AddExecutionDependency("DeferredLightingPass", "ForwardOverlayPass");
+            f.Graph.AddExecutionDependency("ForwardOverlayPass", "FoliagePass");
+            f.Graph.AddExecutionDependency("DeferredLightingPass", "FoliagePass");
+        }
+        f.Graph.AddExecutionDependency("ScenePass", "FoliagePass");
+        f.Graph.AddExecutionDependency("FoliagePass", "DecalPass");
+        f.Graph.AddExecutionDependency("DecalPass", "WaterPass");
+        f.Graph.AddExecutionDependency("WaterPass", "SSAOPass");
+        f.Graph.AddExecutionDependency("DecalPass", "SSAOPass");
+        f.Graph.AddExecutionDependency("SSAOPass", "ParticlePass");
+        f.Graph.AddExecutionDependency("WaterPass", "GTAOPass");
+        f.Graph.AddExecutionDependency("DecalPass", "GTAOPass");
+        // At runtime only one of SSAO/GTAO runs (selected by DeferredSettings);
+        // the stub version has both declaring writes to AOBuffer. Serialise
+        // them to avoid a spurious WAW hazard — the real production pipeline
+        // is guarded by the one-at-a-time runtime toggle.
+        f.Graph.AddExecutionDependency("SSAOPass", "GTAOPass");
+        f.Graph.AddExecutionDependency("GTAOPass", "ParticlePass");
+        f.Graph.ConnectPass("ParticlePass", "OITResolvePass");
+        f.Graph.ConnectPass("OITResolvePass", "SSSPass");
+        f.Graph.ConnectPass("SSSPass", "PostProcessPass");
+        f.Graph.ConnectPass("PostProcessPass", "UICompositePass");
+        f.Graph.ConnectPass("UICompositePass", "FinalPass");
+
+        f.Graph.SetFinalPass("FinalPass");
+        return;
+    }
+} // namespace
+
+TEST(RenderGraphConfigureTopology, ForwardPathIsHazardFree)
+{
+    // Forward and Forward+ share the same pass set and dependency wiring
+    // in Renderer3D::ConfigureRenderGraph (the difference is runtime behaviour,
+    // not graph topology). Test both under the non-deferred branch.
+    ConfiguredGraphFixture f;
+    BuildPathTopology(f, /*deferred=*/false);
+    const auto hazards = f.Graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, ForwardPlusPathIsHazardFree)
+{
+    // Forward+ = Forward topology with tile-classified lighting at runtime;
+    // graph wiring is identical so the hazard check must pass in both.
+    ConfiguredGraphFixture f;
+    BuildPathTopology(f, /*deferred=*/false);
+    const auto hazards = f.Graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, DeferredPathIsHazardFree)
+{
+    // Deferred inserts DeferredLightingPass and ForwardOverlayPass between
+    // ScenePass and the forward chain. Validates the extra edges
+    // ConfigureRenderGraph adds for the deferred branch don't leave any
+    // declared resource without a transitive producer edge.
+    ConfiguredGraphFixture f;
+    BuildPathTopology(f, /*deferred=*/true);
+    const auto hazards = f.Graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
+{
+    // ConfigureRenderGraph may be invoked repeatedly as the user toggles
+    // between RenderingPath::Forward / Forward+ / Deferred at runtime. Each
+    // call invokes RenderGraph::ResetTopology() before re-adding passes.
+    // Simulate ≥3 rebuild cycles across all three paths and assert no
+    // hazards accumulate and no references leak.
+    RenderGraph graph;
+
+    auto buildOn = [&graph](bool deferred)
+    {
+        graph.ResetTopology();
+        // Same sequence BuildPathTopology uses — inlined here to reuse the
+        // single graph instance rather than a fresh per-cycle RenderGraph.
+        auto shadow = Ref<DeclarativeStubPass>::Create("ShadowPass");
+        shadow->SetName("ShadowPass");
+        shadow->TestDeclareWrite(std::string(ResourceNames::ShadowMapCSM));
+        graph.AddPass(shadow);
+
+        auto scene = Ref<DeclarativeStubPass>::Create("ScenePass");
+        scene->SetName("ScenePass");
+        scene->TestDeclareRead(std::string(ResourceNames::ShadowMapCSM));
+        scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+        scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+        graph.AddPass(scene);
+
+        if (deferred)
+        {
+            auto deferredLight = Ref<DeclarativeStubPass>::Create("DeferredLightingPass");
+            deferredLight->SetName("DeferredLightingPass");
+            deferredLight->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+            deferredLight->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+            graph.AddPass(deferredLight);
+            graph.AddExecutionDependency("ScenePass", "DeferredLightingPass");
+        }
+
+        auto final = Ref<DeclarativeStubPass>::Create("FinalPass");
+        final->SetName("FinalPass");
+        final->TestDeclareRead(std::string(ResourceNames::SceneColor));
+        graph.AddPass(final);
+
+        graph.AddExecutionDependency("ShadowPass", "ScenePass");
+        if (deferred)
+            graph.AddExecutionDependency("DeferredLightingPass", "FinalPass");
+        else
+            graph.AddExecutionDependency("ScenePass", "FinalPass");
+
+        graph.SetFinalPass("FinalPass");
+    };
+
+    constexpr i32 kCycles = 4;
+    const bool paths[kCycles] = { false, false, true, false };
+    for (i32 i = 0; i < kCycles; ++i)
+    {
+        buildOn(paths[i]);
+        const auto hazards = graph.ValidateResourceHazards();
+        EXPECT_TRUE(hazards.empty())
+            << "Cycle " << i << " (deferred=" << paths[i] << "): "
+            << HazardsToString(hazards);
+
+        // Pass set must match what this cycle installed — no residual edges
+        // or passes leaked from a previous cycle (the ResetTopology contract).
+        const sizet expectedPassCount = paths[i] ? 4u : 3u;
+        EXPECT_EQ(graph.GetAllPasses().size(), expectedPassCount)
+            << "Cycle " << i << ": residual passes from prior cycle";
+    }
+}

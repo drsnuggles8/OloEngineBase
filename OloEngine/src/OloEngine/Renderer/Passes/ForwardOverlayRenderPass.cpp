@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/ForwardOverlayRenderPass.h"
+#include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 
@@ -35,9 +36,28 @@ namespace OloEngine
             return;
         }
 
+        // Detector-only guard: captures GL state on entry and logs any
+        // field this pass failed to restore on exit. The explicit restore
+        // calls below still perform the actual restoration.
+        GLStateGuard guard("ForwardOverlayPass");
+
         m_SceneFramebuffer->Bind();
 
         const u32 sceneFBID = m_SceneFramebuffer->GetRendererID();
+
+        // Count color attachments on the scene FB from its specification so
+        // the full-layout restore below is exact regardless of the configured
+        // attachment set (TAA velocity may or may not be present).
+        const auto& sceneSpec = m_SceneFramebuffer->GetSpecification();
+        u32 sceneColorAttachmentCount = 0;
+        for (const auto& att : sceneSpec.Attachments.Attachments)
+        {
+            const bool isDepth = (att.TextureFormat == FramebufferTextureFormat::DEPTH24STENCIL8 ||
+                                  att.TextureFormat == FramebufferTextureFormat::DEPTH_COMPONENT32F);
+            if (!isDepth && att.TextureFormat != FramebufferTextureFormat::None)
+                ++sceneColorAttachmentCount;
+        }
+
         const GLenum drawBuf = GL_COLOR_ATTACHMENT0;
         glNamedFramebufferDrawBuffers(sceneFBID, 1, &drawBuf);
 
@@ -62,16 +82,18 @@ namespace OloEngine
             m_CommandBucket.Execute(rendererAPI);
         }
 
-        // Restore multi-attachment draw buffers so later passes (e.g. decal
-        // pass writing to RT1/RT2 of the scene FB, or TAA sampling RT3
-        // velocity) see the full target set.
-        const GLenum fullDrawBufs[] = {
-            GL_COLOR_ATTACHMENT0,
-            GL_COLOR_ATTACHMENT1,
-            GL_COLOR_ATTACHMENT2,
-            GL_COLOR_ATTACHMENT3
-        };
-        glNamedFramebufferDrawBuffers(sceneFBID, 4, fullDrawBufs);
+        // Restore multi-attachment draw buffers built dynamically from the
+        // scene FB spec so later passes (e.g. decal pass writing to RT1/RT2,
+        // or TAA sampling RT3 velocity) see the full target set even if the
+        // attachment count differs from the previous 4-entry hardcoded list.
+        if (sceneColorAttachmentCount > 0)
+        {
+            std::array<GLenum, 16> fullDrawBufs{};
+            const u32 n = std::min<u32>(sceneColorAttachmentCount, static_cast<u32>(fullDrawBufs.size()));
+            for (u32 i = 0; i < n; ++i)
+                fullDrawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
+            glNamedFramebufferDrawBuffers(sceneFBID, static_cast<GLsizei>(n), fullDrawBufs.data());
+        }
 
         rendererAPI.SetDepthMask(true);
         rendererAPI.SetDepthFunc(GL_LESS);

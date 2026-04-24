@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
+#include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionCuller.h"
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"
@@ -412,6 +413,29 @@ namespace OloEngine
         if (channel == 0)
             return;
 
+        // Detector-only GL state guard — logs any state this debug path
+        // fails to restore. Explicit restores below still perform the
+        // actual rollback.
+        GLStateGuard guard("SceneRenderPass::BlitGBufferDebug");
+
+        // Build the target FB's full multi-attachment draw-buffer list from
+        // its spec. The previous hardcoded 4-entry restore broke when a
+        // scene FB configured with fewer or more color attachments was
+        // installed (e.g. when TAA was disabled and velocity dropped).
+        const auto& targetSpec = m_Target->GetSpecification();
+        u32 targetColorCount = 0;
+        for (const auto& att : targetSpec.Attachments.Attachments)
+        {
+            const bool isDepth = (att.TextureFormat == FramebufferTextureFormat::DEPTH24STENCIL8 ||
+                                  att.TextureFormat == FramebufferTextureFormat::DEPTH_COMPONENT32F);
+            if (!isDepth && att.TextureFormat != FramebufferTextureFormat::None)
+                ++targetColorCount;
+        }
+        std::array<GLenum, 16> fullDrawBufs{};
+        const u32 fullN = std::min<u32>(targetColorCount, static_cast<u32>(fullDrawBufs.size()));
+        for (u32 i = 0; i < fullN; ++i)
+            fullDrawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
+
         // Channel 3 (RMA) needs data from TWO attachments — RT0.a (metallic)
         // and RT1.zw (roughness, AO). glBlitFramebuffer cannot swizzle, so
         // use a dedicated fullscreen shader for this one channel.
@@ -447,14 +471,9 @@ namespace OloEngine
 
             // Restore the scene FB's multi-attachment draw-buffer list so the
             // downstream passes (post-process, UI) find the expected slots
-            // (including RT3 velocity for TAA).
-            const GLenum fullDrawBufs[] = {
-                GL_COLOR_ATTACHMENT0,
-                GL_COLOR_ATTACHMENT1,
-                GL_COLOR_ATTACHMENT2,
-                GL_COLOR_ATTACHMENT3
-            };
-            glNamedFramebufferDrawBuffers(dstFB, 4, fullDrawBufs);
+            // (including RT3 velocity for TAA). Count is computed from the
+            // FB spec above rather than hardcoded.
+            glNamedFramebufferDrawBuffers(dstFB, static_cast<GLsizei>(fullN), fullDrawBufs.data());
 
             RenderCommand::SetDepthMask(true);
             RenderCommand::SetDepthTest(true);
@@ -508,17 +527,11 @@ namespace OloEngine
             0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
             GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
-        // Restore the draw FB's draw-buffer list — the forward scene FB has
-        // four attachments (color, entityID, viewNormal, velocity); narrowing
-        // to three drops layout(location=3) writes from later forward shaders
-        // (PBR_MultiLight motion-vector output), breaking TAA/MotionBlur.
-        const GLenum fullDrawBufs[] = {
-            GL_COLOR_ATTACHMENT0,
-            GL_COLOR_ATTACHMENT1,
-            GL_COLOR_ATTACHMENT2,
-            GL_COLOR_ATTACHMENT3
-        };
-        glNamedFramebufferDrawBuffers(dstFB, 4, fullDrawBufs);
+        // Restore the draw FB's draw-buffer list using the count captured
+        // from the target FB spec above — narrowing to fewer attachments
+        // would drop later-shader outputs (e.g. PBR_MultiLight's motion
+        // vector at layout(location=3)), breaking TAA/MotionBlur.
+        glNamedFramebufferDrawBuffers(dstFB, static_cast<GLsizei>(fullN), fullDrawBufs.data());
 
         // Also copy depth so downstream passes (post-process, selection
         // outline, UI) have a coherent depth buffer.
@@ -544,21 +557,28 @@ namespace OloEngine
             attachments[3].TextureFormat != FramebufferTextureFormat::RG16F)
             return;
 
+        // Detector-only GL state guard.
+        GLStateGuard guard("SceneRenderPass::BlitForwardVelocityDebug");
+
         const u32 fb = m_Target->GetRendererID();
         const u32 w = m_Target->GetSpecification().Width;
         const u32 h = m_Target->GetSpecification().Height;
 
-        // Blit attachment 3 (RG16F velocity) into attachment 0 (RGBA16F).
-        // GL converts channels: R,G populated, B=0, A=1. Result is a
-        // pseudo-colour visualisation (red = +X motion, green = +Y).
-        // Include attachment 3 in the restore list so velocity writes by any
-        // subsequent forward shader continue to land on the correct slot.
-        const GLenum prevDrawBufs[] = {
-            GL_COLOR_ATTACHMENT0,
-            GL_COLOR_ATTACHMENT1,
-            GL_COLOR_ATTACHMENT2,
-            GL_COLOR_ATTACHMENT3
-        };
+        // Build the restore list dynamically from the spec so it matches the
+        // attachment count actually in use (instead of a hardcoded 4-entry
+        // list that would narrow the target FB on a 3-attachment config).
+        u32 colorCount = 0;
+        for (const auto& att : attachments)
+        {
+            const bool isDepth = (att.TextureFormat == FramebufferTextureFormat::DEPTH24STENCIL8 ||
+                                  att.TextureFormat == FramebufferTextureFormat::DEPTH_COMPONENT32F);
+            if (!isDepth && att.TextureFormat != FramebufferTextureFormat::None)
+                ++colorCount;
+        }
+        std::array<GLenum, 16> prevDrawBufs{};
+        const u32 n = std::min<u32>(colorCount, static_cast<u32>(prevDrawBufs.size()));
+        for (u32 i = 0; i < n; ++i)
+            prevDrawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
 
         glNamedFramebufferReadBuffer(fb, GL_COLOR_ATTACHMENT3);
         const GLenum drawBufs[] = { GL_COLOR_ATTACHMENT0 };
@@ -572,7 +592,7 @@ namespace OloEngine
 
         // Restore the scene FB's full multi-attachment draw-buffer list for
         // downstream passes (post-process, UI composite); see comment above.
-        glNamedFramebufferDrawBuffers(fb, 4, prevDrawBufs);
+        glNamedFramebufferDrawBuffers(fb, static_cast<GLsizei>(n), prevDrawBufs.data());
     }
 
     void SceneRenderPass::OnReset()

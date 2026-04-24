@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/ParticleRenderPass.h"
 #include "OloEngine/Particle/ParticleBatchRenderer.h"
+#include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Renderer.h"
 
 #include <glad/gl.h>
@@ -29,6 +30,13 @@ namespace OloEngine
         {
             return;
         }
+
+        // Detector-only guard: captures GL state at entry and on destruction
+        // diffs against exit state, logging any field this pass failed to
+        // restore. The explicit restore calls below still perform the actual
+        // restoration (the current GLStateGuard only detects leaks, it does
+        // not roll back).
+        GLStateGuard guard("ParticleRenderPass");
 
         const bool useOIT = m_OITEnabled && m_OITBuffer && m_OITBuffer->GetFramebuffer();
 

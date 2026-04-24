@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"
+#include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
@@ -27,6 +28,13 @@ namespace OloEngine
     void DecalRenderPass::Execute()
     {
         OLO_PROFILE_FUNCTION();
+
+        // Detector-only guard: captures GL state at entry and on destruction
+        // diffs against exit state, logging any field this pass failed to
+        // restore. The explicit restore calls further down still perform the
+        // actual restoration (the current GLStateGuard only detects leaks,
+        // it does not roll back).
+        GLStateGuard guard("DecalRenderPass");
 
         // Helper: decide whether a packet should be drained by *this*
         // (the graph-scheduled) Execute. In the Deferred path the opaque
@@ -102,7 +110,18 @@ namespace OloEngine
             RenderCommand::SetBlendFuncForAttachment(0, GL_ONE, GL_ONE);
             RenderCommand::SetBlendFuncForAttachment(1, GL_ZERO, GL_ONE_MINUS_SRC_COLOR);
 
-            CommandDispatch::SetDecalOITShaderOverride(m_OITShader->GetRendererID());
+            // Install Decal_OIT program override directly on each queued
+            // DrawDecalCommand packet. Keeping the override on the command
+            // (instead of a global on CommandDispatch) preserves the
+            // stateless, replay-safe contract of the bucket.
+            const u32 decalOITProgramID = m_OITShader->GetRendererID();
+            for (CommandPacket* packet : m_CommandBucket.GetPackets())
+            {
+                if (!packet || packet->GetCommandType() != CommandType::DrawDecal)
+                    continue;
+                if (auto* cmd = packet->GetCommandData<DrawDecalCommand>())
+                    cmd->oitProgramOverride = decalOITProgramID;
+            }
 
             // Bind scene depth (for decal projection) — the OIT variant needs
             // the same `u_SceneDepth` at TEX_POSTPROCESS_DEPTH that the
@@ -117,8 +136,6 @@ namespace OloEngine
                 if (shouldDrawHere(packet))
                     packet->Execute(rendererAPI);
             }
-
-            CommandDispatch::SetDecalOITShaderOverride(0);
 
             if (m_AccumMarker)
                 m_AccumMarker();

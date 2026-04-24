@@ -54,17 +54,6 @@ namespace OloEngine
         // Snow accumulation depth texture — set per-frame
         static void SetSnowDepthTextureID(u32 textureID);
 
-        // WB-OIT shader overrides. When non-zero, the corresponding
-        // dispatch (DrawWater / DrawDecal) substitutes this program ID
-        // in place of the shader captured by the submitter, so the
-        // owning pass can swap between the forward-MRT3 variant and the
-        // OIT-MRT2 variant without re-submitting commands. Zero = no
-        // override (classic alpha-blend path).
-        static void SetWaterOITShaderOverride(u32 programID);
-        static void SetDecalOITShaderOverride(u32 programID);
-        static u32 GetWaterOITShaderOverride();
-        static u32 GetDecalOITShaderOverride();
-
         // Getters for current frame state (used for sort key generation and per-bucket view state)
         static const glm::mat4& GetViewMatrix();
         static const glm::mat4& GetProjectionMatrix();

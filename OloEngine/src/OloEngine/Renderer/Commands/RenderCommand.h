@@ -762,6 +762,13 @@ namespace OloEngine
         // Entity ID for picking
         i32 entityID = -1;
 
+        // OIT program override. When non-zero, CommandDispatch::DrawDecal
+        // substitutes this program ID for `shaderRendererID` so decal
+        // commands composite via the WB-OIT layout without resubmission.
+        // DecalRenderPass populates this on the command itself (not a
+        // global) so the queue stays stateless and replay-safe.
+        u32 oitProgramOverride = 0;
+
         // Render state index (into FrameDataBuffer::RenderStateTable)
         u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;
     };
@@ -856,6 +863,14 @@ namespace OloEngine
 
         // Entity ID for picking
         i32 entityID = -1;
+
+        // OIT program override. When non-zero, CommandDispatch::DrawWater
+        // will substitute this program ID for `shaderRendererID` so water
+        // commands composite via the WB-OIT 2-attachment layout without
+        // needing a second submission. WaterRenderPass populates this on
+        // the command itself (not a global) so the queue stays stateless
+        // and replay-safe.
+        u32 oitProgramOverride = 0;
 
         // Render state index (into FrameDataBuffer::RenderStateTable)
         u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;

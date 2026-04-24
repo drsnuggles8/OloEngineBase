@@ -69,14 +69,6 @@ namespace OloEngine
         // Snow accumulation depth texture (set per-frame)
         u32 SnowDepthTextureID = 0;
 
-        // WB-OIT shader override program IDs. Populated by WaterRenderPass /
-        // DecalRenderPass at the entry of their OIT dispatch paths and
-        // reset to 0 on exit. Zero means: use the shader stored on the
-        // command packet (classic forward path). See `DrawWater` /
-        // `DrawDecal` dispatch functions for the substitution site.
-        u32 WaterOITShaderOverride = 0;
-        u32 DecalOITShaderOverride = 0;
-
         // Depth prepass override: when true, ApplyPODRenderState forces depth-only state
         bool DepthPrepassActive = false;
         // Color pass of depth prepass: override depth func to GL_LEQUAL + depth mask false
@@ -635,8 +627,6 @@ namespace OloEngine
         s_Data.SpotShadowTextureID = 0;
         s_Data.PointShadowTextureIDs.fill(0);
         s_Data.SnowDepthTextureID = 0;
-        s_Data.WaterOITShaderOverride = 0;
-        s_Data.DecalOITShaderOverride = 0;
         s_Data.DepthPrepassActive = false;
         s_Data.DepthPrepassColorPassActive = false;
         s_Data.Stats.Reset();
@@ -728,26 +718,6 @@ namespace OloEngine
     void CommandDispatch::SetSnowDepthTextureID(u32 textureID)
     {
         s_Data.SnowDepthTextureID = textureID;
-    }
-
-    void CommandDispatch::SetWaterOITShaderOverride(u32 programID)
-    {
-        s_Data.WaterOITShaderOverride = programID;
-    }
-
-    void CommandDispatch::SetDecalOITShaderOverride(u32 programID)
-    {
-        s_Data.DecalOITShaderOverride = programID;
-    }
-
-    u32 CommandDispatch::GetWaterOITShaderOverride()
-    {
-        return s_Data.WaterOITShaderOverride;
-    }
-
-    u32 CommandDispatch::GetDecalOITShaderOverride()
-    {
-        return s_Data.DecalOITShaderOverride;
     }
 
     CommandDispatch::Statistics& CommandDispatch::GetStatistics()
@@ -1685,11 +1655,13 @@ namespace OloEngine
         ApplyPODRenderState(cmd->renderStateIndex, api);
 
         // Bind shader (cached). DecalRenderPass may have installed an OIT
-        // override — substitute the Decal_OIT program when set so forward
-        // decal commands composite via the OITBuffer's 2-attachment layout
-        // without requiring resubmission of the bucket.
-        u32 decalProgramID = (s_Data.DecalOITShaderOverride != 0)
-                                 ? s_Data.DecalOITShaderOverride
+        // override on the packet itself (oitProgramOverride) -- substitute
+        // the Decal_OIT program when set so forward decal commands
+        // composite via the OITBuffer's 2-attachment layout without
+        // requiring resubmission of the bucket. Reading the override from
+        // the command keeps the queue stateless and replay-safe.
+        u32 decalProgramID = (cmd->oitProgramOverride != 0)
+                                 ? cmd->oitProgramOverride
                                  : cmd->shaderRendererID;
         if (s_Data.CurrentBoundShaderID != decalProgramID)
         {
@@ -1848,7 +1820,7 @@ namespace OloEngine
         // fully opaque) and the OITResolve composites black across the
         // entire scene FB.
         ApplyPODRenderState(cmd->renderStateIndex, api);
-        if (s_Data.WaterOITShaderOverride != 0)
+        if (cmd->oitProgramOverride != 0)
         {
             api.SetBlendStateForAttachment(0, true);
             api.SetBlendStateForAttachment(1, true);
@@ -1857,11 +1829,13 @@ namespace OloEngine
         }
 
         // Bind shader (cached). WaterRenderPass may have installed an OIT
-        // override — substitute the Water_OIT program when set so water
-        // commands composited through the OITBuffer use the correct
-        // 2-attachment output layout without re-submission.
-        u32 waterProgramID = (s_Data.WaterOITShaderOverride != 0)
-                                 ? s_Data.WaterOITShaderOverride
+        // override on the packet itself (oitProgramOverride) -- substitute
+        // the Water_OIT program when set so water commands composited
+        // through the OITBuffer use the correct 2-attachment output layout
+        // without re-submission. Reading the override from the command
+        // keeps the queue stateless and replay-safe.
+        u32 waterProgramID = (cmd->oitProgramOverride != 0)
+                                 ? cmd->oitProgramOverride
                                  : cmd->shaderRendererID;
         if (s_Data.CurrentBoundShaderID != waterProgramID)
         {
