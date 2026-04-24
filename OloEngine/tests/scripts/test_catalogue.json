@@ -46,6 +46,7 @@
     "OloEngine/tests/Rendering/PropertyTests/GLStateGuardTest.cpp": "L4",
     "OloEngine/tests/Rendering/RenderGraphTest.cpp": "L5",
     "OloEngine/tests/Rendering/ResourceHazardValidationTests.cpp": "L5",
+    "OloEngine/tests/Rendering/RenderGraphPathSwitchTests.cpp": "L5",
     "OloEngine/tests/Rendering/PropertyTests/PerfRegressionTests.cpp": "L6",
     "OloEngine/tests/Rendering/CommandBucketBenchmarkTest.cpp": "L6",
     "OloEngine/tests/Rendering/PropertyTests/RendererValidateTest.cpp": "L7",

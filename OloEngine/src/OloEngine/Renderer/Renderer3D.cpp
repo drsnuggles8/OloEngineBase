@@ -2633,6 +2633,20 @@ namespace OloEngine
         }
 
         Ref<Shader> shaderToUse;
+        // Deferred mode demands that every ScenePass draw write the 4-RT
+        // G-Buffer layout (Albedo/Metallic, Normal/Roughness/AO, Emissive/
+        // Flags, Velocity). Non-PBR materials selecting s_Data.LightingShader
+        // would instead write the legacy forward outputs (o_Color / o_EntityID
+        // / o_ViewNormal / o_Velocity), which alias onto the G-Buffer slots
+        // and corrupt lighting for every subsequent pixel.
+        //
+        // Until a Lighting3D_GBuffer variant lands, reroute such draws to the
+        // ForwardOverlayPass — which binds the scene framebuffer (matching
+        // MRT layout) and runs *after* DeferredLightingPass composites the
+        // G-Buffer, so the non-PBR surface shades itself and blits over the
+        // lit deferred image unscathed. Mirrors the same pattern DrawSkybox
+        // uses for the skybox-on-deferred fallback.
+        bool overlayRoute = false;
         if (material.GetShader())
         {
             shaderToUse = material.GetShader();
@@ -2651,6 +2665,8 @@ namespace OloEngine
         else
         {
             shaderToUse = s_Data.LightingShader;
+            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.ForwardOverlayPass)
+                overlayRoute = true;
         }
 
         if (!shaderToUse)
@@ -2660,7 +2676,11 @@ namespace OloEngine
         }
 
         // Create POD command using asset handles and renderer IDs
-        CommandPacket* packet = CreateDrawCall<DrawMeshCommand>();
+        CommandPacket* packet = overlayRoute
+                                    ? CreateForwardOverlayDrawCall<DrawMeshCommand>()
+                                    : CreateDrawCall<DrawMeshCommand>();
+        if (!packet)
+            return nullptr;
         auto* cmd = packet->GetCommandData<DrawMeshCommand>();
         cmd->header.type = CommandType::DrawMesh;
 
@@ -2719,6 +2739,15 @@ namespace OloEngine
             metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
         metadata.m_IsStatic = isStatic;
         packet->SetMetadata(metadata);
+
+        if (overlayRoute)
+        {
+            // Submit to the overlay bucket directly; return nullptr so the
+            // caller's follow-up SubmitPacket(packet) becomes a safe no-op
+            // (same pattern DrawSkybox/DrawInfiniteGrid use).
+            SubmitForwardOverlayPacket(packet);
+            return nullptr;
+        }
 
         return packet;
     }
@@ -3480,6 +3509,11 @@ namespace OloEngine
         }
 
         Ref<Shader> shaderToUse;
+        // See DrawMesh() for the non-PBR-deferred → ForwardOverlayPass
+        // rerouting rationale. The same reasoning applies here: non-PBR
+        // skinned draws would otherwise alias their MRT outputs onto the
+        // G-Buffer slots and corrupt every subsequent pixel.
+        bool overlayRoute = false;
         if (material.GetShader())
         {
             shaderToUse = material.GetShader();
@@ -3494,12 +3528,16 @@ namespace OloEngine
         else
         {
             shaderToUse = s_Data.SkinnedLightingShader;
+            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.ForwardOverlayPass)
+                overlayRoute = true;
         }
 
         if (!shaderToUse)
         {
             OLO_CORE_WARN("Renderer3D::DrawAnimatedMesh: Preferred shader not available, falling back to Lighting3D");
             shaderToUse = s_Data.LightingShader;
+            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.ForwardOverlayPass)
+                overlayRoute = true;
         }
         if (!shaderToUse)
         {
@@ -3553,7 +3591,11 @@ namespace OloEngine
         }
 
         // Create POD command
-        CommandPacket* packet = CreateDrawCall<DrawMeshCommand>();
+        CommandPacket* packet = overlayRoute
+                                    ? CreateForwardOverlayDrawCall<DrawMeshCommand>()
+                                    : CreateDrawCall<DrawMeshCommand>();
+        if (!packet)
+            return nullptr;
         auto* cmd = packet->GetCommandData<DrawMeshCommand>();
         cmd->header.type = CommandType::DrawMesh;
 
@@ -3608,6 +3650,15 @@ namespace OloEngine
             metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
         metadata.m_IsStatic = isStatic;
         packet->SetMetadata(metadata);
+
+        if (overlayRoute)
+        {
+            // Route the packet to the overlay bucket so it renders after
+            // DeferredLightingPass composites the G-Buffer. Return nullptr
+            // so the caller's SubmitPacket(packet) is a no-op.
+            SubmitForwardOverlayPacket(packet);
+            return nullptr;
+        }
 
         return packet;
     }
