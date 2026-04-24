@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/GBuffer.h"
 
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Debug/Instrumentor.h"
 
 #include <glad/gl.h>
 
@@ -44,6 +45,8 @@ namespace OloEngine
 
     Ref<GBuffer> GBuffer::Create(u32 width, u32 height, u32 sampleCount)
     {
+        OLO_PROFILE_FUNCTION();
+
         // The Framebuffer implementation on OpenGL asserts width/height > 0,
         // so fall back to a 1x1 placeholder that can later be resized.
         if (width == 0 || height == 0)
@@ -75,6 +78,8 @@ namespace OloEngine
 
     void GBuffer::Recreate()
     {
+        OLO_PROFILE_FUNCTION();
+
         m_Framebuffer = Framebuffer::Create(BuildSpec(m_Width, m_Height, m_SampleCount));
         // Single-sample resolve target mirrors the MSAA layout, used by
         // DeferredLightingPass / OITResolvePass as sampler sources.
@@ -90,6 +95,8 @@ namespace OloEngine
 
     void GBuffer::Resize(u32 width, u32 height)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (width == 0 || height == 0)
             return;
         if (width > kMaxGBufferSize)
@@ -113,6 +120,8 @@ namespace OloEngine
 
     void GBuffer::Resolve()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_SampleCount <= 1 || !m_Framebuffer || !m_ResolvedFramebuffer)
             return;
 
@@ -186,6 +195,8 @@ namespace OloEngine
     {
         if (m_SampleCount <= 1 || !m_Framebuffer || !m_ResolvedFramebuffer)
             return;
+
+        OLO_PROFILE_FUNCTION();
 
         const u32 srcFB = m_Framebuffer->GetRendererID();
         const u32 dstFB = m_ResolvedFramebuffer->GetRendererID();

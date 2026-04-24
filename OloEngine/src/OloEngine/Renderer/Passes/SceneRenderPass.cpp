@@ -275,7 +275,12 @@ namespace OloEngine
         const bool perSampleLighting = deferredActive && m_GBuffer && m_GBuffer->GetSampleCount() > 1 && rendererSettings.Deferred.PerSampleLighting;
         if (deferredActive && m_GBuffer)
         {
-            if (perSampleLighting)
+            // If the debug overlay is active AND per-sample lighting skipped
+            // the colour resolve, force a full resolve so BlitGBufferDebug has
+            // single-sample texels to sample. Otherwise we'd blit stale /
+            // uninitialised resolved-FB colour attachments.
+            const bool debugNeedsColour = rendererSettings.Deferred.DebugChannel != 0;
+            if (perSampleLighting && !debugNeedsColour)
                 m_GBuffer->ResolveDepthOnly();
             else
                 m_GBuffer->Resolve();

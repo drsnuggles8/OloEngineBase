@@ -263,6 +263,7 @@ namespace OloEngine
                 api.SetDepthTest(false);
                 api.SetDepthMask(false);
                 api.SetBlendState(false);
+                api.SetStencilMask(0); // Transparent draws must not touch the stencil buffer during the depth prepass.
             }
             else
             {
@@ -271,6 +272,7 @@ namespace OloEngine
                 api.SetDepthMask(true);
                 api.SetDepthFunc(GL_LESS);
                 api.SetBlendState(false);
+                api.SetStencilMask(0); // Depth-prepass opaques emit depth only — leave stencil alone.
             }
         }
         // During color pass of depth prepass, override depth to GL_LEQUAL + no writes

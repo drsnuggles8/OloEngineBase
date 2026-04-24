@@ -52,6 +52,14 @@ namespace OloEngine
         const auto& spec = m_InputFramebuffer->GetSpecification();
         RenderCommand::SetViewport(0, 0, spec.Width, spec.Height);
 
+        // Restrict the draw-buffer set to COLOR_ATTACHMENT0 so the fullscreen
+        // fragment shader cannot accidentally clobber entity-ID / view-normal
+        // attachments — colour-mask writes still leave an undefined-output
+        // hazard on some drivers when MRT is enabled.
+        const u32 inputFBID = m_InputFramebuffer->GetRendererID();
+        const GLenum oitResolveDrawBuf = GL_COLOR_ATTACHMENT0;
+        glNamedFramebufferDrawBuffers(inputFBID, 1, &oitResolveDrawBuf);
+
         // No depth interaction: the accum already baked in depth-weighting.
         RenderCommand::SetDepthTest(false);
         RenderCommand::SetDepthMask(false);
@@ -82,6 +90,15 @@ namespace OloEngine
         RenderCommand::SetBlendState(false);
         RenderCommand::SetDepthMask(true);
         RenderCommand::SetDepthTest(true);
+
+        // Restore the full MRT draw-buffer set we narrowed above so the next
+        // pass binding this framebuffer writes to all attachments again.
+        const GLenum fullDrawBufs[3] = {
+            GL_COLOR_ATTACHMENT0,
+            GL_COLOR_ATTACHMENT1,
+            GL_COLOR_ATTACHMENT2
+        };
+        glNamedFramebufferDrawBuffers(inputFBID, 3, fullDrawBufs);
 
         m_InputFramebuffer->Unbind();
     }

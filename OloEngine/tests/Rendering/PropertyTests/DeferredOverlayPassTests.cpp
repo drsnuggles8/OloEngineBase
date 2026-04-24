@@ -93,8 +93,10 @@ namespace OloEngine::Tests
         DrawMeshCommand dst{};
         std::memcpy(&dst, &src, sizeof(DrawMeshCommand));
 
-        EXPECT_EQ(dst.transform, src.transform);
-        EXPECT_EQ(dst.prevTransform, src.prevTransform);
+        // Bitwise comparison — avoids any ambiguity around glm mat equality
+        // (element-wise comparison, signed-zero handling, etc.).
+        EXPECT_EQ(std::memcmp(&dst.transform, &src.transform, sizeof(glm::mat4)), 0);
+        EXPECT_EQ(std::memcmp(&dst.prevTransform, &src.prevTransform, sizeof(glm::mat4)), 0);
     }
 
     TEST(ForwardOverlayRenderPassConstruction, DefaultConstructsAndExposesSetter)

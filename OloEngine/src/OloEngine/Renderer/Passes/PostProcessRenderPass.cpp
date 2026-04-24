@@ -582,6 +582,14 @@ namespace OloEngine
         {
             m_PingFB->Resize(width, height);
             m_PongFB->Resize(width, height);
+            if (m_TAAHistoryFB)
+            {
+                // History must track viewport size; invalidate on resize so
+                // the next TAA invocation reprojects fresh instead of reading
+                // texels that no longer correspond to the current geometry.
+                m_TAAHistoryFB->Resize(width, height);
+                m_TAAHistoryValid = false;
+            }
         }
 
         // Setup or resize half-res fog framebuffers

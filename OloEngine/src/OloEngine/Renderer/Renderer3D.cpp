@@ -1022,7 +1022,9 @@ namespace OloEngine
         cmd->albedoTextureID = albedoTextureID;
         cmd->normalTextureID = normalTextureID;
         cmd->rmaTextureID = rmaTextureID;
-        cmd->mode = deferredPath ? mode : 0u; // Forward path always albedo.
+        cmd->mode = deferredPath
+                        ? static_cast<DrawDecalCommand::DecalMode>(mode)
+                        : DrawDecalCommand::DecalMode::Albedo; // Forward path always albedo.
         cmd->transparent = transparent ? u8{ 1 } : u8{ 0 };
         cmd->entityID = entityID;
 
@@ -1031,7 +1033,7 @@ namespace OloEngine
         // read-only, front-face culling in all cases.
         {
             PODRenderState decalState = CreateDefaultPODRenderState();
-            const bool blendForThisMode = (cmd->mode == 0u); // Albedo only
+            const bool blendForThisMode = (cmd->mode == DrawDecalCommand::DecalMode::Albedo);
             decalState.blendEnabled = blendForThisMode;
             decalState.blendSrcFactor = GL_SRC_ALPHA;
             decalState.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;

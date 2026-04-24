@@ -239,7 +239,10 @@ namespace OloEngine
             GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3
         };
 
-        u8 currentMode = 0xFF; // force first-time configure
+        using DecalMode = DrawDecalCommand::DecalMode;
+        // Sentinel outside the valid enumerator range — forces the first
+        // packet to reconfigure the draw buffers + masks.
+        auto currentMode = static_cast<DecalMode>(0xFF);
         bool anyTransparentQueued = false;
 
         for (const auto* packet : m_CommandBucket.GetPackets())
@@ -247,12 +250,12 @@ namespace OloEngine
             if (!packet)
                 continue;
 
-            u8 packetMode = 0;
+            DecalMode packetMode = DecalMode::Albedo;
             bool packetTransparent = false;
             if (packet->GetCommandType() == CommandType::DrawDecal)
             {
                 const auto* decalCmd = packet->GetCommandData<DrawDecalCommand>();
-                packetMode = decalCmd ? decalCmd->mode : 0;
+                packetMode = decalCmd ? decalCmd->mode : DecalMode::Albedo;
                 packetTransparent = decalCmd && decalCmd->transparent != 0;
             }
 
@@ -271,7 +274,7 @@ namespace OloEngine
                 // overlapping emissive decals sum their contributions; all
                 // other modes overwrite (the previous value is preserved for
                 // channels outside the colour mask).
-                const bool wantAdditive = (packetMode == 3);
+                const bool wantAdditive = (packetMode == DecalMode::Emissive);
                 glBlendFunci(2, GL_ONE, GL_ONE);
                 if (wantAdditive)
                     glEnablei(GL_BLEND, 2);
@@ -280,28 +283,29 @@ namespace OloEngine
 
                 switch (packetMode)
                 {
-                    case 1: // Normal — RT1 only, xy writable, zw preserved
+                    case DecalMode::Normal: // RT1 only, xy writable, zw preserved
                         glNamedFramebufferDrawBuffers(gbufferID, 4, drawNormalOnly);
                         glColorMaski(0, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
                         glColorMaski(1, GL_TRUE, GL_TRUE, GL_FALSE, GL_FALSE);
                         glColorMaski(2, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
                         glColorMaski(3, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
                         break;
-                    case 2: // RMA — RT0.a + RT1.zw writable
+                    case DecalMode::RMA: // RT0.a + RT1.zw writable
                         glNamedFramebufferDrawBuffers(gbufferID, 4, drawAlbedoAndNormal);
                         glColorMaski(0, GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
                         glColorMaski(1, GL_FALSE, GL_FALSE, GL_TRUE, GL_TRUE);
                         glColorMaski(2, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
                         glColorMaski(3, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
                         break;
-                    case 3: // Emissive — RT2.rgb writable, RT2.a (unlit flag) preserved
+                    case DecalMode::Emissive: // RT2.rgb writable, RT2.a (unlit flag) preserved
                         glNamedFramebufferDrawBuffers(gbufferID, 4, drawEmissiveOnly);
                         glColorMaski(0, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
                         glColorMaski(1, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
                         glColorMaski(2, GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
                         glColorMaski(3, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
                         break;
-                    default: // Albedo — RT0.rgb writable, RT0.a preserved
+                    case DecalMode::Albedo:
+                    default: // RT0.rgb writable, RT0.a preserved
                         glNamedFramebufferDrawBuffers(gbufferID, 4, drawAlbedoOnly);
                         glColorMaski(0, GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
                         glColorMaski(1, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
@@ -310,6 +314,11 @@ namespace OloEngine
                         break;
                 }
                 currentMode = packetMode;
+
+                // The raw GL calls above bypass our cached render-state
+                // tracking; invalidate so the next dispatched packet
+                // re-applies its POD state instead of skipping as a no-op.
+                CommandDispatch::InvalidateRenderStateCache();
             }
 
             packet->Execute(rendererAPI);

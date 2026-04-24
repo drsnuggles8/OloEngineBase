@@ -734,9 +734,17 @@ namespace OloEngine
         RendererID normalTextureID = 0; // Bound at TEX_NORMAL for Normal-mode decals
         RendererID rmaTextureID = 0;    // Bound at TEX_SPECULAR for RMA-mode decals (R=rough, G=metal, B=AO)
 
-        // Decal mode: 0=Albedo, 1=Normal, 2=RMA — matches Scene::DecalMode enum.
-        // DecalRenderPass::ExecuteOnGBuffer uses this to pick draw-buffer + colour mask.
-        u8 mode = 0;
+        // Decal mode: matches Scene::DecalMode enum. DecalRenderPass::
+        // ExecuteOnGBuffer uses this to pick draw-buffer + colour mask.
+        enum class DecalMode : u8
+        {
+            Albedo = 0,
+            Normal = 1,
+            RMA = 2,
+            Emissive = 3
+        };
+        DecalMode mode = DecalMode::Albedo;
+        static_assert(sizeof(DecalMode) == 1, "DecalMode must be 1 byte to preserve POD layout");
 
         // Transparency override. When non-zero, this decal must be routed
         // through the forward (WB-OIT or blended) pipeline instead of the
