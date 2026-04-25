@@ -32,6 +32,7 @@
 #include "OloEngine/Renderer/Passes/RenderPass.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 
+#include <array>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -663,7 +664,6 @@ namespace
         f.Graph.ConnectPass("UICompositePass", "FinalPass");
 
         f.Graph.SetFinalPass("FinalPass");
-        return;
     }
 } // namespace
 
@@ -924,7 +924,7 @@ TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
     };
 
     constexpr i32 kCycles = 4;
-    const bool paths[kCycles] = { false, false, true, false };
+    const std::array<bool, kCycles> paths = { false, false, true, false };
     for (i32 i = 0; i < kCycles; ++i)
     {
         buildOn(paths[i]);

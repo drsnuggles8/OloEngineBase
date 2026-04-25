@@ -245,7 +245,12 @@ namespace OloEngine::Tests
         ::glBlendFuncSeparate(GL_ONE, GL_ZERO, GL_ONE, GL_ZERO);
         ::glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
         ::glDisable(GL_STENCIL_TEST);
-        ::glStencilFunc(GL_ALWAYS, 0, 0xFFu);
+        ::glStencilFuncSeparate(GL_FRONT, GL_ALWAYS, 0, 0xFFu);
+        ::glStencilFuncSeparate(GL_BACK, GL_ALWAYS, 0, 0xFFu);
+        ::glStencilMaskSeparate(GL_FRONT, 0xFFFFFFFFu);
+        ::glStencilMaskSeparate(GL_BACK, 0xFFFFFFFFu);
+        ::glStencilOpSeparate(GL_FRONT, GL_KEEP, GL_KEEP, GL_KEEP);
+        ::glStencilOpSeparate(GL_BACK, GL_KEEP, GL_KEEP, GL_KEEP);
         ::glDisable(GL_CULL_FACE);
         ::glCullFace(GL_BACK);
         ::glFrontFace(GL_CCW);
@@ -283,7 +288,12 @@ namespace OloEngine::Tests
             ::glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
             ::glBlendEquationSeparate(GL_FUNC_SUBTRACT, GL_FUNC_SUBTRACT);
             ::glEnable(GL_STENCIL_TEST);
-            ::glStencilFunc(GL_NEVER, 1, 0x0Fu);
+            ::glStencilFuncSeparate(GL_FRONT, GL_NEVER, 1, 0x0Fu);
+            ::glStencilFuncSeparate(GL_BACK, GL_EQUAL, 2, 0x1Fu);
+            ::glStencilMaskSeparate(GL_FRONT, 0x00000001u);
+            ::glStencilMaskSeparate(GL_BACK, 0x00000002u);
+            ::glStencilOpSeparate(GL_FRONT, GL_REPLACE, GL_INCR, GL_DECR);
+            ::glStencilOpSeparate(GL_BACK, GL_INVERT, GL_ZERO, GL_REPLACE);
             ::glEnable(GL_CULL_FACE);
             ::glCullFace(GL_FRONT);
             ::glFrontFace(GL_CW);
@@ -313,9 +323,89 @@ namespace OloEngine::Tests
         ::glGetBooleanv(GL_BLEND, &blend);
         EXPECT_EQ(blend, GL_FALSE) << "Blend not restored";
 
+        GLint blendSrcRgb = 0;
+        ::glGetIntegerv(GL_BLEND_SRC_RGB, &blendSrcRgb);
+        EXPECT_EQ(blendSrcRgb, GL_ONE) << "BlendSrcRgb not restored";
+
+        GLint blendDstRgb = 0;
+        ::glGetIntegerv(GL_BLEND_DST_RGB, &blendDstRgb);
+        EXPECT_EQ(blendDstRgb, GL_ZERO) << "BlendDstRgb not restored";
+
+        GLint blendSrcAlpha = 0;
+        ::glGetIntegerv(GL_BLEND_SRC_ALPHA, &blendSrcAlpha);
+        EXPECT_EQ(blendSrcAlpha, GL_ONE) << "BlendSrcAlpha not restored";
+
+        GLint blendDstAlpha = 0;
+        ::glGetIntegerv(GL_BLEND_DST_ALPHA, &blendDstAlpha);
+        EXPECT_EQ(blendDstAlpha, GL_ZERO) << "BlendDstAlpha not restored";
+
+        GLint blendEqRgb = 0;
+        ::glGetIntegerv(GL_BLEND_EQUATION_RGB, &blendEqRgb);
+        EXPECT_EQ(blendEqRgb, GL_FUNC_ADD) << "BlendEquationRgb not restored";
+
+        GLint blendEqAlpha = 0;
+        ::glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &blendEqAlpha);
+        EXPECT_EQ(blendEqAlpha, GL_FUNC_ADD) << "BlendEquationAlpha not restored";
+
         GLboolean stencil = GL_TRUE;
         ::glGetBooleanv(GL_STENCIL_TEST, &stencil);
         EXPECT_EQ(stencil, GL_FALSE) << "StencilTest not restored";
+
+        GLint stencilFunc = 0;
+        ::glGetIntegerv(GL_STENCIL_FUNC, &stencilFunc);
+        EXPECT_EQ(stencilFunc, GL_ALWAYS) << "StencilFunc not restored";
+
+        GLint stencilRef = -1;
+        ::glGetIntegerv(GL_STENCIL_REF, &stencilRef);
+        EXPECT_EQ(stencilRef, 0) << "StencilRef not restored";
+
+        GLint stencilMask = 0;
+        ::glGetIntegerv(GL_STENCIL_VALUE_MASK, &stencilMask);
+        EXPECT_EQ(static_cast<u32>(stencilMask), 0xFFu) << "StencilValueMask not restored";
+
+        GLint stencilBackFunc = 0;
+        ::glGetIntegerv(GL_STENCIL_BACK_FUNC, &stencilBackFunc);
+        EXPECT_EQ(stencilBackFunc, GL_ALWAYS) << "StencilBackFunc not restored";
+
+        GLint stencilBackRef = -1;
+        ::glGetIntegerv(GL_STENCIL_BACK_REF, &stencilBackRef);
+        EXPECT_EQ(stencilBackRef, 0) << "StencilBackRef not restored";
+
+        GLint stencilBackValueMask = 0;
+        ::glGetIntegerv(GL_STENCIL_BACK_VALUE_MASK, &stencilBackValueMask);
+        EXPECT_EQ(static_cast<u32>(stencilBackValueMask), 0xFFu) << "StencilBackValueMask not restored";
+
+        GLint stencilWriteMask = 0;
+        ::glGetIntegerv(GL_STENCIL_WRITEMASK, &stencilWriteMask);
+        EXPECT_EQ(static_cast<u32>(stencilWriteMask), 0xFFFFFFFFu) << "StencilWriteMask not restored";
+
+        GLint stencilBackWriteMask = 0;
+        ::glGetIntegerv(GL_STENCIL_BACK_WRITEMASK, &stencilBackWriteMask);
+        EXPECT_EQ(static_cast<u32>(stencilBackWriteMask), 0xFFFFFFFFu) << "StencilBackWriteMask not restored";
+
+        GLint stencilFail = 0;
+        ::glGetIntegerv(GL_STENCIL_FAIL, &stencilFail);
+        EXPECT_EQ(stencilFail, GL_KEEP) << "StencilFail not restored";
+
+        GLint stencilPassDepthFail = 0;
+        ::glGetIntegerv(GL_STENCIL_PASS_DEPTH_FAIL, &stencilPassDepthFail);
+        EXPECT_EQ(stencilPassDepthFail, GL_KEEP) << "StencilPassDepthFail not restored";
+
+        GLint stencilPassDepthPass = 0;
+        ::glGetIntegerv(GL_STENCIL_PASS_DEPTH_PASS, &stencilPassDepthPass);
+        EXPECT_EQ(stencilPassDepthPass, GL_KEEP) << "StencilPassDepthPass not restored";
+
+        GLint stencilBackFail = 0;
+        ::glGetIntegerv(GL_STENCIL_BACK_FAIL, &stencilBackFail);
+        EXPECT_EQ(stencilBackFail, GL_KEEP) << "StencilBackFail not restored";
+
+        GLint stencilBackPassDepthFail = 0;
+        ::glGetIntegerv(GL_STENCIL_BACK_PASS_DEPTH_FAIL, &stencilBackPassDepthFail);
+        EXPECT_EQ(stencilBackPassDepthFail, GL_KEEP) << "StencilBackPassDepthFail not restored";
+
+        GLint stencilBackPassDepthPass = 0;
+        ::glGetIntegerv(GL_STENCIL_BACK_PASS_DEPTH_PASS, &stencilBackPassDepthPass);
+        EXPECT_EQ(stencilBackPassDepthPass, GL_KEEP) << "StencilBackPassDepthPass not restored";
 
         GLboolean cull = GL_TRUE;
         ::glGetBooleanv(GL_CULL_FACE, &cull);
@@ -331,7 +421,8 @@ namespace OloEngine::Tests
 
         GLint polyMode[2] = { 0, 0 };
         ::glGetIntegerv(GL_POLYGON_MODE, polyMode);
-        EXPECT_EQ(polyMode[0], GL_FILL) << "PolygonMode not restored";
+        EXPECT_EQ(polyMode[0], GL_FILL) << "PolygonMode[0] not restored";
+        EXPECT_EQ(polyMode[1], GL_FILL) << "PolygonMode[1] not restored";
 
         GLboolean scissor = GL_TRUE;
         ::glGetBooleanv(GL_SCISSOR_TEST, &scissor);
