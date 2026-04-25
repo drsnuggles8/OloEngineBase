@@ -265,6 +265,13 @@ namespace OloEngine::Tests
         spec.Attachments = { FramebufferTextureFormat::RGBA8 };
         auto fb = Framebuffer::Create(spec);
 
+        // Real (empty) GL program + VAO so the guard has non-zero values to
+        // restore back to zero. Otherwise glUseProgram(0)/glBindVertexArray(0)
+        // inside ApplyCore() is a no-op against an entry of zero.
+        const GLuint program = ::glCreateProgram();
+        GLuint vao = 0;
+        ::glGenVertexArrays(1, &vao);
+
         {
             GLStateGuard guard("RestoreCoreRegion", GLStateGuard::Policy::Restore);
 
@@ -285,6 +292,8 @@ namespace OloEngine::Tests
             ::glScissor(1, 2, 3, 4);
             ::glViewport(7, 8, 9, 10);
             fb->Bind();
+            ::glUseProgram(program);
+            ::glBindVertexArray(vao);
         } // guard dtor → ApplyCore()
 
         // ---- Assert: every restored core field matches the entry snapshot.
@@ -350,13 +359,17 @@ namespace OloEngine::Tests
         ::glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &readFbo);
         EXPECT_EQ(readFbo, 0) << "ReadFBO not restored";
 
-        GLint program = 1;
-        ::glGetIntegerv(GL_CURRENT_PROGRAM, &program);
-        EXPECT_EQ(program, 0) << "ActiveProgram not restored";
+        GLint currentProgram = 1;
+        ::glGetIntegerv(GL_CURRENT_PROGRAM, &currentProgram);
+        EXPECT_EQ(currentProgram, 0) << "ActiveProgram not restored";
 
-        GLint vao = 1;
-        ::glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
-        EXPECT_EQ(vao, 0) << "VAO not restored";
+        GLint currentVao = 1;
+        ::glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &currentVao);
+        EXPECT_EQ(currentVao, 0) << "VAO not restored";
+
+        // Cleanup the program + VAO created above.
+        ::glDeleteProgram(program);
+        ::glDeleteVertexArrays(1, &vao);
     }
 
     // =========================================================================
@@ -400,26 +413,38 @@ namespace OloEngine::Tests
         // ---- Assert: a leak-diagnostic line was emitted. The ringbuffer
         //      holds the last N formatted messages from the core logger; the
         //      destructor logs a "GLStateGuard[RestoreLeakRegion]" warning
-        //      plus one indented line per diff entry (Texture2D[6] and
-        //      UBO[13]). Scan the tail of the ringbuffer for those markers.
-        //      Can't use a baseline size here — the ringbuffer evicts older
-        //      messages as new ones arrive, so size is clamped to capacity.
+        //      header followed by one indented line per diff entry. To
+        //      avoid spuriously matching stale diagnostics from earlier
+        //      tests, locate the header first and scan only messages AFTER
+        //      it for the per-slot leak entries.
         const auto messages = Log::Get().GetRecentLogMessages();
 
-        const auto containsSubstr = [&messages](std::string_view needle)
+        sizet headerIdx = static_cast<sizet>(-1);
+        for (sizet i = 0; i < messages.size(); ++i)
         {
-            for (const auto& line : messages)
+            if (messages[i].find("GLStateGuard[RestoreLeakRegion]") != std::string::npos)
+                headerIdx = i;
+        }
+        ASSERT_NE(headerIdx, static_cast<sizet>(-1))
+            << "expected leak-header log line from Policy::Restore dtor";
+
+        const auto containsAfterHeader = [&messages, headerIdx](std::string_view needle)
+        {
+            for (sizet i = headerIdx + 1; i < messages.size(); ++i)
             {
-                if (line.find(needle) != std::string::npos)
+                if (messages[i].find(needle) != std::string::npos)
                     return true;
             }
             return false;
         };
 
-        EXPECT_TRUE(containsSubstr("GLStateGuard[RestoreLeakRegion]"))
-            << "expected leak-header log line from Policy::Restore dtor";
-        EXPECT_TRUE(containsSubstr("Texture2D[6]") || containsSubstr("UBO[13]"))
-            << "expected per-slot leak diagnostic in log";
+        // Both the texture and UBO leaks must be reported under THIS guard's
+        // header — not the || alternative which would tolerate a missing
+        // diagnostic for either slot.
+        EXPECT_TRUE(containsAfterHeader("Texture2D[6]"))
+            << "expected Texture2D[6] leak diagnostic following guard header";
+        EXPECT_TRUE(containsAfterHeader("UBO[13]"))
+            << "expected UBO[13] leak diagnostic following guard header";
 
         // Cleanup.
         ::glBindTextureUnit(6, 0);

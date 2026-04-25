@@ -498,7 +498,21 @@ namespace
         Ref<DeclarativeStubPass> Final;
     };
 
-    void BuildPathTopology(ConfiguredGraphFixture& f, bool deferred, bool enableSelectionOutline = false)
+    // At runtime exactly one of SSAO / GTAO runs (selected by DeferredSettings,
+    // mutually-exclusive). Keep the test topology faithful to that contract:
+    // declaring both AO passes would create a synthetic AOBuffer WAW that
+    // production never hits, and serialising them with a test-only
+    // SSAO -> GTAO edge would mask real production WAW regressions on that
+    // resource. Instead, BuildPathTopology takes an AOMode parameter and adds
+    // exactly one AO pass per call — matching ConfigureRenderGraph.
+    enum class AOMode : u8
+    {
+        SSAO,
+        GTAO
+    };
+
+    void BuildPathTopology(ConfiguredGraphFixture& f, bool deferred, bool enableSelectionOutline = false,
+                           AOMode aoMode = AOMode::SSAO)
     {
         f.Shadow = AddDeclStub(f.Graph, "ShadowPass");
         f.Shadow->TestDeclareWrite(std::string(ResourceNames::ShadowMapCSM));
@@ -550,15 +564,24 @@ namespace
         f.Decal->TestDeclareRead(std::string(ResourceNames::SceneDepth));
         f.Decal->TestDeclareWrite(std::string(ResourceNames::SceneColor));
 
-        f.SSAO = AddDeclStub(f.Graph, "SSAOPass");
-        f.SSAO->TestDeclareRead(std::string(ResourceNames::SceneDepth));
-        f.SSAO->TestDeclareRead(std::string(ResourceNames::SceneNormals));
-        f.SSAO->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
-
-        f.GTAO = AddDeclStub(f.Graph, "GTAOPass");
-        f.GTAO->TestDeclareRead(std::string(ResourceNames::SceneDepth));
-        f.GTAO->TestDeclareRead(std::string(ResourceNames::SceneNormals));
-        f.GTAO->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
+        // Mutually-exclusive AO selection: declare exactly the pass that
+        // production would run for the selected mode. The other Ref<>
+        // remains null in the fixture so tests assert on the correct
+        // declaration.
+        if (aoMode == AOMode::SSAO)
+        {
+            f.SSAO = AddDeclStub(f.Graph, "SSAOPass");
+            f.SSAO->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+            f.SSAO->TestDeclareRead(std::string(ResourceNames::SceneNormals));
+            f.SSAO->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
+        }
+        else
+        {
+            f.GTAO = AddDeclStub(f.Graph, "GTAOPass");
+            f.GTAO->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+            f.GTAO->TestDeclareRead(std::string(ResourceNames::SceneNormals));
+            f.GTAO->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
+        }
 
         f.Particle = AddDeclStub(f.Graph, "ParticlePass");
         // Particle OIT shares the same accumulation buffers as water, then
@@ -619,17 +642,12 @@ namespace
         f.Graph.AddExecutionDependency("ScenePass", "FoliagePass");
         f.Graph.AddExecutionDependency("FoliagePass", "DecalPass");
         f.Graph.AddExecutionDependency("DecalPass", "WaterPass");
-        f.Graph.AddExecutionDependency("WaterPass", "SSAOPass");
-        f.Graph.AddExecutionDependency("DecalPass", "SSAOPass");
-        f.Graph.AddExecutionDependency("SSAOPass", "ParticlePass");
-        f.Graph.AddExecutionDependency("WaterPass", "GTAOPass");
-        f.Graph.AddExecutionDependency("DecalPass", "GTAOPass");
-        // At runtime only one of SSAO/GTAO runs (selected by DeferredSettings);
-        // the stub version has both declaring writes to AOBuffer. Serialise
-        // them to avoid a spurious WAW hazard — the real production pipeline
-        // is guarded by the one-at-a-time runtime toggle.
-        f.Graph.AddExecutionDependency("SSAOPass", "GTAOPass");
-        f.Graph.AddExecutionDependency("GTAOPass", "ParticlePass");
+        // Wire the single active AO pass into the chain. ConfigureRenderGraph
+        // installs identical edges for whichever AO pass is selected.
+        const char* const aoName = (aoMode == AOMode::SSAO) ? "SSAOPass" : "GTAOPass";
+        f.Graph.AddExecutionDependency("WaterPass", aoName);
+        f.Graph.AddExecutionDependency("DecalPass", aoName);
+        f.Graph.AddExecutionDependency(aoName, "ParticlePass");
         f.Graph.ConnectPass("ParticlePass", "OITResolvePass");
         f.Graph.ConnectPass("OITResolvePass", "SSSPass");
         f.Graph.ConnectPass("SSSPass", "PostProcessPass");
@@ -871,11 +889,12 @@ TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
 
             // Opaque-decal graph shim — mirrors ConfigureRenderGraph so
             // the rebuild test exercises the same pass set + edges as
-            // production when switching back into Deferred.
+            // production when switching back into Deferred. Resource
+            // contract matches BuildPathTopology / DeferredOpaqueDecalPass::Init:
+            // reads SceneDepth, writes SceneColor (does NOT read SceneNormals).
             auto decal = Ref<DeclarativeStubPass>::Create("DeferredOpaqueDecalPass");
             decal->SetName("DeferredOpaqueDecalPass");
             decal->TestDeclareRead(std::string(ResourceNames::SceneDepth));
-            decal->TestDeclareRead(std::string(ResourceNames::SceneNormals));
             decal->TestDeclareWrite(std::string(ResourceNames::SceneColor));
             graph.AddPass(decal);
 

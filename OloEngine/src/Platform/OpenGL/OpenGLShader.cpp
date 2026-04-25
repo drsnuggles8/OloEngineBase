@@ -1465,6 +1465,13 @@ namespace OloEngine
         // voxel GBuffer variants).
         if (stage == GL_FRAGMENT_SHADER)
         {
+            // Reset before scanning so a Reload()/recompile that drops all
+            // G-Buffer outputs correctly downgrades the shader from
+            // deferred-capable to forward-only. Without this, a stale `true`
+            // from a prior compile would persist for the lifetime of the
+            // OpenGLShader instance.
+            m_IsDeferredCapable = false;
+
             // Marker prefixes / full names. Using string_view to avoid
             // per-shader heap allocations; inputs from SPIR-V reflection
             // are plain std::string.

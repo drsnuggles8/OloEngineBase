@@ -170,9 +170,11 @@ namespace OloEngine
             Assert,
             // On destruction, restore the core state subset via
             // `GLStateSnapshot::ApplyCore()` and log any field that was
-            // already restored by the caller (so the log still flags
-            // leaks; the apply is idempotent). Use this when a pass does
-            // enough state flipping that a manual restore is error-prone.
+            // still leaked at the exit snapshot (i.e., not restored by
+            // the caller). The log surfaces remaining leaks so passes
+            // can be tightened over time; ApplyCore() then rolls back
+            // those fields. Use this when a pass does enough state
+            // flipping that a manual restore is error-prone.
             Restore,
             // Skip the compare entirely — used to temporarily disable a
             // known-leaking region without removing the guard.
