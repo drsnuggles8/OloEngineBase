@@ -721,6 +721,37 @@ TEST(RenderGraphConfigureTopology, DeferredPathWithSelectionOutlineIsHazardFree)
     EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
 }
 
+TEST(RenderGraphConfigureTopology, ForwardPathWithGTAOIsHazardFree)
+{
+    // GTAO branch coverage: existing tests only exercise BuildPathTopology
+    // with the default AOMode::SSAO, leaving the GTAO wiring path untested.
+    // Validate that BuildPathTopology(..., AOMode::GTAO) produces a
+    // hazard-free graph and wires the correct stub (GTAO populated, SSAO null).
+    ConfiguredGraphFixture f;
+    BuildPathTopology(f, /*deferred=*/false, /*enableSelectionOutline=*/false, AOMode::GTAO);
+    const auto hazards = f.Graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(static_cast<bool>(f.GTAO))
+        << "GTAO stub must be populated when AOMode::GTAO is selected";
+    EXPECT_FALSE(static_cast<bool>(f.SSAO))
+        << "SSAO stub must remain null when AOMode::GTAO is selected";
+}
+
+TEST(RenderGraphConfigureTopology, DeferredPathWithGTAOIsHazardFree)
+{
+    // GTAO deferred-path coverage: validate that the GTAO branch works
+    // correctly in the deferred rendering path, including the extra edges
+    // for DeferredLightingPass and ForwardOverlayPass.
+    ConfiguredGraphFixture f;
+    BuildPathTopology(f, /*deferred=*/true, /*enableSelectionOutline=*/false, AOMode::GTAO);
+    const auto hazards = f.Graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+    EXPECT_TRUE(static_cast<bool>(f.GTAO))
+        << "GTAO stub must be populated when AOMode::GTAO is selected";
+    EXPECT_FALSE(static_cast<bool>(f.SSAO))
+        << "SSAO stub must remain null when AOMode::GTAO is selected";
+}
+
 // =============================================================================
 // Regression coverage for DeferredOpaqueDecalPass: the opaque decal drain was
 // previously a synchronous side-effect of SceneRenderPass::Execute(); it was
@@ -868,12 +899,10 @@ TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
         // topology is intentional to exercise ResetTopology() leak detection
         // in ResourceHazardValidationTests.
         auto shadow = Ref<DeclarativeStubPass>::Create("ShadowPass");
-        shadow->SetName("ShadowPass");
         shadow->TestDeclareWrite(std::string(ResourceNames::ShadowMapCSM));
         graph.AddPass(shadow);
 
         auto scene = Ref<DeclarativeStubPass>::Create("ScenePass");
-        scene->SetName("ScenePass");
         scene->TestDeclareRead(std::string(ResourceNames::ShadowMapCSM));
         scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
         scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
@@ -887,7 +916,6 @@ TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
         if (deferred)
         {
             auto deferredLight = Ref<DeclarativeStubPass>::Create("DeferredLightingPass");
-            deferredLight->SetName("DeferredLightingPass");
             deferredLight->TestDeclareRead(std::string(ResourceNames::SceneDepth));
             deferredLight->TestDeclareRead(std::string(ResourceNames::SceneNormals));
             deferredLight->TestDeclareWrite(std::string(ResourceNames::SceneColor));
@@ -899,7 +927,6 @@ TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
             // contract matches BuildPathTopology / DeferredOpaqueDecalPass::Init:
             // reads SceneDepth, writes SceneColor (does NOT read SceneNormals).
             auto decal = Ref<DeclarativeStubPass>::Create("DeferredOpaqueDecalPass");
-            decal->SetName("DeferredOpaqueDecalPass");
             decal->TestDeclareRead(std::string(ResourceNames::SceneDepth));
             decal->TestDeclareWrite(std::string(ResourceNames::SceneColor));
             graph.AddPass(decal);
@@ -910,7 +937,6 @@ TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
         }
 
         auto final = Ref<DeclarativeStubPass>::Create("FinalPass");
-        final->SetName("FinalPass");
         final->TestDeclareRead(std::string(ResourceNames::SceneColor));
         graph.AddPass(final);
 
