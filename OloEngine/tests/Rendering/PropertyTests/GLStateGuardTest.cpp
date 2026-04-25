@@ -418,9 +418,10 @@ namespace OloEngine::Tests
         //      tests, locate the header first and scan only messages AFTER
         //      it for the per-slot leak entries.
         const auto messages = Log::Get().GetRecentLogMessages();
+        const sizet messageCount = messages.size();
 
         sizet headerIdx = static_cast<sizet>(-1);
-        for (sizet i = 0; i < messages.size(); ++i)
+        for (sizet i = 0; i < messageCount; ++i)
         {
             if (messages[i].find("GLStateGuard[RestoreLeakRegion]") != std::string::npos)
                 headerIdx = i;
@@ -428,9 +429,9 @@ namespace OloEngine::Tests
         ASSERT_NE(headerIdx, static_cast<sizet>(-1))
             << "expected leak-header log line from Policy::Restore dtor";
 
-        const auto containsAfterHeader = [&messages, headerIdx](std::string_view needle)
+        const auto containsAfterHeader = [&messages, headerIdx, messageCount](std::string_view needle)
         {
-            for (sizet i = headerIdx + 1; i < messages.size(); ++i)
+            for (sizet i = headerIdx + 1; i < messageCount; ++i)
             {
                 if (messages[i].find(needle) != std::string::npos)
                     return true;

@@ -550,7 +550,7 @@ namespace
         f.Water = AddDeclStub(f.Graph, "WaterPass");
         f.Water->TestDeclareRead(std::string(ResourceNames::SceneDepth));
         // In weighted-blended OIT mode the water pass writes into the shared
-        // OIT accumulation / revealage attachments rather than SceneColor \u2014
+        // OIT accumulation / revealage attachments rather than SceneColor —
         // SceneColor is only modified later when OITResolvePass composites
         // the accum buffer back onto the scene framebuffer. Modelling both
         // writes lets the L5 validator catch a missing Water -> OITResolve
@@ -859,8 +859,14 @@ TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
     auto buildOn = [&graph](bool deferred)
     {
         graph.ResetTopology();
-        // Same sequence BuildPathTopology uses — inlined here to reuse the
+        // Simplified subset of BuildPathTopology — inlined here to reuse the
         // single graph instance rather than a fresh per-cycle RenderGraph.
+        // buildOn constructs only 3–5 passes (Shadow, Scene, optional
+        // DeferredLighting/DeferredOpaqueDecal, Final) compared to
+        // BuildPathTopology's 15+ passes (Foliage, Water, AO, Particle,
+        // OITResolve, SSS, PostProcess, UIComposite, etc.). The reduced
+        // topology is intentional to exercise ResetTopology() leak detection
+        // in ResourceHazardValidationTests.
         auto shadow = Ref<DeclarativeStubPass>::Create("ShadowPass");
         shadow->SetName("ShadowPass");
         shadow->TestDeclareWrite(std::string(ResourceNames::ShadowMapCSM));
