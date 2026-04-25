@@ -12,12 +12,15 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    // Drives the velocity output on scene FB RT3 so TAA reprojects the
+    // world-static grid correctly under camera motion. The reconstructed
+    // fragPos3D is static in world space, so the NDC delta captures exactly
+    // the motion induced by the camera.
+    mat4 u_PrevViewProjection;
 };
 
 layout(location = 0) out vec3 v_NearPoint;
 layout(location = 1) out vec3 v_FarPoint;
-layout(location = 2) out mat4 v_View;
-layout(location = 6) out mat4 v_Projection;
 
 // Unproject a point from clip space to world space
 vec3 UnprojectPoint(float x, float y, float z, mat4 viewInverse, mat4 projInverse) {
@@ -34,9 +37,6 @@ void main() {
     v_NearPoint = UnprojectPoint(a_Position.x, a_Position.y, -1.0, viewInverse, projInverse);
     v_FarPoint = UnprojectPoint(a_Position.x, a_Position.y, 1.0, viewInverse, projInverse);
 
-    v_View = u_View;
-    v_Projection = u_Projection;
-
     gl_Position = vec4(a_Position, 1.0);
 }
 
@@ -45,12 +45,21 @@ void main() {
 
 layout(location = 0) in vec3 v_NearPoint;
 layout(location = 1) in vec3 v_FarPoint;
-layout(location = 2) in mat4 v_View;
-layout(location = 6) in mat4 v_Projection;
 
 layout(location = 0) out vec4 FragColor;
 layout(location = 1) out int EntityID;
 layout(location = 2) out vec2 o_ViewNormal;
+// Scene FB RT3 velocity — grid is world-static, so NDC delta = camera motion.
+layout(location = 3) out vec2 o_Velocity;
+
+layout(std140, binding = 0) uniform CameraMatrices {
+    mat4 u_ViewProjection;
+    mat4 u_View;
+    mat4 u_Projection;
+    vec3 u_CameraPosition;
+    float _padding0;
+    mat4 u_PrevViewProjection;
+};
 
 // Grid settings (hardcoded for now - could be passed via uniform block if needed)
 const float c_GridScale = 1.0;
@@ -81,7 +90,7 @@ vec4 Grid(vec3 fragPos3D, float scale, bool drawAxis) {
 }
 
 float ComputeDepth(vec3 pos) {
-    vec4 clipSpacePos = v_Projection * v_View * vec4(pos, 1.0);
+    vec4 clipSpacePos = u_ViewProjection * vec4(pos, 1.0);
     // Convert from NDC [-1, 1] to depth buffer range [0, 1]
     return (clipSpacePos.z / clipSpacePos.w) * 0.5 + 0.5;
 }
@@ -89,7 +98,7 @@ float ComputeDepth(vec3 pos) {
 float ComputeLinearDepth(vec3 pos) {
     float near = 0.01;
     float far = 1000.0;
-    vec4 clipSpacePos = v_Projection * v_View * vec4(pos, 1.0);
+    vec4 clipSpacePos = u_ViewProjection * vec4(pos, 1.0);
     float clipSpaceDepth = clipSpacePos.z / clipSpacePos.w;
     float linearDepth = (2.0 * near * far) / (far + near - clipSpaceDepth * (far - near));
     return linearDepth / far; // Normalize
@@ -127,6 +136,14 @@ void main() {
         gl_FragDepth = depth;
         EntityID = -1;  // Grid is not pickable
         o_ViewNormal = vec2(-2.0);
+
+        // Scene FB RT3 velocity. The grid is anchored in world space, so
+        // current/previous clip positions differ only by camera motion.
+        vec4 clipCurr = u_ViewProjection     * vec4(fragPos3D, 1.0);
+        vec4 clipPrev = u_PrevViewProjection * vec4(fragPos3D, 1.0);
+        vec2 ndcCurr = clipCurr.xy / clipCurr.w;
+        vec2 ndcPrev = clipPrev.xy / clipPrev.w;
+        o_Velocity = (ndcCurr - ndcPrev) * 0.5;
     } else {
         discard;
     }

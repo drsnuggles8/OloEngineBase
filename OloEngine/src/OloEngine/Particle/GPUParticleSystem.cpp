@@ -28,6 +28,7 @@ namespace OloEngine
           m_FreeListSSBO(std::move(other.m_FreeListSSBO)),
           m_IndirectDrawSSBO(std::move(other.m_IndirectDrawSSBO)),
           m_EmitStagingSSBO(std::move(other.m_EmitStagingSSBO)),
+          m_PrevPositionSSBO(std::move(other.m_PrevPositionSSBO)),
           m_EmitShader(std::move(other.m_EmitShader)),
           m_SimulateShader(std::move(other.m_SimulateShader)),
           m_CompactShader(std::move(other.m_CompactShader)),
@@ -50,6 +51,7 @@ namespace OloEngine
             m_FreeListSSBO = std::move(other.m_FreeListSSBO);
             m_IndirectDrawSSBO = std::move(other.m_IndirectDrawSSBO);
             m_EmitStagingSSBO = std::move(other.m_EmitStagingSSBO);
+            m_PrevPositionSSBO = std::move(other.m_PrevPositionSSBO);
             m_EmitShader = std::move(other.m_EmitShader);
             m_SimulateShader = std::move(other.m_SimulateShader);
             m_CompactShader = std::move(other.m_CompactShader);
@@ -104,6 +106,19 @@ namespace OloEngine
             MAX_EMIT_BATCH * GPUParticle::GetSize(),
             ShaderBindingLayout::SSBO_EMIT_STAGING,
             StorageBufferUsage::DynamicDraw);
+
+        // Previous-frame particle snapshot. Each slot carries:
+        //   - prev position (vec4 xyz; w unused)
+        //   - prev rotation + size (vec4 x = rot, y = size; zw unused)
+        // Written by Particle_Simulate.comp at the start of each frame before
+        // integration, and by Particle_Emit.comp on spawn so newly-emitted
+        // particles emit zero per-particle motion on their first render.
+        // Matches PrevParticleData struct layout in Particle_{Emit,Simulate,Billboard_GPU}.glsl.
+        m_PrevPositionSSBO = StorageBuffer::Create(
+            maxParticles * 2 * sizeof(glm::vec4),
+            ShaderBindingLayout::SSBO_GPU_PARTICLES_PREV,
+            StorageBufferUsage::DynamicCopy);
+        m_PrevPositionSSBO->ClearData();
 
         // Initialize free list: all slots are free [0, 1, 2, ..., maxParticles-1]
         std::vector<u32> freeListInit(maxParticles);
@@ -172,6 +187,7 @@ namespace OloEngine
         m_FreeListSSBO = nullptr;
         m_IndirectDrawSSBO = nullptr;
         m_EmitStagingSSBO = nullptr;
+        m_PrevPositionSSBO = nullptr;
         m_EmitShader = nullptr;
         m_SimulateShader = nullptr;
         m_CompactShader = nullptr;
@@ -198,6 +214,7 @@ namespace OloEngine
         m_ParticleSSBO->Bind();
         m_CounterSSBO->Bind();
         m_FreeListSSBO->Bind();
+        m_PrevPositionSSBO->Bind();
 
         // Dispatch emission compute
         m_EmitShader->Bind();
@@ -220,6 +237,7 @@ namespace OloEngine
 
         // Bind SSBOs
         m_ParticleSSBO->Bind();
+        m_PrevPositionSSBO->Bind();
 
         // Set simulation uniforms
         m_SimulateShader->Bind();

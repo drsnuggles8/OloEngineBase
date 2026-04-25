@@ -18,6 +18,11 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    // Previous-frame VP for scene FB RT3 velocity. Wave displacement itself is
+    // reprojected by re-evaluating sumGerstnerWaves() at `u_NormalMapSpeed.z`
+    // (= prev animation time) in VS/TES so the motion vector captures on-
+    // surface wave motion, not just camera and rigid motion.
+    mat4 u_PrevViewProjection;
 };
 
 // Model UBO (binding 3)
@@ -29,6 +34,7 @@ layout(std140, binding = 3) uniform ModelMatrices
     int _paddingEntity0;
     int _paddingEntity1;
     int _paddingEntity2;
+    mat4 u_PrevModel;
 };
 
 // Water UBO (binding 23)
@@ -62,12 +68,16 @@ layout(location = 3) out vec3 v_ViewDir;
 layout(location = 4) out vec3 v_Tangent;
 layout(location = 5) out vec3 v_Bitangent;
 layout(location = 6) out float v_WaveHeight;
+// Previous-frame world position (wave + model reprojection) for RT3 velocity.
+layout(location = 7) out vec3 v_PrevWorldPos;
 
 void main()
 {
     vec4 worldPos = u_Model * vec4(a_Position, 1.0);
+    vec4 worldPosPrev = u_PrevModel * vec4(a_Position, 1.0);
 
-    float time = u_WaveParams.x * u_WaveParams.y; // Time * WaveSpeed
+    float time = u_WaveParams.x * u_WaveParams.y;                   // Time * WaveSpeed
+    float prevTime = u_NormalMapSpeed.z * u_WaveParams.y;            // PrevTime * WaveSpeed
     float amplitude = u_WaveParams.z;
     float frequency = u_WaveParams.w;
 
@@ -76,6 +86,7 @@ void main()
     if (u_TessParams.x > 0.0)
     {
         v_WorldPos = worldPos.xyz;
+        v_PrevWorldPos = worldPosPrev.xyz; // TES will re-displace
         v_Normal = vec3(0.0, 1.0, 0.0);
         v_TexCoord = a_TexCoord;
         v_ViewDir = normalize(u_CameraPosition - worldPos.xyz);
@@ -93,6 +104,17 @@ void main()
         frequency, amplitude,
         displacedNormal
     );
+
+    // Prev-frame displaced position — same Gerstner sum evaluated at prev time
+    // through the prev model transform so the motion vector captures wave sway.
+    vec3 _prevNormalUnused;
+    vec3 displacedPosPrev = sumGerstnerWaves(
+        worldPosPrev.xyz, prevTime,
+        u_WaveDir0, u_WaveDir1,
+        frequency, amplitude,
+        _prevNormalUnused
+    );
+    v_PrevWorldPos = displacedPosPrev;
 
     // Normalized wave height [-1, 1] for foam/SSS
     float maxAmplitude = max(amplitude, 0.001);
@@ -127,6 +149,7 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 u_PrevViewProjection;
 };
 
 layout(std140, binding = 23) uniform WaterParams
@@ -157,10 +180,12 @@ layout(location = 3) in vec3 v_ViewDir[];
 layout(location = 4) in vec3 v_Tangent[];
 layout(location = 5) in vec3 v_Bitangent[];
 layout(location = 6) in float v_WaveHeight[];
+layout(location = 7) in vec3 v_PrevWorldPos[];
 
 layout(location = 0) out vec3 tc_WorldPos[];
 layout(location = 1) out vec3 tc_Normal[];
 layout(location = 2) out vec2 tc_TexCoord[];
+layout(location = 3) out vec3 tc_PrevWorldPos[];
 
 float calcTessLevel(vec3 p0, vec3 p1)
 {
@@ -181,6 +206,7 @@ void main()
     tc_WorldPos[gl_InvocationID] = v_WorldPos[gl_InvocationID];
     tc_Normal[gl_InvocationID] = v_Normal[gl_InvocationID];
     tc_TexCoord[gl_InvocationID] = v_TexCoord[gl_InvocationID];
+    tc_PrevWorldPos[gl_InvocationID] = v_PrevWorldPos[gl_InvocationID];
 
     if (gl_InvocationID == 0)
     {
@@ -210,6 +236,7 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 u_PrevViewProjection;
 };
 
 layout(std140, binding = 3) uniform ModelMatrices
@@ -220,6 +247,7 @@ layout(std140, binding = 3) uniform ModelMatrices
     int _paddingEntity0;
     int _paddingEntity1;
     int _paddingEntity2;
+    mat4 u_PrevModel;
 };
 
 layout(std140, binding = 23) uniform WaterParams
@@ -248,6 +276,7 @@ layout(std140, binding = 23) uniform WaterParams
 layout(location = 0) in vec3 tc_WorldPos[];
 layout(location = 1) in vec3 tc_Normal[];
 layout(location = 2) in vec2 tc_TexCoord[];
+layout(location = 3) in vec3 tc_PrevWorldPos[];
 
 layout(location = 0) out vec3 v_WorldPos;
 layout(location = 1) out vec3 v_Normal;
@@ -256,6 +285,7 @@ layout(location = 3) out vec3 v_ViewDir;
 layout(location = 4) out vec3 v_Tangent;
 layout(location = 5) out vec3 v_Bitangent;
 layout(location = 6) out float v_WaveHeight;
+layout(location = 7) out vec3 v_PrevWorldPos;
 
 void main()
 {
@@ -263,12 +293,16 @@ void main()
     vec3 pos = gl_TessCoord.x * tc_WorldPos[0]
              + gl_TessCoord.y * tc_WorldPos[1]
              + gl_TessCoord.z * tc_WorldPos[2];
+    vec3 posPrev = gl_TessCoord.x * tc_PrevWorldPos[0]
+                 + gl_TessCoord.y * tc_PrevWorldPos[1]
+                 + gl_TessCoord.z * tc_PrevWorldPos[2];
     vec2 uv = gl_TessCoord.x * tc_TexCoord[0]
             + gl_TessCoord.y * tc_TexCoord[1]
             + gl_TessCoord.z * tc_TexCoord[2];
 
     // Apply Gerstner wave displacement
     float time = u_WaveParams.x * u_WaveParams.y;
+    float prevTime = u_NormalMapSpeed.z * u_WaveParams.y;
     float amplitude = u_WaveParams.z;
     float frequency = u_WaveParams.w;
 
@@ -279,6 +313,16 @@ void main()
         frequency, amplitude,
         displacedNormal
     );
+
+    // Prev-frame displacement for velocity reprojection
+    vec3 _prevNormalUnused;
+    vec3 displacedPosPrev = sumGerstnerWaves(
+        posPrev, prevTime,
+        u_WaveDir0, u_WaveDir1,
+        frequency, amplitude,
+        _prevNormalUnused
+    );
+    v_PrevWorldPos = displacedPosPrev;
 
     float maxAmplitude = max(amplitude, 0.001);
     v_WaveHeight = (displacedPos.y - pos.y) / maxAmplitude;
@@ -309,11 +353,17 @@ layout(location = 3) in vec3 v_ViewDir;
 layout(location = 4) in vec3 v_Tangent;
 layout(location = 5) in vec3 v_Bitangent;
 layout(location = 6) in float v_WaveHeight;
+layout(location = 7) in vec3 v_PrevWorldPos;
 
 // MRT outputs matching SceneRenderPass format
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
 layout(location = 2) out vec2 o_ViewNormal;
+// Scene FB RT3 velocity. Captures camera, per-object motion, AND the
+// per-fragment wave reprojection: v_PrevWorldPos carries the Gerstner sum
+// re-evaluated at `u_NormalMapSpeed.z * u_WaveParams.y` (prev time * speed)
+// in the vertex / tessellation stage, so TAA resolves moving waves cleanly.
+layout(location = 3) out vec2 o_Velocity;
 
 // Octahedral encode: unit normal -> RG16F [-1,1]^2
 vec2 octEncode(vec3 n)
@@ -332,6 +382,7 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 u_PrevViewProjection;
 };
 
 // Model UBO (binding 3) for entity ID
@@ -343,6 +394,7 @@ layout(std140, binding = 3) uniform ModelMatrices
     int _paddingEntity0;
     int _paddingEntity1;
     int _paddingEntity2;
+    mat4 u_PrevModel;
 };
 
 // Water UBO (binding 23)
@@ -355,7 +407,7 @@ layout(std140, binding = 23) uniform WaterParams
     vec4 u_WaterDeepColor;         // rgb = deep,    a = reflectivity
     vec4 u_VisualParams;           // x = FresnelPower, y = SpecularIntensity, z = NormalMapTiling, w = NoiseIntensity
     vec4 u_NormalMapScroll;        // xy = scroll0 offset, zw = scroll1 offset
-    vec4 u_NormalMapSpeed;         // x = speed0, y = speed1, z/w = unused
+    vec4 u_NormalMapSpeed;         // x = speed0, y = speed1, z = PrevTime, w = unused
     vec4 u_LightDirection;         // xyz = directional light dir, w = unused
     vec4 u_ScreenParams;           // x = width, y = height, z = 1/width, w = 1/height
     vec4 u_DepthRefractionParams;  // x = depthSoftening, y = refrDistortion, z = refrHeightFactor, w = unused
@@ -766,4 +818,13 @@ void main()
     o_Color = vec4(finalColor, transparency);
     o_EntityID = u_EntityID;
     o_ViewNormal = octEncode(normalize(mat3(u_View) * normal));
+
+    // Camera + wave-reprojection velocity. v_PrevWorldPos is the Gerstner
+    // displacement re-evaluated at prev time (packed into u_NormalMapSpeed.z)
+    // through u_PrevModel, so on-surface wave motion is captured correctly.
+    vec4 clipCurr = u_ViewProjection     * vec4(v_WorldPos,     1.0);
+    vec4 clipPrev = u_PrevViewProjection * vec4(v_PrevWorldPos, 1.0);
+    vec2 ndcCurr = clipCurr.xy / clipCurr.w;
+    vec2 ndcPrev = clipPrev.xy / clipPrev.w;
+    o_Velocity = (ndcCurr - ndcPrev) * 0.5;
 }

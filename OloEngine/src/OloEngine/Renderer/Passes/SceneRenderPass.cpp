@@ -2,10 +2,17 @@
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
+#include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionCuller.h"
+#include "OloEngine/Renderer/Passes/DecalRenderPass.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+
+#include <glad/gl.h>
 
 namespace OloEngine
 {
@@ -45,6 +52,10 @@ namespace OloEngine
         DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
         DeclareWrite(ResourceNames::SceneDepth, ResourceHandle::Kind::Framebuffer);
 
+        // Lazy-loaded — only materialised when the user actually selects the
+        // RMA debug channel for the first time (keeps Forward startup cheap).
+        m_DebugRMAShader = nullptr;
+
         OLO_CORE_INFO("SceneRenderPass: Created framebuffer with dimensions {}x{}",
                       m_FramebufferSpec.Width, m_FramebufferSpec.Height);
     }
@@ -59,11 +70,59 @@ namespace OloEngine
             return;
         }
 
-        m_Target->Bind();
+        // Deferred path: bind a 4-RT G-Buffer instead of the forward scene FB.
+        // The G-Buffer is lazily created here so Forward / Forward+ paths pay
+        // zero memory cost if Deferred is never enabled.
+        auto const& rendererSettings = Renderer3D::GetRendererSettings();
+        const bool deferredActive = (rendererSettings.Path == RenderingPath::Deferred);
+        if (deferredActive)
+        {
+            EnsureGBuffer(m_FramebufferSpec.Width, m_FramebufferSpec.Height,
+                          rendererSettings.Deferred.MSAASampleCount);
+        }
+
+        Ref<Framebuffer> renderFB = deferredActive && m_GBuffer
+                                        ? m_GBuffer->GetFramebuffer()
+                                        : m_Target;
+
+        // Even in deferred mode the *scene framebuffer* must be cleared
+        // every frame: downstream passes (WaterPass → SSR, OITResolve,
+        // ForwardOverlay) read attachments 1 (entityID) and 2 (view-space
+        // normals). In deferred we only ever write attachment 0 (via
+        // DeferredLightingPass) and blit depth, so without this clear the
+        // non-color attachments carry stale data from the previous forward
+        // session — which is exactly what breaks water SSR after a runtime
+        // `Forward` → `Deferred` switch.
+        if (deferredActive)
+        {
+            m_Target->Bind();
+            m_Target->ClearAllAttachments({ 0.1f, 0.1f, 0.1f, 1.0f }, -1);
+            m_Target->Unbind();
+        }
+
+        renderFB->Bind();
 
         // Clear all attachments properly (handles mixed integer/float attachments)
-        // This clears color attachments with the specified color, entity ID with -1, and depth/stencil
-        m_Target->ClearAllAttachments({ 0.1f, 0.1f, 0.1f, 1.0f }, -1);
+        // This clears color attachments with the specified color, entity ID with -1, and depth/stencil.
+        // In Deferred mode the entityID slot isn't present — ClearAllAttachments
+        // iterates the attachment list so it is safe either way.
+        renderFB->ClearAllAttachments({ 0.1f, 0.1f, 0.1f, 1.0f }, -1);
+
+        // Velocity RT (scene FB attachment 3 in Forward / Forward+) must clear
+        // to zero so non-PBR forward shaders that don't emit location=3 leave
+        // sky / terrain / water / particle pixels at "no motion". The generic
+        // ClearAllAttachments path uses the same colour for every float RT,
+        // which would write (0.1, 0.1) and produce bogus TAA reprojection at
+        // uncovered pixels. Also run in Deferred mode: the ForwardOverlayPass
+        // writes into this same scene-FB RT3 for skybox / terrain / infinite-
+        // grid overlays and TAA samples it there, so leaving it at 0.1 from
+        // ClearAllAttachments produces the same bogus motion at overlay pixels.
+        if (m_Target)
+        {
+            const auto& attachments = m_Target->GetSpecification().Attachments.Attachments;
+            if (attachments.size() > 3 && attachments[3].TextureFormat == FramebufferTextureFormat::RG16F)
+                m_Target->ClearAttachment(3, glm::vec4(0.0f));
+        }
 
         // Reset to default OpenGL state to ensure consistent rendering
         auto& rendererAPI = RenderCommand::GetRendererAPI();
@@ -125,11 +184,14 @@ namespace OloEngine
             OcclusionCuller::GetInstance().FlushQueuedQueries();
         }
 
-        // Forward+ light culling: dispatch compute after depth is available
+        // Forward+ light culling: dispatch compute after depth is available.
+        // Both Forward+ and Deferred (which currently aliases to Forward+ for
+        // culling in ApplyRendererSettings) read depth from the active render
+        // target, so this works identically for either FB.
         auto& forwardPlus = Renderer3D::GetForwardPlus();
         if (forwardPlus.ShouldUseForwardPlus() && depthPrepass)
         {
-            const u32 depthTexID = m_Target->GetDepthAttachmentRendererID();
+            const u32 depthTexID = renderFB->GetDepthAttachmentRendererID();
             forwardPlus.DispatchCulling(
                 Renderer3D::GetViewMatrix(),
                 Renderer3D::GetProjectionMatrix(),
@@ -175,8 +237,10 @@ namespace OloEngine
         // Unbind Forward+ SSBOs after the color pass
         if (forwardPlus.ShouldUseForwardPlus() && depthPrepass)
         {
-            // Render debug heatmap overlay before unbinding (needs grid SSBO + UBO)
-            if (forwardPlus.IsDebugVisualization())
+            // Render debug heatmap overlay before unbinding (needs grid SSBO + UBO).
+            // Skip in Deferred mode — heatmap writes to attachment 0 which is
+            // the G-Buffer albedo RT, not the scene color target.
+            if (forwardPlus.IsDebugVisualization() && !deferredActive)
             {
                 auto quadVAO = Renderer3D::GetFullscreenQuadVAO();
                 auto debugShader = Renderer3D::GetForwardPlusDebugShader();
@@ -199,7 +263,73 @@ namespace OloEngine
                 m_CommandBucket.GetLastExecuteTimeMs());
         }
 
-        m_Target->Unbind();
+        renderFB->Unbind();
+
+        // Deferred G-Buffer MSAA resolve. Two sub-modes:
+        //   1. Per-sample lighting (MSAASampleCount > 1 && PerSampleLighting)
+        //      — resolve ONLY the depth attachment so decals can sample
+        //      reconstructed world positions, while colour attachments stay
+        //      multisample for DeferredLighting_MSAA to shade per-sample.
+        //   2. Resolve-before-lighting — full resolve (colour + depth) so
+        //      the standard DeferredLighting shader samples a single-sample
+        //      copy; loses per-sample shading detail but keeps a single code
+        //      path for non-MSAA and resolve-path MSAA.
+        //   Non-MSAA always falls into #2 (Resolve is a no-op).
+        const bool perSampleLighting = deferredActive && m_GBuffer && m_GBuffer->GetSampleCount() > 1 && rendererSettings.Deferred.PerSampleLighting;
+        const bool debugNeedsColour = rendererSettings.Deferred.DebugChannel != 0;
+        if (deferredActive && m_GBuffer)
+        {
+            // When per-sample lighting is active, resolve ONLY depth here so
+            // decals can reconstruct world position from single-sample depth.
+            // Colour resolve is deferred until after decals so the debug blit
+            // (if any) sees post-decal texels. When per-sample is off, do a
+            // full resolve now — decals write into the resolved FB directly.
+            if (perSampleLighting)
+                m_GBuffer->ResolveDepthOnly();
+            else
+                m_GBuffer->Resolve();
+        }
+
+        // Deferred opaque decals are drained by the dedicated
+        // `DeferredOpaqueDecalPass` graph node (runs between ScenePass and
+        // DeferredLightingPass) — see `Renderer3D::ConfigureRenderGraph`.
+        // The pass's resource declarations make the dependency visible to
+        // the L5 hazard validator.
+        //
+        // The per-sample "post-decal colour resolve" below still runs here
+        // because it must be observable to `BlitGBufferDebug` in the same
+        // Execute() call. By the time we reach this point the graph
+        // scheduler has NOT yet executed the opaque-decal pass (this is
+        // still inside ScenePass), so the debug blit will see *pre-decal*
+        // colour in per-sample + debug-channel mode. That matches the
+        // behaviour pre-extraction for every case except
+        // `perSampleLighting && debugNeedsColour`; callers relying on the
+        // debug overlay to reflect decal contributions should disable
+        // per-sample lighting. Documented as a known limitation of the
+        // debug overlay; non-debug paths are unaffected.
+
+        // Per-sample path: if debug overlay is active keep the pre-extraction
+        // resolve so the debug blit samples resolved single-sample colour
+        // (even though it will be pre-decal — see comment above).
+        if (perSampleLighting && debugNeedsColour)
+        {
+            m_GBuffer->Resolve();
+        }
+
+        // Deferred debug visualisation: until DeferredLightingPass lands in
+        // Phase 3, copy the selected G-Buffer channel into the forward scene
+        // target's color[0] so post-process and the editor viewport display
+        // *something* instead of whatever is left of the cleared forward FB.
+        if (deferredActive && m_GBuffer)
+        {
+            BlitGBufferDebug(rendererSettings.Deferred.DebugChannel);
+        }
+        else if (!deferredActive && rendererSettings.DebugVelocityOverlayForward)
+        {
+            // Forward / Forward+ velocity overlay: mirror the Deferred
+            // DebugChannel=5 capability for the forward paths.
+            BlitForwardVelocityDebug();
+        }
     }
 
     Ref<Framebuffer> SceneRenderPass::GetTarget() const
@@ -248,6 +378,236 @@ namespace OloEngine
             m_Target->Resize(width, height);
             OLO_CORE_INFO("SceneRenderPass: Resized framebuffer to {}x{}", width, height);
         }
+
+        // Keep the G-Buffer in lockstep with the forward target so a runtime
+        // Forward ↔ Deferred swap doesn't leave stale dimensions behind.
+        if (m_GBuffer)
+            m_GBuffer->Resize(width, height);
+    }
+
+    void SceneRenderPass::EnsureGBuffer(u32 width, u32 height, u32 sampleCount)
+    {
+        if (sampleCount == 0)
+            sampleCount = 1;
+
+        if (!m_GBuffer || m_GBufferSampleCount != sampleCount)
+        {
+            m_GBuffer = GBuffer::Create(width, height, sampleCount);
+            m_GBufferSampleCount = sampleCount;
+            OLO_CORE_INFO("SceneRenderPass: Created G-Buffer {}x{} x{}MSAA", width, height, sampleCount);
+            return;
+        }
+
+        if (m_GBuffer->GetWidth() != width || m_GBuffer->GetHeight() != height)
+        {
+            m_GBuffer->Resize(width, height);
+        }
+    }
+
+    void SceneRenderPass::BlitGBufferDebug(u32 channel)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_GBuffer || !m_Target)
+            return;
+
+        // Clamp channel to G-Buffer attachment range. Channel IDs come from
+        // DeferredSettings::DebugChannel (0=off, 1=Albedo, 2=Normal,
+        // 3=Roughness/Metallic/AO, 4=Emissive, 5=Velocity). 0 leaves the
+        // forward target cleared (no blit) to distinguish "disabled" from
+        // "attachment 0".
+        if (channel == 0)
+            return;
+
+        // RAII guard: captures GL state at entry and restores the core
+        // subset (depth / blend / stencil / cull / polygon mode / scissor /
+        // viewport / FBO bindings / active program) on destruction. The
+        // explicit restore calls that previously lived at the end of each
+        // branch are now redundant for the covered subset. Per-attachment
+        // blend state and per-slot texture bindings are still NOT
+        // automatically restored — callers managing those must do so
+        // explicitly (none of the debug blit paths touch them).
+        GLStateGuard guard("SceneRenderPass::BlitGBufferDebug", GLStateGuard::Policy::Restore);
+
+        // Build the target FB's full multi-attachment draw-buffer list from
+        // its spec. The previous hardcoded 4-entry restore broke when a
+        // scene FB configured with fewer or more color attachments was
+        // installed (e.g. when TAA was disabled and velocity dropped).
+        const auto& targetSpec = m_Target->GetSpecification();
+        u32 targetColorCount = 0;
+        for (const auto& att : targetSpec.Attachments.Attachments)
+        {
+            const bool isDepth = (att.TextureFormat == FramebufferTextureFormat::DEPTH24STENCIL8 ||
+                                  att.TextureFormat == FramebufferTextureFormat::DEPTH_COMPONENT32F);
+            if (!isDepth && att.TextureFormat != FramebufferTextureFormat::None)
+                ++targetColorCount;
+        }
+        std::array<GLenum, 16> fullDrawBufs{};
+        const u32 fullN = std::min<u32>(targetColorCount, static_cast<u32>(fullDrawBufs.size()));
+        for (u32 i = 0; i < fullN; ++i)
+            fullDrawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
+
+        // Channel 3 (RMA) needs data from TWO attachments — RT0.a (metallic)
+        // and RT1.zw (roughness, AO). glBlitFramebuffer cannot swizzle, so
+        // use a dedicated fullscreen shader for this one channel.
+        if (channel == 3)
+        {
+            if (!m_DebugRMAShader)
+                m_DebugRMAShader = Shader::Create("assets/shaders/DebugGBuffer_RMA.glsl");
+            if (!m_DebugRMAShader)
+                return;
+
+            m_Target->Bind();
+
+            const u32 dstFB = m_Target->GetRendererID();
+            const GLenum drawBufs[] = { GL_COLOR_ATTACHMENT0 };
+            glNamedFramebufferDrawBuffers(dstFB, 1, drawBufs);
+
+            const u32 w = m_GBuffer->GetWidth();
+            const u32 h = m_GBuffer->GetHeight();
+            RenderCommand::SetViewport(0, 0, w, h);
+            RenderCommand::SetDepthTest(false);
+            RenderCommand::SetDepthMask(false);
+            RenderCommand::SetBlendState(false);
+
+            m_DebugRMAShader->Bind();
+            RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_ALBEDO,
+                                       m_GBuffer->GetColorAttachmentID(GBuffer::Albedo));
+            RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_NORMAL,
+                                       m_GBuffer->GetColorAttachmentID(GBuffer::Normal));
+
+            auto va = MeshPrimitives::GetFullscreenTriangle();
+            va->Bind();
+            RenderCommand::DrawIndexed(va);
+
+            // Restore the scene FB's multi-attachment draw-buffer list so the
+            // downstream passes (post-process, UI) find the expected slots
+            // (including RT3 velocity for TAA). Count is computed from the
+            // FB spec above rather than hardcoded.
+            glNamedFramebufferDrawBuffers(dstFB, static_cast<GLsizei>(fullN), fullDrawBufs.data());
+
+            RenderCommand::SetDepthMask(true);
+            RenderCommand::SetDepthTest(true);
+
+            // Copy depth across so selection-outline / UI still depth-test.
+            const u32 srcFB = m_GBuffer->GetSamplingFramebuffer()->GetRendererID();
+            glBlitNamedFramebuffer(
+                srcFB, dstFB,
+                0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
+                0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
+                GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+            return;
+        }
+
+        u32 attachmentIndex = 0;
+        switch (channel)
+        {
+            case 1:
+                attachmentIndex = GBuffer::Albedo;
+                break;
+            case 2:
+                attachmentIndex = GBuffer::Normal;
+                break;
+            case 4:
+                attachmentIndex = GBuffer::Emissive;
+                break;
+            case 5:
+                attachmentIndex = GBuffer::Velocity;
+                break;
+            default:
+                attachmentIndex = GBuffer::Albedo;
+                break;
+        }
+
+        const u32 srcFB = m_GBuffer->GetSamplingFramebuffer()->GetRendererID();
+        const u32 dstFB = m_Target->GetRendererID();
+        const u32 w = m_GBuffer->GetWidth();
+        const u32 h = m_GBuffer->GetHeight();
+
+        // Select source attachment on the read FB and destination attachment 0
+        // on the draw FB. glBlitNamedFramebuffer requires both FBs to have
+        // the read/draw buffers pre-selected; do so via DSA.
+        const GLenum srcAttach = GL_COLOR_ATTACHMENT0 + attachmentIndex;
+        glNamedFramebufferReadBuffer(srcFB, srcAttach);
+        const GLenum drawBufs[] = { GL_COLOR_ATTACHMENT0 };
+        glNamedFramebufferDrawBuffers(dstFB, 1, drawBufs);
+
+        glBlitNamedFramebuffer(
+            srcFB, dstFB,
+            0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
+            0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
+            GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+        // Restore the draw FB's draw-buffer list using the count captured
+        // from the target FB spec above — narrowing to fewer attachments
+        // would drop later-shader outputs (e.g. PBR_MultiLight's motion
+        // vector at layout(location=3)), breaking TAA/MotionBlur.
+        glNamedFramebufferDrawBuffers(dstFB, static_cast<GLsizei>(fullN), fullDrawBufs.data());
+
+        // Also copy depth so downstream passes (post-process, selection
+        // outline, UI) have a coherent depth buffer.
+        glBlitNamedFramebuffer(
+            srcFB, dstFB,
+            0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
+            0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
+            GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    }
+
+    void SceneRenderPass::BlitForwardVelocityDebug()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_Target)
+            return;
+
+        // Velocity is attachment 3 on the forward scene FB. If the scene FB
+        // wasn't created with it (deferred path swaps to G-Buffer) just
+        // bail — the caller already checks deferred state, but defensive.
+        const auto& attachments = m_Target->GetSpecification().Attachments.Attachments;
+        if (attachments.size() <= 3 ||
+            attachments[3].TextureFormat != FramebufferTextureFormat::RG16F)
+            return;
+
+        // Detector-only GL state guard.
+        // RAII guard as above — restores core state on return so the
+        // manual restore calls at the end of this helper only need to
+        // cover state outside the ApplyCore() subset (e.g. per-attachment
+        // blend).
+        GLStateGuard guard("SceneRenderPass::BlitForwardVelocityDebug", GLStateGuard::Policy::Restore);
+
+        const u32 fb = m_Target->GetRendererID();
+        const u32 w = m_Target->GetSpecification().Width;
+        const u32 h = m_Target->GetSpecification().Height;
+
+        // Build the restore list dynamically from the spec so it matches the
+        // attachment count actually in use (instead of a hardcoded 4-entry
+        // list that would narrow the target FB on a 3-attachment config).
+        u32 colorCount = 0;
+        for (const auto& att : attachments)
+        {
+            const bool isDepth = (att.TextureFormat == FramebufferTextureFormat::DEPTH24STENCIL8 ||
+                                  att.TextureFormat == FramebufferTextureFormat::DEPTH_COMPONENT32F);
+            if (!isDepth && att.TextureFormat != FramebufferTextureFormat::None)
+                ++colorCount;
+        }
+        std::array<GLenum, 16> prevDrawBufs{};
+        const u32 n = std::min<u32>(colorCount, static_cast<u32>(prevDrawBufs.size()));
+        for (u32 i = 0; i < n; ++i)
+            prevDrawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
+
+        glNamedFramebufferReadBuffer(fb, GL_COLOR_ATTACHMENT3);
+        const GLenum drawBufs[] = { GL_COLOR_ATTACHMENT0 };
+        glNamedFramebufferDrawBuffers(fb, 1, drawBufs);
+
+        glBlitNamedFramebuffer(
+            fb, fb,
+            0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
+            0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
+            GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+        // Restore the scene FB's full multi-attachment draw-buffer list for
+        // downstream passes (post-process, UI composite); see comment above.
+        glNamedFramebufferDrawBuffers(fb, static_cast<GLsizei>(n), prevDrawBufs.data());
     }
 
     void SceneRenderPass::OnReset()

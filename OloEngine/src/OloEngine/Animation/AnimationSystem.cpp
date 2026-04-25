@@ -17,6 +17,9 @@ namespace OloEngine::Animation
         const IKTargetComponent* ikTarget,
         const glm::mat4& entityWorldTransform)
     {
+        // Rotate current final bones into the previous-frame slot so the
+        // G-Buffer skinned pass can compute per-bone motion vectors.
+        skeleton.RotateBoneHistory();
 
         // Advance and loop animation time for current and next clips
         auto LoopTime = [](f32 t, const Ref<AnimationClip>& clip) -> f32

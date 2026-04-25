@@ -74,9 +74,28 @@ namespace OloEngine
 
         void SetTileSize(u32 tileSize);
         void SetDepthSlices(u32 slices);
+        // The upgrade threshold must be >= 1 so the strict `down < up` invariant
+        // (enforced in SetLightCountThresholdDown and consumed by
+        // ClusteredForward::GatherLights) can be satisfied.
         void SetLightCountThreshold(u32 threshold)
         {
-            m_LightCountThreshold = threshold;
+            m_LightCountThreshold = threshold > 0 ? threshold : 1u;
+            // Preserve invariant: down-threshold must stay strictly below the upgrade threshold.
+            if (m_LightCountThresholdDown >= m_LightCountThreshold)
+                m_LightCountThresholdDown = m_LightCountThreshold - 1;
+        }
+        // Lower bound for Auto-mode hysteresis. Once Forward+ is active it
+        // stays active until total light count falls to/below this value,
+        // avoiding per-frame path-flip when counts oscillate near the
+        // upgrade threshold. Must be < SetLightCountThreshold to produce
+        // any hysteresis; callers should clamp.
+        void SetLightCountThresholdDown(u32 threshold)
+        {
+            // Treat a zero up-threshold as 1 so `up - 1` never underflows and the
+            // strict `down < up` invariant always has a representable value.
+            const u32 effectiveUp = m_LightCountThreshold > 0 ? m_LightCountThreshold : 1u;
+            const u32 maxAllowed = effectiveUp - 1;
+            m_LightCountThresholdDown = threshold < maxAllowed ? threshold : maxAllowed;
         }
 
         // Debug
@@ -134,6 +153,7 @@ namespace OloEngine
 
         ForwardPlusMode m_Mode = ForwardPlusMode::Auto;
         u32 m_LightCountThreshold = 8;
+        u32 m_LightCountThresholdDown = 4; // Hysteresis floor for Auto mode
         bool m_DebugVisualization = false;
         bool m_Initialized = false;
         bool m_ActiveThisFrame = false;

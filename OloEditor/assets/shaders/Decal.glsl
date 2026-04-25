@@ -33,6 +33,12 @@ layout(location = 1) in flat int v_EntityID;
 
 layout(location = 0) out vec4 FragColor;
 layout(location = 1) out int EntityID;
+// Scene FB RT3 velocity. Decals are projected onto world geometry via the
+// scene depth buffer; the reconstructed worldPos moves only with the camera
+// (we assume the receiver surface is static — decals on animated meshes
+// inherit a mild ghosting penalty under TAA but that's a rare case and
+// cheaper than per-decal prev-depth tracking).
+layout(location = 3) out vec2 o_Velocity;
 
 #include "include/CameraCommon.glsl"
 
@@ -87,4 +93,12 @@ void main()
 
     FragColor = decalColor;
     EntityID = v_EntityID;
+
+    // Camera-motion-only velocity using the reconstructed receiver worldPos.
+    // u_PrevViewProjection lives in CameraCommon.glsl (shared include above).
+    vec4 clipCurr = u_ViewProjection     * vec4(worldPos, 1.0);
+    vec4 clipPrev = u_PrevViewProjection * vec4(worldPos, 1.0);
+    vec2 ndcCurr = clipCurr.xy / clipCurr.w;
+    vec2 ndcPrev = clipPrev.xy / clipPrev.w;
+    o_Velocity = (ndcCurr - ndcPrev) * 0.5;
 }

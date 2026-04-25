@@ -305,7 +305,8 @@ namespace OloEngine
             if (caster.renderer && caster.depthShader)
             {
                 caster.depthShader->Bind();
-                caster.renderer->SetTime(caster.time);
+                // Shadow path is depth-only; prev time is irrelevant so mirror current time.
+                caster.renderer->SetTime(caster.time, caster.time);
                 caster.renderer->RenderShadows(caster.depthShader);
             }
         }

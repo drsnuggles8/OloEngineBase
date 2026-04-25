@@ -1455,6 +1455,59 @@ namespace OloEngine
         // Integrate with the resource registry for automatic resource discovery
         m_ResourceRegistry.DiscoverResources(stage, shaderData, m_FilePath);
 
+        // Deferred-capability detection: scan fragment stage outputs for the
+        // engine's G-Buffer MRT marker names. Any single match promotes the
+        // shader to deferred-capable so Renderer3D routes it into ScenePass's
+        // G-Buffer producer bucket instead of the forward-overlay fallback.
+        // Markers are case-sensitive and match the opt-in prefix/sentinels
+        // used across the current shader set (PBR_GBuffer*, Decal_GBuffer*,
+        // Foliage_Instance_GBuffer, skybox / grid / light cube / terrain /
+        // voxel GBuffer variants).
+        if (stage == GL_FRAGMENT_SHADER)
+        {
+            // Reset before scanning so a Reload()/recompile that drops all
+            // G-Buffer outputs correctly downgrades the shader from
+            // deferred-capable to forward-only. Without this, a stale `true`
+            // from a prior compile would persist for the lifetime of the
+            // OpenGLShader instance.
+            m_IsDeferredCapable = false;
+
+            // Marker prefixes / full names. Using string_view to avoid
+            // per-shader heap allocations; inputs from SPIR-V reflection
+            // are plain std::string.
+            constexpr std::string_view kGBufferPrefix = "o_GBuffer";
+            static constexpr std::string_view kGBufferSentinels[] = {
+                "gAlbedo", "gNormalRoughAO", "gEmissive"
+            };
+            for (const auto& out : resources.stage_outputs)
+            {
+                const std::string_view name = out.name;
+                if (name.rfind(kGBufferPrefix, 0) == 0)
+                {
+                    m_IsDeferredCapable = true;
+                    break;
+                }
+                bool matched = false;
+                for (const auto& sentinel : kGBufferSentinels)
+                {
+                    if (name == sentinel)
+                    {
+                        matched = true;
+                        break;
+                    }
+                }
+                if (matched)
+                {
+                    m_IsDeferredCapable = true;
+                    break;
+                }
+            }
+            if (m_IsDeferredCapable)
+            {
+                OLO_CORE_TRACE("    detected G-Buffer fragment outputs -> IsDeferredCapable=true");
+            }
+        }
+
         // Keep existing debug logging for compatibility
         OLO_CORE_TRACE("Uniform buffers:");
         for (const auto& resource : resources.uniform_buffers)

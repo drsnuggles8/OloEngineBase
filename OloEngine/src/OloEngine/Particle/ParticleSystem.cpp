@@ -317,6 +317,18 @@ namespace OloEngine
         // 2. Apply modules — independent modules run concurrently with the velocity chain
         // Color, Size, and Rotation only write m_Colors/m_Sizes/m_Rotations respectively,
         // so they are safe to run in parallel with the velocity chain (Gravity→Drag→Noise→Velocity).
+        // Snapshot prev rotation & size before integration so renderers can reconstruct
+        // the previous-frame billboard quad basis / mesh model matrix for RT3 velocity.
+        // Newly-emitted particles already have m_PrevRotations / m_PrevSizes seeded to
+        // their spawn values in ParticleEmitter, matching the m_PrevPositions contract.
+        {
+            u32 snapshotCount = m_Pool.GetAliveCount();
+            for (u32 i = 0; i < snapshotCount; ++i)
+            {
+                m_Pool.m_PrevRotations[i] = m_Pool.m_Rotations[i];
+                m_Pool.m_PrevSizes[i] = m_Pool.m_Sizes[i];
+            }
+        }
         bool useParallelModules = m_Pool.GetAliveCount() >= 256 && (ColorModule.Enabled || SizeModule.Enabled || RotationModule.Enabled);
 
         Tasks::TTask<void> colorTask;
@@ -403,9 +415,15 @@ namespace OloEngine
         }
 
         // 4. Integrate positions
+        //    Snapshot previous positions first so renderers can emit accurate
+        //    per-particle motion vectors (scene FB RT3) for TAA reprojection.
+        //    Newly-emitted particles already have m_PrevPositions seeded to
+        //    their spawn position in ParticleEmitter, so their first rendered
+        //    frame shows zero per-particle motion.
         u32 count = m_Pool.GetAliveCount();
         for (u32 i = 0; i < count; ++i)
         {
+            m_Pool.m_PrevPositions[i] = m_Pool.m_Positions[i];
             m_Pool.m_Positions[i] += m_Pool.m_Velocities[i] * scaledDt;
         }
 
@@ -480,6 +498,7 @@ namespace OloEngine
             {
                 u32 idx = firstSlot + i;
                 m_Pool.m_Positions[idx] = trigger.Position;
+                m_Pool.m_PrevPositions[idx] = trigger.Position;
 
                 // Random direction + inherited velocity
                 glm::vec3 randomVec(
@@ -499,7 +518,9 @@ namespace OloEngine
                 f32 size = Emitter.InitialSize + rng.GetFloat32InRange(-Emitter.SizeVariance, Emitter.SizeVariance);
                 m_Pool.m_Sizes[idx] = size;
                 m_Pool.m_InitialSizes[idx] = size;
+                m_Pool.m_PrevSizes[idx] = size;
                 m_Pool.m_Rotations[idx] = Emitter.InitialRotation + rng.GetFloat32InRange(-Emitter.RotationVariance, Emitter.RotationVariance);
+                m_Pool.m_PrevRotations[idx] = m_Pool.m_Rotations[idx];
 
                 f32 lifetime = rng.GetFloat32InRange(Emitter.LifetimeMin, Emitter.LifetimeMax);
                 m_Pool.m_Lifetimes[idx] = lifetime;

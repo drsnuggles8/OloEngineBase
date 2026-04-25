@@ -43,6 +43,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 u_PrevViewProjection;
 };
 
 // Terrain UBO (binding 10)
@@ -119,6 +120,10 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    // Previous-frame VP for scene FB RT3 velocity. Terrain geometry is
+    // world-static, so this plus the current v_WorldPos gives exact
+    // per-pixel camera-motion velocity for TAA.
+    mat4 u_PrevViewProjection;
 };
 
 // Model UBO (binding 3)
@@ -129,6 +134,7 @@ layout(std140, binding = 3) uniform ModelMatrices {
     int _paddingEntity0;
     int _paddingEntity1;
     int _paddingEntity2;
+    mat4 u_PrevModel;
 };
 
 // Terrain UBO (binding 10)
@@ -243,6 +249,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 u_PrevViewProjection;
 };
 
 // Multi-Light UBO (binding 5)
@@ -279,6 +286,7 @@ layout(std140, binding = 3) uniform ModelMatrices {
     int _paddingEntity0;
     int _paddingEntity1;
     int _paddingEntity2;
+    mat4 u_PrevModel;
 };
 
 // Terrain UBO (binding 10)
@@ -353,6 +361,8 @@ layout(location = 2) in vec2 v_TexCoord;
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
 layout(location = 2) out vec2 o_ViewNormal;
+// Scene FB RT3 velocity — world-static terrain; NDC delta = camera motion.
+layout(location = 3) out vec2 o_Velocity;
 
 vec2 octEncode(vec3 n)
 {
@@ -800,4 +810,10 @@ void main()
     }
     vec3 viewNormal = normalize(mat3(u_View) * outputN);
     o_ViewNormal = octEncode(viewNormal);
+
+    vec4 clipCurr = u_ViewProjection     * vec4(v_WorldPos, 1.0);
+    vec4 clipPrev = u_PrevViewProjection * vec4(v_WorldPos, 1.0);
+    vec2 ndcCurr = clipCurr.xy / clipCurr.w;
+    vec2 ndcPrev = clipPrev.xy / clipPrev.w;
+    o_Velocity = (ndcCurr - ndcPrev) * 0.5;
 }

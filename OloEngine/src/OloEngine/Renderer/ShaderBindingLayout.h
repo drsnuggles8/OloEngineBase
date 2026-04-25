@@ -24,12 +24,28 @@ namespace OloEngine
             glm::mat4 Projection;
             glm::vec3 Position;
             f32 _padding0;
+            // Previous-frame view-projection for forward-path velocity
+            // reconstruction in PBR_MultiLight / PBR_MultiLight_Skinned.
+            // Equals ViewProjection on the first frame so velocity is zero
+            // on static pixels. Shaders that do not need it declare a
+            // CameraMatrices block that stops at _padding0; std140 allows
+            // the C++-side buffer to carry extra trailing bytes.
+            glm::mat4 PrevViewProjection;
 
             static constexpr u32 GetSize()
             {
                 return sizeof(CameraUBO);
             }
         };
+
+        // std140 layout sanity check for CameraUBO — mirrors the GLSL
+        // CameraMatrices block. A drift (ABI change, padding tweak, extra
+        // field) fails compile-time instead of producing silently-wrong
+        // matrices at runtime. Expected: 3*mat4(192) + vec3+pad(16) +
+        // mat4(64) = 272 B. Alignment is not asserted: GLM mat4 is not
+        // 16-byte-aligned by default, but the C++-side SetData() call
+        // uploads the raw byte buffer so only total size matters.
+        static_assert(sizeof(CameraUBO) == 272, "CameraUBO std140 size drifted from GLSL expectation (272 B)");
 
         struct LightUBO
         {
@@ -143,12 +159,26 @@ namespace OloEngine
             glm::mat4 Normal; // transpose(inverse(model))
             i32 EntityID;
             i32 _paddingEntity[3];
+            // Previous-frame world transform for per-object motion vectors in
+            // the deferred G-Buffer path. Equals Model for static objects or
+            // on the first frame so the resulting velocity is zero. Other
+            // shaders that bind UBO_MODEL ignore this tail by declaring a
+            // ModelMatrices block that stops at EntityID; std140 allows the
+            // C++-side buffer to carry extra trailing bytes.
+            glm::mat4 PrevModel;
 
             static constexpr u32 GetSize()
             {
                 return sizeof(ModelUBO);
             }
         };
+
+        // std140 layout sanity check. A mismatch here means the C++-side
+        // buffer no longer mirrors the GLSL ModelMatrices block and any
+        // SetData() call will produce garbage (shader reads wrong offsets,
+        // resulting in black geometry / broken normals / wrong entity IDs).
+        // Expected: mat4(64) + mat4(64) + int+pad(16) + mat4(64) = 208 B.
+        static_assert(sizeof(ModelUBO) == 208, "ModelUBO std140 size drifted from GLSL expectation (208 B)");
 
         struct AnimationUBO
         {
@@ -240,7 +270,7 @@ namespace OloEngine
             f32 ViewDistance;
             f32 FadeStart;
             f32 AlphaCutoff;
-            f32 _pad0 = 0.0f;
+            f32 PrevTime = 0.0f; // Previous-frame time for per-fragment wind reprojection
             f32 _pad1 = 0.0f;
             glm::vec4 BaseColor; // xyz = color, w = unused
 
@@ -317,7 +347,7 @@ namespace OloEngine
             glm::vec4 WaterDeepColor;        // rgb = deep color,    a = Reflectivity
             glm::vec4 VisualParams;          // x = FresnelPower, y = SpecularIntensity, z = NormalMapTiling, w = NoiseIntensity
             glm::vec4 NormalMapScroll;       // xy = scroll0 dir, zw = scroll1 dir (scrolled by time * speed)
-            glm::vec4 NormalMapSpeed;        // x = speed0, y = speed1, z/w = unused
+            glm::vec4 NormalMapSpeed;        // x = speed0, y = speed1, z = PrevTime (for Gerstner reprojection), w = unused
             glm::vec4 LightDirection;        // xyz = directional light dir (normalized), w = unused
             glm::vec4 ScreenParams;          // x = width, y = height, z = 1/width, w = 1/height
             glm::vec4 DepthRefractionParams; // x = depthSofteningDist, y = refractionDistortion, z = refractionHeightFactor, w = unused
@@ -467,7 +497,7 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) % 16 == 0, "LightProbeVolumeUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) == 80, "LightProbeVolumeUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::WaterUBO) % 16 == 0, "WaterUBO size must be 16-byte aligned for std140");
-    static_assert(sizeof(UBOStructures::WaterUBO) == 272, "WaterUBO unexpected size \u2014 update GLSL layout");
+    static_assert(sizeof(UBOStructures::WaterUBO) == 272, "WaterUBO unexpected size -- update GLSL layout");
     static_assert(sizeof(UBOStructures::ForwardPlusUBO) % 16 == 0, "ForwardPlusUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::ForwardPlusUBO) == 16, "ForwardPlusUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::PBRMaterialUBO) % 16 == 0, "PBRMaterialUBO size must be 16-byte aligned for std140");
@@ -519,6 +549,9 @@ namespace OloEngine
         static constexpr u32 UBO_SELECTION_OUTLINE = 27;    // Selection outline parameters (editor)
         static constexpr u32 UBO_GTAO = 28;                 // GTAO (Ground Truth AO) parameters
         static constexpr u32 UBO_JUMP_FLOOD = 29;           // Jump Flood Algorithm parameters (editor)
+        static constexpr u32 UBO_DEFERRED_LIGHTING = 30;    // Deferred lighting composition controls
+        static constexpr u32 UBO_ANIMATION_PREV = 31;       // Previous-frame bone matrices (Deferred G-Buffer per-bone velocity)
+        static constexpr u32 UBO_TAA = 32;                  // Temporal Anti-Aliasing parameters
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -567,7 +600,28 @@ namespace OloEngine
         static constexpr u32 TEX_WATER_REFRACTION = 40;     // Pre-water scene color for refraction
         static constexpr u32 TEX_WATER_FOAM = 41;           // Foam texture
         static constexpr u32 TEX_WATER_SSR = 42;            // SSR reflection result for water
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 43;       // First shader graph user texture slot (must be after all engine-reserved slots)
+        // Deferred renderer G-Buffer sampler slots (consumed by DeferredLightingPass).
+        // RT0: Albedo (RGB) + Metallic (A) — RGBA8
+        // RT1: Octahedral Normal (RG) + Roughness + AO — RGBA16F (packed)
+        // RT2: Emissive (RGB) + Material flags (A) — RGBA16F
+        // RT3: Velocity (RG) — RG16F
+        static constexpr u32 TEX_GBUFFER_ALBEDO = 43;   // G-Buffer RT0 (albedo + metallic)
+        static constexpr u32 TEX_GBUFFER_NORMAL = 44;   // G-Buffer RT1 (normal + roughness + AO)
+        static constexpr u32 TEX_GBUFFER_EMISSIVE = 45; // G-Buffer RT2 (emissive + flags)
+        static constexpr u32 TEX_GBUFFER_VELOCITY = 46; // G-Buffer RT3 (velocity)
+        static constexpr u32 TEX_GBUFFER_DEPTH = 47;    // G-Buffer depth attachment
+        // Weighted-blended OIT accumulation targets. Sampled by
+        // OIT_Resolve.glsl; written to (not sampled) by transparent passes
+        // when RendererSettings::DeferredSettings::OITEnabled is on.
+        static constexpr u32 TEX_OIT_ACCUM = 48;      // OIT accum buffer (RGBA16F: sum(Ci*ai*wi), sum(ai*wi))
+        static constexpr u32 TEX_OIT_REVEALAGE = 49;  // OIT revealage buffer (R16F: prod(1 - ai))
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 50; // First shader graph user texture slot (must be after all engine-reserved slots)
+
+        // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
+        // strictly greater than the highest engine-reserved slot so redundant-
+        // bind tracking writes never go out of bounds. Grows with any new
+        // TEX_* constant added above.
+        static constexpr u32 MAX_ENGINE_TEXTURE_SLOTS = TEX_SHADER_GRAPH_0 + 1;
 
         // Ensure all engine-reserved texture slots fit within the GL 4.6 minimum guarantee (80 combined units).
         static_assert(TEX_SHADER_GRAPH_0 < 80, "Engine texture slots exceed GL 4.6 minimum GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS");
@@ -592,6 +646,7 @@ namespace OloEngine
         static constexpr u32 SSBO_FPLUS_LIGHT_INDICES = 11; // Forward+ per-tile light index list
         static constexpr u32 SSBO_FPLUS_LIGHT_GRID = 12;    // Forward+ per-tile (offset, count) pairs
         static constexpr u32 SSBO_FPLUS_GLOBAL_INDEX = 13;  // Forward+ atomic counter for light index append
+        static constexpr u32 SSBO_GPU_PARTICLES_PREV = 14;  // GPU particle previous-frame positions (vec4[maxParticles]) for motion vectors
 
         // =============================================================================
         // TYPE ALIASES FOR CONVENIENCE
@@ -638,6 +693,9 @@ namespace OloEngine
                 case UBO_ANIMATION:
                     return name.contains("Animation") || name.contains("animation") ||
                            name.contains("Bone") || name.contains("bone");
+                case UBO_ANIMATION_PREV:
+                    return name.contains("PrevBone") || name.contains("prevBone") ||
+                           name.contains("PreviousBone") || name.contains("previousBone");
                 case UBO_MULTI_LIGHTS:
                     return name.contains("MultiLight") || name.contains("multiLight");
                 case UBO_SHADOW:
@@ -688,6 +746,11 @@ namespace OloEngine
                     return name.contains("GTAO") || name.contains("gtao");
                 case UBO_JUMP_FLOOD:
                     return name.contains("JumpFlood") || name.contains("jumpFlood");
+                case UBO_DEFERRED_LIGHTING:
+                    return name.contains("DeferredLighting") || name.contains("deferredLighting");
+                case UBO_TAA:
+                    return name.contains("TAA") || name.contains("taa") ||
+                           name.contains("TemporalAA") || name.contains("temporalAA");
                 default:
                     return false;
             }
@@ -756,6 +819,18 @@ namespace OloEngine
                 case TEX_WATER_SSR:
                     return name.contains("SSR") || name.contains("ssr") ||
                            (name.contains("Screen") && name.contains("Reflection"));
+                case TEX_GBUFFER_ALBEDO:
+                case TEX_GBUFFER_NORMAL:
+                case TEX_GBUFFER_EMISSIVE:
+                case TEX_GBUFFER_VELOCITY:
+                case TEX_GBUFFER_DEPTH:
+                    return name.contains("GBuffer") || name.contains("gBuffer") ||
+                           name.contains("gbuffer");
+                case TEX_OIT_ACCUM:
+                case TEX_OIT_REVEALAGE:
+                    return name.contains("OIT") || name.contains("oit") ||
+                           name.contains("Accum") || name.contains("accum") ||
+                           name.contains("Revealage") || name.contains("revealage");
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_WATER_SSR, i.e. 10–42)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)
@@ -768,6 +843,12 @@ namespace OloEngine
         // GLSL LAYOUT STRINGS FOR CODE GENERATION
         // =============================================================================
 
+        // Documentation helper: the GLSL block text below mirrors the runtime
+        // `UBOStructures::CameraUBO` struct verbatim (including the trailing
+        // `u_PrevViewProjection`). Shaders that don't need the prev-frame
+        // matrix can still declare a shorter block thanks to std140 trailing-
+        // byte tolerance; new shaders should prefer this full layout so
+        // motion-vector aware pipelines get the correct member offsets.
         static const char* GetCameraUBOLayout()
         {
             return R"(
@@ -777,6 +858,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 u_PrevViewProjection;
 };)";
         }
 
@@ -856,6 +938,12 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
 };)";
         }
 
+        // Documentation helper: the GLSL block text below mirrors the runtime
+        // `UBOStructures::ModelUBO` struct verbatim (including the trailing
+        // `u_PrevModel`). Legacy shaders that don't sample the prev-frame
+        // world transform can still declare a shorter block thanks to std140
+        // trailing-byte tolerance; new shaders should prefer this full layout
+        // so per-object motion-vector paths get the correct member offsets.
         static const char* GetModelUBOLayout()
         {
             return R"(
@@ -866,6 +954,7 @@ layout(std140, binding = 3) uniform ModelMatrices {
     int _paddingEntity0;
     int _paddingEntity1;
     int _paddingEntity2;
+    mat4 u_PrevModel;
 };)";
         }
 
@@ -956,7 +1045,7 @@ layout(std140, binding = 23) uniform WaterParams {
     vec4 u_WaterDeepColor;          // rgb = deep color,    a = Reflectivity
     vec4 u_VisualParams;            // x = FresnelPower, y = SpecularIntensity, z = NormalMapTiling, w = NoiseIntensity
     vec4 u_NormalMapScroll;         // xy = scroll0 offset, zw = scroll1 offset
-    vec4 u_NormalMapSpeed;          // x = speed0, y = speed1, z/w = unused
+    vec4 u_NormalMapSpeed;          // x = speed0, y = speed1, z = PrevTime (for Gerstner reprojection), w = unused
     vec4 u_LightDirection;          // xyz = directional light dir (normalized), w = unused
     vec4 u_ScreenParams;            // x = width, y = height, z = 1/width, w = 1/height
     vec4 u_DepthRefractionParams;   // x = depthSofteningDist, y = refractionDistortion, z = refractionHeightFactor, w = unused

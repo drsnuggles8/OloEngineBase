@@ -448,3 +448,93 @@ TEST(RenderGraph, SinglePassGraph)
     EXPECT_EQ(order[0], "Only");
     EXPECT_EQ(pass->GetExecuteCount(), 1u);
 }
+
+// =============================================================================
+// ResetTopology: per-RenderingPath rebuild contract (Option 3)
+//
+// Renderer3D::ConfigureRenderGraph calls RenderGraph::ResetTopology() and
+// then re-registers only the passes relevant for the active RenderingPath.
+// These tests pin down the ResetTopology primitive that the rebuild
+// depends on.
+// =============================================================================
+
+TEST(RenderGraphResetTopology, ClearsPassesAndAllowsRebuild)
+{
+    RenderGraph graph;
+
+    // Initial "deferred-like" topology: 3 passes, a chain.
+    AddStub(graph, "A");
+    AddStub(graph, "B");
+    AddStub(graph, "C");
+    graph.ConnectPass("A", "B");
+    graph.ConnectPass("B", "C");
+    graph.SetFinalPass("C");
+    graph.Execute();
+    EXPECT_EQ(graph.GetAllPasses().size(), 3u);
+    EXPECT_EQ(graph.GetPassOrder().size(), 3u);
+
+    graph.ResetTopology();
+
+    // After reset the graph must behave as freshly constructed: no
+    // passes, no cached order, no stale connections leaking into the
+    // next rebuild.
+    EXPECT_EQ(graph.GetAllPasses().size(), 0u);
+    EXPECT_EQ(graph.GetConnections().size(), 0u);
+
+    // Rebuild as a different "forward-like" topology (2 passes).
+    AddStub(graph, "X");
+    AddStub(graph, "Y");
+    graph.ConnectPass("X", "Y");
+    graph.SetFinalPass("Y");
+    graph.Execute();
+
+    const auto& order = graph.GetPassOrder();
+    ASSERT_EQ(order.size(), 2u);
+    EXPECT_EQ(order[0], "X");
+    EXPECT_EQ(order[1], "Y");
+    EXPECT_EQ(graph.GetPass<StubRenderPass>("A"), nullptr)
+        << "Old passes must not be retrievable after ResetTopology";
+    EXPECT_EQ(graph.GetPass<StubRenderPass>("B"), nullptr);
+    EXPECT_EQ(graph.GetPass<StubRenderPass>("C"), nullptr);
+}
+
+TEST(RenderGraphResetTopology, PreservesPassReferenceOwnership)
+{
+    // The graph stores passes by strong lookup in m_PassLookup
+    // (std::unordered_map<std::string, Ref<RenderPass>>). ResetTopology
+    // must only drop the graph's references, not destroy passes still
+    // held by external owners (in the real engine that's
+    // Renderer3D::s_Data). The test below verifies that an external Ref
+    // to a RenderPass keeps it alive after the graph forgets it.
+    RenderGraph graph;
+    auto a = Ref<StubRenderPass>::Create("A");
+    a->SetName("A");
+    graph.AddPass(a);
+
+    graph.ResetTopology();
+
+    ASSERT_NE(a.Raw(), nullptr);
+    EXPECT_EQ(a->GetName(), "A");
+
+    // Re-registering the same pass instance is legal — simulates the
+    // per-path rebuild re-AddPass'ing the persistent pass instances.
+    graph.AddPass(a);
+    graph.SetFinalPass("A");
+    graph.Execute();
+    EXPECT_EQ(a->GetExecuteCount(), 1u);
+}
+
+TEST(RenderGraphResetTopology, MultipleResetsAreSafe)
+{
+    // Rebuilding repeatedly (e.g. user toggling RenderingPath rapidly)
+    // must not accumulate state or crash.
+    RenderGraph graph;
+    for (i32 i = 0; i < 5; ++i)
+    {
+        graph.ResetTopology();
+        AddStub(graph, "P");
+        graph.SetFinalPass("P");
+        graph.Execute();
+        EXPECT_EQ(graph.GetAllPasses().size(), 1u);
+    }
+}

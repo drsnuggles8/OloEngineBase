@@ -182,7 +182,8 @@ namespace OloEngine
 
             static const char* pathItems[] = {
                 "Forward",
-                "Forward+"
+                "Forward+",
+                "Deferred"
             };
             int currentPath = static_cast<int>(settings.Path);
             if (ImGui::Combo("Active Path", &currentPath, pathItems, IM_ARRAYSIZE(pathItems)))
@@ -205,22 +206,212 @@ namespace OloEngine
                     if (ImGui::SliderInt("Light Threshold", &threshold, 1, 64))
                     {
                         settings.ForwardPlusLightThreshold = static_cast<u32>(threshold);
+                        // Keep the downgrade floor < upgrade threshold (allow 0 when threshold == 1).
+                        if (settings.ForwardPlusLightThresholdDown >= settings.ForwardPlusLightThreshold)
+                            settings.ForwardPlusLightThresholdDown = settings.ForwardPlusLightThreshold > 0 ? settings.ForwardPlusLightThreshold - 1 : 0;
                         Renderer3D::ApplyRendererSettings();
                     }
                     ImGui::TextDisabled("Switch to Forward+ when point+spot lights exceed this.");
+
+                    int downThreshold = static_cast<int>(settings.ForwardPlusLightThresholdDown);
+                    const int downMax = std::max(0, static_cast<int>(settings.ForwardPlusLightThreshold) - 1);
+                    if (ImGui::SliderInt("Downgrade Threshold", &downThreshold, 0, downMax))
+                    {
+                        settings.ForwardPlusLightThresholdDown = static_cast<u32>(downThreshold);
+                        Renderer3D::ApplyRendererSettings();
+                    }
+                    ImGui::TextDisabled("Hysteresis floor — once Forward+ is active, drop back to\n"
+                                        "Forward only when lights fall to/below this value.");
+                }
+
+                // Velocity debug overlay (parity with Deferred DebugChannel=5).
+                if (ImGui::Checkbox("Debug: Velocity Overlay", &settings.DebugVelocityOverlayForward))
+                {
+                    Renderer3D::ApplyRendererSettings();
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Visualise the per-object screen-space velocity buffer.\n"
+                                      "Red = +X motion, green = +Y motion.\n"
+                                      "Scene FB attachment 3 (RG16F) → colour[0].");
+                }
+            }
+            else if (settings.Path == RenderingPath::ForwardPlus)
+            {
+                ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f),
+                                   "Forward+ pipeline active.");
+                ImGui::TextDisabled("Tile-based clustered culling for many lights.");
+
+                // Velocity debug overlay (parity with Deferred DebugChannel=5).
+                if (ImGui::Checkbox("Debug: Velocity Overlay", &settings.DebugVelocityOverlayForward))
+                {
+                    Renderer3D::ApplyRendererSettings();
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Visualise the per-object screen-space velocity buffer.\n"
+                                      "Red = +X motion, green = +Y motion.\n"
+                                      "Scene FB attachment 3 (RG16F) → colour[0].");
+                }
+            }
+            else if (settings.Path == RenderingPath::Deferred)
+            {
+                ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f),
+                                   "Deferred pipeline active.");
+                ImGui::TextDisabled("G-Buffer MRT + PBR lighting + shadows + IBL + Forward+ tiles.");
+                ImGui::TextDisabled("MSAA G-Buffer with hardware resolve before lighting.");
+
+                ImGui::Spacing();
+                auto& deferred = settings.Deferred;
+
+                static const char* sampleItems[] = { "1x (off)", "2x", "4x", "8x" };
+                static const u32 sampleValues[] = { 1, 2, 4, 8 };
+                int sampleIdx = 0;
+                for (int i = 0; i < IM_ARRAYSIZE(sampleValues); ++i)
+                {
+                    if (sampleValues[i] == deferred.MSAASampleCount)
+                    {
+                        sampleIdx = i;
+                        break;
+                    }
+                }
+
+                // Reflect the driver cap in the UI: disable combo entries
+                // the GPU can't satisfy. Zero means "not queried yet" — in
+                // that case we show everything and trust ApplyRendererSettings
+                // to clamp on first use.
+                const u32 driverMax = Renderer3D::GetMaxMSAASamples();
+                if (ImGui::BeginCombo("G-Buffer MSAA", sampleItems[sampleIdx]))
+                {
+                    for (int i = 0; i < IM_ARRAYSIZE(sampleValues); ++i)
+                    {
+                        const bool supported = (driverMax == 0) || (sampleValues[i] <= driverMax);
+                        if (!supported)
+                            ImGui::BeginDisabled();
+                        const bool isSelected = (sampleIdx == i);
+                        if (ImGui::Selectable(sampleItems[i], isSelected))
+                        {
+                            sampleIdx = i;
+                            deferred.MSAASampleCount = sampleValues[sampleIdx];
+                            Renderer3D::ApplyRendererSettings();
+                        }
+                        if (isSelected)
+                            ImGui::SetItemDefaultFocus();
+                        if (!supported)
+                        {
+                            ImGui::EndDisabled();
+                            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                                ImGui::SetTooltip("Driver supports up to %ux MSAA.", driverMax);
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+
+                // Per-sample shading is only meaningful when MSAA is active.
+                // Greyed when sample count == 1 but still togglable so the
+                // setting survives round-trips through 1x.
+                {
+                    const bool msaaActive = deferred.MSAASampleCount > 1;
+                    if (!msaaActive)
+                        ImGui::BeginDisabled();
+                    if (ImGui::Checkbox("Per-sample Deferred Lighting", &deferred.PerSampleLighting))
+                    {
+                        Renderer3D::ApplyRendererSettings();
+                    }
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("When enabled, PBR lighting is evaluated for every MSAA\n"
+                                          "sub-sample and averaged (correct edge AA on materials).\n"
+                                          "When disabled, the G-Buffer is resolved before lighting\n"
+                                          "(cheaper, but edges only anti-alias at geometry boundaries).");
+                    }
+                    if (!msaaActive)
+                        ImGui::EndDisabled();
+                }
+
+                if (ImGui::Checkbox("Weighted-Blended OIT", &deferred.OITEnabled))
+                {
+                    Renderer3D::ApplyRendererSettings();
+                }
+                if (ImGui::Checkbox("G-Buffer Decals (Phase 4)", &deferred.GBufferDecalsEnabled))
+                {
+                    Renderer3D::ApplyRendererSettings();
+                }
+                if (ImGui::Checkbox("Enable Light Probes", &deferred.EnableLightProbes))
+                {
+                    Renderer3D::ApplyRendererSettings();
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Contribute the active light-probe volume's SH\n"
+                                      "coefficients to the deferred ambient term. When\n"
+                                      "disabled (or no active volume), the shader falls\n"
+                                      "back to the global IBL cubemap only.");
+                }
+
+                static const char* channelItems[] = {
+                    "Off (lit)",
+                    "Albedo",
+                    "Normal",
+                    "Roughness / Metallic / AO",
+                    "Emissive",
+                    "Velocity"
+                };
+                int channelIdx = static_cast<int>(std::min<u32>(deferred.DebugChannel, 5));
+                if (ImGui::Combo("Debug G-Buffer Channel", &channelIdx, channelItems, IM_ARRAYSIZE(channelItems)))
+                {
+                    deferred.DebugChannel = static_cast<u32>(channelIdx);
+                    Renderer3D::ApplyRendererSettings();
                 }
             }
 
             // Show active path status
             ImGui::Separator();
             auto& fplus = Renderer3D::GetForwardPlus();
-            if (fplus.IsActive())
+            if (settings.Path == RenderingPath::Deferred)
+            {
+                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Active: Deferred");
+            }
+            else if (fplus.IsActive())
             {
                 ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Active: Forward+");
             }
             else
             {
                 ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "Active: Forward");
+            }
+
+            // Live RenderGraph topology — rebuilt per RenderingPath, so the
+            // pass list here reflects exactly what runs this frame.
+            if (const auto& graph = Renderer3D::GetRenderGraph(); graph)
+            {
+                if (ImGui::TreeNode("Render Graph (live topology)"))
+                {
+                    const auto& order = graph->GetPassOrder();
+                    if (order.empty())
+                    {
+                        ImGui::TextDisabled("(Execution order not yet computed — run a frame first.)");
+                    }
+                    else
+                    {
+                        ImGui::Text("%zu passes in execution order:", order.size());
+                        for (std::size_t i = 0; i < order.size(); ++i)
+                            ImGui::BulletText("%zu. %s", i + 1, order[i].c_str());
+                    }
+
+                    ImGui::Separator();
+                    if (ImGui::Button("Export DOT..."))
+                    {
+                        const std::string path = "rendergraph.dot";
+                        if (graph->DumpToDot(path))
+                            OLO_CORE_INFO("RenderGraph exported to '{}'. Render with 'dot -Tsvg {} -o graph.svg'.",
+                                          path, path);
+                    }
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("→ rendergraph.dot (cwd)");
+
+                    ImGui::TreePop();
+                }
             }
 
             ImGui::Unindent();
@@ -230,7 +421,7 @@ namespace OloEngine
     void RendererSettingsPanel::DrawCullingSection()
     {
         auto& settings = Renderer3D::GetRendererSettings();
-        const bool forwardPlusForced = (settings.Path == RenderingPath::ForwardPlus);
+        const bool forwardPlusForced = (settings.Path == RenderingPath::ForwardPlus) || (settings.Path == RenderingPath::Deferred);
 
         if (ImGui::CollapsingHeader("Culling & Optimization"))
         {

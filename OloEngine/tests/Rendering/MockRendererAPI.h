@@ -361,9 +361,21 @@ namespace OloEngine::Testing
         {
             return m_MaxUniformBlockSize;
         }
-        void SetBlendStateForAttachment(u32 /*attachment*/, bool /*enabled*/) override
+        void SetBlendStateForAttachment(u32 attachment, bool enabled) override
         {
-            Record("SetBlendStateForAttachment");
+            RecordedCall c{ "SetBlendStateForAttachment" };
+            c.ParamU32_0 = attachment;
+            c.ParamBool_0 = enabled;
+            m_Calls.push_back(c);
+        }
+
+        void SetBlendFuncForAttachment(u32 attachment, GLenum src, GLenum dst) override
+        {
+            RecordedCall c{ "SetBlendFuncForAttachment" };
+            c.ParamU32_0 = attachment;
+            c.ParamU32_1 = static_cast<u32>(src);
+            c.ParamU32_2 = static_cast<u32>(dst);
+            m_Calls.push_back(c);
         }
 
         void CopyImageSubData(u32 /*src*/, TextureTargetType /*srcT*/, u32 /*dst*/, TextureTargetType /*dstT*/,

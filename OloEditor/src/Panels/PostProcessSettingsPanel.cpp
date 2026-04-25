@@ -36,6 +36,7 @@ namespace OloEngine
         DrawChromaticAberrationSection();
         DrawColorGradingSection();
         DrawFXAASection();
+        DrawTAASection();
         DrawDOFSection();
         DrawMotionBlurSection();
 
@@ -216,6 +217,27 @@ namespace OloEngine
             {
                 ImGui::DragFloat("Strength", &settings.MotionBlurStrength, 0.01f, 0.0f, 2.0f, "%.2f");
                 ImGui::SliderInt("Samples", &settings.MotionBlurSamples, 1, 32);
+            }
+
+            ImGui::Unindent();
+        }
+    }
+
+    void PostProcessSettingsPanel::DrawTAASection()
+    {
+        auto& settings = Renderer3D::GetPostProcessSettings();
+
+        if (ImGui::CollapsingHeader("Temporal Anti-Aliasing (TAA)"))
+        {
+            ImGui::Indent();
+
+            ImGui::Checkbox("Enable##TAA", &settings.TAAEnabled);
+
+            if (settings.TAAEnabled)
+            {
+                ImGui::DragFloat("History Feedback", &settings.TAAFeedback, 0.01f, 0.0f, 0.98f, "%.2f");
+                ImGui::DragFloat("Sharpness", &settings.TAASharpness, 0.01f, 0.0f, 1.0f, "%.2f");
+                ImGui::TextWrapped("Deferred: consumes G-Buffer velocity (RT3). Forward / Forward+: reconstructs camera-motion velocity from depth \u2014 moving objects will ghost. Projection jitter is not injected; sub-pixel AA quality is reduced but temporal stability still works.");
             }
 
             ImGui::Unindent();

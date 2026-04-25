@@ -20,6 +20,9 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    // Previous-frame view-projection for forward-path TAA velocity
+    // emission. See PBR_MultiLight.glsl for the full design note.
+    mat4 u_PrevViewProjection;
 };
 
 // Model UBO (binding 3)
@@ -30,6 +33,12 @@ layout(std140, binding = 3) uniform ModelMatrices {
     int _paddingEntity0;
     int _paddingEntity1;
     int _paddingEntity2;
+    // Previous-frame world transform. For skinned meshes we reuse the
+    // current bone palette (prev-bone matrices are only streamed in the
+    // Deferred G-Buffer skinned shader), so the emitted velocity covers
+    // rigid whole-body motion only — intra-skeleton bone deltas resolve
+    // to zero, which is acceptable for TAA reprojection on forward paths.
+    mat4 u_PrevModel;
 };
 
 // Bone Matrices UBO (binding 4)
@@ -37,15 +46,26 @@ layout(std140, binding = 4) uniform BoneMatrices {
     mat4 u_BoneTransforms[100];
 };
 
+// Previous-frame bone matrices for per-bone velocity. CommandDispatch always
+// populates this UBO — when the caller has no actual prev pose it aliases
+// the current palette here, so a read returns either the real previous pose
+// or the current pose (zero bone motion) and never undefined memory.
+layout(std140, binding = 31) uniform PrevBoneMatrices {
+    mat4 u_PrevBoneTransforms[100];
+};
+
 // Output to fragment shader
 layout(location = 0) out vec3 v_WorldPos;
 layout(location = 1) out vec3 v_Normal;
 layout(location = 2) out vec2 v_TexCoord;
+layout(location = 3) out vec4 v_ClipPosCurr;
+layout(location = 4) out vec4 v_ClipPosPrev;
 
 void main()
 {
     // Calculate bone transformation
     mat4 boneTransform = mat4(0.0);
+    mat4 prevBoneTransform = mat4(0.0);
     float totalWeight = a_BoneWeights.x + a_BoneWeights.y + a_BoneWeights.z + a_BoneWeights.w;
     if (totalWeight > 0.001)
     {
@@ -54,7 +74,8 @@ void main()
             int boneID = a_BoneIDs[i];
             if (boneID >= 0 && boneID < 100)
             {
-                boneTransform += u_BoneTransforms[boneID] * a_BoneWeights[i];
+                boneTransform     += u_BoneTransforms[boneID]     * a_BoneWeights[i];
+                prevBoneTransform += u_PrevBoneTransforms[boneID] * a_BoneWeights[i];
             }
         }
     }
@@ -62,18 +83,30 @@ void main()
     {
         // Vertex has no bone influence — pass through without skinning
         boneTransform = mat4(1.0);
+        prevBoneTransform = mat4(1.0);
     }
 
     // Transform position and normal by bones
     vec4 localPosition = boneTransform * vec4(a_Position, 1.0);
     vec3 localNormal = mat3(boneTransform) * a_Normal;
+    vec4 prevLocalPosition = prevBoneTransform * vec4(a_Position, 1.0);
 
     // Transform to world space
     v_WorldPos = vec3(u_Model * localPosition);
     v_Normal = mat3(u_Normal) * localNormal;
     v_TexCoord = a_TexCoord;
 
-    gl_Position = u_ViewProjection * vec4(v_WorldPos, 1.0);
+    vec4 clipCurr = u_ViewProjection * vec4(v_WorldPos, 1.0);
+    // Combine per-bone previous pose with u_PrevModel so the emitted motion
+    // vector captures both rigid entity motion and intra-skeleton bone
+    // deltas — matching what PBR_GBuffer_Skinned.glsl does in Deferred.
+    vec4 prevWorldPos = u_PrevModel * prevLocalPosition;
+    vec4 clipPrev = u_PrevViewProjection * prevWorldPos;
+
+    v_ClipPosCurr = clipCurr;
+    v_ClipPosPrev = clipPrev;
+
+    gl_Position = clipCurr;
 }
 
 #type fragment
@@ -180,11 +213,15 @@ layout(std140, binding = 6) uniform ShadowData {
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;
 layout(location = 2) in vec2 v_TexCoord;
+layout(location = 3) in vec4 v_ClipPosCurr;
+layout(location = 4) in vec4 v_ClipPosPrev;
 
 // Output
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
 layout(location = 2) out vec2 o_ViewNormal;
+// Forward-path TAA motion vector (matches PBR_MultiLight.glsl).
+layout(location = 3) out vec2 o_Velocity;
 
 // Octahedral encode: unit normal → RG16F [-1,1]²
 vec2 octEncode(vec3 n)
@@ -419,4 +456,12 @@ void main()
         outputN = normalize(mix(N, vec3(0.0, 1.0, 0.0), snowWeight * 0.6));
     }
     o_ViewNormal = octEncode(normalize(mat3(u_View) * outputN));
+
+    // Screen-space velocity - see PBR_MultiLight.glsl for the derivation.
+    // Skinned meshes combine per-bone pose delta (PrevBoneMatrices, binding 31)
+    // with u_PrevModel so both rigid motion and intra-skeleton animation
+    // contribute to the motion vector.
+    vec2 ndcCurr = v_ClipPosCurr.xy / v_ClipPosCurr.w;
+    vec2 ndcPrev = v_ClipPosPrev.xy / v_ClipPosPrev.w;
+    o_Velocity = (ndcCurr - ndcPrev) * 0.5;
 }

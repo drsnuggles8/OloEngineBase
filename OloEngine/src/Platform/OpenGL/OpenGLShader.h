@@ -61,6 +61,15 @@ namespace OloEngine
         bool PollCompilationStatus() override;
         void EnsureLinked() override;
 
+        // Populated during SPIR-V reflection (Reflect()) by scanning the
+        // fragment stage's declared outputs for G-Buffer MRT markers.
+        // Stable once IsReady() returns true — Reflect() runs before the
+        // program is marked Ready.
+        [[nodiscard]] bool IsDeferredCapable() const override
+        {
+            return m_IsDeferredCapable;
+        }
+
         // Resource registry access (override base class virtual methods)
         ShaderResourceRegistry* GetResourceRegistry() override
         {
@@ -176,6 +185,12 @@ namespace OloEngine
         ShaderCompilationStatus m_CompilationStatus = ShaderCompilationStatus::Ready;
         f64 m_DeferredCompilationTime = 0.0;
         bool m_TrackedAllocation = false;
+
+        // Set during fragment-stage SPIR-V reflection when any declared
+        // stage output matches the G-Buffer marker names. Drives
+        // `IsDeferredCapable()`; see the base class declaration for the
+        // marker set and rationale.
+        bool m_IsDeferredCapable = false;
 
         // Shader stage IDs kept alive until link completes (then detached/deleted)
         std::vector<u32> m_PendingShaderIDs;

@@ -1553,19 +1553,44 @@ namespace OloEngine
 
     // ── Deferred Decal ───────────────────────────────────────────────────
 
+    // Which G-Buffer channel(s) a decal overrides. In Deferred mode each mode
+    // selects a different shader variant + draw-buffer mask so the renderer
+    // can layer projected albedo, normal, and roughness/metallic/AO decals
+    // over the same surface without touching unrelated G-Buffer slots.
+    enum class DecalMode : u8
+    {
+        Albedo = 0,
+        Normal = 1,
+        RMA = 2,      // Roughness / Metallic / AO
+        Emissive = 3, // HDR emissive into RT2 (deferred bloom-capable)
+    };
+
     struct DecalComponent
     {
         Ref<Texture2D> m_AlbedoTexture = nullptr;
+        Ref<Texture2D> m_NormalTexture = nullptr;   // Tangent-space normal map (Normal mode)
+        Ref<Texture2D> m_RMATexture = nullptr;      // R=Roughness, G=Metallic, B=AO (RMA mode)
+        Ref<Texture2D> m_EmissiveTexture = nullptr; // RGB=emissive, A=mask (Emissive mode)
         glm::vec4 m_Color = { 1.0f, 1.0f, 1.0f, 1.0f };
         glm::vec3 m_Size = { 1.0f, 1.0f, 1.0f };
         f32 m_FadeDistance = 0.5f;
         f32 m_NormalAngleThreshold = 0.5f;
+        DecalMode m_Mode = DecalMode::Albedo;
+        // Force the forward (alpha-blended / WB-OIT) decal path even when
+        // the active RenderingPath is Deferred. Opaque deferred decals are
+        // baked into the G-Buffer pre-lighting and can't blend against the
+        // lit scene; transparent decals bypass the G-Buffer overlay and
+        // composite over the lit scene colour in the graph-scheduled
+        // DecalRenderPass::Execute that runs after DeferredLightingPass.
+        bool m_Transparent = false;
 
         DecalComponent() = default;
         DecalComponent(const DecalComponent&) = default;
         DecalComponent& operator=(const DecalComponent&) = default;
         DecalComponent(DecalComponent&&) noexcept = default;
         DecalComponent& operator=(DecalComponent&&) noexcept = default;
+
+        auto operator==(const DecalComponent& other) const -> bool = default;
     };
 
     // ── LOD Group ────────────────────────────────────────────────────

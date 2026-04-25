@@ -93,15 +93,26 @@ namespace OloEngine
         u32 m_FboRead = 0;
         u32 m_ActiveProgram = 0;
         u32 m_Vao = 0;
-        // Enum in [GL_TEXTURE0, GL_TEXTURE31] indicating the unit a pass
-        // left selected on exit. Per-unit bindings are tracked below.
+        // Enum naming the active texture unit on exit. Covers the engine-
+        // reserved tracked range: slot indices `[0, kTextureSlots - 1]`,
+        // i.e. the raw GL enums `GL_TEXTURE0 .. GL_TEXTURE0 + kTextureSlots - 1`.
+        // This spans all slots the engine actually binds into — including
+        // OIT accumulation / revealage (TEX_OIT_ACCUM / _REVEALAGE) and
+        // the shader-graph slots (TEX_SHADER_GRAPH_0 = 50). Per-unit
+        // bindings for GL_TEXTURE_2D / _2D_ARRAY / _CUBE_MAP are tracked
+        // in the arrays below. Caveat: drivers that report a
+        // `GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS` lower than `kTextureSlots`
+        // (rare software rasterisers like llvmpipe) have the capture loop
+        // clamped to the reported max at Capture() time; the stored
+        // `m_ActiveTextureUnit` value is always a valid enum for the
+        // current context.
         u32 m_ActiveTextureUnit = 0;
 
         // Per-slot bindings. OloEngine reserves texture units through
-        // TEX_SHADER_GRAPH_0 = 43, so track at least 44 slots to catch leaks
+        // TEX_SHADER_GRAPH_0 = 50, so track at least 51 slots to catch leaks
         // in the engine-reserved range. Clamp the capture loop against the
         // driver's actual limit in case it reports fewer than our local cap.
-        static constexpr u32 kTextureSlots = 44;
+        static constexpr u32 kTextureSlots = 51;
         static constexpr u32 kUboSlots = 32;
         // Per-texture-unit bindings for every target the engine actually
         // binds. 2D covers colour/normal/roughness/AO; 2D_ARRAY is used by
@@ -129,6 +140,23 @@ namespace OloEngine
         // which this snapshot differs from `other`. Empty vector means
         // identical state.
         std::vector<std::string> DiffAgainst(const GLStateSnapshot& other) const;
+
+        // Re-issue the GL calls needed to bring the pipeline state back to
+        // the values in this snapshot. Covers the *core* subset that passes
+        // typically leak (depth / blend / stencil enables and functions,
+        // cull face, polygon mode, scissor box + enable, viewport,
+        // draw/read FBO, active program + VAO, and each framebuffer's
+        // draw-buffer list is NOT restored — callers needing that should
+        // manage it explicitly because the snapshot only captures the
+        // currently-bound FBO's draw buffers implicitly via GL_DRAW_BUFFER*
+        // which is an FBO property, not global state).
+        //
+        // Per-slot texture / UBO bindings are intentionally NOT restored:
+        // they require up to (3 * kTextureSlots + kUboSlots) = 185 GL calls
+        // per pass boundary, which is cost we only pay for leak *detection*.
+        // If a pass leaks a binding that matters, the detector surfaces it
+        // and the offending pass should explicitly unbind before return.
+        void ApplyCore() const;
     };
 
     class GLStateGuard
@@ -140,6 +168,14 @@ namespace OloEngine
             Log,
             // On destruction, print each mutation and abort (OLO_CORE_ASSERT).
             Assert,
+            // On destruction, restore the core state subset via
+            // `GLStateSnapshot::ApplyCore()` and log any field that was
+            // still leaked at the exit snapshot (i.e., not restored by
+            // the caller). The log surfaces remaining leaks so passes
+            // can be tightened over time; ApplyCore() then rolls back
+            // those fields. Use this when a pass does enough state
+            // flipping that a manual restore is error-prone.
+            Restore,
             // Skip the compare entirely — used to temporarily disable a
             // known-leaking region without removing the guard.
             Ignore,

@@ -71,6 +71,7 @@ namespace OloEngine
         void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer, GLenum access, GLenum format) override;
 
         void SetBlendStateForAttachment(u32 attachment, bool enabled) override;
+        void SetBlendFuncForAttachment(u32 attachment, GLenum src, GLenum dst) override;
         void CopyImageSubData(u32 srcID, TextureTargetType srcTarget, u32 dstID, TextureTargetType dstTarget,
                               u32 width, u32 height) override;
         void CopyImageSubDataFull(u32 srcID, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
@@ -95,5 +96,6 @@ namespace OloEngine
         bool m_DepthTestEnabled = false;
         bool m_DepthMaskEnabled = true;
         bool m_StencilTestEnabled = false;
+        GLint m_MaxDrawBuffers = 0; // Cached from glGetIntegerv(GL_MAX_DRAW_BUFFERS) in Init().
     };
 } // namespace OloEngine

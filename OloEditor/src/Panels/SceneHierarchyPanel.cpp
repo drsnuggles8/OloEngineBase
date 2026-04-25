@@ -4507,24 +4507,60 @@ namespace OloEngine
                 ImGui::DragFloat("Fade Distance##Decal", &component.m_FadeDistance, 0.01f, 0.0f, 10.0f, "%.2f");
                 ImGui::SliderFloat("Normal Threshold##Decal", &component.m_NormalAngleThreshold, 0.0f, 1.0f, "%.2f");
 
-                ImGui::Button("Albedo Texture", ImVec2(100.0f, 0.0f));
-                if (ImGui::BeginDragDropTarget())
+                // Deferred G-Buffer target channel.
+                static const char* kDecalModes[] = { "Albedo", "Normal", "RMA", "Emissive" };
+                i32 currentMode = static_cast<i32>(component.m_Mode);
+                if (ImGui::Combo("Mode##Decal", &currentMode, kDecalModes, IM_ARRAYSIZE(kDecalModes)))
                 {
-                    if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                    component.m_Mode = static_cast<DecalMode>(currentMode);
+                }
+
+                ImGui::Checkbox("Transparent##Decal", &component.m_Transparent);
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Route this decal through the forward (alpha-blended /\n"
+                                      "WB-OIT) pipeline instead of the deferred G-Buffer\n"
+                                      "overlay. Required for decals that need to blend\n"
+                                      "against the lit scene colour (glass stickers, smoke\n"
+                                      "puddles). Ignored in Forward/Forward+ paths — all\n"
+                                      "forward decals are already transparent overlays.");
+                }
+
+                auto drawTextureSlot = [](const char* label, Ref<Texture2D>& slot)
+                {
+                    ImGui::PushID(label);
+                    ImGui::Button(label, ImVec2(100.0f, 0.0f));
+                    if (ImGui::BeginDragDropTarget())
                     {
-                        std::filesystem::path texturePath = PathFromUtf8Payload(*payload);
-                        Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
-                        if (texture->IsLoaded())
+                        if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
                         {
-                            component.m_AlbedoTexture = texture;
+                            std::filesystem::path texturePath = PathFromUtf8Payload(*payload);
+                            Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
+                            if (texture->IsLoaded())
+                            {
+                                slot = texture;
+                            }
+                            else
+                            {
+                                OLO_WARN("Could not load texture {0}", texturePath.filename().string());
+                            }
                         }
-                        else
-                        {
-                            OLO_WARN("Could not load texture {0}", texturePath.filename().string());
-                        }
+                        ImGui::EndDragDropTarget();
                     }
-                    ImGui::EndDragDropTarget();
-                } });
+                    ImGui::SameLine();
+                    ImGui::BeginDisabled(!slot);
+                    if (ImGui::Button("X", ImVec2(20.0f, 0.0f)))
+                        slot = nullptr;
+                    ImGui::EndDisabled();
+                    if (slot && ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Clear texture slot");
+                    ImGui::PopID();
+                };
+
+                drawTextureSlot("Albedo Texture", component.m_AlbedoTexture);
+                drawTextureSlot("Normal Texture", component.m_NormalTexture);
+                drawTextureSlot("RMA Texture", component.m_RMATexture);
+                drawTextureSlot("Emissive Texture", component.m_EmissiveTexture); });
 
         DrawComponent<LightProbeComponent>("Light Probe", entity, [](auto& component)
                                            {

@@ -110,6 +110,8 @@ namespace OloEngine
 
         // Per-attachment blend control (needed for mixed integer/float framebuffer attachments)
         virtual void SetBlendStateForAttachment(u32 attachment, bool enabled) = 0;
+        // Per-attachment blend function (needed for weighted-blended OIT — accum/revealage differ)
+        virtual void SetBlendFuncForAttachment(u32 attachment, GLenum src, GLenum dst) = 0;
 
         // GPU-side image copy (used for staging textures to avoid read-write hazards)
         virtual void CopyImageSubData(u32 srcID, TextureTargetType srcTarget, u32 dstID, TextureTargetType dstTarget,

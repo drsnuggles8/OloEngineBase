@@ -22,15 +22,19 @@ namespace OloEngine
         glm::vec4 VelocityRotation; // xyz = velocity, w = rotation (radians)
         f32 StretchFactor;          // 0 = billboard, >0 = stretched (speed * lengthScale)
         int EntityID;               // editor picking
+        glm::vec4 PrevPosition;     // xyz = previous-frame world position, w = previous-frame size (for RT3 velocity)
+        f32 PrevRotation;           // previous-frame rotation in radians (for RT3 velocity quad basis)
+        f32 _Pad0;                  // pad to 16-byte alignment for next instance
     };
 
     // Per-instance data for mesh particle rendering (std140 UBO layout).
     // NOTE: PascalCase fields are intentional — this struct maps directly to GPU uniform data.
     struct MeshParticleInstance
     {
-        glm::mat4 Model; // 64 bytes
-        glm::vec4 Color; // 16 bytes
-        glm::ivec4 IDs;  // 16 bytes (x = EntityID, yzw = padding)
+        glm::mat4 Model;     // 64 bytes
+        glm::vec4 Color;     // 16 bytes
+        glm::ivec4 IDs;      // 16 bytes (x = EntityID, yzw = padding)
+        glm::mat4 PrevModel; // 64 bytes — previous-frame model matrix for motion vectors
     };
 
     // Per-vertex data for trail quad rendering.
@@ -68,16 +72,20 @@ namespace OloEngine
         // Set soft particle parameters (call after BeginBatch, before Submit)
         static void SetSoftParticleParams(const SoftParticleParams& params);
 
-        // Submit a billboard particle
+        // Submit a billboard particle. `prevPosition`, `prevSize` and `prevRotation`
+        // are the last-frame snapshot used to reconstruct the previous-frame quad
+        // basis for RT3 velocity (TAA reprojection of rotating / scaling particles).
         static void Submit(const glm::vec3& position, f32 size, f32 rotation,
                            const glm::vec4& color, const glm::vec4& uvRect,
-                           int entityID);
+                           int entityID, const glm::vec3& prevPosition,
+                           f32 prevSize, f32 prevRotation);
 
-        // Submit a stretched billboard particle
+        // Submit a stretched billboard particle (prev snapshot as above).
         static void SubmitStretched(const glm::vec3& position, f32 size,
                                     const glm::vec3& velocity, f32 stretchFactor,
                                     const glm::vec4& color, const glm::vec4& uvRect,
-                                    int entityID);
+                                    int entityID, const glm::vec3& prevPosition,
+                                    f32 prevSize, f32 prevRotation);
 
         // Set texture for upcoming submissions (flushes if texture changes)
         static void SetTexture(const Ref<Texture2D>& texture);
@@ -117,6 +125,12 @@ namespace OloEngine
         // Flush pending instances (draw call) without ending the batch.
         // Call before GL state changes (blend mode) that affect rendering.
         static void Flush();
+
+        // Phase 6: enable the weighted-blended OIT shader variant for the
+        // rest of the frame. ParticleRenderPass toggles this on when the
+        // OIT path is active, and off before returning so the normal
+        // alpha-blended shader is used when OIT is disabled.
+        static void SetOITMode(bool enabled);
 
       private:
         static void StartNewBatch();

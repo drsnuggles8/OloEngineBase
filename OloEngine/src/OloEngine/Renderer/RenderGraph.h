@@ -20,6 +20,17 @@ namespace OloEngine
         void Init(u32 width, u32 height);
         void Shutdown();
 
+        // Clear all topology bookkeeping (passes, edges, framebuffer piping,
+        // cached execution order) WITHOUT touching the passes themselves.
+        // Used by `Renderer3D::ConfigureRenderGraph(RenderingPath)` to rebuild
+        // the graph when the user switches between Forward / Forward+ /
+        // Deferred at runtime. Because passes are owned externally as
+        // `Ref<>`s on `Renderer3D::s_Data`, their framebuffers and internal
+        // state survive the reset. Callers must re-`AddPass` every pass they
+        // want in the new topology and re-issue all edges before calling
+        // `SetFinalPass` / `ValidateResourceHazards` again.
+        void ResetTopology();
+
         // Only support RenderPass
         void AddPass(const Ref<RenderPass>& pass);
         // Connect two passes: establishes execution ordering AND framebuffer piping
@@ -101,6 +112,19 @@ namespace OloEngine
             std::string Message;
         };
         [[nodiscard]] std::vector<Hazard> ValidateResourceHazards();
+
+        // @brief Dump the current graph as a Graphviz DOT file.
+        //
+        // Emits a directed graph where nodes are passes (insertion order,
+        // with the final pass double-ringed) and edges are coloured by
+        // kind — solid black for framebuffer piping (ConnectPass), dashed
+        // grey for ordering-only edges (AddExecutionDependency). Useful
+        // for one-off visualisation and for debugging RenderGraph topology
+        // changes. Render with `dot -Tsvg graph.dot -o graph.svg`.
+        //
+        // Returns true on success, false if the file could not be written.
+        // The call is read-only — it does not force a topo sort.
+        [[nodiscard]] bool DumpToDot(const std::string& filePath) const;
 
       private:
         // Returns false if the graph contains a cycle (m_PassOrder will be

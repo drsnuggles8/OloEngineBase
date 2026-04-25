@@ -281,6 +281,11 @@ namespace OloEngine
             s_RendererAPI->SetBlendStateForAttachment(attachment, enabled);
         }
 
+        static void SetBlendFuncForAttachment(u32 attachment, GLenum src, GLenum dst)
+        {
+            s_RendererAPI->SetBlendFuncForAttachment(attachment, src, dst);
+        }
+
         // GPU-side image copy
         static void CopyImageSubData(u32 srcID, RendererAPI::TextureTargetType srcTarget, u32 dstID, RendererAPI::TextureTargetType dstTarget,
                                      u32 width, u32 height)

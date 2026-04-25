@@ -93,6 +93,7 @@ namespace OloEngine
             return;
         }
 
+        s_Data.m_PrevAccumulatedTime = s_Data.m_AccumulatedTime;
         s_Data.m_AccumulatedTime += static_cast<f32>(dt);
 
         // Compute grid AABB centered on camera
@@ -120,7 +121,7 @@ namespace OloEngine
         gpu.TimeAndFlags = glm::vec4(s_Data.m_AccumulatedTime,
                                      settings.Enabled ? 1.0f : 0.0f,
                                      static_cast<f32>(resolvedResolution),
-                                     0.0f);
+                                     s_Data.m_PrevAccumulatedTime);
 
         // Upload UBO
         s_Data.m_WindUBO->SetData(&gpu, WindUBOData::GetSize());

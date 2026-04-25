@@ -61,6 +61,74 @@ namespace OloEngine
     Renderer3D::Renderer3DData Renderer3D::s_Data;
     ShaderLibrary Renderer3D::m_ShaderLibrary;
 
+    // @brief Identifies shaders that are safe to submit into the Deferred
+    // ScenePass (i.e. write the G-Buffer MRT layout: Albedo/Metallic,
+    // Normal/Roughness/AO, Emissive/Flags, Velocity). Any shader outside
+    // this set uses the forward fragment layout and would alias its outputs
+    // onto the G-Buffer slots - corrupting lighting for every subsequent
+    // pixel in the frame. `material.GetShader()` overrides are checked
+    // through this helper at every serial/parallel submission site so a
+    // forward-only custom shader on a deferred-path draw is transparently
+    // rerouted to ForwardOverlayPass (see the `overlayRoute` branches).
+    bool Renderer3D::IsDeferredCapableShader(const Ref<Shader>& shader)
+    {
+        if (!shader)
+            return false;
+        const u64 handle = static_cast<u64>(shader->GetHandle());
+        if (handle == 0)
+            return false;
+
+        // Primary path: ask the shader itself. `Shader::IsDeferredCapable()`
+        // is populated by the backend's reflection pass (for OpenGL, at
+        // Reflect() time by scanning the fragment stage's declared outputs
+        // for the G-Buffer marker names — see `OpenGLShader::Reflect`).
+        // This correctly classifies CUSTOM shaders that weren't loaded via
+        // the built-in handle set, as long as they follow the engine's
+        // opt-in naming convention (o_GBuffer* / gAlbedo / gNormalRoughAO /
+        // gEmissive).
+        if (shader->IsDeferredCapable())
+            return true;
+
+        // Compatibility shim: some built-in shaders are cached in s_Data
+        // and may be queried before their reflection has run (e.g. during
+        // engine startup, before the first Bind()/EnsureLinked()). Fall
+        // back to identity comparison against the known deferred handle
+        // set so those queries don't misclassify a not-yet-reflected shader
+        // as forward-only.
+        //
+        // Compare by AssetHandle rather than RendererID — the latter is
+        // re-issued on hot-reload whereas the handle is stable across the
+        // asset lifetime.
+        auto matches = [handle](const Ref<Shader>& candidate)
+        {
+            return candidate && static_cast<u64>(candidate->GetHandle()) == handle;
+        };
+        return matches(s_Data.PBRGBufferShader) || matches(s_Data.PBRGBufferSkinnedShader) ||
+               matches(s_Data.SkyboxGBufferShader) || matches(s_Data.LightCubeGBufferShader) ||
+               matches(s_Data.InfiniteGridGBufferShader) || matches(s_Data.TerrainGBufferShader) ||
+               matches(s_Data.VoxelGBufferShader) || matches(s_Data.FoliageGBufferShader) ||
+               matches(s_Data.DecalGBufferShader) || matches(s_Data.DecalGBufferNormalShader) ||
+               matches(s_Data.DecalGBufferRMAShader) || matches(s_Data.DecalGBufferEmissiveShader);
+    }
+
+    // Halton low-discrepancy sequence used for TAA sub-pixel jitter. Index is
+    // 1-based (index 0 is undefined for Halton); the sequence repeats every
+    // kHaltonSequenceLength samples which is long enough to de-correlate the
+    // jitter pattern from any typical framerate / scene loop.
+    static constexpr u32 kHaltonSequenceLength = 8;
+    static f32 HaltonSample(u32 index, u32 base)
+    {
+        f32 f = 1.0f;
+        f32 r = 0.0f;
+        while (index > 0)
+        {
+            f /= static_cast<f32>(base);
+            r += f * static_cast<f32>(index % base);
+            index /= base;
+        }
+        return r;
+    }
+
     // Helper function to compute depth from camera space for sort key
     // Returns a quantized depth value in range [0, 0xFFFFFF] for 24-bit depth
     // @param modelMatrix The model transformation matrix
@@ -229,6 +297,24 @@ namespace OloEngine
 
         RendererProfiler::GetInstance().Initialize();
 
+        // Query driver MSAA caps once so the settings panel and the
+        // ApplyRendererSettings clamp logic have the true max the GPU
+        // supports. We take the min of colour-attachment and depth-texture
+        // caps because the G-Buffer needs matching sample counts on both.
+        {
+            GLint colorSamples = 0;
+            GLint depthSamples = 0;
+            glGetIntegerv(GL_MAX_COLOR_TEXTURE_SAMPLES, &colorSamples);
+            glGetIntegerv(GL_MAX_DEPTH_TEXTURE_SAMPLES, &depthSamples);
+            s_Data.MaxMSAASamplesColor = static_cast<u32>(std::max(colorSamples, 1));
+            s_Data.MaxMSAASamplesDepth = static_cast<u32>(std::max(depthSamples, 1));
+            OLO_CORE_INFO("Renderer3D: Driver MSAA caps — GL_MAX_COLOR_TEXTURE_SAMPLES={}, "
+                          "GL_MAX_DEPTH_TEXTURE_SAMPLES={} (usable max = {})",
+                          s_Data.MaxMSAASamplesColor,
+                          s_Data.MaxMSAASamplesDepth,
+                          std::min(s_Data.MaxMSAASamplesColor, s_Data.MaxMSAASamplesDepth));
+        }
+
         FrameDataBufferManager::Init();
         FrameResourceManager::Get().Init();
 
@@ -286,7 +372,7 @@ namespace OloEngine
 
         u32 shaderIdx = 0;
         // NOTE: Keep totalShaders3D in sync with the number of Load() calls below.
-        constexpr u32 totalShaders3D = 28;
+        constexpr u32 totalShaders3D = 42;
 
         // Boot + fallback are idempotent — no-ops when already initialized by
         // Renderer::Init().  Needed here for the lazy-init path (EditorLayer
@@ -309,24 +395,38 @@ namespace OloEngine
             "assets/shaders/PBR_Skinned.glsl",
             "assets/shaders/PBR_MultiLight.glsl",
             "assets/shaders/PBR_MultiLight_Skinned.glsl",
+            "assets/shaders/PBR_GBuffer.glsl",
+            "assets/shaders/PBR_GBuffer_Skinned.glsl",
             "assets/shaders/EquirectangularToCubemap.glsl",
             "assets/shaders/IrradianceConvolution.glsl",
             "assets/shaders/IBLPrefilter.glsl",
             "assets/shaders/BRDFLutGeneration.glsl",
             "assets/shaders/Skybox.glsl",
+            "assets/shaders/Skybox_GBuffer.glsl",
+            "assets/shaders/LightCube_GBuffer.glsl",
             "assets/shaders/InfiniteGrid.glsl",
+            "assets/shaders/InfiniteGrid_GBuffer.glsl",
             "assets/shaders/ShadowDepth.glsl",
             "assets/shaders/ShadowDepthSkinned.glsl",
             "assets/shaders/ShadowDepthPoint.glsl",
             "assets/shaders/ShadowDepthPointSkinned.glsl",
             "assets/shaders/Terrain_PBR.glsl",
+            "assets/shaders/Terrain_GBuffer.glsl",
             "assets/shaders/Terrain_Depth.glsl",
             "assets/shaders/Terrain_Voxel.glsl",
+            "assets/shaders/Terrain_Voxel_GBuffer.glsl",
             "assets/shaders/Terrain_VoxelDepth.glsl",
             "assets/shaders/Foliage_Instance.glsl",
+            "assets/shaders/Foliage_Instance_GBuffer.glsl",
             "assets/shaders/Foliage_Depth.glsl",
             "assets/shaders/Water.glsl",
+            "assets/shaders/Water_OIT.glsl",
             "assets/shaders/Decal.glsl",
+            "assets/shaders/Decal_OIT.glsl",
+            "assets/shaders/Decal_GBuffer.glsl",
+            "assets/shaders/Decal_GBuffer_Normal.glsl",
+            "assets/shaders/Decal_GBuffer_RMA.glsl",
+            "assets/shaders/Decal_GBuffer_Emissive.glsl",
             "assets/shaders/OcclusionProxy.glsl",
             "assets/shaders/ForwardPlusDebug.glsl",
         };
@@ -356,20 +456,32 @@ namespace OloEngine
         s_Data.PBRSkinnedShader = m_ShaderLibrary.Get("PBR_MultiLight_Skinned");
         s_Data.PBRMultiLightShader = m_ShaderLibrary.Get("PBR_MultiLight");
         s_Data.PBRMultiLightSkinnedShader = m_ShaderLibrary.Get("PBR_MultiLight_Skinned");
+        s_Data.PBRGBufferShader = m_ShaderLibrary.Get("PBR_GBuffer");
+        s_Data.PBRGBufferSkinnedShader = m_ShaderLibrary.Get("PBR_GBuffer_Skinned");
         s_Data.SkyboxShader = m_ShaderLibrary.Get("Skybox");
+        s_Data.SkyboxGBufferShader = m_ShaderLibrary.Get("Skybox_GBuffer");
+        s_Data.LightCubeGBufferShader = m_ShaderLibrary.Get("LightCube_GBuffer");
         s_Data.InfiniteGridShader = m_ShaderLibrary.Get("InfiniteGrid");
+        s_Data.InfiniteGridGBufferShader = m_ShaderLibrary.Get("InfiniteGrid_GBuffer");
         s_Data.ForwardPlusDebugShader = m_ShaderLibrary.Get("ForwardPlusDebug");
         s_Data.ShadowDepthShader = m_ShaderLibrary.Get("ShadowDepth");
         s_Data.ShadowDepthSkinnedShader = m_ShaderLibrary.Get("ShadowDepthSkinned");
         s_Data.ShadowDepthPointSkinnedShader = m_ShaderLibrary.Get("ShadowDepthPointSkinned");
         s_Data.TerrainPBRShader = m_ShaderLibrary.Get("Terrain_PBR");
+        s_Data.TerrainGBufferShader = m_ShaderLibrary.Get("Terrain_GBuffer");
         s_Data.TerrainDepthShader = m_ShaderLibrary.Get("Terrain_Depth");
         s_Data.VoxelPBRShader = m_ShaderLibrary.Get("Terrain_Voxel");
+        s_Data.VoxelGBufferShader = m_ShaderLibrary.Get("Terrain_Voxel_GBuffer");
         s_Data.VoxelDepthShader = m_ShaderLibrary.Get("Terrain_VoxelDepth");
         s_Data.FoliageShader = m_ShaderLibrary.Get("Foliage_Instance");
+        s_Data.FoliageGBufferShader = m_ShaderLibrary.Get("Foliage_Instance_GBuffer");
         s_Data.FoliageDepthShader = m_ShaderLibrary.Get("Foliage_Depth");
         s_Data.WaterShader = m_ShaderLibrary.Get("Water");
         s_Data.DecalShader = m_ShaderLibrary.Get("Decal");
+        s_Data.DecalGBufferShader = m_ShaderLibrary.Get("Decal_GBuffer");
+        s_Data.DecalGBufferNormalShader = m_ShaderLibrary.Get("Decal_GBuffer_Normal");
+        s_Data.DecalGBufferRMAShader = m_ShaderLibrary.Get("Decal_GBuffer_RMA");
+        s_Data.DecalGBufferEmissiveShader = m_ShaderLibrary.Get("Decal_GBuffer_Emissive");
         s_Data.DecalCubeMesh = MeshPrimitives::CreateCube();
         s_Data.WhiteTexture = Texture2D::Create(TextureSpecification());
         u32 whiteTextureData = 0xffffffffU;
@@ -400,6 +512,7 @@ namespace OloEngine
 
         s_Data.ModelMatrixUBO = UniformBuffer::Create(ShaderBindingLayout::ModelUBO::GetSize(), ShaderBindingLayout::UBO_MODEL);
         s_Data.BoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION);
+        s_Data.PrevBoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION_PREV);
         s_Data.TerrainUBO = UniformBuffer::Create(ShaderBindingLayout::TerrainUBO::GetSize(), ShaderBindingLayout::UBO_TERRAIN);
         s_Data.FoliageUBO = UniformBuffer::Create(ShaderBindingLayout::FoliageUBO::GetSize(), ShaderBindingLayout::UBO_FOLIAGE);
         s_Data.WaterUBO = UniformBuffer::Create(ShaderBindingLayout::WaterUBO::GetSize(), ShaderBindingLayout::UBO_WATER);
@@ -431,7 +544,8 @@ namespace OloEngine
             s_Data.MaterialUBO,
             s_Data.LightPropertiesUBO,
             s_Data.BoneMatricesUBO,
-            s_Data.ModelMatrixUBO);
+            s_Data.ModelMatrixUBO,
+            s_Data.PrevBoneMatricesUBO);
 
         EnvironmentMap::InitializeIBLSystem(m_ShaderLibrary);
         OLO_CORE_INFO("IBL system initialized.");
@@ -543,6 +657,7 @@ namespace OloEngine
         s_Data.SSAOPass.Reset();
         s_Data.GTAOPass.Reset();
         s_Data.ParticlePass.Reset();
+        s_Data.OITResolvePass.Reset();
         s_Data.SSSPass.Reset();
         s_Data.PostProcessPass.Reset();
         if (s_Data.SelectionOutlinePass)
@@ -554,6 +669,9 @@ namespace OloEngine
         s_Data.FoliagePass.Reset();
         s_Data.WaterPass.Reset();
         s_Data.DecalPass.Reset();
+        s_Data.DeferredLightPass.Reset();
+        s_Data.OpaqueDecalPass.Reset();
+        s_Data.ForwardOverlayPass.Reset();
         s_Data.RGraph.Reset();
 
         // Release UBOs explicitly while the GL context is still alive
@@ -576,6 +694,7 @@ namespace OloEngine
         s_Data.DecalUBO.Reset();
         s_Data.LightProbeVolumeUBO.Reset();
         s_Data.LightProbeSHBuffer.Reset();
+        s_Data.PrevBoneMatricesUBO.Reset();
 
         FrameResourceManager::Get().Shutdown();
         FrameDataBufferManager::Shutdown();
@@ -648,6 +767,15 @@ namespace OloEngine
         // Reset frame data buffer for new frame
         FrameDataBufferManager::Get().Reset();
 
+        // Rotate the per-entity transform history so DrawMesh/DrawAnimated
+        // submission can look up "previous frame" transforms. In Forward /
+        // Forward+ these maps stay empty because those paths never call
+        // GetAndRecordPrevTransform.
+        s_Data.PrevEntityTransforms = std::move(s_Data.CurrEntityTransforms);
+        s_Data.CurrEntityTransforms.clear();
+        s_Data.PrevInstanceTransforms = std::move(s_Data.CurrInstanceTransforms);
+        s_Data.CurrInstanceTransforms.clear();
+
         // Get main-thread allocator for this frame (already reset by BeginFrame)
         CommandAllocator* frameAllocator = FrameResourceManager::Get().GetMainAllocator();
         s_Data.ScenePass->GetCommandBucket().SetAllocator(frameAllocator);
@@ -655,12 +783,88 @@ namespace OloEngine
             s_Data.DecalPass->GetCommandBucket().SetAllocator(frameAllocator);
         if (s_Data.FoliagePass)
             s_Data.FoliagePass->GetCommandBucket().SetAllocator(frameAllocator);
+        if (s_Data.ForwardOverlayPass)
+            s_Data.ForwardOverlayPass->GetCommandBucket().SetAllocator(frameAllocator);
         if (s_Data.WaterPass)
             s_Data.WaterPass->GetCommandBucket().SetAllocator(frameAllocator);
+
+        // TAA projection jitter. We bake a sub-pixel Halton offset into the
+        // projection matrix so the same pixel samples a slightly different
+        // geometric position each frame; the TAA accumulator then averages
+        // across frames for sub-pixel anti-aliasing. The jitter is applied
+        // uniformly to ProjectionMatrix and therefore ViewProjectionMatrix,
+        // so every downstream pass (G-Buffer, lighting, decals, water,
+        // SSAO/GTAO, post-process) observes the same jittered camera. Both
+        // the current and previous ViewProjection carry their respective
+        // jitters so depth-based reprojection in TAA remains self-consistent
+        // without requiring an explicit unjitter uniform.
+        s_Data.PrevJitterUV = s_Data.CurrJitterUV;
+        s_Data.CurrJitterUV = glm::vec2(0.0f);
+        if (s_Data.PostProcess.TAAEnabled && s_Data.ScenePass && s_Data.ScenePass->GetTarget())
+        {
+            const auto& spec = s_Data.ScenePass->GetTarget()->GetSpecification();
+            if (spec.Width > 0 && spec.Height > 0)
+            {
+                // 1-based Halton index; Halton(0) is undefined. Loop modulo
+                // kHaltonSequenceLength keeps the pattern short and stable.
+                const u32 idx = (s_Data.TAAJitterFrameIndex % kHaltonSequenceLength) + 1;
+                // Halton samples land in [0, 1]; remap to [-0.5, 0.5] so the
+                // jitter is centred around the unperturbed pixel.
+                const f32 jx = HaltonSample(idx, 2) - 0.5f;
+                const f32 jy = HaltonSample(idx, 3) - 0.5f;
+
+                // Convert pixel offset to NDC — 2 NDC units span the screen,
+                // so one pixel in NDC = 2 / resolution.
+                const f32 jitterNdcX = jx * (2.0f / static_cast<f32>(spec.Width));
+                const f32 jitterNdcY = jy * (2.0f / static_cast<f32>(spec.Height));
+
+                // For perspective projections (P[3][3] == 0, P[2][3] == -1),
+                // inject jitter via the z-column of the projection matrix.
+                // After the perspective divide this becomes a constant NDC
+                // offset (x_ndc = P[2][0] * z / w_clip = P[2][0] * z / -z = -P[2][0])
+                // which is exactly the sub-pixel shift we want.
+                //
+                // For orthographic projections (P[3][3] == 1, P[2][3] == 0),
+                // writing to P[2][0/1] produces a *depth-dependent* shear:
+                // x_ndc = P[0][0]*x + P[2][0]*z + P[3][0]. Instead, add the
+                // jitter to the translation row so every fragment gets the
+                // same sub-pixel shift independent of depth.
+                const bool isOrthographic = glm::abs(s_Data.ProjectionMatrix[3][3] - 1.0f) < 1e-5f;
+                if (isOrthographic)
+                {
+                    s_Data.ProjectionMatrix[3][0] += jitterNdcX;
+                    s_Data.ProjectionMatrix[3][1] += jitterNdcY;
+                }
+                else
+                {
+                    s_Data.ProjectionMatrix[2][0] += jitterNdcX;
+                    s_Data.ProjectionMatrix[2][1] += jitterNdcY;
+                }
+                s_Data.ViewProjectionMatrix = s_Data.ProjectionMatrix * s_Data.ViewMatrix;
+
+                // Track jitter in UV-space so the TAA shader (or any future
+                // consumer) can subtract it if needed. NDC -> UV is * 0.5.
+                s_Data.CurrJitterUV = glm::vec2(jitterNdcX * 0.5f, jitterNdcY * 0.5f);
+
+                s_Data.TAAJitterFrameIndex = (s_Data.TAAJitterFrameIndex + 1) % kHaltonSequenceLength;
+            }
+        }
+        else
+        {
+            s_Data.TAAJitterFrameIndex = 0;
+        }
 
         CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
         CommandDispatch::SetViewMatrix(s_Data.ViewMatrix);
         CommandDispatch::SetProjectionMatrix(s_Data.ProjectionMatrix);
+        // Mirror the previous-frame view-projection into CommandDispatch so
+        // dispatch paths that upload the shared CameraUBO themselves
+        // (Terrain / Voxel / Decal) can fill
+        // `CameraUBO::PrevViewProjection` with the true history instead of
+        // aliasing the current VP — the latter wipes the matrix any other
+        // consumer (TAA velocity reconstruction, motion blur) reads this
+        // frame.
+        CommandDispatch::SetPrevViewProjectionMatrix(s_Data.PrevViewProjectionMatrix);
 
         s_Data.InverseViewProjectionMatrix = glm::inverse(s_Data.ViewProjectionMatrix);
         s_Data.ViewFrustum.Update(s_Data.ViewProjectionMatrix);
@@ -690,6 +894,8 @@ namespace OloEngine
             s_Data.DecalPass->ResetCommandBucket();
         if (s_Data.FoliagePass)
             s_Data.FoliagePass->ResetCommandBucket();
+        if (s_Data.ForwardOverlayPass)
+            s_Data.ForwardOverlayPass->ResetCommandBucket();
         if (s_Data.WaterPass)
             s_Data.WaterPass->ResetCommandBucket();
 
@@ -722,8 +928,16 @@ namespace OloEngine
         // Cache shader references for parallel access
         s_Data.ParallelContext.LightingShader = s_Data.LightingShader;
         s_Data.ParallelContext.SkinnedLightingShader = s_Data.SkinnedLightingShader;
-        s_Data.ParallelContext.PBRShader = s_Data.PBRShader;
-        s_Data.ParallelContext.PBRSkinnedShader = s_Data.PBRSkinnedShader;
+        // Route PBR shader slot to the G-Buffer write variant in Deferred mode
+        // so parallel-submission workers pick the correct program without
+        // needing to query RendererSettings per draw.
+        const bool deferredActive = (s_Data.Settings.Path == RenderingPath::Deferred);
+        s_Data.ParallelContext.PBRShader = (deferredActive && s_Data.PBRGBufferShader)
+                                               ? s_Data.PBRGBufferShader
+                                               : s_Data.PBRShader;
+        s_Data.ParallelContext.PBRSkinnedShader = (deferredActive && s_Data.PBRGBufferSkinnedShader)
+                                                      ? s_Data.PBRGBufferSkinnedShader
+                                                      : s_Data.PBRSkinnedShader;
         s_Data.ParallelContext.LightCubeShader = s_Data.LightCubeShader;
         s_Data.ParallelContext.SkyboxShader = s_Data.SkyboxShader;
         s_Data.ParallelContext.QuadShader = s_Data.QuadShader;
@@ -787,6 +1001,25 @@ namespace OloEngine
         RendererID albedoTextureID,
         i32 entityID)
     {
+        // Delegate to the extended variant with Albedo mode + zero extra textures.
+        return DrawDecal(decalTransform, inverseDecalTransform, decalColor, decalParams,
+                         albedoTextureID, /*normal*/ 0u, /*rma*/ 0u,
+                         DrawDecalCommand::DecalMode::Albedo,
+                         /*transparent*/ false, entityID);
+    }
+
+    CommandPacket* Renderer3D::DrawDecal(
+        const glm::mat4& decalTransform,
+        const glm::mat4& inverseDecalTransform,
+        const glm::vec4& decalColor,
+        const glm::vec4& decalParams,
+        RendererID albedoTextureID,
+        RendererID normalTextureID,
+        RendererID rmaTextureID,
+        DrawDecalCommand::DecalMode mode,
+        bool transparent,
+        i32 entityID)
+    {
         OLO_PROFILE_FUNCTION();
 
         if (!s_Data.DecalPass)
@@ -815,21 +1048,70 @@ namespace OloEngine
         auto* cmd = packet->GetCommandData<DrawDecalCommand>();
         cmd->header.type = CommandType::DrawDecal;
 
+        // Deferred-path decals write into the G-Buffer attachment that matches
+        // the decal mode (Albedo → RT0, Normal → RT1, RMA → RT0.a+RT1.zw) BEFORE
+        // the lighting pass, so they are re-lit by DeferredLightingPass. In
+        // Forward/Forward+, every mode collapses to the existing transparent
+        // overlay shader — there is no forward-path normal/RMA decal. Transparent
+        // decals always route through the forward shader even in Deferred, so
+        // they composite over the lit scene colour after DeferredLightingPass.
+        const bool deferredPath = !transparent &&
+                                  s_Data.Settings.Path == RenderingPath::Deferred &&
+                                  s_Data.DecalGBufferShader != nullptr;
+        Ref<Shader> decalShader = s_Data.DecalShader;
+        if (deferredPath)
+        {
+            switch (mode)
+            {
+                case DrawDecalCommand::DecalMode::Normal:
+                    if (s_Data.DecalGBufferNormalShader)
+                        decalShader = s_Data.DecalGBufferNormalShader;
+                    else
+                        decalShader = s_Data.DecalGBufferShader;
+                    break;
+                case DrawDecalCommand::DecalMode::RMA:
+                    if (s_Data.DecalGBufferRMAShader)
+                        decalShader = s_Data.DecalGBufferRMAShader;
+                    else
+                        decalShader = s_Data.DecalGBufferShader;
+                    break;
+                case DrawDecalCommand::DecalMode::Emissive:
+                    if (s_Data.DecalGBufferEmissiveShader)
+                        decalShader = s_Data.DecalGBufferEmissiveShader;
+                    else
+                        decalShader = s_Data.DecalGBufferShader;
+                    break;
+                case DrawDecalCommand::DecalMode::Albedo:
+                default:
+                    decalShader = s_Data.DecalGBufferShader;
+                    break;
+            }
+        }
+
         cmd->vertexArrayID = va->GetRendererID();
         cmd->indexCount = s_Data.DecalCubeMesh->GetIndexCount();
-        cmd->shaderRendererID = s_Data.DecalShader->GetRendererID();
+        cmd->shaderRendererID = decalShader->GetRendererID();
         cmd->decalTransform = decalTransform;
         cmd->inverseDecalTransform = inverseDecalTransform;
         cmd->inverseViewProjection = s_Data.InverseViewProjectionMatrix;
         cmd->decalColor = decalColor;
         cmd->decalParams = decalParams;
         cmd->albedoTextureID = albedoTextureID;
+        cmd->normalTextureID = normalTextureID;
+        cmd->rmaTextureID = rmaTextureID;
+        cmd->mode = deferredPath
+                        ? mode
+                        : DrawDecalCommand::DecalMode::Albedo; // Forward path always albedo.
+        cmd->transparent = transparent ? u8{ 1 } : u8{ 0 };
         cmd->entityID = entityID;
 
-        // Decal render state: blend on, depth read-only, front-face culling
+        // Decal render state: blend on for albedo (soft edges), blend off for
+        // normal/RMA (hard discard threshold — see shader comments). Depth
+        // read-only, front-face culling in all cases.
         {
             PODRenderState decalState = CreateDefaultPODRenderState();
-            decalState.blendEnabled = true;
+            const bool blendForThisMode = (cmd->mode == DrawDecalCommand::DecalMode::Albedo);
+            decalState.blendEnabled = blendForThisMode;
             decalState.blendSrcFactor = GL_SRC_ALPHA;
             decalState.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
             decalState.depthTestEnabled = true;
@@ -843,11 +1125,15 @@ namespace OloEngine
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 
-        // Sort key: decals are rendered after opaque as transparent geometry
+        // Sort key: in Forward/Forward+ decals are transparent overlays
+        // rendered after opaque geometry; in Deferred they write into the
+        // G-Buffer pre-lighting so they are opaque from the sorter's POV.
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = s_Data.DecalShader->GetRendererID() & 0xFFFF;
+        u32 shaderID = decalShader->GetRendererID() & 0xFFFF;
         u32 depth = ComputeDepthForSortKey(decalTransform);
-        metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, 0, depth);
+        metadata.m_SortKey = deferredPath
+                                 ? DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, depth)
+                                 : DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, 0, depth);
         metadata.m_IsStatic = false;
         packet->SetMetadata(metadata);
 
@@ -859,6 +1145,7 @@ namespace OloEngine
         RendererID albedoTextureID,
         const glm::mat4& modelTransform,
         f32 time,
+        f32 prevTime,
         f32 windStrength, f32 windSpeed,
         f32 viewDistance, f32 fadeStart, f32 alphaCutoff,
         const glm::vec4& baseColor,
@@ -878,6 +1165,14 @@ namespace OloEngine
             return nullptr;
         }
 
+        // Deferred: route through ScenePass (the G-Buffer FB) with the
+        // G-Buffer variant shader so foliage participates in the deferred
+        // lighting composite. Falls back to the forward FoliagePass route
+        // when the variant is missing.
+        const bool deferredActive = (s_Data.Settings.Path == RenderingPath::Deferred);
+        const bool useGBufferVariant = deferredActive && s_Data.FoliageGBufferShader && s_Data.ScenePass;
+        Ref<Shader> activeShader = useGBufferVariant ? s_Data.FoliageGBufferShader : s_Data.FoliageShader;
+
         // Frustum cull the entire layer using the precomputed bounding box
         if (s_Data.FrustumCullingEnabled)
         {
@@ -888,7 +1183,9 @@ namespace OloEngine
             }
         }
 
-        CommandPacket* packet = CreateFoliageDrawCall<DrawFoliageLayerCommand>();
+        CommandPacket* packet = useGBufferVariant
+                                    ? CreateDrawCall<DrawFoliageLayerCommand>()
+                                    : CreateFoliageDrawCall<DrawFoliageLayerCommand>();
         if (!packet)
         {
             OLO_CORE_ERROR("Renderer3D::DrawFoliageLayer: Failed to allocate foliage command packet!");
@@ -900,10 +1197,11 @@ namespace OloEngine
         cmd->vertexArrayID = vertexArrayID;
         cmd->indexCount = indexCount;
         cmd->instanceCount = instanceCount;
-        cmd->shaderRendererID = s_Data.FoliageShader->GetRendererID();
+        cmd->shaderRendererID = activeShader->GetRendererID();
         cmd->modelTransform = modelTransform;
         cmd->normalMatrix = glm::transpose(glm::inverse(modelTransform));
         cmd->time = time;
+        cmd->prevTime = prevTime;
         cmd->windStrength = windStrength;
         cmd->windSpeed = windSpeed;
         cmd->viewDistance = viewDistance;
@@ -930,7 +1228,7 @@ namespace OloEngine
 
         // Sort key: opaque, sorted by shader then depth (front-to-back)
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = s_Data.FoliageShader->GetRendererID() & 0xFFFF;
+        u32 shaderID = activeShader->GetRendererID() & 0xFFFF;
         u32 depth = ComputeDepthForSortKey(modelTransform);
         metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, depth);
         metadata.m_IsStatic = false;
@@ -943,6 +1241,7 @@ namespace OloEngine
         RendererID vertexArrayID, u32 indexCount,
         const glm::mat4& modelTransform,
         f32 time,
+        f32 prevTime,
         const WaterDrawParams& params,
         const BoundingBox& bounds,
         i32 entityID)
@@ -996,6 +1295,10 @@ namespace OloEngine
         cmd->visualParams = params.visualParams;
         cmd->normalMapScroll = params.normalMapScroll;
         cmd->normalMapSpeed = params.normalMapSpeed;
+        // Pack previous-frame time into normalMapSpeed.z so the water shader can
+        // re-evaluate the Gerstner sum at `t - dt` for per-fragment velocity
+        // reprojection (closes the wave-animation gap in the RT3 motion vector).
+        cmd->normalMapSpeed.z = prevTime;
         cmd->lightDirection = params.lightDirection;
         cmd->screenParams = params.screenParams;
         cmd->depthRefractionParams = params.depthRefractionParams;
@@ -1105,6 +1408,35 @@ namespace OloEngine
             else
             {
                 s_Data.PostProcessPass->SetSSAOTexture(0);
+            }
+
+            // TAA velocity source: in Deferred the G-Buffer RT3 carries
+            // full per-object + per-bone motion and is the authoritative
+            // source; in Forward / Forward+ the scene FB RT3 is populated
+            // by PBR_MultiLight (static) and PBR_MultiLight_Skinned (per-
+            // object motion only -- skinned intra-skeleton motion is not
+            // tracked in forward). Non-PBR forward shaders leave their
+            // pixels at zero velocity, which the TAA shader treats as
+            // "no motion" and falls back to neighborhood clip. A
+            // zero-bound here forces the camera-only reconstruction path.
+            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.ScenePass && s_Data.ScenePass->GetGBuffer())
+            {
+                s_Data.PostProcessPass->SetVelocityTextureID(
+                    s_Data.ScenePass->GetGBuffer()->GetColorAttachmentID(GBuffer::Velocity));
+            }
+            else if (s_Data.ScenePass && s_Data.ScenePass->GetTarget())
+            {
+                // Scene FB attachment index 3 is the RG16F velocity target
+                // (see FramebufferSpecification assembled in Init()). Binding
+                // it unconditionally in Forward / Forward+ is safe: static
+                // geometry writes zero velocity (prev == curr), non-PBR
+                // shaders don't touch RT3 and it stays at its cleared value.
+                s_Data.PostProcessPass->SetVelocityTextureID(
+                    s_Data.ScenePass->GetTarget()->GetColorAttachmentRendererID(3));
+            }
+            else
+            {
+                s_Data.PostProcessPass->SetVelocityTextureID(0);
             }
         }
         auto& profiler = RendererProfiler::GetInstance();
@@ -1266,13 +1598,53 @@ namespace OloEngine
             }
         }
 
-        // Upload motion blur / inverse VP matrices (needed by motion blur AND fog depth reconstruction)
-        if (s_Data.PostProcess.MotionBlurEnabled || s_Data.Fog.Enabled)
+        // Upload motion blur / inverse VP matrices (needed by motion blur AND fog depth reconstruction
+        // AND the deferred lighting pass, which reconstructs world-space position from G-Buffer depth
+        // AND TAA for camera-only velocity reprojection in Forward / Forward+).
+        if (s_Data.PostProcess.MotionBlurEnabled || s_Data.PostProcess.TAAEnabled || s_Data.Fog.Enabled || s_Data.Settings.Path == RenderingPath::Deferred)
         {
             auto& mb = s_Data.MotionBlurGPUData;
             mb.InverseViewProjection = s_Data.InverseViewProjectionMatrix;
             mb.PrevViewProjection = s_Data.PrevViewProjectionMatrix;
             s_Data.MotionBlurUBO->SetData(&mb, MotionBlurUBOData::GetSize());
+        }
+
+        // Wire deferred lighting pass inputs each frame so it reflects the
+        // current G-Buffer / debug-channel selection. The pass no-ops when
+        // the path is Forward / Forward+ (GBuffer is never created).
+        if (s_Data.DeferredLightPass && s_Data.ScenePass)
+        {
+            const bool deferred = (s_Data.Settings.Path == RenderingPath::Deferred);
+            s_Data.DeferredLightPass->SetGBuffer(deferred ? s_Data.ScenePass->GetGBuffer() : nullptr);
+            s_Data.DeferredLightPass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
+            s_Data.DeferredLightPass->SetDebugChannel(deferred ? s_Data.Settings.Deferred.DebugChannel : 0);
+            s_Data.DeferredLightPass->SetPerSampleLighting(deferred && s_Data.Settings.Deferred.PerSampleLighting);
+        }
+
+        // Wire the opaque-decal graph shim: in Deferred mode it drains the
+        // DecalRenderPass bucket into the G-Buffer between ScenePass and
+        // DeferredLightingPass. Safe to update unconditionally — the pass
+        // no-ops when it isn't registered in the graph (Forward paths).
+        if (s_Data.OpaqueDecalPass && s_Data.DecalPass && s_Data.ScenePass)
+        {
+            const bool deferred = (s_Data.Settings.Path == RenderingPath::Deferred);
+            s_Data.OpaqueDecalPass->SetDecalPass(s_Data.DecalPass);
+            s_Data.OpaqueDecalPass->SetGBuffer(deferred ? s_Data.ScenePass->GetGBuffer() : nullptr);
+            s_Data.OpaqueDecalPass->SetPerSampleLighting(deferred && s_Data.Settings.Deferred.PerSampleLighting);
+        }
+
+        // Phase 6: propagate OIT toggle to transparent passes + resolve
+        // every frame so UI changes take effect immediately.
+        {
+            const bool oitEnabled = (s_Data.Settings.Path == RenderingPath::Deferred) && s_Data.Settings.Deferred.OITEnabled;
+            if (s_Data.ParticlePass)
+                s_Data.ParticlePass->SetOITEnabled(oitEnabled);
+            if (s_Data.WaterPass)
+                s_Data.WaterPass->SetOITEnabled(oitEnabled);
+            if (s_Data.DecalPass)
+                s_Data.DecalPass->SetOITEnabled(oitEnabled);
+            if (s_Data.OITResolvePass)
+                s_Data.OITResolvePass->SetEnabled(oitEnabled);
         }
 
         s_Data.RGraph->Execute();
@@ -1293,6 +1665,8 @@ namespace OloEngine
             s_Data.DecalPass->GetCommandBucket().SetAllocator(nullptr);
         if (s_Data.FoliagePass)
             s_Data.FoliagePass->GetCommandBucket().SetAllocator(nullptr);
+        if (s_Data.ForwardOverlayPass)
+            s_Data.ForwardOverlayPass->GetCommandBucket().SetAllocator(nullptr);
         if (s_Data.WaterPass)
             s_Data.WaterPass->GetCommandBucket().SetAllocator(nullptr);
 
@@ -1413,7 +1787,8 @@ namespace OloEngine
                                                 const Material& material,
                                                 bool isStatic,
                                                 i32 entityID,
-                                                const LODGroup* lodGroup)
+                                                const LODGroup* lodGroup,
+                                                const glm::mat4* prevModelMatrix)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1483,6 +1858,30 @@ namespace OloEngine
             return nullptr;
         }
 
+        // Deferred-path gating: workers submit exclusively into ScenePass's
+        // per-thread bucket, which is the G-Buffer producer. Non-PBR /
+        // forward-only override shaders on this path would alias forward
+        // outputs onto G-Buffer slots (breaking lighting for every
+        // subsequent pixel). Instead of dropping the draw we reroute the
+        // fully-assembled packet into ForwardOverlayPass's global bucket,
+        // matching the serial `DrawMesh` overlay-reroute behaviour so
+        // worker-submitted forward-only materials render as overlays
+        // after DeferredLightingPass composes the G-Buffer.
+        //
+        // Note: `ForwardOverlayPass::SubmitPacket` is mutex-protected
+        // (CommandBucket's internal lock) so calling it from a worker is
+        // safe — the serialisation cost is acceptable for rare forward-
+        // only materials on the Deferred path. The packet memory is still
+        // owned by the worker's allocator (both allocators reset at end-
+        // of-frame; the overlay bucket stores pointers, not copies).
+        //
+        // In Deferred `ctx.SceneContext->PBRShader` is already swapped to
+        // `PBRGBufferShader` (see ParallelContext init), so an un-overridden
+        // PBR material never triggers this reroute.
+        const bool overlayReroute = (s_Data.Settings.Path == RenderingPath::Deferred) &&
+                                    !IsDeferredCapableShader(shaderToUse) &&
+                                    s_Data.ForwardOverlayPass;
+
         // Create POD command using worker's allocator
         PacketMetadata initialMetadata;
         CommandPacket* packet = ctx.Allocator->AllocatePacketWithCommand<DrawMeshCommand>(initialMetadata);
@@ -1501,6 +1900,12 @@ namespace OloEngine
         cmd->indexCount = meshToUse->GetIndexCount();
         cmd->baseIndex = meshToUse->GetBaseIndex();
         cmd->transform = glm::mat4(modelMatrix);
+        // When the caller has prev-frame history, use it; otherwise alias
+        // current so motion vectors are zero for this draw. Parallel workers
+        // cannot touch the main-thread entity motion-history map, so the
+        // caller (typically via MeshSubmitDesc::PrevTransform) must supply
+        // the history for per-object velocity to be correct.
+        cmd->prevTransform = prevModelMatrix ? *prevModelMatrix : cmd->transform;
         cmd->shaderHandle = shaderToUse->GetHandle();
 
         // Material data via table
@@ -1536,6 +1941,18 @@ namespace OloEngine
         metadata.m_IsStatic = isStatic;
         packet->SetMetadata(metadata);
 
+        if (overlayReroute)
+        {
+            // Hand the packet off to the overlay bucket directly and return
+            // nullptr so the caller's follow-up SubmitPacketParallel becomes
+            // a no-op (mirrors the serial DrawMesh overlay-reroute pattern).
+            // The global bucket's mutex serialises worker submissions; the
+            // volume of forward-only draws on Deferred is expected to be
+            // small enough that this doesn't become a contention point.
+            s_Data.ForwardOverlayPass->SubmitPacket(packet);
+            return nullptr;
+        }
+
         return packet;
     }
 
@@ -1544,6 +1961,24 @@ namespace OloEngine
                                                         const glm::mat4& modelMatrix,
                                                         const Material& material,
                                                         const std::vector<glm::mat4>& boneMatrices,
+                                                        bool isStatic)
+    {
+        // Legacy entry point: no prev-pose information available. Alias current
+        // bones and transform into the prev slot so motion-vector shaders see
+        // zero per-bone and per-object motion for this draw.
+        static const std::vector<glm::mat4> s_EmptyPrev;
+        return DrawAnimatedMeshParallel(ctx, mesh, modelMatrix, material, boneMatrices,
+                                        s_EmptyPrev, modelMatrix, /*hasPrevTransform*/ false, isStatic);
+    }
+
+    CommandPacket* Renderer3D::DrawAnimatedMeshParallel(WorkerSubmitContext& ctx,
+                                                        const Ref<Mesh>& mesh,
+                                                        const glm::mat4& modelMatrix,
+                                                        const Material& material,
+                                                        const std::vector<glm::mat4>& boneMatrices,
+                                                        const std::vector<glm::mat4>& prevBoneMatrices,
+                                                        const glm::mat4& prevModelMatrix,
+                                                        bool hasPrevTransform,
                                                         bool isStatic)
     {
         OLO_PROFILE_FUNCTION();
@@ -1597,6 +2032,19 @@ namespace OloEngine
             shaderToUse = ctx.SceneContext->LightingShader;
         }
 
+        // Same Deferred gating as DrawMeshParallel — forward-only skinned
+        // shaders submitted from a worker would corrupt the G-Buffer.
+        if (s_Data.Settings.Path == RenderingPath::Deferred &&
+            !IsDeferredCapableShader(shaderToUse))
+        {
+            static std::atomic<u64> s_WarnCount{ 0 };
+            if (s_WarnCount.fetch_add(1, std::memory_order_relaxed) < 8)
+            {
+                OLO_CORE_WARN("Renderer3D::DrawAnimatedMeshParallel: forward-only skinned shader on Deferred path — draw dropped (use serial DrawAnimatedMesh for overlay reroute)");
+            }
+            return nullptr;
+        }
+
         if (!shaderToUse)
         {
             OLO_CORE_ERROR("Renderer3D::DrawAnimatedMeshParallel: No shader available!");
@@ -1616,6 +2064,26 @@ namespace OloEngine
         }
         frameBuffer.WriteBoneMatricesParallel(ctx.WorkerIndex, localBoneOffset, boneMatrices.data(), boneCount);
 
+        // Previous-frame pose: allocate a second palette in the same worker
+        // scratch so skinned shaders (PBR_MultiLight_Skinned, PBR_GBuffer_Skinned)
+        // can emit per-bone velocity via binding 31. Only do this when the
+        // caller supplied a matching-size prev palette; otherwise we leave the
+        // sentinel UINT32_MAX in the command so CommandDispatch::UploadBoneMatrices
+        // aliases current into prev (zero per-bone motion). Allocation failure
+        // silently falls back to alias-current for this draw only.
+        u32 localPrevBoneOffset = UINT32_MAX;
+        const bool wantPrevBones = !prevBoneMatrices.empty() &&
+                                   prevBoneMatrices.size() == boneMatrices.size();
+        if (wantPrevBones)
+        {
+            u32 prevOffset = frameBuffer.AllocateBoneMatricesParallel(ctx.WorkerIndex, boneCount);
+            if (prevOffset != UINT32_MAX)
+            {
+                frameBuffer.WriteBoneMatricesParallel(ctx.WorkerIndex, prevOffset, prevBoneMatrices.data(), boneCount);
+                localPrevBoneOffset = prevOffset;
+            }
+        }
+
         // Create POD command using worker's allocator
         PacketMetadata initialMetadata;
         CommandPacket* packet = ctx.Allocator->AllocatePacketWithCommand<DrawMeshCommand>(initialMetadata);
@@ -1633,6 +2101,9 @@ namespace OloEngine
         cmd->indexCount = mesh->GetIndexCount();
         cmd->baseIndex = mesh->GetBaseIndex();
         cmd->transform = modelMatrix;
+        // Use caller-supplied prev transform when available; otherwise alias
+        // current so u_PrevModel - u_Model = 0 and shader velocity is 0.
+        cmd->prevTransform = hasPrevTransform ? prevModelMatrix : modelMatrix;
         cmd->shaderHandle = shaderToUse->GetHandle();
 
         // Material data via table
@@ -1641,10 +2112,12 @@ namespace OloEngine
 
         cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreatePODRenderStateForMaterial(material));
 
-        // Animation support - store worker-local offset with remapping info
-        // The offset will be remapped to global in EndParallelSubmission()
+        // Animation support - store worker-local offsets with remapping info.
+        // Both current and (when present) prev offsets are worker-local and
+        // must be remapped to global during EndParallelSubmission().
         cmd->isAnimatedMesh = true;
         cmd->boneBufferOffset = localBoneOffset;
+        cmd->prevBoneBufferOffset = localPrevBoneOffset;
         cmd->boneCount = boneCount;
         cmd->workerIndex = static_cast<u8>(ctx.WorkerIndex);
         cmd->needsBoneOffsetRemap = true;
@@ -1694,10 +2167,36 @@ namespace OloEngine
                 CommandPacket* packet = nullptr;
                 if (desc.IsAnimated && desc.BoneMatrices)
                 {
-                    packet = DrawAnimatedMesh(desc.Mesh, desc.Transform, desc.MaterialData, *desc.BoneMatrices, desc.IsStatic);
+                    // Route through the prev-aware DrawAnimatedMesh overload
+                    // when the caller supplied prev-pose data; otherwise the
+                    // legacy entry aliases current->prev (zero motion).
+                    if (desc.PrevBoneMatrices)
+                    {
+                        packet = DrawAnimatedMesh(desc.Mesh, desc.Transform, desc.MaterialData,
+                                                  *desc.BoneMatrices, *desc.PrevBoneMatrices,
+                                                  desc.IsStatic, desc.EntityID);
+                    }
+                    else
+                    {
+                        packet = DrawAnimatedMesh(desc.Mesh, desc.Transform, desc.MaterialData,
+                                                  *desc.BoneMatrices, desc.IsStatic, desc.EntityID);
+                    }
                 }
                 else
                 {
+                    // DrawMesh internally records prev-transform via the shared
+                    // per-entity cache (GetAndRecordPrevTransform) keyed on
+                    // entityID, so object motion is preserved even without an
+                    // explicit prev-aware overload on this path. When the
+                    // caller has already computed a prev-transform (e.g. for
+                    // animated-mesh fallback paths that store it in desc), seed
+                    // the cache so DrawMesh's internal lookup returns the
+                    // caller-authoritative value instead of potentially stale
+                    // prior-frame history.
+                    if (desc.HasPrevTransform && desc.EntityID >= 0)
+                    {
+                        s_Data.PrevEntityTransforms.insert_or_assign(desc.EntityID, desc.PrevTransform);
+                    }
                     packet = DrawMesh(desc.Mesh, desc.Transform, desc.MaterialData, desc.IsStatic, desc.EntityID, desc.LODGroupPtr);
                 }
                 if (packet)
@@ -1744,16 +2243,39 @@ namespace OloEngine
                 CommandPacket* packet = nullptr;
                 if (desc.IsAnimated && desc.BoneMatrices)
                 {
-                    packet = Renderer3D::DrawAnimatedMeshParallel(
-                        stats.Context,
-                        desc.Mesh,
-                        desc.Transform,
-                        desc.MaterialData,
-                        *desc.BoneMatrices,
-                        desc.IsStatic);
+                    // Route through the prev-aware overload when the caller
+                    // supplied prev-pose data; otherwise fall back to the
+                    // legacy entry which aliases current->prev (zero motion).
+                    if (desc.PrevBoneMatrices || desc.HasPrevTransform)
+                    {
+                        static const std::vector<glm::mat4> s_EmptyPrev;
+                        const std::vector<glm::mat4>& prevBones =
+                            desc.PrevBoneMatrices ? *desc.PrevBoneMatrices : s_EmptyPrev;
+                        packet = Renderer3D::DrawAnimatedMeshParallel(
+                            stats.Context,
+                            desc.Mesh,
+                            desc.Transform,
+                            desc.MaterialData,
+                            *desc.BoneMatrices,
+                            prevBones,
+                            desc.PrevTransform,
+                            desc.HasPrevTransform,
+                            desc.IsStatic);
+                    }
+                    else
+                    {
+                        packet = Renderer3D::DrawAnimatedMeshParallel(
+                            stats.Context,
+                            desc.Mesh,
+                            desc.Transform,
+                            desc.MaterialData,
+                            *desc.BoneMatrices,
+                            desc.IsStatic);
+                    }
                 }
                 else
                 {
+                    const glm::mat4* prevXform = desc.HasPrevTransform ? &desc.PrevTransform : nullptr;
                     packet = Renderer3D::DrawMeshParallel(
                         stats.Context,
                         desc.Mesh,
@@ -1761,7 +2283,8 @@ namespace OloEngine
                         desc.MaterialData,
                         desc.IsStatic,
                         desc.EntityID,
-                        desc.LODGroupPtr);
+                        desc.LODGroupPtr,
+                        prevXform);
                 }
 
                 if (packet)
@@ -2037,6 +2560,31 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         auto& settings = s_Data.Settings;
 
+        // Clamp MSAA sample count to what the driver advertises. The combo
+        // box exposes 1/2/4/8 but older or mobile GPUs may cap at 4. Logs
+        // on clamp so users notice rather than silently dropping samples.
+        if (const u32 maxSamples = GetMaxMSAASamples(); maxSamples > 0)
+        {
+            const u32 requested = settings.Deferred.MSAASampleCount;
+            if (requested > maxSamples)
+            {
+                OLO_CORE_WARN("Renderer3D: MSAASampleCount={} exceeds driver cap {}. Clamping.",
+                              requested, maxSamples);
+                settings.Deferred.MSAASampleCount = maxSamples;
+            }
+        }
+
+        // Detect a RenderingPath switch and rebuild the graph topology
+        // BEFORE touching the Forward+ mode / culling toggles below so that
+        // downstream code always observes a graph whose registered pass
+        // list matches the active path. RGraph must exist — if we're called
+        // pre-Init (defensive), skip the rebuild and let SetupRenderGraph
+        // do the first configure.
+        if (s_Data.RGraph && settings.Path != s_Data.ActiveGraphPath)
+        {
+            ConfigureRenderGraph(settings.Path);
+        }
+
         // Sync culling toggles
         EnableFrustumCulling(settings.FrustumCullingEnabled);
         EnableOcclusionCulling(settings.OcclusionCullingEnabled);
@@ -2050,6 +2598,7 @@ namespace OloEngine
                 {
                     fplus.SetMode(ForwardPlusMode::Auto);
                     fplus.SetLightCountThreshold(settings.ForwardPlusLightThreshold);
+                    fplus.SetLightCountThresholdDown(settings.ForwardPlusLightThresholdDown);
                 }
                 else
                 {
@@ -2059,12 +2608,24 @@ namespace OloEngine
             case RenderingPath::ForwardPlus:
                 fplus.SetMode(ForwardPlusMode::Always);
                 break;
+            case RenderingPath::Deferred:
+                // Deferred reuses the Forward+ tile-culling compute to build
+                // per-tile light lists; the G-Buffer lighting shader samples
+                // those same SSBOs. Forcing ForwardPlusMode::Always here
+                // guarantees the tile classification runs every frame while
+                // the scene pipeline is operating in Deferred mode.
+                fplus.SetMode(ForwardPlusMode::Always);
+                break;
         }
 
         // Forward+ compute culling requires the depth pre-pass.
         // Include the Auto case: when Forward+ can dynamically activate,
         // the depth buffer must already be available for the culling dispatch.
-        bool effectiveDepthPrepass = settings.DepthPrepassEnabled || (settings.Path == RenderingPath::ForwardPlus) || (settings.Path == RenderingPath::Forward && settings.ForwardPlusAutoSwitch);
+        // Deferred likewise needs the depth buffer before the lighting pass —
+        // the G-Buffer depth attachment is populated by the scene pass MRT
+        // writes, and the depth-prepass additionally supports Forward+ tile
+        // culling reused by DeferredLightingPass.
+        bool effectiveDepthPrepass = settings.DepthPrepassEnabled || (settings.Path == RenderingPath::ForwardPlus) || (settings.Path == RenderingPath::Deferred) || (settings.Path == RenderingPath::Forward && settings.ForwardPlusAutoSwitch);
         EnableDepthPrepass(effectiveDepthPrepass);
 
         fplus.SetTileSize(settings.ForwardPlusTileSize);
@@ -2192,17 +2753,49 @@ namespace OloEngine
         }
 
         Ref<Shader> shaderToUse;
+        // Deferred mode demands that every ScenePass draw write the 4-RT
+        // G-Buffer layout (Albedo/Metallic, Normal/Roughness/AO, Emissive/
+        // Flags, Velocity). Non-PBR materials selecting s_Data.LightingShader
+        // would instead write the legacy forward outputs (o_Color / o_EntityID
+        // / o_ViewNormal / o_Velocity), which alias onto the G-Buffer slots
+        // and corrupt lighting for every subsequent pixel.
+        //
+        // Until a Lighting3D_GBuffer variant lands, reroute such draws to the
+        // ForwardOverlayPass — which binds the scene framebuffer (matching
+        // MRT layout) and runs *after* DeferredLightingPass composites the
+        // G-Buffer, so the non-PBR surface shades itself and blits over the
+        // lit deferred image unscathed. Mirrors the same pattern DrawSkybox
+        // uses for the skybox-on-deferred fallback.
+        bool overlayRoute = false;
         if (material.GetShader())
         {
             shaderToUse = material.GetShader();
+            // Forward-only override on the Deferred path would alias its
+            // output locations onto G-Buffer slots. Reroute to
+            // ForwardOverlayPass so the override gets the forward FB layout
+            // it was authored against.
+            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.ForwardOverlayPass &&
+                !IsDeferredCapableShader(shaderToUse))
+            {
+                overlayRoute = true;
+            }
         }
         else if (material.GetType() == MaterialType::PBR)
         {
-            shaderToUse = s_Data.PBRShader;
+            // Route PBR default shader to the G-Buffer write variant when the
+            // deferred path is active. Material overrides still win (so
+            // custom shaders, e.g. terrain/foliage, keep their forward
+            // pipeline until their own G-Buffer variants land in later phases).
+            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.PBRGBufferShader)
+                shaderToUse = s_Data.PBRGBufferShader;
+            else
+                shaderToUse = s_Data.PBRShader;
         }
         else
         {
             shaderToUse = s_Data.LightingShader;
+            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.ForwardOverlayPass)
+                overlayRoute = true;
         }
 
         if (!shaderToUse)
@@ -2212,7 +2805,11 @@ namespace OloEngine
         }
 
         // Create POD command using asset handles and renderer IDs
-        CommandPacket* packet = CreateDrawCall<DrawMeshCommand>();
+        CommandPacket* packet = overlayRoute
+                                    ? CreateForwardOverlayDrawCall<DrawMeshCommand>()
+                                    : CreateDrawCall<DrawMeshCommand>();
+        if (!packet)
+            return nullptr;
         auto* cmd = packet->GetCommandData<DrawMeshCommand>();
         cmd->header.type = CommandType::DrawMesh;
 
@@ -2222,6 +2819,12 @@ namespace OloEngine
         cmd->indexCount = meshToUse->GetIndexCount();
         cmd->baseIndex = meshToUse->GetBaseIndex();
         cmd->transform = glm::mat4(modelMatrix);
+        // Prev-transform is recorded for every path — forward PBR shaders
+        // now emit screen-space velocity into scene FB RT3 alongside the
+        // deferred G-Buffer variant, so TAA consumes per-object motion in
+        // Forward / Forward+ too. Static meshes self-alias (prev == curr)
+        // so their velocity reads zero.
+        cmd->prevTransform = GetAndRecordPrevTransform(entityID, cmd->transform);
         cmd->entityID = entityID;
         cmd->shaderHandle = shaderToUse->GetHandle();
 
@@ -2265,6 +2868,15 @@ namespace OloEngine
             metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
         metadata.m_IsStatic = isStatic;
         packet->SetMetadata(metadata);
+
+        if (overlayRoute)
+        {
+            // Submit to the overlay bucket directly; return nullptr so the
+            // caller's follow-up SubmitPacket(packet) becomes a safe no-op
+            // (same pattern DrawSkybox/DrawInfiniteGrid use).
+            SubmitForwardOverlayPacket(packet);
+            return nullptr;
+        }
 
         return packet;
     }
@@ -2320,7 +2932,7 @@ namespace OloEngine
         return packet;
     }
 
-    CommandPacket* Renderer3D::DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic)
+    CommandPacket* Renderer3D::DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic, u64 ownerKey)
     {
         OLO_PROFILE_FUNCTION();
         if (!s_Data.ScenePass)
@@ -2337,6 +2949,11 @@ namespace OloEngine
 
         const std::vector<glm::mat4>* activeTransforms = &transforms;
         std::vector<glm::mat4> filteredTransforms;
+        // Index map from post-cull visible slot -> pre-cull stable instance
+        // index. Passed to GetAndRecordPrevInstanceTransforms so history
+        // lookup uses the full pre-cull array for identity stability, then
+        // projects prev onto the visible subset. Empty when no culling ran.
+        std::vector<u32> visibleIndices;
 
         if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
         {
@@ -2345,12 +2962,15 @@ namespace OloEngine
             BoundingSphere localSphere = mesh->GetBoundingSphere();
             localSphere.Radius *= 1.3f; // Match expansion factor from IsVisibleInFrustum
             filteredTransforms.reserve(transforms.size());
-            for (const auto& t : transforms)
+            visibleIndices.reserve(transforms.size());
+            for (sizet i = 0; i < transforms.size(); ++i)
             {
+                const auto& t = transforms[i];
                 BoundingSphere worldSphere = localSphere.Transform(t);
                 if (s_Data.ViewFrustum.IsBoundingSphereVisible(worldSphere))
                 {
                     filteredTransforms.push_back(t);
+                    visibleIndices.push_back(static_cast<u32>(i));
                 }
             }
             s_Data.Stats.CulledMeshes += static_cast<u32>(transforms.size() - filteredTransforms.size());
@@ -2372,6 +2992,46 @@ namespace OloEngine
         }
         frameBuffer.WriteTransforms(transformOffset, activeTransforms->data(), transformCount);
 
+        // Previous-frame transforms (Deferred per-instance velocity). Cache keyed by
+        // (mesh, ownerKey) so two submission sources that render the same mesh with
+        // independent instance arrays don't overwrite each other's history;
+        // caller-ordering stability within an owner is still required. First frame
+        // / count mismatches alias the current data -> zero velocity.
+        // Record per-instance transform history on every render path, not
+        // just Deferred: in Forward/Forward+ the PBR shader writes velocity
+        // into scene-FB RT3 via the CameraMatrices UBO, and instanced draws
+        // without `prevTransformBufferOffset` set fall back to the
+        // static-geometry path (prev == curr) — which silently zeroes
+        // per-object motion for TAA when the velocity source is scene FB RT3
+        // (Forward/Forward+). See EndScene velocity-source selection: the
+        // scene FB path is now taken whenever RenderingPath != Deferred.
+        u32 prevTransformOffset = UINT32_MAX;
+        if (mesh)
+        {
+            const u64 meshKey = static_cast<u64>(mesh->GetHandle());
+            bool usedFallback = false;
+            // Pass the **full pre-cull** transform list so history is keyed by
+            // stable per-instance identity. When culling dropped instances,
+            // `visibleIndices` projects the prev array onto the visible subset
+            // so slot i in prevTransforms lines up with slot i in
+            // activeTransforms. Without this, a different frustum-visible
+            // subset next frame would silently alias unrelated instances.
+            const std::vector<u32>* idxPtr = visibleIndices.empty() ? nullptr : &visibleIndices;
+            std::vector<glm::mat4> prevTransforms = GetAndRecordPrevInstanceTransforms(meshKey, ownerKey, transforms, idxPtr, &usedFallback);
+            // Use the explicit flag rather than pointer identity — the function
+            // returns a projected vector by value in the fallback path, so
+            // prevTransforms.data() is always a distinct buffer.
+            if (!usedFallback && prevTransforms.size() == activeTransforms->size())
+            {
+                u32 prevOffset = frameBuffer.AllocateTransforms(transformCount);
+                if (prevOffset != UINT32_MAX)
+                {
+                    frameBuffer.WriteTransforms(prevOffset, prevTransforms.data(), transformCount);
+                    prevTransformOffset = prevOffset;
+                }
+            }
+        }
+
         Ref<Shader> shaderToUse = material.GetShader() ? material.GetShader() : s_Data.LightingShader;
 
         // Create POD command
@@ -2386,6 +3046,7 @@ namespace OloEngine
         cmd->baseIndex = mesh->GetBaseIndex();
         cmd->instanceCount = transformCount;
         cmd->transformBufferOffset = transformOffset;
+        cmd->prevTransformBufferOffset = prevTransformOffset;
         cmd->transformCount = transformCount;
         cmd->shaderHandle = shaderToUse->GetHandle();
 
@@ -2427,8 +3088,23 @@ namespace OloEngine
             return nullptr;
         }
 
-        // Create POD command
-        CommandPacket* packet = CreateDrawCall<DrawMeshCommand>();
+        // In Deferred mode route into the ScenePass (which binds the 4-RT
+        // G-Buffer) and substitute the LightCube_GBuffer variant shader so
+        // the cube writes a full MRT payload with `emissive.a = 1.0` (unlit
+        // flag). `ComputeDeferredLit` then short-circuits and outputs the
+        // raw emissive colour — matching the forward debug look. Falls back
+        // to the ForwardOverlayPass if the G-Buffer variant failed to load.
+        const bool deferredActive = (s_Data.Settings.Path == RenderingPath::Deferred);
+        const bool useGBufferVariant = deferredActive && s_Data.LightCubeGBufferShader;
+        const bool overlayRoute = deferredActive && !useGBufferVariant && s_Data.ForwardOverlayPass;
+        Ref<Shader> activeShader = useGBufferVariant ? s_Data.LightCubeGBufferShader : s_Data.LightCubeShader;
+
+        // Create POD command on the appropriate bucket.
+        CommandPacket* packet = overlayRoute
+                                    ? CreateForwardOverlayDrawCall<DrawMeshCommand>()
+                                    : CreateDrawCall<DrawMeshCommand>();
+        if (!packet)
+            return nullptr;
         auto* cmd = packet->GetCommandData<DrawMeshCommand>();
         cmd->header.type = CommandType::DrawMesh;
 
@@ -2437,12 +3113,13 @@ namespace OloEngine
         cmd->vertexArrayID = s_Data.CubeMesh->GetVertexArray()->GetRendererID();
         cmd->indexCount = s_Data.CubeMesh->GetIndexCount();
         cmd->transform = modelMatrix;
-        cmd->shaderHandle = s_Data.LightCubeShader->GetHandle();
+        cmd->prevTransform = modelMatrix; // debug viz — no motion history
+        cmd->shaderHandle = activeShader->GetHandle();
 
         // Light cube material data — simple default material
         {
             PODMaterialData matData{};
-            matData.shaderRendererID = s_Data.LightCubeShader->GetRendererID();
+            matData.shaderRendererID = activeShader->GetRendererID();
             matData.ambient = glm::vec3(1.0f);
             matData.diffuse = glm::vec3(1.0f);
             matData.specular = glm::vec3(1.0f);
@@ -2462,10 +3139,16 @@ namespace OloEngine
 
         // Set sort key for light cube
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = s_Data.LightCubeShader->GetRendererID() & 0xFFFF;
+        u32 shaderID = activeShader->GetRendererID() & 0xFFFF;
         u32 depth = ComputeDepthForSortKey(modelMatrix);
         metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, depth);
         packet->SetMetadata(metadata);
+
+        if (overlayRoute)
+        {
+            SubmitForwardOverlayPacket(packet);
+            return nullptr;
+        }
 
         return packet;
     }
@@ -2485,6 +3168,12 @@ namespace OloEngine
         cameraData.Projection = projection;
         cameraData.Position = s_Data.ViewPos;
         cameraData._padding0 = 0.0f;
+        // Previous-frame view-projection is maintained by BeginSceneCommon
+        // in `s_Data.PrevViewProjectionMatrix`. Forward PBR shaders consume
+        // this through the CameraMatrices UBO (binding 0) to emit screen-
+        // space velocity into scene FB RT3 — mirroring what the deferred
+        // G-Buffer PBR shader does through u_PrevViewProjection.
+        cameraData.PrevViewProjection = s_Data.PrevViewProjectionMatrix;
 
         constexpr u32 expectedSize = ShaderBindingLayout::CameraUBO::GetSize();
         static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch");
@@ -2558,6 +3247,7 @@ namespace OloEngine
             FramebufferTextureFormat::RGBA16F,     // [0] HDR color output
             FramebufferTextureFormat::RED_INTEGER, // [1] Entity ID attachment
             FramebufferTextureFormat::RG16F,       // [2] View-space normals (octahedral encoded for SSAO)
+            FramebufferTextureFormat::RG16F,       // [3] Screen-space velocity (forward-path TAA input; unused in Deferred, which reads G-Buffer RT3)
             FramebufferTextureFormat::Depth
         };
 
@@ -2568,6 +3258,31 @@ namespace OloEngine
         s_Data.ScenePass = Ref<SceneRenderPass>::Create();
         s_Data.ScenePass->SetName("ScenePass");
         s_Data.ScenePass->Init(scenePassSpec);
+
+        // Deferred lighting composition — no-op when Settings.Path is
+        // Forward / Forward+ (no G-Buffer supplied). Writes into
+        // ScenePass's colour[0] so downstream passes stay path-agnostic.
+        s_Data.DeferredLightPass = Ref<DeferredLightingPass>::Create();
+        s_Data.DeferredLightPass->SetName("DeferredLightingPass");
+        s_Data.DeferredLightPass->Init(scenePassSpec);
+        s_Data.DeferredLightPass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
+
+        // Graph-scheduled opaque-decal shim. Pulls the decal bucket into
+        // the G-Buffer between ScenePass and DeferredLightingPass (was
+        // previously a synchronous call inside SceneRenderPass::Execute,
+        // now a proper graph node with declared resource edges).
+        s_Data.OpaqueDecalPass = Ref<DeferredOpaqueDecalPass>::Create();
+        s_Data.OpaqueDecalPass->SetName("DeferredOpaqueDecalPass");
+        s_Data.OpaqueDecalPass->Init(scenePassSpec);
+
+        // Forward overlay pass — runs after DeferredLightingPass in Deferred
+        // mode to render skybox / terrain / voxel terrain / infinite grid /
+        // light-cube geometry that cannot participate in the G-Buffer MRT
+        // write. No-ops in Forward / Forward+.
+        s_Data.ForwardOverlayPass = Ref<ForwardOverlayRenderPass>::Create();
+        s_Data.ForwardOverlayPass->SetName("ForwardOverlayPass");
+        s_Data.ForwardOverlayPass->Init(finalPassSpec);
+        s_Data.ForwardOverlayPass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
 
         s_Data.ParticlePass = Ref<ParticleRenderPass>::Create();
         s_Data.ParticlePass->SetName("ParticlePass");
@@ -2607,6 +3322,52 @@ namespace OloEngine
         s_Data.SSSPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
         s_Data.SSSPass->SetSSSUBO(s_Data.SSSUBO, &s_Data.SSSGPUData);
 
+        // Phase 6: OIT resolve pass. Composites weighted-blended transparent
+        // accumulation (produced by ParticlePass when OITEnabled) over the
+        // scene FB, then acts as a passthrough for downstream piping.
+        s_Data.OITResolvePass = Ref<OITResolveRenderPass>::Create();
+        s_Data.OITResolvePass->SetName("OITResolvePass");
+        s_Data.OITResolvePass->Init(finalPassSpec);
+        s_Data.OITResolvePass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
+
+        // Wire OIT buffer + accumulation marker through to ParticlePass.
+        s_Data.ParticlePass->SetOITBuffer(s_Data.OITResolvePass->GetOITBuffer());
+        {
+            Ref<OITResolveRenderPass> oitResolvePassRef = s_Data.OITResolvePass;
+            s_Data.ParticlePass->SetOITAccumulationMarker([oitResolvePassRef]() mutable
+                                                          {
+                if (oitResolvePassRef)
+                    oitResolvePassRef->MarkAccumulationWritten(); });
+        }
+
+        // WaterPass WB-OIT hookup: shader override + buffer + marker. The
+        // OIT toggle itself is flipped each frame in ApplyRendererSettings;
+        // attach the infrastructure here so enabling it has immediate effect.
+        if (s_Data.WaterPass)
+        {
+            s_Data.WaterPass->SetOITBuffer(s_Data.OITResolvePass->GetOITBuffer());
+            s_Data.WaterPass->SetOITShader(m_ShaderLibrary.Get("Water_OIT"));
+            Ref<OITResolveRenderPass> oitResolvePassRef = s_Data.OITResolvePass;
+            s_Data.WaterPass->SetOITAccumulationMarker([oitResolvePassRef]() mutable
+                                                       {
+                if (oitResolvePassRef)
+                    oitResolvePassRef->MarkAccumulationWritten(); });
+        }
+
+        // DecalPass WB-OIT hookup (forward path only — deferred uses
+        // G-Buffer variants via ExecuteOnGBuffer which is already order-
+        // independent).
+        if (s_Data.DecalPass)
+        {
+            s_Data.DecalPass->SetOITBuffer(s_Data.OITResolvePass->GetOITBuffer());
+            s_Data.DecalPass->SetOITShader(m_ShaderLibrary.Get("Decal_OIT"));
+            Ref<OITResolveRenderPass> oitResolvePassRef = s_Data.OITResolvePass;
+            s_Data.DecalPass->SetOITAccumulationMarker([oitResolvePassRef]() mutable
+                                                       {
+                if (oitResolvePassRef)
+                    oitResolvePassRef->MarkAccumulationWritten(); });
+        }
+
         s_Data.PostProcessPass = Ref<PostProcessRenderPass>::Create();
         s_Data.PostProcessPass->SetName("PostProcessPass");
         s_Data.PostProcessPass->Init(finalPassSpec);
@@ -2628,14 +3389,59 @@ namespace OloEngine
         s_Data.FinalPass->SetName("FinalPass");
         s_Data.FinalPass->Init(finalPassSpec);
 
+        // All passes are now constructed. Build the initial graph topology
+        // for the currently-configured rendering path. Runtime switches
+        // between Forward / Forward+ / Deferred re-run ConfigureRenderGraph
+        // from ApplyRendererSettings so the graph only ever contains the
+        // passes that are relevant for the active path.
+        ConfigureRenderGraph(s_Data.Settings.Path);
+    }
+
+    void Renderer3D::ConfigureRenderGraph(RenderingPath path)
+    {
+        OLO_PROFILE_FUNCTION();
+        OLO_CORE_INFO("Renderer3D: Configuring RenderGraph for path = {}",
+                      path == RenderingPath::Forward       ? "Forward"
+                      : path == RenderingPath::ForwardPlus ? "Forward+"
+                                                           : "Deferred");
+
+        // Wipe any prior topology. Passes themselves are owned by s_Data
+        // as Ref<>s and survive the reset — only the graph's bookkeeping
+        // (pass lookup, edges, framebuffer piping, cached execution order)
+        // is cleared.
+        s_Data.RGraph->ResetTopology();
+
+        const bool deferred = (path == RenderingPath::Deferred);
+
+        // Core passes shared by every path
         s_Data.RGraph->AddPass(s_Data.ShadowPass);
         s_Data.RGraph->AddPass(s_Data.ScenePass);
+
+        // Deferred-only passes: the G-Buffer lighting composition + the
+        // forward overlay that renders skybox/terrain/voxel/grid/debug
+        // geometry on top of the lit result. In Forward / Forward+ these
+        // are simply NOT registered, so the graph executor never dispatches
+        // them and the execution edges that reference them are skipped.
+        if (deferred)
+        {
+            s_Data.RGraph->AddPass(s_Data.DeferredLightPass);
+            s_Data.RGraph->AddPass(s_Data.ForwardOverlayPass);
+            // Graph-scheduled opaque decal drain — sits between ScenePass
+            // and DeferredLightingPass so the "opaque decals composite
+            // into the G-Buffer before lighting" contract is visible in
+            // the render graph rather than being an implicit side-effect
+            // of SceneRenderPass::Execute calling ExecuteOnGBuffer().
+            if (s_Data.OpaqueDecalPass)
+                s_Data.RGraph->AddPass(s_Data.OpaqueDecalPass);
+        }
+
         s_Data.RGraph->AddPass(s_Data.FoliagePass);
         s_Data.RGraph->AddPass(s_Data.WaterPass);
         s_Data.RGraph->AddPass(s_Data.DecalPass);
         s_Data.RGraph->AddPass(s_Data.SSAOPass);
         s_Data.RGraph->AddPass(s_Data.GTAOPass);
         s_Data.RGraph->AddPass(s_Data.ParticlePass);
+        s_Data.RGraph->AddPass(s_Data.OITResolvePass);
         s_Data.RGraph->AddPass(s_Data.SSSPass);
         s_Data.RGraph->AddPass(s_Data.PostProcessPass);
         if (s_Data.EnableSelectionOutline)
@@ -2647,6 +3453,33 @@ namespace OloEngine
 
         // ShadowPass -> ScenePass: ordering only (shadow textures are bound via UBO/texture slots)
         s_Data.RGraph->AddExecutionDependency("ShadowPass", "ScenePass");
+
+        if (deferred)
+        {
+            // ScenePass -> DeferredLightingPass: G-Buffer MRT must be fully
+            // written before the lighting pass samples it.
+            s_Data.RGraph->AddExecutionDependency("ScenePass", "DeferredLightingPass");
+            // ScenePass -> DeferredOpaqueDecalPass -> DeferredLightingPass:
+            // opaque decals composite into the G-Buffer albedo/normal/RMA/
+            // emissive channels after the main MRT write but before
+            // lighting, so lighting sees the decal contribution.
+            if (s_Data.OpaqueDecalPass)
+            {
+                s_Data.RGraph->AddExecutionDependency("ScenePass", "DeferredOpaqueDecalPass");
+                s_Data.RGraph->AddExecutionDependency("DeferredOpaqueDecalPass", "DeferredLightingPass");
+            }
+            // DeferredLightingPass -> ForwardOverlayPass: overlay geometry
+            // (skybox, terrain, voxel, grid, debug) relies on the G-Buffer
+            // depth that DeferredLightingPass blits into the scene FB.
+            s_Data.RGraph->AddExecutionDependency("DeferredLightingPass", "ForwardOverlayPass");
+            // ForwardOverlayPass -> FoliagePass: foliage overlays the lit scene
+            // plus forward-overlay geometry.
+            s_Data.RGraph->AddExecutionDependency("ForwardOverlayPass", "FoliagePass");
+            // DeferredLightingPass -> FoliagePass: foliage blends over the lit
+            // result written into ScenePass's colour[0].
+            s_Data.RGraph->AddExecutionDependency("DeferredLightingPass", "FoliagePass");
+        }
+
         // ScenePass -> FoliagePass: ordering (foliage renders into scene FB after opaque geometry)
         s_Data.RGraph->AddExecutionDependency("ScenePass", "FoliagePass");
         // FoliagePass -> DecalPass: ordering (decals render on opaque surfaces before translucent water)
@@ -2665,8 +3498,14 @@ namespace OloEngine
         s_Data.RGraph->AddExecutionDependency("DecalPass", "GTAOPass");
         // GTAOPass -> ParticlePass: ordering (GTAO must complete before particles render into scene FB)
         s_Data.RGraph->AddExecutionDependency("GTAOPass", "ParticlePass");
-        // ParticlePass -> SSSPass: framebuffer piping (SSS reads scene color via SetInputFramebuffer)
-        s_Data.RGraph->ConnectPass("ParticlePass", "SSSPass");
+        // ParticlePass -> OITResolvePass: framebuffer piping (OIT resolve
+        // samples its own OIT buffer and composites over the scene FB the
+        // particle pass fed it).
+        s_Data.RGraph->ConnectPass("ParticlePass", "OITResolvePass");
+        // OITResolvePass -> SSSPass: framebuffer piping (SSS reads scene
+        // colour post-composite. When OIT is off, OITResolvePass is a
+        // no-op passthrough so SSSPass sees the particle-blended scene FB).
+        s_Data.RGraph->ConnectPass("OITResolvePass", "SSSPass");
         // Graph connections: SSSPass -> PostProcessPass -> UICompositePass -> FinalPass
         // use SetInputFramebuffer via the graph's Execute() piping.
         s_Data.RGraph->ConnectPass("SSSPass", "PostProcessPass");
@@ -2686,13 +3525,17 @@ namespace OloEngine
         // PostProcessPass initial input is the scene FB (overridden by graph's SSSPass -> PostProcessPass
         // piping each frame, which passes SSSPass::GetTarget() = scene FB when SSS is disabled).
         s_Data.PostProcessPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
-        if (s_Data.EnableSelectionOutline)
+
+        if (deferred)
         {
-            OLO_CORE_INFO("Renderer3D: Render graph: Shadow -> Scene -> Foliage -> Decal -> Water -> SSAO -> Particle -> SSS -> PostProcess -> SelectionOutline -> UIComposite -> Final");
+            OLO_CORE_INFO("Renderer3D: Render graph (Deferred): Shadow -> Scene -> DeferredLighting -> ForwardOverlay -> Foliage -> Decal -> Water -> SSAO/GTAO -> Particle -> OITResolve -> SSS -> PostProcess{} -> UIComposite -> Final",
+                          s_Data.EnableSelectionOutline ? " -> SelectionOutline" : "");
         }
         else
         {
-            OLO_CORE_INFO("Renderer3D: Render graph: Shadow -> Scene -> Foliage -> Decal -> Water -> SSAO -> Particle -> SSS -> PostProcess -> UIComposite -> Final");
+            OLO_CORE_INFO("Renderer3D: Render graph ({}): Shadow -> Scene -> Foliage -> Decal -> Water -> SSAO/GTAO -> Particle -> OITResolve -> SSS -> PostProcess{} -> UIComposite -> Final",
+                          path == RenderingPath::ForwardPlus ? "Forward+" : "Forward",
+                          s_Data.EnableSelectionOutline ? " -> SelectionOutline" : "");
         }
 
         s_Data.RGraph->SetFinalPass("FinalPass");
@@ -2726,6 +3569,8 @@ namespace OloEngine
                 OLO_CORE_INFO("Renderer3D: RenderGraph resource hazard validation passed.");
             }
         }
+
+        s_Data.ActiveGraphPath = path;
     }
 
     void Renderer3D::OnWindowResize(u32 width, u32 height)
@@ -2761,6 +3606,14 @@ namespace OloEngine
     }
 
     CommandPacket* Renderer3D::DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic, i32 entityID)
+    {
+        // Delegate to the variant that accepts previous-frame bone matrices; pass an empty
+        // vector so the callee treats prev as "same as current" (zero per-bone motion).
+        static const std::vector<glm::mat4> s_EmptyPrev;
+        return DrawAnimatedMesh(mesh, modelMatrix, material, boneMatrices, s_EmptyPrev, isStatic, entityID);
+    }
+
+    CommandPacket* Renderer3D::DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, const std::vector<glm::mat4>& prevBoneMatrices, bool isStatic, i32 entityID)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -2832,23 +3685,44 @@ namespace OloEngine
         }
 
         Ref<Shader> shaderToUse;
+        // See DrawMesh() for the non-PBR-deferred → ForwardOverlayPass
+        // rerouting rationale. The same reasoning applies here: non-PBR
+        // skinned draws would otherwise alias their MRT outputs onto the
+        // G-Buffer slots and corrupt every subsequent pixel.
+        bool overlayRoute = false;
         if (material.GetShader())
         {
             shaderToUse = material.GetShader();
+            // Same deferred-capability guard as DrawMesh — a forward-only
+            // override on the Deferred path must be rerouted to
+            // ForwardOverlayPass so it doesn't alias forward outputs onto
+            // G-Buffer slots.
+            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.ForwardOverlayPass &&
+                !IsDeferredCapableShader(shaderToUse))
+            {
+                overlayRoute = true;
+            }
         }
         else if (material.GetType() == MaterialType::PBR)
         {
-            shaderToUse = s_Data.PBRSkinnedShader;
+            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.PBRGBufferSkinnedShader)
+                shaderToUse = s_Data.PBRGBufferSkinnedShader;
+            else
+                shaderToUse = s_Data.PBRSkinnedShader;
         }
         else
         {
             shaderToUse = s_Data.SkinnedLightingShader;
+            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.ForwardOverlayPass)
+                overlayRoute = true;
         }
 
         if (!shaderToUse)
         {
             OLO_CORE_WARN("Renderer3D::DrawAnimatedMesh: Preferred shader not available, falling back to Lighting3D");
             shaderToUse = s_Data.LightingShader;
+            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.ForwardOverlayPass)
+                overlayRoute = true;
         }
         if (!shaderToUse)
         {
@@ -2880,8 +3754,33 @@ namespace OloEngine
         }
         frameBuffer.WriteBoneMatrices(boneBufferOffset, boneMatrices.data(), boneCount);
 
+        // Previous-frame bones: the skinned shader variants (PBR_GBuffer_Skinned
+        // in Deferred, PBR_MultiLight_Skinned in Forward/Forward+) bind a
+        // parallel PrevBoneMatrices UBO at binding 31 and use it to emit per-
+        // bone velocity alongside u_PrevModel. When the caller doesn't provide
+        // a prev pose, CommandDispatch::UploadBoneMatrices aliases the current
+        // palette into the prev UBO so the shader always reads valid data and
+        // the resulting bone-motion term is zero.
+        u32 prevBoneBufferOffset = UINT32_MAX;
+        const bool wantPrevStream = !prevBoneMatrices.empty() &&
+                                    prevBoneMatrices.size() == boneMatrices.size();
+        if (wantPrevStream)
+        {
+            u32 prevOffset = frameBuffer.AllocateBoneMatrices(boneCount);
+            if (prevOffset != UINT32_MAX)
+            {
+                frameBuffer.WriteBoneMatrices(prevOffset, prevBoneMatrices.data(), boneCount);
+                prevBoneBufferOffset = prevOffset;
+            }
+            // Else: fall back to aliasing current (no spare FDB space this frame).
+        }
+
         // Create POD command
-        CommandPacket* packet = CreateDrawCall<DrawMeshCommand>();
+        CommandPacket* packet = overlayRoute
+                                    ? CreateForwardOverlayDrawCall<DrawMeshCommand>()
+                                    : CreateDrawCall<DrawMeshCommand>();
+        if (!packet)
+            return nullptr;
         auto* cmd = packet->GetCommandData<DrawMeshCommand>();
         cmd->header.type = CommandType::DrawMesh;
 
@@ -2891,6 +3790,12 @@ namespace OloEngine
         cmd->indexCount = mesh->GetIndexCount();
         cmd->baseIndex = mesh->GetBaseIndex();
         cmd->transform = modelMatrix;
+        // Prev-transform applies to all paths — see DrawMesh() comment. Both
+        // the forward PBR_MultiLight_Skinned and deferred PBR_GBuffer_Skinned
+        // variants consume u_PrevModel + the prev-bone palette (binding 31)
+        // to emit per-bone velocity into their respective velocity targets
+        // (scene FB RT3 in Forward/Forward+, G-Buffer RT3 in Deferred).
+        cmd->prevTransform = GetAndRecordPrevTransform(entityID, cmd->transform);
         cmd->shaderHandle = shaderToUse->GetHandle();
 
         // Material data via table
@@ -2903,6 +3808,7 @@ namespace OloEngine
         // Animation support - store offset/count into FrameDataBuffer
         cmd->isAnimatedMesh = true;
         cmd->boneBufferOffset = boneBufferOffset;
+        cmd->prevBoneBufferOffset = prevBoneBufferOffset;
         cmd->boneCount = boneCount;
 
         // Entity ID for picking
@@ -2929,6 +3835,15 @@ namespace OloEngine
             metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
         metadata.m_IsStatic = isStatic;
         packet->SetMetadata(metadata);
+
+        if (overlayRoute)
+        {
+            // Route the packet to the overlay bucket so it renders after
+            // DeferredLightingPass composites the G-Buffer. Return nullptr
+            // so the caller's SubmitPacket(packet) is a no-op.
+            SubmitForwardOverlayPacket(packet);
+            return nullptr;
+        }
 
         return packet;
     }
@@ -3037,6 +3952,8 @@ namespace OloEngine
 
             glm::mat4 worldTransform = transformComp.GetTransform();
             const auto& boneMatrices = skeletonComp.m_Skeleton->m_FinalBoneMatrices;
+            const auto& prevBoneMatrices = skeletonComp.m_Skeleton->m_PrevFinalBoneMatrices;
+            const i32 pickEntityID = static_cast<i32>(static_cast<u32>(entityID));
 
             // Get material from entity or use default
             Material material = defaultMaterial;
@@ -3065,13 +3982,28 @@ namespace OloEngine
                                 submeshMaterial = submeshEntityOpt->GetComponent<MaterialComponent>().m_Material;
                             }
 
-                            meshDescriptors.push_back({ submeshComponent.m_Mesh,
-                                                        worldTransform,
-                                                        submeshMaterial,
-                                                        false, // IsStatic
-                                                        -1,    // EntityID
-                                                        true,  // IsAnimated
-                                                        &boneMatrices });
+                            // Populate prev-world-transform from the shared
+                            // per-entity cache on the main thread before we hand
+                            // the desc to the parallel worker. Without this the
+                            // parallel path drops object motion and TAA /
+                            // MotionBlur see zero velocity for moving skinned
+                            // meshes. The cache is maintained in Deferred paths
+                            // via GetAndRecordPrevTransform; when no history
+                            // exists yet it returns current, giving zero motion.
+                            const glm::mat4 prevWorldTransform =
+                                GetAndRecordPrevTransform(pickEntityID, worldTransform);
+                            MeshSubmitDesc desc{};
+                            desc.Mesh = submeshComponent.m_Mesh;
+                            desc.Transform = worldTransform;
+                            desc.MaterialData = submeshMaterial;
+                            desc.IsStatic = false;
+                            desc.EntityID = pickEntityID;
+                            desc.IsAnimated = true;
+                            desc.BoneMatrices = &boneMatrices;
+                            desc.PrevBoneMatrices = &prevBoneMatrices;
+                            desc.PrevTransform = prevWorldTransform;
+                            desc.HasPrevTransform = true;
+                            meshDescriptors.push_back(std::move(desc));
                             foundSubmeshes = true;
                         }
                     }
@@ -3082,13 +4014,20 @@ namespace OloEngine
             if (!foundSubmeshes && meshComp.m_MeshSource->GetSubmeshes().Num() > 0)
             {
                 auto mesh = Ref<Mesh>::Create(meshComp.m_MeshSource, 0);
-                meshDescriptors.push_back({ mesh,
-                                            worldTransform,
-                                            material,
-                                            false, // IsStatic
-                                            -1,    // EntityID
-                                            true,  // IsAnimated
-                                            &boneMatrices });
+                const glm::mat4 prevWorldTransform =
+                    GetAndRecordPrevTransform(pickEntityID, worldTransform);
+                MeshSubmitDesc desc{};
+                desc.Mesh = mesh;
+                desc.Transform = worldTransform;
+                desc.MaterialData = material;
+                desc.IsStatic = false;
+                desc.EntityID = pickEntityID;
+                desc.IsAnimated = true;
+                desc.BoneMatrices = &boneMatrices;
+                desc.PrevBoneMatrices = &prevBoneMatrices;
+                desc.PrevTransform = prevWorldTransform;
+                desc.HasPrevTransform = true;
+                meshDescriptors.push_back(std::move(desc));
             }
 
             s_Data.Stats.RenderedAnimatedMeshes++;
@@ -3136,8 +4075,15 @@ namespace OloEngine
 
         glm::mat4 worldTransform = transformComp.GetTransform();
 
-        // Get bone matrices from the skeleton
+        // Get current + previous bone matrices from the skeleton. The prev
+        // pose feeds motion-vector computation in animated PBR shaders so
+        // TAA / MotionBlur get correct per-bone velocity rather than a
+        // stale-identity fallback.
         const auto& boneMatrices = skeletonComp.m_Skeleton->m_FinalBoneMatrices;
+        const auto& prevBoneMatrices = skeletonComp.m_Skeleton->m_PrevFinalBoneMatrices;
+
+        // Convert entt entity id to the i32 picking ID used by the editor.
+        const i32 entityID = static_cast<i32>(static_cast<u32>(entity));
 
         // Use MaterialComponent if available, otherwise use default material
         Material material = defaultMaterial;
@@ -3172,13 +4118,14 @@ namespace OloEngine
                         submeshMaterial = submeshEntityOpt->GetComponent<MaterialComponent>().m_Material;
                     }
 
-                    // Use the new MeshSource with bone influences directly
                     auto* packet = DrawAnimatedMesh(
                         submeshComponent.m_Mesh,
                         worldTransform,
                         submeshMaterial,
                         boneMatrices,
-                        false);
+                        prevBoneMatrices,
+                        false,
+                        entityID);
 
                     if (packet)
                     {
@@ -3201,7 +4148,9 @@ namespace OloEngine
                     worldTransform,
                     material,
                     boneMatrices,
-                    false);
+                    prevBoneMatrices,
+                    false,
+                    entityID);
 
                 if (packet)
                 {
@@ -3281,8 +4230,23 @@ namespace OloEngine
             return nullptr;
         }
 
-        // Create POD command
-        CommandPacket* packet = CreateDrawCall<DrawSkyboxCommand>();
+        // In Deferred mode, swap to the Skybox_GBuffer variant and submit the
+        // packet to ScenePass (which binds the 4-RT G-Buffer). The shader
+        // writes the cubemap sample into RT2.rgb with `emissive.a = 1.0`
+        // (unlit flag) so `ComputeDeferredLit` short-circuits and passes the
+        // colour through unshaded. Falls back to ForwardOverlayPass when the
+        // variant failed to load.
+        const bool deferredActive = (s_Data.Settings.Path == RenderingPath::Deferred);
+        const bool useGBufferVariant = deferredActive && s_Data.SkyboxGBufferShader;
+        const bool overlayRoute = deferredActive && !useGBufferVariant && s_Data.ForwardOverlayPass;
+        Ref<Shader> activeShader = useGBufferVariant ? s_Data.SkyboxGBufferShader : s_Data.SkyboxShader;
+
+        // Create POD command on the appropriate bucket
+        CommandPacket* packet = overlayRoute
+                                    ? CreateForwardOverlayDrawCall<DrawSkyboxCommand>()
+                                    : CreateDrawCall<DrawSkyboxCommand>();
+        if (!packet)
+            return nullptr;
         auto* cmd = packet->GetCommandData<DrawSkyboxCommand>();
         cmd->header.type = CommandType::DrawSkybox;
 
@@ -3291,8 +4255,8 @@ namespace OloEngine
         cmd->vertexArrayID = s_Data.SkyboxMesh->GetVertexArray()->GetRendererID();
         cmd->indexCount = s_Data.SkyboxMesh->GetIndexCount();
         cmd->transform = glm::mat4(1.0f); // Identity matrix for skybox
-        cmd->shaderHandle = s_Data.SkyboxShader->GetHandle();
-        cmd->shaderRendererID = s_Data.SkyboxShader->GetRendererID();
+        cmd->shaderHandle = activeShader->GetHandle();
+        cmd->shaderRendererID = activeShader->GetRendererID();
         cmd->skyboxTextureID = skyboxTexture->GetRendererID();
 
         // Skybox-specific POD render state
@@ -3310,10 +4274,18 @@ namespace OloEngine
 
         // Set sort key for skybox (rendered last in skybox layer with max depth)
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = s_Data.SkyboxShader->GetRendererID() & 0xFFFF;
+        u32 shaderID = activeShader->GetRendererID() & 0xFFFF;
         // Skybox always renders at maximum depth (far plane)
         metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::Skybox, shaderID, 0, 0xFFFFFF);
         packet->SetMetadata(metadata);
+
+        if (overlayRoute)
+        {
+            // Submit directly to the overlay bucket; return nullptr so the
+            // caller's follow-up SubmitPacket(packet) is a safe no-op.
+            SubmitForwardOverlayPacket(packet);
+            return nullptr;
+        }
 
         return packet;
     }
@@ -3628,41 +4600,81 @@ namespace OloEngine
             return nullptr;
         }
 
+        // Deferred path: the G-Buffer variant used to be preferred so the
+        // grid participates in deferred lighting via emissive+`gl_FragDepth`.
+        // But grid depth in the scene FB breaks water's SSR — the ray-march
+        // finds a "hit" at the infinite plane and samples the refraction
+        // texture there (which contains the grid itself), making water
+        // appear to reflect/refract the grid and look transparent.
+        // Route the grid through the forward overlay pass instead; its
+        // `depthWriteMask=false` state keeps the grid out of the scene
+        // depth buffer so downstream SSR behaves like Forward+.
+        const bool deferredActive = (s_Data.Settings.Path == RenderingPath::Deferred);
+        const bool useGBufferVariant = false;
+        const bool overlayRoute = deferredActive && s_Data.ForwardOverlayPass;
+        Ref<Shader> activeShader = useGBufferVariant ? s_Data.InfiniteGridGBufferShader : s_Data.InfiniteGridShader;
+
         // Create POD command packet
-        CommandPacket* packet = CreateDrawCall<DrawInfiniteGridCommand>();
+        CommandPacket* packet = overlayRoute
+                                    ? CreateForwardOverlayDrawCall<DrawInfiniteGridCommand>()
+                                    : CreateDrawCall<DrawInfiniteGridCommand>();
+        if (!packet)
+            return nullptr;
         auto* cmd = packet->GetCommandData<DrawInfiniteGridCommand>();
         cmd->header.type = CommandType::DrawInfiniteGrid;
 
         // Store renderer IDs (POD)
-        cmd->shaderHandle = s_Data.InfiniteGridShader->GetHandle();
-        cmd->shaderRendererID = s_Data.InfiniteGridShader->GetRendererID();
+        cmd->shaderHandle = activeShader->GetHandle();
+        cmd->shaderRendererID = activeShader->GetRendererID();
         cmd->quadVAOID = s_Data.FullscreenQuadVAO->GetRendererID();
         cmd->gridScale = gridScale;
 
-        // Grid-specific render state
+        // Grid-specific render state. The G-Buffer variant writes gl_FragDepth
+        // and premultiplies alpha into emissive.rgb, so blending is disabled
+        // (destination G-Buffer is opaque). Forward path still alpha-blends.
         {
             PODRenderState gridState = CreateDefaultPODRenderState();
-            gridState.blendEnabled = true;
-            gridState.blendSrcFactor = GL_SRC_ALPHA;
-            gridState.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
-            gridState.depthTestEnabled = true;
-            gridState.depthWriteMask = false;
+            if (useGBufferVariant)
+            {
+                gridState.blendEnabled = false;
+                gridState.depthTestEnabled = true;
+                gridState.depthWriteMask = true; // gl_FragDepth path
+            }
+            else
+            {
+                gridState.blendEnabled = true;
+                gridState.blendSrcFactor = GL_SRC_ALPHA;
+                gridState.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
+                gridState.depthTestEnabled = true;
+                gridState.depthWriteMask = false;
+            }
             cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(gridState);
         }
 
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 
-        // Set sort key for grid (transparent layer — renders after all opaques
-        // so the depth buffer is fully populated for correct depth testing)
+        // Sort key: G-Buffer variant sits with opaques (depth-write on); forward
+        // variant stays in the transparent layer.
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = s_Data.InfiniteGridShader->GetRendererID() & 0xFFFF;
-        metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, 0, 0x800000);
+        u32 shaderID = activeShader->GetRendererID() & 0xFFFF;
+        if (useGBufferVariant)
+            metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, 0x800000);
+        else
+            metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, 0, 0x800000);
         packet->SetMetadata(metadata);
 
-        // Submit packet
-        SubmitPacket(packet);
-        return packet;
+        // Submit packet to the appropriate bucket. Despite both `CreateForwardOverlayDrawCall`
+        // / `CreateDrawCall` being named "CreateDrawCall", they ONLY allocate via
+        // `CommandBucket::CreateDrawCall<T>()` (which does not push into the bucket's
+        // packet list). The actual submission happens here — exactly once. We return
+        // nullptr afterwards to match the other overlay helpers and prevent callers
+        // from accidentally double-submitting the packet.
+        if (overlayRoute)
+            SubmitForwardOverlayPacket(packet);
+        else
+            SubmitPacket(packet);
+        return nullptr;
     }
 
     CommandPacket* Renderer3D::DrawTerrainPatch(
@@ -3687,14 +4699,33 @@ namespace OloEngine
             return nullptr;
         }
 
-        CommandPacket* packet = CreateDrawCall<DrawTerrainPatchCommand>();
+        // In the deferred path, substitute the forward terrain shader with the
+        // G-Buffer variant so terrain participates in the deferred composite
+        // (full PBR evaluated once in DeferredLightingPass).
+        const bool deferredActive = (s_Data.Settings.Path == RenderingPath::Deferred);
+        Ref<Shader> activeShader = shader;
+        if (deferredActive)
+        {
+            if (shader == s_Data.TerrainPBRShader && s_Data.TerrainGBufferShader)
+                activeShader = s_Data.TerrainGBufferShader;
+            else if (shader == s_Data.VoxelPBRShader && s_Data.VoxelGBufferShader)
+                activeShader = s_Data.VoxelGBufferShader;
+        }
+        const bool useGBufferVariant = deferredActive && (activeShader != shader);
+        const bool overlayRoute = deferredActive && !useGBufferVariant && s_Data.ForwardOverlayPass;
+
+        CommandPacket* packet = overlayRoute
+                                    ? CreateForwardOverlayDrawCall<DrawTerrainPatchCommand>()
+                                    : CreateDrawCall<DrawTerrainPatchCommand>();
+        if (!packet)
+            return nullptr;
         auto* cmd = packet->GetCommandData<DrawTerrainPatchCommand>();
         cmd->header.type = CommandType::DrawTerrainPatch;
 
         cmd->vertexArrayID = vaoID;
         cmd->indexCount = indexCount;
         cmd->patchVertexCount = patchVertexCount;
-        cmd->shaderRendererID = shader->GetRendererID();
+        cmd->shaderRendererID = activeShader->GetRendererID();
         cmd->heightmapTextureID = heightmapID;
         cmd->splatmapTextureID = splatmapID;
         cmd->splatmap1TextureID = splatmap1ID;
@@ -3717,11 +4748,17 @@ namespace OloEngine
 
         // Sort key: group by shader for state efficiency
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = shader->GetRendererID() & 0xFFFF;
+        u32 shaderID = activeShader->GetRendererID() & 0xFFFF;
         u32 depth = ComputeDepthForSortKey(transform);
         metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, depth);
         metadata.m_IsStatic = true;
         packet->SetMetadata(metadata);
+
+        if (overlayRoute)
+        {
+            SubmitForwardOverlayPacket(packet);
+            return nullptr;
+        }
 
         return packet;
     }
@@ -3746,13 +4783,25 @@ namespace OloEngine
             return nullptr;
         }
 
-        CommandPacket* packet = CreateDrawCall<DrawVoxelMeshCommand>();
+        // Substitute voxel G-Buffer shader in deferred path.
+        const bool deferredActive = (s_Data.Settings.Path == RenderingPath::Deferred);
+        Ref<Shader> activeShader = shader;
+        if (deferredActive && shader == s_Data.VoxelPBRShader && s_Data.VoxelGBufferShader)
+            activeShader = s_Data.VoxelGBufferShader;
+        const bool useGBufferVariant = deferredActive && (activeShader != shader);
+        const bool overlayRoute = deferredActive && !useGBufferVariant && s_Data.ForwardOverlayPass;
+
+        CommandPacket* packet = overlayRoute
+                                    ? CreateForwardOverlayDrawCall<DrawVoxelMeshCommand>()
+                                    : CreateDrawCall<DrawVoxelMeshCommand>();
+        if (!packet)
+            return nullptr;
         auto* cmd = packet->GetCommandData<DrawVoxelMeshCommand>();
         cmd->header.type = CommandType::DrawVoxelMesh;
 
         cmd->vertexArrayID = vaoID;
         cmd->indexCount = indexCount;
-        cmd->shaderRendererID = shader->GetRendererID();
+        cmd->shaderRendererID = activeShader->GetRendererID();
         cmd->albedoArrayTextureID = albedoArrayID;
         cmd->normalArrayTextureID = normalArrayID;
         cmd->armArrayTextureID = armArrayID;
@@ -3769,11 +4818,17 @@ namespace OloEngine
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = shader->GetRendererID() & 0xFFFF;
+        u32 shaderID = activeShader->GetRendererID() & 0xFFFF;
         u32 depth = ComputeDepthForSortKey(transform);
         metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, depth);
         metadata.m_IsStatic = true;
         packet->SetMetadata(metadata);
+
+        if (overlayRoute)
+        {
+            SubmitForwardOverlayPacket(packet);
+            return nullptr;
+        }
 
         return packet;
     }

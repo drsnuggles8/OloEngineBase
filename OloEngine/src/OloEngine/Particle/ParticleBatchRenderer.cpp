@@ -21,6 +21,8 @@ namespace OloEngine
         Ref<VertexBuffer> QuadVBO;     // Unit quad vertices (per-vertex)
         Ref<VertexBuffer> InstanceVBO; // Per-instance data
         Ref<Shader> ParticleShader;
+        Ref<Shader> ParticleShaderOIT; // Phase 6: weighted-blended OIT variant
+        bool UseOITShader = false;     // Set by ParticleRenderPass when OIT is active for this frame
 
         std::unique_ptr<ParticleInstance[]> InstanceBase;
         ParticleInstance* InstancePtr = nullptr;
@@ -121,7 +123,10 @@ namespace OloEngine
                                         { ShaderDataType::Float4, "a_UVRect" },
                                         { ShaderDataType::Float4, "a_VelocityRotation" },
                                         { ShaderDataType::Float, "a_StretchFactor" },
-                                        { ShaderDataType::Int, "a_EntityID" } });
+                                        { ShaderDataType::Int, "a_EntityID" },
+                                        { ShaderDataType::Float4, "a_PrevPosition" },
+                                        { ShaderDataType::Float, "a_PrevRotation" },
+                                        { ShaderDataType::Float, "a_Pad0" } });
         s_Data.VAO->AddInstanceBuffer(s_Data.InstanceVBO);
 
         // CPU-side staging buffer
@@ -132,8 +137,9 @@ namespace OloEngine
         u32 whiteTextureData = 0xffffffffU;
         s_Data.WhiteTexture->SetData(&whiteTextureData, sizeof(u32));
 
-        // Load particle shader
+        // Load particle shader (both classic and OIT variants)
         s_Data.ParticleShader = Shader::Create("assets/shaders/Particle_Billboard.glsl");
+        s_Data.ParticleShaderOIT = Shader::Create("assets/shaders/Particle_Billboard_OIT.glsl");
 
         // Camera UBO (binding 0, shared with other renderers)
         s_Data.CameraUBO = UniformBuffer::Create(sizeof(ParticleBatchData::CameraData), 0);
@@ -245,7 +251,8 @@ namespace OloEngine
 
     void ParticleBatchRenderer::Submit(const glm::vec3& position, f32 size, f32 rotation,
                                        const glm::vec4& color, const glm::vec4& uvRect,
-                                       int entityID)
+                                       int entityID, const glm::vec3& prevPosition,
+                                       f32 prevSize, f32 prevRotation)
     {
         if (s_Data.InstanceCount >= ParticleBatchData::MaxInstances)
         {
@@ -260,6 +267,9 @@ namespace OloEngine
         inst.VelocityRotation = { 0.0f, 0.0f, 0.0f, rotation };
         inst.StretchFactor = 0.0f;
         inst.EntityID = entityID;
+        inst.PrevPosition = { prevPosition.x, prevPosition.y, prevPosition.z, prevSize };
+        inst.PrevRotation = prevRotation;
+        inst._Pad0 = 0.0f;
 
         ++s_Data.InstancePtr;
         ++s_Data.InstanceCount;
@@ -268,7 +278,8 @@ namespace OloEngine
     void ParticleBatchRenderer::SubmitStretched(const glm::vec3& position, f32 size,
                                                 const glm::vec3& velocity, f32 stretchFactor,
                                                 const glm::vec4& color, const glm::vec4& uvRect,
-                                                int entityID)
+                                                int entityID, const glm::vec3& prevPosition,
+                                                f32 prevSize, f32 prevRotation)
     {
         if (s_Data.InstanceCount >= ParticleBatchData::MaxInstances)
         {
@@ -283,6 +294,9 @@ namespace OloEngine
         inst.VelocityRotation = { velocity.x, velocity.y, velocity.z, 0.0f };
         inst.StretchFactor = stretchFactor;
         inst.EntityID = entityID;
+        inst.PrevPosition = { prevPosition.x, prevPosition.y, prevPosition.z, prevSize };
+        inst.PrevRotation = prevRotation;
+        inst._Pad0 = 0.0f;
 
         ++s_Data.InstancePtr;
         ++s_Data.InstanceCount;
@@ -346,6 +360,11 @@ namespace OloEngine
         s_Data.SoftParams = {};
     }
 
+    void ParticleBatchRenderer::SetOITMode(bool enabled)
+    {
+        s_Data.UseOITShader = enabled;
+    }
+
     void ParticleBatchRenderer::Flush()
     {
         if (s_Data.InstanceCount == 0)
@@ -363,8 +382,9 @@ namespace OloEngine
         bool hasTexture = (s_Data.CurrentTexture && s_Data.CurrentTexture != s_Data.WhiteTexture);
         UploadParticleParams(hasTexture);
 
-        // Bind shader
-        s_Data.ParticleShader->Bind();
+        // Bind shader (classic or OIT variant depending on active mode)
+        Ref<Shader> activeShader = (s_Data.UseOITShader && s_Data.ParticleShaderOIT) ? s_Data.ParticleShaderOIT : s_Data.ParticleShader;
+        activeShader->Bind();
 
         // Bind textures
         BindParticleTextures(hasTexture, hasTexture ? s_Data.CurrentTexture->GetRendererID() : 0);
@@ -374,6 +394,11 @@ namespace OloEngine
 
         s_Data.Stats.DrawCalls++;
         s_Data.Stats.InstanceCount += s_Data.InstanceCount;
+
+        // Reset write cursor so Flush is self-contained even in code paths that
+        // don't immediately call StartNewBatch (e.g. EndBatch).
+        s_Data.InstanceCount = 0;
+        s_Data.InstancePtr = s_Data.InstanceBase.get();
     }
 
     void ParticleBatchRenderer::RenderMeshParticles(const Ref<Mesh>& mesh,
@@ -506,6 +531,8 @@ namespace OloEngine
         // Bind particle and alive-index SSBOs so the vertex shader can read them
         gpuSystem.GetParticleSSBO()->Bind();
         gpuSystem.GetAliveIndexSSBO()->Bind();
+        // Previous-frame positions (binding 14) for per-particle motion vectors
+        gpuSystem.GetPrevPositionSSBO()->Bind();
 
         // Bind textures
         BindParticleTextures(hasTexture, hasTexture ? texture->GetRendererID() : 0);

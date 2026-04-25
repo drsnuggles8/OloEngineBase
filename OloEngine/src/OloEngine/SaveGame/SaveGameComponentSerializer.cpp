@@ -1181,6 +1181,21 @@ namespace OloEngine
     {
         ar << c.m_Color << c.m_Size;
         ar << c.m_FadeDistance << c.m_NormalAngleThreshold;
+        // m_Transparent was added in v2. Per-component payloads are
+        // size-prefixed, so v1 archives have no trailing byte at this point;
+        // probe AtEnd() to stay compatible instead of bumping the entire
+        // archive format for a one-field addition.
+        if (ar.IsLoading())
+        {
+            if (ar.AtEnd())
+                c.m_Transparent = false;
+            else
+                ar << c.m_Transparent;
+        }
+        else
+        {
+            ar << c.m_Transparent;
+        }
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, LODGroupComponent& c)

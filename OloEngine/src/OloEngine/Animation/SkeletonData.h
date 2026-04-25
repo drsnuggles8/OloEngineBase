@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <vector>
 #include <string>
 #include <glm/glm.hpp>
@@ -25,6 +26,11 @@ namespace OloEngine
         // Final matrices for skinning (to be sent to GPU)
         std::vector<glm::mat4> m_FinalBoneMatrices;
 
+        // Previous-frame final bone matrices — used by the Deferred G-Buffer path
+        // to compute per-bone velocity for motion blur / TAA. Updated by rotating
+        // m_FinalBoneMatrices into here at the top of each animation update.
+        std::vector<glm::mat4> m_PrevFinalBoneMatrices;
+
         // Bind pose data for proper skinning
         std::vector<glm::mat4> m_BindPoseMatrices;        // Original bind pose global transforms
         std::vector<glm::mat4> m_InverseBindPoses;        // Inverse bind pose matrices for skinning
@@ -46,6 +52,7 @@ namespace OloEngine
             m_LocalTransforms.resize(boneCount, glm::mat4(1.0f));
             m_GlobalTransforms.resize(boneCount, glm::mat4(1.0f));
             m_FinalBoneMatrices.resize(boneCount, glm::mat4(1.0f));
+            m_PrevFinalBoneMatrices.resize(boneCount, glm::mat4(1.0f));
             m_BindPoseMatrices.resize(boneCount, glm::mat4(1.0f));
             m_InverseBindPoses.resize(boneCount, glm::mat4(1.0f));
             m_BonePreTransforms.resize(boneCount, glm::mat4(1.0f));
@@ -74,6 +81,24 @@ namespace OloEngine
                 m_BindPoseMatrices[i] = m_GlobalTransforms[i];
                 m_InverseBindPoses[i] = glm::inverse(m_GlobalTransforms[i]);
             }
+        }
+
+        /**
+         * @brief Rotate the current final bone matrices into the previous-frame
+         *        slot. Call this at the top of each animation update, before
+         *        overwriting m_FinalBoneMatrices. Ensures per-bone motion
+         *        vectors reflect the actual delta this frame instead of zero.
+         */
+        void RotateBoneHistory()
+        {
+            const sizet boneCount = m_FinalBoneMatrices.size();
+            if (m_PrevFinalBoneMatrices.size() != boneCount)
+            {
+                m_PrevFinalBoneMatrices.assign(m_FinalBoneMatrices.begin(), m_FinalBoneMatrices.end());
+                return;
+            }
+            // std::copy lets the compiler pick the best vectorised path for POD mat4 data.
+            std::copy(m_FinalBoneMatrices.begin(), m_FinalBoneMatrices.end(), m_PrevFinalBoneMatrices.begin());
         }
     };
 } // namespace OloEngine

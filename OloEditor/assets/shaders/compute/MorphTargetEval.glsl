@@ -22,8 +22,17 @@ layout(std430, binding = 1) readonly buffer MorphDeltas  { MorphDelta deltas[]; 
 layout(std430, binding = 2) readonly buffer Weights      { float weights[]; };
 layout(std430, binding = 3) writeonly buffer OutputVerts  { Vertex outVerts[]; };
 
-uniform uint u_VertexCount;
-uniform uint u_TargetCount;
+// Non-opaque uniforms must live inside a UBO block when compiling GLSL
+// for the Vulkan SPIR-V target environment (shaderc's default). Using a
+// dedicated small UBO keeps the CPU-side binding trivial (glNamedBufferData
+// + glBindBufferBase on binding 0 of GL_UNIFORM_BUFFER).
+layout(std140, binding = 0) uniform MorphEvalParams
+{
+    uint u_VertexCount;
+    uint u_TargetCount;
+    uint _pad0;
+    uint _pad1;
+};
 
 void main()
 {

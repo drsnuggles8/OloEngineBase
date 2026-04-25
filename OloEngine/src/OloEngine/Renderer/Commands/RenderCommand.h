@@ -541,6 +541,11 @@ namespace OloEngine
         u32 indexCount;
         u32 baseIndex = 0; // Starting index offset in shared index buffer (for multi-submesh MeshSources)
         glm::mat4 transform;
+        // Previous-frame world transform for per-object motion-vector
+        // generation in the G-Buffer path. Renderer3D fills this from a
+        // per-entity cache on submission; equals `transform` for static /
+        // first-frame objects so velocity is zero.
+        glm::mat4 prevTransform;
 
         // Entity ID for picking (editor support)
         i32 entityID = -1;
@@ -556,10 +561,11 @@ namespace OloEngine
 
         // Animation support
         bool isAnimatedMesh = false;
-        u32 boneBufferOffset = 0;          // Offset into FrameDataBuffer for bone matrices
-        u32 boneCount = 0;                 // Number of bone matrices
-        u8 workerIndex = 0;                // Worker index for parallel submission (used to remap local bone offset to global)
-        bool needsBoneOffsetRemap = false; // True if boneBufferOffset is worker-local and needs remapping
+        u32 boneBufferOffset = 0;              // Offset into FrameDataBuffer for bone matrices
+        u32 prevBoneBufferOffset = UINT32_MAX; // Offset into FrameDataBuffer for previous-frame bone matrices; UINT32_MAX = alias current (no motion)
+        u32 boneCount = 0;                     // Number of bone matrices
+        u8 workerIndex = 0;                    // Worker index for parallel submission (used to remap local bone offset to global)
+        bool needsBoneOffsetRemap = false;     // True if boneBufferOffset is worker-local and needs remapping
 
         // Occlusion culling: query index for conditional rendering (UINT32_MAX = no query)
         u32 occlusionQueryIndex = UINT32_MAX;
@@ -578,8 +584,9 @@ namespace OloEngine
         u32 indexCount;
         u32 baseIndex = 0; // Starting index offset in shared index buffer (for multi-submesh MeshSources)
         u32 instanceCount;
-        u32 transformBufferOffset = 0; // Offset into FrameDataBuffer for instance transforms
-        u32 transformCount = 0;        // Number of instance transforms
+        u32 transformBufferOffset = 0;              // Offset into FrameDataBuffer for instance transforms
+        u32 prevTransformBufferOffset = UINT32_MAX; // Offset into FrameDataBuffer for previous-frame per-instance transforms; UINT32_MAX = alias current (no motion)
+        u32 transformCount = 0;                     // Number of instance transforms
 
         // Shader handle (for asset tracking — shaderRendererID lives in PODMaterialData)
         AssetHandle shaderHandle;
@@ -724,14 +731,49 @@ namespace OloEngine
         glm::vec4 decalColor = glm::vec4(1.0f);
         glm::vec4 decalParams = glm::vec4(0.0f); // x = fadeDistance, y = normalAngleThreshold, z/w = unused
         RendererID albedoTextureID = 0;
+        RendererID normalTextureID = 0; // Bound at ShaderBindingLayout::TEX_USER_1 for Normal-mode decals (see CommandDispatch::DrawDecal)
+        RendererID rmaTextureID = 0;    // Bound at ShaderBindingLayout::TEX_USER_2 for RMA-mode decals (R=roughness, G=metal, B=AO)
+        // Inserting fields between members above is safe: every Renderer3D::DrawDecal
+        // call site assigns members by name (`cmd->normalTextureID = …`) rather than
+        // positional brace initialization, and the same convention applies to
+        // DrawMeshCommand / DrawMeshInstancedCommand.
+
+        // Decal mode: matches Scene::DecalMode enum. DecalRenderPass::
+        // ExecuteOnGBuffer uses this to pick draw-buffer + colour mask.
+        enum class DecalMode : u8
+        {
+            Albedo = 0,
+            Normal = 1,
+            RMA = 2,
+            Emissive = 3
+        };
+        DecalMode mode = DecalMode::Albedo;
+
+        // Transparency override. When non-zero, this decal must be routed
+        // through the forward (WB-OIT or blended) pipeline instead of the
+        // deferred G-Buffer overlay path, regardless of the active
+        // RenderingPath. Used by DecalRenderPass to decide which drain
+        // phase owns the packet: ExecuteOnGBuffer skips `transparent == 1`
+        // entries so that the graph-scheduled Execute() (which runs after
+        // DeferredLightingPass in the Deferred path) can render them with
+        // the forward shader over the already-lit scene colour.
+        u8 transparent = 0;
 
         // Entity ID for picking
         i32 entityID = -1;
+
+        // OIT program override. When non-zero, CommandDispatch::DrawDecal
+        // substitutes this program ID for `shaderRendererID` so decal
+        // commands composite via the WB-OIT layout without resubmission.
+        // DecalRenderPass populates this on the command itself (not a
+        // global) so the queue stays stateless and replay-safe.
+        u32 oitProgramOverride = 0;
 
         // Render state index (into FrameDataBuffer::RenderStateTable)
         u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;
     };
 
+    static_assert(sizeof(DrawDecalCommand::DecalMode) == 1, "DecalMode must be 1 byte to preserve POD layout");
     static_assert(std::is_trivially_copyable_v<DrawDecalCommand>, "DrawDecalCommand must be trivially copyable for radix sort");
 
     // Foliage instanced layer command — one command per foliage layer
@@ -758,7 +800,7 @@ namespace OloEngine
         f32 viewDistance = 100.0f;
         f32 fadeStart = 80.0f;
         f32 alphaCutoff = 0.5f;
-        f32 _pad0 = 0.0f;
+        f32 prevTime = 0.0f; // Previous-frame time for wind velocity reprojection
         f32 _pad1 = 0.0f;
         glm::vec4 baseColor = glm::vec4(1.0f); // xyz = color, w = unused
 
@@ -821,6 +863,14 @@ namespace OloEngine
 
         // Entity ID for picking
         i32 entityID = -1;
+
+        // OIT program override. When non-zero, CommandDispatch::DrawWater
+        // will substitute this program ID for `shaderRendererID` so water
+        // commands composite via the WB-OIT 2-attachment layout without
+        // needing a second submission. WaterRenderPass populates this on
+        // the command itself (not a global) so the queue stays stateless
+        // and replay-safe.
+        u32 oitProgramOverride = 0;
 
         // Render state index (into FrameDataBuffer::RenderStateTable)
         u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;

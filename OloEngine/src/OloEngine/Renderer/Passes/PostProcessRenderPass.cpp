@@ -8,6 +8,10 @@
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 #include "OloEngine/Core/Application.h"
 
+#include <glad/gl.h>
+
+#include <algorithm>
+
 namespace OloEngine
 {
     std::vector<Ref<Shader>*> PostProcessRenderPass::GetAllShaderRefs()
@@ -24,6 +28,7 @@ namespace OloEngine
             &m_FXAAShader,
             &m_DOFShader,
             &m_MotionBlurShader,
+            &m_TAAShader,
             &m_FogShader,
             &m_FogUpsampleShader,
             &m_SSAOApplyShader,
@@ -64,6 +69,7 @@ namespace OloEngine
             "assets/shaders/PostProcess_FXAA.glsl",
             "assets/shaders/PostProcess_DOF.glsl",
             "assets/shaders/PostProcess_MotionBlur.glsl",
+            "assets/shaders/PostProcess_TAA.glsl",
             "assets/shaders/PostProcess_Fog.glsl",
             "assets/shaders/PostProcess_FogUpsample.glsl",
             "assets/shaders/PostProcess_SSAOApply.glsl",
@@ -81,6 +87,7 @@ namespace OloEngine
             ShaderWarmup::RenderProgressFrame(static_cast<f32>(ppIdx + 1) / static_cast<f32>(totalPPShaders), &window, "post-process shaders", static_cast<i32>(ppIdx + 1), static_cast<i32>(totalPPShaders), 2);
         }
         m_PrecipitationScreenUBO = UniformBuffer::Create(PrecipitationScreenUBOData::GetSize(), ShaderBindingLayout::UBO_PRECIPITATION_SCREEN);
+        m_TAAUBO = UniformBuffer::Create(TAAUBOData::GetSize(), ShaderBindingLayout::UBO_TAA);
 
         // Create bloom mip chain
         CreateBloomMipChain(spec.Width, spec.Height);
@@ -127,7 +134,7 @@ namespace OloEngine
         }
 
         // If no effects are enabled, skip — GetTarget() returns the input framebuffer directly
-        bool anyEffectEnabled = m_Settings.BloomEnabled || m_Settings.VignetteEnabled || m_Settings.ChromaticAberrationEnabled || m_Settings.FXAAEnabled || m_Settings.DOFEnabled || m_Settings.MotionBlurEnabled || m_Settings.ColorGradingEnabled || m_FogEnabled || (m_PrecipitationScreenEffectsEnabled && m_PrecipitationShader && m_PrecipitationScreenUBO) || (m_Settings.SSAOEnabled && m_SSAOTextureID != 0);
+        bool anyEffectEnabled = m_Settings.BloomEnabled || m_Settings.VignetteEnabled || m_Settings.ChromaticAberrationEnabled || m_Settings.FXAAEnabled || m_Settings.DOFEnabled || m_Settings.MotionBlurEnabled || m_Settings.TAAEnabled || m_Settings.ColorGradingEnabled || m_FogEnabled || (m_PrecipitationScreenEffectsEnabled && m_PrecipitationShader && m_PrecipitationScreenUBO) || (m_Settings.SSAOEnabled && m_SSAOTextureID != 0);
 
         // Always run tone mapping if we have the shader (it's the core of post-processing)
         if (!anyEffectEnabled && !m_ToneMapShader)
@@ -259,6 +266,96 @@ namespace OloEngine
 
             currentSource = dest;
             writeToP = !writeToP;
+        }
+
+        // 3.1. TAA — velocity-reprojected temporal accumulation. Runs AFTER
+        // motion blur so the accumulated history already reflects any blurred
+        // trails; for best AA quality (sub-pixel edges) projection jitter
+        // would need to be injected into CameraMatrices (see deferred-renderer
+        // docs, future work). Without jitter, TAA still smooths temporal
+        // aliasing and reduces crawl during motion.
+        if (m_Settings.TAAEnabled && m_TAAShader && m_TAAHistoryFB && m_SceneDepthFB)
+        {
+            Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
+            dest->Bind();
+            RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+            RenderCommand::Clear();
+            RenderCommand::SetDepthTest(false);
+            RenderCommand::SetBlendState(false);
+
+            m_TAAShader->Bind();
+
+            // slot 0: current
+            u32 srcColorID = currentSource->GetColorAttachmentRendererID(0);
+            RenderCommand::BindTexture(0, srcColorID);
+            m_TAAShader->SetInt("u_Current", 0);
+
+            // slot 1: history (fall back to current on first frame / resize)
+            u32 historyID = m_TAAHistoryValid
+                                ? m_TAAHistoryFB->GetColorAttachmentRendererID(0)
+                                : srcColorID;
+            RenderCommand::BindTexture(1, historyID);
+            m_TAAShader->SetInt("u_History", 1);
+
+            // slot 2: velocity (G-Buffer RT3) — zero-bound forces camera-only
+            // reprojection path in the shader.
+            RenderCommand::BindTexture(2, m_VelocityTextureID);
+            m_TAAShader->SetInt("u_Velocity", 2);
+
+            // slot 19: scene depth for camera-only reconstruction
+            u32 depthID = m_SceneDepthFB->GetDepthAttachmentRendererID();
+            RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+            m_TAAShader->SetInt("u_DepthTexture", ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
+
+            // Upload TAA UBO (binding 32)
+            if (m_TAAUBO)
+            {
+                TAAUBOData taaData;
+                taaData.FeedbackSharpnessHasVelocity = glm::vec4(
+                    m_Settings.TAAFeedback,
+                    m_Settings.TAASharpness,
+                    m_VelocityTextureID != 0 ? 1.0f : 0.0f,
+                    0.0f);
+                taaData.TexelSize = glm::vec4(
+                    1.0f / static_cast<f32>(m_FramebufferSpec.Width),
+                    1.0f / static_cast<f32>(m_FramebufferSpec.Height),
+                    0.0f, 0.0f);
+                m_TAAUBO->SetData(&taaData, TAAUBOData::GetSize());
+                m_TAAUBO->Bind();
+            }
+
+            DrawFullscreenTriangle();
+            dest->Unbind();
+
+            // Snapshot resolved output into the persistent history FB for the
+            // next frame. A direct texture-to-texture blit is cheaper than an
+            // extra fullscreen shader pass.
+            glBlitNamedFramebuffer(dest->GetRendererID(),
+                                   m_TAAHistoryFB->GetRendererID(),
+                                   0, 0, static_cast<GLint>(m_FramebufferSpec.Width),
+                                   static_cast<GLint>(m_FramebufferSpec.Height),
+                                   0, 0, static_cast<GLint>(m_FramebufferSpec.Width),
+                                   static_cast<GLint>(m_FramebufferSpec.Height),
+                                   GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            m_TAAHistoryValid = true;
+
+            currentSource = dest;
+            writeToP = !writeToP;
+        }
+        else if (!m_Settings.TAAEnabled)
+        {
+            // Invalidate history when TAA is toggled off so we don't bleed
+            // stale frames back in on re-enable.
+            m_TAAHistoryValid = false;
+        }
+        else
+        {
+            // TAA requested but a required resource (shader / history FB /
+            // scene depth) is missing this frame — the pass did not run, so
+            // treat the history as stale. Without this, a subsequent frame
+            // that does have the resources would blend in arbitrarily old
+            // content (post-resize ghosting, post-hot-reload smears).
+            m_TAAHistoryValid = false;
         }
 
         // 3.25. Precipitation screen-space effects (streaks + lens impacts)
@@ -467,6 +564,11 @@ namespace OloEngine
         m_PingFB = Framebuffer::Create(pingPongSpec);
         m_PongFB = Framebuffer::Create(pingPongSpec);
 
+        // TAA history: same spec, separate persistent FB. Allocation mirrors
+        // ping-pong so resize paths share a single code path.
+        m_TAAHistoryFB = Framebuffer::Create(pingPongSpec);
+        m_TAAHistoryValid = false;
+
         OLO_CORE_INFO("PostProcessRenderPass: Created ping-pong framebuffers {}x{}", width, height);
     }
 
@@ -491,6 +593,14 @@ namespace OloEngine
         {
             m_PingFB->Resize(width, height);
             m_PongFB->Resize(width, height);
+            if (m_TAAHistoryFB)
+            {
+                // History must track viewport size; invalidate on resize so
+                // the next TAA invocation reprojects fresh instead of reading
+                // texels that no longer correspond to the current geometry.
+                m_TAAHistoryFB->Resize(width, height);
+                m_TAAHistoryValid = false;
+            }
         }
 
         // Setup or resize half-res fog framebuffers
@@ -533,6 +643,11 @@ namespace OloEngine
         if (m_PongFB)
         {
             m_PongFB->Resize(width, height);
+        }
+        if (m_TAAHistoryFB)
+        {
+            m_TAAHistoryFB->Resize(width, height);
+            m_TAAHistoryValid = false; // invalidate after resize
         }
 
         // Resize half-res fog framebuffers

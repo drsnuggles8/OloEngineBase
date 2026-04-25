@@ -71,9 +71,10 @@ namespace OloEngine
         // Used by Scene to create DrawFoliageLayerCommand packets per layer.
         [[nodiscard]] std::vector<FoliageLayerDrawInfo> GetActiveLayerDrawInfo() const;
 
-        void SetTime(f32 time)
+        void SetTime(f32 time, f32 prevTime)
         {
             m_Time = time;
+            m_PrevTime = prevTime;
         }
 
       private:
@@ -103,5 +104,6 @@ namespace OloEngine
         std::vector<LayerRenderData> m_Layers;
         u32 m_VisibleInstances = 0;
         f32 m_Time = 0.0f;
+        f32 m_PrevTime = 0.0f;
     };
 } // namespace OloEngine

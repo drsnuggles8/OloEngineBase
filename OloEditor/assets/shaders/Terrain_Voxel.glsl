@@ -17,6 +17,8 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    // Previous-frame VP for scene FB RT3 velocity.
+    mat4 u_PrevViewProjection;
 };
 
 // Model UBO (binding 3)
@@ -27,6 +29,7 @@ layout(std140, binding = 3) uniform ModelMatrices {
     int _paddingEntity0;
     int _paddingEntity1;
     int _paddingEntity2;
+    mat4 u_PrevModel;
 };
 
 layout(location = 0) out vec3 v_WorldPos;
@@ -52,6 +55,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 u_PrevViewProjection;
 };
 
 // Multi-Light UBO (binding 5)
@@ -88,6 +92,7 @@ layout(std140, binding = 3) uniform ModelMatrices {
     int _paddingEntity0;
     int _paddingEntity1;
     int _paddingEntity2;
+    mat4 u_PrevModel;
 };
 
 // Terrain UBO (binding 10) — reuse terrain layer tiling/sharpness for texture arrays
@@ -130,6 +135,8 @@ layout(location = 1) in vec3 v_Normal;
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
 layout(location = 2) out vec2 o_ViewNormal;
+// Scene FB RT3 velocity — world-static voxel terrain.
+layout(location = 3) out vec2 o_Velocity;
 
 vec2 octEncode(vec3 n)
 {
@@ -274,4 +281,10 @@ void main()
 
     vec3 viewNormal = normalize(mat3(u_View) * N);
     o_ViewNormal = octEncode(viewNormal);
+
+    vec4 clipCurr = u_ViewProjection     * vec4(v_WorldPos, 1.0);
+    vec4 clipPrev = u_PrevViewProjection * vec4(v_WorldPos, 1.0);
+    vec2 ndcCurr = clipCurr.xy / clipCurr.w;
+    vec2 ndcPrev = clipPrev.xy / clipPrev.w;
+    o_Velocity = (ndcCurr - ndcPrev) * 0.5;
 }

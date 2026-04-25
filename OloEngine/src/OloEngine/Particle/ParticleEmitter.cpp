@@ -73,6 +73,11 @@ namespace OloEngine
         // Use combined sampler to ensure mesh shapes pick position+direction from the same triangle
         auto emission = SampleEmissionCombined(Shape);
         pool.m_Positions[index] = emitterPosition + emitterRotation * emission.Position;
+        // Seed prev position to spawn position so the first rendered frame
+        // emits zero per-particle motion vector (avoids popping into view
+        // with stale motion data left over from whichever particle
+        // previously occupied this slot).
+        pool.m_PrevPositions[index] = pool.m_Positions[index];
 
         // Apply entity rotation so emission shapes orient with the entity
         glm::vec3 dir = emitterRotation * emission.Direction;
@@ -87,8 +92,10 @@ namespace OloEngine
         f32 size = std::max(InitialSize + rng.GetFloat32InRange(-SizeVariance, SizeVariance), 0.0f);
         pool.m_Sizes[index] = size;
         pool.m_InitialSizes[index] = size;
+        pool.m_PrevSizes[index] = size;
 
         pool.m_Rotations[index] = InitialRotation + rng.GetFloat32InRange(-RotationVariance, RotationVariance);
+        pool.m_PrevRotations[index] = pool.m_Rotations[index];
 
         f32 lifetime = rng.GetFloat32InRange(std::min(LifetimeMin, LifetimeMax), std::max(LifetimeMin, LifetimeMax));
         pool.m_Lifetimes[index] = lifetime;

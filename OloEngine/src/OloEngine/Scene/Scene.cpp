@@ -392,6 +392,14 @@ namespace OloEngine
     {
         m_IsRunning = true;
 
+        // Reset animation-time history so the first runtime frame seeds itself
+        // (see OnUpdateRender's m_LastAnimationTime < 0.0f branch). Without
+        // this, a stale value carried over from a previous edit-mode session
+        // produces a huge dt on the first runtime frame, which shows up as
+        // bogus motion vectors in TAA / motion blur for the wind / water /
+        // foliage shaders that consume PrevAnimationTime.
+        m_LastAnimationTime = -1.0f;
+
         // In headless mode, disable rendering
         if (Application::Get().IsHeadless())
         {
@@ -631,10 +639,19 @@ namespace OloEngine
 
         m_RuntimeSnowPrevPositions.Empty();
         m_EditorSnowPrevPositions.Empty();
+
+        // Reset animation clock on stop so re-entering runtime (or switching
+        // to edit mode) seeds a fresh baseline instead of leaking a stale
+        // PrevAnimationTime into TAA / motion-blur / wind / water shaders.
+        m_LastAnimationTime = -1.0f;
     }
 
     void Scene::OnSimulationStart()
     {
+        // Same reset as OnRuntimeStart — simulation mode also re-baselines the
+        // animation clock so first-frame velocity reprojection isn't bogus.
+        m_LastAnimationTime = -1.0f;
+
         OnPhysics2DStart();
         OnPhysics3DStart();
     }
@@ -643,6 +660,10 @@ namespace OloEngine
     {
         OnPhysics2DStop();
         OnPhysics3DStop();
+
+        // Mirror OnRuntimeStop so returning to edit mode doesn't leak stale
+        // animation-clock history into shaders that consume PrevAnimationTime.
+        m_LastAnimationTime = -1.0f;
     }
 
     void Scene::SetNavMesh(const Ref<NavMesh>& navMesh)
@@ -1337,6 +1358,16 @@ namespace OloEngine
             }
             else
             {
+                // 2D-only frame: the 3D render path is skipped, so the
+                // animation-time cache wasn't advanced. If the next frame
+                // toggles back into 3D, `prevAnimationTime` would be the
+                // stale timestamp from the last 3D frame — producing a
+                // spurious per-fragment velocity spike on water/foliage/
+                // wind shaders (dt == however long we spent in 2D). Reset
+                // the sentinel so 3D resume re-seeds `prevAnimationTime ==
+                // animationTime` (zero rigid motion for that first frame).
+                m_LastAnimationTime = -1.0f;
+
                 // 2D mode - render directly (no render graph)
                 Renderer2D::BeginScene(*mainCamera, cameraTransform);
 
@@ -1385,6 +1416,16 @@ namespace OloEngine
 
                 RenderUIOverlay();
             }
+        }
+        else
+        {
+            // No primary camera or rendering disabled: the 3D render path
+            // is skipped entirely, so the animation-time cache wasn't
+            // advanced. Mirror the 2D-only branch's reset so whenever 3D
+            // resumes (camera re-acquired or rendering re-enabled) the
+            // next frame re-seeds `prevAnimationTime == animationTime`
+            // instead of using whatever timestamp was last recorded.
+            m_LastAnimationTime = -1.0f;
         }
     }
 
@@ -1463,9 +1504,20 @@ namespace OloEngine
             }
             else
             {
+                // 2D-only simulation frame: reset so resuming 3D doesn't emit
+                // a spurious velocity spike from the stale PrevAnimationTime.
+                m_LastAnimationTime = -1.0f;
+
                 RenderScene(camera);
                 RenderUIOverlay();
             }
+        }
+        else
+        {
+            // Rendering disabled: skip both 3D and 2D paths. Reset the
+            // animation-time sentinel so resuming rendering re-seeds
+            // `prevAnimationTime == animationTime` on the first 3D frame.
+            m_LastAnimationTime = -1.0f;
         }
     }
 
@@ -1633,9 +1685,21 @@ namespace OloEngine
             }
             else
             {
+                // 2D-only editor frame: same reset as the runtime branch so
+                // toggling between 2D and 3D modes doesn't leak a stale
+                // `prevAnimationTime` into water/foliage/wind on resume.
+                m_LastAnimationTime = -1.0f;
+
                 RenderScene(camera);
                 RenderUIOverlay();
             }
+        }
+        else
+        {
+            // Rendering disabled in editor: skip 3D and 2D. Reset the
+            // animation-time sentinel so toggling rendering back on
+            // re-seeds `prevAnimationTime == animationTime`.
+            m_LastAnimationTime = -1.0f;
         }
     }
 
@@ -3011,7 +3075,12 @@ namespace OloEngine
 
             // Submit terrain + voxel command packets (sorted with other opaque geometry)
             // and shadow casters for terrain, voxel, and foliage.
+            // Track previous-frame animation time so water/foliage/wind shaders can
+            // reproject their on-surface displacement (Gerstner waves, wind sway) for
+            // accurate per-fragment velocity output.
             const f32 animationTime = Time::GetTime();
+            const f32 prevAnimationTime = (m_LastAnimationTime < 0.0f) ? animationTime : m_LastAnimationTime;
+            m_LastAnimationTime = animationTime;
             {
                 auto terrainShader = Renderer3D::GetTerrainPBRShader();
                 auto voxelShader = Renderer3D::GetVoxelPBRShader();
@@ -3260,7 +3329,7 @@ namespace OloEngine
                         continue;
                     }
 
-                    foliage.m_Renderer->SetTime(animationTime);
+                    foliage.m_Renderer->SetTime(animationTime, prevAnimationTime);
                     i32 entityID = static_cast<i32>(static_cast<u32>(foliageEntity));
                     glm::mat4 modelMat = foliageTransform.GetTransform();
 
@@ -3272,6 +3341,7 @@ namespace OloEngine
                             layer.AlbedoTextureID,
                             modelMat,
                             animationTime,
+                            prevAnimationTime,
                             layer.WindStrength, layer.WindSpeed,
                             layer.ViewDistance, layer.FadeStartDistance, layer.AlphaCutoff,
                             glm::vec4(layer.BaseColor, 0.0f),
@@ -3544,6 +3614,7 @@ namespace OloEngine
                         va->GetRendererID(), submesh.m_IndexCount,
                         modelMat,
                         animationTime,
+                        prevAnimationTime,
                         waterParams,
                         bounds,
                         entityID);
@@ -3571,9 +3642,23 @@ namespace OloEngine
                                                glm::scale(glm::mat4(1.0f), safeSize);
                     glm::mat4 inverseDecalTransform = glm::inverse(decalTransform);
 
-                    // Resolve albedo texture ID (fallback to white if none assigned)
+                    // Resolve albedo texture ID (fallback to white if none assigned).
+                    // Emissive-mode decals reuse the primary slot for the emissive
+                    // texture (DecalShader samples the same TEX_USER_0 binding).
                     RendererID albedoTextureID = 0;
-                    if (decal.m_AlbedoTexture)
+                    if (decal.m_Mode == DecalMode::Emissive)
+                    {
+                        // Emissive-mode decals reuse the primary slot for the
+                        // emissive texture (DecalShader samples the same
+                        // TEX_USER_0 binding). When no emissive texture is
+                        // assigned, leave the slot at 0 — do NOT fall back to
+                        // the albedo texture (it would project the diffuse
+                        // colour into the emissive G-Buffer channel, painting
+                        // unintended self-illumination onto the surface).
+                        if (decal.m_EmissiveTexture)
+                            albedoTextureID = decal.m_EmissiveTexture->GetRendererID();
+                    }
+                    else if (decal.m_AlbedoTexture)
                     {
                         albedoTextureID = decal.m_AlbedoTexture->GetRendererID();
                     }
@@ -3586,6 +3671,15 @@ namespace OloEngine
                         }
                     }
 
+                    // Optional normal / RMA textures. Only meaningful in the matching mode;
+                    // otherwise pass 0 and the dispatcher will skip the bind.
+                    RendererID normalTextureID = (decal.m_Mode == DecalMode::Normal && decal.m_NormalTexture)
+                                                     ? decal.m_NormalTexture->GetRendererID()
+                                                     : 0u;
+                    RendererID rmaTextureID = (decal.m_Mode == DecalMode::RMA && decal.m_RMATexture)
+                                                  ? decal.m_RMATexture->GetRendererID()
+                                                  : 0u;
+
                     glm::vec4 decalParams = glm::vec4(
                         decal.m_FadeDistance, decal.m_NormalAngleThreshold, 0.0f, 0.0f);
 
@@ -3595,6 +3689,10 @@ namespace OloEngine
                         decal.m_Color,
                         decalParams,
                         albedoTextureID,
+                        normalTextureID,
+                        rmaTextureID,
+                        static_cast<DrawDecalCommand::DecalMode>(decal.m_Mode),
+                        decal.m_Transparent,
                         static_cast<i32>(static_cast<u32>(entity)));
 
                     if (packet)
@@ -3767,6 +3865,7 @@ namespace OloEngine
 
                 // Get bone matrices from skeleton
                 const auto& boneMatrices = skeleton.m_Skeleton->m_FinalBoneMatrices;
+                const auto& prevBoneMatrices = skeleton.m_Skeleton->m_PrevFinalBoneMatrices;
 
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
@@ -3781,7 +3880,7 @@ namespace OloEngine
                     for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
                     {
                         auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
-                        auto* packet = Renderer3D::DrawAnimatedMesh(submesh, transform.GetTransform(), material, boneMatrices, false, entityID);
+                        auto* packet = Renderer3D::DrawAnimatedMesh(submesh, transform.GetTransform(), material, boneMatrices, prevBoneMatrices, false, entityID);
                         if (packet)
                         {
                             Renderer3D::SubmitPacket(packet);

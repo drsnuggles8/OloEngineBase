@@ -114,7 +114,22 @@ namespace OloEngine
                 break;
             case ForwardPlusMode::Auto:
             default:
-                m_ActiveThisFrame = (totalLights > m_LightCountThreshold);
+                // Hysteresis: once active, stay active until the light count
+                // falls to the lower "downgrade" threshold. Prevents path
+                // oscillation when counts hover at the upgrade boundary.
+                // Treat an ill-configured down threshold (>= upper) as no
+                // hysteresis — use the upper bound on both sides.
+                if (m_ActiveThisFrame)
+                {
+                    const u32 downThreshold = (m_LightCountThresholdDown < m_LightCountThreshold)
+                                                  ? m_LightCountThresholdDown
+                                                  : m_LightCountThreshold;
+                    m_ActiveThisFrame = (totalLights > downThreshold);
+                }
+                else
+                {
+                    m_ActiveThisFrame = (totalLights > m_LightCountThreshold);
+                }
                 break;
         }
     }
