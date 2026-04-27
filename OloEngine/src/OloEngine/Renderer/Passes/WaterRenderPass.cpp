@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Passes/WaterRenderPass.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
@@ -61,6 +62,12 @@ namespace OloEngine
 
     void WaterRenderPass::Execute()
     {
+        RGCommandContext context;
+        Execute(context);
+    }
+
+    void WaterRenderPass::Execute(RGCommandContext& context)
+    {
         OLO_PROFILE_FUNCTION();
 
         if (!m_SceneFramebuffer)
@@ -113,9 +120,9 @@ namespace OloEngine
             m_OITBuffer->ClearForFrame(m_SceneFramebuffer);
             oitFB->Bind();
 
-            RenderCommand::SetDepthTest(true);
+            context.SetDepthTest(true);
             RenderCommand::SetDepthFunc(GL_LEQUAL);
-            RenderCommand::SetDepthMask(false);
+            context.SetDepthMask(false);
 
             RenderCommand::SetBlendStateForAttachment(0, true);
             RenderCommand::SetBlendStateForAttachment(1, true);
@@ -138,14 +145,14 @@ namespace OloEngine
             // Bind scene depth (for depth softening / shoreline foam) and
             // scene normals (for SSR). OIT variant still samples these.
             u32 const sceneDepthID = m_SceneFramebuffer->GetDepthAttachmentRendererID();
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, sceneDepthID);
+            context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, sceneDepthID);
             u32 const sceneNormalsID = m_SceneFramebuffer->GetColorAttachmentRendererID(2);
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, sceneNormalsID);
+            context.BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, sceneNormalsID);
             // Refraction sampler gets bound to the scene color FB directly
             // (no copy) — reading and writing the same texture is illegal,
             // but with OIT we accumulate separately so scene color is safe to sample.
             u32 const sceneColorID = m_SceneFramebuffer->GetColorAttachmentRendererID(0);
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, sceneColorID);
+            context.BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, sceneColorID);
 
             m_CommandBucket.SortCommands();
             auto& rendererAPI = RenderCommand::GetRendererAPI();
@@ -166,16 +173,16 @@ namespace OloEngine
             RenderCommand::SetBlendFuncForAttachment(0, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             RenderCommand::SetBlendFuncForAttachment(1, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            RenderCommand::SetBlendState(false);
+            context.SetBlendState(false);
 
             // Unbind the three texture slots we sampled into — leaving them
             // bound lets the refraction / scene-normals / water-depth slots
             // leak into subsequent passes that share the same sampler layout.
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, 0);
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, 0);
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, 0);
+            context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, 0);
+            context.BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, 0);
+            context.BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, 0);
 
-            RenderCommand::SetDepthMask(true);
+            context.SetDepthMask(true);
             RenderCommand::SetDepthFunc(GL_LESS);
             RenderCommand::BackCull();
             CommandDispatch::InvalidateRenderStateCache();
@@ -200,14 +207,14 @@ namespace OloEngine
 
         // Bind scene depth for depth softening and shoreline foam
         u32 const depthTextureID = m_SceneFramebuffer->GetDepthAttachmentRendererID();
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, depthTextureID);
+        context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, depthTextureID);
 
         // Bind refraction color copy
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, m_RefractionTextureID);
+        context.BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, m_RefractionTextureID);
 
         // Bind scene view-space normals for SSR ray marching
         u32 const normalsTextureID = m_SceneFramebuffer->GetColorAttachmentRendererID(2);
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, normalsTextureID);
+        context.BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, normalsTextureID);
 
         // Sort and dispatch water commands through the command bucket
         m_CommandBucket.SortCommands();
@@ -216,8 +223,8 @@ namespace OloEngine
         m_CommandBucket.Execute(rendererAPI);
 
         // Restore render state after water (water uses blending + depth write off)
-        RenderCommand::SetDepthMask(true);
-        RenderCommand::SetBlendState(false);
+        context.SetDepthMask(true);
+        context.SetBlendState(false);
         RenderCommand::SetDepthFunc(GL_LESS);
         RenderCommand::BackCull();
         CommandDispatch::InvalidateRenderStateCache();
@@ -229,9 +236,9 @@ namespace OloEngine
         // them here so the detector `GLStateGuard("WaterRenderPass")` sees
         // matching entry/exit per-slot bindings regardless of which
         // transparency branch ran.
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, 0);
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, 0);
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, 0);
+        context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, 0);
+        context.BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, 0);
+        context.BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, 0);
 
         m_SceneFramebuffer->Unbind();
 

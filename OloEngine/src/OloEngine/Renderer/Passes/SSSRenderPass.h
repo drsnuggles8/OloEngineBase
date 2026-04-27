@@ -16,6 +16,11 @@ namespace OloEngine
 
         void Init(const FramebufferSpecification& spec) override;
         void Execute() override;
+        void Execute(RGCommandContext& context) override;
+        [[nodiscard]] SubmissionModel GetSubmissionModel() const override
+        {
+            return SubmissionModel::ImmediateOnly;
+        }
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
@@ -37,7 +42,7 @@ namespace OloEngine
         }
 
       private:
-        void DrawFullscreenTriangle();
+        void DrawFullscreenTriangle(RGCommandContext& context);
         void CreateOutputFramebuffer(u32 width, u32 height);
 
         Ref<Framebuffer> m_InputFramebuffer;

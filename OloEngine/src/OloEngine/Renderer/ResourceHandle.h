@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 
 #include <functional>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -53,6 +54,164 @@ namespace OloEngine
             return Name == other.Name;
         }
     };
+
+    struct RGTextureHandle
+    {
+        static constexpr u32 InvalidIndex = std::numeric_limits<u32>::max();
+
+        u32 Index = InvalidIndex;
+        u32 Generation = 0;
+
+        [[nodiscard]] auto IsValid() const -> bool
+        {
+            return Index != InvalidIndex && Generation > 0;
+        }
+
+        [[nodiscard]] auto operator==(const RGTextureHandle& other) const -> bool = default;
+    };
+
+    struct RGBufferHandle
+    {
+        static constexpr u32 InvalidIndex = std::numeric_limits<u32>::max();
+
+        u32 Index = InvalidIndex;
+        u32 Generation = 0;
+
+        [[nodiscard]] auto IsValid() const -> bool
+        {
+            return Index != InvalidIndex && Generation > 0;
+        }
+
+        [[nodiscard]] auto operator==(const RGBufferHandle& other) const -> bool = default;
+    };
+
+    struct RGFramebufferHandle
+    {
+        static constexpr u32 InvalidIndex = std::numeric_limits<u32>::max();
+
+        u32 Index = InvalidIndex;
+        u32 Generation = 0;
+
+        [[nodiscard]] auto IsValid() const -> bool
+        {
+            return Index != InvalidIndex && Generation > 0;
+        }
+
+        [[nodiscard]] auto operator==(const RGFramebufferHandle& other) const -> bool = default;
+    };
+
+    // API-neutral RenderGraph resource vocabulary. These enums intentionally
+    // avoid backend-native types so the graph contract can lower to GL today
+    // and Vulkan / D3D12 later without leaking API details through pass code.
+    enum class RGResourceFormat : u16
+    {
+        Unknown = 0,
+        R8UNorm,
+        RG16Float,
+        RGBA8UNorm,
+        RGBA16Float,
+        Depth24Stencil8,
+        Depth32Float,
+    };
+
+    enum class RGLoadAction : u8
+    {
+        DontCare = 0,
+        Load,
+        Clear,
+    };
+
+    enum class RGStoreAction : u8
+    {
+        DontCare = 0,
+        Store,
+    };
+
+    enum class RGAccessMode : u8
+    {
+        Unknown = 0,
+        ShaderRead,
+        ColorAttachmentRead,
+        ColorAttachmentWrite,
+        DepthStencilRead,
+        DepthStencilWrite,
+        StorageRead,
+        StorageWrite,
+        TransferRead,
+        TransferWrite,
+        UniformRead,
+        IndirectRead,
+        Present,
+    };
+
+    enum class RGQueueType : u8
+    {
+        Graphics = 0,
+        Compute,
+        Copy,
+    };
+
+    [[nodiscard]] inline auto ToString(ResourceHandle::Kind kind) -> std::string_view
+    {
+        switch (kind)
+        {
+            case ResourceHandle::Kind::Unknown:
+                return "Unknown";
+            case ResourceHandle::Kind::Texture2D:
+                return "Texture2D";
+            case ResourceHandle::Kind::Texture2DArray:
+                return "Texture2DArray";
+            case ResourceHandle::Kind::TextureCube:
+                return "TextureCube";
+            case ResourceHandle::Kind::TextureCubeArray:
+                return "TextureCubeArray";
+            case ResourceHandle::Kind::Framebuffer:
+                return "Framebuffer";
+            case ResourceHandle::Kind::UniformBuffer:
+                return "UniformBuffer";
+            case ResourceHandle::Kind::StorageBuffer:
+                return "StorageBuffer";
+        }
+
+        return "Unknown";
+    }
+
+    struct RGResourceDesc
+    {
+        ResourceHandle::Kind Kind = ResourceHandle::Kind::Unknown;
+        RGResourceFormat Format = RGResourceFormat::Unknown;
+        RGLoadAction LoadAction = RGLoadAction::DontCare;
+        RGStoreAction StoreAction = RGStoreAction::Store;
+        RGQueueType Queue = RGQueueType::Graphics;
+        u32 Width = 0;
+        u32 Height = 0;
+        u32 DepthOrLayers = 1;
+        u32 MipLevels = 1;
+        u32 Samples = 1;
+        bool Imported = false;
+        std::string DebugName;
+
+        [[nodiscard]] static auto FromLegacy(ResourceHandle::Kind kind,
+                                             std::string_view debugName = {}) -> RGResourceDesc
+        {
+            RGResourceDesc desc;
+            desc.Kind = kind;
+            desc.DebugName = std::string(debugName);
+            return desc;
+        }
+
+        [[nodiscard]] auto IsCompatibleWith(const RGResourceDesc& other) const -> bool
+        {
+            return Kind == other.Kind &&
+                   Format == other.Format &&
+                   Width == other.Width &&
+                   Height == other.Height &&
+                   DepthOrLayers == other.DepthOrLayers &&
+                   MipLevels == other.MipLevels &&
+                   Samples == other.Samples &&
+                   Queue == other.Queue;
+        }
+    };
 } // namespace OloEngine
 
 namespace std
@@ -63,6 +222,36 @@ namespace std
         std::size_t operator()(const OloEngine::ResourceHandle& h) const noexcept
         {
             return std::hash<std::string>{}(h.Name);
+        }
+    };
+
+    template<>
+    struct hash<OloEngine::RGTextureHandle>
+    {
+        std::size_t operator()(const OloEngine::RGTextureHandle& h) const noexcept
+        {
+            auto key = (static_cast<u64>(h.Generation) << 32u) | static_cast<u64>(h.Index);
+            return std::hash<u64>{}(key);
+        }
+    };
+
+    template<>
+    struct hash<OloEngine::RGBufferHandle>
+    {
+        std::size_t operator()(const OloEngine::RGBufferHandle& h) const noexcept
+        {
+            auto key = (static_cast<u64>(h.Generation) << 32u) | static_cast<u64>(h.Index);
+            return std::hash<u64>{}(key);
+        }
+    };
+
+    template<>
+    struct hash<OloEngine::RGFramebufferHandle>
+    {
+        std::size_t operator()(const OloEngine::RGFramebufferHandle& h) const noexcept
+        {
+            auto key = (static_cast<u64>(h.Generation) << 32u) | static_cast<u64>(h.Index);
+            return std::hash<u64>{}(key);
         }
     };
 } // namespace std

@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/GBuffer.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 
 namespace OloEngine
 {
@@ -38,7 +39,12 @@ namespace OloEngine
 
         void Init(const FramebufferSpecification& spec) override;
         void Execute() override;
+        void Execute(RGCommandContext& context) override;
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
+        [[nodiscard]] SubmissionModel GetSubmissionModel() const override
+        {
+            return SubmissionModel::ImmediateOnly;
+        }
 
         void SetDecalPass(const Ref<DecalRenderPass>& decalPass) noexcept
         {

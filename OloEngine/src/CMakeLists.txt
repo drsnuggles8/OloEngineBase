@@ -482,6 +482,8 @@
 		"OloEngine/Renderer/LightProbeBaker.cpp"
 		"OloEngine/Renderer/RendererAPI.cpp"
 		"OloEngine/Renderer/RendererAPI.h"
+		"OloEngine/Renderer/RGCommandContext.cpp"
+		"OloEngine/Renderer/RGCommandContext.h"
 		"OloEngine/Renderer/RenderGraph.cpp"
 		"OloEngine/Renderer/RenderGraph.h"
 		"OloEngine/Renderer/Shader.cpp"

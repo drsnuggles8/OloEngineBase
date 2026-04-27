@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
@@ -26,6 +27,12 @@ namespace OloEngine
     }
 
     void DecalRenderPass::Execute()
+    {
+        RGCommandContext context;
+        Execute(context);
+    }
+
+    void DecalRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -126,8 +133,8 @@ namespace OloEngine
             // Bind scene depth (for decal projection) — the OIT variant needs
             // the same `u_SceneDepth` at TEX_POSTPROCESS_DEPTH that the
             // forward variant uses.
-            u32 const depthTextureID = m_SceneFramebuffer->GetDepthAttachmentRendererID();
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTextureID);
+            const u32 depthTextureID = m_SceneFramebuffer->GetDepthAttachmentRendererID();
+            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTextureID);
 
             m_CommandBucket.SortCommands();
             auto& rendererAPI = RenderCommand::GetRendererAPI();
@@ -143,9 +150,9 @@ namespace OloEngine
             RenderCommand::SetBlendStateForAttachment(0, false);
             RenderCommand::SetBlendStateForAttachment(1, false);
             RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            RenderCommand::SetBlendState(false);
+            context.SetBlendState(false);
 
-            RenderCommand::SetDepthMask(true);
+            context.SetDepthMask(true);
             RenderCommand::SetDepthFunc(GL_LESS);
             RenderCommand::BackCull();
             CommandDispatch::InvalidateRenderStateCache();
@@ -159,8 +166,8 @@ namespace OloEngine
         m_SceneFramebuffer->Bind();
 
         // Bind scene depth texture for decal projection (before dispatching commands)
-        u32 depthTextureID = m_SceneFramebuffer->GetDepthAttachmentRendererID();
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTextureID);
+        const u32 depthTextureID = m_SceneFramebuffer->GetDepthAttachmentRendererID();
+        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTextureID);
 
         // Sort and dispatch decal commands through the command bucket
         m_CommandBucket.SortCommands();
@@ -173,8 +180,8 @@ namespace OloEngine
         }
 
         // Restore render state after decals
-        RenderCommand::SetDepthMask(true);
-        RenderCommand::SetBlendState(false);
+        context.SetDepthMask(true);
+        context.SetBlendState(false);
         RenderCommand::SetDepthFunc(GL_LESS);
         RenderCommand::BackCull();
 

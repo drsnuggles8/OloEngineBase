@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -88,6 +89,12 @@ namespace OloEngine
 
     void SSAORenderPass::Execute()
     {
+        RGCommandContext context;
+        Execute(context);
+    }
+
+    void SSAORenderPass::Execute(RGCommandContext& context)
+    {
         OLO_PROFILE_FUNCTION();
 
         if (!m_Settings.SSAOEnabled || m_Settings.ActiveAOTechnique != AOTechnique::SSAO || !m_SceneFramebuffer || !m_SSAOShader || !m_SSAOBlurShader || !m_SSAOFramebuffer || !m_BlurFramebuffer)
@@ -109,50 +116,50 @@ namespace OloEngine
 
         // --- Pass 1: Generate raw SSAO ---
         m_SSAOFramebuffer->Bind();
-        RenderCommand::SetViewport(0, 0, m_HalfWidth, m_HalfHeight);
-        RenderCommand::SetClearColor({ 1.0f, 1.0f, 1.0f, 1.0f }); // White = no occlusion
-        RenderCommand::Clear();
-        RenderCommand::SetDepthTest(false);
-        RenderCommand::SetBlendState(false);
+        context.SetViewport(0, 0, m_HalfWidth, m_HalfHeight);
+        context.SetClearColor({ 1.0f, 1.0f, 1.0f, 1.0f }); // White = no occlusion
+        context.Clear();
+        context.SetDepthTest(false);
+        context.SetBlendState(false);
 
         m_SSAOShader->Bind();
 
         // Bind scene depth at TEX_POSTPROCESS_DEPTH (slot 19)
         u32 depthID = m_SceneFramebuffer->GetDepthAttachmentRendererID();
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
 
         // Bind scene view-space normals at TEX_SCENE_NORMALS (slot 22)
         u32 normalsID = m_SceneFramebuffer->GetColorAttachmentRendererID(2);
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, normalsID);
+        context.BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, normalsID);
 
         // Bind noise texture at TEX_SSAO_NOISE (slot 21)
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SSAO_NOISE, m_NoiseTexture);
+        context.BindTexture(ShaderBindingLayout::TEX_SSAO_NOISE, m_NoiseTexture);
 
         DrawFullscreenTriangle();
         m_SSAOFramebuffer->Unbind();
 
         // --- Pass 2: Bilateral blur ---
         m_BlurFramebuffer->Bind();
-        RenderCommand::SetViewport(0, 0, m_HalfWidth, m_HalfHeight);
-        RenderCommand::SetClearColor({ 1.0f, 1.0f, 1.0f, 1.0f });
-        RenderCommand::Clear();
-        RenderCommand::SetDepthTest(false);
-        RenderCommand::SetBlendState(false);
+        context.SetViewport(0, 0, m_HalfWidth, m_HalfHeight);
+        context.SetClearColor({ 1.0f, 1.0f, 1.0f, 1.0f });
+        context.Clear();
+        context.SetDepthTest(false);
+        context.SetBlendState(false);
 
         m_SSAOBlurShader->Bind();
 
         // Bind raw SSAO result at slot 0
         u32 rawSSAOID = m_SSAOFramebuffer->GetColorAttachmentRendererID(0);
-        RenderCommand::BindTexture(0, rawSSAOID);
+        context.BindTexture(0, rawSSAOID);
 
         // Bind scene depth at TEX_POSTPROCESS_DEPTH (slot 19) for bilateral edge detection
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
 
         DrawFullscreenTriangle();
         m_BlurFramebuffer->Unbind();
 
         // Restore full-res viewport (will be set by next pass anyway, but be clean)
-        RenderCommand::SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
+        context.SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
     }
 
     void SSAORenderPass::DrawFullscreenTriangle()

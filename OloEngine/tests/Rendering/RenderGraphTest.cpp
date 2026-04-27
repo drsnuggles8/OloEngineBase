@@ -2,7 +2,9 @@
 #include <gtest/gtest.h>
 
 #include "RenderingTestUtils.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderGraph.h"
+#include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 
@@ -48,6 +50,101 @@ class StubRenderPass : public RenderPass
     u32 m_ExecuteCount = 0;
 };
 
+class BucketStubPass : public CommandBufferRenderPass
+{
+  public:
+    explicit BucketStubPass(const std::string& name)
+    {
+        m_Name = name;
+    }
+
+    void Init(const FramebufferSpecification& /*spec*/) override {}
+    void Execute() override {}
+    [[nodiscard]] Ref<Framebuffer> GetTarget() const override
+    {
+        return nullptr;
+    }
+};
+
+class ImmediateStubPass : public RenderPass
+{
+  public:
+    explicit ImmediateStubPass(const std::string& name)
+    {
+        m_Name = name;
+    }
+
+    void Init(const FramebufferSpecification& /*spec*/) override {}
+    void Execute() override {}
+    [[nodiscard]] Ref<Framebuffer> GetTarget() const override
+    {
+        return nullptr;
+    }
+    [[nodiscard]] SubmissionModel GetSubmissionModel() const override
+    {
+        return SubmissionModel::ImmediateOnly;
+    }
+
+    void DeclareTestRead(std::string_view resource)
+    {
+        DeclareRead(resource, ResourceHandle::Kind::Texture2D);
+    }
+};
+
+class ContextAwareStubPass : public RenderPass
+{
+  public:
+    explicit ContextAwareStubPass(const std::string& name)
+    {
+        m_Name = name;
+    }
+
+    void Init(const FramebufferSpecification& /*spec*/) override {}
+
+    void Execute() override
+    {
+        m_LegacyExecuteCount++;
+    }
+
+    void Execute(RGCommandContext& context) override
+    {
+        m_ContextExecuteCount++;
+        m_ContextWasActive = context.IsPassActive();
+        m_ContextPassName = std::string(context.GetActivePassName());
+    }
+
+    [[nodiscard]] Ref<Framebuffer> GetTarget() const override
+    {
+        return nullptr;
+    }
+
+    [[nodiscard]] u32 GetContextExecuteCount() const
+    {
+        return m_ContextExecuteCount;
+    }
+
+    [[nodiscard]] u32 GetLegacyExecuteCount() const
+    {
+        return m_LegacyExecuteCount;
+    }
+
+    [[nodiscard]] bool WasContextActive() const
+    {
+        return m_ContextWasActive;
+    }
+
+    [[nodiscard]] const std::string& GetObservedContextPassName() const
+    {
+        return m_ContextPassName;
+    }
+
+  private:
+    u32 m_ContextExecuteCount = 0;
+    u32 m_LegacyExecuteCount = 0;
+    bool m_ContextWasActive = false;
+    std::string m_ContextPassName;
+};
+
 // Helper to create and add a stub pass
 static Ref<StubRenderPass> AddStub(RenderGraph& graph, const std::string& name)
 {
@@ -88,6 +185,48 @@ TEST(RenderGraph, GetAllPassesReturnsAll)
 
     auto all = graph.GetAllPasses();
     EXPECT_EQ(all.size(), 3u);
+}
+
+TEST(RenderGraph, PassSubmissionInfoReportsModelsAndResourceDeclarations)
+{
+    RenderGraph graph;
+
+    auto bucket = Ref<BucketStubPass>::Create("BucketPass");
+    auto immediate = Ref<ImmediateStubPass>::Create("ImmediatePass");
+    immediate->DeclareTestRead("SceneColor");
+
+    graph.AddPass(bucket);
+    graph.AddPass(immediate);
+
+    const auto info = graph.GetPassSubmissionInfo();
+    ASSERT_EQ(info.size(), 2u);
+
+    const auto bucketIt = std::find_if(info.begin(), info.end(), [](const RenderGraph::PassSubmissionInfo& entry)
+                                       { return entry.PassName == "BucketPass"; });
+    ASSERT_NE(bucketIt, info.end());
+    EXPECT_EQ(bucketIt->Submission, RenderPass::SubmissionModel::BucketOnly);
+    EXPECT_FALSE(bucketIt->DeclaresResources);
+
+    const auto immediateIt = std::find_if(info.begin(), info.end(), [](const RenderGraph::PassSubmissionInfo& entry)
+                                          { return entry.PassName == "ImmediatePass"; });
+    ASSERT_NE(immediateIt, info.end());
+    EXPECT_EQ(immediateIt->Submission, RenderPass::SubmissionModel::ImmediateOnly);
+    EXPECT_TRUE(immediateIt->DeclaresResources);
+}
+
+TEST(RenderGraph, ExecuteProvidesActiveCommandContextScope)
+{
+    RenderGraph graph;
+
+    auto pass = Ref<ContextAwareStubPass>::Create("ContextPass");
+    graph.AddPass(pass);
+
+    graph.Execute();
+
+    EXPECT_EQ(pass->GetContextExecuteCount(), 1u);
+    EXPECT_EQ(pass->GetLegacyExecuteCount(), 0u);
+    EXPECT_TRUE(pass->WasContextActive());
+    EXPECT_EQ(pass->GetObservedContextPassName(), "ContextPass");
 }
 
 // =============================================================================

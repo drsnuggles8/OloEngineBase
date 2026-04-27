@@ -1,7 +1,7 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Passes/ParticleRenderPass.h"
 #include "OloEngine/Particle/ParticleBatchRenderer.h"
-#include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Renderer.h"
 
 #include <glad/gl.h>
@@ -24,19 +24,18 @@ namespace OloEngine
 
     void ParticleRenderPass::Execute()
     {
+        RGCommandContext context;
+        Execute(context);
+    }
+
+    void ParticleRenderPass::Execute(RGCommandContext& context)
+    {
         OLO_PROFILE_FUNCTION();
 
         if (!m_RenderCallback || !m_SceneFramebuffer)
         {
             return;
         }
-
-        // Detector-only guard: captures GL state at entry and on destruction
-        // diffs against exit state, logging any field this pass failed to
-        // restore. The explicit restore calls below still perform the actual
-        // restoration (the current GLStateGuard only detects leaks, it does
-        // not roll back).
-        GLStateGuard guard("ParticleRenderPass");
 
         const bool useOIT = m_OITEnabled && m_OITBuffer && m_OITBuffer->GetFramebuffer();
 
@@ -52,9 +51,9 @@ namespace OloEngine
 
             oitFB->Bind();
 
-            RenderCommand::SetDepthTest(true);
+            context.SetDepthTest(true);
             RenderCommand::SetDepthFunc(GL_LEQUAL);
-            RenderCommand::SetDepthMask(false);
+            context.SetDepthMask(false);
 
             // Per-attachment blend state: both enabled, different factors.
             RenderCommand::SetBlendStateForAttachment(0, true);                           // accum
@@ -77,10 +76,10 @@ namespace OloEngine
             RenderCommand::SetBlendStateForAttachment(0, false);
             RenderCommand::SetBlendStateForAttachment(1, false);
             RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            RenderCommand::SetBlendState(false);
+            context.SetBlendState(false);
 
             RenderCommand::SetDepthFunc(GL_LESS);
-            RenderCommand::SetDepthMask(true);
+            context.SetDepthMask(true);
 
             oitFB->Unbind();
         }
@@ -89,9 +88,9 @@ namespace OloEngine
             // Classic alpha-blended path.
             m_SceneFramebuffer->Bind();
 
-            RenderCommand::SetDepthTest(true);
+            context.SetDepthTest(true);
             RenderCommand::SetDepthFunc(GL_LEQUAL);
-            RenderCommand::SetDepthMask(false);
+            context.SetDepthMask(false);
 
             // Enable blending only on draw buffer 0 (color).
             // Draw buffer 1 is RED_INTEGER (entity ID); Draw buffer 2 is view-space normals.
@@ -103,9 +102,9 @@ namespace OloEngine
             m_RenderCallback();
 
             RenderCommand::SetDepthFunc(GL_LESS);
-            RenderCommand::SetDepthMask(true);
+            context.SetDepthMask(true);
             RenderCommand::SetBlendStateForAttachment(0, false);
-            RenderCommand::SetBlendState(false);
+            context.SetBlendState(false);
 
             m_SceneFramebuffer->Unbind();
         }

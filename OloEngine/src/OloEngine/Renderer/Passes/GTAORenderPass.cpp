@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Passes/GTAORenderPass.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -119,6 +120,12 @@ namespace OloEngine
     }
 
     void GTAORenderPass::Execute()
+    {
+        RGCommandContext context;
+        Execute(context);
+    }
+
+    void GTAORenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 

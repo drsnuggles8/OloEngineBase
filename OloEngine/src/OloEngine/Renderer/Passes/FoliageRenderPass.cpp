@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/FoliageRenderPass.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Renderer.h"
 
 namespace OloEngine
@@ -20,6 +21,12 @@ namespace OloEngine
     }
 
     void FoliageRenderPass::Execute()
+    {
+        RGCommandContext context;
+        Execute(context);
+    }
+
+    void FoliageRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 

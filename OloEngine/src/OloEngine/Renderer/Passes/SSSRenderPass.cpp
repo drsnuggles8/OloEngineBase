@@ -1,6 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
-#include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
@@ -28,6 +28,12 @@ namespace OloEngine
 
     void SSSRenderPass::Execute()
     {
+        RGCommandContext context;
+        Execute(context);
+    }
+
+    void SSSRenderPass::Execute(RGCommandContext& context)
+    {
         OLO_PROFILE_FUNCTION();
 
         // Only run when snow is enabled AND SSS blur is explicitly turned on.
@@ -44,31 +50,31 @@ namespace OloEngine
         m_Target->Bind();
 
         const auto& targetSpec = m_Target->GetSpecification();
-        RenderCommand::SetViewport(0, 0, targetSpec.Width, targetSpec.Height);
-        RenderCommand::SetDepthTest(false);
-        RenderCommand::SetBlendState(false);
+        context.SetViewport(0, 0, targetSpec.Width, targetSpec.Height);
+        context.SetDepthTest(false);
+        context.SetBlendState(false);
 
         m_SSSBlurShader->Bind();
 
         // Bind input scene color as texture — no read-write hazard since we
         // read from m_InputFramebuffer and write to m_Target.
-        u32 colorID = m_InputFramebuffer->GetColorAttachmentRendererID(0);
-        RenderCommand::BindTexture(0, colorID);
+        const auto colorID = m_InputFramebuffer->GetColorAttachmentRendererID(0);
+        context.BindTexture(0, colorID);
 
         // Bind scene depth for bilateral filtering
-        u32 depthID = m_InputFramebuffer->GetDepthAttachmentRendererID();
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+        const auto depthID = m_InputFramebuffer->GetDepthAttachmentRendererID();
+        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
 
-        DrawFullscreenTriangle();
+        DrawFullscreenTriangle(context);
 
         m_Target->Unbind();
     }
 
-    void SSSRenderPass::DrawFullscreenTriangle()
+    void SSSRenderPass::DrawFullscreenTriangle(RGCommandContext& context)
     {
-        auto va = MeshPrimitives::GetFullscreenTriangle();
+        const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
-        RenderCommand::DrawIndexed(va);
+        context.DrawIndexed(va);
     }
 
     Ref<Framebuffer> SSSRenderPass::GetTarget() const

@@ -29,6 +29,12 @@ namespace OloEngine
 
     void DeferredOpaqueDecalPass::Execute()
     {
+        RGCommandContext context;
+        Execute(context);
+    }
+
+    void DeferredOpaqueDecalPass::Execute(RGCommandContext& /*context*/)
+    {
         OLO_PROFILE_FUNCTION();
 
         if (!m_DecalPass || !m_GBuffer)

@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -61,6 +62,12 @@ namespace OloEngine
     }
 
     void SceneRenderPass::Execute()
+    {
+        RGCommandContext context;
+        Execute(context);
+    }
+
+    void SceneRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 

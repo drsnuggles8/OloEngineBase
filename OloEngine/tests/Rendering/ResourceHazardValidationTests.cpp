@@ -63,13 +63,13 @@ namespace
         void OnReset() override {}
 
         // Exposed for tests.
-        void TestDeclareRead(std::string_view name)
+        void TestDeclareRead(std::string_view name, ResourceHandle::Kind kind = ResourceHandle::Kind::Unknown)
         {
-            DeclareRead(name);
+            DeclareRead(name, kind);
         }
-        void TestDeclareWrite(std::string_view name)
+        void TestDeclareWrite(std::string_view name, ResourceHandle::Kind kind = ResourceHandle::Kind::Unknown)
         {
-            DeclareWrite(name);
+            DeclareWrite(name, kind);
         }
     };
 
@@ -451,6 +451,156 @@ TEST(RenderGraphResourceHazards, ResourceHandleEqualityIsNameBased)
 
     std::hash<ResourceHandle> hasher;
     EXPECT_EQ(hasher(a), hasher(b));
+}
+
+TEST(RenderGraphResourceHazards, ImportedResourceIsTrackedByRegistry)
+{
+    RenderGraph graph;
+
+    auto importedDesc = RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2DArray, "ImportedShadowMap");
+    importedDesc.Format = RGResourceFormat::Depth32Float;
+    graph.ImportResource("ImportedShadowMap", importedDesc);
+
+    auto scene = AddDeclStub(graph, "Scene");
+    scene->TestDeclareRead("ImportedShadowMap", ResourceHandle::Kind::Texture2DArray);
+    scene->TestDeclareWrite("SceneColor", ResourceHandle::Kind::Framebuffer);
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+
+    const auto* imported = graph.FindRegisteredResource("ImportedShadowMap");
+    ASSERT_NE(imported, nullptr);
+    EXPECT_TRUE(imported->Desc.Imported);
+    EXPECT_EQ(imported->Desc.Kind, ResourceHandle::Kind::Texture2DArray);
+    EXPECT_EQ(imported->Desc.Format, RGResourceFormat::Depth32Float);
+    ASSERT_EQ(imported->Consumers.size(), 1u);
+    EXPECT_EQ(imported->Consumers[0], "Scene");
+
+    const auto* sceneColor = graph.FindRegisteredResource("SceneColor");
+    ASSERT_NE(sceneColor, nullptr);
+    ASSERT_EQ(sceneColor->Producers.size(), 1u);
+    EXPECT_EQ(sceneColor->Producers[0], "Scene");
+}
+
+TEST(RenderGraphResourceHazards, ResourceKindMismatchIsFlagged)
+{
+    RenderGraph graph;
+
+    auto writer = AddDeclStub(graph, "Writer");
+    writer->TestDeclareWrite("SharedResource", ResourceHandle::Kind::Texture2D);
+
+    auto reader = AddDeclStub(graph, "Reader");
+    reader->TestDeclareRead("SharedResource", ResourceHandle::Kind::StorageBuffer);
+
+    graph.AddExecutionDependency("Writer", "Reader");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    ASSERT_EQ(hazards.size(), 1u) << HazardsToString(hazards);
+    EXPECT_EQ(hazards[0].Kind, RenderGraph::HazardKind::ResourceKindMismatch);
+    EXPECT_EQ(hazards[0].Resource, "SharedResource");
+    EXPECT_EQ(hazards[0].Consumer, "Reader");
+
+    const auto* resource = graph.FindRegisteredResource("SharedResource");
+    ASSERT_NE(resource, nullptr);
+    EXPECT_EQ(resource->Desc.Kind, ResourceHandle::Kind::Texture2D)
+        << "The registry should retain the first concrete declaration as the canonical kind";
+}
+
+TEST(RenderGraphResourceHazards, TypedHandleLookupMatchesDeclaredKinds)
+{
+    RenderGraph graph;
+
+    auto pass = AddDeclStub(graph, "Pass");
+    pass->TestDeclareRead("EnvironmentMap", ResourceHandle::Kind::TextureCube);
+    pass->TestDeclareWrite("SceneColor", ResourceHandle::Kind::Framebuffer);
+    pass->TestDeclareWrite("LightGrid", ResourceHandle::Kind::StorageBuffer);
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+
+    const auto envTex = graph.GetTextureHandle("EnvironmentMap");
+    const auto sceneFB = graph.GetFramebufferHandle("SceneColor");
+    const auto lightGrid = graph.GetBufferHandle("LightGrid");
+
+    EXPECT_TRUE(envTex.IsValid());
+    EXPECT_TRUE(sceneFB.IsValid());
+    EXPECT_TRUE(lightGrid.IsValid());
+
+    EXPECT_FALSE(graph.GetBufferHandle("EnvironmentMap").IsValid());
+    EXPECT_FALSE(graph.GetTextureHandle("SceneColor").IsValid());
+    EXPECT_FALSE(graph.GetFramebufferHandle("LightGrid").IsValid());
+}
+
+TEST(RenderGraphResourceHazards, UnknownResourceHandleLookupReturnsInvalid)
+{
+    RenderGraph graph;
+    AddDeclStub(graph, "Pass")->TestDeclareWrite("SceneColor", ResourceHandle::Kind::Framebuffer);
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+
+    EXPECT_FALSE(graph.GetTextureHandle("DoesNotExist").IsValid());
+    EXPECT_FALSE(graph.GetBufferHandle("DoesNotExist").IsValid());
+    EXPECT_FALSE(graph.GetFramebufferHandle("DoesNotExist").IsValid());
+}
+
+TEST(RenderGraphResourceHazards, StaleTypedHandleIsRejectedAfterTopologyReset)
+{
+    RenderGraph graph;
+
+    auto pass = AddDeclStub(graph, "Pass");
+    pass->TestDeclareRead("EnvironmentMap", ResourceHandle::Kind::TextureCube);
+
+    auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+
+    const auto oldHandle = graph.GetTextureHandle("EnvironmentMap");
+    ASSERT_TRUE(oldHandle.IsValid());
+    EXPECT_TRUE(graph.IsTextureHandleCurrent(oldHandle));
+
+    graph.ResetTopology();
+
+    auto newPass = AddDeclStub(graph, "NewPass");
+    newPass->TestDeclareWrite("SceneColor", ResourceHandle::Kind::Framebuffer);
+
+    hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+
+    EXPECT_FALSE(graph.IsTextureHandleCurrent(oldHandle));
+    EXPECT_FALSE(graph.GetTextureHandle("EnvironmentMap").IsValid());
+}
+
+TEST(RenderGraphResourceHazards, RecreatedResourceGetsNewGeneration)
+{
+    RenderGraph graph;
+
+    auto pass = AddDeclStub(graph, "Pass");
+    pass->TestDeclareWrite("TransientTex", ResourceHandle::Kind::Texture2D);
+
+    auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+
+    const auto first = graph.GetTextureHandle("TransientTex");
+    ASSERT_TRUE(first.IsValid());
+    EXPECT_TRUE(graph.IsTextureHandleCurrent(first));
+
+    graph.ResetTopology();
+    hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+
+    auto recreated = AddDeclStub(graph, "PassAgain");
+    recreated->TestDeclareWrite("TransientTex", ResourceHandle::Kind::Texture2D);
+
+    hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
+
+    const auto second = graph.GetTextureHandle("TransientTex");
+    ASSERT_TRUE(second.IsValid());
+    EXPECT_TRUE(graph.IsTextureHandleCurrent(second));
+
+    // Handle value may reuse the same index after a reset, but stale handles
+    // must still be rejected because the internal slot set has been rebuilt.
+    EXPECT_FALSE(graph.IsTextureHandleCurrent(first));
 }
 
 // =============================================================================

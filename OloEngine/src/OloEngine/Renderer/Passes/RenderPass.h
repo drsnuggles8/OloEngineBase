@@ -11,6 +11,8 @@
 
 namespace OloEngine
 {
+    class RGCommandContext;
+
     // @brief Base class for all render passes.
     //
     // Provides the minimal interface: name, framebuffer lifecycle, and execution.
@@ -25,10 +27,23 @@ namespace OloEngine
     class RenderPass : public RefCounted
     {
       public:
+        enum class SubmissionModel : u8
+        {
+            Unknown = 0,
+            BucketOnly,
+            ImmediateOnly,
+            Mixed,
+        };
+
         virtual ~RenderPass() = default;
 
         virtual void Init(const FramebufferSpecification& spec) = 0;
         virtual void Execute() = 0;
+        virtual void Execute(RGCommandContext& context)
+        {
+            (void)context;
+            Execute();
+        }
         [[nodiscard]] virtual Ref<Framebuffer> GetTarget() const = 0;
 
         void SetName(std::string_view name)
@@ -43,6 +58,10 @@ namespace OloEngine
         virtual void SetupFramebuffer(u32 /*width*/, u32 /*height*/) {}
         virtual void ResizeFramebuffer(u32 /*width*/, u32 /*height*/) {}
         virtual void OnReset() {}
+        [[nodiscard]] virtual SubmissionModel GetSubmissionModel() const
+        {
+            return SubmissionModel::Unknown;
+        }
 
         // Called by RenderGraph to pipe the output framebuffer of a previous pass as input.
         // Passes that accept an input framebuffer should override this.

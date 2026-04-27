@@ -6,6 +6,7 @@
 #include <vector>
 #include <unordered_map>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 
 namespace OloEngine
@@ -76,6 +77,14 @@ namespace OloEngine
 
         [[nodiscard]] std::vector<ConnectionInfo> GetConnections() const;
 
+        struct PassSubmissionInfo
+        {
+            std::string PassName;
+            RenderPass::SubmissionModel Submission = RenderPass::SubmissionModel::Unknown;
+            bool DeclaresResources = false;
+        };
+        [[nodiscard]] std::vector<PassSubmissionInfo> GetPassSubmissionInfo() const;
+
         // @brief Get the topologically-sorted pass execution order (for testing/inspection).
         [[nodiscard]] const std::vector<std::string>& GetPassOrder() const
         {
@@ -98,10 +107,11 @@ namespace OloEngine
         // through the engine logger.
         enum class HazardKind
         {
-            ReadAfterWrite,  // reader does not depend on writer
-            WriteAfterWrite, // later writer does not depend on previous writer
-            WriteAfterRead,  // later writer does not depend on prior reader
-            Cycle,           // dependency graph has a cycle; hazards could not be validated
+            ReadAfterWrite,       // reader does not depend on writer
+            WriteAfterWrite,      // later writer does not depend on previous writer
+            WriteAfterRead,       // later writer does not depend on prior reader
+            ResourceKindMismatch, // same logical resource declared with conflicting kinds
+            Cycle,                // dependency graph has a cycle; hazards could not be validated
         };
         struct Hazard
         {
@@ -112,6 +122,28 @@ namespace OloEngine
             std::string Message;
         };
         [[nodiscard]] std::vector<Hazard> ValidateResourceHazards();
+
+        struct ResourceInfo
+        {
+            std::string Name;
+            RGResourceDesc Desc;
+            RGTextureHandle TextureHandle;
+            RGBufferHandle BufferHandle;
+            RGFramebufferHandle FramebufferHandle;
+            std::vector<std::string> Producers;
+            std::vector<std::string> Consumers;
+        };
+
+        void ImportResource(std::string_view name, const RGResourceDesc& desc);
+        void ClearImportedResources();
+        [[nodiscard]] const std::vector<ResourceInfo>& GetRegisteredResources() const;
+        [[nodiscard]] const ResourceInfo* FindRegisteredResource(std::string_view name) const;
+        [[nodiscard]] RGTextureHandle GetTextureHandle(std::string_view name) const;
+        [[nodiscard]] RGBufferHandle GetBufferHandle(std::string_view name) const;
+        [[nodiscard]] RGFramebufferHandle GetFramebufferHandle(std::string_view name) const;
+        [[nodiscard]] bool IsTextureHandleCurrent(RGTextureHandle handle) const;
+        [[nodiscard]] bool IsBufferHandleCurrent(RGBufferHandle handle) const;
+        [[nodiscard]] bool IsFramebufferHandleCurrent(RGFramebufferHandle handle) const;
 
         // @brief Dump the current graph as a Graphviz DOT file.
         //
@@ -157,6 +189,30 @@ namespace OloEngine
         std::vector<FramebufferPipe> m_CachedPipes;
         std::vector<RenderPass*> m_CachedExecutionOrder;
 
+        std::unordered_map<std::string, RGResourceDesc> m_ImportedResources;
+
+        mutable bool m_ResourceRegistryDirty = true;
+        mutable std::unordered_map<std::string, ResourceInfo> m_ResourceRegistry;
+        mutable std::vector<ResourceInfo> m_RegisteredResources;
+        mutable std::vector<Hazard> m_ResourceRegistryDiagnostics;
+        mutable std::unordered_map<std::string, RGTextureHandle> m_TextureHandlesByName;
+        mutable std::unordered_map<std::string, RGBufferHandle> m_BufferHandlesByName;
+        mutable std::unordered_map<std::string, RGFramebufferHandle> m_FramebufferHandlesByName;
+
+        struct HandleSlot
+        {
+            u32 Generation = 1;
+            bool Alive = false;
+            std::string Name;
+        };
+        mutable std::vector<HandleSlot> m_TextureHandleSlots;
+        mutable std::vector<HandleSlot> m_BufferHandleSlots;
+        mutable std::vector<HandleSlot> m_FramebufferHandleSlots;
+        mutable std::vector<u32> m_FreeTextureHandleIndices;
+        mutable std::vector<u32> m_FreeBufferHandleIndices;
+        mutable std::vector<u32> m_FreeFramebufferHandleIndices;
+
         void RebuildExecutionCache();
+        void EnsureResourceRegistryBuilt() const;
     };
 } // namespace OloEngine

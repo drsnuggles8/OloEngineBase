@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
 
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -49,6 +50,12 @@ namespace OloEngine
 
     void DeferredLightingPass::Execute()
     {
+        RGCommandContext context;
+        Execute(context);
+    }
+
+    void DeferredLightingPass::Execute(RGCommandContext& context)
+    {
         OLO_PROFILE_FUNCTION();
 
         // Only runs when registered in the graph, which `Renderer3D::
@@ -72,7 +79,7 @@ namespace OloEngine
 
         const u32 w = m_GBuffer->GetWidth();
         const u32 h = m_GBuffer->GetHeight();
-        RenderCommand::SetViewport(0, 0, w, h);
+        context.SetViewport(0, 0, w, h);
 
         const u32 sceneFBID = m_SceneFramebuffer->GetRendererID();
 
@@ -92,9 +99,9 @@ namespace OloEngine
         const GLenum drawBuf = GL_COLOR_ATTACHMENT0;
         glNamedFramebufferDrawBuffers(sceneFBID, 1, &drawBuf);
 
-        RenderCommand::SetDepthTest(false);
-        RenderCommand::SetDepthMask(false);
-        RenderCommand::SetBlendState(false);
+        context.SetDepthTest(false);
+        context.SetDepthMask(false);
+        context.SetBlendState(false);
         RenderCommand::SetCullFace(GL_BACK);
 
         const u32 sampleCount = m_GBuffer->GetSampleCount();
@@ -151,38 +158,38 @@ namespace OloEngine
                            albedoID, normalID, emissiveID, depthID);
             return;
         }
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_ALBEDO, albedoID);
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_NORMAL, normalID);
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_EMISSIVE, emissiveID);
+        context.BindTexture(ShaderBindingLayout::TEX_GBUFFER_ALBEDO, albedoID);
+        context.BindTexture(ShaderBindingLayout::TEX_GBUFFER_NORMAL, normalID);
+        context.BindTexture(ShaderBindingLayout::TEX_GBUFFER_EMISSIVE, emissiveID);
         // Velocity RT is optional (skipped outside TAA-enabled configs);
         // the fragment shader already handles a zero bind as "no motion".
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_VELOCITY, velocityID);
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_DEPTH, depthID);
+        context.BindTexture(ShaderBindingLayout::TEX_GBUFFER_VELOCITY, velocityID);
+        context.BindTexture(ShaderBindingLayout::TEX_GBUFFER_DEPTH, depthID);
 
         // IBL (safe to rebind regardless — shader branches on DeferredControls).
         if (iblAvailable)
         {
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_USER_0,
-                                       Renderer3D::GetGlobalIrradianceMapID());
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_USER_1,
-                                       Renderer3D::GetGlobalPrefilterMapID());
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_USER_2,
-                                       Renderer3D::GetGlobalBRDFLutMapID());
+            context.BindTexture(ShaderBindingLayout::TEX_USER_0,
+                                Renderer3D::GetGlobalIrradianceMapID());
+            context.BindTexture(ShaderBindingLayout::TEX_USER_1,
+                                Renderer3D::GetGlobalPrefilterMapID());
+            context.BindTexture(ShaderBindingLayout::TEX_USER_2,
+                                Renderer3D::GetGlobalBRDFLutMapID());
         }
 
         // Shadow maps — reuse the same slots the Forward shader expects so
         // shadow UBO binding 6 carries compatible matrices.
         auto& shadow = Renderer3D::GetShadowMap();
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW, shadow.GetCSMRendererID());
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW_SPOT, shadow.GetSpotRendererID());
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW_POINT_0, shadow.GetPointRendererID(0));
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW_POINT_1, shadow.GetPointRendererID(1));
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW_POINT_2, shadow.GetPointRendererID(2));
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW_POINT_3, shadow.GetPointRendererID(3));
+        context.BindTexture(ShaderBindingLayout::TEX_SHADOW, shadow.GetCSMRendererID());
+        context.BindTexture(ShaderBindingLayout::TEX_SHADOW_SPOT, shadow.GetSpotRendererID());
+        context.BindTexture(ShaderBindingLayout::TEX_SHADOW_POINT_0, shadow.GetPointRendererID(0));
+        context.BindTexture(ShaderBindingLayout::TEX_SHADOW_POINT_1, shadow.GetPointRendererID(1));
+        context.BindTexture(ShaderBindingLayout::TEX_SHADOW_POINT_2, shadow.GetPointRendererID(2));
+        context.BindTexture(ShaderBindingLayout::TEX_SHADOW_POINT_3, shadow.GetPointRendererID(3));
 
-        auto va = MeshPrimitives::GetFullscreenTriangle();
+        const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
-        RenderCommand::DrawIndexed(va);
+        context.DrawIndexed(va);
 
         // Restore the full multi-attachment draw-buffer list so later passes
         // writing into RT1 (normal) / RT2 (emissive) / RT3 (velocity) target
@@ -198,8 +205,8 @@ namespace OloEngine
             glNamedFramebufferDrawBuffers(sceneFBID, static_cast<GLsizei>(n), fullDrawBufs.data());
         }
 
-        RenderCommand::SetDepthTest(true);
-        RenderCommand::SetDepthMask(true);
+        context.SetDepthTest(true);
+        context.SetDepthMask(true);
 
         // Copy G-Buffer depth into the scene framebuffer so every downstream
         // pass (ForwardOverlayPass, FoliagePass, WaterPass, SSAO, GTAO,

@@ -1,6 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
-#include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 
@@ -80,6 +80,12 @@ namespace OloEngine
 
     void SelectionOutlineRenderPass::Execute()
     {
+        RGCommandContext context;
+        Execute(context);
+    }
+
+    void SelectionOutlineRenderPass::Execute(RGCommandContext& context)
+    {
         OLO_PROFILE_FUNCTION();
 
         if (!m_Target || !m_InputFramebuffer)
@@ -87,24 +93,24 @@ namespace OloEngine
             return;
         }
 
-        auto va = MeshPrimitives::GetFullscreenTriangle();
+        const auto va = MeshPrimitives::GetFullscreenTriangle();
 
         // Early-out: no selection, disabled, or no scene FB — blit input straight through
         if (!m_Enabled || m_UBOData.SelectedCount == 0 || !m_SceneFramebuffer)
         {
             m_Target->Bind();
-            RenderCommand::SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
-            RenderCommand::SetBlendState(false);
-            RenderCommand::SetDepthTest(false);
+            context.SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
+            context.SetBlendState(false);
+            context.SetDepthTest(false);
 
             m_BlitShader->Bind();
-            RenderCommand::BindTexture(0, m_InputFramebuffer->GetColorAttachmentRendererID(0));
+            context.BindTexture(0, m_InputFramebuffer->GetColorAttachmentRendererID(0));
             m_BlitShader->SetInt("u_Texture", 0);
 
             va->Bind();
-            RenderCommand::DrawIndexed(va);
+            context.DrawIndexed(va);
 
-            RenderCommand::SetDepthTest(true);
+            context.SetDepthTest(true);
             return;
         }
 
@@ -120,19 +126,19 @@ namespace OloEngine
         // Pass 1: JFA Init — entity IDs → distance field seed
         // =====================================================================
         m_JFAFramebuffers[0]->Bind();
-        RenderCommand::SetViewport(0, 0, w, h);
-        RenderCommand::SetBlendState(false);
-        RenderCommand::SetDepthTest(false);
-        RenderCommand::Clear();
+        context.SetViewport(0, 0, w, h);
+        context.SetBlendState(false);
+        context.SetDepthTest(false);
+        context.Clear();
 
         // Bind entity ID texture from ScenePass attachment 1
-        RenderCommand::BindTexture(0, m_SceneFramebuffer->GetColorAttachmentRendererID(1));
+        context.BindTexture(0, m_SceneFramebuffer->GetColorAttachmentRendererID(1));
 
         m_JFAInitShader->Bind();
         m_JFAInitShader->SetInt("u_EntityID", 0);
 
         va->Bind();
-        RenderCommand::DrawIndexed(va);
+        context.DrawIndexed(va);
 
         // =====================================================================
         // Pass 2: JFA Flood — ping-pong propagation passes
@@ -150,17 +156,17 @@ namespace OloEngine
             m_JFAUbo->SetData(&m_JFAUboData, UBOStructures::JumpFloodUBO::GetSize());
 
             m_JFAFramebuffers[writeIndex]->Bind();
-            RenderCommand::SetViewport(0, 0, w, h);
-            RenderCommand::Clear();
+            context.SetViewport(0, 0, w, h);
+            context.Clear();
 
             // Bind previous JFA result
-            RenderCommand::BindTexture(0, m_JFAFramebuffers[readIndex]->GetColorAttachmentRendererID(0));
+            context.BindTexture(0, m_JFAFramebuffers[readIndex]->GetColorAttachmentRendererID(0));
 
             m_JFAPassShader->Bind();
             m_JFAPassShader->SetInt("u_Texture", 0);
 
             va->Bind();
-            RenderCommand::DrawIndexed(va);
+            context.DrawIndexed(va);
 
             readIndex = writeIndex;
         }
@@ -174,22 +180,22 @@ namespace OloEngine
         m_JFAUbo->SetData(&m_JFAUboData, UBOStructures::JumpFloodUBO::GetSize());
 
         m_Target->Bind();
-        RenderCommand::SetViewport(0, 0, w, h);
+        context.SetViewport(0, 0, w, h);
 
         // Slot 0: scene color from PostProcessPass
-        RenderCommand::BindTexture(0, m_InputFramebuffer->GetColorAttachmentRendererID(0));
+        context.BindTexture(0, m_InputFramebuffer->GetColorAttachmentRendererID(0));
         // Slot 1: final JFA distance field
-        RenderCommand::BindTexture(1, m_JFAFramebuffers[readIndex]->GetColorAttachmentRendererID(0));
+        context.BindTexture(1, m_JFAFramebuffers[readIndex]->GetColorAttachmentRendererID(0));
 
         m_JFACompositeShader->Bind();
         m_JFACompositeShader->SetInt("u_SceneColor", 0);
         m_JFACompositeShader->SetInt("u_JFAResult", 1);
 
         va->Bind();
-        RenderCommand::DrawIndexed(va);
+        context.DrawIndexed(va);
 
         // Restore state
-        RenderCommand::SetDepthTest(true);
+        context.SetDepthTest(true);
     }
 
     Ref<Framebuffer> SelectionOutlineRenderPass::GetTarget() const

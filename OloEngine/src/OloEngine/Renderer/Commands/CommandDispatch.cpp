@@ -17,6 +17,8 @@
 #include <glad/gl.h>
 #include <glm/gtc/type_ptr.hpp>
 
+#include <atomic>
+
 /*
  * POD Command Dispatch System
  *
@@ -1024,7 +1026,12 @@ namespace OloEngine
         // Validate POD renderer IDs
         if (cmd->vertexArrayID == 0 || mat.shaderRendererID == 0)
         {
-            OLO_CORE_ERROR("CommandDispatch::DrawMesh: Invalid vertex array ID or shader ID");
+            static std::atomic<u64> s_InvalidDrawMeshLogCount{ 0 };
+            if (s_InvalidDrawMeshLogCount.fetch_add(1, std::memory_order_relaxed) < 16)
+            {
+                OLO_CORE_WARN("CommandDispatch::DrawMesh: Skipping draw with invalid IDs (VAO={}, Shader={})",
+                              cmd->vertexArrayID, mat.shaderRendererID);
+            }
             return;
         }
 
@@ -1163,7 +1170,12 @@ namespace OloEngine
         // Validate POD renderer IDs
         if (cmd->vertexArrayID == 0 || mat.shaderRendererID == 0)
         {
-            OLO_CORE_ERROR("CommandDispatch::DrawMeshInstanced: Invalid vertex array ID or shader ID");
+            static std::atomic<u64> s_InvalidDrawMeshInstancedLogCount{ 0 };
+            if (s_InvalidDrawMeshInstancedLogCount.fetch_add(1, std::memory_order_relaxed) < 16)
+            {
+                OLO_CORE_WARN("CommandDispatch::DrawMeshInstanced: Skipping draw with invalid IDs (VAO={}, Shader={})",
+                              cmd->vertexArrayID, mat.shaderRendererID);
+            }
             return;
         }
 

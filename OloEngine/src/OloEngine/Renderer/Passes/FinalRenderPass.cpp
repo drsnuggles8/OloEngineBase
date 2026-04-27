@@ -1,6 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
-#include "OloEngine/Renderer/Commands/RenderCommand.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -41,39 +41,30 @@ namespace OloEngine
 
     void FinalRenderPass::Execute()
     {
+        RGCommandContext context;
+        Execute(context);
+    }
+
+    void FinalRenderPass::Execute(RGCommandContext& context)
+    {
         OLO_PROFILE_FUNCTION();
 
-        // Reset OpenGL state to engine defaults (matches RenderState defaults)
-        RenderCommand::SetBlendState(false);
-        RenderCommand::SetDepthTest(true);
-        RenderCommand::SetDepthMask(true);
-        RenderCommand::SetDepthFunc(GL_LESS);
-        RenderCommand::DisableStencilTest();
-        RenderCommand::DisableCulling();
-        RenderCommand::SetCullFace(GL_BACK);
-        RenderCommand::SetLineWidth(1.0f);
-        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        RenderCommand::DisableScissorTest();
-        RenderCommand::SetColorMask(true, true, true, true);
-        RenderCommand::SetPolygonOffset(0.0f, 0.0f);
-        RenderCommand::EnableMultisampling();
-
-        RenderCommand::BindDefaultFramebuffer();
-
-        RenderCommand::SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
-        RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
-        RenderCommand::Clear();
+        context.ResetGraphicsStateToDefault();
+        context.BindDefaultFramebuffer();
+        context.SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
+        context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+        context.Clear();
 
         m_BlitShader->Bind();
 
         // Bind the color attachment from the input framebuffer as a texture
-        u32 colorAttachmentID = m_InputFramebuffer->GetColorAttachmentRendererID(0);
-        RenderCommand::BindTexture(0, colorAttachmentID);
+        const auto colorAttachmentID = m_InputFramebuffer->GetColorAttachmentRendererID(0);
+        context.BindTexture(0, colorAttachmentID);
         m_BlitShader->SetInt("u_Texture", 0);
 
-        auto va = MeshPrimitives::GetFullscreenTriangle();
+        const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
-        RenderCommand::DrawIndexed(va);
+        context.DrawIndexed(va);
     }
 
     Ref<Framebuffer> FinalRenderPass::GetTarget() const

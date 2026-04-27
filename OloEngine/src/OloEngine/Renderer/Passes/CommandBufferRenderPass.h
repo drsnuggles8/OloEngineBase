@@ -42,6 +42,11 @@ namespace OloEngine
             m_CommandBucket.SubmitPacket(packet);
         }
 
+        [[nodiscard]] SubmissionModel GetSubmissionModel() const override
+        {
+            return SubmissionModel::BucketOnly;
+        }
+
         CommandBucket& GetCommandBucket()
         {
             return m_CommandBucket;

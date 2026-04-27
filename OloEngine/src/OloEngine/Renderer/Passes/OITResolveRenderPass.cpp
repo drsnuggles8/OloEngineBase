@@ -3,6 +3,7 @@
 
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
@@ -33,6 +34,12 @@ namespace OloEngine
 
     void OITResolveRenderPass::Execute()
     {
+        RGCommandContext context;
+        Execute(context);
+    }
+
+    void OITResolveRenderPass::Execute(RGCommandContext& context)
+    {
         OLO_PROFILE_FUNCTION();
 
         // Grab-and-reset the "has accumulation" flag so a skipped frame
@@ -55,7 +62,7 @@ namespace OloEngine
         m_InputFramebuffer->Bind();
 
         const auto& spec = m_InputFramebuffer->GetSpecification();
-        RenderCommand::SetViewport(0, 0, spec.Width, spec.Height);
+        context.SetViewport(0, 0, spec.Width, spec.Height);
 
         // Restrict the draw-buffer set to COLOR_ATTACHMENT0 so the fullscreen
         // fragment shader cannot accidentally clobber entity-ID / view-normal
@@ -63,11 +70,11 @@ namespace OloEngine
         // hazard on some drivers when MRT is enabled. Goes through
         // RenderCommand so MockRendererAPI sees the change in tests.
         const u32 oitResolveDrawAttachment = 0u;
-        RenderCommand::SetDrawBuffers(std::span<const u32>(&oitResolveDrawAttachment, 1));
+        context.SetDrawBuffers(std::span<const u32>(&oitResolveDrawAttachment, 1));
 
         // No depth interaction: the accum already baked in depth-weighting.
-        RenderCommand::SetDepthTest(false);
-        RenderCommand::SetDepthMask(false);
+        context.SetDepthTest(false);
+        context.SetDepthMask(false);
 
         // Blend equation:
         //   dst' = averageColor * (1 - revealage) + dst * revealage
@@ -83,18 +90,18 @@ namespace OloEngine
         RenderCommand::SetColorMaskForAttachment(2, false, false, false, false);
 
         m_ResolveShader->Bind();
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_OIT_ACCUM, m_OITBuffer->GetAccumAttachmentID());
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_OIT_REVEALAGE, m_OITBuffer->GetRevealageAttachmentID());
+        context.BindTexture(ShaderBindingLayout::TEX_OIT_ACCUM, m_OITBuffer->GetAccumAttachmentID());
+        context.BindTexture(ShaderBindingLayout::TEX_OIT_REVEALAGE, m_OITBuffer->GetRevealageAttachmentID());
 
-        DrawFullscreenTriangle();
+        DrawFullscreenTriangle(context);
 
         // Restore mutable GL state for subsequent passes.
         RenderCommand::SetColorMaskForAttachment(1, true, true, true, true);
         RenderCommand::SetColorMaskForAttachment(2, true, true, true, true);
         RenderCommand::SetBlendStateForAttachment(0, false);
-        RenderCommand::SetBlendState(false);
-        RenderCommand::SetDepthMask(true);
-        RenderCommand::SetDepthTest(true);
+        context.SetBlendState(false);
+        context.SetDepthMask(true);
+        context.SetDepthTest(true);
 
         // Restore the full MRT draw-buffer set we narrowed above so the next
         // pass binding this framebuffer writes to all attachments again. Use
@@ -119,7 +126,7 @@ namespace OloEngine
             const u32 count = std::min<u32>(colorAttachmentCount, static_cast<u32>(restoreAttachments.size()));
             for (u32 i = 0; i < count; ++i)
                 restoreAttachments[i] = i;
-            RenderCommand::SetDrawBuffers(std::span<const u32>(restoreAttachments.data(), count));
+            context.SetDrawBuffers(std::span<const u32>(restoreAttachments.data(), count));
         }
 
         m_InputFramebuffer->Unbind();
@@ -154,10 +161,10 @@ namespace OloEngine
         m_HasAccumulation = false;
     }
 
-    void OITResolveRenderPass::DrawFullscreenTriangle()
+    void OITResolveRenderPass::DrawFullscreenTriangle(RGCommandContext& context)
     {
-        auto va = MeshPrimitives::GetFullscreenTriangle();
+        const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
-        RenderCommand::DrawIndexed(va);
+        context.DrawIndexed(va);
     }
 } // namespace OloEngine

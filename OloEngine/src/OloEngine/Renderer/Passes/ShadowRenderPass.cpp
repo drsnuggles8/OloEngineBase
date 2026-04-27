@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -36,6 +37,12 @@ namespace OloEngine
     }
 
     void ShadowRenderPass::Execute()
+    {
+        RGCommandContext context;
+        Execute(context);
+    }
+
+    void ShadowRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 

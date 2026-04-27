@@ -52,11 +52,27 @@
 #include <glm/gtc/constants.hpp>
 
 #include <array>
+#include <atomic>
 #include <cmath>
 
 namespace OloEngine
 {
     static bool s_ForceDisableCulling = false;
+
+    static auto ValidateDrawMeshRendererIDs(const char* context, const u32 vaoID, const u32 shaderID) -> bool
+    {
+        if (vaoID != 0 && shaderID != 0)
+            return true;
+
+        static std::atomic<u64> s_InvalidRendererIDWarnCount{ 0 };
+        if (s_InvalidRendererIDWarnCount.fetch_add(1, std::memory_order_relaxed) < 1)
+        {
+            OLO_CORE_WARN("{}: Dropping draw with invalid renderer IDs (VAO={}, Shader={})",
+                          context, vaoID, shaderID);
+        }
+
+        return false;
+    }
 
     Renderer3D::Renderer3DData Renderer3D::s_Data;
     ShaderLibrary Renderer3D::m_ShaderLibrary;
@@ -1882,6 +1898,11 @@ namespace OloEngine
                                     !IsDeferredCapableShader(shaderToUse) &&
                                     s_Data.ForwardOverlayPass;
 
+        const u32 vertexArrayID = meshToUse->GetVertexArray()->GetRendererID();
+        const u32 shaderRendererID = shaderToUse->GetRendererID();
+        if (!ValidateDrawMeshRendererIDs("Renderer3D::DrawMeshParallel", vertexArrayID, shaderRendererID))
+            return nullptr;
+
         // Create POD command using worker's allocator
         PacketMetadata initialMetadata;
         CommandPacket* packet = ctx.Allocator->AllocatePacketWithCommand<DrawMeshCommand>(initialMetadata);
@@ -1896,7 +1917,7 @@ namespace OloEngine
 
         // Store asset handles and renderer IDs (POD)
         cmd->meshHandle = meshToUse->GetHandle();
-        cmd->vertexArrayID = meshToUse->GetVertexArray()->GetRendererID();
+        cmd->vertexArrayID = vertexArrayID;
         cmd->indexCount = meshToUse->GetIndexCount();
         cmd->baseIndex = meshToUse->GetBaseIndex();
         cmd->transform = glm::mat4(modelMatrix);
@@ -1910,7 +1931,7 @@ namespace OloEngine
 
         // Material data via table
         cmd->materialDataIndex = FrameDataBufferManager::Get().AllocateMaterialData(
-            CreatePODMaterialDataForMaterial(material, shaderToUse->GetRendererID()));
+            CreatePODMaterialDataForMaterial(material, shaderRendererID));
 
         // Render state via table
         cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreatePODRenderStateForMaterial(material));
@@ -1928,7 +1949,7 @@ namespace OloEngine
 
         // Set sort key using parallel context view matrix for depth
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = shaderToUse->GetRendererID() & 0xFFFF;
+        u32 shaderID = shaderRendererID & 0xFFFF;
         u32 materialID = ComputeMaterialID(material);
 
         // Compute depth using parallel context's view matrix
@@ -2096,8 +2117,13 @@ namespace OloEngine
         auto* cmd = packet->GetCommandData<DrawMeshCommand>();
         cmd->header.type = CommandType::DrawMesh;
 
+        const u32 vertexArrayID = mesh->GetVertexArray()->GetRendererID();
+        const u32 shaderRendererID = shaderToUse->GetRendererID();
+        if (!ValidateDrawMeshRendererIDs("Renderer3D::DrawAnimatedMeshParallel", vertexArrayID, shaderRendererID))
+            return nullptr;
+
         cmd->meshHandle = mesh->GetHandle();
-        cmd->vertexArrayID = mesh->GetVertexArray()->GetRendererID();
+        cmd->vertexArrayID = vertexArrayID;
         cmd->indexCount = mesh->GetIndexCount();
         cmd->baseIndex = mesh->GetBaseIndex();
         cmd->transform = modelMatrix;
@@ -2108,7 +2134,7 @@ namespace OloEngine
 
         // Material data via table
         cmd->materialDataIndex = FrameDataBufferManager::Get().AllocateMaterialData(
-            CreatePODMaterialDataForMaterial(material, shaderToUse->GetRendererID()));
+            CreatePODMaterialDataForMaterial(material, shaderRendererID));
 
         cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreatePODRenderStateForMaterial(material));
 
@@ -2127,7 +2153,7 @@ namespace OloEngine
 
         // Set sort key
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = shaderToUse->GetRendererID() & 0xFFFF;
+        u32 shaderID = shaderRendererID & 0xFFFF;
         u32 materialID = ComputeMaterialID(material);
 
         u32 depthKey = ComputeDepthForSortKeyWithView(modelMatrix, ctx.SceneContext->ViewMatrix);
@@ -2804,6 +2830,11 @@ namespace OloEngine
             return nullptr;
         }
 
+        const u32 vertexArrayID = meshToUse->GetVertexArray()->GetRendererID();
+        const u32 shaderRendererID = shaderToUse->GetRendererID();
+        if (!ValidateDrawMeshRendererIDs("Renderer3D::DrawMesh", vertexArrayID, shaderRendererID))
+            return nullptr;
+
         // Create POD command using asset handles and renderer IDs
         CommandPacket* packet = overlayRoute
                                     ? CreateForwardOverlayDrawCall<DrawMeshCommand>()
@@ -2815,7 +2846,7 @@ namespace OloEngine
 
         // Store asset handles and renderer IDs (POD)
         cmd->meshHandle = meshToUse->GetHandle();
-        cmd->vertexArrayID = meshToUse->GetVertexArray()->GetRendererID();
+        cmd->vertexArrayID = vertexArrayID;
         cmd->indexCount = meshToUse->GetIndexCount();
         cmd->baseIndex = meshToUse->GetBaseIndex();
         cmd->transform = glm::mat4(modelMatrix);
@@ -2830,7 +2861,7 @@ namespace OloEngine
 
         // Material data via table
         cmd->materialDataIndex = FrameDataBufferManager::Get().AllocateMaterialData(
-            CreatePODMaterialDataForMaterial(material, shaderToUse->GetRendererID()));
+            CreatePODMaterialDataForMaterial(material, shaderRendererID));
 
         // Render state via table
         cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreatePODRenderStateForMaterial(material));
@@ -2859,7 +2890,7 @@ namespace OloEngine
 
         // Set sort key for optimal command sorting
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = shaderToUse->GetRendererID() & 0xFFFF; // 16-bit shader ID
+        u32 shaderID = shaderRendererID & 0xFFFF; // 16-bit shader ID
         u32 materialID = ComputeMaterialID(material);
         u32 depth = ComputeDepthForSortKey(modelMatrix);
         if (material.GetFlag(MaterialFlag::Blend))
@@ -3039,9 +3070,14 @@ namespace OloEngine
         auto* cmd = packet->GetCommandData<DrawMeshInstancedCommand>();
         cmd->header.type = CommandType::DrawMeshInstanced;
 
+        const u32 vertexArrayID = mesh->GetVertexArray()->GetRendererID();
+        const u32 shaderRendererID = shaderToUse->GetRendererID();
+        if (!ValidateDrawMeshRendererIDs("Renderer3D::DrawMeshInstanced", vertexArrayID, shaderRendererID))
+            return nullptr;
+
         // Store asset handles and renderer IDs (POD)
         cmd->meshHandle = mesh->GetHandle();
-        cmd->vertexArrayID = mesh->GetVertexArray()->GetRendererID();
+        cmd->vertexArrayID = vertexArrayID;
         cmd->indexCount = mesh->GetIndexCount();
         cmd->baseIndex = mesh->GetBaseIndex();
         cmd->instanceCount = transformCount;
@@ -3052,7 +3088,7 @@ namespace OloEngine
 
         // Material data via table
         cmd->materialDataIndex = FrameDataBufferManager::Get().AllocateMaterialData(
-            CreatePODMaterialDataForMaterial(material, shaderToUse->GetRendererID()));
+            CreatePODMaterialDataForMaterial(material, shaderRendererID));
 
         // Render state via table
         cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreatePODRenderStateForMaterial(material));
@@ -3066,7 +3102,7 @@ namespace OloEngine
 
         // Set sort key for instanced mesh commands (use first transform for depth)
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = shaderToUse->GetRendererID() & 0xFFFF;
+        u32 shaderID = shaderRendererID & 0xFFFF;
         u32 materialID = ComputeMaterialID(material);
         u32 depth = activeTransforms->empty() ? 0 : ComputeDepthForSortKey((*activeTransforms)[0]);
         if (material.GetFlag(MaterialFlag::Blend))
@@ -3108,9 +3144,14 @@ namespace OloEngine
         auto* cmd = packet->GetCommandData<DrawMeshCommand>();
         cmd->header.type = CommandType::DrawMesh;
 
+        const u32 vertexArrayID = s_Data.CubeMesh->GetVertexArray()->GetRendererID();
+        const u32 shaderRendererID = activeShader ? activeShader->GetRendererID() : 0u;
+        if (!ValidateDrawMeshRendererIDs("Renderer3D::DrawLightCube", vertexArrayID, shaderRendererID))
+            return nullptr;
+
         // Store asset handles and renderer IDs (POD)
         cmd->meshHandle = s_Data.CubeMesh->GetHandle();
-        cmd->vertexArrayID = s_Data.CubeMesh->GetVertexArray()->GetRendererID();
+        cmd->vertexArrayID = vertexArrayID;
         cmd->indexCount = s_Data.CubeMesh->GetIndexCount();
         cmd->transform = modelMatrix;
         cmd->prevTransform = modelMatrix; // debug viz — no motion history
@@ -3119,7 +3160,7 @@ namespace OloEngine
         // Light cube material data — simple default material
         {
             PODMaterialData matData{};
-            matData.shaderRendererID = activeShader->GetRendererID();
+            matData.shaderRendererID = shaderRendererID;
             matData.ambient = glm::vec3(1.0f);
             matData.diffuse = glm::vec3(1.0f);
             matData.specular = glm::vec3(1.0f);
@@ -3139,7 +3180,7 @@ namespace OloEngine
 
         // Set sort key for light cube
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = activeShader->GetRendererID() & 0xFFFF;
+        u32 shaderID = shaderRendererID & 0xFFFF;
         u32 depth = ComputeDepthForSortKey(modelMatrix);
         metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, depth);
         packet->SetMetadata(metadata);
@@ -3784,9 +3825,14 @@ namespace OloEngine
         auto* cmd = packet->GetCommandData<DrawMeshCommand>();
         cmd->header.type = CommandType::DrawMesh;
 
+        const u32 vertexArrayID = vertexArray->GetRendererID();
+        const u32 shaderRendererID = shaderToUse->GetRendererID();
+        if (!ValidateDrawMeshRendererIDs("Renderer3D::DrawAnimatedMesh", vertexArrayID, shaderRendererID))
+            return nullptr;
+
         // Store asset handles and renderer IDs (POD)
         cmd->meshHandle = mesh->GetHandle();
-        cmd->vertexArrayID = vertexArray->GetRendererID();
+        cmd->vertexArrayID = vertexArrayID;
         cmd->indexCount = mesh->GetIndexCount();
         cmd->baseIndex = mesh->GetBaseIndex();
         cmd->transform = modelMatrix;
@@ -3800,7 +3846,7 @@ namespace OloEngine
 
         // Material data via table
         cmd->materialDataIndex = FrameDataBufferManager::Get().AllocateMaterialData(
-            CreatePODMaterialDataForMaterial(material, shaderToUse->GetRendererID()));
+            CreatePODMaterialDataForMaterial(material, shaderRendererID));
 
         // Render state via table
         cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreatePODRenderStateForMaterial(material));
@@ -3826,7 +3872,7 @@ namespace OloEngine
 
         // Set sort key for animated mesh commands
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = shaderToUse->GetRendererID() & 0xFFFF;
+        u32 shaderID = shaderRendererID & 0xFFFF;
         u32 materialID = ComputeMaterialID(material);
         u32 depth = ComputeDepthForSortKey(modelMatrix);
         if (material.GetFlag(MaterialFlag::Blend))

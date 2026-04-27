@@ -1,6 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
-#include "OloEngine/Renderer/Commands/RenderCommand.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -52,6 +52,12 @@ namespace OloEngine
 
     void UICompositeRenderPass::Execute()
     {
+        RGCommandContext context;
+        Execute(context);
+    }
+
+    void UICompositeRenderPass::Execute(RGCommandContext& context)
+    {
         OLO_PROFILE_FUNCTION();
 
         if (!m_Target)
@@ -61,23 +67,23 @@ namespace OloEngine
 
         // Bind our FBO and clear all attachments (handles mixed integer/float types)
         m_Target->Bind();
-        RenderCommand::SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
+        context.SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
         m_Target->ClearAllAttachments({ 0.0f, 0.0f, 0.0f, 1.0f }, -1);
 
         // Blit the post-processed scene as background
         if (m_InputFramebuffer && m_BlitShader)
         {
-            RenderCommand::SetBlendState(false);
-            RenderCommand::SetDepthTest(false);
+            context.SetBlendState(false);
+            context.SetDepthTest(false);
 
             m_BlitShader->Bind();
-            u32 colorAttachment = m_InputFramebuffer->GetColorAttachmentRendererID(0);
-            RenderCommand::BindTexture(0, colorAttachment);
+            const auto colorAttachment = m_InputFramebuffer->GetColorAttachmentRendererID(0);
+            context.BindTexture(0, colorAttachment);
             m_BlitShader->SetInt("u_Texture", 0);
 
-            auto va = MeshPrimitives::GetFullscreenTriangle();
+            const auto va = MeshPrimitives::GetFullscreenTriangle();
             va->Bind();
-            RenderCommand::DrawIndexed(va);
+            context.DrawIndexed(va);
         }
         else if (m_NoInputWarningCount++ < 5)
         {
@@ -88,20 +94,20 @@ namespace OloEngine
         // Render 2D overlays and screen-space UI via the per-frame callback
         if (m_RenderCallback)
         {
-            RenderCommand::SetBlendState(true);
-            RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            RenderCommand::SetDepthTest(false);
-            RenderCommand::SetDepthMask(false);
-            RenderCommand::DisableCulling();
+            context.SetBlendState(true);
+            context.SetAlphaBlendStandard();
+            context.SetDepthTest(false);
+            context.SetDepthMask(false);
+            context.SetCulling(false);
 
             m_RenderCallback();
 
             // Restore GL state so later passes don't inherit altered state
-            RenderCommand::SetBlendState(false);
-            RenderCommand::SetBlendFunc(GL_ONE, GL_ZERO);
-            RenderCommand::SetDepthTest(true);
-            RenderCommand::SetDepthMask(true);
-            RenderCommand::EnableCulling();
+            context.SetBlendState(false);
+            context.SetOpaqueReplaceBlend();
+            context.SetDepthTest(true);
+            context.SetDepthMask(true);
+            context.SetCulling(true);
 
             // One-shot: clear for next frame
             m_RenderCallback = nullptr;

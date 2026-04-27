@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Passes/PostProcessRenderPass.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RendererAPI.h"
@@ -125,6 +126,12 @@ namespace OloEngine
 
     void PostProcessRenderPass::Execute()
     {
+        RGCommandContext context;
+        Execute(context);
+    }
+
+    void PostProcessRenderPass::Execute(RGCommandContext& context)
+    {
         OLO_PROFILE_FUNCTION();
 
         if (!m_InputFramebuffer)
@@ -163,20 +170,20 @@ namespace OloEngine
         {
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();
-            RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
-            RenderCommand::Clear();
-            RenderCommand::SetDepthTest(false);
-            RenderCommand::SetBlendState(false);
+            context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+            context.Clear();
+            context.SetDepthTest(false);
+            context.SetBlendState(false);
 
             m_SSAOApplyShader->Bind();
             u32 srcColorID = currentSource->GetColorAttachmentRendererID(0);
-            RenderCommand::BindTexture(0, srcColorID);
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_SSAO, m_SSAOTextureID);
+            context.BindTexture(0, srcColorID);
+            context.BindTexture(ShaderBindingLayout::TEX_SSAO, m_SSAOTextureID);
 
             // Bind full-res scene depth for bilateral upsampling.
             // Bind 0 when unavailable to avoid sampling stale texture state.
             u32 depthID = m_SceneDepthFB ? m_SceneDepthFB->GetDepthAttachmentRendererID() : 0;
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
 
             DrawFullscreenTriangle();
             dest->Unbind();
@@ -193,19 +200,19 @@ namespace OloEngine
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
 
             dest->Bind();
-            RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
-            RenderCommand::Clear();
-            RenderCommand::SetDepthTest(false);
-            RenderCommand::SetBlendState(false);
+            context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+            context.Clear();
+            context.SetDepthTest(false);
+            context.SetBlendState(false);
 
             m_BloomCompositeShader->Bind();
             // Bind scene color at slot 0
             u32 sceneColorID = currentSource->GetColorAttachmentRendererID(0);
-            RenderCommand::BindTexture(0, sceneColorID);
+            context.BindTexture(0, sceneColorID);
             m_BloomCompositeShader->SetInt("u_SceneColor", 0);
             // Bind bloom result at slot 1
             u32 bloomColorID = m_BloomMipChain[0]->GetColorAttachmentRendererID(0);
-            RenderCommand::BindTexture(1, bloomColorID);
+            context.BindTexture(1, bloomColorID);
             m_BloomCompositeShader->SetInt("u_BloomColor", 1);
 
             DrawFullscreenTriangle();
@@ -220,18 +227,18 @@ namespace OloEngine
         {
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();
-            RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
-            RenderCommand::Clear();
-            RenderCommand::SetDepthTest(false);
-            RenderCommand::SetBlendState(false);
+            context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+            context.Clear();
+            context.SetDepthTest(false);
+            context.SetBlendState(false);
 
             m_DOFShader->Bind();
             u32 srcColorID = currentSource->GetColorAttachmentRendererID(0);
-            RenderCommand::BindTexture(0, srcColorID);
+            context.BindTexture(0, srcColorID);
 
             // Bind scene depth at slot 19
             u32 depthID = m_SceneDepthFB->GetDepthAttachmentRendererID();
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
 
             // UBO already has CameraNear/CameraFar from EndScene upload
 
@@ -247,18 +254,18 @@ namespace OloEngine
         {
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();
-            RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
-            RenderCommand::Clear();
-            RenderCommand::SetDepthTest(false);
-            RenderCommand::SetBlendState(false);
+            context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+            context.Clear();
+            context.SetDepthTest(false);
+            context.SetBlendState(false);
 
             m_MotionBlurShader->Bind();
             u32 srcColorID = currentSource->GetColorAttachmentRendererID(0);
-            RenderCommand::BindTexture(0, srcColorID);
+            context.BindTexture(0, srcColorID);
             m_MotionBlurShader->SetInt("u_Texture", 0);
 
             u32 depthID = m_SceneDepthFB->GetDepthAttachmentRendererID();
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
             m_MotionBlurShader->SetInt("u_DepthTexture", ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
 
             DrawFullscreenTriangle();
@@ -278,33 +285,33 @@ namespace OloEngine
         {
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();
-            RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
-            RenderCommand::Clear();
-            RenderCommand::SetDepthTest(false);
-            RenderCommand::SetBlendState(false);
+            context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+            context.Clear();
+            context.SetDepthTest(false);
+            context.SetBlendState(false);
 
             m_TAAShader->Bind();
 
             // slot 0: current
             u32 srcColorID = currentSource->GetColorAttachmentRendererID(0);
-            RenderCommand::BindTexture(0, srcColorID);
+            context.BindTexture(0, srcColorID);
             m_TAAShader->SetInt("u_Current", 0);
 
             // slot 1: history (fall back to current on first frame / resize)
             u32 historyID = m_TAAHistoryValid
                                 ? m_TAAHistoryFB->GetColorAttachmentRendererID(0)
                                 : srcColorID;
-            RenderCommand::BindTexture(1, historyID);
+            context.BindTexture(1, historyID);
             m_TAAShader->SetInt("u_History", 1);
 
             // slot 2: velocity (G-Buffer RT3) — zero-bound forces camera-only
             // reprojection path in the shader.
-            RenderCommand::BindTexture(2, m_VelocityTextureID);
+            context.BindTexture(2, m_VelocityTextureID);
             m_TAAShader->SetInt("u_Velocity", 2);
 
             // slot 19: scene depth for camera-only reconstruction
             u32 depthID = m_SceneDepthFB->GetDepthAttachmentRendererID();
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
             m_TAAShader->SetInt("u_DepthTexture", ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
 
             // Upload TAA UBO (binding 32)
@@ -363,16 +370,16 @@ namespace OloEngine
         {
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();
-            RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
-            RenderCommand::Clear();
-            RenderCommand::SetDepthTest(false);
-            RenderCommand::SetBlendState(false);
+            context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+            context.Clear();
+            context.SetDepthTest(false);
+            context.SetBlendState(false);
 
             m_PrecipitationShader->Bind();
 
             // Bind scene color at slot 0
             u32 srcColorID = currentSource->GetColorAttachmentRendererID(0);
-            RenderCommand::BindTexture(0, srcColorID);
+            context.BindTexture(0, srcColorID);
             m_PrecipitationShader->SetInt("u_Texture", 0);
 
             // Upload precipitation screen UBO
@@ -404,28 +411,28 @@ namespace OloEngine
             // Pass A: Ray-march at half resolution into m_FogHalfResFB
             //   Output: RGBA16F — RGB = accumulated inscatter, A = transmittance
             m_FogHalfResFB->Bind();
-            RenderCommand::SetViewport(0, 0, m_FogHalfWidth, m_FogHalfHeight);
-            RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
-            RenderCommand::Clear();
-            RenderCommand::SetDepthTest(false);
-            RenderCommand::SetBlendState(false);
+            context.SetViewport(0, 0, m_FogHalfWidth, m_FogHalfHeight);
+            context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+            context.Clear();
+            context.SetDepthTest(false);
+            context.SetBlendState(false);
 
             m_FogShader->Bind();
 
             // Bind full-res depth (reads at half-res UV)
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
 
             // Bind temporal history for reprojection
             if (m_FogHistoryFB)
             {
                 u32 historyID = m_FogHistoryFB->GetColorAttachmentRendererID(0);
-                RenderCommand::BindTexture(3, historyID);
+                context.BindTexture(3, historyID);
             }
 
             // Bind CSM shadow map for volumetric light shafts
             if (m_ShadowMapCSMTextureID != 0)
             {
-                RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW, m_ShadowMapCSMTextureID);
+                context.BindTexture(ShaderBindingLayout::TEX_SHADOW, m_ShadowMapCSMTextureID);
             }
 
             DrawFullscreenTriangle();
@@ -439,28 +446,28 @@ namespace OloEngine
             // We read from m_FogHistoryFB since it has the current frame's output.
 
             // Pass B: Bilateral upsample half-res fog + composite onto full-res scene
-            RenderCommand::SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
+            context.SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();
-            RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
-            RenderCommand::Clear();
-            RenderCommand::SetDepthTest(false);
-            RenderCommand::SetBlendState(false);
+            context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+            context.Clear();
+            context.SetDepthTest(false);
+            context.SetBlendState(false);
 
             m_FogUpsampleShader->Bind();
 
             // Scene color (current source)
             u32 srcColorID = currentSource->GetColorAttachmentRendererID(0);
-            RenderCommand::BindTexture(0, srcColorID);
+            context.BindTexture(0, srcColorID);
             m_FogUpsampleShader->SetInt("u_SceneColor", 0);
 
             // Half-res fog result (from the swap, this is now m_FogHistoryFB)
             u32 fogID = m_FogHistoryFB->GetColorAttachmentRendererID(0);
-            RenderCommand::BindTexture(1, fogID);
+            context.BindTexture(1, fogID);
             m_FogUpsampleShader->SetInt("u_FogTexture", 1);
 
             // Full-res depth for bilateral edge detection
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
             m_FogUpsampleShader->SetInt("u_DepthTexture", ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
 
             DrawFullscreenTriangle();
