@@ -1924,18 +1924,18 @@ namespace OloEngine
         BindTrackedTexture(cmd->noiseTextureID, ShaderBindingLayout::TEX_WATER_NOISE, GL_TEXTURE_2D);
         BindTrackedTexture(cmd->foamTextureID, ShaderBindingLayout::TEX_WATER_FOAM, GL_TEXTURE_2D);
 
-        // Bind VAO (cached) and draw water
-        // tessParams.x holds the tessellation factor (0 = disabled, >0 = enabled)
+        // Bind VAO (cached) and draw water.
+        // Water.glsl and Water_OIT.glsl both include tessellation control /
+        // evaluation stages. With TES active, OpenGL requires GL_PATCHES
+        // input primitives; issuing GL_TRIANGLES triggers
+        // GL_INVALID_OPERATION ("primitive mode mismatch").
+        //
+        // The user-facing tessellation toggle still works: u_TessParams.x is
+        // consumed by TCS to collapse tess factors toward 1.0 when disabled,
+        // so we can keep a single, valid primitive mode at draw time.
         BindVAOIfNeeded(cmd->vertexArrayID);
-        if (cmd->tessParams.x > 0.0f)
-        {
-            glPatchParameteri(GL_PATCH_VERTICES, 3);
-            glDrawElements(GL_PATCHES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
-        }
-        else
-        {
-            glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
-        }
+        glPatchParameteri(GL_PATCH_VERTICES, 3);
+        glDrawElements(GL_PATCHES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
         ++s_Data.Stats.DrawCalls;
     }
 } // namespace OloEngine

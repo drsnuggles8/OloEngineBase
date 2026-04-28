@@ -29,10 +29,15 @@ namespace OloEngine
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
         void SetInputFramebuffer(const Ref<Framebuffer>& input) override;
+        void SetInputFramebufferHandle(RGFramebufferHandle handle)
+        {
+            m_InputFramebufferHandle = handle;
+        }
         [[nodiscard]] Ref<Framebuffer> GetInputFramebuffer() const;
 
       private:
         Ref<Framebuffer> m_InputFramebuffer; // The framebuffer to render to the screen
-        Ref<Shader> m_BlitShader;            // Shader for blitting the framebuffer to the screen
+        RGFramebufferHandle m_InputFramebufferHandle;
+        Ref<Shader> m_BlitShader; // Shader for blitting the framebuffer to the screen
     };
 } // namespace OloEngine

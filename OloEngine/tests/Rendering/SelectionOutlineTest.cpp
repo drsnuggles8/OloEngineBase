@@ -135,7 +135,7 @@ TEST(SelectionOutlineGraph, PassInsertedBetweenPostProcessAndUIComposite)
 
     graph.ConnectPass("PostProcessPass", "SelectionOutlinePass");
     graph.ConnectPass("SelectionOutlinePass", "UICompositePass");
-    graph.ConnectPass("UICompositePass", "FinalPass");
+    graph.AddExecutionDependency("UICompositePass", "FinalPass");
     graph.SetFinalPass("FinalPass");
 
     // Graph should compile and all passes should be retrievable
@@ -162,7 +162,7 @@ TEST(SelectionOutlineGraph, TopologicalOrderRespectsChain)
 
     graph.ConnectPass("PostProcessPass", "SelectionOutlinePass");
     graph.ConnectPass("SelectionOutlinePass", "UICompositePass");
-    graph.ConnectPass("UICompositePass", "FinalPass");
+    graph.AddExecutionDependency("UICompositePass", "FinalPass");
     graph.SetFinalPass("FinalPass");
 
     // Execute triggers UpdateDependencyGraph and populates pass order

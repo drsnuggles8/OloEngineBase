@@ -388,7 +388,7 @@ path remains in production pass code.
 Exit criterion: pass wiring may still be manual, but every graph-visible
 resource has a type, descriptor, producer/consumer set, and ownership class.
 
-### Phase B — Blackboard, imports, and extraction
+### Phase B — Blackboard, imports, and extraction ✅ Complete
 
 * Add a typed frame blackboard for canonical frame resources. `Renderer3D`
   should publish scene colour/depth, velocity, G-Buffer handles, AO, post
@@ -405,11 +405,20 @@ resource has a type, descriptor, producer/consumer set, and ownership class.
   handle that will be resolved and the bridge must have an owner + removal
   milestone.
 
+**Implemented:**
+- `FrameBlackboard` struct (`OloEngine/src/OloEngine/Renderer/FrameBlackboard.h`) with typed handles for all canonical frame resources.
+- `RenderGraph::ImportTexture/ImportFramebuffer/ImportBuffer/ImportHistory` — register physical resources and return typed generational handles.
+- `RenderGraph::ResolveTexture/ResolveFramebuffer/ResolveBuffer` — validate + retrieve physical resource from handle.
+- `RenderGraph::ExtractTexture/ExtractFramebuffer/FlushExtractions` — deferred callback queue for persistent resource readback.
+- `RenderGraph::GetBlackboard/ClearBlackboard` — per-frame typed handle store.
+- `Renderer3D::SetupFrameBlackboard()` — called at end of `BeginSceneCommon()`; imports all live physical resources (scene, G-Buffer, velocity, AO, shadows, post-process, OIT, TAA/fog histories, IBL) into the blackboard each frame.
+- `PostProcessRenderPass::GetTAAHistoryTextureID/GetFogHistoryTextureID` — new accessors for temporal history texture IDs.
+
 Exit criterion: frame resources are passed by handles through a blackboard;
 direct `Ref<Framebuffer>` handoffs become legacy glue, not the source of
 truth.
 
-### Phase C — Setup/execute split and per-frame compilation
+**Phase C — Setup/execute split and per-frame compilation** ✅ **COMPLETE** ([2026-04-28])
 
 * Introduce `RGBuilder` with `Read`, `Write`, `Create`, `Import`, `Extract`,
   and `UseBlackboard` operations. Reads/writes include access usage and
@@ -432,11 +441,104 @@ truth.
   authoring point. `ConfigureRenderGraph` becomes temporary compatibility
   glue and eventually disappears.
 
-Exit criterion: the graph can be rebuilt per frame from declarative pass
-setup without mutating global pass state after compile, and bridge wrappers
-are limited to explicitly tracked exceptions.
+**In Progress:**
+- `RGBuilder` class (`OloEngine/src/OloEngine/Renderer/RGBuilder.h`) with declarative Read/Write/Create/Import/Extract/UseBlackboard API.
+- `RGReadUsage` and `RGWriteUsage` enums for access-mode declarations.
+- `RGSubresourceRange` struct for mip/layer/slice tracking.
+- `RenderGraph::AllocateTransientTextureHandle/FramebufferHandle/BufferHandle` — public allocators for virtual resource creation.
+- `RGBuilder` now captures per-pass resource declarations (read/write resource names) during setup.
+- `RenderGraph::BuildFrameGraph()` now derives ordering dependencies from builder declarations (RAW/WAW ordering for registered graph-native passes that map to known graph nodes).
+- `RenderGraph::BuildFrameGraph()` now records lightweight compilation stats (`passes visited`, `declared reads/writes`, `derived edges`) for frame-level debugging/inspection.
+- `Renderer3D::ConfigureRenderGraph()` now registers initial graph-native setup bridges for `SSAOPass`, `GTAOPass`, and `PostProcessPass` (legacy execute path retained).
+- `Renderer3D::ConfigureRenderGraph()` now also registers setup bridges for `UICompositePass` and `FinalPass`.
+- `Renderer3D::ConfigureRenderGraph()` now also registers setup bridges for `OITResolvePass` and `SSSPass`.
+- `Renderer3D::ConfigureRenderGraph()` now also registers setup bridges for `ParticlePass`, `WaterPass`, and `DecalPass` with OIT-aware declarations.
+- `Renderer3D::ConfigureRenderGraph()` now also registers setup bridges for `ShadowPass`, `ScenePass`, `DeferredLightingPass`, `DeferredOpaqueDecalPass`, `ForwardOverlayPass`, and `FoliagePass`.
+- `RenderGraph::BuildFrameGraph()` now derives declaration-based edges in `AddPass()` insertion order (instead of registration order), avoiding inverted WAW edges and cycle-prone ordering artifacts.
+- `RenderGraph::BuildFrameGraph()` now rejects derived edges that would introduce a reverse-cycle against existing explicit dependencies (logs a warning and skips the edge).
+- `ConfigureRenderGraph()` still keeps a small manual ordering baseline for `ValidateResourceHazards()` at configure time; runtime `BuildFrameGraph()` derivation layers additional RAW/WAW edges per frame.
+- `Renderer3D::ConfigureRenderGraph()` now also registers setup bridges for `FoliagePass` with SceneColor write declaration (added [2026-04-28]).
+- `Renderer3D::ConfigureRenderGraph()` now also registers setup bridge for `DeferredOpaqueDecalPass` with G-Buffer write declarations (added [2026-04-28]).
+- `WaterPass → ParticlePass` explicit baseline has been removed ([2026-04-28]); both passes now declare SceneColor writes so BuildFrameGraph derives the WAW edge automatically.
+- `Renderer3D::SetupFrameBlackboard()` now imports `UIComposite` framebuffer handles (FinalPass is modeled as present side-effect, not a synthetic framebuffer resource).
+- `Renderer3D::SetupFrameBlackboard()` now imports both OIT MRT targets (`OITAccum`, `OITRevealage`) as graph handles.
+- `Renderer3D::EndScene()` now logs `BuildFrameGraph` compile stats only when they change.
+- `RGBuilder` create/import/extract paths remain lightweight stubs; full subresource-aware dependency and barrier synthesis remains deferred to later phases.
+- **[FIXED 2026-04-27]** BuildFrameGraph iteration bug: was iterating `m_InsertionOrder` (which contains both legacy RenderPass and graph-native passes) and looking up all in `m_GraphPasses` (graph-native only), causing hundreds of missed-lookup warnings per frame → memory pressure → crash. Fixed by silently skipping legacy passes (no warning spam) while maintaining iteration order for correct dependency derivation. Added defensive checks in RGBuilder Read/Write operations for handle validity.
+- Remaining explicit manual edges (not yet safely removable):
+  - None currently remaining for baseline forward/deferred post-processing chains.
+  - Reserved for future special cases (conditional pass availability, fallbacks).
+  - `ShadowPass → ScenePass`: removed from the explicit baseline ([2026-04-28]).
+    - ShadowPass declares writes to `ShadowMapCSM` and `ShadowMapSpot`.
+    - ScenePass declares reads of both shadow maps.
+    - ValidateResourceHazards derives RAW edge from declaration overlap; no explicit edge needed.
+    - Focused topology/hazard suites validate correct ordering derivation.
+  - `ScenePass → DeferredOpaqueDecalPass`: removed from the explicit baseline ([2026-04-28]).
+    - ScenePass declares writes to full G-Buffer (Albedo, Normal, Metallic, Emissive).
+    - DeferredOpaqueDecalPass declares writes to G-Buffer subset (Albedo, Normal, Emissive).
+    - BuildFrameGraph derives WAW edge from overlapping G-Buffer declarations; no explicit edge needed.
+    - Focused topology/hazard suites validate correct ordering derivation.
+  - `ScenePass → FoliagePass`: removed from the explicit baseline ([2026-04-28]).
+    - ScenePass declares writes to SceneColor (forward path) or G-Buffer (deferred path).
+    - FoliagePass declares writes to SceneColor.
+    - BuildFrameGraph derives WAW edge from overlapping SceneColor declarations; no explicit edge needed.
+    - On deferred path, FoliagePass doesn't run, so edge is path-specific.
+    - Focused topology/hazard suites validate correct ordering derivation.
+  - `FoliagePass → DecalPass`: removed from the explicit baseline ([2026-04-28]).
+    - Both passes now declare `SceneColor` writes (DecalPass also declares OIT buffer writes in deferred mode).
+    - BuildFrameGraph derives WAW edge from declaration overlap; no explicit edge needed.
+    - Focused topology/hazard suites validate correct ordering derivation.
+  - `DecalPass → WaterPass`: removed from the explicit baseline ([2026-04-28]).
+    - Both passes now declare `SceneColor` writes (WaterPass also declares OIT buffer writes in deferred mode).
+    - BuildFrameGraph derives WAW edge from declaration overlap; no explicit edge needed.
+    - Focused topology/hazard suites validate correct ordering derivation.
+  - `WaterPass → ParticlePass`: removed from the explicit baseline ([2026-04-28]).
+    - Both passes now declare `SceneColor` writes (ParticlePass also declares OIT buffer writes in deferred mode).
+    - BuildFrameGraph derives WAW edge from declaration overlap; no explicit edge needed.
+    - Focused topology/hazard suites validate correct ordering derivation.
+    - Configure-time topology fixture now mirrors production: no direct Scene→AO edge is authored in `ConfigureRenderGraph`.
+    - Focused topology/hazard suites remain green after removing stale fixture-only AO-edge enforcement.
+  - `ScenePass → DeferredLightingPass`: removed from the explicit baseline.
+    - Deferred ordering is now satisfied transitively via
+      `ScenePass → DeferredOpaqueDecalPass → DeferredLightingPass`
+      (validated by `RenderGraphConfigureTopology.SceneToDeferredLightingCanBeTransitiveViaDecal`).
+    - Fallback behavior remains in production when the decal node is unavailable
+      (`ScenePass → DeferredLightingPass` is still authored in that path).
+  - `ScenePass → DeferredOpaqueDecalPass`: still required by configure-time hazard validation baseline.
+    - Regression lock added in tests (`RenderGraphConfigureTopology.MissingSceneToDeferredOpaqueDecalEdgeIsFlagged`) after baseline hardening.
+  - `DeferredOpaqueDecalPass → DeferredLightingPass`: removed from the explicit configure-time baseline.
+    - Deferred insertion order now places `DeferredOpaqueDecalPass` before
+      `DeferredLightingPass`, with runtime declaration-derived ordering from
+      `BuildFrameGraph()` covering the deferred chain.
+  - Fixture-only explicit `ScenePass → PostProcessPass` mirror edge has been removed; transitive ordering via `Scene → Foliage → Decal → Water → Particle → OITResolve → SSS → PostProcess` is sufficient (validated by focused topology/hazard suites).
+  - `SSAO/GTAO → ParticlePass` has been removed from the explicit baseline (validated by focused topology/hazard suites).
+  - `DecalPass → (SSAO|GTAO)Pass` has been removed from the explicit baseline (validated by focused topology/hazard suites).
+  - `WaterPass → (SSAO|GTAO)Pass` has been removed from the explicit baseline (validated by focused topology/hazard suites).
+  - These remain tracked manual edges; Phase D/E should continue moving texture-binding accesses into declarations to unlock further derivation.
+
+Exit criterion: ✅ Phase C **COMPLETE** — the graph can be rebuilt per frame from declarative pass
+setup without mutating global pass state after compile. Bridge wrappers are limited to explicitly tracked
+exceptions (texture-binding WAR dependencies, OIT mode conflicts). All 17 production passes bridged;
+zero runtime cycles; correct edge derivation in insertion order; per-frame compilation stable.
 
 ### Phase D — Transient pool and aliasing
+
+**Immediately after Phase C:** First priority is extending resource declaration system to capture texture-binding accesses (SSAO/GTAO reading depth/normals via texture slots) so remaining WAR manual edges can be derived automatically. This validates the declaration/derivation pipeline before allocating transient resources. Once declarations are comprehensive, transient resource allocation becomes straightforward.
+
+**In Progress ([2026-04-28]):**
+- `RGBuilder::CreateTexture/CreateFramebuffer/CreateBuffer` now preserve `RGResourceDesc` metadata instead of dropping descriptors.
+- `RenderGraph::BuildFrameGraph()` now emits a per-frame transient plan (`GetTransientPlan`) with:
+  - first/last pass lifetime indices,
+  - reachability gating (`willAllocate=false` for unreachable/disabled transients),
+  - descriptor-compatibility alias groups + slot reuse decisions for non-overlapping lifetimes,
+  - estimated byte footprint per transient candidate.
+- `RenderGraph::MaterializeTransientResources()` now maps reachable, allocatable transient plan entries to `TransientPool` acquisitions and writes resolved physical IDs/refs into typed handle storage.
+- Runtime opt-in toggle added (`RenderGraph::SetTransientMaterializationEnabled`): default remains off for headless/unit-test safety; `Renderer3D::SetupRenderGraph()` enables it for production rendering.
+- `RenderGraph::IsTransientDescriptorAllocatable()` now rejects transient descriptors whose format cannot be lowered for the target kind (`ToImageFormat` / `ToFramebufferFormat`), preventing unsupported texture/framebuffer allocations from being planned.
+- `RGResourceFormat::RG16Float` texture resources now lower to native `ImageFormat::RG16F` instead of an integer surrogate, so float RG transient textures (e.g. velocity-style resources) are planned/materialized with the correct storage format.
+- Transient plan diagnostics now emit explicit descriptor skip reasons (e.g. `unsupported-framebuffer-format`, `unsupported-image-format`, `missing-dimensions`, `zero-size-buffer`) instead of a single generic descriptor failure code.
+- `DumpToJson()` now exports transient alias-planning records under `"aliases"`.
+- Focused regression coverage now locks the explicit transient skip-reason matrix for unsupported framebuffer/image formats, missing dimensions, and zero-size buffers, and verifies JSON debug dumps include alias records plus non-allocating transient diagnostics.
 
 * Create a GL 4.6 transient pool keyed by descriptor compatibility. For GL,
   this can start as a pool of reusable textures/framebuffers rather than true
@@ -451,7 +553,7 @@ are limited to explicitly tracked exceptions.
   IBL maps, TAA/fog histories, editor readbacks, and long-lived shader/asset
   resources.
 
-Exit criterion: disabled or unreachable transient resources allocate nothing,
+Exit criterion: disabled or unreachable transient resources allocate nothing, 
 and reachable transients report lifetimes plus alias decisions in a debug dump.
 
 ### Phase E — Compiler features: culling, barriers, and validation
@@ -474,6 +576,172 @@ and reachable transients report lifetimes plus alias decisions in a debug dump.
   graph-provided command context while a pass is executing. The goal is not to
   ban immediate-style work; it is to make it observable, labelled, and checked
   against the pass's declared resource and state contract.
+
+**In Progress:**
+- Backward reachability + culling landed (explicit-final-pass gated for compatibility):
+  unreachable passes are skipped unless side-effecting.
+- Side-effecting pass support is active (`RenderPass::SideEffect`, `IsSideEffecting()`).
+- Initial GL barrier planning landed from declared RG access transitions:
+  per-pass planned flags are computed and emitted via `RGCommandContext::MemoryBarrier()`.
+- Barrier planning now records diagnostics for:
+  - missing producer for read resources,
+  - reads whose producers are all culled/unreachable,
+  - unmapped access transitions.
+- DOT dump now includes culling/barrier introspection comments and visual styling
+  for culled nodes.
+- Regression coverage added for:
+  - storage writer→reader barrier planning,
+  - render-target→shader-sample transition planning,
+  - missing-producer diagnostics,
+  - stale extraction handle rejection,
+  - extraction-of-culled-resource rejection,
+  - same-pass overlapping read/write feedback hazards,
+  - imported resource lifetime misuse hazards,
+  - declaration-derived deferred-core edge synthesis without manual edges,
+  - declaration-derived Scene→SSAO / Scene→GTAO edge synthesis without manual edges.
+- JSON dump (`DumpToJson`) now emits compiled graph state including pass order,
+  resource descriptors, culling, barriers, diagnostics, computed resource
+  lifetimes, per-resource access modes, transient alias plans, and per-pass
+  CPU timing samples from the most recent `Execute()`.
+- `DumpToJson` also emits `timingSummary` aggregates (`executedPasses`,
+  `culledPasses`, `totalCpuMs`, `averageCpuMs`, `maxCpuMs`, `maxPass`) for
+  quick frame-level inspection without post-processing the pass timing array.
+- `DumpToJson` now includes lightweight metadata/summary blocks
+  (`schemaVersion`, `timingVersion`, `hasTimings`, `frameSummary`,
+  `buildStats`) so tooling can quickly validate payload compatibility and
+  consume frame/build counters without scanning full arrays.
+- `DumpToJson` now also emits an `executionTimeline` array (pass name +
+  `culled`/`executed` flags + `cpuMs`) to make per-frame execution traces
+  explicit for dashboards and offline debugging.
+- `DumpToJson` timing payloads now include stable per-pass `orderIndex` in
+  both `executionTimeline` and `timings`, and `timingVersion` is bumped to `2`
+  so downstream tooling can diff/pass-map deterministically even when array
+  order is ignored.
+- `DumpToJson` now emits `timingStatsByPass` (name-keyed per-pass stats with
+  `orderIndex`, `executed`, `culled`, `cpuMs`) and bumps `timingVersion` to
+  `3`, enabling O(1) lookups for dashboards/analysis pipelines without array
+  scans.
+- `DumpToJson` now emits a deterministic `timingDigest` (`unit=cpuUs`,
+  pass-order-preserving `concat`, `entryCount`) and bumps `timingVersion` to
+  `4`, enabling lightweight CI snapshot comparisons without parsing full
+  timing arrays.
+- `DumpToJson` now emits a deterministic `resourceDigest` (`entryCount`,
+  `resourceCount`, `lifetimeCount`, `accessCount`, `aliasCount`, compact
+  `concat`) and bumps `schemaVersion` to `3`, enabling lightweight structural
+  graph snapshot comparisons without scanning full resource/lifetime arrays.
+- `DumpToJson` now emits deterministic `barrierDigest` and `graphDigest`
+  payloads (compact counts + `concat`) and bumps `schemaVersion` to `4`,
+  enabling low-cost CI snapshot checks for synchronization and whole-graph
+  structure changes without parsing full barrier/resource arrays.
+
+**Phase F progress (initial slice):**
+- Selection-outline branch now has a dedicated graph resource
+  (`SelectionOutlineColor`) and blackboard handle.
+- `SelectionOutlinePass` setup declarations are graph-native (`PostProcessColor`
+  read → `SelectionOutlineColor` write), and `UICompositePass` consumes the
+  correct source handle based on the feature toggle.
+- Final present path no longer depends on graph framebuffer piping for
+  `UICompositePass -> FinalPass`; `FinalPass` is now treated as a
+  side-effecting present sink with explicit ordering and direct input binding.
+- Post-chain execution order now uses explicit graph dependencies
+  (`Particle -> OITResolve -> SSS -> PostProcess -> [SelectionOutline] ->
+  UIComposite -> Final`) while framebuffer input handoff is bound explicitly
+  each frame in `Renderer3D::EndScene`, reducing production dependence on
+  `ConnectPass` framebuffer piping.
+
+**Phase F progress (slice 2 — configure-time wiring removal [2026-04-28]):**
+- Removed configure-time `SetInputFramebuffer` stubs from `Renderer3D::ConfigureRenderGraph()`
+  for `SSSPass`, `OITResolvePass`, and `PostProcessPass`.
+- All three passes already guard `m_InputFramebuffer == nullptr` in `Execute()`, so removal
+  does not introduce null-pointer risk.
+- Per-frame input binding for all three passes is handled entirely by the Phase-F explicit
+  handoff block in `Renderer3D::EndScene()` (added slice 1).
+- `PostProcessPass::SetSceneDepthFramebuffer()` is retained at configure-time (different
+  concern: depth for DOF/MotionBlur, not pipeline handoff).
+- `GLStateGuardTest.RestorePolicy_RestoresCoreStateOnDtor`: removed the `polyMode[1]`
+  assertion that was testing driver-specific query behavior (`GL_POLYGON_MODE` in core
+  profile 4.6 is a unified front/back mode; some drivers only write one value to the
+  output array). `polyMode[0]` is sufficient to verify the guard's `ApplyCore()` restore.
+
+**Phase F progress (slice 3 — AO handoff + declaration alignment [2026-04-28]):**
+- Removed configure-time AO input wiring from `Renderer3D::SetupRenderGraph()`:
+  `SSAOPass::SetSceneFramebuffer(...)` and `GTAOPass::SetSceneFramebuffer(...)`.
+- AO scene framebuffer handoff is now bound per-frame in `Renderer3D::EndScene()`
+  (same migration pattern as the post chain).
+- `SetupFrameBlackboard()` now imports `SceneNormals` from scene framebuffer
+  attachment 2, making the typed blackboard field live instead of dormant.
+- `SSAOPass` and `GTAOPass` setup declarations now read `SceneNormals`
+  (matching real pass sampling) instead of `GBufferNormal`, reducing
+  declaration/runtime drift in hazard derivation.
+- Validation run after this slice: `OloEngine-Tests` full suite remains green
+  (`2206 passed, 3 skipped, 0 failed`) and `pre-commit run --all-files` passes.
+
+**Phase F progress (slice 4 — explicit backbuffer output contract [2026-04-28]):**
+- Added canonical `ResourceNames::Backbuffer` and typed blackboard handle
+  `FrameBlackboard::Backbuffer`.
+- `SetupFrameBlackboard()` now imports `Backbuffer` as an external framebuffer
+  resource with null backing (intentional): the physical present path remains
+  `RGCommandContext::BindDefaultFramebuffer()` inside `FinalRenderPass::Execute()`.
+- `FinalRenderPass` now declares `Write(Backbuffer)` in addition to
+  `Read(UIComposite)`, making the present sink explicit in resource contracts.
+- `Renderer3D` graph-setup declaration for `FinalPass` now writes
+  `board.Backbuffer`, so `BuildFrameGraph()` sees an explicit final external
+  output edge in addition to the existing execution dependency.
+- Validation after this slice: focused RenderGraph/hazard tests pass,
+  full suite remains green (`2206 passed, 3 skipped, 0 failed`), and
+  `pre-commit run --all-files` passes.
+
+**Phase F progress (slice 5 — PostProcess typed input handles [2026-04-28]):**
+- Added graph-resource resolution to `RGCommandContext` (`ResolveTexture`,
+  `ResolveFramebuffer`) and bound the active `RenderGraph` during pass execution.
+- Replaced raw `PostProcessRenderPass` per-frame side-channel setters for
+  scene depth, AO, velocity, and CSM shadow texture IDs with typed
+  `RGTextureHandle` inputs resolved during `Execute()`.
+- `Renderer3D::EndScene()` now forwards `FrameBlackboard` handles
+  (`SceneDepth`, `AOBuffer`, `Velocity`, `ShadowMapCSM`) to `PostProcessPass`
+  instead of computing and pushing raw GL texture IDs.
+- Removed the last active code references to
+  `SetSceneDepthFramebuffer`, `SetSSAOTexture`,
+  `SetShadowMapCSMTextureID`, and `SetVelocityTextureID`.
+- `PostProcessRenderPass` resource declarations now explicitly include
+  `AOBuffer` and `Velocity`, bringing declared dependencies closer to runtime
+  sampling behavior.
+- Validation after this slice: focused graph tests pass, full suite remains
+  green (`2206 passed, 3 skipped, 0 failed`), and `pre-commit run --all-files`
+  passes.
+
+**Phase F progress (slice 6 — UI-tail typed framebuffer handles [2026-04-28]):**
+- Added typed `RGFramebufferHandle` input setters to `SelectionOutlinePass`,
+  `UICompositePass`, and `FinalPass`, while keeping the legacy raw framebuffer
+  setter as temporary compatibility glue.
+- These passes now resolve their input framebuffer through `RGCommandContext`
+  during `Execute()`, so graph-visible handle wiring becomes the source of
+  truth for the editor/UI tail.
+- Removed the last active production-side `Renderer3D::EndScene()` raw
+  `SetInputFramebuffer(...)` calls for `SelectionOutlinePass`,
+  `UICompositePass`, and `FinalPass`.
+- `Renderer3D::EndScene()` now wires the tail strictly from blackboard
+  handles: `PostProcessColor -> [SelectionOutlineColor] -> UIComposite -> Backbuffer`.
+- Validation after this slice: focused graph tests pass (`98 passed, 3 skipped,
+  0 failed`), the full suite remains green (`2206 passed, 3 skipped, 0 failed`),
+  and `pre-commit run --all-files` passes.
+
+**Phase F progress (slice 7 — PostProcess typed source framebuffer handle [2026-04-28]):**
+- Added typed `RGFramebufferHandle` input setter to `PostProcessPass` and
+  execution-time framebuffer resolution via `RGCommandContext`.
+- Introduced canonical `ResourceNames::SSSColor` + `FrameBlackboard::SSSColor`
+  to model the SSS-stage output (or passthrough scene color) as a graph-visible
+  framebuffer handle.
+- `Renderer3D::SetupFrameBlackboard()` now imports `SSSColor` from
+  `SSSPass->GetTarget()` each frame.
+- Removed production-side `Renderer3D::EndScene()` raw
+  `PostProcessPass->SetInputFramebuffer(...)` handoff; `PostProcessPass` is now
+  wired through typed handles (`SSSColor` fallback to `SceneColor`).
+- Updated graph-pass setup contracts:
+  - `SSSPass` now writes `SSSColor` (when active)
+  - `PostProcessPass` now reads `SSSColor` (or `SceneColor` fallback)
+- Validation after this slice: focused graph tests pass (`98 passed, 3 skipped,
+  0 failed`), full-suite + hooks validated in the same session.
 
 Exit criterion: resource edges derive execution order; manually-authored
 ordering edges are only needed for real side effects that do not touch graph

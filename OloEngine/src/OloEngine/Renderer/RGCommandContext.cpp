@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/RGCommandContext.h"
 
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RenderGraph.h"
 
 #include <glad/gl.h>
 
@@ -88,8 +89,31 @@ namespace OloEngine
         RenderCommand::BindTexture(slot, textureID);
     }
 
+    void RGCommandContext::MemoryBarrier(const MemoryBarrierFlags flags)
+    {
+        if (flags == MemoryBarrierFlags::None)
+            return;
+        RenderCommand::MemoryBarrier(flags);
+    }
+
     void RGCommandContext::DrawIndexed(const Ref<VertexArray>& vertexArray, const u32 indexCount)
     {
         RenderCommand::DrawIndexed(vertexArray, indexCount);
+    }
+
+    u32 RGCommandContext::ResolveTexture(const RGTextureHandle handle) const
+    {
+        if (!m_RenderGraph)
+            return 0;
+
+        return m_RenderGraph->ResolveTexture(handle);
+    }
+
+    Ref<Framebuffer> RGCommandContext::ResolveFramebuffer(const RGFramebufferHandle handle) const
+    {
+        if (!m_RenderGraph)
+            return nullptr;
+
+        return m_RenderGraph->ResolveFramebuffer(handle);
     }
 } // namespace OloEngine

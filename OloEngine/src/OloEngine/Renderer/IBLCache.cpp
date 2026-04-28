@@ -49,6 +49,8 @@ namespace OloEngine
                     return 3;
                 case ImageFormat::RGBA8:
                     return 4;
+                case ImageFormat::RG16F:
+                    return 4;
                 case ImageFormat::R32F:
                     return 4;
                 case ImageFormat::RG32F:

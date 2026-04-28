@@ -60,6 +60,13 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        Ref<Framebuffer> inputFramebuffer = m_InputFramebuffer;
+        if (m_InputFramebufferHandle.IsValid())
+        {
+            if (auto resolvedInput = context.ResolveFramebuffer(m_InputFramebufferHandle))
+                inputFramebuffer = resolvedInput;
+        }
+
         if (!m_Target)
         {
             return;
@@ -71,13 +78,23 @@ namespace OloEngine
         m_Target->ClearAllAttachments({ 0.0f, 0.0f, 0.0f, 1.0f }, -1);
 
         // Blit the post-processed scene as background
-        if (m_InputFramebuffer && m_BlitShader)
+        if (inputFramebuffer && m_BlitShader)
         {
             context.SetBlendState(false);
             context.SetDepthTest(false);
 
             m_BlitShader->Bind();
-            const auto colorAttachment = m_InputFramebuffer->GetColorAttachmentRendererID(0);
+            const auto colorAttachment = inputFramebuffer->GetColorAttachmentRendererID(0);
+            if (colorAttachment == 0)
+            {
+                static u32 s_InvalidInputColorWarnings = 0;
+                if (s_InvalidInputColorWarnings++ < 10)
+                {
+                    const auto& inSpec = inputFramebuffer->GetSpecification();
+                    OLO_CORE_WARN("UICompositePass: input framebuffer has invalid color attachment 0 (id=0). Size={}x{}, attachmentCount={}",
+                                  inSpec.Width, inSpec.Height, inSpec.Attachments.Attachments.size());
+                }
+            }
             context.BindTexture(0, colorAttachment);
             m_BlitShader->SetInt("u_Texture", 0);
 
@@ -88,7 +105,7 @@ namespace OloEngine
         else if (m_NoInputWarningCount++ < 5)
         {
             OLO_CORE_WARN("UICompositePass: No input framebuffer ({}) or blit shader ({}) — scene background will be black",
-                          m_InputFramebuffer != nullptr, m_BlitShader != nullptr);
+                          inputFramebuffer != nullptr, m_BlitShader != nullptr);
         }
 
         // Render 2D overlays and screen-space UI via the per-frame callback

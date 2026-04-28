@@ -422,7 +422,11 @@ namespace OloEngine::Tests
         GLint polyMode[2] = { 0, 0 };
         ::glGetIntegerv(GL_POLYGON_MODE, polyMode);
         EXPECT_EQ(polyMode[0], GL_FILL) << "PolygonMode[0] not restored";
-        EXPECT_EQ(polyMode[1], GL_FILL) << "PolygonMode[1] not restored";
+        // polyMode[1] is intentionally not checked: GL 4.6 core profile only supports
+        // GL_FRONT_AND_BACK, so front and back are always equal. Some drivers (e.g.
+        // software rasterizers) only write one value to the glGetIntegerv output array
+        // for GL_POLYGON_MODE; checking [1] independently is driver-behaviour testing,
+        // not guard-restore verification. polyMode[0] is sufficient.
 
         GLboolean scissor = GL_TRUE;
         ::glGetBooleanv(GL_SCISSOR_TEST, &scissor);

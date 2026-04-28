@@ -30,6 +30,8 @@ namespace OloEngine
                     return GL_RED_INTEGER;
                 case ImageFormat::RG16UI:
                     return GL_RG_INTEGER;
+                case ImageFormat::RG16F:
+                    return GL_RG;
                 case ImageFormat::RGB8:
                     return GL_RGB;
                 case ImageFormat::RGBA8:
@@ -64,6 +66,8 @@ namespace OloEngine
                     return GL_R16UI;
                 case ImageFormat::RG16UI:
                     return GL_RG16UI;
+                case ImageFormat::RG16F:
+                    return GL_RG16F;
                 case ImageFormat::RGB8:
                     return GL_RGB8;
                 case ImageFormat::RGBA8:
@@ -134,6 +138,9 @@ namespace OloEngine
                 bytesPerPixel = 2;
                 break;
             case ImageFormat::RG16UI:
+                bytesPerPixel = 4;
+                break;
+            case ImageFormat::RG16F:
                 bytesPerPixel = 4;
                 break;
             case ImageFormat::RGB8:
@@ -274,6 +281,9 @@ namespace OloEngine
             case ImageFormat::RG16UI:
                 bytesPerPixel = 4;
                 break;
+            case ImageFormat::RG16F:
+                bytesPerPixel = 4;
+                break;
             case ImageFormat::R32F:
                 bytesPerPixel = 4;
                 break;
@@ -340,6 +350,10 @@ namespace OloEngine
                 bpp = 4;
                 dataType = GL_UNSIGNED_SHORT;
                 break;
+            case ImageFormat::RG16F:
+                bpp = 8; // Upload as GL_FLOAT (2 * 4 bytes), OpenGL converts to half-float
+                dataType = GL_FLOAT;
+                break;
             case ImageFormat::RGB8:
                 bpp = 3;
                 dataType = GL_UNSIGNED_BYTE;
@@ -398,6 +412,9 @@ namespace OloEngine
                 break;
             case ImageFormat::RG16UI:
                 dataType = GL_UNSIGNED_SHORT;
+                break;
+            case ImageFormat::RG16F:
+                dataType = GL_FLOAT;
                 break;
             case ImageFormat::R32F:
             case ImageFormat::RG32F:
@@ -537,6 +554,10 @@ namespace OloEngine
             case ImageFormat::RG16UI:
                 bytesPerPixel = 4;
                 dataType = GL_UNSIGNED_SHORT;
+                break;
+            case ImageFormat::RG16F:
+                bytesPerPixel = 8;
+                dataType = GL_FLOAT;
                 break;
             case ImageFormat::RGB8:
                 bytesPerPixel = 3;

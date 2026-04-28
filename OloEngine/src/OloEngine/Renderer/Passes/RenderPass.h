@@ -34,6 +34,14 @@ namespace OloEngine
             ImmediateOnly,
             Mixed,
         };
+        enum class SideEffect : u8
+        {
+            None = 0,              // Pass is culled if unreachable
+            Readback = 1 << 0,     // Pass performs GPU readback (keep for GPU counter/picking)
+            Present = 1 << 1,      // Pass writes to swap-chain/backbuffer
+            DebugCapture = 1 << 2, // Pass captures debug data (RenderDoc, profiler)
+            Timestamp = 1 << 3,    // Pass records GPU timestamp
+        };
 
         virtual ~RenderPass() = default;
 
@@ -66,6 +74,21 @@ namespace OloEngine
         // Called by RenderGraph to pipe the output framebuffer of a previous pass as input.
         // Passes that accept an input framebuffer should override this.
         virtual void SetInputFramebuffer(const Ref<Framebuffer>& /*input*/) {}
+
+        // Mark this pass as having side effects that prevent culling.
+        // Multiple SideEffect flags can be combined with bitwise OR.
+        void SetSideEffects(SideEffect effects)
+        {
+            m_SideEffects = effects;
+        }
+        [[nodiscard]] SideEffect GetSideEffects() const
+        {
+            return m_SideEffects;
+        }
+        [[nodiscard]] bool IsSideEffecting() const
+        {
+            return static_cast<u8>(m_SideEffects) != 0;
+        }
 
         // -------------------------------------------------------------------
         // Resource-aware RDG API (opt-in)
@@ -126,5 +149,8 @@ namespace OloEngine
         // Resource declarations (opt-in). Empty = unchecked by validator.
         std::vector<ResourceHandle> m_Reads;
         std::vector<ResourceHandle> m_Writes;
+
+        // Side-effect flags (Phase E). Determine if pass is culled when unreachable.
+        SideEffect m_SideEffects = SideEffect::None;
     };
 } // namespace OloEngine

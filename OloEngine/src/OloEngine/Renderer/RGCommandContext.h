@@ -2,6 +2,8 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Renderer/MemoryBarrierFlags.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
 
 #include <glm/vec4.hpp>
 
@@ -11,6 +13,8 @@
 
 namespace OloEngine
 {
+    class Framebuffer;
+    class RenderGraph;
     class VertexArray;
 
     // Minimal graph-visible command context used to scope pass execution.
@@ -54,10 +58,18 @@ namespace OloEngine
         void SetCulling(bool enabled);
         void SetDrawBuffers(std::span<const u32> attachments);
         void BindTexture(u32 slot, u32 textureID);
+        void MemoryBarrier(MemoryBarrierFlags flags);
         void DrawIndexed(const Ref<VertexArray>& vertexArray, u32 indexCount = 0);
+        [[nodiscard]] u32 ResolveTexture(RGTextureHandle handle) const;
+        [[nodiscard]] Ref<Framebuffer> ResolveFramebuffer(RGFramebufferHandle handle) const;
+        void SetRenderGraph(const RenderGraph* graph)
+        {
+            m_RenderGraph = graph;
+        }
 
       private:
         std::string m_ActivePassName;
         bool m_IsPassActive = false;
+        const RenderGraph* m_RenderGraph = nullptr;
     };
 } // namespace OloEngine

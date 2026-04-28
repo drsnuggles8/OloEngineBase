@@ -959,6 +959,213 @@ namespace OloEngine
         s_Data.ParallelContext.QuadShader = s_Data.QuadShader;
 
         s_Data.ParallelSubmissionActive = false;
+
+        // Phase B — populate the graph blackboard with live physical resources.
+        SetupFrameBlackboard();
+    }
+
+    void Renderer3D::SetupFrameBlackboard()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Data.RGraph)
+            return;
+
+        auto& graph = *s_Data.RGraph;
+
+        // Clear prior-frame handles so stale handles are never accidentally resolved.
+        graph.ClearBlackboard();
+        graph.ClearImportedResources();
+
+        auto& board = graph.GetBlackboard();
+
+        // ------------------------------------------------------------------
+        // Scene outputs
+        // ------------------------------------------------------------------
+        if (s_Data.ScenePass && s_Data.ScenePass->GetTarget())
+        {
+            board.SceneColor = graph.ImportFramebuffer(
+                ResourceNames::SceneColor, s_Data.ScenePass->GetTarget());
+
+            const u32 depthID = s_Data.ScenePass->GetTarget()->GetDepthAttachmentRendererID();
+            board.SceneDepth = graph.ImportTexture(
+                ResourceNames::SceneDepth, depthID,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, ResourceNames::SceneDepth));
+
+            const u32 sceneNormalsID = s_Data.ScenePass->GetTarget()->GetColorAttachmentRendererID(2);
+            board.SceneNormals = graph.ImportTexture(
+                ResourceNames::SceneNormals, sceneNormalsID,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, ResourceNames::SceneNormals));
+        }
+
+        // ------------------------------------------------------------------
+        // G-Buffer (deferred path only)
+        // ------------------------------------------------------------------
+        const bool deferredActive = (s_Data.Settings.Path == RenderingPath::Deferred);
+        if (deferredActive && s_Data.ScenePass && s_Data.ScenePass->GetTarget())
+        {
+            // G-Buffer attachments live on the SceneRenderPass framebuffer in deferred mode.
+            // RT0=Albedo(0), RT1=Normal(1), RT2=Metallic(2), RT3=Emissive/Velocity(3).
+            auto importGBuf = [&](std::string_view name, u32 attachment) -> RGTextureHandle
+            {
+                const u32 id = s_Data.ScenePass->GetTarget()->GetColorAttachmentRendererID(attachment);
+                return graph.ImportTexture(name, id,
+                                           RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, name));
+            };
+
+            board.GBufferAlbedo = importGBuf(ResourceNames::GBufferAlbedo, 0);
+            board.GBufferNormal = importGBuf(ResourceNames::GBufferNormal, 1);
+            board.GBufferMetallic = importGBuf(ResourceNames::GBufferMetallic, 2);
+            board.GBufferEmissive = importGBuf(ResourceNames::GBufferEmissive, 3);
+        }
+
+        // ------------------------------------------------------------------
+        // Velocity buffer
+        // ------------------------------------------------------------------
+        {
+            u32 velocityID = 0;
+            if (s_Data.Settings.Path == RenderingPath::Deferred &&
+                s_Data.ScenePass && s_Data.ScenePass->GetGBuffer())
+            {
+                velocityID = s_Data.ScenePass->GetGBuffer()->GetColorAttachmentID(GBuffer::Velocity);
+            }
+            else if (s_Data.ScenePass && s_Data.ScenePass->GetTarget())
+            {
+                velocityID = s_Data.ScenePass->GetTarget()->GetColorAttachmentRendererID(3);
+            }
+            if (velocityID != 0)
+            {
+                board.Velocity = graph.ImportTexture(
+                    ResourceNames::Velocity, velocityID,
+                    RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, ResourceNames::Velocity));
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // AO buffer
+        // ------------------------------------------------------------------
+        {
+            u32 aoID = 0;
+            if (s_Data.SSAOPass && s_Data.PostProcess.SSAOEnabled &&
+                s_Data.PostProcess.ActiveAOTechnique == AOTechnique::SSAO)
+            {
+                aoID = s_Data.SSAOPass->GetSSAOTextureID();
+            }
+            else if (s_Data.GTAOPass && s_Data.PostProcess.GTAOEnabled &&
+                     s_Data.PostProcess.ActiveAOTechnique == AOTechnique::GTAO)
+            {
+                aoID = s_Data.GTAOPass->GetGTAOTextureID();
+            }
+            if (aoID != 0)
+            {
+                board.AOBuffer = graph.ImportTexture(
+                    ResourceNames::AOBuffer, aoID,
+                    RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, ResourceNames::AOBuffer));
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Shadow maps
+        // ------------------------------------------------------------------
+        {
+            const u32 csmID = s_Data.Shadow.GetCSMRendererID();
+            const u32 spotID = s_Data.Shadow.GetSpotRendererID();
+            if (csmID != 0)
+            {
+                board.ShadowMapCSM = graph.ImportTexture(
+                    ResourceNames::ShadowMapCSM, csmID,
+                    RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2DArray, ResourceNames::ShadowMapCSM));
+            }
+            if (spotID != 0)
+            {
+                board.ShadowMapSpot = graph.ImportTexture(
+                    ResourceNames::ShadowMapSpot, spotID,
+                    RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, ResourceNames::ShadowMapSpot));
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Post-process chain outputs
+        // ------------------------------------------------------------------
+        if (s_Data.SSSPass && s_Data.Snow.Enabled && s_Data.Snow.SSSBlurEnabled)
+        {
+            board.SSSColor = graph.ImportFramebuffer(
+                ResourceNames::SSSColor, s_Data.SSSPass->GetTarget());
+        }
+
+        if (s_Data.PostProcessPass)
+        {
+            board.PostProcessColor = graph.ImportFramebuffer(
+                ResourceNames::PostProcessColor, s_Data.PostProcessPass->GetTarget());
+        }
+
+        if (s_Data.SelectionOutlinePass && s_Data.EnableSelectionOutline)
+        {
+            board.SelectionOutlineColor = graph.ImportFramebuffer(
+                ResourceNames::SelectionOutlineColor, s_Data.SelectionOutlinePass->GetTarget());
+        }
+
+        if (s_Data.UICompositePass)
+        {
+            board.UIComposite = graph.ImportFramebuffer(
+                ResourceNames::UIComposite, s_Data.UICompositePass->GetTarget());
+        }
+
+        // Default framebuffer / swapchain target represented as an imported
+        // external output resource. Backing framebuffer is null by design;
+        // FinalPass presents via RGCommandContext::BindDefaultFramebuffer().
+        board.Backbuffer = graph.ImportFramebuffer(
+            ResourceNames::Backbuffer, nullptr,
+            RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, ResourceNames::Backbuffer));
+
+        // ------------------------------------------------------------------
+        // OIT buffers
+        // ------------------------------------------------------------------
+        if (s_Data.OITResolvePass)
+        {
+            const auto& oitBuf = s_Data.OITResolvePass->GetOITBuffer();
+            if (oitBuf)
+            {
+                // OITBuffer owns a single MRT framebuffer with accum(RT0) and revealage(RT1).
+                board.OITAccum = graph.ImportFramebuffer(
+                    ResourceNames::OITAccum, oitBuf->GetFramebuffer());
+                board.OITRevealage = graph.ImportFramebuffer(
+                    ResourceNames::OITRevealage, oitBuf->GetFramebuffer());
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Temporal histories (imported from prior frame)
+        // ------------------------------------------------------------------
+        if (s_Data.PostProcessPass)
+        {
+            board.TAAHistory = graph.ImportHistory(
+                ResourceNames::TAAHistory, s_Data.PostProcessPass->GetTAAHistoryTextureID());
+            board.FogHistory = graph.ImportHistory(
+                ResourceNames::FogHistory, s_Data.PostProcessPass->GetFogHistoryTextureID());
+        }
+
+        // ------------------------------------------------------------------
+        // IBL resources
+        // ------------------------------------------------------------------
+        if (s_Data.GlobalIrradianceMapID != 0)
+        {
+            board.IrradianceMap = graph.ImportTexture(
+                ResourceNames::IrradianceMap, s_Data.GlobalIrradianceMapID,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::TextureCube, ResourceNames::IrradianceMap));
+        }
+        if (s_Data.GlobalPrefilterMapID != 0)
+        {
+            board.PrefilterMap = graph.ImportTexture(
+                ResourceNames::PrefilterMap, s_Data.GlobalPrefilterMapID,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::TextureCube, ResourceNames::PrefilterMap));
+        }
+        if (s_Data.GlobalBRDFLutMapID != 0)
+        {
+            board.BrdfLut = graph.ImportTexture(
+                ResourceNames::BrdfLut, s_Data.GlobalBRDFLutMapID,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, ResourceNames::BrdfLut));
+        }
     }
 
     void Renderer3D::BeginScene(const PerspectiveCamera& camera)
@@ -1370,12 +1577,40 @@ namespace OloEngine
             return;
         }
 
-        // Framebuffer piping is handled once in SetupRenderGraph() and on resize.
-        // Only per-frame settings updates are needed here.
+        // Phase F: bind post-chain input framebuffers explicitly every frame.
+        // This removes production data-flow reliance on RenderGraph ConnectPass
+        // framebuffer piping while keeping pass execution order graph-driven.
+        {
+            Ref<Framebuffer> sceneColorSource;
+            if (s_Data.ScenePass)
+                sceneColorSource = s_Data.ScenePass->GetTarget();
+
+            if (s_Data.OITResolvePass)
+                s_Data.OITResolvePass->SetInputFramebuffer(sceneColorSource);
+
+            Ref<Framebuffer> afterOIT = sceneColorSource;
+            if (s_Data.OITResolvePass)
+                afterOIT = s_Data.OITResolvePass->GetTarget();
+
+            if (s_Data.SSSPass)
+                s_Data.SSSPass->SetInputFramebuffer(afterOIT);
+
+            Ref<Framebuffer> afterSSS = afterOIT;
+            if (s_Data.SSSPass)
+                afterSSS = s_Data.SSSPass->GetTarget();
+
+            // Keep legacy raw-FB handoff populated as a safety net for the
+            // handle-driven path (Phase F). If a typed handle resolves to a
+            // stale/null backing during topology churn, passes still receive a
+            // concrete framebuffer and the viewport does not go black.
+            if (s_Data.PostProcessPass)
+                s_Data.PostProcessPass->SetInputFramebuffer(afterSSS);
+        }
 
         if (s_Data.SSAOPass)
         {
             s_Data.SSAOPass->SetSettings(s_Data.PostProcess);
+            s_Data.SSAOPass->SetSceneFramebuffer(s_Data.ScenePass ? s_Data.ScenePass->GetTarget() : nullptr);
 
             // Upload projection matrices for SSAO position reconstruction
             s_Data.SSAOGPUData.Projection = s_Data.ProjectionMatrix;
@@ -1386,6 +1621,7 @@ namespace OloEngine
         {
             s_Data.GTAOPass->SetSettings(s_Data.PostProcess);
             s_Data.GTAOPass->SetProjectionMatrix(s_Data.ProjectionMatrix);
+            s_Data.GTAOPass->SetSceneFramebuffer(s_Data.ScenePass ? s_Data.ScenePass->GetTarget() : nullptr);
 
             // When GTAO is active, override the SSAO UBO debug/intensity fields
             // so the PostProcess_SSAOApply shader reads correct values for GTAO,
@@ -1410,49 +1646,68 @@ namespace OloEngine
             s_Data.PostProcessPass->SetPrecipitationScreenEffectsEnabled(
                 s_Data.Precipitation.Enabled &&
                 (s_Data.Precipitation.ScreenStreaksEnabled || s_Data.Precipitation.LensImpactsEnabled));
-            s_Data.PostProcessPass->SetShadowMapCSMTextureID(s_Data.Shadow.GetCSMRendererID());
+            const auto& board = s_Data.RGraph->GetBlackboard();
+            s_Data.PostProcessPass->SetSceneDepthTextureHandle(board.SceneDepth);
+            s_Data.PostProcessPass->SetAOTextureHandle(board.AOBuffer);
+            s_Data.PostProcessPass->SetShadowMapCSMHandle(board.ShadowMapCSM);
+            s_Data.PostProcessPass->SetVelocityTextureHandle(board.Velocity);
+            s_Data.PostProcessPass->SetInputFramebufferHandle(
+                board.SSSColor.IsValid() ? board.SSSColor : board.SceneColor);
+            s_Data.PostProcessPass->SetInputFramebuffer(
+                (s_Data.SSSPass && s_Data.Snow.Enabled && s_Data.Snow.SSSBlurEnabled)
+                    ? s_Data.SSSPass->GetTarget()
+                    : (s_Data.ScenePass ? s_Data.ScenePass->GetTarget() : nullptr));
 
-            // Pass AO texture to PostProcessPass based on active technique
-            if (s_Data.PostProcess.ActiveAOTechnique == AOTechnique::SSAO && s_Data.SSAOPass && s_Data.PostProcess.SSAOEnabled)
+            if (s_Data.EnableSelectionOutline && s_Data.SelectionOutlinePass)
             {
-                s_Data.PostProcessPass->SetSSAOTexture(s_Data.SSAOPass->GetSSAOTextureID());
-            }
-            else if (s_Data.PostProcess.ActiveAOTechnique == AOTechnique::GTAO && s_Data.GTAOPass && s_Data.PostProcess.GTAOEnabled)
-            {
-                s_Data.PostProcessPass->SetSSAOTexture(s_Data.GTAOPass->GetGTAOTextureID());
-            }
-            else
-            {
-                s_Data.PostProcessPass->SetSSAOTexture(0);
+                s_Data.SelectionOutlinePass->SetInputFramebufferHandle(board.PostProcessColor);
+                s_Data.SelectionOutlinePass->SetInputFramebuffer(
+                    s_Data.PostProcessPass ? s_Data.PostProcessPass->GetTarget() : nullptr);
             }
 
-            // TAA velocity source: in Deferred the G-Buffer RT3 carries
-            // full per-object + per-bone motion and is the authoritative
-            // source; in Forward / Forward+ the scene FB RT3 is populated
-            // by PBR_MultiLight (static) and PBR_MultiLight_Skinned (per-
-            // object motion only -- skinned intra-skeleton motion is not
-            // tracked in forward). Non-PBR forward shaders leave their
-            // pixels at zero velocity, which the TAA shader treats as
-            // "no motion" and falls back to neighborhood clip. A
-            // zero-bound here forces the camera-only reconstruction path.
-            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.ScenePass && s_Data.ScenePass->GetGBuffer())
+            if (s_Data.UICompositePass)
             {
-                s_Data.PostProcessPass->SetVelocityTextureID(
-                    s_Data.ScenePass->GetGBuffer()->GetColorAttachmentID(GBuffer::Velocity));
+                const auto uiInput = (s_Data.EnableSelectionOutline && s_Data.SelectionOutlinePass)
+                                         ? board.SelectionOutlineColor
+                                         : board.PostProcessColor;
+                s_Data.UICompositePass->SetInputFramebufferHandle(uiInput);
+
+                Ref<Framebuffer> uiInputFramebuffer = s_Data.PostProcessPass ? s_Data.PostProcessPass->GetTarget() : nullptr;
+                if (s_Data.EnableSelectionOutline && s_Data.SelectionOutlinePass)
+                    uiInputFramebuffer = s_Data.SelectionOutlinePass->GetTarget();
+                s_Data.UICompositePass->SetInputFramebuffer(uiInputFramebuffer);
             }
-            else if (s_Data.ScenePass && s_Data.ScenePass->GetTarget())
+
+            if (s_Data.FinalPass)
             {
-                // Scene FB attachment index 3 is the RG16F velocity target
-                // (see FramebufferSpecification assembled in Init()). Binding
-                // it unconditionally in Forward / Forward+ is safe: static
-                // geometry writes zero velocity (prev == curr), non-PBR
-                // shaders don't touch RT3 and it stays at its cleared value.
-                s_Data.PostProcessPass->SetVelocityTextureID(
-                    s_Data.ScenePass->GetTarget()->GetColorAttachmentRendererID(3));
+                s_Data.FinalPass->SetInputFramebufferHandle(board.UIComposite);
+                s_Data.FinalPass->SetInputFramebuffer(
+                    s_Data.UICompositePass ? s_Data.UICompositePass->GetTarget() : nullptr);
             }
-            else
+
+            // Targeted black-frame diagnostics (throttled): validate the
+            // framebuffer handoff chain at the exact point we wire it.
             {
-                s_Data.PostProcessPass->SetVelocityTextureID(0);
+                static u32 s_BlackChainWarnings = 0;
+                if (s_BlackChainWarnings < 10)
+                {
+                    const Ref<Framebuffer> ppTarget = s_Data.PostProcessPass ? s_Data.PostProcessPass->GetTarget() : nullptr;
+                    const Ref<Framebuffer> uiTarget = s_Data.UICompositePass ? s_Data.UICompositePass->GetTarget() : nullptr;
+                    const Ref<Framebuffer> finalInput = s_Data.FinalPass ? s_Data.FinalPass->GetInputFramebuffer() : nullptr;
+
+                    const u32 ppColor0 = ppTarget ? ppTarget->GetColorAttachmentRendererID(0) : 0;
+                    const u32 uiColor0 = uiTarget ? uiTarget->GetColorAttachmentRendererID(0) : 0;
+                    const u32 finalColor0 = finalInput ? finalInput->GetColorAttachmentRendererID(0) : 0;
+
+                    if (!ppTarget || !uiTarget || !finalInput || ppColor0 == 0 || uiColor0 == 0 || finalColor0 == 0)
+                    {
+                        ++s_BlackChainWarnings;
+                        OLO_CORE_WARN("Renderer3D::EndScene handoff issue: PostProcess(target={}, color0={}), UIComposite(target={}, color0={}), Final(input={}, color0={})",
+                                      ppTarget != nullptr, ppColor0,
+                                      uiTarget != nullptr, uiColor0,
+                                      finalInput != nullptr, finalColor0);
+                    }
+                }
             }
         }
         auto& profiler = RendererProfiler::GetInstance();
@@ -1661,6 +1916,32 @@ namespace OloEngine
                 s_Data.DecalPass->SetOITEnabled(oitEnabled);
             if (s_Data.OITResolvePass)
                 s_Data.OITResolvePass->SetEnabled(oitEnabled);
+        }
+
+        // Phase C: compile graph-native pass declarations before execution.
+        s_Data.RGraph->BuildFrameGraph();
+
+        {
+            const auto& buildStats = s_Data.RGraph->GetLastBuildStats();
+            static RenderGraph::FrameBuildStats s_LastBuildStats{};
+            static bool s_HasLastBuildStats = false;
+
+            const bool changed = !s_HasLastBuildStats ||
+                                 buildStats.PassesVisited != s_LastBuildStats.PassesVisited ||
+                                 buildStats.DeclaredReads != s_LastBuildStats.DeclaredReads ||
+                                 buildStats.DeclaredWrites != s_LastBuildStats.DeclaredWrites ||
+                                 buildStats.DerivedEdges != s_LastBuildStats.DerivedEdges;
+
+            if (changed)
+            {
+                OLO_CORE_INFO("RenderGraph BuildFrameGraph stats: passes={}, reads={}, writes={}, derivedEdges={}",
+                              buildStats.PassesVisited,
+                              buildStats.DeclaredReads,
+                              buildStats.DeclaredWrites,
+                              buildStats.DerivedEdges);
+                s_LastBuildStats = buildStats;
+                s_HasLastBuildStats = true;
+            }
         }
 
         s_Data.RGraph->Execute();
@@ -3270,6 +3551,11 @@ namespace OloEngine
 
         s_Data.RGraph->Init(width, height);
 
+        // Phase D: enable runtime materialization of compiled transient plan
+        // entries. Unit tests keep this path disabled by default; production
+        // renderer setup opts in explicitly.
+        s_Data.RGraph->SetTransientMaterializationEnabled(true);
+
         // Shadow pass (renders before scene, doesn't need scene framebuffer dimensions)
         FramebufferSpecification shadowPassSpec;
         shadowPassSpec.Width = static_cast<u32>(ShaderConstants::SHADOW_MAP_SIZE);
@@ -3348,19 +3634,19 @@ namespace OloEngine
         s_Data.SSAOPass = Ref<SSAORenderPass>::Create();
         s_Data.SSAOPass->SetName("SSAOPass");
         s_Data.SSAOPass->Init(scenePassSpec);
-        s_Data.SSAOPass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
+        // Input binding deferred to per-frame handoff in EndScene() — Phase F side-channel removal.
         s_Data.SSAOPass->SetSSAOUBO(s_Data.SSAOUBO, &s_Data.SSAOGPUData);
 
         s_Data.GTAOPass = Ref<GTAORenderPass>::Create();
         s_Data.GTAOPass->SetName("GTAOPass");
         s_Data.GTAOPass->Init(scenePassSpec);
-        s_Data.GTAOPass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
+        // Input binding deferred to per-frame handoff in EndScene() — Phase F side-channel removal.
         s_Data.GTAOPass->SetGTAOUBO(s_Data.GTAOUBO, &s_Data.GTAOGPUData);
 
         s_Data.SSSPass = Ref<SSSRenderPass>::Create();
         s_Data.SSSPass->SetName("SSSPass");
         s_Data.SSSPass->Init(finalPassSpec);
-        s_Data.SSSPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
+        // Input binding deferred to per-frame handoff in EndScene() — Phase F side-channel removal.
         s_Data.SSSPass->SetSSSUBO(s_Data.SSSUBO, &s_Data.SSSGPUData);
 
         // Phase 6: OIT resolve pass. Composites weighted-blended transparent
@@ -3369,7 +3655,7 @@ namespace OloEngine
         s_Data.OITResolvePass = Ref<OITResolveRenderPass>::Create();
         s_Data.OITResolvePass->SetName("OITResolvePass");
         s_Data.OITResolvePass->Init(finalPassSpec);
-        s_Data.OITResolvePass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
+        // Input binding deferred to per-frame handoff in EndScene() — Phase F side-channel removal.
 
         // Wire OIT buffer + accumulation marker through to ParticlePass.
         s_Data.ParticlePass->SetOITBuffer(s_Data.OITResolvePass->GetOITBuffer());
@@ -3412,7 +3698,6 @@ namespace OloEngine
         s_Data.PostProcessPass = Ref<PostProcessRenderPass>::Create();
         s_Data.PostProcessPass->SetName("PostProcessPass");
         s_Data.PostProcessPass->Init(finalPassSpec);
-        s_Data.PostProcessPass->SetSceneDepthFramebuffer(s_Data.ScenePass->GetTarget());
 
         if (s_Data.EnableSelectionOutline)
         {
@@ -3451,6 +3736,7 @@ namespace OloEngine
         // (pass lookup, edges, framebuffer piping, cached execution order)
         // is cleared.
         s_Data.RGraph->ResetTopology();
+        s_Data.RGraph->ClearGraphPasses();
 
         const bool deferred = (path == RenderingPath::Deferred);
 
@@ -3465,8 +3751,6 @@ namespace OloEngine
         // them and the execution edges that reference them are skipped.
         if (deferred)
         {
-            s_Data.RGraph->AddPass(s_Data.DeferredLightPass);
-            s_Data.RGraph->AddPass(s_Data.ForwardOverlayPass);
             // Graph-scheduled opaque decal drain — sits between ScenePass
             // and DeferredLightingPass so the "opaque decals composite
             // into the G-Buffer before lighting" contract is visible in
@@ -3474,11 +3758,17 @@ namespace OloEngine
             // of SceneRenderPass::Execute calling ExecuteOnGBuffer().
             if (s_Data.OpaqueDecalPass)
                 s_Data.RGraph->AddPass(s_Data.OpaqueDecalPass);
+            s_Data.RGraph->AddPass(s_Data.DeferredLightPass);
+            s_Data.RGraph->AddPass(s_Data.ForwardOverlayPass);
         }
 
         s_Data.RGraph->AddPass(s_Data.FoliagePass);
-        s_Data.RGraph->AddPass(s_Data.WaterPass);
+        // Keep insertion order aligned with the explicit baseline dependency
+        // chain below (Foliage -> Decal -> Water). BuildFrameGraph derives
+        // WAW edges in insertion order; inserting Water before Decal can
+        // derive Water -> Decal and create a Decal <-> Water cycle.
         s_Data.RGraph->AddPass(s_Data.DecalPass);
+        s_Data.RGraph->AddPass(s_Data.WaterPass);
         s_Data.RGraph->AddPass(s_Data.SSAOPass);
         s_Data.RGraph->AddPass(s_Data.GTAOPass);
         s_Data.RGraph->AddPass(s_Data.ParticlePass);
@@ -3492,84 +3782,522 @@ namespace OloEngine
         s_Data.RGraph->AddPass(s_Data.UICompositePass);
         s_Data.RGraph->AddPass(s_Data.FinalPass);
 
-        // ShadowPass -> ScenePass: ordering only (shadow textures are bound via UBO/texture slots)
+        // Baseline ordering edges required by ConfigureRenderGraph-time
+        // hazard validation. BuildFrameGraph() still derives additional edges
+        // from setup declarations at runtime, but this baseline must remain
+        // sufficient for ValidateResourceHazards() here.
         s_Data.RGraph->AddExecutionDependency("ShadowPass", "ScenePass");
 
         if (deferred)
         {
-            // ScenePass -> DeferredLightingPass: G-Buffer MRT must be fully
-            // written before the lighting pass samples it.
-            s_Data.RGraph->AddExecutionDependency("ScenePass", "DeferredLightingPass");
-            // ScenePass -> DeferredOpaqueDecalPass -> DeferredLightingPass:
-            // opaque decals composite into the G-Buffer albedo/normal/RMA/
-            // emissive channels after the main MRT write but before
-            // lighting, so lighting sees the decal contribution.
             if (s_Data.OpaqueDecalPass)
             {
                 s_Data.RGraph->AddExecutionDependency("ScenePass", "DeferredOpaqueDecalPass");
                 s_Data.RGraph->AddExecutionDependency("DeferredOpaqueDecalPass", "DeferredLightingPass");
             }
-            // DeferredLightingPass -> ForwardOverlayPass: overlay geometry
-            // (skybox, terrain, voxel, grid, debug) relies on the G-Buffer
-            // depth that DeferredLightingPass blits into the scene FB.
+            else
+            {
+                // Defensive fallback when the decal node is unavailable.
+                s_Data.RGraph->AddExecutionDependency("ScenePass", "DeferredLightingPass");
+            }
+
             s_Data.RGraph->AddExecutionDependency("DeferredLightingPass", "ForwardOverlayPass");
-            // ForwardOverlayPass -> FoliagePass: foliage overlays the lit scene
-            // plus forward-overlay geometry.
             s_Data.RGraph->AddExecutionDependency("ForwardOverlayPass", "FoliagePass");
-            // DeferredLightingPass -> FoliagePass: foliage blends over the lit
-            // result written into ScenePass's colour[0].
-            s_Data.RGraph->AddExecutionDependency("DeferredLightingPass", "FoliagePass");
         }
 
-        // ScenePass -> FoliagePass: ordering (foliage renders into scene FB after opaque geometry)
         s_Data.RGraph->AddExecutionDependency("ScenePass", "FoliagePass");
-        // FoliagePass -> DecalPass: ordering (decals render on opaque surfaces before translucent water)
         s_Data.RGraph->AddExecutionDependency("FoliagePass", "DecalPass");
-        // DecalPass -> WaterPass: ordering (water blends over decals and opaque geometry)
         s_Data.RGraph->AddExecutionDependency("DecalPass", "WaterPass");
-        // WaterPass -> SSAOPass: ordering (water must complete before SSAO reads depth/normals)
-        s_Data.RGraph->AddExecutionDependency("WaterPass", "SSAOPass");
-        // DecalPass -> SSAOPass: ordering (SSAO reads scene depth/normals via texture slots)
-        s_Data.RGraph->AddExecutionDependency("DecalPass", "SSAOPass");
-        // SSAOPass -> ParticlePass: ordering (SSAO must complete before particles render into scene FB)
-        s_Data.RGraph->AddExecutionDependency("SSAOPass", "ParticlePass");
-        // WaterPass -> GTAOPass: ordering (water must complete before GTAO reads depth/normals)
-        s_Data.RGraph->AddExecutionDependency("WaterPass", "GTAOPass");
-        // DecalPass -> GTAOPass: ordering (GTAO reads scene depth/normals via texture slots)
-        s_Data.RGraph->AddExecutionDependency("DecalPass", "GTAOPass");
-        // GTAOPass -> ParticlePass: ordering (GTAO must complete before particles render into scene FB)
-        s_Data.RGraph->AddExecutionDependency("GTAOPass", "ParticlePass");
-        // ParticlePass -> OITResolvePass: framebuffer piping (OIT resolve
-        // samples its own OIT buffer and composites over the scene FB the
-        // particle pass fed it).
-        s_Data.RGraph->ConnectPass("ParticlePass", "OITResolvePass");
-        // OITResolvePass -> SSSPass: framebuffer piping (SSS reads scene
-        // colour post-composite. When OIT is off, OITResolvePass is a
-        // no-op passthrough so SSSPass sees the particle-blended scene FB).
-        s_Data.RGraph->ConnectPass("OITResolvePass", "SSSPass");
-        // Graph connections: SSSPass -> PostProcessPass -> UICompositePass -> FinalPass
-        // use SetInputFramebuffer via the graph's Execute() piping.
-        s_Data.RGraph->ConnectPass("SSSPass", "PostProcessPass");
+        s_Data.RGraph->AddExecutionDependency("WaterPass", "ParticlePass");
+
+        // Phase F: post-chain ordering remains explicit; framebuffer handoff
+        // is bound per-frame in EndScene.
+        s_Data.RGraph->AddExecutionDependency("ParticlePass", "OITResolvePass");
+        s_Data.RGraph->AddExecutionDependency("OITResolvePass", "SSSPass");
+        s_Data.RGraph->AddExecutionDependency("SSSPass", "PostProcessPass");
         if (s_Data.EnableSelectionOutline)
         {
-            s_Data.RGraph->ConnectPass("PostProcessPass", "SelectionOutlinePass");
-            s_Data.RGraph->ConnectPass("SelectionOutlinePass", "UICompositePass");
+            s_Data.RGraph->AddExecutionDependency("PostProcessPass", "SelectionOutlinePass");
+            s_Data.RGraph->AddExecutionDependency("SelectionOutlinePass", "UICompositePass");
         }
         else
         {
-            s_Data.RGraph->ConnectPass("PostProcessPass", "UICompositePass");
+            s_Data.RGraph->AddExecutionDependency("PostProcessPass", "UICompositePass");
         }
-        s_Data.RGraph->ConnectPass("UICompositePass", "FinalPass");
 
-        // PostProcessPass needs the scene depth for DOF/MotionBlur (not piped by graph).
-        s_Data.PostProcessPass->SetSceneDepthFramebuffer(s_Data.ScenePass->GetTarget());
-        // PostProcessPass initial input is the scene FB (overridden by graph's SSSPass -> PostProcessPass
-        // piping each frame, which passes SSSPass::GetTarget() = scene FB when SSS is disabled).
-        s_Data.PostProcessPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
+        // FinalPass remains a side-effecting present sink with explicit
+        // ordering; its input framebuffer is also bound per-frame in EndScene.
+        s_Data.RGraph->AddExecutionDependency("UICompositePass", "FinalPass");
+
+        // Phase C bridge: register setup declarations for selected production
+        // passes so BuildFrameGraph() can derive ordering edges from resource
+        // access contracts. Execute remains legacy RenderPass::Execute for now.
+        s_Data.RGraph->RegisterGraphPass(
+            "ScenePass",
+            [](RGBuilder& builder)
+            {
+                const auto& board = builder.UseBlackboard();
+
+                if (board.ShadowMapCSM.IsValid())
+                {
+                    [[maybe_unused]] const auto shadowCSMRead = builder.Read(board.ShadowMapCSM, RGReadUsage::ShaderSample);
+                }
+                if (board.ShadowMapSpot.IsValid())
+                {
+                    [[maybe_unused]] const auto shadowSpotRead = builder.Read(board.ShadowMapSpot, RGReadUsage::ShaderSample);
+                }
+
+                if (board.SceneDepth.IsValid())
+                    builder.Write(board.SceneDepth, RGWriteUsage::DepthStencil);
+                if (board.Velocity.IsValid())
+                    builder.Write(board.Velocity, RGWriteUsage::RenderTarget);
+
+                if (s_Data.Settings.Path == RenderingPath::Deferred)
+                {
+                    if (board.GBufferAlbedo.IsValid())
+                        builder.Write(board.GBufferAlbedo, RGWriteUsage::RenderTarget);
+                    if (board.GBufferNormal.IsValid())
+                        builder.Write(board.GBufferNormal, RGWriteUsage::RenderTarget);
+                    if (board.GBufferMetallic.IsValid())
+                        builder.Write(board.GBufferMetallic, RGWriteUsage::RenderTarget);
+                    if (board.GBufferEmissive.IsValid())
+                        builder.Write(board.GBufferEmissive, RGWriteUsage::RenderTarget);
+                }
+                else if (board.SceneColor.IsValid())
+                {
+                    builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
+                }
+            },
+            [](RGCommandContext& context)
+            {
+                (void)context;
+            });
+
+        s_Data.RGraph->RegisterGraphPass(
+            "SSAOPass",
+            [](RGBuilder& builder)
+            {
+                if (s_Data.PostProcess.ActiveAOTechnique != AOTechnique::SSAO ||
+                    !s_Data.PostProcess.SSAOEnabled)
+                {
+                    return;
+                }
+
+                const auto& board = builder.UseBlackboard();
+                if (board.SceneDepth.IsValid())
+                {
+                    [[maybe_unused]] const auto sceneDepthRead = builder.Read(board.SceneDepth, RGReadUsage::ShaderSample);
+                }
+                if (board.SceneNormals.IsValid())
+                {
+                    [[maybe_unused]] const auto sceneNormalsRead = builder.Read(board.SceneNormals, RGReadUsage::ShaderSample);
+                }
+                if (board.AOBuffer.IsValid())
+                    builder.Write(board.AOBuffer, RGWriteUsage::RenderTarget);
+            },
+            [](RGCommandContext& context)
+            {
+                (void)context;
+            });
+
+        s_Data.RGraph->RegisterGraphPass(
+            "GTAOPass",
+            [](RGBuilder& builder)
+            {
+                if (s_Data.PostProcess.ActiveAOTechnique != AOTechnique::GTAO ||
+                    !s_Data.PostProcess.GTAOEnabled)
+                {
+                    return;
+                }
+
+                const auto& board = builder.UseBlackboard();
+                if (board.SceneDepth.IsValid())
+                {
+                    [[maybe_unused]] const auto sceneDepthRead = builder.Read(board.SceneDepth, RGReadUsage::ShaderSample);
+                }
+                if (board.SceneNormals.IsValid())
+                {
+                    [[maybe_unused]] const auto sceneNormalsRead = builder.Read(board.SceneNormals, RGReadUsage::ShaderSample);
+                }
+                if (board.AOBuffer.IsValid())
+                    builder.Write(board.AOBuffer, RGWriteUsage::ShaderImage);
+            },
+            [](RGCommandContext& context)
+            {
+                (void)context;
+            });
+
+        s_Data.RGraph->RegisterGraphPass(
+            "PostProcessPass",
+            [](RGBuilder& builder)
+            {
+                const auto& board = builder.UseBlackboard();
+
+                if (board.SSSColor.IsValid())
+                {
+                    [[maybe_unused]] const auto sssColorRead = builder.Read(board.SSSColor, RGReadUsage::RenderTargetRead);
+                }
+                else if (board.SceneColor.IsValid())
+                {
+                    [[maybe_unused]] const auto sceneColorRead = builder.Read(board.SceneColor, RGReadUsage::RenderTargetRead);
+                }
+                if (board.SceneDepth.IsValid())
+                {
+                    [[maybe_unused]] const auto sceneDepthRead = builder.Read(board.SceneDepth, RGReadUsage::ShaderSample);
+                }
+                if (board.Velocity.IsValid())
+                {
+                    [[maybe_unused]] const auto velocityRead = builder.Read(board.Velocity, RGReadUsage::ShaderSample);
+                }
+                if (board.AOBuffer.IsValid())
+                {
+                    [[maybe_unused]] const auto aoBufferRead = builder.Read(board.AOBuffer, RGReadUsage::ShaderSample);
+                }
+                if (board.TAAHistory.IsValid())
+                {
+                    [[maybe_unused]] const auto taaHistoryRead = builder.Read(board.TAAHistory, RGReadUsage::ShaderSample);
+                }
+                if (board.FogHistory.IsValid())
+                {
+                    [[maybe_unused]] const auto fogHistoryRead = builder.Read(board.FogHistory, RGReadUsage::ShaderSample);
+                }
+
+                if (board.PostProcessColor.IsValid())
+                    builder.Write(board.PostProcessColor, RGWriteUsage::RenderTarget);
+            },
+            [](RGCommandContext& context)
+            {
+                (void)context;
+            });
+
+        s_Data.RGraph->RegisterGraphPass(
+            "SelectionOutlinePass",
+            [](RGBuilder& builder)
+            {
+                if (!s_Data.EnableSelectionOutline)
+                    return;
+
+                const auto& board = builder.UseBlackboard();
+
+                if (board.PostProcessColor.IsValid())
+                {
+                    [[maybe_unused]] const auto postProcessRead = builder.Read(board.PostProcessColor, RGReadUsage::RenderTargetRead);
+                }
+
+                if (board.SelectionOutlineColor.IsValid())
+                    builder.Write(board.SelectionOutlineColor, RGWriteUsage::RenderTarget);
+            },
+            [](RGCommandContext& context)
+            {
+                (void)context;
+            });
+
+        s_Data.RGraph->RegisterGraphPass(
+            "UICompositePass",
+            [](RGBuilder& builder)
+            {
+                const auto& board = builder.UseBlackboard();
+
+                if (board.UIComposite.IsValid())
+                    builder.Write(board.UIComposite, RGWriteUsage::RenderTarget);
+
+                if (s_Data.EnableSelectionOutline && board.SelectionOutlineColor.IsValid())
+                {
+                    [[maybe_unused]] const auto selectionOutlineRead = builder.Read(board.SelectionOutlineColor, RGReadUsage::RenderTargetRead);
+                }
+                else if (board.PostProcessColor.IsValid())
+                {
+                    [[maybe_unused]] const auto postProcessColorRead = builder.Read(board.PostProcessColor, RGReadUsage::RenderTargetRead);
+                }
+            },
+            [](RGCommandContext& context)
+            {
+                (void)context;
+            });
+
+        s_Data.RGraph->RegisterGraphPass(
+            "FinalPass",
+            [](RGBuilder& builder)
+            {
+                const auto& board = builder.UseBlackboard();
+
+                if (board.UIComposite.IsValid())
+                {
+                    [[maybe_unused]] const auto uiCompositeRead = builder.Read(board.UIComposite, RGReadUsage::RenderTargetRead);
+                }
+
+                if (board.Backbuffer.IsValid())
+                    builder.Write(board.Backbuffer, RGWriteUsage::RenderTarget);
+            },
+            [](RGCommandContext& context)
+            {
+                (void)context;
+            });
+
+        s_Data.RGraph->RegisterGraphPass(
+            "ParticlePass",
+            [](RGBuilder& builder)
+            {
+                const auto& board = builder.UseBlackboard();
+                const bool oitEnabled = (s_Data.Settings.Path == RenderingPath::Deferred) &&
+                                        s_Data.Settings.Deferred.OITEnabled;
+
+                if (oitEnabled)
+                {
+                    if (board.OITAccum.IsValid())
+                        builder.Write(board.OITAccum, RGWriteUsage::RenderTarget);
+                    if (board.OITRevealage.IsValid())
+                        builder.Write(board.OITRevealage, RGWriteUsage::RenderTarget);
+                }
+                else if (board.SceneColor.IsValid())
+                {
+                    builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
+                }
+            },
+            [](RGCommandContext& context)
+            {
+                (void)context;
+            });
+
+        s_Data.RGraph->RegisterGraphPass(
+            "WaterPass",
+            [](RGBuilder& builder)
+            {
+                const auto& board = builder.UseBlackboard();
+                const bool oitEnabled = (s_Data.Settings.Path == RenderingPath::Deferred) &&
+                                        s_Data.Settings.Deferred.OITEnabled;
+
+                if (oitEnabled)
+                {
+                    if (board.OITAccum.IsValid())
+                        builder.Write(board.OITAccum, RGWriteUsage::RenderTarget);
+                    if (board.OITRevealage.IsValid())
+                        builder.Write(board.OITRevealage, RGWriteUsage::RenderTarget);
+                }
+                else if (board.SceneColor.IsValid())
+                {
+                    builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
+                }
+            },
+            [](RGCommandContext& context)
+            {
+                (void)context;
+            });
+
+        s_Data.RGraph->RegisterGraphPass(
+            "DecalPass",
+            [](RGBuilder& builder)
+            {
+                const auto& board = builder.UseBlackboard();
+                const bool oitEnabled = (s_Data.Settings.Path == RenderingPath::Deferred) &&
+                                        s_Data.Settings.Deferred.OITEnabled;
+
+                if (oitEnabled)
+                {
+                    if (board.OITAccum.IsValid())
+                        builder.Write(board.OITAccum, RGWriteUsage::RenderTarget);
+                    if (board.OITRevealage.IsValid())
+                        builder.Write(board.OITRevealage, RGWriteUsage::RenderTarget);
+                }
+                else if (board.SceneColor.IsValid())
+                {
+                    builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
+                }
+            },
+            [](RGCommandContext& context)
+            {
+                (void)context;
+            });
+
+        s_Data.RGraph->RegisterGraphPass(
+            "OITResolvePass",
+            [](RGBuilder& builder)
+            {
+                const auto& board = builder.UseBlackboard();
+
+                if (board.OITAccum.IsValid())
+                {
+                    [[maybe_unused]] const auto oitAccumRead = builder.Read(board.OITAccum, RGReadUsage::RenderTargetRead);
+                }
+                if (board.OITRevealage.IsValid())
+                {
+                    [[maybe_unused]] const auto oitRevealageRead = builder.Read(board.OITRevealage, RGReadUsage::RenderTargetRead);
+                }
+
+                if (board.SceneColor.IsValid())
+                {
+                    [[maybe_unused]] const auto sceneColorRead = builder.Read(board.SceneColor, RGReadUsage::RenderTargetRead);
+                    builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
+                }
+            },
+            [](RGCommandContext& context)
+            {
+                (void)context;
+            });
+
+        s_Data.RGraph->RegisterGraphPass(
+            "SSSPass",
+            [](RGBuilder& builder)
+            {
+                const auto& board = builder.UseBlackboard();
+                if (!s_Data.Snow.SSSBlurEnabled || !s_Data.SSSPass)
+                    return;
+
+                if (board.SceneColor.IsValid())
+                {
+                    [[maybe_unused]] const auto sceneColorRead = builder.Read(board.SceneColor, RGReadUsage::RenderTargetRead);
+                }
+                if (board.SSSColor.IsValid())
+                {
+                    builder.Write(board.SSSColor, RGWriteUsage::RenderTarget);
+                }
+            },
+            [](RGCommandContext& context)
+            {
+                (void)context;
+            });
+
+        s_Data.RGraph->RegisterGraphPass(
+            "ShadowPass",
+            [](RGBuilder& builder)
+            {
+                const auto& board = builder.UseBlackboard();
+
+                if (board.ShadowMapCSM.IsValid())
+                    builder.Write(board.ShadowMapCSM, RGWriteUsage::DepthStencil);
+                if (board.ShadowMapSpot.IsValid())
+                    builder.Write(board.ShadowMapSpot, RGWriteUsage::DepthStencil);
+            },
+            [](RGCommandContext& context)
+            {
+                (void)context;
+            });
+
+        s_Data.RGraph->RegisterGraphPass(
+            "DeferredLightingPass",
+            [](RGBuilder& builder)
+            {
+                if (s_Data.Settings.Path != RenderingPath::Deferred)
+                    return;
+
+                const auto& board = builder.UseBlackboard();
+
+                if (board.GBufferAlbedo.IsValid())
+                {
+                    [[maybe_unused]] const auto gbufferAlbedoRead = builder.Read(board.GBufferAlbedo, RGReadUsage::ShaderSample);
+                }
+                if (board.GBufferNormal.IsValid())
+                {
+                    [[maybe_unused]] const auto gbufferNormalRead = builder.Read(board.GBufferNormal, RGReadUsage::ShaderSample);
+                }
+                if (board.GBufferMetallic.IsValid())
+                {
+                    [[maybe_unused]] const auto gbufferMetallicRead = builder.Read(board.GBufferMetallic, RGReadUsage::ShaderSample);
+                }
+                if (board.GBufferEmissive.IsValid())
+                {
+                    [[maybe_unused]] const auto gbufferEmissiveRead = builder.Read(board.GBufferEmissive, RGReadUsage::ShaderSample);
+                }
+                if (board.SceneDepth.IsValid())
+                {
+                    [[maybe_unused]] const auto sceneDepthRead = builder.Read(board.SceneDepth, RGReadUsage::ShaderSample);
+                }
+                if (board.ShadowMapCSM.IsValid())
+                {
+                    [[maybe_unused]] const auto shadowCSMRead = builder.Read(board.ShadowMapCSM, RGReadUsage::ShaderSample);
+                }
+                if (board.ShadowMapSpot.IsValid())
+                {
+                    [[maybe_unused]] const auto shadowSpotRead = builder.Read(board.ShadowMapSpot, RGReadUsage::ShaderSample);
+                }
+                if (board.AOBuffer.IsValid())
+                {
+                    [[maybe_unused]] const auto aoRead = builder.Read(board.AOBuffer, RGReadUsage::ShaderSample);
+                }
+                if (board.IrradianceMap.IsValid())
+                {
+                    [[maybe_unused]] const auto irradianceRead = builder.Read(board.IrradianceMap, RGReadUsage::ShaderSample);
+                }
+                if (board.PrefilterMap.IsValid())
+                {
+                    [[maybe_unused]] const auto prefilterRead = builder.Read(board.PrefilterMap, RGReadUsage::ShaderSample);
+                }
+                if (board.BrdfLut.IsValid())
+                {
+                    [[maybe_unused]] const auto brdfRead = builder.Read(board.BrdfLut, RGReadUsage::ShaderSample);
+                }
+
+                if (board.SceneColor.IsValid())
+                    builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
+            },
+            [](RGCommandContext& context)
+            {
+                (void)context;
+            });
+
+        s_Data.RGraph->RegisterGraphPass(
+            "DeferredOpaqueDecalPass",
+            [](RGBuilder& builder)
+            {
+                if (s_Data.Settings.Path != RenderingPath::Deferred)
+                    return;
+
+                const auto& board = builder.UseBlackboard();
+
+                if (board.SceneDepth.IsValid())
+                {
+                    [[maybe_unused]] const auto sceneDepthRead = builder.Read(board.SceneDepth, RGReadUsage::ShaderSample);
+                }
+
+                if (board.GBufferAlbedo.IsValid())
+                    builder.Write(board.GBufferAlbedo, RGWriteUsage::RenderTarget);
+                if (board.GBufferNormal.IsValid())
+                    builder.Write(board.GBufferNormal, RGWriteUsage::RenderTarget);
+                if (board.GBufferMetallic.IsValid())
+                    builder.Write(board.GBufferMetallic, RGWriteUsage::RenderTarget);
+                if (board.GBufferEmissive.IsValid())
+                    builder.Write(board.GBufferEmissive, RGWriteUsage::RenderTarget);
+            },
+            [](RGCommandContext& context)
+            {
+                (void)context;
+            });
+
+        s_Data.RGraph->RegisterGraphPass(
+            "ForwardOverlayPass",
+            [](RGBuilder& builder)
+            {
+                if (s_Data.Settings.Path != RenderingPath::Deferred)
+                    return;
+
+                const auto& board = builder.UseBlackboard();
+                if (board.SceneColor.IsValid())
+                    builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
+            },
+            [](RGCommandContext& context)
+            {
+                (void)context;
+            });
+
+        s_Data.RGraph->RegisterGraphPass(
+            "FoliagePass",
+            [](RGBuilder& builder)
+            {
+                const auto& board = builder.UseBlackboard();
+                if (board.SceneColor.IsValid())
+                    builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
+            },
+            [](RGCommandContext& context)
+            {
+                (void)context;
+            });
+
+        // PostProcessPass input binding is handled per-frame in EndScene() — Phase F side-channel removal.
+        // Depth / AO / velocity / shadow inputs are now passed as typed graph handles per frame.
 
         if (deferred)
         {
-            OLO_CORE_INFO("Renderer3D: Render graph (Deferred): Shadow -> Scene -> DeferredLighting -> ForwardOverlay -> Foliage -> Decal -> Water -> SSAO/GTAO -> Particle -> OITResolve -> SSS -> PostProcess{} -> UIComposite -> Final",
+            OLO_CORE_INFO("Renderer3D: Render graph (Deferred): Shadow -> Scene -> DeferredOpaqueDecal -> DeferredLighting -> ForwardOverlay -> Foliage -> Decal -> Water -> SSAO/GTAO -> Particle -> OITResolve -> SSS -> PostProcess{} -> UIComposite -> Final",
                           s_Data.EnableSelectionOutline ? " -> SelectionOutline" : "");
         }
         else

@@ -107,12 +107,13 @@ namespace OloEngine
         }
 
         // Resource-aware RDG: post-process consumes the accumulated HDR
-        // scene color (piped via SetInputFramebuffer) + scene depth (set
-        // explicitly via SetSceneDepthFramebuffer for DOF / MotionBlur /
-        // fog depth reconstruction), and emits the tonemapped LDR image
-        // that the UI composite / final passes read.
+        // scene color (piped via SetInputFramebuffer) plus graph-resolved
+        // depth / AO / velocity / shadow inputs, and emits the tonemapped
+        // LDR image that the UI composite / final passes read.
         DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
         DeclareRead(ResourceNames::SceneDepth, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::AOBuffer, ResourceHandle::Kind::Texture2D);
+        DeclareRead(ResourceNames::Velocity, ResourceHandle::Kind::Texture2D);
         DeclareRead(ResourceNames::ShadowMapCSM, ResourceHandle::Kind::Texture2DArray);
         DeclareWrite(ResourceNames::PostProcessColor, ResourceHandle::Kind::Framebuffer);
 
@@ -134,14 +135,58 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_InputFramebuffer)
+        Ref<Framebuffer> inputFramebuffer = m_InputFramebuffer;
+        if (m_InputFramebufferHandle.IsValid())
+        {
+            if (auto resolvedInput = context.ResolveFramebuffer(m_InputFramebufferHandle))
+                inputFramebuffer = resolvedInput;
+        }
+
+        // Keep the legacy member in sync so GetTarget() passthrough semantics
+        // remain stable when post-process is skipped.
+        m_InputFramebuffer = inputFramebuffer;
+
+        if (!inputFramebuffer)
         {
             OLO_CORE_ERROR("PostProcessRenderPass::Execute: No input framebuffer!");
             return;
         }
 
+        const u32 inputColorID = inputFramebuffer->GetColorAttachmentRendererID(0);
+        if (inputColorID == 0)
+        {
+            static u32 s_InvalidPostInputWarnings = 0;
+            if (s_InvalidPostInputWarnings++ < 10)
+            {
+                const auto& inSpec = inputFramebuffer->GetSpecification();
+                OLO_CORE_WARN("PostProcessRenderPass: input framebuffer color attachment 0 is invalid (id=0). Size={}x{}, attachmentCount={}",
+                              inSpec.Width, inSpec.Height, inSpec.Attachments.Attachments.size());
+            }
+        }
+
+        u32 sceneDepthTextureID = context.ResolveTexture(m_SceneDepthHandle);
+        const u32 aoTextureID = context.ResolveTexture(m_AOTextureHandle);
+        const u32 shadowMapCSMTextureID = context.ResolveTexture(m_ShadowMapCSMHandle);
+        const u32 velocityTextureID = context.ResolveTexture(m_VelocityTextureHandle);
+
+        if (sceneDepthTextureID == 0)
+        {
+            const u32 fallbackDepthID = inputFramebuffer->GetDepthAttachmentRendererID();
+            if (fallbackDepthID != 0)
+            {
+                sceneDepthTextureID = fallbackDepthID;
+            }
+
+            static u32 s_MissingDepthWarnings = 0;
+            if (s_MissingDepthWarnings++ < 10)
+            {
+                OLO_CORE_WARN("PostProcessRenderPass: resolved SceneDepth texture is invalid (id=0), fallback depth id={}",
+                              sceneDepthTextureID);
+            }
+        }
+
         // If no effects are enabled, skip — GetTarget() returns the input framebuffer directly
-        bool anyEffectEnabled = m_Settings.BloomEnabled || m_Settings.VignetteEnabled || m_Settings.ChromaticAberrationEnabled || m_Settings.FXAAEnabled || m_Settings.DOFEnabled || m_Settings.MotionBlurEnabled || m_Settings.TAAEnabled || m_Settings.ColorGradingEnabled || m_FogEnabled || (m_PrecipitationScreenEffectsEnabled && m_PrecipitationShader && m_PrecipitationScreenUBO) || (m_Settings.SSAOEnabled && m_SSAOTextureID != 0);
+        bool anyEffectEnabled = m_Settings.BloomEnabled || m_Settings.VignetteEnabled || m_Settings.ChromaticAberrationEnabled || m_Settings.FXAAEnabled || m_Settings.DOFEnabled || m_Settings.MotionBlurEnabled || m_Settings.TAAEnabled || m_Settings.ColorGradingEnabled || m_FogEnabled || (m_PrecipitationScreenEffectsEnabled && m_PrecipitationShader && m_PrecipitationScreenUBO) || (m_Settings.SSAOEnabled && aoTextureID != 0);
 
         // Always run tone mapping if we have the shader (it's the core of post-processing)
         if (!anyEffectEnabled && !m_ToneMapShader)
@@ -153,7 +198,7 @@ namespace OloEngine
         m_SkippedThisFrame = false;
 
         // Set up the ping-pong chain
-        Ref<Framebuffer> currentSource = m_InputFramebuffer;
+        Ref<Framebuffer> currentSource = inputFramebuffer;
         bool writeToP = true;
 
         auto applyEffect = [&](const Ref<Shader>& shader)
@@ -166,7 +211,7 @@ namespace OloEngine
 
         // === Effect chain order ===
         // 0. AO Apply (modulate scene color by AO factor from SSAO or GTAO)
-        if (m_SSAOApplyShader && m_SSAOTextureID != 0)
+        if (m_SSAOApplyShader && aoTextureID != 0)
         {
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();
@@ -178,12 +223,11 @@ namespace OloEngine
             m_SSAOApplyShader->Bind();
             u32 srcColorID = currentSource->GetColorAttachmentRendererID(0);
             context.BindTexture(0, srcColorID);
-            context.BindTexture(ShaderBindingLayout::TEX_SSAO, m_SSAOTextureID);
+            context.BindTexture(ShaderBindingLayout::TEX_SSAO, aoTextureID);
 
             // Bind full-res scene depth for bilateral upsampling.
             // Bind 0 when unavailable to avoid sampling stale texture state.
-            u32 depthID = m_SceneDepthFB ? m_SceneDepthFB->GetDepthAttachmentRendererID() : 0;
-            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID);
 
             DrawFullscreenTriangle();
             dest->Unbind();
@@ -223,7 +267,7 @@ namespace OloEngine
         }
 
         // 2. DOF
-        if (m_Settings.DOFEnabled && m_DOFShader && m_SceneDepthFB)
+        if (m_Settings.DOFEnabled && m_DOFShader && sceneDepthTextureID != 0)
         {
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();
@@ -237,8 +281,7 @@ namespace OloEngine
             context.BindTexture(0, srcColorID);
 
             // Bind scene depth at slot 19
-            u32 depthID = m_SceneDepthFB->GetDepthAttachmentRendererID();
-            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID);
 
             // UBO already has CameraNear/CameraFar from EndScene upload
 
@@ -250,7 +293,7 @@ namespace OloEngine
         }
 
         // 3. Motion Blur
-        if (m_Settings.MotionBlurEnabled && m_MotionBlurShader && m_SceneDepthFB)
+        if (m_Settings.MotionBlurEnabled && m_MotionBlurShader && sceneDepthTextureID != 0)
         {
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();
@@ -264,8 +307,7 @@ namespace OloEngine
             context.BindTexture(0, srcColorID);
             m_MotionBlurShader->SetInt("u_Texture", 0);
 
-            u32 depthID = m_SceneDepthFB->GetDepthAttachmentRendererID();
-            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID);
             m_MotionBlurShader->SetInt("u_DepthTexture", ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
 
             DrawFullscreenTriangle();
@@ -281,7 +323,7 @@ namespace OloEngine
         // would need to be injected into CameraMatrices (see deferred-renderer
         // docs, future work). Without jitter, TAA still smooths temporal
         // aliasing and reduces crawl during motion.
-        if (m_Settings.TAAEnabled && m_TAAShader && m_TAAHistoryFB && m_SceneDepthFB)
+        if (m_Settings.TAAEnabled && m_TAAShader && m_TAAHistoryFB && sceneDepthTextureID != 0)
         {
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();
@@ -306,12 +348,11 @@ namespace OloEngine
 
             // slot 2: velocity (G-Buffer RT3) — zero-bound forces camera-only
             // reprojection path in the shader.
-            context.BindTexture(2, m_VelocityTextureID);
+            context.BindTexture(2, velocityTextureID);
             m_TAAShader->SetInt("u_Velocity", 2);
 
             // slot 19: scene depth for camera-only reconstruction
-            u32 depthID = m_SceneDepthFB->GetDepthAttachmentRendererID();
-            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID);
             m_TAAShader->SetInt("u_DepthTexture", ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
 
             // Upload TAA UBO (binding 32)
@@ -321,7 +362,7 @@ namespace OloEngine
                 taaData.FeedbackSharpnessHasVelocity = glm::vec4(
                     m_Settings.TAAFeedback,
                     m_Settings.TAASharpness,
-                    m_VelocityTextureID != 0 ? 1.0f : 0.0f,
+                    velocityTextureID != 0 ? 1.0f : 0.0f,
                     0.0f);
                 taaData.TexelSize = glm::vec4(
                     1.0f / static_cast<f32>(m_FramebufferSpec.Width),
@@ -404,10 +445,8 @@ namespace OloEngine
         }
 
         // 3.5. Volumetric Fog — half-res ray-march + temporal reprojection + bilateral upsample
-        if (m_FogEnabled && m_FogShader && m_FogUpsampleShader && m_SceneDepthFB && m_FogHalfResFB)
+        if (m_FogEnabled && m_FogShader && m_FogUpsampleShader && sceneDepthTextureID != 0 && m_FogHalfResFB)
         {
-            u32 depthID = m_SceneDepthFB->GetDepthAttachmentRendererID();
-
             // Pass A: Ray-march at half resolution into m_FogHalfResFB
             //   Output: RGBA16F — RGB = accumulated inscatter, A = transmittance
             m_FogHalfResFB->Bind();
@@ -420,7 +459,7 @@ namespace OloEngine
             m_FogShader->Bind();
 
             // Bind full-res depth (reads at half-res UV)
-            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID);
 
             // Bind temporal history for reprojection
             if (m_FogHistoryFB)
@@ -430,9 +469,9 @@ namespace OloEngine
             }
 
             // Bind CSM shadow map for volumetric light shafts
-            if (m_ShadowMapCSMTextureID != 0)
+            if (shadowMapCSMTextureID != 0)
             {
-                context.BindTexture(ShaderBindingLayout::TEX_SHADOW, m_ShadowMapCSMTextureID);
+                context.BindTexture(ShaderBindingLayout::TEX_SHADOW, shadowMapCSMTextureID);
             }
 
             DrawFullscreenTriangle();
@@ -467,7 +506,7 @@ namespace OloEngine
             m_FogUpsampleShader->SetInt("u_FogTexture", 1);
 
             // Full-res depth for bilateral edge detection
-            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID);
             m_FogUpsampleShader->SetInt("u_DepthTexture", ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
 
             DrawFullscreenTriangle();

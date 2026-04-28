@@ -39,6 +39,10 @@ namespace OloEngine
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
         void SetInputFramebuffer(const Ref<Framebuffer>& input) override;
+        void SetInputFramebufferHandle(RGFramebufferHandle handle)
+        {
+            m_InputFramebufferHandle = handle;
+        }
 
         // Set a one-shot render callback invoked during Execute() after the background blit.
         // The callback is cleared after each frame. Scene sets this before RenderScene3D().
@@ -48,6 +52,7 @@ namespace OloEngine
         void CreateFramebuffer(u32 width, u32 height);
 
         Ref<Framebuffer> m_InputFramebuffer;
+        RGFramebufferHandle m_InputFramebufferHandle;
         Ref<Shader> m_BlitShader;
         RenderCallback m_RenderCallback;
         u32 m_NoInputWarningCount = 0;

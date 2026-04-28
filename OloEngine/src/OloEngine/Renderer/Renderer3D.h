@@ -1147,6 +1147,11 @@ namespace OloEngine
         // Forward+/Forward) are simply NOT registered in that topology.
         static void ConfigureRenderGraph(RenderingPath path);
 
+        // Phase B — Populate the graph's FrameBlackboard with live physical
+        // resources for the current frame.  Called at the end of
+        // BeginSceneCommon() so every resource is ready before Execute().
+        static void SetupFrameBlackboard();
+
         // @brief Returns true if `shader` is one of the engine's
         // G-Buffer-writing variants (PBR / Skybox / LightCube / InfiniteGrid
         // / Terrain / Voxel / Foliage / Decal). Used at material-override

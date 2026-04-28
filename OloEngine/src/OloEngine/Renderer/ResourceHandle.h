@@ -276,6 +276,13 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view SceneDepth = "SceneDepth";     // Shared depth buffer
     inline constexpr std::string_view SceneNormals = "SceneNormals"; // GBuffer-style normals, sampled by SSAO/GTAO
 
+    // G-Buffer attachments (deferred path).
+    inline constexpr std::string_view GBufferAlbedo = "GBufferAlbedo";     // RT0 — sRGB albedo + metallic
+    inline constexpr std::string_view GBufferNormal = "GBufferNormal";     // RT1 — world-space normals
+    inline constexpr std::string_view GBufferMetallic = "GBufferMetallic"; // RT2 — roughness/metallic/AO
+    inline constexpr std::string_view GBufferEmissive = "GBufferEmissive"; // RT3 — emissive HDR
+    inline constexpr std::string_view Velocity = "Velocity";               // TAA motion vectors (screen-space)
+
     // Indirect occlusion outputs.
     inline constexpr std::string_view AOBuffer = "AOBuffer"; // Either SSAO or GTAO output
 
@@ -285,9 +292,16 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view BrdfLut = "BrdfLut";
 
     // Post-process chain.
-    inline constexpr std::string_view PostProcessColor = "PostProcessColor"; // Tonemapped/bloom/etc output
-    inline constexpr std::string_view UIComposite = "UIComposite";           // UI composite over post-processed scene
-    inline constexpr std::string_view FinalColor = "FinalColor";             // Final swapchain image
+    inline constexpr std::string_view SSSColor = "SSSColor";                           // Output of SSS stage (or passthrough scene color)
+    inline constexpr std::string_view PostProcessColor = "PostProcessColor";           // Tonemapped/bloom/etc output
+    inline constexpr std::string_view SelectionOutlineColor = "SelectionOutlineColor"; // Post-process + selection outline composite
+    inline constexpr std::string_view UIComposite = "UIComposite";                     // UI composite over post-processed scene
+    inline constexpr std::string_view Backbuffer = "Backbuffer";                       // External present target (default framebuffer / swapchain)
+
+    // Temporal histories — imported each frame from the previous frame's output,
+    // consumed by TAA (TAAHistory) and volumetric fog (FogHistory).
+    inline constexpr std::string_view TAAHistory = "TAAHistory"; // Previous TAA accumulation buffer
+    inline constexpr std::string_view FogHistory = "FogHistory"; // Previous volumetric fog integration
 
     // Weighted-blended OIT accumulation targets (Water / Particle OIT modes
     // write these; OITResolvePass reads them and composites back onto

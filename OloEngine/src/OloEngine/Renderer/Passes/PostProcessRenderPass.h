@@ -32,30 +32,34 @@ namespace OloEngine
         void OnReset() override;
 
         void SetInputFramebuffer(const Ref<Framebuffer>& input) override;
+        void SetInputFramebufferHandle(RGFramebufferHandle handle)
+        {
+            m_InputFramebufferHandle = handle;
+        }
         void SetSettings(const PostProcessSettings& settings)
         {
             m_Settings = settings;
         }
-        void SetSceneDepthFramebuffer(const Ref<Framebuffer>& sceneFB)
+        void SetSceneDepthTextureHandle(RGTextureHandle handle)
         {
-            m_SceneDepthFB = sceneFB;
+            m_SceneDepthHandle = handle;
         }
         void SetPostProcessUBO(Ref<UniformBuffer> ubo, PostProcessUBOData* gpuData)
         {
             m_PostProcessUBO = ubo;
             m_GPUData = gpuData;
         }
-        void SetSSAOTexture(u32 textureID)
+        void SetAOTextureHandle(RGTextureHandle handle)
         {
-            m_SSAOTextureID = textureID;
+            m_AOTextureHandle = handle;
         }
         void SetFogEnabled(bool enabled)
         {
             m_FogEnabled = enabled;
         }
-        void SetShadowMapCSMTextureID(u32 textureID)
+        void SetShadowMapCSMHandle(RGTextureHandle handle)
         {
-            m_ShadowMapCSMTextureID = textureID;
+            m_ShadowMapCSMHandle = handle;
         }
         void SetPrecipitationScreenEffectsEnabled(bool enabled)
         {
@@ -63,13 +67,36 @@ namespace OloEngine
         }
         // Set the G-Buffer velocity texture (RT3) — pass 0 in Forward /
         // Forward+ to fall back to camera-only depth reprojection.
-        void SetVelocityTextureID(u32 textureID)
+        void SetVelocityTextureHandle(RGTextureHandle handle)
         {
-            m_VelocityTextureID = textureID;
+            m_VelocityTextureHandle = handle;
         }
 
         // Hot-reload a post-process shader by name (stem, e.g. "PostProcess_BloomThreshold")
         void ReloadShader(const std::string& name);
+
+        // -------------------------------------------------------------------
+        // Phase B — history accessors for FrameBlackboard population
+        // -------------------------------------------------------------------
+        // Returns the GL texture ID of the previous TAA accumulation result
+        // (the buffer that will be sampled as "history" in the current frame).
+        // Returns 0 if no valid history has been produced yet (first frame /
+        // after a resize / after OnReset).
+        [[nodiscard]] u32 GetTAAHistoryTextureID() const
+        {
+            if (!m_TAAHistoryValid || !m_TAAHistoryFB)
+                return 0;
+            return m_TAAHistoryFB->GetColorAttachmentRendererID(0);
+        }
+
+        // Returns the GL texture ID of the previous fog integration result.
+        // Returns 0 when no fog history is available.
+        [[nodiscard]] u32 GetFogHistoryTextureID() const
+        {
+            if (!m_FogHistoryFB)
+                return 0;
+            return m_FogHistoryFB->GetColorAttachmentRendererID(0);
+        }
 
       private:
         void CreatePingPongFramebuffers(u32 width, u32 height);
@@ -82,9 +109,15 @@ namespace OloEngine
         void RunEffect(const Ref<Shader>& shader, Ref<Framebuffer> srcFB, Ref<Framebuffer> dstFB);
 
         Ref<Framebuffer> m_InputFramebuffer;
+        RGFramebufferHandle m_InputFramebufferHandle;
         Ref<Framebuffer> m_PingFB;
         Ref<Framebuffer> m_PongFB;
-        Ref<Framebuffer> m_SceneDepthFB; // For DOF / Motion Blur depth access
+
+        // Graph-resolved per-frame inputs
+        RGTextureHandle m_SceneDepthHandle;
+        RGTextureHandle m_AOTextureHandle;
+        RGTextureHandle m_ShadowMapCSMHandle;
+        RGTextureHandle m_VelocityTextureHandle;
 
         // Shaders for each effect (loaded once in Init)
         Ref<Shader> m_BloomThresholdShader;
@@ -108,10 +141,6 @@ namespace OloEngine
         // UBO reference for per-pass updates (texel size, camera near/far)
         Ref<UniformBuffer> m_PostProcessUBO;
         PostProcessUBOData* m_GPUData = nullptr;
-
-        u32 m_SSAOTextureID = 0;
-        u32 m_ShadowMapCSMTextureID = 0;
-        u32 m_VelocityTextureID = 0; // G-Buffer RT3 (Deferred only)
         bool m_FogEnabled = false;
         bool m_PrecipitationScreenEffectsEnabled = false;
         Ref<UniformBuffer> m_PrecipitationScreenUBO;

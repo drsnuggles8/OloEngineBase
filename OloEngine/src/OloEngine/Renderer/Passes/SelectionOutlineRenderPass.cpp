@@ -33,6 +33,11 @@ namespace OloEngine
         CreateFramebuffer(spec.Width, spec.Height);
         CreateJFAFramebuffers(spec.Width, spec.Height);
 
+        // Graph-visible contract: this pass consumes post-processed color
+        // and outputs an outlined variant used by UICompositePass.
+        DeclareRead(ResourceNames::PostProcessColor, ResourceHandle::Kind::Framebuffer);
+        DeclareWrite(ResourceNames::SelectionOutlineColor, ResourceHandle::Kind::Framebuffer);
+
         OLO_CORE_INFO("SelectionOutlineRenderPass: Initialized {}x{} (JFA, {} passes)", spec.Width, spec.Height, m_JFAPassCount);
     }
 
@@ -88,7 +93,14 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_Target || !m_InputFramebuffer)
+        Ref<Framebuffer> inputFramebuffer = m_InputFramebuffer;
+        if (m_InputFramebufferHandle.IsValid())
+        {
+            if (auto resolvedInput = context.ResolveFramebuffer(m_InputFramebufferHandle))
+                inputFramebuffer = resolvedInput;
+        }
+
+        if (!m_Target || !inputFramebuffer)
         {
             return;
         }
@@ -104,7 +116,7 @@ namespace OloEngine
             context.SetDepthTest(false);
 
             m_BlitShader->Bind();
-            context.BindTexture(0, m_InputFramebuffer->GetColorAttachmentRendererID(0));
+            context.BindTexture(0, inputFramebuffer->GetColorAttachmentRendererID(0));
             m_BlitShader->SetInt("u_Texture", 0);
 
             va->Bind();
@@ -183,7 +195,7 @@ namespace OloEngine
         context.SetViewport(0, 0, w, h);
 
         // Slot 0: scene color from PostProcessPass
-        context.BindTexture(0, m_InputFramebuffer->GetColorAttachmentRendererID(0));
+        context.BindTexture(0, inputFramebuffer->GetColorAttachmentRendererID(0));
         // Slot 1: final JFA distance field
         context.BindTexture(1, m_JFAFramebuffers[readIndex]->GetColorAttachmentRendererID(0));
 
