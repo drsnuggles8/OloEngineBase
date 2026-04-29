@@ -112,6 +112,7 @@ namespace OloEngine
             m_GPUData->ScreenWidth = static_cast<i32>(m_HalfWidth);
             m_GPUData->ScreenHeight = static_cast<i32>(m_HalfHeight);
             m_SSAOUBO->SetData(m_GPUData, SSAOUBOData::GetSize());
+            m_SSAOUBO->Bind();
         }
 
         // --- Pass 1: Generate raw SSAO ---

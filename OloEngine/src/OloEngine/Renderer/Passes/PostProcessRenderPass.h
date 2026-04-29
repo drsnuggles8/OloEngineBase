@@ -11,8 +11,8 @@ namespace OloEngine
     // @brief Render pass that applies a chain of post-processing effects.
     //
     // This pass sits between the ParticlePass (scene rendering) and FinalPass (screen blit).
-    // It uses two ping-pong RGBA16F framebuffers to chain effects. When no effects are
-    // enabled it acts as a passthrough (GetTarget returns the input framebuffer).
+    // It uses two ping-pong RGBA16F framebuffers to chain effects, then resolves
+    // the final color into a stable output framebuffer for downstream passes.
     class PostProcessRenderPass : public RenderPass
     {
       public:
@@ -52,6 +52,10 @@ namespace OloEngine
         void SetAOTextureHandle(RGTextureHandle handle)
         {
             m_AOTextureHandle = handle;
+        }
+        void SetAOTextureID(u32 textureID)
+        {
+            m_AOTextureID = textureID;
         }
         void SetFogEnabled(bool enabled)
         {
@@ -102,6 +106,7 @@ namespace OloEngine
         void CreatePingPongFramebuffers(u32 width, u32 height);
         void CreateBloomMipChain(u32 width, u32 height);
         void ExecuteBloom(Ref<Framebuffer> sceneColorFB);
+        void ResolveToOutput(const Ref<Framebuffer>& sourceFB);
         void DrawFullscreenTriangle();
         std::vector<Ref<Shader>*> GetAllShaderRefs();
 
@@ -112,12 +117,14 @@ namespace OloEngine
         RGFramebufferHandle m_InputFramebufferHandle;
         Ref<Framebuffer> m_PingFB;
         Ref<Framebuffer> m_PongFB;
+        Ref<Framebuffer> m_OutputFB;
 
         // Graph-resolved per-frame inputs
         RGTextureHandle m_SceneDepthHandle;
         RGTextureHandle m_AOTextureHandle;
         RGTextureHandle m_ShadowMapCSMHandle;
         RGTextureHandle m_VelocityTextureHandle;
+        u32 m_AOTextureID = 0;
 
         // Shaders for each effect (loaded once in Init)
         Ref<Shader> m_BloomThresholdShader;
@@ -162,10 +169,5 @@ namespace OloEngine
         Ref<Framebuffer> m_TAAHistoryFB;
         bool m_TAAHistoryValid = false; // false on first frame / after resize
         Ref<UniformBuffer> m_TAAUBO;    // binding 32 (TAAParams)
-
-        // Tracks which ping-pong buffer was last written to
-        bool m_LastWrittenIsPing = true;
-        // Tracks if Execute() skipped all processing (passthrough to input FB)
-        bool m_SkippedThisFrame = false;
     };
 } // namespace OloEngine

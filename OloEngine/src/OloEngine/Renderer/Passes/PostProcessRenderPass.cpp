@@ -15,6 +15,23 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        void PrepareFullscreenColorPass()
+        {
+            RenderCommand::SetDepthTest(false);
+            RenderCommand::SetDepthMask(false);
+            RenderCommand::DisableStencilTest();
+            RenderCommand::SetBlendState(false);
+            RenderCommand::DisableCulling();
+            RenderCommand::DisableScissorTest();
+            RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            RenderCommand::SetColorMask(true, true, true, true);
+            constexpr u32 colorAttachment = 0;
+            RenderCommand::SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
+        }
+    } // namespace
+
     std::vector<Ref<Shader>*> PostProcessRenderPass::GetAllShaderRefs()
     {
         return {
@@ -136,7 +153,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         Ref<Framebuffer> inputFramebuffer = m_InputFramebuffer;
-        if (m_InputFramebufferHandle.IsValid())
+        if (!inputFramebuffer && m_InputFramebufferHandle.IsValid())
         {
             if (auto resolvedInput = context.ResolveFramebuffer(m_InputFramebufferHandle))
                 inputFramebuffer = resolvedInput;
@@ -165,7 +182,9 @@ namespace OloEngine
         }
 
         u32 sceneDepthTextureID = context.ResolveTexture(m_SceneDepthHandle);
-        const u32 aoTextureID = context.ResolveTexture(m_AOTextureHandle);
+        u32 aoTextureID = m_AOTextureID;
+        if (aoTextureID == 0)
+            aoTextureID = context.ResolveTexture(m_AOTextureHandle);
         const u32 shadowMapCSMTextureID = context.ResolveTexture(m_ShadowMapCSMHandle);
         const u32 velocityTextureID = context.ResolveTexture(m_VelocityTextureHandle);
 
@@ -185,17 +204,27 @@ namespace OloEngine
             }
         }
 
+        // SetData() updates the buffer object but does not restore the indexed
+        // binding. IBL precompute also uses binding 7, so rebind the post-process
+        // UBO before any fullscreen post shader reads PostProcessUBO.
+        if (m_PostProcessUBO)
+            m_PostProcessUBO->Bind();
+
+        const bool ssaoApplyEnabled = m_Settings.ActiveAOTechnique == AOTechnique::SSAO && m_Settings.SSAOEnabled;
+        const bool gtaoApplyEnabled = m_Settings.ActiveAOTechnique == AOTechnique::GTAO && m_Settings.GTAOEnabled;
+        const bool aoApplyEnabled = (ssaoApplyEnabled || gtaoApplyEnabled) && aoTextureID != 0 && sceneDepthTextureID != 0;
+
         // If no effects are enabled, skip — GetTarget() returns the input framebuffer directly
-        bool anyEffectEnabled = m_Settings.BloomEnabled || m_Settings.VignetteEnabled || m_Settings.ChromaticAberrationEnabled || m_Settings.FXAAEnabled || m_Settings.DOFEnabled || m_Settings.MotionBlurEnabled || m_Settings.TAAEnabled || m_Settings.ColorGradingEnabled || m_FogEnabled || (m_PrecipitationScreenEffectsEnabled && m_PrecipitationShader && m_PrecipitationScreenUBO) || (m_Settings.SSAOEnabled && aoTextureID != 0);
+        bool anyEffectEnabled = m_Settings.BloomEnabled || m_Settings.VignetteEnabled || m_Settings.ChromaticAberrationEnabled || m_Settings.FXAAEnabled || m_Settings.DOFEnabled || m_Settings.MotionBlurEnabled || m_Settings.TAAEnabled || m_Settings.ColorGradingEnabled || m_FogEnabled || (m_PrecipitationScreenEffectsEnabled && m_PrecipitationShader && m_PrecipitationScreenUBO) || aoApplyEnabled;
 
         // Always run tone mapping if we have the shader (it's the core of post-processing)
         if (!anyEffectEnabled && !m_ToneMapShader)
         {
-            // No effects and no tone mapping — GetTarget() should return the input FB directly
-            m_SkippedThisFrame = true;
+            // No effects and no tone mapping: keep the stable output updated
+            // so downstream passes never observe a stale ping-pong target.
+            ResolveToOutput(inputFramebuffer);
             return;
         }
-        m_SkippedThisFrame = false;
 
         // Set up the ping-pong chain
         Ref<Framebuffer> currentSource = inputFramebuffer;
@@ -211,14 +240,13 @@ namespace OloEngine
 
         // === Effect chain order ===
         // 0. AO Apply (modulate scene color by AO factor from SSAO or GTAO)
-        if (m_SSAOApplyShader && aoTextureID != 0)
+        if (m_SSAOApplyShader && aoApplyEnabled)
         {
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();
+            PrepareFullscreenColorPass();
             context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
             context.Clear();
-            context.SetDepthTest(false);
-            context.SetBlendState(false);
 
             m_SSAOApplyShader->Bind();
             u32 srcColorID = currentSource->GetColorAttachmentRendererID(0);
@@ -244,10 +272,9 @@ namespace OloEngine
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
 
             dest->Bind();
+            PrepareFullscreenColorPass();
             context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
             context.Clear();
-            context.SetDepthTest(false);
-            context.SetBlendState(false);
 
             m_BloomCompositeShader->Bind();
             // Bind scene color at slot 0
@@ -271,10 +298,9 @@ namespace OloEngine
         {
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();
+            PrepareFullscreenColorPass();
             context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
             context.Clear();
-            context.SetDepthTest(false);
-            context.SetBlendState(false);
 
             m_DOFShader->Bind();
             u32 srcColorID = currentSource->GetColorAttachmentRendererID(0);
@@ -297,10 +323,9 @@ namespace OloEngine
         {
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();
+            PrepareFullscreenColorPass();
             context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
             context.Clear();
-            context.SetDepthTest(false);
-            context.SetBlendState(false);
 
             m_MotionBlurShader->Bind();
             u32 srcColorID = currentSource->GetColorAttachmentRendererID(0);
@@ -327,10 +352,9 @@ namespace OloEngine
         {
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();
+            PrepareFullscreenColorPass();
             context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
             context.Clear();
-            context.SetDepthTest(false);
-            context.SetBlendState(false);
 
             m_TAAShader->Bind();
 
@@ -411,10 +435,9 @@ namespace OloEngine
         {
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();
+            PrepareFullscreenColorPass();
             context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
             context.Clear();
-            context.SetDepthTest(false);
-            context.SetBlendState(false);
 
             m_PrecipitationShader->Bind();
 
@@ -451,10 +474,9 @@ namespace OloEngine
             //   Output: RGBA16F — RGB = accumulated inscatter, A = transmittance
             m_FogHalfResFB->Bind();
             context.SetViewport(0, 0, m_FogHalfWidth, m_FogHalfHeight);
+            PrepareFullscreenColorPass();
             context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
             context.Clear();
-            context.SetDepthTest(false);
-            context.SetBlendState(false);
 
             m_FogShader->Bind();
 
@@ -488,10 +510,9 @@ namespace OloEngine
             context.SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();
+            PrepareFullscreenColorPass();
             context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
             context.Clear();
-            context.SetDepthTest(false);
-            context.SetBlendState(false);
 
             m_FogUpsampleShader->Bind();
 
@@ -546,7 +567,7 @@ namespace OloEngine
             applyEffect(m_FXAAShader);
         }
 
-        m_LastWrittenIsPing = !writeToP;
+        ResolveToOutput(currentSource);
     }
 
     void PostProcessRenderPass::RunEffect(const Ref<Shader>& shader, Ref<Framebuffer> srcFB, Ref<Framebuffer> dstFB)
@@ -554,11 +575,9 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         dstFB->Bind();
+        PrepareFullscreenColorPass();
         RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
         RenderCommand::Clear();
-
-        RenderCommand::SetDepthTest(false);
-        RenderCommand::SetBlendState(false);
 
         shader->Bind();
 
@@ -569,7 +588,25 @@ namespace OloEngine
 
         DrawFullscreenTriangle();
 
+        RenderCommand::SetDepthMask(true);
         dstFB->Unbind();
+    }
+
+    void PostProcessRenderPass::ResolveToOutput(const Ref<Framebuffer>& sourceFB)
+    {
+        if (!sourceFB || !m_OutputFB || sourceFB == m_OutputFB)
+        {
+            return;
+        }
+
+        const auto& srcSpec = sourceFB->GetSpecification();
+        const auto& dstSpec = m_OutputFB->GetSpecification();
+        glNamedFramebufferReadBuffer(sourceFB->GetRendererID(), GL_COLOR_ATTACHMENT0);
+        glNamedFramebufferDrawBuffer(m_OutputFB->GetRendererID(), GL_COLOR_ATTACHMENT0);
+        glBlitNamedFramebuffer(sourceFB->GetRendererID(), m_OutputFB->GetRendererID(),
+                               0, 0, static_cast<GLint>(srcSpec.Width), static_cast<GLint>(srcSpec.Height),
+                               0, 0, static_cast<GLint>(dstSpec.Width), static_cast<GLint>(dstSpec.Height),
+                               GL_COLOR_BUFFER_BIT, GL_NEAREST);
     }
 
     void PostProcessRenderPass::DrawFullscreenTriangle()
@@ -581,13 +618,12 @@ namespace OloEngine
 
     Ref<Framebuffer> PostProcessRenderPass::GetTarget() const
     {
-        // If we skipped execution (no effects, no tone map), pass through the input
-        if (m_SkippedThisFrame || !m_PingFB)
+        if (!m_OutputFB)
         {
             return m_InputFramebuffer;
         }
 
-        return m_LastWrittenIsPing ? m_PingFB : m_PongFB;
+        return m_OutputFB;
     }
 
     void PostProcessRenderPass::CreatePingPongFramebuffers(u32 width, u32 height)
@@ -609,6 +645,7 @@ namespace OloEngine
 
         m_PingFB = Framebuffer::Create(pingPongSpec);
         m_PongFB = Framebuffer::Create(pingPongSpec);
+        m_OutputFB = Framebuffer::Create(pingPongSpec);
 
         // TAA history: same spec, separate persistent FB. Allocation mirrors
         // ping-pong so resize paths share a single code path.
@@ -639,6 +676,10 @@ namespace OloEngine
         {
             m_PingFB->Resize(width, height);
             m_PongFB->Resize(width, height);
+            if (m_OutputFB)
+            {
+                m_OutputFB->Resize(width, height);
+            }
             if (m_TAAHistoryFB)
             {
                 // History must track viewport size; invalidate on resize so
@@ -689,6 +730,10 @@ namespace OloEngine
         if (m_PongFB)
         {
             m_PongFB->Resize(width, height);
+        }
+        if (m_OutputFB)
+        {
+            m_OutputFB->Resize(width, height);
         }
         if (m_TAAHistoryFB)
         {
@@ -794,12 +839,10 @@ namespace OloEngine
             return;
         }
 
-        RenderCommand::SetDepthTest(false);
-        RenderCommand::SetBlendState(false);
-
         // Step 1: Threshold extract — scene HDR → bloom mip 0
         {
             m_BloomMipChain[0]->Bind();
+            PrepareFullscreenColorPass();
             const auto& spec = m_BloomMipChain[0]->GetSpecification();
             RenderCommand::SetViewport(0, 0, spec.Width, spec.Height);
             RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
@@ -823,6 +866,7 @@ namespace OloEngine
             const auto& dstSpec = dstMip->GetSpecification();
 
             dstMip->Bind();
+            PrepareFullscreenColorPass();
             RenderCommand::SetViewport(0, 0, dstSpec.Width, dstSpec.Height);
             RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
             RenderCommand::Clear();
@@ -852,6 +896,7 @@ namespace OloEngine
             const auto& dstSpec = dstMip->GetSpecification();
 
             dstMip->Bind();
+            PrepareFullscreenColorPass();
             RenderCommand::SetViewport(0, 0, dstSpec.Width, dstSpec.Height);
             // Enable additive blending AFTER Bind() to be immune to Bind() resetting blend state
             RenderCommand::SetBlendState(true);
@@ -875,6 +920,8 @@ namespace OloEngine
         }
 
         RenderCommand::SetBlendState(false);
+        RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        RenderCommand::SetDepthMask(true);
 
         // Restore TexelSize to full resolution so subsequent effects (FXAA etc.) don't read stale mip values
         if (m_GPUData && m_PostProcessUBO)

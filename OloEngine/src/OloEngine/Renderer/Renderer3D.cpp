@@ -1632,6 +1632,7 @@ namespace OloEngine
                 // GTAO power is baked in compute; intensity=1 for the apply pass
                 s_Data.SSAOGPUData.Intensity = 1.0f;
                 s_Data.SSAOUBO->SetData(&s_Data.SSAOGPUData, SSAOUBOData::GetSize());
+                s_Data.SSAOUBO->Bind();
             }
         }
         if (s_Data.SSSPass)
@@ -1649,14 +1650,28 @@ namespace OloEngine
             const auto& board = s_Data.RGraph->GetBlackboard();
             s_Data.PostProcessPass->SetSceneDepthTextureHandle(board.SceneDepth);
             s_Data.PostProcessPass->SetAOTextureHandle(board.AOBuffer);
+            u32 aoTextureID = 0;
+            if (s_Data.SSAOPass && s_Data.PostProcess.SSAOEnabled &&
+                s_Data.PostProcess.ActiveAOTechnique == AOTechnique::SSAO)
+            {
+                aoTextureID = s_Data.SSAOPass->GetSSAOTextureID();
+            }
+            else if (s_Data.GTAOPass && s_Data.PostProcess.GTAOEnabled &&
+                     s_Data.PostProcess.ActiveAOTechnique == AOTechnique::GTAO)
+            {
+                aoTextureID = s_Data.GTAOPass->GetGTAOTextureID();
+            }
+            s_Data.PostProcessPass->SetAOTextureID(aoTextureID);
             s_Data.PostProcessPass->SetShadowMapCSMHandle(board.ShadowMapCSM);
             s_Data.PostProcessPass->SetVelocityTextureHandle(board.Velocity);
             s_Data.PostProcessPass->SetInputFramebufferHandle(
                 board.SSSColor.IsValid() ? board.SSSColor : board.SceneColor);
-            s_Data.PostProcessPass->SetInputFramebuffer(
-                (s_Data.SSSPass && s_Data.Snow.Enabled && s_Data.Snow.SSSBlurEnabled)
-                    ? s_Data.SSSPass->GetTarget()
-                    : (s_Data.ScenePass ? s_Data.ScenePass->GetTarget() : nullptr));
+            Ref<Framebuffer> postInputFramebuffer = s_Data.ScenePass ? s_Data.ScenePass->GetTarget() : nullptr;
+            if (s_Data.OITResolvePass)
+                postInputFramebuffer = s_Data.OITResolvePass->GetTarget();
+            if (s_Data.SSSPass)
+                postInputFramebuffer = s_Data.SSSPass->GetTarget();
+            s_Data.PostProcessPass->SetInputFramebuffer(postInputFramebuffer);
 
             if (s_Data.EnableSelectionOutline && s_Data.SelectionOutlinePass)
             {
@@ -1683,31 +1698,6 @@ namespace OloEngine
                 s_Data.FinalPass->SetInputFramebufferHandle(board.UIComposite);
                 s_Data.FinalPass->SetInputFramebuffer(
                     s_Data.UICompositePass ? s_Data.UICompositePass->GetTarget() : nullptr);
-            }
-
-            // Targeted black-frame diagnostics (throttled): validate the
-            // framebuffer handoff chain at the exact point we wire it.
-            {
-                static u32 s_BlackChainWarnings = 0;
-                if (s_BlackChainWarnings < 10)
-                {
-                    const Ref<Framebuffer> ppTarget = s_Data.PostProcessPass ? s_Data.PostProcessPass->GetTarget() : nullptr;
-                    const Ref<Framebuffer> uiTarget = s_Data.UICompositePass ? s_Data.UICompositePass->GetTarget() : nullptr;
-                    const Ref<Framebuffer> finalInput = s_Data.FinalPass ? s_Data.FinalPass->GetInputFramebuffer() : nullptr;
-
-                    const u32 ppColor0 = ppTarget ? ppTarget->GetColorAttachmentRendererID(0) : 0;
-                    const u32 uiColor0 = uiTarget ? uiTarget->GetColorAttachmentRendererID(0) : 0;
-                    const u32 finalColor0 = finalInput ? finalInput->GetColorAttachmentRendererID(0) : 0;
-
-                    if (!ppTarget || !uiTarget || !finalInput || ppColor0 == 0 || uiColor0 == 0 || finalColor0 == 0)
-                    {
-                        ++s_BlackChainWarnings;
-                        OLO_CORE_WARN("Renderer3D::EndScene handoff issue: PostProcess(target={}, color0={}), UIComposite(target={}, color0={}), Final(input={}, color0={})",
-                                      ppTarget != nullptr, ppColor0,
-                                      uiTarget != nullptr, uiColor0,
-                                      finalInput != nullptr, finalColor0);
-                    }
-                }
             }
         }
         auto& profiler = RendererProfiler::GetInstance();
@@ -3808,6 +3798,10 @@ namespace OloEngine
         s_Data.RGraph->AddExecutionDependency("ScenePass", "FoliagePass");
         s_Data.RGraph->AddExecutionDependency("FoliagePass", "DecalPass");
         s_Data.RGraph->AddExecutionDependency("DecalPass", "WaterPass");
+        s_Data.RGraph->AddExecutionDependency("WaterPass", "SSAOPass");
+        s_Data.RGraph->AddExecutionDependency("SSAOPass", "ParticlePass");
+        s_Data.RGraph->AddExecutionDependency("WaterPass", "GTAOPass");
+        s_Data.RGraph->AddExecutionDependency("GTAOPass", "ParticlePass");
         s_Data.RGraph->AddExecutionDependency("WaterPass", "ParticlePass");
 
         // Phase F: post-chain ordering remains explicit; framebuffer handoff
@@ -3949,7 +3943,10 @@ namespace OloEngine
                 {
                     [[maybe_unused]] const auto velocityRead = builder.Read(board.Velocity, RGReadUsage::ShaderSample);
                 }
-                if (board.AOBuffer.IsValid())
+                const bool aoApplyEnabled =
+                    (s_Data.PostProcess.ActiveAOTechnique == AOTechnique::SSAO && s_Data.PostProcess.SSAOEnabled) ||
+                    (s_Data.PostProcess.ActiveAOTechnique == AOTechnique::GTAO && s_Data.PostProcess.GTAOEnabled);
+                if (aoApplyEnabled && board.AOBuffer.IsValid())
                 {
                     [[maybe_unused]] const auto aoBufferRead = builder.Read(board.AOBuffer, RGReadUsage::ShaderSample);
                 }

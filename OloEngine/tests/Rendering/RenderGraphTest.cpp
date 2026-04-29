@@ -95,6 +95,49 @@ class ImmediateStubPass : public RenderPass
     }
 };
 
+class StubFramebuffer : public Framebuffer
+{
+  public:
+    explicit StubFramebuffer(u32 rendererID)
+        : m_RendererID(rendererID) {}
+
+    void Bind() override {}
+    void Unbind() override {}
+    void Resize(u32 width, u32 height) override
+    {
+        m_Specification.Width = width;
+        m_Specification.Height = height;
+    }
+    int ReadPixel(u32 /*attachmentIndex*/, int /*x*/, int /*y*/) override
+    {
+        return 0;
+    }
+    void ClearAttachment(u32 /*attachmentIndex*/, int /*value*/) override {}
+    void ClearAttachment(u32 /*attachmentIndex*/, const glm::vec4& /*value*/) override {}
+    void ClearAllAttachments(const glm::vec4& /*clearColor*/, int /*entityIdClear*/) override {}
+    [[nodiscard]] u32 GetColorAttachmentRendererID(u32 /*index*/) const override
+    {
+        return 0;
+    }
+    [[nodiscard]] u32 GetDepthAttachmentRendererID() const override
+    {
+        return 0;
+    }
+    [[nodiscard]] const FramebufferSpecification& GetSpecification() const override
+    {
+        return m_Specification;
+    }
+    [[nodiscard]] u32 GetRendererID() const override
+    {
+        return m_RendererID;
+    }
+    void AttachDepthTextureArrayLayer(u32 /*textureArrayRendererID*/, u32 /*layer*/) override {}
+
+  private:
+    u32 m_RendererID = 0;
+    FramebufferSpecification m_Specification;
+};
+
 class ContextAwareStubPass : public RenderPass
 {
   public:
@@ -1421,6 +1464,42 @@ TEST(RenderGraphResetTopology, MultipleResetsAreSafe)
         graph.Execute();
         EXPECT_EQ(graph.GetAllPasses().size(), 1u);
     }
+}
+
+TEST(RenderGraphResetTopology, ImportedHandleSlotsAreRebackedAfterReset)
+{
+    RenderGraph graph;
+
+    auto textureDesc = RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ImportedTexture");
+    const auto oldTexture = graph.ImportTexture("ImportedTexture", 42u, textureDesc);
+    EXPECT_EQ(graph.ResolveTexture(oldTexture), 42u);
+
+    auto bufferDesc = RGResourceDesc::FromLegacy(ResourceHandle::Kind::UniformBuffer, "ImportedBuffer");
+    const auto oldBuffer = graph.ImportBuffer("ImportedBuffer", 77u, bufferDesc);
+    EXPECT_EQ(graph.ResolveBuffer(oldBuffer), 77u);
+
+    auto framebufferDesc = RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "ImportedFramebuffer");
+    auto oldFramebufferRef = Ref<StubFramebuffer>::Create(10u);
+    const auto oldFramebuffer = graph.ImportFramebuffer("ImportedFramebuffer", oldFramebufferRef, framebufferDesc);
+    EXPECT_EQ(graph.ResolveFramebuffer(oldFramebuffer).Raw(), oldFramebufferRef.Raw());
+
+    graph.ResetTopology();
+
+    EXPECT_FALSE(graph.IsTextureHandleCurrent(oldTexture));
+    EXPECT_FALSE(graph.IsBufferHandleCurrent(oldBuffer));
+    EXPECT_FALSE(graph.IsFramebufferHandleCurrent(oldFramebuffer));
+
+    const auto newTexture = graph.ImportTexture("ImportedTexture", 99u, textureDesc);
+    const auto newBuffer = graph.ImportBuffer("ImportedBuffer", 123u, bufferDesc);
+    auto newFramebufferRef = Ref<StubFramebuffer>::Create(20u);
+    const auto newFramebuffer = graph.ImportFramebuffer("ImportedFramebuffer", newFramebufferRef, framebufferDesc);
+
+    EXPECT_TRUE(graph.IsTextureHandleCurrent(newTexture));
+    EXPECT_TRUE(graph.IsBufferHandleCurrent(newBuffer));
+    EXPECT_TRUE(graph.IsFramebufferHandleCurrent(newFramebuffer));
+    EXPECT_EQ(graph.ResolveTexture(newTexture), 99u);
+    EXPECT_EQ(graph.ResolveBuffer(newBuffer), 123u);
+    EXPECT_EQ(graph.ResolveFramebuffer(newFramebuffer).Raw(), newFramebufferRef.Raw());
 }
 
 // =============================================================================

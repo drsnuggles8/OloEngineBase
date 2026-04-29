@@ -11,6 +11,9 @@ namespace OloEngine
     // Hilbert curve LUT: maps (x,y) in a 64×64 grid to a 1D index.
     // Used for spatiotemporal noise in GTAO to decorrelate samples.
     static constexpr u32 HILBERT_SIZE = 64;
+    static constexpr u32 GTAO_HZB_TEXTURE_SLOT = 3;
+    static constexpr u32 GTAO_NORMALS_TEXTURE_SLOT = 4;
+    static constexpr u32 GTAO_HILBERT_TEXTURE_SLOT = 5;
 
     // Generate Hilbert curve index for a given (x, y) coordinate
     static u16 HilbertIndex(u32 x, u32 y)
@@ -128,6 +131,7 @@ namespace OloEngine
     void GTAORenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
+        (void)context;
 
         if (!m_Settings.GTAOEnabled || m_Settings.ActiveAOTechnique != AOTechnique::GTAO || !m_SceneFramebuffer || !m_GTAOShader || !m_GTAOShader->IsValid())
         {
@@ -190,6 +194,7 @@ namespace OloEngine
         m_GPUData->DebugView = m_Settings.GTAODebugView ? 1 : 0;
 
         m_GTAOUBO->SetData(m_GPUData, UBOStructures::GTAOUBO::GetSize());
+        m_GTAOUBO->Bind();
     }
 
     void GTAORenderPass::DispatchGTAO()
@@ -204,12 +209,12 @@ namespace OloEngine
 
         // Bind inputs
         u32 hzbID = m_HZBGenerator.GetHZBTextureID();
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_HZB, hzbID);
+        RenderCommand::BindTexture(GTAO_HZB_TEXTURE_SLOT, hzbID);
 
         u32 normalsID = m_SceneFramebuffer->GetColorAttachmentRendererID(2);
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, normalsID);
+        RenderCommand::BindTexture(GTAO_NORMALS_TEXTURE_SLOT, normalsID);
 
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_HILBERT_LUT, m_HilbertLUT->GetRendererID());
+        RenderCommand::BindTexture(GTAO_HILBERT_TEXTURE_SLOT, m_HilbertLUT->GetRendererID());
 
         // Dispatch 16×16 workgroups
         u32 groupsX = (m_Width + 15) / 16;
@@ -217,7 +222,7 @@ namespace OloEngine
         RenderCommand::DispatchCompute(groupsX, groupsY, 1);
 
         // Barrier: AO + edges must be visible for denoise
-        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess);
+        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
 
         m_GTAOShader->Unbind();
     }
@@ -254,7 +259,7 @@ namespace OloEngine
             }
 
             RenderCommand::DispatchCompute(groupsX, groupsY, 1);
-            RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess);
+            RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
 
             readFromTex0 = !readFromTex0;
         }
@@ -264,7 +269,7 @@ namespace OloEngine
 
     u32 GTAORenderPass::GetGTAOTextureID() const
     {
-        if (!m_Settings.GTAOEnabled || !m_AOTexture0)
+        if (!m_AOTexture0)
         {
             return 0;
         }

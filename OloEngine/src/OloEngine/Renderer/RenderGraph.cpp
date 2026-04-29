@@ -195,6 +195,9 @@ namespace OloEngine
             slot.Name = std::string(name);
             handle.Generation = slot.Generation;
 
+            if (handle.Index >= m_PhysicalTextures.size())
+                m_PhysicalTextures.resize(static_cast<sizet>(handle.Index) + 1u);
+
             auto& phys = m_PhysicalTextures[handle.Index];
             phys.TextureID = textureID;
             phys.IsHistory = isHistory;
@@ -233,6 +236,9 @@ namespace OloEngine
             slot.Name = std::string(name);
             handle.Generation = slot.Generation;
 
+            if (handle.Index >= m_PhysicalFramebuffers.size())
+                m_PhysicalFramebuffers.resize(static_cast<sizet>(handle.Index) + 1u);
+
             m_PhysicalFramebuffers[handle.Index].FB = fb;
         }
         else
@@ -267,6 +273,9 @@ namespace OloEngine
             slot.Alive = true;
             slot.Name = std::string(name);
             handle.Generation = slot.Generation;
+
+            if (handle.Index >= m_PhysicalBuffers.size())
+                m_PhysicalBuffers.resize(static_cast<sizet>(handle.Index) + 1u);
 
             m_PhysicalBuffers[handle.Index].BufferID = bufferID;
         }
@@ -565,6 +574,8 @@ namespace OloEngine
         slot.Generation++;
         slot.Alive = true;
         slot.Name = std::string(name);
+        if (index >= m_PhysicalTextures.size())
+            m_PhysicalTextures.resize(static_cast<sizet>(index) + 1u);
         return { index, slot.Generation };
     }
 
@@ -596,6 +607,8 @@ namespace OloEngine
         slot.Generation++;
         slot.Alive = true;
         slot.Name = std::string(name);
+        if (index >= m_PhysicalFramebuffers.size())
+            m_PhysicalFramebuffers.resize(static_cast<sizet>(index) + 1u);
         return { index, slot.Generation };
     }
 
@@ -627,6 +640,8 @@ namespace OloEngine
         slot.Generation++;
         slot.Alive = true;
         slot.Name = std::string(name);
+        if (index >= m_PhysicalBuffers.size())
+            m_PhysicalBuffers.resize(static_cast<sizet>(index) + 1u);
         return { index, slot.Generation };
     }
 
@@ -3338,17 +3353,22 @@ namespace OloEngine
             processGraphPass(*it->second);
         }
 
-        if (!UpdateDependencyGraph())
+        if (m_DependencyGraphDirty && !UpdateDependencyGraph())
         {
             OLO_CORE_ERROR("RenderGraph::BuildFrameGraph: dependency graph rebuild failed (cycle)");
             return;
         }
 
-        ResolveFinalPass();
+        if (m_DependencyGraphDirty)
+        {
+            ResolveFinalPass();
+            RebuildExecutionCache();
+            m_DependencyGraphDirty = false;
+        }
+
         ComputeReachability();
         ComputeBarrierPlan();
         RebuildTransientPlan();
-        m_DependencyGraphDirty = true;
     }
 
 } // namespace OloEngine

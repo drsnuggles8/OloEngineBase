@@ -2,7 +2,10 @@
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+
+#include <glad/gl.h>
 
 namespace OloEngine
 {
@@ -52,7 +55,15 @@ namespace OloEngine
         const auto& targetSpec = m_Target->GetSpecification();
         context.SetViewport(0, 0, targetSpec.Width, targetSpec.Height);
         context.SetDepthTest(false);
+        context.SetDepthMask(false);
         context.SetBlendState(false);
+        RenderCommand::DisableStencilTest();
+        RenderCommand::DisableCulling();
+        RenderCommand::DisableScissorTest();
+        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetColorMask(true, true, true, true);
+        constexpr u32 colorAttachment = 0;
+        context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
 
         m_SSSBlurShader->Bind();
 
@@ -67,6 +78,7 @@ namespace OloEngine
 
         DrawFullscreenTriangle(context);
 
+        context.SetDepthMask(true);
         m_Target->Unbind();
     }
 

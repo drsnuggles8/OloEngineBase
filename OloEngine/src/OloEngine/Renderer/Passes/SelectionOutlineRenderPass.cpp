@@ -94,7 +94,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         Ref<Framebuffer> inputFramebuffer = m_InputFramebuffer;
-        if (m_InputFramebufferHandle.IsValid())
+        if (!inputFramebuffer && m_InputFramebufferHandle.IsValid())
         {
             if (auto resolvedInput = context.ResolveFramebuffer(m_InputFramebufferHandle))
                 inputFramebuffer = resolvedInput;

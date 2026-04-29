@@ -55,10 +55,10 @@ layout(std140, binding = 28) uniform GTAOParams
 layout(binding = 0, r8) writeonly uniform image2D o_AOTerm;
 layout(binding = 1, r8) writeonly uniform image2D o_Edges;
 
-layout(binding = 33) uniform sampler2D u_HZBDepth;       // HZB depth pyramid
-layout(binding = 22) uniform sampler2D u_ViewNormals;     // Octahedral-encoded view normals
+layout(binding = 3) uniform sampler2D u_HZBDepth;        // HZB depth pyramid
+layout(binding = 4) uniform sampler2D u_ViewNormals;     // Octahedral-encoded view normals
 
-layout(binding = 36) uniform usampler2D u_HilbertLUT;    // 64x64 R16UI Hilbert curve index
+layout(binding = 5) uniform usampler2D u_HilbertLUT;     // 64x64 R16UI Hilbert curve index
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -90,7 +90,13 @@ vec3 OctDecode(vec2 f)
 float LinearizeDepth(float deviceZ)
 {
     float ndc = deviceZ * 2.0 - 1.0;
-    return -u_DepthLinearizeB / (ndc + u_DepthLinearizeA);
+    return u_DepthLinearizeB / (ndc + u_DepthLinearizeA);
+}
+
+float SampleHZBDepth(vec2 screenUV, float mipLevel)
+{
+    vec2 clampedScreenUV = clamp(screenUV, vec2(0.0), vec2(1.0));
+    return textureLod(u_HZBDepth, clampedScreenUV * u_HZBUVFactor, mipLevel).r;
 }
 
 // ---------------------------------------------------------------------------
@@ -142,7 +148,7 @@ void main()
     vec2 normalizedScreenPos = (vec2(pixCoord) + 0.5) * pixelSize;
 
     // Sample depth from HZB mip 0 (HZB maps scene UV [0,1] to full texture)
-    float deviceZ = textureLod(u_HZBDepth, normalizedScreenPos, 0.0).r;
+    float deviceZ = SampleHZBDepth(normalizedScreenPos, 0.0);
 
     if (deviceZ <= 0.0 || deviceZ >= 1.0)
     {
@@ -154,10 +160,10 @@ void main()
     float viewspaceZ = LinearizeDepth(deviceZ);
 
     // Neighbour depths for edge detection
-    float pixLZ = LinearizeDepth(textureLod(u_HZBDepth, (vec2(pixCoord) + vec2(-1.0, 0.0) + 0.5) * pixelSize, 0.0).r);
-    float pixRZ = LinearizeDepth(textureLod(u_HZBDepth, (vec2(pixCoord) + vec2( 1.0, 0.0) + 0.5) * pixelSize, 0.0).r);
-    float pixTZ = LinearizeDepth(textureLod(u_HZBDepth, (vec2(pixCoord) + vec2( 0.0,-1.0) + 0.5) * pixelSize, 0.0).r);
-    float pixBZ = LinearizeDepth(textureLod(u_HZBDepth, (vec2(pixCoord) + vec2( 0.0, 1.0) + 0.5) * pixelSize, 0.0).r);
+    float pixLZ = LinearizeDepth(SampleHZBDepth((vec2(pixCoord) + vec2(-1.0, 0.0) + 0.5) * pixelSize, 0.0));
+    float pixRZ = LinearizeDepth(SampleHZBDepth((vec2(pixCoord) + vec2( 1.0, 0.0) + 0.5) * pixelSize, 0.0));
+    float pixTZ = LinearizeDepth(SampleHZBDepth((vec2(pixCoord) + vec2( 0.0,-1.0) + 0.5) * pixelSize, 0.0));
+    float pixBZ = LinearizeDepth(SampleHZBDepth((vec2(pixCoord) + vec2( 0.0, 1.0) + 0.5) * pixelSize, 0.0));
 
     // Edge weight for denoise
     float edgeWeight = CalculateEdges(viewspaceZ, pixLZ, pixRZ, pixTZ, pixBZ);
@@ -228,12 +234,12 @@ void main()
 
             // Positive direction
             vec2 sampleScreenPos0 = normalizedScreenPos + sampleOffset;
-            float SZ0 = LinearizeDepth(textureLod(u_HZBDepth, sampleScreenPos0, mipLevel).r);
+            float SZ0 = LinearizeDepth(SampleHZBDepth(sampleScreenPos0, mipLevel));
             vec3 samplePos0 = ComputeViewspacePosition(sampleScreenPos0, SZ0);
 
             // Negative direction
             vec2 sampleScreenPos1 = normalizedScreenPos - sampleOffset;
-            float SZ1 = LinearizeDepth(textureLod(u_HZBDepth, sampleScreenPos1, mipLevel).r);
+            float SZ1 = LinearizeDepth(SampleHZBDepth(sampleScreenPos1, mipLevel));
             vec3 samplePos1 = ComputeViewspacePosition(sampleScreenPos1, SZ1);
 
             // Horizon angle updates
@@ -289,10 +295,17 @@ void main()
 
     // Normalize across slices
     visibility /= float(XE_GTAO_SLICE_COUNT);
-    visibility = clamp(visibility, 0.03, 1.0); // Prevent total blackness
+    if (isnan(visibility) || isinf(visibility))
+    {
+        visibility = 1.0;
+    }
+    visibility = clamp(visibility, 0.03, 1.0);
 
-    // Apply power curve for contrast
+    // Apply power curve for contrast, then preserve a floor so GTAO cannot
+    // collapse the final scene color to black when the horizon integral is
+    // very conservative for a frame.
     visibility = pow(visibility, u_FinalValuePower);
+    visibility = clamp(visibility, 0.03, 1.0);
 
     // Store results
     imageStore(o_AOTerm, pixCoord, vec4(visibility));
