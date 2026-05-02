@@ -104,8 +104,6 @@ namespace OloEngine
             return;
         }
 
-        u32 hzbTexID = m_HZBTexture->GetRendererID();
-
         m_HZBShader->Bind();
 
         // Process mips in batches of 4
@@ -150,18 +148,51 @@ namespace OloEngine
             RenderCommand::BindTexture(4, hzbTexID);
         }
 
-        // Compute source and destination sizes
-        u32 parentMip = isFirstPass ? 0 : (startMip - 1);
-        u32 srcW = std::max(1u, m_HZBWidth >> parentMip);
-        u32 srcH = std::max(1u, m_HZBHeight >> parentMip);
+        // Compute source and destination sizes.
+        //
+        // First pass reads from the SCENE DEPTH texture, which is sized to
+        // the viewport (m_ViewportWidth x m_ViewportHeight) — NOT to the
+        // power-of-two HZB. Using `m_HZBWidth >> 0` here would cause the
+        // shader to sample scene depth at UVs in [0, 1] of the *HZB*, which
+        // effectively stretches the viewport-sized depth across the full
+        // HZB. Downstream (GTAO) compensates with u_HZBUVFactor = vw/hzbW
+        // when sampling, so the net effect is that GTAO reads depth at
+        // viewport UVs scaled by a factor of (vw/hzbW)² — phantom geometry
+        // appears at mismatched positions because normals (sampled at the
+        // correct viewport UV) and depth (effectively double-scaled)
+        // disagree about where geometry is. SSAO is unaffected because it
+        // reads scene depth directly without going through the HZB.
+        //
+        // Subsequent passes read from the HZB itself, where mip N really
+        // is `m_HZBWidth >> N`, so the original computation is correct.
+        u32 srcW;
+        u32 srcH;
+        if (isFirstPass)
+        {
+            srcW = std::max(1u, m_ViewportWidth);
+            srcH = std::max(1u, m_ViewportHeight);
+        }
+        else
+        {
+            const u32 parentMip = startMip - 1;
+            srcW = std::max(1u, m_HZBWidth >> parentMip);
+            srcH = std::max(1u, m_HZBHeight >> parentMip);
+        }
         u32 dstW = std::max(1u, m_HZBWidth >> startMip);
         u32 dstH = std::max(1u, m_HZBHeight >> startMip);
 
         // Set uniforms
         if (isFirstPass)
         {
+            // bufferUV must map HZB texel coords -> scene-depth UVs.
+            // bufferUV = (threadId + 0.5) * (1/vw, 1/vh) so that an HZB
+            // texel at threadId in [0, vw) lands on scene-depth pixel
+            // threadId. Threads at threadId >= vw produce bufferUV > 1
+            // and are clamped via u_InputViewportMaxBound to the viewport
+            // edge; the resulting outside-viewport HZB region is never
+            // sampled by GTAO (which uses u_HZBUVFactor = vw/hzbW).
             m_HZBShader->SetFloat2("u_DispatchThreadIdToBufferUV",
-                                   glm::vec2(1.0f / static_cast<f32>(dstW), 1.0f / static_cast<f32>(dstH)));
+                                   glm::vec2(1.0f / static_cast<f32>(srcW), 1.0f / static_cast<f32>(srcH)));
             m_HZBShader->SetFloat2("u_InputViewportMaxBound",
                                    glm::vec2((static_cast<f32>(srcW) - 0.5f) / static_cast<f32>(srcW),
                                              (static_cast<f32>(srcH) - 0.5f) / static_cast<f32>(srcH)));

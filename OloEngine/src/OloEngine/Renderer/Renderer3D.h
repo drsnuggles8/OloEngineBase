@@ -711,6 +711,21 @@ namespace OloEngine
             return s_Data.PostProcessPass;
         }
 
+        static const Ref<SSSRenderPass>& GetSSSPass()
+        {
+            return s_Data.SSSPass;
+        }
+
+        static const Ref<OITResolveRenderPass>& GetOITResolvePass()
+        {
+            return s_Data.OITResolvePass;
+        }
+
+        static const Ref<GTAORenderPass>& GetGTAOPass()
+        {
+            return s_Data.GTAOPass;
+        }
+
         static const Ref<UICompositeRenderPass>& GetUICompositePass()
         {
             return s_Data.UICompositePass;

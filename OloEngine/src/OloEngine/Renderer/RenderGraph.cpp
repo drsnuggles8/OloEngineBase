@@ -227,6 +227,35 @@ namespace OloEngine
     {
         RGFramebufferHandle handle;
 
+        // PREFERRED PATH: stable handle reuse by name. If we already have a
+        // slot bound to this name (regardless of Alive flag), reuse the same
+        // slot index. This keeps imported framebuffer handles stable across
+        // frames — without this, every Import* call creates a brand-new slot
+        // (because ClearImportedResources only clears the descriptor map),
+        // leaking thousands of slots and causing stale-handle ghost
+        // rendering when consumers cache handles across frames.
+        if (const auto existingIt = m_FramebufferHandlesByName.find(std::string(name));
+            existingIt != m_FramebufferHandlesByName.end() &&
+            existingIt->second.Index < m_FramebufferHandleSlots.size())
+        {
+            handle.Index = existingIt->second.Index;
+            auto& slot = m_FramebufferHandleSlots[handle.Index];
+            // Bump generation so any handle copies held by callers from a
+            // previous frame won't accidentally resolve via the old gen — they
+            // just become invalid until the caller re-imports.
+            ++slot.Generation;
+            slot.Alive = true;
+            slot.Name = std::string(name);
+            handle.Generation = slot.Generation;
+
+            if (handle.Index >= m_PhysicalFramebuffers.size())
+                m_PhysicalFramebuffers.resize(static_cast<sizet>(handle.Index) + 1u);
+
+            m_PhysicalFramebuffers[handle.Index].FB = fb;
+            m_FramebufferHandlesByName[std::string(name)] = handle;
+            return handle;
+        }
+
         if (!m_FreeFramebufferHandleIndices.empty())
         {
             handle.Index = m_FreeFramebufferHandleIndices.back();
@@ -243,6 +272,21 @@ namespace OloEngine
         }
         else
         {
+            // CRITICAL: keep slots & physicals in lockstep. If a prior
+            // operation cleared one but not the other, push_back here
+            // would leave handle.Index OOB on the smaller vector.
+            const sizet slotsBefore = m_FramebufferHandleSlots.size();
+            const sizet physBefore = m_PhysicalFramebuffers.size();
+            if (slotsBefore != physBefore)
+            {
+                OLO_CORE_ERROR("RG-FB-WRITE [SIZE MISMATCH BEFORE PUSH]: slots.size={} physicals.size={} freeFB.size={} — vectors out of sync!",
+                               slotsBefore, physBefore, m_FreeFramebufferHandleIndices.size());
+                // Re-sync to keep things from crashing.
+                const sizet target = std::max(slotsBefore, physBefore);
+                m_FramebufferHandleSlots.resize(target);
+                m_PhysicalFramebuffers.resize(target);
+            }
+
             handle.Index = static_cast<u32>(m_FramebufferHandleSlots.size());
             handle.Generation = 1;
 
@@ -862,6 +906,14 @@ namespace OloEngine
                 .PassName = pass->GetName(),
                 .CpuMs = elapsedMs,
             });
+
+            // Debug post-pass hook — fires after EndPass() but before the
+            // next pass begins. Lets debug tooling snapshot intermediate
+            // resource state (see RenderGraphFrameCapture).
+            if (m_PostPassHook)
+            {
+                m_PostPassHook(pass->GetName(), *this);
+            }
         }
         commandContext.SetRenderGraph(nullptr);
 
@@ -935,6 +987,20 @@ namespace OloEngine
 
         for (const auto& entry : m_TransientPlan)
         {
+            // Guard: never let transient resource planning touch imported
+            // resources. If a resource name appears in m_ImportedResources,
+            // its physical slot is owned by the importer (e.g.
+            // Renderer3D::SetupFrameBlackboard) and must not be reset or
+            // overwritten by transient pool allocations. Without this guard
+            // a name collision between a transient descriptor and an
+            // imported resource silently corrupts the imported physical
+            // slot — consumers reading through the blackboard handle then
+            // see a blank transient FB instead of the real imported one.
+            if (m_ImportedResources.contains(entry.Resource))
+            {
+                continue;
+            }
+
             const auto descriptorIt = m_TransientResourceDescs.find(entry.Resource);
             if (descriptorIt == m_TransientResourceDescs.end())
                 continue;

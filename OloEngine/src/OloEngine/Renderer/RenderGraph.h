@@ -343,6 +343,23 @@ namespace OloEngine
             return m_LastPassTimings;
         }
 
+        // -------------------------------------------------------------------
+        // Debug — Post-pass execution hook
+        // -------------------------------------------------------------------
+        // Fired after each pass->Execute() returns inside RenderGraph::Execute(),
+        // BEFORE the post-pass extraction phase. Used by debug tooling
+        // (e.g. RenderGraphFrameCapture) to snapshot intermediate state.
+        // Pass the empty function (or assign {}) to disable.
+        using PostPassHook = std::function<void(const std::string& passName, RenderGraph& graph)>;
+        void SetPostPassHook(PostPassHook hook)
+        {
+            m_PostPassHook = std::move(hook);
+        }
+        [[nodiscard]] bool HasPostPassHook() const
+        {
+            return static_cast<bool>(m_PostPassHook);
+        }
+
         void SetRuntimeBarrierExecutionEnabled(const bool enabled)
         {
             m_RuntimeBarrierExecutionEnabled = enabled;
@@ -442,6 +459,8 @@ namespace OloEngine
         std::vector<PassTiming> m_LastPassTimings;
         bool m_RuntimeBarrierExecutionEnabled = true;
         bool m_RuntimeTransientMaterializationEnabled = false;
+
+        PostPassHook m_PostPassHook;
 
         // Execution-ready cache — rebuilt when m_DependencyGraphDirty is set.
         // Avoids per-frame hash lookups in Execute().

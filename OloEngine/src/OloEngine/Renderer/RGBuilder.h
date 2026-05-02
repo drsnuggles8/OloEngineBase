@@ -47,35 +47,35 @@ namespace OloEngine
     // Read access mode — describes how a pass consumes a resource
     enum class RGReadUsage : u8
     {
-        ShaderSample = 0,           // Sampled in shader (texture unit)
-        ShaderImage = 1,            // Image load in shader (imageLoad)
-        ShaderStorage = 2,          // SSBO load
-        RenderTargetRead = 3,       // Framebuffer colour/depth input
-        ComputeIndirectArgs = 4,    // Indirect draw args buffer
-        TransferSource = 5,         // CopyImageSubData source / blit src
-        InputAttachment = 6,        // Vulkan input attachment
+        ShaderSample = 0,        // Sampled in shader (texture unit)
+        ShaderImage = 1,         // Image load in shader (imageLoad)
+        ShaderStorage = 2,       // SSBO load
+        RenderTargetRead = 3,    // Framebuffer colour/depth input
+        ComputeIndirectArgs = 4, // Indirect draw args buffer
+        TransferSource = 5,      // CopyImageSubData source / blit src
+        InputAttachment = 6,     // Vulkan input attachment
     };
 
     // Write access mode — describes how a pass produces a resource
     enum class RGWriteUsage : u8
     {
-        RenderTarget = 0,           // Framebuffer colour attachment
-        DepthStencil = 1,           // Framebuffer depth/stencil attachment
-        ShaderImage = 2,            // Image store in shader
-        ShaderStorage = 3,          // SSBO store
-        TransferDest = 4,           // CopyImageSubData dest / blit dst
-        Clear = 5,                  // Just cleared (no GPU write)
+        RenderTarget = 0,  // Framebuffer colour attachment
+        DepthStencil = 1,  // Framebuffer depth/stencil attachment
+        ShaderImage = 2,   // Image store in shader
+        ShaderStorage = 3, // SSBO store
+        TransferDest = 4,  // CopyImageSubData dest / blit dst
+        Clear = 5,         // Just cleared (no GPU write)
     };
 
     // Subresource range for texture/buffer access — supports all views
     struct RGSubresourceRange
     {
         u32 BaseMip = 0;
-        u32 MipCount = ~0u;  // ~0u means "all mips from BaseMip"
+        u32 MipCount = ~0u; // ~0u means "all mips from BaseMip"
         u32 BaseLayer = 0;
-        u32 LayerCount = ~0u;  // ~0u means "all layers from BaseLayer"
+        u32 LayerCount = ~0u; // ~0u means "all layers from BaseLayer"
         u32 BaseSlice = 0;
-        u32 SliceCount = ~0u;  // ~0u means "all slices from BaseSlice"
+        u32 SliceCount = ~0u; // ~0u means "all slices from BaseSlice"
 
         static RGSubresourceRange Full()
         {
@@ -246,4 +246,4 @@ namespace OloEngine
         std::vector<RGAccessDeclaration> m_DeclaredAccesses;
     };
 
-}  // namespace OloEngine
+} // namespace OloEngine

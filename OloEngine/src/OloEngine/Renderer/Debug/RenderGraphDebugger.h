@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/RenderGraph.h"
+#include "OloEngine/Renderer/Debug/RenderGraphFrameCapture.h"
 
 #include <imgui.h>
 #include <string>
@@ -70,7 +71,16 @@ namespace OloEngine
         LayoutSettings m_Settings;
         bool m_NeedsLayout = true;
 
+        // Per-pass GPU capture for ghost / regression debugging.
+        RenderGraphFrameCapture m_FrameCapture;
+        // Selected capture index for the full-size preview pane (-1 = none).
+        i32 m_SelectedCaptureIndex = -1;
+        bool m_CaptureWindowOpen = false;
+
         // Layout algorithm
         void CalculateLayout(const Ref<RenderGraph>& graph);
+
+        // Renders the per-pass capture pane (button + thumbnail strip + viewer).
+        void DrawCapturePanel(const Ref<RenderGraph>& graph);
     };
 } // namespace OloEngine

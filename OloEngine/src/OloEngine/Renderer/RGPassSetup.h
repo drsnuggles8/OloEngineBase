@@ -132,4 +132,4 @@ namespace OloEngine
         RGFramebufferHandle& OutColor;
     };
 
-}  // namespace OloEngine
+} // namespace OloEngine

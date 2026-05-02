@@ -70,7 +70,7 @@ namespace OloEngine
         // and dependency tracking. For now, just return the handle;
         // full implementation will populate m_Graph's dependency DAG.
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot read an invalid texture handle");
-        
+
         const auto resourceName = m_Graph.GetResourceName(handle);
         if (resourceName.empty())
         {
@@ -80,7 +80,7 @@ namespace OloEngine
         {
             RecordRead(resourceName, usage, range);
         }
-        
+
         (void)usage;
         (void)range;
         return handle;
@@ -91,7 +91,7 @@ namespace OloEngine
         RGReadUsage usage)
     {
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot read an invalid framebuffer handle");
-        
+
         const auto resourceName = m_Graph.GetResourceName(handle);
         if (resourceName.empty())
         {
@@ -101,7 +101,7 @@ namespace OloEngine
         {
             RecordRead(resourceName, usage, RGSubresourceRange::Full());
         }
-        
+
         (void)usage;
         return handle;
     }
@@ -111,7 +111,7 @@ namespace OloEngine
         RGReadUsage usage)
     {
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot read an invalid buffer handle");
-        
+
         const auto resourceName = m_Graph.GetResourceName(handle);
         if (resourceName.empty())
         {
@@ -121,7 +121,7 @@ namespace OloEngine
         {
             RecordRead(resourceName, usage, RGSubresourceRange::Full());
         }
-        
+
         (void)usage;
         return handle;
     }
@@ -136,7 +136,7 @@ namespace OloEngine
         const RGSubresourceRange& range)
     {
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot write an invalid texture handle");
-        
+
         const auto resourceName = m_Graph.GetResourceName(handle);
         if (resourceName.empty())
         {
@@ -146,7 +146,7 @@ namespace OloEngine
         {
             RecordWrite(resourceName, usage, range);
         }
-        
+
         (void)usage;
         (void)range;
         // Phase C stub: record write for dependency tracking
@@ -157,7 +157,7 @@ namespace OloEngine
         RGWriteUsage usage)
     {
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot write an invalid framebuffer handle");
-        
+
         const auto resourceName = m_Graph.GetResourceName(handle);
         if (resourceName.empty())
         {
@@ -167,7 +167,7 @@ namespace OloEngine
         {
             RecordWrite(resourceName, usage, RGSubresourceRange::Full());
         }
-        
+
         (void)usage;
     }
 
@@ -176,7 +176,7 @@ namespace OloEngine
         RGWriteUsage usage)
     {
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot write an invalid buffer handle");
-        
+
         const auto resourceName = m_Graph.GetResourceName(handle);
         if (resourceName.empty())
         {
@@ -186,7 +186,7 @@ namespace OloEngine
         {
             RecordWrite(resourceName, usage, RGSubresourceRange::Full());
         }
-        
+
         (void)usage;
     }
 
@@ -261,4 +261,4 @@ namespace OloEngine
         m_Graph.ExtractFramebuffer(handle, callback);
     }
 
-}  // namespace OloEngine
+} // namespace OloEngine

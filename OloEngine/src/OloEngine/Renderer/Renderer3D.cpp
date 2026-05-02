@@ -987,6 +987,34 @@ namespace OloEngine
             board.SceneColor = graph.ImportFramebuffer(
                 ResourceNames::SceneColor, s_Data.ScenePass->GetTarget());
 
+            // Sanity-check: importing must immediately resolve to the same
+            // framebuffer. If not, the RenderGraph handle layer is broken.
+            // Logged ONCE per change so we notice regressions without
+            // spamming the log every frame.
+            {
+                static u32 s_PrevFbGL = 0;
+                static u32 s_PrevTex0 = 0;
+                const auto importedFB = s_Data.ScenePass->GetTarget();
+                const auto resolveNow = graph.ResolveFramebuffer(board.SceneColor);
+                const u32 importedFbGL = importedFB->GetRendererID();
+                const u32 importedTex0 = importedFB->GetColorAttachmentRendererID(0);
+                const u32 resolveFbGL = resolveNow ? resolveNow->GetRendererID() : 0u;
+                const u32 resolveTex0 = resolveNow ? resolveNow->GetColorAttachmentRendererID(0) : 0u;
+                if (importedFbGL != resolveFbGL || importedTex0 != resolveTex0)
+                {
+                    OLO_CORE_ERROR("Renderer3D: SceneColor IMPORT/RESOLVE MISMATCH: handle=(idx={}, gen={}) importedFbGL={} importedTex0={} resolveFbGL={} resolveTex0={}",
+                                   board.SceneColor.Index, board.SceneColor.Generation,
+                                   importedFbGL, importedTex0, resolveFbGL, resolveTex0);
+                }
+                else if (importedFbGL != s_PrevFbGL || importedTex0 != s_PrevTex0)
+                {
+                    OLO_CORE_INFO("Renderer3D: SceneColor IMPORT OK: handle=(idx={}, gen={}) fbGL={} tex0={}",
+                                  board.SceneColor.Index, board.SceneColor.Generation, importedFbGL, importedTex0);
+                    s_PrevFbGL = importedFbGL;
+                    s_PrevTex0 = importedTex0;
+                }
+            }
+
             const u32 depthID = s_Data.ScenePass->GetTarget()->GetDepthAttachmentRendererID();
             board.SceneDepth = graph.ImportTexture(
                 ResourceNames::SceneDepth, depthID,

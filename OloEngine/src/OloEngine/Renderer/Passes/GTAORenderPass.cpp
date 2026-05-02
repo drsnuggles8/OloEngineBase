@@ -335,6 +335,8 @@ namespace OloEngine
         }
 
         m_HZBGenerator.Resize(width, height);
+
+        OLO_CORE_INFO("GTAORenderPass: Resized to {}x{}", width, height);
     }
 
     void GTAORenderPass::OnReset()

@@ -93,6 +93,13 @@ namespace OloEngine
         {
             m_NeedsLayout = true;
         }
+
+        // Per-pass GPU capture controls — installs the post-pass hook on
+        // the live render graph, captures one frame's intermediate scene
+        // FB contents, displays them as thumbnails for ghost / regression
+        // debugging.
+        DrawCapturePanel(graph);
+
         ImGui::EndGroup();
 
         // Add spacing between controls and canvas
@@ -532,4 +539,124 @@ namespace OloEngine
         bool DrawGrid = true;
         ImVec2 ScrollOffset = ImVec2(0.0f, 0.0f);
     };
+
+    void RenderGraphDebugger::DrawCapturePanel(const Ref<RenderGraph>& graph)
+    {
+        ImGui::SameLine();
+        const bool hookInstalled = graph && graph->HasPostPassHook();
+        if (ImGui::Button(hookInstalled ? "Recapture Frame" : "Capture Frame"))
+        {
+            // Debug instrumentation: installing a post-pass hook on the live
+            // graph is a logical mutation, but RenderDebugView() takes the
+            // graph by const reference (read-only intent for normal UI). The
+            // const_cast is intentional and confined to debug capture.
+            m_FrameCapture.InstallHook(const_cast<RenderGraph*>(graph.get()));
+            m_FrameCapture.RequestCapture();
+            m_SelectedCaptureIndex = -1;
+            m_CaptureWindowOpen = true;
+        }
+
+        if (m_FrameCapture.HasCapture())
+        {
+            ImGui::SameLine();
+            if (ImGui::Button("Clear Captures"))
+            {
+                m_FrameCapture.ClearCaptures();
+                m_SelectedCaptureIndex = -1;
+            }
+        }
+
+        if (!m_CaptureWindowOpen)
+        {
+            return;
+        }
+
+        // Render the capture viewer in a separate window so it doesn't fight
+        // the graph node canvas for screen space.
+        ImGui::SetNextWindowSize(ImVec2(900, 600), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Render Graph Per-Pass Capture", &m_CaptureWindowOpen))
+        {
+            const auto& captures = m_FrameCapture.GetCaptures();
+            if (captures.empty())
+            {
+                ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.3f, 1.0f),
+                                   "No captures yet. Click \"Capture Frame\" and render at least one frame "
+                                   "(unpause the editor / move the camera) to fill this view.");
+            }
+            else
+            {
+                ImGui::TextWrapped("%zu capture(s) — one per (pass × source). Click a thumbnail to enlarge. "
+                                   "The thumbnails are post-pass snapshots of each surface (SceneColor, "
+                                   "PostProcessColor, etc.) AFTER that pass executed.",
+                                   captures.size());
+                ImGui::Separator();
+
+                // Scrollable thumbnail strip on the left, viewer on the right.
+                const f32 thumbWidth = 196.0f;
+                const f32 listWidth = thumbWidth + 36.0f;
+                if (ImGui::BeginChild("##captures_list", ImVec2(listWidth, 0), true))
+                {
+                    for (i32 i = 0; i < static_cast<i32>(captures.size()); ++i)
+                    {
+                        const auto& entry = captures[static_cast<sizet>(i)];
+                        ImGui::PushID(i);
+
+                        const f32 aspect = entry.Height > 0 ? static_cast<f32>(entry.Width) / static_cast<f32>(entry.Height) : 1.0f;
+                        const f32 thumbHeight = thumbWidth / std::max(0.001f, aspect);
+
+                        const std::string label = std::format("{} | {}", entry.PassName, RenderGraphFrameCapture::SourceName(entry.SourceKind));
+                        ImGui::TextUnformatted(label.c_str());
+
+                        const ImTextureID texID = static_cast<ImTextureID>(static_cast<uintptr_t>(entry.TextureID));
+                        if (ImGui::ImageButton("##thumb", texID, ImVec2(thumbWidth, thumbHeight), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f)))
+                        {
+                            m_SelectedCaptureIndex = i;
+                        }
+                        ImGui::Spacing();
+                        ImGui::PopID();
+                    }
+                }
+                ImGui::EndChild();
+
+                ImGui::SameLine();
+
+                if (ImGui::BeginChild("##capture_viewer", ImVec2(0, 0), true))
+                {
+                    if (m_SelectedCaptureIndex < 0 || m_SelectedCaptureIndex >= static_cast<i32>(captures.size()))
+                    {
+                        ImGui::TextDisabled("Select a thumbnail on the left to view it full size.");
+                    }
+                    else
+                    {
+                        const auto& entry = captures[static_cast<sizet>(m_SelectedCaptureIndex)];
+                        ImGui::Text("Pass:   %s", entry.PassName.c_str());
+                        ImGui::Text("Source: %s", RenderGraphFrameCapture::SourceName(entry.SourceKind));
+                        ImGui::Text("Size:   %u x %u", entry.Width, entry.Height);
+                        ImGui::Separator();
+
+                        const ImVec2 avail = ImGui::GetContentRegionAvail();
+                        const f32 aspect = entry.Height > 0 ? static_cast<f32>(entry.Width) / static_cast<f32>(entry.Height) : 1.0f;
+                        f32 displayW = avail.x;
+                        f32 displayH = displayW / std::max(0.001f, aspect);
+                        if (displayH > avail.y)
+                        {
+                            displayH = avail.y;
+                            displayW = displayH * aspect;
+                        }
+                        const ImTextureID texID = static_cast<ImTextureID>(static_cast<uintptr_t>(entry.TextureID));
+                        ImGui::Image(texID, ImVec2(displayW, displayH), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+                    }
+                }
+                ImGui::EndChild();
+            }
+        }
+        ImGui::End();
+
+        // If the user closed the capture window, also remove the hook to
+        // avoid pointless per-pass GPU copies on every frame.
+        if (!m_CaptureWindowOpen)
+        {
+            m_FrameCapture.InstallHook(nullptr);
+        }
+    }
 } // namespace OloEngine

@@ -29,9 +29,9 @@ namespace OloEngine
         // -----------------------------------------------------------------------
         // Scene outputs
         // -----------------------------------------------------------------------
-        RGFramebufferHandle SceneColor;   // HDR scene framebuffer (RGBA16F)
-        RGTextureHandle     SceneDepth;   // Shared depth/stencil attachment
-        RGTextureHandle     SceneNormals; // World-space normals (deferred + SSAO path)
+        RGFramebufferHandle SceneColor; // HDR scene framebuffer (RGBA16F)
+        RGTextureHandle SceneDepth;     // Shared depth/stencil attachment
+        RGTextureHandle SceneNormals;   // World-space normals (deferred + SSAO path)
 
         // -----------------------------------------------------------------------
         // G-Buffer (deferred rendering path only)
@@ -57,11 +57,11 @@ namespace OloEngine
         // -----------------------------------------------------------------------
         // Post-process chain outputs
         // -----------------------------------------------------------------------
-        RGFramebufferHandle SSSColor;         // Output of SSS stage (or passthrough scene color)
-        RGFramebufferHandle PostProcessColor; // Tonemapped + bloom + effects output
+        RGFramebufferHandle SSSColor;              // Output of SSS stage (or passthrough scene color)
+        RGFramebufferHandle PostProcessColor;      // Tonemapped + bloom + effects output
         RGFramebufferHandle SelectionOutlineColor; // PostProcess output with selection outline composited
-        RGFramebufferHandle UIComposite;      // UI composited over post-processed scene
-        RGFramebufferHandle Backbuffer;       // Imported external output target (default framebuffer / swapchain)
+        RGFramebufferHandle UIComposite;           // UI composited over post-processed scene
+        RGFramebufferHandle Backbuffer;            // Imported external output target (default framebuffer / swapchain)
 
         // -----------------------------------------------------------------------
         // OIT buffers

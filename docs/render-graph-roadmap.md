@@ -670,7 +670,7 @@ and reachable transients report lifetimes plus alias decisions in a debug dump.
   (same migration pattern as the post chain).
 - `SetupFrameBlackboard()` now imports `SceneNormals` from scene framebuffer
   attachment 2, making the typed blackboard field live instead of dormant.
-- `SSAOPass` and `GTAOPass` setup declarations now read `SceneNormals`
+- `SSAOPass` and `GTAOPass` setup declarations now read `SceneNormals`e
   (matching real pass sampling) instead of `GBufferNormal`, reducing
   declaration/runtime drift in hazard derivation.
 - Validation run after this slice: `OloEngine-Tests` full suite remains green

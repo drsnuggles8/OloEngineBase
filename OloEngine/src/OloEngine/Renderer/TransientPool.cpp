@@ -385,4 +385,4 @@ namespace OloEngine
         return report;
     }
 
-}  // namespace OloEngine
+} // namespace OloEngine

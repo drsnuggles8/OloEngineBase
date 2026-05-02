@@ -561,6 +561,8 @@
 		"OloEngine/Renderer/Camera/PerspectiveCameraController.h"
 		"OloEngine/Renderer/Debug/RenderGraphDebugger.h"
 		"OloEngine/Renderer/Debug/RenderGraphDebugger.cpp"
+		"OloEngine/Renderer/Debug/RenderGraphFrameCapture.h"
+		"OloEngine/Renderer/Debug/RenderGraphFrameCapture.cpp"
 		"OloEngine/Renderer/Debug/CapturedFrameData.h"
 		"OloEngine/Renderer/Debug/CapturedFrameData.cpp"
 		"OloEngine/Renderer/Debug/CommandPacketDebugger.h"

@@ -59,6 +59,8 @@ namespace OloEngine
         }
 
         [[nodiscard]] u32 GetGTAOTextureID() const;
+        [[nodiscard]] u32 GetWidth() const { return m_Width; }
+        [[nodiscard]] u32 GetHeight() const { return m_Height; }
 
         // Expose HZB for future SSR
         [[nodiscard]] HZBGenerator& GetHZBGenerator()

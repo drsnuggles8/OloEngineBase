@@ -65,7 +65,6 @@ namespace OloEngine
         // Get total memory usage of pooled + currently acquired objects (estimated).
         [[nodiscard]] u64 EstimateMemoryUsage() const;
 
-
         // **Debug:** Get pool statistics (size, utilization, alias groups).
         struct PoolStats
         {
@@ -84,9 +83,9 @@ namespace OloEngine
         // analysis for debugging and future transient allocation decisions.
         struct AliasReport
         {
-            u64 TotalAcquiredBytes;         // Sum of all currently-acquired transient sizes
-            u64 PotentialAliasingBytes;    // Estimated savings from sequential reuse
-            u32 TextureGroupsWithAliasPotential;  // Descriptor buckets with multiple items
+            u64 TotalAcquiredBytes;              // Sum of all currently-acquired transient sizes
+            u64 PotentialAliasingBytes;          // Estimated savings from sequential reuse
+            u32 TextureGroupsWithAliasPotential; // Descriptor buckets with multiple items
             u32 FramebufferGroupsWithAliasPotential;
             u32 BufferGroupsWithAliasPotential;
         };
@@ -98,8 +97,8 @@ namespace OloEngine
         {
             u32 Width;
             u32 Height;
-            u32 Format;  // ImageFormat as u32
-            u32 Flags;   // TextureWrapMode, TextureFilterMode, etc.
+            u32 Format; // ImageFormat as u32
+            u32 Flags;  // TextureWrapMode, TextureFilterMode, etc.
 
             bool operator==(const TextureDescriptorKey& other) const
             {
@@ -133,4 +132,4 @@ namespace OloEngine
         std::vector<Ref<StorageBuffer>> m_AcquiredBuffers;
     };
 
-}  // namespace OloEngine
+} // namespace OloEngine
