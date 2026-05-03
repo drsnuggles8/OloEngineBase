@@ -101,6 +101,26 @@ namespace OloEngine
         RenderCommand::DrawIndexed(vertexArray, indexCount);
     }
 
+    void RGCommandContext::BeginAsyncBatch(const u32 batchIndex)
+    {
+        // GL 4.6 runs a single command stream — no true async queue overlap.
+        // Insert a KHR_debug group label so the batch region is visible in
+        // RenderDoc / Nsight.  The guard prevents crashes in headless / test
+        // contexts where glad has not been initialised.
+        if (GLAD_GL_KHR_debug)
+        {
+            const std::string label = "AsyncBatch[" + std::to_string(batchIndex) + "]";
+            glPushDebugGroup(GL_DEBUG_SOURCE_APPLICATION, batchIndex,
+                             static_cast<GLsizei>(label.size()), label.c_str());
+        }
+    }
+
+    void RGCommandContext::EndAsyncBatch([[maybe_unused]] const u32 batchIndex)
+    {
+        if (GLAD_GL_KHR_debug)
+            glPopDebugGroup();
+    }
+
     u32 RGCommandContext::ResolveTexture(const RGTextureHandle handle) const
     {
         if (!m_RenderGraph)
@@ -115,5 +135,13 @@ namespace OloEngine
             return nullptr;
 
         return m_RenderGraph->ResolveFramebuffer(handle);
+    }
+
+    const FrameBlackboard* RGCommandContext::GetBlackboard() const noexcept
+    {
+        if (!m_RenderGraph)
+            return nullptr;
+
+        return &m_RenderGraph->GetBlackboard();
     }
 } // namespace OloEngine

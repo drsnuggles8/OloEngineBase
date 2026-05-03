@@ -41,6 +41,18 @@ namespace OloEngine
             Present = 1 << 1,      // Pass writes to swap-chain/backbuffer
             DebugCapture = 1 << 2, // Pass captures debug data (RenderDoc, profiler)
             Timestamp = 1 << 3,    // Pass records GPU timestamp
+            NeverCull = 1 << 4,    // Pass is always executed regardless of reachability
+        };
+
+        // Phase G — Work-type classification for queue scheduling.
+        // A pass is exactly one of: Graphics (rasterization), Compute (dispatch-only),
+        // or Copy (transfer/blit only). Used by the scheduler to determine which
+        // hardware queue the pass can run on.
+        enum class PassWorkType : u8
+        {
+            Graphics = 0, // Default: vertex/fragment/rasterization pipeline
+            Compute = 1,  // Compute-dispatch only — no rasterization
+            Copy = 2,     // Transfer / blit only — no shaders
         };
 
         virtual ~RenderPass() = default;
@@ -71,10 +83,6 @@ namespace OloEngine
             return SubmissionModel::Unknown;
         }
 
-        // Called by RenderGraph to pipe the output framebuffer of a previous pass as input.
-        // Passes that accept an input framebuffer should override this.
-        virtual void SetInputFramebuffer(const Ref<Framebuffer>& /*input*/) {}
-
         // Mark this pass as having side effects that prevent culling.
         // Multiple SideEffect flags can be combined with bitwise OR.
         void SetSideEffects(SideEffect effects)
@@ -88,6 +96,34 @@ namespace OloEngine
         [[nodiscard]] bool IsSideEffecting() const
         {
             return static_cast<u8>(m_SideEffects) != 0;
+        }
+
+        // -------------------------------------------------------------------
+        // Phase G — Pass work-type and async-compute scheduling
+        // -------------------------------------------------------------------
+        void SetPassWorkType(PassWorkType type)
+        {
+            m_PassWorkType = type;
+        }
+        [[nodiscard]] PassWorkType GetPassWorkType() const
+        {
+            return m_PassWorkType;
+        }
+        [[nodiscard]] bool IsComputeOnly() const
+        {
+            return m_PassWorkType == PassWorkType::Compute;
+        }
+
+        // Mark this pass as a candidate for running on the async-compute queue.
+        // Only meaningful when PassWorkType == Compute and the backend supports
+        // asynchronous compute (Vulkan / DX12). GL 4.6 ignores this flag.
+        void SetAsyncComputeCandidate(bool candidate)
+        {
+            m_AsyncComputeCandidate = candidate;
+        }
+        [[nodiscard]] bool IsAsyncComputeCandidate() const
+        {
+            return m_AsyncComputeCandidate;
         }
 
         // -------------------------------------------------------------------
@@ -152,5 +188,9 @@ namespace OloEngine
 
         // Side-effect flags (Phase E). Determine if pass is culled when unreachable.
         SideEffect m_SideEffects = SideEffect::None;
+
+        // Phase G — work-type and async-compute scheduling flags.
+        PassWorkType m_PassWorkType = PassWorkType::Graphics;
+        bool m_AsyncComputeCandidate = false;
     };
 } // namespace OloEngine

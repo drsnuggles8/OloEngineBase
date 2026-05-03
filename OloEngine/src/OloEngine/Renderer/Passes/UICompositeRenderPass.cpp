@@ -26,7 +26,11 @@ namespace OloEngine
         CreateFramebuffer(spec.Width, spec.Height);
 
         // Resource-aware RDG: composites post-processed LDR scene + UI.
-        DeclareRead(ResourceNames::PostProcessColor, ResourceHandle::Kind::Framebuffer);
+        // Declares all possible scene inputs; the hazard validator derives the
+        // ordering edge only for whichever producer is present in a given frame.
+        DeclareRead(ResourceNames::VignetteColor, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::FXAAColor, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::SelectionOutlineColor, ResourceHandle::Kind::Framebuffer);
         DeclareWrite(ResourceNames::UIComposite, ResourceHandle::Kind::Framebuffer);
 
         OLO_CORE_INFO("UICompositeRenderPass: Initialized {}x{}", spec.Width, spec.Height);
@@ -60,13 +64,53 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        Ref<Framebuffer> inputFramebuffer = m_InputFramebuffer;
-        if (!inputFramebuffer && m_InputFramebufferHandle.IsValid())
+        // Phase F slice 44 — self-resolving input framebuffer from the render-graph
+        // blackboard. Preference chain: SelectionOutline > FXAA > Vignette >
+        // ToneMap > ColorGrading > ChromAb > Fog > Precipitation > TAA >
+        // MotionBlur > DOF > Bloom > PostProcess.
+        Ref<Framebuffer> inputFramebuffer;
+        if (const auto* board = context.GetBlackboard())
         {
-            if (auto resolvedInput = context.ResolveFramebuffer(m_InputFramebufferHandle))
-                inputFramebuffer = resolvedInput;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->SelectionOutlineColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->FXAAColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->VignetteColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->ToneMapColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->ColorGradingColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->ChromAbColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->FogColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->PrecipitationColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->TAAColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->MotionBlurColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->DOFColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->BloomColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->PostProcessColor))
+                    inputFramebuffer = fb;
         }
-
         if (!m_Target)
         {
             return;
@@ -181,11 +225,6 @@ namespace OloEngine
         {
             CreateFramebuffer(m_FramebufferSpec.Width, m_FramebufferSpec.Height);
         }
-    }
-
-    void UICompositeRenderPass::SetInputFramebuffer(const Ref<Framebuffer>& input)
-    {
-        m_InputFramebuffer = input;
     }
 
     void UICompositeRenderPass::SetRenderCallback(RenderCallback callback)

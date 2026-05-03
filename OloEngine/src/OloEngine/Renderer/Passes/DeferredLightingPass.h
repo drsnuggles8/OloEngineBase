@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
 #include "OloEngine/Renderer/GBuffer.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -49,12 +50,7 @@ namespace OloEngine
         {
             m_GBuffer = gbuffer;
         }
-        // Destination framebuffer — Renderer3D points this at ScenePass
-        // so PostProcess and friends transparently read the lit output.
-        void SetSceneFramebuffer(const Ref<Framebuffer>& sceneFB) noexcept
-        {
-            m_SceneFramebuffer = sceneFB;
-        }
+        // Phase F slice 41 — SetSceneColorHandle removed; Execute() self-resolves
         // Forwarded from RendererSettings; 0 = lighting, non-zero = skip
         // (SceneRenderPass's BlitGBufferDebug already wrote a channel).
         void SetDebugChannel(u32 channel) noexcept

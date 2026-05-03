@@ -38,11 +38,6 @@ namespace OloEngine
                       m_FramebufferSpec.Width, m_FramebufferSpec.Height);
     }
 
-    void FinalRenderPass::SetInputFramebuffer(const Ref<Framebuffer>& input)
-    {
-        m_InputFramebuffer = input;
-    }
-
     void FinalRenderPass::Execute()
     {
         RGCommandContext context;
@@ -53,13 +48,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        Ref<Framebuffer> inputFramebuffer = m_InputFramebuffer;
-        if (!inputFramebuffer && m_InputFramebufferHandle.IsValid())
-        {
-            if (auto resolvedInput = context.ResolveFramebuffer(m_InputFramebufferHandle))
-                inputFramebuffer = resolvedInput;
-        }
-
+        // Phase F slice 44 — self-resolving input framebuffer from the render-graph
+        // blackboard. FinalPass reads UIComposite.
+        Ref<Framebuffer> inputFramebuffer;
+        if (const auto* board = context.GetBlackboard())
+            if (auto fb = context.ResolveFramebuffer(board->UIComposite))
+                inputFramebuffer = fb;
         context.ResetGraphicsStateToDefault();
         context.BindDefaultFramebuffer();
         context.SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
@@ -102,11 +96,6 @@ namespace OloEngine
     Ref<Framebuffer> FinalRenderPass::GetTarget() const
     {
         return m_Target;
-    }
-
-    Ref<Framebuffer> FinalRenderPass::GetInputFramebuffer() const
-    {
-        return m_InputFramebuffer;
     }
 
     void FinalRenderPass::SetupFramebuffer(u32 width, u32 height)

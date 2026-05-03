@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 
@@ -26,11 +27,6 @@ namespace OloEngine
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
 
-        // Graph piping: receives the output of the previous pass (scene+particles).
-        void SetInputFramebuffer(const Ref<Framebuffer>& input) override
-        {
-            m_InputFramebuffer = input;
-        }
         void SetSettings(const SnowSettings& settings)
         {
             m_Settings = settings;
@@ -44,8 +40,6 @@ namespace OloEngine
       private:
         void DrawFullscreenTriangle(RGCommandContext& context);
         void CreateOutputFramebuffer(u32 width, u32 height);
-
-        Ref<Framebuffer> m_InputFramebuffer;
 
         Ref<Shader> m_SSSBlurShader;
         Ref<UniformBuffer> m_SSSUBO;

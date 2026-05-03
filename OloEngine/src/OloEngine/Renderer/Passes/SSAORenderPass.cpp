@@ -41,6 +41,13 @@ namespace OloEngine
         // Create 4x4 noise texture for random rotation
         CreateNoiseTexture();
 
+        // Resource-aware RDG: SSAO reads scene depth/normals and writes AOBuffer
+        // consumed later by AOApplyPass. This allows the validator to derive
+        // SSAOPass -> AOApplyPass ordering via RAW on AOBuffer.
+        DeclareRead(ResourceNames::SceneDepth, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::SceneNormals, ResourceHandle::Kind::Framebuffer);
+        DeclareWrite(ResourceNames::AOBuffer, ResourceHandle::Kind::Texture2D);
+
         OLO_CORE_INFO("SSAORenderPass: Initialized with half-res {}x{}", m_HalfWidth, m_HalfHeight);
     }
 
@@ -97,7 +104,22 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_Settings.SSAOEnabled || m_Settings.ActiveAOTechnique != AOTechnique::SSAO || !m_SceneFramebuffer || !m_SSAOShader || !m_SSAOBlurShader || !m_SSAOFramebuffer || !m_BlurFramebuffer)
+        if (!m_Settings.SSAOEnabled || m_Settings.ActiveAOTechnique != AOTechnique::SSAO || !m_SSAOShader || !m_SSAOBlurShader || !m_SSAOFramebuffer || !m_BlurFramebuffer)
+        {
+            return;
+        }
+
+        // Phase F slice 37 — self-resolving SceneDepth and SceneNormals: look
+        // up directly from the render graph blackboard so no per-frame
+        // side-channel setter calls are needed from EndScene().
+        u32 depthID = 0;
+        u32 normalsID = 0;
+        if (const auto* board = context.GetBlackboard())
+        {
+            depthID = context.ResolveTexture(board->SceneDepth);
+            normalsID = context.ResolveTexture(board->SceneNormals);
+        }
+        if (depthID == 0 || normalsID == 0)
         {
             return;
         }
@@ -126,11 +148,9 @@ namespace OloEngine
         m_SSAOShader->Bind();
 
         // Bind scene depth at TEX_POSTPROCESS_DEPTH (slot 19)
-        u32 depthID = m_SceneFramebuffer->GetDepthAttachmentRendererID();
         context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
 
         // Bind scene view-space normals at TEX_SCENE_NORMALS (slot 22)
-        u32 normalsID = m_SceneFramebuffer->GetColorAttachmentRendererID(2);
         context.BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, normalsID);
 
         // Bind noise texture at TEX_SSAO_NOISE (slot 21)

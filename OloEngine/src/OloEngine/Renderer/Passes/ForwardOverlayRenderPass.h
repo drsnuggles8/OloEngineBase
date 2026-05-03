@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 
 namespace OloEngine
@@ -38,8 +39,6 @@ namespace OloEngine
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
-
-        void SetSceneFramebuffer(const Ref<Framebuffer>& fb);
 
       private:
         Ref<Framebuffer> m_SceneFramebuffer;

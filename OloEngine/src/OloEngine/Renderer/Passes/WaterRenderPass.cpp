@@ -34,6 +34,11 @@ namespace OloEngine
 
         m_FramebufferSpec = spec;
         // No own framebuffer — this pass renders into the ScenePass target
+
+        // Phase F slice 32 — read-modify-write into SceneColor so the hazard
+        // validator can derive the DecalPass → WaterPass RAW ordering edge.
+        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
+        DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
     }
 
     void WaterRenderPass::EnsureRefractionTexture(u32 width, u32 height)
@@ -69,6 +74,26 @@ namespace OloEngine
     void WaterRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Phase F slice 36 — self-resolving SceneColor: look up directly
+        // from the render graph blackboard so no per-frame side-channel
+        // setter call is needed from EndScene().
+        if (const auto* board = context.GetBlackboard())
+        {
+            if (board->SceneColor.IsValid())
+            {
+                if (auto resolvedSceneFB = context.ResolveFramebuffer(board->SceneColor))
+                    m_SceneFramebuffer = resolvedSceneFB;
+            }
+        }
+
+        // Phase F slice 15 — fetch the OITBuffer through the provider
+        // (lazy in OITResolveRenderPass). When OIT is disabled the
+        // provider is not queried, leaving the cached Ref null.
+        if (m_OITEnabled && m_OITBufferProvider)
+            m_OITBuffer = m_OITBufferProvider();
+        else
+            m_OITBuffer.Reset();
 
         if (!m_SceneFramebuffer)
         {
@@ -260,12 +285,6 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         // Return the ScenePass framebuffer since that's where we render
         return m_SceneFramebuffer;
-    }
-
-    void WaterRenderPass::SetSceneFramebuffer(const Ref<Framebuffer>& fb)
-    {
-        OLO_PROFILE_FUNCTION();
-        m_SceneFramebuffer = fb;
     }
 
     void WaterRenderPass::SetupFramebuffer(u32 width, u32 height)

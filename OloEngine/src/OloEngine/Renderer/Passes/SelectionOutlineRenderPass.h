@@ -39,15 +39,6 @@ namespace OloEngine
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
-        void SetInputFramebuffer(const Ref<Framebuffer>& input) override;
-        void SetInputFramebufferHandle(RGFramebufferHandle handle)
-        {
-            m_InputFramebufferHandle = handle;
-        }
-
-        // Set the ScenePass framebuffer to read entity IDs from attachment 1
-        void SetSceneFramebuffer(const Ref<Framebuffer>& sceneFB);
-
         // Set selected entity IDs for this frame. Max 64 entities.
         void SetSelectedEntityIDs(std::span<const i32> ids);
 
@@ -84,8 +75,6 @@ namespace OloEngine
         void CreateFramebuffer(u32 width, u32 height);
         void CreateJFAFramebuffers(u32 width, u32 height);
 
-        Ref<Framebuffer> m_InputFramebuffer;
-        RGFramebufferHandle m_InputFramebufferHandle;
         Ref<Framebuffer> m_SceneFramebuffer;
         Ref<Shader> m_BlitShader;
 

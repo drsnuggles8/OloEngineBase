@@ -90,6 +90,8 @@ namespace OloEngine
             std::string PassName;
             RenderPass::SubmissionModel Submission = RenderPass::SubmissionModel::Unknown;
             bool DeclaresResources = false;
+            RenderPass::PassWorkType WorkType = RenderPass::PassWorkType::Graphics; // Phase G
+            bool AsyncComputeCandidate = false;                                     // Phase G
         };
         [[nodiscard]] std::vector<PassSubmissionInfo> GetPassSubmissionInfo() const;
 
@@ -206,6 +208,24 @@ namespace OloEngine
         // a resource across frames (e.g. TAA history write-back).
         void ExtractTexture(RGTextureHandle handle, std::function<void(u32)> callback);
 
+        // Queue a texture extraction that explicitly writes back into a named
+        // imported history resource for the next frame. The callback receives
+        // the resolved source texture ID after Execute() completes.
+        struct TemporalHistoryContract
+        {
+            std::string HistoryResource; ///< canonical imported-history name (previous-frame input)
+            std::string SourceResource;  ///< current-frame resource extracted for next-frame reuse
+            bool HistoryImported = false;
+            bool SourceReachable = false;
+        };
+        void ExtractHistoryTexture(std::string_view historyResource,
+                                   RGTextureHandle sourceHandle,
+                                   std::function<void(u32)> callback);
+        [[nodiscard]] const std::vector<TemporalHistoryContract>& GetTemporalHistoryContracts() const
+        {
+            return m_TemporalHistoryContracts;
+        }
+
         // Queue a framebuffer extraction callback.
         void ExtractFramebuffer(RGFramebufferHandle handle, std::function<void(Ref<Framebuffer>)> callback);
 
@@ -303,6 +323,7 @@ namespace OloEngine
             std::string BeforePass;
             std::string Resource;
             MemoryBarrierFlags Flags = MemoryBarrierFlags::None;
+            RGSubresourceRange Range; ///< subresource range from the consuming access declaration
         };
 
         struct PassTiming
@@ -323,6 +344,7 @@ namespace OloEngine
             UnmappedTransition,
             StaleExtractionHandle,
             ExtractionOfCulledResource,
+            InvalidHistoryContract,
         };
 
         struct BarrierDiagnostic
@@ -358,6 +380,23 @@ namespace OloEngine
         [[nodiscard]] bool HasPostPassHook() const
         {
             return static_cast<bool>(m_PostPassHook);
+        }
+
+        // -------------------------------------------------------------------
+        // Phase G Slice 6 — Batch-event hook
+        // -------------------------------------------------------------------
+        // Fired when Execute() enters (isBegin=true) or exits (isBegin=false)
+        // an async-compute batch boundary.  Useful for tests and profiling
+        // tooling that need to verify batch boundary placement without a real
+        // GL context.  Pass an empty function (or assign {}) to disable.
+        using BatchEventCallback = std::function<void(u32 batchIndex, bool isBegin)>;
+        void SetBatchEventHook(BatchEventCallback cb)
+        {
+            m_BatchEventHook = std::move(cb);
+        }
+        [[nodiscard]] bool HasBatchEventHook() const
+        {
+            return static_cast<bool>(m_BatchEventHook);
         }
 
         void SetRuntimeBarrierExecutionEnabled(const bool enabled)
@@ -414,6 +453,229 @@ namespace OloEngine
         [[nodiscard]] bool UpdateDependencyGraph();
         void ResolveFinalPass();
 
+        // Phase G Slice 2 — Compute-pass scheduling hoist.
+        // After UpdateDependencyGraph() builds a valid topological order, this
+        // method applies a modified Kahn's pass over m_PassOrder: when multiple
+        // passes are ready (all predecessors already scheduled), all
+        // AsyncComputeCandidate passes are drained before any graphics pass is
+        // advanced. The result is a still-valid topological order that gives
+        // compute work a head start — simulating what a multi-queue backend
+        // would achieve once async-compute scheduling lands in Phase G.2.
+        // No-ops when no AsyncComputeCandidate pass is present.
+        void HoistComputePasses();
+
+      public:
+        // -------------------------------------------------------------------
+        // Phase G Slice 4 — Async-compute batch query
+        // -------------------------------------------------------------------
+        // A batch groups consecutive AsyncComputeCandidate passes from the
+        // hoisted execution order together with the fence metadata needed for
+        // queue synchronisation:
+        //   WaitPasses  — non-batch passes this batch must wait for before it
+        //                 can start (predecessor graphics work).
+        //   SignalPasses — non-batch passes that must wait for this batch to
+        //                 finish before they can start (successor graphics work).
+        //
+        // Backend mapping:
+        //   GL 4.6   : glFenceSync after batch; glClientWaitSync before SignalPasses.
+        //   Vulkan   : compute VkSubmitInfo with signal semaphores; graphics
+        //              VkSubmitInfo with wait semaphores pointing at the batch.
+        //   DX12     : D3D12_COMMAND_LIST_TYPE_COMPUTE + fence Signal/Wait pairs.
+
+        // -------------------------------------------------------------------
+        // Phase G Slice 8 — Cross-batch resource dependency surfacing
+        // -------------------------------------------------------------------
+        // A resource dependency that crosses an async-compute batch boundary.
+        //   ExternalPass — the non-batch pass on the other side of the fence:
+        //     InputResource  → the non-batch pass that last WROTE this resource
+        //                      before the batch starts (the producer to wait for).
+        //     OutputResource → the non-batch pass that first READS this resource
+        //                      after the batch ends (the consumer that must wait).
+        //
+        // Backend usage:
+        //   Vulkan : each InputResource maps to a wait-semaphore + image-layout
+        //            transition on the compute queue.  Each OutputResource maps to
+        //            a signal-semaphore + ownership-transfer release/acquire pair.
+        //   DX12   : InputResources drive fence Wait() calls; OutputResources
+        //            drive fence Signal() calls + resource-barrier transitions.
+        struct BatchResourceDependency
+        {
+            std::string ResourceName; ///< virtual resource name registered in the graph
+            std::string ExternalPass; ///< non-batch pass that produces (input) or first consumes (output) this resource
+        };
+
+        enum class QueueLane : u8
+        {
+            Graphics,
+            Compute,
+            Copy,
+        };
+
+        struct AsyncComputeBatch
+        {
+            std::vector<std::string> ComputePasses; ///< batch members, in execution order
+            std::vector<std::string> WaitPasses;    ///< non-batch passes this batch waits for
+            std::vector<std::string> SignalPasses;  ///< non-batch passes that wait for this batch
+            QueueLane Lane = QueueLane::Compute;    ///< execution lane assignment for this batch (Phase G Slice 13)
+            // Phase G Slice 8: per-resource cross-boundary dependency info
+            std::vector<BatchResourceDependency> InputResources;  ///< resources entering the batch from outside
+            std::vector<BatchResourceDependency> OutputResources; ///< resources leaving the batch to outside
+        };
+
+        // Partition the hoisted execution order into async-compute batches.
+        // Returns an empty vector when no AsyncComputeCandidate pass exists.
+        // Must be called AFTER Execute() (or after a forced topology update)
+        // so that HoistComputePasses() has already run.
+        [[nodiscard]] std::vector<AsyncComputeBatch> GetAsyncComputeBatches() const;
+
+        // -------------------------------------------------------------------
+        // Phase G Slice 5 — Submission-plan IR
+        // -------------------------------------------------------------------
+        // A backend-portable linearised sequence of operations that a
+        // Vulkan/DX12/GL renderer can execute without re-reading the graph
+        // topology or barrier tables.
+        //
+        // Command kinds:
+        //   Pass          — submit / execute the named pass on the queue
+        //                   indicated by PassWorkType.
+        //   MemoryBarrier — insert a pipeline/memory barrier with the given
+        //                   flags before the next pass begins.
+        //   BatchBegin    — start a new async-compute submission slot;
+        //                   backends insert a queue-wait here.
+        //   BatchEnd      — close the current async-compute slot;
+        //                   backends insert a queue-signal / fence here.
+        //
+        // Backend mapping:
+        //   GL 4.6   : BatchEnd → glFenceSync; BatchBegin → glClientWaitSync.
+        //              MemoryBarrier → glMemoryBarrier(flags).
+        //   Vulkan   : BatchBegin/BatchEnd bound a VkSubmitInfo on the compute
+        //              queue with matching wait/signal semaphores.
+        //   DX12     : BatchBegin/BatchEnd bound a compute command-list with
+        //              fence Signal/Wait pairs.
+        struct SubmissionCommand
+        {
+            enum class Kind : u8
+            {
+                Pass,
+                MemoryBarrier,
+                BatchBegin,
+                BatchEnd,
+            };
+
+            Kind CommandKind = Kind::Pass;
+            std::string PassName;                                                   ///< non-empty for Pass commands
+            MemoryBarrierFlags Barriers = MemoryBarrierFlags::None;                 ///< for MemoryBarrier commands
+            u32 BatchIndex = 0;                                                     ///< for BatchBegin/BatchEnd: which async batch
+            RenderPass::PassWorkType WorkType = RenderPass::PassWorkType::Graphics; ///< for Pass commands
+            QueueLane Lane = QueueLane::Graphics;                                   ///< queue lane assignment for this command (Phase G Slice 13)
+
+            // Phase G Slice 9: self-contained batch-boundary metadata so
+            // backends can map waits/signals/resource ownership transitions
+            // directly from GetSubmissionPlan() without side-channel queries.
+            std::vector<std::string> WaitPasses;                  ///< for BatchBegin commands
+            std::vector<std::string> SignalPasses;                ///< for BatchEnd commands
+            std::vector<BatchResourceDependency> InputResources;  ///< for BatchBegin commands
+            std::vector<BatchResourceDependency> OutputResources; ///< for BatchEnd commands
+        };
+
+        // Build the submission-plan IR for the current frame.
+        // Integrates barrier plan (Phase E) with async-compute batch boundaries
+        // (Phase G Slice 4) into a single linearised command stream.
+        // Must be called AFTER Execute() so that barrier planning and
+        // compute-hoist have already run.
+        [[nodiscard]] std::vector<SubmissionCommand> GetSubmissionPlan() const;
+
+        // -------------------------------------------------------------------
+        // Phase G Slice 10 — Explicit resource transition records
+        // -------------------------------------------------------------------
+        // For each planned barrier, captures the before-state (producer's
+        // write usage) and after-state (consumer's read usage) so
+        // explicit-barrier backends can insert the correct image-layout
+        // transitions and pipeline-stage masks without re-querying the
+        // per-pass access-declaration tables.
+        //
+        // Each record corresponds one-to-one with an entry in
+        // GetPlannedBarriers(): same resource/consumerPass pairing, with the
+        // producer's write-usage and the consumer's read-usage added.
+        //
+        // Backend mapping:
+        //   Vulkan  : FromUsage → VkImageLayout (e.g. RenderTarget →
+        //             COLOR_ATTACHMENT_OPTIMAL); ToUsage → SHADER_READ_ONLY.
+        //             Flags → VkAccessFlags / VkPipelineStageFlags.
+        //   DX12    : FromUsage → D3D12_RESOURCE_STATE_RENDER_TARGET;
+        //             ToUsage → D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE.
+        //   GL 4.6  : glMemoryBarrier(Flags) already inserted; transition
+        //             records are informational until explicit barriers land.
+        struct ResourceTransition
+        {
+            std::string ResourceName;                            ///< virtual resource in the graph
+            std::string ProducerPass;                            ///< last writer before this transition; "external" when only imported
+            std::string ConsumerPass;                            ///< pass that reads the resource (barrier inserted before it)
+            RGWriteUsage FromUsage = RGWriteUsage::RenderTarget; ///< write usage of ProducerPass
+            RGReadUsage ToUsage = RGReadUsage::ShaderSample;     ///< read usage of ConsumerPass
+            MemoryBarrierFlags Flags = MemoryBarrierFlags::None; ///< barrier flags from PlannedBarrier
+            RGSubresourceRange Range;                            ///< subresource range from the consuming access declaration
+
+            // Phase G Slice 14 — Cross-lane sync metadata (release/acquire intent).
+            // Set when ProducerPass and ConsumerPass reside on different queue lanes.
+            // On GL 4.6 this is informational only; on Vulkan/DX12 it drives
+            // ownership-transfer barriers and semaphore waits.
+            bool IsCrossLane = false;                     ///< true when producer and consumer are on different queue lanes
+            QueueLane ProducerLane = QueueLane::Graphics; ///< lane of the producing pass; Graphics for "external" producers
+            QueueLane ConsumerLane = QueueLane::Graphics; ///< lane of the consuming pass
+        };
+
+        // Derive all resource transition records from the current barrier plan
+        // and access declarations. Returns an empty vector when no barriers are
+        // planned (no declared reads/writes or passes not yet executed).
+        // Must be called AFTER Execute() or after BuildFrameGraph() +
+        // ComputeBarrierPlan() have run so that m_PlannedBarriers and
+        // m_PassAccessDeclarations are populated.
+        [[nodiscard]] std::vector<ResourceTransition> GetResourceTransitions() const;
+
+        // -------------------------------------------------------------------
+        // Phase G Slice 11 — Unified resource lifetime records
+        // -------------------------------------------------------------------
+        // One record per registered resource giving its full first-write /
+        // last-read extent in pass-execution order.  Covers ALL resource kinds
+        // (transient, imported, history, extracted) so that an explicit-barrier
+        // backend (Vulkan / DX12) can schedule image-layout transitions and
+        // memory acquire/release without additional bookkeeping.
+        //
+        //   IsImported  — resource entered via ImportTexture / ImportFramebuffer /
+        //                 ImportBuffer; initial layout is driver-defined.
+        //   IsExtracted — ExtractTexture / ExtractFramebuffer was called; the
+        //                 backend must keep the resource live after the last pass.
+        //   IsHistory   — resource is a temporal-history input (imported from
+        //                 the previous frame via ImportHistory / ExtractHistoryTexture).
+        //   IsTransient — resource is allocated by the transient pool; memory
+        //                 can be freed at LastPassIndex+1.
+        //
+        //   FirstWritePassIndex / LastReadPassIndex are indices into GetPassOrder().
+        //   When no write is found (import-only) FirstWritePassIndex == UINT32_MAX
+        //   and FirstWritePass == "external".  When no read is found (write-only /
+        //   extracted) LastReadPassIndex == UINT32_MAX and LastReadPass == "".
+        struct ResourceLifetime
+        {
+            std::string ResourceName;
+            bool IsImported = false;                                   ///< entered via ImportTexture/ImportFramebuffer/ImportBuffer
+            bool IsExtracted = false;                                  ///< has a pending TextureExtract or FramebufferExtract
+            bool IsHistory = false;                                    ///< temporal-history resource (ImportHistory)
+            bool IsTransient = false;                                  ///< allocated by the transient pool
+            u32 FirstWritePassIndex = std::numeric_limits<u32>::max(); ///< index in GetPassOrder(); UINT32_MAX when import-only
+            u32 LastReadPassIndex = std::numeric_limits<u32>::max();   ///< index in GetPassOrder(); UINT32_MAX when write-only
+            std::string FirstWritePass;                                ///< name of the first writing pass; "external" when import-only
+            std::string LastReadPass;                                  ///< name of the last reading pass; "" when no reads declared
+            RGWriteUsage FirstWriteUsage = RGWriteUsage::RenderTarget; ///< usage at first write
+            RGReadUsage LastReadUsage = RGReadUsage::ShaderSample;     ///< usage at last read
+        };
+
+        // Returns one ResourceLifetime per registered resource, ordered to
+        // match GetRegisteredResources().  Available after Execute() or after
+        // UpdateDependencyGraph() + ComputeBarrierPlan() have run.
+        [[nodiscard]] std::vector<ResourceLifetime> GetResourceLifetimes() const;
+
+      private:
         // -------------------------------------------------------------------
         // Phase E — Backward reachability analysis and pass culling
         // -------------------------------------------------------------------
@@ -430,6 +692,8 @@ namespace OloEngine
         // ComputeReachability() call. Reachability is recalculated in
         // BuildFrameGraph() and Execute().
         [[nodiscard]] bool IsPassReachable(const std::string& passName) const;
+        [[nodiscard]] bool IsHistoryTextureResource(std::string_view resourceName) const;
+        [[nodiscard]] bool IsResourceReachableForExtraction(std::string_view resourceName) const;
 
         // Get the list of passes that were culled in the last reachability
         // analysis. Useful for debugging and profiling.
@@ -439,9 +703,9 @@ namespace OloEngine
         }
 
         std::unordered_map<std::string, Ref<RenderPass>> m_PassLookup;
-        std::unordered_map<std::string, std::vector<std::string>> m_Dependencies;           // Execution ordering
-        std::unordered_map<std::string, std::vector<std::string>> m_FramebufferConnections; // Framebuffer piping
-        std::vector<std::string> m_InsertionOrder;                                          // Pass names in AddPass() order (stable topo tie-break)
+        std::unordered_map<std::string, std::vector<std::string>> m_Dependencies; // Execution ordering
+
+        std::vector<std::string> m_InsertionOrder; // Pass names in AddPass() order (stable topo tie-break)
         std::vector<std::string> m_PassOrder;
         std::string m_FinalPassName;
         bool m_HasExplicitFinalPass = false;
@@ -461,21 +725,12 @@ namespace OloEngine
         bool m_RuntimeTransientMaterializationEnabled = false;
 
         PostPassHook m_PostPassHook;
+        BatchEventCallback m_BatchEventHook;
 
         // Execution-ready cache — rebuilt when m_DependencyGraphDirty is set.
         // Avoids per-frame hash lookups in Execute().
-        //
-        // Lifetime: FramebufferPipe and its RenderPass* members are non-owning raw
-        // pointers into m_PassLookup.  They must remain valid until
-        // RebuildExecutionCache() is called.  Do not remove or destroy passes from
-        // m_PassLookup while the cache is in use.
-        struct FramebufferPipe
-        {
-            RenderPass* OutputPass = nullptr;
-            std::vector<RenderPass*> InputPasses;
-        };
-        std::vector<FramebufferPipe> m_CachedPipes;
         std::vector<RenderPass*> m_CachedExecutionOrder;
+        std::vector<SubmissionCommand> m_CachedSubmissionPlan; ///< Phase G Slice 6: IR cached after barrier planning
 
         std::unordered_map<std::string, RGResourceDesc> m_ImportedResources;
 
@@ -531,13 +786,21 @@ namespace OloEngine
             RGTextureHandle Handle;
             std::function<void(u32)> Callback;
         };
+        struct HistoryTextureExtract
+        {
+            std::string HistoryResource;
+            RGTextureHandle SourceHandle;
+            std::function<void(u32)> Callback;
+        };
         struct FramebufferExtract
         {
             RGFramebufferHandle Handle;
             std::function<void(Ref<Framebuffer>)> Callback;
         };
         std::vector<TextureExtract> m_TextureExtracts;
+        std::vector<HistoryTextureExtract> m_HistoryTextureExtracts;
         std::vector<FramebufferExtract> m_FramebufferExtracts;
+        std::vector<TemporalHistoryContract> m_TemporalHistoryContracts;
 
         // -------------------------------------------------------------------
         // Phase B — Frame blackboard

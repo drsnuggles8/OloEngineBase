@@ -41,6 +41,10 @@ namespace OloEngine
     GTAORenderPass::GTAORenderPass()
     {
         SetName("GTAOPass");
+        // Phase G slice 1 — compute-only; HZB + GTAO main pass + denoise all dispatch compute.
+        // Candidate for async-compute overlap once multi-queue scheduling is added (Phase G.2).
+        SetPassWorkType(PassWorkType::Compute);
+        SetAsyncComputeCandidate(true);
     }
 
     GTAORenderPass::~GTAORenderPass() = default;
@@ -68,6 +72,13 @@ namespace OloEngine
 
         // Initialize HZB for current viewport
         m_HZBGenerator.Resize(m_Width, m_Height);
+
+        // Resource-aware RDG: GTAO reads scene depth/normals and writes AOBuffer
+        // consumed later by AOApplyPass. This allows the validator to derive
+        // GTAOPass -> AOApplyPass ordering via RAW on AOBuffer.
+        DeclareRead(ResourceNames::SceneDepth, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::SceneNormals, ResourceHandle::Kind::Framebuffer);
+        DeclareWrite(ResourceNames::AOBuffer, ResourceHandle::Kind::Texture2D);
 
         OLO_CORE_INFO("GTAORenderPass: Initialized at {}x{}", m_Width, m_Height);
     }
@@ -131,22 +142,35 @@ namespace OloEngine
     void GTAORenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
-        (void)context;
 
-        if (!m_Settings.GTAOEnabled || m_Settings.ActiveAOTechnique != AOTechnique::GTAO || !m_SceneFramebuffer || !m_GTAOShader || !m_GTAOShader->IsValid())
+        if (!m_Settings.GTAOEnabled || m_Settings.ActiveAOTechnique != AOTechnique::GTAO || !m_GTAOShader || !m_GTAOShader->IsValid())
+        {
+            return;
+        }
+
+        // Phase F slice 37 — self-resolving SceneDepth and SceneNormals: look
+        // up directly from the render graph blackboard so no per-frame
+        // side-channel setter calls are needed from EndScene().
+        u32 depthID = 0;
+        u32 normalsID = 0;
+        if (const auto* board = context.GetBlackboard())
+        {
+            depthID = context.ResolveTexture(board->SceneDepth);
+            normalsID = context.ResolveTexture(board->SceneNormals);
+        }
+        if (depthID == 0 || normalsID == 0)
         {
             return;
         }
 
         // Step 1: Generate HZB from scene depth
-        u32 depthID = m_SceneFramebuffer->GetDepthAttachmentRendererID();
         m_HZBGenerator.Generate(depthID);
 
         // Step 2: Upload GTAO uniforms
         UploadGTAOUniforms();
 
         // Step 3: Dispatch GTAO main pass
-        DispatchGTAO();
+        DispatchGTAO(normalsID);
 
         // Step 4: Denoise (if enabled)
         if (m_Settings.GTAODenoiseEnabled && m_DenoiseShader && m_DenoiseShader->IsValid())
@@ -197,7 +221,7 @@ namespace OloEngine
         m_GTAOUBO->Bind();
     }
 
-    void GTAORenderPass::DispatchGTAO()
+    void GTAORenderPass::DispatchGTAO(u32 normalsTextureID)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -211,8 +235,7 @@ namespace OloEngine
         u32 hzbID = m_HZBGenerator.GetHZBTextureID();
         RenderCommand::BindTexture(GTAO_HZB_TEXTURE_SLOT, hzbID);
 
-        u32 normalsID = m_SceneFramebuffer->GetColorAttachmentRendererID(2);
-        RenderCommand::BindTexture(GTAO_NORMALS_TEXTURE_SLOT, normalsID);
+        RenderCommand::BindTexture(GTAO_NORMALS_TEXTURE_SLOT, normalsTextureID);
 
         RenderCommand::BindTexture(GTAO_HILBERT_TEXTURE_SLOT, m_HilbertLUT->GetRendererID());
 

@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 
@@ -26,10 +27,6 @@ namespace OloEngine
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
 
-        void SetSceneFramebuffer(const Ref<Framebuffer>& sceneFB)
-        {
-            m_SceneFramebuffer = sceneFB;
-        }
         void SetSettings(const PostProcessSettings& settings)
         {
             m_Settings = settings;
@@ -47,7 +44,6 @@ namespace OloEngine
         void CreateNoiseTexture();
         void DrawFullscreenTriangle();
 
-        Ref<Framebuffer> m_SceneFramebuffer;
         Ref<Framebuffer> m_SSAOFramebuffer;
         Ref<Framebuffer> m_BlurFramebuffer;
 

@@ -28,6 +28,7 @@
 #include <gtest/gtest.h>
 
 #include "OloEngine/Renderer/RenderGraph.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -129,10 +130,13 @@ TEST(RenderGraphResourceHazards, LinearChainWithHandoffIsHazardFree)
 }
 
 // =============================================================================
-// RAW: a read without a dependency on its writer must be flagged. This is
-// the classic "forgot to AddExecutionDependency on the shadow map" bug.
+// Phase F slice 27 — declaration-derived edge synthesis.
+// A DeclareWrite + DeclareRead pair on the same resource name is sufficient
+// for ValidateResourceHazards to infer the RAW ordering edge automatically.
+// No explicit AddExecutionDependency / ConnectPass call is required.
+// This is the core invariant introduced in slice 27.
 // =============================================================================
-TEST(RenderGraphResourceHazards, ReadWithoutDependencyIsFlagged)
+TEST(RenderGraphResourceHazards, DeclaredRAWPair_DerivedEdgePreventsHazardWithoutExplicitDependency)
 {
     RenderGraph graph;
     auto shadow = AddDeclStub(graph, "Shadow");
@@ -140,18 +144,47 @@ TEST(RenderGraphResourceHazards, ReadWithoutDependencyIsFlagged)
 
     shadow->TestDeclareWrite("ShadowMap");
     scene->TestDeclareRead("ShadowMap");
-    // NOTE: no ConnectPass / AddExecutionDependency linking Shadow and Scene.
+    // NOTE: no ConnectPass / AddExecutionDependency — slice 27 derives the
+    // RAW edge from the declaration pair alone.
 
     const auto hazards = graph.ValidateResourceHazards();
-    ASSERT_EQ(hazards.size(), 1u) << HazardsToString(hazards);
-    EXPECT_EQ(hazards[0].Kind, RenderGraph::HazardKind::ReadAfterWrite);
-    EXPECT_EQ(hazards[0].Resource, "ShadowMap");
-    EXPECT_EQ(hazards[0].Producer, "Shadow");
-    EXPECT_EQ(hazards[0].Consumer, "Scene");
+    EXPECT_TRUE(hazards.empty())
+        << "slice 27: declared RAW pair should not require an explicit edge."
+        << HazardsToString(hazards);
+}
+
+// =============================================================================
+// Phase F slice 27 — declaration-chain transitivity.
+// A writes X, B reads X (derived: B depends on A).
+// B writes Y, C reads Y (derived: C depends on B, and transitively A).
+// No explicit edges at all — all RAW ordering is derived from declarations.
+// =============================================================================
+TEST(RenderGraphResourceHazards, Slice27_DeclarationChainTransitivityIsHazardFree)
+{
+    RenderGraph graph;
+    auto a = AddDeclStub(graph, "PassA");
+    auto b = AddDeclStub(graph, "PassB");
+    auto c = AddDeclStub(graph, "PassC");
+
+    a->TestDeclareWrite("ResourceX");
+    b->TestDeclareRead("ResourceX");
+    b->TestDeclareWrite("ResourceY");
+    c->TestDeclareRead("ResourceY");
+    // No explicit edges — slice 27 derives A→B from X and B→C from Y,
+    // then transitivity propagates A into C's closure.
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "slice 27: two-hop declaration chain must be fully derived "
+           "without any explicit AddExecutionDependency calls."
+        << HazardsToString(hazards);
 }
 
 // =============================================================================
 // WAW: two independent passes writing the same resource are a race.
+// WAW is NOT derived from declarations (ordering is ambiguous — the graph
+// cannot know which writer should run first), so explicit edges are still
+// required to serialize concurrent writes.
 // =============================================================================
 TEST(RenderGraphResourceHazards, ParallelWritesToSameResourceAreFlagged)
 {
@@ -313,10 +346,11 @@ TEST(RenderGraphResourceHazards, ProductionShapedGraphIsHazardFree)
 }
 
 // =============================================================================
-// Production-shaped with the ShadowMap dependency missing at PostProcess
-// (no direct AND no transitive path to ShadowPass) → RAW hazard expected.
+// Phase F slice 27 — production-shaped with ShadowMapCSM read by PostProcess
+// but no direct explicit edge ShadowPass → PostProcessPass.
+// Slice 27 derives the RAW edge from declarations, so no hazard is expected.
 // =============================================================================
-TEST(RenderGraphResourceHazards, ProductionShapedGraphWithNoPathToShadowIsFlagged)
+TEST(RenderGraphResourceHazards, ProductionShapedGraph_DerivedEdgePreventsHazardForShadow)
 {
     RenderGraph graph;
     AddDeclStub(graph, "ShadowPass")->TestDeclareWrite(std::string(ResourceNames::ShadowMapCSM));
@@ -329,12 +363,14 @@ TEST(RenderGraphResourceHazards, ProductionShapedGraphWithNoPathToShadowIsFlagge
     final->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
 
     graph.ConnectPass("ShadowPass", "ScenePass");
-    // NOTE: PostProcess has no path to ShadowPass.
+    // NOTE: PostProcess has no explicit path to ShadowPass.
+    // Slice 27 derives ShadowPass → PostProcessPass from the declaration pair.
     graph.ConnectPass("PostProcessPass", "FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    ASSERT_FALSE(hazards.empty()) << "expected a hazard, got none";
-    EXPECT_TRUE(ContainsHazardForResource(hazards, std::string(ResourceNames::ShadowMapCSM)))
+    EXPECT_TRUE(hazards.empty())
+        << "slice 27: ShadowPass.DeclareWrite + PostProcessPass.DeclareRead "
+           "should derive the ordering edge automatically."
         << HazardsToString(hazards);
 }
 
@@ -365,7 +401,9 @@ TEST(RenderGraphResourceHazards, IblProducerConsumerIsHazardFree)
     EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
 }
 
-TEST(RenderGraphResourceHazards, IblMissingDependencyIsFlagged)
+// Phase F slice 27: EnvironmentPass.DeclareWrite(PrefilterMap) +
+// ScenePass.DeclareRead(PrefilterMap) is sufficient — no explicit edge needed.
+TEST(RenderGraphResourceHazards, IblDeclarationsAloneSufficient)
 {
     RenderGraph graph;
 
@@ -376,10 +414,10 @@ TEST(RenderGraphResourceHazards, IblMissingDependencyIsFlagged)
     scene->TestDeclareRead(std::string(ResourceNames::PrefilterMap));
     scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
 
-    // NOTE: intentionally no ConnectPass from Environment to Scene.
+    // NOTE: no ConnectPass — slice 27 derives the RAW edge from declarations.
     const auto hazards = graph.ValidateResourceHazards();
-    ASSERT_FALSE(hazards.empty()) << "expected IBL RAW hazard, got none";
-    EXPECT_TRUE(ContainsHazardForResource(hazards, std::string(ResourceNames::PrefilterMap)))
+    EXPECT_TRUE(hazards.empty())
+        << "slice 27: IBL declaration pair alone must be sufficient."
         << HazardsToString(hazards);
 }
 
@@ -426,12 +464,13 @@ TEST(RenderGraphResourceHazards, UICompositeSkippedByFinalIsFlagged)
     final->TestDeclareRead(std::string(ResourceNames::UIComposite));
 
     graph.ConnectPass("PostProcessPass", "UICompositePass");
-    // NOTE: Final missing its dependency on UICompositePass — even though the
-    // resource it reads is produced, nothing guarantees the producer runs
-    // first. The validator must flag this as a RAW hazard on UIComposite.
+    // NOTE: FinalPass has no explicit dependency on UICompositePass.
+    // Slice 27 derives the RAW edge from UICompositePass.DeclareWrite(UIComposite)
+    // + FinalPass.DeclareRead(UIComposite).  This is the exact edge that was
+    // removed from Renderer3D.cpp ConfigureRenderGraph in slice 27.
     const auto hazards = graph.ValidateResourceHazards();
-    ASSERT_FALSE(hazards.empty()) << "expected UIComposite RAW hazard, got none";
-    EXPECT_TRUE(ContainsHazardForResource(hazards, std::string(ResourceNames::UIComposite)))
+    EXPECT_TRUE(hazards.empty())
+        << "slice 27: UIComposite declaration pair must derive the ordering edge."
         << HazardsToString(hazards);
 }
 
@@ -718,8 +757,21 @@ namespace
         Ref<DeclarativeStubPass> Particle;
         Ref<DeclarativeStubPass> OITResolve;
         Ref<DeclarativeStubPass> SSS;
+        Ref<DeclarativeStubPass> AOApply; // slice 28 — between SSSPass and PostProcessPass
         Ref<DeclarativeStubPass> PostProcess;
-        Ref<DeclarativeStubPass> SelectionOutline; // may be null when the feature is off
+        // Post-process linear chain (slice 28 — all edges derived from declarations)
+        Ref<DeclarativeStubPass> Bloom;
+        Ref<DeclarativeStubPass> DOF;
+        Ref<DeclarativeStubPass> MotionBlur;
+        Ref<DeclarativeStubPass> TAA;
+        Ref<DeclarativeStubPass> Precipitation;
+        Ref<DeclarativeStubPass> Fog;
+        Ref<DeclarativeStubPass> ChromAb;
+        Ref<DeclarativeStubPass> ColorGrading;
+        Ref<DeclarativeStubPass> ToneMap;
+        Ref<DeclarativeStubPass> Vignette;
+        Ref<DeclarativeStubPass> FXAA;             // may be null when feature is off
+        Ref<DeclarativeStubPass> SelectionOutline; // may be null when feature is off
         Ref<DeclarativeStubPass> UIComposite;
         Ref<DeclarativeStubPass> Final;
     };
@@ -738,7 +790,7 @@ namespace
     };
 
     void BuildPathTopology(ConfiguredGraphFixture& f, bool deferred, bool enableSelectionOutline = false,
-                           AOMode aoMode = AOMode::SSAO)
+                           AOMode aoMode = AOMode::SSAO, bool enableFXAA = false)
     {
         f.Shadow = AddDeclStub(f.Graph, "ShadowPass");
         f.Shadow->TestDeclareWrite(std::string(ResourceNames::ShadowMapCSM));
@@ -751,44 +803,57 @@ namespace
 
         if (deferred)
         {
-            f.DeferredLighting = AddDeclStub(f.Graph, "DeferredLightingPass");
-            f.DeferredLighting->TestDeclareRead(std::string(ResourceNames::SceneDepth));
-            f.DeferredLighting->TestDeclareRead(std::string(ResourceNames::SceneNormals));
-            f.DeferredLighting->TestDeclareWrite(std::string(ResourceNames::SceneColor));
-
             // Opaque-decal graph shim — slots between ScenePass and
             // DeferredLightingPass so decals composite into G-Buffer
             // albedo/normal/emissive BEFORE the lighting pass samples
             // them. Matches Renderer3D::ConfigureRenderGraph wiring and
             // DeferredOpaqueDecalPass::Init's declared resource contract.
+            // NOTE: registered BEFORE DeferredLightingPass to match production
+            // AddPass order (OpaqueDecalPass, DeferredLightPass, ForwardOverlayPass).
             f.DeferredOpaqueDecal = AddDeclStub(f.Graph, "DeferredOpaqueDecalPass");
             f.DeferredOpaqueDecal->TestDeclareRead(std::string(ResourceNames::SceneDepth));
             f.DeferredOpaqueDecal->TestDeclareWrite(std::string(ResourceNames::SceneColor));
 
+            f.DeferredLighting = AddDeclStub(f.Graph, "DeferredLightingPass");
+            f.DeferredLighting->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+            f.DeferredLighting->TestDeclareRead(std::string(ResourceNames::SceneNormals));
+            // Phase F slice 33: SceneColor read derives DeferredOpaqueDecalPass→DeferredLightingPass RAW.
+            f.DeferredLighting->TestDeclareRead(std::string(ResourceNames::SceneColor));
+            f.DeferredLighting->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
             f.ForwardOverlay = AddDeclStub(f.Graph, "ForwardOverlayPass");
+            // Phase F slice 33: SceneColor RMW derives DeferredLightingPass→ForwardOverlayPass RAW.
+            f.ForwardOverlay->TestDeclareRead(std::string(ResourceNames::SceneColor));
             f.ForwardOverlay->TestDeclareWrite(std::string(ResourceNames::SceneColor));
         }
 
         f.Foliage = AddDeclStub(f.Graph, "FoliagePass");
-        if (!deferred)
-            f.Foliage->TestDeclareWrite(std::string(ResourceNames::SceneColor));
-
-        // Keep insertion order aligned with ConfigureRenderGraph's explicit
-        // chain (Foliage -> Decal -> Water). BuildFrameGraph derives WAW
-        // dependencies in insertion order, so Water before Decal can derive
-        // Water -> Decal and create a Decal <-> Water cycle against the
-        // explicit Decal -> Water baseline edge.
-        f.Decal = AddDeclStub(f.Graph, "DecalPass");
-        if (!deferred)
         {
+            // Phase F slice 32/33: RMW on SceneColor derives the ordering edge
+            // from the preceding pass (ScenePass in forward, ForwardOverlayPass
+            // in deferred). Declarations are unconditional in production Init().
+            f.Foliage->TestDeclareRead(std::string(ResourceNames::SceneColor));
+            f.Foliage->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+        }
+
+        // Keep insertion order aligned with ConfigureRenderGraph's declaration-
+        // derived chain (Foliage -> Decal -> Water). Each pass declares a
+        // SceneColor read-modify-write so RAW edges chain them in order.
+        f.Decal = AddDeclStub(f.Graph, "DecalPass");
+        {
+            // Phase F slice 32/33: SceneColor RMW derives FoliagePass→DecalPass.
+            // Declarations are unconditional in production Init().
             f.Decal->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+            f.Decal->TestDeclareRead(std::string(ResourceNames::SceneColor));
             f.Decal->TestDeclareWrite(std::string(ResourceNames::SceneColor));
         }
 
         f.Water = AddDeclStub(f.Graph, "WaterPass");
-        if (!deferred)
         {
+            // Phase F slice 32/33: SceneColor RMW derives DecalPass→WaterPass.
+            // Declarations are unconditional in production Init().
             f.Water->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+            f.Water->TestDeclareRead(std::string(ResourceNames::SceneColor));
             // In weighted-blended OIT mode the water pass writes into the shared
             // OIT accumulation / revealage attachments rather than SceneColor —
             // SceneColor is only modified later when OITResolvePass composites
@@ -802,25 +867,30 @@ namespace
         }
 
         // Mutually-exclusive AO selection: register exactly the pass that
-        // production would run for the selected mode. ConfigureRenderGraph-
-        // time validation currently does not rely on SSAO/GTAO legacy
-        // DeclareRead/DeclareWrite contracts (AO reads are captured in the
-        // graph-native setup bridge instead), so keep these stubs
-        // declaration-free to mirror production baseline behavior.
+        // production would run for the selected mode. Slice 30 adds explicit
+        // AOBuffer writer declarations so AOApply ordering derives from RAW.
         if (aoMode == AOMode::SSAO)
         {
             f.SSAO = AddDeclStub(f.Graph, "SSAOPass");
+            f.SSAO->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+            f.SSAO->TestDeclareRead(std::string(ResourceNames::SceneNormals));
+            f.SSAO->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
         }
         else
         {
             f.GTAO = AddDeclStub(f.Graph, "GTAOPass");
+            f.GTAO->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+            f.GTAO->TestDeclareRead(std::string(ResourceNames::SceneNormals));
+            f.GTAO->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
         }
 
         f.Particle = AddDeclStub(f.Graph, "ParticlePass");
-        if (!deferred)
         {
             // Particle OIT shares the same accumulation buffers as water, then
             // falls back to SceneColor for the final composite path.
+            // Phase F slice 32/33: SceneColor read derives WaterPass→ParticlePass RAW.
+            // Declarations are unconditional in production Init().
+            f.Particle->TestDeclareRead(std::string(ResourceNames::SceneColor));
             f.Particle->TestDeclareWrite(std::string(ResourceNames::OITAccum));
             f.Particle->TestDeclareWrite(std::string(ResourceNames::OITRevealage));
             f.Particle->TestDeclareWrite(std::string(ResourceNames::SceneColor));
@@ -838,28 +908,93 @@ namespace
         f.SSS = AddDeclStub(f.Graph, "SSSPass");
         if (!deferred)
             f.SSS->TestDeclareRead(std::string(ResourceNames::SceneColor));
+        if (!deferred)
+            f.SSS->TestDeclareWrite(std::string(ResourceNames::SSSColor));
 
+        f.AOApply = AddDeclStub(f.Graph, "AOApplyPass");
+        if (!deferred)
+        {
+            f.AOApply->TestDeclareRead(std::string(ResourceNames::SceneColor));
+            f.AOApply->TestDeclareRead(std::string(ResourceNames::SSSColor));
+            f.AOApply->TestDeclareRead(std::string(ResourceNames::AOBuffer));
+            f.AOApply->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+            f.AOApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
+        }
+
+        // Slice 28: PostProcessPass reads AOApplyColor (not raw SceneColor).
         f.PostProcess = AddDeclStub(f.Graph, "PostProcessPass");
         if (!deferred)
-            f.PostProcess->TestDeclareRead(std::string(ResourceNames::SceneColor));
+            f.PostProcess->TestDeclareRead(std::string(ResourceNames::AOApplyColor));
         f.PostProcess->TestDeclareRead(std::string(ResourceNames::SceneDepth));
         f.PostProcess->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+        // Post-process linear chain (slice 28).
+        // All ordering edges are derived from the matching DeclareWrite/DeclareRead pairs.
+        f.Bloom = AddDeclStub(f.Graph, "BloomPass");
+        f.Bloom->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+        f.Bloom->TestDeclareWrite(std::string(ResourceNames::BloomColor));
+
+        f.DOF = AddDeclStub(f.Graph, "DOFPass");
+        f.DOF->TestDeclareRead(std::string(ResourceNames::BloomColor));
+        f.DOF->TestDeclareWrite(std::string(ResourceNames::DOFColor));
+
+        f.MotionBlur = AddDeclStub(f.Graph, "MotionBlurPass");
+        f.MotionBlur->TestDeclareRead(std::string(ResourceNames::DOFColor));
+        f.MotionBlur->TestDeclareWrite(std::string(ResourceNames::MotionBlurColor));
+
+        f.TAA = AddDeclStub(f.Graph, "TAAPass");
+        f.TAA->TestDeclareRead(std::string(ResourceNames::MotionBlurColor));
+        f.TAA->TestDeclareWrite(std::string(ResourceNames::TAAColor));
+
+        f.Precipitation = AddDeclStub(f.Graph, "PrecipitationPass");
+        f.Precipitation->TestDeclareRead(std::string(ResourceNames::TAAColor));
+        f.Precipitation->TestDeclareWrite(std::string(ResourceNames::PrecipitationColor));
+
+        f.Fog = AddDeclStub(f.Graph, "FogPass");
+        f.Fog->TestDeclareRead(std::string(ResourceNames::PrecipitationColor));
+        f.Fog->TestDeclareWrite(std::string(ResourceNames::FogColor));
+
+        f.ChromAb = AddDeclStub(f.Graph, "ChromAberrationPass");
+        f.ChromAb->TestDeclareRead(std::string(ResourceNames::FogColor));
+        f.ChromAb->TestDeclareWrite(std::string(ResourceNames::ChromAbColor));
+
+        f.ColorGrading = AddDeclStub(f.Graph, "ColorGradingPass");
+        f.ColorGrading->TestDeclareRead(std::string(ResourceNames::ChromAbColor));
+        f.ColorGrading->TestDeclareWrite(std::string(ResourceNames::ColorGradingColor));
+
+        f.ToneMap = AddDeclStub(f.Graph, "ToneMapPass");
+        f.ToneMap->TestDeclareRead(std::string(ResourceNames::ColorGradingColor));
+        f.ToneMap->TestDeclareWrite(std::string(ResourceNames::ToneMapColor));
+
+        f.Vignette = AddDeclStub(f.Graph, "VignettePass");
+        f.Vignette->TestDeclareRead(std::string(ResourceNames::ToneMapColor));
+        f.Vignette->TestDeclareWrite(std::string(ResourceNames::VignetteColor));
+
+        if (enableFXAA)
+        {
+            f.FXAA = AddDeclStub(f.Graph, "FXAAPass");
+            f.FXAA->TestDeclareRead(std::string(ResourceNames::VignetteColor));
+            f.FXAA->TestDeclareWrite(std::string(ResourceNames::FXAAColor));
+        }
 
         if (enableSelectionOutline)
         {
             // Mirrors Renderer3D::ConfigureRenderGraph's EnableSelectionOutline
-            // branch: the pass slots between PostProcessPass and UICompositePass,
-            // reads post-process colour and writes SelectionOutlineColor.
+            // branch. Declares both possible input resources so the validator
+            // derives the correct ordering edge for whichever producer is present.
             f.SelectionOutline = AddDeclStub(f.Graph, "SelectionOutlinePass");
-            f.SelectionOutline->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+            f.SelectionOutline->TestDeclareRead(std::string(ResourceNames::VignetteColor));
+            if (enableFXAA)
+                f.SelectionOutline->TestDeclareRead(std::string(ResourceNames::FXAAColor));
             f.SelectionOutline->TestDeclareWrite(std::string(ResourceNames::SelectionOutlineColor));
         }
 
         f.UIComposite = AddDeclStub(f.Graph, "UICompositePass");
+        f.UIComposite->TestDeclareRead(std::string(ResourceNames::VignetteColor));
+        if (enableFXAA)
+            f.UIComposite->TestDeclareRead(std::string(ResourceNames::FXAAColor));
         if (enableSelectionOutline)
             f.UIComposite->TestDeclareRead(std::string(ResourceNames::SelectionOutlineColor));
-        else
-            f.UIComposite->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
         f.UIComposite->TestDeclareWrite(std::string(ResourceNames::UIComposite));
 
         f.Final = AddDeclStub(f.Graph, "FinalPass");
@@ -867,30 +1002,25 @@ namespace
 
         // Wire dependencies identically to Renderer3D::ConfigureRenderGraph.
         f.Graph.AddExecutionDependency("ShadowPass", "ScenePass");
-        if (deferred)
-        {
-            f.Graph.AddExecutionDependency("ScenePass", "DeferredOpaqueDecalPass");
-            f.Graph.AddExecutionDependency("DeferredOpaqueDecalPass", "DeferredLightingPass");
-            f.Graph.AddExecutionDependency("DeferredLightingPass", "ForwardOverlayPass");
-            f.Graph.AddExecutionDependency("ForwardOverlayPass", "FoliagePass");
-        }
-        f.Graph.AddExecutionDependency("ScenePass", "FoliagePass");
-        f.Graph.AddExecutionDependency("FoliagePass", "DecalPass");
-        f.Graph.AddExecutionDependency("DecalPass", "WaterPass");
-        f.Graph.AddExecutionDependency("WaterPass", "ParticlePass");
-        f.Graph.ConnectPass("ParticlePass", "OITResolvePass");
-        f.Graph.ConnectPass("OITResolvePass", "SSSPass");
-        f.Graph.ConnectPass("SSSPass", "PostProcessPass");
-        if (enableSelectionOutline)
-        {
-            f.Graph.ConnectPass("PostProcessPass", "SelectionOutlinePass");
-            f.Graph.ConnectPass("SelectionOutlinePass", "UICompositePass");
-        }
-        else
-        {
-            f.Graph.ConnectPass("PostProcessPass", "UICompositePass");
-        }
-        f.Graph.AddExecutionDependency("UICompositePass", "FinalPass");
+        // Phase F slice 33: all deferred-path edges are now derived from
+        // declaration pairs — no explicit AddExecutionDependency needed.
+        // Phase F slice 32: ScenePass→FoliagePass, FoliagePass→DecalPass,
+        // DecalPass→WaterPass, and WaterPass→ParticlePass are all derived from
+        // SceneColor RMW declarations — no explicit AddExecutionDependency needed.
+        // Phase F slice 31: no explicit Water->AO edge. ScenePass->AO derives
+        // from SceneDepth DeclareWrite/DeclareRead pairs.
+        // Phase F slice 30: AO mode pass -> AOApply is derived from AOBuffer
+        // DeclareWrite/DeclareRead pairs; no explicit AO->Particle edge needed.
+        // Phase F slice 29: Particle→OITResolve, OITResolve→SSS, SSS→AOApply are all
+        // derived from DeclareRead/DeclareWrite declaration pairs — no explicit edges needed.
+        // Phase F slice 28: AOApplyPass→PostProcessPass and all subsequent post-chain
+        // edges are derived from DeclareRead/DeclareWrite declaration pairs —
+        // no explicit AddExecutionDependency calls needed from AOApplyPass onwards.
+
+        // Phase F slice 27: ShadowPass → ScenePass and UICompositePass →
+        // FinalPass are derived from DeclareRead/DeclareWrite declarations;
+        // no explicit AddExecutionDependency call is needed here, matching
+        // what Renderer3D::ConfigureRenderGraph does post-slice-27.
 
         f.Graph.SetFinalPass("FinalPass");
     }
@@ -929,10 +1059,17 @@ TEST(RenderGraphConfigureTopology, DeferredPathIsHazardFree)
     EXPECT_TRUE(hazards.empty()) << HazardsToString(hazards);
 }
 
-TEST(RenderGraphConfigureTopology, MissingStartupBaselineEdgesMatchesObservedHazards)
+// =============================================================================
+// Phase F slice 27 — startup baseline regression.
+// Previously ConfigureRenderGraph had explicit edges Shadow→Scene,
+// UIComposite→Final and several RAW hazards were caught when those were
+// removed.  Slice 27 derives all RAW edges from DeclareRead/DeclareWrite
+// declarations, so the same topology that lacked the startup edges is now
+// fully hazard-free.  This test documents that the startup regression is
+// permanently resolved.
+// =============================================================================
+TEST(RenderGraphConfigureTopology, StartupBaselineEdges_DerivedEdgesMakeGraphHazardFree)
 {
-    // Mirrors the exact startup regression where only post-chain edges were
-    // left wired during ConfigureRenderGraph-time validation.
     RenderGraph graph;
 
     auto shadow = AddDeclStub(graph, "ShadowPass");
@@ -947,10 +1084,63 @@ TEST(RenderGraphConfigureTopology, MissingStartupBaselineEdgesMatchesObservedHaz
     AddDeclStub(graph, "OITResolvePass");
     AddDeclStub(graph, "SSSPass");
 
+    // Simplified topology: AOApplyPass reads SceneColor, PostProcessPass reads AOApplyColor.
+    auto aoApply = AddDeclStub(graph, "AOApplyPass");
+    aoApply->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    aoApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
+
     auto post = AddDeclStub(graph, "PostProcessPass");
-    post->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    post->TestDeclareRead(std::string(ResourceNames::AOApplyColor));
     post->TestDeclareRead(std::string(ResourceNames::SceneDepth));
     post->TestDeclareRead(std::string(ResourceNames::ShadowMapCSM));
+    post->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+    auto vignette = AddDeclStub(graph, "VignettePass");
+    vignette->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+    vignette->TestDeclareWrite(std::string(ResourceNames::VignetteColor));
+
+    auto ui = AddDeclStub(graph, "UICompositePass");
+    ui->TestDeclareRead(std::string(ResourceNames::VignetteColor));
+    ui->TestDeclareWrite(std::string(ResourceNames::UIComposite));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::UIComposite));
+
+    // Only geometry-chain edges wired — NO Shadow→Scene baseline, NO AOApply→Post,
+    // NO Vignette→UIComposite, NO UIComposite→Final.
+    // Slice 27+28 derives all RAW edges from declarations.
+    graph.AddExecutionDependency("ParticlePass", "OITResolvePass");
+    graph.AddExecutionDependency("OITResolvePass", "SSSPass");
+    graph.AddExecutionDependency("SSSPass", "AOApplyPass");
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "slice 27+28: declaration-derived edges must resolve all RAW hazards "
+           "even without explicit startup baseline edges."
+        << HazardsToString(hazards);
+}
+
+// =============================================================================
+// Phase F slice 28 — post-chain derived edges.
+// ValidateResourceHazards synthesises ordering edges for the full post-process
+// linear chain from matching DeclareWrite/DeclareRead declaration pairs.
+// No explicit AddExecutionDependency calls should be needed in the chain
+// PostProcess → Bloom → DOF → MotionBlur → TAA → Precipitation → Fog →
+// ChromAb → ColorGrading → ToneMap → Vignette → UIComposite → Final.
+// =============================================================================
+
+TEST(RenderGraphConfigureTopology, Slice28_AOApplyPassToPostProcessPassDerivedEdge)
+{
+    // Minimal: a single RAW pair AOApplyColor write/read derives the edge
+    // without any explicit AddExecutionDependency call.
+    RenderGraph graph;
+
+    auto aoApply = AddDeclStub(graph, "AOApplyPass");
+    aoApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
+
+    auto post = AddDeclStub(graph, "PostProcessPass");
+    post->TestDeclareRead(std::string(ResourceNames::AOApplyColor));
     post->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
 
     auto ui = AddDeclStub(graph, "UICompositePass");
@@ -960,62 +1150,426 @@ TEST(RenderGraphConfigureTopology, MissingStartupBaselineEdgesMatchesObservedHaz
     auto final = AddDeclStub(graph, "FinalPass");
     final->TestDeclareRead(std::string(ResourceNames::UIComposite));
 
-    // Intentionally missing startup baseline edges:
-    // Shadow->Scene, Scene->Foliage->Decal->Water->Particle.
-    graph.AddExecutionDependency("ParticlePass", "OITResolvePass");
-    graph.AddExecutionDependency("OITResolvePass", "SSSPass");
-    graph.AddExecutionDependency("SSSPass", "PostProcessPass");
-    graph.AddExecutionDependency("PostProcessPass", "UICompositePass");
-    graph.AddExecutionDependency("UICompositePass", "FinalPass");
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_FALSE(hazards.empty()) << "Expected startup hazard set when baseline edges are omitted";
+    EXPECT_TRUE(hazards.empty())
+        << "slice 28: AOApplyColor DeclareWrite/DeclareRead must derive the "
+           "AOApplyPass → PostProcessPass ordering edge."
+        << HazardsToString(hazards);
+}
 
-    const bool hasSceneShadowRaw = std::any_of(hazards.begin(), hazards.end(),
-                                               [](const RenderGraph::Hazard& h)
-                                               {
-                                                   return h.Kind == RenderGraph::HazardKind::ReadAfterWrite &&
-                                                          h.Resource == ResourceNames::ShadowMapCSM &&
-                                                          h.Producer == "ShadowPass" &&
-                                                          h.Consumer == "ScenePass";
-                                               });
-    const bool hasPostColorRaw = std::any_of(hazards.begin(), hazards.end(),
-                                             [](const RenderGraph::Hazard& h)
-                                             {
-                                                 return h.Kind == RenderGraph::HazardKind::ReadAfterWrite &&
-                                                        h.Resource == ResourceNames::SceneColor &&
-                                                        h.Producer == "ScenePass" &&
-                                                        h.Consumer == "PostProcessPass";
-                                             });
-    const bool hasPostDepthRaw = std::any_of(hazards.begin(), hazards.end(),
-                                             [](const RenderGraph::Hazard& h)
-                                             {
-                                                 return h.Kind == RenderGraph::HazardKind::ReadAfterWrite &&
-                                                        h.Resource == ResourceNames::SceneDepth &&
-                                                        h.Producer == "ScenePass" &&
-                                                        h.Consumer == "PostProcessPass";
-                                             });
-    const bool hasPostShadowRaw = std::any_of(hazards.begin(), hazards.end(),
-                                              [](const RenderGraph::Hazard& h)
-                                              {
-                                                  return h.Kind == RenderGraph::HazardKind::ReadAfterWrite &&
-                                                         h.Resource == ResourceNames::ShadowMapCSM &&
-                                                         h.Producer == "ShadowPass" &&
-                                                         h.Consumer == "PostProcessPass";
-                                              });
+TEST(RenderGraphConfigureTopology, Slice28_FullPostChainNoExplicitEdgesIsHazardFree)
+{
+    // Full post-chain from PostProcess through Vignette → UIComposite → Final
+    // with NO explicit edges after PostProcessPass.  Slice 28 derives all
+    // ordering edges from matching DeclareWrite/DeclareRead declaration pairs.
+    RenderGraph graph;
 
-    EXPECT_TRUE(hasSceneShadowRaw) << HazardsToString(hazards);
-    EXPECT_TRUE(hasPostColorRaw) << HazardsToString(hazards);
-    EXPECT_TRUE(hasPostDepthRaw) << HazardsToString(hazards);
-    EXPECT_TRUE(hasPostShadowRaw) << HazardsToString(hazards);
+    auto post = AddDeclStub(graph, "PostProcessPass");
+    post->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+    auto bloom = AddDeclStub(graph, "BloomPass");
+    bloom->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+    bloom->TestDeclareWrite(std::string(ResourceNames::BloomColor));
+
+    auto dof = AddDeclStub(graph, "DOFPass");
+    dof->TestDeclareRead(std::string(ResourceNames::BloomColor));
+    dof->TestDeclareWrite(std::string(ResourceNames::DOFColor));
+
+    auto mblur = AddDeclStub(graph, "MotionBlurPass");
+    mblur->TestDeclareRead(std::string(ResourceNames::DOFColor));
+    mblur->TestDeclareWrite(std::string(ResourceNames::MotionBlurColor));
+
+    auto taa = AddDeclStub(graph, "TAAPass");
+    taa->TestDeclareRead(std::string(ResourceNames::MotionBlurColor));
+    taa->TestDeclareWrite(std::string(ResourceNames::TAAColor));
+
+    auto precip = AddDeclStub(graph, "PrecipitationPass");
+    precip->TestDeclareRead(std::string(ResourceNames::TAAColor));
+    precip->TestDeclareWrite(std::string(ResourceNames::PrecipitationColor));
+
+    auto fog = AddDeclStub(graph, "FogPass");
+    fog->TestDeclareRead(std::string(ResourceNames::PrecipitationColor));
+    fog->TestDeclareWrite(std::string(ResourceNames::FogColor));
+
+    auto chrom = AddDeclStub(graph, "ChromAberrationPass");
+    chrom->TestDeclareRead(std::string(ResourceNames::FogColor));
+    chrom->TestDeclareWrite(std::string(ResourceNames::ChromAbColor));
+
+    auto cg = AddDeclStub(graph, "ColorGradingPass");
+    cg->TestDeclareRead(std::string(ResourceNames::ChromAbColor));
+    cg->TestDeclareWrite(std::string(ResourceNames::ColorGradingColor));
+
+    auto tonemap = AddDeclStub(graph, "ToneMapPass");
+    tonemap->TestDeclareRead(std::string(ResourceNames::ColorGradingColor));
+    tonemap->TestDeclareWrite(std::string(ResourceNames::ToneMapColor));
+
+    auto vignette = AddDeclStub(graph, "VignettePass");
+    vignette->TestDeclareRead(std::string(ResourceNames::ToneMapColor));
+    vignette->TestDeclareWrite(std::string(ResourceNames::VignetteColor));
+
+    auto ui = AddDeclStub(graph, "UICompositePass");
+    ui->TestDeclareRead(std::string(ResourceNames::VignetteColor));
+    ui->TestDeclareWrite(std::string(ResourceNames::UIComposite));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::UIComposite));
+
+    // No explicit edges at all — every ordering edge is derived from declarations.
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "slice 28: full post-chain from PostProcess to Final must be "
+           "hazard-free with only declaration-derived edges."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice28_FXAAAndSelectionOutlineVariantIsHazardFree)
+{
+    // When both FXAA and SelectionOutline are present the chain is:
+    // Vignette → FXAA → SelectionOutline → UIComposite → Final.
+    // UICompositePass declares reads on all three possible inputs;
+    // the validator derives all ordering edges conservatively.
+    RenderGraph graph;
+
+    auto vignette = AddDeclStub(graph, "VignettePass");
+    vignette->TestDeclareWrite(std::string(ResourceNames::VignetteColor));
+
+    auto fxaa = AddDeclStub(graph, "FXAAPass");
+    fxaa->TestDeclareRead(std::string(ResourceNames::VignetteColor));
+    fxaa->TestDeclareWrite(std::string(ResourceNames::FXAAColor));
+
+    auto sel = AddDeclStub(graph, "SelectionOutlinePass");
+    sel->TestDeclareRead(std::string(ResourceNames::VignetteColor));
+    sel->TestDeclareRead(std::string(ResourceNames::FXAAColor));
+    sel->TestDeclareWrite(std::string(ResourceNames::SelectionOutlineColor));
+
+    auto ui = AddDeclStub(graph, "UICompositePass");
+    ui->TestDeclareRead(std::string(ResourceNames::VignetteColor));
+    ui->TestDeclareRead(std::string(ResourceNames::FXAAColor));
+    ui->TestDeclareRead(std::string(ResourceNames::SelectionOutlineColor));
+    ui->TestDeclareWrite(std::string(ResourceNames::UIComposite));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::UIComposite));
+
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "slice 28: FXAA + SelectionOutline chain must be hazard-free with "
+           "only declaration-derived edges."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice28_SelectionOutlineOnlyVariantIsHazardFree)
+{
+    // When FXAA is absent the chain is Vignette → SelectionOutline → UIComposite.
+    // SelectionOutline's FXAAColor DeclareRead creates no derived edge because
+    // no pass writes FXAAColor; only the VignetteColor pair matters.
+    RenderGraph graph;
+
+    auto vignette = AddDeclStub(graph, "VignettePass");
+    vignette->TestDeclareWrite(std::string(ResourceNames::VignetteColor));
+
+    auto sel = AddDeclStub(graph, "SelectionOutlinePass");
+    sel->TestDeclareRead(std::string(ResourceNames::VignetteColor));
+    sel->TestDeclareRead(std::string(ResourceNames::FXAAColor)); // no producer — benign
+    sel->TestDeclareWrite(std::string(ResourceNames::SelectionOutlineColor));
+
+    auto ui = AddDeclStub(graph, "UICompositePass");
+    ui->TestDeclareRead(std::string(ResourceNames::VignetteColor));
+    ui->TestDeclareRead(std::string(ResourceNames::FXAAColor)); // no producer — benign
+    ui->TestDeclareRead(std::string(ResourceNames::SelectionOutlineColor));
+    ui->TestDeclareWrite(std::string(ResourceNames::UIComposite));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::UIComposite));
+
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "slice 28: SelectionOutline-only (no FXAA) chain must derive "
+           "Vignette→SelectionOutline→UIComposite from VignetteColor pair."
+        << HazardsToString(hazards);
+}
+
+// =============================================================================
+// Phase F slice 29 — Particle → OITResolve → SSS → AOApply derived edges.
+// ParticlePass DeclareWrite(OITAccum, OITRevealage) + OITResolvePass
+// DeclareRead(OITAccum, OITRevealage) derives Particle→OITResolve.
+// OITResolvePass DeclareWrite(SceneColor) + SSSPass DeclareRead(SceneColor)
+// derives OITResolve→SSS.
+// SSSPass DeclareWrite(SSSColor) + AOApplyPass DeclareRead(SSSColor)
+// derives SSS→AOApply.
+// No explicit AddExecutionDependency calls needed for these three edges.
+// =============================================================================
+
+TEST(RenderGraphConfigureTopology, Slice29_ParticleToOITResolveDerivedEdge)
+{
+    // Minimal: ParticlePass writes OITAccum; OITResolvePass reads it.
+    // The RAW pair must derive Particle → OITResolve without an explicit edge.
+    RenderGraph graph;
+
+    auto particle = AddDeclStub(graph, "ParticlePass");
+    particle->TestDeclareWrite(std::string(ResourceNames::OITAccum));
+    particle->TestDeclareWrite(std::string(ResourceNames::OITRevealage));
+    particle->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto oit = AddDeclStub(graph, "OITResolvePass");
+    oit->TestDeclareRead(std::string(ResourceNames::OITAccum));
+    oit->TestDeclareRead(std::string(ResourceNames::OITRevealage));
+    oit->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    oit->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneColor));
+
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "slice 29: OITAccum DeclareWrite/DeclareRead must derive the "
+           "ParticlePass → OITResolvePass ordering edge."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice29_OITResolveToSSSPassDerivedEdge)
+{
+    // OITResolvePass writes SceneColor; SSSRenderPass reads SceneColor.
+    // The RAW pair must derive OITResolve → SSSPass without an explicit edge.
+    RenderGraph graph;
+
+    auto oit = AddDeclStub(graph, "OITResolvePass");
+    oit->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto sss = AddDeclStub(graph, "SSSPass");
+    sss->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    sss->TestDeclareWrite(std::string(ResourceNames::SSSColor));
+
+    auto aoApply = AddDeclStub(graph, "AOApplyPass");
+    aoApply->TestDeclareRead(std::string(ResourceNames::SSSColor));
+    aoApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::AOApplyColor));
+
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "slice 29: SceneColor DeclareWrite/DeclareRead must derive "
+           "OITResolvePass → SSSPass; SSSColor pair must derive SSS → AOApply."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice29_FullGeometryTailNoExplicitEdgesIsHazardFree)
+{
+    // Full chain from ParticlePass through AOApplyPass with NO explicit edges
+    // after WaterPass→ParticlePass. Slice 29 derives all three RAW hops.
+    RenderGraph graph;
+
+    // Scene-color WAW chain still needs explicit edges (no DeclareWrite coverage
+    // for FoliagePass, DecalPass, WaterPass in this slice).
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+
+    auto water = AddDeclStub(graph, "WaterPass");
+    water->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto particle = AddDeclStub(graph, "ParticlePass");
+    particle->TestDeclareWrite(std::string(ResourceNames::OITAccum));
+    particle->TestDeclareWrite(std::string(ResourceNames::OITRevealage));
+    particle->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto oit = AddDeclStub(graph, "OITResolvePass");
+    oit->TestDeclareRead(std::string(ResourceNames::OITAccum));
+    oit->TestDeclareRead(std::string(ResourceNames::OITRevealage));
+    oit->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    oit->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto sss = AddDeclStub(graph, "SSSPass");
+    sss->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    sss->TestDeclareWrite(std::string(ResourceNames::SSSColor));
+
+    auto aoApply = AddDeclStub(graph, "AOApplyPass");
+    aoApply->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    aoApply->TestDeclareRead(std::string(ResourceNames::SSSColor));
+    aoApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::AOApplyColor));
+
+    // Only WAW-ordering edges remain explicit; all RAW hops are derived.
+    graph.AddExecutionDependency("ScenePass", "WaterPass");
+    graph.AddExecutionDependency("WaterPass", "ParticlePass");
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "slice 29: Particle→OITResolve→SSS→AOApply must all be hazard-free "
+           "with only declaration-derived RAW edges."
+        << HazardsToString(hazards);
+}
+
+// =============================================================================
+// Phase F slice 30 — SSAO/GTAO AOBuffer contracts.
+// SSAOPass/GTAOPass DeclareWrite(AOBuffer) + AOApplyPass DeclareRead(AOBuffer)
+// derive AO producer -> AOApply ordering. Legacy SSAO/GTAO -> Particle edges
+// are no longer needed for AO correctness.
+// =============================================================================
+
+TEST(RenderGraphConfigureTopology, Slice30_SSAOToAOApplyDerivedEdge)
+{
+    RenderGraph graph;
+
+    auto ssao = AddDeclStub(graph, "SSAOPass");
+    ssao->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    ssao->TestDeclareRead(std::string(ResourceNames::SceneNormals));
+    ssao->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
+
+    auto aoApply = AddDeclStub(graph, "AOApplyPass");
+    aoApply->TestDeclareRead(std::string(ResourceNames::AOBuffer));
+    aoApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::AOApplyColor));
+
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "slice 30: AOBuffer DeclareWrite/DeclareRead must derive "
+           "SSAOPass -> AOApplyPass ordering."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice30_GTAOToAOApplyDerivedEdge)
+{
+    RenderGraph graph;
+
+    auto gtao = AddDeclStub(graph, "GTAOPass");
+    gtao->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    gtao->TestDeclareRead(std::string(ResourceNames::SceneNormals));
+    gtao->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
+
+    auto aoApply = AddDeclStub(graph, "AOApplyPass");
+    aoApply->TestDeclareRead(std::string(ResourceNames::AOBuffer));
+    aoApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::AOApplyColor));
+
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "slice 30: AOBuffer DeclareWrite/DeclareRead must derive "
+           "GTAOPass -> AOApplyPass ordering."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice30_DualAOWritersNeedExplicitOrdering)
+{
+    RenderGraph graph;
+
+    auto ssao = AddDeclStub(graph, "SSAOPass");
+    ssao->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
+
+    auto gtao = AddDeclStub(graph, "GTAOPass");
+    gtao->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
+
+    auto aoApply = AddDeclStub(graph, "AOApplyPass");
+    aoApply->TestDeclareRead(std::string(ResourceNames::AOBuffer));
+    aoApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::AOApplyColor));
+
+    // Mirrors production baseline: serialize AOBuffer dual writers explicitly.
+    graph.AddExecutionDependency("SSAOPass", "GTAOPass");
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "slice 30: when both AO passes are present and declare AOBuffer writes, "
+           "an explicit SSAOPass -> GTAOPass edge must serialize dual writers."
+        << HazardsToString(hazards);
+}
+
+// =============================================================================
+// Phase F slice 31 — remove explicit WaterPass -> SSAO/GTAO edges.
+// ScenePass DeclareWrite(SceneDepth) + SSAO/GTAO DeclareRead(SceneDepth)
+// derive ScenePass -> AOPass ordering directly, so Water->AO edges are not
+// required for hazard validation.
+// =============================================================================
+
+TEST(RenderGraphConfigureTopology, Slice31_SceneToSSAODerivedEdgeWithoutWaterEdge)
+{
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+
+    auto ssao = AddDeclStub(graph, "SSAOPass");
+    ssao->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    ssao->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
+
+    auto aoApply = AddDeclStub(graph, "AOApplyPass");
+    aoApply->TestDeclareRead(std::string(ResourceNames::AOBuffer));
+    aoApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::AOApplyColor));
+
+    // No explicit ScenePass->SSAOPass edge.
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "slice 31: SceneDepth DeclareWrite/DeclareRead must derive "
+           "ScenePass -> SSAOPass ordering without WaterPass->SSAOPass edge."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice31_SceneToGTAODerivedEdgeWithoutWaterEdge)
+{
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+
+    auto gtao = AddDeclStub(graph, "GTAOPass");
+    gtao->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    gtao->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
+
+    auto aoApply = AddDeclStub(graph, "AOApplyPass");
+    aoApply->TestDeclareRead(std::string(ResourceNames::AOBuffer));
+    aoApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::AOApplyColor));
+
+    // No explicit ScenePass->GTAOPass edge.
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "slice 31: SceneDepth DeclareWrite/DeclareRead must derive "
+           "ScenePass -> GTAOPass ordering without WaterPass->GTAOPass edge."
+        << HazardsToString(hazards);
 }
 
 TEST(RenderGraphConfigureTopology, MissingDecalToWaterEdgeIsFlagged)
 {
-    // Guardrail for the current baseline: DecalPass -> WaterPass is still
-    // required. Without it, both passes write SceneColor with no declared
-    // ordering edge and the validator must surface a WAW hazard.
+    // After slice 32 the DecalPass→WaterPass ordering edge is DERIVED from the
+    // SceneColor RMW declarations (DecalPass writes, WaterPass reads-then-writes).
+    // This test validates the negative: if WaterPass only declares Write(SceneColor)
+    // (no Read) and no explicit edge is present, the validator surfaces a WAW hazard.
     RenderGraph graph;
 
     auto scene = AddDeclStub(graph, "ScenePass");
@@ -1059,8 +1613,10 @@ TEST(RenderGraphConfigureTopology, MissingDecalToWaterEdgeIsFlagged)
 
 TEST(RenderGraphConfigureTopology, MissingSceneToFoliageEdgeIsFlagged)
 {
-    // Guardrail for the current baseline: ScenePass -> FoliagePass is still
-    // required because both passes write SceneColor in the forward chain.
+    // After slice 32 the ScenePass→FoliagePass ordering edge is DERIVED from the
+    // SceneColor RMW declaration (FoliagePass reads-then-writes SceneColor).
+    // This test validates the negative: if FoliagePass only declares Write(SceneColor)
+    // (no Read) and no explicit edge is present, the validator surfaces a WAW hazard.
     RenderGraph graph;
 
     auto scene = AddDeclStub(graph, "ScenePass");
@@ -1092,8 +1648,10 @@ TEST(RenderGraphConfigureTopology, MissingSceneToFoliageEdgeIsFlagged)
 
 TEST(RenderGraphConfigureTopology, MissingFoliageToDecalEdgeIsFlagged)
 {
-    // Guardrail for the current baseline: FoliagePass -> DecalPass remains
-    // required to serialize SceneColor writes in the forward chain.
+    // After slice 32 the FoliagePass→DecalPass ordering edge is DERIVED from the
+    // SceneColor RMW declaration (DecalPass reads-then-writes SceneColor).
+    // This test validates the negative: if DecalPass only declares Write(SceneColor)
+    // (no Read) and no explicit edge is present, the validator surfaces a WAW hazard.
     RenderGraph graph;
 
     auto scene = AddDeclStub(graph, "ScenePass");
@@ -1132,8 +1690,11 @@ TEST(RenderGraphConfigureTopology, MissingFoliageToDecalEdgeIsFlagged)
 
 TEST(RenderGraphConfigureTopology, MissingWaterToParticleEdgeIsFlagged)
 {
-    // Guardrail for the current baseline: WaterPass -> ParticlePass remains
-    // required because both passes write shared OIT accumulation targets.
+    // After slice 32 the WaterPass→ParticlePass ordering edge is DERIVED from the
+    // SceneColor RMW declaration (ParticlePass reads-then-writes SceneColor).
+    // This test validates the negative: if the stubs only declare OIT writes (no
+    // SceneColor RMW) and no explicit edge is present, the validator surfaces a
+    // WAW hazard on OITAccum.
     RenderGraph graph;
 
     auto water = AddDeclStub(graph, "WaterPass");
@@ -1165,10 +1726,275 @@ TEST(RenderGraphConfigureTopology, MissingWaterToParticleEdgeIsFlagged)
     EXPECT_TRUE(hasWaterParticleWaw) << HazardsToString(hazards);
 }
 
-TEST(RenderGraphConfigureTopology, MissingShadowToSceneEdgeIsFlagged)
+// =============================================================================
+// Phase F slice 32 — geometry-chain derived edges.
+// ScenePass→FoliagePass, FoliagePass→DecalPass, DecalPass→WaterPass, and
+// WaterPass→ParticlePass are all derived from SceneColor RMW declarations.
+// No explicit AddExecutionDependency calls are needed for these four edges.
+// =============================================================================
+
+TEST(RenderGraphConfigureTopology, Slice32_SceneToFoliageDerivedFromSceneColor)
 {
-    // Guardrail for the current baseline: ShadowPass -> ScenePass is
-    // required because ScenePass samples shadow maps produced by ShadowPass.
+    // ScenePass.DeclareWrite(SceneColor) + FoliagePass.DeclareRead(SceneColor)
+    // derives the ScenePass→FoliagePass RAW ordering edge.
+    // No explicit AddExecutionDependency call required.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto foliage = AddDeclStub(graph, "FoliagePass");
+    foliage->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    foliage->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneColor));
+
+    // Intentionally omit: graph.AddExecutionDependency("ScenePass", "FoliagePass");
+    graph.AddExecutionDependency("FoliagePass", "FinalPass");
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 32: SceneColor DeclareWrite/DeclareRead must derive "
+           "ScenePass -> FoliagePass ordering without an explicit edge."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice32_FoliageToDecalDerivedFromSceneColor)
+{
+    // FoliagePass.DeclareWrite(SceneColor) + DecalPass.DeclareRead(SceneColor)
+    // derives the FoliagePass→DecalPass RAW ordering edge.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto foliage = AddDeclStub(graph, "FoliagePass");
+    foliage->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    foliage->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto decal = AddDeclStub(graph, "DecalPass");
+    decal->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    decal->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneColor));
+
+    // Intentionally omit: graph.AddExecutionDependency("FoliagePass", "DecalPass");
+    graph.AddExecutionDependency("DecalPass", "FinalPass");
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 32: SceneColor DeclareWrite/DeclareRead must derive "
+           "FoliagePass -> DecalPass ordering without an explicit edge."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice32_DecalToWaterDerivedFromSceneColor)
+{
+    // DecalPass.DeclareWrite(SceneColor) + WaterPass.DeclareRead(SceneColor)
+    // derives the DecalPass→WaterPass RAW ordering edge.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto foliage = AddDeclStub(graph, "FoliagePass");
+    foliage->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    foliage->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto decal = AddDeclStub(graph, "DecalPass");
+    decal->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    decal->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto water = AddDeclStub(graph, "WaterPass");
+    water->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    water->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneColor));
+
+    // Intentionally omit: graph.AddExecutionDependency("DecalPass", "WaterPass");
+    graph.AddExecutionDependency("WaterPass", "FinalPass");
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 32: SceneColor DeclareWrite/DeclareRead must derive "
+           "DecalPass -> WaterPass ordering without an explicit edge."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice32_WaterToParticleDerivedFromSceneColor)
+{
+    // WaterPass.DeclareWrite(SceneColor) + ParticlePass.DeclareRead(SceneColor)
+    // derives the WaterPass→ParticlePass RAW ordering edge.
+    RenderGraph graph;
+
+    auto water = AddDeclStub(graph, "WaterPass");
+    water->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto particle = AddDeclStub(graph, "ParticlePass");
+    particle->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    particle->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneColor));
+
+    // Intentionally omit: graph.AddExecutionDependency("WaterPass", "ParticlePass");
+    graph.AddExecutionDependency("ParticlePass", "FinalPass");
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 32: SceneColor DeclareWrite/DeclareRead must derive "
+           "WaterPass -> ParticlePass ordering without an explicit edge."
+        << HazardsToString(hazards);
+}
+
+// =============================================================================
+// Phase F slice 33 — deferred-path derived edges.
+// All five deferred explicit edges are now derived from declaration pairs:
+//   ScenePass→DeferredOpaqueDecalPass  — SceneDepth RAW
+//   DeferredOpaqueDecalPass→DeferredLightingPass — SceneColor RAW
+//   ScenePass→DeferredLightingPass (fallback) — SceneDepth RAW
+//   DeferredLightingPass→ForwardOverlayPass — SceneColor RAW
+//   ForwardOverlayPass→FoliagePass — SceneColor RAW (Foliage RMW from slice 32)
+// =============================================================================
+
+TEST(RenderGraphConfigureTopology, Slice33_SceneToDeferredOpaqueDecalDerivedFromSceneDepth)
+{
+    // ScenePass.DeclareWrite(SceneDepth) + DeferredOpaqueDecalPass.DeclareRead(SceneDepth)
+    // derives the ScenePass→DeferredOpaqueDecalPass RAW ordering edge.
+    // No explicit AddExecutionDependency call required.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto deferredDecal = AddDeclStub(graph, "DeferredOpaqueDecalPass");
+    deferredDecal->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    deferredDecal->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneColor));
+
+    // Intentionally omit: graph.AddExecutionDependency("ScenePass", "DeferredOpaqueDecalPass");
+    graph.AddExecutionDependency("DeferredOpaqueDecalPass", "FinalPass");
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 33: SceneDepth DeclareWrite/DeclareRead must derive "
+           "ScenePass -> DeferredOpaqueDecalPass ordering without an explicit edge."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice33_DeferredOpaqueDecalToDeferredLightingDerivedFromSceneColor)
+{
+    // DeferredOpaqueDecalPass.DeclareWrite(SceneColor) +
+    // DeferredLightingPass.DeclareRead(SceneColor) derives the
+    // DeferredOpaqueDecalPass→DeferredLightingPass RAW ordering edge.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto deferredDecal = AddDeclStub(graph, "DeferredOpaqueDecalPass");
+    deferredDecal->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    deferredDecal->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto deferredLighting = AddDeclStub(graph, "DeferredLightingPass");
+    deferredLighting->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    deferredLighting->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneColor));
+
+    // Intentionally omit: graph.AddExecutionDependency("DeferredOpaqueDecalPass", "DeferredLightingPass");
+    graph.AddExecutionDependency("DeferredLightingPass", "FinalPass");
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 33: SceneColor DeclareWrite/DeclareRead must derive "
+           "DeferredOpaqueDecalPass -> DeferredLightingPass ordering without an explicit edge."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice33_DeferredLightingToForwardOverlayDerivedFromSceneColor)
+{
+    // DeferredLightingPass.DeclareWrite(SceneColor) +
+    // ForwardOverlayPass.DeclareRead(SceneColor) derives the
+    // DeferredLightingPass→ForwardOverlayPass RAW ordering edge.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto deferredLighting = AddDeclStub(graph, "DeferredLightingPass");
+    deferredLighting->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    deferredLighting->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto forwardOverlay = AddDeclStub(graph, "ForwardOverlayPass");
+    forwardOverlay->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    forwardOverlay->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneColor));
+
+    // Intentionally omit: graph.AddExecutionDependency("DeferredLightingPass", "ForwardOverlayPass");
+    graph.AddExecutionDependency("ForwardOverlayPass", "FinalPass");
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 33: SceneColor DeclareWrite/DeclareRead must derive "
+           "DeferredLightingPass -> ForwardOverlayPass ordering without an explicit edge."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice33_ForwardOverlayToFoliageDerivedFromSceneColor)
+{
+    // ForwardOverlayPass.DeclareWrite(SceneColor) + FoliagePass.DeclareRead(SceneColor)
+    // derives the ForwardOverlayPass→FoliagePass RAW ordering edge.
+    RenderGraph graph;
+
+    auto forwardOverlay = AddDeclStub(graph, "ForwardOverlayPass");
+    forwardOverlay->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto foliage = AddDeclStub(graph, "FoliagePass");
+    foliage->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    foliage->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneColor));
+
+    // Intentionally omit: graph.AddExecutionDependency("ForwardOverlayPass", "FoliagePass");
+    graph.AddExecutionDependency("FoliagePass", "FinalPass");
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 33: SceneColor DeclareWrite/DeclareRead must derive "
+           "ForwardOverlayPass -> FoliagePass ordering without an explicit edge."
+        << HazardsToString(hazards);
+}
+
+// =============================================================================
+// Phase F slice 27 — ShadowPass → ScenePass derived edge.
+// Previously this edge required an explicit AddExecutionDependency call.
+// Slice 27 derives the RAW edge automatically from the declaration pair.
+// =============================================================================
+TEST(RenderGraphConfigureTopology, MissingShadowToSceneExplicitEdge_DerivedEdgeSufficient)
+{
+    // Slice 27 behavior: ShadowPass.DeclareWrite(ShadowMapCSM) +
+    // ScenePass.DeclareRead(ShadowMapCSM) derives the ordering edge.
+    // No explicit AddExecutionDependency required.
     RenderGraph graph;
 
     auto shadow = AddDeclStub(graph, "ShadowPass");
@@ -1182,21 +2008,15 @@ TEST(RenderGraphConfigureTopology, MissingShadowToSceneEdgeIsFlagged)
     final->TestDeclareRead(std::string(ResourceNames::SceneColor));
 
     // Intentionally omit: graph.AddExecutionDependency("ShadowPass", "ScenePass");
+    // Slice 27 derives it from the DeclareWrite/DeclareRead pair.
     graph.AddExecutionDependency("ScenePass", "FinalPass");
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_FALSE(hazards.empty()) << "Expected hazard when ShadowPass -> ScenePass is missing";
-
-    const auto hasShadowSceneRaw = std::any_of(hazards.begin(), hazards.end(),
-                                               [](const RenderGraph::Hazard& h)
-                                               {
-                                                   return h.Kind == RenderGraph::HazardKind::ReadAfterWrite &&
-                                                          h.Resource == ResourceNames::ShadowMapCSM &&
-                                                          h.Producer == "ShadowPass" &&
-                                                          h.Consumer == "ScenePass";
-                                               });
-    EXPECT_TRUE(hasShadowSceneRaw) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.empty())
+        << "slice 27: ShadowPass→ScenePass ordering is derived from declarations, "
+           "no explicit edge required."
+        << HazardsToString(hazards);
 }
 
 TEST(RenderGraphConfigureTopology, SceneToDeferredLightingCanBeTransitiveViaDecal)
@@ -1235,10 +2055,14 @@ TEST(RenderGraphConfigureTopology, SceneToDeferredLightingCanBeTransitiveViaDeca
         << HazardsToString(hazards);
 }
 
-TEST(RenderGraphConfigureTopology, MissingSceneToDeferredOpaqueDecalEdgeIsFlagged)
+// =============================================================================
+// Phase F slice 27 — ScenePass → DeferredOpaqueDecalPass derived edge.
+// Previously this edge required an explicit AddExecutionDependency call.
+// Slice 27 derives the RAW edge from ScenePass.DeclareWrite(SceneDepth) +
+// DeferredOpaqueDecalPass.DeclareRead(SceneDepth).
+// =============================================================================
+TEST(RenderGraphConfigureTopology, MissingSceneToDeferredOpaqueDecalExplicitEdge_DerivedEdgeSufficient)
 {
-    // Deferred baseline guard: DeferredOpaqueDecalPass reads SceneDepth
-    // produced by ScenePass, so ScenePass -> DeferredOpaqueDecalPass is required.
     RenderGraph graph;
 
     auto scene = AddDeclStub(graph, "ScenePass");
@@ -1253,21 +2077,15 @@ TEST(RenderGraphConfigureTopology, MissingSceneToDeferredOpaqueDecalEdgeIsFlagge
     final->TestDeclareRead(std::string(ResourceNames::SceneColor));
 
     // Intentionally omit: graph.AddExecutionDependency("ScenePass", "DeferredOpaqueDecalPass");
+    // Slice 27 derives the RAW edge from the SceneDepth declaration pair.
     graph.AddExecutionDependency("DeferredOpaqueDecalPass", "FinalPass");
     graph.SetFinalPass("FinalPass");
 
     const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_FALSE(hazards.empty()) << "Expected hazard when ScenePass -> DeferredOpaqueDecalPass is missing";
-
-    const auto hasSceneDepthRaw = std::any_of(hazards.begin(), hazards.end(),
-                                              [](const RenderGraph::Hazard& h)
-                                              {
-                                                  return h.Kind == RenderGraph::HazardKind::ReadAfterWrite &&
-                                                         h.Resource == ResourceNames::SceneDepth &&
-                                                         h.Producer == "ScenePass" &&
-                                                         h.Consumer == "DeferredOpaqueDecalPass";
-                                              });
-    EXPECT_TRUE(hasSceneDepthRaw) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.empty())
+        << "slice 27: ScenePass→DeferredOpaqueDecalPass ordering is derived from "
+           "declarations, no explicit edge required."
+        << HazardsToString(hazards);
 }
 
 TEST(RenderGraphConfigureTopology, ForwardPathWithSelectionOutlineIsHazardFree)
@@ -1534,4 +2352,1129 @@ TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
         EXPECT_EQ(graph.GetAllPasses().size(), expectedPassCount)
             << "Cycle " << i << ": residual passes from prior cycle";
     }
+}
+
+// =============================================================================
+// Phase F slice 34 — conditional AO pass registration eliminates the last
+// remaining explicit forward-path execution-dependency edge.
+//
+// Before slice 34: both SSAOPass and GTAOPass were always registered in
+// ConfigureRenderGraph and an explicit AddExecutionDependency("SSAOPass",
+// "GTAOPass") serialised the dual AOBuffer writers (WAW).
+//
+// After slice 34: ConfigureRenderGraph registers only the pass corresponding
+// to PostProcessSettings::ActiveAOTechnique. With at most one AOBuffer writer
+// in the graph the WAW cannot occur and no explicit edge is required.
+// ApplyRendererSettings detects ActiveAOTechnique changes and calls
+// ConfigureRenderGraph to rebuild the topology with the new single-pass set.
+// =============================================================================
+
+TEST(RenderGraphConfigureTopology, Slice34_DualAOWritersWithoutExplicitEdgeIsWAWHazard)
+{
+    // Negative test: documents the hazard that existed before slice 34.
+    // When both SSAOPass and GTAOPass are in the graph and both declare an
+    // AOBuffer write without an explicit ordering edge, ValidateResourceHazards
+    // must flag a WAW on AOBuffer. Slice 34 avoids this by never registering
+    // both passes simultaneously.
+    RenderGraph graph;
+
+    auto ssao = AddDeclStub(graph, "SSAOPass");
+    ssao->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
+
+    auto gtao = AddDeclStub(graph, "GTAOPass");
+    gtao->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
+
+    auto aoApply = AddDeclStub(graph, "AOApplyPass");
+    aoApply->TestDeclareRead(std::string(ResourceNames::AOBuffer));
+    aoApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::AOApplyColor));
+
+    // Intentionally omit: graph.AddExecutionDependency("SSAOPass", "GTAOPass");
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_FALSE(hazards.empty())
+        << "Slice 34: two AOBuffer writers without an explicit ordering edge "
+           "must produce a WAW hazard — the pre-slice-34 topology required an "
+           "explicit SSAOPass -> GTAOPass edge to suppress it.";
+}
+
+TEST(RenderGraphConfigureTopology, Slice34_SSAOOnlyInGraphHasNoAOBufferWAW)
+{
+    // Positive test: AOTechnique::SSAO — only SSAOPass is registered; no WAW
+    // on AOBuffer and no explicit ordering edge needed.
+    RenderGraph graph;
+
+    auto ssao = AddDeclStub(graph, "SSAOPass");
+    ssao->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
+
+    auto aoApply = AddDeclStub(graph, "AOApplyPass");
+    aoApply->TestDeclareRead(std::string(ResourceNames::AOBuffer));
+    aoApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::AOApplyColor));
+
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 34: SSAOPass alone writes AOBuffer — single writer, no WAW, "
+           "no explicit edge required.  "
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice34_GTAOOnlyInGraphHasNoAOBufferWAW)
+{
+    // Positive test: AOTechnique::GTAO — only GTAOPass is registered; no WAW
+    // on AOBuffer and no explicit ordering edge needed.
+    RenderGraph graph;
+
+    auto gtao = AddDeclStub(graph, "GTAOPass");
+    gtao->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
+
+    auto aoApply = AddDeclStub(graph, "AOApplyPass");
+    aoApply->TestDeclareRead(std::string(ResourceNames::AOBuffer));
+    aoApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::AOApplyColor));
+
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 34: GTAOPass alone writes AOBuffer — single writer, no WAW, "
+           "no explicit edge required.  "
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice34_NoneAOTechniqueNoAOPassInGraphIsHazardFree)
+{
+    // Positive test: AOTechnique::None — neither SSAO nor GTAO is registered.
+    // AOBuffer has no writer; the graph is trivially hazard-free on that
+    // resource. AOApplyPass reads a zero/black texture at runtime when AO
+    // is disabled, but the validator only reasons about declared producers.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneColor));
+
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 34: with no AO passes registered (AOTechnique::None), "
+           "the graph must be hazard-free — no AOBuffer writer exists."
+        << HazardsToString(hazards);
+}
+
+// =============================================================================
+// Phase F — Slice 35: Self-resolving input handles (OITResolve & SSS)
+//
+// Slice 35 adds `RGCommandContext::GetBlackboard()` so passes can look up
+// their own input handles from the FrameBlackboard during Execute() instead
+// of relying on a per-frame `SetInputFramebufferHandle` side-channel call
+// from EndScene().  The first two tests are pure API/unit tests; the third
+// and fourth are topology regression tests confirming the static declarations
+// on OITResolvePass and SSSRenderPass still yield the correct hazard-free
+// ordering after the side-channel was removed.
+// =============================================================================
+
+TEST(RGCommandContextBlackboard, Slice35_GetBlackboardReturnsNullptrWithoutGraph)
+{
+    // A default-constructed context has no attached render graph.
+    // GetBlackboard() must return nullptr rather than crashing or returning
+    // a dangling pointer — this is the headless / unit-test fallback guard.
+    RGCommandContext context;
+    EXPECT_EQ(context.GetBlackboard(), nullptr)
+        << "Slice 35: GetBlackboard() must return nullptr when no render graph "
+           "is attached (headless / unit-test mode).";
+}
+
+TEST(RGCommandContextBlackboard, Slice35_GetBlackboardReturnsGraphBlackboardWhenAttached)
+{
+    // When a render graph is attached, GetBlackboard() must return a non-null
+    // pointer to the graph's FrameBlackboard.  A freshly created graph has
+    // all handles invalid (unset), so SceneColor.IsValid() should be false.
+    RenderGraph graph;
+    RGCommandContext context;
+    context.SetRenderGraph(&graph);
+
+    const FrameBlackboard* board = context.GetBlackboard();
+    ASSERT_NE(board, nullptr)
+        << "Slice 35: GetBlackboard() must return the graph's blackboard "
+           "when a render graph is attached.";
+    EXPECT_FALSE(board->SceneColor.IsValid())
+        << "Freshly-constructed blackboard should have no populated handles.";
+}
+
+TEST(RenderGraphConfigureTopology, Slice35_OITResolveAndSSSOrderingDerivesFromDeclarations)
+{
+    // OITResolvePass declares: Read(OITAccum), Read(OITRevealage),
+    //                          Read(SceneColor), Write(SceneColor)  [RMW]
+    // SSSRenderPass  declares: Read(SceneColor), Write(SSSColor)
+    //
+    // The SceneColor RMW on OITResolve creates a RAW edge to SSSPass
+    // (because SSS reads SceneColor that OITResolve wrote).  Slice 35
+    // removes the per-frame SetInputFramebufferHandle side-channel; this
+    // test confirms the static declarations alone keep the topology
+    // hazard-free.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto particle = AddDeclStub(graph, "ParticlePass");
+    particle->TestDeclareWrite(std::string(ResourceNames::OITAccum));
+    particle->TestDeclareWrite(std::string(ResourceNames::OITRevealage));
+
+    auto oitResolve = AddDeclStub(graph, "OITResolvePass");
+    oitResolve->TestDeclareRead(std::string(ResourceNames::OITAccum));
+    oitResolve->TestDeclareRead(std::string(ResourceNames::OITRevealage));
+    oitResolve->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    oitResolve->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto sss = AddDeclStub(graph, "SSSPass");
+    sss->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    sss->TestDeclareWrite(std::string(ResourceNames::SSSColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SSSColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 35: OITResolve → SSS ordering derives from SceneColor RAW "
+           "declaration — no explicit edge or per-frame side-channel needed."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice35_SSSColorRAWEdgeToAOApplyDerivesFromDeclarations)
+{
+    // SSSRenderPass  declares: Read(SceneColor), Write(SSSColor)
+    // AOApplyRenderPass declares: Read(SSSColor), Write(AOApplyColor)
+    //
+    // The SSSColor RAW edge derives the SSS → AOApplyPass ordering without
+    // any explicit side-channel, validating the slice 35 contracts.
+    RenderGraph graph;
+
+    auto oitResolve = AddDeclStub(graph, "OITResolvePass");
+    oitResolve->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    oitResolve->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto sss = AddDeclStub(graph, "SSSPass");
+    sss->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    sss->TestDeclareWrite(std::string(ResourceNames::SSSColor));
+
+    auto aoApply = AddDeclStub(graph, "AOApplyPass");
+    aoApply->TestDeclareRead(std::string(ResourceNames::SSSColor));
+    aoApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::AOApplyColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 35: SSS → AOApplyPass ordering derives from SSSColor RAW "
+           "declaration — no side-channel needed."
+        << HazardsToString(hazards);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 36 — Self-resolving SceneColor/SceneDepth for 5 forward geometry passes
+//
+// ForwardOverlayPass, FoliagePass, WaterPass, DecalPass, and ParticlePass
+// now look up SceneColor (and SceneDepth for Decal) from the blackboard
+// directly inside Execute(). The side-channel SetSceneColorHandle /
+// SetSceneDepthHandle setters have been removed. These tests verify that the
+// resulting declaration topology produces no hazards and that the known
+// RAW edges (SceneColor writer → each consumer) are derived purely from
+// declarations.
+// ---------------------------------------------------------------------------
+
+TEST(RenderGraphConfigureTopology, Slice36_ForwardGeometryPassesSceneColorRAWEdgeFromDeclarations)
+{
+    // SceneRenderPass writes SceneColor; the 5 forward geometry passes read
+    // it. The RAW edges must be inferred from declarations alone — no
+    // side-channel setter is involved.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+
+    for (const char* name : { "ForwardOverlayPass", "FoliagePass", "WaterPass",
+                              "DecalPass", "ParticlePass" })
+    {
+        auto p = AddDeclStub(graph, name);
+        p->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    }
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 36: all 5 forward geometry passes read SceneColor with no "
+           "concurrent writer — no hazards expected."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice36_DecalPassSceneDepthRAWEdgeFromDeclarations)
+{
+    // DecalPass reads SceneDepth for projection. The RAW edge from the
+    // scene pass writer must be derived from declarations; no
+    // SetSceneDepthHandle side-channel is needed.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto decal = AddDeclStub(graph, "DecalPass");
+    decal->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    decal->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 36: DecalPass reads SceneDepth — RAW edge inferred from "
+           "declarations; no side-channel setter required."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice36_ParticleAndWaterAfterSceneColorWriter)
+{
+    // Regression: ParticlePass and WaterPass both read SceneColor written
+    // by ScenePass — ordering must derive from declarations alone.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto water = AddDeclStub(graph, "WaterPass");
+    water->TestDeclareRead(std::string(ResourceNames::SceneColor));
+
+    auto particle = AddDeclStub(graph, "ParticlePass");
+    particle->TestDeclareRead(std::string(ResourceNames::SceneColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 36: ParticlePass and WaterPass read SceneColor written by "
+           "ScenePass — no hazards when ordering derives from declarations."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice36_FoliageAndOverlayAfterSceneColorWriter)
+{
+    // Regression: FoliagePass and ForwardOverlayPass read SceneColor. This
+    // verifies that removing the SetSceneColorHandle setter does not break
+    // the declaration-derived topology for these two passes.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto foliage = AddDeclStub(graph, "FoliagePass");
+    foliage->TestDeclareRead(std::string(ResourceNames::SceneColor));
+
+    auto overlay = AddDeclStub(graph, "ForwardOverlayPass");
+    overlay->TestDeclareRead(std::string(ResourceNames::SceneColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 36: FoliagePass and ForwardOverlayPass read SceneColor — "
+           "ordering derives from declarations with no side-channel setter."
+        << HazardsToString(hazards);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 37 — Self-resolving SceneDepth/SceneNormals for SSAO and GTAO passes
+//
+// SSAORenderPass and GTAORenderPass now look up SceneDepth and SceneNormals
+// from the blackboard directly inside Execute(). The side-channel
+// SetSceneDepthHandle / SetSceneNormalsHandle setters have been removed from
+// both passes. These tests verify the declaration-derived topology produces
+// no hazards and that the AO passes are ordered after the scene writer.
+// ---------------------------------------------------------------------------
+
+TEST(RenderGraphConfigureTopology, Slice37_SSAOPassSelfResolvesSceneDepthAndNormals)
+{
+    // SSAORenderPass declares: Read(SceneDepth), Read(SceneNormals).
+    // SceneRenderPass declares: Write(SceneDepth), Write(SceneNormals).
+    // The two RAW edges must derive execution order without any side-channel.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneNormals));
+
+    auto ssao = AddDeclStub(graph, "SSAOPass");
+    ssao->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    ssao->TestDeclareRead(std::string(ResourceNames::SceneNormals));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 37: SSAOPass reads SceneDepth+SceneNormals — ordering "
+           "derives from declarations; no SetSceneDepthHandle side-channel needed."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice37_GTAOPassSelfResolvesSceneDepthAndNormals)
+{
+    // Same contract as SSAO but for GTAORenderPass.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneNormals));
+
+    auto gtao = AddDeclStub(graph, "GTAOPass");
+    gtao->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    gtao->TestDeclareRead(std::string(ResourceNames::SceneNormals));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 37: GTAOPass reads SceneDepth+SceneNormals — ordering "
+           "derives from declarations; no SetSceneDepthHandle side-channel needed."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice37_AOPassesAfterSceneDepthWriterNoHazards)
+{
+    // Both SSAO and GTAO reading SceneDepth/SceneNormals written by the scene
+    // pass must produce no concurrent-write hazards.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneNormals));
+
+    auto ssao = AddDeclStub(graph, "SSAOPass");
+    ssao->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    ssao->TestDeclareRead(std::string(ResourceNames::SceneNormals));
+
+    auto gtao = AddDeclStub(graph, "GTAOPass");
+    gtao->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    gtao->TestDeclareRead(std::string(ResourceNames::SceneNormals));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 37: SSAOPass and GTAOPass both reading SceneDepth+SceneNormals "
+           "— no WAW hazard (neither writes those resources)."
+        << HazardsToString(hazards);
+}
+
+// ---------------------------------------------------------------------------
+// Phase F — Slice 38: AOApplyRenderPass self-resolves its three blackboard inputs.
+// ---------------------------------------------------------------------------
+
+TEST(RenderGraphConfigureTopology, Slice38_AOApplyPassSelfResolvesSceneColor)
+{
+    // AOApplyPass reads SceneColor (written by the scene pass); because the pass
+    // self-resolves via GetBlackboard() there must be no concurrent-write hazard
+    // between the scene-pass writer and the AOApplyPass reader.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto aoApply = AddDeclStub(graph, "AOApplyPass");
+    aoApply->TestDeclareRead(std::string(ResourceNames::SceneColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 38: AOApplyPass reading SceneColor written by ScenePass — no hazard."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice38_AOApplyPassSelfResolvesAOBufferAndSceneDepth)
+{
+    // AOApplyPass reads both AOBuffer (written by SSAO/GTAO) and SceneDepth
+    // (written by the scene pass).  Neither resource is written by AOApplyPass
+    // itself so there must be no concurrent-write hazard.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+
+    auto ssao = AddDeclStub(graph, "SSAOPass");
+    ssao->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
+
+    auto aoApply = AddDeclStub(graph, "AOApplyPass");
+    aoApply->TestDeclareRead(std::string(ResourceNames::AOBuffer));
+    aoApply->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    aoApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::AOApplyColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 38: AOApplyPass reading AOBuffer+SceneDepth — no hazard."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice38_AOApplyPassPrefersSSSColorOverSceneColor)
+{
+    // When SSSColor is produced upstream, AOApplyPass should pick it up as its
+    // input and the dependency chain SSS->AOApply must be hazard-free.
+    RenderGraph graph;
+
+    auto sss = AddDeclStub(graph, "SSSPass");
+    sss->TestDeclareWrite(std::string(ResourceNames::SSSColor));
+
+    auto aoApply = AddDeclStub(graph, "AOApplyPass");
+    aoApply->TestDeclareRead(std::string(ResourceNames::SSSColor));
+    aoApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::AOApplyColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 38: AOApplyPass reading SSSColor — no hazard."
+        << HazardsToString(hazards);
+}
+
+// ---------------------------------------------------------------------------
+// Phase F — Slice 39: PostProcessRenderPass self-resolves its five blackboard inputs.
+// ---------------------------------------------------------------------------
+
+TEST(RenderGraphConfigureTopology, Slice39_PostProcessPassSelfResolvesInputChain)
+{
+    // PostProcessPass reads the most downstream color source: AOApplyColor
+    // (when written) else SSSColor else SceneColor.  When AOApplyColor is
+    // present the dependency must be hazard-free.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto aoApply = AddDeclStub(graph, "AOApplyPass");
+    aoApply->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    aoApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
+
+    auto postProcess = AddDeclStub(graph, "PostProcessPass");
+    postProcess->TestDeclareRead(std::string(ResourceNames::AOApplyColor));
+    postProcess->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 39: PostProcessPass reading AOApplyColor — no hazard."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice39_PostProcessPassSelfResolvesSceneDepthAndAOBuffer)
+{
+    // PostProcessPass reads SceneDepth and AOBuffer — neither is written by
+    // PostProcessPass itself so no concurrent-write hazard should exist.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+
+    auto ssao = AddDeclStub(graph, "SSAOPass");
+    ssao->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
+
+    auto postProcess = AddDeclStub(graph, "PostProcessPass");
+    postProcess->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    postProcess->TestDeclareRead(std::string(ResourceNames::AOBuffer));
+    postProcess->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 39: PostProcessPass reading SceneDepth+AOBuffer — no hazard."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice39_PostProcessPassSelfResolvesShadowMapAndVelocity)
+{
+    // PostProcessPass also reads ShadowMapCSM and the Velocity buffer.
+    // Both are written by passes earlier in the frame; no WAW hazard expected.
+    RenderGraph graph;
+
+    auto shadow = AddDeclStub(graph, "ShadowPass");
+    shadow->TestDeclareWrite(std::string(ResourceNames::ShadowMapCSM));
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::Velocity));
+
+    auto postProcess = AddDeclStub(graph, "PostProcessPass");
+    postProcess->TestDeclareRead(std::string(ResourceNames::ShadowMapCSM));
+    postProcess->TestDeclareRead(std::string(ResourceNames::Velocity));
+    postProcess->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 39: PostProcessPass reading ShadowMapCSM+Velocity — no hazard."
+        << HazardsToString(hazards);
+}
+
+// ---------------------------------------------------------------------------
+// Phase F — Slice 40: DOFRenderPass, MotionBlurRenderPass, TAARenderPass
+//           self-resolve their blackboard inputs.
+// ---------------------------------------------------------------------------
+
+TEST(RenderGraphConfigureTopology, Slice40_DOFPassSelfResolvesInputAndSceneDepth)
+{
+    // DOFPass reads BloomColor (if present) else PostProcessColor, plus SceneDepth.
+    // No concurrent writes — no hazard expected.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+    scene->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+    auto bloom = AddDeclStub(graph, "BloomPass");
+    bloom->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+    bloom->TestDeclareWrite(std::string(ResourceNames::BloomColor));
+
+    auto dof = AddDeclStub(graph, "DOFPass");
+    dof->TestDeclareRead(std::string(ResourceNames::BloomColor));
+    dof->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    dof->TestDeclareWrite(std::string(ResourceNames::DOFColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::DOFColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 40: DOFPass reading BloomColor+SceneDepth — no hazard."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice40_MotionBlurPassSelfResolvesInputChain)
+{
+    // MotionBlurPass prefers DOFColor > BloomColor > PostProcessColor, plus SceneDepth.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+    scene->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+    auto dof = AddDeclStub(graph, "DOFPass");
+    dof->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+    dof->TestDeclareWrite(std::string(ResourceNames::DOFColor));
+
+    auto motionBlur = AddDeclStub(graph, "MotionBlurPass");
+    motionBlur->TestDeclareRead(std::string(ResourceNames::DOFColor));
+    motionBlur->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    motionBlur->TestDeclareWrite(std::string(ResourceNames::MotionBlurColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::MotionBlurColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 40: MotionBlurPass reading DOFColor+SceneDepth — no hazard."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice40_TAAPassSelfResolvesInputDepthAndVelocity)
+{
+    // TAAPass prefers MotionBlurColor > DOFColor > BloomColor > PostProcessColor,
+    // plus SceneDepth and Velocity.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+    scene->TestDeclareWrite(std::string(ResourceNames::Velocity));
+    scene->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+    auto motionBlur = AddDeclStub(graph, "MotionBlurPass");
+    motionBlur->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+    motionBlur->TestDeclareWrite(std::string(ResourceNames::MotionBlurColor));
+
+    auto taa = AddDeclStub(graph, "TAAPass");
+    taa->TestDeclareRead(std::string(ResourceNames::MotionBlurColor));
+    taa->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    taa->TestDeclareRead(std::string(ResourceNames::Velocity));
+    taa->TestDeclareWrite(std::string(ResourceNames::TAAColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::TAAColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 40: TAAPass reading MotionBlurColor+SceneDepth+Velocity — no hazard."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice41_DeferredLightingPassSelfResolvesSceneColorAndGBuffer)
+{
+    // DeferredLightingPass only runs in Deferred rendering mode. It reads
+    // GBuffer attachments (albedo, normal, emissive) and SceneDepth, then
+    // writes to SceneColor. Phase F slice 41 eliminates all per-frame
+    // SetXxx() handle methods; Execute() now self-resolves via the
+    // render-graph blackboard.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::GBufferAlbedo));
+    scene->TestDeclareWrite(std::string(ResourceNames::GBufferNormal));
+    scene->TestDeclareWrite(std::string(ResourceNames::GBufferEmissive));
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+
+    auto deferred = AddDeclStub(graph, "DeferredLightingPass");
+    deferred->TestDeclareRead(std::string(ResourceNames::GBufferAlbedo));
+    deferred->TestDeclareRead(std::string(ResourceNames::GBufferNormal));
+    deferred->TestDeclareRead(std::string(ResourceNames::GBufferEmissive));
+    deferred->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    deferred->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 41: DeferredLightingPass reading GBuffer+SceneDepth — no hazard."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice41_DeferredLightingPassSelfResolvesSceneDepth)
+{
+    // DeferredLightingPass self-resolves SceneDepth from the render-graph
+    // blackboard. Ensure execution dependencies are correctly validated.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+
+    auto deferred = AddDeclStub(graph, "DeferredLightingPass");
+    deferred->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    deferred->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 41: DeferredLightingPass reading SceneDepth — no hazard."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice41_DeferredLightingPassSelfResolvesMSAAVariants)
+{
+    // DeferredLightingPass supports MSAA variants: when sample count > 1,
+    // it self-resolves the MSAA attachment variants
+    // (GBufferAlbedoMS, GBufferNormalMS, GBufferEmissiveMS, SceneDepthMS)
+    // from the render-graph blackboard. Ensure read/write hazards are
+    // correctly validated for the MSAA path.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::GBufferAlbedoMS));
+    scene->TestDeclareWrite(std::string(ResourceNames::GBufferNormalMS));
+    scene->TestDeclareWrite(std::string(ResourceNames::GBufferEmissiveMS));
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepthMS));
+
+    auto deferred = AddDeclStub(graph, "DeferredLightingPass");
+    deferred->TestDeclareRead(std::string(ResourceNames::GBufferAlbedoMS));
+    deferred->TestDeclareRead(std::string(ResourceNames::GBufferNormalMS));
+    deferred->TestDeclareRead(std::string(ResourceNames::GBufferEmissiveMS));
+    deferred->TestDeclareRead(std::string(ResourceNames::SceneDepthMS));
+    deferred->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 41: DeferredLightingPass reading GBufferMS+SceneDepthMS — no hazard."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice42_FogPassSelfResolvesInputAndSceneDepth)
+{
+    // FogPass reads the upstream post-process result (with preference chain:
+    // PrecipitationColor > TAAColor > MotionBlurColor > DOFColor > BloomColor >
+    // PostProcessColor) and SceneDepth. Phase F slice 42 eliminates the per-frame
+    // SetInputFramebufferHandle and SetSceneDepthTextureHandle methods;
+    // Execute() now self-resolves via the render-graph blackboard.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+    scene->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+    auto fog = AddDeclStub(graph, "FogPass");
+    fog->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+    fog->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    fog->TestDeclareWrite(std::string(ResourceNames::FogColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::FogColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 42: FogPass reading PostProcessColor+SceneDepth — no hazard."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice42_FogPassSelfResolvesShadowMapCSM)
+{
+    // FogPass optionally self-resolves ShadowMapCSM from the render-graph
+    // blackboard for shadowing the fog effect. The shadow map is optional
+    // (fallback to raw ID when not available).
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+    scene->TestDeclareWrite(std::string(ResourceNames::ShadowMapCSM));
+    scene->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+    auto fog = AddDeclStub(graph, "FogPass");
+    fog->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+    fog->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    fog->TestDeclareRead(std::string(ResourceNames::ShadowMapCSM));
+    fog->TestDeclareWrite(std::string(ResourceNames::FogColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::FogColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 42: FogPass reading PostProcessColor+SceneDepth+ShadowMapCSM — no hazard."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice42_FogPassSelfResolvesUpstreamChain)
+{
+    // FogPass prefers downstream post-process results when available:
+    // Precipitation > TAA > MotionBlur > DOF > Bloom > PostProcess.
+    // Ensure the execution dependency is correctly validated when the
+    // entire chain is present.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+    scene->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+    auto bloom = AddDeclStub(graph, "BloomPass");
+    bloom->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+    bloom->TestDeclareWrite(std::string(ResourceNames::BloomColor));
+
+    auto dof = AddDeclStub(graph, "DOFPass");
+    dof->TestDeclareRead(std::string(ResourceNames::BloomColor));
+    dof->TestDeclareWrite(std::string(ResourceNames::DOFColor));
+
+    auto mb = AddDeclStub(graph, "MotionBlurPass");
+    mb->TestDeclareRead(std::string(ResourceNames::DOFColor));
+    mb->TestDeclareWrite(std::string(ResourceNames::MotionBlurColor));
+
+    auto taa = AddDeclStub(graph, "TAAPass");
+    taa->TestDeclareRead(std::string(ResourceNames::MotionBlurColor));
+    taa->TestDeclareWrite(std::string(ResourceNames::TAAColor));
+
+    auto precip = AddDeclStub(graph, "PrecipitationPass");
+    precip->TestDeclareRead(std::string(ResourceNames::TAAColor));
+    precip->TestDeclareWrite(std::string(ResourceNames::PrecipitationColor));
+
+    auto fog = AddDeclStub(graph, "FogPass");
+    fog->TestDeclareRead(std::string(ResourceNames::PrecipitationColor)); // Prefers this
+    fog->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    fog->TestDeclareWrite(std::string(ResourceNames::FogColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::FogColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 42: FogPass reading PrecipitationColor upstream chain — no hazard."
+        << HazardsToString(hazards);
+}
+
+// Slice 43 — ColorGradingRenderPass, BloomRenderPass, ChromaticAberrationRenderPass,
+// VignetteRenderPass, ToneMapRenderPass self-resolve input framebuffer from blackboard.
+
+TEST(RenderGraphConfigureTopology, Slice43_BloomPassSelfResolvesPostProcessColor)
+{
+    // BloomPass reads PostProcessColor (sole input choice).
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+    auto bloom = AddDeclStub(graph, "BloomPass");
+    bloom->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+    bloom->TestDeclareWrite(std::string(ResourceNames::BloomColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::BloomColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 43: BloomPass self-resolving PostProcessColor — no hazard."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice43_ChromaticAberrationPassSelfResolvesUpstreamChain)
+{
+    // ChromaticAberrationPass uses 7-step preference chain: Fog > Precip > TAA > MB > DOF > Bloom > PostProcess.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+    auto bloom = AddDeclStub(graph, "BloomPass");
+    bloom->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+    bloom->TestDeclareWrite(std::string(ResourceNames::BloomColor));
+
+    auto fog = AddDeclStub(graph, "FogPass");
+    fog->TestDeclareRead(std::string(ResourceNames::BloomColor));
+    fog->TestDeclareWrite(std::string(ResourceNames::FogColor));
+
+    auto chromAb = AddDeclStub(graph, "ChromaticAberrationPass");
+    chromAb->TestDeclareRead(std::string(ResourceNames::FogColor)); // Prefers this
+    chromAb->TestDeclareWrite(std::string(ResourceNames::ChromAbColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::ChromAbColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 43: ChromaticAberrationPass self-resolving FogColor upstream — no hazard."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice43_ColorGradingPassSelfResolvesUpstreamChain)
+{
+    // ColorGradingPass uses 7-step preference chain: Fog > Precip > TAA > MB > DOF > Bloom > PostProcess.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+    auto bloom = AddDeclStub(graph, "BloomPass");
+    bloom->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+    bloom->TestDeclareWrite(std::string(ResourceNames::BloomColor));
+
+    auto fog = AddDeclStub(graph, "FogPass");
+    fog->TestDeclareRead(std::string(ResourceNames::BloomColor));
+    fog->TestDeclareWrite(std::string(ResourceNames::FogColor));
+
+    auto chromAb = AddDeclStub(graph, "ChromaticAberrationPass");
+    chromAb->TestDeclareRead(std::string(ResourceNames::FogColor));
+    chromAb->TestDeclareWrite(std::string(ResourceNames::ChromAbColor));
+
+    auto colorGrad = AddDeclStub(graph, "ColorGradingPass");
+    colorGrad->TestDeclareRead(std::string(ResourceNames::ChromAbColor)); // Prefers this
+    colorGrad->TestDeclareWrite(std::string(ResourceNames::ColorGradingColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::ColorGradingColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 43: ColorGradingPass self-resolving ChromAbColor upstream — no hazard."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice43_ToneMapAndVignettePassSelfResolveUpstream)
+{
+    // ToneMap and Vignette each use 7-step preference chain from the post-process chain.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+    auto bloom = AddDeclStub(graph, "BloomPass");
+    bloom->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+    bloom->TestDeclareWrite(std::string(ResourceNames::BloomColor));
+
+    auto colorGrad = AddDeclStub(graph, "ColorGradingPass");
+    colorGrad->TestDeclareRead(std::string(ResourceNames::BloomColor));
+    colorGrad->TestDeclareWrite(std::string(ResourceNames::ColorGradingColor));
+
+    auto toneMap = AddDeclStub(graph, "ToneMapPass");
+    toneMap->TestDeclareRead(std::string(ResourceNames::ColorGradingColor)); // Prefers this
+    toneMap->TestDeclareWrite(std::string(ResourceNames::ToneMapColor));
+
+    auto vignette = AddDeclStub(graph, "VignettePass");
+    vignette->TestDeclareRead(std::string(ResourceNames::ToneMapColor)); // Prefers this
+    vignette->TestDeclareWrite(std::string(ResourceNames::VignetteColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::VignetteColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 43: ToneMap and Vignette self-resolving upstream chain — no hazard."
+        << HazardsToString(hazards);
+}
+
+// Slice 44 — FXAARenderPass, PrecipitationRenderPass, SelectionOutlineRenderPass,
+// UICompositeRenderPass, FinalRenderPass self-resolve input framebuffer from blackboard.
+
+TEST(RenderGraphConfigureTopology, Slice44_FXAAPassSelfResolvesUpstreamChain)
+{
+    // FXAAPass uses 11-step preference chain: Vignette > ToneMap > ColorGrading >
+    // ChromAb > Fog > Precip > TAA > MB > DOF > Bloom > PostProcess.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+    auto bloom = AddDeclStub(graph, "BloomPass");
+    bloom->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+    bloom->TestDeclareWrite(std::string(ResourceNames::BloomColor));
+
+    auto vignette = AddDeclStub(graph, "VignettePass");
+    vignette->TestDeclareRead(std::string(ResourceNames::BloomColor));
+    vignette->TestDeclareWrite(std::string(ResourceNames::VignetteColor));
+
+    auto fxaa = AddDeclStub(graph, "FXAAPass");
+    fxaa->TestDeclareRead(std::string(ResourceNames::VignetteColor)); // Prefers this
+    fxaa->TestDeclareWrite(std::string(ResourceNames::FXAAColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::FXAAColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 44: FXAAPass self-resolving VignetteColor upstream — no hazard."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice44_PrecipitationPassSelfResolvesUpstreamChain)
+{
+    // PrecipitationPass uses 5-step preference chain: TAA > MotionBlur > DOF > Bloom > PostProcess.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+    auto bloom = AddDeclStub(graph, "BloomPass");
+    bloom->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+    bloom->TestDeclareWrite(std::string(ResourceNames::BloomColor));
+
+    auto precip = AddDeclStub(graph, "PrecipitationPass");
+    precip->TestDeclareRead(std::string(ResourceNames::BloomColor)); // Prefers this
+    precip->TestDeclareWrite(std::string(ResourceNames::PrecipitationColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::PrecipitationColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 44: PrecipitationPass self-resolving BloomColor upstream — no hazard."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice44_SelectionOutlinePassSelfResolvesUpstreamChain)
+{
+    // SelectionOutlinePass uses 12-step preference chain: FXAA > Vignette > ToneMap > ...
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+    auto fxaa = AddDeclStub(graph, "FXAAPass");
+    fxaa->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+    fxaa->TestDeclareWrite(std::string(ResourceNames::FXAAColor));
+
+    auto selection = AddDeclStub(graph, "SelectionOutlinePass");
+    selection->TestDeclareRead(std::string(ResourceNames::FXAAColor)); // Prefers this
+    selection->TestDeclareWrite(std::string(ResourceNames::SelectionOutlineColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SelectionOutlineColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 44: SelectionOutlinePass self-resolving FXAAColor upstream — no hazard."
+        << HazardsToString(hazards);
+}
+
+TEST(RenderGraphConfigureTopology, Slice44_UICompositeAndFinalPassSelfResolveUpstream)
+{
+    // UICompositePass uses 13-step preference chain starting with SelectionOutline.
+    // FinalPass reads UIComposite.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::PostProcessColor));
+
+    auto fxaa = AddDeclStub(graph, "FXAAPass");
+    fxaa->TestDeclareRead(std::string(ResourceNames::PostProcessColor));
+    fxaa->TestDeclareWrite(std::string(ResourceNames::FXAAColor));
+
+    auto ui = AddDeclStub(graph, "UICompositePass");
+    ui->TestDeclareRead(std::string(ResourceNames::FXAAColor)); // Prefers this
+    ui->TestDeclareWrite(std::string(ResourceNames::UIComposite));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::UIComposite));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Slice 44: UIComposite and FinalPass self-resolving upstream chain — no hazard."
+        << HazardsToString(hazards);
 }

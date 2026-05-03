@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <deque>
 #include <fstream>
 #include <limits>
 #include <unordered_set>
@@ -35,7 +36,6 @@ namespace OloEngine
         // Clear all pass references
         m_PassLookup.clear();
         m_Dependencies.clear();
-        m_FramebufferConnections.clear();
         m_InsertionOrder.clear();
         m_PassOrder.clear();
         m_FinalPassName.clear();
@@ -64,7 +64,9 @@ namespace OloEngine
         m_PhysicalFramebuffers.clear();
         m_PhysicalBuffers.clear();
         m_TextureExtracts.clear();
+        m_HistoryTextureExtracts.clear();
         m_FramebufferExtracts.clear();
+        m_TemporalHistoryContracts.clear();
         m_Blackboard.Reset();
         m_TransientResourceDescs.clear();
         m_TransientPlan.clear();
@@ -82,7 +84,6 @@ namespace OloEngine
         // be re-registered by the caller as part of the new topology.
         m_PassLookup.clear();
         m_Dependencies.clear();
-        m_FramebufferConnections.clear();
         m_InsertionOrder.clear();
         m_PassOrder.clear();
         m_FinalPassName.clear();
@@ -94,7 +95,6 @@ namespace OloEngine
         m_PlannedBarriers.clear();
         m_BarrierDiagnostics.clear();
         m_LastPassTimings.clear();
-        m_CachedPipes.clear();
         m_CachedExecutionOrder.clear();
         m_DependencyGraphDirty = true;
         m_ImportedResources.clear();
@@ -134,7 +134,9 @@ namespace OloEngine
         m_PhysicalFramebuffers.clear();
         m_PhysicalBuffers.clear();
         m_TextureExtracts.clear();
+        m_HistoryTextureExtracts.clear();
         m_FramebufferExtracts.clear();
+        m_TemporalHistoryContracts.clear();
         m_Blackboard.Reset();
         m_TransientResourceDescs.clear();
         m_TransientPlan.clear();
@@ -490,6 +492,27 @@ namespace OloEngine
         m_TextureExtracts.push_back({ handle, std::move(callback) });
     }
 
+    void RenderGraph::ExtractHistoryTexture(std::string_view historyResource,
+                                            RGTextureHandle sourceHandle,
+                                            std::function<void(u32)> callback)
+    {
+        if (!sourceHandle.IsValid() || !callback || historyResource.empty())
+            return;
+
+        const auto sourceResource = std::string(GetResourceName(sourceHandle));
+        m_TemporalHistoryContracts.push_back(TemporalHistoryContract{
+            .HistoryResource = std::string(historyResource),
+            .SourceResource = sourceResource,
+            .HistoryImported = IsHistoryTextureResource(historyResource),
+            .SourceReachable = IsResourceReachableForExtraction(sourceResource),
+        });
+        m_HistoryTextureExtracts.push_back(HistoryTextureExtract{
+            .HistoryResource = std::string(historyResource),
+            .SourceHandle = sourceHandle,
+            .Callback = std::move(callback),
+        });
+    }
+
     void RenderGraph::ExtractFramebuffer(RGFramebufferHandle handle,
                                          std::function<void(Ref<Framebuffer>)> callback)
     {
@@ -515,24 +538,7 @@ namespace OloEngine
                 return false;
             }
 
-            const auto* info = FindRegisteredResource(resourceName);
-            if (!info)
-                return true;
-
-            if (info->Producers.empty())
-                return true;
-
-            auto hasReachableProducer = false;
-            for (const auto& producer : info->Producers)
-            {
-                if (m_ReachablePasses.contains(producer))
-                {
-                    hasReachableProducer = true;
-                    break;
-                }
-            }
-
-            if (hasReachableProducer)
+            if (IsResourceReachableForExtraction(resourceName))
                 return true;
 
             m_BarrierDiagnostics.push_back(BarrierDiagnostic{
@@ -563,6 +569,36 @@ namespace OloEngine
             extract.Callback(ResolveTexture(extract.Handle));
         }
 
+        for (const auto& extract : m_HistoryTextureExtracts)
+        {
+            if (!IsTextureHandleCurrent(extract.SourceHandle))
+            {
+                m_BarrierDiagnostics.push_back(BarrierDiagnostic{
+                    .Kind = BarrierDiagnosticKind::StaleExtractionHandle,
+                    .PassName = "<extract-history>",
+                    .Resource = {},
+                    .Message = "History extraction requested with stale or invalid source handle",
+                });
+                continue;
+            }
+
+            const auto sourceResource = GetResourceName(extract.SourceHandle);
+            if (!diagnoseExtractionResource(sourceResource, "<extract-history>"))
+                continue;
+            if (!IsHistoryTextureResource(extract.HistoryResource))
+            {
+                m_BarrierDiagnostics.push_back(BarrierDiagnostic{
+                    .Kind = BarrierDiagnosticKind::InvalidHistoryContract,
+                    .PassName = "<extract-history>",
+                    .Resource = extract.HistoryResource,
+                    .Message = "History extraction requested for resource that was not imported via ImportHistory",
+                });
+                continue;
+            }
+
+            extract.Callback(ResolveTexture(extract.SourceHandle));
+        }
+
         for (const auto& extract : m_FramebufferExtracts)
         {
             if (!IsFramebufferHandleCurrent(extract.Handle))
@@ -583,6 +619,7 @@ namespace OloEngine
         }
 
         m_TextureExtracts.clear();
+        m_HistoryTextureExtracts.clear();
         m_FramebufferExtracts.clear();
     }
 
@@ -784,22 +821,8 @@ namespace OloEngine
             return;
         }
 
-        OLO_CORE_INFO("Connecting passes (with framebuffer piping): {} -> {}", outputPass, inputPass);
-
-        // Add dependency for execution ordering (avoid duplicates)
-        auto& deps = m_Dependencies[inputPass];
-        if (std::find(deps.begin(), deps.end(), outputPass) == deps.end())
-        {
-            deps.push_back(outputPass);
-        }
-        // Mark for framebuffer piping (avoid duplicates)
-        auto& conns = m_FramebufferConnections[outputPass];
-        if (std::find(conns.begin(), conns.end(), inputPass) == conns.end())
-        {
-            conns.push_back(inputPass);
-        }
-
-        m_DependencyGraphDirty = true;
+        OLO_CORE_INFO("Connecting passes (ordering only): {} -> {}", outputPass, inputPass);
+        AddExecutionDependency(outputPass, inputPass);
     }
 
     void RenderGraph::AddExecutionDependency(const std::string& beforePass, const std::string& afterPass)
@@ -858,61 +881,78 @@ namespace OloEngine
             ComputeReachability();
             ComputeBarrierPlan();
             RebuildTransientPlan();
+
+            // Phase G Slice 6: cache the submission plan after barrier planning so
+            // the execution loop below is a simple sequential walk over a pre-built
+            // IR rather than repeating inline barrier-map lookups every frame.
+            m_CachedSubmissionPlan = GetSubmissionPlan();
         }
 
         MaterializeTransientResources();
 
-        // First pass: Connect framebuffers between passes that use framebuffer piping
-        for (const auto& pipe : m_CachedPipes)
-        {
-            Ref<Framebuffer> outputFramebuffer = pipe.OutputPass->GetTarget();
-            if (outputFramebuffer)
-            {
-                for (auto* inputPass : pipe.InputPasses)
-                {
-                    inputPass->SetInputFramebuffer(outputFramebuffer);
-                }
-            }
-        }
-
-        // Second pass: Execute passes in order (zero-overhead — no lookups, no branching)
+        // Execute passes in order (zero-overhead — no lookups, no branching)
         RGCommandContext commandContext;
         commandContext.SetRenderGraph(this);
-        for (auto* pass : m_CachedExecutionOrder)
+        // Phase G Slice 6: walk the pre-built submission-plan IR.
+        // Each command kind maps to a distinct action; barrier placement and
+        // async-compute batch boundaries are encoded in the plan so this loop
+        // requires no topology lookups or per-frame map probes.
+        for (const auto& cmd : m_CachedSubmissionPlan)
         {
-            // Phase E: Skip culled passes (those not reachable from final output)
-            if (!IsPassReachable(pass->GetName()))
+            switch (cmd.CommandKind)
             {
-                OLO_CORE_TRACE("Skipping culled pass: {}", pass->GetName());
-                continue;
-            }
-
-            if (m_RuntimeBarrierExecutionEnabled)
-            {
-                if (const auto barrierIt = m_PassBarrierFlags.find(pass->GetName()); barrierIt != m_PassBarrierFlags.end())
+                case SubmissionCommand::Kind::BatchBegin:
                 {
-                    commandContext.MemoryBarrier(barrierIt->second);
+                    commandContext.BeginAsyncBatch(cmd.BatchIndex);
+                    if (m_BatchEventHook)
+                        m_BatchEventHook(cmd.BatchIndex, true);
+                    break;
                 }
-            }
+                case SubmissionCommand::Kind::BatchEnd:
+                {
+                    commandContext.EndAsyncBatch(cmd.BatchIndex);
+                    if (m_BatchEventHook)
+                        m_BatchEventHook(cmd.BatchIndex, false);
+                    break;
+                }
+                case SubmissionCommand::Kind::MemoryBarrier:
+                {
+                    if (m_RuntimeBarrierExecutionEnabled)
+                        commandContext.MemoryBarrier(cmd.Barriers);
+                    break;
+                }
+                case SubmissionCommand::Kind::Pass:
+                {
+                    if (!IsPassReachable(cmd.PassName))
+                    {
+                        OLO_CORE_TRACE("Skipping culled pass: {}", cmd.PassName);
+                        break;
+                    }
 
-            commandContext.BeginPass(pass->GetName());
-            const auto executeStart = std::chrono::steady_clock::now();
-            pass->Execute(commandContext);
-            const auto executeEnd = std::chrono::steady_clock::now();
-            commandContext.EndPass();
+                    const auto passIt = m_PassLookup.find(cmd.PassName);
+                    if (passIt == m_PassLookup.end() || !passIt->second)
+                        break;
 
-            const auto elapsedMs = std::chrono::duration<f64, std::milli>(executeEnd - executeStart).count();
-            m_LastPassTimings.push_back(PassTiming{
-                .PassName = pass->GetName(),
-                .CpuMs = elapsedMs,
-            });
+                    auto* pass = passIt->second.Raw();
+                    commandContext.BeginPass(cmd.PassName);
+                    const auto executeStart = std::chrono::steady_clock::now();
+                    pass->Execute(commandContext);
+                    const auto executeEnd = std::chrono::steady_clock::now();
+                    commandContext.EndPass();
 
-            // Debug post-pass hook — fires after EndPass() but before the
-            // next pass begins. Lets debug tooling snapshot intermediate
-            // resource state (see RenderGraphFrameCapture).
-            if (m_PostPassHook)
-            {
-                m_PostPassHook(pass->GetName(), *this);
+                    const auto elapsedMs = std::chrono::duration<f64, std::milli>(executeEnd - executeStart).count();
+                    m_LastPassTimings.push_back(PassTiming{
+                        .PassName = cmd.PassName,
+                        .CpuMs = elapsedMs,
+                    });
+
+                    // Debug post-pass hook — fires after EndPass() but before the
+                    // next pass begins. Lets debug tooling snapshot intermediate
+                    // resource state (see RenderGraphFrameCapture).
+                    if (m_PostPassHook)
+                        m_PostPassHook(cmd.PassName, *this);
+                    break;
+                }
             }
         }
         commandContext.SetRenderGraph(nullptr);
@@ -1122,34 +1162,6 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Build framebuffer piping cache with validation
-        m_CachedPipes.clear();
-        for (const auto& [outputPassName, inputPassNames] : m_FramebufferConnections)
-        {
-            auto outputIt = m_PassLookup.find(outputPassName);
-            if (outputIt == m_PassLookup.end() || !outputIt->second)
-            {
-                OLO_CORE_ERROR("RenderGraph: Output pass '{}' not found or null in framebuffer piping — skipping connection", outputPassName);
-                continue;
-            }
-
-            FramebufferPipe pipe;
-            pipe.OutputPass = outputIt->second.Raw();
-
-            for (const auto& inputPassName : inputPassNames)
-            {
-                auto inputIt = m_PassLookup.find(inputPassName);
-                if (inputIt == m_PassLookup.end() || !inputIt->second)
-                {
-                    OLO_CORE_ERROR("RenderGraph: Input pass '{}' not found or null in framebuffer piping — skipping", inputPassName);
-                    continue;
-                }
-                pipe.InputPasses.push_back(inputIt->second.Raw());
-            }
-
-            m_CachedPipes.push_back(std::move(pipe));
-        }
-
         // Build execution order cache with validation
         m_CachedExecutionOrder.clear();
         m_CachedExecutionOrder.reserve(m_PassOrder.size());
@@ -1165,8 +1177,8 @@ namespace OloEngine
             m_CachedExecutionOrder.push_back(it->second.Raw());
         }
 
-        OLO_CORE_INFO("RenderGraph: Execution cache rebuilt — {} passes, {} framebuffer pipes",
-                      m_CachedExecutionOrder.size(), m_CachedPipes.size());
+        OLO_CORE_INFO("RenderGraph: Execution cache rebuilt — {} passes",
+                      m_CachedExecutionOrder.size());
     }
 
     void RenderGraph::Resize(u32 width, u32 height)
@@ -1230,6 +1242,8 @@ namespace OloEngine
                 .PassName = name,
                 .Submission = pass->GetSubmissionModel(),
                 .DeclaresResources = !pass->GetReads().empty() || !pass->GetWrites().empty(),
+                .WorkType = pass->GetPassWorkType(),
+                .AsyncComputeCandidate = pass->IsAsyncComputeCandidate(),
             });
         };
 
@@ -1310,7 +1324,782 @@ namespace OloEngine
         }
 
         OLO_CORE_INFO("RenderGraph execution order updated with {} passes", m_PassOrder.size());
+
+        // Phase G Slice 2: hoist independent AsyncComputeCandidate passes before graphics.
+        HoistComputePasses();
+
         return true;
+    }
+
+    void RenderGraph::HoistComputePasses()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Fast-path: skip the reorder when no async-compute candidate exists.
+        bool hasCandidate = false;
+        for (const auto& name : m_PassOrder)
+        {
+            auto it = m_PassLookup.find(name);
+            if (it != m_PassLookup.end() && it->second && it->second->IsAsyncComputeCandidate())
+            {
+                hasCandidate = true;
+                break;
+            }
+        }
+        if (!hasCandidate)
+            return;
+
+        // Modified Kahn's algorithm over m_PassOrder:
+        //   when multiple passes are simultaneously ready (in-degree == 0),
+        //   all AsyncComputeCandidate passes are drained before any graphics
+        //   pass advances.  The result is still a valid topological order.
+        std::unordered_set<std::string_view> passSet;
+        passSet.reserve(m_PassOrder.size());
+        for (const auto& name : m_PassOrder)
+            passSet.insert(name);
+
+        std::unordered_map<std::string, u32> inDegree;
+        std::unordered_map<std::string, std::vector<std::string>> successors;
+        inDegree.reserve(m_PassOrder.size());
+
+        for (const auto& name : m_PassOrder)
+        {
+            inDegree.emplace(name, 0u);
+            auto it = m_Dependencies.find(name);
+            if (it == m_Dependencies.end())
+                continue;
+            for (const auto& dep : it->second)
+            {
+                if (!passSet.contains(dep))
+                    continue;
+                successors[dep].push_back(name);
+                ++inDegree[name];
+            }
+        }
+
+        // Augment the local inDegree / successors with resource-access-derived
+        // edges so that the hoist does not move a compute pass before a pass
+        // that produces one of its inputs.  This is necessary because derived
+        // edges are not always present in m_Dependencies at the time this
+        // function is called (e.g. from ValidateResourceHazards before the
+        // first BuildFrameGraph run has added them).
+        {
+            // Build lastWriter from both legacy DeclareWrite and graph-native
+            // access declarations (m_PassAccessDeclarations).
+            std::unordered_map<std::string, std::string> lastWriter;
+            lastWriter.reserve(m_PassOrder.size() * 4u);
+
+            for (const auto& prodName : m_PassOrder)
+            {
+                // Legacy DeclareWrite declarations
+                if (const auto pIt = m_PassLookup.find(prodName);
+                    pIt != m_PassLookup.end() && pIt->second)
+                {
+                    for (const auto& w : pIt->second->GetWrites())
+                        lastWriter[w.Name] = prodName;
+                }
+                // Graph-native builder.Write() access declarations
+                if (const auto aIt = m_PassAccessDeclarations.find(prodName);
+                    aIt != m_PassAccessDeclarations.end())
+                {
+                    for (const auto& access : aIt->second)
+                    {
+                        if (access.IsWrite && !access.ResourceName.empty())
+                            lastWriter[access.ResourceName] = prodName;
+                    }
+                }
+            }
+
+            // For each pass, add an implicit producer→consumer edge for every
+            // resource it reads whose last writer is a different pass.
+            for (const auto& consName : m_PassOrder)
+            {
+                auto addImplicitEdge = [&](const std::string& producer)
+                {
+                    if (producer == consName || !passSet.contains(producer))
+                        return;
+                    // Skip if the edge is already present to avoid double-counting.
+                    auto& succVec = successors[producer];
+                    if (std::find(succVec.begin(), succVec.end(), consName) != succVec.end())
+                        return;
+                    succVec.push_back(consName);
+                    ++inDegree[consName];
+                };
+
+                // Legacy DeclareRead declarations
+                if (const auto pIt = m_PassLookup.find(consName);
+                    pIt != m_PassLookup.end() && pIt->second)
+                {
+                    for (const auto& r : pIt->second->GetReads())
+                    {
+                        if (const auto wIt = lastWriter.find(r.Name); wIt != lastWriter.end())
+                            addImplicitEdge(wIt->second);
+                    }
+                }
+                // Graph-native builder.Read() access declarations
+                if (const auto aIt = m_PassAccessDeclarations.find(consName);
+                    aIt != m_PassAccessDeclarations.end())
+                {
+                    for (const auto& access : aIt->second)
+                    {
+                        if (!access.IsWrite && !access.ResourceName.empty())
+                        {
+                            if (const auto wIt = lastWriter.find(access.ResourceName);
+                                wIt != lastWriter.end())
+                                addImplicitEdge(wIt->second);
+                        }
+                    }
+                }
+            }
+        }
+
+        std::deque<std::string> computeReady;
+        std::deque<std::string> graphicsReady;
+
+        auto classify = [&](const std::string& passName)
+        {
+            auto it = m_PassLookup.find(passName);
+            if (it != m_PassLookup.end() && it->second && it->second->IsAsyncComputeCandidate())
+                computeReady.push_back(passName);
+            else
+                graphicsReady.push_back(passName);
+        };
+
+        for (const auto& name : m_PassOrder)
+        {
+            if (inDegree[name] == 0)
+                classify(name);
+        }
+
+        std::vector<std::string> reordered;
+        reordered.reserve(m_PassOrder.size());
+
+        while (!computeReady.empty() || !graphicsReady.empty())
+        {
+            // Drain all ready compute passes before advancing any graphics pass.
+            while (!computeReady.empty())
+            {
+                std::string name = std::move(computeReady.front());
+                computeReady.pop_front();
+                reordered.push_back(name);
+
+                auto succIt = successors.find(name);
+                if (succIt != successors.end())
+                {
+                    for (const auto& succ : succIt->second)
+                    {
+                        if (--inDegree[succ] == 0)
+                            classify(succ);
+                    }
+                }
+            }
+
+            if (!graphicsReady.empty())
+            {
+                std::string name = std::move(graphicsReady.front());
+                graphicsReady.pop_front();
+                reordered.push_back(name);
+
+                auto succIt = successors.find(name);
+                if (succIt != successors.end())
+                {
+                    for (const auto& succ : succIt->second)
+                    {
+                        if (--inDegree[succ] == 0)
+                            classify(succ);
+                    }
+                }
+            }
+        }
+
+        // Commit the reordered sequence only when it's complete.
+        // Defensive guard: the DFS above already validated no cycles, but
+        // be conservative in case of any unforeseen edge case.
+        if (reordered.size() == m_PassOrder.size())
+        {
+            m_PassOrder = std::move(reordered);
+            OLO_CORE_TRACE("RenderGraph: Compute-hoist applied to execution order");
+        }
+    }
+
+    // Phase G Slice 4 — Async-compute batch query.
+    // Partitions the hoisted execution order into contiguous runs of
+    // AsyncComputeCandidate passes.  Each batch records the non-batch passes
+    // it must wait for (WaitPasses) and the non-batch passes that must wait
+    // for it (SignalPasses) — the fence-sync metadata needed by explicit-
+    // barrier backends (Vulkan semaphores, DX12 fence Signal/Wait).
+    std::vector<RenderGraph::AsyncComputeBatch> RenderGraph::GetAsyncComputeBatches() const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        std::vector<AsyncComputeBatch> batches;
+
+        // --- Step 1: group consecutive AsyncComputeCandidate passes ---
+        AsyncComputeBatch current;
+        for (const auto& passName : m_PassOrder)
+        {
+            const auto it = m_PassLookup.find(passName);
+            const bool isCandidate = (it != m_PassLookup.end()) && it->second &&
+                                     it->second->IsAsyncComputeCandidate();
+
+            if (isCandidate)
+            {
+                current.ComputePasses.push_back(passName);
+            }
+            else
+            {
+                if (!current.ComputePasses.empty())
+                {
+                    batches.push_back(std::move(current));
+                    current = {};
+                }
+            }
+        }
+        if (!current.ComputePasses.empty())
+            batches.push_back(std::move(current));
+
+        if (batches.empty())
+            return batches;
+
+        // --- Step 2: build successor map (A → passes that depend on A) ---
+        std::unordered_set<std::string_view> passSet;
+        passSet.reserve(m_PassOrder.size());
+        for (const auto& name : m_PassOrder)
+            passSet.insert(name);
+
+        std::unordered_map<std::string, std::vector<std::string>> successors;
+        successors.reserve(m_PassOrder.size());
+        for (const auto& name : m_PassOrder)
+        {
+            const auto depIt = m_Dependencies.find(name);
+            if (depIt == m_Dependencies.end())
+                continue;
+            for (const auto& dep : depIt->second)
+            {
+                if (passSet.contains(dep))
+                    successors[dep].push_back(name);
+            }
+        }
+
+        // --- Step 3: fill WaitPasses / SignalPasses for each batch ---
+        for (auto& batch : batches)
+        {
+            std::unordered_set<std::string> batchSet(batch.ComputePasses.begin(),
+                                                     batch.ComputePasses.end());
+            std::unordered_set<std::string> waitSet;
+            std::unordered_set<std::string> signalSet;
+
+            for (const auto& computePass : batch.ComputePasses)
+            {
+                // WaitPasses: direct predecessors not in this batch
+                if (const auto depIt = m_Dependencies.find(computePass);
+                    depIt != m_Dependencies.end())
+                {
+                    for (const auto& dep : depIt->second)
+                    {
+                        if (!batchSet.contains(dep) && passSet.contains(dep))
+                            waitSet.insert(dep);
+                    }
+                }
+
+                // SignalPasses: direct successors not in this batch
+                if (const auto sucIt = successors.find(computePass); sucIt != successors.end())
+                {
+                    for (const auto& succ : sucIt->second)
+                    {
+                        if (!batchSet.contains(succ))
+                            signalSet.insert(succ);
+                    }
+                }
+            }
+
+            batch.WaitPasses = std::vector<std::string>(waitSet.begin(), waitSet.end());
+            batch.SignalPasses = std::vector<std::string>(signalSet.begin(), signalSet.end());
+        }
+
+        // --- Step 4: fill InputResources / OutputResources for each batch ---
+        // Build a pass-order index for fast boundary detection.
+        std::unordered_map<std::string, sizet> passOrderIndex;
+        passOrderIndex.reserve(m_PassOrder.size());
+        for (sizet i = 0; i < m_PassOrder.size(); ++i)
+            passOrderIndex[m_PassOrder[i]] = i;
+
+        for (auto& batch : batches)
+        {
+            const std::unordered_set<std::string> batchSet(batch.ComputePasses.begin(),
+                                                           batch.ComputePasses.end());
+
+            // Find the inclusive pass-order range [batchStart, batchEnd].
+            sizet batchStart = m_PassOrder.size();
+            sizet batchEnd = 0;
+            for (const auto& cp : batch.ComputePasses)
+            {
+                if (const auto idxIt = passOrderIndex.find(cp); idxIt != passOrderIndex.end())
+                {
+                    batchStart = std::min(batchStart, idxIt->second);
+                    batchEnd = std::max(batchEnd, idxIt->second);
+                }
+            }
+            if (batchStart > batchEnd)
+                continue;
+
+            // Collect all resources read / written by batch passes.
+            std::unordered_set<std::string> batchReadResources;
+            std::unordered_set<std::string> batchWrittenResources;
+            for (const auto& cp : batch.ComputePasses)
+            {
+                if (const auto accessIt = m_PassAccessDeclarations.find(cp);
+                    accessIt != m_PassAccessDeclarations.end())
+                {
+                    for (const auto& acc : accessIt->second)
+                    {
+                        if (acc.IsWrite)
+                            batchWrittenResources.insert(acc.ResourceName);
+                        else
+                            batchReadResources.insert(acc.ResourceName);
+                    }
+                }
+            }
+
+            // InputResources: for each resource read by the batch, scan passes
+            // *before* batchStart to find the last external writer.
+            std::unordered_map<std::string, std::string> inputByResource;
+            for (sizet i = 0; i < batchStart; ++i)
+            {
+                const auto& passName = m_PassOrder[i];
+                if (batchSet.contains(passName))
+                    continue;
+                if (const auto accessIt = m_PassAccessDeclarations.find(passName);
+                    accessIt != m_PassAccessDeclarations.end())
+                {
+                    for (const auto& acc : accessIt->second)
+                    {
+                        if (acc.IsWrite && batchReadResources.contains(acc.ResourceName))
+                            inputByResource[acc.ResourceName] = passName; // last writer wins
+                    }
+                }
+            }
+
+            // OutputResources: for each resource written by the batch, scan passes
+            // *after* batchEnd to find the first external reader.
+            std::unordered_map<std::string, std::string> outputByResource;
+            for (sizet i = batchEnd + 1; i < m_PassOrder.size(); ++i)
+            {
+                const auto& passName = m_PassOrder[i];
+                if (batchSet.contains(passName))
+                    continue;
+                if (const auto accessIt = m_PassAccessDeclarations.find(passName);
+                    accessIt != m_PassAccessDeclarations.end())
+                {
+                    for (const auto& acc : accessIt->second)
+                    {
+                        if (!acc.IsWrite && batchWrittenResources.contains(acc.ResourceName) &&
+                            !outputByResource.contains(acc.ResourceName))
+                        {
+                            outputByResource[acc.ResourceName] = passName; // first reader wins
+                        }
+                    }
+                }
+            }
+
+            // Convert to sorted vectors for deterministic ordering.
+            batch.InputResources.reserve(inputByResource.size());
+            for (auto& [res, externalPass] : inputByResource)
+                batch.InputResources.push_back({ res, externalPass });
+            std::sort(batch.InputResources.begin(), batch.InputResources.end(),
+                      [](const BatchResourceDependency& a, const BatchResourceDependency& b)
+                      { return a.ResourceName < b.ResourceName; });
+
+            batch.OutputResources.reserve(outputByResource.size());
+            for (auto& [res, externalPass] : outputByResource)
+                batch.OutputResources.push_back({ res, externalPass });
+            std::sort(batch.OutputResources.begin(), batch.OutputResources.end(),
+                      [](const BatchResourceDependency& a, const BatchResourceDependency& b)
+                      { return a.ResourceName < b.ResourceName; });
+        }
+
+        return batches;
+    }
+
+    // Phase G Slice 5 — Submission-plan IR.
+    // Merges the hoisted execution order, the barrier plan (Phase E), and the
+    // async-compute batch boundaries (Slice 4) into a single linearised
+    // command stream that a backend can replay without touching the graph.
+    std::vector<RenderGraph::SubmissionCommand> RenderGraph::GetSubmissionPlan() const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        const auto mapWorkTypeToLane = [](const RenderPass::PassWorkType workType)
+        {
+            switch (workType)
+            {
+                case RenderPass::PassWorkType::Compute:
+                    return QueueLane::Compute;
+                case RenderPass::PassWorkType::Copy:
+                    return QueueLane::Copy;
+                case RenderPass::PassWorkType::Graphics:
+                default:
+                    return QueueLane::Graphics;
+            }
+        };
+
+        std::vector<SubmissionCommand> plan;
+        plan.reserve(m_PassOrder.size() * 2); // rough upper bound
+
+        // Build a set of passes that are members of some async batch so we can
+        // quickly look up which batch (if any) a pass belongs to.
+        const auto batches = GetAsyncComputeBatches();
+
+        std::unordered_map<u32, const AsyncComputeBatch*> batchByIndex;
+        batchByIndex.reserve(batches.size());
+        for (u32 batchIdx = 0; batchIdx < static_cast<u32>(batches.size()); ++batchIdx)
+            batchByIndex.emplace(batchIdx, &batches[batchIdx]);
+
+        // Map: passName → batch index (only for passes inside a batch)
+        std::unordered_map<std::string, u32> passToBatch;
+        for (u32 batchIdx = 0; batchIdx < static_cast<u32>(batches.size()); ++batchIdx)
+        {
+            for (const auto& passName : batches[batchIdx].ComputePasses)
+                passToBatch.emplace(passName, batchIdx);
+        }
+
+        // Build a map: passName → barrier flags (from Phase E barrier plan)
+        std::unordered_map<std::string, MemoryBarrierFlags> barrierForPass;
+        for (const auto& planned : m_PlannedBarriers)
+        {
+            // Barriers are keyed on the pass AFTER which they should fire — i.e.
+            // the consumer pass that triggered them. Insert before that pass.
+            auto& flags = barrierForPass[planned.BeforePass];
+            flags = flags | planned.Flags;
+        }
+
+        // Walk the execution order and emit commands.
+        u32 currentBatch = std::numeric_limits<u32>::max();
+
+        for (const auto& passName : m_PassOrder)
+        {
+            const auto batchIt = passToBatch.find(passName);
+            const bool inBatch = (batchIt != passToBatch.end());
+            const u32 batchIdx = inBatch ? batchIt->second : std::numeric_limits<u32>::max();
+
+            // --- Batch-boundary open ---
+            if (inBatch && batchIdx != currentBatch)
+            {
+                // Close the previous batch (if any) before opening a new one.
+                if (currentBatch != std::numeric_limits<u32>::max())
+                {
+                    SubmissionCommand end;
+                    end.CommandKind = SubmissionCommand::Kind::BatchEnd;
+                    end.BatchIndex = currentBatch;
+                    end.Lane = QueueLane::Compute;
+                    plan.push_back(std::move(end));
+                }
+
+                SubmissionCommand begin;
+                begin.CommandKind = SubmissionCommand::Kind::BatchBegin;
+                begin.BatchIndex = batchIdx;
+                begin.Lane = QueueLane::Compute;
+                if (const auto batchInfoIt = batchByIndex.find(batchIdx); batchInfoIt != batchByIndex.end())
+                {
+                    begin.WaitPasses = batchInfoIt->second->WaitPasses;
+                    begin.InputResources = batchInfoIt->second->InputResources;
+                }
+                plan.push_back(std::move(begin));
+                currentBatch = batchIdx;
+            }
+
+            // --- Batch-boundary close (returning to graphics after a batch) ---
+            if (!inBatch && currentBatch != std::numeric_limits<u32>::max())
+            {
+                SubmissionCommand end;
+                end.CommandKind = SubmissionCommand::Kind::BatchEnd;
+                end.BatchIndex = currentBatch;
+                end.Lane = QueueLane::Compute;
+                if (const auto batchInfoIt = batchByIndex.find(currentBatch); batchInfoIt != batchByIndex.end())
+                {
+                    end.SignalPasses = batchInfoIt->second->SignalPasses;
+                    end.OutputResources = batchInfoIt->second->OutputResources;
+                }
+                plan.push_back(std::move(end));
+                currentBatch = std::numeric_limits<u32>::max();
+            }
+
+            auto passWorkType = RenderPass::PassWorkType::Graphics;
+            if (const auto passIt = m_PassLookup.find(passName); passIt != m_PassLookup.end() && passIt->second)
+                passWorkType = passIt->second->GetPassWorkType();
+
+            const auto passLane = mapWorkTypeToLane(passWorkType);
+
+            // --- Memory barrier before this pass (if any) ---
+            if (const auto barIt = barrierForPass.find(passName); barIt != barrierForPass.end())
+            {
+                SubmissionCommand barrier;
+                barrier.CommandKind = SubmissionCommand::Kind::MemoryBarrier;
+                barrier.Barriers = barIt->second;
+                barrier.Lane = passLane;
+                plan.push_back(std::move(barrier));
+            }
+
+            // --- Pass command ---
+            SubmissionCommand passCmd;
+            passCmd.CommandKind = SubmissionCommand::Kind::Pass;
+            passCmd.PassName = passName;
+            passCmd.WorkType = passWorkType;
+            passCmd.Lane = passLane;
+            plan.push_back(std::move(passCmd));
+        }
+
+        // Close any trailing open batch.
+        if (currentBatch != std::numeric_limits<u32>::max())
+        {
+            SubmissionCommand end;
+            end.CommandKind = SubmissionCommand::Kind::BatchEnd;
+            end.BatchIndex = currentBatch;
+            end.Lane = QueueLane::Compute;
+            if (const auto batchInfoIt = batchByIndex.find(currentBatch); batchInfoIt != batchByIndex.end())
+            {
+                end.SignalPasses = batchInfoIt->second->SignalPasses;
+                end.OutputResources = batchInfoIt->second->OutputResources;
+            }
+            plan.push_back(std::move(end));
+        }
+
+        return plan;
+    }
+
+    // -------------------------------------------------------------------
+    // Phase G Slice 10 — Explicit resource transition records
+    // -------------------------------------------------------------------
+    std::vector<RenderGraph::ResourceTransition> RenderGraph::GetResourceTransitions() const
+    {
+        if (m_PlannedBarriers.empty())
+            return {};
+
+        // Build a pass → execution-order-index map for the backward producer scan.
+        std::unordered_map<std::string, std::size_t> passOrderIdx;
+        passOrderIdx.reserve(m_PassOrder.size());
+        for (std::size_t i = 0; i < m_PassOrder.size(); ++i)
+            passOrderIdx.emplace(m_PassOrder[i], i);
+
+        // Phase G Slice 14 — Build a pass → queue lane map so transitions can
+        // detect when the producer and consumer are on different queue lanes.
+        const auto passToLane = [&](const std::string& passName) -> QueueLane
+        {
+            if (const auto it = m_PassLookup.find(passName); it != m_PassLookup.end() && it->second)
+            {
+                switch (it->second->GetPassWorkType())
+                {
+                    case RenderPass::PassWorkType::Compute:
+                        return QueueLane::Compute;
+                    case RenderPass::PassWorkType::Copy:
+                        return QueueLane::Copy;
+                    case RenderPass::PassWorkType::Graphics:
+                    default:
+                        return QueueLane::Graphics;
+                }
+            }
+            return QueueLane::Graphics;
+        };
+
+        std::vector<ResourceTransition> transitions;
+        transitions.reserve(m_PlannedBarriers.size());
+
+        for (const auto& barrier : m_PlannedBarriers)
+        {
+            ResourceTransition t;
+            t.ResourceName = barrier.Resource;
+            t.ConsumerPass = barrier.BeforePass;
+            t.Flags = barrier.Flags;
+            t.Range = barrier.Range;
+
+            // Determine the consumer's read usage from its declared accesses.
+            // Default to ShaderSample when the declaration is absent (e.g.
+            // old-style passes that do not call DeclareRead/DeclareWrite).
+            t.ToUsage = RGReadUsage::ShaderSample;
+            if (const auto dit = m_PassAccessDeclarations.find(barrier.BeforePass);
+                dit != m_PassAccessDeclarations.end())
+            {
+                for (const auto& decl : dit->second)
+                {
+                    if (decl.ResourceName == barrier.Resource && !decl.IsWrite)
+                    {
+                        t.ToUsage = decl.ReadUsage;
+                        break;
+                    }
+                }
+            }
+
+            // Walk the execution order from the start up to (but not including)
+            // the consumer to find the LAST writer — that is the producer for
+            // this transition.  When no writer is found the resource is imported
+            // externally (initial state) so ProducerPass stays "external".
+            t.ProducerPass = "external";
+            t.FromUsage = RGWriteUsage::RenderTarget;
+
+            const auto consumerIdxIt = passOrderIdx.find(barrier.BeforePass);
+            if (consumerIdxIt != passOrderIdx.end())
+            {
+                const std::size_t consumerIdx = consumerIdxIt->second;
+                for (std::size_t i = 0; i < consumerIdx; ++i)
+                {
+                    const auto& passName = m_PassOrder[i];
+                    if (const auto dit = m_PassAccessDeclarations.find(passName);
+                        dit != m_PassAccessDeclarations.end())
+                    {
+                        for (const auto& decl : dit->second)
+                        {
+                            if (decl.ResourceName == barrier.Resource && decl.IsWrite)
+                            {
+                                // Keep scanning — we want the LAST writer.
+                                t.ProducerPass = passName;
+                                t.FromUsage = decl.WriteUsage;
+                            }
+                        }
+                    }
+                }
+            }
+
+            transitions.push_back(std::move(t));
+        }
+
+        // Phase G Slice 14 — Annotate each transition with cross-lane sync metadata.
+        for (auto& tr : transitions)
+        {
+            // External producers (imported resources) are treated as Graphics lane.
+            const QueueLane producerLane = (tr.ProducerPass == "external")
+                                               ? QueueLane::Graphics
+                                               : passToLane(tr.ProducerPass);
+            const QueueLane consumerLane = passToLane(tr.ConsumerPass);
+            tr.ProducerLane = producerLane;
+            tr.ConsumerLane = consumerLane;
+            tr.IsCrossLane = (producerLane != consumerLane);
+        }
+
+        return transitions;
+    }
+
+    std::vector<RenderGraph::ResourceLifetime> RenderGraph::GetResourceLifetimes() const
+    {
+        // ----------------------------------------------------------------
+        // Phase G Slice 11 — Unified resource lifetime records.
+        //
+        // For every registered resource we walk the pass execution order and
+        // inspect m_PassAccessDeclarations to find:
+        //   • the FIRST write  (producer; "external" when import-only)
+        //   • the LAST  read   (last consumer; "" when write-only)
+        //
+        // Flags (IsImported / IsExtracted / IsHistory / IsTransient) are
+        // derived from the internal data structures that the graph already
+        // maintains — no new per-resource metadata is needed.
+        // ----------------------------------------------------------------
+
+        // --- Build auxiliary lookup sets --------------------------------
+
+        // Imported: any resource registered via ImportTexture/ImportFramebuffer/
+        // ImportBuffer (the key is the canonical resource name).
+        std::unordered_set<std::string> importedNames;
+        importedNames.reserve(m_ImportedResources.size());
+        for (const auto& [name, _] : m_ImportedResources)
+            importedNames.insert(name);
+
+        // Extracted: resources with a pending TextureExtract or
+        // FramebufferExtract callback.  Resolve handles → names.
+        std::unordered_set<std::string> extractedNames;
+        extractedNames.reserve(m_TextureExtracts.size() + m_FramebufferExtracts.size());
+        for (const auto& ex : m_TextureExtracts)
+        {
+            const auto n = GetResourceName(ex.Handle);
+            if (!n.empty())
+                extractedNames.emplace(n);
+        }
+        for (const auto& ex : m_FramebufferExtracts)
+        {
+            const auto n = GetResourceName(ex.Handle);
+            if (!n.empty())
+                extractedNames.emplace(n);
+        }
+
+        // History: resources listed as HistoryResource in any temporal
+        // contract (they are imported from the previous frame).
+        std::unordered_set<std::string> historyNames;
+        historyNames.reserve(m_TemporalHistoryContracts.size());
+        for (const auto& contract : m_TemporalHistoryContracts)
+            historyNames.insert(contract.HistoryResource);
+
+        // Transient: resources that appear in the transient plan and will
+        // actually be allocated (WillAllocate == true).
+        std::unordered_set<std::string> transientNames;
+        transientNames.reserve(m_TransientPlan.size());
+        for (const auto& entry : m_TransientPlan)
+            if (entry.WillAllocate)
+                transientNames.insert(entry.Resource);
+
+        // --- Build pass-order index map ---------------------------------
+        std::unordered_map<std::string, u32> passOrderIdx;
+        passOrderIdx.reserve(m_PassOrder.size());
+        for (u32 i = 0; i < static_cast<u32>(m_PassOrder.size()); ++i)
+            passOrderIdx.emplace(m_PassOrder[i], i);
+
+        // --- Produce one ResourceLifetime per registered resource -------
+        // GetRegisteredResources() ensures the registry is lazily built before
+        // we iterate — do NOT access m_RegisteredResources directly here.
+        const auto& registeredResources = GetRegisteredResources();
+        std::vector<ResourceLifetime> lifetimes;
+        lifetimes.reserve(registeredResources.size());
+
+        for (const auto& info : registeredResources)
+        {
+            ResourceLifetime lt;
+            lt.ResourceName = info.Name;
+            lt.IsImported = importedNames.contains(info.Name);
+            lt.IsExtracted = extractedNames.contains(info.Name);
+            lt.IsHistory = historyNames.contains(info.Name);
+            lt.IsTransient = transientNames.contains(info.Name);
+
+            // Walk the execution order to find first write and last read.
+            for (u32 i = 0; i < static_cast<u32>(m_PassOrder.size()); ++i)
+            {
+                const auto& passName = m_PassOrder[i];
+                const auto dit = m_PassAccessDeclarations.find(passName);
+                if (dit == m_PassAccessDeclarations.end())
+                    continue;
+
+                for (const auto& decl : dit->second)
+                {
+                    if (decl.ResourceName != info.Name)
+                        continue;
+
+                    if (decl.IsWrite)
+                    {
+                        // Record the FIRST write only.
+                        if (i < lt.FirstWritePassIndex)
+                        {
+                            lt.FirstWritePassIndex = i;
+                            lt.FirstWritePass = passName;
+                            lt.FirstWriteUsage = decl.WriteUsage;
+                        }
+                    }
+                    else
+                    {
+                        // Record the LAST read (keep updating on every new read).
+                        if (lt.LastReadPassIndex == std::numeric_limits<u32>::max() || i >= lt.LastReadPassIndex)
+                        {
+                            lt.LastReadPassIndex = i;
+                            lt.LastReadPass = passName;
+                            lt.LastReadUsage = decl.ReadUsage;
+                        }
+                    }
+                }
+            }
+
+            // If no write was found the resource is import-only.
+            if (lt.FirstWritePassIndex == std::numeric_limits<u32>::max())
+                lt.FirstWritePass = "external";
+
+            lifetimes.push_back(std::move(lt));
+        }
+
+        return lifetimes;
     }
 
     void RenderGraph::ResolveFinalPass()
@@ -1321,11 +2110,16 @@ namespace OloEngine
         {
             // If no final pass was explicitly set, try to find a pass with no dependents
             // Iterate m_PassOrder (deterministic) instead of m_PassLookup (unordered_map)
+            // Build set of all passes that are producers (have consumers)
+            std::unordered_set<std::string> hasConsumers;
+            for (const auto& [consumer, producers] : m_Dependencies)
+                for (const auto& prod : producers)
+                    hasConsumers.insert(prod);
+
             for (auto it = m_PassOrder.rbegin(); it != m_PassOrder.rend(); ++it)
             {
                 const auto& name = *it;
-                if (!m_FramebufferConnections.contains(name) ||
-                    m_FramebufferConnections[name].empty())
+                if (!hasConsumers.contains(name))
                 {
                     m_FinalPassName = name;
                     OLO_CORE_INFO("RenderGraph: Auto-selected final pass: {}", name);
@@ -1555,11 +2349,13 @@ namespace OloEngine
                         .BeforePass = passName,
                         .Resource = access.ResourceName,
                         .Flags = flags,
+                        .Range = access.Range,
                     });
                 }
                 else
                 {
-                    if (const auto writerIt = lastWriterByResource.find(access.ResourceName); writerIt != lastWriterByResource.end() && writerIt->second.PassName != passName)
+                    const auto writerIt = lastWriterByResource.find(access.ResourceName);
+                    if (writerIt != lastWriterByResource.end() && writerIt->second.PassName != passName)
                     {
                         const auto flags = ResolveProducerBarrierFlags(writerIt->second.Usage) |
                                            ResolveProducerBarrierFlags(access.WriteUsage);
@@ -1579,6 +2375,7 @@ namespace OloEngine
                                 .BeforePass = passName,
                                 .Resource = access.ResourceName,
                                 .Flags = flags,
+                                .Range = access.Range,
                             });
                         }
                     }
@@ -1598,6 +2395,35 @@ namespace OloEngine
     bool RenderGraph::IsPassReachable(const std::string& passName) const
     {
         return m_ReachablePasses.contains(passName);
+    }
+
+    bool RenderGraph::IsHistoryTextureResource(std::string_view resourceName) const
+    {
+        const auto handle = GetTextureHandle(resourceName);
+        if (!handle.IsValid() || !IsTextureHandleCurrent(handle))
+            return false;
+        if (handle.Index >= m_PhysicalTextures.size())
+            return false;
+        return m_PhysicalTextures[handle.Index].IsHistory;
+    }
+
+    bool RenderGraph::IsResourceReachableForExtraction(std::string_view resourceName) const
+    {
+        if (resourceName.empty())
+            return false;
+
+        const auto* info = FindRegisteredResource(resourceName);
+        if (!info)
+            return true;
+        if (info->Producers.empty())
+            return true;
+
+        for (const auto& producer : info->Producers)
+        {
+            if (m_ReachablePasses.contains(producer))
+                return true;
+        }
+        return false;
     }
 
     // =========================================================================
@@ -1667,6 +2493,77 @@ namespace OloEngine
                 {
                     if (!cls.contains(grand))
                         frontier.push_back(grand);
+                }
+            }
+        }
+
+        // Phase F slice 27 — declaration-derived edge synthesis.
+        // Augment the closure with implicit RAW (read-after-write) edges that
+        // can be derived from pass-level DeclareRead/DeclareWrite pairs.  This
+        // allows passes that declare their resource access correctly to omit
+        // explicit AddExecutionDependency calls for those resources.
+        //
+        // Algorithm:
+        //   1. For every (producer, consumer) pair where producer.GetWrites()
+        //      and consumer.GetReads() share a resource name, add a direct
+        //      derived edge: consumer depends on producer.
+        //   2. Run a fixed-point iteration so the new edges propagate through
+        //      the closure (i.e. passes that depend on the consumer also
+        //      transitively depend on the producer).
+        {
+            for (const auto& producerName : m_PassOrder)
+            {
+                auto producerIt = m_PassLookup.find(producerName);
+                if (producerIt == m_PassLookup.end() || !producerIt->second)
+                    continue;
+
+                for (const ResourceHandle& write : producerIt->second->GetWrites())
+                {
+                    for (const auto& consumerName : m_PassOrder)
+                    {
+                        if (consumerName == producerName)
+                            continue;
+                        auto consumerIt = m_PassLookup.find(consumerName);
+                        if (consumerIt == m_PassLookup.end() || !consumerIt->second)
+                            continue;
+
+                        for (const ResourceHandle& read : consumerIt->second->GetReads())
+                        {
+                            if (read.Name == write.Name)
+                            {
+                                closure[consumerName].insert(producerName);
+                                break; // one match per write is enough
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Propagate transitivity of the newly added derived edges until
+            // no new entries are inserted.
+            bool anyChange = true;
+            while (anyChange)
+            {
+                anyChange = false;
+                for (auto& [passName, cls] : closure)
+                {
+                    std::vector<std::string> toAdd;
+                    for (const auto& dep : cls)
+                    {
+                        auto depIt = closure.find(dep);
+                        if (depIt == closure.end())
+                            continue;
+                        for (const auto& ancestor : depIt->second)
+                        {
+                            if (!cls.contains(ancestor))
+                                toAdd.push_back(ancestor);
+                        }
+                    }
+                    for (const auto& a : toAdd)
+                    {
+                        if (cls.insert(a).second)
+                            anyChange = true;
+                    }
                 }
             }
         }
@@ -1784,19 +2681,56 @@ namespace OloEngine
                 continue;
             const RenderPass& pass = *passIt->second;
 
+            // Collect read resource names from both legacy (DeclareRead) and
+            // graph-native (builder.Read) access declarations, deduplicating.
+            std::vector<std::string> readNames;
+            for (const ResourceHandle& r : pass.GetReads())
+                readNames.push_back(r.Name);
+            if (const auto aIt = m_PassAccessDeclarations.find(passName);
+                aIt != m_PassAccessDeclarations.end())
+            {
+                for (const auto& access : aIt->second)
+                {
+                    if (!access.IsWrite && !access.ResourceName.empty())
+                    {
+                        if (std::find(readNames.begin(), readNames.end(), access.ResourceName) ==
+                            readNames.end())
+                            readNames.push_back(access.ResourceName);
+                    }
+                }
+            }
+
+            // Collect write resource names from both sources, deduplicating.
+            std::vector<std::string> writeNames;
+            for (const ResourceHandle& w : pass.GetWrites())
+                writeNames.push_back(w.Name);
+            if (const auto aIt = m_PassAccessDeclarations.find(passName);
+                aIt != m_PassAccessDeclarations.end())
+            {
+                for (const auto& access : aIt->second)
+                {
+                    if (access.IsWrite && !access.ResourceName.empty())
+                    {
+                        if (std::find(writeNames.begin(), writeNames.end(), access.ResourceName) ==
+                            writeNames.end())
+                            writeNames.push_back(access.ResourceName);
+                    }
+                }
+            }
+
             // Record reads first — a same-pass read+write on the same
             // resource isn't a hazard against itself.
-            for (const ResourceHandle& r : pass.GetReads())
+            for (const auto& rName : readNames)
             {
-                ResourceState& st = state[r.Name];
+                ResourceState& st = state[rName];
                 if (!st.LastWriter.empty() && st.LastWriter != passName && !dependsOn(passName, st.LastWriter))
                 {
                     Hazard h;
                     h.Kind = HazardKind::ReadAfterWrite;
-                    h.Resource = r.Name;
+                    h.Resource = rName;
                     h.Producer = st.LastWriter;
                     h.Consumer = passName;
-                    h.Message = "RAW: pass '" + passName + "' reads resource '" + r.Name +
+                    h.Message = "RAW: pass '" + passName + "' reads resource '" + rName +
                                 "' written by '" + st.LastWriter +
                                 "' without declaring a dependency";
                     OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message);
@@ -1805,18 +2739,18 @@ namespace OloEngine
                 st.LiveReaders.insert(passName);
             }
 
-            for (const ResourceHandle& w : pass.GetWrites())
+            for (const auto& wName : writeNames)
             {
-                ResourceState& st = state[w.Name];
+                ResourceState& st = state[wName];
 
                 if (!st.LastWriter.empty() && st.LastWriter != passName && !dependsOn(passName, st.LastWriter))
                 {
                     Hazard h;
                     h.Kind = HazardKind::WriteAfterWrite;
-                    h.Resource = w.Name;
+                    h.Resource = wName;
                     h.Producer = st.LastWriter;
                     h.Consumer = passName;
-                    h.Message = "WAW: pass '" + passName + "' writes resource '" + w.Name +
+                    h.Message = "WAW: pass '" + passName + "' writes resource '" + wName +
                                 "' previously written by '" + st.LastWriter +
                                 "' without declaring a dependency";
                     OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message);
@@ -1831,10 +2765,10 @@ namespace OloEngine
                     {
                         Hazard h;
                         h.Kind = HazardKind::WriteAfterRead;
-                        h.Resource = w.Name;
+                        h.Resource = wName;
                         h.Producer = reader;
                         h.Consumer = passName;
-                        h.Message = "WAR: pass '" + passName + "' overwrites resource '" + w.Name +
+                        h.Message = "WAR: pass '" + passName + "' overwrites resource '" + wName +
                                     "' still live for reader '" + reader +
                                     "' without declaring a dependency";
                         OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message);
@@ -2377,20 +3311,49 @@ namespace OloEngine
             return false;
         }
 
+        const auto queueLaneToString = [](const QueueLane lane) -> const char*
+        {
+            switch (lane)
+            {
+                case QueueLane::Compute:
+                    return "Compute";
+                case QueueLane::Copy:
+                    return "Copy";
+                case QueueLane::Graphics:
+                default:
+                    return "Graphics";
+            }
+        };
+
         out << "// OloEngine RenderGraph — generated by RenderGraph::DumpToDot\n";
         out << "// Render with:  dot -Tsvg " << filePath << " -o graph.svg\n";
+        out << "// Node colours: blue=Graphics, amber=Compute, teal=Copy, green=FinalPass, grey=Culled\n";
         out << "digraph RenderGraph {\n";
         out << "    rankdir=LR;\n";
         out << "    node [shape=box, style=\"rounded,filled\", fillcolor=\"#e8f0fe\", fontname=\"Helvetica\"];\n";
         out << "    edge [fontname=\"Helvetica\", fontsize=10];\n\n";
 
         // Nodes in insertion order; final pass is double-ringed.
+        // Phase G Slice 3: compute passes are amber (#fff3cd), copy passes are teal (#cff4fc),
+        //                   async-compute candidates get a "[async]" label prefix.
         for (const auto& name : m_InsertionOrder)
         {
             const bool isFinal = (name == m_FinalPassName);
+
+            const auto passIt = m_PassLookup.find(name);
+            const bool isCompute = passIt != m_PassLookup.end() && passIt->second &&
+                                   passIt->second->GetPassWorkType() == RenderPass::PassWorkType::Compute;
+            const bool isCopy = passIt != m_PassLookup.end() && passIt->second &&
+                                passIt->second->GetPassWorkType() == RenderPass::PassWorkType::Copy;
+            const bool isAsyncCandidate = passIt != m_PassLookup.end() && passIt->second &&
+                                          passIt->second->IsAsyncComputeCandidate();
+
+            const std::string label = isAsyncCandidate ? ("[async] " + name) : name;
+
             out << "    \"" << name << "\"";
 
             std::vector<std::string> attributes;
+            attributes.push_back(std::string("label=\"") + label + "\"");
             if (isFinal)
                 attributes.emplace_back("peripheries=2");
 
@@ -2404,6 +3367,16 @@ namespace OloEngine
             else if (isFinal)
             {
                 attributes.emplace_back("fillcolor=\"#d4edda\"");
+            }
+            else if (isCompute)
+            {
+                // Amber: compute-dispatch only — no rasterization
+                attributes.emplace_back("fillcolor=\"#fff3cd\"");
+            }
+            else if (isCopy)
+            {
+                // Teal: transfer/blit only
+                attributes.emplace_back("fillcolor=\"#cff4fc\"");
             }
 
             if (!attributes.empty())
@@ -2422,31 +3395,11 @@ namespace OloEngine
         }
         out << "\n";
 
-        // Solid edges = framebuffer piping (ConnectPass).
-        for (const auto& [producer, consumers] : m_FramebufferConnections)
-        {
-            for (const auto& consumer : consumers)
-            {
-                out << "    \"" << producer << "\" -> \"" << consumer
-                    << "\" [color=\"#1a73e8\", label=\"fb\"];\n";
-            }
-        }
-
-        // Dashed grey edges = ordering-only (AddExecutionDependency), but
-        // suppress ones that are already expressed as framebuffer pipes to
-        // avoid double-drawing.
+        // Dashed grey edges = ordering-only (AddExecutionDependency / ConnectPass)
         for (const auto& [consumer, producers] : m_Dependencies)
         {
             for (const auto& producer : producers)
             {
-                // Skip if this edge is already a framebuffer pipe
-                auto it = m_FramebufferConnections.find(producer);
-                if (it != m_FramebufferConnections.end())
-                {
-                    const auto& pipedConsumers = it->second;
-                    if (std::find(pipedConsumers.begin(), pipedConsumers.end(), consumer) != pipedConsumers.end())
-                        continue;
-                }
                 out << "    \"" << producer << "\" -> \"" << consumer
                     << "\" [style=dashed, color=\"#5f6368\", label=\"order\"];\n";
             }
@@ -2466,13 +3419,40 @@ namespace OloEngine
                 << "': " << diagnostic.Message << "\n";
         }
 
+        out << "\n    // Async batch lane assignments\n";
+        const auto batches = GetAsyncComputeBatches();
+        for (sizet i = 0; i < batches.size(); ++i)
+        {
+            out << "    // batch " << i << ": lane=" << queueLaneToString(batches[i].Lane) << ", passes=[";
+            for (sizet pi = 0; pi < batches[i].ComputePasses.size(); ++pi)
+            {
+                out << batches[i].ComputePasses[pi];
+                if (pi + 1 < batches[i].ComputePasses.size())
+                    out << ",";
+            }
+            out << "]\n";
+        }
+
+        // Phase G Slice 14 — Cross-lane sync records in DOT comments.
+        const auto dotTransitions = GetResourceTransitions();
+        const auto crossLaneDot = std::count_if(dotTransitions.begin(), dotTransitions.end(),
+                                                [](const ResourceTransition& tr)
+                                                { return tr.IsCrossLane; });
+        out << "\n    // Cross-lane sync records (" << crossLaneDot << " total)\n";
+        for (const auto& tr : dotTransitions)
+        {
+            if (!tr.IsCrossLane)
+                continue;
+            out << "    // cross-lane: resource='" << tr.ResourceName
+                << "', producer='" << tr.ProducerPass << "' (" << queueLaneToString(tr.ProducerLane) << ")"
+                << " -> consumer='" << tr.ConsumerPass << "' (" << queueLaneToString(tr.ConsumerLane) << ")\n";
+        }
+
         out << "}\n";
         out.close();
 
-        OLO_CORE_INFO("RenderGraph::DumpToDot: wrote {} passes, {} framebuffer edges, "
-                      "{} dependency groups to '{}'",
+        OLO_CORE_INFO("RenderGraph::DumpToDot: wrote {} passes, {} dependency groups to '{}'",
                       m_InsertionOrder.size(),
-                      m_FramebufferConnections.size(),
                       m_Dependencies.size(),
                       filePath);
         return true;
@@ -2536,8 +3516,39 @@ namespace OloEngine
                     return "StaleExtractionHandle";
                 case BarrierDiagnosticKind::ExtractionOfCulledResource:
                     return "ExtractionOfCulledResource";
+                case BarrierDiagnosticKind::InvalidHistoryContract:
+                    return "InvalidHistoryContract";
                 default:
                     return "Unknown";
+            }
+        };
+
+        // Phase G Slice 3 — work-type string conversion for JSON/DOT output.
+        const auto passWorkTypeToString = [](const RenderPass::PassWorkType type) -> const char*
+        {
+            switch (type)
+            {
+                case RenderPass::PassWorkType::Compute:
+                    return "Compute";
+                case RenderPass::PassWorkType::Copy:
+                    return "Copy";
+                case RenderPass::PassWorkType::Graphics:
+                default:
+                    return "Graphics";
+            }
+        };
+
+        const auto queueLaneToString = [](const QueueLane lane) -> const char*
+        {
+            switch (lane)
+            {
+                case QueueLane::Compute:
+                    return "Compute";
+                case QueueLane::Copy:
+                    return "Copy";
+                case QueueLane::Graphics:
+                default:
+                    return "Graphics";
             }
         };
 
@@ -2583,6 +3594,23 @@ namespace OloEngine
                 default:
                     return "Unknown";
             }
+        };
+
+        // Phase G Slice 12: helper to serialise RGSubresourceRange as a compact
+        // JSON object.  ~0u (= all mips/layers/slices) is written as -1 so that
+        // consumers can distinguish "full range" from an explicit 1-element range.
+        const auto subresourceRangeToJson = [](const RGSubresourceRange& r) -> std::string
+        {
+            auto enc = [](u32 v) -> std::string
+            {
+                return (v == ~0u) ? "-1" : std::to_string(v);
+            };
+            return "{ \"baseMip\": " + enc(r.BaseMip) +
+                   ", \"mipCount\": " + enc(r.MipCount) +
+                   ", \"baseLayer\": " + enc(r.BaseLayer) +
+                   ", \"layerCount\": " + enc(r.LayerCount) +
+                   ", \"baseSlice\": " + enc(r.BaseSlice) +
+                   ", \"sliceCount\": " + enc(r.SliceCount) + " }";
         };
 
         struct LifetimeInfo
@@ -2870,6 +3898,8 @@ namespace OloEngine
                     case BarrierDiagnosticKind::ExtractionOfCulledResource:
                         ++extractionOfCulledCount;
                         break;
+                    case BarrierDiagnosticKind::InvalidHistoryContract:
+                        break;
                     default:
                         break;
                 }
@@ -2896,8 +3926,69 @@ namespace OloEngine
             }
         }
 
+        // Phase G Slice 3 — count compute/async-compute passes for frameSummary + graphDigest.
+        u32 computePassCount = 0;
+        u32 asyncComputeCandidateCount = 0;
+        u32 historyResourceCount = 0;
+        for (const auto& passName : m_PassOrder)
+        {
+            const auto passIt = m_PassLookup.find(passName);
+            if (passIt == m_PassLookup.end() || !passIt->second)
+                continue;
+            if (passIt->second->GetPassWorkType() == RenderPass::PassWorkType::Compute)
+                ++computePassCount;
+            if (passIt->second->IsAsyncComputeCandidate())
+                ++asyncComputeCandidateCount;
+        }
+        for (const auto& resource : m_RegisteredResources)
+        {
+            if (IsHistoryTextureResource(resource.Name))
+                ++historyResourceCount;
+        }
+
+        // Phase G Slice 8: batch resource dependency counts for frameSummary/graphDigest.
+        const auto dumpBatches = GetAsyncComputeBatches();
+        const auto submissionPlan = GetSubmissionPlan();
+        u32 batchInputResourceCount = 0;
+        u32 batchOutputResourceCount = 0;
+        for (const auto& batch : dumpBatches)
+        {
+            batchInputResourceCount += static_cast<u32>(batch.InputResources.size());
+            batchOutputResourceCount += static_cast<u32>(batch.OutputResources.size());
+        }
+
+        // Phase G Slice 10: resource transition records for frameSummary/graphDigest.
+        const auto dumpTransitions = GetResourceTransitions();
+        const auto resourceTransitionCount = static_cast<u32>(dumpTransitions.size());
+        // Phase G Slice 14: count cross-lane sync transitions.
+        const auto crossLaneSyncCount = static_cast<u32>(std::count_if(
+            dumpTransitions.begin(), dumpTransitions.end(),
+            [](const ResourceTransition& tr)
+            { return tr.IsCrossLane; }));
+
+        // Phase G Slice 11: unified resource lifetime records.
+        const auto dumpLifetimes = GetResourceLifetimes();
+        const auto resourceLifetimeCount = static_cast<u32>(dumpLifetimes.size());
+
+        const auto submissionCommandKindToString = [](const SubmissionCommand::Kind kind)
+        {
+            switch (kind)
+            {
+                case SubmissionCommand::Kind::Pass:
+                    return "Pass";
+                case SubmissionCommand::Kind::MemoryBarrier:
+                    return "MemoryBarrier";
+                case SubmissionCommand::Kind::BatchBegin:
+                    return "BatchBegin";
+                case SubmissionCommand::Kind::BatchEnd:
+                    return "BatchEnd";
+                default:
+                    return "Unknown";
+            }
+        };
+
         out << "{\n";
-        out << "  \"schemaVersion\": 4,\n";
+        out << "  \"schemaVersion\": 12,\n";
         out << "  \"timingVersion\": 4,\n";
         out << "  \"finalPass\": \"" << jsonEscape(m_FinalPassName) << "\",\n";
         out << "  \"hasExplicitFinalPass\": " << (m_HasExplicitFinalPass ? "true" : "false") << ",\n";
@@ -2910,6 +4001,17 @@ namespace OloEngine
             << ", \"barrierDiagnosticCount\": " << m_BarrierDiagnostics.size()
             << ", \"transientAliasCount\": " << m_TransientPlan.size()
             << ", \"timingsCount\": " << executedPassCount
+            << ", \"computePassCount\": " << computePassCount
+            << ", \"asyncComputeCandidateCount\": " << asyncComputeCandidateCount
+            << ", \"historyResourceCount\": " << historyResourceCount
+            << ", \"temporalHistoryContractCount\": " << m_TemporalHistoryContracts.size()
+            << ", \"asyncBatchCount\": " << dumpBatches.size()
+            << ", \"batchInputResourceCount\": " << batchInputResourceCount
+            << ", \"batchOutputResourceCount\": " << batchOutputResourceCount
+            << ", \"submissionCommandCount\": " << submissionPlan.size()
+            << ", \"resourceTransitionCount\": " << resourceTransitionCount
+            << ", \"crossLaneSyncCount\": " << crossLaneSyncCount
+            << ", \"resourceLifetimeCount\": " << resourceLifetimeCount
             << " },\n";
         out << "  \"buildStats\": { "
             << "\"passesVisited\": " << m_LastBuildStats.PassesVisited
@@ -2936,13 +4038,34 @@ namespace OloEngine
         }
         out << "],\n";
 
+        // Phase G Slice 3 — per-pass work-type and async-compute flags.
+        out << "  \"passFlags\": [\n";
+        for (sizet i = 0; i < m_PassOrder.size(); ++i)
+        {
+            const auto& passName = m_PassOrder[i];
+            const auto passIt = m_PassLookup.find(passName);
+            const auto workType = (passIt != m_PassLookup.end() && passIt->second)
+                                      ? passWorkTypeToString(passIt->second->GetPassWorkType())
+                                      : "Graphics";
+            const auto asyncCandidate = (passIt != m_PassLookup.end() && passIt->second) &&
+                                        passIt->second->IsAsyncComputeCandidate();
+            out << "    { \"pass\": \"" << jsonEscape(passName)
+                << "\", \"workType\": \"" << workType
+                << "\", \"asyncComputeCandidate\": " << (asyncCandidate ? "true" : "false") << " }";
+            if (i + 1 < m_PassOrder.size())
+                out << ",";
+            out << "\n";
+        }
+        out << "  ],\n";
+
         out << "  \"plannedBarriers\": [\n";
         for (sizet i = 0; i < m_PlannedBarriers.size(); ++i)
         {
             const auto& barrier = m_PlannedBarriers[i];
             out << "    { \"beforePass\": \"" << jsonEscape(barrier.BeforePass)
                 << "\", \"resource\": \"" << jsonEscape(barrier.Resource)
-                << "\", \"flags\": " << static_cast<u32>(barrier.Flags) << " }";
+                << "\", \"flags\": " << static_cast<u32>(barrier.Flags)
+                << ", \"range\": " << subresourceRangeToJson(barrier.Range) << " }";
             if (i + 1 < m_PlannedBarriers.size())
                 out << ",";
             out << "\n";
@@ -2969,8 +4092,23 @@ namespace OloEngine
             const auto& resource = m_RegisteredResources[i];
             out << "    { \"name\": \"" << jsonEscape(resource.Name)
                 << "\", \"kind\": \"" << ToString(resource.Desc.Kind)
-                << "\", \"imported\": " << (resource.Desc.Imported ? "true" : "false") << " }";
+                << "\", \"imported\": " << (resource.Desc.Imported ? "true" : "false")
+                << ", \"isHistory\": " << (IsHistoryTextureResource(resource.Name) ? "true" : "false") << " }";
             if (i + 1 < m_RegisteredResources.size())
+                out << ",";
+            out << "\n";
+        }
+        out << "  ],\n";
+
+        out << "  \"temporalHistoryContracts\": [\n";
+        for (sizet i = 0; i < m_TemporalHistoryContracts.size(); ++i)
+        {
+            const auto& contract = m_TemporalHistoryContracts[i];
+            out << "    { \"historyResource\": \"" << jsonEscape(contract.HistoryResource)
+                << "\", \"sourceResource\": \"" << jsonEscape(contract.SourceResource)
+                << "\", \"historyImported\": " << (contract.HistoryImported ? "true" : "false")
+                << ", \"sourceReachable\": " << (contract.SourceReachable ? "true" : "false") << " }";
+            if (i + 1 < m_TemporalHistoryContracts.size())
                 out << ",";
             out << "\n";
         }
@@ -3099,12 +4237,20 @@ namespace OloEngine
             const auto timingIt = cpuMsByPass.find(passName);
             const auto executed = timingIt != cpuMsByPass.end();
             const auto cpuMs = executed ? timingIt->second : 0.0;
+            const auto passIt = m_PassLookup.find(passName);
+            const auto workType = (passIt != m_PassLookup.end() && passIt->second)
+                                      ? passWorkTypeToString(passIt->second->GetPassWorkType())
+                                      : "Graphics";
+            const auto asyncCandidate = (passIt != m_PassLookup.end() && passIt->second) &&
+                                        passIt->second->IsAsyncComputeCandidate();
 
             out << "    { \"pass\": \"" << jsonEscape(passName)
                 << "\", \"orderIndex\": " << i
                 << ", \"culled\": " << (isCulled ? "true" : "false")
                 << ", \"executed\": " << (executed ? "true" : "false")
-                << ", \"cpuMs\": " << cpuMs << " }";
+                << ", \"cpuMs\": " << cpuMs
+                << ", \"workType\": \"" << workType << "\""
+                << ", \"asyncComputeCandidate\": " << (asyncCandidate ? "true" : "false") << " }";
             if (i + 1 < m_PassOrder.size())
                 out << ",";
             out << "\n";
@@ -3119,12 +4265,20 @@ namespace OloEngine
             const auto timingIt = cpuMsByPass.find(passName);
             const auto executed = timingIt != cpuMsByPass.end();
             const auto cpuMs = executed ? timingIt->second : 0.0;
+            const auto passIt = m_PassLookup.find(passName);
+            const auto workType = (passIt != m_PassLookup.end() && passIt->second)
+                                      ? passWorkTypeToString(passIt->second->GetPassWorkType())
+                                      : "Graphics";
+            const auto asyncCandidate = (passIt != m_PassLookup.end() && passIt->second) &&
+                                        passIt->second->IsAsyncComputeCandidate();
 
             out << "    \"" << jsonEscape(passName)
                 << "\": { \"orderIndex\": " << i
                 << ", \"executed\": " << (executed ? "true" : "false")
                 << ", \"culled\": " << (isCulled ? "true" : "false")
-                << ", \"cpuMs\": " << cpuMs << " }";
+                << ", \"cpuMs\": " << cpuMs
+                << ", \"workType\": \"" << workType << "\""
+                << ", \"asyncComputeCandidate\": " << (asyncCandidate ? "true" : "false") << " }";
             if (i + 1 < m_PassOrder.size())
                 out << ",";
             out << "\n";
@@ -3168,12 +4322,217 @@ namespace OloEngine
                                        ";barriers=" + std::to_string(m_PlannedBarriers.size()) +
                                        ";diags=" + std::to_string(m_BarrierDiagnostics.size()) +
                                        ";aliases=" + std::to_string(m_TransientPlan.size()) +
-                                       ";timings=" + std::to_string(m_LastPassTimings.size());
+                                       ";timings=" + std::to_string(m_LastPassTimings.size()) +
+                                       ";compute=" + std::to_string(computePassCount) +
+                                       ";asyncCandidates=" + std::to_string(asyncComputeCandidateCount) +
+                                       ";histories=" + std::to_string(historyResourceCount) +
+                                       ";historyContracts=" + std::to_string(m_TemporalHistoryContracts.size()) +
+                                       ";batches=" + std::to_string(dumpBatches.size()) +
+                                       ";batchInputResources=" + std::to_string(batchInputResourceCount) +
+                                       ";batchOutputResources=" + std::to_string(batchOutputResourceCount) +
+                                       ";submissionCommands=" + std::to_string(submissionPlan.size()) +
+                                       ";transitions=" + std::to_string(resourceTransitionCount) +
+                                       ";crossLaneSync=" + std::to_string(crossLaneSyncCount) +
+                                       ";lifetimes=" + std::to_string(resourceLifetimeCount) +
+                                       ";subresourceRanges=present";
 
         out << "  \"graphDigest\": { "
             << "\"version\": 1"
             << ", \"concat\": \"" << jsonEscape(graphDigestConcat)
             << "\" },\n";
+
+        // Phase G Slice 8: async-compute batches with cross-boundary resource deps.
+        out << "  \"asyncBatches\": [\n";
+        for (sizet bi = 0; bi < dumpBatches.size(); ++bi)
+        {
+            const auto& batch = dumpBatches[bi];
+            out << "    {\n";
+            out << "      \"lane\": \"" << queueLaneToString(batch.Lane) << "\",\n";
+
+            // ComputePasses array
+            out << "      \"computePasses\": [";
+            for (sizet pi = 0; pi < batch.ComputePasses.size(); ++pi)
+            {
+                out << "\"" << jsonEscape(batch.ComputePasses[pi]) << "\"";
+                if (pi + 1 < batch.ComputePasses.size())
+                    out << ", ";
+            }
+            out << "],\n";
+
+            // WaitPasses array
+            out << "      \"waitPasses\": [";
+            for (sizet pi = 0; pi < batch.WaitPasses.size(); ++pi)
+            {
+                out << "\"" << jsonEscape(batch.WaitPasses[pi]) << "\"";
+                if (pi + 1 < batch.WaitPasses.size())
+                    out << ", ";
+            }
+            out << "],\n";
+
+            // SignalPasses array
+            out << "      \"signalPasses\": [";
+            for (sizet pi = 0; pi < batch.SignalPasses.size(); ++pi)
+            {
+                out << "\"" << jsonEscape(batch.SignalPasses[pi]) << "\"";
+                if (pi + 1 < batch.SignalPasses.size())
+                    out << ", ";
+            }
+            out << "],\n";
+
+            // InputResources array
+            out << "      \"inputResources\": [\n";
+            for (sizet ri = 0; ri < batch.InputResources.size(); ++ri)
+            {
+                const auto& dep = batch.InputResources[ri];
+                out << "        { \"resource\": \"" << jsonEscape(dep.ResourceName)
+                    << "\", \"externalPass\": \"" << jsonEscape(dep.ExternalPass) << "\" }";
+                if (ri + 1 < batch.InputResources.size())
+                    out << ",";
+                out << "\n";
+            }
+            out << "      ],\n";
+
+            // OutputResources array
+            out << "      \"outputResources\": [\n";
+            for (sizet ri = 0; ri < batch.OutputResources.size(); ++ri)
+            {
+                const auto& dep = batch.OutputResources[ri];
+                out << "        { \"resource\": \"" << jsonEscape(dep.ResourceName)
+                    << "\", \"externalPass\": \"" << jsonEscape(dep.ExternalPass) << "\" }";
+                if (ri + 1 < batch.OutputResources.size())
+                    out << ",";
+                out << "\n";
+            }
+            out << "      ]\n";
+
+            out << "    }";
+            if (bi + 1 < dumpBatches.size())
+                out << ",";
+            out << "\n";
+        }
+        out << "  ],\n";
+
+        // Phase G Slice 9: pre-linearized submission command stream with
+        // batch sync/resource metadata.
+        out << "  \"submissionPlan\": [\n";
+        for (sizet ci = 0; ci < submissionPlan.size(); ++ci)
+        {
+            const auto& cmd = submissionPlan[ci];
+            out << "    { \"kind\": \"" << submissionCommandKindToString(cmd.CommandKind)
+                << "\", \"lane\": \"" << queueLaneToString(cmd.Lane) << "\"";
+
+            if (cmd.CommandKind == SubmissionCommand::Kind::Pass)
+            {
+                out << ", \"pass\": \"" << jsonEscape(cmd.PassName)
+                    << "\", \"workType\": \"" << passWorkTypeToString(cmd.WorkType) << "\"";
+            }
+            else if (cmd.CommandKind == SubmissionCommand::Kind::MemoryBarrier)
+            {
+                out << ", \"flags\": " << static_cast<u32>(cmd.Barriers);
+            }
+            else if (cmd.CommandKind == SubmissionCommand::Kind::BatchBegin ||
+                     cmd.CommandKind == SubmissionCommand::Kind::BatchEnd)
+            {
+                out << ", \"batchIndex\": " << cmd.BatchIndex;
+
+                out << ", \"waitPasses\": [";
+                for (sizet i = 0; i < cmd.WaitPasses.size(); ++i)
+                {
+                    out << "\"" << jsonEscape(cmd.WaitPasses[i]) << "\"";
+                    if (i + 1 < cmd.WaitPasses.size())
+                        out << ", ";
+                }
+                out << "]";
+
+                out << ", \"signalPasses\": [";
+                for (sizet i = 0; i < cmd.SignalPasses.size(); ++i)
+                {
+                    out << "\"" << jsonEscape(cmd.SignalPasses[i]) << "\"";
+                    if (i + 1 < cmd.SignalPasses.size())
+                        out << ", ";
+                }
+                out << "]";
+
+                out << ", \"inputResources\": [";
+                for (sizet i = 0; i < cmd.InputResources.size(); ++i)
+                {
+                    const auto& dep = cmd.InputResources[i];
+                    out << "{ \"resource\": \"" << jsonEscape(dep.ResourceName)
+                        << "\", \"externalPass\": \"" << jsonEscape(dep.ExternalPass) << "\" }";
+                    if (i + 1 < cmd.InputResources.size())
+                        out << ", ";
+                }
+                out << "]";
+
+                out << ", \"outputResources\": [";
+                for (sizet i = 0; i < cmd.OutputResources.size(); ++i)
+                {
+                    const auto& dep = cmd.OutputResources[i];
+                    out << "{ \"resource\": \"" << jsonEscape(dep.ResourceName)
+                        << "\", \"externalPass\": \"" << jsonEscape(dep.ExternalPass) << "\" }";
+                    if (i + 1 < cmd.OutputResources.size())
+                        out << ", ";
+                }
+                out << "]";
+            }
+
+            out << " }";
+            if (ci + 1 < submissionPlan.size())
+                out << ",";
+            out << "\n";
+        }
+        out << "  ],\n";
+
+        // Phase G Slice 10: resource transition records.
+        out << "  \"resourceTransitions\": [\n";
+        for (sizet ri = 0; ri < dumpTransitions.size(); ++ri)
+        {
+            const auto& tr = dumpTransitions[ri];
+            out << "    { \"resource\": \"" << jsonEscape(tr.ResourceName)
+                << "\", \"producerPass\": \"" << jsonEscape(tr.ProducerPass)
+                << "\", \"consumerPass\": \"" << jsonEscape(tr.ConsumerPass)
+                << "\", \"fromUsage\": \"" << writeUsageToString(tr.FromUsage)
+                << "\", \"toUsage\": \"" << readUsageToString(tr.ToUsage)
+                << "\", \"flags\": " << static_cast<u32>(tr.Flags)
+                << ", \"range\": " << subresourceRangeToJson(tr.Range)
+                << ", \"isCrossLane\": " << (tr.IsCrossLane ? "true" : "false")
+                << ", \"producerLane\": \"" << queueLaneToString(tr.ProducerLane)
+                << "\", \"consumerLane\": \"" << queueLaneToString(tr.ConsumerLane)
+                << "\" }";
+            if (ri + 1 < dumpTransitions.size())
+                out << ",";
+            out << "\n";
+        }
+        out << "  ],\n";
+
+        // Phase G Slice 11: resource lifetime records.
+        out << "  \"resourceLifetimes\": [\n";
+        for (sizet li = 0; li < dumpLifetimes.size(); ++li)
+        {
+            const auto& lt = dumpLifetimes[li];
+            out << "    { \"resource\": \"" << jsonEscape(lt.ResourceName)
+                << "\", \"isImported\": " << (lt.IsImported ? "true" : "false")
+                << ", \"isExtracted\": " << (lt.IsExtracted ? "true" : "false")
+                << ", \"isHistory\": " << (lt.IsHistory ? "true" : "false")
+                << ", \"isTransient\": " << (lt.IsTransient ? "true" : "false")
+                << ", \"firstWritePassIndex\": "
+                << (lt.FirstWritePassIndex == std::numeric_limits<u32>::max()
+                        ? -1
+                        : static_cast<i64>(lt.FirstWritePassIndex))
+                << ", \"lastReadPassIndex\": "
+                << (lt.LastReadPassIndex == std::numeric_limits<u32>::max()
+                        ? -1
+                        : static_cast<i64>(lt.LastReadPassIndex))
+                << ", \"firstWritePass\": \"" << jsonEscape(lt.FirstWritePass)
+                << "\", \"lastReadPass\": \"" << jsonEscape(lt.LastReadPass)
+                << "\", \"firstWriteUsage\": \"" << writeUsageToString(lt.FirstWriteUsage)
+                << "\", \"lastReadUsage\": \"" << readUsageToString(lt.LastReadUsage)
+                << "\" }";
+            if (li + 1 < dumpLifetimes.size())
+                out << ",";
+            out << "\n";
+        }
+        out << "  ],\n";
 
         out << "  \"timings\": [\n";
         for (sizet i = 0; i < m_LastPassTimings.size(); ++i)
@@ -3256,6 +4615,7 @@ namespace OloEngine
         m_PassBarrierFlags.clear();
         m_PlannedBarriers.clear();
         m_BarrierDiagnostics.clear();
+        m_TemporalHistoryContracts.clear();
 
         RGBuilder builder(*this, m_Blackboard);
         std::unordered_map<std::string, std::string> lastWriterByResource;
@@ -3435,6 +4795,10 @@ namespace OloEngine
         ComputeReachability();
         ComputeBarrierPlan();
         RebuildTransientPlan();
+
+        // Phase G Slice 6: cache the submission plan after barrier planning so
+        // Execute() can walk the pre-built IR without re-deriving it.
+        m_CachedSubmissionPlan = GetSubmissionPlan();
     }
 
 } // namespace OloEngine

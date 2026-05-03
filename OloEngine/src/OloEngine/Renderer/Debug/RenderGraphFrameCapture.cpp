@@ -98,9 +98,8 @@ namespace OloEngine
 
         if (graph)
         {
-            graph->SetPostPassHook([this](const std::string& passName, RenderGraph& g) {
-                this->OnPassExecuted(passName, g);
-            });
+            graph->SetPostPassHook([this](const std::string& passName, RenderGraph& g)
+                                   { this->OnPassExecuted(passName, g); });
         }
     }
 
@@ -199,9 +198,18 @@ namespace OloEngine
         const GLboolean prevRasterizerDiscard = glIsEnabled(GL_RASTERIZER_DISCARD);
 
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        if (prevScissor) { glDisable(GL_SCISSOR_TEST); }
-        if (prevSrgb) { glDisable(GL_FRAMEBUFFER_SRGB); }
-        if (prevRasterizerDiscard) { glDisable(GL_RASTERIZER_DISCARD); }
+        if (prevScissor)
+        {
+            glDisable(GL_SCISSOR_TEST);
+        }
+        if (prevSrgb)
+        {
+            glDisable(GL_FRAMEBUFFER_SRGB);
+        }
+        if (prevRasterizerDiscard)
+        {
+            glDisable(GL_RASTERIZER_DISCARD);
+        }
 
         glBlitNamedFramebuffer(srcFBO, dstFBO,
                                0, 0, static_cast<GLint>(width), static_cast<GLint>(height),
@@ -230,9 +238,18 @@ namespace OloEngine
 
         // Restore prior global state so we don't perturb the next pass.
         glColorMask(prevColorMask[0], prevColorMask[1], prevColorMask[2], prevColorMask[3]);
-        if (prevScissor) { glEnable(GL_SCISSOR_TEST); }
-        if (prevSrgb) { glEnable(GL_FRAMEBUFFER_SRGB); }
-        if (prevRasterizerDiscard) { glEnable(GL_RASTERIZER_DISCARD); }
+        if (prevScissor)
+        {
+            glEnable(GL_SCISSOR_TEST);
+        }
+        if (prevSrgb)
+        {
+            glEnable(GL_FRAMEBUFFER_SRGB);
+        }
+        if (prevRasterizerDiscard)
+        {
+            glEnable(GL_RASTERIZER_DISCARD);
+        }
 
         // Detach so we don't keep stale references.
         glNamedFramebufferTexture(srcFBO, GL_COLOR_ATTACHMENT0, 0, 0);

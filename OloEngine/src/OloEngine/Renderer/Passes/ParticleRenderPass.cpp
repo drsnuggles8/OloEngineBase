@@ -20,6 +20,18 @@ namespace OloEngine
         m_FramebufferSpec = spec;
         // No own framebuffer — this pass renders into the ScenePass target (classic)
         // or into the OITBuffer (WB-OIT path).
+
+        // Resource-aware RDG: in the OIT path we write the accumulation and
+        // revealage buffers; in the classic path we write directly into SceneColor.
+        // Declaring all three lets the hazard validator derive the RAW ordering
+        // edge to OITResolveRenderPass (which reads OITAccum/OITRevealage).
+        // Phase F slice 32 — also declare SceneColor read so the WaterPass →
+        // ParticlePass RAW ordering edge is derived (WaterPass writes SceneColor,
+        // this pass reads-then-writes it).
+        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
+        DeclareWrite(ResourceNames::OITAccum, ResourceHandle::Kind::Texture2D);
+        DeclareWrite(ResourceNames::OITRevealage, ResourceHandle::Kind::Texture2D);
+        DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
     }
 
     void ParticleRenderPass::Execute()
@@ -31,6 +43,28 @@ namespace OloEngine
     void ParticleRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Phase F slice 36 — self-resolving SceneColor: look up directly
+        // from the render graph blackboard so no per-frame side-channel
+        // setter call is needed from EndScene().
+        if (const auto* board = context.GetBlackboard())
+        {
+            if (board->SceneColor.IsValid())
+            {
+                if (auto resolvedSceneFB = context.ResolveFramebuffer(board->SceneColor))
+                    m_SceneFramebuffer = resolvedSceneFB;
+            }
+        }
+
+        // Phase F slice 15 — fetch the OITBuffer through the provider
+        // (lazy in OITResolveRenderPass). When OIT is disabled the
+        // provider is not queried, leaving the cached Ref null and
+        // skipping any chance of allocator churn from frame-by-frame
+        // refresh.
+        if (m_OITEnabled && m_OITBufferProvider)
+            m_OITBuffer = m_OITBufferProvider();
+        else
+            m_OITBuffer.Reset();
 
         if (!m_RenderCallback || !m_SceneFramebuffer)
         {
@@ -117,11 +151,6 @@ namespace OloEngine
         // Always report the scene FB as our target: OIT composite lands
         // back into the scene FB via OITResolvePass.
         return m_SceneFramebuffer;
-    }
-
-    void ParticleRenderPass::SetSceneFramebuffer(const Ref<Framebuffer>& fb)
-    {
-        m_SceneFramebuffer = fb;
     }
 
     void ParticleRenderPass::SetRenderCallback(RenderCallback callback)

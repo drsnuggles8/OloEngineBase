@@ -34,6 +34,13 @@ namespace OloEngine
         // Resource-aware RDG: this pass produces the CSM shadow map that
         // Scene / PostProcess (fog) / Terrain passes sample downstream.
         DeclareWrite(ResourceNames::ShadowMapCSM, ResourceHandle::Kind::Texture2DArray);
+        // Spot-light shadow atlas (one layer per spot light).
+        DeclareWrite(ResourceNames::ShadowMapSpot, ResourceHandle::Kind::Texture2DArray);
+        // Per-light point shadow cubemaps (up to MAX_POINT_SHADOWS, bindings 14-17).
+        for (u32 i = 0; i < ShadowMap::MAX_POINT_SHADOWS; ++i)
+        {
+            DeclareWrite(ResourceNames::ShadowMapPoint[i], ResourceHandle::Kind::TextureCube);
+        }
     }
 
     void ShadowRenderPass::Execute()

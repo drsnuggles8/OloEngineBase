@@ -23,6 +23,12 @@ namespace OloEngine
         m_FramebufferSpec = spec;
         // No own framebuffer — we render into the scene FB supplied via
         // SetSceneFramebuffer(), populated with lit HDR by DeferredLightingPass.
+
+        // Phase F slice 33 — read-modify-write into SceneColor so the hazard
+        // validator can derive the DeferredLightingPass→ForwardOverlayPass and
+        // ForwardOverlayPass→FoliagePass RAW ordering edges.
+        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
+        DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
     }
 
     void ForwardOverlayRenderPass::Execute()
@@ -34,6 +40,18 @@ namespace OloEngine
     void ForwardOverlayRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Phase F slice 36 — self-resolving SceneColor: look up directly
+        // from the render graph blackboard so no per-frame side-channel
+        // setter call is needed from EndScene().
+        if (const auto* board = context.GetBlackboard())
+        {
+            if (board->SceneColor.IsValid())
+            {
+                if (auto resolvedSceneFB = context.ResolveFramebuffer(board->SceneColor))
+                    m_SceneFramebuffer = resolvedSceneFB;
+            }
+        }
 
         // Only runs when registered in the graph, which `Renderer3D::
         // ConfigureRenderGraph` does solely for RenderingPath::Deferred
@@ -140,11 +158,6 @@ namespace OloEngine
     Ref<Framebuffer> ForwardOverlayRenderPass::GetTarget() const
     {
         return m_SceneFramebuffer;
-    }
-
-    void ForwardOverlayRenderPass::SetSceneFramebuffer(const Ref<Framebuffer>& fb)
-    {
-        m_SceneFramebuffer = fb;
     }
 
     void ForwardOverlayRenderPass::SetupFramebuffer(u32 width, u32 height)

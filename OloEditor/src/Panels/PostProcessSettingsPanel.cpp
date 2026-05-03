@@ -258,6 +258,10 @@ namespace OloEngine
             if (ImGui::Combo("Technique##AO", &currentTechnique, aoTechniqueNames, IM_ARRAYSIZE(aoTechniqueNames)))
             {
                 settings.ActiveAOTechnique = static_cast<AOTechnique>(currentTechnique);
+                // Phase F slice 34: technique change affects graph topology
+                // (only the active technique's pass is registered). Trigger a
+                // ConfigureRenderGraph rebuild via ApplyRendererSettings.
+                Renderer3D::ApplyRendererSettings();
             }
 
             // SSAO settings

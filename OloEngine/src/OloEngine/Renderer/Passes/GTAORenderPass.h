@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/Passes/RenderPass.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/HZBGenerator.h"
@@ -38,10 +39,6 @@ namespace OloEngine
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
 
-        void SetSceneFramebuffer(const Ref<Framebuffer>& sceneFB)
-        {
-            m_SceneFramebuffer = sceneFB;
-        }
         void SetSettings(const PostProcessSettings& settings)
         {
             m_Settings = settings;
@@ -59,8 +56,14 @@ namespace OloEngine
         }
 
         [[nodiscard]] u32 GetGTAOTextureID() const;
-        [[nodiscard]] u32 GetWidth() const { return m_Width; }
-        [[nodiscard]] u32 GetHeight() const { return m_Height; }
+        [[nodiscard]] u32 GetWidth() const
+        {
+            return m_Width;
+        }
+        [[nodiscard]] u32 GetHeight() const
+        {
+            return m_Height;
+        }
 
         // Expose HZB for future SSR
         [[nodiscard]] HZBGenerator& GetHZBGenerator()
@@ -76,10 +79,9 @@ namespace OloEngine
         void CreateGTAOTextures(u32 width, u32 height);
         void GenerateHilbertLUT();
         void UploadGTAOUniforms();
-        void DispatchGTAO();
+        void DispatchGTAO(u32 normalsTextureID);
         void DispatchDenoise();
 
-        Ref<Framebuffer> m_SceneFramebuffer;
         HZBGenerator m_HZBGenerator;
 
         Ref<ComputeShader> m_GTAOShader;

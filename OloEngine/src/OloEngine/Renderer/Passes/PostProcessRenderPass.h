@@ -31,51 +31,89 @@ namespace OloEngine
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
 
-        void SetInputFramebuffer(const Ref<Framebuffer>& input) override;
-        void SetInputFramebufferHandle(RGFramebufferHandle handle)
-        {
-            m_InputFramebufferHandle = handle;
-        }
         void SetSettings(const PostProcessSettings& settings)
         {
             m_Settings = settings;
-        }
-        void SetSceneDepthTextureHandle(RGTextureHandle handle)
-        {
-            m_SceneDepthHandle = handle;
         }
         void SetPostProcessUBO(Ref<UniformBuffer> ubo, PostProcessUBOData* gpuData)
         {
             m_PostProcessUBO = ubo;
             m_GPUData = gpuData;
         }
-        void SetAOTextureHandle(RGTextureHandle handle)
-        {
-            m_AOTextureHandle = handle;
-        }
-        void SetAOTextureID(u32 textureID)
-        {
-            m_AOTextureID = textureID;
-        }
         void SetFogEnabled(bool enabled)
         {
             m_FogEnabled = enabled;
         }
-        void SetShadowMapCSMHandle(RGTextureHandle handle)
+        // Phase F slice 16 — when true, the inline FXAA stage is skipped
+        // because a standalone `FXAARenderPass` runs after this pass.
+        void SetFXAAHandledExternally(bool externally) noexcept
         {
-            m_ShadowMapCSMHandle = handle;
+            m_FXAAHandledExternally = externally;
+        }
+        // Phase F slice 17 — when true the four late-chain inline effects
+        // are each skipped because their standalone passes run after this one.
+        void SetChromAbHandledExternally(bool externally) noexcept
+        {
+            m_ChromAbHandledExternally = externally;
+        }
+        void SetColorGradingHandledExternally(bool externally) noexcept
+        {
+            m_ColorGradingHandledExternally = externally;
+        }
+        void SetToneMapHandledExternally(bool externally) noexcept
+        {
+            m_ToneMapHandledExternally = externally;
+        }
+        void SetVignetteHandledExternally(bool externally) noexcept
+        {
+            m_VignetteHandledExternally = externally;
+        }
+        // Phase F slice 20 — when true the inline precipitation section is
+        // skipped because the standalone `PrecipitationRenderPass` runs after.
+        void SetPrecipitationHandledExternally(bool externally) noexcept
+        {
+            m_PrecipitationHandledExternally = externally;
+        }
+        // Phase F slice 19 — when true the inline TAA section is skipped
+        // because the standalone `TAARenderPass` runs after this pass.
+        void SetTAAHandledExternally(bool externally) noexcept
+        {
+            m_TAAHandledExternally = externally;
+        }
+        // Phase F slice 21 — when true the inline motion blur section is
+        // skipped because the standalone `MotionBlurRenderPass` runs after.
+        void SetMotionBlurHandledExternally(bool externally) noexcept
+        {
+            m_MotionBlurHandledExternally = externally;
+        }
+        // Phase F slice 23 — when true the inline Bloom section is skipped
+        // because the standalone `BloomRenderPass` runs after this pass.
+        void SetBloomHandledExternally(bool externally) noexcept
+        {
+            m_BloomHandledExternally = externally;
+        }
+        // Phase F slice 24 — when true the inline AO Apply section is skipped
+        // because the standalone `AOApplyRenderPass` runs before this pass.
+        void SetAOApplyHandledExternally(bool externally) noexcept
+        {
+            m_AOApplyHandledExternally = externally;
+        }
+        // Phase F slice 22 — when true the inline DOF section is skipped
+        // because the standalone `DOFRenderPass` runs after this pass.
+        void SetDOFHandledExternally(bool externally) noexcept
+        {
+            m_DOFHandledExternally = externally;
+        }
+        // Phase F slice 18 — when true the inline fog section is skipped
+        // because the standalone `FogRenderPass` runs after this pass.
+        void SetFogHandledExternally(bool externally) noexcept
+        {
+            m_FogHandledExternally = externally;
         }
         void SetPrecipitationScreenEffectsEnabled(bool enabled)
         {
             m_PrecipitationScreenEffectsEnabled = enabled;
         }
-        // Set the G-Buffer velocity texture (RT3) — pass 0 in Forward /
-        // Forward+ to fall back to camera-only depth reprojection.
-        void SetVelocityTextureHandle(RGTextureHandle handle)
-        {
-            m_VelocityTextureHandle = handle;
-        }
-
         // Hot-reload a post-process shader by name (stem, e.g. "PostProcess_BloomThreshold")
         void ReloadShader(const std::string& name);
 
@@ -102,6 +140,21 @@ namespace OloEngine
             return m_FogHistoryFB->GetColorAttachmentRendererID(0);
         }
 
+        // Phase F slice 25 — returns true when every post-process effect has been
+        // extracted into its own standalone pass.  When true, PostProcessRenderPass
+        // is a transparent (zero-cost) node: Execute() returns immediately and
+        // GetTarget() / SetupFrameBlackboard alias PostProcessColor to the upstream
+        // source without any GPU blit.
+        [[nodiscard]] bool IsAllHandledExternally() const noexcept
+        {
+            return m_FXAAHandledExternally && m_ChromAbHandledExternally &&
+                   m_ColorGradingHandledExternally && m_ToneMapHandledExternally &&
+                   m_VignetteHandledExternally && m_PrecipitationHandledExternally &&
+                   m_TAAHandledExternally && m_MotionBlurHandledExternally &&
+                   m_DOFHandledExternally && m_BloomHandledExternally &&
+                   m_FogHandledExternally && m_AOApplyHandledExternally;
+        }
+
       private:
         void CreatePingPongFramebuffers(u32 width, u32 height);
         void CreateBloomMipChain(u32 width, u32 height);
@@ -113,18 +166,9 @@ namespace OloEngine
         // Runs a single fullscreen shader pass: binds srcFB color 0 as texture, renders to dstFB
         void RunEffect(const Ref<Shader>& shader, Ref<Framebuffer> srcFB, Ref<Framebuffer> dstFB);
 
-        Ref<Framebuffer> m_InputFramebuffer;
-        RGFramebufferHandle m_InputFramebufferHandle;
         Ref<Framebuffer> m_PingFB;
         Ref<Framebuffer> m_PongFB;
         Ref<Framebuffer> m_OutputFB;
-
-        // Graph-resolved per-frame inputs
-        RGTextureHandle m_SceneDepthHandle;
-        RGTextureHandle m_AOTextureHandle;
-        RGTextureHandle m_ShadowMapCSMHandle;
-        RGTextureHandle m_VelocityTextureHandle;
-        u32 m_AOTextureID = 0;
 
         // Shaders for each effect (loaded once in Init)
         Ref<Shader> m_BloomThresholdShader;
@@ -150,6 +194,36 @@ namespace OloEngine
         PostProcessUBOData* m_GPUData = nullptr;
         bool m_FogEnabled = false;
         bool m_PrecipitationScreenEffectsEnabled = false;
+        // Phase F slice 16 — when true, the inline FXAA stage is skipped
+        // because a standalone `FXAARenderPass` runs after this pass.
+        bool m_FXAAHandledExternally = false;
+        // Phase F slice 17 — per-effect "handled externally" flags for
+        // the four extracted late-chain passes.
+        bool m_ChromAbHandledExternally = false;
+        bool m_ColorGradingHandledExternally = false;
+        bool m_ToneMapHandledExternally = false;
+        bool m_VignetteHandledExternally = false;
+        // Phase F slice 20 — when true the inline precipitation section is
+        // skipped because the standalone `PrecipitationRenderPass` runs after.
+        bool m_PrecipitationHandledExternally = false;
+        // Phase F slice 19 — when true the inline TAA section is skipped
+        // because the standalone `TAARenderPass` runs after this pass.
+        bool m_TAAHandledExternally = false;
+        // Phase F slice 21 — when true the inline motion blur section is
+        // skipped because the standalone `MotionBlurRenderPass` runs after.
+        bool m_MotionBlurHandledExternally = false;
+        // Phase F slice 23 — when true the inline Bloom section is skipped
+        // because the standalone `BloomRenderPass` runs after this pass.
+        bool m_BloomHandledExternally = false;
+        // Phase F slice 24 — when true the inline AO Apply section is skipped
+        // because the standalone `AOApplyRenderPass` runs before this pass.
+        bool m_AOApplyHandledExternally = false;
+        // Phase F slice 22 — when true the inline DOF section is skipped
+        // because the standalone `DOFRenderPass` runs after this pass.
+        bool m_DOFHandledExternally = false;
+        // Phase F slice 18 — when true the inline fog section is skipped
+        // because the standalone `FogRenderPass` runs after this pass.
+        bool m_FogHandledExternally = false;
         Ref<UniformBuffer> m_PrecipitationScreenUBO;
 
         // Half-resolution volumetric fog framebuffers

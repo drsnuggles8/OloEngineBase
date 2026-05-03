@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/OITBuffer.h"
 #include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
 
 #include <functional>
@@ -37,8 +38,6 @@ namespace OloEngine
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
 
-        void SetSceneFramebuffer(const Ref<Framebuffer>& fb);
-
         // Deferred-path entry point. Called by SceneRenderPass while the
         // G-Buffer is still bound, right after the main G-Buffer MRT write.
         // Drains the decal command bucket with the G-Buffer variant shader,
@@ -63,12 +62,14 @@ namespace OloEngine
         // written into the G-Buffer via `ExecuteOnGBuffer` and are naturally
         // order-independent (depth test + G-buffer writes are not blended).
         // In the forward path they were previously alpha-blended in scene
-        // FB; when an OIT buffer is attached and enabled, `Execute()` routes
-        // them through the same WB-OIT compositing pipeline as water /
-        // particles. See `WaterRenderPass::SetOITBuffer` for invariants.
-        void SetOITBuffer(const Ref<OITBuffer>& oitBuffer) noexcept
+        // FB; when OIT is enabled the provider returns the lazy-materialised
+        // OITBuffer and `Execute()` routes them through the same WB-OIT
+        // compositing pipeline as water / particles. The provider is
+        // queried only when `m_OITEnabled` is true. Phase F slice 15 —
+        // replaces the cached `Ref<OITBuffer>` setter.
+        void SetOITBufferProvider(std::function<Ref<OITBuffer>()> provider) noexcept
         {
-            m_OITBuffer = oitBuffer;
+            m_OITBufferProvider = std::move(provider);
         }
         void SetOITEnabled(bool enabled) noexcept
         {
@@ -87,6 +88,7 @@ namespace OloEngine
         Ref<Framebuffer> m_SceneFramebuffer;
 
         Ref<OITBuffer> m_OITBuffer;
+        std::function<Ref<OITBuffer>()> m_OITBufferProvider;
         Ref<Shader> m_OITShader;
         std::function<void()> m_AccumMarker;
         bool m_OITEnabled = false;

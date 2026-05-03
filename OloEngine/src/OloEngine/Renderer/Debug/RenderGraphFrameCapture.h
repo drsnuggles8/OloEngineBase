@@ -149,7 +149,7 @@ namespace OloEngine
 
         bool m_PendingCapture = false;
         bool m_CapturingActive = false; // True while a frame's captures are being collected
-        bool m_DiagLogged = false; // True after the per-capture one-shot diagnostic line fires
+        bool m_DiagLogged = false;      // True after the per-capture one-shot diagnostic line fires
         u32 m_FrameStartCaptureCount = 0;
         std::vector<CaptureEntry> m_Captures;
         std::unordered_map<CacheKey, CachedTexture, CacheKeyHash> m_TextureCache;

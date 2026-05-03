@@ -221,24 +221,26 @@ TEST(RenderGraphPathSwitch, DeferredToForwardRemovesDeferredOnlyPasses)
 // contract where DeferredLighting ordering is reached transitively through
 // DeferredOpaqueDecalPass.
 // =============================================================================
-TEST(RenderGraphPathSwitch, ForwardToDeferredMissingSceneToDecalEdgeIsFlagged)
+// =============================================================================
+// Phase F slice 27 — ScenePass → DeferredOpaqueDecalPass derived edge.
+// Previously, missing this explicit edge was detected as a RAW hazard.
+// Slice 27 derives the ordering from DeclareWrite(SceneDepth/SceneNormals) on
+// ScenePass + DeclareRead(SceneDepth) on DeferredOpaqueDecalPass, so no
+// explicit AddExecutionDependency call is needed.
+// =============================================================================
+TEST(RenderGraphPathSwitch, ForwardToDeferredMissingSceneToDecalExplicitEdge_DerivedEdgeSufficient)
 {
     RenderGraph graph;
     RebuildTopology(graph, /*deferred=*/false);
     RebuildTopology(graph, /*deferred=*/true, /*forceSkipDecalEdge=*/true);
 
+    // Slice 27: ScenePass.DeclareWrite(SceneDepth) +
+    // DeferredOpaqueDecalPass.DeclareRead(SceneDepth) derives the RAW edge
+    // automatically.  No hazard expected.
     const auto hazards = graph.ValidateResourceHazards();
-    ASSERT_FALSE(hazards.empty()) << "Missing ScenePass→DeferredOpaqueDecalPass edge must surface a hazard";
-
-    // The RAW hazard should name SceneDepth (DeferredOpaqueDecalPass reads
-    // depth produced by ScenePass).
-    const bool targetsSceneResource = std::any_of(
-        hazards.begin(), hazards.end(),
-        [](const auto& h)
-        {
-            return h.Resource == ResourceNames::SceneDepth;
-        });
-    EXPECT_TRUE(targetsSceneResource) << "Expected RAW on SceneDepth: " << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.empty())
+        << "slice 27: declaration-derived edge must prevent the SceneDepth RAW hazard."
+        << HazardsToString(hazards);
 }
 
 // =============================================================================
@@ -457,50 +459,34 @@ TEST(RenderGraphPathSwitch, ThreeWayCycleCleansUpAllPathSpecificPasses)
     }
 }
 
-// Negative: Forward → Deferred without registering the
-// ScenePass→DeferredOpaqueDecalPass edge must surface a RAW hazard. This
-// specifically guards the Phase 2 decal-integration edge — a regression
-// would let the decal pass read the G-Buffer before ScenePass finishes.
-TEST(RenderGraphPathSwitch, MissingDecalEdgeSurfacesHazard)
+// Phase F slice 27: DeferredOpaqueDecalPass.DeclareRead(SceneDepth/SceneNormals)
+// + ScenePass.DeclareWrite(...) derives the ordering edge; no explicit
+// ScenePass→DeferredOpaqueDecalPass call needed.
+TEST(RenderGraphPathSwitch, MissingDecalExplicitEdge_DerivedEdgeSufficient)
 {
     RenderGraph graph;
     RebuildTopologyMultiPath(graph, TestPath::Forward);
     RebuildTopologyMultiPath(graph, TestPath::Deferred, /*skipDecalEdge=*/true);
 
     const auto hazards = graph.ValidateResourceHazards();
-    ASSERT_FALSE(hazards.empty())
-        << "Missing ScenePass→DeferredOpaqueDecalPass edge must be flagged as a hazard";
-
-    const bool namesSceneResource = std::any_of(
-        hazards.begin(), hazards.end(),
-        [](const auto& h)
-        {
-            return h.Resource == ResourceNames::SceneDepth ||
-                   h.Resource == ResourceNames::SceneNormals;
-        });
-    EXPECT_TRUE(namesSceneResource)
-        << "Expected RAW hazard on SceneDepth / SceneNormals: " << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.empty())
+        << "slice 27: ScenePass→DeferredOpaqueDecalPass is derived from declarations."
+        << HazardsToString(hazards);
 }
 
-// Negative: Forward+ without the LightCullingPass→ScenePass edge must be
-// flagged. Guards the Forward+ producer→consumer contract; a regression
-// would silently let ScenePass read stale/uninitialised LightGrid data.
-TEST(RenderGraphPathSwitch, MissingLightGridEdgeSurfacesHazard)
+// Phase F slice 27: LightCullingPass.DeclareWrite(LightGrid) +
+// ScenePass.DeclareRead(LightGrid) derives the ordering edge; no explicit
+// LightCullingPass→ScenePass call needed.
+TEST(RenderGraphPathSwitch, MissingLightGridExplicitEdge_DerivedEdgeSufficient)
 {
     RenderGraph graph;
     RebuildTopologyMultiPath(graph, TestPath::Forward);
     RebuildTopologyMultiPath(graph, TestPath::ForwardPlus, /*skipDecalEdge=*/false, /*skipLightGridEdge=*/true);
 
     const auto hazards = graph.ValidateResourceHazards();
-    ASSERT_FALSE(hazards.empty())
-        << "Missing LightCullingPass→ScenePass edge must surface a hazard";
-
-    const bool namesLightGrid = std::any_of(
-        hazards.begin(), hazards.end(),
-        [](const auto& h)
-        { return h.Resource == kLightGridResource; });
-    EXPECT_TRUE(namesLightGrid)
-        << "Expected hazard naming LightGrid resource: " << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.empty())
+        << "slice 27: LightCullingPass→ScenePass is derived from LightGrid declarations."
+        << HazardsToString(hazards);
 }
 
 // Topological-order invariants for Deferred with decal: decal runs AFTER

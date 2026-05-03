@@ -18,6 +18,11 @@ namespace OloEngine
 
         m_FramebufferSpec = spec;
         // No own framebuffer — this pass renders into the ScenePass target
+
+        // Phase F slice 32 — read-modify-write into SceneColor so the hazard
+        // validator can derive the ScenePass → FoliagePass RAW ordering edge.
+        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
+        DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
     }
 
     void FoliageRenderPass::Execute()
@@ -29,6 +34,18 @@ namespace OloEngine
     void FoliageRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Phase F slice 36 — self-resolving SceneColor: look up directly
+        // from the render graph blackboard so no per-frame side-channel
+        // setter call is needed from EndScene().
+        if (const auto* board = context.GetBlackboard())
+        {
+            if (board->SceneColor.IsValid())
+            {
+                if (auto resolvedSceneFB = context.ResolveFramebuffer(board->SceneColor))
+                    m_SceneFramebuffer = resolvedSceneFB;
+            }
+        }
 
         if (!m_SceneFramebuffer)
         {
@@ -66,12 +83,6 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         // Return the ScenePass framebuffer since that's where we render
         return m_SceneFramebuffer;
-    }
-
-    void FoliageRenderPass::SetSceneFramebuffer(const Ref<Framebuffer>& fb)
-    {
-        OLO_PROFILE_FUNCTION();
-        m_SceneFramebuffer = fb;
     }
 
     void FoliageRenderPass::SetupFramebuffer(u32 width, u32 height)

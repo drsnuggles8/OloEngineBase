@@ -124,10 +124,9 @@ namespace OloEngine
         }
 
         // Resource-aware RDG: post-process consumes the accumulated HDR
-        // scene color (piped via SetInputFramebuffer) plus graph-resolved
-        // depth / AO / velocity / shadow inputs, and emits the tonemapped
-        // LDR image that the UI composite / final passes read.
-        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
+        // AO-applied scene color (piped via SetInputFramebuffer from AOApplyPass)
+        // plus graph-resolved depth / AO / velocity / shadow inputs.
+        DeclareRead(ResourceNames::AOApplyColor, ResourceHandle::Kind::Framebuffer);
         DeclareRead(ResourceNames::SceneDepth, ResourceHandle::Kind::Framebuffer);
         DeclareRead(ResourceNames::AOBuffer, ResourceHandle::Kind::Texture2D);
         DeclareRead(ResourceNames::Velocity, ResourceHandle::Kind::Texture2D);
@@ -135,11 +134,6 @@ namespace OloEngine
         DeclareWrite(ResourceNames::PostProcessColor, ResourceHandle::Kind::Framebuffer);
 
         OLO_CORE_INFO("PostProcessRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
-    }
-
-    void PostProcessRenderPass::SetInputFramebuffer(const Ref<Framebuffer>& input)
-    {
-        m_InputFramebuffer = input;
     }
 
     void PostProcessRenderPass::Execute()
@@ -152,22 +146,33 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        Ref<Framebuffer> inputFramebuffer = m_InputFramebuffer;
-        if (!inputFramebuffer && m_InputFramebufferHandle.IsValid())
+        // Phase F slice 39 — self-resolving input framebuffer.  Prefer the most
+        // downstream source in the AO-apply → SSS → Scene chain.
+        Ref<Framebuffer> inputFramebuffer;
+        if (const auto* board = context.GetBlackboard())
         {
-            if (auto resolvedInput = context.ResolveFramebuffer(m_InputFramebufferHandle))
-                inputFramebuffer = resolvedInput;
+            const auto inputHandle = board->AOApplyColor.IsValid() ? board->AOApplyColor
+                                     : board->SSSColor.IsValid()   ? board->SSSColor
+                                                                   : board->SceneColor;
+            if (inputHandle.IsValid())
+            {
+                if (auto resolved = context.ResolveFramebuffer(inputHandle))
+                    inputFramebuffer = resolved;
+            }
         }
-
-        // Keep the legacy member in sync so GetTarget() passthrough semantics
-        // remain stable when post-process is skipped.
-        m_InputFramebuffer = inputFramebuffer;
-
         if (!inputFramebuffer)
         {
             OLO_CORE_ERROR("PostProcessRenderPass::Execute: No input framebuffer!");
             return;
         }
+
+        // Phase F slice 25 — all effects are handled by dedicated standalone
+        // passes: PostProcessPass is a transparent node. SetupFrameBlackboard
+        // imports PostProcessColor directly from the upstream source FB so
+        // BloomPass (and other downstream passes) receive valid data without
+        // going through this pass at all.
+        if (IsAllHandledExternally())
+            return;
 
         const u32 inputColorID = inputFramebuffer->GetColorAttachmentRendererID(0);
         if (inputColorID == 0)
@@ -181,12 +186,18 @@ namespace OloEngine
             }
         }
 
-        u32 sceneDepthTextureID = context.ResolveTexture(m_SceneDepthHandle);
-        u32 aoTextureID = m_AOTextureID;
-        if (aoTextureID == 0)
-            aoTextureID = context.ResolveTexture(m_AOTextureHandle);
-        const u32 shadowMapCSMTextureID = context.ResolveTexture(m_ShadowMapCSMHandle);
-        const u32 velocityTextureID = context.ResolveTexture(m_VelocityTextureHandle);
+        // Phase F slice 39 — self-resolving texture inputs.
+        u32 sceneDepthTextureID = 0;
+        u32 aoTextureID = 0;
+        u32 shadowMapCSMTextureID = 0;
+        u32 velocityTextureID = 0;
+        if (const auto* board = context.GetBlackboard())
+        {
+            sceneDepthTextureID = context.ResolveTexture(board->SceneDepth);
+            aoTextureID = context.ResolveTexture(board->AOBuffer);
+            shadowMapCSMTextureID = context.ResolveTexture(board->ShadowMapCSM);
+            velocityTextureID = context.ResolveTexture(board->Velocity);
+        }
 
         if (sceneDepthTextureID == 0)
         {
@@ -215,10 +226,20 @@ namespace OloEngine
         const bool aoApplyEnabled = (ssaoApplyEnabled || gtaoApplyEnabled) && aoTextureID != 0 && sceneDepthTextureID != 0;
 
         // If no effects are enabled, skip — GetTarget() returns the input framebuffer directly
-        bool anyEffectEnabled = m_Settings.BloomEnabled || m_Settings.VignetteEnabled || m_Settings.ChromaticAberrationEnabled || m_Settings.FXAAEnabled || m_Settings.DOFEnabled || m_Settings.MotionBlurEnabled || m_Settings.TAAEnabled || m_Settings.ColorGradingEnabled || m_FogEnabled || (m_PrecipitationScreenEffectsEnabled && m_PrecipitationShader && m_PrecipitationScreenUBO) || aoApplyEnabled;
+        bool anyEffectEnabled = (!m_BloomHandledExternally && m_Settings.BloomEnabled) ||
+                                (!m_VignetteHandledExternally && m_Settings.VignetteEnabled) ||
+                                (!m_ChromAbHandledExternally && m_Settings.ChromaticAberrationEnabled) ||
+                                (!m_FXAAHandledExternally && m_Settings.FXAAEnabled) ||
+                                (!m_DOFHandledExternally && m_Settings.DOFEnabled) ||
+                                (!m_MotionBlurHandledExternally && m_Settings.MotionBlurEnabled) ||
+                                (!m_TAAHandledExternally && m_Settings.TAAEnabled) ||
+                                (!m_ColorGradingHandledExternally && m_Settings.ColorGradingEnabled) ||
+                                (!m_FogHandledExternally && m_FogEnabled) ||
+                                (!m_PrecipitationHandledExternally && m_PrecipitationScreenEffectsEnabled && m_PrecipitationShader && m_PrecipitationScreenUBO) ||
+                                (!m_AOApplyHandledExternally && aoApplyEnabled);
 
         // Always run tone mapping if we have the shader (it's the core of post-processing)
-        if (!anyEffectEnabled && !m_ToneMapShader)
+        if (!anyEffectEnabled && (!m_ToneMapShader || m_ToneMapHandledExternally))
         {
             // No effects and no tone mapping: keep the stable output updated
             // so downstream passes never observe a stale ping-pong target.
@@ -240,7 +261,8 @@ namespace OloEngine
 
         // === Effect chain order ===
         // 0. AO Apply (modulate scene color by AO factor from SSAO or GTAO)
-        if (m_SSAOApplyShader && aoApplyEnabled)
+        // Phase F slice 24 — skipped when the standalone AOApplyRenderPass runs before this pass.
+        if (!m_AOApplyHandledExternally && m_SSAOApplyShader && aoApplyEnabled)
         {
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();
@@ -265,7 +287,8 @@ namespace OloEngine
         }
 
         // 1. Bloom (threshold → downsample → upsample → composite)
-        if (m_Settings.BloomEnabled && m_BloomThresholdShader && !m_BloomMipChain.empty())
+        // Phase F slice 23 — skipped when the standalone BloomRenderPass runs.
+        if (!m_BloomHandledExternally && m_Settings.BloomEnabled && m_BloomThresholdShader && !m_BloomMipChain.empty())
         {
             ExecuteBloom(currentSource);
             // Composite bloom onto current source
@@ -294,7 +317,8 @@ namespace OloEngine
         }
 
         // 2. DOF
-        if (m_Settings.DOFEnabled && m_DOFShader && sceneDepthTextureID != 0)
+        // Phase F slice 22 — skipped when the standalone DOFRenderPass runs.
+        if (!m_DOFHandledExternally && m_Settings.DOFEnabled && m_DOFShader && sceneDepthTextureID != 0)
         {
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();
@@ -319,7 +343,8 @@ namespace OloEngine
         }
 
         // 3. Motion Blur
-        if (m_Settings.MotionBlurEnabled && m_MotionBlurShader && sceneDepthTextureID != 0)
+        // Phase F slice 21 — skipped when the standalone MotionBlurRenderPass runs.
+        if (!m_MotionBlurHandledExternally && m_Settings.MotionBlurEnabled && m_MotionBlurShader && sceneDepthTextureID != 0)
         {
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();
@@ -348,7 +373,8 @@ namespace OloEngine
         // would need to be injected into CameraMatrices (see deferred-renderer
         // docs, future work). Without jitter, TAA still smooths temporal
         // aliasing and reduces crawl during motion.
-        if (m_Settings.TAAEnabled && m_TAAShader && m_TAAHistoryFB && sceneDepthTextureID != 0)
+        // Phase F slice 19 — skipped when the standalone TAARenderPass runs.
+        if (!m_TAAHandledExternally && m_Settings.TAAEnabled && m_TAAShader && m_TAAHistoryFB && sceneDepthTextureID != 0)
         {
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();
@@ -431,7 +457,8 @@ namespace OloEngine
         }
 
         // 3.25. Precipitation screen-space effects (streaks + lens impacts)
-        if (m_PrecipitationScreenEffectsEnabled && m_PrecipitationShader && m_PrecipitationScreenUBO)
+        // Phase F slice 20 — skipped when the standalone PrecipitationRenderPass runs.
+        if (!m_PrecipitationHandledExternally && m_PrecipitationScreenEffectsEnabled && m_PrecipitationShader && m_PrecipitationScreenUBO)
         {
             Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
             dest->Bind();
@@ -468,7 +495,8 @@ namespace OloEngine
         }
 
         // 3.5. Volumetric Fog — half-res ray-march + temporal reprojection + bilateral upsample
-        if (m_FogEnabled && m_FogShader && m_FogUpsampleShader && sceneDepthTextureID != 0 && m_FogHalfResFB)
+        // Phase F slice 18 — skipped when the standalone FogRenderPass runs.
+        if (!m_FogHandledExternally && m_FogEnabled && m_FogShader && m_FogUpsampleShader && sceneDepthTextureID != 0 && m_FogHalfResFB)
         {
             // Pass A: Ray-march at half resolution into m_FogHalfResFB
             //   Output: RGBA16F — RGB = accumulated inscatter, A = transmittance
@@ -538,31 +566,37 @@ namespace OloEngine
         }
 
         // 4. Chromatic Aberration
-        if (m_Settings.ChromaticAberrationEnabled && m_ChromaticAberrationShader)
+        // Phase F slice 17 — skipped when the standalone ChromaticAberrationRenderPass runs.
+        if (!m_ChromAbHandledExternally && m_Settings.ChromaticAberrationEnabled && m_ChromaticAberrationShader)
         {
             applyEffect(m_ChromaticAberrationShader);
         }
 
         // 5. Color Grading
-        if (m_Settings.ColorGradingEnabled && m_ColorGradingShader)
+        // Phase F slice 17 — skipped when the standalone ColorGradingRenderPass runs.
+        if (!m_ColorGradingHandledExternally && m_Settings.ColorGradingEnabled && m_ColorGradingShader)
         {
             applyEffect(m_ColorGradingShader);
         }
 
         // 6. Tone Mapping (HDR → LDR)
-        if (m_ToneMapShader)
+        // Phase F slice 17 — skipped when the standalone ToneMapRenderPass runs.
+        if (!m_ToneMapHandledExternally && m_ToneMapShader)
         {
             applyEffect(m_ToneMapShader);
         }
 
         // 7. Vignette (operates on LDR)
-        if (m_Settings.VignetteEnabled && m_VignetteShader)
+        // Phase F slice 17 — skipped when the standalone VignetteRenderPass runs.
+        if (!m_VignetteHandledExternally && m_Settings.VignetteEnabled && m_VignetteShader)
         {
             applyEffect(m_VignetteShader);
         }
 
         // 8. FXAA (must be last spatial filter, operates on LDR)
-        if (m_Settings.FXAAEnabled && m_FXAAShader)
+        // Phase F slice 16 — when `m_FXAAHandledExternally` is set,
+        // `FXAARenderPass` runs after this pass and reads PostProcessColor.
+        if (!m_FXAAHandledExternally && m_Settings.FXAAEnabled && m_FXAAShader)
         {
             applyEffect(m_FXAAShader);
         }
@@ -620,7 +654,7 @@ namespace OloEngine
     {
         if (!m_OutputFB)
         {
-            return m_InputFramebuffer;
+            return nullptr;
         }
 
         return m_OutputFB;

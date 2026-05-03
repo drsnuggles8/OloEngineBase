@@ -33,9 +33,11 @@ namespace OloEngine
         CreateFramebuffer(spec.Width, spec.Height);
         CreateJFAFramebuffers(spec.Width, spec.Height);
 
-        // Graph-visible contract: this pass consumes post-processed color
-        // and outputs an outlined variant used by UICompositePass.
-        DeclareRead(ResourceNames::PostProcessColor, ResourceHandle::Kind::Framebuffer);
+        // Graph-visible contract: receives VignetteColor when FXAA is absent,
+        // or FXAAColor when FXAA precedes it.  Both are declared so the hazard
+        // validator derives the correct ordering edge for whichever is present.
+        DeclareRead(ResourceNames::VignetteColor, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::FXAAColor, ResourceHandle::Kind::Framebuffer);
         DeclareWrite(ResourceNames::SelectionOutlineColor, ResourceHandle::Kind::Framebuffer);
 
         OLO_CORE_INFO("SelectionOutlineRenderPass: Initialized {}x{} (JFA, {} passes)", spec.Width, spec.Height, m_JFAPassCount);
@@ -93,13 +95,53 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        Ref<Framebuffer> inputFramebuffer = m_InputFramebuffer;
-        if (!inputFramebuffer && m_InputFramebufferHandle.IsValid())
+        // Phase F slice 44 — self-resolving input framebuffer from the render-graph
+        // blackboard. Preference chain: FXAA > Vignette > ToneMap > ColorGrading >
+        // ChromAb > Fog > Precipitation > TAA > MotionBlur > DOF > Bloom > PostProcess.
+        Ref<Framebuffer> inputFramebuffer;
+        if (const auto* board = context.GetBlackboard())
         {
-            if (auto resolvedInput = context.ResolveFramebuffer(m_InputFramebufferHandle))
-                inputFramebuffer = resolvedInput;
-        }
+            // Self-resolve the scene framebuffer (entity-ID attachment source).
+            if (auto fb = context.ResolveFramebuffer(board->SceneColor))
+                m_SceneFramebuffer = fb;
 
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->FXAAColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->VignetteColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->ToneMapColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->ColorGradingColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->ChromAbColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->FogColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->PrecipitationColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->TAAColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->MotionBlurColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->DOFColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->BloomColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->PostProcessColor))
+                    inputFramebuffer = fb;
+        }
         if (!m_Target || !inputFramebuffer)
         {
             return;
@@ -261,16 +303,6 @@ namespace OloEngine
             CreateFramebuffer(m_FramebufferSpec.Width, m_FramebufferSpec.Height);
             CreateJFAFramebuffers(m_FramebufferSpec.Width, m_FramebufferSpec.Height);
         }
-    }
-
-    void SelectionOutlineRenderPass::SetInputFramebuffer(const Ref<Framebuffer>& input)
-    {
-        m_InputFramebuffer = input;
-    }
-
-    void SelectionOutlineRenderPass::SetSceneFramebuffer(const Ref<Framebuffer>& sceneFB)
-    {
-        m_SceneFramebuffer = sceneFB;
     }
 
     void SelectionOutlineRenderPass::SetSelectedEntityIDs(std::span<const i32> ids)

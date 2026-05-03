@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/OITBuffer.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
 #include <functional>
 
 namespace OloEngine
@@ -41,15 +42,19 @@ namespace OloEngine
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
 
-        void SetSceneFramebuffer(const Ref<Framebuffer>& fb);
         void SetRenderCallback(RenderCallback callback);
 
         // Phase 6 OIT wiring. Provided by Renderer3D from the
-        // OITResolveRenderPass; when non-null AND `m_OITEnabled` is true,
-        // particles render into the OIT buffer instead of the scene FB.
-        void SetOITBuffer(const Ref<OITBuffer>& oitBuffer)
+        // OITResolveRenderPass; when OIT is enabled the provider returns
+        // the lazy-materialised OITBuffer so this pass renders into it
+        // instead of the scene FB. The provider is queried only when
+        // `m_OITEnabled` is true so non-OIT frames do not trigger
+        // creation. Phase F slice 15 — replaces the previously cached
+        // `Ref<OITBuffer>` setter so the buffer can be transient w.r.t.
+        // the OIT toggle.
+        void SetOITBufferProvider(std::function<Ref<OITBuffer>()> provider)
         {
-            m_OITBuffer = oitBuffer;
+            m_OITBufferProvider = std::move(provider);
         }
         // Marker callback invoked after successful OIT accumulation so
         // OITResolvePass knows it has content to composite this frame.
@@ -65,6 +70,7 @@ namespace OloEngine
       private:
         Ref<Framebuffer> m_SceneFramebuffer;
         Ref<OITBuffer> m_OITBuffer;
+        std::function<Ref<OITBuffer>()> m_OITBufferProvider;
         RenderCallback m_RenderCallback;
         std::function<void()> m_AccumMarker;
         bool m_OITEnabled = false;

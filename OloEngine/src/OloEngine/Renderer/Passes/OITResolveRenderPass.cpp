@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/OITResolveRenderPass.h"
 
+#include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
@@ -26,10 +27,34 @@ namespace OloEngine
 
         m_FramebufferSpec = spec;
 
-        m_OITBuffer = OITBuffer::Create(spec.Width, spec.Height);
+        // Phase F slice 15 — OITBuffer is allocated lazily on first use
+        // (`GetOrCreateOITBuffer`). Paths that never enable OIT do not
+        // pay the ~2x screen-sized RGBA16F+RG16F GPU memory cost.
         m_ResolveShader = Shader::Create("assets/shaders/OIT_Resolve.glsl");
 
-        OLO_CORE_INFO("OITResolveRenderPass: initialised at {}x{}", spec.Width, spec.Height);
+        // Resource-aware RDG: reads the OIT accumulation and revealage buffers
+        // written by ParticlePass (OIT path), and composites them into SceneColor
+        // (read-modify-write). Declaring OITAccum/OITRevealage lets the validator
+        // derive the RAW ordering edge from ParticlePass; SceneColor read+write
+        // derives the OITResolvePass → SSSPass RAW edge.
+        DeclareRead(ResourceNames::OITAccum, ResourceHandle::Kind::Texture2D);
+        DeclareRead(ResourceNames::OITRevealage, ResourceHandle::Kind::Texture2D);
+        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
+        DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
+
+        OLO_CORE_INFO("OITResolveRenderPass: initialised at {}x{} (OITBuffer deferred until first use)", spec.Width, spec.Height);
+    }
+
+    const Ref<OITBuffer>& OITResolveRenderPass::GetOrCreateOITBuffer()
+    {
+        if (!m_OITBuffer)
+        {
+            const u32 width = m_FramebufferSpec.Width != 0 ? m_FramebufferSpec.Width : 1u;
+            const u32 height = m_FramebufferSpec.Height != 0 ? m_FramebufferSpec.Height : 1u;
+            m_OITBuffer = OITBuffer::Create(width, height);
+            OLO_CORE_INFO("OITResolveRenderPass: lazily allocated OITBuffer ({}x{})", width, height);
+        }
+        return m_OITBuffer;
     }
 
     void OITResolveRenderPass::Execute()
@@ -42,6 +67,19 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Phase F slice 35 — self-resolving input: look up SceneColor directly
+        // from the render graph blackboard so no per-frame side-channel setter
+        // call is needed from EndScene().
+        Ref<Framebuffer> inputFB;
+        if (const auto* board = context.GetBlackboard())
+        {
+            if (board->SceneColor.IsValid())
+            {
+                if (auto resolvedInput = context.ResolveFramebuffer(board->SceneColor))
+                    inputFB = resolvedInput;
+            }
+        }
+
         // Grab-and-reset the "has accumulation" flag so a skipped frame
         // cannot leak content from the previous one.
         const bool hasAccum = m_HasAccumulation;
@@ -53,15 +91,15 @@ namespace OloEngine
         // toggles on mid-session.
         if (m_OITBuffer)
             m_OITBuffer->ResetClearFlag();
-        if (!m_Enabled || !hasAccum || !m_InputFramebuffer || !m_OITBuffer || !m_ResolveShader)
+        if (!m_Enabled || !hasAccum || !inputFB || !m_OITBuffer || !m_ResolveShader)
         {
             return;
         }
 
         // Composite into the input (scene) framebuffer's colour attachment 0.
-        m_InputFramebuffer->Bind();
+        inputFB->Bind();
 
-        const auto& spec = m_InputFramebuffer->GetSpecification();
+        const auto& spec = inputFB->GetSpecification();
         context.SetViewport(0, 0, spec.Width, spec.Height);
 
         // Restrict the draw-buffer set to COLOR_ATTACHMENT0 so the fullscreen
@@ -108,7 +146,7 @@ namespace OloEngine
         // the actual attachment count from the framebuffer spec rather than
         // hard-coding 3, so deferred / forward FBs (which have different
         // colour-attachment counts) all restore correctly.
-        const auto& inputAttachments = m_InputFramebuffer->GetSpecification().Attachments.Attachments;
+        const auto& inputAttachments = inputFB->GetSpecification().Attachments.Attachments;
         u32 colorAttachmentCount = 0;
         for (const auto& att : inputAttachments)
         {
@@ -129,13 +167,12 @@ namespace OloEngine
             context.SetDrawBuffers(std::span<const u32>(restoreAttachments.data(), count));
         }
 
-        m_InputFramebuffer->Unbind();
+        inputFB->Unbind();
     }
 
     Ref<Framebuffer> OITResolveRenderPass::GetTarget() const
     {
-        // Passthrough: downstream passes always read the scene FB, composited or not.
-        return m_InputFramebuffer;
+        return nullptr;
     }
 
     void OITResolveRenderPass::SetupFramebuffer(u32 width, u32 height)

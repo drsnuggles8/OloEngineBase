@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -26,6 +27,16 @@ namespace OloEngine
         // Load SSS blur shader
         m_SSSBlurShader = Shader::Create("assets/shaders/SSS_Blur.glsl");
 
+        // Resource-aware RDG: reads the scene-color output produced by the
+        // OIT-resolve stage (SceneColor) and emits SSSColor (its own RGBA16F
+        // target). Deriving the OITResolvePass → SSSPass RAW edge on SceneColor
+        // and the SSSPass → AOApplyPass RAW edge on SSSColor. When SSS is
+        // disabled, SSSRenderPass is a passthrough (GetTarget returns the input
+        // framebuffer), but the static declaration still lets the validator
+        // synthesise a conservative ordering edge conservatively.
+        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
+        DeclareWrite(ResourceNames::SSSColor, ResourceHandle::Kind::Framebuffer);
+
         OLO_CORE_INFO("SSSRenderPass: Initialized with {}x{} framebuffer", spec.Width, spec.Height);
     }
 
@@ -39,11 +50,22 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Phase F slice 35 — self-resolving input: look up SceneColor directly
+        // from the render graph blackboard so no per-frame side-channel setter
+        // call is needed from EndScene().
+        Ref<Framebuffer> inputFB;
+        if (const auto* board = context.GetBlackboard())
+        {
+            if (board->SceneColor.IsValid())
+            {
+                if (auto resolvedInput = context.ResolveFramebuffer(board->SceneColor))
+                    inputFB = resolvedInput;
+            }
+        }
+
         // Only run when snow is enabled AND SSS blur is explicitly turned on.
-        // When disabled, GetTarget() returns m_InputFramebuffer (passthrough),
-        // so downstream passes read the unmodified scene color.
         if (!m_Settings.Enabled || !m_Settings.SSSBlurEnabled ||
-            !m_InputFramebuffer || !m_SSSBlurShader)
+            !inputFB || !m_SSSBlurShader)
         {
             return;
         }
@@ -68,12 +90,12 @@ namespace OloEngine
         m_SSSBlurShader->Bind();
 
         // Bind input scene color as texture — no read-write hazard since we
-        // read from m_InputFramebuffer and write to m_Target.
-        const auto colorID = m_InputFramebuffer->GetColorAttachmentRendererID(0);
+        // read from inputFB and write to m_Target.
+        const auto colorID = inputFB->GetColorAttachmentRendererID(0);
         context.BindTexture(0, colorID);
 
         // Bind scene depth for bilateral filtering
-        const auto depthID = m_InputFramebuffer->GetDepthAttachmentRendererID();
+        const auto depthID = inputFB->GetDepthAttachmentRendererID();
         context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
 
         DrawFullscreenTriangle(context);
@@ -91,10 +113,9 @@ namespace OloEngine
 
     Ref<Framebuffer> SSSRenderPass::GetTarget() const
     {
-        // Passthrough when SSS is disabled — downstream reads the input directly
         if (!m_Settings.Enabled || !m_Settings.SSSBlurEnabled)
         {
-            return m_InputFramebuffer;
+            return nullptr;
         }
         return m_Target;
     }

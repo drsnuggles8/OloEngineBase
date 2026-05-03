@@ -24,6 +24,11 @@ namespace OloEngine
 
         m_FramebufferSpec = spec;
         // No own framebuffer — this pass renders into the ScenePass target
+
+        // Phase F slice 32 — read-modify-write into SceneColor so the hazard
+        // validator can derive the FoliagePass → DecalPass RAW ordering edge.
+        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
+        DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
     }
 
     void DecalRenderPass::Execute()
@@ -35,6 +40,33 @@ namespace OloEngine
     void DecalRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Phase F slice 36 — self-resolving SceneColor and SceneDepth: look
+        // up directly from the render graph blackboard so no per-frame
+        // side-channel setter calls are needed from EndScene().
+        if (const auto* board = context.GetBlackboard())
+        {
+            if (board->SceneColor.IsValid())
+            {
+                if (auto resolvedSceneFB = context.ResolveFramebuffer(board->SceneColor))
+                    m_SceneFramebuffer = resolvedSceneFB;
+            }
+        }
+
+        // Phase F slice 36 — self-resolving SceneDepth (for decal projection).
+        u32 depthTextureID = 0;
+        if (const auto* board = context.GetBlackboard())
+            depthTextureID = context.ResolveTexture(board->SceneDepth);
+        if (depthTextureID == 0 && m_SceneFramebuffer)
+            depthTextureID = m_SceneFramebuffer->GetDepthAttachmentRendererID();
+
+        // Phase F slice 15 — fetch the OITBuffer through the provider
+        // (lazy in OITResolveRenderPass). When OIT is disabled the
+        // provider is not queried, leaving the cached Ref null.
+        if (m_OITEnabled && m_OITBufferProvider)
+            m_OITBuffer = m_OITBufferProvider();
+        else
+            m_OITBuffer.Reset();
 
         // Detector-only guard: captures GL state at entry and on destruction
         // diffs against exit state, logging any field this pass failed to
@@ -133,7 +165,6 @@ namespace OloEngine
             // Bind scene depth (for decal projection) — the OIT variant needs
             // the same `u_SceneDepth` at TEX_POSTPROCESS_DEPTH that the
             // forward variant uses.
-            const u32 depthTextureID = m_SceneFramebuffer->GetDepthAttachmentRendererID();
             context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTextureID);
 
             m_CommandBucket.SortCommands();
@@ -166,7 +197,6 @@ namespace OloEngine
         m_SceneFramebuffer->Bind();
 
         // Bind scene depth texture for decal projection (before dispatching commands)
-        const u32 depthTextureID = m_SceneFramebuffer->GetDepthAttachmentRendererID();
         context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTextureID);
 
         // Sort and dispatch decal commands through the command bucket
@@ -196,12 +226,6 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         // Return the ScenePass framebuffer since that's where we render
         return m_SceneFramebuffer;
-    }
-
-    void DecalRenderPass::SetSceneFramebuffer(const Ref<Framebuffer>& fb)
-    {
-        OLO_PROFILE_FUNCTION();
-        m_SceneFramebuffer = fb;
     }
 
     void DecalRenderPass::SetupFramebuffer(u32 width, u32 height)

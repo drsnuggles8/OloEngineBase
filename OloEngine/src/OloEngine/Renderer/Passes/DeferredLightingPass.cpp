@@ -44,6 +44,16 @@ namespace OloEngine
         m_ControlsUBO = UniformBuffer::Create(sizeof(DeferredControlsData),
                                               ShaderBindingLayout::UBO_DEFERRED_LIGHTING);
 
+        // Phase F slice 33 — declare G-Buffer reads so the hazard validator
+        // derives the ordering edges for the deferred chain:
+        //   ScenePass→DeferredOpaqueDecalPass (SceneDepth RAW already works)
+        //   DeferredOpaqueDecalPass→DeferredLightingPass  via DeclareRead(SceneColor)
+        //   ScenePass→DeferredLightingPass (fallback)     via DeclareRead(SceneDepth)
+        DeclareRead(ResourceNames::SceneDepth, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::SceneNormals, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
+        DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
+
         OLO_CORE_INFO("DeferredLightingPass: Initialized ({}x{}); writes into scene FB color[0]",
                       spec.Width, spec.Height);
     }
@@ -57,6 +67,14 @@ namespace OloEngine
     void DeferredLightingPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Phase F slice 41 — self-resolving scene color framebuffer from the
+        // active render graph blackboard.
+        if (const auto* board = context.GetBlackboard())
+        {
+            if (auto resolvedSceneFB = context.ResolveFramebuffer(board->SceneColor))
+                m_SceneFramebuffer = resolvedSceneFB;
+        }
 
         // Only runs when registered in the graph, which `Renderer3D::
         // ConfigureRenderGraph` does solely for RenderingPath::Deferred.
@@ -141,17 +159,105 @@ namespace OloEngine
         // bind the raw multisample attachments; otherwise bind the resolved
         // single-sample copies produced by GBuffer::Resolve().
         //
+        // Phase F slice 41 — self-resolving G-Buffer texture handles from the
+        // render-graph blackboard. When a handle resolves to 0 (headless /
+        // unit-test / when not in deferred path), fall back to raw `m_GBuffer`
+        // accessors. MSAA companion handles are only available when the
+        // G-Buffer's sample count > 1.
+        //
         // Defensive: if any required attachment ID is zero we bail before
         // issuing the fullscreen draw. A zero ID means the G-Buffer was
         // constructed but a format/attachment was dropped (e.g. velocity RT
         // disabled in a non-TAA configuration). Binding 0 to a sampler
         // reads undefined data, which on NVIDIA surfaces as random black
         // pixels and on AMD as driver crashes.
-        const u32 albedoID = useMSAAShading ? m_GBuffer->GetMSColorAttachmentID(GBuffer::Albedo) : m_GBuffer->GetColorAttachmentID(GBuffer::Albedo);
-        const u32 normalID = useMSAAShading ? m_GBuffer->GetMSColorAttachmentID(GBuffer::Normal) : m_GBuffer->GetColorAttachmentID(GBuffer::Normal);
-        const u32 emissiveID = useMSAAShading ? m_GBuffer->GetMSColorAttachmentID(GBuffer::Emissive) : m_GBuffer->GetColorAttachmentID(GBuffer::Emissive);
-        const u32 velocityID = useMSAAShading ? m_GBuffer->GetMSColorAttachmentID(GBuffer::Velocity) : m_GBuffer->GetColorAttachmentID(GBuffer::Velocity);
-        const u32 depthID = useMSAAShading ? m_GBuffer->GetMSDepthAttachmentID() : m_GBuffer->GetDepthAttachmentID();
+        const u32 albedoID = useMSAAShading
+                                 ? [&]
+        {
+            u32 id = 0;
+            if (const auto* board = context.GetBlackboard())
+                id = context.ResolveTexture(board->GBufferAlbedoMS);
+            if (id == 0)
+                id = m_GBuffer->GetMSColorAttachmentID(GBuffer::Albedo);
+            return id;
+        }()
+                                 : [&]
+        {
+            u32 id = 0;
+            if (const auto* board = context.GetBlackboard())
+                id = context.ResolveTexture(board->GBufferAlbedo);
+            if (id == 0)
+                id = m_GBuffer->GetColorAttachmentID(GBuffer::Albedo);
+            return id;
+        }();
+        const u32 normalID = useMSAAShading
+                                 ? [&]
+        {
+            u32 id = 0;
+            if (const auto* board = context.GetBlackboard())
+                id = context.ResolveTexture(board->GBufferNormalMS);
+            if (id == 0)
+                id = m_GBuffer->GetMSColorAttachmentID(GBuffer::Normal);
+            return id;
+        }()
+                                 : [&]
+        {
+            u32 id = 0;
+            if (const auto* board = context.GetBlackboard())
+                id = context.ResolveTexture(board->GBufferNormal);
+            if (id == 0)
+                id = m_GBuffer->GetColorAttachmentID(GBuffer::Normal);
+            return id;
+        }();
+        const u32 emissiveID = useMSAAShading
+                                   ? [&]
+        {
+            u32 id = 0;
+            if (const auto* board = context.GetBlackboard())
+                id = context.ResolveTexture(board->GBufferEmissiveMS);
+            if (id == 0)
+                id = m_GBuffer->GetMSColorAttachmentID(GBuffer::Emissive);
+            return id;
+        }()
+                                   : [&]
+        {
+            u32 id = 0;
+            if (const auto* board = context.GetBlackboard())
+                id = context.ResolveTexture(board->GBufferEmissive);
+            if (id == 0)
+                id = m_GBuffer->GetColorAttachmentID(GBuffer::Emissive);
+            return id;
+        }();
+        const u32 velocityID = useMSAAShading
+                                   ? [&]
+        {
+            u32 id = 0;
+            if (const auto* board = context.GetBlackboard())
+                id = context.ResolveTexture(board->VelocityMS);
+            if (id == 0)
+                id = m_GBuffer->GetMSColorAttachmentID(GBuffer::Velocity);
+            return id;
+        }()
+                                   : m_GBuffer->GetColorAttachmentID(GBuffer::Velocity);
+        const u32 depthID = useMSAAShading
+                                ? [&]
+        {
+            u32 id = 0;
+            if (const auto* board = context.GetBlackboard())
+                id = context.ResolveTexture(board->SceneDepthMS);
+            if (id == 0)
+                id = m_GBuffer->GetMSDepthAttachmentID();
+            return id;
+        }()
+                                : [&]
+        {
+            u32 id = 0;
+            if (const auto* board = context.GetBlackboard())
+                id = context.ResolveTexture(board->SceneDepth);
+            if (id == 0)
+                id = m_GBuffer->GetDepthAttachmentID();
+            return id;
+        }();
         if (albedoID == 0 || normalID == 0 || emissiveID == 0 || depthID == 0)
         {
             OLO_CORE_ERROR("DeferredLightingPass: required G-Buffer attachment missing (albedo={}, normal={}, emissive={}, depth={}) - aborting lighting",

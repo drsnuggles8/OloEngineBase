@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/OITBuffer.h"
 #include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
 
 #include <functional>
@@ -42,18 +43,21 @@ namespace OloEngine
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
 
-        void SetSceneFramebuffer(const Ref<Framebuffer>& fb);
-
-        // WB-OIT wiring (mirrors ParticleRenderPass). When a valid OITBuffer
-        // is attached AND `SetOITEnabled(true)` is called, `Execute` routes
-        // water draws into the OITBuffer attachments with per-attachment
+        // WB-OIT wiring (mirrors ParticleRenderPass). When OIT is enabled
+        // the provider returns the lazy-materialised OITBuffer (see
+        // `OITResolveRenderPass::GetOrCreateOITBuffer`). `Execute` then
+        // routes water draws into the OIT attachments with per-attachment
         // blend funcs and installs a `CommandDispatch` shader override so
-        // the Water_OIT variant is used in place of the forward Water shader.
-        // `SetOITAccumulationMarker` is invoked after a non-empty dispatch so
-        // `OITResolveRenderPass` knows it has fresh accumulation to composite.
-        void SetOITBuffer(const Ref<OITBuffer>& oitBuffer) noexcept
+        // the Water_OIT variant is used in place of the forward Water
+        // shader. The provider is queried only when `m_OITEnabled` is
+        // true so non-OIT frames do not trigger creation.
+        // `SetOITAccumulationMarker` is invoked after a non-empty dispatch
+        // so `OITResolveRenderPass` knows it has fresh accumulation to
+        // composite. Phase F slice 15 — replaces the cached
+        // `Ref<OITBuffer>` setter.
+        void SetOITBufferProvider(std::function<Ref<OITBuffer>()> provider) noexcept
         {
-            m_OITBuffer = oitBuffer;
+            m_OITBufferProvider = std::move(provider);
         }
         void SetOITEnabled(bool enabled) noexcept
         {
@@ -77,6 +81,7 @@ namespace OloEngine
         u32 m_RefractionHeight = 0;
 
         Ref<OITBuffer> m_OITBuffer;
+        std::function<Ref<OITBuffer>()> m_OITBufferProvider;
         Ref<Shader> m_OITShader;
         std::function<void()> m_AccumMarker;
         bool m_OITEnabled = false;

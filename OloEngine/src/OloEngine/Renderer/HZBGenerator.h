@@ -40,8 +40,14 @@ namespace OloEngine
         // Access the HZB texture (for binding by GTAO / SSR).
         [[nodiscard]] u32 GetHZBTextureID() const;
         [[nodiscard]] u32 GetMipCount() const;
-        [[nodiscard]] u32 GetHZBWidth() const { return m_HZBWidth; }
-        [[nodiscard]] u32 GetHZBHeight() const { return m_HZBHeight; }
+        [[nodiscard]] u32 GetHZBWidth() const
+        {
+            return m_HZBWidth;
+        }
+        [[nodiscard]] u32 GetHZBHeight() const
+        {
+            return m_HZBHeight;
+        }
 
         // UV factor to map viewport coordinates to HZB coordinates:
         // hzbUV = screenUV * UVFactor

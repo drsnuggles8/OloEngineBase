@@ -19,6 +19,18 @@
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Passes/PostProcessRenderPass.h"
+#include "OloEngine/Renderer/Passes/AOApplyRenderPass.h"
+#include "OloEngine/Renderer/Passes/BloomRenderPass.h"
+#include "OloEngine/Renderer/Passes/DOFRenderPass.h"
+#include "OloEngine/Renderer/Passes/MotionBlurRenderPass.h"
+#include "OloEngine/Renderer/Passes/TAARenderPass.h"
+#include "OloEngine/Renderer/Passes/PrecipitationRenderPass.h"
+#include "OloEngine/Renderer/Passes/FogRenderPass.h"
+#include "OloEngine/Renderer/Passes/ChromaticAberrationRenderPass.h"
+#include "OloEngine/Renderer/Passes/ColorGradingRenderPass.h"
+#include "OloEngine/Renderer/Passes/ToneMapRenderPass.h"
+#include "OloEngine/Renderer/Passes/VignetteRenderPass.h"
+#include "OloEngine/Renderer/Passes/FXAARenderPass.h"
 #include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
@@ -1278,7 +1290,19 @@ namespace OloEngine
             Ref<ParticleRenderPass> ParticlePass;
             Ref<OITResolveRenderPass> OITResolvePass;
             Ref<SSSRenderPass> SSSPass;
+            Ref<AOApplyRenderPass> AOApplyPass; // Phase F slice 24
             Ref<PostProcessRenderPass> PostProcessPass;
+            Ref<BloomRenderPass> BloomPass;
+            Ref<DOFRenderPass> DOFPass;
+            Ref<MotionBlurRenderPass> MotionBlurPass;
+            Ref<TAARenderPass> TAAPass;
+            Ref<PrecipitationRenderPass> PrecipitationPass;
+            Ref<FogRenderPass> FogPass;
+            Ref<ChromaticAberrationRenderPass> ChromAberrationPass;
+            Ref<ColorGradingRenderPass> ColorGradingPass;
+            Ref<ToneMapRenderPass> ToneMapPass;
+            Ref<VignetteRenderPass> VignettePass;
+            Ref<FXAARenderPass> FXAAPass;
             Ref<SelectionOutlineRenderPass> SelectionOutlinePass;
             Ref<UICompositeRenderPass> UICompositePass;
             Ref<FinalRenderPass> FinalPass;
@@ -1376,6 +1400,7 @@ namespace OloEngine
             // Initialised to a sentinel so the first ConfigureRenderGraph
             // in SetupRenderGraph always runs.
             RenderingPath ActiveGraphPath = static_cast<RenderingPath>(0xFF);
+            AOTechnique ActiveGraphAOTechnique = static_cast<AOTechnique>(0xFF); // sentinel: never configured
 
             // Editor-only features gated behind opt-in flags
             bool EnableSelectionOutline = false;

@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 
+#include <array>
 #include <functional>
 #include <limits>
 #include <string>
@@ -269,7 +270,15 @@ namespace OloEngine::ResourceNames
     // Shadow maps written by ShadowRenderPass, sampled everywhere.
     inline constexpr std::string_view ShadowMapCSM = "ShadowMapCSM";
     inline constexpr std::string_view ShadowMapSpot = "ShadowMapSpot";
-    inline constexpr std::string_view ShadowMapPoint = "ShadowMapPoint";
+    // Point-light shadow cubemaps — one per light slot (max 4, matches UBOStructures::ShadowUBO::MAX_POINT_SHADOWS).
+    inline constexpr std::string_view ShadowMapPoint0 = "ShadowMapPoint0";
+    inline constexpr std::string_view ShadowMapPoint1 = "ShadowMapPoint1";
+    inline constexpr std::string_view ShadowMapPoint2 = "ShadowMapPoint2";
+    inline constexpr std::string_view ShadowMapPoint3 = "ShadowMapPoint3";
+    // Convenience array indexed by light slot (0..3).
+    inline constexpr std::array<std::string_view, 4> ShadowMapPoint = {
+        ShadowMapPoint0, ShadowMapPoint1, ShadowMapPoint2, ShadowMapPoint3
+    };
 
     // Scene rendering outputs.
     inline constexpr std::string_view SceneColor = "SceneColor";     // HDR RGBA16F after main lighting
@@ -278,10 +287,20 @@ namespace OloEngine::ResourceNames
 
     // G-Buffer attachments (deferred path).
     inline constexpr std::string_view GBufferAlbedo = "GBufferAlbedo";     // RT0 — sRGB albedo + metallic
-    inline constexpr std::string_view GBufferNormal = "GBufferNormal";     // RT1 — world-space normals
-    inline constexpr std::string_view GBufferMetallic = "GBufferMetallic"; // RT2 — roughness/metallic/AO
-    inline constexpr std::string_view GBufferEmissive = "GBufferEmissive"; // RT3 — emissive HDR
+    inline constexpr std::string_view GBufferNormal = "GBufferNormal";     // RT1 — octahedral normal + roughness + AO
+    inline constexpr std::string_view GBufferEmissive = "GBufferEmissive"; // RT2 — emissive HDR (RT3 velocity exposed separately)
     inline constexpr std::string_view Velocity = "Velocity";               // TAA motion vectors (screen-space)
+
+    // Multisample companion attachments (deferred + MSAA). Same backing
+    // memory as the resolved attachments above but exposed to the graph
+    // as separate handles so per-sample shading paths
+    // (`DeferredLightingPass` MSAA branch) can resolve them through
+    // `RGCommandContext::ResolveTexture`.
+    inline constexpr std::string_view GBufferAlbedoMS = "GBufferAlbedoMS";
+    inline constexpr std::string_view GBufferNormalMS = "GBufferNormalMS";
+    inline constexpr std::string_view GBufferEmissiveMS = "GBufferEmissiveMS";
+    inline constexpr std::string_view VelocityMS = "VelocityMS";
+    inline constexpr std::string_view SceneDepthMS = "SceneDepthMS";
 
     // Indirect occlusion outputs.
     inline constexpr std::string_view AOBuffer = "AOBuffer"; // Either SSAO or GTAO output
@@ -293,7 +312,19 @@ namespace OloEngine::ResourceNames
 
     // Post-process chain.
     inline constexpr std::string_view SSSColor = "SSSColor";                           // Output of SSS stage (or passthrough scene color)
-    inline constexpr std::string_view PostProcessColor = "PostProcessColor";           // Tonemapped/bloom/etc output
+    inline constexpr std::string_view AOApplyColor = "AOApplyColor";                   // Phase F slice 24 — after AO apply (only valid when SSAO or GTAO is enabled)
+    inline constexpr std::string_view PostProcessColor = "PostProcessColor";           // Output of PostProcess passthrough (Phase F slice 24: AO apply moved to AOApplyPass)
+    inline constexpr std::string_view BloomColor = "BloomColor";                       // Phase F slice 23 — after Bloom composite (only valid when Bloom is enabled)
+    inline constexpr std::string_view DOFColor = "DOFColor";                           // Phase F slice 22 — after depth-of-field (only valid when DOF is enabled)
+    inline constexpr std::string_view MotionBlurColor = "MotionBlurColor";             // Phase F slice 21 — after motion blur (only valid when motion blur is enabled)
+    inline constexpr std::string_view TAAColor = "TAAColor";                           // Phase F slice 19 — after temporal AA resolve (only valid when TAA is enabled)
+    inline constexpr std::string_view PrecipitationColor = "PrecipitationColor";       // Phase F slice 20 — after screen-space precipitation overlay (only valid when precipitation screen FX enabled)
+    inline constexpr std::string_view FogColor = "FogColor";                           // Phase F slice 18 — after volumetric fog composite (only valid when fog is enabled)
+    inline constexpr std::string_view ChromAbColor = "ChromAbColor";                   // Phase F slice 17 — after chromatic aberration
+    inline constexpr std::string_view ColorGradingColor = "ColorGradingColor";         // Phase F slice 17 — after colour grading
+    inline constexpr std::string_view ToneMapColor = "ToneMapColor";                   // Phase F slice 17 — after tone mapping (HDR→LDR boundary)
+    inline constexpr std::string_view VignetteColor = "VignetteColor";                 // Phase F slice 17 — after vignette
+    inline constexpr std::string_view FXAAColor = "FXAAColor";                         // Phase F slice 16 — anti-aliased post-process output
     inline constexpr std::string_view SelectionOutlineColor = "SelectionOutlineColor"; // Post-process + selection outline composite
     inline constexpr std::string_view UIComposite = "UIComposite";                     // UI composite over post-processed scene
     inline constexpr std::string_view Backbuffer = "Backbuffer";                       // External present target (default framebuffer / swapchain)

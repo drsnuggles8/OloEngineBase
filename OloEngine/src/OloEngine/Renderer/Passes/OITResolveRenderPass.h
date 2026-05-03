@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/OITBuffer.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
 
 namespace OloEngine
@@ -42,11 +43,6 @@ namespace OloEngine
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
 
-        void SetInputFramebuffer(const Ref<Framebuffer>& input) override
-        {
-            m_InputFramebuffer = input;
-        }
-
         void SetEnabled(bool enabled) noexcept
         {
             m_Enabled = enabled;
@@ -57,11 +53,19 @@ namespace OloEngine
         }
 
         // Transparent passes call this to obtain the accumulation FBs and
-        // switch their render target. Returns null until Init() has run.
+        // switch their render target. Returns null until
+        // `GetOrCreateOITBuffer()` has been called for the first time.
+        // Phase F slice 15 — the buffer is allocated lazily so paths that
+        // never enable OIT pay no GPU memory cost.
         [[nodiscard]] const Ref<OITBuffer>& GetOITBuffer() const noexcept
         {
             return m_OITBuffer;
         }
+        // Lazy accessor: ensures the OITBuffer is materialised before
+        // returning it. Called by transparent contributors via the
+        // provider callback installed by Renderer3D and by the frame-graph
+        // resource importer when OIT is active for the current frame.
+        [[nodiscard]] const Ref<OITBuffer>& GetOrCreateOITBuffer();
 
         // Flag set by transparent passes when they successfully emitted
         // into the OIT buffer. Reset on every frame in Execute(); when
@@ -74,7 +78,6 @@ namespace OloEngine
       private:
         void DrawFullscreenTriangle(RGCommandContext& context);
 
-        Ref<Framebuffer> m_InputFramebuffer;
         Ref<OITBuffer> m_OITBuffer;
         Ref<Shader> m_ResolveShader;
 
