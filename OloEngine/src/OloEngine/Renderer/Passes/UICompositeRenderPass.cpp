@@ -82,39 +82,61 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Phase F slice 44 — self-resolving input framebuffer from the render-graph
-        // blackboard. Preference chain: SceneColor > FXAA > Vignette > ToneMap >
-        // ColorGrading > ChromAb > Fog > Precipitation > TAA > MotionBlur >
-        // DOF > Bloom > PostProcess. SelectionOutlineColor is
-        // intentionally not used as the primary scene source here; it is an
-        // overlay product, and if that buffer is empty we must not replace
-        // the entire frame with black.
+        // blackboard. Prefer the latest post-chain output first, then fall
+        // back toward earlier HDR inputs. SceneColor must be LAST; choosing it
+        // first bypasses AOApply/ToneMap/FXAA and makes those passes appear to
+        // run correctly while having zero visual effect.
         Ref<Framebuffer> inputFramebuffer;
+        std::string inputResourceName;
         if (const auto* board = context.GetBlackboard())
         {
-            auto tryResolveValid = [&](const auto& handle)
+            auto tryResolveValid = [&](std::string_view resourceName, const auto& handle)
             {
                 if (inputFramebuffer || !handle.IsValid())
                     return;
                 if (auto fb = context.ResolveFramebuffer(handle))
                 {
                     if (fb->GetColorAttachmentRendererID(0) != 0)
+                    {
                         inputFramebuffer = fb;
+                        inputResourceName = std::string(resourceName);
+                    }
                 }
             };
 
-            tryResolveValid(board->SceneColor);
-            tryResolveValid(board->FXAAColor);
-            tryResolveValid(board->VignetteColor);
-            tryResolveValid(board->ToneMapColor);
-            tryResolveValid(board->ColorGradingColor);
-            tryResolveValid(board->ChromAbColor);
-            tryResolveValid(board->FogColor);
-            tryResolveValid(board->PrecipitationColor);
-            tryResolveValid(board->TAAColor);
-            tryResolveValid(board->MotionBlurColor);
-            tryResolveValid(board->DOFColor);
-            tryResolveValid(board->BloomColor);
-            tryResolveValid(board->PostProcessColor);
+            tryResolveValid(ResourceNames::SelectionOutlineColor, board->SelectionOutlineColor);
+            tryResolveValid(ResourceNames::FXAAColor, board->FXAAColor);
+            tryResolveValid(ResourceNames::VignetteColor, board->VignetteColor);
+            tryResolveValid(ResourceNames::ToneMapColor, board->ToneMapColor);
+            tryResolveValid(ResourceNames::ColorGradingColor, board->ColorGradingColor);
+            tryResolveValid(ResourceNames::ChromAbColor, board->ChromAbColor);
+            tryResolveValid(ResourceNames::FogColor, board->FogColor);
+            tryResolveValid(ResourceNames::PrecipitationColor, board->PrecipitationColor);
+            tryResolveValid(ResourceNames::TAAColor, board->TAAColor);
+            tryResolveValid(ResourceNames::MotionBlurColor, board->MotionBlurColor);
+            tryResolveValid(ResourceNames::DOFColor, board->DOFColor);
+            tryResolveValid(ResourceNames::BloomColor, board->BloomColor);
+            tryResolveValid(ResourceNames::PostProcessColor, board->PostProcessColor);
+            tryResolveValid(ResourceNames::SceneColor, board->SceneColor);
+        }
+        {
+            static std::string s_PreviousInputResourceName;
+            static u32 s_PreviousInputFramebufferID = 0;
+            static u32 s_PreviousInputColorID = 0;
+            const u32 inputFramebufferID = inputFramebuffer ? inputFramebuffer->GetRendererID() : 0u;
+            const u32 inputColorID = inputFramebuffer ? inputFramebuffer->GetColorAttachmentRendererID(0) : 0u;
+            if (inputResourceName != s_PreviousInputResourceName ||
+                inputFramebufferID != s_PreviousInputFramebufferID ||
+                inputColorID != s_PreviousInputColorID)
+            {
+                OLO_CORE_INFO("UICompositePass: scene input={} fb={} colorTex={}",
+                              inputResourceName.empty() ? std::string("<none>") : inputResourceName,
+                              inputFramebufferID,
+                              inputColorID);
+                s_PreviousInputResourceName = inputResourceName;
+                s_PreviousInputFramebufferID = inputFramebufferID;
+                s_PreviousInputColorID = inputColorID;
+            }
         }
         if (!m_Target)
         {

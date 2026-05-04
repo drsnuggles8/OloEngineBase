@@ -63,11 +63,21 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Phase F slice 43 — self-resolving input framebuffer from the render-graph
-        // blackboard. Preference chain: Fog > Precipitation > TAA > MotionBlur >
-        // DOF > Bloom > PostProcess.
+        // blackboard. Vignette runs after tone mapping, so ToneMapColor is the
+        // primary input. Fall back toward earlier HDR chain outputs only when
+        // tone mapping is unavailable.
         Ref<Framebuffer> inputFramebuffer;
         if (const auto* board = context.GetBlackboard())
         {
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->ToneMapColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->ColorGradingColor))
+                    inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->ChromAbColor))
+                    inputFramebuffer = fb;
             if (!inputFramebuffer)
                 if (auto fb = context.ResolveFramebuffer(board->FogColor))
                     inputFramebuffer = fb;

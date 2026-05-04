@@ -8,14 +8,103 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <glm/gtc/type_ptr.hpp>
+#include <sstream>
+#include <string>
+#include <vector>
 
 namespace OloEngine
 {
+    namespace
+    {
+        const char* AOTechniqueName(const AOTechnique technique)
+        {
+            switch (technique)
+            {
+                case AOTechnique::None:
+                    return "None";
+                case AOTechnique::SSAO:
+                    return "SSAO";
+                case AOTechnique::GTAO:
+                    return "GTAO";
+                default:
+                    return "Unknown";
+            }
+        }
+
+        void AppendChange(std::vector<std::string>& changes, const char* name, const bool before, const bool after)
+        {
+            if (before == after)
+                return;
+
+            std::ostringstream oss;
+            oss << name << ": " << (before ? "true" : "false") << " -> " << (after ? "true" : "false");
+            changes.emplace_back(oss.str());
+        }
+
+        template<typename T>
+        void AppendChange(std::vector<std::string>& changes, const char* name, const T& before, const T& after)
+        {
+            if (before == after)
+                return;
+
+            std::ostringstream oss;
+            oss << name << ": " << before << " -> " << after;
+            changes.emplace_back(oss.str());
+        }
+
+        void LogPostProcessSettingsChanges(const PostProcessSettings& before, const PostProcessSettings& after)
+        {
+            std::vector<std::string> changes;
+            changes.reserve(24);
+
+            if (before.ActiveAOTechnique != after.ActiveAOTechnique)
+            {
+                std::ostringstream oss;
+                oss << "ActiveAOTechnique: " << AOTechniqueName(before.ActiveAOTechnique)
+                    << " -> " << AOTechniqueName(after.ActiveAOTechnique);
+                changes.emplace_back(oss.str());
+            }
+
+            AppendChange(changes, "SSAOEnabled", before.SSAOEnabled, after.SSAOEnabled);
+            AppendChange(changes, "GTAOEnabled", before.GTAOEnabled, after.GTAOEnabled);
+            AppendChange(changes, "SSAORadius", before.SSAORadius, after.SSAORadius);
+            AppendChange(changes, "SSAOBias", before.SSAOBias, after.SSAOBias);
+            AppendChange(changes, "SSAOIntensity", before.SSAOIntensity, after.SSAOIntensity);
+            AppendChange(changes, "SSAOSamples", before.SSAOSamples, after.SSAOSamples);
+            AppendChange(changes, "SSAODebugView", before.SSAODebugView, after.SSAODebugView);
+            AppendChange(changes, "GTAORadius", before.GTAORadius, after.GTAORadius);
+            AppendChange(changes, "GTAOPower", before.GTAOPower, after.GTAOPower);
+            AppendChange(changes, "GTAODenoiseEnabled", before.GTAODenoiseEnabled, after.GTAODenoiseEnabled);
+            AppendChange(changes, "GTAODenoisePasses", before.GTAODenoisePasses, after.GTAODenoisePasses);
+            AppendChange(changes, "GTAODebugView", before.GTAODebugView, after.GTAODebugView);
+            AppendChange(changes, "BloomEnabled", before.BloomEnabled, after.BloomEnabled);
+            AppendChange(changes, "FXAAEnabled", before.FXAAEnabled, after.FXAAEnabled);
+            AppendChange(changes, "TAAEnabled", before.TAAEnabled, after.TAAEnabled);
+            AppendChange(changes, "DOFEnabled", before.DOFEnabled, after.DOFEnabled);
+            AppendChange(changes, "MotionBlurEnabled", before.MotionBlurEnabled, after.MotionBlurEnabled);
+
+            if (changes.empty())
+                return;
+
+            std::ostringstream joined;
+            for (sizet i = 0; i < changes.size(); ++i)
+            {
+                if (i != 0)
+                    joined << ", ";
+                joined << changes[i];
+            }
+
+            OLO_CORE_INFO("PostProcessSettingsPanel: {}", joined.str());
+        }
+    } // namespace
+
     void PostProcessSettingsPanel::OnImGuiRender(bool* p_open)
     {
         OLO_PROFILE_FUNCTION();
 
         ImGui::Begin("Post Processing", p_open);
+
+        const PostProcessSettings settingsBefore = Renderer3D::GetPostProcessSettings();
 
         // Snapshot all renderer settings before any UI for undo tracking
         if (m_CommandHistory && !m_IsEditing)
@@ -63,6 +152,9 @@ namespace OloEngine
                 m_IsEditing = false;
             }
         }
+
+        const PostProcessSettings settingsAfter = Renderer3D::GetPostProcessSettings();
+        LogPostProcessSettingsChanges(settingsBefore, settingsAfter);
 
         ImGui::End();
     }
@@ -258,6 +350,21 @@ namespace OloEngine
             if (ImGui::Combo("Technique##AO", &currentTechnique, aoTechniqueNames, IM_ARRAYSIZE(aoTechniqueNames)))
             {
                 settings.ActiveAOTechnique = static_cast<AOTechnique>(currentTechnique);
+                switch (settings.ActiveAOTechnique)
+                {
+                    case AOTechnique::None:
+                        settings.SSAOEnabled = false;
+                        settings.GTAOEnabled = false;
+                        break;
+                    case AOTechnique::SSAO:
+                        settings.SSAOEnabled = true;
+                        settings.GTAOEnabled = false;
+                        break;
+                    case AOTechnique::GTAO:
+                        settings.SSAOEnabled = false;
+                        settings.GTAOEnabled = true;
+                        break;
+                }
                 // Technique change affects graph topology
                 // (only the active technique's pass is registered). Trigger a
                 // ConfigureRenderGraph rebuild via ApplyRendererSettings.

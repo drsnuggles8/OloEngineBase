@@ -725,6 +725,8 @@ namespace OloEngine
         s_Data.LightProbeSHBuffer.Reset();
         s_Data.PrevBoneMatricesUBO.Reset();
 
+        MeshPrimitives::Shutdown();
+
         FrameResourceManager::Get().Shutdown();
         FrameDataBufferManager::Shutdown();
 
@@ -972,9 +974,6 @@ namespace OloEngine
         s_Data.ParallelContext.QuadShader = s_Data.QuadShader;
 
         s_Data.ParallelSubmissionActive = false;
-
-        // Phase B — populate the graph blackboard with live physical resources.
-        SetupFrameBlackboard();
     }
 
     void Renderer3D::SetupFrameBlackboard()
@@ -1028,15 +1027,45 @@ namespace OloEngine
                 }
             }
 
-            const u32 depthID = s_Data.ScenePass->GetTarget()->GetDepthAttachmentRendererID();
-            board.SceneDepth = graph.ImportTexture(
-                ResourceNames::SceneDepth, depthID,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, ResourceNames::SceneDepth));
+            // AO/Deferred consumers need true geometric depth + view-space
+            // normals. In Deferred mode these come from the G-Buffer
+            // resolved attachments (not from ScenePass target attachments,
+            // which are cleared placeholders for overlay consumers).
+            const bool deferredActive = (s_Data.Settings.Path == RenderingPath::Deferred);
+            const bool hasGBuffer = deferredActive && s_Data.ScenePass->GetGBuffer();
+            if (deferredActive && !hasGBuffer)
+            {
+                static bool s_WarnedDeferredAOPlaceholderInputs = false;
+                if (!s_WarnedDeferredAOPlaceholderInputs)
+                {
+                    OLO_CORE_WARN("Renderer3D: Deferred path missing GBuffer; SceneDepth/SceneNormals are imported from ScenePass target placeholder attachments");
+                    s_WarnedDeferredAOPlaceholderInputs = true;
+                }
+            }
 
-            const u32 sceneNormalsID = s_Data.ScenePass->GetTarget()->GetColorAttachmentRendererID(2);
+            const u32 depthID = hasGBuffer
+                                    ? s_Data.ScenePass->GetGBuffer()->GetDepthAttachmentID()
+                                    : s_Data.ScenePass->GetTarget()->GetDepthAttachmentRendererID();
+            auto sceneDepthDesc = RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, ResourceNames::SceneDepth);
+            if (deferredActive && !hasGBuffer)
+            {
+                sceneDepthDesc.IsPlaceholder = true;
+                sceneDepthDesc.PlaceholderReason = "Deferred mode fallback to ScenePass depth attachment because GBuffer is unavailable";
+            }
+            board.SceneDepth = graph.ImportTexture(
+                ResourceNames::SceneDepth, depthID, sceneDepthDesc);
+
+            const u32 sceneNormalsID = hasGBuffer
+                                           ? s_Data.ScenePass->GetGBuffer()->GetColorAttachmentID(GBuffer::Normal)
+                                           : s_Data.ScenePass->GetTarget()->GetColorAttachmentRendererID(2);
+            auto sceneNormalsDesc = RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, ResourceNames::SceneNormals);
+            if (deferredActive && !hasGBuffer)
+            {
+                sceneNormalsDesc.IsPlaceholder = true;
+                sceneNormalsDesc.PlaceholderReason = "Deferred mode fallback to ScenePass normals attachment because GBuffer is unavailable";
+            }
             board.SceneNormals = graph.ImportTexture(
-                ResourceNames::SceneNormals, sceneNormalsID,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, ResourceNames::SceneNormals));
+                ResourceNames::SceneNormals, sceneNormalsID, sceneNormalsDesc);
         }
 
         // ------------------------------------------------------------------
@@ -1138,6 +1167,28 @@ namespace OloEngine
                 board.AOBuffer = graph.ImportTexture(
                     ResourceNames::AOBuffer, aoID,
                     RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, ResourceNames::AOBuffer));
+            }
+
+            static u32 s_PrevAOID = 0;
+            static i32 s_PrevAOTechnique = -1;
+            static bool s_PrevSSAOEnabled = false;
+            static bool s_PrevGTAOEnabled = false;
+            const i32 activeTechnique = static_cast<i32>(s_Data.PostProcess.ActiveAOTechnique);
+            if (aoID != s_PrevAOID ||
+                activeTechnique != s_PrevAOTechnique ||
+                s_Data.PostProcess.SSAOEnabled != s_PrevSSAOEnabled ||
+                s_Data.PostProcess.GTAOEnabled != s_PrevGTAOEnabled)
+            {
+                OLO_CORE_INFO("Renderer3D: AO import state: technique={}, ssaoEnabled={}, gtaoEnabled={}, aoTexID={}, aoHandleValid={}",
+                              activeTechnique,
+                              s_Data.PostProcess.SSAOEnabled,
+                              s_Data.PostProcess.GTAOEnabled,
+                              aoID,
+                              board.AOBuffer.IsValid());
+                s_PrevAOID = aoID;
+                s_PrevAOTechnique = activeTechnique;
+                s_PrevSSAOEnabled = s_Data.PostProcess.SSAOEnabled;
+                s_PrevGTAOEnabled = s_Data.PostProcess.GTAOEnabled;
             }
         }
 
@@ -1823,6 +1874,7 @@ namespace OloEngine
         {
             s_Data.GTAOPass->SetSettings(s_Data.PostProcess);
             s_Data.GTAOPass->SetProjectionMatrix(s_Data.ProjectionMatrix);
+            s_Data.GTAOPass->SetViewMatrix(s_Data.ViewMatrix);
             // GTAOPass now self-resolves SceneDepth and
             // SceneNormals from the blackboard; no per-frame handle setters needed.
 
@@ -1851,6 +1903,7 @@ namespace OloEngine
             // SetAOTextureID was removed; AOApplyPass::Execute()
             // self-resolves AO texture via the render-graph blackboard.
             s_Data.AOApplyPass->SetPostProcessUBO(s_Data.PostProcessUBO);
+            s_Data.AOApplyPass->SetSSAOUBO(s_Data.SSAOUBO);
         }
         // Standalone dynamic post-chain configuration.
         if (s_Data.BloomPass)
@@ -1918,6 +1971,12 @@ namespace OloEngine
             s_Data.FXAAPass->SetEnabled(s_Data.PostProcess.FXAAEnabled);
             s_Data.FXAAPass->SetPostProcessUBO(s_Data.PostProcessUBO);
         }
+
+        // Populate the graph blackboard AFTER per-frame pass configuration so
+        // AOBuffer / PostProcessColor imports resolve the current frame's
+        // active technique and enabled outputs rather than last frame's state.
+        SetupFrameBlackboard();
+
         auto& profiler = RendererProfiler::GetInstance();
         if (s_Data.ScenePass)
         {
@@ -4178,9 +4237,10 @@ namespace OloEngine
         // FinalPass is still marked as the final/sink pass via SetFinalPass(),
         // which is the real guarantee that it executes last.
 
-        // Phase C bridge: register setup declarations for selected production
-        // passes so BuildFrameGraph() can derive ordering edges from resource
-        // access contracts. Execute remains legacy RenderPass::Execute for now.
+        // Register setup declarations for production passes so BuildFrameGraph()
+        // can derive ordering edges from resource access contracts. Execute paths
+        // resolve frame resources through RGCommandContext / the blackboard; raw
+        // pass members remain as headless/test compatibility fallbacks only.
         s_Data.RGraph->RegisterGraphPass(
             "ScenePass",
             [](RGBuilder& builder)

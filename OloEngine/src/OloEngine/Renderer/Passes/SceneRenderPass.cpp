@@ -315,10 +315,15 @@ namespace OloEngine
         // per-sample lighting. Documented as a known limitation of the
         // debug overlay; non-debug paths are unaffected.
 
-        // Per-sample path: if debug overlay is active keep the pre-extraction
-        // resolve so the debug blit samples resolved single-sample colour
-        // (even though it will be pre-decal — see comment above).
-        if (perSampleLighting && debugNeedsColour)
+        // Per-sample path: force a color resolve whenever a downstream pass
+        // samples resolved G-Buffer color attachments (debug overlay, SSAO, GTAO).
+        // This keeps SceneNormals current for AO passes while preserving the
+        // multisample attachments for per-sample deferred lighting.
+        const auto& postProcessSettings = Renderer3D::GetPostProcessSettings();
+        const bool aoNeedsResolvedNormals =
+            (postProcessSettings.ActiveAOTechnique == AOTechnique::SSAO && postProcessSettings.SSAOEnabled) ||
+            (postProcessSettings.ActiveAOTechnique == AOTechnique::GTAO && postProcessSettings.GTAOEnabled);
+        if (perSampleLighting && (debugNeedsColour || aoNeedsResolvedNormals))
         {
             m_GBuffer->Resolve();
         }

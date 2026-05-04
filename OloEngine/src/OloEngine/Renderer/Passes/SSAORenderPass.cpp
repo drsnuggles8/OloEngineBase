@@ -124,6 +124,21 @@ namespace OloEngine
             return;
         }
 
+        {
+            static u32 s_PrevDepthID = 0;
+            static u32 s_PrevNormalsID = 0;
+            static u32 s_PrevAOID = 0;
+            const u32 aoID = m_BlurFramebuffer ? m_BlurFramebuffer->GetColorAttachmentRendererID(0) : 0;
+            if (depthID != s_PrevDepthID || normalsID != s_PrevNormalsID || aoID != s_PrevAOID)
+            {
+                OLO_CORE_INFO("SSAORenderPass: inputs depthTex={}, normalsTex={}, outputAOTex={} ({}x{})",
+                              depthID, normalsID, aoID, m_HalfWidth, m_HalfHeight);
+                s_PrevDepthID = depthID;
+                s_PrevNormalsID = normalsID;
+                s_PrevAOID = aoID;
+            }
+        }
+
         // Upload SSAO parameters to UBO
         if (m_SSAOUBO && m_GPUData)
         {

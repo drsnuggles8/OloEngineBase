@@ -25,8 +25,8 @@ namespace OloEngine
         m_BlitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
 
         // Resource-aware RDG: final pass reads the composited (post-process
-        // + UI) color piped in via SetInputFramebuffer and presents to the
-        // backbuffer / swapchain image as a side effect.
+        // + UI) color resolved from the render-graph blackboard and presents
+        // to the backbuffer / swapchain image as a side effect.
         DeclareRead(ResourceNames::UIComposite, ResourceHandle::Kind::Framebuffer);
         DeclareWrite(ResourceNames::Backbuffer, ResourceHandle::Kind::Framebuffer);
 

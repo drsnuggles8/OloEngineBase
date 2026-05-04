@@ -9,6 +9,9 @@
 #include <algorithm>
 #include <queue>
 #include <fstream>
+#include <limits>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace OloEngine
 {
@@ -33,6 +36,125 @@ namespace OloEngine
         }
     } // namespace Utils
 
+    namespace
+    {
+        std::unordered_set<std::string> BuildCulledPassSet(const Ref<RenderGraph>& graph)
+        {
+            std::unordered_set<std::string> culled;
+            if (!graph)
+                return culled;
+
+            const auto& culledPasses = graph->GetCulledPasses();
+            culled.reserve(culledPasses.size());
+            for (const auto& passName : culledPasses)
+            {
+                culled.insert(passName);
+            }
+            return culled;
+        }
+
+        std::vector<Ref<RenderPass>> GetVisiblePasses(const Ref<RenderGraph>& graph)
+        {
+            std::vector<Ref<RenderPass>> visible;
+            if (!graph)
+                return visible;
+
+            const auto allPasses = graph->GetAllPasses();
+            std::unordered_map<std::string, Ref<RenderPass>> passByName;
+            passByName.reserve(allPasses.size());
+            for (const auto& pass : allPasses)
+            {
+                if (pass)
+                    passByName.emplace(pass->GetName(), pass);
+            }
+
+            const auto culled = BuildCulledPassSet(graph);
+            std::unordered_set<std::string> appended;
+            appended.reserve(allPasses.size());
+
+            const auto appendIfVisible = [&](const std::string& passName)
+            {
+                if (culled.contains(passName) || appended.contains(passName))
+                    return;
+
+                if (const auto passIt = passByName.find(passName); passIt != passByName.end() && passIt->second)
+                {
+                    visible.push_back(passIt->second);
+                    appended.insert(passName);
+                }
+            };
+
+            for (const auto& passName : graph->GetPassOrder())
+            {
+                appendIfVisible(passName);
+            }
+
+            // Before the first frame graph build, GetPassOrder() can be empty.
+            // Fall back to all registered passes so the debugger still has a view.
+            for (const auto& pass : allPasses)
+            {
+                if (pass)
+                    appendIfVisible(pass->GetName());
+            }
+
+            return visible;
+        }
+
+        std::unordered_set<std::string> BuildVisiblePassNameSet(const std::vector<Ref<RenderPass>>& passes)
+        {
+            std::unordered_set<std::string> names;
+            names.reserve(passes.size());
+            for (const auto& pass : passes)
+            {
+                if (pass)
+                    names.insert(pass->GetName());
+            }
+            return names;
+        }
+
+        std::string BuildVisiblePassDigest(const std::vector<Ref<RenderPass>>& passes)
+        {
+            std::string digest;
+            for (const auto& pass : passes)
+            {
+                if (!pass)
+                    continue;
+                if (!digest.empty())
+                    digest += '|';
+                digest += pass->GetName();
+            }
+            return digest;
+        }
+
+        std::string MakeConnectionKey(const std::string& outputPass, const std::string& inputPass)
+        {
+            std::string key = outputPass;
+            key += "->";
+            key += inputPass;
+            return key;
+        }
+
+        std::unordered_map<std::string, std::string> BuildConnectionResourceLabels(const Ref<RenderGraph>& graph)
+        {
+            std::unordered_map<std::string, std::string> labels;
+            if (!graph)
+                return labels;
+
+            for (const auto& transition : graph->GetResourceTransitions())
+            {
+                if (transition.ProducerPass.empty() || transition.ConsumerPass.empty())
+                    continue;
+
+                auto& label = labels[MakeConnectionKey(transition.ProducerPass, transition.ConsumerPass)];
+                if (!label.empty())
+                    label += ", ";
+                label += transition.ResourceName;
+            }
+
+            return labels;
+        }
+    } // namespace
+
     void RenderGraphDebugger::RenderDebugView(const Ref<RenderGraph>& graph, bool* open, const char* title)
     {
         OLO_PROFILE_FUNCTION();
@@ -52,12 +174,19 @@ namespace OloEngine
             return;
         }
 
-        auto passes = graph->GetAllPasses();
+        auto passes = GetVisiblePasses(graph);
         if (passes.empty())
         {
             ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Render graph has no passes to visualize");
             ImGui::End();
             return;
+        }
+
+        const std::string visibleDigest = BuildVisiblePassDigest(passes);
+        if (visibleDigest != m_VisiblePassDigest)
+        {
+            m_VisiblePassDigest = visibleDigest;
+            m_NeedsLayout = true;
         }
 
         // Calculate layout if needed
@@ -73,9 +202,13 @@ namespace OloEngine
 
         // Controls group
         ImGui::BeginGroup();
+        ImGui::TextDisabled("Active passes: %zu  Culled/hidden: %zu", passes.size(), graph->GetCulledPasses().size());
+
+        bool resetViewRequested = false;
         if (ImGui::Button("Reset View"))
         {
             m_Settings.ScrollOffset = ImVec2(0.0f, 0.0f);
+            resetViewRequested = true;
         }
 
         ImGui::SameLine();
@@ -106,7 +239,16 @@ namespace OloEngine
         ImGui::Spacing();
         ImGui::Spacing();
 
-        // Canvas setup with adjusted positioning
+        // Canvas setup with real ImGui scrollbars. The content item is sized
+        // to the graph bounds, while drawing is clipped to the visible child.
+        auto graphContentSize = ImVec2(m_Settings.NodeWidth + m_Settings.CanvasPadding * 2.0f,
+                                       m_Settings.NodeHeight + m_Settings.CanvasPadding * 2.0f);
+        for (const auto& [passName, nodeData] : m_NodePositions)
+        {
+            graphContentSize.x = std::max(graphContentSize.x, nodeData.Position.x + nodeData.Size.x + m_Settings.CanvasPadding);
+            graphContentSize.y = std::max(graphContentSize.y, nodeData.Position.y + nodeData.Size.y + m_Settings.CanvasPadding);
+        }
+
         ImVec2 canvasSize = ImGui::GetContentRegionAvail();
         if (canvasSize.x <= 0.0f || canvasSize.y <= 0.0f)
         {
@@ -114,77 +256,107 @@ namespace OloEngine
             canvasSize.y = std::max(100.0f, canvasSize.y);
         }
 
-        ImVec2 canvasPos = ImGui::GetCursorScreenPos();
-
-        // Get draw list for canvas operations
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-
-        // Draw background
-        drawList->AddRectFilled(canvasPos, ImVec2(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y), m_Settings.BackgroundColor);
-
-        // Draw grid if enabled
-        if (m_Settings.DrawGrid)
+        constexpr ImGuiWindowFlags canvasFlags = ImGuiWindowFlags_HorizontalScrollbar;
+        if (ImGui::BeginChild("##render_graph_canvas", canvasSize, true, canvasFlags))
         {
-            const f32 gridSize = 32.0f;
-            const ImU32 gridColor = IM_COL32(200, 200, 200, 40);
-
-            for (f32 x = canvasPos.x; x < canvasPos.x + canvasSize.x; x += gridSize)
-                drawList->AddLine(ImVec2(x, canvasPos.y), ImVec2(x, canvasPos.y + canvasSize.y), gridColor);
-
-            for (f32 y = canvasPos.y; y < canvasPos.y + canvasSize.y; y += gridSize)
-                drawList->AddLine(ImVec2(canvasPos.x, y), ImVec2(canvasPos.x + canvasSize.x, y), gridColor);
-        }
-
-        // Set canvas origin for mouse interaction
-        ImGui::SetCursorScreenPos(canvasPos);
-        ImGui::InvisibleButton("canvas", canvasSize);
-        bool isCanvasHovered = ImGui::IsItemHovered();
-
-        // Handle scrolling and panning
-        if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f))
-        {
-            m_Settings.ScrollOffset.x += ImGui::GetIO().MouseDelta.x;
-            m_Settings.ScrollOffset.y += ImGui::GetIO().MouseDelta.y;
-        }
-
-        // Apply scrolling
-        auto offset = ImVec2(canvasPos.x + m_Settings.ScrollOffset.x, canvasPos.y + m_Settings.ScrollOffset.y);
-
-        // Draw connections between nodes
-        DrawConnections(graph, drawList, offset);
-
-        // Draw nodes
-        f32 maxWidth = 0.0f;
-        for (const auto& pass : passes)
-        {
-            DrawNode(pass, drawList, offset, maxWidth);
-        }
-
-        // Show tooltip when hovering over a node
-        if (isCanvasHovered && ImGui::IsMouseHoveringRect(canvasPos, ImVec2(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y)))
-        {
-            const ImVec2 mousePos = ImGui::GetIO().MousePos;
-            for (const auto& [passName, nodeData] : m_NodePositions)
+            if (resetViewRequested)
             {
-                auto nodeMin = ImVec2(offset.x + nodeData.Position.x, offset.y + nodeData.Position.y);
-                auto nodeMax = ImVec2(nodeMin.x + nodeData.Size.x, nodeMin.y + nodeData.Size.y);
+                ImGui::SetScrollX(0.0f);
+                ImGui::SetScrollY(0.0f);
+            }
 
-                if (mousePos.x >= nodeMin.x && mousePos.x <= nodeMax.x &&
-                    mousePos.y >= nodeMin.y && mousePos.y <= nodeMax.y)
+            const ImVec2 visibleSize = ImGui::GetContentRegionAvail();
+            graphContentSize.x = std::max(graphContentSize.x, visibleSize.x);
+            graphContentSize.y = std::max(graphContentSize.y, visibleSize.y);
+
+            ImVec2 canvasPos = ImGui::GetCursorScreenPos();
+            const ImVec2 viewMin = ImGui::GetWindowPos();
+            const ImVec2 windowSize = ImGui::GetWindowSize();
+            const ImVec2 viewMax(viewMin.x + windowSize.x, viewMin.y + windowSize.y);
+
+            // Register the full graph area as an interactive item so the child
+            // window knows how large its scrollable content is.
+            ImGui::InvisibleButton("##canvas_scroll_surface", graphContentSize,
+                                   ImGuiButtonFlags_MouseButtonLeft |
+                                       ImGuiButtonFlags_MouseButtonMiddle |
+                                       ImGuiButtonFlags_MouseButtonRight);
+            const bool isCanvasHovered = ImGui::IsItemHovered();
+
+            if (isCanvasHovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f))
+            {
+                const ImVec2 mouseDelta = ImGui::GetIO().MouseDelta;
+                ImGui::SetScrollX(ImGui::GetScrollX() - mouseDelta.x);
+                ImGui::SetScrollY(ImGui::GetScrollY() - mouseDelta.y);
+            }
+
+            // Get draw list for canvas operations
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            drawList->PushClipRect(viewMin, viewMax, true);
+
+            // Draw background
+            drawList->AddRectFilled(viewMin, viewMax, m_Settings.BackgroundColor);
+
+            // Draw grid if enabled
+            if (m_Settings.DrawGrid)
+            {
+                const f32 gridSize = 32.0f;
+                const ImU32 gridColor = IM_COL32(200, 200, 200, 40);
+
+                f32 gridX = canvasPos.x + m_Settings.ScrollOffset.x;
+                while (gridX > viewMin.x)
+                    gridX -= gridSize;
+                for (f32 x = gridX; x < viewMax.x; x += gridSize)
+                    drawList->AddLine(ImVec2(x, viewMin.y), ImVec2(x, viewMax.y), gridColor);
+
+                f32 gridY = canvasPos.y + m_Settings.ScrollOffset.y;
+                while (gridY > viewMin.y)
+                    gridY -= gridSize;
+                for (f32 y = gridY; y < viewMax.y; y += gridSize)
+                    drawList->AddLine(ImVec2(viewMin.x, y), ImVec2(viewMax.x, y), gridColor);
+            }
+
+            // Apply scroll position and any debug pan offset.
+            auto offset = ImVec2(canvasPos.x + m_Settings.ScrollOffset.x, canvasPos.y + m_Settings.ScrollOffset.y);
+
+            // Draw connections between nodes
+            DrawConnections(graph, drawList, offset);
+
+            // Draw nodes
+            f32 maxWidth = 0.0f;
+            for (const auto& pass : passes)
+            {
+                DrawNode(pass, drawList, offset, maxWidth);
+            }
+
+            // Show tooltip when hovering over a node
+            if (isCanvasHovered && ImGui::IsMouseHoveringRect(viewMin, viewMax))
+            {
+                const ImVec2 mousePos = ImGui::GetIO().MousePos;
+                for (const auto& [passName, nodeData] : m_NodePositions)
                 {
-                    // Find the pass and show tooltip
-                    for (const auto& pass : passes)
+                    auto nodeMin = ImVec2(offset.x + nodeData.Position.x, offset.y + nodeData.Position.y);
+                    auto nodeMax = ImVec2(nodeMin.x + nodeData.Size.x, nodeMin.y + nodeData.Size.y);
+
+                    if (mousePos.x >= nodeMin.x && mousePos.x <= nodeMax.x &&
+                        mousePos.y >= nodeMin.y && mousePos.y <= nodeMax.y)
                     {
-                        if (pass->GetName() == passName)
+                        // Find the pass and show tooltip
+                        for (const auto& pass : passes)
                         {
-                            DrawTooltip(pass);
-                            break;
+                            if (pass->GetName() == passName)
+                            {
+                                DrawTooltip(pass);
+                                break;
+                            }
                         }
+                        break;
                     }
-                    break;
                 }
             }
+
+            drawList->PopClipRect();
         }
+        ImGui::EndChild();
 
         ImGui::End();
     }
@@ -211,7 +383,8 @@ namespace OloEngine
         dotFile << "  edge [color=\"#AAAAAA\"];\n\n";
 
         // Get all passes
-        auto passes = graph->GetAllPasses();
+        auto passes = GetVisiblePasses(graph);
+        const auto visibleNames = BuildVisiblePassNameSet(passes);
 
         // Write nodes
         for (const auto& pass : passes)
@@ -248,6 +421,9 @@ namespace OloEngine
         const auto& connections = graph->GetConnections();
         for (const auto& connection : connections)
         {
+            if (!visibleNames.contains(connection.OutputPass) || !visibleNames.contains(connection.InputPass))
+                continue;
+
             dotFile << "  \"" << connection.OutputPass << "\" -> \"" << connection.InputPass << "\";\n";
         }
 
@@ -327,6 +503,7 @@ namespace OloEngine
     void RenderGraphDebugger::DrawConnections(const Ref<RenderGraph>& graph, ImDrawList* drawList, const ImVec2& offset)
     {
         const auto& connections = graph->GetConnections();
+        const auto resourceLabels = BuildConnectionResourceLabels(graph);
         for (const auto& connection : connections)
         {
             const std::string& outputName = connection.OutputPass;
@@ -373,6 +550,12 @@ namespace OloEngine
                              end.y + dir.y * arrowSize - norm.y * arrowSize);
 
             drawList->AddTriangleFilled(end, p1, p2, m_Settings.ConnectionColor);
+
+            if (const auto labelIt = resourceLabels.find(MakeConnectionKey(outputName, inputName)); labelIt != resourceLabels.end())
+            {
+                const ImVec2 mid((start.x + end.x) * 0.5f, (start.y + end.y) * 0.5f);
+                drawList->AddText(ImVec2(mid.x + 4.0f, mid.y - 10.0f), IM_COL32(180, 210, 255, 220), labelIt->second.c_str());
+            }
         }
     }
 
@@ -408,7 +591,7 @@ namespace OloEngine
 
         m_NodePositions.clear();
 
-        auto passes = graph->GetAllPasses();
+        auto passes = GetVisiblePasses(graph);
 
         // Step 1: Create a dependency graph
         std::unordered_map<std::string, std::vector<std::string>> dependsOn;  // pass -> passes it depends on
@@ -521,25 +704,6 @@ namespace OloEngine
         }
     }
 
-    // Update the LayoutSettings struct to include scroll offset
-    struct LayoutSettings
-    {
-        f32 NodeWidth = 150.0f;
-        f32 NodeHeight = 60.0f;
-        f32 NodeSpacingX = 50.0f;
-        f32 NodeSpacingY = 100.0f;
-        f32 CanvasPadding = 20.0f;
-        ImColor BackgroundColor = ImColor(40, 40, 40, 255);
-        ImColor ConnectionColor = ImColor(180, 180, 180, 255);
-        ImColor NodeBorderColor = ImColor(200, 200, 200, 255);
-        ImColor NodeFillColor = ImColor(70, 70, 70, 255);
-        ImColor FinalNodeFillColor = ImColor(70, 100, 70, 255);
-        f32 ConnectionThickness = 2.0f;
-        f32 NodeBorderThickness = 1.0f;
-        bool DrawGrid = true;
-        ImVec2 ScrollOffset = ImVec2(0.0f, 0.0f);
-    };
-
     void RenderGraphDebugger::DrawCapturePanel(const Ref<RenderGraph>& graph)
     {
         ImGui::SameLine();
@@ -585,9 +749,8 @@ namespace OloEngine
             }
             else
             {
-                ImGui::TextWrapped("%zu capture(s) — one per (pass × source). Click a thumbnail to enlarge. "
-                                   "The thumbnails are post-pass snapshots of each surface (SceneColor, "
-                                   "PostProcessColor, etc.) AFTER that pass executed.",
+                ImGui::TextWrapped("%zu capture(s). Click a thumbnail to enlarge. SceneColor is captured as a timeline; "
+                                   "G-Buffer, AO, post-chain, UIComposite, and Backbuffer captures are recorded after their owning pass writes them.",
                                    captures.size());
                 ImGui::Separator();
 
@@ -606,6 +769,10 @@ namespace OloEngine
 
                         const std::string label = std::format("{} | {}", entry.PassName, RenderGraphFrameCapture::SourceName(entry.SourceKind));
                         ImGui::TextUnformatted(label.c_str());
+                        if (!entry.ResourceName.empty())
+                        {
+                            ImGui::TextDisabled("%s", entry.ResourceName.c_str());
+                        }
 
                         if (entry.NonBlackSamples == 0)
                         {
@@ -644,7 +811,18 @@ namespace OloEngine
                         const auto& entry = captures[static_cast<sizet>(m_SelectedCaptureIndex)];
                         ImGui::Text("Pass:   %s", entry.PassName.c_str());
                         ImGui::Text("Source: %s", RenderGraphFrameCapture::SourceName(entry.SourceKind));
+                        ImGui::Text("Resource: %s", entry.ResourceName.empty() ? "<unknown>" : entry.ResourceName.c_str());
                         ImGui::Text("Size:   %u x %u", entry.Width, entry.Height);
+                        ImGui::Text("GL IDs: sourceTex=%u  sourceFB=%u  captureTex=%u",
+                                    entry.SourceTextureID, entry.SourceFramebufferID, entry.TextureID);
+                        if (entry.PassOrderIndex != std::numeric_limits<u32>::max())
+                        {
+                            ImGui::Text("Graph:  passIndex=%u  resources=%u  barriers=%u  culled=%u",
+                                        entry.PassOrderIndex,
+                                        entry.ResourceCount,
+                                        entry.PlannedBarrierCount,
+                                        entry.CulledPassCount);
+                        }
                         ImGui::Text("Probe:  nonBlack=%u/9  nonTransparent=%u/9  center=(%u,%u,%u,%u)",
                                     entry.NonBlackSamples,
                                     entry.NonTransparentSamples,

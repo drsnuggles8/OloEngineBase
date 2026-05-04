@@ -48,7 +48,7 @@ namespace OloEngine
         // Add an execution-ordering dependency without framebuffer piping.
         // Use this when the upstream pass produces outputs consumed via texture bindings
         // rather than framebuffer attachments (e.g., shadow maps).
-        void AddExecutionDependency(const std::string& beforePass, const std::string& afterPass);
+        void AddExecutionDependency(const std::string& beforePass, const std::string& afterPass, bool persistent = true);
 
         // Execute all passes in the correct order
         void Execute();
@@ -363,6 +363,13 @@ namespace OloEngine
         [[nodiscard]] const std::vector<PassTiming>& GetLastPassTimings() const
         {
             return m_LastPassTimings;
+        }
+
+        // Get the list of passes that were culled in the last reachability
+        // analysis. Useful for debugging and frame-capture metadata.
+        [[nodiscard]] const std::vector<std::string>& GetCulledPasses() const
+        {
+            return m_CulledPasses;
         }
 
         // -------------------------------------------------------------------
@@ -685,6 +692,7 @@ namespace OloEngine
         // will be culled unless they have side effects.
         void ComputeReachability();
         void ComputeBarrierPlan();
+        void LogSubmissionPlanIfChanged();
         [[nodiscard]] static MemoryBarrierFlags ResolveProducerBarrierFlags(RGWriteUsage usage);
         [[nodiscard]] static MemoryBarrierFlags ResolveConsumerBarrierFlags(RGReadUsage usage);
 
@@ -695,15 +703,9 @@ namespace OloEngine
         [[nodiscard]] bool IsHistoryTextureResource(std::string_view resourceName) const;
         [[nodiscard]] bool IsResourceReachableForExtraction(std::string_view resourceName) const;
 
-        // Get the list of passes that were culled in the last reachability
-        // analysis. Useful for debugging and profiling.
-        [[nodiscard]] const std::vector<std::string>& GetCulledPasses() const
-        {
-            return m_CulledPasses;
-        }
-
         std::unordered_map<std::string, Ref<RenderPass>> m_PassLookup;
-        std::unordered_map<std::string, std::vector<std::string>> m_Dependencies; // Execution ordering
+        std::unordered_map<std::string, std::vector<std::string>> m_Dependencies;         // Execution ordering
+        std::unordered_map<std::string, std::vector<std::string>> m_ExplicitDependencies; // Persistent ordering edges
 
         std::vector<std::string> m_InsertionOrder; // Pass names in AddPass() order (stable topo tie-break)
         std::vector<std::string> m_PassOrder;
@@ -731,6 +733,8 @@ namespace OloEngine
         // Avoids per-frame hash lookups in Execute().
         std::vector<RenderPass*> m_CachedExecutionOrder;
         std::vector<SubmissionCommand> m_CachedSubmissionPlan; ///< IR cached after barrier planning
+        std::string m_LastLoggedSubmissionPlanDigest;
+        std::string m_LastLoggedCulledPassDigest;
 
         std::unordered_map<std::string, RGResourceDesc> m_ImportedResources;
 
@@ -777,6 +781,7 @@ namespace OloEngine
         mutable std::vector<PhysicalTexture> m_PhysicalTextures;
         mutable std::vector<PhysicalFramebuffer> m_PhysicalFramebuffers;
         mutable std::vector<PhysicalBuffer> m_PhysicalBuffers;
+        mutable std::unordered_set<std::string> m_PlaceholderResolveWarningsThisFrame;
 
         // -------------------------------------------------------------------
         // Phase B — Extraction queue

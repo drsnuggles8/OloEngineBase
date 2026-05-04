@@ -163,6 +163,21 @@ namespace OloEngine
             return;
         }
 
+        {
+            static u32 s_PrevDepthID = 0;
+            static u32 s_PrevNormalsID = 0;
+            static u32 s_PrevAOID = 0;
+            const u32 aoID = GetGTAOTextureID();
+            if (depthID != s_PrevDepthID || normalsID != s_PrevNormalsID || aoID != s_PrevAOID)
+            {
+                OLO_CORE_INFO("GTAORenderPass: inputs depthTex={}, normalsTex={}, outputAOTex={} ({}x{})",
+                              depthID, normalsID, aoID, m_Width, m_Height);
+                s_PrevDepthID = depthID;
+                s_PrevNormalsID = normalsID;
+                s_PrevAOID = aoID;
+            }
+        }
+
         // Step 1: Generate HZB from scene depth
         m_HZBGenerator.Generate(depthID);
 
@@ -216,6 +231,9 @@ namespace OloEngine
         m_GPUData->DenoiseEnabled = m_Settings.GTAODenoiseEnabled ? 1 : 0;
         m_GPUData->DenoisePasses = m_Settings.GTAODenoisePasses;
         m_GPUData->DebugView = m_Settings.GTAODebugView ? 1 : 0;
+
+        // View matrix: transforms world-space GBuffer normals to view-space
+        m_GPUData->ViewMatrix = m_ViewMatrix;
 
         m_GTAOUBO->SetData(m_GPUData, UBOStructures::GTAOUBO::GetSize());
         m_GTAOUBO->Bind();

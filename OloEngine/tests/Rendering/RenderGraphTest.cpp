@@ -478,6 +478,156 @@ TEST(RenderGraph, ReportsMissingProducerDiagnosticForReadOnlyResource)
     ASSERT_NE(diagIt, diagnostics.end());
 }
 
+TEST(RenderGraph, RuntimeDeclarationsOverrideStaticDeclarationsForReachability)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto scene = Ref<DeclarationTrackingStubPass>::Create("Scene");
+    auto optionalPost = Ref<DeclarationTrackingStubPass>::Create("OptionalPost");
+    auto final = Ref<DeclarationTrackingStubPass>::Create("Final");
+
+    // These static declarations mimic optional renderer passes whose Init()
+    // contracts are broader than the currently active frame graph setup.
+    optionalPost->TestDeclareRead("SceneColor");
+    optionalPost->TestDeclareWrite("OptionalColor");
+    final->TestDeclareRead("OptionalColor");
+
+    graph.AddPass(scene);
+    graph.AddPass(optionalPost);
+    graph.AddPass(final);
+
+    graph.RegisterGraphPass(
+        "Scene",
+        [](RGBuilder& builder)
+        {
+            auto sceneColor = builder.ImportTexture(
+                "SceneColor",
+                1,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SceneColor"));
+            builder.Write(sceneColor, RGWriteUsage::RenderTarget);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.RegisterGraphPass(
+        "OptionalPost",
+        [](RGBuilder& /*builder*/)
+        {
+            // Disabled this frame: no reads or writes should participate in reachability.
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.RegisterGraphPass(
+        "Final",
+        [](RGBuilder& builder)
+        {
+            auto sceneColor = builder.ImportTexture(
+                "SceneColor",
+                1,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SceneColor"));
+            [[maybe_unused]] const auto readScene = builder.Read(sceneColor, RGReadUsage::ShaderSample);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.SetFinalPass("Final");
+    graph.BuildFrameGraph();
+    graph.Execute();
+
+    const auto& culledPasses = graph.GetCulledPasses();
+    EXPECT_NE(std::find(culledPasses.begin(), culledPasses.end(), "OptionalPost"), culledPasses.end())
+        << "Disabled optional pass should be hidden from the active graph despite static declarations";
+    EXPECT_EQ(scene->GetExecuteCount(), 1u);
+    EXPECT_EQ(optionalPost->GetExecuteCount(), 0u);
+    EXPECT_EQ(final->GetExecuteCount(), 1u);
+}
+
+TEST(RenderGraph, DerivedDependenciesAreRebuiltFromCurrentFrameDeclarations)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto scene = AddStub(graph, "Scene");
+    auto optionalPost = AddStub(graph, "OptionalPost");
+    auto final = AddStub(graph, "Final");
+
+    bool optionalEnabled = true;
+
+    graph.RegisterGraphPass(
+        "Scene",
+        [](RGBuilder& builder)
+        {
+            auto sceneColor = builder.ImportTexture(
+                "SceneColor",
+                1,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SceneColor"));
+            builder.Write(sceneColor, RGWriteUsage::RenderTarget);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.RegisterGraphPass(
+        "OptionalPost",
+        [&optionalEnabled](RGBuilder& builder)
+        {
+            if (!optionalEnabled)
+                return;
+
+            auto sceneColor = builder.ImportTexture(
+                "SceneColor",
+                1,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SceneColor"));
+            [[maybe_unused]] const auto readScene = builder.Read(sceneColor, RGReadUsage::ShaderSample);
+
+            auto optionalColor = builder.ImportTexture(
+                "OptionalColor",
+                2,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "OptionalColor"));
+            builder.Write(optionalColor, RGWriteUsage::RenderTarget);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.RegisterGraphPass(
+        "Final",
+        [&optionalEnabled](RGBuilder& builder)
+        {
+            auto input = builder.ImportTexture(
+                optionalEnabled ? "OptionalColor" : "SceneColor",
+                optionalEnabled ? 2u : 1u,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D,
+                                           optionalEnabled ? "OptionalColor" : "SceneColor"));
+            [[maybe_unused]] const auto readInput = builder.Read(input, RGReadUsage::ShaderSample);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.SetFinalPass("Final");
+
+    graph.BuildFrameGraph();
+    graph.Execute();
+    EXPECT_EQ(scene->GetExecuteCount(), 1u);
+    EXPECT_EQ(optionalPost->GetExecuteCount(), 1u);
+    EXPECT_EQ(final->GetExecuteCount(), 1u);
+
+    optionalEnabled = false;
+    graph.BuildFrameGraph();
+    graph.Execute();
+
+    const auto& culledPasses = graph.GetCulledPasses();
+    EXPECT_NE(std::find(culledPasses.begin(), culledPasses.end(), "OptionalPost"), culledPasses.end())
+        << "Derived edges from the enabled frame must not keep a disabled pass reachable";
+
+    const auto connections = graph.GetConnections();
+    const auto staleEdge = std::find_if(connections.begin(), connections.end(),
+                                        [](const RenderGraph::ConnectionInfo& connection)
+                                        {
+                                            return connection.OutputPass == "OptionalPost" ||
+                                                   connection.InputPass == "OptionalPost";
+                                        });
+    EXPECT_EQ(staleEdge, connections.end()) << "Disabled pass should not keep stale derived dependencies";
+
+    EXPECT_EQ(scene->GetExecuteCount(), 2u);
+    EXPECT_EQ(optionalPost->GetExecuteCount(), 1u);
+    EXPECT_EQ(final->GetExecuteCount(), 2u);
+}
+
 TEST(RenderGraph, ReportsStaleExtractionHandleDiagnostic)
 {
     RenderGraph graph;
@@ -611,7 +761,7 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
     ASSERT_TRUE(in.is_open());
 
     std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    EXPECT_NE(json.find("\"schemaVersion\": 12"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 13"), std::string::npos);
     EXPECT_NE(json.find("\"timingVersion\": 4"), std::string::npos);
     EXPECT_NE(json.find("\"hasTimings\": true"), std::string::npos);
     EXPECT_NE(json.find("\"frameSummary\""), std::string::npos);
@@ -638,6 +788,10 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
     EXPECT_NE(json.find("\"accessModes\""), std::string::npos);
     EXPECT_NE(json.find("\"resources\""), std::string::npos);
     EXPECT_NE(json.find("\"isHistory\": false"), std::string::npos);
+    EXPECT_NE(json.find("\"textureID\": 0"), std::string::npos);
+    EXPECT_NE(json.find("\"bufferID\": 41"), std::string::npos);
+    EXPECT_NE(json.find("\"framebufferID\": 0"), std::string::npos);
+    EXPECT_NE(json.find("\"framebufferColor0ID\": 0"), std::string::npos);
     EXPECT_NE(json.find("\"temporalHistoryContracts\""), std::string::npos);
     EXPECT_NE(json.find("\"timingSummary\""), std::string::npos);
     EXPECT_NE(json.find("\"executedPasses\": 2"), std::string::npos);
@@ -2624,7 +2778,7 @@ TEST(RenderGraphComputeHoist, MultipleComputePassesAllHoisted)
 TEST(RenderGraphDumpJson, PassFlagsAreSurfacedInDump)
 {
     // A graph with one graphics pass and one async-compute pass must produce
-    // schemaVersion 6 JSON containing a passFlags array with correct entries,
+    // schemaVersion 13 JSON containing a passFlags array with correct entries,
     // frameSummary counters, and per-entry workType/asyncComputeCandidate in
     // executionTimeline and timingStatsByPass.
     RenderGraph graph;
@@ -2648,7 +2802,7 @@ TEST(RenderGraphDumpJson, PassFlagsAreSurfacedInDump)
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
     // Schema version bump
-    EXPECT_NE(json.find("\"schemaVersion\": 12"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 13"), std::string::npos);
 
     // frameSummary compute counts
     EXPECT_NE(json.find("\"computePassCount\": 1"), std::string::npos);
@@ -3173,7 +3327,7 @@ TEST(RenderGraphSubmissionPlan, DumpToJsonIncludesSubmissionPlan)
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 12"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 13"), std::string::npos);
     EXPECT_NE(json.find("\"submissionCommandCount\":"), std::string::npos);
     EXPECT_NE(json.find("\"submissionPlan\""), std::string::npos);
     EXPECT_NE(json.find("\"kind\": \"BatchBegin\""), std::string::npos);
@@ -3528,7 +3682,7 @@ TEST(RenderGraphTemporalHistoryContracts, DumpToJsonIncludesHistoryResourcesAndC
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 12"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 13"), std::string::npos);
     EXPECT_NE(json.find("\"historyResourceCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"temporalHistoryContractCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"name\": \"TAAHistory\", \"kind\": \"Texture2D\", \"imported\": true, \"isHistory\": true"), std::string::npos);
@@ -3787,7 +3941,7 @@ TEST(RenderGraphAsyncBatchResources, DumpToJsonIncludesBatchResourceDeps)
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 12"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 13"), std::string::npos);
     EXPECT_NE(json.find("\"asyncBatchCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"batchInputResourceCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"batchOutputResourceCount\": 1"), std::string::npos);
@@ -4030,7 +4184,7 @@ TEST(RenderGraphResourceTransitions, DumpToJsonIncludesResourceTransitions)
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 12"), std::string::npos)
+    EXPECT_NE(json.find("\"schemaVersion\": 13"), std::string::npos)
         << "Schema must be version 12 for Slice 14";
     EXPECT_NE(json.find("\"resourceTransitionCount\": 1"), std::string::npos)
         << "frameSummary must expose resourceTransitionCount";
@@ -4245,7 +4399,7 @@ TEST(RenderGraphResourceLifetimes, DumpToJsonIncludesResourceLifetimes)
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 12"), std::string::npos)
+    EXPECT_NE(json.find("\"schemaVersion\": 13"), std::string::npos)
         << "Schema must be version 12 for Slice 14";
     EXPECT_NE(json.find("\"resourceLifetimeCount\""), std::string::npos)
         << "frameSummary must expose resourceLifetimeCount";
@@ -4523,7 +4677,7 @@ TEST(RenderGraphSubresourceRange, DumpToJsonIncludesRange)
     ASSERT_TRUE(in.is_open()) << "DumpToJson must create the output file";
     std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 12"), std::string::npos)
+    EXPECT_NE(json.find("\"schemaVersion\": 13"), std::string::npos)
         << "Schema must be bumped to 12 for Slice 14";
     EXPECT_NE(json.find("\"range\""), std::string::npos)
         << "At least one range object must be present in the JSON output";
@@ -4705,7 +4859,7 @@ TEST(RenderGraphCrossLaneSync, DumpToJsonIncludesCrossLaneSyncFields)
     ASSERT_TRUE(in.is_open()) << "DumpToJson must create the output file";
     std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 12"), std::string::npos)
+    EXPECT_NE(json.find("\"schemaVersion\": 13"), std::string::npos)
         << "Schema must be version 12 for Slice 14";
     EXPECT_NE(json.find("\"crossLaneSyncCount\""), std::string::npos)
         << "frameSummary must include crossLaneSyncCount";

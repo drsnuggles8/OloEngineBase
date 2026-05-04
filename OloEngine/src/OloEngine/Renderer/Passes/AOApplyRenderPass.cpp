@@ -79,15 +79,16 @@ namespace OloEngine
         }
         // Self-resolving AO texture and SceneDepth.
         u32 aoTextureID = 0;
+        u32 sceneDepthID = 0;
         if (const auto* board = context.GetBlackboard())
-            aoTextureID = context.ResolveTexture(board->AOBuffer);
-
-        u32 sceneDepthID = m_SceneDepthTextureID;
-        if (sceneDepthID == 0)
         {
-            if (const auto* board = context.GetBlackboard())
-                sceneDepthID = context.ResolveTexture(board->SceneDepth);
+            aoTextureID = context.ResolveTexture(board->AOBuffer);
+            sceneDepthID = context.ResolveTexture(board->SceneDepth);
         }
+
+        // Legacy fallback (headless/tests) when no blackboard depth is available.
+        if (sceneDepthID == 0)
+            sceneDepthID = m_SceneDepthTextureID;
 
         if (!inputFramebuffer || !m_OutputFB)
         {
@@ -124,11 +125,24 @@ namespace OloEngine
             return;
         }
 
+        {
+            static u32 s_PrevAOTextureID = 0;
+            if (aoTextureID != s_PrevAOTextureID)
+            {
+                OLO_CORE_INFO("AOApplyRenderPass: applying AO with aoTex={} depthTex={}", aoTextureID, sceneDepthID);
+                s_PrevAOTextureID = aoTextureID;
+            }
+        }
+
         // Rebind the PostProcessUBO before any fullscreen shader reads it.
         // SetData() updates the buffer object but does not restore the
         // indexed binding (IBL precompute also uses binding 7).
         if (m_PostProcessUBO)
             m_PostProcessUBO->Bind();
+        // Rebind SSAOUBO (binding 9) — other passes may displace this binding
+        // between EndScene()'s upload and this Execute() call.
+        if (m_SSAOUBO)
+            m_SSAOUBO->Bind();
 
         constexpr u32 colorAttachment = 0;
         m_OutputFB->Bind();

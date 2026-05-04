@@ -6,6 +6,16 @@
 > [deferred-renderer.md](deferred-renderer.md) whenever the graph contract
 > changes.
 
+> **Checkpoint [2026-05-04 audit]:** Production render data flow is now
+> graph/blackboard driven: `Renderer3D` no longer calls `ConnectPass`,
+> `SetInputFramebufferHandle`, or production `AddExecutionDependency` during
+> graph construction. Phase F is complete. The compiler/runtime infrastructure
+> through Phase G.12 is implemented for the GL backend, but the roadmap is not
+> fully exhausted: real multi-queue scheduling/back-end lowering, execute-path
+> fallback isolation, multi-view materialisation, and retirement of remaining
+> compatibility scaffolding are still tracked follow-up work (see G.13–G.15 and
+> H.1–H.3 below).
+
 This document tracks the long-term evolution of OloEngine's RenderGraph from
 its current incarnation — a statically-wired pass list with a hazard validator
 — towards a true *adaptive* render graph in the mould of Frostbite's

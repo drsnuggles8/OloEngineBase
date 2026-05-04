@@ -50,6 +50,11 @@ namespace OloEngine
         return s_FullscreenTriangleVA;
     }
 
+    void MeshPrimitives::Shutdown()
+    {
+        s_FullscreenTriangleVA.Reset();
+    }
+
     Ref<Mesh> MeshPrimitives::CreateCube()
     {
         OLO_PROFILE_FUNCTION();

@@ -55,6 +55,12 @@ namespace OloEngine
             m_Projection = projection;
         }
 
+        // View matrix needed to transform world-space GBuffer normals to view-space
+        void SetViewMatrix(const glm::mat4& view)
+        {
+            m_ViewMatrix = view;
+        }
+
         [[nodiscard]] u32 GetGTAOTextureID() const;
         [[nodiscard]] u32 GetWidth() const
         {
@@ -98,6 +104,7 @@ namespace OloEngine
 
         PostProcessSettings m_Settings;
         glm::mat4 m_Projection{ 1.0f };
+        glm::mat4 m_ViewMatrix{ 1.0f };
 
         u32 m_Width = 0;
         u32 m_Height = 0;

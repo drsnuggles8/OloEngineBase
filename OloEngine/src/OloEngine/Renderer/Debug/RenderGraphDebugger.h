@@ -76,6 +76,7 @@ namespace OloEngine
         // Selected capture index for the full-size preview pane (-1 = none).
         i32 m_SelectedCaptureIndex = -1;
         bool m_CaptureWindowOpen = false;
+        std::string m_VisiblePassDigest;
 
         // Layout algorithm
         void CalculateLayout(const Ref<RenderGraph>& graph);

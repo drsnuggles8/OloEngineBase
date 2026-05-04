@@ -62,6 +62,11 @@ namespace OloEngine
             m_PostProcessUBO = ubo;
         }
 
+        void SetSSAOUBO(const Ref<UniformBuffer>& ubo) noexcept
+        {
+            m_SSAOUBO = ubo;
+        }
+
       private:
         void CreateFramebuffer(u32 width, u32 height);
 
@@ -71,6 +76,7 @@ namespace OloEngine
 
         Ref<Shader> m_SSAOApplyShader;
         Ref<UniformBuffer> m_PostProcessUBO;
+        Ref<UniformBuffer> m_SSAOUBO;
 
         u32 m_SceneDepthTextureID = 0;
     };

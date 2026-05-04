@@ -86,7 +86,28 @@ namespace OloEngine
             clearFlags |= GL_STENCIL_BUFFER_BIT;
         }
 
+        GLint previousStencilWriteMask = 0;
+        const bool clearingStencil = (clearFlags & GL_STENCIL_BUFFER_BIT) != 0;
+        bool restoreStencilWriteMask = false;
+        if (clearingStencil)
+        {
+            glGetIntegerv(GL_STENCIL_WRITEMASK, &previousStencilWriteMask);
+            if (previousStencilWriteMask == 0)
+            {
+                // Some passes intentionally lock stencil writes with mask=0.
+                // glClear(GL_STENCIL_BUFFER_BIT) with mask=0 triggers debug
+                // warning 131076 and clears nothing. Temporarily enable writes.
+                glStencilMask(0xFF);
+                restoreStencilWriteMask = true;
+            }
+        }
+
         glClear(clearFlags);
+
+        if (restoreStencilWriteMask)
+        {
+            glStencilMask(static_cast<GLuint>(previousStencilWriteMask));
+        }
     }
 
     void OpenGLRendererAPI::ClearDepthOnly()
@@ -350,7 +371,20 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        GLint previousStencilWriteMask = 0;
+        glGetIntegerv(GL_STENCIL_WRITEMASK, &previousStencilWriteMask);
+        const bool restoreStencilWriteMask = previousStencilWriteMask == 0;
+        if (restoreStencilWriteMask)
+        {
+            glStencilMask(0xFF);
+        }
+
         glClear(GL_STENCIL_BUFFER_BIT);
+
+        if (restoreStencilWriteMask)
+        {
+            glStencilMask(static_cast<GLuint>(previousStencilWriteMask));
+        }
     }
     void OpenGLRendererAPI::SetBlendState(bool value)
     {

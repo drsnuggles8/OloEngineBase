@@ -707,9 +707,29 @@ namespace OloEngine
             return s_Data.ShadowPass;
         }
 
+        static const Ref<DeferredLightingPass>& GetDeferredLightingPass()
+        {
+            return s_Data.DeferredLightPass;
+        }
+
+        static const Ref<DeferredOpaqueDecalPass>& GetDeferredOpaqueDecalPass()
+        {
+            return s_Data.OpaqueDecalPass;
+        }
+
+        static const Ref<ForwardOverlayRenderPass>& GetForwardOverlayPass()
+        {
+            return s_Data.ForwardOverlayPass;
+        }
+
         static const Ref<FoliageRenderPass>& GetFoliagePass()
         {
             return s_Data.FoliagePass;
+        }
+
+        static const Ref<WaterRenderPass>& GetWaterPass()
+        {
+            return s_Data.WaterPass;
         }
 
         static const Ref<DecalRenderPass>& GetDecalPass()
@@ -727,9 +747,74 @@ namespace OloEngine
             return s_Data.OITResolvePass;
         }
 
+        static const Ref<SSAORenderPass>& GetSSAOPass()
+        {
+            return s_Data.SSAOPass;
+        }
+
         static const Ref<GTAORenderPass>& GetGTAOPass()
         {
             return s_Data.GTAOPass;
+        }
+
+        static const Ref<AOApplyRenderPass>& GetAOApplyPass()
+        {
+            return s_Data.AOApplyPass;
+        }
+
+        static const Ref<BloomRenderPass>& GetBloomPass()
+        {
+            return s_Data.BloomPass;
+        }
+
+        static const Ref<DOFRenderPass>& GetDOFPass()
+        {
+            return s_Data.DOFPass;
+        }
+
+        static const Ref<MotionBlurRenderPass>& GetMotionBlurPass()
+        {
+            return s_Data.MotionBlurPass;
+        }
+
+        static const Ref<TAARenderPass>& GetTAAPass()
+        {
+            return s_Data.TAAPass;
+        }
+
+        static const Ref<PrecipitationRenderPass>& GetPrecipitationPass()
+        {
+            return s_Data.PrecipitationPass;
+        }
+
+        static const Ref<FogRenderPass>& GetFogPass()
+        {
+            return s_Data.FogPass;
+        }
+
+        static const Ref<ChromaticAberrationRenderPass>& GetChromAberrationPass()
+        {
+            return s_Data.ChromAberrationPass;
+        }
+
+        static const Ref<ColorGradingRenderPass>& GetColorGradingPass()
+        {
+            return s_Data.ColorGradingPass;
+        }
+
+        static const Ref<ToneMapRenderPass>& GetToneMapPass()
+        {
+            return s_Data.ToneMapPass;
+        }
+
+        static const Ref<VignetteRenderPass>& GetVignettePass()
+        {
+            return s_Data.VignettePass;
+        }
+
+        static const Ref<FXAARenderPass>& GetFXAAPass()
+        {
+            return s_Data.FXAAPass;
         }
 
         static const Ref<UICompositeRenderPass>& GetUICompositePass()
@@ -740,6 +825,11 @@ namespace OloEngine
         static const Ref<SelectionOutlineRenderPass>& GetSelectionOutlinePass()
         {
             return s_Data.SelectionOutlinePass;
+        }
+
+        static const Ref<FinalRenderPass>& GetFinalPass()
+        {
+            return s_Data.FinalPass;
         }
 
         static void SetSelectionOutlineEnabled(bool enabled)
@@ -1169,8 +1259,9 @@ namespace OloEngine
         static void ConfigureRenderGraph(RenderingPath path);
 
         // Phase B — Populate the graph's FrameBlackboard with live physical
-        // resources for the current frame.  Called at the end of
-        // BeginSceneCommon() so every resource is ready before Execute().
+        // resources for the current frame. Called from EndScene() after
+        // per-frame pass settings/outputs are configured so imported handles
+        // reflect the active technique for THIS frame.
         static void SetupFrameBlackboard();
 
         // @brief Returns true if `shader` is one of the engine's

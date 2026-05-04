@@ -190,6 +190,8 @@ namespace OloEngine
         u32 MipLevels = 1;
         u32 Samples = 1;
         bool Imported = false;
+        bool IsPlaceholder = false;
+        std::string PlaceholderReason;
         std::string DebugName;
 
         [[nodiscard]] static auto FromLegacy(ResourceHandle::Kind kind,

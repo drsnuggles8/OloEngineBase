@@ -439,6 +439,8 @@ namespace OloEngine
             f32 DepthLinearizeB = 0.0f; // proj[3][2]: depth linearization coeff B
             i32 DebugView = 0;          // 0 = off, 1 = AO only
 
+            glm::mat4 ViewMatrix{ 1.0f }; // Camera view matrix — transforms world-space normals to view-space
+
             static constexpr u32 GetSize()
             {
                 return sizeof(GTAOUBO);
@@ -505,7 +507,7 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::SelectionOutlineUBO) % 16 == 0, "SelectionOutlineUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::SelectionOutlineUBO) == 304, "SelectionOutlineUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::GTAOUBO) % 16 == 0, "GTAOUBO size must be 16-byte aligned for std140");
-    static_assert(sizeof(UBOStructures::GTAOUBO) == 96, "GTAOUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::GTAOUBO) == 160, "GTAOUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::JumpFloodUBO) % 16 == 0, "JumpFloodUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::JumpFloodUBO) == 48, "JumpFloodUBO unexpected size — update GLSL layout");
 

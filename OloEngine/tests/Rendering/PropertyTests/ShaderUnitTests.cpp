@@ -20,7 +20,12 @@
 
 #include "RenderPropertyTest.h"
 
+#include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/IBLPrecompute.h"
+#include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/ShaderLibrary.h"
+#include "OloEngine/Renderer/Texture.h"
 
 #define GLFW_INCLUDE_NONE
 #include <glad/gl.h>
@@ -31,6 +36,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstring>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -129,6 +135,82 @@ namespace OloEngine::Tests
                 ++monotoneViolations;
         }
         EXPECT_EQ(monotoneViolations, 0u) << "LinearToSrgb must be monotonically non-decreasing";
+    }
+
+    // =========================================================================
+    // BRDF LUT generation smoke test. Fully metallic PBR surfaces rely on the
+    // split-sum BRDF LUT for specular IBL. A degenerate fullscreen primitive or
+    // wrong vertex attribute layout silently produces an all-zero RG32F LUT,
+    // which removes the entire specular IBL term and turns metals black.
+    // =========================================================================
+    TEST(ShaderUnitIBLTest, BRDFLutGenerationProducesNonZeroSplitSum)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kSize = 32;
+
+        ShaderLibrary shaderLibrary;
+        auto shader = shaderLibrary.Load("BRDFLutGeneration", "assets/shaders/BRDFLutGeneration.glsl");
+        ASSERT_TRUE(shader != nullptr) << "Failed to load BRDFLutGeneration shader";
+
+        TextureSpecification spec{};
+        spec.Width = kSize;
+        spec.Height = kSize;
+        spec.Format = ImageFormat::RG32F;
+        spec.GenerateMips = false;
+        auto lut = Texture2D::Create(spec);
+        ASSERT_TRUE(lut != nullptr) << "Texture2D::Create returned null for BRDF LUT";
+        const auto cleanupLut = [&lut]()
+        {
+            lut.Reset();
+            MeshPrimitives::Shutdown();
+            FrameResourceManager::Get().FlushAllDeletionQueues();
+        };
+
+        IBLPrecompute::GenerateBRDFLut(lut, shaderLibrary);
+        ::glFinish();
+
+        std::vector<u8> bytes;
+        if (!lut->GetData(bytes, 0))
+        {
+            cleanupLut();
+            FAIL() << "BRDF LUT readback failed";
+        }
+        if (bytes.size() != static_cast<std::size_t>(kSize) * kSize * 2 * sizeof(f32))
+        {
+            cleanupLut();
+            FAIL() << "BRDF LUT readback size mismatch";
+        }
+
+        f32 maxA = 0.0f;
+        f32 maxB = 0.0f;
+        f64 sum = 0.0;
+        u32 invalidCount = 0;
+        const auto sampleCount = bytes.size() / (2 * sizeof(f32));
+        for (std::size_t i = 0; i < sampleCount; ++i)
+        {
+            f32 a = 0.0f;
+            f32 b = 0.0f;
+            std::memcpy(&a, bytes.data() + i * 2 * sizeof(f32), sizeof(f32));
+            std::memcpy(&b, bytes.data() + (i * 2 + 1) * sizeof(f32), sizeof(f32));
+
+            if (!std::isfinite(a) || !std::isfinite(b))
+            {
+                ++invalidCount;
+                continue;
+            }
+
+            maxA = std::max(maxA, a);
+            maxB = std::max(maxB, b);
+            sum += static_cast<f64>(std::abs(a)) + static_cast<f64>(std::abs(b));
+        }
+
+        EXPECT_EQ(invalidCount, 0u) << "BRDF LUT contains NaN/Inf samples";
+        EXPECT_GT(maxA, 0.1f) << "BRDF LUT A channel is unexpectedly dark";
+        EXPECT_GT(maxB, 0.001f) << "BRDF LUT B channel is unexpectedly dark";
+        EXPECT_GT(sum, 1.0) << "BRDF LUT payload is all zero";
+
+        cleanupLut();
     }
 
     // =========================================================================

@@ -36,6 +36,7 @@ namespace OloEngine
         // Clear all pass references
         m_PassLookup.clear();
         m_Dependencies.clear();
+        m_ExplicitDependencies.clear();
         m_InsertionOrder.clear();
         m_PassOrder.clear();
         m_FinalPassName.clear();
@@ -63,6 +64,7 @@ namespace OloEngine
         m_PhysicalTextures.clear();
         m_PhysicalFramebuffers.clear();
         m_PhysicalBuffers.clear();
+        m_PlaceholderResolveWarningsThisFrame.clear();
         m_TextureExtracts.clear();
         m_HistoryTextureExtracts.clear();
         m_FramebufferExtracts.clear();
@@ -84,6 +86,7 @@ namespace OloEngine
         // be re-registered by the caller as part of the new topology.
         m_PassLookup.clear();
         m_Dependencies.clear();
+        m_ExplicitDependencies.clear();
         m_InsertionOrder.clear();
         m_PassOrder.clear();
         m_FinalPassName.clear();
@@ -133,6 +136,7 @@ namespace OloEngine
         m_PhysicalTextures.clear();
         m_PhysicalFramebuffers.clear();
         m_PhysicalBuffers.clear();
+        m_PlaceholderResolveWarningsThisFrame.clear();
         m_TextureExtracts.clear();
         m_HistoryTextureExtracts.clear();
         m_FramebufferExtracts.clear();
@@ -187,6 +191,42 @@ namespace OloEngine
     RGTextureHandle RenderGraph::AllocateTextureHandle(std::string_view name, u32 textureID, bool isHistory)
     {
         RGTextureHandle handle;
+
+        // Prefer stable handle reuse by name so imported texture resources keep
+        // a deterministic slot across frames (matching framebuffer behavior).
+        // Without this, repeated ImportTexture(name, ...) churns slots and can
+        // leave stale handle copies around during graph rebuild transitions.
+        if (const auto existingIt = m_TextureHandlesByName.find(std::string(name));
+            existingIt != m_TextureHandlesByName.end() &&
+            existingIt->second.Index < m_TextureHandleSlots.size())
+        {
+            handle.Index = existingIt->second.Index;
+            auto& slot = m_TextureHandleSlots[handle.Index];
+            if (slot.Generation == 0)
+                slot.Generation = 1;
+            ++slot.Generation;
+            slot.Alive = true;
+            slot.Name = std::string(name);
+            handle.Generation = slot.Generation;
+
+            // If this slot was previously marked free, remove it from the free
+            // list before reusing it to avoid duplicate allocations of the same index.
+            const auto freeIt = std::find(m_FreeTextureHandleIndices.begin(),
+                                          m_FreeTextureHandleIndices.end(),
+                                          handle.Index);
+            if (freeIt != m_FreeTextureHandleIndices.end())
+                m_FreeTextureHandleIndices.erase(freeIt);
+
+            if (handle.Index >= m_PhysicalTextures.size())
+                m_PhysicalTextures.resize(static_cast<sizet>(handle.Index) + 1u);
+
+            auto& phys = m_PhysicalTextures[handle.Index];
+            phys.TextureID = textureID;
+            phys.IsHistory = isHistory;
+
+            m_TextureHandlesByName[std::string(name)] = handle;
+            return handle;
+        }
 
         if (!m_FreeTextureHandleIndices.empty())
         {
@@ -250,6 +290,12 @@ namespace OloEngine
             slot.Name = std::string(name);
             handle.Generation = slot.Generation;
 
+            const auto freeIt = std::find(m_FreeFramebufferHandleIndices.begin(),
+                                          m_FreeFramebufferHandleIndices.end(),
+                                          handle.Index);
+            if (freeIt != m_FreeFramebufferHandleIndices.end())
+                m_FreeFramebufferHandleIndices.erase(freeIt);
+
             if (handle.Index >= m_PhysicalFramebuffers.size())
                 m_PhysicalFramebuffers.resize(static_cast<sizet>(handle.Index) + 1u);
 
@@ -310,6 +356,34 @@ namespace OloEngine
     RGBufferHandle RenderGraph::AllocateBufferHandle(std::string_view name, u32 bufferID)
     {
         RGBufferHandle handle;
+
+        // Stable handle reuse by name, mirroring textures/framebuffers.
+        if (const auto existingIt = m_BufferHandlesByName.find(std::string(name));
+            existingIt != m_BufferHandlesByName.end() &&
+            existingIt->second.Index < m_BufferHandleSlots.size())
+        {
+            handle.Index = existingIt->second.Index;
+            auto& slot = m_BufferHandleSlots[handle.Index];
+            if (slot.Generation == 0)
+                slot.Generation = 1;
+            ++slot.Generation;
+            slot.Alive = true;
+            slot.Name = std::string(name);
+            handle.Generation = slot.Generation;
+
+            const auto freeIt = std::find(m_FreeBufferHandleIndices.begin(),
+                                          m_FreeBufferHandleIndices.end(),
+                                          handle.Index);
+            if (freeIt != m_FreeBufferHandleIndices.end())
+                m_FreeBufferHandleIndices.erase(freeIt);
+
+            if (handle.Index >= m_PhysicalBuffers.size())
+                m_PhysicalBuffers.resize(static_cast<sizet>(handle.Index) + 1u);
+
+            m_PhysicalBuffers[handle.Index].BufferID = bufferID;
+            m_BufferHandlesByName[std::string(name)] = handle;
+            return handle;
+        }
 
         if (!m_FreeBufferHandleIndices.empty())
         {
@@ -422,6 +496,19 @@ namespace OloEngine
         const auto& slot = m_TextureHandleSlots[handle.Index];
         if (!slot.Alive || slot.Generation != handle.Generation)
             return 0;
+
+        if (const auto descIt = m_ImportedResources.find(slot.Name); descIt != m_ImportedResources.end())
+        {
+            const auto& desc = descIt->second;
+            if (desc.IsPlaceholder && !m_PlaceholderResolveWarningsThisFrame.contains(slot.Name))
+            {
+                OLO_CORE_WARN("RenderGraph: resolving placeholder texture resource '{}' (reason: {})",
+                              slot.Name,
+                              desc.PlaceholderReason.empty() ? "unspecified" : desc.PlaceholderReason);
+                m_PlaceholderResolveWarningsThisFrame.insert(slot.Name);
+            }
+        }
+
         return m_PhysicalTextures[handle.Index].TextureID;
     }
 
@@ -434,6 +521,19 @@ namespace OloEngine
         const auto& slot = m_FramebufferHandleSlots[handle.Index];
         if (!slot.Alive || slot.Generation != handle.Generation)
             return nullptr;
+
+        if (const auto descIt = m_ImportedResources.find(slot.Name); descIt != m_ImportedResources.end())
+        {
+            const auto& desc = descIt->second;
+            if (desc.IsPlaceholder && !m_PlaceholderResolveWarningsThisFrame.contains(slot.Name))
+            {
+                OLO_CORE_WARN("RenderGraph: resolving placeholder framebuffer resource '{}' (reason: {})",
+                              slot.Name,
+                              desc.PlaceholderReason.empty() ? "unspecified" : desc.PlaceholderReason);
+                m_PlaceholderResolveWarningsThisFrame.insert(slot.Name);
+            }
+        }
+
         return m_PhysicalFramebuffers[handle.Index].FB;
     }
 
@@ -446,6 +546,19 @@ namespace OloEngine
         const auto& slot = m_BufferHandleSlots[handle.Index];
         if (!slot.Alive || slot.Generation != handle.Generation)
             return 0;
+
+        if (const auto descIt = m_ImportedResources.find(slot.Name); descIt != m_ImportedResources.end())
+        {
+            const auto& desc = descIt->second;
+            if (desc.IsPlaceholder && !m_PlaceholderResolveWarningsThisFrame.contains(slot.Name))
+            {
+                OLO_CORE_WARN("RenderGraph: resolving placeholder buffer resource '{}' (reason: {})",
+                              slot.Name,
+                              desc.PlaceholderReason.empty() ? "unspecified" : desc.PlaceholderReason);
+                m_PlaceholderResolveWarningsThisFrame.insert(slot.Name);
+            }
+        }
+
         return m_PhysicalBuffers[handle.Index].BufferID;
     }
 
@@ -825,7 +938,7 @@ namespace OloEngine
         AddExecutionDependency(outputPass, inputPass);
     }
 
-    void RenderGraph::AddExecutionDependency(const std::string& beforePass, const std::string& afterPass)
+    void RenderGraph::AddExecutionDependency(const std::string& beforePass, const std::string& afterPass, bool persistent)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -850,6 +963,15 @@ namespace OloEngine
             deps.push_back(beforePass);
         }
 
+        if (persistent)
+        {
+            auto& explicitDeps = m_ExplicitDependencies[afterPass];
+            if (std::find(explicitDeps.begin(), explicitDeps.end(), beforePass) == explicitDeps.end())
+            {
+                explicitDeps.push_back(beforePass);
+            }
+        }
+
         m_DependencyGraphDirty = true;
     }
 
@@ -859,6 +981,7 @@ namespace OloEngine
 
         m_LastPassTimings.clear();
         m_LastPassTimings.reserve(m_CachedExecutionOrder.size());
+        m_PlaceholderResolveWarningsThisFrame.clear();
 
         if (m_DependencyGraphDirty)
         {
@@ -886,6 +1009,7 @@ namespace OloEngine
             // the execution loop below is a simple sequential walk over a pre-built
             // IR rather than repeating inline barrier-map lookups every frame.
             m_CachedSubmissionPlan = GetSubmissionPlan();
+            LogSubmissionPlanIfChanged();
         }
 
         MaterializeTransientResources();
@@ -925,7 +1049,6 @@ namespace OloEngine
                 {
                     if (!IsPassReachable(cmd.PassName))
                     {
-                        OLO_CORE_TRACE("Skipping culled pass: {}", cmd.PassName);
                         break;
                     }
 
@@ -2102,6 +2225,69 @@ namespace OloEngine
         return lifetimes;
     }
 
+    void RenderGraph::LogSubmissionPlanIfChanged()
+    {
+        std::string digest;
+        std::unordered_map<std::string, u32> passIndexByName;
+        passIndexByName.reserve(m_CachedSubmissionPlan.size());
+
+        u32 passIndex = 0;
+        for (const auto& cmd : m_CachedSubmissionPlan)
+        {
+            if (cmd.CommandKind != SubmissionCommand::Kind::Pass)
+                continue;
+
+            if (!digest.empty())
+                digest += " -> ";
+
+            if (IsPassReachable(cmd.PassName))
+            {
+                digest += cmd.PassName;
+            }
+            else
+            {
+                digest += "(";
+                digest += cmd.PassName;
+                digest += ":culled)";
+            }
+
+            passIndexByName.emplace(cmd.PassName, passIndex++);
+        }
+
+        if (digest.empty())
+            digest = "<empty>";
+
+        if (digest == m_LastLoggedSubmissionPlanDigest)
+            return;
+
+        OLO_CORE_INFO("RenderGraph submission plan: {}", digest);
+
+        const auto passIndexLabel = [&passIndexByName](std::string_view passName) -> std::string
+        {
+            if (const auto it = passIndexByName.find(std::string(passName)); it != passIndexByName.end())
+                return "#" + std::to_string(it->second);
+            return "n/a";
+        };
+
+        if (passIndexByName.contains("SSAOPass") || passIndexByName.contains("GTAOPass") ||
+            passIndexByName.contains("AOApplyPass"))
+        {
+            OLO_CORE_INFO("RenderGraph AO/Post order: SSAO={}, GTAO={}, AOApply={}, Bloom={}, ToneMap={}, Vignette={}, FXAA={}, SelectionOutline={}, UIComposite={}, Final={}",
+                          passIndexLabel("SSAOPass"),
+                          passIndexLabel("GTAOPass"),
+                          passIndexLabel("AOApplyPass"),
+                          passIndexLabel("BloomPass"),
+                          passIndexLabel("ToneMapPass"),
+                          passIndexLabel("VignettePass"),
+                          passIndexLabel("FXAAPass"),
+                          passIndexLabel("SelectionOutlinePass"),
+                          passIndexLabel("UICompositePass"),
+                          passIndexLabel("FinalPass"));
+        }
+
+        m_LastLoggedSubmissionPlanDigest = std::move(digest);
+    }
+
     void RenderGraph::ResolveFinalPass()
     {
         OLO_PROFILE_FUNCTION();
@@ -2201,10 +2387,33 @@ namespace OloEngine
         {
             std::unordered_map<std::string, std::vector<std::string>> resourceWriters;
             resourceWriters.reserve(m_PassLookup.size() * 4u);
+
+            const auto findFrameAccesses = [this](const std::string& passName) -> const std::vector<RGAccessDeclaration>*
+            {
+                if (const auto accessIt = m_PassAccessDeclarations.find(passName); accessIt != m_PassAccessDeclarations.end())
+                {
+                    return &accessIt->second;
+                }
+                return nullptr;
+            };
+
             for (const auto& [passName, pass] : m_PassLookup)
             {
                 if (!pass)
                     continue;
+
+                if (const auto* accesses = findFrameAccesses(passName))
+                {
+                    for (const auto& access : *accesses)
+                    {
+                        if (access.IsWrite && !access.ResourceName.empty())
+                        {
+                            resourceWriters[access.ResourceName].push_back(passName);
+                        }
+                    }
+                    continue;
+                }
+
                 for (const ResourceHandle& write : pass->GetWrites())
                 {
                     if (!write.Name.empty())
@@ -2223,6 +2432,26 @@ namespace OloEngine
                     auto passIt = m_PassLookup.find(passName);
                     if (passIt == m_PassLookup.end() || !passIt->second)
                         continue;
+
+                    if (const auto* accesses = findFrameAccesses(passName))
+                    {
+                        for (const auto& access : *accesses)
+                        {
+                            if (access.IsWrite)
+                                continue;
+
+                            auto writerIt = resourceWriters.find(access.ResourceName);
+                            if (writerIt == resourceWriters.end())
+                                continue;
+                            for (const auto& writerName : writerIt->second)
+                            {
+                                if (m_ReachablePasses.insert(writerName).second)
+                                    anyNew = true;
+                            }
+                        }
+                        continue;
+                    }
+
                     for (const ResourceHandle& read : passIt->second->GetReads())
                     {
                         auto writerIt = resourceWriters.find(read.Name);
@@ -2246,13 +2475,30 @@ namespace OloEngine
             if (pass && pass->IsSideEffecting())
             {
                 m_ReachablePasses.insert(passName);
-                OLO_CORE_INFO("Pass '{}' is unreachable but has side effects; keeping it", passName);
+                OLO_CORE_TRACE("Pass '{}' is unreachable but has side effects; keeping it", passName);
             }
             else
             {
                 m_CulledPasses.push_back(passName);
-                OLO_CORE_INFO("Culling unreachable pass: '{}'", passName);
             }
+        }
+
+        std::sort(m_CulledPasses.begin(), m_CulledPasses.end());
+
+        std::string digest;
+        for (const auto& passName : m_CulledPasses)
+        {
+            if (!digest.empty())
+                digest += ",";
+            digest += passName;
+        }
+        if (digest.empty())
+            digest = "<none>";
+
+        if (digest != m_LastLoggedCulledPassDigest)
+        {
+            OLO_CORE_INFO("RenderGraph culled passes changed: {}", digest);
+            m_LastLoggedCulledPassDigest = std::move(digest);
         }
     }
 
@@ -4040,7 +4286,7 @@ namespace OloEngine
         };
 
         out << "{\n";
-        out << "  \"schemaVersion\": 12,\n";
+        out << "  \"schemaVersion\": 13,\n";
         out << "  \"timingVersion\": 4,\n";
         out << "  \"finalPass\": \"" << jsonEscape(m_FinalPassName) << "\",\n";
         out << "  \"hasExplicitFinalPass\": " << (m_HasExplicitFinalPass ? "true" : "false") << ",\n";
@@ -4142,10 +4388,30 @@ namespace OloEngine
         for (sizet i = 0; i < m_RegisteredResources.size(); ++i)
         {
             const auto& resource = m_RegisteredResources[i];
+            u32 textureID = 0;
+            u32 bufferID = 0;
+            u32 framebufferID = 0;
+            u32 framebufferColor0ID = 0;
+            if (resource.TextureHandle.IsValid())
+                textureID = ResolveTexture(resource.TextureHandle);
+            if (resource.BufferHandle.IsValid())
+                bufferID = ResolveBuffer(resource.BufferHandle);
+            if (resource.FramebufferHandle.IsValid())
+            {
+                if (auto fb = ResolveFramebuffer(resource.FramebufferHandle))
+                {
+                    framebufferID = fb->GetRendererID();
+                    framebufferColor0ID = fb->GetColorAttachmentRendererID(0);
+                }
+            }
             out << "    { \"name\": \"" << jsonEscape(resource.Name)
                 << "\", \"kind\": \"" << ToString(resource.Desc.Kind)
                 << "\", \"imported\": " << (resource.Desc.Imported ? "true" : "false")
-                << ", \"isHistory\": " << (IsHistoryTextureResource(resource.Name) ? "true" : "false") << " }";
+                << ", \"isHistory\": " << (IsHistoryTextureResource(resource.Name) ? "true" : "false")
+                << ", \"textureID\": " << textureID
+                << ", \"bufferID\": " << bufferID
+                << ", \"framebufferID\": " << framebufferID
+                << ", \"framebufferColor0ID\": " << framebufferColor0ID << " }";
             if (i + 1 < m_RegisteredResources.size())
                 out << ",";
             out << "\n";
@@ -4663,6 +4929,8 @@ namespace OloEngine
         //   6. Generate barriers (Phase E)
 
         m_LastBuildStats = {};
+        m_Dependencies = m_ExplicitDependencies;
+        m_DependencyGraphDirty = true;
         m_PassAccessDeclarations.clear();
         m_PassBarrierFlags.clear();
         m_PlannedBarriers.clear();
@@ -4727,7 +4995,7 @@ namespace OloEngine
                 }
             }
 
-            AddExecutionDependency(beforePass, afterPass);
+            AddExecutionDependency(beforePass, afterPass, false);
             return true;
         };
 
@@ -4851,6 +5119,7 @@ namespace OloEngine
         // Cache the submission plan after barrier planning so
         // Execute() can walk the pre-built IR without re-deriving it.
         m_CachedSubmissionPlan = GetSubmissionPlan();
+        LogSubmissionPlanIfChanged();
     }
 
 } // namespace OloEngine

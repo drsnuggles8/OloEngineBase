@@ -47,6 +47,8 @@ layout(std140, binding = 28) uniform GTAOParams
     int   u_DenoisePasses;
     float u_DepthLinearizeB;
     int   u_DebugView;
+
+    mat4  u_ViewMatrix;    // World-to-view transform for normal conversion
 };
 
 // ---------------------------------------------------------------------------
@@ -171,9 +173,9 @@ void main()
     // Reconstruct view-space position
     vec3 pixCenterPos = ComputeViewspacePosition(normalizedScreenPos, viewspaceZ);
 
-    // Decode view-space normal (already in correct view-space, no flip needed)
+    // Decode world-space normal from GBuffer and convert to view-space
     vec2 encodedNormal = texelFetch(u_ViewNormals, pixCoord, 0).rg;
-    vec3 viewNormal = OctDecode(encodedNormal);
+    vec3 viewNormal = normalize(mat3(u_ViewMatrix) * OctDecode(encodedNormal));
 
     // Noise for slice rotation
     float noiseSlice = SpatioTemporalNoise(pixCoord);

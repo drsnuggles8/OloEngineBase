@@ -8,6 +8,43 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        const char* QualityPresetName(const QualityPreset preset)
+        {
+            switch (preset)
+            {
+                case QualityPreset::Low:
+                    return "Low";
+                case QualityPreset::Medium:
+                    return "Medium";
+                case QualityPreset::High:
+                    return "High";
+                case QualityPreset::Ultra:
+                    return "Ultra";
+                case QualityPreset::Custom:
+                    return "Custom";
+                default:
+                    return "Unknown";
+            }
+        }
+
+        const char* AOTechniqueName(const AOTechnique technique)
+        {
+            switch (technique)
+            {
+                case AOTechnique::None:
+                    return "None";
+                case AOTechnique::SSAO:
+                    return "SSAO";
+                case AOTechnique::GTAO:
+                    return "GTAO";
+                default:
+                    return "Unknown";
+            }
+        }
+    } // namespace
+
     void RendererSettingsPanel::OnImGuiRender(bool* p_open)
     {
         OLO_PROFILE_FUNCTION();
@@ -37,10 +74,14 @@ namespace OloEngine
         if (ImGui::Combo("Preset", &currentPreset, presetItems, IM_ARRAYSIZE(presetItems)))
         {
             auto selected = static_cast<QualityPreset>(currentPreset);
+            OLO_CORE_INFO("RendererSettingsPanel: Quality preset selected -> {}", QualityPresetName(selected));
             if (selected != QualityPreset::Custom)
             {
                 qt = GetPresetSettings(selected);
                 ApplyQualityTieringToRuntime(qt);
+                OLO_CORE_INFO("RendererSettingsPanel: Applied preset {} (AO={}, SSAOEnabled={}, GTAOEnabled={})",
+                              QualityPresetName(qt.Preset), AOTechniqueName(qt.AO),
+                              qt.AO == AOTechnique::SSAO, qt.AO == AOTechnique::GTAO);
             }
             else
             {
@@ -144,6 +185,8 @@ namespace OloEngine
         {
             ImGui::Indent();
 
+            const QualityTieringSettings before = qt;
+
             DrawPresetControls(qt);
             ImGui::Separator();
 
@@ -156,6 +199,11 @@ namespace OloEngine
             {
                 qt.Preset = QualityPreset::Custom;
                 ApplyQualityTieringToRuntime(qt);
+                OLO_CORE_INFO("RendererSettingsPanel: Tier overrides applied (AO={} -> {}, ShadowEnabled={} -> {}, Bloom={} -> {}, FXAA={} -> {})",
+                              AOTechniqueName(before.AO), AOTechniqueName(qt.AO),
+                              before.ShadowEnabled, qt.ShadowEnabled,
+                              before.BloomEnabled, qt.BloomEnabled,
+                              before.FXAAEnabled, qt.FXAAEnabled);
             }
 
             if (qt.Preset == QualityPreset::Custom)
@@ -165,6 +213,7 @@ namespace OloEngine
                 {
                     qt = GetPresetSettings(QualityPreset::High);
                     ApplyQualityTieringToRuntime(qt);
+                    OLO_CORE_INFO("RendererSettingsPanel: Reset quality to High preset");
                 }
             }
 

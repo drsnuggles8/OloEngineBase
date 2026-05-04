@@ -174,6 +174,27 @@ namespace OloEngine
     void OpenGLFramebuffer::Bind()
     {
         glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
+
+        if (m_ColorAttachments.empty())
+        {
+            glDrawBuffer(GL_NONE);
+        }
+        else if (m_ColorAttachments.size() == 1)
+        {
+            glDrawBuffer(GL_COLOR_ATTACHMENT0);
+        }
+        else
+        {
+            std::vector<GLenum> colorBuffers;
+            auto colorAttachmentCount = m_ColorAttachments.size();
+            colorBuffers.reserve(colorAttachmentCount);
+            for (sizet i = 0; i < colorAttachmentCount; ++i)
+            {
+                colorBuffers.emplace_back(static_cast<GLenum>(GL_COLOR_ATTACHMENT0 + i));
+            }
+            glDrawBuffers(static_cast<GLsizei>(colorBuffers.size()), colorBuffers.data());
+        }
+
         glViewport(0, 0, static_cast<GLsizei>(m_Specification.Width), static_cast<GLsizei>(m_Specification.Height));
     }
 
@@ -253,13 +274,29 @@ namespace OloEngine
         if (m_DepthAttachmentSpecification.TextureFormat != FramebufferTextureFormat::None)
         {
             GLbitfield clearBits = GL_DEPTH_BUFFER_BIT;
+            GLint previousStencilWriteMask = 0;
+            bool restoreStencilWriteMask = false;
             if (m_DepthAttachmentSpecification.TextureFormat == FramebufferTextureFormat::DEPTH24STENCIL8)
             {
                 clearBits |= GL_STENCIL_BUFFER_BIT;
                 glClearStencil(0);
+
+                glGetIntegerv(GL_STENCIL_WRITEMASK, &previousStencilWriteMask);
+                if (previousStencilWriteMask == 0)
+                {
+                    // Clearing stencil with write-mask 0x00 is a no-op and emits
+                    // GL debug warning 131076. Temporarily enable stencil writes.
+                    glStencilMask(0xFF);
+                    restoreStencilWriteMask = true;
+                }
             }
             glClearDepth(1.0);
             glClear(clearBits);
+
+            if (restoreStencilWriteMask)
+            {
+                glStencilMask(static_cast<GLuint>(previousStencilWriteMask));
+            }
         }
 
         // Clear each color attachment based on its type
