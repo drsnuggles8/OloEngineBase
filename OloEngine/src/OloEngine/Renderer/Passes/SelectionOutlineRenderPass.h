@@ -20,8 +20,8 @@ namespace OloEngine
     //   2. JFA Flood — N ping-pong passes propagating nearest seeds
     //   3. JFA Composite — converts distance field to anti-aliased outline
     //
-    // Sits between PostProcessPass and UICompositePass in the render graph:
-    //   PostProcess -> SelectionOutline -> UIComposite -> Final
+    // Sits between the post chain output and UICompositePass in the render graph:
+    //   PostChainOutput -> SelectionOutline -> UIComposite -> Final
     class SelectionOutlineRenderPass : public RenderPass
     {
       public:

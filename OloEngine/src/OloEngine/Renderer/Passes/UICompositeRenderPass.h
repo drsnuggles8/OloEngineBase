@@ -10,8 +10,8 @@ namespace OloEngine
 {
     // @brief Render pass that composites UI and 2D overlays on top of the post-processed scene.
     //
-    // Sits between PostProcessPass and FinalPass in the render graph:
-    //   PostProcess -> UIComposite -> Final
+    // Sits between the post chain output and FinalPass in the render graph:
+    //   PostChainOutput -> UIComposite -> Final
     //
     // On Execute():
     //   1. Blits the input framebuffer (post-processed scene) as background

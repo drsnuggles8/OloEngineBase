@@ -11,7 +11,7 @@ namespace OloEngine
 {
     // @brief Standalone screen-space precipitation post-process pass.
     //
-    // Phase F slice 20 — extracted from the monolithic PostProcessRenderPass
+    // Phase F slice 20 — standalone precipitation stage in the dynamic chain
     // following the same pattern established for FogRenderPass (slice 18) and
     // TAARenderPass (slice 19).
     //

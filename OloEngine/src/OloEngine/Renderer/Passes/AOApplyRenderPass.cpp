@@ -50,8 +50,6 @@ namespace OloEngine
 
     Ref<Framebuffer> AOApplyRenderPass::GetTarget() const
     {
-        if (!m_Enabled || !m_OutputFB)
-            return nullptr;
         return m_OutputFB;
     }
 
@@ -65,7 +63,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Phase F slice 38 — self-resolving input framebuffer: prefer SSSColor
+        // Self-resolving input framebuffer: prefer SSSColor
         // if written this frame, fall back to SceneColor.  Mirrors the
         // conditional that EndScene() previously computed and pushed via the
         // side-channel setter.
@@ -79,7 +77,7 @@ namespace OloEngine
                     inputFramebuffer = resolved;
             }
         }
-        // Phase F slice 38 — self-resolving AO texture and SceneDepth.
+        // Self-resolving AO texture and SceneDepth.
         u32 aoTextureID = 0;
         if (const auto* board = context.GetBlackboard())
             aoTextureID = context.ResolveTexture(board->AOBuffer);
@@ -91,9 +89,38 @@ namespace OloEngine
                 sceneDepthID = context.ResolveTexture(board->SceneDepth);
         }
 
-        if (!m_Enabled || !inputFramebuffer || !m_OutputFB || !m_SSAOApplyShader ||
-            aoTextureID == 0 || sceneDepthID == 0)
+        if (!inputFramebuffer || !m_OutputFB)
         {
+            return;
+        }
+
+        const bool canApplyAO = m_Enabled && m_SSAOApplyShader &&
+                                aoTextureID != 0 && sceneDepthID != 0;
+        if (!canApplyAO)
+        {
+            // Robust fallback: pass input through unchanged so downstream
+            // PostProcessColor never points at an uninitialized/black target.
+            // This avoids frame-to-frame black propagation when AO is
+            // temporarily unavailable (startup, resize, technique toggles).
+            const u32 srcFbo = inputFramebuffer->GetRendererID();
+            const u32 dstFbo = m_OutputFB->GetRendererID();
+            const auto& srcSpec = inputFramebuffer->GetSpecification();
+            const auto& dstSpec = m_OutputFB->GetSpecification();
+
+            glNamedFramebufferReadBuffer(srcFbo, GL_COLOR_ATTACHMENT0);
+            glNamedFramebufferDrawBuffer(dstFbo, GL_COLOR_ATTACHMENT0);
+            glBlitNamedFramebuffer(
+                srcFbo, dstFbo,
+                0, 0, static_cast<GLint>(srcSpec.Width), static_cast<GLint>(srcSpec.Height),
+                0, 0, static_cast<GLint>(dstSpec.Width), static_cast<GLint>(dstSpec.Height),
+                GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+            static u32 s_AOPassthroughWarnings = 0;
+            if (s_AOPassthroughWarnings++ < 10)
+            {
+                OLO_CORE_WARN("AOApplyRenderPass: passthrough fallback (enabled={}, shader={}, aoTex={}, depthTex={})",
+                              m_Enabled, m_SSAOApplyShader != nullptr, aoTextureID, sceneDepthID);
+            }
             return;
         }
 

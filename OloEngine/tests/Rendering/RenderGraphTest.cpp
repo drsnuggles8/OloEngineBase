@@ -220,6 +220,44 @@ class InputTrackingStubPass : public RenderPass
     u32 m_ExecuteCount = 0;
 };
 
+class DeclarationTrackingStubPass : public RenderPass
+{
+  public:
+    explicit DeclarationTrackingStubPass(const std::string& name)
+    {
+        m_Name = name;
+    }
+
+    void Init(const FramebufferSpecification& /*spec*/) override {}
+    void Execute() override
+    {
+        m_ExecuteCount++;
+    }
+
+    [[nodiscard]] Ref<Framebuffer> GetTarget() const override
+    {
+        return nullptr;
+    }
+
+    void TestDeclareRead(std::string_view resource)
+    {
+        DeclareRead(resource, ResourceHandle::Kind::Framebuffer);
+    }
+
+    void TestDeclareWrite(std::string_view resource)
+    {
+        DeclareWrite(resource, ResourceHandle::Kind::Framebuffer);
+    }
+
+    [[nodiscard]] u32 GetExecuteCount() const
+    {
+        return m_ExecuteCount;
+    }
+
+  private:
+    u32 m_ExecuteCount = 0;
+};
+
 // Helper to create and add a stub pass
 static Ref<StubRenderPass> AddStub(RenderGraph& graph, const std::string& name)
 {
@@ -847,6 +885,33 @@ TEST(RenderGraph, SideEffectingUnreachablePassStillExecutes)
     EXPECT_EQ(a->GetExecuteCount(), 1u);
     EXPECT_EQ(b->GetExecuteCount(), 1u);
     EXPECT_EQ(c->GetExecuteCount(), 1u) << "Side-effecting pass must not be culled";
+}
+
+TEST(RenderGraph, DeclarationOnlyProducerChainRemainsReachable)
+{
+    RenderGraph graph;
+
+    auto producer = Ref<DeclarationTrackingStubPass>::Create("Producer");
+    auto middle = Ref<DeclarationTrackingStubPass>::Create("Middle");
+    auto final = Ref<DeclarationTrackingStubPass>::Create("Final");
+
+    graph.AddPass(producer);
+    graph.AddPass(middle);
+    graph.AddPass(final);
+
+    producer->TestDeclareWrite("PostProcessColor");
+    middle->TestDeclareRead("PostProcessColor");
+    middle->TestDeclareWrite("ToneMapColor");
+    final->TestDeclareRead("ToneMapColor");
+
+    graph.SetFinalPass("Final");
+    graph.Execute();
+
+    EXPECT_EQ(producer->GetExecuteCount(), 1u)
+        << "Declaration-only producer must remain reachable from the final pass";
+    EXPECT_EQ(middle->GetExecuteCount(), 1u)
+        << "Intermediate declaration-only pass must not be culled";
+    EXPECT_EQ(final->GetExecuteCount(), 1u);
 }
 
 // =============================================================================

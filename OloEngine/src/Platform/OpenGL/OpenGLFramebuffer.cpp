@@ -20,7 +20,7 @@ namespace OloEngine
 
     void OpenGLFramebuffer::InitSharedResources()
     {
-        // Legacy post-processing resources no longer needed — post-processing is handled by PostProcessRenderPass
+        // Legacy monolithic post-processing resources no longer needed — post-processing is handled by dynamic standalone passes
     }
 
     void OpenGLFramebuffer::ShutdownSharedResources()

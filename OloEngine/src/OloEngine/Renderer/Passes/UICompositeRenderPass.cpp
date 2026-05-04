@@ -6,6 +6,11 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/RenderCommand.h"
+
+#include <span>
+
+#include <glad/gl.h>
 
 namespace OloEngine
 {
@@ -26,8 +31,20 @@ namespace OloEngine
         CreateFramebuffer(spec.Width, spec.Height);
 
         // Resource-aware RDG: composites post-processed LDR scene + UI.
-        // Declares all possible scene inputs; the hazard validator derives the
-        // ordering edge only for whichever producer is present in a given frame.
+        // Declare the full upstream preference chain plus a SceneColor
+        // emergency fallback so reachability/order inference remains robust
+        // even when intermediate effects are disabled.
+        DeclareRead(ResourceNames::ToneMapColor, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::ColorGradingColor, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::ChromAbColor, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::FogColor, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::PrecipitationColor, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::TAAColor, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::MotionBlurColor, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::DOFColor, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::BloomColor, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::PostProcessColor, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
         DeclareRead(ResourceNames::VignetteColor, ResourceHandle::Kind::Framebuffer);
         DeclareRead(ResourceNames::FXAAColor, ResourceHandle::Kind::Framebuffer);
         DeclareRead(ResourceNames::SelectionOutlineColor, ResourceHandle::Kind::Framebuffer);
@@ -65,51 +82,39 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Phase F slice 44 — self-resolving input framebuffer from the render-graph
-        // blackboard. Preference chain: SelectionOutline > FXAA > Vignette >
-        // ToneMap > ColorGrading > ChromAb > Fog > Precipitation > TAA >
-        // MotionBlur > DOF > Bloom > PostProcess.
+        // blackboard. Preference chain: SceneColor > FXAA > Vignette > ToneMap >
+        // ColorGrading > ChromAb > Fog > Precipitation > TAA > MotionBlur >
+        // DOF > Bloom > PostProcess. SelectionOutlineColor is
+        // intentionally not used as the primary scene source here; it is an
+        // overlay product, and if that buffer is empty we must not replace
+        // the entire frame with black.
         Ref<Framebuffer> inputFramebuffer;
         if (const auto* board = context.GetBlackboard())
         {
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->SelectionOutlineColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->FXAAColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->VignetteColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->ToneMapColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->ColorGradingColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->ChromAbColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->FogColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->PrecipitationColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->TAAColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->MotionBlurColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->DOFColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->BloomColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->PostProcessColor))
-                    inputFramebuffer = fb;
+            auto tryResolveValid = [&](const auto& handle)
+            {
+                if (inputFramebuffer || !handle.IsValid())
+                    return;
+                if (auto fb = context.ResolveFramebuffer(handle))
+                {
+                    if (fb->GetColorAttachmentRendererID(0) != 0)
+                        inputFramebuffer = fb;
+                }
+            };
+
+            tryResolveValid(board->SceneColor);
+            tryResolveValid(board->FXAAColor);
+            tryResolveValid(board->VignetteColor);
+            tryResolveValid(board->ToneMapColor);
+            tryResolveValid(board->ColorGradingColor);
+            tryResolveValid(board->ChromAbColor);
+            tryResolveValid(board->FogColor);
+            tryResolveValid(board->PrecipitationColor);
+            tryResolveValid(board->TAAColor);
+            tryResolveValid(board->MotionBlurColor);
+            tryResolveValid(board->DOFColor);
+            tryResolveValid(board->BloomColor);
+            tryResolveValid(board->PostProcessColor);
         }
         if (!m_Target)
         {
@@ -119,17 +124,24 @@ namespace OloEngine
         // Bind our FBO and clear all attachments (handles mixed integer/float types)
         m_Target->Bind();
         context.SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
+        constexpr u32 colorAttachment = 0;
+        context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
+        context.SetDepthTest(false);
+        context.SetDepthMask(false);
+        context.SetBlendState(false);
+        context.SetCulling(false);
+        RenderCommand::DisableStencilTest();
+        RenderCommand::DisableScissorTest();
+        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetColorMask(true, true, true, true);
         m_Target->ClearAllAttachments({ 0.0f, 0.0f, 0.0f, 1.0f }, -1);
 
         // Blit the post-processed scene as background
         if (inputFramebuffer && m_BlitShader)
         {
-            context.SetBlendState(false);
-            context.SetDepthTest(false);
-
             m_BlitShader->Bind();
-            const auto colorAttachment = inputFramebuffer->GetColorAttachmentRendererID(0);
-            if (colorAttachment == 0)
+            const auto inputColorAttachment = inputFramebuffer->GetColorAttachmentRendererID(0);
+            if (inputColorAttachment == 0)
             {
                 static u32 s_InvalidInputColorWarnings = 0;
                 if (s_InvalidInputColorWarnings++ < 10)
@@ -139,7 +151,7 @@ namespace OloEngine
                                   inSpec.Width, inSpec.Height, inSpec.Attachments.Attachments.size());
                 }
             }
-            context.BindTexture(0, colorAttachment);
+            context.BindTexture(0, inputColorAttachment);
             m_BlitShader->SetInt("u_Texture", 0);
 
             const auto va = MeshPrimitives::GetFullscreenTriangle();

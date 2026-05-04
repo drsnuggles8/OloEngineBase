@@ -3,6 +3,8 @@
 
 #include <glad/gl.h>
 
+#include <cstring>
+
 namespace OloEngine
 {
     void OpenGLMessageCallback(
@@ -29,6 +31,16 @@ namespace OloEngine
             {
                 return;
             }
+        }
+
+        // RenderGraph async batches are pushed as KHR_debug application markers
+        // (e.g. "AsyncBatch[0]") to aid GPU capture tools. Logging them at
+        // info level floods OloEngine.log and hides actionable diagnostics.
+        if (source == GL_DEBUG_SOURCE_APPLICATION && message != nullptr)
+        {
+            constexpr const char* asyncBatchPrefix = "AsyncBatch[";
+            if (std::strncmp(message, asyncBatchPrefix, std::strlen(asyncBatchPrefix)) == 0)
+                return;
         }
 
         std::string sourceStr;

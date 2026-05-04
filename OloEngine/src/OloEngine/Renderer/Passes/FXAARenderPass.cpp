@@ -124,7 +124,7 @@ namespace OloEngine
 
         const auto& outSpec = m_OutputFB->GetSpecification();
         context.SetViewport(0, 0, outSpec.Width, outSpec.Height);
-        // Mirror PostProcessRenderPass::PrepareFullscreenColorPass — prefer
+        // Mirror the shared fullscreen colour-pass state setup — prefer
         // RGCommandContext setters where available (so graph hazard tracking
         // stays accurate) and fall back to RenderCommand for state the
         // context does not currently expose (stencil / scissor / polygon

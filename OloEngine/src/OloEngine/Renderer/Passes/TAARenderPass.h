@@ -11,9 +11,8 @@ namespace OloEngine
 {
     // @brief Standalone temporal anti-aliasing post-process pass.
     //
-    // Phase F slice 19 — extracted from the monolithic
-    // PostProcessRenderPass and inserted between PostProcess and Fog:
-    //   PostProcess(AO+Bloom+DOF+MotionBlur+Precipitation) → TAA → Fog → ...
+    // Phase F slice 19 — standalone TAA stage in the dynamic chain:
+    //   AOApply/Bloom/DOF/MotionBlur/Precipitation → TAA → Fog → ...
     //
     // Owns:
     //   * Full-resolution RGBA16F output framebuffer (`TAAColor`)

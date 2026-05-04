@@ -10,9 +10,8 @@ namespace OloEngine
 {
     // @brief Standalone depth-of-field post-process pass.
     //
-    // Phase F slice 22 — extracted from PostProcessRenderPass and inserted
-    // between PostProcess and MotionBlur:
-    //   PostProcess(AO+Bloom) -> DOF -> MotionBlur -> TAA -> ...
+    // Phase F slice 22 — standalone DOF stage in the dynamic chain:
+    //   AOApply/Bloom -> DOF -> MotionBlur -> TAA -> ...
     //
     // Inputs:
     //   * Input framebuffer handle (typically PostProcessColor)

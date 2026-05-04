@@ -882,7 +882,7 @@ namespace OloEngine
             ComputeBarrierPlan();
             RebuildTransientPlan();
 
-            // Phase G Slice 6: cache the submission plan after barrier planning so
+            // Cache the submission plan after barrier planning so
             // the execution loop below is a simple sequential walk over a pre-built
             // IR rather than repeating inline barrier-map lookups every frame.
             m_CachedSubmissionPlan = GetSubmissionPlan();
@@ -893,7 +893,7 @@ namespace OloEngine
         // Execute passes in order (zero-overhead — no lookups, no branching)
         RGCommandContext commandContext;
         commandContext.SetRenderGraph(this);
-        // Phase G Slice 6: walk the pre-built submission-plan IR.
+        // Walk the pre-built submission-plan IR.
         // Each command kind maps to a distinct action; barrier placement and
         // async-compute batch boundaries are encoded in the plan so this loop
         // requires no topology lookups or per-frame map probes.
@@ -1325,7 +1325,7 @@ namespace OloEngine
 
         OLO_CORE_INFO("RenderGraph execution order updated with {} passes", m_PassOrder.size());
 
-        // Phase G Slice 2: hoist independent AsyncComputeCandidate passes before graphics.
+        // Hoist independent AsyncComputeCandidate passes before graphics.
         HoistComputePasses();
 
         return true;
@@ -1522,7 +1522,7 @@ namespace OloEngine
         }
     }
 
-    // Phase G Slice 4 — Async-compute batch query.
+    // Async-compute batch query.
     // Partitions the hoisted execution order into contiguous runs of
     // AsyncComputeCandidate passes.  Each batch records the non-batch passes
     // it must wait for (WaitPasses) and the non-batch passes that must wait
@@ -1721,9 +1721,9 @@ namespace OloEngine
         return batches;
     }
 
-    // Phase G Slice 5 — Submission-plan IR.
+    // Submission-plan IR.
     // Merges the hoisted execution order, the barrier plan (Phase E), and the
-    // async-compute batch boundaries (Slice 4) into a single linearised
+    // async-compute batch boundaries into a single linearised
     // command stream that a backend can replay without touching the graph.
     std::vector<RenderGraph::SubmissionCommand> RenderGraph::GetSubmissionPlan() const
     {
@@ -1868,7 +1868,7 @@ namespace OloEngine
     }
 
     // -------------------------------------------------------------------
-    // Phase G Slice 10 — Explicit resource transition records
+    // Explicit resource transition records
     // -------------------------------------------------------------------
     std::vector<RenderGraph::ResourceTransition> RenderGraph::GetResourceTransitions() const
     {
@@ -1881,7 +1881,7 @@ namespace OloEngine
         for (std::size_t i = 0; i < m_PassOrder.size(); ++i)
             passOrderIdx.emplace(m_PassOrder[i], i);
 
-        // Phase G Slice 14 — Build a pass → queue lane map so transitions can
+        // Build a pass → queue lane map so transitions can
         // detect when the producer and consumer are on different queue lanes.
         const auto passToLane = [&](const std::string& passName) -> QueueLane
         {
@@ -1962,7 +1962,7 @@ namespace OloEngine
             transitions.push_back(std::move(t));
         }
 
-        // Phase G Slice 14 — Annotate each transition with cross-lane sync metadata.
+        // Annotate each transition with cross-lane sync metadata.
         for (auto& tr : transitions)
         {
             // External producers (imported resources) are treated as Graphics lane.
@@ -1981,7 +1981,7 @@ namespace OloEngine
     std::vector<RenderGraph::ResourceLifetime> RenderGraph::GetResourceLifetimes() const
     {
         // ----------------------------------------------------------------
-        // Phase G Slice 11 — Unified resource lifetime records.
+        // Unified resource lifetime records.
         //
         // For every registered resource we walk the pass execution order and
         // inspect m_PassAccessDeclarations to find:
@@ -2181,6 +2181,58 @@ namespace OloEngine
                     {
                         m_ReachablePasses.insert(dependency);
                         stack.push_back(dependency);
+                    }
+                }
+            }
+        }
+
+        // Also walk backward using declared resource
+        // dependencies (DeclareRead / DeclareWrite).  Legacy RenderPasses
+        // whose ordering edges were intentionally removed from m_Dependencies
+        // (in favour of declaration-derived ordering) must still be reachable
+        // from the final pass or they would all be culled.
+        //
+        // Algorithm:
+        //   1. Build a resource-name → writer-pass map from every pass in
+        //      m_PassLookup (covers both legacy and graph-native passes).
+        //   2. Iteratively expand m_ReachablePasses: for each already-reachable
+        //      pass, look up its declared reads and add the writer(s) of each
+        //      read resource.  Repeat until stable.
+        {
+            std::unordered_map<std::string, std::vector<std::string>> resourceWriters;
+            resourceWriters.reserve(m_PassLookup.size() * 4u);
+            for (const auto& [passName, pass] : m_PassLookup)
+            {
+                if (!pass)
+                    continue;
+                for (const ResourceHandle& write : pass->GetWrites())
+                {
+                    if (!write.Name.empty())
+                        resourceWriters[write.Name].push_back(passName);
+                }
+            }
+
+            bool anyNew = true;
+            while (anyNew)
+            {
+                anyNew = false;
+                const std::vector<std::string> snapshot(m_ReachablePasses.begin(),
+                                                        m_ReachablePasses.end());
+                for (const auto& passName : snapshot)
+                {
+                    auto passIt = m_PassLookup.find(passName);
+                    if (passIt == m_PassLookup.end() || !passIt->second)
+                        continue;
+                    for (const ResourceHandle& read : passIt->second->GetReads())
+                    {
+                        auto writerIt = resourceWriters.find(read.Name);
+                        if (writerIt == resourceWriters.end())
+                            continue;
+                        for (const auto& writerName : writerIt->second)
+                        {
+                            if (m_ReachablePasses.insert(writerName).second)
+                                anyNew = true;
+                        }
                     }
                 }
             }
@@ -2497,7 +2549,7 @@ namespace OloEngine
             }
         }
 
-        // Phase F slice 27 — declaration-derived edge synthesis.
+        // Declaration-derived edge synthesis.
         // Augment the closure with implicit RAW (read-after-write) edges that
         // can be derived from pass-level DeclareRead/DeclareWrite pairs.  This
         // allows passes that declare their resource access correctly to omit
@@ -3334,7 +3386,7 @@ namespace OloEngine
         out << "    edge [fontname=\"Helvetica\", fontsize=10];\n\n";
 
         // Nodes in insertion order; final pass is double-ringed.
-        // Phase G Slice 3: compute passes are amber (#fff3cd), copy passes are teal (#cff4fc),
+        // Compute passes are amber (#fff3cd), copy passes are teal (#cff4fc),
         //                   async-compute candidates get a "[async]" label prefix.
         for (const auto& name : m_InsertionOrder)
         {
@@ -3433,7 +3485,7 @@ namespace OloEngine
             out << "]\n";
         }
 
-        // Phase G Slice 14 — Cross-lane sync records in DOT comments.
+        // Cross-lane sync records in DOT comments.
         const auto dotTransitions = GetResourceTransitions();
         const auto crossLaneDot = std::count_if(dotTransitions.begin(), dotTransitions.end(),
                                                 [](const ResourceTransition& tr)
@@ -3523,7 +3575,7 @@ namespace OloEngine
             }
         };
 
-        // Phase G Slice 3 — work-type string conversion for JSON/DOT output.
+        // Work-type string conversion for JSON/DOT output.
         const auto passWorkTypeToString = [](const RenderPass::PassWorkType type) -> const char*
         {
             switch (type)
@@ -3596,7 +3648,7 @@ namespace OloEngine
             }
         };
 
-        // Phase G Slice 12: helper to serialise RGSubresourceRange as a compact
+        // Helper to serialise RGSubresourceRange as a compact
         // JSON object.  ~0u (= all mips/layers/slices) is written as -1 so that
         // consumers can distinguish "full range" from an explicit 1-element range.
         const auto subresourceRangeToJson = [](const RGSubresourceRange& r) -> std::string
@@ -3926,7 +3978,7 @@ namespace OloEngine
             }
         }
 
-        // Phase G Slice 3 — count compute/async-compute passes for frameSummary + graphDigest.
+        // Count compute/async-compute passes for frameSummary + graphDigest.
         u32 computePassCount = 0;
         u32 asyncComputeCandidateCount = 0;
         u32 historyResourceCount = 0;
@@ -3946,7 +3998,7 @@ namespace OloEngine
                 ++historyResourceCount;
         }
 
-        // Phase G Slice 8: batch resource dependency counts for frameSummary/graphDigest.
+        // Batch resource dependency counts for frameSummary/graphDigest.
         const auto dumpBatches = GetAsyncComputeBatches();
         const auto submissionPlan = GetSubmissionPlan();
         u32 batchInputResourceCount = 0;
@@ -3957,16 +4009,16 @@ namespace OloEngine
             batchOutputResourceCount += static_cast<u32>(batch.OutputResources.size());
         }
 
-        // Phase G Slice 10: resource transition records for frameSummary/graphDigest.
+        // Resource transition records for frameSummary/graphDigest.
         const auto dumpTransitions = GetResourceTransitions();
         const auto resourceTransitionCount = static_cast<u32>(dumpTransitions.size());
-        // Phase G Slice 14: count cross-lane sync transitions.
+        // Count cross-lane sync transitions.
         const auto crossLaneSyncCount = static_cast<u32>(std::count_if(
             dumpTransitions.begin(), dumpTransitions.end(),
             [](const ResourceTransition& tr)
             { return tr.IsCrossLane; }));
 
-        // Phase G Slice 11: unified resource lifetime records.
+        // Unified resource lifetime records.
         const auto dumpLifetimes = GetResourceLifetimes();
         const auto resourceLifetimeCount = static_cast<u32>(dumpLifetimes.size());
 
@@ -4038,7 +4090,7 @@ namespace OloEngine
         }
         out << "],\n";
 
-        // Phase G Slice 3 — per-pass work-type and async-compute flags.
+        // Per-pass work-type and async-compute flags.
         out << "  \"passFlags\": [\n";
         for (sizet i = 0; i < m_PassOrder.size(); ++i)
         {
@@ -4341,7 +4393,7 @@ namespace OloEngine
             << ", \"concat\": \"" << jsonEscape(graphDigestConcat)
             << "\" },\n";
 
-        // Phase G Slice 8: async-compute batches with cross-boundary resource deps.
+        // Async-compute batches with cross-boundary resource deps.
         out << "  \"asyncBatches\": [\n";
         for (sizet bi = 0; bi < dumpBatches.size(); ++bi)
         {
@@ -4412,7 +4464,7 @@ namespace OloEngine
         }
         out << "  ],\n";
 
-        // Phase G Slice 9: pre-linearized submission command stream with
+        // Pre-linearized submission command stream with
         // batch sync/resource metadata.
         out << "  \"submissionPlan\": [\n";
         for (sizet ci = 0; ci < submissionPlan.size(); ++ci)
@@ -4483,7 +4535,7 @@ namespace OloEngine
         }
         out << "  ],\n";
 
-        // Phase G Slice 10: resource transition records.
+        // Resource transition records.
         out << "  \"resourceTransitions\": [\n";
         for (sizet ri = 0; ri < dumpTransitions.size(); ++ri)
         {
@@ -4505,7 +4557,7 @@ namespace OloEngine
         }
         out << "  ],\n";
 
-        // Phase G Slice 11: resource lifetime records.
+        // Resource lifetime records.
         out << "  \"resourceLifetimes\": [\n";
         for (sizet li = 0; li < dumpLifetimes.size(); ++li)
         {
@@ -4796,7 +4848,7 @@ namespace OloEngine
         ComputeBarrierPlan();
         RebuildTransientPlan();
 
-        // Phase G Slice 6: cache the submission plan after barrier planning so
+        // Cache the submission plan after barrier planning so
         // Execute() can walk the pre-built IR without re-deriving it.
         m_CachedSubmissionPlan = GetSubmissionPlan();
     }

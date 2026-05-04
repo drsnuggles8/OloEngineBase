@@ -10,15 +10,15 @@ namespace OloEngine
 {
     // @brief Standalone FXAA post-process pass.
     //
-    // Phase F slice 16 — first effect extracted from the monolithic
-    // PostProcessRenderPass into its own graph-native pass. Establishes
+    // Phase F slice 16 — first standalone effect in the dynamic post chain.
+    // Establishes
     // the pattern for the remaining post-process effect splits.
     //
     // Inputs:
     //   * `PostProcessColor` framebuffer (typed handle) — LDR result of
     //     the post-process chain after tone mapping. Bound as `u_Texture`
     //     at sampler slot 0.
-    //   * `PostProcessUBO` (binding 7) — shared with PostProcessRenderPass
+    //   * `PostProcessUBO` (binding 7) — shared post-process parameter UBO
     //     for `u_TexelSize` / `u_PixelSize` / gamma uniforms. The buffer
     //     is uploaded by Renderer3D before the post-process chain runs;
     //     this pass only re-binds it to defend against rebinds elsewhere.
@@ -62,7 +62,7 @@ namespace OloEngine
             return m_Enabled;
         }
 
-        // Shared with PostProcessRenderPass — Renderer3D uploads the data
+        // Shared post-process UBO — Renderer3D uploads the data
         // once per frame before the post-process chain executes; this pass
         // only re-binds the UBO at slot 7 so the FXAA shader reads the
         // expected texel-size and gamma values.

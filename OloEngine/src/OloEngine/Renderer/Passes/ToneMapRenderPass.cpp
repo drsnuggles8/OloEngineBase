@@ -68,30 +68,33 @@ namespace OloEngine
         Ref<Framebuffer> inputFramebuffer;
         if (const auto* board = context.GetBlackboard())
         {
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->FogColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->PrecipitationColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->TAAColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->MotionBlurColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->DOFColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->BloomColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->PostProcessColor))
-                    inputFramebuffer = fb;
+            auto tryResolveValid = [&](const auto& handle)
+            {
+                if (inputFramebuffer || !handle.IsValid())
+                    return;
+                if (auto fb = context.ResolveFramebuffer(handle))
+                {
+                    if (fb->GetColorAttachmentRendererID(0) != 0)
+                        inputFramebuffer = fb;
+                }
+            };
+
+            tryResolveValid(board->FogColor);
+            tryResolveValid(board->PrecipitationColor);
+            tryResolveValid(board->TAAColor);
+            tryResolveValid(board->MotionBlurColor);
+            tryResolveValid(board->DOFColor);
+            tryResolveValid(board->BloomColor);
+            tryResolveValid(board->PostProcessColor);
+            tryResolveValid(board->SceneColor);
         }
         if (!m_Enabled || !inputFramebuffer || !m_OutputFB || !m_Shader)
         {
+            static u32 s_MissingInputWarnings = 0;
+            if (m_Enabled && m_OutputFB && m_Shader && !inputFramebuffer && s_MissingInputWarnings++ < 10)
+            {
+                OLO_CORE_WARN("ToneMapRenderPass: No valid input framebuffer resolved (fallback chain exhausted)");
+            }
             return;
         }
 

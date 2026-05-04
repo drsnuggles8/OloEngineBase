@@ -34,7 +34,7 @@ namespace OloEngine
     //
     //        This class handles the CPU-side state (lens impact ring buffer, streak
     //        parameter calculation). The actual rendering is done by PostProcess_Precipitation.glsl
-    //        in the PostProcessRenderPass chain.
+    //        in the dynamic post-processing chain.
     class ScreenSpacePrecipitation
     {
       public:

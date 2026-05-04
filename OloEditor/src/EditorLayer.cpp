@@ -744,17 +744,6 @@ namespace OloEngine
                     textureID = target->GetColorAttachmentRendererID(0);
                 }
             }
-            // Fallback to post-process pass
-            if (textureID == 0)
-            {
-                if (auto postProcessPass = Renderer3D::GetPostProcessPass(); postProcessPass)
-                {
-                    if (auto target = postProcessPass->GetTarget(); target)
-                    {
-                        textureID = target->GetColorAttachmentRendererID(0);
-                    }
-                }
-            }
             // Fallback to scene pass if post-process pass is not available
             if (textureID == 0)
             {

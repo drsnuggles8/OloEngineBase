@@ -383,7 +383,7 @@ namespace OloEngine
         }
 
         // -------------------------------------------------------------------
-        // Phase G Slice 6 — Batch-event hook
+        // Batch-event hook
         // -------------------------------------------------------------------
         // Fired when Execute() enters (isBegin=true) or exits (isBegin=false)
         // an async-compute batch boundary.  Useful for tests and profiling
@@ -453,20 +453,20 @@ namespace OloEngine
         [[nodiscard]] bool UpdateDependencyGraph();
         void ResolveFinalPass();
 
-        // Phase G Slice 2 — Compute-pass scheduling hoist.
+        // Compute-pass scheduling hoist.
         // After UpdateDependencyGraph() builds a valid topological order, this
         // method applies a modified Kahn's pass over m_PassOrder: when multiple
         // passes are ready (all predecessors already scheduled), all
         // AsyncComputeCandidate passes are drained before any graphics pass is
         // advanced. The result is a still-valid topological order that gives
         // compute work a head start — simulating what a multi-queue backend
-        // would achieve once async-compute scheduling lands in Phase G.2.
+        // would achieve once async-compute scheduling lands.
         // No-ops when no AsyncComputeCandidate pass is present.
         void HoistComputePasses();
 
       public:
         // -------------------------------------------------------------------
-        // Phase G Slice 4 — Async-compute batch query
+        // Async-compute batch query
         // -------------------------------------------------------------------
         // A batch groups consecutive AsyncComputeCandidate passes from the
         // hoisted execution order together with the fence metadata needed for
@@ -483,7 +483,7 @@ namespace OloEngine
         //   DX12     : D3D12_COMMAND_LIST_TYPE_COMPUTE + fence Signal/Wait pairs.
 
         // -------------------------------------------------------------------
-        // Phase G Slice 8 — Cross-batch resource dependency surfacing
+        // Cross-batch resource dependency surfacing
         // -------------------------------------------------------------------
         // A resource dependency that crosses an async-compute batch boundary.
         //   ExternalPass — the non-batch pass on the other side of the fence:
@@ -516,8 +516,8 @@ namespace OloEngine
             std::vector<std::string> ComputePasses; ///< batch members, in execution order
             std::vector<std::string> WaitPasses;    ///< non-batch passes this batch waits for
             std::vector<std::string> SignalPasses;  ///< non-batch passes that wait for this batch
-            QueueLane Lane = QueueLane::Compute;    ///< execution lane assignment for this batch (Phase G Slice 13)
-            // Phase G Slice 8: per-resource cross-boundary dependency info
+            QueueLane Lane = QueueLane::Compute;    ///< execution lane assignment for this batch
+            // Per-resource cross-boundary dependency info
             std::vector<BatchResourceDependency> InputResources;  ///< resources entering the batch from outside
             std::vector<BatchResourceDependency> OutputResources; ///< resources leaving the batch to outside
         };
@@ -529,7 +529,7 @@ namespace OloEngine
         [[nodiscard]] std::vector<AsyncComputeBatch> GetAsyncComputeBatches() const;
 
         // -------------------------------------------------------------------
-        // Phase G Slice 5 — Submission-plan IR
+        // Submission-plan IR
         // -------------------------------------------------------------------
         // A backend-portable linearised sequence of operations that a
         // Vulkan/DX12/GL renderer can execute without re-reading the graph
@@ -567,9 +567,9 @@ namespace OloEngine
             MemoryBarrierFlags Barriers = MemoryBarrierFlags::None;                 ///< for MemoryBarrier commands
             u32 BatchIndex = 0;                                                     ///< for BatchBegin/BatchEnd: which async batch
             RenderPass::PassWorkType WorkType = RenderPass::PassWorkType::Graphics; ///< for Pass commands
-            QueueLane Lane = QueueLane::Graphics;                                   ///< queue lane assignment for this command (Phase G Slice 13)
+            QueueLane Lane = QueueLane::Graphics;                                   ///< queue lane assignment for this command
 
-            // Phase G Slice 9: self-contained batch-boundary metadata so
+            // Self-contained batch-boundary metadata so
             // backends can map waits/signals/resource ownership transitions
             // directly from GetSubmissionPlan() without side-channel queries.
             std::vector<std::string> WaitPasses;                  ///< for BatchBegin commands
@@ -579,14 +579,14 @@ namespace OloEngine
         };
 
         // Build the submission-plan IR for the current frame.
-        // Integrates barrier plan (Phase E) with async-compute batch boundaries
-        // (Phase G Slice 4) into a single linearised command stream.
+        // Integrates barrier plan with async-compute batch boundaries
+        // into a single linearised command stream.
         // Must be called AFTER Execute() so that barrier planning and
         // compute-hoist have already run.
         [[nodiscard]] std::vector<SubmissionCommand> GetSubmissionPlan() const;
 
         // -------------------------------------------------------------------
-        // Phase G Slice 10 — Explicit resource transition records
+        // Explicit resource transition records
         // -------------------------------------------------------------------
         // For each planned barrier, captures the before-state (producer's
         // write usage) and after-state (consumer's read usage) so
@@ -616,7 +616,7 @@ namespace OloEngine
             MemoryBarrierFlags Flags = MemoryBarrierFlags::None; ///< barrier flags from PlannedBarrier
             RGSubresourceRange Range;                            ///< subresource range from the consuming access declaration
 
-            // Phase G Slice 14 — Cross-lane sync metadata (release/acquire intent).
+            // Cross-lane sync metadata (release/acquire intent).
             // Set when ProducerPass and ConsumerPass reside on different queue lanes.
             // On GL 4.6 this is informational only; on Vulkan/DX12 it drives
             // ownership-transfer barriers and semaphore waits.
@@ -634,7 +634,7 @@ namespace OloEngine
         [[nodiscard]] std::vector<ResourceTransition> GetResourceTransitions() const;
 
         // -------------------------------------------------------------------
-        // Phase G Slice 11 — Unified resource lifetime records
+        // Unified resource lifetime records
         // -------------------------------------------------------------------
         // One record per registered resource giving its full first-write /
         // last-read extent in pass-execution order.  Covers ALL resource kinds
@@ -730,7 +730,7 @@ namespace OloEngine
         // Execution-ready cache — rebuilt when m_DependencyGraphDirty is set.
         // Avoids per-frame hash lookups in Execute().
         std::vector<RenderPass*> m_CachedExecutionOrder;
-        std::vector<SubmissionCommand> m_CachedSubmissionPlan; ///< Phase G Slice 6: IR cached after barrier planning
+        std::vector<SubmissionCommand> m_CachedSubmissionPlan; ///< IR cached after barrier planning
 
         std::unordered_map<std::string, RGResourceDesc> m_ImportedResources;
 

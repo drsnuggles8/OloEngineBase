@@ -10,7 +10,7 @@ namespace OloEngine
 {
     // @brief Standalone tone-mapping post-process pass (HDR → LDR).
     //
-    // Phase F slice 17 — extracted from the monolithic PostProcessRenderPass
+    // Phase F slice 17 — standalone effect in the dynamic post chain
     // following the pattern established by FXAARenderPass (slice 16).
     //
     // Sits third in the extracted-effect sub-chain:

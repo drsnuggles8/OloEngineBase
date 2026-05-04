@@ -4,7 +4,12 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 
+#include "OloEngine/Renderer/RenderCommand.h"
+
 #include <algorithm>
+#include <span>
+
+#include <glad/gl.h>
 
 namespace OloEngine
 {
@@ -34,10 +39,12 @@ namespace OloEngine
         CreateJFAFramebuffers(spec.Width, spec.Height);
 
         // Graph-visible contract: receives VignetteColor when FXAA is absent,
-        // or FXAAColor when FXAA precedes it.  Both are declared so the hazard
-        // validator derives the correct ordering edge for whichever is present.
+        // or FXAAColor when FXAA precedes it. SceneColor is a conservative
+        // fallback so the pass can still blit the scene through when the late
+        // post chain is unavailable.
         DeclareRead(ResourceNames::VignetteColor, ResourceHandle::Kind::Framebuffer);
         DeclareRead(ResourceNames::FXAAColor, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
         DeclareWrite(ResourceNames::SelectionOutlineColor, ResourceHandle::Kind::Framebuffer);
 
         OLO_CORE_INFO("SelectionOutlineRenderPass: Initialized {}x{} (JFA, {} passes)", spec.Width, spec.Height, m_JFAPassCount);
@@ -97,7 +104,7 @@ namespace OloEngine
 
         // Phase F slice 44 — self-resolving input framebuffer from the render-graph
         // blackboard. Preference chain: FXAA > Vignette > ToneMap > ColorGrading >
-        // ChromAb > Fog > Precipitation > TAA > MotionBlur > DOF > Bloom > PostProcess.
+        // ChromAb > Fog > Precipitation > TAA > MotionBlur > DOF > Bloom > PostProcess > SceneColor.
         Ref<Framebuffer> inputFramebuffer;
         if (const auto* board = context.GetBlackboard())
         {
@@ -141,6 +148,9 @@ namespace OloEngine
             if (!inputFramebuffer)
                 if (auto fb = context.ResolveFramebuffer(board->PostProcessColor))
                     inputFramebuffer = fb;
+            if (!inputFramebuffer)
+                if (auto fb = context.ResolveFramebuffer(board->SceneColor))
+                    inputFramebuffer = fb;
         }
         if (!m_Target || !inputFramebuffer)
         {
@@ -148,14 +158,22 @@ namespace OloEngine
         }
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
+        constexpr u32 colorAttachment = 0;
 
         // Early-out: no selection, disabled, or no scene FB — blit input straight through
         if (!m_Enabled || m_UBOData.SelectedCount == 0 || !m_SceneFramebuffer)
         {
             m_Target->Bind();
             context.SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
+            context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
             context.SetBlendState(false);
             context.SetDepthTest(false);
+            context.SetDepthMask(false);
+            context.SetCulling(false);
+            RenderCommand::DisableStencilTest();
+            RenderCommand::DisableScissorTest();
+            RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            RenderCommand::SetColorMask(true, true, true, true);
 
             m_BlitShader->Bind();
             context.BindTexture(0, inputFramebuffer->GetColorAttachmentRendererID(0));
@@ -181,8 +199,15 @@ namespace OloEngine
         // =====================================================================
         m_JFAFramebuffers[0]->Bind();
         context.SetViewport(0, 0, w, h);
+        context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
         context.SetBlendState(false);
         context.SetDepthTest(false);
+        context.SetDepthMask(false);
+        context.SetCulling(false);
+        RenderCommand::DisableStencilTest();
+        RenderCommand::DisableScissorTest();
+        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetColorMask(true, true, true, true);
         context.Clear();
 
         // Bind entity ID texture from ScenePass attachment 1
@@ -211,6 +236,15 @@ namespace OloEngine
 
             m_JFAFramebuffers[writeIndex]->Bind();
             context.SetViewport(0, 0, w, h);
+            context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
+            context.SetBlendState(false);
+            context.SetDepthTest(false);
+            context.SetDepthMask(false);
+            context.SetCulling(false);
+            RenderCommand::DisableStencilTest();
+            RenderCommand::DisableScissorTest();
+            RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            RenderCommand::SetColorMask(true, true, true, true);
             context.Clear();
 
             // Bind previous JFA result
@@ -235,8 +269,17 @@ namespace OloEngine
 
         m_Target->Bind();
         context.SetViewport(0, 0, w, h);
+        context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
+        context.SetBlendState(false);
+        context.SetDepthTest(false);
+        context.SetDepthMask(false);
+        context.SetCulling(false);
+        RenderCommand::DisableStencilTest();
+        RenderCommand::DisableScissorTest();
+        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetColorMask(true, true, true, true);
 
-        // Slot 0: scene color from PostProcessPass
+        // Slot 0: scene color from dynamic post chain output
         context.BindTexture(0, inputFramebuffer->GetColorAttachmentRendererID(0));
         // Slot 1: final JFA distance field
         context.BindTexture(1, m_JFAFramebuffers[readIndex]->GetColorAttachmentRendererID(0));

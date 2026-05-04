@@ -607,6 +607,19 @@ namespace OloEngine
                         const std::string label = std::format("{} | {}", entry.PassName, RenderGraphFrameCapture::SourceName(entry.SourceKind));
                         ImGui::TextUnformatted(label.c_str());
 
+                        if (entry.NonBlackSamples == 0)
+                        {
+                            ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "BLACK (nonBlack: %u/9)", entry.NonBlackSamples);
+                        }
+                        else if (entry.NonTransparentSamples == 0)
+                        {
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.35f, 1.0f), "TRANSPARENT (alpha: %u/9)", entry.NonTransparentSamples);
+                        }
+                        else
+                        {
+                            ImGui::TextColored(ImVec4(0.55f, 0.9f, 0.55f, 1.0f), "VISIBLE (nonBlack: %u/9)", entry.NonBlackSamples);
+                        }
+
                         const ImTextureID texID = static_cast<ImTextureID>(static_cast<uintptr_t>(entry.TextureID));
                         if (ImGui::ImageButton("##thumb", texID, ImVec2(thumbWidth, thumbHeight), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f)))
                         {
@@ -632,6 +645,13 @@ namespace OloEngine
                         ImGui::Text("Pass:   %s", entry.PassName.c_str());
                         ImGui::Text("Source: %s", RenderGraphFrameCapture::SourceName(entry.SourceKind));
                         ImGui::Text("Size:   %u x %u", entry.Width, entry.Height);
+                        ImGui::Text("Probe:  nonBlack=%u/9  nonTransparent=%u/9  center=(%u,%u,%u,%u)",
+                                    entry.NonBlackSamples,
+                                    entry.NonTransparentSamples,
+                                    static_cast<u32>(entry.CenterRGBA[0]),
+                                    static_cast<u32>(entry.CenterRGBA[1]),
+                                    static_cast<u32>(entry.CenterRGBA[2]),
+                                    static_cast<u32>(entry.CenterRGBA[3]));
                         ImGui::Separator();
 
                         const ImVec2 avail = ImGui::GetContentRegionAvail();

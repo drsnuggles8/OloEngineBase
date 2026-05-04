@@ -10,9 +10,8 @@ namespace OloEngine
 {
     // @brief Standalone motion-blur post-process pass.
     //
-    // Phase F slice 21 — extracted from PostProcessRenderPass and inserted
-    // between PostProcess and TAA:
-    //   PostProcess(AO+Bloom+DOF) -> MotionBlur -> TAA -> Precipitation -> Fog -> ...
+    // Phase F slice 21 — standalone motion-blur stage in the dynamic chain:
+    //   AOApply/Bloom/DOF -> MotionBlur -> TAA -> Precipitation -> Fog -> ...
     //
     // Inputs:
     //   * Input framebuffer handle (typically PostProcessColor)

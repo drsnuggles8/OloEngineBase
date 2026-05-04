@@ -18,7 +18,6 @@
 #include "OloEngine/Renderer/Passes/ParticleRenderPass.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
-#include "OloEngine/Renderer/Passes/PostProcessRenderPass.h"
 #include "OloEngine/Renderer/Passes/AOApplyRenderPass.h"
 #include "OloEngine/Renderer/Passes/BloomRenderPass.h"
 #include "OloEngine/Renderer/Passes/DOFRenderPass.h"
@@ -718,11 +717,6 @@ namespace OloEngine
             return s_Data.DecalPass;
         }
 
-        static const Ref<PostProcessRenderPass>& GetPostProcessPass()
-        {
-            return s_Data.PostProcessPass;
-        }
-
         static const Ref<SSSRenderPass>& GetSSSPass()
         {
             return s_Data.SSSPass;
@@ -1290,8 +1284,7 @@ namespace OloEngine
             Ref<ParticleRenderPass> ParticlePass;
             Ref<OITResolveRenderPass> OITResolvePass;
             Ref<SSSRenderPass> SSSPass;
-            Ref<AOApplyRenderPass> AOApplyPass; // Phase F slice 24
-            Ref<PostProcessRenderPass> PostProcessPass;
+            Ref<AOApplyRenderPass> AOApplyPass;
             Ref<BloomRenderPass> BloomPass;
             Ref<DOFRenderPass> DOFPass;
             Ref<MotionBlurRenderPass> MotionBlurPass;

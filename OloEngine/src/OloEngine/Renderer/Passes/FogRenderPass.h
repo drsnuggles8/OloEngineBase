@@ -10,12 +10,11 @@ namespace OloEngine
 {
     // @brief Standalone volumetric fog post-process pass.
     //
-    // Phase F slice 18 — extracted from the monolithic PostProcessRenderPass
+    // Phase F slice 18 — standalone fog stage in the dynamic post chain
     // following the pattern established by FXAARenderPass (slice 16) and the
     // four effects extracted in slice 17.
     //
-    // Now sits at the tail of the effects that remain in PostProcessRenderPass,
-    // immediately before the ChromaticAberrationRenderPass in the sub-chain:
+    // Sits before the ChromaticAberrationRenderPass in the sub-chain:
     //   PostProcess(AO+Bloom+DOF+MB+TAA+Precip) → Fog →
     //     ChromAberration → ColorGrading → ToneMap → Vignette → FXAA
     //
@@ -100,7 +99,7 @@ namespace OloEngine
         // Half-resolution framebuffers used by the two-pass fog algorithm.
         Ref<Framebuffer> m_FogHalfResFB; // ray-march output (overwritten each frame)
         Ref<Framebuffer> m_FogHistoryFB; // temporal history for next-frame reprojection
-        u32 m_FogHalfWidth  = 0;
+        u32 m_FogHalfWidth = 0;
         u32 m_FogHalfHeight = 0;
 
         Ref<Shader> m_FogShader;         // Pass A: ray-march shader

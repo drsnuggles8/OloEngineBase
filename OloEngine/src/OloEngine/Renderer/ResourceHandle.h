@@ -312,19 +312,19 @@ namespace OloEngine::ResourceNames
 
     // Post-process chain.
     inline constexpr std::string_view SSSColor = "SSSColor";                           // Output of SSS stage (or passthrough scene color)
-    inline constexpr std::string_view AOApplyColor = "AOApplyColor";                   // Phase F slice 24 — after AO apply (only valid when SSAO or GTAO is enabled)
-    inline constexpr std::string_view PostProcessColor = "PostProcessColor";           // Output of PostProcess passthrough (Phase F slice 24: AO apply moved to AOApplyPass)
-    inline constexpr std::string_view BloomColor = "BloomColor";                       // Phase F slice 23 — after Bloom composite (only valid when Bloom is enabled)
-    inline constexpr std::string_view DOFColor = "DOFColor";                           // Phase F slice 22 — after depth-of-field (only valid when DOF is enabled)
-    inline constexpr std::string_view MotionBlurColor = "MotionBlurColor";             // Phase F slice 21 — after motion blur (only valid when motion blur is enabled)
-    inline constexpr std::string_view TAAColor = "TAAColor";                           // Phase F slice 19 — after temporal AA resolve (only valid when TAA is enabled)
-    inline constexpr std::string_view PrecipitationColor = "PrecipitationColor";       // Phase F slice 20 — after screen-space precipitation overlay (only valid when precipitation screen FX enabled)
-    inline constexpr std::string_view FogColor = "FogColor";                           // Phase F slice 18 — after volumetric fog composite (only valid when fog is enabled)
-    inline constexpr std::string_view ChromAbColor = "ChromAbColor";                   // Phase F slice 17 — after chromatic aberration
-    inline constexpr std::string_view ColorGradingColor = "ColorGradingColor";         // Phase F slice 17 — after colour grading
-    inline constexpr std::string_view ToneMapColor = "ToneMapColor";                   // Phase F slice 17 — after tone mapping (HDR→LDR boundary)
-    inline constexpr std::string_view VignetteColor = "VignetteColor";                 // Phase F slice 17 — after vignette
-    inline constexpr std::string_view FXAAColor = "FXAAColor";                         // Phase F slice 16 — anti-aliased post-process output
+    inline constexpr std::string_view AOApplyColor = "AOApplyColor";                   // After AO apply (only valid when SSAO or GTAO is enabled)
+    inline constexpr std::string_view PostProcessColor = "PostProcessColor";           // Dynamic post-chain input (typically AOApply/SSS/Scene fallback)
+    inline constexpr std::string_view BloomColor = "BloomColor";                       // After Bloom composite (only valid when Bloom is enabled)
+    inline constexpr std::string_view DOFColor = "DOFColor";                           // After depth-of-field (only valid when DOF is enabled)
+    inline constexpr std::string_view MotionBlurColor = "MotionBlurColor";             // After motion blur (only valid when motion blur is enabled)
+    inline constexpr std::string_view TAAColor = "TAAColor";                           // After temporal AA resolve (only valid when TAA is enabled)
+    inline constexpr std::string_view PrecipitationColor = "PrecipitationColor";       // After screen-space precipitation overlay (only valid when precipitation screen FX enabled)
+    inline constexpr std::string_view FogColor = "FogColor";                           // After volumetric fog composite (only valid when fog is enabled)
+    inline constexpr std::string_view ChromAbColor = "ChromAbColor";                   // After chromatic aberration
+    inline constexpr std::string_view ColorGradingColor = "ColorGradingColor";         // After colour grading
+    inline constexpr std::string_view ToneMapColor = "ToneMapColor";                   // After tone mapping (HDR→LDR boundary)
+    inline constexpr std::string_view VignetteColor = "VignetteColor";                 // After vignette
+    inline constexpr std::string_view FXAAColor = "FXAAColor";                         // Anti-aliased post-process output
     inline constexpr std::string_view SelectionOutlineColor = "SelectionOutlineColor"; // Post-process + selection outline composite
     inline constexpr std::string_view UIComposite = "UIComposite";                     // UI composite over post-processed scene
     inline constexpr std::string_view Backbuffer = "Backbuffer";                       // External present target (default framebuffer / swapchain)

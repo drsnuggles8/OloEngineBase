@@ -6,11 +6,11 @@
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
-#include "OloEngine/Renderer/Passes/PostProcessRenderPass.h"
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 #include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
 #include "OloEngine/Renderer/Passes/OITResolveRenderPass.h"
+#include <array>
 #include <glad/gl.h>
 
 namespace OloEngine
@@ -32,6 +32,24 @@ namespace OloEngine
                 glCreateFramebuffers(1, &fbo);
             }
             return fbo;
+        }
+
+        bool IsPresentationLikeSource(const RenderGraphFrameCapture::Source source)
+        {
+            using S = RenderGraphFrameCapture::Source;
+            switch (source)
+            {
+                case S::SceneColor:
+                case S::SSSColor:
+                case S::OITResolveColor:
+                case S::SelectionOutlineColor:
+                case S::UIComposite:
+                case S::SceneColorViaBlackboard:
+                case S::PostProcessColorViaBlackboard:
+                    return true;
+                default:
+                    return false;
+            }
         }
     } // namespace
 
@@ -66,8 +84,6 @@ namespace OloEngine
                 return "OITResolveColor";
             case Source::AOTexture:
                 return "AOTexture";
-            case Source::PostProcessColor:
-                return "PostProcessColor";
             case Source::SelectionOutlineColor:
                 return "SelectionOutline";
             case Source::UIComposite:
@@ -224,16 +240,76 @@ namespace OloEngine
         }
         else
         {
-            // Probe the center pixel of the just-written destination so we can
-            // tell whether the blit actually wrote color data.
-            u8 probe[4] = { 0, 0, 0, 0 };
-            const GLint cx = static_cast<GLint>(width) / 2;
-            const GLint cy = static_cast<GLint>(height) / 2;
-            glGetTextureSubImage(dstTexture, 0, cx, cy, 0, 1, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, sizeof(probe), probe);
+            // Probe a 3x3 grid to provide actionable visibility diagnostics
+            // (black/transparent/stale) instead of just a single center pixel.
+            std::array<std::array<u8, 4>, 9> probes{};
+            const GLint probeX[3] = {
+                0,
+                std::max<GLint>(0, static_cast<GLint>(width) / 2),
+                std::max<GLint>(0, static_cast<GLint>(width) - 1)
+            };
+            const GLint probeY[3] = {
+                0,
+                std::max<GLint>(0, static_cast<GLint>(height) / 2),
+                std::max<GLint>(0, static_cast<GLint>(height) - 1)
+            };
 
-            OLO_CORE_TRACE("RenderGraphFrameCapture[{}|{}]: blit OK src tex {} -> dst tex {} ({}x{}) center=({},{},{},{})",
-                           passName, SourceName(source), sourceTextureID, dstTexture, width, height,
-                           probe[0], probe[1], probe[2], probe[3]);
+            u32 nonBlackSamples = 0;
+            u32 nonTransparentSamples = 0;
+            sizet probeIndex = 0;
+            for (const GLint y : probeY)
+            {
+                for (const GLint x : probeX)
+                {
+                    std::array<u8, 4> rgba{ 0, 0, 0, 0 };
+                    glGetTextureSubImage(dstTexture, 0, x, y, 0, 1, 1, 1,
+                                        GL_RGBA, GL_UNSIGNED_BYTE,
+                                        static_cast<GLsizei>(rgba.size()), rgba.data());
+                    probes[probeIndex] = rgba;
+
+                    if (rgba[0] != 0 || rgba[1] != 0 || rgba[2] != 0)
+                        ++nonBlackSamples;
+                    if (rgba[3] != 0)
+                        ++nonTransparentSamples;
+
+                    ++probeIndex;
+                }
+            }
+
+            const auto& center = probes[4]; // (1,1) in 3x3 grid
+
+            if (IsPresentationLikeSource(source) && nonBlackSamples == 0)
+            {
+                OLO_CORE_WARN("RenderGraphFrameCapture[{}|{}]: BLACK capture (src tex {} -> dst tex {}, {}x{}, nonBlack={}/9, nonTransparent={}/9, center=({},{},{},{}))",
+                              passName, SourceName(source), sourceTextureID, dstTexture, width, height,
+                              nonBlackSamples, nonTransparentSamples,
+                              center[0], center[1], center[2], center[3]);
+            }
+            else if (IsPresentationLikeSource(source) && nonTransparentSamples == 0)
+            {
+                OLO_CORE_WARN("RenderGraphFrameCapture[{}|{}]: TRANSPARENT capture (src tex {} -> dst tex {}, {}x{}, nonBlack={}/9, nonTransparent={}/9, center=({},{},{},{}))",
+                              passName, SourceName(source), sourceTextureID, dstTexture, width, height,
+                              nonBlackSamples, nonTransparentSamples,
+                              center[0], center[1], center[2], center[3]);
+            }
+            else
+            {
+                OLO_CORE_TRACE("RenderGraphFrameCapture[{}|{}]: blit OK src tex {} -> dst tex {} ({}x{}, nonBlack={}/9, nonTransparent={}/9, center=({},{},{},{}))",
+                               passName, SourceName(source), sourceTextureID, dstTexture, width, height,
+                               nonBlackSamples, nonTransparentSamples,
+                               center[0], center[1], center[2], center[3]);
+            }
+
+            m_Captures.push_back(CaptureEntry{
+                .PassName = passName,
+                .SourceKind = source,
+                .TextureID = dstTexture,
+                .Width = width,
+                .Height = height,
+                .NonBlackSamples = nonBlackSamples,
+                .NonTransparentSamples = nonTransparentSamples,
+                .CenterRGBA = center,
+            });
         }
 
         // Restore prior global state so we don't perturb the next pass.
@@ -255,13 +331,7 @@ namespace OloEngine
         glNamedFramebufferTexture(srcFBO, GL_COLOR_ATTACHMENT0, 0, 0);
         glNamedFramebufferTexture(dstFBO, GL_COLOR_ATTACHMENT0, 0, 0);
 
-        m_Captures.push_back(CaptureEntry{
-            .PassName = passName,
-            .SourceKind = source,
-            .TextureID = dstTexture,
-            .Width = width,
-            .Height = height,
-        });
+        // CaptureEntry is appended above on successful blit so probe stats are retained.
     }
 
     void RenderGraphFrameCapture::OnPassExecuted(const std::string& passName, RenderGraph& graph)
@@ -317,10 +387,6 @@ namespace OloEngine
         if (const auto& oitPass = Renderer3D::GetOITResolvePass(); oitPass && oitPass->GetTarget())
         {
             sources[sourceCount++] = { Source::OITResolveColor, oitPass->GetTarget() };
-        }
-        if (const auto& postPass = Renderer3D::GetPostProcessPass(); postPass && postPass->GetTarget())
-        {
-            sources[sourceCount++] = { Source::PostProcessColor, postPass->GetTarget() };
         }
         if (const auto& selPass = Renderer3D::GetSelectionOutlinePass(); selPass && selPass->GetTarget())
         {
@@ -415,7 +481,7 @@ namespace OloEngine
         // Diagnostic: ALSO capture what the RenderGraph blackboard resolves
         // SceneColor / PostProcessColor to. If these differ from the "live"
         // versions above, the blackboard's physical-slot bookkeeping is
-        // corrupt. PostProcessPass and other consumers read through the
+        // corrupt. Dynamic post-chain consumers read through the
         // blackboard, so a mismatch here directly explains rendering bugs
         // (ghosting, stale content, wrong tonemap input, etc.).
         struct BlackboardBinding

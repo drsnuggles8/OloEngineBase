@@ -5,6 +5,7 @@
 #include <glad/gl.h>
 #include <imgui.h>
 
+#include <array>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -49,7 +50,6 @@ namespace OloEngine
             SSSColor,              // SSS pass output (subsurface scattering blur), if active
             OITResolveColor,       // OIT resolve pass output, if active
             AOTexture,             // GTAO/SSAO output (R8 single channel, captured to RGBA8)
-            PostProcessColor,      // Post-process pass output
             SelectionOutlineColor, // Selection-outline pass output
             UIComposite,           // UI composite pass output
             // Diagnostic: same logical surface but resolved through the
@@ -69,6 +69,11 @@ namespace OloEngine
             u32 TextureID = 0; // GL texture name (RGBA8)
             u32 Width = 0;
             u32 Height = 0;
+            // Quick visibility diagnostics from a 3x3 probe grid over the
+            // captured texture.
+            u32 NonBlackSamples = 0;       // samples where any RGB channel > 0
+            u32 NonTransparentSamples = 0; // samples where A > 0
+            std::array<u8, 4> CenterRGBA{ 0, 0, 0, 0 };
         };
 
         RenderGraphFrameCapture() = default;

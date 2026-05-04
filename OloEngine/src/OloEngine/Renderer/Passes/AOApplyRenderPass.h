@@ -10,9 +10,8 @@ namespace OloEngine
 {
     // @brief Standalone AO Apply post-process pass.
     //
-    // Phase F slice 24 — extracted from PostProcessRenderPass and inserted
-    // between SSSPass (or ScenePass) and PostProcessPass:
-    //   SSSColor/SceneColor → AOApply → AOApplyColor → PostProcess → Bloom → ...
+    // Standalone AO stage inserted into the dynamic chain:
+    //   SSSColor/SceneColor → AOApply → AOApplyColor → Bloom → ...
     //
     // Inputs:
     //   * Input framebuffer handle (SSSColor or SceneColor)
@@ -68,7 +67,6 @@ namespace OloEngine
 
       private:
         bool m_Enabled = false;
-
         Ref<Framebuffer> m_OutputFB;
 
         Ref<Shader> m_SSAOApplyShader;

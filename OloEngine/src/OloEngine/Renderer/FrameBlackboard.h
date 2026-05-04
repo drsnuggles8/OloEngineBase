@@ -19,7 +19,7 @@ namespace OloEngine
     // Frame resources are grouped into:
     //  - Scene outputs (produced by SceneRenderPass / GBuffer fill)
     //  - AO / shadow maps (produced by SSAO/GTAO/ShadowRenderPass)
-    //  - Post-process chain (produced by PostProcessRenderPass)
+    //  - Post-process chain (produced by standalone dynamic post passes)
     //  - OIT buffers (produced by WaterRenderPass / ParticleRenderPass / DecalRenderPass)
     //  - Temporal histories (imported from prior frame)
     //
@@ -82,19 +82,19 @@ namespace OloEngine
         // Post-process chain outputs
         // -----------------------------------------------------------------------
         RGFramebufferHandle SSSColor;              // Output of SSS stage (or passthrough scene color)
-        RGFramebufferHandle AOApplyColor;          // Phase F slice 24 — after AO apply (only valid when SSAO or GTAO is enabled)
-        RGFramebufferHandle PostProcessColor;      // Output of PostProcess passthrough (Phase F slice 24: AO apply moved to AOApplyPass)
-        RGFramebufferHandle BloomColor;            // Phase F slice 23 — after Bloom composite (only valid when Bloom is enabled)
-        RGFramebufferHandle DOFColor;              // Phase F slice 22 — after depth-of-field (only valid when DOF is enabled)
-        RGFramebufferHandle MotionBlurColor;       // Phase F slice 21 — after motion blur (only valid when motion blur is enabled)
-        RGFramebufferHandle TAAColor;              // Phase F slice 19 — after temporal AA resolve (only valid when TAA is enabled)
-        RGFramebufferHandle PrecipitationColor;    // Phase F slice 20 — after screen-space precipitation overlay (only valid when precipitation screen FX enabled)
-        RGFramebufferHandle FogColor;              // Phase F slice 18 — after volumetric fog composite (only valid when fog is enabled)
-        RGFramebufferHandle ChromAbColor;          // Phase F slice 17 — after chromatic aberration (only valid when ChromAb enabled)
-        RGFramebufferHandle ColorGradingColor;     // Phase F slice 17 — after colour grading (only valid when ColorGrading enabled)
-        RGFramebufferHandle ToneMapColor;          // Phase F slice 17 — after tone mapping (always valid when ToneMapPass exists)
-        RGFramebufferHandle VignetteColor;         // Phase F slice 17 — after vignette (only valid when Vignette enabled)
-        RGFramebufferHandle FXAAColor;             // Phase F slice 16 — anti-aliased post-process output (only valid when FXAA enabled)
+        RGFramebufferHandle AOApplyColor;          // After AO apply (only valid when SSAO or GTAO is enabled)
+        RGFramebufferHandle PostProcessColor;      // Dynamic post-chain input (typically AOApply/SSS/Scene fallback)
+        RGFramebufferHandle BloomColor;            // After Bloom composite (only valid when Bloom is enabled)
+        RGFramebufferHandle DOFColor;              // After depth-of-field (only valid when DOF is enabled)
+        RGFramebufferHandle MotionBlurColor;       // After motion blur (only valid when motion blur is enabled)
+        RGFramebufferHandle TAAColor;              // After temporal AA resolve (only valid when TAA is enabled)
+        RGFramebufferHandle PrecipitationColor;    // After screen-space precipitation overlay (only valid when precipitation screen FX enabled)
+        RGFramebufferHandle FogColor;              // After volumetric fog composite (only valid when fog is enabled)
+        RGFramebufferHandle ChromAbColor;          // After chromatic aberration (only valid when ChromAb enabled)
+        RGFramebufferHandle ColorGradingColor;     // After colour grading (only valid when ColorGrading enabled)
+        RGFramebufferHandle ToneMapColor;          // After tone mapping (always valid when ToneMapPass exists)
+        RGFramebufferHandle VignetteColor;         // After vignette (only valid when Vignette enabled)
+        RGFramebufferHandle FXAAColor;             // Anti-aliased post-process output (only valid when FXAA enabled)
         RGFramebufferHandle SelectionOutlineColor; // PostProcess output with selection outline composited
         RGFramebufferHandle UIComposite;           // UI composited over post-processed scene
         RGFramebufferHandle Backbuffer;            // Imported external output target (default framebuffer / swapchain)

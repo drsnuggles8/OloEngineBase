@@ -13,9 +13,8 @@ namespace OloEngine
 {
     // @brief Standalone Bloom post-process pass.
     //
-    // Phase F slice 23 — extracted from PostProcessRenderPass and inserted
-    // between PostProcess (AO) and DOF:
-    //   PostProcess(AO) -> Bloom -> DOF -> MotionBlur -> TAA -> ...
+    // Phase F slice 23 — standalone bloom stage in the dynamic chain:
+    //   AOApply/SSS/Scene -> Bloom -> DOF -> MotionBlur -> TAA -> ...
     //
     // Algorithm:
     //   1. Threshold extract: scene HDR → bloom mip 0 (half-res)

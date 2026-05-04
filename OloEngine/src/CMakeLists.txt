@@ -624,8 +624,6 @@
 		"OloEngine/Renderer/Passes/DeferredOpaqueDecalPass.cpp"
 		"OloEngine/Renderer/Passes/ShadowRenderPass.h"
 		"OloEngine/Renderer/Passes/ShadowRenderPass.cpp"
-		"OloEngine/Renderer/Passes/PostProcessRenderPass.h"
-		"OloEngine/Renderer/Passes/PostProcessRenderPass.cpp"
 		"OloEngine/Renderer/Passes/AOApplyRenderPass.h"
 		"OloEngine/Renderer/Passes/AOApplyRenderPass.cpp"
 		"OloEngine/Renderer/Passes/BloomRenderPass.h"

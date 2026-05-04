@@ -69,41 +69,6 @@ namespace OloEngine
         RGTextureHandle& OutAOTexture;
     };
 
-    struct PostProcessPassSetup
-    {
-        // Per-frame post-process settings
-        i32 TonemapOperator = 0;
-        f32 Exposure = 1.0f;
-        f32 Gamma = 2.2f;
-        f32 BloomThreshold = 1.0f;
-        f32 BloomIntensity = 0.04f;
-        f32 VignetteIntensity = 0.0f;
-        f32 VignetteSmoothness = 1.0f;
-        bool FXAAEnabled = false;
-        bool DOFEnabled = false;
-        bool MotionBlurEnabled = false;
-        bool ChromaticAberrationEnabled = false;
-        bool FogEnabled = false;
-
-        // Input resources
-        RGFramebufferHandle InputColor;
-        RGTextureHandle SceneDepth;
-        RGTextureHandle Velocity;
-        RGTextureHandle AOBuffer;
-        RGTextureHandle ShadowMapCSM;
-        RGTextureHandle IrradianceMap;
-        RGTextureHandle PrefilterMap;
-
-        // Temporal histories (previous frame)
-        RGTextureHandle TAAHistoryPrev;
-        RGTextureHandle FogHistoryPrev;
-
-        // Output resources
-        RGFramebufferHandle& OutColor;
-        RGTextureHandle& OutTAAHistoryCurrent;
-        RGTextureHandle& OutFogHistoryCurrent;
-    };
-
     struct ShadowRenderPassSetup
     {
         // Directional light CSM parameters

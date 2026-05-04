@@ -52,8 +52,35 @@ namespace OloEngine
         // blackboard. FinalPass reads UIComposite.
         Ref<Framebuffer> inputFramebuffer;
         if (const auto* board = context.GetBlackboard())
-            if (auto fb = context.ResolveFramebuffer(board->UIComposite))
-                inputFramebuffer = fb;
+        {
+            auto tryResolveValid = [&](const auto& handle)
+            {
+                if (inputFramebuffer || !handle.IsValid())
+                    return;
+                if (auto fb = context.ResolveFramebuffer(handle))
+                {
+                    if (fb->GetColorAttachmentRendererID(0) != 0)
+                        inputFramebuffer = fb;
+                }
+            };
+
+            // Primary source + conservative fallback chain.
+            tryResolveValid(board->UIComposite);
+            tryResolveValid(board->SelectionOutlineColor);
+            tryResolveValid(board->FXAAColor);
+            tryResolveValid(board->VignetteColor);
+            tryResolveValid(board->ToneMapColor);
+            tryResolveValid(board->ColorGradingColor);
+            tryResolveValid(board->ChromAbColor);
+            tryResolveValid(board->FogColor);
+            tryResolveValid(board->PrecipitationColor);
+            tryResolveValid(board->TAAColor);
+            tryResolveValid(board->MotionBlurColor);
+            tryResolveValid(board->DOFColor);
+            tryResolveValid(board->BloomColor);
+            tryResolveValid(board->PostProcessColor);
+            tryResolveValid(board->SceneColor);
+        }
         context.ResetGraphicsStateToDefault();
         context.BindDefaultFramebuffer();
         context.SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
