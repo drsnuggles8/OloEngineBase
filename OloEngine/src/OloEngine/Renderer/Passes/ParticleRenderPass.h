@@ -43,6 +43,10 @@ namespace OloEngine
         void OnReset() override;
 
         void SetRenderCallback(RenderCallback callback);
+        [[nodiscard]] bool HasRenderCallback() const noexcept
+        {
+            return static_cast<bool>(m_RenderCallback);
+        }
 
         // Phase 6 OIT wiring. Provided by Renderer3D from the
         // OITResolveRenderPass; when OIT is enabled the provider returns

@@ -53,9 +53,25 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstdlib>
 
 namespace OloEngine
 {
+    namespace
+    {
+        bool IsTruthyEnvironmentVariable(const char* name)
+        {
+            const char* value = std::getenv(name);
+            return value && value[0] != '\0' && value[0] != '0' && value[0] != 'f' && value[0] != 'F';
+        }
+
+        bool IsRenderGraphDiagnosticsEnabled()
+        {
+            static const bool enabled = IsTruthyEnvironmentVariable("OLO_RENDERGRAPH_DIAGNOSTICS");
+            return enabled;
+        }
+    } // namespace
+
     static bool s_ForceDisableCulling = false;
 
     static auto ValidateDrawMeshRendererIDs(const char* context, const u32 vaoID, const u32 shaderID) -> bool
@@ -1020,8 +1036,11 @@ namespace OloEngine
                 }
                 else if (importedFbGL != s_PrevFbGL || importedTex0 != s_PrevTex0)
                 {
-                    OLO_CORE_INFO("Renderer3D: SceneColor IMPORT OK: handle=(idx={}, gen={}) fbGL={} tex0={}",
-                                  board.SceneColor.Index, board.SceneColor.Generation, importedFbGL, importedTex0);
+                    if (IsRenderGraphDiagnosticsEnabled())
+                    {
+                        OLO_CORE_TRACE("Renderer3D: SceneColor IMPORT OK: handle=(idx={}, gen={}) fbGL={} tex0={}",
+                                       board.SceneColor.Index, board.SceneColor.Generation, importedFbGL, importedTex0);
+                    }
                     s_PrevFbGL = importedFbGL;
                     s_PrevTex0 = importedTex0;
                 }
@@ -1179,12 +1198,15 @@ namespace OloEngine
                 s_Data.PostProcess.SSAOEnabled != s_PrevSSAOEnabled ||
                 s_Data.PostProcess.GTAOEnabled != s_PrevGTAOEnabled)
             {
-                OLO_CORE_INFO("Renderer3D: AO import state: technique={}, ssaoEnabled={}, gtaoEnabled={}, aoTexID={}, aoHandleValid={}",
-                              activeTechnique,
-                              s_Data.PostProcess.SSAOEnabled,
-                              s_Data.PostProcess.GTAOEnabled,
-                              aoID,
-                              board.AOBuffer.IsValid());
+                if (IsRenderGraphDiagnosticsEnabled())
+                {
+                    OLO_CORE_TRACE("Renderer3D: AO import state: technique={}, ssaoEnabled={}, gtaoEnabled={}, aoTexID={}, aoHandleValid={}",
+                                   activeTechnique,
+                                   s_Data.PostProcess.SSAOEnabled,
+                                   s_Data.PostProcess.GTAOEnabled,
+                                   aoID,
+                                   board.AOBuffer.IsValid());
+                }
                 s_PrevAOID = aoID;
                 s_PrevAOTechnique = activeTechnique;
                 s_PrevSSAOEnabled = s_Data.PostProcess.SSAOEnabled;
@@ -2200,11 +2222,14 @@ namespace OloEngine
 
             if (changed)
             {
-                OLO_CORE_INFO("RenderGraph BuildFrameGraph stats: passes={}, reads={}, writes={}, derivedEdges={}",
-                              buildStats.PassesVisited,
-                              buildStats.DeclaredReads,
-                              buildStats.DeclaredWrites,
-                              buildStats.DerivedEdges);
+                if (IsRenderGraphDiagnosticsEnabled())
+                {
+                    OLO_CORE_TRACE("RenderGraph BuildFrameGraph stats: passes={}, reads={}, writes={}, derivedEdges={}",
+                                   buildStats.PassesVisited,
+                                   buildStats.DeclaredReads,
+                                   buildStats.DeclaredWrites,
+                                   buildStats.DerivedEdges);
+                }
                 s_LastBuildStats = buildStats;
                 s_HasLastBuildStats = true;
             }
@@ -3814,7 +3839,8 @@ namespace OloEngine
     void Renderer3D::SetupRenderGraph(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
-        OLO_CORE_INFO("Setting up Renderer3D RenderGraph with dimensions: {}x{}", width, height);
+        if (IsRenderGraphDiagnosticsEnabled())
+            OLO_CORE_TRACE("Setting up Renderer3D RenderGraph with dimensions: {}x{}", width, height);
 
         if (width == 0 || height == 0)
         {
@@ -4064,10 +4090,13 @@ namespace OloEngine
     void Renderer3D::ConfigureRenderGraph(RenderingPath path)
     {
         OLO_PROFILE_FUNCTION();
-        OLO_CORE_INFO("Renderer3D: Configuring RenderGraph for path = {}",
-                      path == RenderingPath::Forward       ? "Forward"
-                      : path == RenderingPath::ForwardPlus ? "Forward+"
-                                                           : "Deferred");
+        if (IsRenderGraphDiagnosticsEnabled())
+        {
+            OLO_CORE_TRACE("Renderer3D: Configuring RenderGraph for path = {}",
+                           path == RenderingPath::Forward       ? "Forward"
+                           : path == RenderingPath::ForwardPlus ? "Forward+"
+                                                                : "Deferred");
+        }
 
         // Wipe any prior topology. Passes themselves are owned by s_Data
         // as Ref<>s and survive the reset — only the graph's bookkeeping
@@ -5086,6 +5115,9 @@ namespace OloEngine
             "ParticlePass",
             [](RGBuilder& builder)
             {
+                if (!s_Data.ParticlePass || !s_Data.ParticlePass->HasRenderCallback())
+                    return;
+
                 const auto& board = builder.UseBlackboard();
                 const bool oitEnabled = (s_Data.Settings.Path == RenderingPath::Deferred) &&
                                         s_Data.Settings.Deferred.OITEnabled;
@@ -5111,6 +5143,9 @@ namespace OloEngine
             "WaterPass",
             [](RGBuilder& builder)
             {
+                if (!s_Data.WaterPass || s_Data.WaterPass->GetCommandBucket().GetCommandCount() == 0)
+                    return;
+
                 const auto& board = builder.UseBlackboard();
                 const bool oitEnabled = (s_Data.Settings.Path == RenderingPath::Deferred) &&
                                         s_Data.Settings.Deferred.OITEnabled;
@@ -5136,6 +5171,9 @@ namespace OloEngine
             "DecalPass",
             [](RGBuilder& builder)
             {
+                if (!s_Data.DecalPass || s_Data.DecalPass->GetCommandBucket().GetCommandCount() == 0)
+                    return;
+
                 const auto& board = builder.UseBlackboard();
                 const bool oitEnabled = (s_Data.Settings.Path == RenderingPath::Deferred) &&
                                         s_Data.Settings.Deferred.OITEnabled;
@@ -5161,6 +5199,15 @@ namespace OloEngine
             "OITResolvePass",
             [](RGBuilder& builder)
             {
+                const bool oitEnabled = (s_Data.Settings.Path == RenderingPath::Deferred) &&
+                                        s_Data.Settings.Deferred.OITEnabled;
+                const bool hasOITContributor =
+                    (s_Data.ParticlePass && s_Data.ParticlePass->HasRenderCallback()) ||
+                    (s_Data.WaterPass && s_Data.WaterPass->GetCommandBucket().GetCommandCount() > 0) ||
+                    (s_Data.DecalPass && s_Data.DecalPass->GetCommandBucket().GetCommandCount() > 0);
+                if (!oitEnabled || !hasOITContributor)
+                    return;
+
                 const auto& board = builder.UseBlackboard();
 
                 if (board.OITAccum.IsValid())
@@ -5299,6 +5346,8 @@ namespace OloEngine
             {
                 if (s_Data.Settings.Path != RenderingPath::Deferred)
                     return;
+                if (!s_Data.DecalPass || s_Data.DecalPass->GetCommandBucket().GetCommandCount() == 0)
+                    return;
 
                 const auto& board = builder.UseBlackboard();
 
@@ -5325,6 +5374,8 @@ namespace OloEngine
             {
                 if (s_Data.Settings.Path != RenderingPath::Deferred)
                     return;
+                if (!s_Data.ForwardOverlayPass || s_Data.ForwardOverlayPass->GetCommandBucket().GetCommandCount() == 0)
+                    return;
 
                 const auto& board = builder.UseBlackboard();
                 if (board.SceneColor.IsValid())
@@ -5339,6 +5390,9 @@ namespace OloEngine
             "FoliagePass",
             [](RGBuilder& builder)
             {
+                if (!s_Data.FoliagePass || s_Data.FoliagePass->GetCommandBucket().GetCommandCount() == 0)
+                    return;
+
                 const auto& board = builder.UseBlackboard();
                 if (board.SceneColor.IsValid())
                     builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
@@ -5353,14 +5407,20 @@ namespace OloEngine
 
         if (deferred)
         {
-            OLO_CORE_INFO("Renderer3D: Render graph (Deferred): Shadow -> Scene -> DeferredOpaqueDecal -> DeferredLighting -> ForwardOverlay -> Foliage -> Decal -> Water -> SSAO/GTAO -> Particle -> OITResolve -> SSS -> AOApply -> Bloom -> DOF -> MotionBlur -> TAA -> Precipitation -> Fog -> ChromAb -> ColorGrading -> ToneMap -> Vignette -> FXAA{} -> UIComposite -> Final",
-                          s_Data.EnableSelectionOutline ? " -> SelectionOutline" : "");
+            if (IsRenderGraphDiagnosticsEnabled())
+            {
+                OLO_CORE_TRACE("Renderer3D: Render graph (Deferred): Shadow -> Scene -> DeferredOpaqueDecal -> DeferredLighting -> ForwardOverlay -> Foliage -> Decal -> Water -> SSAO/GTAO -> Particle -> OITResolve -> SSS -> AOApply -> Bloom -> DOF -> MotionBlur -> TAA -> Precipitation -> Fog -> ChromAb -> ColorGrading -> ToneMap -> Vignette -> FXAA{} -> UIComposite -> Final",
+                               s_Data.EnableSelectionOutline ? " -> SelectionOutline" : "");
+            }
         }
         else
         {
-            OLO_CORE_INFO("Renderer3D: Render graph ({}): Shadow -> Scene -> Foliage -> Decal -> Water -> SSAO/GTAO -> Particle -> OITResolve -> SSS -> AOApply -> Bloom -> DOF -> MotionBlur -> TAA -> Precipitation -> Fog -> ChromAb -> ColorGrading -> ToneMap -> Vignette -> FXAA{} -> UIComposite -> Final",
-                          path == RenderingPath::ForwardPlus ? "Forward+" : "Forward",
-                          s_Data.EnableSelectionOutline ? " -> SelectionOutline" : "");
+            if (IsRenderGraphDiagnosticsEnabled())
+            {
+                OLO_CORE_TRACE("Renderer3D: Render graph ({}): Shadow -> Scene -> Foliage -> Decal -> Water -> SSAO/GTAO -> Particle -> OITResolve -> SSS -> AOApply -> Bloom -> DOF -> MotionBlur -> TAA -> Precipitation -> Fog -> ChromAb -> ColorGrading -> ToneMap -> Vignette -> FXAA{} -> UIComposite -> Final",
+                               path == RenderingPath::ForwardPlus ? "Forward+" : "Forward",
+                               s_Data.EnableSelectionOutline ? " -> SelectionOutline" : "");
+            }
         }
 
         s_Data.RGraph->SetFinalPass("FinalPass");
@@ -5391,7 +5451,8 @@ namespace OloEngine
             }
             else
             {
-                OLO_CORE_INFO("Renderer3D: RenderGraph resource hazard validation passed.");
+                if (IsRenderGraphDiagnosticsEnabled())
+                    OLO_CORE_TRACE("Renderer3D: RenderGraph resource hazard validation passed.");
             }
         }
 
@@ -5413,7 +5474,8 @@ namespace OloEngine
         // create them now that we have valid dimensions.
         if (s_Data.RGraph && !s_Data.ScenePass)
         {
-            OLO_CORE_INFO("Renderer3D::OnWindowResize: ScenePass missing — running deferred SetupRenderGraph");
+            if (IsRenderGraphDiagnosticsEnabled())
+                OLO_CORE_TRACE("Renderer3D::OnWindowResize: ScenePass missing - running deferred SetupRenderGraph");
             SetupRenderGraph(width, height);
             s_Data.ForwardPlus.Initialize(width, height);
             return; // Initialize already configured for width x height

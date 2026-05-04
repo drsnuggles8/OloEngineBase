@@ -223,9 +223,10 @@ namespace OloEngine
 
         ImGui::EndGroup();
 
-        // Interaction checks apply to the full group (thumbnail + label)
-        // Drag-drop source
-        if (ImGui::BeginDragDropSource())
+        // Interaction checks apply to the full group (thumbnail + label).
+        // The last submitted item may be a Text widget (ID=0), so allow a
+        // fallback temporary ID to avoid ImGui assert in BeginDragDropSource().
+        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
         {
             auto itemPathU8 = m_Path.u8string();
             const char* payloadType = GetDragDropPayloadType(m_Type);

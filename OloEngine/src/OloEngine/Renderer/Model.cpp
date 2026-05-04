@@ -3,7 +3,19 @@
 // upon import. This is required for ECS-driven animated mesh support.
 #include "OloEnginePCH.h"
 
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <cmath>
+#include <cstdlib>
 #include <filesystem>
+#include <initializer_list>
+#include <limits>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <vector>
+
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/MeshSource.h"
@@ -11,10 +23,50 @@
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Task/ParallelFor.h"
 
+#include <stb_image/stb_image.h>
+
 namespace OloEngine
 {
     namespace
     {
+        std::string ToLowerCopy(std::string value)
+        {
+            std::ranges::transform(value, value.begin(),
+                                   [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
+            return value;
+        }
+
+        bool IsTruthyEnvironmentVariable(const char* name)
+        {
+            const char* value = std::getenv(name);
+            if (value == nullptr)
+                return false;
+
+            const std::string normalized = ToLowerCopy(value);
+            return !normalized.empty() && normalized != "0" && normalized != "false" &&
+                   normalized != "off" && normalized != "no";
+        }
+
+        bool IsModelImportDiagnosticsEnabled()
+        {
+            static const bool enabled = IsTruthyEnvironmentVariable("OLO_MODEL_IMPORT_DIAGNOSTICS");
+            return enabled;
+        }
+
+        bool IsObjModelPath(const std::filesystem::path& path)
+        {
+            return ToLowerCopy(path.extension().string()) == ".obj";
+        }
+
+        std::string GetStaticMeshCachePrefix(bool effectiveFlipUV)
+        {
+            // Vertex UVs are baked into the .omesh cache. Keep the flipped-UV
+            // variant separate from older/default caches so reload/reimport
+            // cannot silently reuse geometry imported with different UVs.
+            return effectiveFlipUV ? "static_uvflip_v1" : std::string{};
+        }
+
         // Scan directory for a file whose stem matches (case-insensitive) with any common image extension.
         // Returns empty path if nothing found.
         std::filesystem::path FindTextureInDirectory(const std::filesystem::path& directory, const std::filesystem::path& filenameHint)
@@ -23,11 +75,7 @@ namespace OloEngine
                 ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".hdr", ".dds"
             };
 
-            std::string targetStem = filenameHint.stem().string();
-            // Convert target stem to lowercase for case-insensitive comparison
-            std::ranges::transform(targetStem, targetStem.begin(),
-                                   [](unsigned char c)
-                                   { return static_cast<char>(std::tolower(c)); });
+            std::string targetStem = ToLowerCopy(filenameHint.stem().string());
 
             std::error_code ec;
             for (const auto& entry : std::filesystem::directory_iterator(directory, ec))
@@ -38,10 +86,7 @@ namespace OloEngine
                 }
 
                 const auto& entryPath = entry.path();
-                std::string entryStem = entryPath.stem().string();
-                std::ranges::transform(entryStem, entryStem.begin(),
-                                       [](unsigned char c)
-                                       { return static_cast<char>(std::tolower(c)); });
+                std::string entryStem = ToLowerCopy(entryPath.stem().string());
 
                 if (entryStem != targetStem)
                 {
@@ -49,10 +94,7 @@ namespace OloEngine
                 }
 
                 // Stem matches — check if the extension is a known image format
-                std::string ext = entryPath.extension().string();
-                std::ranges::transform(ext, ext.begin(),
-                                       [](unsigned char c)
-                                       { return static_cast<char>(std::tolower(c)); });
+                std::string ext = ToLowerCopy(entryPath.extension().string());
 
                 if (std::ranges::find(kImageExtensions, ext) != kImageExtensions.end())
                 {
@@ -95,6 +137,153 @@ namespace OloEngine
 
             return {};
         }
+
+        std::filesystem::path FindFirstTextureByStem(
+            const std::filesystem::path& directory,
+            std::initializer_list<std::string_view> stems)
+        {
+            for (std::string_view stem : stems)
+            {
+                auto result = FindTextureInDirectory(directory, std::filesystem::path(std::string(stem) + ".png"));
+                if (!result.empty())
+                    return result;
+            }
+
+            return {};
+        }
+
+        u8 FloatFactorToByte(f32 value)
+        {
+            if (!std::isfinite(value))
+                value = 0.0f;
+
+            value = std::clamp(value, 0.0f, 1.0f);
+            return static_cast<u8>(std::lround(value * 255.0f));
+        }
+
+        u8 ScaleByteByFactor(u8 value, f32 factor)
+        {
+            if (!std::isfinite(factor))
+                factor = 1.0f;
+
+            const auto normalized = static_cast<f32>(value) / 255.0f;
+            return FloatFactorToByte(normalized * factor);
+        }
+
+        struct StbiImageDeleter
+        {
+            void operator()(stbi_uc* data) const noexcept
+            {
+                ::stbi_image_free(data);
+            }
+        };
+
+        struct SingleChannelImage
+        {
+            i32 Width = 0;
+            i32 Height = 0;
+            std::unique_ptr<stbi_uc, StbiImageDeleter> Pixels;
+
+            [[nodiscard]] bool IsValid() const noexcept
+            {
+                return Pixels && Width > 0 && Height > 0;
+            }
+        };
+
+        SingleChannelImage LoadSingleChannelImage(const std::filesystem::path& path)
+        {
+            if (path.empty())
+                return {};
+
+            i32 width = 0;
+            i32 height = 0;
+            i32 channels = 0;
+
+            // Match Texture2D::Create(path), which flips file-backed images for OpenGL.
+            ::stbi_set_flip_vertically_on_load_thread(1);
+            stbi_uc* pixels = ::stbi_load(path.string().c_str(), &width, &height, &channels, 1);
+            if (!pixels)
+            {
+                OLO_CORE_WARN("Model: Failed to load single-channel material texture '{}'", path.string());
+                return {};
+            }
+
+            SingleChannelImage image;
+            image.Width = width;
+            image.Height = height;
+            image.Pixels.reset(pixels);
+            return image;
+        }
+
+        u8 SampleSingleChannelNearest(const SingleChannelImage& image, u32 x, u32 y, u32 width, u32 height, u8 fallback)
+        {
+            if (!image.IsValid() || width == 0 || height == 0)
+                return fallback;
+
+            const auto sourceX = std::min(static_cast<u32>(image.Width - 1), (x * static_cast<u32>(image.Width)) / width);
+            const auto sourceY = std::min(static_cast<u32>(image.Height - 1), (y * static_cast<u32>(image.Height)) / height);
+            return image.Pixels.get()[static_cast<sizet>(sourceY) * static_cast<sizet>(image.Width) + sourceX];
+        }
+
+        Ref<Texture2D> CreatePackedMetallicRoughnessTexture(
+            const std::filesystem::path& metallicPath,
+            const std::filesystem::path& roughnessPath,
+            f32 metallicFallback,
+            f32 roughnessFallback,
+            f32 metallicScale,
+            f32 roughnessScale)
+        {
+            auto metallicImage = LoadSingleChannelImage(metallicPath);
+            auto roughnessImage = LoadSingleChannelImage(roughnessPath);
+            if (!metallicImage.IsValid() && !roughnessImage.IsValid())
+                return nullptr;
+
+            const auto width = static_cast<u32>(metallicImage.IsValid() ? metallicImage.Width : roughnessImage.Width);
+            const auto height = static_cast<u32>(metallicImage.IsValid() ? metallicImage.Height : roughnessImage.Height);
+            if (width == 0 || height == 0)
+                return nullptr;
+
+            const auto pixelCount = static_cast<sizet>(width) * static_cast<sizet>(height);
+            if (pixelCount > (std::numeric_limits<u32>::max() / 4u))
+            {
+                OLO_CORE_WARN("Model: Refusing to pack oversized metallic-roughness texture ({}x{})", width, height);
+                return nullptr;
+            }
+
+            std::vector<u8> packed(pixelCount * 4u);
+            const auto metallicFallbackByte = FloatFactorToByte(metallicFallback);
+            const auto roughnessFallbackByte = FloatFactorToByte(roughnessFallback);
+
+            for (u32 y = 0; y < height; ++y)
+            {
+                for (u32 x = 0; x < width; ++x)
+                {
+                    const auto metallicSample = SampleSingleChannelNearest(metallicImage, x, y, width, height, metallicFallbackByte);
+                    const auto roughnessSample = SampleSingleChannelNearest(roughnessImage, x, y, width, height, roughnessFallbackByte);
+                    const auto offset = (static_cast<sizet>(y) * width + x) * 4u;
+
+                    // glTF/PBR convention used by PBRCommon.glsl: G = roughness, B = metallic.
+                    packed[offset + 0] = 0;
+                    packed[offset + 1] = roughnessImage.IsValid() ? ScaleByteByFactor(roughnessSample, roughnessScale) : roughnessSample;
+                    packed[offset + 2] = metallicImage.IsValid() ? ScaleByteByFactor(metallicSample, metallicScale) : metallicSample;
+                    packed[offset + 3] = 255;
+                }
+            }
+
+            TextureSpecification spec;
+            spec.Width = width;
+            spec.Height = height;
+            spec.Format = ImageFormat::RGBA8;
+            spec.GenerateMips = false;
+            spec.MipLevels = 1;
+
+            auto texture = Texture2D::Create(spec);
+            if (!texture || !texture->IsLoaded())
+                return nullptr;
+
+            texture->SetData(packed.data(), static_cast<u32>(packed.size()));
+            return texture;
+        }
     } // namespace
 
     Model::Model(const std::string& path, const TextureOverride& textureOverride, bool flipUV)
@@ -108,15 +297,33 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Store texture override and UV flip setting for use in material processing
+        // Store texture override and UV flip setting for use in material processing.
+        // File-backed Texture2D uploads flip image rows for OpenGL. Legacy OBJ
+        // atlases (including the LearnOpenGL backpack fixture) are authored for
+        // the opposite V origin, so flip OBJ UVs by default to keep atlas regions
+        // aligned with the flipped texture data.
+        std::filesystem::path sourcePath(path);
+        const bool isObjModel = IsObjModelPath(sourcePath);
+        const bool effectiveFlipUV = flipUV || isObjModel;
+        const std::string cachePrefix = GetStaticMeshCachePrefix(effectiveFlipUV);
+
         m_TextureOverride = textureOverride.HasAnyTexture() ? std::optional<TextureOverride>(textureOverride) : std::nullopt;
-        m_FlipUV = flipUV;
+        m_FlipUV = effectiveFlipUV;
+
+        if (IsModelImportDiagnosticsEnabled())
+        {
+            OLO_CORE_INFO("Model import diagnostics: path='{}', extension='{}', requestedFlipUV={}, effectiveFlipUV={}, meshCachePrefix='{}'",
+                          path,
+                          sourcePath.extension().string(),
+                          flipUV,
+                          effectiveFlipUV,
+                          cachePrefix.empty() ? "<default>" : cachePrefix);
+        }
 
         // Try loading geometry from binary cache (skip Assimp for vertex data)
-        std::filesystem::path sourcePath(path);
-        if (MeshCache::IsMeshCacheValid(sourcePath))
+        if (MeshCache::IsMeshCacheValid(sourcePath, cachePrefix))
         {
-            auto cachedMesh = MeshCache::LoadMeshFromCache(sourcePath);
+            auto cachedMesh = MeshCache::LoadMeshFromCache(sourcePath, cachePrefix);
             if (cachedMesh)
             {
                 m_Directory = sourcePath.parent_path().string();
@@ -170,7 +377,7 @@ namespace OloEngine
 
                 CalculateBounds();
 
-                OLO_CORE_INFO("Model::LoadModel: Loaded {} meshes from cache", m_Meshes.size());
+                OLO_CORE_TRACE("Model::LoadModel: Loaded {} meshes from cache '{}'", m_Meshes.size(), cachePrefix.empty() ? "<default>" : cachePrefix);
                 return;
             }
         }
@@ -198,7 +405,7 @@ namespace OloEngine
         // Store the directory path
         m_Directory = std::filesystem::path(path).parent_path().string();
 
-        OLO_CORE_INFO("Loading model: {0} ({1} meshes, {2} materials)", path, scene->mNumMeshes, scene->mNumMaterials);
+        OLO_CORE_TRACE("Loading model: {0} ({1} meshes, {2} materials, flipUV={3})", path, scene->mNumMeshes, scene->mNumMaterials, m_FlipUV);
 
         // Reserve space for expected number of meshes and materials to reduce allocations
         m_Meshes.reserve(scene->mNumMeshes);
@@ -218,11 +425,11 @@ namespace OloEngine
             auto combinedMeshSource = CreateCombinedMeshSource();
             if (combinedMeshSource)
             {
-                MeshCache::SaveMeshToCache(sourcePath, *combinedMeshSource);
+                MeshCache::SaveMeshToCache(sourcePath, *combinedMeshSource, cachePrefix);
             }
         }
 
-        OLO_CORE_INFO("Model loaded successfully: {0} meshes processed", m_Meshes.size());
+        OLO_CORE_TRACE("Model loaded successfully: {0} meshes processed", m_Meshes.size());
     }
 
     void Model::ProcessNode(const aiNode* node, const aiScene* scene)
@@ -545,8 +752,8 @@ namespace OloEngine
         // Get metallic and roughness factors
         float metallic = 0.0f;
         float roughness = 0.5f;
-        mat->Get(AI_MATKEY_METALLIC_FACTOR, metallic);
-        mat->Get(AI_MATKEY_ROUGHNESS_FACTOR, roughness);
+        const bool hasMetallicFactor = mat->Get(AI_MATKEY_METALLIC_FACTOR, metallic) == AI_SUCCESS;
+        const bool hasRoughnessFactor = mat->Get(AI_MATKEY_ROUGHNESS_FACTOR, roughness) == AI_SUCCESS;
 
         // If texture overrides are used, set base color to white so texture colors come through properly
         glm::vec3 finalBaseColor = glm::vec3(baseColor.r, baseColor.g, baseColor.b);
@@ -564,6 +771,34 @@ namespace OloEngine
         // Load PBR textures - prioritize overrides if provided
         // Track the albedo filename for PBR companion texture discovery
         std::filesystem::path albedoFilename;
+        const auto modelDirectory = std::filesystem::path(m_Directory);
+
+        const auto loadTextureFromPath = [this](const std::filesystem::path& texturePath) -> Ref<Texture2D>
+        {
+            if (texturePath.empty())
+                return nullptr;
+
+            const auto texturePathStr = texturePath.string();
+            if (auto it = m_LoadedTextures.find(texturePathStr); it != m_LoadedTextures.end())
+                return it->second;
+
+            auto texture = Texture2D::Create(texturePathStr);
+            if (texture && texture->IsLoaded())
+            {
+                m_LoadedTextures[texturePathStr] = texture;
+                return texture;
+            }
+
+            OLO_CORE_WARN("Model: Failed to load discovered material texture '{}'", texturePathStr);
+            return nullptr;
+        };
+
+        const auto getFirstTexturePath = [](const std::vector<Ref<Texture2D>>& textures) -> std::filesystem::path
+        {
+            if (!textures.empty() && textures[0])
+                return textures[0]->GetPath();
+            return {};
+        };
 
         // Albedo/Diffuse textures
         if (m_TextureOverride && !m_TextureOverride->AlbedoPath.empty())
@@ -598,6 +833,10 @@ namespace OloEngine
             if (overrideTexture && overrideTexture->IsLoaded())
             {
                 materialRef->SetMetallicRoughnessMap(overrideTexture);
+                if (!hasMetallicFactor)
+                    materialRef->SetMetallicFactor(1.0f);
+                if (!hasRoughnessFactor)
+                    materialRef->SetRoughnessFactor(1.0f);
             }
         }
         else
@@ -612,18 +851,73 @@ namespace OloEngine
             if (!metallicRoughnessMaps.empty())
             {
                 materialRef->SetMetallicRoughnessMap(metallicRoughnessMaps[0]);
+                if (!hasMetallicFactor)
+                    materialRef->SetMetallicFactor(1.0f);
+                if (!hasRoughnessFactor)
+                    materialRef->SetRoughnessFactor(1.0f);
             }
-            else if (!albedoFilename.empty())
+            else
             {
-                // Auto-discover metallic companion by naming convention (e.g., cerberus_A → cerberus_M)
-                auto discovered = DiscoverPBRCompanion(std::filesystem::path(m_Directory), albedoFilename.filename(), "_M");
-                if (!discovered.empty())
+                std::filesystem::path metallicSourcePath;
+                std::filesystem::path roughnessSourcePath;
+
+                if (!albedoFilename.empty())
                 {
-                    OLO_CORE_INFO("Model: Auto-discovered metallic map '{}' from albedo '{}'", discovered.string(), albedoFilename.string());
-                    auto tex = Texture2D::Create(discovered.string());
-                    if (tex && tex->IsLoaded())
+                    // Auto-discover PBR companions by naming convention (e.g., cerberus_A -> cerberus_M/R).
+                    metallicSourcePath = DiscoverPBRCompanion(modelDirectory, albedoFilename.filename(), "_M");
+                    roughnessSourcePath = DiscoverPBRCompanion(modelDirectory, albedoFilename.filename(), "_R");
+                }
+
+                if (metallicSourcePath.empty())
+                    metallicSourcePath = FindFirstTextureByStem(modelDirectory, { "metallic", "metalness", "metal" });
+                if (roughnessSourcePath.empty())
+                    roughnessSourcePath = FindFirstTextureByStem(modelDirectory, { "roughness", "rough" });
+
+                // Legacy Phong/OBJ materials commonly provide map_Ks instead of metalness.
+                // Use it as a best-effort metalness mask so atlas regions such as axe heads
+                // and buckles retain high specular/metallic response in the PBR shader.
+                if (metallicSourcePath.empty())
+                {
+                    auto specularMaps = LoadMaterialTextures(mat, aiTextureType_SPECULAR);
+                    metallicSourcePath = getFirstTexturePath(specularMaps);
+                }
+
+                if (!metallicSourcePath.empty() || !roughnessSourcePath.empty())
+                {
+                    const auto metallicScale = metallicSourcePath.empty() ? 1.0f : (hasMetallicFactor ? metallic : 1.0f);
+                    const auto roughnessScale = roughnessSourcePath.empty() ? 1.0f : (hasRoughnessFactor ? roughness : 1.0f);
+                    const auto cacheKey = std::string("packed_mr|") + metallicSourcePath.string() + "|" + roughnessSourcePath.string() + "|" +
+                                          std::to_string(metallic) + "|" + std::to_string(roughness);
+
+                    Ref<Texture2D> packedTexture;
+                    if (auto it = m_LoadedTextures.find(cacheKey); it != m_LoadedTextures.end())
                     {
-                        materialRef->SetMetallicRoughnessMap(tex);
+                        packedTexture = it->second;
+                    }
+                    else
+                    {
+                        packedTexture = CreatePackedMetallicRoughnessTexture(
+                            metallicSourcePath,
+                            roughnessSourcePath,
+                            metallic,
+                            roughness,
+                            metallicScale,
+                            roughnessScale);
+                        if (packedTexture && packedTexture->IsLoaded())
+                        {
+                            m_LoadedTextures[cacheKey] = packedTexture;
+                        }
+                    }
+
+                    if (packedTexture && packedTexture->IsLoaded())
+                    {
+                        OLO_CORE_TRACE("Model: Packed metallic-roughness map for material '{}' (metallic='{}', roughness='{}')",
+                                       materialName,
+                                       metallicSourcePath.empty() ? "<scalar>" : metallicSourcePath.string(),
+                                       roughnessSourcePath.empty() ? "<scalar>" : roughnessSourcePath.string());
+                        materialRef->SetMetallicRoughnessMap(packedTexture);
+                        materialRef->SetMetallicFactor(1.0f);
+                        materialRef->SetRoughnessFactor(1.0f);
                     }
                 }
             }
@@ -655,10 +949,12 @@ namespace OloEngine
             {
                 // Auto-discover normal companion by naming convention (e.g., cerberus_A → cerberus_N)
                 auto discovered = DiscoverPBRCompanion(std::filesystem::path(m_Directory), albedoFilename.filename(), "_N");
+                if (discovered.empty())
+                    discovered = FindFirstTextureByStem(modelDirectory, { "normal", "normals", "normalmap", "normal_map" });
                 if (!discovered.empty())
                 {
-                    OLO_CORE_INFO("Model: Auto-discovered normal map '{}' from albedo '{}'", discovered.string(), albedoFilename.string());
-                    auto tex = Texture2D::Create(discovered.string());
+                    OLO_CORE_TRACE("Model: Auto-discovered normal map '{}' from albedo '{}'", discovered.string(), albedoFilename.string());
+                    auto tex = loadTextureFromPath(discovered);
                     if (tex && tex->IsLoaded())
                     {
                         materialRef->SetNormalMap(tex);
@@ -700,12 +996,21 @@ namespace OloEngine
             }
             else if (!albedoFilename.empty())
             {
-                // Auto-discover roughness companion as AO fallback (e.g., cerberus_A → cerberus_R)
-                auto discovered = DiscoverPBRCompanion(std::filesystem::path(m_Directory), albedoFilename.filename(), "_R");
+                auto discovered = DiscoverPBRCompanion(std::filesystem::path(m_Directory), albedoFilename.filename(), "_AO");
+                if (discovered.empty())
+                    discovered = FindFirstTextureByStem(modelDirectory, { "ao", "ambient_occlusion", "ambientocclusion", "occlusion" });
+
+                // If no dedicated AO map exists, keep the older roughness-as-AO fallback
+                // for assets that only ship a single monochrome detail map.
+                if (discovered.empty())
+                    discovered = DiscoverPBRCompanion(std::filesystem::path(m_Directory), albedoFilename.filename(), "_R");
+                if (discovered.empty())
+                    discovered = FindFirstTextureByStem(modelDirectory, { "roughness", "rough" });
+
                 if (!discovered.empty())
                 {
-                    OLO_CORE_INFO("Model: Auto-discovered roughness/AO map '{}' from albedo '{}'", discovered.string(), albedoFilename.string());
-                    auto tex = Texture2D::Create(discovered.string());
+                    OLO_CORE_TRACE("Model: Auto-discovered AO map '{}' from albedo '{}'", discovered.string(), albedoFilename.string());
+                    auto tex = loadTextureFromPath(discovered);
                     if (tex && tex->IsLoaded())
                     {
                         materialRef->SetAOMap(tex);

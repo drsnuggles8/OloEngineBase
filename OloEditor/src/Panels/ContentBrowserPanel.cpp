@@ -460,7 +460,7 @@ namespace OloEngine
             if (HasAction(actions, ContentBrowserAction::Reimport))
             {
                 MeshCache::InvalidateCache(item.GetPath());
-                OLO_CORE_INFO("ContentBrowser: Reimport queued for '{}' — cache invalidated, will re-import on next load",
+                OLO_CORE_INFO("ContentBrowser: Reimport queued for '{}' - cache invalidated, will re-import on next load",
                               item.GetPath().filename().string());
             }
 

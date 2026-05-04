@@ -51,9 +51,12 @@ layout(location = 3) out vec2 o_GBufferVelocity;  // RG16F
 
 layout(binding = 9) uniform samplerCube u_Skybox;
 
+#include "include/SkyboxSampling.glsl"
+
 void main()
 {
-    vec3 skyColor = texture(u_Skybox, v_TexCoords).rgb;
+    vec3 sampleDir = GetSkyboxSampleDirection(v_TexCoords);
+    vec3 skyColor = texture(u_Skybox, sampleDir).rgb;
 
     // Albedo / normal / AO are unused for unlit surfaces; write zeros for
     // deterministic debug-channel output.

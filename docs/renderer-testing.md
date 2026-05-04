@@ -579,13 +579,13 @@ replaces manual doc edits.
 | File | Tests | Cases |
 |---|---:|---|
 | [ShaderCompilationTest.cpp](../OloEngine/tests/Rendering/PropertyTests/ShaderCompilationTest.cpp) | 1 | **ShaderCompilation** &mdash; `AllProductionShadersCompileUnderVulkanTarget` |
-| [ShaderUnitTests.cpp](../OloEngine/tests/Rendering/PropertyTests/ShaderUnitTests.cpp) | 9 | **ShaderUnitSrgbTest** &mdash; `RoundTripWithinOneLsb`, `MidpointMatchesReference`<br/>**ShaderUnitIBLTest** &mdash; `BRDFLutGenerationProducesNonZeroSplitSum`<br/>**ShaderUnitToneMapTest** &mdash; `ReinhardMatchesReference`, `AcesMatchesReference`, `Uncharted2MatchesReference`<br/>**ShaderUnitGgxTest** &mdash; `HemisphereIntegralIsOne`<br/>**ShaderUnitOctNormalTest** &mdash; `RoundTripPreservesUnitNormals`<br/>**ShaderUnitFogTest** &mdash; `EndpointInvariants` |
+| [ShaderUnitTests.cpp](../OloEngine/tests/Rendering/PropertyTests/ShaderUnitTests.cpp) | 10 | **ShaderUnitSrgbTest** &mdash; `RoundTripWithinOneLsb`, `MidpointMatchesReference`<br/>**ShaderUnitIBLTest** &mdash; `BRDFLutGenerationProducesNonZeroSplitSum`<br/>**ShaderUnitSkyboxTest** &mdash; `SamplingKeepsSkyAboveGround`<br/>**ShaderUnitToneMapTest** &mdash; `ReinhardMatchesReference`, `AcesMatchesReference`, `Uncharted2MatchesReference`<br/>**ShaderUnitGgxTest** &mdash; `HemisphereIntegralIsOne`<br/>**ShaderUnitOctNormalTest** &mdash; `RoundTripPreservesUnitNormals`<br/>**ShaderUnitFogTest** &mdash; `EndpointInvariants` |
 
 ### L3 — [Data round-trip](#33-layer-3--data-round-trip)
 
 | File | Tests | Cases |
 |---|---:|---|
-| [DataRoundTripTests.cpp](../OloEngine/tests/Rendering/PropertyTests/DataRoundTripTests.cpp) | 5 | **DataRoundTripTest** &mdash; `Rgba32FGpuBitIdentity`, `Rgba8GpuByteIdentity`, `IblCacheCubemapRoundTripPreservesAllMips`, `RandomisedRgba32FStressRoundTrip`, `RandomisedRgba8StressRoundTrip` |
+| [DataRoundTripTests.cpp](../OloEngine/tests/Rendering/PropertyTests/DataRoundTripTests.cpp) | 7 | **DataRoundTripTest** &mdash; `Rgba32FGpuBitIdentity`, `Rgba8GpuByteIdentity`, `BackpackLegacyObjImportsPbrCompanionMaps`, `BackpackLegacyObjFlipsUvsToMatchTextureUploads`, `IblCacheCubemapRoundTripPreservesAllMips`, `RandomisedRgba32FStressRoundTrip`, `RandomisedRgba8StressRoundTrip` |
 
 ### L4 — [GPU state validation](#34-layer-4--gpu-state-validation)
 
@@ -679,7 +679,7 @@ replaces manual doc edits.
 |---|---:|---|
 | [TestFailureCaptureTest.cpp](../OloEngine/tests/Rendering/PropertyTests/TestFailureCaptureTest.cpp) | 6 | **TestFailureCaptureTest** &mdash; `DirectoryForSanitizesNames`, `MetadataIsWrittenWithoutGlContext`, `LatestFrameSummaryIsNoOpWithoutCaptures`, `GLStateSnapshotIsWrittenWhenGpuAvailable`, `FboPngIsWrittenWhenGpuAvailable`, `CaptureAllProducesExpectedArtefacts` |
 
-**Totals.** 51 rendering-scope test files, 922 TEST / TEST_F / TEST_P declarations across all layers. Non-rendering subsystems (audio, networking, gameplay, save-game, &hellip;) are catalogued separately and are not listed here by design.
+**Totals.** 51 rendering-scope test files, 925 TEST / TEST_F / TEST_P declarations across all layers. Non-rendering subsystems (audio, networking, gameplay, save-game, &hellip;) are catalogued separately and are not listed here by design.
 
 <!-- END: auto-catalogue -->
 

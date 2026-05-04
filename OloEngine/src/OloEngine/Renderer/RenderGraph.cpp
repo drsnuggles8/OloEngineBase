@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <deque>
 #include <fstream>
 #include <limits>
@@ -12,10 +13,26 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        bool IsTruthyEnvironmentVariable(const char* name)
+        {
+            const char* value = std::getenv(name);
+            return value && value[0] != '\0' && value[0] != '0' && value[0] != 'f' && value[0] != 'F';
+        }
+
+        bool IsRenderGraphDiagnosticsEnabled()
+        {
+            static const bool enabled = IsTruthyEnvironmentVariable("OLO_RENDERGRAPH_DIAGNOSTICS");
+            return enabled;
+        }
+    } // namespace
+
     void RenderGraph::Init(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
-        OLO_CORE_INFO("Initializing RenderGraph with dimensions: {}x{}", width, height);
+        if (IsRenderGraphDiagnosticsEnabled())
+            OLO_CORE_TRACE("Initializing RenderGraph with dimensions: {}x{}", width, height);
 
         // Initialize all passes
         for (auto& [name, pass] : m_PassLookup)
@@ -29,7 +46,8 @@ namespace OloEngine
     void RenderGraph::Shutdown()
     {
         OLO_PROFILE_FUNCTION();
-        OLO_CORE_INFO("Shutting down RenderGraph");
+        if (IsRenderGraphDiagnosticsEnabled())
+            OLO_CORE_TRACE("Shutting down RenderGraph");
 
         m_TransientPool.Clear();
 
@@ -153,7 +171,8 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         std::string name = pass->GetName();
-        OLO_CORE_INFO("Adding RenderPass to graph: {}", name);
+        if (IsRenderGraphDiagnosticsEnabled())
+            OLO_CORE_TRACE("Adding RenderPass to graph: {}", name);
 
         // Track insertion order so topological sort has a stable tie-break
         // when multiple passes have no dependencies between them. Without
@@ -934,7 +953,8 @@ namespace OloEngine
             return;
         }
 
-        OLO_CORE_INFO("Connecting passes (ordering only): {} -> {}", outputPass, inputPass);
+        if (IsRenderGraphDiagnosticsEnabled())
+            OLO_CORE_TRACE("Connecting passes (ordering only): {} -> {}", outputPass, inputPass);
         AddExecutionDependency(outputPass, inputPass);
     }
 
@@ -954,7 +974,8 @@ namespace OloEngine
             return;
         }
 
-        OLO_CORE_INFO("Adding execution dependency (ordering only): {} -> {}", beforePass, afterPass);
+        if (IsRenderGraphDiagnosticsEnabled())
+            OLO_CORE_TRACE("Adding execution dependency (ordering only): {} -> {}", beforePass, afterPass);
 
         // Only add dependency for execution ordering, no framebuffer piping (avoid duplicates)
         auto& deps = m_Dependencies[afterPass];
@@ -1300,8 +1321,11 @@ namespace OloEngine
             m_CachedExecutionOrder.push_back(it->second.Raw());
         }
 
-        OLO_CORE_INFO("RenderGraph: Execution cache rebuilt — {} passes",
-                      m_CachedExecutionOrder.size());
+        if (IsRenderGraphDiagnosticsEnabled())
+        {
+            OLO_CORE_TRACE("RenderGraph: Execution cache rebuilt - {} passes",
+                           m_CachedExecutionOrder.size());
+        }
     }
 
     void RenderGraph::Resize(u32 width, u32 height)
@@ -1446,7 +1470,8 @@ namespace OloEngine
             }
         }
 
-        OLO_CORE_INFO("RenderGraph execution order updated with {} passes", m_PassOrder.size());
+        if (IsRenderGraphDiagnosticsEnabled())
+            OLO_CORE_TRACE("RenderGraph execution order updated with {} passes", m_PassOrder.size());
 
         // Hoist independent AsyncComputeCandidate passes before graphics.
         HoistComputePasses();
@@ -1641,7 +1666,8 @@ namespace OloEngine
         if (reordered.size() == m_PassOrder.size())
         {
             m_PassOrder = std::move(reordered);
-            OLO_CORE_TRACE("RenderGraph: Compute-hoist applied to execution order");
+            if (IsRenderGraphDiagnosticsEnabled())
+                OLO_CORE_TRACE("RenderGraph: Compute-hoist applied to execution order");
         }
     }
 
@@ -2227,6 +2253,9 @@ namespace OloEngine
 
     void RenderGraph::LogSubmissionPlanIfChanged()
     {
+        if (!IsRenderGraphDiagnosticsEnabled())
+            return;
+
         std::string digest;
         std::unordered_map<std::string, u32> passIndexByName;
         passIndexByName.reserve(m_CachedSubmissionPlan.size());
@@ -2260,7 +2289,7 @@ namespace OloEngine
         if (digest == m_LastLoggedSubmissionPlanDigest)
             return;
 
-        OLO_CORE_INFO("RenderGraph submission plan: {}", digest);
+        OLO_CORE_TRACE("RenderGraph submission plan: {}", digest);
 
         const auto passIndexLabel = [&passIndexByName](std::string_view passName) -> std::string
         {
@@ -2272,17 +2301,17 @@ namespace OloEngine
         if (passIndexByName.contains("SSAOPass") || passIndexByName.contains("GTAOPass") ||
             passIndexByName.contains("AOApplyPass"))
         {
-            OLO_CORE_INFO("RenderGraph AO/Post order: SSAO={}, GTAO={}, AOApply={}, Bloom={}, ToneMap={}, Vignette={}, FXAA={}, SelectionOutline={}, UIComposite={}, Final={}",
-                          passIndexLabel("SSAOPass"),
-                          passIndexLabel("GTAOPass"),
-                          passIndexLabel("AOApplyPass"),
-                          passIndexLabel("BloomPass"),
-                          passIndexLabel("ToneMapPass"),
-                          passIndexLabel("VignettePass"),
-                          passIndexLabel("FXAAPass"),
-                          passIndexLabel("SelectionOutlinePass"),
-                          passIndexLabel("UICompositePass"),
-                          passIndexLabel("FinalPass"));
+            OLO_CORE_TRACE("RenderGraph AO/Post order: SSAO={}, GTAO={}, AOApply={}, Bloom={}, ToneMap={}, Vignette={}, FXAA={}, SelectionOutline={}, UIComposite={}, Final={}",
+                           passIndexLabel("SSAOPass"),
+                           passIndexLabel("GTAOPass"),
+                           passIndexLabel("AOApplyPass"),
+                           passIndexLabel("BloomPass"),
+                           passIndexLabel("ToneMapPass"),
+                           passIndexLabel("VignettePass"),
+                           passIndexLabel("FXAAPass"),
+                           passIndexLabel("SelectionOutlinePass"),
+                           passIndexLabel("UICompositePass"),
+                           passIndexLabel("FinalPass"));
         }
 
         m_LastLoggedSubmissionPlanDigest = std::move(digest);
@@ -2308,7 +2337,8 @@ namespace OloEngine
                 if (!hasConsumers.contains(name))
                 {
                     m_FinalPassName = name;
-                    OLO_CORE_INFO("RenderGraph: Auto-selected final pass: {}", name);
+                    if (IsRenderGraphDiagnosticsEnabled())
+                        OLO_CORE_TRACE("RenderGraph: Auto-selected final pass: {}", name);
                     break;
                 }
             }
@@ -2475,7 +2505,8 @@ namespace OloEngine
             if (pass && pass->IsSideEffecting())
             {
                 m_ReachablePasses.insert(passName);
-                OLO_CORE_TRACE("Pass '{}' is unreachable but has side effects; keeping it", passName);
+                if (IsRenderGraphDiagnosticsEnabled())
+                    OLO_CORE_TRACE("Pass '{}' is unreachable but has side effects; keeping it", passName);
             }
             else
             {
@@ -2497,7 +2528,8 @@ namespace OloEngine
 
         if (digest != m_LastLoggedCulledPassDigest)
         {
-            OLO_CORE_INFO("RenderGraph culled passes changed: {}", digest);
+            if (IsRenderGraphDiagnosticsEnabled())
+                OLO_CORE_TRACE("RenderGraph culled passes changed: {}", digest);
             m_LastLoggedCulledPassDigest = std::move(digest);
         }
     }
