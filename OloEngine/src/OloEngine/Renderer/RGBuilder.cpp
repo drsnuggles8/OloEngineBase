@@ -74,7 +74,8 @@ namespace OloEngine
         const auto resourceName = m_Graph.GetResourceName(handle);
         if (resourceName.empty())
         {
-            OLO_CORE_ERROR("RGBuilder::Read: texture handle resolved to empty resource name (stale/invalidated handle?)");
+            OLO_CORE_ERROR("RGBuilder::Read: pass='{}' texture handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
+                           m_CurrentPassName, handle.Index, handle.Generation);
         }
         else
         {
@@ -95,7 +96,8 @@ namespace OloEngine
         const auto resourceName = m_Graph.GetResourceName(handle);
         if (resourceName.empty())
         {
-            OLO_CORE_ERROR("RGBuilder::Read: framebuffer handle resolved to empty resource name (stale/invalidated handle?)");
+            OLO_CORE_ERROR("RGBuilder::Read: pass='{}' framebuffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
+                           m_CurrentPassName, handle.Index, handle.Generation);
         }
         else
         {
@@ -115,7 +117,8 @@ namespace OloEngine
         const auto resourceName = m_Graph.GetResourceName(handle);
         if (resourceName.empty())
         {
-            OLO_CORE_ERROR("RGBuilder::Read: buffer handle resolved to empty resource name (stale/invalidated handle?)");
+            OLO_CORE_ERROR("RGBuilder::Read: pass='{}' buffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
+                           m_CurrentPassName, handle.Index, handle.Generation);
         }
         else
         {
@@ -140,7 +143,8 @@ namespace OloEngine
         const auto resourceName = m_Graph.GetResourceName(handle);
         if (resourceName.empty())
         {
-            OLO_CORE_ERROR("RGBuilder::Write: texture handle resolved to empty resource name (stale/invalidated handle?)");
+            OLO_CORE_ERROR("RGBuilder::Write: pass='{}' texture handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
+                           m_CurrentPassName, handle.Index, handle.Generation);
         }
         else
         {
@@ -161,7 +165,8 @@ namespace OloEngine
         const auto resourceName = m_Graph.GetResourceName(handle);
         if (resourceName.empty())
         {
-            OLO_CORE_ERROR("RGBuilder::Write: framebuffer handle resolved to empty resource name (stale/invalidated handle?)");
+            OLO_CORE_ERROR("RGBuilder::Write: pass='{}' framebuffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
+                           m_CurrentPassName, handle.Index, handle.Generation);
         }
         else
         {
@@ -180,7 +185,8 @@ namespace OloEngine
         const auto resourceName = m_Graph.GetResourceName(handle);
         if (resourceName.empty())
         {
-            OLO_CORE_ERROR("RGBuilder::Write: buffer handle resolved to empty resource name (stale/invalidated handle?)");
+            OLO_CORE_ERROR("RGBuilder::Write: pass='{}' buffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
+                           m_CurrentPassName, handle.Index, handle.Generation);
         }
         else
         {

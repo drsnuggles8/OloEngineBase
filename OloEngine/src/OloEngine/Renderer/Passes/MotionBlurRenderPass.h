@@ -14,8 +14,8 @@ namespace OloEngine
     //   AOApply/Bloom/DOF -> MotionBlur -> TAA -> Precipitation -> Fog -> ...
     //
     // Inputs:
-    //   * Input framebuffer handle (typically PostProcessColor)
-    //   * Scene depth texture handle (required)
+    //   * Input framebuffer handle (typically PostProcessColor), resolved from the blackboard
+    //   * Scene depth texture handle (required), resolved from the blackboard
     //   * MotionBlurUBO (binding 8), uploaded by Renderer3D
     //
     // Output:
@@ -50,11 +50,6 @@ namespace OloEngine
             return m_Enabled;
         }
 
-        void SetSceneDepthTextureID(u32 id) noexcept
-        {
-            m_SceneDepthTextureID = id;
-        }
-
         void SetMotionBlurUBO(const Ref<UniformBuffer>& ubo) noexcept
         {
             m_MotionBlurUBO = ubo;
@@ -70,7 +65,5 @@ namespace OloEngine
 
         Ref<Shader> m_MotionBlurShader;
         Ref<UniformBuffer> m_MotionBlurUBO;
-
-        u32 m_SceneDepthTextureID = 0;
     };
 } // namespace OloEngine

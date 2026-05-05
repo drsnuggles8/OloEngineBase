@@ -126,7 +126,23 @@ namespace OloEngine
         if (!m_RenderGraph)
             return 0;
 
-        return m_RenderGraph->ResolveTexture(handle);
+        if (!handle.IsValid())
+        {
+            m_RenderGraph->RecordFallbackActivation(m_ActivePassName, "invalid-texture-handle");
+            return 0;
+        }
+
+        if (!m_RenderGraph->IsTextureHandleCurrent(handle))
+        {
+            m_RenderGraph->RecordFallbackActivation(m_ActivePassName, "stale-texture-handle");
+            return 0;
+        }
+
+        const auto resolved = m_RenderGraph->ResolveTexture(handle);
+        if (resolved == 0)
+            m_RenderGraph->RecordFallbackActivation(m_ActivePassName, "texture-resolve-zero");
+
+        return resolved;
     }
 
     Ref<Framebuffer> RGCommandContext::ResolveFramebuffer(const RGFramebufferHandle handle) const
@@ -134,7 +150,23 @@ namespace OloEngine
         if (!m_RenderGraph)
             return nullptr;
 
-        return m_RenderGraph->ResolveFramebuffer(handle);
+        if (!handle.IsValid())
+        {
+            m_RenderGraph->RecordFallbackActivation(m_ActivePassName, "invalid-framebuffer-handle");
+            return nullptr;
+        }
+
+        if (!m_RenderGraph->IsFramebufferHandleCurrent(handle))
+        {
+            m_RenderGraph->RecordFallbackActivation(m_ActivePassName, "stale-framebuffer-handle");
+            return nullptr;
+        }
+
+        auto resolved = m_RenderGraph->ResolveFramebuffer(handle);
+        if (!resolved)
+            m_RenderGraph->RecordFallbackActivation(m_ActivePassName, "framebuffer-resolve-null");
+
+        return resolved;
     }
 
     const FrameBlackboard* RGCommandContext::GetBlackboard() const noexcept

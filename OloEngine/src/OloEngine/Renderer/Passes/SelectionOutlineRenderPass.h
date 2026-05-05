@@ -73,7 +73,6 @@ namespace OloEngine
 
       private:
         void CreateFramebuffer(u32 width, u32 height);
-        void CreateJFAFramebuffers(u32 width, u32 height);
 
         Ref<Framebuffer> m_SceneFramebuffer;
         Ref<Shader> m_BlitShader;
@@ -86,7 +85,6 @@ namespace OloEngine
         Ref<Shader> m_JFAInitShader;
         Ref<Shader> m_JFAPassShader;
         Ref<Shader> m_JFACompositeShader;
-        Ref<Framebuffer> m_JFAFramebuffers[2]; // ping-pong RGBA32F
         Ref<UniformBuffer> m_JFAUbo;
         UBOStructures::JumpFloodUBO m_JFAUboData;
         i32 m_JFAPassCount = 2; // Number of flood passes (1–4)

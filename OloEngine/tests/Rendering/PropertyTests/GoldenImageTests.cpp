@@ -470,6 +470,16 @@ namespace OloEngine::Tests
             }
 
             // Read the existing baseline and compare.
+            // Explicitly disable vertical flip: the baseline PNG was written from
+            // glGetTextureImage data (OpenGL orientation, y=0=bottom) via
+            // stbi_write_png without flipping. Any prior texture-loading code that
+            // called stbi_set_flip_vertically_on_load(1) (production path) and
+            // forgot to restore it would cause the baseline to be loaded upside-down,
+            // producing a false negative with large RMSE.
+            // Reset both global and thread-local flags: thread-local takes precedence
+            // and can be set by Model.cpp / AssetSerializer.cpp production paths.
+            ::stbi_set_flip_vertically_on_load(0);
+            ::stbi_set_flip_vertically_on_load_thread(0);
             int bw = 0, bh = 0, channels = 0;
             stbi_uc* rawBaseline = ::stbi_load(baselinePath.string().c_str(), &bw, &bh, &channels, 4);
             if (rawBaseline == nullptr)

@@ -220,6 +220,53 @@ class InputTrackingStubPass : public RenderPass
     u32 m_ExecuteCount = 0;
 };
 
+class FallbackProbePass : public RenderPass
+{
+  public:
+    explicit FallbackProbePass(const std::string& name)
+    {
+        m_Name = name;
+    }
+
+    void Init(const FramebufferSpecification& /*spec*/) override {}
+    void Execute() override {}
+
+    void Execute(RGCommandContext& context) override
+    {
+        if (m_TextureHandle.IsValid())
+            m_LastResolvedTexture = context.ResolveTexture(m_TextureHandle);
+        else
+            m_LastResolvedTexture = context.ResolveTexture({});
+
+        m_LastResolvedFramebuffer = context.ResolveFramebuffer({});
+    }
+
+    [[nodiscard]] Ref<Framebuffer> GetTarget() const override
+    {
+        return nullptr;
+    }
+
+    void SetTextureHandle(const RGTextureHandle handle)
+    {
+        m_TextureHandle = handle;
+    }
+
+    [[nodiscard]] u32 GetLastResolvedTexture() const
+    {
+        return m_LastResolvedTexture;
+    }
+
+    [[nodiscard]] bool LastResolvedFramebufferWasNull() const
+    {
+        return m_LastResolvedFramebuffer == nullptr;
+    }
+
+  private:
+    RGTextureHandle m_TextureHandle{};
+    u32 m_LastResolvedTexture = 0;
+    Ref<Framebuffer> m_LastResolvedFramebuffer = nullptr;
+};
+
 class DeclarationTrackingStubPass : public RenderPass
 {
   public:
@@ -1923,6 +1970,8 @@ TEST(RenderGraphTransientPool, NonOverlappingTransientResourcesReuseAliasSlot)
         << "Test setup requires non-overlapping lifetimes for alias reuse";
 }
 
+// Phase D: RG16Float is now a supported framebuffer format (maps to RG16F attachment).
+// R8UNorm has no framebuffer equivalent and remains the canonical "unsupported" test case.
 TEST(RenderGraphTransientPool, UnsupportedFramebufferFormatIsNotPlannedForAllocation)
 {
     RenderGraph graph;
@@ -1937,7 +1986,7 @@ TEST(RenderGraphTransientPool, UnsupportedFramebufferFormatIsNotPlannedForAlloca
         {
             RGResourceDesc desc;
             desc.Kind = ResourceHandle::Kind::Framebuffer;
-            desc.Format = RGResourceFormat::RG16Float;
+            desc.Format = RGResourceFormat::R8UNorm; // No single-channel non-integer FB format
             desc.Width = 640;
             desc.Height = 360;
 
@@ -1952,7 +2001,7 @@ TEST(RenderGraphTransientPool, UnsupportedFramebufferFormatIsNotPlannedForAlloca
         {
             RGResourceDesc desc;
             desc.Kind = ResourceHandle::Kind::Framebuffer;
-            desc.Format = RGResourceFormat::RG16Float;
+            desc.Format = RGResourceFormat::R8UNorm;
             desc.Width = 640;
             desc.Height = 360;
 
@@ -1976,6 +2025,442 @@ TEST(RenderGraphTransientPool, UnsupportedFramebufferFormatIsNotPlannedForAlloca
     EXPECT_TRUE(planIt->Reachable);
     EXPECT_FALSE(planIt->WillAllocate);
     EXPECT_EQ(planIt->SkipReason, "unsupported-framebuffer-format");
+}
+
+// Phase D: RG16F framebuffer format is now a supported transient FB type.
+TEST(RenderGraphTransientPool, PhaseD_RG16FFramebufferFormatIsNowAllocatable)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddStub(graph, "Pass");
+
+    graph.RegisterGraphPass(
+        "Pass",
+        [](RGBuilder& builder)
+        {
+            RGResourceDesc desc;
+            desc.Kind = ResourceHandle::Kind::Framebuffer;
+            desc.Format = RGResourceFormat::RG16Float;
+            desc.Width = 640;
+            desc.Height = 360;
+
+            const auto fb = builder.CreateFramebuffer("PhaseD_RG16FFB", desc);
+            builder.Write(fb, RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto r = builder.Read(fb, RGReadUsage::RenderTargetRead);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.SetFinalPass("Pass");
+    graph.BuildFrameGraph();
+
+    const auto& plan = graph.GetTransientPlan();
+    const auto it = std::find_if(plan.begin(), plan.end(),
+                                 [](const RenderGraph::TransientPlanEntry& e)
+                                 { return e.Resource == "PhaseD_RG16FFB"; });
+
+    ASSERT_NE(it, plan.end());
+    EXPECT_TRUE(it->WillAllocate) << "RG16F FB must be allocatable after Phase D fix";
+    EXPECT_EQ(it->SkipReason, "") << "unexpected skip reason: " << it->SkipReason;
+}
+
+// Phase D: SSAOPass-style setup that declares SSAORaw as a transient RG16F FB.
+// Verifies the graph accepts it and plans allocation (no GPU context required).
+TEST(RenderGraphTransientPool, PhaseD_SSAOPassDeclaresTransientRawFramebuffer)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddStub(graph, "SSAOPass");
+    AddStub(graph, "FinalPass");
+
+    graph.RegisterGraphPass(
+        "SSAOPass",
+        [](RGBuilder& builder)
+        {
+            // Declare SSAORaw — mirrors the production setup callback in Renderer3D::ConfigureRenderGraph
+            RGResourceDesc rawDesc;
+            rawDesc.Kind = ResourceHandle::Kind::Framebuffer;
+            rawDesc.Format = RGResourceFormat::RG16Float;
+            rawDesc.Width = 698; // typical half-res of 1396-wide viewport
+            rawDesc.Height = 418;
+
+            const auto rawHandle = builder.CreateFramebuffer("SSAORaw", rawDesc);
+            builder.Write(rawHandle, RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto rawRead = builder.Read(rawHandle, RGReadUsage::RenderTargetRead);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.RegisterGraphPass(
+        "FinalPass",
+        [](RGBuilder& /*builder*/) {},
+        [](RGCommandContext& /*context*/) {});
+
+    graph.AddExecutionDependency("SSAOPass", "FinalPass");
+    graph.SetFinalPass("FinalPass");
+    graph.BuildFrameGraph();
+
+    // SSAORaw should be reachable and planned for allocation
+    const auto& plan = graph.GetTransientPlan();
+    const auto it = std::find_if(plan.begin(), plan.end(),
+                                 [](const RenderGraph::TransientPlanEntry& e)
+                                 { return e.Resource == "SSAORaw"; });
+
+    ASSERT_NE(it, plan.end()) << "SSAORaw not found in transient plan";
+    EXPECT_TRUE(it->Reachable) << "SSAORaw must be reachable";
+    EXPECT_TRUE(it->WillAllocate) << "SSAORaw must be planned for allocation (Phase D fix)";
+    EXPECT_EQ(it->SkipReason, "") << "unexpected skip reason: " << it->SkipReason;
+
+    // The stable handle must be resolvable after BuildFrameGraph
+    const auto handle = graph.GetFramebufferHandle("SSAORaw");
+    EXPECT_TRUE(handle.IsValid()) << "stable handle for SSAORaw must be valid after BuildFrameGraph";
+}
+
+// Phase D Slice 2: RGBA32F framebuffer format is now a supported transient FB type.
+TEST(RenderGraphTransientPool, PhaseD_RGBA32FFramebufferFormatIsAllocatable)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddStub(graph, "Pass");
+
+    graph.RegisterGraphPass(
+        "Pass",
+        [](RGBuilder& builder)
+        {
+            RGResourceDesc desc;
+            desc.Kind = ResourceHandle::Kind::Framebuffer;
+            desc.Format = RGResourceFormat::RGBA32Float;
+            desc.Width = 1280;
+            desc.Height = 720;
+
+            const auto fb = builder.CreateFramebuffer("PhaseD_RGBA32FFB", desc);
+            builder.Write(fb, RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto r = builder.Read(fb, RGReadUsage::RenderTargetRead);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.SetFinalPass("Pass");
+    graph.BuildFrameGraph();
+
+    const auto& plan = graph.GetTransientPlan();
+    const auto it = std::find_if(plan.begin(), plan.end(),
+                                 [](const RenderGraph::TransientPlanEntry& e)
+                                 { return e.Resource == "PhaseD_RGBA32FFB"; });
+
+    ASSERT_NE(it, plan.end());
+    EXPECT_TRUE(it->WillAllocate) << "RGBA32F FB must be allocatable after Phase D Slice 2 fix";
+    EXPECT_EQ(it->SkipReason, "") << "unexpected skip reason: " << it->SkipReason;
+}
+
+// Phase D Slice 2: SelectionOutline-style setup declaring JFAPing + JFAPong
+// as full-res RGBA32F transient framebuffers.
+TEST(RenderGraphTransientPool, PhaseD_SelectionOutlinePassDeclaresPingPongJFAFramebuffers)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddStub(graph, "SelectionOutlinePass");
+    AddStub(graph, "FinalPass");
+
+    graph.RegisterGraphPass(
+        "SelectionOutlinePass",
+        [](RGBuilder& builder)
+        {
+            // Mirror the production setup callback in Renderer3D::ConfigureRenderGraph
+            RGResourceDesc jfaDesc;
+            jfaDesc.Kind = ResourceHandle::Kind::Framebuffer;
+            jfaDesc.Format = RGResourceFormat::RGBA32Float;
+            jfaDesc.Width = 1280;
+            jfaDesc.Height = 720;
+
+            const auto pingHandle = builder.CreateFramebuffer("JFAPing", jfaDesc);
+            builder.Write(pingHandle, RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto pingRead = builder.Read(pingHandle, RGReadUsage::RenderTargetRead);
+
+            const auto pongHandle = builder.CreateFramebuffer("JFAPong", jfaDesc);
+            builder.Write(pongHandle, RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto pongRead = builder.Read(pongHandle, RGReadUsage::RenderTargetRead);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.RegisterGraphPass(
+        "FinalPass",
+        [](RGBuilder& /*builder*/) {},
+        [](RGCommandContext& /*context*/) {});
+
+    graph.AddExecutionDependency("SelectionOutlinePass", "FinalPass");
+    graph.SetFinalPass("FinalPass");
+    graph.BuildFrameGraph();
+
+    const auto& plan = graph.GetTransientPlan();
+
+    for (const char* name : { "JFAPing", "JFAPong" })
+    {
+        const auto it = std::find_if(plan.begin(), plan.end(),
+                                     [name](const RenderGraph::TransientPlanEntry& e)
+                                     { return e.Resource == name; });
+
+        ASSERT_NE(it, plan.end()) << name << " not found in transient plan";
+        EXPECT_TRUE(it->Reachable) << name << " must be reachable";
+        EXPECT_TRUE(it->WillAllocate) << name << " must be planned for allocation (Phase D Slice 2)";
+        EXPECT_EQ(it->SkipReason, "") << name << " unexpected skip reason: " << it->SkipReason;
+
+        const auto handle = graph.GetFramebufferHandle(name);
+        EXPECT_TRUE(handle.IsValid()) << "stable handle for " << name << " must be valid after BuildFrameGraph";
+    }
+
+    // Both JFA framebuffers have identical descriptors — they should alias into
+    // the same alias slot (non-overlapping lifetimes are not guaranteed here,
+    // but at minimum both should be planned).
+    const auto pingIt = std::find_if(plan.begin(), plan.end(),
+                                     [](const RenderGraph::TransientPlanEntry& e)
+                                     { return e.Resource == "JFAPing"; });
+    const auto pongIt = std::find_if(plan.begin(), plan.end(),
+                                     [](const RenderGraph::TransientPlanEntry& e)
+                                     { return e.Resource == "JFAPong"; });
+    ASSERT_NE(pingIt, plan.end());
+    ASSERT_NE(pongIt, plan.end());
+    // Both must report the same descriptor (same size + format = alias-compatible)
+    EXPECT_EQ(pingIt->EstimatedBytes, pongIt->EstimatedBytes)
+        << "JFAPing and JFAPong have the same desc — should report equal estimated sizes";
+}
+
+// Phase D Slice 3: Bloom mip-chain setup declaring up to 5 RGBA16F scratch FBs.
+TEST(RenderGraphTransientPool, PhaseD_BloomMipChainDeclaredAsTransientFramebuffers)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddStub(graph, "BloomPass");
+    AddStub(graph, "FinalPass");
+
+    // Mirror the production setup callback in Renderer3D::ConfigureRenderGraph.
+    // Using viewport 1280x720 → mip dims: 640x360, 320x180, 160x90, 80x45, 40x22.
+    graph.RegisterGraphPass(
+        "BloomPass",
+        [](RGBuilder& builder)
+        {
+            u32 mipW = 1280 / 2;
+            u32 mipH = 720 / 2;
+            for (u32 i = 0; i < 5u; ++i)
+            {
+                if (mipW < 2 || mipH < 2)
+                    break;
+                RGResourceDesc mipDesc;
+                mipDesc.Kind = ResourceHandle::Kind::Framebuffer;
+                mipDesc.Format = RGResourceFormat::RGBA16Float;
+                mipDesc.Width = mipW;
+                mipDesc.Height = mipH;
+                const std::string mipName = "BloomMip" + std::to_string(i);
+                const auto mipHandle = builder.CreateFramebuffer(mipName, mipDesc);
+                builder.Write(mipHandle, RGWriteUsage::RenderTarget);
+                [[maybe_unused]] const auto mipRead =
+                    builder.Read(mipHandle, RGReadUsage::RenderTargetRead);
+                mipW /= 2;
+                mipH /= 2;
+            }
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.RegisterGraphPass(
+        "FinalPass",
+        [](RGBuilder& /*builder*/) {},
+        [](RGCommandContext& /*context*/) {});
+
+    graph.AddExecutionDependency("BloomPass", "FinalPass");
+    graph.SetFinalPass("FinalPass");
+    graph.BuildFrameGraph();
+
+    const auto& plan = graph.GetTransientPlan();
+
+    // All 5 mip levels should appear in the transient plan with allocation planned.
+    for (u32 i = 0; i < 5u; ++i)
+    {
+        const std::string mipName = "BloomMip" + std::to_string(i);
+        const auto it = std::find_if(plan.begin(), plan.end(),
+                                     [&mipName](const RenderGraph::TransientPlanEntry& e)
+                                     { return e.Resource == mipName; });
+
+        ASSERT_NE(it, plan.end()) << mipName << " not found in transient plan";
+        EXPECT_TRUE(it->Reachable) << mipName << " must be reachable";
+        EXPECT_TRUE(it->WillAllocate) << mipName << " must be planned for allocation (Phase D Slice 3)";
+        EXPECT_EQ(it->SkipReason, "") << mipName << " unexpected skip reason: " << it->SkipReason;
+
+        const auto handle = graph.GetFramebufferHandle(mipName);
+        EXPECT_TRUE(handle.IsValid()) << "stable handle for " << mipName << " must be valid after BuildFrameGraph";
+    }
+
+    // Mip 0 should be larger than mip 1 (halving each level).
+    const auto mip0It = std::find_if(plan.begin(), plan.end(),
+                                     [](const RenderGraph::TransientPlanEntry& e)
+                                     { return e.Resource == "BloomMip0"; });
+    const auto mip1It = std::find_if(plan.begin(), plan.end(),
+                                     [](const RenderGraph::TransientPlanEntry& e)
+                                     { return e.Resource == "BloomMip1"; });
+    ASSERT_NE(mip0It, plan.end());
+    ASSERT_NE(mip1It, plan.end());
+    EXPECT_GT(mip0It->EstimatedBytes, mip1It->EstimatedBytes)
+        << "BloomMip0 (640x360) should be larger than BloomMip1 (320x180)";
+}
+
+// Phase D Slice 4: GTAO edge scratch texture declared as transient R8 resource.
+TEST(RenderGraphTransientPool, PhaseD_GTAOEdgeTextureDeclaredAsTransientTexture)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddStub(graph, "GTAOPass");
+    AddStub(graph, "FinalPass");
+
+    graph.RegisterGraphPass(
+        "GTAOPass",
+        [](RGBuilder& builder)
+        {
+            // Mirror the production setup callback in Renderer3D::ConfigureRenderGraph.
+            RGResourceDesc edgeDesc;
+            edgeDesc.Kind = ResourceHandle::Kind::Texture2D;
+            edgeDesc.Format = RGResourceFormat::R8UNorm;
+            edgeDesc.Width = 1280;
+            edgeDesc.Height = 720;
+            const auto edgeHandle = builder.CreateTexture("GTAOEdge", edgeDesc);
+            builder.Write(edgeHandle, RGWriteUsage::ShaderImage);
+            [[maybe_unused]] const auto edgeRead =
+                builder.Read(edgeHandle, RGReadUsage::ShaderImage);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.RegisterGraphPass(
+        "FinalPass",
+        [](RGBuilder& /*builder*/) {},
+        [](RGCommandContext& /*context*/) {});
+
+    graph.AddExecutionDependency("GTAOPass", "FinalPass");
+    graph.SetFinalPass("FinalPass");
+    graph.BuildFrameGraph();
+
+    const auto& plan = graph.GetTransientPlan();
+    const auto it = std::find_if(plan.begin(), plan.end(),
+                                 [](const RenderGraph::TransientPlanEntry& e)
+                                 { return e.Resource == "GTAOEdge"; });
+
+    ASSERT_NE(it, plan.end()) << "GTAOEdge not found in transient plan";
+    EXPECT_TRUE(it->Reachable) << "GTAOEdge must be reachable";
+    EXPECT_TRUE(it->WillAllocate) << "GTAOEdge must be planned for allocation (Phase D Slice 4)";
+    EXPECT_EQ(it->SkipReason, "") << "GTAOEdge unexpected skip reason: " << it->SkipReason;
+    // R8 = 1 byte per texel
+    EXPECT_EQ(it->EstimatedBytes, 1280ull * 720ull * 1ull)
+        << "GTAOEdge (R8) should be 1 byte per texel";
+
+    const auto handle = graph.GetTextureHandle("GTAOEdge");
+    EXPECT_TRUE(handle.IsValid()) << "stable handle for GTAOEdge must be valid after BuildFrameGraph";
+}
+
+// Phase D Slice 6: HZB scratch depth pyramid declared as transient R32F mip-chain texture.
+TEST(RenderGraphTransientPool, PhaseD_HZBDepthDeclaredAsTransientMipChainTexture)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddStub(graph, "GTAOPass");
+    AddStub(graph, "FinalPass");
+
+    graph.RegisterGraphPass(
+        "GTAOPass",
+        [](RGBuilder& builder)
+        {
+            // Mirror the production setup callback in Renderer3D::ConfigureRenderGraph.
+            // Viewport 1396x835 -> HZB 2048x1024 with 12 mips.
+            RGResourceDesc hzbDesc;
+            hzbDesc.Kind = ResourceHandle::Kind::Texture2D;
+            hzbDesc.Format = RGResourceFormat::R32Float;
+            hzbDesc.Width = 2048;
+            hzbDesc.Height = 1024;
+            hzbDesc.MipLevels = 12;
+
+            const auto hzbHandle = builder.CreateTexture("HZBDepth", hzbDesc);
+            builder.Write(hzbHandle, RGWriteUsage::ShaderImage);
+            [[maybe_unused]] const auto hzbRead = builder.Read(hzbHandle, RGReadUsage::ShaderSample);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.RegisterGraphPass(
+        "FinalPass",
+        [](RGBuilder& /*builder*/) {},
+        [](RGCommandContext& /*context*/) {});
+
+    graph.AddExecutionDependency("GTAOPass", "FinalPass");
+    graph.SetFinalPass("FinalPass");
+    graph.BuildFrameGraph();
+
+    const auto& plan = graph.GetTransientPlan();
+    const auto it = std::find_if(plan.begin(), plan.end(),
+                                 [](const RenderGraph::TransientPlanEntry& e)
+                                 { return e.Resource == "HZBDepth"; });
+
+    ASSERT_NE(it, plan.end()) << "HZBDepth not found in transient plan";
+    EXPECT_TRUE(it->Reachable) << "HZBDepth must be reachable";
+    EXPECT_TRUE(it->WillAllocate) << "HZBDepth must be planned for allocation (Phase D Slice 6)";
+    EXPECT_EQ(it->SkipReason, "") << "HZBDepth unexpected skip reason: " << it->SkipReason;
+    EXPECT_NE(it->AliasGroup.find(":m12:"), std::string::npos)
+        << "Alias group should encode mip count for HZBDepth mip chain";
+    EXPECT_EQ(it->EstimatedBytes, 2048ull * 1024ull * 4ull * 12ull)
+        << "HZBDepth (R32F, 12 mips) estimated bytes should include mip multiplier in current planner model";
+
+    const auto handle = graph.GetTextureHandle("HZBDepth");
+    EXPECT_TRUE(handle.IsValid()) << "stable handle for HZBDepth must be valid after BuildFrameGraph";
+}
+
+// Phase D Slice 5: Water refraction scratch texture declared as transient RGBA16F resource.
+TEST(RenderGraphTransientPool, PhaseD_WaterRefractionDeclaredAsTransientTexture)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddStub(graph, "WaterPass");
+    AddStub(graph, "FinalPass");
+
+    graph.RegisterGraphPass(
+        "WaterPass",
+        [](RGBuilder& builder)
+        {
+            // Mirror the production setup callback in Renderer3D::ConfigureRenderGraph.
+            RGResourceDesc refrDesc;
+            refrDesc.Kind = ResourceHandle::Kind::Texture2D;
+            refrDesc.Format = RGResourceFormat::RGBA16Float;
+            refrDesc.Width = 1280;
+            refrDesc.Height = 720;
+            const auto refrHandle = builder.CreateTexture("WaterRefraction", refrDesc);
+            builder.Write(refrHandle, RGWriteUsage::ShaderImage);
+            [[maybe_unused]] const auto refrRead =
+                builder.Read(refrHandle, RGReadUsage::ShaderSample);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.RegisterGraphPass(
+        "FinalPass",
+        [](RGBuilder& /*builder*/) {},
+        [](RGCommandContext& /*context*/) {});
+
+    graph.AddExecutionDependency("WaterPass", "FinalPass");
+    graph.SetFinalPass("FinalPass");
+    graph.BuildFrameGraph();
+
+    const auto& plan = graph.GetTransientPlan();
+    const auto it = std::find_if(plan.begin(), plan.end(),
+                                 [](const RenderGraph::TransientPlanEntry& e)
+                                 { return e.Resource == "WaterRefraction"; });
+
+    ASSERT_NE(it, plan.end()) << "WaterRefraction not found in transient plan";
+    EXPECT_TRUE(it->Reachable) << "WaterRefraction must be reachable";
+    EXPECT_TRUE(it->WillAllocate) << "WaterRefraction must be planned for allocation (Phase D Slice 5)";
+    EXPECT_EQ(it->SkipReason, "") << "WaterRefraction unexpected skip reason: " << it->SkipReason;
+    // RGBA16F = 8 bytes per texel
+    EXPECT_EQ(it->EstimatedBytes, 1280ull * 720ull * 8ull)
+        << "WaterRefraction (RGBA16F) should be 8 bytes per texel";
+
+    const auto handle = graph.GetTextureHandle("WaterRefraction");
+    EXPECT_TRUE(handle.IsValid()) << "stable handle for WaterRefraction must be valid after BuildFrameGraph";
 }
 
 TEST(RenderGraphTransientPool, RG16FloatTextureIsPlannedForAllocation)
@@ -2274,7 +2759,9 @@ TEST(RenderGraphTransientPool, DumpToJsonIncludesTransientAliasDiagnostics)
 
             RGResourceDesc invalidDesc;
             invalidDesc.Kind = ResourceHandle::Kind::Framebuffer;
-            invalidDesc.Format = RGResourceFormat::RG16Float;
+            // Phase D: RG16Float is now supported. Use R8UNorm — it has no FB equivalent
+            // and remains the canonical "unsupported-framebuffer-format" case.
+            invalidDesc.Format = RGResourceFormat::R8UNorm;
             invalidDesc.Width = 256;
             invalidDesc.Height = 256;
 
@@ -2567,6 +3054,527 @@ TEST(RenderGraphTransientPool, HeadlessTransientExtractionInvokesCallbackWithZer
     EXPECT_TRUE(callbackCalled) << "Transient extraction callback must fire after Execute";
     EXPECT_EQ(extractedTextureID, 0u)
         << "Headless transient extraction must resolve to texture ID 0 without a rendering backend";
+}
+
+// =============================================================================
+// Phase D Slice 7 — OIT buffer as shared transient MRT framebuffer
+// =============================================================================
+
+// Verify that DeclareTransientFramebuffer registers a stable handle for a
+// multi-attachment MRT descriptor before BuildFrameGraph is called.
+TEST(RenderGraphTransientPool, PhaseD_DeclareTransientFramebufferReturnsValidHandleBeforeBuild)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    RGResourceDesc oitDesc;
+    oitDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    oitDesc.Width = 1280;
+    oitDesc.Height = 720;
+    oitDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float };
+
+    const auto handle = graph.DeclareTransientFramebuffer(ResourceNames::OITBuffer, oitDesc);
+    EXPECT_TRUE(handle.IsValid())
+        << "DeclareTransientFramebuffer must return a valid handle immediately";
+
+    // GetFramebufferHandle must return the same stable handle.
+    const auto namedHandle = graph.GetFramebufferHandle(ResourceNames::OITBuffer);
+    EXPECT_TRUE(namedHandle.IsValid()) << "named lookup must also return a valid handle";
+    EXPECT_EQ(handle.Index, namedHandle.Index)
+        << "DeclareTransientFramebuffer and GetFramebufferHandle must return the same slot";
+}
+
+// Verify that an MRT OIT transient descriptor is planned for allocation when
+// its resource is reachable (Producer writes it, Consumer reads it).
+TEST(RenderGraphTransientPool, PhaseD_OITBufferDeclaredAsSharedTransientMRTFramebuffer)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddStub(graph, "OITWriterPass");
+    AddStub(graph, "OITResolvePass");
+
+    // Register the OIT descriptor before BuildFrameGraph to mirror the
+    // production SetupFrameBlackboard path.
+    RGResourceDesc oitDesc;
+    oitDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    oitDesc.Width = 1280;
+    oitDesc.Height = 720;
+    oitDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float };
+    oitDesc.DebugName = std::string(ResourceNames::OITBuffer);
+
+    const auto oitHandle = graph.DeclareTransientFramebuffer(ResourceNames::OITBuffer, oitDesc);
+    ASSERT_TRUE(oitHandle.IsValid());
+
+    graph.RegisterGraphPass(
+        "OITWriterPass",
+        [oitHandle](RGBuilder& builder)
+        {
+            builder.Write(oitHandle, RGWriteUsage::RenderTarget);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.RegisterGraphPass(
+        "OITResolvePass",
+        [oitHandle](RGBuilder& builder)
+        {
+            [[maybe_unused]] const auto r = builder.Read(oitHandle, RGReadUsage::ShaderSample);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.AddExecutionDependency("OITWriterPass", "OITResolvePass");
+    graph.SetFinalPass("OITResolvePass");
+    graph.BuildFrameGraph();
+
+    // Resource must appear in the transient plan and be planned for allocation.
+    const auto& plan = graph.GetTransientPlan();
+    const auto it = std::find_if(plan.begin(), plan.end(),
+                                 [](const RenderGraph::TransientPlanEntry& e)
+                                 { return e.Resource == std::string(ResourceNames::OITBuffer); });
+
+    ASSERT_NE(it, plan.end()) << "OITBuffer not found in transient plan";
+    EXPECT_TRUE(it->Reachable) << "OITBuffer must be reachable";
+    EXPECT_TRUE(it->WillAllocate)
+        << "OITBuffer MRT must be planned for allocation; skip reason: " << it->SkipReason;
+    EXPECT_EQ(it->SkipReason, "") << "unexpected skip reason: " << it->SkipReason;
+
+    // EstimatedBytes must cover both attachments: RGBA16F (8 bytes) + RG16F (4 bytes) per pixel.
+    const u64 expectedBytes = (8ull + 4ull) * 1280ull * 720ull;
+    EXPECT_EQ(it->EstimatedBytes, expectedBytes)
+        << "MRT estimated bytes must sum across all attachments";
+
+    // Both OITAccum and OITRevealage blackboard slots point to the same handle.
+    const auto afterBuildHandle = graph.GetFramebufferHandle(ResourceNames::OITBuffer);
+    EXPECT_TRUE(afterBuildHandle.IsValid()) << "handle must still be valid after BuildFrameGraph";
+    EXPECT_EQ(oitHandle.Index, afterBuildHandle.Index)
+        << "stable handle index must not change between declaration and post-build lookup";
+}
+
+// Verify that OverrideTransientFramebuffer correctly injects an external FB
+// into the physical slot so ResolveFramebuffer returns it.
+TEST(RenderGraphTransientPool, PhaseD_OverrideTransientFramebufferPatchesPhysicalSlot)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    RGResourceDesc oitDesc;
+    oitDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    oitDesc.Width = 1280;
+    oitDesc.Height = 720;
+    oitDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float };
+
+    graph.DeclareTransientFramebuffer(ResourceNames::OITBuffer, oitDesc);
+
+    // OverrideTransientFramebuffer with a nullptr should be safe (no crash).
+    EXPECT_NO_THROW(graph.OverrideTransientFramebuffer(ResourceNames::OITBuffer, nullptr));
+
+    // After override with nullptr, ResolveFramebuffer should return nullptr.
+    const auto handle = graph.GetFramebufferHandle(ResourceNames::OITBuffer);
+    ASSERT_TRUE(handle.IsValid());
+    EXPECT_EQ(graph.ResolveFramebuffer(handle), nullptr)
+        << "After injecting nullptr the resolved framebuffer must be null";
+}
+
+// Verify that MRT alias group keys differ from single-attachment keys so
+// they are never incorrectly aliased with single-format framebuffers.
+TEST(RenderGraphTransientPool, PhaseD_MRTAliasGroupDiffersFromSingleAttachmentKey)
+{
+    RGResourceDesc single;
+    single.Kind = ResourceHandle::Kind::Framebuffer;
+    single.Format = RGResourceFormat::RGBA16Float;
+    single.Width = 1280;
+    single.Height = 720;
+
+    RGResourceDesc mrt;
+    mrt.Kind = ResourceHandle::Kind::Framebuffer;
+    mrt.Width = 1280;
+    mrt.Height = 720;
+    mrt.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float };
+
+    // Use the IsCompatibleWith predicate: MRT and single must NOT be compatible.
+    EXPECT_FALSE(mrt.IsCompatibleWith(single))
+        << "MRT desc must not be compatible with a single-attachment desc";
+    EXPECT_FALSE(single.IsCompatibleWith(mrt))
+        << "Single-attachment desc must not be compatible with an MRT desc";
+
+    // MRT descriptor with different attachment order must also differ.
+    RGResourceDesc mrt2;
+    mrt2.Kind = ResourceHandle::Kind::Framebuffer;
+    mrt2.Width = 1280;
+    mrt2.Height = 720;
+    mrt2.Attachments = { RGResourceFormat::RG16Float, RGResourceFormat::RGBA16Float };
+
+    EXPECT_FALSE(mrt.IsCompatibleWith(mrt2))
+        << "MRT descs with different attachment orders must not be compatible";
+}
+
+// Verify EstimateTransientBytes sums correctly across MRT attachments.
+TEST(RenderGraphTransientPool, PhaseD_MRTEstimatedBytesAreCorrect)
+{
+    RGResourceDesc oitDesc;
+    oitDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    oitDesc.Width = 1280;
+    oitDesc.Height = 720;
+    oitDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float };
+
+    // RGBA16F = 8 bytes/px, RG16F = 4 bytes/px → (8+4) * 1280 * 720.
+    // Use the public IsTransientDescriptorAllocatable + transient plan approach
+    // by registering and building.
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddStub(graph, "Writer");
+    AddStub(graph, "Reader");
+
+    const auto h = graph.DeclareTransientFramebuffer("MRTEstimate", oitDesc);
+    graph.RegisterGraphPass("Writer", [h](RGBuilder& builder)
+                            { builder.Write(h, RGWriteUsage::RenderTarget); }, [](RGCommandContext&) {});
+    graph.RegisterGraphPass("Reader", [h](RGBuilder& builder)
+                            { builder.Read(h, RGReadUsage::ShaderSample); }, [](RGCommandContext&) {});
+    graph.AddExecutionDependency("Writer", "Reader");
+    graph.SetFinalPass("Reader");
+    graph.BuildFrameGraph();
+
+    const auto& plan = graph.GetTransientPlan();
+    const auto it = std::find_if(plan.begin(), plan.end(),
+                                 [](const RenderGraph::TransientPlanEntry& e)
+                                 { return e.Resource == "MRTEstimate"; });
+    ASSERT_NE(it, plan.end());
+    EXPECT_EQ(it->EstimatedBytes, (8ull + 4ull) * 1280ull * 720ull)
+        << "RGBA16F+RG16F MRT estimated bytes must sum to 12 bytes/px";
+}
+
+// =============================================================================
+// Phase D Slice 8 — Post-process chain outputs as transient FBs
+//
+// Each post-process pass output (BloomColor, DOFColor, ToneMapColor, etc.) is
+// now declared as a transient framebuffer rather than imported, so the graph's
+// transient pool can track lifetime and format for future aliasing.
+// =============================================================================
+
+TEST(RenderGraphTransientPool, PhaseD_PostProcessChainRGBA16FOutputsDeclaredAsTransient)
+{
+    // Verify that each RGBA16F post-process output declared via
+    // DeclareTransientFramebuffer gets WillAllocate = true when it has
+    // a producer pass in the graph.  Each output gets its own write pass
+    // to mirror the production pattern where every pp pass writes its target.
+    constexpr u32 vw = 1280;
+    constexpr u32 vh = 720;
+
+    const std::vector<std::string> hdOutputs = {
+        "BloomColor", "DOFColor", "MotionBlurColor", "TAAColor",
+        "FogColor", "ChromAbColor", "ColorGradingColor", "ToneMapColor"
+    };
+
+    for (const auto& name : hdOutputs)
+    {
+        RenderGraph graph;
+        graph.SetRuntimeBarrierExecutionEnabled(false);
+
+        RGResourceDesc desc;
+        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Width = vw;
+        desc.Height = vh;
+        desc.Format = RGResourceFormat::RGBA16Float;
+        desc.DebugName = name;
+        const auto h = graph.DeclareTransientFramebuffer(name, desc);
+        ASSERT_TRUE(h.IsValid()) << name << ": handle must be valid after declaration";
+
+        AddStub(graph, "Writer");
+        AddStub(graph, "Reader");
+        graph.RegisterGraphPass("Writer", [h](RGBuilder& builder)
+                                { builder.Write(h, RGWriteUsage::RenderTarget); }, [](RGCommandContext&) {});
+        graph.RegisterGraphPass("Reader", [h](RGBuilder& builder)
+                                { builder.Read(h, RGReadUsage::ShaderSample); }, [](RGCommandContext&) {});
+        graph.AddExecutionDependency("Writer", "Reader");
+        graph.SetFinalPass("Reader");
+        graph.BuildFrameGraph();
+
+        const auto& plan = graph.GetTransientPlan();
+        const auto it = std::find_if(plan.begin(), plan.end(),
+                                     [&](const RenderGraph::TransientPlanEntry& e)
+                                     { return e.Resource == name; });
+        ASSERT_NE(it, plan.end()) << name << " must appear in the transient plan";
+        EXPECT_TRUE(it->WillAllocate) << name << " must have WillAllocate = true";
+        // RGBA16F: 8 bytes/texel
+        EXPECT_EQ(it->EstimatedBytes, static_cast<u64>(vw) * vh * 8u) << name;
+    }
+}
+
+TEST(RenderGraphTransientPool, PhaseD_PostProcessChainRGBA8OutputsDeclaredAsTransient)
+{
+    // Verify that each RGBA8 post-process output declared via
+    // DeclareTransientFramebuffer gets WillAllocate = true when it has
+    // a producer pass in the graph.
+    constexpr u32 vw = 1920;
+    constexpr u32 vh = 1080;
+
+    const std::vector<std::string> ldOutputs = {
+        "VignetteColor", "FXAAColor", "SelectionOutlineColor", "UIComposite"
+    };
+
+    for (const auto& name : ldOutputs)
+    {
+        RenderGraph graph;
+        graph.SetRuntimeBarrierExecutionEnabled(false);
+
+        RGResourceDesc desc;
+        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Width = vw;
+        desc.Height = vh;
+        desc.Format = RGResourceFormat::RGBA8UNorm;
+        desc.DebugName = name;
+        const auto h = graph.DeclareTransientFramebuffer(name, desc);
+        ASSERT_TRUE(h.IsValid()) << name << ": handle must be valid after declaration";
+
+        AddStub(graph, "Writer");
+        AddStub(graph, "Reader");
+        graph.RegisterGraphPass("Writer", [h](RGBuilder& builder)
+                                { builder.Write(h, RGWriteUsage::RenderTarget); }, [](RGCommandContext&) {});
+        graph.RegisterGraphPass("Reader", [h](RGBuilder& builder)
+                                { builder.Read(h, RGReadUsage::ShaderSample); }, [](RGCommandContext&) {});
+        graph.AddExecutionDependency("Writer", "Reader");
+        graph.SetFinalPass("Reader");
+        graph.BuildFrameGraph();
+
+        const auto& plan = graph.GetTransientPlan();
+        const auto it = std::find_if(plan.begin(), plan.end(),
+                                     [&](const RenderGraph::TransientPlanEntry& e)
+                                     { return e.Resource == name; });
+        ASSERT_NE(it, plan.end()) << name << " must appear in the transient plan";
+        EXPECT_TRUE(it->WillAllocate) << name << " must have WillAllocate = true";
+        // RGBA8UNorm: 4 bytes/texel
+        EXPECT_EQ(it->EstimatedBytes, static_cast<u64>(vw) * vh * 4u) << name;
+    }
+}
+
+TEST(RenderGraphTransientPool, PhaseD_PostProcessTransientNotInImportedResources)
+{
+    // Post-process outputs declared via DeclareTransientFramebuffer must NOT
+    // be flagged as IsImported in resource lifetime records — they are
+    // graph-owned transients, not externally-owned imports.
+    // OverrideTransientFramebuffer silently no-ops for imported resources, so
+    // this distinction is load-bearing for the real-FB injection in EndScene.
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    constexpr u32 vw = 1280;
+    constexpr u32 vh = 720;
+
+    struct PassSpec
+    {
+        std::string Name;
+        RGResourceFormat Format;
+    };
+    const std::vector<PassSpec> specs = {
+        { "BloomColor", RGResourceFormat::RGBA16Float },
+        { "ToneMapColor", RGResourceFormat::RGBA16Float },
+        { "FXAAColor", RGResourceFormat::RGBA8UNorm },
+        { "UIComposite", RGResourceFormat::RGBA8UNorm },
+    };
+
+    // Declare all resources and wire a single write pass per resource so
+    // each one is reachable in the graph and appears in lifetime records.
+    std::vector<RGFramebufferHandle> handles;
+    for (const auto& s : specs)
+    {
+        RGResourceDesc desc;
+        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Width = vw;
+        desc.Height = vh;
+        desc.Format = s.Format;
+        desc.DebugName = s.Name;
+        handles.push_back(graph.DeclareTransientFramebuffer(s.Name, desc));
+        EXPECT_TRUE(handles.back().IsValid()) << s.Name << " handle must be valid after declaration";
+    }
+
+    // Register a separate writer pass for each resource, and chain them so
+    // the graph has a single final pass.
+    // Writer0 → Writer1 → Writer2 → FinalWriter (writes handles[3])
+    for (std::size_t i = 0; i < specs.size(); ++i)
+    {
+        const auto h = handles[i];
+        const std::string passName = "Writer" + std::to_string(i);
+        AddStub(graph, passName);
+        graph.RegisterGraphPass(passName, [h](RGBuilder& builder)
+                                { builder.Write(h, RGWriteUsage::RenderTarget); }, [](RGCommandContext&) {});
+    }
+    graph.AddExecutionDependency("Writer0", "Writer1");
+    graph.AddExecutionDependency("Writer1", "Writer2");
+    graph.AddExecutionDependency("Writer2", "Writer3");
+    graph.SetFinalPass("Writer3");
+    graph.BuildFrameGraph();
+
+    // Use resource lifetime records (Phase G Slice 11 API) to confirm IsImported == false.
+    const auto lifetimes = graph.GetResourceLifetimes();
+    for (const auto& s : specs)
+    {
+        const auto it = std::find_if(lifetimes.begin(), lifetimes.end(),
+                                     [&](const RenderGraph::ResourceLifetime& l)
+                                     { return l.ResourceName == s.Name; });
+        if (it != lifetimes.end())
+        {
+            EXPECT_FALSE(it->IsImported)
+                << s.Name << " must NOT be flagged IsImported when declared as transient";
+            EXPECT_TRUE(it->IsTransient)
+                << s.Name << " must be flagged IsTransient";
+        }
+    }
+
+    // Override must succeed (resource is a transient, not an import).
+    // We verify the call doesn't crash; real FB injection happens in production EndScene.
+    for (const auto& s : specs)
+    {
+        EXPECT_NO_FATAL_FAILURE(graph.OverrideTransientFramebuffer(s.Name, nullptr));
+    }
+}
+
+TEST(RenderGraphTransientPool, PhaseH_ScratchTransientsRemainGraphOwned)
+{
+    // Scratch resources that used to have execute-path owned fallbacks must
+    // stay graph-owned transients so passes cannot silently drift back to raw
+    // compatibility bridges.
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    constexpr u32 vw = 1280;
+    constexpr u32 vh = 720;
+
+    struct ScratchSpec
+    {
+        std::string Name;
+        ResourceHandle::Kind Kind;
+        RGResourceFormat Format;
+        u32 Width;
+        u32 Height;
+    };
+
+    const std::vector<ScratchSpec> specs = {
+        { "SSAORaw", ResourceHandle::Kind::Framebuffer, RGResourceFormat::RG16Float, vw / 2, vh / 2 },
+        { "JFAPing", ResourceHandle::Kind::Framebuffer, RGResourceFormat::RGBA32Float, vw, vh },
+        { "JFAPong", ResourceHandle::Kind::Framebuffer, RGResourceFormat::RGBA32Float, vw, vh },
+        { "BloomMip0", ResourceHandle::Kind::Framebuffer, RGResourceFormat::RGBA16Float, vw / 2, vh / 2 },
+        { "GTAOEdge", ResourceHandle::Kind::Texture2D, RGResourceFormat::R8UNorm, vw, vh },
+        { "HZBDepth", ResourceHandle::Kind::Texture2D, RGResourceFormat::R32Float, 2048, 1024 },
+        { "WaterRefraction", ResourceHandle::Kind::Texture2D, RGResourceFormat::RGBA16Float, vw, vh },
+    };
+
+    for (const auto& spec : specs)
+    {
+        RGResourceDesc desc;
+        desc.Kind = spec.Kind;
+        desc.Width = spec.Width;
+        desc.Height = spec.Height;
+        desc.Format = spec.Format;
+        desc.DebugName = spec.Name;
+
+        if (spec.Kind == ResourceHandle::Kind::Framebuffer)
+        {
+            const auto handle = graph.DeclareTransientFramebuffer(spec.Name, desc);
+            ASSERT_TRUE(handle.IsValid()) << spec.Name << " handle must be valid after declaration";
+        }
+        else
+        {
+            AddStub(graph, spec.Name + "Writer");
+            AddStub(graph, spec.Name + "Reader");
+            graph.RegisterGraphPass(spec.Name + "Writer", [name = spec.Name, desc](RGBuilder& builder)
+                                    {
+                                        const auto handle = builder.CreateTexture(name, desc);
+                                        builder.Write(handle, RGWriteUsage::ShaderImage); }, [](RGCommandContext&) {});
+            graph.RegisterGraphPass(spec.Name + "Reader", [name = spec.Name, desc](RGBuilder& builder)
+                                    {
+                                        const auto handle = builder.CreateTexture(name, desc);
+                                        [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::ShaderSample); }, [](RGCommandContext&) {});
+        }
+    }
+
+    AddStub(graph, "FBWriter0");
+    AddStub(graph, "FBWriter1");
+    AddStub(graph, "FBWriter2");
+    graph.RegisterGraphPass("FBWriter0", [](RGBuilder& builder)
+                            {
+                                RGResourceDesc desc;
+                                desc.Kind = ResourceHandle::Kind::Framebuffer;
+                                desc.Width = vw / 2;
+                                desc.Height = vh / 2;
+                                desc.Format = RGResourceFormat::RG16Float;
+                                const auto handle = builder.CreateFramebuffer("SSAORaw", desc);
+                                builder.Write(handle, RGWriteUsage::RenderTarget); }, [](RGCommandContext&) {});
+    graph.RegisterGraphPass("FBWriter1", [](RGBuilder& builder)
+                            {
+                                RGResourceDesc desc;
+                                desc.Kind = ResourceHandle::Kind::Framebuffer;
+                                desc.Width = vw;
+                                desc.Height = vh;
+                                desc.Format = RGResourceFormat::RGBA32Float;
+                                const auto handle = builder.CreateFramebuffer("JFAPing", desc);
+                                builder.Write(handle, RGWriteUsage::RenderTarget); }, [](RGCommandContext&) {});
+    graph.RegisterGraphPass("FBWriter2", [](RGBuilder& builder)
+                            {
+                                RGResourceDesc desc;
+                                desc.Kind = ResourceHandle::Kind::Framebuffer;
+                                desc.Width = vw;
+                                desc.Height = vh;
+                                desc.Format = RGResourceFormat::RGBA32Float;
+                                const auto ping = builder.CreateFramebuffer("JFAPong", desc);
+                                builder.Write(ping, RGWriteUsage::RenderTarget);
+
+                                desc.Width = vw / 2;
+                                desc.Height = vh / 2;
+                                desc.Format = RGResourceFormat::RGBA16Float;
+                                const auto bloom = builder.CreateFramebuffer("BloomMip0", desc);
+                                builder.Write(bloom, RGWriteUsage::RenderTarget); }, [](RGCommandContext&) {});
+
+    graph.AddExecutionDependency("FBWriter0", "FBWriter1");
+    graph.AddExecutionDependency("FBWriter1", "FBWriter2");
+    graph.AddExecutionDependency("GTAOEdgeWriter", "GTAOEdgeReader");
+    graph.AddExecutionDependency("HZBDepthWriter", "HZBDepthReader");
+    graph.AddExecutionDependency("WaterRefractionWriter", "WaterRefractionReader");
+    graph.AddExecutionDependency("FBWriter2", "GTAOEdgeWriter");
+    graph.AddExecutionDependency("GTAOEdgeReader", "HZBDepthWriter");
+    graph.AddExecutionDependency("HZBDepthReader", "WaterRefractionWriter");
+    graph.SetFinalPass("WaterRefractionReader");
+    graph.BuildFrameGraph();
+
+    const auto lifetimes = graph.GetResourceLifetimes();
+    for (const auto& spec : specs)
+    {
+        const auto it = std::find_if(lifetimes.begin(), lifetimes.end(),
+                                     [&](const RenderGraph::ResourceLifetime& lifetime)
+                                     { return lifetime.ResourceName == spec.Name; });
+        ASSERT_NE(it, lifetimes.end()) << spec.Name << " must appear in lifetime records";
+        EXPECT_FALSE(it->IsImported) << spec.Name << " must remain graph-owned, not imported";
+        EXPECT_TRUE(it->IsTransient) << spec.Name << " must remain transient";
+    }
+}
+
+TEST(RenderGraphTransientPool, TrimMaxBucketSizeDefaultIsTwo)
+{
+    // Default max-bucket-size is 2: tolerates one spare for same-descriptor
+    // overlapping transients without unbounded pool growth.
+    RenderGraph graph;
+    EXPECT_EQ(graph.GetTransientPoolMaxBucketSize(), 2u);
+}
+
+TEST(RenderGraphTransientPool, SetTransientPoolMaxBucketSizeRoundTrips)
+{
+    RenderGraph graph;
+    graph.SetTransientPoolMaxBucketSize(1u);
+    EXPECT_EQ(graph.GetTransientPoolMaxBucketSize(), 1u);
+    graph.SetTransientPoolMaxBucketSize(4u);
+    EXPECT_EQ(graph.GetTransientPoolMaxBucketSize(), 4u);
+}
+
+TEST(RenderGraphTransientPool, TrimOnEmptyPoolIsNoop)
+{
+    // Calling Trim on a pool that has no objects must not crash or corrupt state.
+    TransientPool pool;
+    pool.Trim(1u);
+    const auto stats = pool.GetStats();
+    EXPECT_EQ(stats.TexturePoolSize, 0u);
+    EXPECT_EQ(stats.FramebufferPoolSize, 0u);
+    EXPECT_EQ(stats.BufferPoolSize, 0u);
+    EXPECT_EQ(pool.EstimateMemoryUsage(), 0u);
 }
 
 // =============================================================================
@@ -4579,6 +5587,121 @@ TEST(RenderGraphSubresourceRange, LayerRangePreservedInTransition)
     EXPECT_EQ(it->Range.BaseMip, 0u) << "BaseMip must default to 0";
 }
 
+TEST(RenderGraphSubresourceRange, MultiLayerDeclarationsProducePerLayerTransitions)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddStub(graph, "ShadowWriter");
+    graph.RegisterGraphPass(
+        "ShadowWriter",
+        [](RGBuilder& builder)
+        {
+            auto csm = builder.ImportTexture(
+                "ShadowCSM",
+                13,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2DArray, "ShadowCSM"));
+            for (u32 cascade = 0; cascade < 4u; ++cascade)
+            {
+                builder.Write(csm, RGWriteUsage::DepthStencil, RGSubresourceRange::Layer(cascade));
+            }
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    auto reader = AddStub(graph, "ShadowReader");
+    reader->SetSideEffects(RenderPass::SideEffect::NeverCull);
+    graph.RegisterGraphPass(
+        "ShadowReader",
+        [](RGBuilder& builder)
+        {
+            auto csm = builder.ImportTexture(
+                "ShadowCSM",
+                13,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2DArray, "ShadowCSM"));
+            for (u32 cascade = 0; cascade < 4u; ++cascade)
+            {
+                [[maybe_unused]] const auto r =
+                    builder.Read(csm, RGReadUsage::ShaderSample, RGSubresourceRange::Layer(cascade));
+            }
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.ConnectPass("ShadowWriter", "ShadowReader");
+    graph.SetFinalPass("ShadowReader");
+    graph.BuildFrameGraph();
+    graph.Execute();
+
+    const auto transitions = graph.GetResourceTransitions();
+    for (u32 cascade = 0; cascade < 4u; ++cascade)
+    {
+        const auto layerIt = std::find_if(
+            transitions.begin(), transitions.end(),
+            [cascade](const RenderGraph::ResourceTransition& transition)
+            {
+                return transition.ResourceName == "ShadowCSM" &&
+                       transition.Range.BaseLayer == cascade &&
+                       transition.Range.LayerCount == 1u;
+            });
+        ASSERT_NE(layerIt, transitions.end())
+            << "Expected per-layer transition for cascade " << cascade;
+    }
+}
+
+TEST(RenderGraphSubresourceRange, SliceRangePreservedInTransition)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddStub(graph, "PointShadowWriter");
+    graph.RegisterGraphPass(
+        "PointShadowWriter",
+        [](RGBuilder& builder)
+        {
+            auto cubemap = builder.ImportTexture(
+                "ShadowPoint0",
+                21,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::TextureCube, "ShadowPoint0"));
+            RGSubresourceRange faceRange{};
+            faceRange.BaseSlice = 4u;
+            faceRange.SliceCount = 1u;
+            builder.Write(cubemap, RGWriteUsage::DepthStencil, faceRange);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    auto reader = AddStub(graph, "PointShadowReader");
+    reader->SetSideEffects(RenderPass::SideEffect::NeverCull);
+    graph.RegisterGraphPass(
+        "PointShadowReader",
+        [](RGBuilder& builder)
+        {
+            auto cubemap = builder.ImportTexture(
+                "ShadowPoint0",
+                21,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::TextureCube, "ShadowPoint0"));
+            RGSubresourceRange faceRange{};
+            faceRange.BaseSlice = 4u;
+            faceRange.SliceCount = 1u;
+            [[maybe_unused]] const auto r = builder.Read(cubemap, RGReadUsage::ShaderSample, faceRange);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.ConnectPass("PointShadowWriter", "PointShadowReader");
+    graph.SetFinalPass("PointShadowReader");
+    graph.BuildFrameGraph();
+    graph.Execute();
+
+    const auto transitions = graph.GetResourceTransitions();
+    const auto it = std::find_if(transitions.begin(), transitions.end(),
+                                 [](const RenderGraph::ResourceTransition& transition)
+                                 {
+                                     return transition.ResourceName == "ShadowPoint0";
+                                 });
+    ASSERT_NE(it, transitions.end()) << "Expected a transition record for ShadowPoint0";
+
+    EXPECT_EQ(it->Range.BaseSlice, 4u);
+    EXPECT_EQ(it->Range.SliceCount, 1u);
+}
+
 TEST(RenderGraphSubresourceRange, PlannedBarrierCarriesRange)
 {
     // The PlannedBarrier for a Write->Read pair with an explicit subresource
@@ -5191,4 +6314,235 @@ TEST(RenderGraphQueueAwareScheduler, HazardValidatorRemainsGreenAfterComputeHois
         << "ComputeGTAO must precede DeferredLighting after hoist";
     EXPECT_LT(posSSGI, posLighting)
         << "ComputeSSGI must precede DeferredLighting after hoist";
+}
+
+// ============================================================
+// Phase H Slice 1 — fallback telemetry contracts
+// ============================================================
+
+TEST(RenderGraphFallbackTelemetry, InvalidTypedHandleResolvesAreRecorded)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto probe = Ref<FallbackProbePass>::Create("ProbePass");
+    graph.AddPass(probe);
+    graph.SetFinalPass("ProbePass");
+
+    graph.Execute();
+
+    const auto& activations = graph.GetFallbackActivations();
+    ASSERT_FALSE(activations.empty())
+        << "Invalid typed-handle resolves should emit fallback telemetry";
+
+    const auto hasInvalidTexture = std::any_of(activations.begin(), activations.end(),
+                                               [](const RenderGraph::FallbackActivation& activation)
+                                               {
+                                                   return activation.PassName == "ProbePass" &&
+                                                          activation.Reason == "invalid-texture-handle" &&
+                                                          activation.Count >= 1u;
+                                               });
+    const auto hasInvalidFramebuffer = std::any_of(activations.begin(), activations.end(),
+                                                   [](const RenderGraph::FallbackActivation& activation)
+                                                   {
+                                                       return activation.PassName == "ProbePass" &&
+                                                              activation.Reason == "invalid-framebuffer-handle" &&
+                                                              activation.Count >= 1u;
+                                                   });
+
+    EXPECT_TRUE(hasInvalidTexture);
+    EXPECT_TRUE(hasInvalidFramebuffer);
+    EXPECT_TRUE(probe->LastResolvedFramebufferWasNull());
+}
+
+TEST(RenderGraphFallbackTelemetry, ValidTextureResolveDoesNotEmitTextureFallback)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    const auto textureHandle = graph.ImportTexture(
+        "TelemetryTex",
+        123,
+        RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "TelemetryTex"));
+    ASSERT_TRUE(textureHandle.IsValid());
+
+    auto probe = Ref<FallbackProbePass>::Create("ProbePass");
+    probe->SetTextureHandle(textureHandle);
+    graph.AddPass(probe);
+    graph.SetFinalPass("ProbePass");
+
+    graph.Execute();
+
+    EXPECT_EQ(probe->GetLastResolvedTexture(), 123u);
+
+    const auto& activations = graph.GetFallbackActivations();
+    const auto hasTextureFallback = std::any_of(activations.begin(), activations.end(),
+                                                [](const RenderGraph::FallbackActivation& activation)
+                                                {
+                                                    return activation.PassName == "ProbePass" &&
+                                                           (activation.Reason == "invalid-texture-handle" ||
+                                                            activation.Reason == "stale-texture-handle" ||
+                                                            activation.Reason == "texture-resolve-zero");
+                                                });
+    EXPECT_FALSE(hasTextureFallback)
+        << "Valid texture resolve should not emit texture fallback telemetry";
+}
+
+// ============================================================
+// Phase H Slice 3 — SceneColor RMW chain via builder callbacks
+// Verifies that RegisterGraphPass Read+Write declarations drive
+// correct RAW-edge derivation in BuildFrameGraph, replacing the
+// prior WAW-insertion-order-only mechanism.
+// ============================================================
+
+TEST(RenderGraphSceneColorChain, RMWChainDrivesRAWEdgesViaBuilderCallbacks)
+{
+    // Forward-path SceneColor chain: ScenePass writes, then Foliage/Decal
+    // each read-then-write (RMW). BuildFrameGraph must derive
+    //   ScenePass → FoliagePass   (RAW: Foliage reads what Scene wrote)
+    //   FoliagePass → DecalPass   (RAW: Decal reads what Foliage wrote)
+    // without any explicit AddExecutionDependency call.
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddStub(graph, "ScenePass");
+    graph.RegisterGraphPass(
+        "ScenePass",
+        [](RGBuilder& builder)
+        {
+            auto sc = builder.ImportTexture(
+                "SceneColor",
+                1u,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+            builder.Write(sc, RGWriteUsage::RenderTarget);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    AddStub(graph, "FoliagePass");
+    graph.RegisterGraphPass(
+        "FoliagePass",
+        [](RGBuilder& builder)
+        {
+            auto sc = builder.ImportTexture(
+                "SceneColor",
+                1u,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+            [[maybe_unused]] const auto r = builder.Read(sc, RGReadUsage::RenderTargetRead);
+            builder.Write(sc, RGWriteUsage::RenderTarget);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    auto decalStub = AddStub(graph, "DecalPass");
+    decalStub->SetSideEffects(RenderPass::SideEffect::NeverCull);
+    graph.RegisterGraphPass(
+        "DecalPass",
+        [](RGBuilder& builder)
+        {
+            auto sc = builder.ImportTexture(
+                "SceneColor",
+                1u,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+            [[maybe_unused]] const auto r = builder.Read(sc, RGReadUsage::RenderTargetRead);
+            builder.Write(sc, RGWriteUsage::RenderTarget);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.SetFinalPass("DecalPass");
+
+    // No explicit AddExecutionDependency — ordering must come from Read+Write declarations.
+    graph.BuildFrameGraph();
+
+    // At least 2 derived edges must exist: ScenePass→FoliagePass and FoliagePass→DecalPass.
+    const auto& stats = graph.GetLastBuildStats();
+    EXPECT_GE(stats.DerivedEdges, 2u)
+        << "BuildFrameGraph must derive at least 2 edges from the SceneColor RMW chain";
+
+    // Execution order must reflect the derived RAW chain: ScenePass first, DecalPass last.
+    const auto& order = graph.GetPassOrder();
+    const auto scenePos = std::find(order.begin(), order.end(), "ScenePass") - order.begin();
+    const auto foliagePos = std::find(order.begin(), order.end(), "FoliagePass") - order.begin();
+    const auto decalPos = std::find(order.begin(), order.end(), "DecalPass") - order.begin();
+
+    EXPECT_LT(scenePos, foliagePos)
+        << "ScenePass must execute before FoliagePass (derived from SceneColor Read on FoliagePass)";
+    EXPECT_LT(foliagePos, decalPos)
+        << "FoliagePass must execute before DecalPass (derived from SceneColor Read on DecalPass)";
+}
+
+TEST(RenderGraphSceneColorChain, DeferredSceneColorRMWChainViaBuilderCallbacksIsHazardFree)
+{
+    // Deferred-path chain:
+    //   DeferredLightingPass writes SceneColor
+    //   ForwardOverlayPass   reads + writes SceneColor (RMW)
+    //   FoliagePass          reads + writes SceneColor (RMW)
+    // BuildFrameGraph must derive the full ordering chain from builder
+    // callbacks with zero explicit edges between these passes.
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddStub(graph, "DeferredLightingPass");
+    graph.RegisterGraphPass(
+        "DeferredLightingPass",
+        [](RGBuilder& builder)
+        {
+            auto sc = builder.ImportTexture(
+                "SceneColor",
+                2u,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+            builder.Write(sc, RGWriteUsage::RenderTarget);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    AddStub(graph, "ForwardOverlayPass");
+    graph.RegisterGraphPass(
+        "ForwardOverlayPass",
+        [](RGBuilder& builder)
+        {
+            auto sc = builder.ImportTexture(
+                "SceneColor",
+                2u,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+            [[maybe_unused]] const auto r = builder.Read(sc, RGReadUsage::RenderTargetRead);
+            builder.Write(sc, RGWriteUsage::RenderTarget);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    auto foliageStub = AddStub(graph, "FoliagePass");
+    foliageStub->SetSideEffects(RenderPass::SideEffect::NeverCull);
+    graph.RegisterGraphPass(
+        "FoliagePass",
+        [](RGBuilder& builder)
+        {
+            auto sc = builder.ImportTexture(
+                "SceneColor",
+                2u,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+            [[maybe_unused]] const auto r = builder.Read(sc, RGReadUsage::RenderTargetRead);
+            builder.Write(sc, RGWriteUsage::RenderTarget);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.SetFinalPass("FoliagePass");
+
+    // No explicit ordering edges — builder callbacks must drive the full chain.
+    graph.BuildFrameGraph();
+
+    // Expect at least 2 derived edges: DeferredLighting→Overlay, Overlay→Foliage.
+    const auto& stats = graph.GetLastBuildStats();
+    EXPECT_GE(stats.DerivedEdges, 2u)
+        << "BuildFrameGraph must derive at least 2 RAW edges for the deferred SceneColor chain";
+
+    // Execution order must reflect the derived chain.
+    const auto& order = graph.GetPassOrder();
+    const auto lightingPos =
+        std::find(order.begin(), order.end(), "DeferredLightingPass") - order.begin();
+    const auto overlayPos =
+        std::find(order.begin(), order.end(), "ForwardOverlayPass") - order.begin();
+    const auto foliagePos =
+        std::find(order.begin(), order.end(), "FoliagePass") - order.begin();
+
+    EXPECT_LT(lightingPos, overlayPos)
+        << "DeferredLightingPass must precede ForwardOverlayPass (derived from SceneColor Read)";
+    EXPECT_LT(overlayPos, foliagePos)
+        << "ForwardOverlayPass must precede FoliagePass (derived from SceneColor Read)";
 }

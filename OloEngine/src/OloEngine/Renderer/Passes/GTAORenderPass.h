@@ -85,19 +85,18 @@ namespace OloEngine
         void CreateGTAOTextures(u32 width, u32 height);
         void GenerateHilbertLUT();
         void UploadGTAOUniforms();
-        void DispatchGTAO(u32 normalsTextureID);
-        void DispatchDenoise();
+        void DispatchGTAO(u32 normalsTextureID, u32 edgeTexID);
+        void DispatchDenoise(u32 edgeTexID);
 
         HZBGenerator m_HZBGenerator;
 
         Ref<ComputeShader> m_GTAOShader;
         Ref<ComputeShader> m_DenoiseShader;
 
-        // AO textures: ping-pong pair for denoise + edge texture
-        Ref<Texture2D> m_AOTexture0;  // Primary AO output / denoise ping
-        Ref<Texture2D> m_AOTexture1;  // Denoise pong
-        Ref<Texture2D> m_EdgeTexture; // Edge weights for bilateral blur
-        Ref<Texture2D> m_HilbertLUT;  // 64×64 R16UI Hilbert curve index
+        // AO textures: ping-pong pair for denoise
+        Ref<Texture2D> m_AOTexture0; // Primary AO output / denoise ping
+        Ref<Texture2D> m_AOTexture1; // Denoise pong
+        Ref<Texture2D> m_HilbertLUT; // 64×64 R16UI Hilbert curve index
 
         Ref<UniformBuffer> m_GTAOUBO;
         UBOStructures::GTAOUBO* m_GPUData = nullptr;

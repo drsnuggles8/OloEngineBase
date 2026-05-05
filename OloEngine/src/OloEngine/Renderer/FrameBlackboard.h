@@ -69,6 +69,38 @@ namespace OloEngine
         // -----------------------------------------------------------------------
         RGTextureHandle AOBuffer; // SSAO or GTAO output (depending on active technique)
 
+        // Phase D: transient scratch resources (pool-allocated, no cross-frame persistence)
+        // SSAORaw — noisy half-res AO written by SSAO pass 1 and consumed by SSAO blur pass 2.
+        // Internal to SSAORenderPass; never consumed by other passes.
+        RGFramebufferHandle SSAORaw; // half-res RG16F scratch; transient, not imported
+
+        // Phase D Slice 2: JFA ping-pong framebuffers for SelectionOutlineRenderPass.
+        // Full-res RGBA32F; ping-pong alternated by the jump-flood passes.
+        // Internal to SelectionOutlineRenderPass; never consumed by other passes.
+        RGFramebufferHandle JFAPing; // RGBA32F full-res JFA ping buffer
+        RGFramebufferHandle JFAPong; // RGBA32F full-res JFA pong buffer
+
+        // Phase D Slice 3: Bloom mip-chain scratch framebuffers.
+        // Up to 5 entries (matches BloomRenderPass::MAX_BLOOM_MIPS); each level is
+        // half the size of the previous (starting at viewport/2). RGBA16F.
+        // Internal to BloomRenderPass; never consumed by other passes.
+        std::array<RGFramebufferHandle, 5> BloomMips{}; // RGBA16F half-res mip chain
+
+        // Phase D Slice 4: GTAO edge scratch texture (R8, viewport-sized).
+        // Written by the GTAO main dispatch (bilateral edge weights), read by the
+        // denoise pass. Internal to GTAORenderPass; never consumed by other passes.
+        RGTextureHandle GTAOEdge;
+
+        // Phase D Slice 6: HZB depth pyramid scratch texture (R32F mip chain).
+        // Written by HZB generation and sampled by GTAO. Internal to GTAORenderPass;
+        // never consumed by other passes.
+        RGTextureHandle HZBDepth;
+
+        // Phase D Slice 5: Water refraction scratch texture (RGBA16F, viewport-sized).
+        // Copied from scene color before water renders; sampled by water shaders for
+        // refraction distortion. Internal to WaterRenderPass; never consumed by other passes.
+        RGTextureHandle WaterRefraction;
+
         // -----------------------------------------------------------------------
         // Shadow maps
         // -----------------------------------------------------------------------

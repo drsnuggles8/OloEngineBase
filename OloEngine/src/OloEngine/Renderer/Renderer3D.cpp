@@ -1230,7 +1230,7 @@ namespace OloEngine
             {
                 board.ShadowMapSpot = graph.ImportTexture(
                     ResourceNames::ShadowMapSpot, spotID,
-                    RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, ResourceNames::ShadowMapSpot));
+                    RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2DArray, ResourceNames::ShadowMapSpot));
             }
             // Point-light shadow cubemaps — import each active light slot separately.
             for (u32 i = 0; i < ShadowMap::MAX_POINT_SHADOWS; ++i)
@@ -1246,24 +1246,43 @@ namespace OloEngine
         }
 
         // ------------------------------------------------------------------
-        // Post-process chain outputs
+        // Post-process chain outputs (Phase D Slice 8)
+        // Each post-process output is now declared as a transient framebuffer
+        // so the graph's transient pool tracks its lifetime and format.  The
+        // real pass-owned FB is injected later (EndScene, after BuildFrameGraph)
+        // via OverrideTransientFramebuffer so that ResolveFramebuffer returns
+        // the actual GL framebuffer.  This replaces the former ImportFramebuffer
+        // calls and enables future lifetime-based aliasing of intermediate
+        // post-process buffers.
         // ------------------------------------------------------------------
-        if (s_Data.SSSPass && s_Data.Snow.Enabled && s_Data.Snow.SSSBlurEnabled)
+        // Helper: build a single-attachment transient framebuffer descriptor.
+        auto declarePostProcessFB =
+            [&](std::string_view name, const Ref<Framebuffer>& target, RGResourceFormat fmt) -> RGFramebufferHandle
         {
-            board.SSSColor = graph.ImportFramebuffer(
-                ResourceNames::SSSColor, s_Data.SSSPass->GetTarget());
-        }
+            if (!target)
+                return {};
+            const auto& spec = target->GetSpecification();
+            RGResourceDesc desc;
+            desc.Kind = ResourceHandle::Kind::Framebuffer;
+            desc.Width = spec.Width > 0 ? spec.Width : 1u;
+            desc.Height = spec.Height > 0 ? spec.Height : 1u;
+            desc.Format = fmt;
+            desc.DebugName = std::string(name);
+            // Pass the real pass-owned FB so the graph wires it automatically
+            // — no separate OverrideTransientFramebuffer call needed in EndScene.
+            return graph.DeclareTransientFramebuffer(name, desc, target);
+        };
 
-        // AOApplyColor is imported only when SSAO or GTAO is enabled.
+        if (s_Data.SSSPass && s_Data.Snow.Enabled && s_Data.Snow.SSSBlurEnabled)
+            board.SSSColor = declarePostProcessFB(ResourceNames::SSSColor, s_Data.SSSPass->GetTarget(), RGResourceFormat::RGBA16Float);
+
+        // AOApplyColor is declared only when SSAO or GTAO is enabled.
         if (s_Data.AOApplyPass)
         {
             const bool ssaoEnabled = s_Data.PostProcess.ActiveAOTechnique == AOTechnique::SSAO && s_Data.PostProcess.SSAOEnabled;
             const bool gtaoEnabled = s_Data.PostProcess.ActiveAOTechnique == AOTechnique::GTAO && s_Data.PostProcess.GTAOEnabled;
             if (ssaoEnabled || gtaoEnabled)
-            {
-                board.AOApplyColor = graph.ImportFramebuffer(
-                    ResourceNames::AOApplyColor, s_Data.AOApplyPass->GetTarget());
-            }
+                board.AOApplyColor = declarePostProcessFB(ResourceNames::AOApplyColor, s_Data.AOApplyPass->GetTarget(), RGResourceFormat::RGBA16Float);
         }
 
         // PostProcessColor is an alias handle to the latest upstream graph
@@ -1280,99 +1299,57 @@ namespace OloEngine
         else
             board.PostProcessColor = board.SceneColor;
 
-        // BloomColor is imported only when Bloom is enabled.
+        // BloomColor is declared only when Bloom is enabled.
         if (s_Data.BloomPass && s_Data.PostProcess.BloomEnabled)
-        {
-            board.BloomColor = graph.ImportFramebuffer(
-                ResourceNames::BloomColor, s_Data.BloomPass->GetTarget());
-        }
+            board.BloomColor = declarePostProcessFB(ResourceNames::BloomColor, s_Data.BloomPass->GetTarget(), RGResourceFormat::RGBA16Float);
 
-        // DOFColor is imported only when DOF is enabled.
+        // DOFColor is declared only when DOF is enabled.
         if (s_Data.DOFPass && s_Data.PostProcess.DOFEnabled)
-        {
-            board.DOFColor = graph.ImportFramebuffer(
-                ResourceNames::DOFColor, s_Data.DOFPass->GetTarget());
-        }
+            board.DOFColor = declarePostProcessFB(ResourceNames::DOFColor, s_Data.DOFPass->GetTarget(), RGResourceFormat::RGBA16Float);
 
-        // MotionBlurColor is imported only when motion blur is enabled.
+        // MotionBlurColor is declared only when motion blur is enabled.
         if (s_Data.MotionBlurPass && s_Data.PostProcess.MotionBlurEnabled)
-        {
-            board.MotionBlurColor = graph.ImportFramebuffer(
-                ResourceNames::MotionBlurColor, s_Data.MotionBlurPass->GetTarget());
-        }
+            board.MotionBlurColor = declarePostProcessFB(ResourceNames::MotionBlurColor, s_Data.MotionBlurPass->GetTarget(), RGResourceFormat::RGBA16Float);
 
-        // TAAColor is imported only when TAA is enabled.
+        // TAAColor is declared only when TAA is enabled.
         if (s_Data.TAAPass && s_Data.PostProcess.TAAEnabled)
-        {
-            board.TAAColor = graph.ImportFramebuffer(
-                ResourceNames::TAAColor, s_Data.TAAPass->GetTarget());
-        }
+            board.TAAColor = declarePostProcessFB(ResourceNames::TAAColor, s_Data.TAAPass->GetTarget(), RGResourceFormat::RGBA16Float);
 
-        // PrecipitationColor is imported only when screen FX are active.
+        // PrecipitationColor is declared only when screen FX are active.
         const bool precipScreenEnabled = s_Data.Precipitation.Enabled &&
                                          (s_Data.Precipitation.ScreenStreaksEnabled ||
                                           s_Data.Precipitation.LensImpactsEnabled);
         if (s_Data.PrecipitationPass && precipScreenEnabled)
-        {
-            board.PrecipitationColor = graph.ImportFramebuffer(
-                ResourceNames::PrecipitationColor, s_Data.PrecipitationPass->GetTarget());
-        }
+            board.PrecipitationColor = declarePostProcessFB(ResourceNames::PrecipitationColor, s_Data.PrecipitationPass->GetTarget(), RGResourceFormat::RGBA16Float);
 
-        // FogColor is imported only when fog is enabled.
+        // FogColor is declared only when fog is enabled.
         if (s_Data.FogPass && s_Data.Fog.Enabled)
-        {
-            board.FogColor = graph.ImportFramebuffer(
-                ResourceNames::FogColor, s_Data.FogPass->GetTarget());
-        }
+            board.FogColor = declarePostProcessFB(ResourceNames::FogColor, s_Data.FogPass->GetTarget(), RGResourceFormat::RGBA16Float);
 
         // Extracted effect sub-chain. Each handle is
-        // imported only when its effect is enabled so downstream consumers
+        // declared only when its effect is enabled so downstream consumers
         // can rely on IsValid() as the canonical "effect ran" signal.
-        // ToneMap is imported unconditionally (no settings gate).
+        // ToneMap is declared unconditionally (no settings gate).
         if (s_Data.ChromAberrationPass && s_Data.PostProcess.ChromaticAberrationEnabled)
-        {
-            board.ChromAbColor = graph.ImportFramebuffer(
-                ResourceNames::ChromAbColor, s_Data.ChromAberrationPass->GetTarget());
-        }
+            board.ChromAbColor = declarePostProcessFB(ResourceNames::ChromAbColor, s_Data.ChromAberrationPass->GetTarget(), RGResourceFormat::RGBA16Float);
         if (s_Data.ColorGradingPass && s_Data.PostProcess.ColorGradingEnabled)
-        {
-            board.ColorGradingColor = graph.ImportFramebuffer(
-                ResourceNames::ColorGradingColor, s_Data.ColorGradingPass->GetTarget());
-        }
+            board.ColorGradingColor = declarePostProcessFB(ResourceNames::ColorGradingColor, s_Data.ColorGradingPass->GetTarget(), RGResourceFormat::RGBA16Float);
         if (s_Data.ToneMapPass)
-        {
-            board.ToneMapColor = graph.ImportFramebuffer(
-                ResourceNames::ToneMapColor, s_Data.ToneMapPass->GetTarget());
-        }
+            board.ToneMapColor = declarePostProcessFB(ResourceNames::ToneMapColor, s_Data.ToneMapPass->GetTarget(), RGResourceFormat::RGBA16Float);
         if (s_Data.VignettePass && s_Data.PostProcess.VignetteEnabled)
-        {
-            board.VignetteColor = graph.ImportFramebuffer(
-                ResourceNames::VignetteColor, s_Data.VignettePass->GetTarget());
-        }
+            board.VignetteColor = declarePostProcessFB(ResourceNames::VignetteColor, s_Data.VignettePass->GetTarget(), RGResourceFormat::RGBA8UNorm);
 
-        // Only import FXAAColor when FXAA is active so
+        // Only declare FXAAColor when FXAA is active so
         // downstream consumers can rely on `board.FXAAColor.IsValid()` as
         // the canonical "anti-aliased post-process available" signal.
         if (s_Data.FXAAPass && s_Data.PostProcess.FXAAEnabled)
-        {
-            if (auto fxaaTarget = s_Data.FXAAPass->GetTarget())
-            {
-                board.FXAAColor = graph.ImportFramebuffer(
-                    ResourceNames::FXAAColor, fxaaTarget);
-            }
-        }
+            board.FXAAColor = declarePostProcessFB(ResourceNames::FXAAColor, s_Data.FXAAPass->GetTarget(), RGResourceFormat::RGBA8UNorm);
 
         if (s_Data.SelectionOutlinePass && s_Data.EnableSelectionOutline)
-        {
-            board.SelectionOutlineColor = graph.ImportFramebuffer(
-                ResourceNames::SelectionOutlineColor, s_Data.SelectionOutlinePass->GetTarget());
-        }
+            board.SelectionOutlineColor = declarePostProcessFB(ResourceNames::SelectionOutlineColor, s_Data.SelectionOutlinePass->GetTarget(), RGResourceFormat::RGBA8UNorm);
 
         if (s_Data.UICompositePass)
-        {
-            board.UIComposite = graph.ImportFramebuffer(
-                ResourceNames::UIComposite, s_Data.UICompositePass->GetTarget());
-        }
+            board.UIComposite = declarePostProcessFB(ResourceNames::UIComposite, s_Data.UICompositePass->GetTarget(), RGResourceFormat::RGBA8UNorm);
 
         // Default framebuffer / swapchain target represented as an imported
         // external output resource. Backing framebuffer is null by design;
@@ -1399,17 +1376,33 @@ namespace OloEngine
                                s_Data.OITResolvePass;
         if (oitActive)
         {
-            // Trigger lazy creation. If OIT was never
-            // active in any prior frame, this is when the OITBuffer is
-            // first allocated.
+            // Trigger lazy creation so GetOrCreateOITBuffer() allocates the
+            // physical GL framebuffer (if not already done).  We then declare
+            // a transient MRT framebuffer in the render graph whose
+            // MaterializeTransientResources will create an equivalent FB each
+            // frame from the transient pool.
             const auto& oitBuf = s_Data.OITResolvePass->GetOrCreateOITBuffer();
-            if (oitBuf)
+            if (oitBuf && oitBuf->GetFramebuffer())
             {
-                // OITBuffer owns a single MRT framebuffer with accum(RT0) and revealage(RT1).
-                board.OITAccum = graph.ImportFramebuffer(
-                    ResourceNames::OITAccum, oitBuf->GetFramebuffer());
-                board.OITRevealage = graph.ImportFramebuffer(
-                    ResourceNames::OITRevealage, oitBuf->GetFramebuffer());
+                const auto& fbSpec = oitBuf->GetFramebuffer()->GetSpecification();
+                const u32 oitW = fbSpec.Width > 0 ? fbSpec.Width : 1u;
+                const u32 oitH = fbSpec.Height > 0 ? fbSpec.Height : 1u;
+
+                // Declare as a shared transient MRT framebuffer (RT0 = RGBA16F
+                // accumulation, RT1 = RG16F revealage). Both blackboard handles
+                // point to the same physical transient FB; passes distinguish
+                // the two attachments by colour attachment index (0 and 1).
+                RGResourceDesc oitDesc;
+                oitDesc.Kind = ResourceHandle::Kind::Framebuffer;
+                oitDesc.Width = oitW;
+                oitDesc.Height = oitH;
+                oitDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float };
+                oitDesc.DebugName = std::string(ResourceNames::OITBuffer);
+
+                const auto oitHandle = graph.DeclareTransientFramebuffer(ResourceNames::OITBuffer, oitDesc,
+                                                                          oitBuf->GetFramebuffer());
+                board.OITAccum = oitHandle;
+                board.OITRevealage = oitHandle;
             }
         }
 
@@ -2235,6 +2228,64 @@ namespace OloEngine
             }
         }
 
+        // Phase D Slice 1: after BuildFrameGraph, stable handles for transient resources
+        // are assigned. Populate the blackboard so Execute callbacks can resolve them.
+        {
+            auto& board = s_Data.RGraph->GetBlackboard();
+            board.SSAORaw = s_Data.RGraph->GetFramebufferHandle("SSAORaw");
+            // Phase D Slice 2: JFA ping-pong scratch framebuffers for SelectionOutlinePass.
+            board.JFAPing = s_Data.RGraph->GetFramebufferHandle("JFAPing");
+            board.JFAPong = s_Data.RGraph->GetFramebufferHandle("JFAPong");
+            // Refresh imported core handles as well. Handle generations can advance
+            // when the resource registry is rebuilt; using stale generations causes
+            // ResolveFramebuffer/ResolveTexture to fail and leaves downstream passes
+            // rendering into/reading from uninitialized outputs.
+            board.SceneColor = s_Data.RGraph->GetFramebufferHandle(ResourceNames::SceneColor);
+            board.SceneDepth = s_Data.RGraph->GetTextureHandle(ResourceNames::SceneDepth);
+            board.SceneNormals = s_Data.RGraph->GetTextureHandle(ResourceNames::SceneNormals);
+            board.Velocity = s_Data.RGraph->GetTextureHandle(ResourceNames::Velocity);
+            board.AOBuffer = s_Data.RGraph->GetTextureHandle(ResourceNames::AOBuffer);
+            // Refresh post-process transient framebuffer handles after BuildFrameGraph.
+            // BuildFrameGraph finalizes per-frame resource generations; using handles
+            // captured before build can resolve stale framebuffer slots (e.g. ping-pong
+            // IDs), which manifests as black/transparent post chain outputs.
+            board.SSSColor = s_Data.RGraph->GetFramebufferHandle(ResourceNames::SSSColor);
+            board.AOApplyColor = s_Data.RGraph->GetFramebufferHandle(ResourceNames::AOApplyColor);
+            board.BloomColor = s_Data.RGraph->GetFramebufferHandle(ResourceNames::BloomColor);
+            board.DOFColor = s_Data.RGraph->GetFramebufferHandle(ResourceNames::DOFColor);
+            board.MotionBlurColor = s_Data.RGraph->GetFramebufferHandle(ResourceNames::MotionBlurColor);
+            board.TAAColor = s_Data.RGraph->GetFramebufferHandle(ResourceNames::TAAColor);
+            board.PrecipitationColor = s_Data.RGraph->GetFramebufferHandle(ResourceNames::PrecipitationColor);
+            board.FogColor = s_Data.RGraph->GetFramebufferHandle(ResourceNames::FogColor);
+            board.ChromAbColor = s_Data.RGraph->GetFramebufferHandle(ResourceNames::ChromAbColor);
+            board.ColorGradingColor = s_Data.RGraph->GetFramebufferHandle(ResourceNames::ColorGradingColor);
+            board.ToneMapColor = s_Data.RGraph->GetFramebufferHandle(ResourceNames::ToneMapColor);
+            board.VignetteColor = s_Data.RGraph->GetFramebufferHandle(ResourceNames::VignetteColor);
+            board.FXAAColor = s_Data.RGraph->GetFramebufferHandle(ResourceNames::FXAAColor);
+            board.SelectionOutlineColor = s_Data.RGraph->GetFramebufferHandle(ResourceNames::SelectionOutlineColor);
+            board.UIComposite = s_Data.RGraph->GetFramebufferHandle(ResourceNames::UIComposite);
+
+            // Rebuild dynamic post-chain alias from refreshed handles.
+            if (board.AOApplyColor.IsValid())
+                board.PostProcessColor = board.AOApplyColor;
+            else if (board.SSSColor.IsValid())
+                board.PostProcessColor = board.SSSColor;
+            else
+                board.PostProcessColor = board.SceneColor;
+
+            // Phase D Slice 3: Bloom mip-chain scratch framebuffers.
+            for (u32 i = 0; i < 5u; ++i)
+            {
+                const std::string mipName = "BloomMip" + std::to_string(i);
+                board.BloomMips[i] = s_Data.RGraph->GetFramebufferHandle(mipName);
+            }
+            // Phase D Slice 4: GTAO edge scratch texture.
+            board.GTAOEdge = s_Data.RGraph->GetTextureHandle("GTAOEdge");
+            // Phase D Slice 6: HZB depth pyramid scratch texture.
+            board.HZBDepth = s_Data.RGraph->GetTextureHandle(ResourceNames::HZBDepth);
+            // Phase D Slice 5: Water refraction scratch texture.
+            board.WaterRefraction = s_Data.RGraph->GetTextureHandle("WaterRefraction");
+        }
         s_Data.RGraph->Execute();
 
         // End occlusion query frame after render graph execution
@@ -4338,6 +4389,27 @@ namespace OloEngine
                 }
                 if (board.AOBuffer.IsValid())
                     builder.Write(board.AOBuffer, RGWriteUsage::RenderTarget);
+
+                // Phase D Slice 1: declare the SSAO raw intermediate as a transient
+                // framebuffer. Pass 1 writes raw AO into it; Pass 2 (blur) reads from
+                // it. Never consumed outside SSAORenderPass; the blackboard SSAORaw
+                // slot is updated by Renderer3D::EndScene after BuildFrameGraph().
+                if (s_Data.SSAOPass && s_Data.SSAOPass->GetTarget())
+                {
+                    const auto halfW = s_Data.SSAOPass->GetTarget()->GetSpecification().Width;
+                    const auto halfH = s_Data.SSAOPass->GetTarget()->GetSpecification().Height;
+                    if (halfW > 0 && halfH > 0)
+                    {
+                        RGResourceDesc rawDesc;
+                        rawDesc.Kind = ResourceHandle::Kind::Framebuffer;
+                        rawDesc.Format = RGResourceFormat::RG16Float;
+                        rawDesc.Width = halfW;
+                        rawDesc.Height = halfH;
+                        const auto rawHandle = builder.CreateFramebuffer("SSAORaw", rawDesc);
+                        builder.Write(rawHandle, RGWriteUsage::RenderTarget);
+                        [[maybe_unused]] const auto rawRead = builder.Read(rawHandle, RGReadUsage::RenderTargetRead);
+                    }
+                }
             },
             [](RGCommandContext& context)
             {
@@ -4365,6 +4437,58 @@ namespace OloEngine
                 }
                 if (board.AOBuffer.IsValid())
                     builder.Write(board.AOBuffer, RGWriteUsage::ShaderImage);
+
+                // Phase D Slice 6: declare HZB depth pyramid as a transient
+                // R32F mip-chain texture. GTAO/HZBGenerator writes it (mips 0..N)
+                // and GTAO samples it in the main AO dispatch.
+                if (s_Data.ScenePass && s_Data.ScenePass->GetTarget())
+                {
+                    const auto& tgt = s_Data.ScenePass->GetTarget()->GetSpecification();
+                    if (tgt.Width > 0 && tgt.Height > 0)
+                    {
+                        const auto nextPow2 = [](u32 value)
+                        {
+                            u32 result = 1;
+                            while (result < value)
+                                result <<= 1u;
+                            return result;
+                        };
+
+                        const u32 hzbW = nextPow2(tgt.Width);
+                        const u32 hzbH = nextPow2(tgt.Height);
+                        const u32 mipCount = static_cast<u32>(std::floor(std::log2(static_cast<f64>(std::max(hzbW, hzbH))))) + 1u;
+
+                        RGResourceDesc hzbDesc;
+                        hzbDesc.Kind = ResourceHandle::Kind::Texture2D;
+                        hzbDesc.Format = RGResourceFormat::R32Float;
+                        hzbDesc.Width = hzbW;
+                        hzbDesc.Height = hzbH;
+                        hzbDesc.MipLevels = mipCount;
+
+                        const auto hzbHandle = builder.CreateTexture(ResourceNames::HZBDepth, hzbDesc);
+                        builder.Write(hzbHandle, RGWriteUsage::ShaderImage);
+                        [[maybe_unused]] const auto hzbRead = builder.Read(hzbHandle, RGReadUsage::ShaderSample);
+                    }
+                }
+
+                // Phase D Slice 4: declare GTAO edge scratch texture as a transient resource.
+                // R8 bilateral edge weights; written by GTAO main dispatch, read by denoise.
+                if (s_Data.ScenePass && s_Data.ScenePass->GetTarget())
+                {
+                    const auto& tgt = s_Data.ScenePass->GetTarget()->GetSpecification();
+                    if (tgt.Width > 0 && tgt.Height > 0)
+                    {
+                        RGResourceDesc edgeDesc;
+                        edgeDesc.Kind = ResourceHandle::Kind::Texture2D;
+                        edgeDesc.Format = RGResourceFormat::R8UNorm;
+                        edgeDesc.Width = tgt.Width;
+                        edgeDesc.Height = tgt.Height;
+                        const auto edgeHandle = builder.CreateTexture("GTAOEdge", edgeDesc);
+                        builder.Write(edgeHandle, RGWriteUsage::ShaderImage);
+                        [[maybe_unused]] const auto edgeRead =
+                            builder.Read(edgeHandle, RGReadUsage::ShaderImage);
+                    }
+                }
             },
             [](RGCommandContext& context)
             {
@@ -4416,12 +4540,50 @@ namespace OloEngine
 
                 const auto& board = builder.UseBlackboard();
 
-                if (board.PostProcessColor.IsValid())
+                if (board.AOApplyColor.IsValid())
+                {
+                    [[maybe_unused]] const auto aoApplyRead = builder.Read(board.AOApplyColor, RGReadUsage::RenderTargetRead);
+                }
+                else if (board.SSSColor.IsValid())
+                {
+                    [[maybe_unused]] const auto sssRead = builder.Read(board.SSSColor, RGReadUsage::RenderTargetRead);
+                }
+                else if (board.PostProcessColor.IsValid())
                 {
                     [[maybe_unused]] const auto postProcessRead = builder.Read(board.PostProcessColor, RGReadUsage::RenderTargetRead);
                 }
+                else if (board.SceneColor.IsValid())
+                {
+                    [[maybe_unused]] const auto sceneRead = builder.Read(board.SceneColor, RGReadUsage::RenderTargetRead);
+                }
                 if (board.BloomColor.IsValid())
                     builder.Write(board.BloomColor, RGWriteUsage::RenderTarget);
+
+                // Phase D Slice 3: declare bloom mip-chain as transient scratch FBs.
+                // 5 levels max (BloomRenderPass::MAX_BLOOM_MIPS), each half the previous.
+                if (s_Data.ScenePass && s_Data.ScenePass->GetTarget())
+                {
+                    const auto& tgt = s_Data.ScenePass->GetTarget()->GetSpecification();
+                    u32 mipW = tgt.Width / 2;
+                    u32 mipH = tgt.Height / 2;
+                    for (u32 i = 0; i < 5u; ++i)
+                    {
+                        if (mipW < 2 || mipH < 2)
+                            break;
+                        RGResourceDesc mipDesc;
+                        mipDesc.Kind = ResourceHandle::Kind::Framebuffer;
+                        mipDesc.Format = RGResourceFormat::RGBA16Float;
+                        mipDesc.Width = mipW;
+                        mipDesc.Height = mipH;
+                        const std::string mipName = "BloomMip" + std::to_string(i);
+                        const auto mipHandle = builder.CreateFramebuffer(mipName, mipDesc);
+                        builder.Write(mipHandle, RGWriteUsage::RenderTarget);
+                        [[maybe_unused]] const auto mipRead =
+                            builder.Read(mipHandle, RGReadUsage::RenderTargetRead);
+                        mipW /= 2;
+                        mipH /= 2;
+                    }
+                }
             },
             [](RGCommandContext& context)
             {
@@ -4959,6 +5121,32 @@ namespace OloEngine
 
                 if (board.SelectionOutlineColor.IsValid())
                     builder.Write(board.SelectionOutlineColor, RGWriteUsage::RenderTarget);
+
+                // Phase D Slice 2: declare the JFA ping-pong framebuffers as transient
+                // resources. Both are full-res RGBA32F and are only used within this
+                // pass. The blackboard JFAPing/JFAPong slots are populated in
+                // Renderer3D::EndScene after BuildFrameGraph().
+                if (s_Data.SelectionOutlinePass && s_Data.SelectionOutlinePass->GetTarget())
+                {
+                    const auto w = s_Data.SelectionOutlinePass->GetTarget()->GetSpecification().Width;
+                    const auto h = s_Data.SelectionOutlinePass->GetTarget()->GetSpecification().Height;
+                    if (w > 0 && h > 0)
+                    {
+                        RGResourceDesc jfaDesc;
+                        jfaDesc.Kind = ResourceHandle::Kind::Framebuffer;
+                        jfaDesc.Format = RGResourceFormat::RGBA32Float;
+                        jfaDesc.Width = w;
+                        jfaDesc.Height = h;
+
+                        const auto pingHandle = builder.CreateFramebuffer("JFAPing", jfaDesc);
+                        builder.Write(pingHandle, RGWriteUsage::RenderTarget);
+                        [[maybe_unused]] const auto pingRead = builder.Read(pingHandle, RGReadUsage::RenderTargetRead);
+
+                        const auto pongHandle = builder.CreateFramebuffer("JFAPong", jfaDesc);
+                        builder.Write(pongHandle, RGWriteUsage::RenderTarget);
+                        [[maybe_unused]] const auto pongRead = builder.Read(pongHandle, RGReadUsage::RenderTargetRead);
+                    }
+                }
             },
             [](RGCommandContext& context)
             {
@@ -5161,6 +5349,25 @@ namespace OloEngine
                 {
                     builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
                 }
+
+                // Phase D Slice 5: declare water refraction scratch texture as transient.
+                // RGBA16F scene-color copy taken before water renders; sampled by water shaders.
+                if (s_Data.ScenePass && s_Data.ScenePass->GetTarget())
+                {
+                    const auto& tgt = s_Data.ScenePass->GetTarget()->GetSpecification();
+                    if (tgt.Width > 0 && tgt.Height > 0)
+                    {
+                        RGResourceDesc refrDesc;
+                        refrDesc.Kind = ResourceHandle::Kind::Texture2D;
+                        refrDesc.Format = RGResourceFormat::RGBA16Float;
+                        refrDesc.Width = tgt.Width;
+                        refrDesc.Height = tgt.Height;
+                        const auto refrHandle = builder.CreateTexture("WaterRefraction", refrDesc);
+                        builder.Write(refrHandle, RGWriteUsage::ShaderImage);
+                        [[maybe_unused]] const auto refrRead =
+                            builder.Read(refrHandle, RGReadUsage::ShaderSample);
+                    }
+                }
             },
             [](RGCommandContext& context)
             {
@@ -5252,27 +5459,56 @@ namespace OloEngine
                 (void)context;
             });
 
-        s_Data.RGraph->RegisterGraphPass(
-            "ShadowPass",
-            [](RGBuilder& builder)
-            {
-                const auto& board = builder.UseBlackboard();
-
-                if (board.ShadowMapCSM.IsValid())
-                    builder.Write(board.ShadowMapCSM, RGWriteUsage::DepthStencil);
-                if (board.ShadowMapSpot.IsValid())
-                    builder.Write(board.ShadowMapSpot, RGWriteUsage::DepthStencil);
-                // Per-light point shadow cubemaps (up to 4).
-                for (const auto& pointHandle : board.ShadowMapPoint)
+        // Register one graph pass declaration per CSM cascade and one for spot/point shadow
+        // maps. Each declaration precisely records which subresource layer is written so the
+        // graph's lifetime records and hazard validator can reason per-view. The execute
+        // callbacks are intentionally empty — actual rendering is dispatched through
+        // s_Data.ShadowPass->Execute() via AddPass(); these entries exist solely for the
+        // topology/resource-contract layer.
+        for (u32 cascade = 0; cascade < ShadowMap::MAX_CSM_CASCADES; ++cascade)
+        {
+            const std::string passName = "ShadowPass_CSM_" + std::to_string(cascade);
+            s_Data.RGraph->RegisterGraphPass(
+                passName,
+                [cascade](RGBuilder& builder)
                 {
-                    if (pointHandle.IsValid())
-                        builder.Write(pointHandle, RGWriteUsage::DepthStencil);
-                }
-            },
-            [](RGCommandContext& context)
-            {
-                (void)context;
-            });
+                    const auto& board = builder.UseBlackboard();
+                    if (board.ShadowMapCSM.IsValid())
+                        builder.Write(board.ShadowMapCSM, RGWriteUsage::DepthStencil);
+                    (void)cascade; // subresource index — informational for future per-layer handles
+                },
+                [](RGCommandContext& context)
+                { (void)context; });
+        }
+        for (u32 i = 0; i < ShadowMap::MAX_SPOT_SHADOWS; ++i)
+        {
+            const std::string passName = "ShadowPass_Spot_" + std::to_string(i);
+            s_Data.RGraph->RegisterGraphPass(
+                passName,
+                [i](RGBuilder& builder)
+                {
+                    const auto& board = builder.UseBlackboard();
+                    if (board.ShadowMapSpot.IsValid())
+                        builder.Write(board.ShadowMapSpot, RGWriteUsage::DepthStencil);
+                    (void)i;
+                },
+                [](RGCommandContext& context)
+                { (void)context; });
+        }
+        for (u32 i = 0; i < ShadowMap::MAX_POINT_SHADOWS; ++i)
+        {
+            const std::string passName = "ShadowPass_Point_" + std::to_string(i);
+            s_Data.RGraph->RegisterGraphPass(
+                passName,
+                [i](RGBuilder& builder)
+                {
+                    const auto& board = builder.UseBlackboard();
+                    if (board.ShadowMapPoint[i].IsValid())
+                        builder.Write(board.ShadowMapPoint[i], RGWriteUsage::DepthStencil);
+                },
+                [](RGCommandContext& context)
+                { (void)context; });
+        }
 
         s_Data.RGraph->RegisterGraphPass(
             "DeferredLightingPass",

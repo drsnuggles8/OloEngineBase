@@ -19,15 +19,6 @@ namespace OloEngine
         OLO_CORE_INFO("Creating WaterRenderPass.");
     }
 
-    WaterRenderPass::~WaterRenderPass()
-    {
-        if (m_RefractionTextureID != 0)
-        {
-            glDeleteTextures(1, &m_RefractionTextureID);
-            m_RefractionTextureID = 0;
-        }
-    }
-
     void WaterRenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
@@ -39,30 +30,6 @@ namespace OloEngine
         // validator can derive the DecalPass → WaterPass RAW ordering edge.
         DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
         DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
-    }
-
-    void WaterRenderPass::EnsureRefractionTexture(u32 width, u32 height)
-    {
-        if (m_RefractionTextureID != 0 && m_RefractionWidth == width && m_RefractionHeight == height)
-        {
-            return;
-        }
-
-        if (m_RefractionTextureID != 0)
-        {
-            glDeleteTextures(1, &m_RefractionTextureID);
-        }
-
-        glCreateTextures(GL_TEXTURE_2D, 1, &m_RefractionTextureID);
-        glTextureStorage2D(m_RefractionTextureID, 1, GL_RGBA16F,
-                           static_cast<GLsizei>(width), static_cast<GLsizei>(height));
-        glTextureParameteri(m_RefractionTextureID, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTextureParameteri(m_RefractionTextureID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTextureParameteri(m_RefractionTextureID, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTextureParameteri(m_RefractionTextureID, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-        m_RefractionWidth = width;
-        m_RefractionHeight = height;
     }
 
     void WaterRenderPass::Execute()
@@ -119,13 +86,6 @@ namespace OloEngine
         // Guard against zero-sized framebuffers (minimized window, etc.)
         if (fbWidth == 0 || fbHeight == 0)
         {
-            if (m_RefractionTextureID != 0)
-            {
-                glDeleteTextures(1, &m_RefractionTextureID);
-                m_RefractionTextureID = 0;
-                m_RefractionWidth = 0;
-                m_RefractionHeight = 0;
-            }
             ResetCommandBucket();
             return;
         }
@@ -231,10 +191,25 @@ namespace OloEngine
         // refraction sampling, then render water into the scene FB directly.
         // Copy scene color for refraction (before water renders over it)
         u32 const sceneColorID = m_SceneFramebuffer->GetColorAttachmentRendererID(0);
-        EnsureRefractionTexture(fbWidth, fbHeight);
+
+        // Phase D / H follow-up: resolve the water refraction scratch texture
+        // from the transient pool only. The owned raw fallback texture has
+        // been retired.
+        u32 refractionTexID = 0;
+        if (const auto* board = context.GetBlackboard())
+        {
+            if (board->WaterRefraction.IsValid())
+                refractionTexID = context.ResolveTexture(board->WaterRefraction);
+        }
+        if (refractionTexID == 0)
+        {
+            ResetCommandBucket();
+            return;
+        }
+
         glCopyImageSubData(
             sceneColorID, GL_TEXTURE_2D, 0, 0, 0, 0,
-            m_RefractionTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
+            refractionTexID, GL_TEXTURE_2D, 0, 0, 0, 0,
             static_cast<GLsizei>(fbWidth), static_cast<GLsizei>(fbHeight), 1);
 
         m_SceneFramebuffer->Bind();
@@ -244,7 +219,7 @@ namespace OloEngine
         context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, depthTextureID);
 
         // Bind refraction color copy
-        context.BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, m_RefractionTextureID);
+        context.BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, refractionTexID);
 
         // Bind scene view-space normals for SSR ray marching
         u32 const normalsTextureID = m_SceneFramebuffer->GetColorAttachmentRendererID(2);

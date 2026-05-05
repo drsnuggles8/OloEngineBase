@@ -94,6 +94,7 @@ namespace OloEngine
             OLO_PROFILE_SCOPE("stbi_load - TextureSerializer::TryLoadRawData");
             data = ::stbi_load(path.c_str(), &width, &height, &channels, 0);
         }
+        ::stbi_set_flip_vertically_on_load_thread(0); // reset thread-local flag to avoid polluting later stbi calls
 
         if (!data)
         {

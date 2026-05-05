@@ -276,6 +276,35 @@ namespace OloEngine
         [[nodiscard]] RGFramebufferHandle AllocateTransientFramebufferHandle(std::string_view name, const RGResourceDesc& desc);
         [[nodiscard]] RGBufferHandle AllocateTransientBufferHandle(std::string_view name, const RGResourceDesc& desc);
 
+        // -------------------------------------------------------------------
+        // Phase D — Pre-graph transient resource declaration
+        // -------------------------------------------------------------------
+        // Declare a transient framebuffer resource BEFORE BuildFrameGraph().
+        // Suitable for use in SetupFrameBlackboard (e.g. OIT MRT buffers,
+        // post-process outputs) where a stable handle is needed before pass
+        // setup callbacks run. MRT framebuffers: set desc.Attachments with
+        // one RGResourceFormat per colour attachment (RT0, RT1, …).
+        // Returns a stable RGFramebufferHandle that remains valid until the
+        // graph is reset. Calling this after EnsureResourceRegistryBuilt()
+        // marks the registry dirty so the next GetXxxHandle() re-builds.
+        //
+        // Optional `ownerFB`: when the caller already has the physical
+        // Framebuffer that backs this slot (e.g. a pass-owned output FB),
+        // pass it here instead of calling OverrideTransientFramebuffer
+        // separately. The override is stored once at declaration time and
+        // re-applied automatically after each MaterializeTransientResources()
+        // call, so no manual EndScene wiring is required.
+        [[nodiscard]] RGFramebufferHandle DeclareTransientFramebuffer(std::string_view name, const RGResourceDesc& desc,
+                                                                      const Ref<Framebuffer>& ownerFB = nullptr);
+
+        // Override the physical framebuffer backing a transient resource after
+        // DeclareTransientFramebuffer() + BuildFrameGraph() + Execute().
+        // Use this when the physical buffer is owned externally (e.g.
+        // OITResolveRenderPass's OITBuffer) but the graph still needs to
+        // resolve it correctly for downstream passes via ResolveFramebuffer().
+        // Safe to call between frames; ignored for imported resources.
+        void OverrideTransientFramebuffer(std::string_view name, const Ref<Framebuffer>& fb);
+
         struct TransientPlanEntry
         {
             std::string Resource;
@@ -365,6 +394,24 @@ namespace OloEngine
             return m_LastPassTimings;
         }
 
+        struct FallbackActivation
+        {
+            std::string PassName;
+            std::string Reason;
+            u32 Count = 0;
+        };
+
+        // Record execute-path fallback usage (legacy raw-resource fallback,
+        // invalid typed-handle resolve attempts, etc.).
+        // This is used by Phase H.1 telemetry to ensure production paths no
+        // longer depend on compatibility bridges.
+        void RecordFallbackActivation(std::string_view passName, std::string_view reason) const;
+
+        [[nodiscard]] const std::vector<FallbackActivation>& GetFallbackActivations() const
+        {
+            return m_FallbackActivations;
+        }
+
         // Get the list of passes that were culled in the last reachability
         // analysis. Useful for debugging and frame-capture metadata.
         [[nodiscard]] const std::vector<std::string>& GetCulledPasses() const
@@ -414,6 +461,20 @@ namespace OloEngine
         void SetTransientMaterializationEnabled(const bool enabled)
         {
             m_RuntimeTransientMaterializationEnabled = enabled;
+        }
+
+        // Set the maximum number of pool objects retained per descriptor bucket
+        // after each frame. Excess objects are evicted by TransientPool::Trim()
+        // at the end of Execute(). Default = 2 (keeps one spare for same-descriptor
+        // overlapping transients; use 1 for the most aggressive trim).
+        void SetTransientPoolMaxBucketSize(u32 maxPerBucket)
+        {
+            m_TransientPoolMaxBucketSize = maxPerBucket;
+        }
+
+        [[nodiscard]] u32 GetTransientPoolMaxBucketSize() const
+        {
+            return m_TransientPoolMaxBucketSize;
         }
 
         // Register a graph-native pass with setup and execute callbacks.
@@ -723,8 +784,10 @@ namespace OloEngine
         std::vector<PlannedBarrier> m_PlannedBarriers;
         std::vector<BarrierDiagnostic> m_BarrierDiagnostics;
         std::vector<PassTiming> m_LastPassTimings;
+        mutable std::vector<FallbackActivation> m_FallbackActivations;
         bool m_RuntimeBarrierExecutionEnabled = true;
         bool m_RuntimeTransientMaterializationEnabled = false;
+        u32 m_TransientPoolMaxBucketSize = 2u;
 
         PostPassHook m_PostPassHook;
         BatchEventCallback m_BatchEventHook;
@@ -848,5 +911,9 @@ namespace OloEngine
 
         std::unordered_map<std::string, RGResourceDesc> m_TransientResourceDescs;
         std::vector<TransientPlanEntry> m_TransientPlan;
+        // Pass-owned framebuffer overrides for transient resources. Applied
+        // after transient materialization so pool allocations don't overwrite
+        // externally owned render targets (e.g. post-process pass outputs).
+        std::unordered_map<std::string, Ref<Framebuffer>> m_TransientFramebufferOverrides;
     };
 } // namespace OloEngine

@@ -34,6 +34,8 @@ namespace OloEngine
     {
         m_HZBShader.Reset();
         m_HZBTexture.Reset();
+        m_ExternalHZBTextureID = 0;
+        m_ExternalMipCount = 0;
         m_HZBWidth = 0;
         m_HZBHeight = 0;
         m_MipCount = 0;
@@ -89,7 +91,7 @@ namespace OloEngine
         // Always recreate — mip count may change when viewport changes
         m_HZBTexture = Texture2D::Create(spec);
 
-        m_MipCount = m_HZBTexture->GetMipLevelCount();
+        m_MipCount = mipCount;
 
         OLO_CORE_INFO("HZBGenerator: Resized to {}x{} ({} mips), viewport {}x{}, UVFactor ({:.3f}, {:.3f})",
                       hzbW, hzbH, m_MipCount, viewportWidth, viewportHeight, m_UVFactor.x, m_UVFactor.y);
@@ -99,7 +101,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_HZBShader || !m_HZBShader->IsValid() || !m_HZBTexture || m_MipCount == 0)
+        const u32 activeMipCount = (m_ExternalHZBTextureID != 0 && m_ExternalMipCount > 0) ? m_ExternalMipCount : m_MipCount;
+        if (!m_HZBShader || !m_HZBShader->IsValid() || GetHZBTextureID() == 0 || activeMipCount == 0)
         {
             return;
         }
@@ -107,9 +110,9 @@ namespace OloEngine
         m_HZBShader->Bind();
 
         // Process mips in batches of 4
-        for (u32 startMip = 0; startMip < m_MipCount; startMip += MAX_MIP_BATCH_SIZE)
+        for (u32 startMip = 0; startMip < activeMipCount; startMip += MAX_MIP_BATCH_SIZE)
         {
-            DispatchMipBatch(startMip, sceneDepthTextureID);
+            DispatchMipBatch(startMip, activeMipCount, sceneDepthTextureID);
         }
 
         m_HZBShader->Unbind();
@@ -118,13 +121,25 @@ namespace OloEngine
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::TextureFetch | MemoryBarrierFlags::ShaderImageAccess);
     }
 
-    void HZBGenerator::DispatchMipBatch(u32 startMip, u32 sceneDepthTextureID)
+    void HZBGenerator::SetExternalHZBTexture(u32 textureID, u32 mipCount)
     {
-        u32 hzbTexID = m_HZBTexture->GetRendererID();
+        m_ExternalHZBTextureID = textureID;
+        m_ExternalMipCount = mipCount;
+    }
+
+    void HZBGenerator::ClearExternalHZBTexture()
+    {
+        m_ExternalHZBTextureID = 0;
+        m_ExternalMipCount = 0;
+    }
+
+    void HZBGenerator::DispatchMipBatch(u32 startMip, u32 mipCount, u32 sceneDepthTextureID)
+    {
+        u32 hzbTexID = GetHZBTextureID();
         bool isFirstPass = (startMip == 0);
 
         // Bind output image mips (up to 4 per batch)
-        u32 endMip = std::min(startMip + MAX_MIP_BATCH_SIZE, m_MipCount);
+        u32 endMip = std::min(startMip + MAX_MIP_BATCH_SIZE, mipCount);
         for (u32 mip = startMip; mip < endMip; mip++)
         {
             u32 localIdx = mip - startMip;
@@ -217,11 +232,13 @@ namespace OloEngine
 
     bool HZBGenerator::IsValid() const
     {
-        return m_HZBShader && m_HZBShader->IsValid() && m_HZBTexture && m_MipCount > 0;
+        return m_HZBShader && m_HZBShader->IsValid() && GetHZBTextureID() != 0 && m_MipCount > 0;
     }
 
     u32 HZBGenerator::GetHZBTextureID() const
     {
+        if (m_ExternalHZBTextureID != 0)
+            return m_ExternalHZBTextureID;
         return m_HZBTexture ? m_HZBTexture->GetRendererID() : 0;
     }
 

@@ -32,7 +32,7 @@ namespace OloEngine
         DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
         DeclareRead(ResourceNames::SSSColor, ResourceHandle::Kind::Framebuffer);
         DeclareRead(ResourceNames::AOBuffer, ResourceHandle::Kind::Texture2D);
-        DeclareRead(ResourceNames::SceneDepth, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::SceneDepth, ResourceHandle::Kind::Texture2D);
         DeclareWrite(ResourceNames::AOApplyColor, ResourceHandle::Kind::Framebuffer);
 
         OLO_CORE_INFO("AOApplyRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
@@ -70,11 +70,16 @@ namespace OloEngine
         Ref<Framebuffer> inputFramebuffer;
         if (const auto* board = context.GetBlackboard())
         {
-            const auto inputHandle = board->SSSColor.IsValid() ? board->SSSColor : board->SceneColor;
-            if (inputHandle.IsValid())
+            if (board->SSSColor.IsValid())
             {
-                if (auto resolved = context.ResolveFramebuffer(inputHandle))
-                    inputFramebuffer = resolved;
+                if (auto resolvedSSS = context.ResolveFramebuffer(board->SSSColor))
+                    inputFramebuffer = resolvedSSS;
+            }
+
+            if (!inputFramebuffer && board->SceneColor.IsValid())
+            {
+                if (auto resolvedScene = context.ResolveFramebuffer(board->SceneColor))
+                    inputFramebuffer = resolvedScene;
             }
         }
         // Self-resolving AO texture and SceneDepth.
@@ -86,12 +91,17 @@ namespace OloEngine
             sceneDepthID = context.ResolveTexture(board->SceneDepth);
         }
 
-        // Legacy fallback (headless/tests) when no blackboard depth is available.
-        if (sceneDepthID == 0)
-            sceneDepthID = m_SceneDepthTextureID;
-
         if (!inputFramebuffer || !m_OutputFB)
         {
+            static u32 s_MissingInputOrOutputWarnings = 0;
+            if (s_MissingInputOrOutputWarnings++ < 10)
+            {
+                OLO_CORE_WARN("AOApplyRenderPass: missing input/output (inputFB={}, outputFB={}, aoTex={}, depthTex={})",
+                              inputFramebuffer ? inputFramebuffer->GetRendererID() : 0u,
+                              m_OutputFB ? m_OutputFB->GetRendererID() : 0u,
+                              aoTextureID,
+                              sceneDepthID);
+            }
             return;
         }
 
@@ -146,6 +156,23 @@ namespace OloEngine
 
         constexpr u32 colorAttachment = 0;
         m_OutputFB->Bind();
+
+        {
+            static u32 s_PrevInputFB = 0;
+            static u32 s_PrevOutputFB = 0;
+            static u32 s_PrevOutputTex = 0;
+            const u32 inputFB = inputFramebuffer->GetRendererID();
+            const u32 outputFB = m_OutputFB->GetRendererID();
+            const u32 outputTex = m_OutputFB->GetColorAttachmentRendererID(0);
+            if (inputFB != s_PrevInputFB || outputFB != s_PrevOutputFB || outputTex != s_PrevOutputTex)
+            {
+                OLO_CORE_TRACE("AOApplyRenderPass: inputFB={} outputFB={} outputTex={} aoTex={} depthTex={}",
+                               inputFB, outputFB, outputTex, aoTextureID, sceneDepthID);
+                s_PrevInputFB = inputFB;
+                s_PrevOutputFB = outputFB;
+                s_PrevOutputTex = outputTex;
+            }
+        }
 
         RenderCommand::SetDepthTest(false);
         RenderCommand::SetDepthMask(false);

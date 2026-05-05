@@ -55,6 +55,14 @@ namespace OloEngine
         // Called each frame after rendering completes.
         void ReleaseAll();
 
+        // Trim each descriptor bucket to at most maxPerBucket objects, evicting
+        // any excess from the back of each pool vector. Call after ReleaseAll()
+        // to prevent VRAM bloat from high-watermark frames where a feature was
+        // temporarily enabled (e.g., bloom on → off leaves bloom FBs in the pool).
+        // Default maxPerBucket = 2 tolerates one extra slot from same-descriptor
+        // overlapping transients; use 1 for the most aggressive trim.
+        void Trim(u32 maxPerBucket);
+
         // Clear all pooled objects (called during shutdown or context loss).
         void Clear();
 

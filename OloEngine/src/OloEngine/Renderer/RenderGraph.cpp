@@ -66,6 +66,7 @@ namespace OloEngine
         m_PlannedBarriers.clear();
         m_BarrierDiagnostics.clear();
         m_LastPassTimings.clear();
+        m_FallbackActivations.clear();
         m_ImportedResources.clear();
         m_ResourceRegistry.clear();
         m_RegisteredResources.clear();
@@ -90,6 +91,7 @@ namespace OloEngine
         m_Blackboard.Reset();
         m_TransientResourceDescs.clear();
         m_TransientPlan.clear();
+        m_TransientFramebufferOverrides.clear();
         m_ResourceRegistryDirty = true;
     }
 
@@ -116,6 +118,7 @@ namespace OloEngine
         m_PlannedBarriers.clear();
         m_BarrierDiagnostics.clear();
         m_LastPassTimings.clear();
+        m_FallbackActivations.clear();
         m_CachedExecutionOrder.clear();
         m_DependencyGraphDirty = true;
         m_ImportedResources.clear();
@@ -162,6 +165,7 @@ namespace OloEngine
         m_Blackboard.Reset();
         m_TransientResourceDescs.clear();
         m_TransientPlan.clear();
+        m_TransientFramebufferOverrides.clear();
 
         m_ResourceRegistryDirty = true;
     }
@@ -825,6 +829,56 @@ namespace OloEngine
         return { index, slot.Generation };
     }
 
+    RGFramebufferHandle RenderGraph::DeclareTransientFramebuffer(std::string_view name, const RGResourceDesc& desc,
+                                                                  const Ref<Framebuffer>& ownerFB)
+    {
+        // Register the descriptor so EnsureResourceRegistryBuilt() creates a
+        // stable typed handle.  Then return that handle.  If this is called
+        // before any EnsureResourceRegistryBuilt() the AllocateTransient path
+        // creates a "ghost" slot; the subsequent GetFramebufferHandle call
+        // triggers EnsureResourceRegistryBuilt which promotes it to a stable
+        // named slot that MaterializeTransientResources() can find.
+        auto transientDesc = desc;
+        transientDesc.Imported = false;
+        if (transientDesc.Kind == ResourceHandle::Kind::Unknown)
+            transientDesc.Kind = ResourceHandle::Kind::Framebuffer;
+        if (transientDesc.DebugName.empty())
+            transientDesc.DebugName = std::string(name);
+
+        m_TransientResourceDescs[std::string(name)] = transientDesc;
+        m_ResourceRegistryDirty = true;
+
+        // EnsureResourceRegistryBuilt is called inside GetFramebufferHandle
+        // which creates and caches the stable handle in m_FramebufferHandlesByName.
+        const auto handle = GetFramebufferHandle(name);
+
+        // If the caller provided a pass-owned FB, register it as the override
+        // immediately so no separate OverrideTransientFramebuffer call is needed.
+        // MaterializeTransientResources() will re-apply it after pool allocation.
+        if (ownerFB)
+            OverrideTransientFramebuffer(name, ownerFB);
+
+        return handle;
+    }
+
+    void RenderGraph::OverrideTransientFramebuffer(std::string_view name, const Ref<Framebuffer>& fb)
+    {
+        // Do not override imported resources (their physical slot is owned externally).
+        if (m_ImportedResources.contains(std::string(name)))
+            return;
+
+        // Persist override so it can be re-applied after transient materialization.
+        m_TransientFramebufferOverrides[std::string(name)] = fb;
+
+        if (const auto it = m_FramebufferHandlesByName.find(std::string(name));
+            it != m_FramebufferHandlesByName.end())
+        {
+            const auto handle = it->second;
+            if (handle.IsValid() && handle.Index < m_PhysicalFramebuffers.size())
+                m_PhysicalFramebuffers[handle.Index].FB = fb;
+        }
+    }
+
     RGBufferHandle RenderGraph::AllocateTransientBufferHandle(std::string_view name, const RGResourceDesc& desc)
     {
         auto transientDesc = desc;
@@ -1002,6 +1056,7 @@ namespace OloEngine
 
         m_LastPassTimings.clear();
         m_LastPassTimings.reserve(m_CachedExecutionOrder.size());
+        m_FallbackActivations.clear();
         m_PlaceholderResolveWarningsThisFrame.clear();
 
         if (m_DependencyGraphDirty)
@@ -1014,6 +1069,7 @@ namespace OloEngine
                 // set so a corrected graph can retry.
                 OLO_CORE_ERROR("RenderGraph::Execute: aborting because dependency graph rebuild failed");
                 m_TransientPool.ReleaseAll();
+                m_TransientPool.Trim(m_TransientPoolMaxBucketSize);
                 return;
             }
             ResolveFinalPass();
@@ -1104,6 +1160,32 @@ namespace OloEngine
         // Third pass: fire extraction callbacks queued by passes during Execute().
         FlushExtractions();
         m_TransientPool.ReleaseAll();
+        m_TransientPool.Trim(m_TransientPoolMaxBucketSize);
+    }
+
+    void RenderGraph::RecordFallbackActivation(const std::string_view passName, const std::string_view reason) const
+    {
+        if (passName.empty() || reason.empty())
+            return;
+
+        auto existing = std::find_if(m_FallbackActivations.begin(), m_FallbackActivations.end(),
+                                     [passName, reason](const FallbackActivation& activation)
+                                     {
+                                         return activation.PassName == passName &&
+                                                activation.Reason == reason;
+                                     });
+
+        if (existing != m_FallbackActivations.end())
+        {
+            ++existing->Count;
+            return;
+        }
+
+        m_FallbackActivations.push_back(FallbackActivation{
+            .PassName = std::string(passName),
+            .Reason = std::string(reason),
+            .Count = 1,
+        });
     }
 
     ImageFormat RenderGraph::ToImageFormat(const RGResourceFormat format)
@@ -1112,6 +1194,8 @@ namespace OloEngine
         {
             case RGResourceFormat::R8UNorm:
                 return ImageFormat::R8;
+            case RGResourceFormat::R32Float:
+                return ImageFormat::R32F;
             case RGResourceFormat::RG16Float:
                 return ImageFormat::RG16F;
             case RGResourceFormat::RGBA8UNorm:
@@ -1136,12 +1220,16 @@ namespace OloEngine
                 return FramebufferTextureFormat::RGBA8;
             case RGResourceFormat::RGBA16Float:
                 return FramebufferTextureFormat::RGBA16F;
+            case RGResourceFormat::RG16Float:
+                return FramebufferTextureFormat::RG16F;
+            case RGResourceFormat::RGBA32Float:
+                return FramebufferTextureFormat::RGBA32F;
             case RGResourceFormat::Depth24Stencil8:
                 return FramebufferTextureFormat::DEPTH24STENCIL8;
             case RGResourceFormat::Depth32Float:
                 return FramebufferTextureFormat::DEPTH_COMPONENT32F;
+            case RGResourceFormat::R32Float:
             case RGResourceFormat::R8UNorm:
-            case RGResourceFormat::RG16Float:
             case RGResourceFormat::Unknown:
             default:
                 return FramebufferTextureFormat::None;
@@ -1257,12 +1345,33 @@ namespace OloEngine
                         spec.Height = desc.Height;
                         spec.Samples = std::max(desc.Samples, 1u);
                         spec.SwapChainTarget = false;
-                        const auto attachmentFormat = ToFramebufferFormat(desc.Format);
-                        if (attachmentFormat != FramebufferTextureFormat::None)
+
+                        if (!desc.Attachments.empty())
                         {
-                            spec.Attachments = FramebufferAttachmentSpecification{
-                                FramebufferTextureSpecification{ attachmentFormat }
-                            };
+                            // MRT path: build one attachment spec per entry in Attachments.
+                            std::vector<FramebufferTextureSpecification> attachSpecs;
+                            attachSpecs.reserve(desc.Attachments.size());
+                            for (const auto fmt : desc.Attachments)
+                            {
+                                const auto af = ToFramebufferFormat(fmt);
+                                if (af != FramebufferTextureFormat::None)
+                                    attachSpecs.push_back(FramebufferTextureSpecification{ af });
+                            }
+                            if (!attachSpecs.empty())
+                            {
+                                spec.Attachments.Attachments = std::move(attachSpecs);
+                            }
+                        }
+                        else
+                        {
+                            // Single-attachment path (existing behaviour).
+                            const auto attachmentFormat = ToFramebufferFormat(desc.Format);
+                            if (attachmentFormat != FramebufferTextureFormat::None)
+                            {
+                                spec.Attachments = FramebufferAttachmentSpecification{
+                                    FramebufferTextureSpecification{ attachmentFormat }
+                                };
+                            }
                         }
 
                         auto transientFramebuffer = m_TransientPool.AcquireFramebuffer(spec);
@@ -1298,6 +1407,20 @@ namespace OloEngine
                 case ResourceHandle::Kind::Unknown:
                 default:
                     break;
+            }
+        }
+
+        // Re-apply pass-owned framebuffer overrides after transient pool
+        // materialization. This keeps transient handles like AOApplyColor /
+        // BloomColor wired to their real pass targets instead of pool-allocated
+        // alias framebuffers.
+        for (const auto& [name, fb] : m_TransientFramebufferOverrides)
+        {
+            if (const auto fbHandleIt = m_FramebufferHandlesByName.find(name);
+                fbHandleIt != m_FramebufferHandlesByName.end() &&
+                fbHandleIt->second.Index < m_PhysicalFramebuffers.size())
+            {
+                m_PhysicalFramebuffers[fbHandleIt->second.Index].FB = fb;
             }
         }
     }
@@ -3383,45 +3506,73 @@ namespace OloEngine
 
     std::string RenderGraph::BuildTransientAliasGroup(const RGResourceDesc& desc)
     {
-        return std::to_string(static_cast<u32>(desc.Kind)) + ":" +
-               std::to_string(static_cast<u32>(desc.Format)) + ":" +
-               std::to_string(desc.Width) + "x" + std::to_string(desc.Height) +
-               "x" + std::to_string(desc.DepthOrLayers) + ":m" + std::to_string(desc.MipLevels) +
-               ":s" + std::to_string(desc.Samples) + ":q" + std::to_string(static_cast<u32>(desc.Queue));
+        // Base key covers kind, dimensions, mips, samples and queue.
+        std::string key = std::to_string(static_cast<u32>(desc.Kind)) + ":" +
+                          std::to_string(static_cast<u32>(desc.Format)) + ":" +
+                          std::to_string(desc.Width) + "x" + std::to_string(desc.Height) +
+                          "x" + std::to_string(desc.DepthOrLayers) + ":m" + std::to_string(desc.MipLevels) +
+                          ":s" + std::to_string(desc.Samples) + ":q" + std::to_string(static_cast<u32>(desc.Queue));
+        // MRT: append each attachment format so MRT layouts don't alias
+        // with single-attachment FBs or with each other.
+        if (!desc.Attachments.empty())
+        {
+            key += ":mrt";
+            for (const auto fmt : desc.Attachments)
+                key += "," + std::to_string(static_cast<u32>(fmt));
+        }
+        return key;
     }
 
     u64 RenderGraph::EstimateTransientBytes(const RGResourceDesc& desc)
     {
-        const auto bytesPerPixel = [format = desc.Format]()
+        auto bytesPerPixelForFormat = [](const RGResourceFormat format) -> u64
         {
             switch (format)
             {
                 case RGResourceFormat::R8UNorm:
-                    return static_cast<u64>(1);
+                    return 1;
+                case RGResourceFormat::R32Float:
                 case RGResourceFormat::RG16Float:
-                    return static_cast<u64>(4);
                 case RGResourceFormat::RGBA8UNorm:
                 case RGResourceFormat::Depth24Stencil8:
                 case RGResourceFormat::Depth32Float:
-                    return static_cast<u64>(4);
+                    return 4;
                 case RGResourceFormat::RGBA16Float:
-                    return static_cast<u64>(8);
+                    return 8;
                 case RGResourceFormat::Unknown:
                 default:
-                    return static_cast<u64>(0);
+                    return 0;
             }
-        }();
+        };
 
         if (desc.Kind == ResourceHandle::Kind::StorageBuffer || desc.Kind == ResourceHandle::Kind::UniformBuffer)
             return desc.Width;
 
-        if (bytesPerPixel == 0 || desc.Width == 0 || desc.Height == 0)
+        if (desc.Width == 0 || desc.Height == 0)
             return 0;
 
         const auto layerCount = std::max(desc.DepthOrLayers, 1u);
         const auto mipCount = std::max(desc.MipLevels, 1u);
         const auto sampleCount = std::max(desc.Samples, 1u);
-        return bytesPerPixel * static_cast<u64>(desc.Width) * static_cast<u64>(desc.Height) *
+
+        // MRT: sum bytes across all attachment layers.
+        if (!desc.Attachments.empty())
+        {
+            u64 total = 0;
+            for (const auto fmt : desc.Attachments)
+            {
+                const auto bpp = bytesPerPixelForFormat(fmt);
+                total += bpp * static_cast<u64>(desc.Width) * static_cast<u64>(desc.Height) *
+                         static_cast<u64>(layerCount) * static_cast<u64>(mipCount) * static_cast<u64>(sampleCount);
+            }
+            return total;
+        }
+
+        const auto bpp = bytesPerPixelForFormat(desc.Format);
+        if (bpp == 0)
+            return 0;
+
+        return bpp * static_cast<u64>(desc.Width) * static_cast<u64>(desc.Height) *
                static_cast<u64>(layerCount) * static_cast<u64>(mipCount) * static_cast<u64>(sampleCount);
     }
 
@@ -3441,6 +3592,17 @@ namespace OloEngine
                        desc.Format != RGResourceFormat::Unknown &&
                        ToImageFormat(desc.Format) != ImageFormat::None;
             case ResourceHandle::Kind::Framebuffer:
+                // MRT: at least one valid attachment required; dims must be set.
+                if (!desc.Attachments.empty())
+                {
+                    return desc.Width > 0 &&
+                           desc.Height > 0 &&
+                           std::any_of(desc.Attachments.begin(), desc.Attachments.end(),
+                                       [](const RGResourceFormat fmt)
+                                       {
+                                           return ToFramebufferFormat(fmt) != FramebufferTextureFormat::None;
+                                       });
+                }
                 return desc.Width > 0 &&
                        desc.Height > 0 &&
                        desc.Format != RGResourceFormat::Unknown &&
@@ -3478,6 +3640,18 @@ namespace OloEngine
             {
                 if (desc.Width == 0 || desc.Height == 0)
                     return "missing-dimensions";
+                // MRT path: a non-empty Attachments list replaces Format.
+                if (!desc.Attachments.empty())
+                {
+                    const bool anyValid = std::any_of(desc.Attachments.begin(), desc.Attachments.end(),
+                                                      [](const RGResourceFormat fmt)
+                                                      {
+                                                          return ToFramebufferFormat(fmt) != FramebufferTextureFormat::None;
+                                                      });
+                    if (!anyValid)
+                        return "unsupported-framebuffer-format";
+                    return "descriptor-incomplete";
+                }
                 if (desc.Format == RGResourceFormat::Unknown)
                     return "unknown-format";
                 if (ToFramebufferFormat(desc.Format) == FramebufferTextureFormat::None)
@@ -4299,6 +4473,9 @@ namespace OloEngine
         // Unified resource lifetime records.
         const auto dumpLifetimes = GetResourceLifetimes();
         const auto resourceLifetimeCount = static_cast<u32>(dumpLifetimes.size());
+        u32 fallbackActivationCount = 0;
+        for (const auto& activation : m_FallbackActivations)
+            fallbackActivationCount += activation.Count;
 
         const auto submissionCommandKindToString = [](const SubmissionCommand::Kind kind)
         {
@@ -4342,6 +4519,7 @@ namespace OloEngine
             << ", \"resourceTransitionCount\": " << resourceTransitionCount
             << ", \"crossLaneSyncCount\": " << crossLaneSyncCount
             << ", \"resourceLifetimeCount\": " << resourceLifetimeCount
+            << ", \"fallbackActivationCount\": " << fallbackActivationCount
             << " },\n";
         out << "  \"buildStats\": { "
             << "\"passesVisited\": " << m_LastBuildStats.PassesVisited
@@ -4684,7 +4862,8 @@ namespace OloEngine
                                        ";transitions=" + std::to_string(resourceTransitionCount) +
                                        ";crossLaneSync=" + std::to_string(crossLaneSyncCount) +
                                        ";lifetimes=" + std::to_string(resourceLifetimeCount) +
-                                       ";subresourceRanges=present";
+                                       ";subresourceRanges=present" +
+                                       ";fallbacks=" + std::to_string(fallbackActivationCount);
 
         out << "  \"graphDigest\": { "
             << "\"version\": 1"
@@ -4884,6 +5063,19 @@ namespace OloEngine
         }
         out << "  ],\n";
 
+        out << "  \"fallbackActivations\": [\n";
+        for (sizet i = 0; i < m_FallbackActivations.size(); ++i)
+        {
+            const auto& activation = m_FallbackActivations[i];
+            out << "    { \"pass\": \"" << jsonEscape(activation.PassName)
+                << "\", \"reason\": \"" << jsonEscape(activation.Reason)
+                << "\", \"count\": " << activation.Count << " }";
+            if (i + 1 < m_FallbackActivations.size())
+                out << ",";
+            out << "\n";
+        }
+        out << "  ],\n";
+
         out << "  \"timings\": [\n";
         for (sizet i = 0; i < m_LastPassTimings.size(); ++i)
         {
@@ -4950,6 +5142,7 @@ namespace OloEngine
         // Defensive: if a previous frame aborted after acquiring transient
         // resources, recycle them before compiling the next frame.
         m_TransientPool.ReleaseAll();
+        m_TransientPool.Trim(m_TransientPoolMaxBucketSize);
 
         // Phase C stub: iterate registered graph passes and call their setup callbacks
         // to populate the builder. Full implementation will:

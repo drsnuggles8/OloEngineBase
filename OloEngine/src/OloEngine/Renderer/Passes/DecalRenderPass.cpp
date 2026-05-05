@@ -53,12 +53,13 @@ namespace OloEngine
             }
         }
 
-        // Phase F slice 36 — self-resolving SceneDepth (for decal projection).
+        // Phase F slice 36 / Phase H follow-up — self-resolving SceneDepth
+        // (for decal projection). No raw framebuffer fallback; if the
+        // blackboard is absent the depth slot is left unbound (acceptable for
+        // headless / unit-test contexts where no geometry is dispatched).
         u32 depthTextureID = 0;
         if (const auto* board = context.GetBlackboard())
             depthTextureID = context.ResolveTexture(board->SceneDepth);
-        if (depthTextureID == 0 && m_SceneFramebuffer)
-            depthTextureID = m_SceneFramebuffer->GetDepthAttachmentRendererID();
 
         // Phase F slice 15 — fetch the OITBuffer through the provider
         // (lazy in OITResolveRenderPass). When OIT is disabled the

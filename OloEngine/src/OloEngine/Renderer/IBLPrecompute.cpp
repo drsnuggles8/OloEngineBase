@@ -140,6 +140,7 @@ namespace OloEngine
 
         i32 width, height, channels;
         f32* data = stbi_loadf(filePath.c_str(), &width, &height, &channels, 0);
+        stbi_set_flip_vertically_on_load(false); // reset global flag to avoid polluting later stbi calls
 
         if (!data)
         {

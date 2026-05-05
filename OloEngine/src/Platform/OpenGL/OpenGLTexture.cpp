@@ -202,6 +202,7 @@ namespace OloEngine
             OLO_PROFILE_SCOPE("stbi_load - OpenGLTexture2D::OpenGLTexture2D(const std::string&)");
             data = ::stbi_load(path.c_str(), &width, &height, &channels, 0);
         }
+        ::stbi_set_flip_vertically_on_load(0); // reset global flag to avoid polluting later stbi calls
 
         if (!data)
         {

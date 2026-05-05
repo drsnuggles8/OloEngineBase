@@ -44,8 +44,8 @@ namespace OloEngine
         // Resource-aware RDG: SSAO reads scene depth/normals and writes AOBuffer
         // consumed later by AOApplyPass. This allows the validator to derive
         // SSAOPass -> AOApplyPass ordering via RAW on AOBuffer.
-        DeclareRead(ResourceNames::SceneDepth, ResourceHandle::Kind::Framebuffer);
-        DeclareRead(ResourceNames::SceneNormals, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::SceneDepth, ResourceHandle::Kind::Texture2D);
+        DeclareRead(ResourceNames::SceneNormals, ResourceHandle::Kind::Texture2D);
         DeclareWrite(ResourceNames::AOBuffer, ResourceHandle::Kind::Texture2D);
 
         OLO_CORE_INFO("SSAORenderPass: Initialized with half-res {}x{}", m_HalfWidth, m_HalfHeight);
@@ -66,7 +66,6 @@ namespace OloEngine
         ssaoSpec.Samples = 1;
         ssaoSpec.Attachments = { FramebufferTextureFormat::RG16F };
 
-        m_SSAOFramebuffer = Framebuffer::Create(ssaoSpec);
         m_BlurFramebuffer = Framebuffer::Create(ssaoSpec);
     }
 
@@ -104,7 +103,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_Settings.SSAOEnabled || m_Settings.ActiveAOTechnique != AOTechnique::SSAO || !m_SSAOShader || !m_SSAOBlurShader || !m_SSAOFramebuffer || !m_BlurFramebuffer)
+        if (!m_Settings.SSAOEnabled || m_Settings.ActiveAOTechnique != AOTechnique::SSAO || !m_SSAOShader || !m_SSAOBlurShader || !m_BlurFramebuffer)
         {
             return;
         }
@@ -123,6 +122,16 @@ namespace OloEngine
         {
             return;
         }
+
+        // Phase D / H follow-up: resolve the raw SSAO scratch framebuffer from
+        // the transient pool via the blackboard. This pass now requires the
+        // graph-owned scratch target; the owned fallback framebuffer has been
+        // retired.
+        Ref<Framebuffer> rawFB;
+        if (const auto* board = context.GetBlackboard(); board && board->SSAORaw.IsValid())
+            rawFB = context.ResolveFramebuffer(board->SSAORaw);
+        if (!rawFB)
+            return;
 
         {
             static u32 s_PrevDepthID = 0;
@@ -153,7 +162,7 @@ namespace OloEngine
         }
 
         // --- Pass 1: Generate raw SSAO ---
-        m_SSAOFramebuffer->Bind();
+        rawFB->Bind();
         context.SetViewport(0, 0, m_HalfWidth, m_HalfHeight);
         context.SetClearColor({ 1.0f, 1.0f, 1.0f, 1.0f }); // White = no occlusion
         context.Clear();
@@ -172,7 +181,7 @@ namespace OloEngine
         context.BindTexture(ShaderBindingLayout::TEX_SSAO_NOISE, m_NoiseTexture);
 
         DrawFullscreenTriangle();
-        m_SSAOFramebuffer->Unbind();
+        rawFB->Unbind();
 
         // --- Pass 2: Bilateral blur ---
         m_BlurFramebuffer->Bind();
@@ -184,8 +193,8 @@ namespace OloEngine
 
         m_SSAOBlurShader->Bind();
 
-        // Bind raw SSAO result at slot 0
-        u32 rawSSAOID = m_SSAOFramebuffer->GetColorAttachmentRendererID(0);
+        // Bind raw SSAO result at slot 0 (texture from the transient or fallback FB)
+        u32 rawSSAOID = rawFB->GetColorAttachmentRendererID(0);
         context.BindTexture(0, rawSSAOID);
 
         // Bind scene depth at TEX_POSTPROCESS_DEPTH (slot 19) for bilateral edge detection
@@ -233,13 +242,12 @@ namespace OloEngine
         m_HalfWidth = std::max(1u, width / 2);
         m_HalfHeight = std::max(1u, height / 2);
 
-        if (!m_SSAOFramebuffer)
+        if (!m_BlurFramebuffer)
         {
             CreateSSAOFramebuffers(m_HalfWidth, m_HalfHeight);
         }
         else
         {
-            m_SSAOFramebuffer->Resize(m_HalfWidth, m_HalfHeight);
             m_BlurFramebuffer->Resize(m_HalfWidth, m_HalfHeight);
         }
     }
@@ -258,10 +266,6 @@ namespace OloEngine
         m_HalfWidth = std::max(1u, width / 2);
         m_HalfHeight = std::max(1u, height / 2);
 
-        if (m_SSAOFramebuffer)
-        {
-            m_SSAOFramebuffer->Resize(m_HalfWidth, m_HalfHeight);
-        }
         if (m_BlurFramebuffer)
         {
             m_BlurFramebuffer->Resize(m_HalfWidth, m_HalfHeight);

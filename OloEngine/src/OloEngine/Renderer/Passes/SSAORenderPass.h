@@ -44,7 +44,6 @@ namespace OloEngine
         void CreateNoiseTexture();
         void DrawFullscreenTriangle();
 
-        Ref<Framebuffer> m_SSAOFramebuffer;
         Ref<Framebuffer> m_BlurFramebuffer;
 
         Ref<Shader> m_SSAOShader;

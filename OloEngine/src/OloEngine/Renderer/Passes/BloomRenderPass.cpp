@@ -45,7 +45,6 @@ namespace OloEngine
         {
             OLO_CORE_WARN("BloomRenderPass::CreateFramebuffers: Invalid dimensions {}x{}", width, height);
             m_OutputFB = nullptr;
-            m_BloomMipChain.clear();
             return;
         }
 
@@ -55,37 +54,6 @@ namespace OloEngine
         outSpec.Samples = 1;
         outSpec.Attachments = { FramebufferTextureFormat::RGBA16F };
         m_OutputFB = Framebuffer::Create(outSpec);
-
-        CreateMipChain(width, height);
-    }
-
-    void BloomRenderPass::CreateMipChain(u32 width, u32 height)
-    {
-        m_BloomMipChain.clear();
-
-        u32 mipWidth = width / 2;
-        u32 mipHeight = height / 2;
-
-        for (u32 i = 0; i < MAX_BLOOM_MIPS; ++i)
-        {
-            if (mipWidth < 2 || mipHeight < 2)
-            {
-                break;
-            }
-
-            FramebufferSpecification mipSpec;
-            mipSpec.Width = mipWidth;
-            mipSpec.Height = mipHeight;
-            mipSpec.Samples = 1;
-            mipSpec.Attachments = { FramebufferTextureFormat::RGBA16F };
-
-            m_BloomMipChain.push_back(Framebuffer::Create(mipSpec));
-
-            mipWidth /= 2;
-            mipHeight /= 2;
-        }
-
-        OLO_CORE_INFO("BloomRenderPass: Created bloom mip chain with {} levels", m_BloomMipChain.size());
     }
 
     void BloomRenderPass::Execute()
@@ -98,21 +66,153 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        if (!m_Enabled)
+            return;
+
         // Phase F slice 43 — self-resolving input framebuffer from the render-graph
-        // blackboard. Bloom reads PostProcess (the sole input choice).
+        // blackboard. Prefer the direct upstream chain and only then the
+        // PostProcess alias, so bloom remains robust if alias wiring lags a
+        // frame during resize/toggle churn.
         Ref<Framebuffer> inputFramebuffer;
         if (const auto* board = context.GetBlackboard())
-            if (auto fb = context.ResolveFramebuffer(board->PostProcessColor))
-                inputFramebuffer = fb;
-        if (!m_Enabled || !inputFramebuffer || !m_OutputFB || m_BloomMipChain.empty())
         {
+            auto tryResolveValid = [&](const auto& handle)
+            {
+                if (inputFramebuffer || !handle.IsValid())
+                    return;
+                if (auto fb = context.ResolveFramebuffer(handle))
+                {
+                    if (fb->GetColorAttachmentRendererID(0) != 0)
+                        inputFramebuffer = fb;
+                }
+            };
+
+            tryResolveValid(board->AOApplyColor);
+            tryResolveValid(board->SSSColor);
+            tryResolveValid(board->PostProcessColor);
+            tryResolveValid(board->SceneColor);
+        }
+
+        // Phase D / H follow-up: resolve the bloom mip-chain entirely from the
+        // transient pool. The execute path no longer seeds from an owned
+        // fallback chain.
+        std::array<Ref<Framebuffer>, MAX_BLOOM_MIPS> bloomMips{};
+        u32 bloomMipCount = 0;
+        u32 bloomMipHandleCount = 0;
+        u32 bloomMipResolvedCount = 0;
+        if (const auto* board = context.GetBlackboard())
+        {
+            for (u32 i = 0; i < MAX_BLOOM_MIPS; ++i)
+            {
+                if (board->BloomMips[i].IsValid())
+                {
+                    ++bloomMipHandleCount;
+                    if (auto fb = context.ResolveFramebuffer(board->BloomMips[i]))
+                    {
+                        bloomMips[i] = fb;
+                        ++bloomMipResolvedCount;
+                    }
+                }
+            }
+        }
+        for (u32 i = 0; i < MAX_BLOOM_MIPS; ++i)
+        {
+            if (bloomMips[i])
+                bloomMipCount = i + 1;
+            else
+                break;
+        }
+        const bool shadersReady = m_BloomThresholdShader && m_BloomDownsampleShader &&
+                                  m_BloomUpsampleShader && m_BloomCompositeShader;
+
+        constexpr u32 FAIL_NO_INPUT = 1u << 0u;
+        constexpr u32 FAIL_NO_OUTPUT = 1u << 1u;
+        constexpr u32 FAIL_NO_MIPS = 1u << 2u;
+        constexpr u32 FAIL_NO_SHADERS = 1u << 3u;
+
+        u32 failureMask = 0;
+        if (!inputFramebuffer)
+            failureMask |= FAIL_NO_INPUT;
+        if (!m_OutputFB)
+            failureMask |= FAIL_NO_OUTPUT;
+        if (bloomMipCount == 0)
+            failureMask |= FAIL_NO_MIPS;
+        if (!shadersReady)
+            failureMask |= FAIL_NO_SHADERS;
+
+        const auto blitInputToOutput = [&]()
+        {
+            if (!inputFramebuffer || !m_OutputFB)
+                return;
+
+            const auto srcFbo = inputFramebuffer->GetRendererID();
+            const auto dstFbo = m_OutputFB->GetRendererID();
+            const auto& srcSpec = inputFramebuffer->GetSpecification();
+            const auto& dstSpec = m_OutputFB->GetSpecification();
+
+            glNamedFramebufferReadBuffer(srcFbo, GL_COLOR_ATTACHMENT0);
+            glNamedFramebufferDrawBuffer(dstFbo, GL_COLOR_ATTACHMENT0);
+            glBlitNamedFramebuffer(
+                srcFbo, dstFbo,
+                0, 0, static_cast<GLint>(srcSpec.Width), static_cast<GLint>(srcSpec.Height),
+                0, 0, static_cast<GLint>(dstSpec.Width), static_cast<GLint>(dstSpec.Height),
+                GL_COLOR_BUFFER_BIT, GL_LINEAR);
+
+            if (const auto err = glGetError(); err != GL_NO_ERROR)
+            {
+                OLO_CORE_ERROR("BloomRenderPass: fallback blit failed (GL error 0x{:x}, srcFB={}, dstFB={})",
+                               err, srcFbo, dstFbo);
+            }
+        };
+
+        if (failureMask != 0)
+        {
+            if (m_LastFailureMask != failureMask)
+            {
+                OLO_CORE_ERROR("BloomRenderPass: prerequisites missing (mask=0x{:x}, inputFB={}, outputFB={}, mipCount={}, mipHandlesValid={}, mipResolved={}, shadersReady={})",
+                               failureMask,
+                               inputFramebuffer ? inputFramebuffer->GetRendererID() : 0u,
+                               m_OutputFB ? m_OutputFB->GetRendererID() : 0u,
+                               bloomMipCount,
+                               bloomMipHandleCount,
+                               bloomMipResolvedCount,
+                               shadersReady);
+            }
+
+            // Keep the post chain alive even when bloom is temporarily unavailable.
+            // Without this, BloomColor stays black and darkens all downstream passes.
+            blitInputToOutput();
+            m_LastFailureMask = failureMask;
             return;
         }
 
-        if (!m_BloomThresholdShader || !m_BloomDownsampleShader ||
-            !m_BloomUpsampleShader || !m_BloomCompositeShader)
         {
-            return;
+            static u32 s_PrevInputFB = 0;
+            static u32 s_PrevOutputFB = 0;
+            static u32 s_PrevInputTex = 0;
+            const u32 inputFB = inputFramebuffer->GetRendererID();
+            const u32 outputFB = m_OutputFB->GetRendererID();
+            const u32 inputTex = inputFramebuffer->GetColorAttachmentRendererID(0);
+            if (inputFB != s_PrevInputFB || outputFB != s_PrevOutputFB || inputTex != s_PrevInputTex)
+            {
+                OLO_CORE_TRACE("BloomRenderPass: inputFB={} outputFB={} inputTex={} mipCount={}",
+                               inputFB, outputFB, inputTex, bloomMipCount);
+                s_PrevInputFB = inputFB;
+                s_PrevOutputFB = outputFB;
+                s_PrevInputTex = inputTex;
+            }
+
+            if (inputFB == outputFB)
+            {
+                OLO_CORE_ERROR("BloomRenderPass: invalid feedback loop detected (inputFB == outputFB == {})", inputFB);
+            }
+        }
+
+        if (m_LastFailureMask != 0)
+        {
+            OLO_CORE_INFO("BloomRenderPass: recovered (inputFB={}, outputFB={}, mipCount={})",
+                          inputFramebuffer->GetRendererID(), m_OutputFB->GetRendererID(), bloomMipCount);
+            m_LastFailureMask = 0;
         }
 
         if (m_PostProcessUBO)
@@ -124,8 +224,8 @@ namespace OloEngine
         // Step 1: Threshold extract — scene HDR → bloom mip 0
         // ------------------------------------------------------------------
         {
-            m_BloomMipChain[0]->Bind();
-            const auto& spec = m_BloomMipChain[0]->GetSpecification();
+            bloomMips[0]->Bind();
+            const auto& spec = bloomMips[0]->GetSpecification();
             context.SetViewport(0, 0, spec.Width, spec.Height);
             context.SetDepthTest(false);
             context.SetDepthMask(false);
@@ -148,16 +248,16 @@ namespace OloEngine
             const auto va = MeshPrimitives::GetFullscreenTriangle();
             va->Bind();
             RenderCommand::DrawIndexed(va);
-            m_BloomMipChain[0]->Unbind();
+            bloomMips[0]->Unbind();
         }
 
         // ------------------------------------------------------------------
         // Step 2: Progressive downsample
         // ------------------------------------------------------------------
-        for (size_t i = 1; i < m_BloomMipChain.size(); ++i)
+        for (size_t i = 1; i < static_cast<size_t>(bloomMipCount); ++i)
         {
-            auto& srcMip = m_BloomMipChain[i - 1];
-            auto& dstMip = m_BloomMipChain[i];
+            auto& srcMip = bloomMips[i - 1];
+            auto& dstMip = bloomMips[i];
             const auto& srcSpec = srcMip->GetSpecification();
             const auto& dstSpec = dstMip->GetSpecification();
 
@@ -196,10 +296,10 @@ namespace OloEngine
         // ------------------------------------------------------------------
         // Step 3: Progressive upsample (additive accumulation back up the chain)
         // ------------------------------------------------------------------
-        for (int i = static_cast<int>(m_BloomMipChain.size()) - 2; i >= 0; --i)
+        for (int i = static_cast<int>(bloomMipCount) - 2; i >= 0; --i)
         {
-            auto& srcMip = m_BloomMipChain[static_cast<size_t>(i) + 1];
-            auto& dstMip = m_BloomMipChain[static_cast<size_t>(i)];
+            auto& srcMip = bloomMips[static_cast<size_t>(i) + 1];
+            auto& dstMip = bloomMips[static_cast<size_t>(i)];
             const auto& srcSpec = srcMip->GetSpecification();
             const auto& dstSpec = dstMip->GetSpecification();
 
@@ -277,7 +377,7 @@ namespace OloEngine
             context.BindTexture(0, sceneColorID);
             m_BloomCompositeShader->SetInt("u_SceneColor", 0);
 
-            const u32 bloomColorID = m_BloomMipChain[0]->GetColorAttachmentRendererID(0);
+            const u32 bloomColorID = bloomMips[0]->GetColorAttachmentRendererID(0);
             context.BindTexture(1, bloomColorID);
             m_BloomCompositeShader->SetInt("u_BloomColor", 1);
 
@@ -319,7 +419,6 @@ namespace OloEngine
         else
         {
             m_OutputFB->Resize(width, height);
-            CreateMipChain(width, height);
         }
     }
 
@@ -338,8 +437,6 @@ namespace OloEngine
 
         if (m_OutputFB)
             m_OutputFB->Resize(width, height);
-
-        CreateMipChain(width, height);
 
         OLO_CORE_INFO("BloomRenderPass: Resized to {}x{}", width, height);
     }

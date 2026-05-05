@@ -24,7 +24,7 @@ namespace OloEngine
     {
       public:
         WaterRenderPass();
-        ~WaterRenderPass() override;
+        ~WaterRenderPass() override = default;
 
         WaterRenderPass(const WaterRenderPass&) = delete;
         WaterRenderPass& operator=(const WaterRenderPass&) = delete;
@@ -72,13 +72,7 @@ namespace OloEngine
             m_OITShader = shader;
         }
 
-      private:
-        void EnsureRefractionTexture(u32 width, u32 height);
-
         Ref<Framebuffer> m_SceneFramebuffer;
-        u32 m_RefractionTextureID = 0;
-        u32 m_RefractionWidth = 0;
-        u32 m_RefractionHeight = 0;
 
         Ref<OITBuffer> m_OITBuffer;
         std::function<Ref<OITBuffer>()> m_OITBufferProvider;

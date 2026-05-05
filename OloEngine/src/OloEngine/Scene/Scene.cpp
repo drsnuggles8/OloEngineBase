@@ -3767,7 +3767,8 @@ namespace OloEngine
                             {
                                 meshShadowPass->AddMeshCaster(
                                     va->GetRendererID(), submesh->GetIndexCount(),
-                                    transform.GetTransform(), GetShadowVaoID(submesh));
+                                    transform.GetTransform(), GetShadowVaoID(submesh),
+                                    submesh->GetTransformedBoundingBox(transform.GetTransform()));
                             }
                         }
                     }
@@ -3822,7 +3823,8 @@ namespace OloEngine
                     {
                         meshShadowPass->AddMeshCaster(
                             va->GetRendererID(), submesh.m_Mesh->GetIndexCount(),
-                            transform.GetTransform(), GetShadowVaoID(submesh.m_Mesh));
+                            transform.GetTransform(), GetShadowVaoID(submesh.m_Mesh),
+                            submesh.m_Mesh->GetTransformedBoundingBox(transform.GetTransform()));
                     }
                 }
             }
@@ -3897,7 +3899,8 @@ namespace OloEngine
                                         meshShadowPass->AddSkinnedCaster(
                                             va->GetRendererID(), submesh->GetIndexCount(),
                                             transform.GetTransform(),
-                                            cmd->boneBufferOffset, cmd->boneCount);
+                                            cmd->boneBufferOffset, cmd->boneCount,
+                                            submesh->GetTransformedBoundingBox(transform.GetTransform()));
                                     }
                                     else
                                     {
@@ -3967,7 +3970,8 @@ namespace OloEngine
                             {
                                 meshShadowPass->AddMeshCaster(
                                     va->GetRendererID(), tileComp.TileMesh->GetIndexCount(),
-                                    tileTransform, GetShadowVaoID(tileComp.TileMesh));
+                                    tileTransform, GetShadowVaoID(tileComp.TileMesh),
+                                    tileComp.TileMesh->GetTransformedBoundingBox(tileTransform));
                             }
                         }
                     }

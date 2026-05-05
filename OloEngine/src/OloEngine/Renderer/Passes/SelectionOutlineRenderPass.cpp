@@ -36,7 +36,6 @@ namespace OloEngine
         m_JFAUbo = UniformBuffer::Create(UBOStructures::JumpFloodUBO::GetSize(), ShaderBindingLayout::UBO_JUMP_FLOOD);
 
         CreateFramebuffer(spec.Width, spec.Height);
-        CreateJFAFramebuffers(spec.Width, spec.Height);
 
         // Graph-visible contract: receives VignetteColor when FXAA is absent,
         // or FXAAColor when FXAA precedes it. SceneColor is a conservative
@@ -68,28 +67,6 @@ namespace OloEngine
         };
 
         m_Target = Framebuffer::Create(fbSpec);
-    }
-
-    void SelectionOutlineRenderPass::CreateJFAFramebuffers(u32 width, u32 height)
-    {
-        if (width == 0 || height == 0)
-        {
-            m_JFAFramebuffers[0] = nullptr;
-            m_JFAFramebuffers[1] = nullptr;
-            return;
-        }
-
-        for (auto& fb : m_JFAFramebuffers)
-        {
-            FramebufferSpecification fbSpec;
-            fbSpec.Width = width;
-            fbSpec.Height = height;
-            fbSpec.Samples = 1;
-            fbSpec.Attachments = {
-                FramebufferTextureFormat::RGBA32F // Distance field (xy=offset, z=sqDist, w=flag)
-            };
-            fb = Framebuffer::Create(fbSpec);
-        }
     }
 
     void SelectionOutlineRenderPass::Execute()
@@ -186,6 +163,20 @@ namespace OloEngine
             return;
         }
 
+        // Phase D / H follow-up: resolve JFA ping-pong framebuffers entirely
+        // from the transient pool. The execute path no longer keeps owned
+        // fallback framebuffers for headless / unit-test contexts.
+        std::array<Ref<Framebuffer>, 2> jfaFBs{};
+        if (const auto* board = context.GetBlackboard())
+        {
+            if (auto fb = context.ResolveFramebuffer(board->JFAPing))
+                jfaFBs[0] = fb;
+            if (auto fb = context.ResolveFramebuffer(board->JFAPong))
+                jfaFBs[1] = fb;
+        }
+        if (!jfaFBs[0] || !jfaFBs[1])
+            return;
+
         const u32 w = m_FramebufferSpec.Width;
         const u32 h = m_FramebufferSpec.Height;
         const glm::vec4 texelSize(1.0f / static_cast<f32>(w), 1.0f / static_cast<f32>(h), 0.0f, 0.0f);
@@ -197,7 +188,7 @@ namespace OloEngine
         // =====================================================================
         // Pass 1: JFA Init — entity IDs → distance field seed
         // =====================================================================
-        m_JFAFramebuffers[0]->Bind();
+        jfaFBs[0]->Bind();
         context.SetViewport(0, 0, w, h);
         context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
         context.SetBlendState(false);
@@ -234,7 +225,7 @@ namespace OloEngine
             m_JFAUboData.Step = step;
             m_JFAUbo->SetData(&m_JFAUboData, UBOStructures::JumpFloodUBO::GetSize());
 
-            m_JFAFramebuffers[writeIndex]->Bind();
+            jfaFBs[writeIndex]->Bind();
             context.SetViewport(0, 0, w, h);
             context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
             context.SetBlendState(false);
@@ -248,7 +239,7 @@ namespace OloEngine
             context.Clear();
 
             // Bind previous JFA result
-            context.BindTexture(0, m_JFAFramebuffers[readIndex]->GetColorAttachmentRendererID(0));
+            context.BindTexture(0, jfaFBs[readIndex]->GetColorAttachmentRendererID(0));
 
             m_JFAPassShader->Bind();
             m_JFAPassShader->SetInt("u_Texture", 0);
@@ -281,8 +272,8 @@ namespace OloEngine
 
         // Slot 0: scene color from dynamic post chain output
         context.BindTexture(0, inputFramebuffer->GetColorAttachmentRendererID(0));
-        // Slot 1: final JFA distance field
-        context.BindTexture(1, m_JFAFramebuffers[readIndex]->GetColorAttachmentRendererID(0));
+        // Slot 1: final JFA distance field (from transient or fallback JFA ping-pong)
+        context.BindTexture(1, jfaFBs[readIndex]->GetColorAttachmentRendererID(0));
 
         m_JFACompositeShader->Bind();
         m_JFACompositeShader->SetInt("u_SceneColor", 0);
@@ -308,7 +299,6 @@ namespace OloEngine
         m_FramebufferSpec.Height = height;
 
         CreateFramebuffer(width, height);
-        CreateJFAFramebuffers(width, height);
     }
 
     void SelectionOutlineRenderPass::ResizeFramebuffer(u32 width, u32 height)
@@ -332,9 +322,6 @@ namespace OloEngine
         {
             CreateFramebuffer(width, height);
         }
-
-        // Recreate JFA framebuffers (RGBA32F can't always resize in place)
-        CreateJFAFramebuffers(width, height);
     }
 
     void SelectionOutlineRenderPass::OnReset()
@@ -344,7 +331,6 @@ namespace OloEngine
         if (m_FramebufferSpec.Width > 0 && m_FramebufferSpec.Height > 0)
         {
             CreateFramebuffer(m_FramebufferSpec.Width, m_FramebufferSpec.Height);
-            CreateJFAFramebuffers(m_FramebufferSpec.Width, m_FramebufferSpec.Height);
         }
     }
 

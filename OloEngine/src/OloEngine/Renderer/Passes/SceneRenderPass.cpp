@@ -51,7 +51,7 @@ namespace OloEngine
         DeclareRead(ResourceNames::PrefilterMap, ResourceHandle::Kind::TextureCube);
         DeclareRead(ResourceNames::BrdfLut, ResourceHandle::Kind::Texture2D);
         DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
-        DeclareWrite(ResourceNames::SceneDepth, ResourceHandle::Kind::Framebuffer);
+        DeclareWrite(ResourceNames::SceneDepth, ResourceHandle::Kind::Texture2D);
 
         // Lazy-loaded — only materialised when the user actually selects the
         // RMA debug channel for the first time (keeps Forward startup cheap).

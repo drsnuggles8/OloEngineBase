@@ -145,6 +145,27 @@ namespace OloEngine
         m_AcquiredBuffers.clear();
     }
 
+    void TransientPool::Trim(u32 maxPerBucket)
+    {
+        for (auto& [key, pool] : m_TexturePool)
+        {
+            if (pool.size() > maxPerBucket)
+                pool.resize(maxPerBucket);
+        }
+
+        for (auto& [key, pool] : m_FramebufferPool)
+        {
+            if (pool.size() > maxPerBucket)
+                pool.resize(maxPerBucket);
+        }
+
+        for (auto& [sizeBytes, pool] : m_BufferPool)
+        {
+            if (pool.size() > maxPerBucket)
+                pool.resize(maxPerBucket);
+        }
+    }
+
     TransientPool::TextureDescriptorKey TransientPool::BuildTextureKey(const TextureSpecification& spec)
     {
         return TextureDescriptorKey{

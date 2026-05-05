@@ -72,18 +72,18 @@ namespace OloEngine
 
       private:
         void CreateFramebuffers(u32 width, u32 height);
-        void CreateMipChain(u32 width, u32 height);
 
       private:
         static constexpr u32 MAX_BLOOM_MIPS = 5;
+
+                // Bitmask of the last startup/runtime failure state observed in Execute().
+                // Used to avoid spamming identical error logs every frame.
+                u32 m_LastFailureMask = 0;
 
         bool m_Enabled = false;
 
         // Full-resolution composite output (scene + bloom glow)
         Ref<Framebuffer> m_OutputFB;
-
-        // RGBA16F mip chain (half-res down to 1/32-res)
-        std::vector<Ref<Framebuffer>> m_BloomMipChain;
 
         Ref<Shader> m_BloomThresholdShader;
         Ref<Shader> m_BloomDownsampleShader;

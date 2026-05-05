@@ -14,9 +14,9 @@ namespace OloEngine
     //   SSSColor/SceneColor → AOApply → AOApplyColor → Bloom → ...
     //
     // Inputs:
-    //   * Input framebuffer handle (SSSColor or SceneColor)
-    //   * AO texture handle (from SSAORenderPass or GTAORenderPass)
-    //   * Scene depth texture handle (for bilateral AO upsampling)
+    //   * Input framebuffer handle (SSSColor or SceneColor), resolved from the blackboard
+    //   * AO texture handle (from SSAORenderPass or GTAORenderPass), resolved from the blackboard
+    //   * Scene depth texture handle (for bilateral AO upsampling), resolved from the blackboard
     //   * PostProcessUBO (binding 7), uploaded by Renderer3D
     //
     // Output:
@@ -52,11 +52,6 @@ namespace OloEngine
             return m_Enabled;
         }
 
-        void SetSceneDepthTextureID(u32 id) noexcept
-        {
-            m_SceneDepthTextureID = id;
-        }
-
         void SetPostProcessUBO(const Ref<UniformBuffer>& ubo) noexcept
         {
             m_PostProcessUBO = ubo;
@@ -77,8 +72,6 @@ namespace OloEngine
         Ref<Shader> m_SSAOApplyShader;
         Ref<UniformBuffer> m_PostProcessUBO;
         Ref<UniformBuffer> m_SSAOUBO;
-
-        u32 m_SceneDepthTextureID = 0;
     };
 
 } // namespace OloEngine

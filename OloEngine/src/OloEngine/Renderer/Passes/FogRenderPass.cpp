@@ -112,13 +112,11 @@ namespace OloEngine
             return;
         }
 
-        // Phase F slice 42 — self-resolve scene depth and shadow map CSM from
-        // the render-graph blackboard.
+        // Phase F slice 42 / Phase H follow-up — self-resolve scene depth and
+        // shadow map CSM from the render-graph blackboard.
         u32 sceneDepthTextureID = 0;
         if (const auto* board = context.GetBlackboard())
             sceneDepthTextureID = context.ResolveTexture(board->SceneDepth);
-        if (sceneDepthTextureID == 0)
-            sceneDepthTextureID = m_SceneDepthTextureID;
 
         if (sceneDepthTextureID == 0)
             return; // Fog pass requires depth.
@@ -126,8 +124,6 @@ namespace OloEngine
         u32 shadowCSMTextureID = 0;
         if (const auto* board = context.GetBlackboard())
             shadowCSMTextureID = context.ResolveTexture(board->ShadowMapCSM);
-        if (shadowCSMTextureID == 0)
-            shadowCSMTextureID = m_ShadowCSMTextureID;
 
         // Re-bind PostProcessUBO at binding 7 — IBL precompute and bloom-mip
         // updates can transiently claim this slot before the post-process chain.

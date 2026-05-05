@@ -80,12 +80,10 @@ namespace OloEngine
             return;
         }
 
-        // Phase F slice 40 — self-resolving SceneDepth.
+        // Phase F slice 40 / Phase H follow-up — self-resolving SceneDepth.
         u32 sceneDepthTextureID = 0;
         if (const auto* board = context.GetBlackboard())
             sceneDepthTextureID = context.ResolveTexture(board->SceneDepth);
-        if (sceneDepthTextureID == 0)
-            sceneDepthTextureID = m_SceneDepthTextureID;
 
         if (sceneDepthTextureID == 0)
             return;

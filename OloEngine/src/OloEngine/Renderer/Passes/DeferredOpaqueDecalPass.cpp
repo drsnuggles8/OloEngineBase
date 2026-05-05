@@ -23,7 +23,7 @@ namespace OloEngine
         // the same names here for the hazard validator. This makes the
         // implicit "must run after ScenePass, must run before
         // DeferredLightingPass" ordering visible to the graph.
-        DeclareRead(ResourceNames::SceneDepth, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::SceneDepth, ResourceHandle::Kind::Texture2D);
         DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
     }
 

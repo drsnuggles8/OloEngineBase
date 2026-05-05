@@ -202,6 +202,7 @@ namespace OloEngine
             // Match Texture2D::Create(path), which flips file-backed images for OpenGL.
             ::stbi_set_flip_vertically_on_load_thread(1);
             stbi_uc* pixels = ::stbi_load(path.string().c_str(), &width, &height, &channels, 1);
+            ::stbi_set_flip_vertically_on_load_thread(0); // reset thread-local flag to avoid polluting later stbi calls
             if (!pixels)
             {
                 OLO_CORE_WARN("Model: Failed to load single-channel material texture '{}'", path.string());

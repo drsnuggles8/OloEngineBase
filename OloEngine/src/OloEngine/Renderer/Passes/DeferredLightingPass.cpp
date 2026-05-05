@@ -49,8 +49,8 @@ namespace OloEngine
         //   ScenePass→DeferredOpaqueDecalPass (SceneDepth RAW already works)
         //   DeferredOpaqueDecalPass→DeferredLightingPass  via DeclareRead(SceneColor)
         //   ScenePass→DeferredLightingPass (fallback)     via DeclareRead(SceneDepth)
-        DeclareRead(ResourceNames::SceneDepth, ResourceHandle::Kind::Framebuffer);
-        DeclareRead(ResourceNames::SceneNormals, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::SceneDepth, ResourceHandle::Kind::Texture2D);
+        DeclareRead(ResourceNames::SceneNormals, ResourceHandle::Kind::Texture2D);
         DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
         DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
 

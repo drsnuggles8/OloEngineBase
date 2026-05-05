@@ -123,16 +123,21 @@ namespace OloEngine
             static std::string s_PreviousInputResourceName;
             static u32 s_PreviousInputFramebufferID = 0;
             static u32 s_PreviousInputColorID = 0;
+            static u32 s_TransitionLogCount = 0;
             const u32 inputFramebufferID = inputFramebuffer ? inputFramebuffer->GetRendererID() : 0u;
             const u32 inputColorID = inputFramebuffer ? inputFramebuffer->GetColorAttachmentRendererID(0) : 0u;
             if (inputResourceName != s_PreviousInputResourceName ||
                 inputFramebufferID != s_PreviousInputFramebufferID ||
                 inputColorID != s_PreviousInputColorID)
             {
-                OLO_CORE_INFO("UICompositePass: scene input={} fb={} colorTex={}",
-                              inputResourceName.empty() ? std::string("<none>") : inputResourceName,
-                              inputFramebufferID,
-                              inputColorID);
+                if (s_TransitionLogCount < 16)
+                {
+                    OLO_CORE_TRACE("UICompositePass: scene input={} fb={} colorTex={}",
+                                   inputResourceName.empty() ? std::string("<none>") : inputResourceName,
+                                   inputFramebufferID,
+                                   inputColorID);
+                    ++s_TransitionLogCount;
+                }
                 s_PreviousInputResourceName = inputResourceName;
                 s_PreviousInputFramebufferID = inputFramebufferID;
                 s_PreviousInputColorID = inputColorID;

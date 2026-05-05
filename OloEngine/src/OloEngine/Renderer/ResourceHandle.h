@@ -108,9 +108,11 @@ namespace OloEngine
     {
         Unknown = 0,
         R8UNorm,
+        R32Float,
         RG16Float,
         RGBA8UNorm,
         RGBA16Float,
+        RGBA32Float,
         Depth24Stencil8,
         Depth32Float,
     };
@@ -189,6 +191,14 @@ namespace OloEngine
         u32 DepthOrLayers = 1;
         u32 MipLevels = 1;
         u32 Samples = 1;
+        // For framebuffers with multiple render targets (MRT), list the format of each
+        // colour attachment here in order (RT0, RT1, ...). When non-empty, `Format` is
+        // ignored for the per-attachment layouts and is only retained for alias-group
+        // keying and backward compatibility with single-attachment paths that do not
+        // fill `Attachments`. A depth attachment, if required, should still be
+        // represented as a FramebufferTextureFormat::Depth24Stencil8 entry appended
+        // after the colour targets (matching FramebufferAttachmentSpecification order).
+        std::vector<RGResourceFormat> Attachments;
         bool Imported = false;
         bool IsPlaceholder = false;
         std::string PlaceholderReason;
@@ -212,7 +222,8 @@ namespace OloEngine
                    DepthOrLayers == other.DepthOrLayers &&
                    MipLevels == other.MipLevels &&
                    Samples == other.Samples &&
-                   Queue == other.Queue;
+                   Queue == other.Queue &&
+                   Attachments == other.Attachments;
         }
     };
 } // namespace OloEngine
@@ -306,6 +317,7 @@ namespace OloEngine::ResourceNames
 
     // Indirect occlusion outputs.
     inline constexpr std::string_view AOBuffer = "AOBuffer"; // Either SSAO or GTAO output
+    inline constexpr std::string_view HZBDepth = "HZBDepth"; // GTAO hierarchical depth pyramid scratch (R32F mip chain)
 
     // IBL resources (sampled read-only by Scene/PostProcess).
     inline constexpr std::string_view IrradianceMap = "IrradianceMap";
@@ -342,6 +354,10 @@ namespace OloEngine::ResourceNames
     // validator can catch a missing Water -> OITResolve handoff (a RAW on
     // OITAccum rather than the older "both write SceneColor" approximation,
     // which let the real bug slip through).
+    // `OITBuffer` is the shared transient MRT framebuffer that backs both
+    // OITAccum (RT0 = RGBA16F) and OITRevealage (RT1 = RG16F). Both
+    // blackboard handles point to the same physical transient FB.
+    inline constexpr std::string_view OITBuffer = "OITBuffer";       // Transient MRT FB (RT0=RGBA16F accum, RT1=RG16F revealage)
     inline constexpr std::string_view OITAccum = "OITAccum";         // RGBA16F accumulation attachment
     inline constexpr std::string_view OITRevealage = "OITRevealage"; // RG16F revealage attachment
 } // namespace OloEngine::ResourceNames

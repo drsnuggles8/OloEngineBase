@@ -2708,6 +2708,48 @@ TEST(RenderGraphConfigureTopology, Slice36_FoliageAndOverlayAfterSceneColorWrite
 }
 
 // ---------------------------------------------------------------------------
+// Phase H follow-up — DecalRenderPass raw depth fallback removed
+//
+// DecalRenderPass previously fell back to
+// `m_SceneFramebuffer->GetDepthAttachmentRendererID()` when the blackboard
+// SceneDepth resolve returned 0. That fallback is now removed: the pass
+// self-resolves exclusively from `board->SceneDepth`, matching the same
+// blackboard-only pattern used by SSAORenderPass and GTAORenderPass.
+//
+// This test verifies that the declaration-derived topology still produces
+// the correct ScenePass → DecalPass RAW edge for both SceneColor and
+// SceneDepth with zero side-channel setters.
+// ---------------------------------------------------------------------------
+
+TEST(RenderGraphConfigureTopology, PhaseH_DecalPassSceneDepthNoRawFallback)
+{
+    // ScenePass writes SceneDepth + SceneColor.
+    // DecalPass reads both (SceneDepth for projection, SceneColor as render target).
+    // The two RAW edges must be derived from declarations; no raw framebuffer
+    // fallback should be needed.
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto decal = AddDeclStub(graph, "DecalPass");
+    decal->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    decal->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    decal->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Phase H: DecalPass resolves SceneDepth purely from the blackboard "
+           "— no raw framebuffer fallback needed; ordering is hazard-free."
+        << HazardsToString(hazards);
+}
+
+// ---------------------------------------------------------------------------
 // Slice 37 — Self-resolving SceneDepth/SceneNormals for SSAO and GTAO passes
 //
 // SSAORenderPass and GTAORenderPass now look up SceneDepth and SceneNormals
@@ -3240,6 +3282,69 @@ TEST(RenderGraphConfigureTopology, Slice42_FogPassSelfResolvesUpstreamChain)
     const auto hazards = graph.ValidateResourceHazards();
     EXPECT_TRUE(hazards.empty())
         << "Slice 42: FogPass reading PrecipitationColor upstream chain — no hazard."
+        << HazardsToString(hazards);
+}
+
+// ---------------------------------------------------------------------------
+// Phase H — Follow-up: AO/DOF/MotionBlur/TAA/Fog no longer keep raw
+// depth/shadow fallback IDs. The blackboard declarations alone must drive the
+// full post-process dependency chain.
+// ---------------------------------------------------------------------------
+
+TEST(RenderGraphConfigureTopology, PhaseH_PostChainDepthAndShadowUsersNeedNoRawFallbackIDs)
+{
+    RenderGraph graph;
+
+    auto scene = AddDeclStub(graph, "ScenePass");
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+    scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
+    scene->TestDeclareWrite(std::string(ResourceNames::Velocity));
+
+    auto shadow = AddDeclStub(graph, "ShadowPass");
+    shadow->TestDeclareWrite(std::string(ResourceNames::ShadowMapCSM));
+
+    auto ssao = AddDeclStub(graph, "SSAOPass");
+    ssao->TestDeclareWrite(std::string(ResourceNames::AOBuffer));
+
+    auto aoApply = AddDeclStub(graph, "AOApplyPass");
+    aoApply->TestDeclareRead(std::string(ResourceNames::SceneColor));
+    aoApply->TestDeclareRead(std::string(ResourceNames::AOBuffer));
+    aoApply->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    aoApply->TestDeclareWrite(std::string(ResourceNames::AOApplyColor));
+
+    auto bloom = AddDeclStub(graph, "BloomPass");
+    bloom->TestDeclareRead(std::string(ResourceNames::AOApplyColor));
+    bloom->TestDeclareWrite(std::string(ResourceNames::BloomColor));
+
+    auto dof = AddDeclStub(graph, "DOFPass");
+    dof->TestDeclareRead(std::string(ResourceNames::BloomColor));
+    dof->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    dof->TestDeclareWrite(std::string(ResourceNames::DOFColor));
+
+    auto motionBlur = AddDeclStub(graph, "MotionBlurPass");
+    motionBlur->TestDeclareRead(std::string(ResourceNames::DOFColor));
+    motionBlur->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    motionBlur->TestDeclareWrite(std::string(ResourceNames::MotionBlurColor));
+
+    auto taa = AddDeclStub(graph, "TAAPass");
+    taa->TestDeclareRead(std::string(ResourceNames::MotionBlurColor));
+    taa->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    taa->TestDeclareRead(std::string(ResourceNames::Velocity));
+    taa->TestDeclareWrite(std::string(ResourceNames::TAAColor));
+
+    auto fog = AddDeclStub(graph, "FogPass");
+    fog->TestDeclareRead(std::string(ResourceNames::TAAColor));
+    fog->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+    fog->TestDeclareRead(std::string(ResourceNames::ShadowMapCSM));
+    fog->TestDeclareWrite(std::string(ResourceNames::FogColor));
+
+    auto final = AddDeclStub(graph, "FinalPass");
+    final->TestDeclareRead(std::string(ResourceNames::FogColor));
+    graph.SetFinalPass("FinalPass");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty())
+        << "Phase H follow-up: AO/DOF/MotionBlur/TAA/Fog should derive their full depth/shadow ordering from blackboard reads only; no raw fallback texture IDs required."
         << HazardsToString(hazards);
 }
 

@@ -76,8 +76,8 @@ namespace OloEngine
         // Resource-aware RDG: GTAO reads scene depth/normals and writes AOBuffer
         // consumed later by AOApplyPass. This allows the validator to derive
         // GTAOPass -> AOApplyPass ordering via RAW on AOBuffer.
-        DeclareRead(ResourceNames::SceneDepth, ResourceHandle::Kind::Framebuffer);
-        DeclareRead(ResourceNames::SceneNormals, ResourceHandle::Kind::Framebuffer);
+        DeclareRead(ResourceNames::SceneDepth, ResourceHandle::Kind::Texture2D);
+        DeclareRead(ResourceNames::SceneNormals, ResourceHandle::Kind::Texture2D);
         DeclareWrite(ResourceNames::AOBuffer, ResourceHandle::Kind::Texture2D);
 
         OLO_CORE_INFO("GTAORenderPass: Initialized at {}x{}", m_Width, m_Height);
@@ -102,9 +102,6 @@ namespace OloEngine
 
         m_AOTexture0 = Texture2D::Create(aoSpec);
         m_AOTexture1 = Texture2D::Create(aoSpec);
-
-        // R8 edge texture
-        m_EdgeTexture = Texture2D::Create(aoSpec);
     }
 
     void GTAORenderPass::GenerateHilbertLUT()
@@ -163,6 +160,34 @@ namespace OloEngine
             return;
         }
 
+        // Phase D / H follow-up: resolve the GTAO edge scratch texture from
+        // the transient pool only. The execute path no longer falls back to
+        // an owned edge texture.
+        u32 edgeTexID = 0;
+        if (const auto* board = context.GetBlackboard())
+        {
+            if (board->GTAOEdge.IsValid())
+                if (const u32 transientID = context.ResolveTexture(board->GTAOEdge))
+                    edgeTexID = transientID;
+        }
+        if (edgeTexID == 0)
+            return;
+
+        // Phase D / H follow-up: resolve transient HZB scratch from the render
+        // graph and require it to exist for execution.
+        u32 transientHZBID = 0;
+        if (const auto* board = context.GetBlackboard())
+        {
+            if (board->HZBDepth.IsValid())
+                transientHZBID = context.ResolveTexture(board->HZBDepth);
+        }
+        if (transientHZBID == 0)
+        {
+            m_HZBGenerator.ClearExternalHZBTexture();
+            return;
+        }
+        m_HZBGenerator.SetExternalHZBTexture(transientHZBID, m_HZBGenerator.GetMipCount());
+
         {
             static u32 s_PrevDepthID = 0;
             static u32 s_PrevNormalsID = 0;
@@ -185,12 +210,12 @@ namespace OloEngine
         UploadGTAOUniforms();
 
         // Step 3: Dispatch GTAO main pass
-        DispatchGTAO(normalsID);
+        DispatchGTAO(normalsID, edgeTexID);
 
         // Step 4: Denoise (if enabled)
         if (m_Settings.GTAODenoiseEnabled && m_DenoiseShader && m_DenoiseShader->IsValid())
         {
-            DispatchDenoise();
+            DispatchDenoise(edgeTexID);
         }
     }
 
@@ -239,7 +264,7 @@ namespace OloEngine
         m_GTAOUBO->Bind();
     }
 
-    void GTAORenderPass::DispatchGTAO(u32 normalsTextureID)
+    void GTAORenderPass::DispatchGTAO(u32 normalsTextureID, u32 edgeTexID)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -247,7 +272,7 @@ namespace OloEngine
 
         // Bind output images
         RenderCommand::BindImageTexture(0, m_AOTexture0->GetRendererID(), 0, false, 0, GL_WRITE_ONLY, GL_R8);
-        RenderCommand::BindImageTexture(1, m_EdgeTexture->GetRendererID(), 0, false, 0, GL_WRITE_ONLY, GL_R8);
+        RenderCommand::BindImageTexture(1, edgeTexID, 0, false, 0, GL_WRITE_ONLY, GL_R8);
 
         // Bind inputs
         u32 hzbID = m_HZBGenerator.GetHZBTextureID();
@@ -268,7 +293,7 @@ namespace OloEngine
         m_GTAOShader->Unbind();
     }
 
-    void GTAORenderPass::DispatchDenoise()
+    void GTAORenderPass::DispatchDenoise(u32 edgeTexID)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -278,7 +303,7 @@ namespace OloEngine
         u32 groupsY = (m_Height + 7) / 8;
 
         // Edge texture is always read-only
-        RenderCommand::BindImageTexture(2, m_EdgeTexture->GetRendererID(), 0, false, 0, GL_READ_ONLY, GL_R8);
+        RenderCommand::BindImageTexture(2, edgeTexID, 0, false, 0, GL_READ_ONLY, GL_R8);
 
         i32 passes = m_Settings.GTAODenoisePasses;
         bool readFromTex0 = true;
@@ -370,11 +395,6 @@ namespace OloEngine
         {
             m_AOTexture1->Resize(width, height);
         }
-        if (m_EdgeTexture)
-        {
-            m_EdgeTexture->Resize(width, height);
-        }
-
         m_HZBGenerator.Resize(width, height);
 
         OLO_CORE_INFO("GTAORenderPass: Resized to {}x{}", width, height);

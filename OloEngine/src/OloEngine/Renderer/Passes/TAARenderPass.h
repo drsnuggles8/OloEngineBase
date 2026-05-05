@@ -20,7 +20,7 @@ namespace OloEngine
     //     `TAAHistory`
     //   * TAA parameters UBO at binding 32
     //
-    // Inputs (provided via setters / blackboard handles):
+    // Inputs (resolved from the blackboard):
     //   * Post-process colour input framebuffer
     //   * Scene depth texture (required)
     //   * Velocity texture (optional, 0 = camera-only reprojection path)
@@ -61,11 +61,6 @@ namespace OloEngine
             m_Settings = settings;
         }
 
-        void SetSceneDepthTextureID(u32 id) noexcept
-        {
-            m_SceneDepthTextureID = id;
-        }
-
         [[nodiscard]] u32 GetTAAHistoryTextureID() const
         {
             if (!m_TAAHistoryValid || !m_TAAHistoryFB)
@@ -86,7 +81,5 @@ namespace OloEngine
         Ref<Shader> m_TAAShader;
         Ref<UniformBuffer> m_TAAUBO;
         bool m_TAAHistoryValid = false;
-
-        u32 m_SceneDepthTextureID = 0;
     };
 } // namespace OloEngine

@@ -463,7 +463,7 @@ namespace OloEngine
         }
 
         const auto& center = probes[4];
-        if (IsPresentationLikeSource(source) && nonBlackSamples == 0)
+        if (nonBlackSamples == 0)
         {
             OLO_CORE_WARN("RenderGraphFrameCapture[{}|{}:{}]: BLACK capture (src tex {} fb {} -> dst tex {}, {}x{}, nonBlack={}/9, nonTransparent={}/9, center=({},{},{},{}))",
                           passName, SourceName(source), resourceName, sourceTextureID, sourceFramebufferID, dstTexture, width, height,
