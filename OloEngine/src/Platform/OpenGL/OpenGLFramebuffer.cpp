@@ -195,12 +195,21 @@ namespace OloEngine
             glDrawBuffers(static_cast<GLsizei>(colorBuffers.size()), colorBuffers.data());
         }
 
-        glViewport(0, 0, static_cast<GLsizei>(m_Specification.Width), static_cast<GLsizei>(m_Specification.Height));
+        // Use the DRS render viewport override when set; fall back to physical size.
+        const auto vpW = (m_RenderViewportWidth > 0) ? m_RenderViewportWidth : m_Specification.Width;
+        const auto vpH = (m_RenderViewportHeight > 0) ? m_RenderViewportHeight : m_Specification.Height;
+        glViewport(0, 0, static_cast<GLsizei>(vpW), static_cast<GLsizei>(vpH));
     }
 
     void OpenGLFramebuffer::Unbind()
     {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    void OpenGLFramebuffer::SetRenderViewportSize(const u32 width, const u32 height)
+    {
+        m_RenderViewportWidth = width;
+        m_RenderViewportHeight = height;
     }
 
     void OpenGLFramebuffer::Resize(u32 width, u32 height)
@@ -213,6 +222,10 @@ namespace OloEngine
 
         m_Specification.Width = width;
         m_Specification.Height = height;
+        // Physical resize supersedes the DRS override — clear it so the new
+        // physical size is used directly until SetRenderScale() re-applies.
+        m_RenderViewportWidth = 0;
+        m_RenderViewportHeight = 0;
 
         Invalidate();
     }

@@ -16,6 +16,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_set>
+#include <glm/glm.hpp>
 
 namespace OloEngine
 {
@@ -28,6 +29,31 @@ namespace OloEngine
 
         void Init(u32 width, u32 height);
         void Shutdown();
+
+        // -------------------------------------------------------------------
+        // Dynamic Resolution Scaling
+        // -------------------------------------------------------------------
+        // Set the render scale applied to the current physical dimensions.
+        // Scale is clamped to [0.25, 1.0]. Calls ApplyRenderViewport() on all
+        // registered passes WITHOUT reallocating any GPU resources — only the
+        // glViewport dimensions change. The physical FBO size is unchanged.
+        // At scale 1.0 the DRS override is cleared (viewport == physical size).
+        void SetRenderScale(f32 scale);
+
+        // Return the render viewport dimensions (physical size * render scale).
+        [[nodiscard]] u32 GetRenderWidth() const;
+        [[nodiscard]] u32 GetRenderHeight() const;
+
+        // Return the current render scale [0.25, 1.0].
+        [[nodiscard]] f32 GetRenderScale() const
+        {
+            return m_RenderScale;
+        }
+
+        // Return (renderWidth / physicalWidth, renderHeight / physicalHeight).
+        // Shaders can use this to clamp UV coordinates so screen-space passes
+        // that read from a DRS-scaled buffer don't sample uninitialized texels.
+        [[nodiscard]] glm::vec2 GetRenderScaleBounds() const;
 
         // Clear all topology bookkeeping (passes, edges, framebuffer piping,
         // cached execution order) WITHOUT touching the passes themselves.
@@ -632,6 +658,7 @@ namespace OloEngine
 
             Kind CommandKind = Kind::Pass;
             std::string PassName;                                                   ///< non-empty for Pass commands
+            RenderPass* PassPointer = nullptr;                                      ///< cached pointer to avoid map lookups
             MemoryBarrierFlags Barriers = MemoryBarrierFlags::None;                 ///< for MemoryBarrier commands
             u32 BatchIndex = 0;                                                     ///< for BatchBegin/BatchEnd: which async batch
             RenderPass::PassWorkType WorkType = RenderPass::PassWorkType::Graphics; ///< for Pass commands
@@ -774,6 +801,14 @@ namespace OloEngine
         bool m_HasExplicitFinalPass = false;
         bool m_DependencyGraphDirty = false;
 
+        // Dynamic Resolution Scaling state.
+        // m_PhysicalWidth/Height reflect the last Resize() call (actual GPU allocation).
+        // m_RenderScale is in [0.25, 1.0]; the active render viewport is
+        // floor(physical * scale). Both reset on the next Resize().
+        u32 m_PhysicalWidth = 0;
+        u32 m_PhysicalHeight = 0;
+        f32 m_RenderScale = 1.0f;
+
         // Phase E — Reachability tracking
         std::unordered_set<std::string> m_ReachablePasses; // Passes that are reachable from final output
         std::vector<std::string> m_CulledPasses;           // Passes that were culled in last analysis
@@ -814,6 +849,9 @@ namespace OloEngine
             u32 Generation = 1;
             bool Alive = false;
             std::string Name;
+            bool IsPlaceholder = false;
+            mutable bool PlaceholderWarnedThisFrame = false;
+            std::string PlaceholderReason;
         };
         mutable std::vector<HandleSlot> m_TextureHandleSlots;
         mutable std::vector<HandleSlot> m_BufferHandleSlots;
@@ -844,7 +882,6 @@ namespace OloEngine
         mutable std::vector<PhysicalTexture> m_PhysicalTextures;
         mutable std::vector<PhysicalFramebuffer> m_PhysicalFramebuffers;
         mutable std::vector<PhysicalBuffer> m_PhysicalBuffers;
-        mutable std::unordered_set<std::string> m_PlaceholderResolveWarningsThisFrame;
 
         // -------------------------------------------------------------------
         // Phase B — Extraction queue
@@ -893,9 +930,9 @@ namespace OloEngine
 
         // Allocate or recycle a texture handle slot and record the physical
         // resource. Called by ImportTexture / ImportHistory.
-        RGTextureHandle AllocateTextureHandle(std::string_view name, u32 textureID, bool isHistory);
-        RGFramebufferHandle AllocateFramebufferHandle(std::string_view name, const Ref<Framebuffer>& fb);
-        RGBufferHandle AllocateBufferHandle(std::string_view name, u32 bufferID);
+        RGTextureHandle AllocateTextureHandle(std::string_view name, u32 textureID, bool isHistory, bool isPlaceholder = false, std::string_view placeholderReason = "");
+        RGFramebufferHandle AllocateFramebufferHandle(std::string_view name, const Ref<Framebuffer>& fb, bool isPlaceholder = false, std::string_view placeholderReason = "");
+        RGBufferHandle AllocateBufferHandle(std::string_view name, u32 bufferID, bool isPlaceholder = false, std::string_view placeholderReason = "");
 
         void RebuildExecutionCache();
         void EnsureResourceRegistryBuilt() const;

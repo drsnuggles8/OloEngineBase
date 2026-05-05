@@ -558,6 +558,7 @@ namespace OloEngine
         s_Data.FogVolumesGPUData = FogVolumesUBOData{};
         s_Data.DecalUBO = UniformBuffer::Create(ShaderBindingLayout::DecalUBO::GetSize(), ShaderBindingLayout::UBO_DECAL);
         s_Data.LightProbeVolumeUBO = UniformBuffer::Create(ShaderBindingLayout::LightProbeVolumeUBO::GetSize(), ShaderBindingLayout::UBO_LIGHT_PROBES);
+        s_Data.DRSUBO = UniformBuffer::Create(DRSUBOData::GetSize(), ShaderBindingLayout::UBO_DRS);
 
         // Initialize light probe UBO with disabled state and create a small zeroed SSBO
         // so shaders always have valid bindings at SSBO_LIGHT_PROBES
@@ -1400,7 +1401,7 @@ namespace OloEngine
                 oitDesc.DebugName = std::string(ResourceNames::OITBuffer);
 
                 const auto oitHandle = graph.DeclareTransientFramebuffer(ResourceNames::OITBuffer, oitDesc,
-                                                                          oitBuf->GetFramebuffer());
+                                                                         oitBuf->GetFramebuffer());
                 board.OITAccum = oitHandle;
                 board.OITRevealage = oitHandle;
             }
@@ -2027,6 +2028,13 @@ namespace OloEngine
                 gpu.InverseScreenHeight = 1.0f / static_cast<f32>(spec.Height);
             }
             s_Data.PostProcessUBO->SetData(&gpu, PostProcessUBOData::GetSize());
+        }
+
+        // Upload DRS bounds so screen-space shaders can clamp UVs to the rendered region.
+        {
+            const glm::vec2 bounds = s_Data.RGraph ? s_Data.RGraph->GetRenderScaleBounds() : glm::vec2(1.0f);
+            s_Data.DRSGPUData.RenderScaleBounds = bounds;
+            s_Data.DRSUBO->SetData(&s_Data.DRSGPUData, DRSUBOData::GetSize());
         }
 
         // Upload snow settings to GPU
@@ -4466,7 +4474,17 @@ namespace OloEngine
                         hzbDesc.MipLevels = mipCount;
 
                         const auto hzbHandle = builder.CreateTexture(ResourceNames::HZBDepth, hzbDesc);
-                        builder.Write(hzbHandle, RGWriteUsage::ShaderImage);
+                        // Per-mip declarations: mip 0 is written from scene depth (SceneDepth
+                        // already declared above). Each subsequent mip reads the prior mip then
+                        // writes the current one, giving the barrier planner exact RAW
+                        // dependencies at subresource granularity.
+                        builder.Write(hzbHandle, RGWriteUsage::ShaderImage, RGSubresourceRange::Mip(0));
+                        for (u32 mip = 1; mip < mipCount; ++mip)
+                        {
+                            builder.Read(hzbHandle, RGReadUsage::ShaderSample, RGSubresourceRange::Mip(mip - 1u));
+                            builder.Write(hzbHandle, RGWriteUsage::ShaderImage, RGSubresourceRange::Mip(mip));
+                        }
+                        // GTAO samples the full mip chain after the HZB pyramid is complete.
                         [[maybe_unused]] const auto hzbRead = builder.Read(hzbHandle, RGReadUsage::ShaderSample);
                     }
                 }
@@ -5727,6 +5745,20 @@ namespace OloEngine
 
         // Resize Forward+ light grid
         s_Data.ForwardPlus.Resize(width, height);
+    }
+
+    void Renderer3D::SetRenderScale(f32 scale)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!s_Data.RGraph)
+            return;
+        s_Data.RGraph->SetRenderScale(scale);
+        // Upload immediately so the DRS UBO reflects the new scale even if called
+        // outside BeginSceneCommon (e.g. from the settings panel).
+        const glm::vec2 bounds = s_Data.RGraph->GetRenderScaleBounds();
+        s_Data.DRSGPUData.RenderScaleBounds = bounds;
+        if (s_Data.DRSUBO)
+            s_Data.DRSUBO->SetData(&s_Data.DRSGPUData, DRSUBOData::GetSize());
     }
 
     CommandPacket* Renderer3D::DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic, i32 entityID)

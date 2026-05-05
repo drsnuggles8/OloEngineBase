@@ -147,22 +147,37 @@ namespace OloEngine
 
     void TransientPool::Trim(u32 maxPerBucket)
     {
-        for (auto& [key, pool] : m_TexturePool)
+        for (auto it = m_TexturePool.begin(); it != m_TexturePool.end();)
         {
-            if (pool.size() > maxPerBucket)
-                pool.resize(maxPerBucket);
+            if (it->second.size() > maxPerBucket)
+                it->second.resize(maxPerBucket);
+
+            if (it->second.empty())
+                it = m_TexturePool.erase(it);
+            else
+                ++it;
         }
 
-        for (auto& [key, pool] : m_FramebufferPool)
+        for (auto it = m_FramebufferPool.begin(); it != m_FramebufferPool.end();)
         {
-            if (pool.size() > maxPerBucket)
-                pool.resize(maxPerBucket);
+            if (it->second.size() > maxPerBucket)
+                it->second.resize(maxPerBucket);
+
+            if (it->second.empty())
+                it = m_FramebufferPool.erase(it);
+            else
+                ++it;
         }
 
-        for (auto& [sizeBytes, pool] : m_BufferPool)
+        for (auto it = m_BufferPool.begin(); it != m_BufferPool.end();)
         {
-            if (pool.size() > maxPerBucket)
-                pool.resize(maxPerBucket);
+            if (it->second.size() > maxPerBucket)
+                it->second.resize(maxPerBucket);
+
+            if (it->second.empty())
+                it = m_BufferPool.erase(it);
+            else
+                ++it;
         }
     }
 

@@ -107,6 +107,21 @@ class StubFramebuffer : public Framebuffer
     {
         m_Specification.Width = width;
         m_Specification.Height = height;
+        m_RenderViewportWidth = 0;
+        m_RenderViewportHeight = 0;
+    }
+    void SetRenderViewportSize(u32 width, u32 height) override
+    {
+        m_RenderViewportWidth = width;
+        m_RenderViewportHeight = height;
+    }
+    [[nodiscard]] u32 GetRenderViewportWidth() const override
+    {
+        return m_RenderViewportWidth;
+    }
+    [[nodiscard]] u32 GetRenderViewportHeight() const override
+    {
+        return m_RenderViewportHeight;
     }
     int ReadPixel(u32 /*attachmentIndex*/, int /*x*/, int /*y*/) override
     {
@@ -135,6 +150,8 @@ class StubFramebuffer : public Framebuffer
 
   private:
     u32 m_RendererID = 0;
+    u32 m_RenderViewportWidth = 0;
+    u32 m_RenderViewportHeight = 0;
     FramebufferSpecification m_Specification;
 };
 

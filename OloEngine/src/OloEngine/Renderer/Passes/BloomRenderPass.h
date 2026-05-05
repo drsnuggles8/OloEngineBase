@@ -76,9 +76,9 @@ namespace OloEngine
       private:
         static constexpr u32 MAX_BLOOM_MIPS = 5;
 
-                // Bitmask of the last startup/runtime failure state observed in Execute().
-                // Used to avoid spamming identical error logs every frame.
-                u32 m_LastFailureMask = 0;
+        // Bitmask of the last startup/runtime failure state observed in Execute().
+        // Used to avoid spamming identical error logs every frame.
+        u32 m_LastFailureMask = 0;
 
         bool m_Enabled = false;
 

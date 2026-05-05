@@ -77,6 +77,22 @@ namespace OloEngine
 
         virtual void SetupFramebuffer(u32 /*width*/, u32 /*height*/) {}
         virtual void ResizeFramebuffer(u32 /*width*/, u32 /*height*/) {}
+
+        // Dynamic Resolution Scaling support.
+        // Called by RenderGraph::SetRenderScale() to set the active render
+        // viewport on this pass's framebuffer(s) WITHOUT reallocating GPU
+        // memory (contrast with ResizeFramebuffer which reallocates).
+        // The default implementation updates m_Target when present. Passes
+        // with multiple framebuffers (e.g. BloomRenderPass) should override
+        // this to cover all their targets.
+        virtual void ApplyRenderViewport(u32 width, u32 height)
+        {
+            m_RenderViewportWidth = width;
+            m_RenderViewportHeight = height;
+            if (m_Target)
+                m_Target->SetRenderViewportSize(width, height);
+        }
+
         virtual void OnReset() {}
         [[nodiscard]] virtual SubmissionModel GetSubmissionModel() const
         {
@@ -181,6 +197,11 @@ namespace OloEngine
         std::string m_Name = "RenderPass";
         Ref<Framebuffer> m_Target;
         FramebufferSpecification m_FramebufferSpec;
+
+        // DRS render-viewport dimensions set by ApplyRenderViewport().
+        // Zero means "use physical framebuffer size" (no DRS override active).
+        u32 m_RenderViewportWidth = 0;
+        u32 m_RenderViewportHeight = 0;
 
         // Resource declarations (opt-in). Empty = unchecked by validator.
         std::vector<ResourceHandle> m_Reads;

@@ -20,6 +20,17 @@ namespace OloEngine
         // TODO(olbu): Add BindColorAttachment, BindDepthAttachment
 
         void Resize(u32 width, u32 height) override;
+
+        void SetRenderViewportSize(u32 width, u32 height) override;
+        [[nodiscard]] u32 GetRenderViewportWidth() const override
+        {
+            return m_RenderViewportWidth;
+        }
+        [[nodiscard]] u32 GetRenderViewportHeight() const override
+        {
+            return m_RenderViewportHeight;
+        }
+
         int ReadPixel(u32 attachmentIndex, int x, int y) override;
 
         void ClearAttachment(u32 attachmentIndex, int value) override;
@@ -53,6 +64,12 @@ namespace OloEngine
       private:
         u32 m_RendererID = 0;
         FramebufferSpecification m_Specification;
+
+        // DRS render viewport override. When non-zero, Bind() uses these
+        // dimensions for glViewport instead of m_Specification.Width/Height.
+        // Reset to zero by Resize() so physical resizes clear the override.
+        u32 m_RenderViewportWidth = 0;
+        u32 m_RenderViewportHeight = 0;
 
         std::vector<FramebufferTextureSpecification> m_ColorAttachmentSpecifications;
         FramebufferTextureSpecification m_DepthAttachmentSpecification = FramebufferTextureFormat::None;

@@ -681,6 +681,17 @@ namespace OloEngine
             return s_Data.RGraph;
         }
 
+        // Dynamic Resolution Scaling.
+        // scale is clamped to [0.25, 1.0]; use 1.0 to disable DRS.
+        // The render graph forwards the scale to all registered render passes
+        // via ApplyRenderViewport, and the DRS UBO (binding 33) is updated
+        // each frame in BeginSceneCommon so shaders can clamp screen-space UVs.
+        static void SetRenderScale(f32 scale);
+        static f32 GetRenderScale()
+        {
+            return s_Data.RGraph ? s_Data.RGraph->GetRenderScale() : 1.0f;
+        }
+
         // Driver-advertised max MSAA samples (min of colour/depth texture
         // caps). Zero until Renderer3D::Init has queried the GL limits.
         // The editor settings panel uses this to disable combo entries
@@ -1318,6 +1329,7 @@ namespace OloEngine
             Ref<UniformBuffer> DecalUBO;
             Ref<UniformBuffer> LightProbeVolumeUBO;
             Ref<StorageBuffer> LightProbeSHBuffer;
+            Ref<UniformBuffer> DRSUBO;
 
             glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
             glm::mat4 InverseViewProjectionMatrix = glm::mat4(1.0f);
@@ -1432,6 +1444,7 @@ namespace OloEngine
             FogSettings Fog;
             FogUBOData FogGPUData;
             FogVolumesUBOData FogVolumesGPUData;
+            DRSUBOData DRSGPUData;
             u32 FogFrameIndex = 0;
             std::chrono::steady_clock::time_point FogLastTime{};
             f32 FogTime = 0.0f;

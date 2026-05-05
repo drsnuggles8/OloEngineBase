@@ -34,6 +34,10 @@ namespace OloEngine
         if (IsRenderGraphDiagnosticsEnabled())
             OLO_CORE_TRACE("Initializing RenderGraph with dimensions: {}x{}", width, height);
 
+        m_PhysicalWidth = width;
+        m_PhysicalHeight = height;
+        m_RenderScale = 1.0f;
+
         // Initialize all passes
         for (auto& [name, pass] : m_PassLookup)
         {
@@ -83,7 +87,6 @@ namespace OloEngine
         m_PhysicalTextures.clear();
         m_PhysicalFramebuffers.clear();
         m_PhysicalBuffers.clear();
-        m_PlaceholderResolveWarningsThisFrame.clear();
         m_TextureExtracts.clear();
         m_HistoryTextureExtracts.clear();
         m_FramebufferExtracts.clear();
@@ -157,7 +160,6 @@ namespace OloEngine
         m_PhysicalTextures.clear();
         m_PhysicalFramebuffers.clear();
         m_PhysicalBuffers.clear();
-        m_PlaceholderResolveWarningsThisFrame.clear();
         m_TextureExtracts.clear();
         m_HistoryTextureExtracts.clear();
         m_FramebufferExtracts.clear();
@@ -211,7 +213,7 @@ namespace OloEngine
     // Phase B — Typed import / resolve / extract
     // =========================================================================
 
-    RGTextureHandle RenderGraph::AllocateTextureHandle(std::string_view name, u32 textureID, bool isHistory)
+    RGTextureHandle RenderGraph::AllocateTextureHandle(std::string_view name, u32 textureID, bool isHistory, bool isPlaceholder, std::string_view placeholderReason)
     {
         RGTextureHandle handle;
 
@@ -230,6 +232,9 @@ namespace OloEngine
             ++slot.Generation;
             slot.Alive = true;
             slot.Name = std::string(name);
+            slot.IsPlaceholder = isPlaceholder;
+            slot.PlaceholderReason = std::string(placeholderReason);
+            slot.PlaceholderWarnedThisFrame = false;
             handle.Generation = slot.Generation;
 
             // If this slot was previously marked free, remove it from the free
@@ -258,6 +263,9 @@ namespace OloEngine
             auto& slot = m_TextureHandleSlots[handle.Index];
             slot.Alive = true;
             slot.Name = std::string(name);
+            slot.IsPlaceholder = isPlaceholder;
+            slot.PlaceholderReason = std::string(placeholderReason);
+            slot.PlaceholderWarnedThisFrame = false;
             handle.Generation = slot.Generation;
 
             if (handle.Index >= m_PhysicalTextures.size())
@@ -276,6 +284,9 @@ namespace OloEngine
             slot.Generation = 1;
             slot.Alive = true;
             slot.Name = std::string(name);
+            slot.IsPlaceholder = isPlaceholder;
+            slot.PlaceholderReason = std::string(placeholderReason);
+            slot.PlaceholderWarnedThisFrame = false;
             m_TextureHandleSlots.push_back(std::move(slot));
 
             PhysicalTexture phys;
@@ -288,7 +299,7 @@ namespace OloEngine
         return handle;
     }
 
-    RGFramebufferHandle RenderGraph::AllocateFramebufferHandle(std::string_view name, const Ref<Framebuffer>& fb)
+    RGFramebufferHandle RenderGraph::AllocateFramebufferHandle(std::string_view name, const Ref<Framebuffer>& fb, bool isPlaceholder, std::string_view placeholderReason)
     {
         RGFramebufferHandle handle;
 
@@ -311,6 +322,9 @@ namespace OloEngine
             ++slot.Generation;
             slot.Alive = true;
             slot.Name = std::string(name);
+            slot.IsPlaceholder = isPlaceholder;
+            slot.PlaceholderReason = std::string(placeholderReason);
+            slot.PlaceholderWarnedThisFrame = false;
             handle.Generation = slot.Generation;
 
             const auto freeIt = std::find(m_FreeFramebufferHandleIndices.begin(),
@@ -334,6 +348,9 @@ namespace OloEngine
             auto& slot = m_FramebufferHandleSlots[handle.Index];
             slot.Alive = true;
             slot.Name = std::string(name);
+            slot.IsPlaceholder = isPlaceholder;
+            slot.PlaceholderReason = std::string(placeholderReason);
+            slot.PlaceholderWarnedThisFrame = false;
             handle.Generation = slot.Generation;
 
             if (handle.Index >= m_PhysicalFramebuffers.size())
@@ -365,6 +382,9 @@ namespace OloEngine
             slot.Generation = 1;
             slot.Alive = true;
             slot.Name = std::string(name);
+            slot.IsPlaceholder = isPlaceholder;
+            slot.PlaceholderReason = std::string(placeholderReason);
+            slot.PlaceholderWarnedThisFrame = false;
             m_FramebufferHandleSlots.push_back(std::move(slot));
 
             PhysicalFramebuffer phys;
@@ -376,7 +396,7 @@ namespace OloEngine
         return handle;
     }
 
-    RGBufferHandle RenderGraph::AllocateBufferHandle(std::string_view name, u32 bufferID)
+    RGBufferHandle RenderGraph::AllocateBufferHandle(std::string_view name, u32 bufferID, bool isPlaceholder, std::string_view placeholderReason)
     {
         RGBufferHandle handle;
 
@@ -392,6 +412,9 @@ namespace OloEngine
             ++slot.Generation;
             slot.Alive = true;
             slot.Name = std::string(name);
+            slot.IsPlaceholder = isPlaceholder;
+            slot.PlaceholderReason = std::string(placeholderReason);
+            slot.PlaceholderWarnedThisFrame = false;
             handle.Generation = slot.Generation;
 
             const auto freeIt = std::find(m_FreeBufferHandleIndices.begin(),
@@ -415,6 +438,9 @@ namespace OloEngine
             auto& slot = m_BufferHandleSlots[handle.Index];
             slot.Alive = true;
             slot.Name = std::string(name);
+            slot.IsPlaceholder = isPlaceholder;
+            slot.PlaceholderReason = std::string(placeholderReason);
+            slot.PlaceholderWarnedThisFrame = false;
             handle.Generation = slot.Generation;
 
             if (handle.Index >= m_PhysicalBuffers.size())
@@ -431,6 +457,9 @@ namespace OloEngine
             slot.Generation = 1;
             slot.Alive = true;
             slot.Name = std::string(name);
+            slot.IsPlaceholder = isPlaceholder;
+            slot.PlaceholderReason = std::string(placeholderReason);
+            slot.PlaceholderWarnedThisFrame = false;
             m_BufferHandleSlots.push_back(std::move(slot));
 
             PhysicalBuffer phys;
@@ -455,7 +484,7 @@ namespace OloEngine
         m_ImportedResources[std::string(name)] = importDesc;
         m_ResourceRegistryDirty = true;
 
-        return AllocateTextureHandle(name, textureID, false);
+        return AllocateTextureHandle(name, textureID, false, importDesc.IsPlaceholder, importDesc.PlaceholderReason);
     }
 
     RGFramebufferHandle RenderGraph::ImportFramebuffer(std::string_view name,
@@ -472,7 +501,7 @@ namespace OloEngine
         m_ImportedResources[std::string(name)] = importDesc;
         m_ResourceRegistryDirty = true;
 
-        return AllocateFramebufferHandle(name, fb);
+        return AllocateFramebufferHandle(name, fb, importDesc.IsPlaceholder, importDesc.PlaceholderReason);
     }
 
     RGBufferHandle RenderGraph::ImportBuffer(std::string_view name, u32 bufferID,
@@ -488,7 +517,7 @@ namespace OloEngine
         m_ImportedResources[std::string(name)] = importDesc;
         m_ResourceRegistryDirty = true;
 
-        return AllocateBufferHandle(name, bufferID);
+        return AllocateBufferHandle(name, bufferID, importDesc.IsPlaceholder, importDesc.PlaceholderReason);
     }
 
     RGTextureHandle RenderGraph::ImportHistory(std::string_view name, u32 textureID,
@@ -507,7 +536,7 @@ namespace OloEngine
         m_ImportedResources[std::string(name)] = importDesc;
         m_ResourceRegistryDirty = true;
 
-        return AllocateTextureHandle(name, textureID, /*isHistory=*/true);
+        return AllocateTextureHandle(name, textureID, /*isHistory=*/true, importDesc.IsPlaceholder, importDesc.PlaceholderReason);
     }
 
     u32 RenderGraph::ResolveTexture(RGTextureHandle handle) const
@@ -520,16 +549,12 @@ namespace OloEngine
         if (!slot.Alive || slot.Generation != handle.Generation)
             return 0;
 
-        if (const auto descIt = m_ImportedResources.find(slot.Name); descIt != m_ImportedResources.end())
+        if (slot.IsPlaceholder && !slot.PlaceholderWarnedThisFrame)
         {
-            const auto& desc = descIt->second;
-            if (desc.IsPlaceholder && !m_PlaceholderResolveWarningsThisFrame.contains(slot.Name))
-            {
-                OLO_CORE_WARN("RenderGraph: resolving placeholder texture resource '{}' (reason: {})",
-                              slot.Name,
-                              desc.PlaceholderReason.empty() ? "unspecified" : desc.PlaceholderReason);
-                m_PlaceholderResolveWarningsThisFrame.insert(slot.Name);
-            }
+            OLO_CORE_WARN("RenderGraph: resolving placeholder texture resource '{}' (reason: {})",
+                          slot.Name,
+                          slot.PlaceholderReason.empty() ? "unspecified" : slot.PlaceholderReason);
+            slot.PlaceholderWarnedThisFrame = true;
         }
 
         return m_PhysicalTextures[handle.Index].TextureID;
@@ -545,16 +570,12 @@ namespace OloEngine
         if (!slot.Alive || slot.Generation != handle.Generation)
             return nullptr;
 
-        if (const auto descIt = m_ImportedResources.find(slot.Name); descIt != m_ImportedResources.end())
+        if (slot.IsPlaceholder && !slot.PlaceholderWarnedThisFrame)
         {
-            const auto& desc = descIt->second;
-            if (desc.IsPlaceholder && !m_PlaceholderResolveWarningsThisFrame.contains(slot.Name))
-            {
-                OLO_CORE_WARN("RenderGraph: resolving placeholder framebuffer resource '{}' (reason: {})",
-                              slot.Name,
-                              desc.PlaceholderReason.empty() ? "unspecified" : desc.PlaceholderReason);
-                m_PlaceholderResolveWarningsThisFrame.insert(slot.Name);
-            }
+            OLO_CORE_WARN("RenderGraph: resolving placeholder framebuffer resource '{}' (reason: {})",
+                          slot.Name,
+                          slot.PlaceholderReason.empty() ? "unspecified" : slot.PlaceholderReason);
+            slot.PlaceholderWarnedThisFrame = true;
         }
 
         return m_PhysicalFramebuffers[handle.Index].FB;
@@ -570,16 +591,12 @@ namespace OloEngine
         if (!slot.Alive || slot.Generation != handle.Generation)
             return 0;
 
-        if (const auto descIt = m_ImportedResources.find(slot.Name); descIt != m_ImportedResources.end())
+        if (slot.IsPlaceholder && !slot.PlaceholderWarnedThisFrame)
         {
-            const auto& desc = descIt->second;
-            if (desc.IsPlaceholder && !m_PlaceholderResolveWarningsThisFrame.contains(slot.Name))
-            {
-                OLO_CORE_WARN("RenderGraph: resolving placeholder buffer resource '{}' (reason: {})",
-                              slot.Name,
-                              desc.PlaceholderReason.empty() ? "unspecified" : desc.PlaceholderReason);
-                m_PlaceholderResolveWarningsThisFrame.insert(slot.Name);
-            }
+            OLO_CORE_WARN("RenderGraph: resolving placeholder buffer resource '{}' (reason: {})",
+                          slot.Name,
+                          slot.PlaceholderReason.empty() ? "unspecified" : slot.PlaceholderReason);
+            slot.PlaceholderWarnedThisFrame = true;
         }
 
         return m_PhysicalBuffers[handle.Index].BufferID;
@@ -830,7 +847,7 @@ namespace OloEngine
     }
 
     RGFramebufferHandle RenderGraph::DeclareTransientFramebuffer(std::string_view name, const RGResourceDesc& desc,
-                                                                  const Ref<Framebuffer>& ownerFB)
+                                                                 const Ref<Framebuffer>& ownerFB)
     {
         // Register the descriptor so EnsureResourceRegistryBuilt() creates a
         // stable typed handle.  Then return that handle.  If this is called
@@ -1057,7 +1074,13 @@ namespace OloEngine
         m_LastPassTimings.clear();
         m_LastPassTimings.reserve(m_CachedExecutionOrder.size());
         m_FallbackActivations.clear();
-        m_PlaceholderResolveWarningsThisFrame.clear();
+
+        for (auto& slot : m_TextureHandleSlots)
+            slot.PlaceholderWarnedThisFrame = false;
+        for (auto& slot : m_FramebufferHandleSlots)
+            slot.PlaceholderWarnedThisFrame = false;
+        for (auto& slot : m_BufferHandleSlots)
+            slot.PlaceholderWarnedThisFrame = false;
 
         if (m_DependencyGraphDirty)
         {
@@ -1129,11 +1152,10 @@ namespace OloEngine
                         break;
                     }
 
-                    const auto passIt = m_PassLookup.find(cmd.PassName);
-                    if (passIt == m_PassLookup.end() || !passIt->second)
+                    if (!cmd.PassPointer)
                         break;
 
-                    auto* pass = passIt->second.Raw();
+                    auto* pass = cmd.PassPointer;
                     commandContext.BeginPass(cmd.PassName);
                     const auto executeStart = std::chrono::steady_clock::now();
                     pass->Execute(commandContext);
@@ -1454,10 +1476,74 @@ namespace OloEngine
     void RenderGraph::Resize(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
+        m_PhysicalWidth = width;
+        m_PhysicalHeight = height;
+
         for (auto& [name, pass] : m_PassLookup)
         {
             pass->ResizeFramebuffer(width, height);
         }
+
+        // Physical resize resets render viewport overrides on all FBOs.
+        // Re-apply the current DRS scale so the render viewport is correct
+        // for the new physical dimensions (scale 1.0 means no-op).
+        if (m_RenderScale < 1.0f)
+        {
+            const auto renderW = static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalWidth) * m_RenderScale));
+            const auto renderH = static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalHeight) * m_RenderScale));
+            for (auto& [name, pass] : m_PassLookup)
+            {
+                pass->ApplyRenderViewport(renderW, renderH);
+            }
+        }
+    }
+
+    void RenderGraph::SetRenderScale(const f32 scale)
+    {
+        OLO_PROFILE_FUNCTION();
+        m_RenderScale = glm::clamp(scale, 0.25f, 1.0f);
+
+        if (m_PhysicalWidth == 0 || m_PhysicalHeight == 0)
+            return;
+
+        const auto renderW = static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalWidth) * m_RenderScale));
+        const auto renderH = static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalHeight) * m_RenderScale));
+
+        for (auto& [name, pass] : m_PassLookup)
+        {
+            if (m_RenderScale >= 1.0f)
+            {
+                // Scale 1.0: clear the override so Bind() uses physical size.
+                pass->ApplyRenderViewport(0u, 0u);
+            }
+            else
+            {
+                pass->ApplyRenderViewport(renderW, renderH);
+            }
+        }
+    }
+
+    u32 RenderGraph::GetRenderWidth() const
+    {
+        if (m_PhysicalWidth == 0)
+            return 0u;
+        return static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalWidth) * m_RenderScale));
+    }
+
+    u32 RenderGraph::GetRenderHeight() const
+    {
+        if (m_PhysicalHeight == 0)
+            return 0u;
+        return static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalHeight) * m_RenderScale));
+    }
+
+    glm::vec2 RenderGraph::GetRenderScaleBounds() const
+    {
+        if (m_PhysicalWidth == 0 || m_PhysicalHeight == 0)
+            return { 1.0f, 1.0f };
+        const auto rw = static_cast<f32>(GetRenderWidth());
+        const auto rh = static_cast<f32>(GetRenderHeight());
+        return { rw / static_cast<f32>(m_PhysicalWidth), rh / static_cast<f32>(m_PhysicalHeight) };
     }
 
     void RenderGraph::SetFinalPass(const std::string& passName)
@@ -2097,8 +2183,12 @@ namespace OloEngine
             }
 
             auto passWorkType = RenderPass::PassWorkType::Graphics;
-            if (const auto passIt = m_PassLookup.find(passName); passIt != m_PassLookup.end() && passIt->second)
+            RenderPass* passPtr = nullptr;
+            if (auto passIt = m_PassLookup.find(passName); passIt != m_PassLookup.end() && passIt->second)
+            {
                 passWorkType = passIt->second->GetPassWorkType();
+                passPtr = const_cast<RenderPass*>(passIt->second.Raw());
+            }
 
             const auto passLane = mapWorkTypeToLane(passWorkType);
 
@@ -2116,6 +2206,7 @@ namespace OloEngine
             SubmissionCommand passCmd;
             passCmd.CommandKind = SubmissionCommand::Kind::Pass;
             passCmd.PassName = passName;
+            passCmd.PassPointer = passPtr;
             passCmd.WorkType = passWorkType;
             passCmd.Lane = passLane;
             plan.push_back(std::move(passCmd));
@@ -2706,13 +2797,33 @@ namespace OloEngine
         m_PlannedBarriers.clear();
         m_BarrierDiagnostics.clear();
 
+        // Per-subresource writer state: tracks the last pass that wrote each
+        // unique subresource of a resource (mip / layer granularity).
         struct LastWriterState
         {
             std::string PassName;
             RGWriteUsage Usage = RGWriteUsage::RenderTarget;
+            RGSubresourceRange Range = RGSubresourceRange::Full();
         };
 
-        std::unordered_map<std::string, LastWriterState> lastWriterByResource;
+        // Returns true when two 1-D intervals [baseA, baseA+countA) and
+        // [baseB, baseB+countB) overlap. ~0u means "unbounded" (all).
+        auto rangeOverlaps1D = [](u32 baseA, u32 countA, u32 baseB, u32 countB) -> bool
+        {
+            if (countA == ~0u || countB == ~0u)
+                return true;
+            return baseA < baseB + countB && baseB < baseA + countA;
+        };
+
+        auto subresourceRangesOverlap = [&rangeOverlaps1D](const RGSubresourceRange& a,
+                                                           const RGSubresourceRange& b) -> bool
+        {
+            return rangeOverlaps1D(a.BaseMip, a.MipCount, b.BaseMip, b.MipCount) &&
+                   rangeOverlaps1D(a.BaseLayer, a.LayerCount, b.BaseLayer, b.LayerCount);
+        };
+
+        // resource name → per-subresource writer slots (one entry per (pass, range) pair)
+        std::unordered_map<std::string, std::vector<LastWriterState>> lastWriterByResource;
         lastWriterByResource.reserve(m_PassOrder.size() * 2u);
 
         std::unordered_map<std::string, std::unordered_set<std::string>> allWriterPassesByResource;
@@ -2744,8 +2855,9 @@ namespace OloEngine
 
                 if (!access.IsWrite)
                 {
+                    // Find every writer whose subresource range overlaps this read.
                     const auto writerIt = lastWriterByResource.find(access.ResourceName);
-                    if (writerIt == lastWriterByResource.end())
+                    if (writerIt == lastWriterByResource.end() || writerIt->second.empty())
                     {
                         const auto allWritersIt = allWriterPassesByResource.find(access.ResourceName);
                         if (allWritersIt == allWriterPassesByResource.end() || allWritersIt->second.empty())
@@ -2781,36 +2893,50 @@ namespace OloEngine
                         }
                         continue;
                     }
-                    if (writerIt->second.PassName == passName)
-                        continue;
 
-                    const auto flags = ResolveProducerBarrierFlags(writerIt->second.Usage) |
-                                       ResolveConsumerBarrierFlags(access.ReadUsage);
-                    if (flags == MemoryBarrierFlags::None)
+                    // Emit one barrier per overlapping writer — different mip writes
+                    // can have different producer flags and must be tracked separately.
+                    for (const auto& writer : writerIt->second)
                     {
-                        m_BarrierDiagnostics.push_back(BarrierDiagnostic{
-                            .Kind = BarrierDiagnosticKind::UnmappedTransition,
-                            .PassName = passName,
-                            .Resource = access.ResourceName,
-                            .Message = "No barrier mapping for transition to pass '" + passName + "' on resource '" + access.ResourceName + "'",
-                        });
-                        continue;
-                    }
+                        if (writer.PassName == passName)
+                            continue;
+                        if (!subresourceRangesOverlap(writer.Range, access.Range))
+                            continue;
 
-                    plannedFlags |= flags;
-                    m_PlannedBarriers.push_back(PlannedBarrier{
-                        .BeforePass = passName,
-                        .Resource = access.ResourceName,
-                        .Flags = flags,
-                        .Range = access.Range,
-                    });
+                        const auto flags = ResolveProducerBarrierFlags(writer.Usage) |
+                                           ResolveConsumerBarrierFlags(access.ReadUsage);
+                        if (flags == MemoryBarrierFlags::None)
+                        {
+                            m_BarrierDiagnostics.push_back(BarrierDiagnostic{
+                                .Kind = BarrierDiagnosticKind::UnmappedTransition,
+                                .PassName = passName,
+                                .Resource = access.ResourceName,
+                                .Message = "No barrier mapping for transition to pass '" + passName + "' on resource '" + access.ResourceName + "'",
+                            });
+                            continue;
+                        }
+
+                        plannedFlags |= flags;
+                        m_PlannedBarriers.push_back(PlannedBarrier{
+                            .BeforePass = passName,
+                            .Resource = access.ResourceName,
+                            .Flags = flags,
+                            .Range = access.Range,
+                        });
+                    }
                 }
                 else
                 {
-                    const auto writerIt = lastWriterByResource.find(access.ResourceName);
-                    if (writerIt != lastWriterByResource.end() && writerIt->second.PassName != passName)
+                    // WAW: emit a barrier for every prior writer whose range overlaps.
+                    auto& writerVec = lastWriterByResource[access.ResourceName];
+                    for (const auto& writer : writerVec)
                     {
-                        const auto flags = ResolveProducerBarrierFlags(writerIt->second.Usage) |
+                        if (writer.PassName == passName)
+                            continue;
+                        if (!subresourceRangesOverlap(writer.Range, access.Range))
+                            continue;
+
+                        const auto flags = ResolveProducerBarrierFlags(writer.Usage) |
                                            ResolveProducerBarrierFlags(access.WriteUsage);
                         if (flags == MemoryBarrierFlags::None)
                         {
@@ -2833,10 +2959,29 @@ namespace OloEngine
                         }
                     }
 
-                    lastWriterByResource[access.ResourceName] = LastWriterState{
-                        .PassName = passName,
-                        .Usage = access.WriteUsage,
-                    };
+                    // Upsert the writer slot for this pass + range.
+                    // If the same pass already owns an overlapping slot, update it
+                    // (avoids growing the vector unboundedly for multi-write passes).
+                    bool slotUpdated = false;
+                    for (auto& writer : writerVec)
+                    {
+                        if (writer.PassName == passName &&
+                            subresourceRangesOverlap(writer.Range, access.Range))
+                        {
+                            writer.Usage = access.WriteUsage;
+                            writer.Range = access.Range;
+                            slotUpdated = true;
+                            break;
+                        }
+                    }
+                    if (!slotUpdated)
+                    {
+                        writerVec.push_back(LastWriterState{
+                            .PassName = passName,
+                            .Usage = access.WriteUsage,
+                            .Range = access.Range,
+                        });
+                    }
                 }
             }
 
@@ -5163,9 +5308,32 @@ namespace OloEngine
         m_TemporalHistoryContracts.clear();
 
         RGBuilder builder(*this, m_Blackboard);
-        std::unordered_map<std::string, std::string> lastWriterByResource;
+
+        // Per-subresource dependency tracker: resource name → list of (pass, range) slots.
+        // Used to derive ordering edges only between passes that actually touch the same
+        // subresource (e.g. two passes writing different mips do NOT need an edge).
+        struct DepWriterSlot
+        {
+            std::string PassName;
+            RGSubresourceRange Range;
+        };
+        std::unordered_map<std::string, std::vector<DepWriterSlot>> lastWriterByResource;
         const auto graphPassCount = m_GraphPasses.size();
         lastWriterByResource.reserve(graphPassCount * 4u);
+
+        // Subresource overlap helper (same semantics as in ComputeBarrierPlan).
+        auto depRangeOverlaps1D = [](u32 baseA, u32 countA, u32 baseB, u32 countB) -> bool
+        {
+            if (countA == ~0u || countB == ~0u)
+                return true;
+            return baseA < baseB + countB && baseB < baseA + countA;
+        };
+        auto depSubresourceRangesOverlap = [&depRangeOverlaps1D](const RGSubresourceRange& a,
+                                                                 const RGSubresourceRange& b) -> bool
+        {
+            return depRangeOverlaps1D(a.BaseMip, a.MipCount, b.BaseMip, b.MipCount) &&
+                   depRangeOverlaps1D(a.BaseLayer, a.LayerCount, b.BaseLayer, b.LayerCount);
+        };
 
         std::unordered_map<std::string, GraphPass*> graphPassByName;
         graphPassByName.reserve(graphPassCount);
@@ -5255,35 +5423,77 @@ namespace OloEngine
             const auto& reads = builder.GetDeclaredReads();
             m_LastBuildStats.DeclaredReads += static_cast<u32>(reads.size());
 
-            // Log any empty resource names (indicates handle->name mapping failed)
+            const auto& accesses = builder.GetDeclaredAccesses();
+            m_PassAccessDeclarations[pass.Name] = accesses;
+
+            // Derive ordering edges from per-subresource writer tracking.
+            // We iterate accesses (not just reads) to get the subresource range for
+            // precise overlap checks — passes that write to non-overlapping mips/layers
+            // of the same resource do NOT need an ordering edge between them.
+            for (const auto& access : accesses)
+            {
+                if (access.ResourceName.empty())
+                    continue;
+
+                if (!access.IsWrite)
+                {
+                    // Read: derive a dependency from every writer whose range overlaps.
+                    const auto writerIt = lastWriterByResource.find(access.ResourceName);
+                    if (writerIt == lastWriterByResource.end())
+                        continue;
+                    for (const auto& slot : writerIt->second)
+                    {
+                        if (slot.PassName == pass.Name)
+                            continue;
+                        if (!depSubresourceRangesOverlap(slot.Range, access.Range))
+                            continue;
+                        if (tryAddDerivedDependency(slot.PassName, pass.Name))
+                            ++m_LastBuildStats.DerivedEdges;
+                    }
+                }
+                else
+                {
+                    // Write: derive a WAW dependency from every writer whose range overlaps,
+                    // then upsert this pass as the new writer for that subresource region.
+                    auto& writerVec = lastWriterByResource[access.ResourceName];
+                    for (const auto& slot : writerVec)
+                    {
+                        if (slot.PassName == pass.Name)
+                            continue;
+                        if (!depSubresourceRangesOverlap(slot.Range, access.Range))
+                            continue;
+                        if (tryAddDerivedDependency(slot.PassName, pass.Name))
+                            ++m_LastBuildStats.DerivedEdges;
+                    }
+
+                    bool slotUpdated = false;
+                    for (auto& slot : writerVec)
+                    {
+                        if (slot.PassName == pass.Name &&
+                            depSubresourceRangesOverlap(slot.Range, access.Range))
+                        {
+                            slot.Range = access.Range;
+                            slotUpdated = true;
+                            break;
+                        }
+                    }
+                    if (!slotUpdated)
+                        writerVec.push_back(DepWriterSlot{ pass.Name, access.Range });
+                }
+            }
+
+            // Emit diagnostics for empty read names (handle mapping failures).
             for (const auto& resourceName : reads)
             {
                 if (resourceName.empty())
                 {
                     OLO_CORE_WARN("processGraphPass: pass '{}' declared empty-name read (handle mapping failed)",
                                   pass.Name);
-                    continue;
-                }
-
-                const auto writerIt = lastWriterByResource.find(resourceName);
-                if (writerIt == lastWriterByResource.end())
-                    continue;
-
-                const auto& writerPass = writerIt->second;
-                if (writerPass == pass.Name)
-                    continue;
-
-                if (tryAddDerivedDependency(writerPass, pass.Name))
-                {
-                    ++m_LastBuildStats.DerivedEdges;
                 }
             }
 
             const auto& writes = builder.GetDeclaredWrites();
             m_LastBuildStats.DeclaredWrites += static_cast<u32>(writes.size());
-
-            const auto& accesses = builder.GetDeclaredAccesses();
-            m_PassAccessDeclarations[pass.Name] = accesses;
 
             for (const auto& resourceName : writes)
             {
@@ -5291,20 +5501,7 @@ namespace OloEngine
                 {
                     OLO_CORE_WARN("processGraphPass: pass '{}' declared empty-name write (handle mapping failed)",
                                   pass.Name);
-                    continue;
                 }
-
-                const auto writerIt = lastWriterByResource.find(resourceName);
-                if (writerIt != lastWriterByResource.end())
-                {
-                    const auto& previousWriter = writerIt->second;
-                    if (tryAddDerivedDependency(previousWriter, pass.Name))
-                    {
-                        ++m_LastBuildStats.DerivedEdges;
-                    }
-                }
-
-                lastWriterByResource[resourceName] = pass.Name;
             }
         };
 

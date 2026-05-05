@@ -69,6 +69,15 @@ namespace OloEngine
         virtual void Unbind() = 0;
 
         virtual void Resize(u32 width, u32 height) = 0;
+
+        // Dynamic Resolution Scaling support.
+        // When non-zero, Bind() sets glViewport to this size instead of the
+        // physical framebuffer dimensions. Resize() resets this override to
+        // zero (physical resize implies render viewport == physical size).
+        virtual void SetRenderViewportSize(u32 width, u32 height) = 0;
+        [[nodiscard]] virtual u32 GetRenderViewportWidth() const = 0;
+        [[nodiscard]] virtual u32 GetRenderViewportHeight() const = 0;
+
         virtual int ReadPixel(u32 attachmentIndex, int x, int y) = 0;
 
         // Clear integer attachment (e.g., entity ID)
