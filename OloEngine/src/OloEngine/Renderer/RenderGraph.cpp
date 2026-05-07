@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/PassGraphNode.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
@@ -15,6 +16,25 @@ namespace OloEngine
 {
     namespace
     {
+        template<typename TEntry>
+        void SynchronizeGraphEntryLifecycle(Ref<TEntry> entry, const u32 physicalWidth, const u32 physicalHeight, const f32 renderScale)
+        {
+            if (!entry || physicalWidth == 0 || physicalHeight == 0)
+                return;
+
+            entry->ResizeFramebuffer(physicalWidth, physicalHeight);
+
+            if (renderScale >= 1.0f)
+            {
+                entry->ApplyRenderViewport(0u, 0u);
+                return;
+            }
+
+            const auto renderW = static_cast<u32>(glm::floor(static_cast<f32>(physicalWidth) * renderScale));
+            const auto renderH = static_cast<u32>(glm::floor(static_cast<f32>(physicalHeight) * renderScale));
+            entry->ApplyRenderViewport(renderW, renderH);
+        }
+
         bool IsTruthyEnvironmentVariable(const char* name)
         {
             const char* value = std::getenv(name);
@@ -25,6 +45,29 @@ namespace OloEngine
         {
             static const bool enabled = IsTruthyEnvironmentVariable("OLO_RENDERGRAPH_DIAGNOSTICS");
             return enabled;
+        }
+
+        Ref<RenderPass> TryGetWrappedRenderPass(const Ref<RenderGraphNode>& node)
+        {
+            if (!node)
+                return nullptr;
+
+            if (const auto passNode = node.As<PassGraphNode>())
+                return passNode->GetPass();
+
+            return nullptr;
+        }
+
+        Ref<RenderPass> TryGetStaticGraphEntryPass(
+            std::string_view name,
+            const std::unordered_map<std::string, Ref<RenderGraphNode>>& nodeLookup)
+        {
+            const auto key = std::string(name);
+
+            if (const auto nodeIt = nodeLookup.find(key); nodeIt != nodeLookup.end() && nodeIt->second)
+                return TryGetWrappedRenderPass(nodeIt->second);
+
+            return nullptr;
         }
     } // namespace
 
@@ -38,10 +81,9 @@ namespace OloEngine
         m_PhysicalHeight = height;
         m_RenderScale = 1.0f;
 
-        // Initialize all passes
-        for (auto& [name, pass] : m_PassLookup)
+        for (auto& [name, node] : m_NodeLookup)
         {
-            pass->SetupFramebuffer(width, height);
+            node->SetupFramebuffer(width, height);
         }
 
         m_DependencyGraphDirty = true;
@@ -55,8 +97,7 @@ namespace OloEngine
 
         m_TransientPool.Clear();
 
-        // Clear all pass references
-        m_PassLookup.clear();
+        m_NodeLookup.clear();
         m_Dependencies.clear();
         m_ExplicitDependencies.clear();
         m_InsertionOrder.clear();
@@ -71,6 +112,9 @@ namespace OloEngine
         m_BarrierDiagnostics.clear();
         m_LastPassTimings.clear();
         m_FallbackActivations.clear();
+        m_CachedSubmissionPlan.clear();
+        m_LastLoggedSubmissionPlanDigest.clear();
+        m_LastLoggedCulledPassDigest.clear();
         m_ImportedResources.clear();
         m_ResourceRegistry.clear();
         m_RegisteredResources.clear();
@@ -104,10 +148,10 @@ namespace OloEngine
 
         m_TransientPool.Clear();
 
-        // Wipe topology bookkeeping but leave pass framebuffers / internal
-        // state alone — the passes themselves are owned externally and will
-        // be re-registered by the caller as part of the new topology.
-        m_PassLookup.clear();
+        // Wipe topology bookkeeping but leave graph-entry framebuffers /
+        // internal state alone — the nodes themselves are owned externally
+        // and will be re-registered by the caller as part of the new topology.
+        m_NodeLookup.clear();
         m_Dependencies.clear();
         m_ExplicitDependencies.clear();
         m_InsertionOrder.clear();
@@ -122,7 +166,9 @@ namespace OloEngine
         m_BarrierDiagnostics.clear();
         m_LastPassTimings.clear();
         m_FallbackActivations.clear();
-        m_CachedExecutionOrder.clear();
+        m_CachedSubmissionPlan.clear();
+        m_LastLoggedSubmissionPlanDigest.clear();
+        m_LastLoggedCulledPassDigest.clear();
         m_DependencyGraphDirty = true;
         m_ImportedResources.clear();
         m_ResourceRegistry.clear();
@@ -172,22 +218,23 @@ namespace OloEngine
         m_ResourceRegistryDirty = true;
     }
 
-    void RenderGraph::AddPass(const Ref<RenderPass>& pass)
+    void RenderGraph::AddNode(const Ref<RenderGraphNode>& node)
     {
         OLO_PROFILE_FUNCTION();
+        OLO_CORE_ASSERT(node, "RenderGraph::AddNode requires a valid node");
 
-        std::string name = pass->GetName();
+        const std::string name(node->GetName());
+        OLO_CORE_ASSERT(!name.empty(), "RenderGraph::AddNode requires a named node");
+        OLO_CORE_ASSERT(!m_NodeLookup.contains(name),
+                        "RenderGraph entries must have unique names");
+
         if (IsRenderGraphDiagnosticsEnabled())
-            OLO_CORE_TRACE("Adding RenderPass to graph: {}", name);
+            OLO_CORE_TRACE("Adding graph node: {}", name);
 
-        // Track insertion order so topological sort has a stable tie-break
-        // when multiple passes have no dependencies between them. Without
-        // this, the unordered_map iteration order leaks into m_PassOrder
-        // and varies between platforms/standard-library versions, causing
-        // the hazard validator to classify RAW vs WAR differently.
-        if (!m_PassLookup.contains(name))
-            m_InsertionOrder.push_back(name);
-        m_PassLookup[name] = pass;
+        m_InsertionOrder.push_back(name);
+
+        m_NodeLookup[name] = node;
+        SynchronizeGraphEntryLifecycle(node, m_PhysicalWidth, m_PhysicalHeight, m_RenderScale);
         m_DependencyGraphDirty = true;
         m_ResourceRegistryDirty = true;
     }
@@ -210,7 +257,7 @@ namespace OloEngine
     }
 
     // =========================================================================
-    // Phase B — Typed import / resolve / extract
+    // Typed import / resolve / extract
     // =========================================================================
 
     RGTextureHandle RenderGraph::AllocateTextureHandle(std::string_view name, u32 textureID, bool isHistory, bool isPlaceholder, std::string_view placeholderReason)
@@ -777,7 +824,7 @@ namespace OloEngine
     }
 
     // -------------------------------------------------------------------
-    // Phase C — Transient resource allocation (builder support)
+    // Transient resource allocation (builder support)
     // -------------------------------------------------------------------
 
     RGTextureHandle RenderGraph::AllocateTransientTextureHandle(std::string_view name, const RGResourceDesc& desc)
@@ -1012,13 +1059,13 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_PassLookup.contains(outputPass))
+        if (!ContainsGraphEntry(outputPass))
         {
             OLO_CORE_ERROR("RenderGraph::ConnectPass: Output pass '{}' not found!", outputPass);
             return;
         }
 
-        if (!m_PassLookup.contains(inputPass))
+        if (!ContainsGraphEntry(inputPass))
         {
             OLO_CORE_ERROR("RenderGraph::ConnectPass: Input pass '{}' not found!", inputPass);
             return;
@@ -1033,13 +1080,13 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_PassLookup.contains(beforePass))
+        if (!ContainsGraphEntry(beforePass))
         {
             OLO_CORE_ERROR("RenderGraph::AddExecutionDependency: Pass '{}' not found!", beforePass);
             return;
         }
 
-        if (!m_PassLookup.contains(afterPass))
+        if (!ContainsGraphEntry(afterPass))
         {
             OLO_CORE_ERROR("RenderGraph::AddExecutionDependency: Pass '{}' not found!", afterPass);
             return;
@@ -1072,7 +1119,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         m_LastPassTimings.clear();
-        m_LastPassTimings.reserve(m_CachedExecutionOrder.size());
+        m_LastPassTimings.reserve(m_PassOrder.size());
         m_FallbackActivations.clear();
 
         for (auto& slot : m_TextureHandleSlots)
@@ -1096,10 +1143,9 @@ namespace OloEngine
                 return;
             }
             ResolveFinalPass();
-            RebuildExecutionCache();
             m_DependencyGraphDirty = false;
 
-            // Phase E: Compute backward reachability from final output.
+            // Compute backward reachability from the final output.
             // This determines which passes are needed for the final output.
             ComputeReachability();
             ComputeBarrierPlan();
@@ -1152,13 +1198,12 @@ namespace OloEngine
                         break;
                     }
 
-                    if (!cmd.PassPointer)
+                    if (!cmd.NodePointer)
                         break;
 
-                    auto* pass = cmd.PassPointer;
                     commandContext.BeginPass(cmd.PassName);
                     const auto executeStart = std::chrono::steady_clock::now();
-                    pass->Execute(commandContext);
+                    cmd.NodePointer->Execute(commandContext);
                     const auto executeEnd = std::chrono::steady_clock::now();
                     commandContext.EndPass();
 
@@ -1447,41 +1492,15 @@ namespace OloEngine
         }
     }
 
-    void RenderGraph::RebuildExecutionCache()
-    {
-        OLO_PROFILE_FUNCTION();
-
-        // Build execution order cache with validation
-        m_CachedExecutionOrder.clear();
-        m_CachedExecutionOrder.reserve(m_PassOrder.size());
-
-        for (const auto& passName : m_PassOrder)
-        {
-            auto it = m_PassLookup.find(passName);
-            if (it == m_PassLookup.end() || !it->second)
-            {
-                OLO_CORE_ERROR("RenderGraph: Pass '{}' is null or missing from lookup — it will be skipped during execution!", passName);
-                continue;
-            }
-            m_CachedExecutionOrder.push_back(it->second.Raw());
-        }
-
-        if (IsRenderGraphDiagnosticsEnabled())
-        {
-            OLO_CORE_TRACE("RenderGraph: Execution cache rebuilt - {} passes",
-                           m_CachedExecutionOrder.size());
-        }
-    }
-
     void RenderGraph::Resize(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
         m_PhysicalWidth = width;
         m_PhysicalHeight = height;
 
-        for (auto& [name, pass] : m_PassLookup)
+        for (auto& [name, node] : m_NodeLookup)
         {
-            pass->ResizeFramebuffer(width, height);
+            node->ResizeFramebuffer(width, height);
         }
 
         // Physical resize resets render viewport overrides on all FBOs.
@@ -1491,9 +1510,9 @@ namespace OloEngine
         {
             const auto renderW = static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalWidth) * m_RenderScale));
             const auto renderH = static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalHeight) * m_RenderScale));
-            for (auto& [name, pass] : m_PassLookup)
+            for (auto& [name, node] : m_NodeLookup)
             {
-                pass->ApplyRenderViewport(renderW, renderH);
+                node->ApplyRenderViewport(renderW, renderH);
             }
         }
     }
@@ -1509,16 +1528,15 @@ namespace OloEngine
         const auto renderW = static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalWidth) * m_RenderScale));
         const auto renderH = static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalHeight) * m_RenderScale));
 
-        for (auto& [name, pass] : m_PassLookup)
+        for (auto& [name, node] : m_NodeLookup)
         {
             if (m_RenderScale >= 1.0f)
             {
-                // Scale 1.0: clear the override so Bind() uses physical size.
-                pass->ApplyRenderViewport(0u, 0u);
+                node->ApplyRenderViewport(0u, 0u);
             }
             else
             {
-                pass->ApplyRenderViewport(renderW, renderH);
+                node->ApplyRenderViewport(renderW, renderH);
             }
         }
     }
@@ -1553,17 +1571,6 @@ namespace OloEngine
         m_DependencyGraphDirty = true;
     }
 
-    std::vector<Ref<RenderPass>> RenderGraph::GetAllPasses() const
-    {
-        std::vector<Ref<RenderPass>> result;
-        result.reserve(m_PassLookup.size());
-        for (const auto& [name, pass] : m_PassLookup)
-        {
-            result.push_back(pass);
-        }
-        return result;
-    }
-
     bool RenderGraph::IsFinalPass(const std::string& passName) const
     {
         return passName == m_FinalPassName;
@@ -1585,22 +1592,23 @@ namespace OloEngine
     std::vector<RenderGraph::PassSubmissionInfo> RenderGraph::GetPassSubmissionInfo() const
     {
         std::vector<PassSubmissionInfo> result;
-        result.reserve(m_PassLookup.size());
+        result.reserve(m_NodeLookup.size());
 
-        const auto appendPassInfo = [&](const std::string& name)
+        const auto appendEntryInfo = [&](const std::string& name)
         {
-            auto it = m_PassLookup.find(name);
-            if (it == m_PassLookup.end() || !it->second)
-                return;
-
-            const auto& pass = it->second;
-            result.push_back(PassSubmissionInfo{
-                .PassName = name,
-                .Submission = pass->GetSubmissionModel(),
-                .DeclaresResources = !pass->GetReads().empty() || !pass->GetWrites().empty(),
-                .WorkType = pass->GetPassWorkType(),
-                .AsyncComputeCandidate = pass->IsAsyncComputeCandidate(),
-            });
+            if (const auto nodeIt = m_NodeLookup.find(name); nodeIt != m_NodeLookup.end() && nodeIt->second)
+            {
+                const auto declarationsIt = m_PassAccessDeclarations.find(name);
+                const auto backingPass = TryGetWrappedRenderPass(nodeIt->second);
+                result.push_back(PassSubmissionInfo{
+                    .PassName = name,
+                    .Submission = nodeIt->second->GetSubmissionModel(),
+                    .DeclaresResources = (backingPass && (!backingPass->GetReads().empty() || !backingPass->GetWrites().empty())) ||
+                                         (declarationsIt != m_PassAccessDeclarations.end() && !declarationsIt->second.empty()),
+                    .WorkType = backingPass ? backingPass->GetPassWorkType() : GetGraphEntryWorkType(name),
+                    .AsyncComputeCandidate = backingPass ? backingPass->IsAsyncComputeCandidate() : IsGraphEntryAsyncComputeCandidate(name),
+                });
+            }
         };
 
         std::unordered_set<std::string> visited;
@@ -1608,14 +1616,14 @@ namespace OloEngine
 
         for (const auto& name : m_InsertionOrder)
         {
-            appendPassInfo(name);
+            appendEntryInfo(name);
             visited.insert(name);
         }
 
-        for (const auto& [name, pass] : m_PassLookup)
+        for (const auto& [name, node] : m_NodeLookup)
         {
             if (!visited.contains(name))
-                appendPassInfo(name);
+                appendEntryInfo(name);
         }
 
         return result;
@@ -1666,7 +1674,7 @@ namespace OloEngine
         // deterministically (independent of std::unordered_map hashing).
         for (const auto& name : m_InsertionOrder)
         {
-            if (!m_PassLookup.contains(name))
+            if (!ContainsGraphEntry(name))
                 continue;
             if (!visited.contains(name))
             {
@@ -1696,8 +1704,7 @@ namespace OloEngine
         bool hasCandidate = false;
         for (const auto& name : m_PassOrder)
         {
-            auto it = m_PassLookup.find(name);
-            if (it != m_PassLookup.end() && it->second && it->second->IsAsyncComputeCandidate())
+            if (IsGraphEntryAsyncComputeCandidate(name))
             {
                 hasCandidate = true;
                 break;
@@ -1749,10 +1756,9 @@ namespace OloEngine
             for (const auto& prodName : m_PassOrder)
             {
                 // Legacy DeclareWrite declarations
-                if (const auto pIt = m_PassLookup.find(prodName);
-                    pIt != m_PassLookup.end() && pIt->second)
+                if (const auto pass = TryGetStaticGraphEntryPass(prodName, m_NodeLookup))
                 {
-                    for (const auto& w : pIt->second->GetWrites())
+                    for (const auto& w : pass->GetWrites())
                         lastWriter[w.Name] = prodName;
                 }
                 // Graph-native builder.Write() access declarations
@@ -1784,10 +1790,9 @@ namespace OloEngine
                 };
 
                 // Legacy DeclareRead declarations
-                if (const auto pIt = m_PassLookup.find(consName);
-                    pIt != m_PassLookup.end() && pIt->second)
+                if (const auto pass = TryGetStaticGraphEntryPass(consName, m_NodeLookup))
                 {
-                    for (const auto& r : pIt->second->GetReads())
+                    for (const auto& r : pass->GetReads())
                     {
                         if (const auto wIt = lastWriter.find(r.Name); wIt != lastWriter.end())
                             addImplicitEdge(wIt->second);
@@ -1815,8 +1820,7 @@ namespace OloEngine
 
         auto classify = [&](const std::string& passName)
         {
-            auto it = m_PassLookup.find(passName);
-            if (it != m_PassLookup.end() && it->second && it->second->IsAsyncComputeCandidate())
+            if (IsGraphEntryAsyncComputeCandidate(passName))
                 computeReady.push_back(passName);
             else
                 graphicsReady.push_back(passName);
@@ -1896,9 +1900,7 @@ namespace OloEngine
         AsyncComputeBatch current;
         for (const auto& passName : m_PassOrder)
         {
-            const auto it = m_PassLookup.find(passName);
-            const bool isCandidate = (it != m_PassLookup.end()) && it->second &&
-                                     it->second->IsAsyncComputeCandidate();
+            const bool isCandidate = IsGraphEntryAsyncComputeCandidate(passName);
 
             if (isCandidate)
             {
@@ -2080,7 +2082,7 @@ namespace OloEngine
     }
 
     // Submission-plan IR.
-    // Merges the hoisted execution order, the barrier plan (Phase E), and the
+    // Merges the hoisted execution order, the barrier plan, and the
     // async-compute batch boundaries into a single linearised
     // command stream that a backend can replay without touching the graph.
     std::vector<RenderGraph::SubmissionCommand> RenderGraph::GetSubmissionPlan() const
@@ -2121,7 +2123,7 @@ namespace OloEngine
                 passToBatch.emplace(passName, batchIdx);
         }
 
-        // Build a map: passName → barrier flags (from Phase E barrier plan)
+        // Build a map: passName → barrier flags from the compiled barrier plan.
         std::unordered_map<std::string, MemoryBarrierFlags> barrierForPass;
         for (const auto& planned : m_PlannedBarriers)
         {
@@ -2182,12 +2184,11 @@ namespace OloEngine
                 currentBatch = std::numeric_limits<u32>::max();
             }
 
-            auto passWorkType = RenderPass::PassWorkType::Graphics;
-            RenderPass* passPtr = nullptr;
-            if (auto passIt = m_PassLookup.find(passName); passIt != m_PassLookup.end() && passIt->second)
+            auto passWorkType = GetGraphEntryWorkType(passName);
+            RenderGraphNode* nodePtr = nullptr;
+            if (auto nodeIt = m_NodeLookup.find(passName); nodeIt != m_NodeLookup.end() && nodeIt->second)
             {
-                passWorkType = passIt->second->GetPassWorkType();
-                passPtr = const_cast<RenderPass*>(passIt->second.Raw());
+                nodePtr = const_cast<RenderGraphNode*>(nodeIt->second.Raw());
             }
 
             const auto passLane = mapWorkTypeToLane(passWorkType);
@@ -2206,7 +2207,7 @@ namespace OloEngine
             SubmissionCommand passCmd;
             passCmd.CommandKind = SubmissionCommand::Kind::Pass;
             passCmd.PassName = passName;
-            passCmd.PassPointer = passPtr;
+            passCmd.NodePointer = nodePtr;
             passCmd.WorkType = passWorkType;
             passCmd.Lane = passLane;
             plan.push_back(std::move(passCmd));
@@ -2248,20 +2249,16 @@ namespace OloEngine
         // detect when the producer and consumer are on different queue lanes.
         const auto passToLane = [&](const std::string& passName) -> QueueLane
         {
-            if (const auto it = m_PassLookup.find(passName); it != m_PassLookup.end() && it->second)
+            switch (GetGraphEntryWorkType(passName))
             {
-                switch (it->second->GetPassWorkType())
-                {
-                    case RenderPass::PassWorkType::Compute:
-                        return QueueLane::Compute;
-                    case RenderPass::PassWorkType::Copy:
-                        return QueueLane::Copy;
-                    case RenderPass::PassWorkType::Graphics:
-                    default:
-                        return QueueLane::Graphics;
-                }
+                case RenderPass::PassWorkType::Compute:
+                    return QueueLane::Compute;
+                case RenderPass::PassWorkType::Copy:
+                    return QueueLane::Copy;
+                case RenderPass::PassWorkType::Graphics:
+                default:
+                    return QueueLane::Graphics;
             }
-            return QueueLane::Graphics;
         };
 
         std::vector<ResourceTransition> transitions;
@@ -2538,7 +2535,7 @@ namespace OloEngine
         if (m_FinalPassName.empty())
         {
             // If no final pass was explicitly set, try to find a pass with no dependents
-            // Iterate m_PassOrder (deterministic) instead of m_PassLookup (unordered_map)
+            // Iterate m_PassOrder (deterministic registration/topology order)
             // Build set of all passes that are producers (have consumers)
             std::unordered_set<std::string> hasConsumers;
             for (const auto& [consumer, producers] : m_Dependencies)
@@ -2575,7 +2572,7 @@ namespace OloEngine
         // If final pass is auto-selected, preserve legacy behavior.
         if (!m_HasExplicitFinalPass)
         {
-            for (const auto& [passName, pass] : m_PassLookup)
+            for (const auto& passName : m_InsertionOrder)
                 m_ReachablePasses.insert(passName);
             return;
         }
@@ -2583,7 +2580,7 @@ namespace OloEngine
         if (m_FinalPassName.empty())
         {
             OLO_CORE_WARN("ComputeReachability: final pass not set; all passes marked reachable");
-            for (const auto& [passName, pass] : m_PassLookup)
+            for (const auto& passName : m_InsertionOrder)
                 m_ReachablePasses.insert(passName);
             return;
         }
@@ -2623,14 +2620,14 @@ namespace OloEngine
         // from the final pass or they would all be culled.
         //
         // Algorithm:
-        //   1. Build a resource-name → writer-pass map from every pass in
-        //      m_PassLookup (covers both legacy and graph-native passes).
+        //   1. Build a resource-name → writer-pass map from every graph entry
+        //      with wrapped static RenderPass declarations.
         //   2. Iteratively expand m_ReachablePasses: for each already-reachable
         //      pass, look up its declared reads and add the writer(s) of each
         //      read resource.  Repeat until stable.
         {
             std::unordered_map<std::string, std::vector<std::string>> resourceWriters;
-            resourceWriters.reserve(m_PassLookup.size() * 4u);
+            resourceWriters.reserve(m_InsertionOrder.size() * 4u);
 
             const auto findFrameAccesses = [this](const std::string& passName) -> const std::vector<RGAccessDeclaration>*
             {
@@ -2641,11 +2638,8 @@ namespace OloEngine
                 return nullptr;
             };
 
-            for (const auto& [passName, pass] : m_PassLookup)
+            for (const auto& passName : m_InsertionOrder)
             {
-                if (!pass)
-                    continue;
-
                 if (const auto* accesses = findFrameAccesses(passName))
                 {
                     for (const auto& access : *accesses)
@@ -2657,6 +2651,10 @@ namespace OloEngine
                     }
                     continue;
                 }
+
+                const auto pass = TryGetStaticGraphEntryPass(passName, m_NodeLookup);
+                if (!pass)
+                    continue;
 
                 for (const ResourceHandle& write : pass->GetWrites())
                 {
@@ -2673,10 +2671,6 @@ namespace OloEngine
                                                         m_ReachablePasses.end());
                 for (const auto& passName : snapshot)
                 {
-                    auto passIt = m_PassLookup.find(passName);
-                    if (passIt == m_PassLookup.end() || !passIt->second)
-                        continue;
-
                     if (const auto* accesses = findFrameAccesses(passName))
                     {
                         for (const auto& access : *accesses)
@@ -2696,7 +2690,11 @@ namespace OloEngine
                         continue;
                     }
 
-                    for (const ResourceHandle& read : passIt->second->GetReads())
+                    const auto pass = TryGetStaticGraphEntryPass(passName, m_NodeLookup);
+                    if (!pass)
+                        continue;
+
+                    for (const ResourceHandle& read : pass->GetReads())
                     {
                         auto writerIt = resourceWriters.find(read.Name);
                         if (writerIt == resourceWriters.end())
@@ -2711,12 +2709,12 @@ namespace OloEngine
             }
         }
 
-        for (const auto& [passName, pass] : m_PassLookup)
+        for (const auto& passName : m_InsertionOrder)
         {
             if (m_ReachablePasses.contains(passName))
                 continue;
 
-            if (pass && pass->IsSideEffecting())
+            if (IsGraphEntrySideEffecting(passName))
             {
                 m_ReachablePasses.insert(passName);
                 if (IsRenderGraphDiagnosticsEnabled())
@@ -2995,6 +2993,72 @@ namespace OloEngine
         return m_ReachablePasses.contains(passName);
     }
 
+    bool RenderGraph::ContainsGraphEntry(std::string_view name) const
+    {
+        const auto key = std::string(name);
+        return m_NodeLookup.contains(key);
+    }
+
+    bool RenderGraph::IsGraphEntryAsyncComputeCandidate(std::string_view name) const
+    {
+        if (const auto pass = TryGetStaticGraphEntryPass(name, m_NodeLookup))
+        {
+            if (pass->IsAsyncComputeCandidate())
+                return true;
+        }
+
+        const auto key = std::string(name);
+        if (const auto nodeIt = m_NodeLookup.find(key); nodeIt != m_NodeLookup.end() && nodeIt->second)
+            return HasRenderGraphNodeFlag(nodeIt->second->GetFlags(), RenderGraphNodeFlags::AsyncCandidateMetadata);
+
+        return false;
+    }
+
+    bool RenderGraph::IsGraphEntrySideEffecting(std::string_view name) const
+    {
+        const auto key = std::string(name);
+
+        bool nodeSideEffect = false;
+        if (const auto nodeIt = m_NodeLookup.find(key); nodeIt != m_NodeLookup.end() && nodeIt->second)
+        {
+            const auto flags = nodeIt->second->GetFlags();
+            nodeSideEffect = HasRenderGraphNodeFlag(flags, RenderGraphNodeFlags::Present) ||
+                             HasRenderGraphNodeFlag(flags, RenderGraphNodeFlags::Readback) ||
+                             HasRenderGraphNodeFlag(flags, RenderGraphNodeFlags::NeverCull) ||
+                             HasRenderGraphNodeFlag(flags, RenderGraphNodeFlags::ExternalSideEffect);
+        }
+
+        if (const auto pass = TryGetStaticGraphEntryPass(name, m_NodeLookup))
+            return pass->IsSideEffecting() || nodeSideEffect;
+
+        return nodeSideEffect;
+    }
+
+    RenderPass::PassWorkType RenderGraph::GetGraphEntryWorkType(std::string_view name) const
+    {
+        const auto key = std::string(name);
+        if (const auto pass = TryGetStaticGraphEntryPass(name, m_NodeLookup))
+        {
+            const auto passWorkType = pass->GetPassWorkType();
+            if (passWorkType != RenderPass::PassWorkType::Graphics)
+                return passWorkType;
+        }
+
+        if (const auto nodeIt = m_NodeLookup.find(key); nodeIt != m_NodeLookup.end() && nodeIt->second)
+        {
+            const auto flags = nodeIt->second->GetFlags();
+            if (HasRenderGraphNodeFlag(flags, RenderGraphNodeFlags::Compute))
+                return RenderPass::PassWorkType::Compute;
+            if (HasRenderGraphNodeFlag(flags, RenderGraphNodeFlags::Copy))
+                return RenderPass::PassWorkType::Copy;
+        }
+
+        if (const auto pass = TryGetStaticGraphEntryPass(name, m_NodeLookup))
+            return pass->GetPassWorkType();
+
+        return RenderPass::PassWorkType::Graphics;
+    }
+
     bool RenderGraph::IsHistoryTextureResource(std::string_view resourceName) const
     {
         const auto handle = GetTextureHandle(resourceName);
@@ -3037,6 +3101,11 @@ namespace OloEngine
     std::vector<RenderGraph::Hazard> RenderGraph::ValidateResourceHazards()
     {
         OLO_PROFILE_FUNCTION();
+
+        const auto getStaticPass = [this](const std::string& passName) -> Ref<RenderPass>
+        {
+            return TryGetStaticGraphEntryPass(passName, m_NodeLookup);
+        };
 
         EnsureResourceRegistryBuilt();
 
@@ -3111,21 +3180,21 @@ namespace OloEngine
         {
             for (const auto& producerName : m_PassOrder)
             {
-                auto producerIt = m_PassLookup.find(producerName);
-                if (producerIt == m_PassLookup.end() || !producerIt->second)
+                const auto producerPass = getStaticPass(producerName);
+                if (!producerPass)
                     continue;
 
-                for (const ResourceHandle& write : producerIt->second->GetWrites())
+                for (const ResourceHandle& write : producerPass->GetWrites())
                 {
                     for (const auto& consumerName : m_PassOrder)
                     {
                         if (consumerName == producerName)
                             continue;
-                        auto consumerIt = m_PassLookup.find(consumerName);
-                        if (consumerIt == m_PassLookup.end() || !consumerIt->second)
+                        const auto consumerPass = getStaticPass(consumerName);
+                        if (!consumerPass)
                             continue;
 
-                        for (const ResourceHandle& read : consumerIt->second->GetReads())
+                        for (const ResourceHandle& read : consumerPass->GetReads())
                         {
                             if (read.Name == write.Name)
                             {
@@ -3175,7 +3244,7 @@ namespace OloEngine
         };
 
         // -----------------------------------------------------------------
-        // Phase E validation: same-pass overlapping read/write requires an
+        // Validation: same-pass overlapping read/write requires an
         // explicit feedback declaration (not yet exposed), so flag for now.
         // -----------------------------------------------------------------
         auto rangesOverlap = [](const RGSubresourceRange& lhs, const RGSubresourceRange& rhs) -> bool
@@ -3232,7 +3301,7 @@ namespace OloEngine
         }
 
         // -----------------------------------------------------------------
-        // Phase E validation: imported resource lifetime misuse.
+        // Validation: imported resource lifetime misuse.
         // If an imported resource is both produced and consumed in-graph,
         // it must have a currently valid backing object.
         // -----------------------------------------------------------------
@@ -3274,16 +3343,16 @@ namespace OloEngine
 
         for (const auto& passName : m_PassOrder)
         {
-            auto passIt = m_PassLookup.find(passName);
-            if (passIt == m_PassLookup.end() || !passIt->second)
-                continue;
-            const RenderPass& pass = *passIt->second;
+            const auto staticPass = getStaticPass(passName);
 
             // Collect read resource names from both legacy (DeclareRead) and
             // graph-native (builder.Read) access declarations, deduplicating.
             std::vector<std::string> readNames;
-            for (const ResourceHandle& r : pass.GetReads())
-                readNames.push_back(r.Name);
+            if (staticPass)
+            {
+                for (const ResourceHandle& r : staticPass->GetReads())
+                    readNames.push_back(r.Name);
+            }
             if (const auto aIt = m_PassAccessDeclarations.find(passName);
                 aIt != m_PassAccessDeclarations.end())
             {
@@ -3300,8 +3369,11 @@ namespace OloEngine
 
             // Collect write resource names from both sources, deduplicating.
             std::vector<std::string> writeNames;
-            for (const ResourceHandle& w : pass.GetWrites())
-                writeNames.push_back(w.Name);
+            if (staticPass)
+            {
+                for (const ResourceHandle& w : staticPass->GetWrites())
+                    writeNames.push_back(w.Name);
+            }
             if (const auto aIt = m_PassAccessDeclarations.find(passName);
                 aIt != m_PassAccessDeclarations.end())
             {
@@ -3386,6 +3458,11 @@ namespace OloEngine
     {
         if (!m_ResourceRegistryDirty)
             return;
+
+        const auto getStaticPass = [this](const std::string& passName) -> Ref<RenderPass>
+        {
+            return TryGetStaticGraphEntryPass(passName, m_NodeLookup);
+        };
 
         auto isTextureKind = [](const ResourceHandle::Kind kind)
         {
@@ -3490,24 +3567,24 @@ namespace OloEngine
 
         for (const auto& passName : m_InsertionOrder)
         {
-            auto passIt = m_PassLookup.find(passName);
-            if (passIt == m_PassLookup.end() || !passIt->second)
+            const auto staticPass = getStaticPass(passName);
+            if (!staticPass)
                 continue;
 
-            const auto& reads = passIt->second->GetReads();
+            const auto& reads = staticPass->GetReads();
             for (const auto& read : reads)
             {
                 registerDeclaration(passName, read, false);
             }
 
-            const auto& writes = passIt->second->GetWrites();
+            const auto& writes = staticPass->GetWrites();
             for (const auto& write : writes)
             {
                 registerDeclaration(passName, write, true);
             }
         }
 
-        // Phase E: include setup-time builder declarations so graph-native
+        // Include setup-time builder declarations so graph-native
         // passes are represented in producer/consumer tracking and typed
         // handle assignment even when legacy RenderPass declarations are empty.
         for (const auto& [passName, accesses] : m_PassAccessDeclarations)
@@ -3989,13 +4066,10 @@ namespace OloEngine
         {
             const bool isFinal = (name == m_FinalPassName);
 
-            const auto passIt = m_PassLookup.find(name);
-            const bool isCompute = passIt != m_PassLookup.end() && passIt->second &&
-                                   passIt->second->GetPassWorkType() == RenderPass::PassWorkType::Compute;
-            const bool isCopy = passIt != m_PassLookup.end() && passIt->second &&
-                                passIt->second->GetPassWorkType() == RenderPass::PassWorkType::Copy;
-            const bool isAsyncCandidate = passIt != m_PassLookup.end() && passIt->second &&
-                                          passIt->second->IsAsyncComputeCandidate();
+            const auto workType = GetGraphEntryWorkType(name);
+            const bool isCompute = workType == RenderPass::PassWorkType::Compute;
+            const bool isCopy = workType == RenderPass::PassWorkType::Copy;
+            const bool isAsyncCandidate = IsGraphEntryAsyncComputeCandidate(name);
 
             const std::string label = isAsyncCandidate ? ("[async] " + name) : name;
 
@@ -4306,14 +4380,13 @@ namespace OloEngine
         {
             const auto& passName = m_PassOrder[passIndex];
 
-            auto passIt = m_PassLookup.find(passName);
-            if (passIt != m_PassLookup.end() && passIt->second)
+            if (const auto pass = TryGetStaticGraphEntryPass(passName, m_NodeLookup))
             {
-                for (const auto& read : passIt->second->GetReads())
+                for (const auto& read : pass->GetReads())
                 {
                     noteLifetimeAccess(read.Name, false, passName, passIndex);
                 }
-                for (const auto& write : passIt->second->GetWrites())
+                for (const auto& write : pass->GetWrites())
                 {
                     noteLifetimeAccess(write.Name, true, passName, passIndex);
                 }
@@ -4581,12 +4654,9 @@ namespace OloEngine
         u32 historyResourceCount = 0;
         for (const auto& passName : m_PassOrder)
         {
-            const auto passIt = m_PassLookup.find(passName);
-            if (passIt == m_PassLookup.end() || !passIt->second)
-                continue;
-            if (passIt->second->GetPassWorkType() == RenderPass::PassWorkType::Compute)
+            if (GetGraphEntryWorkType(passName) == RenderPass::PassWorkType::Compute)
                 ++computePassCount;
-            if (passIt->second->IsAsyncComputeCandidate())
+            if (IsGraphEntryAsyncComputeCandidate(passName))
                 ++asyncComputeCandidateCount;
         }
         for (const auto& resource : m_RegisteredResources)
@@ -4696,12 +4766,8 @@ namespace OloEngine
         for (sizet i = 0; i < m_PassOrder.size(); ++i)
         {
             const auto& passName = m_PassOrder[i];
-            const auto passIt = m_PassLookup.find(passName);
-            const auto workType = (passIt != m_PassLookup.end() && passIt->second)
-                                      ? passWorkTypeToString(passIt->second->GetPassWorkType())
-                                      : "Graphics";
-            const auto asyncCandidate = (passIt != m_PassLookup.end() && passIt->second) &&
-                                        passIt->second->IsAsyncComputeCandidate();
+            const auto workType = passWorkTypeToString(GetGraphEntryWorkType(passName));
+            const auto asyncCandidate = IsGraphEntryAsyncComputeCandidate(passName);
             out << "    { \"pass\": \"" << jsonEscape(passName)
                 << "\", \"workType\": \"" << workType
                 << "\", \"asyncComputeCandidate\": " << (asyncCandidate ? "true" : "false") << " }";
@@ -4910,12 +4976,8 @@ namespace OloEngine
             const auto timingIt = cpuMsByPass.find(passName);
             const auto executed = timingIt != cpuMsByPass.end();
             const auto cpuMs = executed ? timingIt->second : 0.0;
-            const auto passIt = m_PassLookup.find(passName);
-            const auto workType = (passIt != m_PassLookup.end() && passIt->second)
-                                      ? passWorkTypeToString(passIt->second->GetPassWorkType())
-                                      : "Graphics";
-            const auto asyncCandidate = (passIt != m_PassLookup.end() && passIt->second) &&
-                                        passIt->second->IsAsyncComputeCandidate();
+            const auto workType = passWorkTypeToString(GetGraphEntryWorkType(passName));
+            const auto asyncCandidate = IsGraphEntryAsyncComputeCandidate(passName);
 
             out << "    { \"pass\": \"" << jsonEscape(passName)
                 << "\", \"orderIndex\": " << i
@@ -4938,12 +5000,8 @@ namespace OloEngine
             const auto timingIt = cpuMsByPass.find(passName);
             const auto executed = timingIt != cpuMsByPass.end();
             const auto cpuMs = executed ? timingIt->second : 0.0;
-            const auto passIt = m_PassLookup.find(passName);
-            const auto workType = (passIt != m_PassLookup.end() && passIt->second)
-                                      ? passWorkTypeToString(passIt->second->GetPassWorkType())
-                                      : "Graphics";
-            const auto asyncCandidate = (passIt != m_PassLookup.end() && passIt->second) &&
-                                        passIt->second->IsAsyncComputeCandidate();
+            const auto workType = passWorkTypeToString(GetGraphEntryWorkType(passName));
+            const auto asyncCandidate = IsGraphEntryAsyncComputeCandidate(passName);
 
             out << "    \"" << jsonEscape(passName)
                 << "\": { \"orderIndex\": " << i
@@ -5245,40 +5303,8 @@ namespace OloEngine
         return true;
     }
     // -------------------------------------------------------------------
-    // Phase C — Graph-native pass registration and per-frame building
+    // Per-frame graph building
     // -------------------------------------------------------------------
-
-    void RenderGraph::RegisterGraphPass(
-        std::string_view name,
-        PassSetupFn setup,
-        PassExecuteFn execute)
-    {
-        OLO_PROFILE_FUNCTION();
-        OLO_CORE_ASSERT(setup && execute, "Pass setup and execute callbacks must not be null");
-
-        const auto duplicate = std::find_if(m_GraphPasses.begin(), m_GraphPasses.end(),
-                                            [name](const GraphPass& pass)
-                                            {
-                                                return pass.Name == name;
-                                            });
-        OLO_CORE_ASSERT(duplicate == m_GraphPasses.end(), "Duplicate graph pass registration: {}", name);
-
-        m_GraphPasses.push_back({ std::string(name), setup, execute });
-        m_DependencyGraphDirty = true;
-    }
-
-    void RenderGraph::ClearGraphPasses()
-    {
-        m_GraphPasses.clear();
-        m_PassAccessDeclarations.clear();
-        m_PassBarrierFlags.clear();
-        m_PlannedBarriers.clear();
-        m_BarrierDiagnostics.clear();
-        m_LastPassTimings.clear();
-        m_TransientResourceDescs.clear();
-        m_TransientPlan.clear();
-        m_ResourceRegistryDirty = true;
-    }
 
     void RenderGraph::BuildFrameGraph()
     {
@@ -5289,14 +5315,9 @@ namespace OloEngine
         m_TransientPool.ReleaseAll();
         m_TransientPool.Trim(m_TransientPoolMaxBucketSize);
 
-        // Phase C stub: iterate registered graph passes and call their setup callbacks
-        // to populate the builder. Full implementation will:
-        //   1. Create an RGBuilder
-        //   2. Call each pass's setup callback to record declarations
-        //   3. Compile the dependency DAG
-        //   4. Perform reachability analysis and culling (Phase D+)
-        //   5. Allocate transient resources (Phase D)
-        //   6. Generate barriers (Phase E)
+        // Build per-frame declarations and derived dependencies from
+        // graph-native node setup callbacks before compiling reachability,
+        // barriers, and transient planning.
 
         m_LastBuildStats = {};
         m_Dependencies = m_ExplicitDependencies;
@@ -5318,8 +5339,8 @@ namespace OloEngine
             RGSubresourceRange Range;
         };
         std::unordered_map<std::string, std::vector<DepWriterSlot>> lastWriterByResource;
-        const auto graphPassCount = m_GraphPasses.size();
-        lastWriterByResource.reserve(graphPassCount * 4u);
+        const auto graphEntryCount = m_InsertionOrder.size();
+        lastWriterByResource.reserve(graphEntryCount * 4u);
 
         // Subresource overlap helper (same semantics as in ComputeBarrierPlan).
         auto depRangeOverlaps1D = [](u32 baseA, u32 countA, u32 baseB, u32 countB) -> bool
@@ -5335,18 +5356,13 @@ namespace OloEngine
                    depRangeOverlaps1D(a.BaseLayer, a.LayerCount, b.BaseLayer, b.LayerCount);
         };
 
-        std::unordered_map<std::string, GraphPass*> graphPassByName;
-        graphPassByName.reserve(graphPassCount);
-        for (auto& pass : m_GraphPasses)
-            graphPassByName[pass.Name] = &pass;
-
         auto tryAddDerivedDependency = [this](const std::string& beforePass, const std::string& afterPass) -> bool
         {
             if (beforePass == afterPass)
                 return false;
-            if (!m_PassLookup.contains(beforePass) || !m_PassLookup.contains(afterPass))
+            if (!ContainsGraphEntry(beforePass) || !ContainsGraphEntry(afterPass))
             {
-                OLO_CORE_WARN("tryAddDerivedDependency: pass not found in m_PassLookup: {} -> {}",
+                OLO_CORE_WARN("tryAddDerivedDependency: graph entry not found: {} -> {}",
                               beforePass, afterPass);
                 return false;
             }
@@ -5392,31 +5408,27 @@ namespace OloEngine
             return true;
         };
 
-        auto processGraphPass = [&](GraphPass& pass)
+        auto processGraphNode = [&](RenderGraphNode& node)
         {
-            if (!pass.Setup)
-                return;
-
-            // Defensive: verify pass name is valid before processing
-            if (pass.Name.empty())
+            const std::string nodeName(node.GetName());
+            if (nodeName.empty())
             {
-                OLO_CORE_ERROR("processGraphPass: encountered pass with empty name");
+                OLO_CORE_ERROR("processGraphNode: encountered node with empty name");
                 return;
             }
 
             ++m_LastBuildStats.PassesVisited;
 
-            builder.BeginPass(pass.Name);
+            builder.BeginPass(nodeName);
 
-            // Call setup callback to record declarations
             try
             {
-                pass.Setup(builder);
+                node.Setup(builder, m_Blackboard);
             }
             catch (const std::exception& e)
             {
-                OLO_CORE_ERROR("processGraphPass: exception during setup callback for pass '{}': {}",
-                               pass.Name, e.what());
+                OLO_CORE_ERROR("processGraphNode: exception during setup callback for node '{}': {}",
+                               nodeName, e.what());
                 return;
             }
 
@@ -5424,12 +5436,8 @@ namespace OloEngine
             m_LastBuildStats.DeclaredReads += static_cast<u32>(reads.size());
 
             const auto& accesses = builder.GetDeclaredAccesses();
-            m_PassAccessDeclarations[pass.Name] = accesses;
+            m_PassAccessDeclarations[nodeName] = accesses;
 
-            // Derive ordering edges from per-subresource writer tracking.
-            // We iterate accesses (not just reads) to get the subresource range for
-            // precise overlap checks — passes that write to non-overlapping mips/layers
-            // of the same resource do NOT need an ordering edge between them.
             for (const auto& access : accesses)
             {
                 if (access.ResourceName.empty())
@@ -5437,40 +5445,36 @@ namespace OloEngine
 
                 if (!access.IsWrite)
                 {
-                    // Read: derive a dependency from every writer whose range overlaps.
                     const auto writerIt = lastWriterByResource.find(access.ResourceName);
                     if (writerIt == lastWriterByResource.end())
                         continue;
                     for (const auto& slot : writerIt->second)
                     {
-                        if (slot.PassName == pass.Name)
+                        if (slot.PassName == nodeName)
                             continue;
                         if (!depSubresourceRangesOverlap(slot.Range, access.Range))
                             continue;
-                        if (tryAddDerivedDependency(slot.PassName, pass.Name))
+                        if (tryAddDerivedDependency(slot.PassName, nodeName))
                             ++m_LastBuildStats.DerivedEdges;
                     }
                 }
                 else
                 {
-                    // Write: derive a WAW dependency from every writer whose range overlaps,
-                    // then upsert this pass as the new writer for that subresource region.
                     auto& writerVec = lastWriterByResource[access.ResourceName];
                     for (const auto& slot : writerVec)
                     {
-                        if (slot.PassName == pass.Name)
+                        if (slot.PassName == nodeName)
                             continue;
                         if (!depSubresourceRangesOverlap(slot.Range, access.Range))
                             continue;
-                        if (tryAddDerivedDependency(slot.PassName, pass.Name))
+                        if (tryAddDerivedDependency(slot.PassName, nodeName))
                             ++m_LastBuildStats.DerivedEdges;
                     }
 
                     bool slotUpdated = false;
                     for (auto& slot : writerVec)
                     {
-                        if (slot.PassName == pass.Name &&
-                            depSubresourceRangesOverlap(slot.Range, access.Range))
+                        if (slot.PassName == nodeName && depSubresourceRangesOverlap(slot.Range, access.Range))
                         {
                             slot.Range = access.Range;
                             slotUpdated = true;
@@ -5478,18 +5482,14 @@ namespace OloEngine
                         }
                     }
                     if (!slotUpdated)
-                        writerVec.push_back(DepWriterSlot{ pass.Name, access.Range });
+                        writerVec.push_back(DepWriterSlot{ nodeName, access.Range });
                 }
             }
 
-            // Emit diagnostics for empty read names (handle mapping failures).
             for (const auto& resourceName : reads)
             {
                 if (resourceName.empty())
-                {
-                    OLO_CORE_WARN("processGraphPass: pass '{}' declared empty-name read (handle mapping failed)",
-                                  pass.Name);
-                }
+                    OLO_CORE_WARN("processGraphNode: node '{}' declared empty-name read (handle mapping failed)", nodeName);
             }
 
             const auto& writes = builder.GetDeclaredWrites();
@@ -5498,27 +5498,19 @@ namespace OloEngine
             for (const auto& resourceName : writes)
             {
                 if (resourceName.empty())
-                {
-                    OLO_CORE_WARN("processGraphPass: pass '{}' declared empty-name write (handle mapping failed)",
-                                  pass.Name);
-                }
+                    OLO_CORE_WARN("processGraphNode: node '{}' declared empty-name write (handle mapping failed)", nodeName);
             }
         };
 
-        // Use AddPass insertion order as the canonical ordering seed for
-        // dependency derivation. m_InsertionOrder contains both legacy RenderPasses and
-        // graph-native passes. We iterate through it to maintain execution order, but only
-        // process graph-native passes that have setup callbacks (found in graphPassByName).
+        // Use insertion order as the canonical ordering seed for dependency
+        // derivation. Only graph-native nodes contribute per-frame builder
+        // declarations here; pass-only entries still participate through their
+        // static RenderPass declarations in later reachability/hazard passes.
         for (const auto& passName : m_InsertionOrder)
         {
-            auto it = graphPassByName.find(passName);
-            if (it == graphPassByName.end())
-            {
-                // This is a legacy RenderPass, skip it silently
-                continue;
-            }
-
-            processGraphPass(*it->second);
+            const auto nodeIt = m_NodeLookup.find(passName);
+            if (nodeIt != m_NodeLookup.end() && nodeIt->second)
+                processGraphNode(*nodeIt->second);
         }
 
         if (m_DependencyGraphDirty && !UpdateDependencyGraph())
@@ -5530,7 +5522,6 @@ namespace OloEngine
         if (m_DependencyGraphDirty)
         {
             ResolveFinalPass();
-            RebuildExecutionCache();
             m_DependencyGraphDirty = false;
         }
 

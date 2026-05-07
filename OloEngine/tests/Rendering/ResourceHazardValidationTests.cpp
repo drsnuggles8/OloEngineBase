@@ -30,6 +30,7 @@
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
+#include "OloEngine/Renderer/PassGraphNode.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 
@@ -75,12 +76,136 @@ namespace
         }
     };
 
+    ResourceHandle::Kind NormalizeDeclarationKind(const ResourceHandle::Kind kind)
+    {
+        return kind == ResourceHandle::Kind::Unknown ? ResourceHandle::Kind::Texture2D : kind;
+    }
+
+    void MirrorPassRead(RGBuilder& builder, const ResourceHandle& resource)
+    {
+        const auto kind = NormalizeDeclarationKind(resource.Type);
+        const auto desc = RGResourceDesc::FromLegacy(kind, resource.Name);
+
+        switch (kind)
+        {
+            case ResourceHandle::Kind::Framebuffer:
+            {
+                auto handle = builder.ImportFramebuffer(resource.Name, nullptr, desc);
+                [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::RenderTargetRead);
+                break;
+            }
+            case ResourceHandle::Kind::UniformBuffer:
+            case ResourceHandle::Kind::StorageBuffer:
+            {
+                auto handle = builder.ImportBuffer(resource.Name, 0, desc);
+                [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::ShaderStorage);
+                break;
+            }
+            default:
+            {
+                auto handle = builder.ImportTexture(resource.Name, 0, desc);
+                [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::ShaderSample);
+                break;
+            }
+        }
+    }
+
+    void MirrorPassWrite(RGBuilder& builder, const ResourceHandle& resource)
+    {
+        const auto kind = NormalizeDeclarationKind(resource.Type);
+        const auto desc = RGResourceDesc::FromLegacy(kind, resource.Name);
+
+        switch (kind)
+        {
+            case ResourceHandle::Kind::Framebuffer:
+            {
+                auto handle = builder.ImportFramebuffer(resource.Name, nullptr, desc);
+                builder.Write(handle, RGWriteUsage::RenderTarget);
+                break;
+            }
+            case ResourceHandle::Kind::UniformBuffer:
+            case ResourceHandle::Kind::StorageBuffer:
+            {
+                auto handle = builder.ImportBuffer(resource.Name, 0, desc);
+                builder.Write(handle, RGWriteUsage::ShaderStorage);
+                break;
+            }
+            default:
+            {
+                auto handle = builder.ImportTexture(resource.Name, 0, desc);
+                builder.Write(handle, RGWriteUsage::RenderTarget);
+                break;
+            }
+        }
+    }
+
+    void MirrorPassDeclarations(RGBuilder& builder, const RenderPass& pass)
+    {
+        for (const auto& read : pass.GetReads())
+            MirrorPassRead(builder, read);
+
+        for (const auto& write : pass.GetWrites())
+            MirrorPassWrite(builder, write);
+    }
+
+    void RegisterDeclarativeStubNode(RenderGraph& graph, const Ref<DeclarativeStubPass>& pass)
+    {
+        auto node = Ref<PassGraphNode>::Create(
+            std::string(pass->GetName()),
+            pass.As<RenderPass>(),
+            [pass](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
+            {
+                MirrorPassDeclarations(builder, *pass);
+            });
+        graph.AddNode(node);
+    }
+
     Ref<DeclarativeStubPass> AddDeclStub(RenderGraph& graph, const std::string& name)
     {
         auto pass = Ref<DeclarativeStubPass>::Create(name);
         pass->SetName(name);
-        graph.AddPass(pass);
+        RegisterDeclarativeStubNode(graph, pass);
         return pass;
+    }
+
+    class SetupOnlyGraphNode : public RenderGraphNode
+    {
+      public:
+        using SetupFn = std::function<void(RGBuilder&)>;
+
+        explicit SetupOnlyGraphNode(std::string name, SetupFn setup)
+            : m_Name(std::move(name)), m_Setup(std::move(setup))
+        {
+        }
+
+        [[nodiscard]] std::string_view GetName() const override
+        {
+            return m_Name;
+        }
+
+        void Setup(RGBuilder& builder, FrameBlackboard& /*blackboard*/) override
+        {
+            if (m_Setup)
+                m_Setup(builder);
+        }
+
+        void Execute(RGCommandContext& /*context*/) override {}
+
+        [[nodiscard]] RenderGraphNodeFlags GetFlags() const override
+        {
+            return RenderGraphNodeFlags::Graphics;
+        }
+
+      private:
+        std::string m_Name;
+        SetupFn m_Setup;
+    };
+
+    Ref<SetupOnlyGraphNode> AddSetupNode(RenderGraph& graph, std::string name, SetupOnlyGraphNode::SetupFn setup)
+    {
+        auto node = Ref<SetupOnlyGraphNode>::Create(std::move(name), std::move(setup));
+        graph.AddNode(node);
+        return node;
     }
 
     std::string HazardsToString(const std::vector<RenderGraph::Hazard>& hazards)
@@ -644,9 +769,8 @@ TEST(RenderGraphResourceHazards, SamePassOverlappingReadWriteWithoutFeedbackIsFl
 {
     RenderGraph graph;
 
-    AddDeclStub(graph, "FeedbackPass");
-
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "FeedbackPass",
         [](RGBuilder& builder)
         {
@@ -656,8 +780,7 @@ TEST(RenderGraphResourceHazards, SamePassOverlappingReadWriteWithoutFeedbackIsFl
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "FeedbackTex"));
             [[maybe_unused]] const auto sampled = builder.Read(color, RGReadUsage::ShaderSample, RGSubresourceRange::Mip(0));
             builder.Write(color, RGWriteUsage::RenderTarget, RGSubresourceRange::Mip(0));
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.SetFinalPass("FeedbackPass");
     graph.BuildFrameGraph();
@@ -676,10 +799,8 @@ TEST(RenderGraphResourceHazards, ImportedProducedAndConsumedWithoutBackingIsFlag
 {
     RenderGraph graph;
 
-    AddDeclStub(graph, "Writer");
-    AddDeclStub(graph, "Reader");
-
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Writer",
         [](RGBuilder& builder)
         {
@@ -688,10 +809,10 @@ TEST(RenderGraphResourceHazards, ImportedProducedAndConsumedWithoutBackingIsFlag
                 0,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ImportedNoBacking"));
             builder.Write(imported, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Reader",
         [](RGBuilder& builder)
         {
@@ -700,8 +821,7 @@ TEST(RenderGraphResourceHazards, ImportedProducedAndConsumedWithoutBackingIsFlag
                 0,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ImportedNoBacking"));
             [[maybe_unused]] const auto sampled = builder.Read(imported, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.ConnectPass("Writer", "Reader");
     graph.SetFinalPass("Reader");
@@ -2178,18 +2298,18 @@ TEST(RenderGraphConfigureTopology, DecalNodePresence)
     RenderGraph barePathGraph;
     auto shadow = Ref<DeclarativeStubPass>::Create("ShadowPass");
     shadow->TestDeclareWrite(std::string(ResourceNames::ShadowMapCSM));
-    barePathGraph.AddPass(shadow);
+    RegisterDeclarativeStubNode(barePathGraph, shadow);
     auto scene = Ref<DeclarativeStubPass>::Create("ScenePass");
     scene->TestDeclareRead(std::string(ResourceNames::ShadowMapCSM));
     scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
     scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
     scene->TestDeclareWrite(std::string(ResourceNames::SceneNormals));
-    barePathGraph.AddPass(scene);
+    RegisterDeclarativeStubNode(barePathGraph, scene);
     auto lighting = Ref<DeclarativeStubPass>::Create("DeferredLightingPass");
     lighting->TestDeclareRead(std::string(ResourceNames::SceneNormals));
     lighting->TestDeclareRead(std::string(ResourceNames::SceneDepth));
     lighting->TestDeclareWrite(std::string(ResourceNames::SceneColor));
-    barePathGraph.AddPass(lighting);
+    RegisterDeclarativeStubNode(barePathGraph, lighting);
     // Only wire scene -> lighting — decal node intentionally absent so
     // nothing in the graph declares a dependency between the SceneColor
     // writes of decals and the lighting pass's SceneColor write. The
@@ -2238,18 +2358,18 @@ TEST(RenderGraphConfigureTopology, DecalNodeOrdering)
         scene->TestDeclareWrite(std::string(ResourceNames::SceneColor));
         scene->TestDeclareWrite(std::string(ResourceNames::SceneDepth));
         scene->TestDeclareWrite(std::string(ResourceNames::SceneNormals));
-        reordered.AddPass(scene);
+        RegisterDeclarativeStubNode(reordered, scene);
 
         auto lighting = Ref<DeclarativeStubPass>::Create("DeferredLightingPass");
         lighting->TestDeclareRead(std::string(ResourceNames::SceneNormals));
         lighting->TestDeclareRead(std::string(ResourceNames::SceneDepth));
         lighting->TestDeclareWrite(std::string(ResourceNames::SceneColor));
-        reordered.AddPass(lighting);
+        RegisterDeclarativeStubNode(reordered, lighting);
 
         auto decal = Ref<DeclarativeStubPass>::Create("DeferredOpaqueDecalPass");
         decal->TestDeclareRead(std::string(ResourceNames::SceneDepth));
         decal->TestDeclareWrite(std::string(ResourceNames::SceneColor));
-        reordered.AddPass(decal);
+        RegisterDeclarativeStubNode(reordered, decal);
 
         // Intentionally bad ordering: ScenePass -> lighting, ScenePass ->
         // decal. Both writers produce SceneColor with no edge between
@@ -2288,7 +2408,7 @@ TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
         // in ResourceHazardValidationTests.
         auto shadow = Ref<DeclarativeStubPass>::Create("ShadowPass");
         shadow->TestDeclareWrite(std::string(ResourceNames::ShadowMapCSM));
-        graph.AddPass(shadow);
+        RegisterDeclarativeStubNode(graph, shadow);
 
         auto scene = Ref<DeclarativeStubPass>::Create("ScenePass");
         scene->TestDeclareRead(std::string(ResourceNames::ShadowMapCSM));
@@ -2299,7 +2419,7 @@ TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
         // DeferredOpaqueDecalPass actually has a declared producer edge
         // for the L5 validator to verify on each rebuild cycle.
         scene->TestDeclareWrite(std::string(ResourceNames::SceneNormals));
-        graph.AddPass(scene);
+        RegisterDeclarativeStubNode(graph, scene);
 
         if (deferred)
         {
@@ -2307,7 +2427,7 @@ TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
             deferredLight->TestDeclareRead(std::string(ResourceNames::SceneDepth));
             deferredLight->TestDeclareRead(std::string(ResourceNames::SceneNormals));
             deferredLight->TestDeclareWrite(std::string(ResourceNames::SceneColor));
-            graph.AddPass(deferredLight);
+            RegisterDeclarativeStubNode(graph, deferredLight);
 
             // Opaque-decal graph shim — mirrors ConfigureRenderGraph so
             // the rebuild test exercises the same pass set + edges as
@@ -2317,7 +2437,7 @@ TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
             auto decal = Ref<DeclarativeStubPass>::Create("DeferredOpaqueDecalPass");
             decal->TestDeclareRead(std::string(ResourceNames::SceneDepth));
             decal->TestDeclareWrite(std::string(ResourceNames::SceneColor));
-            graph.AddPass(decal);
+            RegisterDeclarativeStubNode(graph, decal);
 
             graph.AddExecutionDependency("ScenePass", "DeferredOpaqueDecalPass");
             graph.AddExecutionDependency("DeferredOpaqueDecalPass", "DeferredLightingPass");
@@ -2325,7 +2445,7 @@ TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
 
         auto final = Ref<DeclarativeStubPass>::Create("FinalPass");
         final->TestDeclareRead(std::string(ResourceNames::SceneColor));
-        graph.AddPass(final);
+        RegisterDeclarativeStubNode(graph, final);
 
         graph.AddExecutionDependency("ShadowPass", "ScenePass");
         if (deferred)
@@ -2349,7 +2469,7 @@ TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
         // Pass set must match what this cycle installed — no residual edges
         // or passes leaked from a previous cycle (the ResetTopology contract).
         const sizet expectedPassCount = paths[i] ? 5u : 3u;
-        EXPECT_EQ(graph.GetAllPasses().size(), expectedPassCount)
+        EXPECT_EQ(graph.GetPassSubmissionInfo().size(), expectedPassCount)
             << "Cycle " << i << ": residual passes from prior cycle";
     }
 }

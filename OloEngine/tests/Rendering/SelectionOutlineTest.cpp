@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/PassGraphNode.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
@@ -38,7 +39,11 @@ static Ref<OutlineStubPass> AddStub(RenderGraph& graph, const std::string& name)
 {
     auto pass = Ref<OutlineStubPass>::Create(name);
     pass->SetName(name);
-    graph.AddPass(pass);
+    auto node = Ref<PassGraphNode>::Create(
+        name,
+        pass.As<RenderPass>(),
+        [](RGBuilder& /*builder*/, FrameBlackboard& /*blackboard*/) {});
+    graph.AddNode(node);
     return pass;
 }
 
@@ -139,14 +144,14 @@ TEST(SelectionOutlineGraph, PassInsertedBetweenPostProcessAndUIComposite)
     graph.SetFinalPass("FinalPass");
 
     // Graph should compile and all passes should be retrievable
-    auto retrievedOutline = graph.GetPass<OutlineStubPass>("SelectionOutlinePass");
+    auto retrievedOutline = graph.GetNode<PassGraphNode>("SelectionOutlinePass");
     ASSERT_NE(retrievedOutline, nullptr);
     EXPECT_EQ(retrievedOutline->GetName(), "SelectionOutlinePass");
 
-    auto retrievedPost = graph.GetPass<OutlineStubPass>("PostProcessPass");
+    auto retrievedPost = graph.GetNode<PassGraphNode>("PostProcessPass");
     ASSERT_NE(retrievedPost, nullptr);
 
-    auto retrievedUI = graph.GetPass<OutlineStubPass>("UICompositePass");
+    auto retrievedUI = graph.GetNode<PassGraphNode>("UICompositePass");
     ASSERT_NE(retrievedUI, nullptr);
 }
 

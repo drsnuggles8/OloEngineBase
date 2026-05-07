@@ -5,10 +5,11 @@
 #include "OloEngine/Renderer/FrameBlackboard.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
+#include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/TransientPool.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
-#include "OloEngine/Renderer/RGPassSetup.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include <functional>
 #include <limits>
 #include <vector>
@@ -55,20 +56,20 @@ namespace OloEngine
         // that read from a DRS-scaled buffer don't sample uninitialized texels.
         [[nodiscard]] glm::vec2 GetRenderScaleBounds() const;
 
-        // Clear all topology bookkeeping (passes, edges, framebuffer piping,
-        // cached execution order) WITHOUT touching the passes themselves.
+        // Clear all topology bookkeeping (passes, nodes, edges, cached
+        // execution order/plans) WITHOUT touching
+        // the graph entry objects themselves.
         // Used by `Renderer3D::ConfigureRenderGraph(RenderingPath)` to rebuild
         // the graph when the user switches between Forward / Forward+ /
-        // Deferred at runtime. Because passes are owned externally as
+        // Deferred at runtime. Because graph entries are owned externally as
         // `Ref<>`s on `Renderer3D::s_Data`, their framebuffers and internal
-        // state survive the reset. Callers must re-`AddPass` every pass they
-        // want in the new topology and re-issue all edges before calling
-        // `SetFinalPass` / `ValidateResourceHazards` again.
+        // state survive the reset. Callers must re-`AddNode` every
+        // graph entry they want in the new topology and re-issue all edges
+        // before calling `SetFinalPass` / `ValidateResourceHazards` again.
         void ResetTopology();
 
-        // Only support RenderPass
-        void AddPass(const Ref<RenderPass>& pass);
-        // Connect two passes: establishes execution ordering AND framebuffer piping
+        void AddNode(const Ref<RenderGraphNode>& node);
+        // Connect two graph entries: establishes execution ordering.
         void ConnectPass(const std::string& outputPass, const std::string& inputPass);
 
         // Add an execution-ordering dependency without framebuffer piping.
@@ -85,17 +86,22 @@ namespace OloEngine
         // Set the final pass in the graph
         void SetFinalPass(const std::string& passName);
 
-        // @brief Get all render passes in the graph for debugging or inspection.
-        // @return Vector of render passes in the execution order
-        [[nodiscard]] std::vector<Ref<RenderPass>> GetAllPasses() const;
-
-        // Get a pass by name and cast to the requested type
         template<typename T>
-        Ref<T> GetPass(const std::string& name)
+        Ref<T> GetNode(const std::string& name)
         {
-            if (m_PassLookup.find(name) != m_PassLookup.end())
+            if (m_NodeLookup.find(name) != m_NodeLookup.end())
             {
-                return m_PassLookup.at(name).As<T>();
+                return m_NodeLookup.at(name).As<T>();
+            }
+            return nullptr;
+        }
+
+        template<typename T>
+        Ref<T> GetNode(const std::string& name) const
+        {
+            if (m_NodeLookup.find(name) != m_NodeLookup.end())
+            {
+                return m_NodeLookup.at(name).As<T>();
             }
             return nullptr;
         }
@@ -116,8 +122,8 @@ namespace OloEngine
             std::string PassName;
             RenderPass::SubmissionModel Submission = RenderPass::SubmissionModel::Unknown;
             bool DeclaresResources = false;
-            RenderPass::PassWorkType WorkType = RenderPass::PassWorkType::Graphics; // Phase G
-            bool AsyncComputeCandidate = false;                                     // Phase G
+            RenderPass::PassWorkType WorkType = RenderPass::PassWorkType::Graphics; // Scheduler metadata
+            bool AsyncComputeCandidate = false;                                     // Scheduler metadata
         };
         [[nodiscard]] std::vector<PassSubmissionInfo> GetPassSubmissionInfo() const;
 
@@ -184,7 +190,7 @@ namespace OloEngine
         [[nodiscard]] bool IsFramebufferHandleCurrent(RGFramebufferHandle handle) const;
 
         // -------------------------------------------------------------------
-        // Phase B — Typed import / resolve / extract API
+        // Typed import / resolve / extract API
         // -------------------------------------------------------------------
         // Import a physical GL texture into the graph under a canonical name.
         // Returns a typed handle that can be stored in the FrameBlackboard or
@@ -262,7 +268,7 @@ namespace OloEngine
         // -------------------------------------------------------------------
         // Frame blackboard
         // -------------------------------------------------------------------
-        // Phase B — Frame blackboard
+        // Frame blackboard
         // -------------------------------------------------------------------
         // The blackboard is populated by Renderer3D::SetupFrameBlackboard()
         // at the start of each frame.  Passes must not write to the
@@ -283,7 +289,7 @@ namespace OloEngine
         }
 
         // -------------------------------------------------------------------
-        // Phase D — Transient resource pool access
+        // Transient resource pool access
         // -------------------------------------------------------------------
         // Get the transient pool for acquiring/releasing resources.
         // Call ReleaseAll() after frame execution to return acquired resources.
@@ -293,17 +299,17 @@ namespace OloEngine
         }
 
         // -------------------------------------------------------------------
-        // Phase C — Builder support (transient resource allocation)
+        // Builder support for transient resource allocation
         // -------------------------------------------------------------------
         // Allocate a handle for a new transient (virtual) resource.
         // The physical resource is allocated and managed by the graph's
-        // transient pool (Phase D). Until then, these are stubs.
+        // transient pool. Until then, these are stubs.
         [[nodiscard]] RGTextureHandle AllocateTransientTextureHandle(std::string_view name, const RGResourceDesc& desc);
         [[nodiscard]] RGFramebufferHandle AllocateTransientFramebufferHandle(std::string_view name, const RGResourceDesc& desc);
         [[nodiscard]] RGBufferHandle AllocateTransientBufferHandle(std::string_view name, const RGResourceDesc& desc);
 
         // -------------------------------------------------------------------
-        // Phase D — Pre-graph transient resource declaration
+        // Pre-build transient resource declaration
         // -------------------------------------------------------------------
         // Declare a transient framebuffer resource BEFORE BuildFrameGraph().
         // Suitable for use in SetupFrameBlackboard (e.g. OIT MRT buffers,
@@ -353,9 +359,9 @@ namespace OloEngine
         }
 
         // -------------------------------------------------------------------
-        // Phase C — Per-frame graph building
+        // Per-frame graph building
         // -------------------------------------------------------------------
-        // Build the frame graph by running all registered pass setup callbacks.
+        // Build the frame graph by running all graph-native node setup callbacks.
         // Each setup callback declares its resource reads/writes to the builder.
         // After setup, the graph is topologically ordered and ready to execute.
         void BuildFrameGraph();
@@ -429,7 +435,7 @@ namespace OloEngine
 
         // Record execute-path fallback usage (legacy raw-resource fallback,
         // invalid typed-handle resolve attempts, etc.).
-        // This is used by Phase H.1 telemetry to ensure production paths no
+        // This is used by fallback telemetry to ensure production paths no
         // longer depend on compatibility bridges.
         void RecordFallbackActivation(std::string_view passName, std::string_view reason) const;
 
@@ -501,25 +507,6 @@ namespace OloEngine
         [[nodiscard]] u32 GetTransientPoolMaxBucketSize() const
         {
             return m_TransientPoolMaxBucketSize;
-        }
-
-        // Register a graph-native pass with setup and execute callbacks.
-        // Setup captures per-frame parameters and declares resources.
-        // Execute receives resolved resources and runs GPU work.
-        void RegisterGraphPass(
-            std::string_view name,
-            PassSetupFn setup,
-            PassExecuteFn execute);
-
-        void ClearGraphPasses();
-
-        // Explicitly set the final output pass (swap-chain writer).
-        // Phase C graph passes use this to mark the backbuffer output.
-        void SetGraphFinalPass(std::string_view passName)
-        {
-            // Phase C stub: just track the final pass name
-            m_FinalPassName = passName;
-            m_HasExplicitFinalPass = true;
         }
 
         // @brief Dump the current graph as a Graphviz DOT file.
@@ -658,7 +645,7 @@ namespace OloEngine
 
             Kind CommandKind = Kind::Pass;
             std::string PassName;                                                   ///< non-empty for Pass commands
-            RenderPass* PassPointer = nullptr;                                      ///< cached pointer to avoid map lookups
+            RenderGraphNode* NodePointer = nullptr;                                 ///< cached node pointer to avoid map lookups
             MemoryBarrierFlags Barriers = MemoryBarrierFlags::None;                 ///< for MemoryBarrier commands
             u32 BatchIndex = 0;                                                     ///< for BatchBegin/BatchEnd: which async batch
             RenderPass::PassWorkType WorkType = RenderPass::PassWorkType::Graphics; ///< for Pass commands
@@ -772,7 +759,7 @@ namespace OloEngine
 
       private:
         // -------------------------------------------------------------------
-        // Phase E — Backward reachability analysis and pass culling
+        // Backward reachability analysis and pass culling
         // -------------------------------------------------------------------
         // Compute backward reachability from the final pass.
         // Marks all passes that produce resources consumed (directly or
@@ -790,12 +777,16 @@ namespace OloEngine
         [[nodiscard]] bool IsPassReachable(const std::string& passName) const;
         [[nodiscard]] bool IsHistoryTextureResource(std::string_view resourceName) const;
         [[nodiscard]] bool IsResourceReachableForExtraction(std::string_view resourceName) const;
+        [[nodiscard]] bool ContainsGraphEntry(std::string_view name) const;
+        [[nodiscard]] bool IsGraphEntryAsyncComputeCandidate(std::string_view name) const;
+        [[nodiscard]] bool IsGraphEntrySideEffecting(std::string_view name) const;
+        [[nodiscard]] RenderPass::PassWorkType GetGraphEntryWorkType(std::string_view name) const;
 
-        std::unordered_map<std::string, Ref<RenderPass>> m_PassLookup;
+        std::unordered_map<std::string, Ref<RenderGraphNode>> m_NodeLookup;
         std::unordered_map<std::string, std::vector<std::string>> m_Dependencies;         // Execution ordering
         std::unordered_map<std::string, std::vector<std::string>> m_ExplicitDependencies; // Persistent ordering edges
 
-        std::vector<std::string> m_InsertionOrder; // Pass names in AddPass() order (stable topo tie-break)
+        std::vector<std::string> m_InsertionOrder; // Graph entry names in registration order (stable topo tie-break)
         std::vector<std::string> m_PassOrder;
         std::string m_FinalPassName;
         bool m_HasExplicitFinalPass = false;
@@ -809,11 +800,11 @@ namespace OloEngine
         u32 m_PhysicalHeight = 0;
         f32 m_RenderScale = 1.0f;
 
-        // Phase E — Reachability tracking
+        // Reachability tracking
         std::unordered_set<std::string> m_ReachablePasses; // Passes that are reachable from final output
         std::vector<std::string> m_CulledPasses;           // Passes that were culled in last analysis
 
-        // Phase E — Barrier planning/execution
+        // Barrier planning/execution
         std::unordered_map<std::string, std::vector<RGAccessDeclaration>> m_PassAccessDeclarations;
         std::unordered_map<std::string, MemoryBarrierFlags> m_PassBarrierFlags;
         std::vector<PlannedBarrier> m_PlannedBarriers;
@@ -828,8 +819,7 @@ namespace OloEngine
         BatchEventCallback m_BatchEventHook;
 
         // Execution-ready cache — rebuilt when m_DependencyGraphDirty is set.
-        // Avoids per-frame hash lookups in Execute().
-        std::vector<RenderPass*> m_CachedExecutionOrder;
+        // The compiled submission plan is the only execution IR used by Execute().
         std::vector<SubmissionCommand> m_CachedSubmissionPlan; ///< IR cached after barrier planning
         std::string m_LastLoggedSubmissionPlanDigest;
         std::string m_LastLoggedCulledPassDigest;
@@ -861,7 +851,7 @@ namespace OloEngine
         mutable std::vector<u32> m_FreeFramebufferHandleIndices;
 
         // -------------------------------------------------------------------
-        // Phase B — Physical resource storage (parallel to handle slots)
+        // Physical resource storage (parallel to handle slots)
         // -------------------------------------------------------------------
         struct PhysicalTexture
         {
@@ -884,7 +874,7 @@ namespace OloEngine
         mutable std::vector<PhysicalBuffer> m_PhysicalBuffers;
 
         // -------------------------------------------------------------------
-        // Phase B — Extraction queue
+        // Extraction queue
         // -------------------------------------------------------------------
         struct TextureExtract
         {
@@ -908,24 +898,17 @@ namespace OloEngine
         std::vector<TemporalHistoryContract> m_TemporalHistoryContracts;
 
         // -------------------------------------------------------------------
-        // Phase B — Frame blackboard
+        // Frame blackboard
         // -------------------------------------------------------------------
         FrameBlackboard m_Blackboard;
         // -------------------------------------------------------------------
-        // Phase D — Transient resource pool
+        // Transient resource pool
         // -------------------------------------------------------------------
         TransientPool m_TransientPool;
 
         // -------------------------------------------------------------------
-        // Phase C — Graph-native pass registration and execution
+        // Graph-native execution metadata
         // -------------------------------------------------------------------
-        struct GraphPass
-        {
-            std::string Name;
-            PassSetupFn Setup;
-            PassExecuteFn Execute;
-        };
-        std::vector<GraphPass> m_GraphPasses;
         FrameBuildStats m_LastBuildStats;
 
         // Allocate or recycle a texture handle slot and record the physical
@@ -934,7 +917,6 @@ namespace OloEngine
         RGFramebufferHandle AllocateFramebufferHandle(std::string_view name, const Ref<Framebuffer>& fb, bool isPlaceholder = false, std::string_view placeholderReason = "");
         RGBufferHandle AllocateBufferHandle(std::string_view name, u32 bufferID, bool isPlaceholder = false, std::string_view placeholderReason = "");
 
-        void RebuildExecutionCache();
         void EnsureResourceRegistryBuilt() const;
         void RebuildTransientPlan();
         void MaterializeTransientResources();

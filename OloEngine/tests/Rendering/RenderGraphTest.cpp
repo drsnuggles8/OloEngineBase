@@ -4,6 +4,7 @@
 #include "RenderingTestUtils.h"
 #include "PropertyTests/RenderPropertyTest.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/PassGraphNode.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
@@ -12,6 +13,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iterator>
 #include <string>
 #include <vector>
@@ -93,6 +95,74 @@ class ImmediateStubPass : public RenderPass
     {
         DeclareRead(resource, ResourceHandle::Kind::Texture2D);
     }
+};
+
+class LifecycleTrackingPass : public RenderPass
+{
+  public:
+    explicit LifecycleTrackingPass(const std::string& name)
+    {
+        m_Name = name;
+    }
+
+    void Init(const FramebufferSpecification& /*spec*/) override {}
+    void Execute() override {}
+    [[nodiscard]] Ref<Framebuffer> GetTarget() const override
+    {
+        return nullptr;
+    }
+
+    void ResizeFramebuffer(u32 width, u32 height) override
+    {
+        ++m_ResizeFramebufferCount;
+        m_LastResizeFramebufferWidth = width;
+        m_LastResizeFramebufferHeight = height;
+    }
+
+    void ApplyRenderViewport(u32 width, u32 height) override
+    {
+        ++m_ApplyRenderViewportCount;
+        m_LastRenderViewportWidth = width;
+        m_LastRenderViewportHeight = height;
+    }
+
+    [[nodiscard]] u32 GetResizeFramebufferCount() const
+    {
+        return m_ResizeFramebufferCount;
+    }
+
+    [[nodiscard]] u32 GetApplyRenderViewportCount() const
+    {
+        return m_ApplyRenderViewportCount;
+    }
+
+    [[nodiscard]] u32 GetLastResizeFramebufferWidth() const
+    {
+        return m_LastResizeFramebufferWidth;
+    }
+
+    [[nodiscard]] u32 GetLastResizeFramebufferHeight() const
+    {
+        return m_LastResizeFramebufferHeight;
+    }
+
+    [[nodiscard]] u32 GetLastRenderViewportWidth() const
+    {
+        return m_LastRenderViewportWidth;
+    }
+
+    [[nodiscard]] u32 GetLastRenderViewportHeight() const
+    {
+        return m_LastRenderViewportHeight;
+    }
+
+  private:
+    u32 m_ResizeFramebufferCount = 0;
+    u32 m_ApplyRenderViewportCount = 0;
+    u32 m_LastResizeFramebufferWidth = 0;
+    u32 m_LastResizeFramebufferHeight = 0;
+    u32 m_LastRenderViewportWidth = 0;
+    u32 m_LastRenderViewportHeight = 0;
 };
 
 class StubFramebuffer : public Framebuffer
@@ -322,45 +392,255 @@ class DeclarationTrackingStubPass : public RenderPass
     u32 m_ExecuteCount = 0;
 };
 
-// Helper to create and add a stub pass
+class TestGraphNode : public RenderGraphNode
+{
+  public:
+    using SetupFn = std::function<void(RGBuilder&)>;
+    using ExecuteFn = std::function<void(RGCommandContext&)>;
+
+    explicit TestGraphNode(std::string name, SetupFn setup = {}, ExecuteFn execute = {})
+        : m_Name(std::move(name)), m_Setup(std::move(setup)), m_Execute(std::move(execute))
+    {
+    }
+
+    [[nodiscard]] std::string_view GetName() const override
+    {
+        return m_Name;
+    }
+
+    void Setup(RGBuilder& builder, FrameBlackboard& /*blackboard*/) override
+    {
+        ++m_SetupCount;
+        if (m_Setup)
+            m_Setup(builder);
+    }
+
+    void Execute(RGCommandContext& context) override
+    {
+        ++m_ExecuteCount;
+        m_ContextWasActive = context.IsPassActive();
+        m_ContextPassName = std::string(context.GetActivePassName());
+        if (m_Execute)
+            m_Execute(context);
+    }
+
+    [[nodiscard]] RenderGraphNodeFlags GetFlags() const override
+    {
+        return m_Flags;
+    }
+
+    [[nodiscard]] RenderPass::SubmissionModel GetSubmissionModel() const override
+    {
+        return m_SubmissionModelOverride ? m_SubmissionModel : RenderGraphNode::GetSubmissionModel();
+    }
+
+    void SetupFramebuffer(u32 width, u32 height) override
+    {
+        ++m_SetupFramebufferCount;
+        m_LastSetupFramebufferWidth = width;
+        m_LastSetupFramebufferHeight = height;
+    }
+
+    void ResizeFramebuffer(u32 width, u32 height) override
+    {
+        ++m_ResizeFramebufferCount;
+        m_LastResizeFramebufferWidth = width;
+        m_LastResizeFramebufferHeight = height;
+    }
+
+    void ApplyRenderViewport(u32 width, u32 height) override
+    {
+        ++m_ApplyRenderViewportCount;
+        m_LastRenderViewportWidth = width;
+        m_LastRenderViewportHeight = height;
+    }
+
+    void SetFlags(RenderGraphNodeFlags flags)
+    {
+        m_Flags = flags;
+    }
+
+    void SetSubmissionModel(RenderPass::SubmissionModel submissionModel)
+    {
+        m_SubmissionModel = submissionModel;
+        m_SubmissionModelOverride = true;
+    }
+
+    [[nodiscard]] u32 GetSetupCount() const
+    {
+        return m_SetupCount;
+    }
+
+    [[nodiscard]] u32 GetExecuteCount() const
+    {
+        return m_ExecuteCount;
+    }
+
+    [[nodiscard]] bool WasContextActive() const
+    {
+        return m_ContextWasActive;
+    }
+
+    [[nodiscard]] const std::string& GetObservedContextPassName() const
+    {
+        return m_ContextPassName;
+    }
+
+    [[nodiscard]] u32 GetSetupFramebufferCount() const
+    {
+        return m_SetupFramebufferCount;
+    }
+
+    [[nodiscard]] u32 GetResizeFramebufferCount() const
+    {
+        return m_ResizeFramebufferCount;
+    }
+
+    [[nodiscard]] u32 GetApplyRenderViewportCount() const
+    {
+        return m_ApplyRenderViewportCount;
+    }
+
+    [[nodiscard]] u32 GetLastSetupFramebufferWidth() const
+    {
+        return m_LastSetupFramebufferWidth;
+    }
+
+    [[nodiscard]] u32 GetLastSetupFramebufferHeight() const
+    {
+        return m_LastSetupFramebufferHeight;
+    }
+
+    [[nodiscard]] u32 GetLastResizeFramebufferWidth() const
+    {
+        return m_LastResizeFramebufferWidth;
+    }
+
+    [[nodiscard]] u32 GetLastResizeFramebufferHeight() const
+    {
+        return m_LastResizeFramebufferHeight;
+    }
+
+    [[nodiscard]] u32 GetLastRenderViewportWidth() const
+    {
+        return m_LastRenderViewportWidth;
+    }
+
+    [[nodiscard]] u32 GetLastRenderViewportHeight() const
+    {
+        return m_LastRenderViewportHeight;
+    }
+
+  private:
+    std::string m_Name;
+    SetupFn m_Setup;
+    ExecuteFn m_Execute;
+    RenderGraphNodeFlags m_Flags = RenderGraphNodeFlags::Graphics;
+    RenderPass::SubmissionModel m_SubmissionModel = RenderPass::SubmissionModel::ImmediateOnly;
+    u32 m_SetupCount = 0;
+    u32 m_ExecuteCount = 0;
+    u32 m_SetupFramebufferCount = 0;
+    u32 m_ResizeFramebufferCount = 0;
+    u32 m_ApplyRenderViewportCount = 0;
+    u32 m_LastSetupFramebufferWidth = 0;
+    u32 m_LastSetupFramebufferHeight = 0;
+    u32 m_LastResizeFramebufferWidth = 0;
+    u32 m_LastResizeFramebufferHeight = 0;
+    u32 m_LastRenderViewportWidth = 0;
+    u32 m_LastRenderViewportHeight = 0;
+    bool m_ContextWasActive = false;
+    bool m_SubmissionModelOverride = false;
+    std::string m_ContextPassName;
+};
+
+template<typename TPass>
+static Ref<TPass> AddPassNode(RenderGraph& graph,
+                              const Ref<TPass>& pass,
+                              PassGraphNode::SetupCallback setup = {})
+{
+    OLO_CORE_ASSERT(pass, "AddPassNode requires a valid pass");
+    OLO_CORE_ASSERT(!pass->GetName().empty(), "AddPassNode requires a named pass");
+
+    if (const auto bucketPass = pass.template As<CommandBufferRenderPass>())
+    {
+        auto node = Ref<PassGraphNode>::Create(std::string(pass->GetName()), bucketPass, std::move(setup));
+        graph.AddNode(node);
+    }
+    else
+    {
+        auto node = Ref<PassGraphNode>::Create(std::string(pass->GetName()), pass.template As<RenderPass>(), std::move(setup));
+        graph.AddNode(node);
+    }
+
+    return pass;
+}
+
+// Helper to create and add a stub pass through the graph-native node path.
 static Ref<StubRenderPass> AddStub(RenderGraph& graph, const std::string& name)
 {
     auto pass = Ref<StubRenderPass>::Create(name);
     pass->SetName(name);
-    graph.AddPass(pass);
+    AddPassNode(graph, pass);
     return pass;
+}
+
+static Ref<TestGraphNode> AddTestNode(RenderGraph& graph,
+                                      std::string name,
+                                      TestGraphNode::SetupFn setup = {},
+                                      TestGraphNode::ExecuteFn execute = {})
+{
+    auto node = Ref<TestGraphNode>::Create(std::move(name), std::move(setup), std::move(execute));
+    graph.AddNode(node);
+    return node;
+}
+
+static Ref<TestGraphNode> AddSetupNode(RenderGraph& graph, std::string name, TestGraphNode::SetupFn setup)
+{
+    return AddTestNode(graph, std::move(name), std::move(setup));
+}
+
+static Ref<TestGraphNode> AddSetupNode(RenderGraph& graph,
+                                       std::string name,
+                                       RenderGraphNodeFlags flags,
+                                       TestGraphNode::SetupFn setup)
+{
+    auto node = AddTestNode(graph, std::move(name), std::move(setup));
+    node->SetFlags(flags);
+    return node;
 }
 
 // =============================================================================
 // Basic Graph Construction
 // =============================================================================
 
-TEST(RenderGraph, AddPassMakesItRetrievable)
+TEST(RenderGraph, WrappedPassNodeMakesUnderlyingPassRetrievable)
 {
     RenderGraph graph;
 
     auto pass = AddStub(graph, "PassA");
-    auto retrieved = graph.GetPass<StubRenderPass>("PassA");
+    auto retrieved = graph.GetNode<PassGraphNode>("PassA");
 
     ASSERT_NE(retrieved, nullptr);
+    ASSERT_NE(retrieved->GetPass(), nullptr);
     EXPECT_EQ(retrieved->GetName(), "PassA");
+    EXPECT_EQ(retrieved->GetPass().Raw(), pass.Raw());
 }
 
-TEST(RenderGraph, GetPassReturnsNullForUnknown)
+TEST(RenderGraph, GetNodeReturnsNullForUnknown)
 {
     RenderGraph graph;
-    auto pass = graph.GetPass<StubRenderPass>("NonExistent");
-    EXPECT_EQ(pass, nullptr);
+    auto node = graph.GetNode<PassGraphNode>("NonExistent");
+    EXPECT_EQ(node, nullptr);
 }
 
-TEST(RenderGraph, GetAllPassesReturnsAll)
+TEST(RenderGraph, GetPassSubmissionInfoReturnsAllRegisteredEntries)
 {
     RenderGraph graph;
     AddStub(graph, "A");
     AddStub(graph, "B");
     AddStub(graph, "C");
 
-    auto all = graph.GetAllPasses();
+    const auto all = graph.GetPassSubmissionInfo();
     EXPECT_EQ(all.size(), 3u);
 }
 
@@ -372,8 +652,8 @@ TEST(RenderGraph, PassSubmissionInfoReportsModelsAndResourceDeclarations)
     auto immediate = Ref<ImmediateStubPass>::Create("ImmediatePass");
     immediate->DeclareTestRead("SceneColor");
 
-    graph.AddPass(bucket);
-    graph.AddPass(immediate);
+    AddPassNode(graph, bucket);
+    AddPassNode(graph, immediate);
 
     const auto info = graph.GetPassSubmissionInfo();
     ASSERT_EQ(info.size(), 2u);
@@ -396,7 +676,7 @@ TEST(RenderGraph, ExecuteProvidesActiveCommandContextScope)
     RenderGraph graph;
 
     auto pass = Ref<ContextAwareStubPass>::Create("ContextPass");
-    graph.AddPass(pass);
+    AddPassNode(graph, pass);
 
     graph.Execute();
 
@@ -406,15 +686,297 @@ TEST(RenderGraph, ExecuteProvidesActiveCommandContextScope)
     EXPECT_EQ(pass->GetObservedContextPassName(), "ContextPass");
 }
 
+TEST(RenderGraph, AddNodeMakesItRetrievable)
+{
+    RenderGraph graph;
+
+    auto node = Ref<TestGraphNode>::Create("GraphNodeA");
+    graph.AddNode(node);
+
+    auto retrieved = graph.GetNode<TestGraphNode>("GraphNodeA");
+
+    ASSERT_NE(retrieved, nullptr);
+    EXPECT_EQ(retrieved->GetName(), "GraphNodeA");
+}
+
+TEST(RenderGraph, GraphNodeSetupAndExecuteUseCanonicalSubmissionPath)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto node = Ref<TestGraphNode>::Create(
+        "GraphNodeExecute",
+        [](RGBuilder& builder)
+        {
+            auto output = builder.ImportTexture(
+                "GraphNodeOutput",
+                1,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "GraphNodeOutput"));
+            builder.Write(output, RGWriteUsage::RenderTarget);
+        });
+
+    graph.AddNode(node);
+    graph.SetFinalPass("GraphNodeExecute");
+
+    graph.BuildFrameGraph();
+    graph.Execute();
+
+    EXPECT_EQ(node->GetSetupCount(), 1u);
+    EXPECT_EQ(node->GetExecuteCount(), 1u);
+    EXPECT_TRUE(node->WasContextActive());
+    EXPECT_EQ(node->GetObservedContextPassName(), "GraphNodeExecute");
+
+    const auto plan = graph.GetSubmissionPlan();
+    const auto nodeCommand = std::find_if(plan.begin(), plan.end(), [](const RenderGraph::SubmissionCommand& command)
+                                          { return command.CommandKind == RenderGraph::SubmissionCommand::Kind::Pass &&
+                                                   command.PassName == "GraphNodeExecute"; });
+    ASSERT_NE(nodeCommand, plan.end());
+    EXPECT_NE(nodeCommand->NodePointer, nullptr);
+}
+
+TEST(RenderGraph, GraphNodesDeriveProducerConsumerDependencyFromDeclarations)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto producer = Ref<TestGraphNode>::Create(
+        "GraphNodeProducer",
+        [](RGBuilder& builder)
+        {
+            auto shared = builder.ImportTexture(
+                "GraphNodeSharedColor",
+                1,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "GraphNodeSharedColor"));
+            builder.Write(shared, RGWriteUsage::RenderTarget);
+        });
+
+    auto consumer = Ref<TestGraphNode>::Create(
+        "GraphNodeConsumer",
+        [](RGBuilder& builder)
+        {
+            auto shared = builder.ImportTexture(
+                "GraphNodeSharedColor",
+                1,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "GraphNodeSharedColor"));
+            [[maybe_unused]] const auto readShared = builder.Read(shared, RGReadUsage::ShaderSample);
+        });
+
+    graph.AddNode(producer);
+    graph.AddNode(consumer);
+    graph.SetFinalPass("GraphNodeConsumer");
+
+    graph.BuildFrameGraph();
+    graph.Execute();
+
+    const auto connections = graph.GetConnections();
+    const auto derivedEdge = std::find_if(connections.begin(), connections.end(),
+                                          [](const RenderGraph::ConnectionInfo& connection)
+                                          {
+                                              return connection.OutputPass == "GraphNodeProducer" &&
+                                                     connection.InputPass == "GraphNodeConsumer";
+                                          });
+    EXPECT_NE(derivedEdge, connections.end());
+
+    const auto& order = graph.GetPassOrder();
+    const auto producerIt = std::find(order.begin(), order.end(), "GraphNodeProducer");
+    const auto consumerIt = std::find(order.begin(), order.end(), "GraphNodeConsumer");
+    ASSERT_NE(producerIt, order.end());
+    ASSERT_NE(consumerIt, order.end());
+    EXPECT_LT(std::distance(order.begin(), producerIt), std::distance(order.begin(), consumerIt));
+
+    EXPECT_EQ(producer->GetExecuteCount(), 1u);
+    EXPECT_EQ(consumer->GetExecuteCount(), 1u);
+}
+
+TEST(RenderGraph, GraphNodeReachabilityCullsUnusedNode)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto producer = Ref<TestGraphNode>::Create(
+        "ReachableNodeProducer",
+        [](RGBuilder& builder)
+        {
+            auto shared = builder.ImportTexture(
+                "ReachableNodeColor",
+                1,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ReachableNodeColor"));
+            builder.Write(shared, RGWriteUsage::RenderTarget);
+        });
+
+    auto consumer = Ref<TestGraphNode>::Create(
+        "ReachableNodeConsumer",
+        [](RGBuilder& builder)
+        {
+            auto shared = builder.ImportTexture(
+                "ReachableNodeColor",
+                1,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ReachableNodeColor"));
+            [[maybe_unused]] const auto readShared = builder.Read(shared, RGReadUsage::ShaderSample);
+        });
+
+    auto unused = Ref<TestGraphNode>::Create(
+        "UnusedGraphNode",
+        [](RGBuilder& builder)
+        {
+            auto unusedColor = builder.ImportTexture(
+                "UnusedNodeColor",
+                2,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "UnusedNodeColor"));
+            builder.Write(unusedColor, RGWriteUsage::RenderTarget);
+        });
+
+    graph.AddNode(producer);
+    graph.AddNode(consumer);
+    graph.AddNode(unused);
+    graph.SetFinalPass("ReachableNodeConsumer");
+
+    graph.BuildFrameGraph();
+    graph.Execute();
+
+    const auto& culled = graph.GetCulledPasses();
+    EXPECT_NE(std::find(culled.begin(), culled.end(), "UnusedGraphNode"), culled.end());
+    EXPECT_EQ(producer->GetExecuteCount(), 1u);
+    EXPECT_EQ(consumer->GetExecuteCount(), 1u);
+    EXPECT_EQ(unused->GetExecuteCount(), 0u);
+}
+
+TEST(RenderGraph, GraphNodeFlagsDriveSubmissionMetadata)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto node = Ref<TestGraphNode>::Create(
+        "ComputeGraphNode",
+        [](RGBuilder& builder)
+        {
+            auto output = builder.ImportBuffer(
+                "ComputeGraphNodeOutput",
+                1,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::StorageBuffer, "ComputeGraphNodeOutput"));
+            builder.Write(output, RGWriteUsage::ShaderStorage);
+        });
+    node->SetFlags(RenderGraphNodeFlags::Compute |
+                   RenderGraphNodeFlags::AsyncCandidateMetadata |
+                   RenderGraphNodeFlags::UsesCommandBucket);
+
+    graph.AddNode(node);
+    graph.SetFinalPass("ComputeGraphNode");
+
+    graph.BuildFrameGraph();
+    graph.Execute();
+
+    const auto submissionInfo = graph.GetPassSubmissionInfo();
+    ASSERT_EQ(submissionInfo.size(), 1u);
+    EXPECT_EQ(submissionInfo[0].PassName, "ComputeGraphNode");
+    EXPECT_EQ(submissionInfo[0].Submission, RenderPass::SubmissionModel::BucketOnly);
+    EXPECT_TRUE(submissionInfo[0].DeclaresResources);
+    EXPECT_EQ(submissionInfo[0].WorkType, RenderPass::PassWorkType::Compute);
+    EXPECT_TRUE(submissionInfo[0].AsyncComputeCandidate);
+
+    const auto plan = graph.GetSubmissionPlan();
+    const auto nodeCommand = std::find_if(plan.begin(), plan.end(), [](const RenderGraph::SubmissionCommand& command)
+                                          { return command.CommandKind == RenderGraph::SubmissionCommand::Kind::Pass &&
+                                                   command.PassName == "ComputeGraphNode"; });
+    ASSERT_NE(nodeCommand, plan.end());
+    EXPECT_EQ(nodeCommand->WorkType, RenderPass::PassWorkType::Compute);
+    EXPECT_EQ(nodeCommand->Lane, RenderGraph::QueueLane::Compute);
+    EXPECT_NE(nodeCommand->NodePointer, nullptr);
+
+    const auto batchBegin = std::find_if(plan.begin(), plan.end(), [](const RenderGraph::SubmissionCommand& command)
+                                         { return command.CommandKind == RenderGraph::SubmissionCommand::Kind::BatchBegin; });
+    const auto batchEnd = std::find_if(plan.begin(), plan.end(), [](const RenderGraph::SubmissionCommand& command)
+                                       { return command.CommandKind == RenderGraph::SubmissionCommand::Kind::BatchEnd; });
+    EXPECT_NE(batchBegin, plan.end());
+    EXPECT_NE(batchEnd, plan.end());
+    EXPECT_EQ(node->GetExecuteCount(), 1u);
+}
+
+TEST(RenderGraph, GraphNodeSubmissionModelOverrideIsReported)
+{
+    RenderGraph graph;
+
+    auto node = Ref<TestGraphNode>::Create("MixedGraphNode");
+    node->SetFlags(RenderGraphNodeFlags::Graphics | RenderGraphNodeFlags::UsesCommandBucket);
+    node->SetSubmissionModel(RenderPass::SubmissionModel::Mixed);
+
+    graph.AddNode(node);
+
+    const auto info = graph.GetPassSubmissionInfo();
+    ASSERT_EQ(info.size(), 1u);
+    EXPECT_EQ(info[0].PassName, "MixedGraphNode");
+    EXPECT_EQ(info[0].Submission, RenderPass::SubmissionModel::Mixed);
+}
+
+TEST(RenderGraph, GraphNodeLifecycleHooksTrackInitResizeAndRenderScale)
+{
+    RenderGraph graph;
+
+    auto node = Ref<TestGraphNode>::Create("LifecycleGraphNode");
+    graph.AddNode(node);
+
+    graph.Init(640, 480);
+    graph.Resize(320, 240);
+    graph.SetRenderScale(0.5f);
+    graph.SetRenderScale(1.0f);
+
+    EXPECT_EQ(node->GetSetupFramebufferCount(), 1u);
+    EXPECT_EQ(node->GetResizeFramebufferCount(), 1u);
+    EXPECT_EQ(node->GetApplyRenderViewportCount(), 2u);
+    EXPECT_EQ(node->GetLastSetupFramebufferWidth(), 640u);
+    EXPECT_EQ(node->GetLastSetupFramebufferHeight(), 480u);
+    EXPECT_EQ(node->GetLastResizeFramebufferWidth(), 320u);
+    EXPECT_EQ(node->GetLastResizeFramebufferHeight(), 240u);
+    EXPECT_EQ(node->GetLastRenderViewportWidth(), 0u);
+    EXPECT_EQ(node->GetLastRenderViewportHeight(), 0u);
+}
+
+TEST(RenderGraph, WrappedPassNodeAddedAfterGraphInitializationInheritsCurrentLifecycleState)
+{
+    RenderGraph graph;
+
+    graph.Init(800, 600);
+    graph.Resize(640, 480);
+    graph.SetRenderScale(0.5f);
+
+    auto pass = Ref<LifecycleTrackingPass>::Create("LateLifecyclePass");
+    AddPassNode(graph, pass);
+
+    EXPECT_EQ(pass->GetResizeFramebufferCount(), 1u);
+    EXPECT_EQ(pass->GetApplyRenderViewportCount(), 1u);
+    EXPECT_EQ(pass->GetLastResizeFramebufferWidth(), 640u);
+    EXPECT_EQ(pass->GetLastResizeFramebufferHeight(), 480u);
+    EXPECT_EQ(pass->GetLastRenderViewportWidth(), 320u);
+    EXPECT_EQ(pass->GetLastRenderViewportHeight(), 240u);
+}
+
+TEST(RenderGraph, NodeAddedAfterGraphInitializationInheritsCurrentLifecycleState)
+{
+    RenderGraph graph;
+
+    graph.Init(800, 600);
+    graph.Resize(640, 480);
+    graph.SetRenderScale(0.5f);
+
+    auto node = Ref<TestGraphNode>::Create("LateLifecycleNode");
+    graph.AddNode(node);
+
+    EXPECT_EQ(node->GetSetupFramebufferCount(), 0u);
+    EXPECT_EQ(node->GetResizeFramebufferCount(), 1u);
+    EXPECT_EQ(node->GetApplyRenderViewportCount(), 1u);
+    EXPECT_EQ(node->GetLastResizeFramebufferWidth(), 640u);
+    EXPECT_EQ(node->GetLastResizeFramebufferHeight(), 480u);
+    EXPECT_EQ(node->GetLastRenderViewportWidth(), 320u);
+    EXPECT_EQ(node->GetLastRenderViewportHeight(), 240u);
+}
+
 TEST(RenderGraph, PlansBarrierFromWriterToReaderTransition)
 {
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "Producer");
-    AddStub(graph, "Consumer");
-
-    graph.RegisterGraphPass(
+    AddTestNode(
+        graph,
         "Producer",
         [](RGBuilder& builder)
         {
@@ -426,7 +988,8 @@ TEST(RenderGraph, PlansBarrierFromWriterToReaderTransition)
         },
         [](RGCommandContext& /*context*/) {});
 
-    graph.RegisterGraphPass(
+    AddTestNode(
+        graph,
         "Consumer",
         [](RGBuilder& builder)
         {
@@ -462,10 +1025,8 @@ TEST(RenderGraph, PlansFramebufferAndTextureFetchBarrierForRenderTargetToSample)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "GBufferWrite");
-    AddStub(graph, "PostRead");
-
-    graph.RegisterGraphPass(
+    AddTestNode(
+        graph,
         "GBufferWrite",
         [](RGBuilder& builder)
         {
@@ -477,7 +1038,8 @@ TEST(RenderGraph, PlansFramebufferAndTextureFetchBarrierForRenderTargetToSample)
         },
         [](RGCommandContext& /*context*/) {});
 
-    graph.RegisterGraphPass(
+    AddTestNode(
+        graph,
         "PostRead",
         [](RGBuilder& builder)
         {
@@ -513,9 +1075,8 @@ TEST(RenderGraph, ReportsMissingProducerDiagnosticForReadOnlyResource)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "ConsumerOnly");
-
-    graph.RegisterGraphPass(
+    AddTestNode(
+        graph,
         "ConsumerOnly",
         [](RGBuilder& builder)
         {
@@ -542,81 +1103,15 @@ TEST(RenderGraph, ReportsMissingProducerDiagnosticForReadOnlyResource)
     ASSERT_NE(diagIt, diagnostics.end());
 }
 
-TEST(RenderGraph, RuntimeDeclarationsOverrideStaticDeclarationsForReachability)
-{
-    RenderGraph graph;
-    graph.SetRuntimeBarrierExecutionEnabled(false);
-
-    auto scene = Ref<DeclarationTrackingStubPass>::Create("Scene");
-    auto optionalPost = Ref<DeclarationTrackingStubPass>::Create("OptionalPost");
-    auto final = Ref<DeclarationTrackingStubPass>::Create("Final");
-
-    // These static declarations mimic optional renderer passes whose Init()
-    // contracts are broader than the currently active frame graph setup.
-    optionalPost->TestDeclareRead("SceneColor");
-    optionalPost->TestDeclareWrite("OptionalColor");
-    final->TestDeclareRead("OptionalColor");
-
-    graph.AddPass(scene);
-    graph.AddPass(optionalPost);
-    graph.AddPass(final);
-
-    graph.RegisterGraphPass(
-        "Scene",
-        [](RGBuilder& builder)
-        {
-            auto sceneColor = builder.ImportTexture(
-                "SceneColor",
-                1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SceneColor"));
-            builder.Write(sceneColor, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
-
-    graph.RegisterGraphPass(
-        "OptionalPost",
-        [](RGBuilder& /*builder*/)
-        {
-            // Disabled this frame: no reads or writes should participate in reachability.
-        },
-        [](RGCommandContext& /*context*/) {});
-
-    graph.RegisterGraphPass(
-        "Final",
-        [](RGBuilder& builder)
-        {
-            auto sceneColor = builder.ImportTexture(
-                "SceneColor",
-                1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SceneColor"));
-            [[maybe_unused]] const auto readScene = builder.Read(sceneColor, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
-
-    graph.SetFinalPass("Final");
-    graph.BuildFrameGraph();
-    graph.Execute();
-
-    const auto& culledPasses = graph.GetCulledPasses();
-    EXPECT_NE(std::find(culledPasses.begin(), culledPasses.end(), "OptionalPost"), culledPasses.end())
-        << "Disabled optional pass should be hidden from the active graph despite static declarations";
-    EXPECT_EQ(scene->GetExecuteCount(), 1u);
-    EXPECT_EQ(optionalPost->GetExecuteCount(), 0u);
-    EXPECT_EQ(final->GetExecuteCount(), 1u);
-}
-
 TEST(RenderGraph, DerivedDependenciesAreRebuiltFromCurrentFrameDeclarations)
 {
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    auto scene = AddStub(graph, "Scene");
-    auto optionalPost = AddStub(graph, "OptionalPost");
-    auto final = AddStub(graph, "Final");
-
     bool optionalEnabled = true;
 
-    graph.RegisterGraphPass(
+    auto scene = AddTestNode(
+        graph,
         "Scene",
         [](RGBuilder& builder)
         {
@@ -628,7 +1123,8 @@ TEST(RenderGraph, DerivedDependenciesAreRebuiltFromCurrentFrameDeclarations)
         },
         [](RGCommandContext& /*context*/) {});
 
-    graph.RegisterGraphPass(
+    auto optionalPost = AddTestNode(
+        graph,
         "OptionalPost",
         [&optionalEnabled](RGBuilder& builder)
         {
@@ -649,7 +1145,8 @@ TEST(RenderGraph, DerivedDependenciesAreRebuiltFromCurrentFrameDeclarations)
         },
         [](RGCommandContext& /*context*/) {});
 
-    graph.RegisterGraphPass(
+    auto final = AddTestNode(
+        graph,
         "Final",
         [&optionalEnabled](RGBuilder& builder)
         {
@@ -728,10 +1225,8 @@ TEST(RenderGraph, ReportsExtractionOfCulledResourceDiagnostic)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "CulledProducer");
-    AddStub(graph, "FinalConsumer");
-
-    graph.RegisterGraphPass(
+    AddTestNode(
+        graph,
         "CulledProducer",
         [](RGBuilder& builder)
         {
@@ -743,7 +1238,8 @@ TEST(RenderGraph, ReportsExtractionOfCulledResourceDiagnostic)
         },
         [](RGCommandContext& /*context*/) {});
 
-    graph.RegisterGraphPass(
+    AddTestNode(
+        graph,
         "FinalConsumer",
         [](RGBuilder& builder)
         {
@@ -786,10 +1282,9 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
 {
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
-    AddStub(graph, "Producer");
-    AddStub(graph, "Final");
 
-    graph.RegisterGraphPass(
+    AddTestNode(
+        graph,
         "Producer",
         [](RGBuilder& builder)
         {
@@ -801,7 +1296,8 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
         },
         [](RGCommandContext& /*context*/) {});
 
-    graph.RegisterGraphPass(
+    AddTestNode(
+        graph,
         "Final",
         [](RGBuilder& builder)
         {
@@ -1113,9 +1609,9 @@ TEST(RenderGraph, DeclarationOnlyProducerChainRemainsReachable)
     auto middle = Ref<DeclarationTrackingStubPass>::Create("Middle");
     auto final = Ref<DeclarationTrackingStubPass>::Create("Final");
 
-    graph.AddPass(producer);
-    graph.AddPass(middle);
-    graph.AddPass(final);
+    AddPassNode(graph, producer);
+    AddPassNode(graph, middle);
+    AddPassNode(graph, final);
 
     producer->TestDeclareWrite("PostProcessColor");
     middle->TestDeclareRead("PostProcessColor");
@@ -1193,9 +1689,9 @@ TEST(RenderGraphStructural, FinalPresentSinkUsesOrderingOnly)
     auto ui = Ref<InputTrackingStubPass>::Create("UICompositePass");
     auto final = Ref<InputTrackingStubPass>::Create("FinalPass");
     (void)ui;
-    graph.AddPass(post);
-    graph.AddPass(ui);
-    graph.AddPass(final);
+    AddPassNode(graph, post);
+    AddPassNode(graph, ui);
+    AddPassNode(graph, final);
 
     // Phase F contract: FinalPass is a side-effecting present sink.
     // UIComposite -> Final must be ordering-only, not framebuffer piping.
@@ -1287,16 +1783,11 @@ TEST(RenderGraphStructural, DerivedEdgeDoesNotIntroduceReverseCycle)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "WaterPass");
-    AddStub(graph, "DecalPass");
-
-    // Explicit production ordering contract.
-    graph.AddExecutionDependency("DecalPass", "WaterPass");
-
     // BuildFrameGraph will see both passes write SceneColor. Without a
     // cycle guard, insertion order (Water before Decal) can derive the
     // reverse Water -> Decal edge and create a cycle.
-    graph.RegisterGraphPass(
+    AddTestNode(
+        graph,
         "WaterPass",
         [](RGBuilder& builder)
         {
@@ -1308,7 +1799,8 @@ TEST(RenderGraphStructural, DerivedEdgeDoesNotIntroduceReverseCycle)
         },
         [](RGCommandContext& /*context*/) {});
 
-    graph.RegisterGraphPass(
+    AddTestNode(
+        graph,
         "DecalPass",
         [](RGBuilder& builder)
         {
@@ -1319,6 +1811,9 @@ TEST(RenderGraphStructural, DerivedEdgeDoesNotIntroduceReverseCycle)
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
+
+    // Explicit production ordering contract.
+    graph.AddExecutionDependency("DecalPass", "WaterPass");
 
     graph.SetFinalPass("WaterPass");
     graph.BuildFrameGraph();
@@ -1339,12 +1834,8 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfyDeferredCoreWithoutManualEdges)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "ScenePass");
-    AddStub(graph, "DeferredOpaqueDecalPass");
-    AddStub(graph, "DeferredLightingPass");
-    AddStub(graph, "FinalPass");
-
-    graph.RegisterGraphPass(
+    AddTestNode(
+        graph,
         "ScenePass",
         [](RGBuilder& builder)
         {
@@ -1367,7 +1858,8 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfyDeferredCoreWithoutManualEdges)
         },
         [](RGCommandContext& /*context*/) {});
 
-    graph.RegisterGraphPass(
+    AddTestNode(
+        graph,
         "DeferredOpaqueDecalPass",
         [](RGBuilder& builder)
         {
@@ -1385,7 +1877,8 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfyDeferredCoreWithoutManualEdges)
         },
         [](RGCommandContext& /*context*/) {});
 
-    graph.RegisterGraphPass(
+    AddTestNode(
+        graph,
         "DeferredLightingPass",
         [](RGBuilder& builder)
         {
@@ -1408,7 +1901,8 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfyDeferredCoreWithoutManualEdges)
         },
         [](RGCommandContext& /*context*/) {});
 
-    graph.RegisterGraphPass(
+    AddTestNode(
+        graph,
         "FinalPass",
         [](RGBuilder& builder)
         {
@@ -1441,11 +1935,8 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfySceneToSSAOWithoutManualEdge)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "ScenePass");
-    AddStub(graph, "SSAOPass");
-    AddStub(graph, "FinalPass");
-
-    graph.RegisterGraphPass(
+    AddTestNode(
+        graph,
         "ScenePass",
         [](RGBuilder& builder)
         {
@@ -1462,7 +1953,8 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfySceneToSSAOWithoutManualEdge)
         },
         [](RGCommandContext& /*context*/) {});
 
-    graph.RegisterGraphPass(
+    AddTestNode(
+        graph,
         "SSAOPass",
         [](RGBuilder& builder)
         {
@@ -1485,7 +1977,8 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfySceneToSSAOWithoutManualEdge)
         },
         [](RGCommandContext& /*context*/) {});
 
-    graph.RegisterGraphPass(
+    AddTestNode(
+        graph,
         "FinalPass",
         [](RGBuilder& builder)
         {
@@ -1509,11 +2002,8 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfySceneToGTAOWithoutManualEdge)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "ScenePass");
-    AddStub(graph, "GTAOPass");
-    AddStub(graph, "FinalPass");
-
-    graph.RegisterGraphPass(
+    AddTestNode(
+        graph,
         "ScenePass",
         [](RGBuilder& builder)
         {
@@ -1530,7 +2020,8 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfySceneToGTAOWithoutManualEdge)
         },
         [](RGCommandContext& /*context*/) {});
 
-    graph.RegisterGraphPass(
+    AddTestNode(
+        graph,
         "GTAOPass",
         [](RGBuilder& builder)
         {
@@ -1553,7 +2044,8 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfySceneToGTAOWithoutManualEdge)
         },
         [](RGCommandContext& /*context*/) {});
 
-    graph.RegisterGraphPass(
+    AddTestNode(
+        graph,
         "FinalPass",
         [](RGBuilder& builder)
         {
@@ -1583,8 +2075,8 @@ TEST(RenderGraphStructural, ConnectingToMissingPassDoesNotCorruptGraph)
     graph.ConnectPass("Nonexistent", "A");
 
     EXPECT_NO_THROW(graph.Execute());
-    EXPECT_EQ(graph.GetAllPasses().size(), 1u)
-        << "Connect calls with missing passes must not register new passes";
+    EXPECT_EQ(graph.GetPassSubmissionInfo().size(), 1u)
+        << "Connect calls with missing graph entries must not register new entries";
 }
 
 // =============================================================================
@@ -1603,21 +2095,6 @@ TEST(RenderGraph, GetConnectionsComplete)
 
     auto connections = graph.GetConnections();
     EXPECT_GE(connections.size(), 2u);
-}
-
-// =============================================================================
-// Duplicate AddPass Overwrites
-// =============================================================================
-
-TEST(RenderGraph, DuplicatePassNameOverwrites)
-{
-    RenderGraph graph;
-    auto first = AddStub(graph, "SameName");
-    auto second = AddStub(graph, "SameName");
-
-    auto retrieved = graph.GetPass<StubRenderPass>("SameName");
-    // The second addition should overwrite
-    EXPECT_EQ(retrieved.Raw(), second.Raw());
 }
 
 // =============================================================================
@@ -1677,7 +2154,7 @@ TEST(RenderGraphResetTopology, ClearsPassesAndAllowsRebuild)
     graph.ConnectPass("B", "C");
     graph.SetFinalPass("C");
     graph.Execute();
-    EXPECT_EQ(graph.GetAllPasses().size(), 3u);
+    EXPECT_EQ(graph.GetPassSubmissionInfo().size(), 3u);
     EXPECT_EQ(graph.GetPassOrder().size(), 3u);
 
     graph.ResetTopology();
@@ -1685,7 +2162,7 @@ TEST(RenderGraphResetTopology, ClearsPassesAndAllowsRebuild)
     // After reset the graph must behave as freshly constructed: no
     // passes, no cached order, no stale connections leaking into the
     // next rebuild.
-    EXPECT_EQ(graph.GetAllPasses().size(), 0u);
+    EXPECT_EQ(graph.GetPassSubmissionInfo().size(), 0u);
     EXPECT_EQ(graph.GetConnections().size(), 0u);
 
     // Rebuild as a different "forward-like" topology (2 passes).
@@ -1699,33 +2176,33 @@ TEST(RenderGraphResetTopology, ClearsPassesAndAllowsRebuild)
     ASSERT_EQ(order.size(), 2u);
     EXPECT_EQ(order[0], "X");
     EXPECT_EQ(order[1], "Y");
-    EXPECT_EQ(graph.GetPass<StubRenderPass>("A"), nullptr)
-        << "Old passes must not be retrievable after ResetTopology";
-    EXPECT_EQ(graph.GetPass<StubRenderPass>("B"), nullptr);
-    EXPECT_EQ(graph.GetPass<StubRenderPass>("C"), nullptr);
+    EXPECT_EQ(graph.GetNode<PassGraphNode>("A"), nullptr)
+        << "Old graph entries must not be retrievable after ResetTopology";
+    EXPECT_EQ(graph.GetNode<PassGraphNode>("B"), nullptr);
+    EXPECT_EQ(graph.GetNode<PassGraphNode>("C"), nullptr);
 }
 
-TEST(RenderGraphResetTopology, PreservesPassReferenceOwnership)
+TEST(RenderGraphResetTopology, PreservesNodeAndPassReferenceOwnership)
 {
-    // The graph stores passes by strong lookup in m_PassLookup
-    // (std::unordered_map<std::string, Ref<RenderPass>>). ResetTopology
-    // must only drop the graph's references, not destroy passes still
-    // held by external owners (in the real engine that's
-    // Renderer3D::s_Data). The test below verifies that an external Ref
-    // to a RenderPass keeps it alive after the graph forgets it.
+    // ResetTopology must only drop the graph's references, not destroy
+    // nodes or wrapped passes still held by external owners (in the real
+    // engine that's Renderer3D::s_Data). The test below verifies that
+    // external Refs keep both objects alive after the graph forgets them.
     RenderGraph graph;
     auto a = Ref<StubRenderPass>::Create("A");
     a->SetName("A");
-    graph.AddPass(a);
+    auto node = Ref<PassGraphNode>::Create("A", a.As<RenderPass>(), PassGraphNode::SetupCallback{});
+    graph.AddNode(node);
 
     graph.ResetTopology();
 
     ASSERT_NE(a.Raw(), nullptr);
+    ASSERT_NE(node.Raw(), nullptr);
     EXPECT_EQ(a->GetName(), "A");
 
-    // Re-registering the same pass instance is legal — simulates the
-    // per-path rebuild re-AddPass'ing the persistent pass instances.
-    graph.AddPass(a);
+    // Re-registering the same node instance is legal — simulates the
+    // per-path rebuild re-adding persistent graph entries.
+    graph.AddNode(node);
     graph.SetFinalPass("A");
     graph.Execute();
     EXPECT_EQ(a->GetExecuteCount(), 1u);
@@ -1742,7 +2219,7 @@ TEST(RenderGraphResetTopology, MultipleResetsAreSafe)
         AddStub(graph, "P");
         graph.SetFinalPass("P");
         graph.Execute();
-        EXPECT_EQ(graph.GetAllPasses().size(), 1u);
+        EXPECT_EQ(graph.GetPassSubmissionInfo().size(), 1u);
     }
 }
 
@@ -1780,6 +2257,45 @@ TEST(RenderGraphResetTopology, ImportedHandleSlotsAreRebackedAfterReset)
     EXPECT_EQ(graph.ResolveTexture(newTexture), 99u);
     EXPECT_EQ(graph.ResolveBuffer(newBuffer), 123u);
     EXPECT_EQ(graph.ResolveFramebuffer(newFramebuffer).Raw(), newFramebufferRef.Raw());
+}
+
+TEST(RenderGraphResetTopology, ClearsGraphNodeBuildDeclarations)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddSetupNode(
+        graph,
+        "NodePass",
+        [](RGBuilder& builder)
+        {
+            auto nodeResource = builder.ImportTexture(
+                "NodeResetSentinel",
+                17u,
+                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "NodeResetSentinel"));
+            builder.Write(nodeResource, RGWriteUsage::RenderTarget);
+        });
+
+    graph.SetFinalPass("NodePass");
+    graph.BuildFrameGraph();
+    ASSERT_NE(graph.FindRegisteredResource("NodeResetSentinel"), nullptr)
+        << "Initial node build should contribute its declared resource";
+
+    graph.ResetTopology();
+
+    AddSetupNode(
+        graph,
+        "NodePass",
+        [](RGBuilder& /*builder*/)
+        {
+            // Rebuilt topology does not declare the sentinel this frame.
+        });
+
+    graph.SetFinalPass("NodePass");
+    graph.BuildFrameGraph();
+
+    EXPECT_EQ(graph.FindRegisteredResource("NodeResetSentinel"), nullptr)
+        << "ResetTopology must drop stale node-owned builder declarations so rebuilt paths only see current-frame resources";
 }
 
 // =============================================================================
@@ -1830,10 +2346,8 @@ TEST(RenderGraphTransientPool, UnreachableTransientResourceIsNotPlannedForAlloca
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "TransientProducer");
-    AddStub(graph, "Final");
-
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "TransientProducer",
         [](RGBuilder& builder)
         {
@@ -1846,10 +2360,10 @@ TEST(RenderGraphTransientPool, UnreachableTransientResourceIsNotPlannedForAlloca
 
             const auto temp = builder.CreateTexture("UnusedTransient", desc);
             builder.Write(temp, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Final",
         [](RGBuilder& builder)
         {
@@ -1858,8 +2372,7 @@ TEST(RenderGraphTransientPool, UnreachableTransientResourceIsNotPlannedForAlloca
                 9,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.SetFinalPass("Final");
     graph.BuildFrameGraph();
@@ -1883,12 +2396,8 @@ TEST(RenderGraphTransientPool, NonOverlappingTransientResourcesReuseAliasSlot)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "A");
-    AddStub(graph, "B");
-    AddStub(graph, "C");
-    AddStub(graph, "Final");
-
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "A",
         [](RGBuilder& builder)
         {
@@ -1900,10 +2409,10 @@ TEST(RenderGraphTransientPool, NonOverlappingTransientResourcesReuseAliasSlot)
 
             const auto tempA = builder.CreateTexture("TempA", desc);
             builder.Write(tempA, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "B",
         [](RGBuilder& builder)
         {
@@ -1921,10 +2430,10 @@ TEST(RenderGraphTransientPool, NonOverlappingTransientResourcesReuseAliasSlot)
                 15,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SceneColorTex"));
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "C",
         [](RGBuilder& builder)
         {
@@ -1936,10 +2445,10 @@ TEST(RenderGraphTransientPool, NonOverlappingTransientResourcesReuseAliasSlot)
 
             const auto tempB = builder.CreateTexture("TempB", desc);
             builder.Write(tempB, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Final",
         [](RGBuilder& builder)
         {
@@ -1951,8 +2460,7 @@ TEST(RenderGraphTransientPool, NonOverlappingTransientResourcesReuseAliasSlot)
 
             const auto tempB = builder.CreateTexture("TempB", desc);
             [[maybe_unused]] const auto readTempB = builder.Read(tempB, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     // Keep TempA chain reachable from Final so both transient candidates
     // participate in planning and alias-slot assignment.
@@ -1994,10 +2502,8 @@ TEST(RenderGraphTransientPool, UnsupportedFramebufferFormatIsNotPlannedForAlloca
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "Producer");
-    AddStub(graph, "Final");
-
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Producer",
         [](RGBuilder& builder)
         {
@@ -2009,10 +2515,10 @@ TEST(RenderGraphTransientPool, UnsupportedFramebufferFormatIsNotPlannedForAlloca
 
             const auto unsupported = builder.CreateFramebuffer("UnsupportedTransientFB", desc);
             builder.Write(unsupported, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Final",
         [](RGBuilder& builder)
         {
@@ -2024,8 +2530,7 @@ TEST(RenderGraphTransientPool, UnsupportedFramebufferFormatIsNotPlannedForAlloca
 
             const auto unsupported = builder.CreateFramebuffer("UnsupportedTransientFB", desc);
             [[maybe_unused]] const auto readUnsupported = builder.Read(unsupported, RGReadUsage::RenderTargetRead);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.AddExecutionDependency("Producer", "Final");
     graph.SetFinalPass("Final");
@@ -2050,9 +2555,8 @@ TEST(RenderGraphTransientPool, PhaseD_RG16FFramebufferFormatIsNowAllocatable)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "Pass");
-
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Pass",
         [](RGBuilder& builder)
         {
@@ -2065,8 +2569,7 @@ TEST(RenderGraphTransientPool, PhaseD_RG16FFramebufferFormatIsNowAllocatable)
             const auto fb = builder.CreateFramebuffer("PhaseD_RG16FFB", desc);
             builder.Write(fb, RGWriteUsage::RenderTarget);
             [[maybe_unused]] const auto r = builder.Read(fb, RGReadUsage::RenderTargetRead);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.SetFinalPass("Pass");
     graph.BuildFrameGraph();
@@ -2088,10 +2591,8 @@ TEST(RenderGraphTransientPool, PhaseD_SSAOPassDeclaresTransientRawFramebuffer)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "SSAOPass");
-    AddStub(graph, "FinalPass");
-
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "SSAOPass",
         [](RGBuilder& builder)
         {
@@ -2105,13 +2606,12 @@ TEST(RenderGraphTransientPool, PhaseD_SSAOPassDeclaresTransientRawFramebuffer)
             const auto rawHandle = builder.CreateFramebuffer("SSAORaw", rawDesc);
             builder.Write(rawHandle, RGWriteUsage::RenderTarget);
             [[maybe_unused]] const auto rawRead = builder.Read(rawHandle, RGReadUsage::RenderTargetRead);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "FinalPass",
-        [](RGBuilder& /*builder*/) {},
-        [](RGCommandContext& /*context*/) {});
+        [](RGBuilder& /*builder*/) {});
 
     graph.AddExecutionDependency("SSAOPass", "FinalPass");
     graph.SetFinalPass("FinalPass");
@@ -2139,9 +2639,8 @@ TEST(RenderGraphTransientPool, PhaseD_RGBA32FFramebufferFormatIsAllocatable)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "Pass");
-
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Pass",
         [](RGBuilder& builder)
         {
@@ -2154,8 +2653,7 @@ TEST(RenderGraphTransientPool, PhaseD_RGBA32FFramebufferFormatIsAllocatable)
             const auto fb = builder.CreateFramebuffer("PhaseD_RGBA32FFB", desc);
             builder.Write(fb, RGWriteUsage::RenderTarget);
             [[maybe_unused]] const auto r = builder.Read(fb, RGReadUsage::RenderTargetRead);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.SetFinalPass("Pass");
     graph.BuildFrameGraph();
@@ -2177,10 +2675,8 @@ TEST(RenderGraphTransientPool, PhaseD_SelectionOutlinePassDeclaresPingPongJFAFra
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "SelectionOutlinePass");
-    AddStub(graph, "FinalPass");
-
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "SelectionOutlinePass",
         [](RGBuilder& builder)
         {
@@ -2198,13 +2694,12 @@ TEST(RenderGraphTransientPool, PhaseD_SelectionOutlinePassDeclaresPingPongJFAFra
             const auto pongHandle = builder.CreateFramebuffer("JFAPong", jfaDesc);
             builder.Write(pongHandle, RGWriteUsage::RenderTarget);
             [[maybe_unused]] const auto pongRead = builder.Read(pongHandle, RGReadUsage::RenderTargetRead);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "FinalPass",
-        [](RGBuilder& /*builder*/) {},
-        [](RGCommandContext& /*context*/) {});
+        [](RGBuilder& /*builder*/) {});
 
     graph.AddExecutionDependency("SelectionOutlinePass", "FinalPass");
     graph.SetFinalPass("FinalPass");
@@ -2249,12 +2744,10 @@ TEST(RenderGraphTransientPool, PhaseD_BloomMipChainDeclaredAsTransientFramebuffe
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "BloomPass");
-    AddStub(graph, "FinalPass");
-
     // Mirror the production setup callback in Renderer3D::ConfigureRenderGraph.
     // Using viewport 1280x720 → mip dims: 640x360, 320x180, 160x90, 80x45, 40x22.
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "BloomPass",
         [](RGBuilder& builder)
         {
@@ -2277,13 +2770,12 @@ TEST(RenderGraphTransientPool, PhaseD_BloomMipChainDeclaredAsTransientFramebuffe
                 mipW /= 2;
                 mipH /= 2;
             }
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "FinalPass",
-        [](RGBuilder& /*builder*/) {},
-        [](RGCommandContext& /*context*/) {});
+        [](RGBuilder& /*builder*/) {});
 
     graph.AddExecutionDependency("BloomPass", "FinalPass");
     graph.SetFinalPass("FinalPass");
@@ -2327,10 +2819,8 @@ TEST(RenderGraphTransientPool, PhaseD_GTAOEdgeTextureDeclaredAsTransientTexture)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "GTAOPass");
-    AddStub(graph, "FinalPass");
-
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "GTAOPass",
         [](RGBuilder& builder)
         {
@@ -2344,13 +2834,12 @@ TEST(RenderGraphTransientPool, PhaseD_GTAOEdgeTextureDeclaredAsTransientTexture)
             builder.Write(edgeHandle, RGWriteUsage::ShaderImage);
             [[maybe_unused]] const auto edgeRead =
                 builder.Read(edgeHandle, RGReadUsage::ShaderImage);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "FinalPass",
-        [](RGBuilder& /*builder*/) {},
-        [](RGCommandContext& /*context*/) {});
+        [](RGBuilder& /*builder*/) {});
 
     graph.AddExecutionDependency("GTAOPass", "FinalPass");
     graph.SetFinalPass("FinalPass");
@@ -2379,10 +2868,8 @@ TEST(RenderGraphTransientPool, PhaseD_HZBDepthDeclaredAsTransientMipChainTexture
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "GTAOPass");
-    AddStub(graph, "FinalPass");
-
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "GTAOPass",
         [](RGBuilder& builder)
         {
@@ -2398,13 +2885,12 @@ TEST(RenderGraphTransientPool, PhaseD_HZBDepthDeclaredAsTransientMipChainTexture
             const auto hzbHandle = builder.CreateTexture("HZBDepth", hzbDesc);
             builder.Write(hzbHandle, RGWriteUsage::ShaderImage);
             [[maybe_unused]] const auto hzbRead = builder.Read(hzbHandle, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "FinalPass",
-        [](RGBuilder& /*builder*/) {},
-        [](RGCommandContext& /*context*/) {});
+        [](RGBuilder& /*builder*/) {});
 
     graph.AddExecutionDependency("GTAOPass", "FinalPass");
     graph.SetFinalPass("FinalPass");
@@ -2434,10 +2920,8 @@ TEST(RenderGraphTransientPool, PhaseD_WaterRefractionDeclaredAsTransientTexture)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "WaterPass");
-    AddStub(graph, "FinalPass");
-
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "WaterPass",
         [](RGBuilder& builder)
         {
@@ -2451,13 +2935,12 @@ TEST(RenderGraphTransientPool, PhaseD_WaterRefractionDeclaredAsTransientTexture)
             builder.Write(refrHandle, RGWriteUsage::ShaderImage);
             [[maybe_unused]] const auto refrRead =
                 builder.Read(refrHandle, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "FinalPass",
-        [](RGBuilder& /*builder*/) {},
-        [](RGCommandContext& /*context*/) {});
+        [](RGBuilder& /*builder*/) {});
 
     graph.AddExecutionDependency("WaterPass", "FinalPass");
     graph.SetFinalPass("FinalPass");
@@ -2485,10 +2968,8 @@ TEST(RenderGraphTransientPool, RG16FloatTextureIsPlannedForAllocation)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "Producer");
-    AddStub(graph, "Final");
-
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Producer",
         [](RGBuilder& builder)
         {
@@ -2500,10 +2981,10 @@ TEST(RenderGraphTransientPool, RG16FloatTextureIsPlannedForAllocation)
 
             const auto velocity = builder.CreateTexture("VelocityTransient", desc);
             builder.Write(velocity, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Final",
         [](RGBuilder& builder)
         {
@@ -2515,8 +2996,7 @@ TEST(RenderGraphTransientPool, RG16FloatTextureIsPlannedForAllocation)
 
             const auto velocity = builder.CreateTexture("VelocityTransient", desc);
             [[maybe_unused]] const auto readVelocity = builder.Read(velocity, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.AddExecutionDependency("Producer", "Final");
     graph.SetFinalPass("Final");
@@ -2541,10 +3021,8 @@ TEST(RenderGraphTransientPool, UnsupportedImageFormatIsNotPlannedForAllocation)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "Producer");
-    AddStub(graph, "Final");
-
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Producer",
         [](RGBuilder& builder)
         {
@@ -2556,10 +3034,10 @@ TEST(RenderGraphTransientPool, UnsupportedImageFormatIsNotPlannedForAllocation)
 
             const auto unsupported = builder.CreateTexture("UnsupportedTransientTex", desc);
             builder.Write(unsupported, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Final",
         [](RGBuilder& builder)
         {
@@ -2571,8 +3049,7 @@ TEST(RenderGraphTransientPool, UnsupportedImageFormatIsNotPlannedForAllocation)
 
             const auto unsupported = builder.CreateTexture("UnsupportedTransientTex", desc);
             [[maybe_unused]] const auto readUnsupported = builder.Read(unsupported, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.AddExecutionDependency("Producer", "Final");
     graph.SetFinalPass("Final");
@@ -2596,10 +3073,8 @@ TEST(RenderGraphTransientPool, MissingDimensionsTextureIsNotPlannedForAllocation
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "Producer");
-    AddStub(graph, "Final");
-
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Producer",
         [](RGBuilder& builder)
         {
@@ -2611,10 +3086,10 @@ TEST(RenderGraphTransientPool, MissingDimensionsTextureIsNotPlannedForAllocation
 
             const auto unsupported = builder.CreateTexture("MissingDimensionsTex", desc);
             builder.Write(unsupported, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Final",
         [](RGBuilder& builder)
         {
@@ -2626,8 +3101,7 @@ TEST(RenderGraphTransientPool, MissingDimensionsTextureIsNotPlannedForAllocation
 
             const auto unsupported = builder.CreateTexture("MissingDimensionsTex", desc);
             [[maybe_unused]] const auto readUnsupported = builder.Read(unsupported, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.AddExecutionDependency("Producer", "Final");
     graph.SetFinalPass("Final");
@@ -2651,10 +3125,8 @@ TEST(RenderGraphTransientPool, MissingDimensionsFramebufferIsNotPlannedForAlloca
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "Producer");
-    AddStub(graph, "Final");
-
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Producer",
         [](RGBuilder& builder)
         {
@@ -2666,10 +3138,10 @@ TEST(RenderGraphTransientPool, MissingDimensionsFramebufferIsNotPlannedForAlloca
 
             const auto unsupported = builder.CreateFramebuffer("MissingDimensionsFB", desc);
             builder.Write(unsupported, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Final",
         [](RGBuilder& builder)
         {
@@ -2681,8 +3153,7 @@ TEST(RenderGraphTransientPool, MissingDimensionsFramebufferIsNotPlannedForAlloca
 
             const auto unsupported = builder.CreateFramebuffer("MissingDimensionsFB", desc);
             [[maybe_unused]] const auto readUnsupported = builder.Read(unsupported, RGReadUsage::RenderTargetRead);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.AddExecutionDependency("Producer", "Final");
     graph.SetFinalPass("Final");
@@ -2706,10 +3177,8 @@ TEST(RenderGraphTransientPool, ZeroSizeTransientBufferIsNotPlannedForAllocation)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "Producer");
-    AddStub(graph, "Final");
-
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Producer",
         [](RGBuilder& builder)
         {
@@ -2719,10 +3188,10 @@ TEST(RenderGraphTransientPool, ZeroSizeTransientBufferIsNotPlannedForAllocation)
 
             const auto unsupported = builder.CreateBuffer("ZeroByteTransientBuffer", desc);
             builder.Write(unsupported, RGWriteUsage::ShaderStorage);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Final",
         [](RGBuilder& builder)
         {
@@ -2732,8 +3201,7 @@ TEST(RenderGraphTransientPool, ZeroSizeTransientBufferIsNotPlannedForAllocation)
 
             const auto unsupported = builder.CreateBuffer("ZeroByteTransientBuffer", desc);
             [[maybe_unused]] const auto readUnsupported = builder.Read(unsupported, RGReadUsage::ShaderStorage);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.AddExecutionDependency("Producer", "Final");
     graph.SetFinalPass("Final");
@@ -2757,11 +3225,8 @@ TEST(RenderGraphTransientPool, DumpToJsonIncludesTransientAliasDiagnostics)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "Producer");
-    AddStub(graph, "Consumer");
-    AddStub(graph, "Final");
-
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Producer",
         [](RGBuilder& builder)
         {
@@ -2787,10 +3252,10 @@ TEST(RenderGraphTransientPool, DumpToJsonIncludesTransientAliasDiagnostics)
 
             const auto unreachable = builder.CreateTexture("JsonUnused", desc);
             builder.Write(unreachable, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Consumer",
         [](RGBuilder& builder)
         {
@@ -2805,10 +3270,10 @@ TEST(RenderGraphTransientPool, DumpToJsonIncludesTransientAliasDiagnostics)
 
             const auto tempB = builder.CreateTexture("JsonTempB", desc);
             builder.Write(tempB, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Final",
         [](RGBuilder& builder)
         {
@@ -2820,8 +3285,7 @@ TEST(RenderGraphTransientPool, DumpToJsonIncludesTransientAliasDiagnostics)
 
             const auto tempB = builder.CreateTexture("JsonTempB", desc);
             [[maybe_unused]] const auto readTempB = builder.Read(tempB, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.AddExecutionDependency("Producer", "Consumer");
     graph.AddExecutionDependency("Consumer", "Final");
@@ -2861,10 +3325,8 @@ TEST(RenderGraphTransientPool, MaterializationEnabledIsSafeWithoutBackend)
     graph.SetRuntimeBarrierExecutionEnabled(false);
     graph.SetTransientMaterializationEnabled(true);
 
-    AddStub(graph, "TransientProducer");
-    AddStub(graph, "Final");
-
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "TransientProducer",
         [](RGBuilder& builder)
         {
@@ -2876,10 +3338,10 @@ TEST(RenderGraphTransientPool, MaterializationEnabledIsSafeWithoutBackend)
 
             const auto temp = builder.CreateTexture("HeadlessTransient", desc);
             builder.Write(temp, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Final",
         [](RGBuilder& builder)
         {
@@ -2891,8 +3353,7 @@ TEST(RenderGraphTransientPool, MaterializationEnabledIsSafeWithoutBackend)
 
             const auto temp = builder.CreateTexture("HeadlessTransient", desc);
             [[maybe_unused]] const auto readTemp = builder.Read(temp, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.SetFinalPass("Final");
     graph.BuildFrameGraph();
@@ -2915,12 +3376,9 @@ TEST(RenderGraphTransientPool, TransientTextureIsAllocatedFromPoolWhenMaterializ
     graph.SetRuntimeBarrierExecutionEnabled(false);
     graph.SetTransientMaterializationEnabled(true);
 
-    // Add stub passes first
-    AddStub(graph, "TransientProducer");
-    AddStub(graph, "TransientConsumer");
-
     // Producer pass: creates and writes to a transient texture
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "TransientProducer",
         [](RGBuilder& builder)
         {
@@ -2932,11 +3390,11 @@ TEST(RenderGraphTransientPool, TransientTextureIsAllocatedFromPoolWhenMaterializ
 
             const auto transientColor = builder.CreateTexture("RuntimeTransientColor", desc);
             builder.Write(transientColor, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     // Consumer pass: reads from the transient texture
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "TransientConsumer",
         [](RGBuilder& builder)
         {
@@ -2948,8 +3406,7 @@ TEST(RenderGraphTransientPool, TransientTextureIsAllocatedFromPoolWhenMaterializ
 
             const auto transientColor = builder.CreateTexture("RuntimeTransientColor", desc);
             [[maybe_unused]] const auto readColor = builder.Read(transientColor, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.SetFinalPass("TransientConsumer");
     graph.BuildFrameGraph();
@@ -2978,9 +3435,8 @@ TEST(RenderGraphTransientPool, MaterializedTransientExtractionReturnsValidTextur
     graph.SetRuntimeBarrierExecutionEnabled(false);
     graph.SetTransientMaterializationEnabled(true);
 
-    AddStub(graph, "TransientWriter");
-
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "TransientWriter",
         [](RGBuilder& builder)
         {
@@ -2992,8 +3448,7 @@ TEST(RenderGraphTransientPool, MaterializedTransientExtractionReturnsValidTextur
 
             const auto transient = builder.CreateTexture("GpuReadbackTransient", desc);
             builder.Write(transient, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.SetFinalPass("TransientWriter");
     graph.BuildFrameGraph();
@@ -3035,9 +3490,8 @@ TEST(RenderGraphTransientPool, HeadlessTransientExtractionInvokesCallbackWithZer
     graph.SetRuntimeBarrierExecutionEnabled(false);
     graph.SetTransientMaterializationEnabled(true);
 
-    AddStub(graph, "TransientWriter");
-
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "TransientWriter",
         [](RGBuilder& builder)
         {
@@ -3049,8 +3503,7 @@ TEST(RenderGraphTransientPool, HeadlessTransientExtractionInvokesCallbackWithZer
 
             const auto transient = builder.CreateTexture("ReadbackTransient", desc);
             builder.Write(transient, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.SetFinalPass("TransientWriter");
     graph.BuildFrameGraph();
@@ -3108,9 +3561,6 @@ TEST(RenderGraphTransientPool, PhaseD_OITBufferDeclaredAsSharedTransientMRTFrame
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "OITWriterPass");
-    AddStub(graph, "OITResolvePass");
-
     // Register the OIT descriptor before BuildFrameGraph to mirror the
     // production SetupFrameBlackboard path.
     RGResourceDesc oitDesc;
@@ -3123,21 +3573,21 @@ TEST(RenderGraphTransientPool, PhaseD_OITBufferDeclaredAsSharedTransientMRTFrame
     const auto oitHandle = graph.DeclareTransientFramebuffer(ResourceNames::OITBuffer, oitDesc);
     ASSERT_TRUE(oitHandle.IsValid());
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "OITWriterPass",
         [oitHandle](RGBuilder& builder)
         {
             builder.Write(oitHandle, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "OITResolvePass",
         [oitHandle](RGBuilder& builder)
         {
             [[maybe_unused]] const auto r = builder.Read(oitHandle, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.AddExecutionDependency("OITWriterPass", "OITResolvePass");
     graph.SetFinalPass("OITResolvePass");
@@ -3180,7 +3630,7 @@ TEST(RenderGraphTransientPool, PhaseD_OverrideTransientFramebufferPatchesPhysica
     oitDesc.Height = 720;
     oitDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float };
 
-    graph.DeclareTransientFramebuffer(ResourceNames::OITBuffer, oitDesc);
+    [[maybe_unused]] const auto oitTransientHandle = graph.DeclareTransientFramebuffer(ResourceNames::OITBuffer, oitDesc);
 
     // OverrideTransientFramebuffer with a nullptr should be safe (no crash).
     EXPECT_NO_THROW(graph.OverrideTransientFramebuffer(ResourceNames::OITBuffer, nullptr));
@@ -3240,14 +3690,11 @@ TEST(RenderGraphTransientPool, PhaseD_MRTEstimatedBytesAreCorrect)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "Writer");
-    AddStub(graph, "Reader");
-
     const auto h = graph.DeclareTransientFramebuffer("MRTEstimate", oitDesc);
-    graph.RegisterGraphPass("Writer", [h](RGBuilder& builder)
-                            { builder.Write(h, RGWriteUsage::RenderTarget); }, [](RGCommandContext&) {});
-    graph.RegisterGraphPass("Reader", [h](RGBuilder& builder)
-                            { builder.Read(h, RGReadUsage::ShaderSample); }, [](RGCommandContext&) {});
+    AddSetupNode(graph, "Writer", [h](RGBuilder& builder)
+                 { builder.Write(h, RGWriteUsage::RenderTarget); });
+    AddSetupNode(graph, "Reader", [h](RGBuilder& builder)
+                 { [[maybe_unused]] const auto readHandle = builder.Read(h, RGReadUsage::ShaderSample); });
     graph.AddExecutionDependency("Writer", "Reader");
     graph.SetFinalPass("Reader");
     graph.BuildFrameGraph();
@@ -3297,12 +3744,10 @@ TEST(RenderGraphTransientPool, PhaseD_PostProcessChainRGBA16FOutputsDeclaredAsTr
         const auto h = graph.DeclareTransientFramebuffer(name, desc);
         ASSERT_TRUE(h.IsValid()) << name << ": handle must be valid after declaration";
 
-        AddStub(graph, "Writer");
-        AddStub(graph, "Reader");
-        graph.RegisterGraphPass("Writer", [h](RGBuilder& builder)
-                                { builder.Write(h, RGWriteUsage::RenderTarget); }, [](RGCommandContext&) {});
-        graph.RegisterGraphPass("Reader", [h](RGBuilder& builder)
-                                { builder.Read(h, RGReadUsage::ShaderSample); }, [](RGCommandContext&) {});
+        AddSetupNode(graph, "Writer", [h](RGBuilder& builder)
+                     { builder.Write(h, RGWriteUsage::RenderTarget); });
+        AddSetupNode(graph, "Reader", [h](RGBuilder& builder)
+                     { [[maybe_unused]] const auto readHandle = builder.Read(h, RGReadUsage::ShaderSample); });
         graph.AddExecutionDependency("Writer", "Reader");
         graph.SetFinalPass("Reader");
         graph.BuildFrameGraph();
@@ -3344,12 +3789,10 @@ TEST(RenderGraphTransientPool, PhaseD_PostProcessChainRGBA8OutputsDeclaredAsTran
         const auto h = graph.DeclareTransientFramebuffer(name, desc);
         ASSERT_TRUE(h.IsValid()) << name << ": handle must be valid after declaration";
 
-        AddStub(graph, "Writer");
-        AddStub(graph, "Reader");
-        graph.RegisterGraphPass("Writer", [h](RGBuilder& builder)
-                                { builder.Write(h, RGWriteUsage::RenderTarget); }, [](RGCommandContext&) {});
-        graph.RegisterGraphPass("Reader", [h](RGBuilder& builder)
-                                { builder.Read(h, RGReadUsage::ShaderSample); }, [](RGCommandContext&) {});
+        AddSetupNode(graph, "Writer", [h](RGBuilder& builder)
+                     { builder.Write(h, RGWriteUsage::RenderTarget); });
+        AddSetupNode(graph, "Reader", [h](RGBuilder& builder)
+                     { [[maybe_unused]] const auto readHandle = builder.Read(h, RGReadUsage::ShaderSample); });
         graph.AddExecutionDependency("Writer", "Reader");
         graph.SetFinalPass("Reader");
         graph.BuildFrameGraph();
@@ -3412,9 +3855,8 @@ TEST(RenderGraphTransientPool, PhaseD_PostProcessTransientNotInImportedResources
     {
         const auto h = handles[i];
         const std::string passName = "Writer" + std::to_string(i);
-        AddStub(graph, passName);
-        graph.RegisterGraphPass(passName, [h](RGBuilder& builder)
-                                { builder.Write(h, RGWriteUsage::RenderTarget); }, [](RGCommandContext&) {});
+        AddSetupNode(graph, passName, [h](RGBuilder& builder)
+                     { builder.Write(h, RGWriteUsage::RenderTarget); });
     }
     graph.AddExecutionDependency("Writer0", "Writer1");
     graph.AddExecutionDependency("Writer1", "Writer2");
@@ -3492,55 +3934,50 @@ TEST(RenderGraphTransientPool, PhaseH_ScratchTransientsRemainGraphOwned)
         }
         else
         {
-            AddStub(graph, spec.Name + "Writer");
-            AddStub(graph, spec.Name + "Reader");
-            graph.RegisterGraphPass(spec.Name + "Writer", [name = spec.Name, desc](RGBuilder& builder)
-                                    {
-                                        const auto handle = builder.CreateTexture(name, desc);
-                                        builder.Write(handle, RGWriteUsage::ShaderImage); }, [](RGCommandContext&) {});
-            graph.RegisterGraphPass(spec.Name + "Reader", [name = spec.Name, desc](RGBuilder& builder)
-                                    {
-                                        const auto handle = builder.CreateTexture(name, desc);
-                                        [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::ShaderSample); }, [](RGCommandContext&) {});
+            AddSetupNode(graph, spec.Name + "Writer", [name = spec.Name, desc](RGBuilder& builder)
+                         {
+                             const auto handle = builder.CreateTexture(name, desc);
+                             builder.Write(handle, RGWriteUsage::ShaderImage); });
+            AddSetupNode(graph, spec.Name + "Reader", [name = spec.Name, desc](RGBuilder& builder)
+                         {
+                             const auto handle = builder.CreateTexture(name, desc);
+                             [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::ShaderSample); });
         }
     }
 
-    AddStub(graph, "FBWriter0");
-    AddStub(graph, "FBWriter1");
-    AddStub(graph, "FBWriter2");
-    graph.RegisterGraphPass("FBWriter0", [](RGBuilder& builder)
-                            {
-                                RGResourceDesc desc;
-                                desc.Kind = ResourceHandle::Kind::Framebuffer;
-                                desc.Width = vw / 2;
-                                desc.Height = vh / 2;
-                                desc.Format = RGResourceFormat::RG16Float;
-                                const auto handle = builder.CreateFramebuffer("SSAORaw", desc);
-                                builder.Write(handle, RGWriteUsage::RenderTarget); }, [](RGCommandContext&) {});
-    graph.RegisterGraphPass("FBWriter1", [](RGBuilder& builder)
-                            {
-                                RGResourceDesc desc;
-                                desc.Kind = ResourceHandle::Kind::Framebuffer;
-                                desc.Width = vw;
-                                desc.Height = vh;
-                                desc.Format = RGResourceFormat::RGBA32Float;
-                                const auto handle = builder.CreateFramebuffer("JFAPing", desc);
-                                builder.Write(handle, RGWriteUsage::RenderTarget); }, [](RGCommandContext&) {});
-    graph.RegisterGraphPass("FBWriter2", [](RGBuilder& builder)
-                            {
-                                RGResourceDesc desc;
-                                desc.Kind = ResourceHandle::Kind::Framebuffer;
-                                desc.Width = vw;
-                                desc.Height = vh;
-                                desc.Format = RGResourceFormat::RGBA32Float;
-                                const auto ping = builder.CreateFramebuffer("JFAPong", desc);
-                                builder.Write(ping, RGWriteUsage::RenderTarget);
+    AddSetupNode(graph, "FBWriter0", [](RGBuilder& builder)
+                 {
+                     RGResourceDesc desc;
+                     desc.Kind = ResourceHandle::Kind::Framebuffer;
+                     desc.Width = vw / 2;
+                     desc.Height = vh / 2;
+                     desc.Format = RGResourceFormat::RG16Float;
+                     const auto handle = builder.CreateFramebuffer("SSAORaw", desc);
+                     builder.Write(handle, RGWriteUsage::RenderTarget); });
+    AddSetupNode(graph, "FBWriter1", [](RGBuilder& builder)
+                 {
+                     RGResourceDesc desc;
+                     desc.Kind = ResourceHandle::Kind::Framebuffer;
+                     desc.Width = vw;
+                     desc.Height = vh;
+                     desc.Format = RGResourceFormat::RGBA32Float;
+                     const auto handle = builder.CreateFramebuffer("JFAPing", desc);
+                     builder.Write(handle, RGWriteUsage::RenderTarget); });
+    AddSetupNode(graph, "FBWriter2", [](RGBuilder& builder)
+                 {
+                     RGResourceDesc desc;
+                     desc.Kind = ResourceHandle::Kind::Framebuffer;
+                     desc.Width = vw;
+                     desc.Height = vh;
+                     desc.Format = RGResourceFormat::RGBA32Float;
+                     const auto ping = builder.CreateFramebuffer("JFAPong", desc);
+                     builder.Write(ping, RGWriteUsage::RenderTarget);
 
-                                desc.Width = vw / 2;
-                                desc.Height = vh / 2;
-                                desc.Format = RGResourceFormat::RGBA16Float;
-                                const auto bloom = builder.CreateFramebuffer("BloomMip0", desc);
-                                builder.Write(bloom, RGWriteUsage::RenderTarget); }, [](RGCommandContext&) {});
+                     desc.Width = vw / 2;
+                     desc.Height = vh / 2;
+                     desc.Format = RGResourceFormat::RGBA16Float;
+                     const auto bloom = builder.CreateFramebuffer("BloomMip0", desc);
+                     builder.Write(bloom, RGWriteUsage::RenderTarget); });
 
     graph.AddExecutionDependency("FBWriter0", "FBWriter1");
     graph.AddExecutionDependency("FBWriter1", "FBWriter2");
@@ -4222,8 +4659,8 @@ TEST(RenderGraphSubmissionPlan, BatchBeginCarriesWaitAndInputResources)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "GfxPre");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "GfxPre",
         [](RGBuilder& builder)
         {
@@ -4232,14 +4669,12 @@ TEST(RenderGraphSubmissionPlan, BatchBeginCarriesWaitAndInputResources)
                 401,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SharedTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto compute = AddStub(graph, "ComputePass");
-    compute->SetPassWorkType(RenderPass::PassWorkType::Compute);
-    compute->SetAsyncComputeCandidate(true);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "ComputePass",
+        RenderGraphNodeFlags::Compute | RenderGraphNodeFlags::AsyncCandidateMetadata,
         [](RGBuilder& builder)
         {
             auto tex = builder.ImportTexture(
@@ -4247,8 +4682,7 @@ TEST(RenderGraphSubmissionPlan, BatchBeginCarriesWaitAndInputResources)
                 401,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SharedTex"));
             [[maybe_unused]] const auto readTex = builder.Read(tex, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     AddStub(graph, "GfxPost");
     graph.ConnectPass("GfxPre", "ComputePass");
@@ -4280,12 +4714,11 @@ TEST(RenderGraphSubmissionPlan, BatchEndCarriesSignalAndOutputResources)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    auto compute = AddStub(graph, "ComputePass");
-    compute->SetPassWorkType(RenderPass::PassWorkType::Compute);
-    compute->SetAsyncComputeCandidate(true);
-    compute->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "ComputePass",
+        RenderGraphNodeFlags::Compute | RenderGraphNodeFlags::AsyncCandidateMetadata |
+            RenderGraphNodeFlags::NeverCull,
         [](RGBuilder& builder)
         {
             auto tex = builder.ImportTexture(
@@ -4293,11 +4726,10 @@ TEST(RenderGraphSubmissionPlan, BatchEndCarriesSignalAndOutputResources)
                 402,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ResultTex"));
             builder.Write(tex, RGWriteUsage::ShaderImage);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    AddStub(graph, "GfxPost");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "GfxPost",
         [](RGBuilder& builder)
         {
@@ -4306,8 +4738,7 @@ TEST(RenderGraphSubmissionPlan, BatchEndCarriesSignalAndOutputResources)
                 402,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ResultTex"));
             [[maybe_unused]] const auto readTex = builder.Read(tex, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.ConnectPass("ComputePass", "GfxPost");
     graph.SetFinalPass("GfxPost");
@@ -4573,8 +5004,8 @@ TEST(RenderGraphTemporalHistoryContracts, ExtractHistoryTextureRecordsContractAn
         RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "TAAHistory"));
     ASSERT_TRUE(history.IsValid());
 
-    AddStub(graph, "CurrentFrameProducer");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "CurrentFrameProducer",
         [](RGBuilder& builder)
         {
@@ -4583,8 +5014,7 @@ TEST(RenderGraphTemporalHistoryContracts, ExtractHistoryTextureRecordsContractAn
                 41,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "CurrentFrameColor"));
             builder.Write(color, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.SetFinalPass("CurrentFrameProducer");
     graph.BuildFrameGraph();
@@ -4621,8 +5051,8 @@ TEST(RenderGraphTemporalHistoryContracts, InvalidHistoryContractReportsDiagnosti
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "CurrentFrameProducer");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "CurrentFrameProducer",
         [](RGBuilder& builder)
         {
@@ -4631,8 +5061,7 @@ TEST(RenderGraphTemporalHistoryContracts, InvalidHistoryContractReportsDiagnosti
                 51,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "CurrentFrameColor"));
             builder.Write(color, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.SetFinalPass("CurrentFrameProducer");
     graph.BuildFrameGraph();
@@ -4674,8 +5103,8 @@ TEST(RenderGraphTemporalHistoryContracts, DumpToJsonIncludesHistoryResourcesAndC
         RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "TAAHistory"));
     ASSERT_TRUE(history.IsValid());
 
-    AddStub(graph, "CurrentFrameProducer");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "CurrentFrameProducer",
         [](RGBuilder& builder)
         {
@@ -4684,8 +5113,7 @@ TEST(RenderGraphTemporalHistoryContracts, DumpToJsonIncludesHistoryResourcesAndC
                 61,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "CurrentFrameColor"));
             builder.Write(color, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.SetFinalPass("CurrentFrameProducer");
     graph.BuildFrameGraph();
@@ -4760,8 +5188,8 @@ TEST(RenderGraphAsyncBatchResources, SingleResourceFlowsIntoBatch)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "GfxPre");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "GfxPre",
         [](RGBuilder& builder)
         {
@@ -4770,14 +5198,12 @@ TEST(RenderGraphAsyncBatchResources, SingleResourceFlowsIntoBatch)
                 1,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SharedTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto compute = AddStub(graph, "ComputePass");
-    compute->SetPassWorkType(RenderPass::PassWorkType::Compute);
-    compute->SetAsyncComputeCandidate(true);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "ComputePass",
+        RenderGraphNodeFlags::Compute | RenderGraphNodeFlags::AsyncCandidateMetadata,
         [](RGBuilder& builder)
         {
             auto tex = builder.ImportTexture(
@@ -4785,8 +5211,7 @@ TEST(RenderGraphAsyncBatchResources, SingleResourceFlowsIntoBatch)
                 1,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SharedTex"));
             [[maybe_unused]] const auto readTex = builder.Read(tex, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     AddStub(graph, "GfxPost");
     graph.ConnectPass("GfxPre", "ComputePass");
@@ -4815,12 +5240,11 @@ TEST(RenderGraphAsyncBatchResources, BatchOutputFlowsToGraphicsPass)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    auto compute = AddStub(graph, "ComputePass");
-    compute->SetPassWorkType(RenderPass::PassWorkType::Compute);
-    compute->SetAsyncComputeCandidate(true);
-    compute->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "ComputePass",
+        RenderGraphNodeFlags::Compute | RenderGraphNodeFlags::AsyncCandidateMetadata |
+            RenderGraphNodeFlags::NeverCull,
         [](RGBuilder& builder)
         {
             auto tex = builder.ImportTexture(
@@ -4828,11 +5252,10 @@ TEST(RenderGraphAsyncBatchResources, BatchOutputFlowsToGraphicsPass)
                 2,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ResultTex"));
             builder.Write(tex, RGWriteUsage::ShaderImage);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    AddStub(graph, "GfxPost");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "GfxPost",
         [](RGBuilder& builder)
         {
@@ -4841,8 +5264,7 @@ TEST(RenderGraphAsyncBatchResources, BatchOutputFlowsToGraphicsPass)
                 2,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ResultTex"));
             [[maybe_unused]] const auto readTex = builder.Read(tex, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.ConnectPass("ComputePass", "GfxPost");
     graph.SetFinalPass("GfxPost");
@@ -4869,12 +5291,11 @@ TEST(RenderGraphAsyncBatchResources, IndependentBatchHasNoCrossBoundaryResources
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    auto compute = AddStub(graph, "ComputePass");
-    compute->SetPassWorkType(RenderPass::PassWorkType::Compute);
-    compute->SetAsyncComputeCandidate(true);
-    compute->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "ComputePass",
+        RenderGraphNodeFlags::Compute | RenderGraphNodeFlags::AsyncCandidateMetadata |
+            RenderGraphNodeFlags::NeverCull,
         [](RGBuilder& builder)
         {
             auto tex = builder.ImportTexture(
@@ -4882,8 +5303,7 @@ TEST(RenderGraphAsyncBatchResources, IndependentBatchHasNoCrossBoundaryResources
                 3,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "PrivateTex"));
             builder.Write(tex, RGWriteUsage::ShaderImage);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     AddStub(graph, "GfxFinal");
     graph.SetFinalPass("GfxFinal");
@@ -4905,8 +5325,8 @@ TEST(RenderGraphAsyncBatchResources, DumpToJsonIncludesBatchResourceDeps)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "GfxPre");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "GfxPre",
         [](RGBuilder& builder)
         {
@@ -4915,14 +5335,12 @@ TEST(RenderGraphAsyncBatchResources, DumpToJsonIncludesBatchResourceDeps)
                 10,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "InTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto compute = AddStub(graph, "ComputePass");
-    compute->SetPassWorkType(RenderPass::PassWorkType::Compute);
-    compute->SetAsyncComputeCandidate(true);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "ComputePass",
+        RenderGraphNodeFlags::Compute | RenderGraphNodeFlags::AsyncCandidateMetadata,
         [](RGBuilder& builder)
         {
             auto inTex = builder.ImportTexture(
@@ -4936,11 +5354,10 @@ TEST(RenderGraphAsyncBatchResources, DumpToJsonIncludesBatchResourceDeps)
                 11,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "OutTex"));
             builder.Write(outTex, RGWriteUsage::ShaderImage);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    AddStub(graph, "GfxPost");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "GfxPost",
         [](RGBuilder& builder)
         {
@@ -4949,8 +5366,7 @@ TEST(RenderGraphAsyncBatchResources, DumpToJsonIncludesBatchResourceDeps)
                 11,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "OutTex"));
             [[maybe_unused]] const auto readOutTex = builder.Read(outTex, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.ConnectPass("GfxPre", "ComputePass");
     graph.ConnectPass("ComputePass", "GfxPost");
@@ -4992,11 +5408,10 @@ TEST(RenderGraphResourceTransitions, NoTransitionsWhenNoBarriersPlanned)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "OnlyPass");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "OnlyPass",
-        [](RGBuilder& /*builder*/) {},
-        [](RGCommandContext& /*context*/) {});
+        [](RGBuilder& /*builder*/) {});
     graph.SetFinalPass("OnlyPass");
     graph.Execute();
 
@@ -5014,8 +5429,8 @@ TEST(RenderGraphResourceTransitions, SingleTransitionCapturesProducerAndConsumer
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "Producer");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Producer",
         [](RGBuilder& builder)
         {
@@ -5024,12 +5439,10 @@ TEST(RenderGraphResourceTransitions, SingleTransitionCapturesProducerAndConsumer
                 1,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "ColorTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto consumer = AddStub(graph, "Consumer");
-    consumer->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Consumer",
         [](RGBuilder& builder)
         {
@@ -5038,8 +5451,7 @@ TEST(RenderGraphResourceTransitions, SingleTransitionCapturesProducerAndConsumer
                 1,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "ColorTex"));
             [[maybe_unused]] const auto sampledTex = builder.Read(tex, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.AddExecutionDependency("Producer", "Consumer");
     graph.SetFinalPass("Consumer");
@@ -5066,8 +5478,8 @@ TEST(RenderGraphResourceTransitions, ProducerIsLastWriterBeforeConsumer)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "Writer1");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Writer1",
         [](RGBuilder& builder)
         {
@@ -5076,11 +5488,10 @@ TEST(RenderGraphResourceTransitions, ProducerIsLastWriterBeforeConsumer)
                 5,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "Tex"));
             builder.Write(tex, RGWriteUsage::ShaderImage);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    AddStub(graph, "Writer2");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Writer2",
         [](RGBuilder& builder)
         {
@@ -5089,12 +5500,10 @@ TEST(RenderGraphResourceTransitions, ProducerIsLastWriterBeforeConsumer)
                 5,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "Tex"));
             builder.Write(tex, RGWriteUsage::ShaderStorage);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto consumer = AddStub(graph, "Consumer");
-    consumer->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Consumer",
         [](RGBuilder& builder)
         {
@@ -5103,8 +5512,7 @@ TEST(RenderGraphResourceTransitions, ProducerIsLastWriterBeforeConsumer)
                 5,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "Tex"));
             [[maybe_unused]] const auto sampledTex = builder.Read(tex, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.AddExecutionDependency("Writer1", "Writer2");
     graph.AddExecutionDependency("Writer2", "Consumer");
@@ -5133,9 +5541,8 @@ TEST(RenderGraphResourceTransitions, ExternalImportHasNoProducerPass)
         42,
         RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ShadowMap"));
 
-    auto consumer = AddStub(graph, "ShadowConsumer");
-    consumer->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "ShadowConsumer",
         [](RGBuilder& builder)
         {
@@ -5144,8 +5551,7 @@ TEST(RenderGraphResourceTransitions, ExternalImportHasNoProducerPass)
                 42,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ShadowMap"));
             [[maybe_unused]] const auto sampledShadow = builder.Read(tex, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.SetFinalPass("ShadowConsumer");
     graph.BuildFrameGraph();
@@ -5169,8 +5575,8 @@ TEST(RenderGraphResourceTransitions, DumpToJsonIncludesResourceTransitions)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "ScenePass");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "ScenePass",
         [](RGBuilder& builder)
         {
@@ -5179,12 +5585,10 @@ TEST(RenderGraphResourceTransitions, DumpToJsonIncludesResourceTransitions)
                 10,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto postPass = AddStub(graph, "PostPass");
-    postPass->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "PostPass",
         [](RGBuilder& builder)
         {
@@ -5193,8 +5597,7 @@ TEST(RenderGraphResourceTransitions, DumpToJsonIncludesResourceTransitions)
                 10,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto sampledScene = builder.Read(tex, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.AddExecutionDependency("ScenePass", "PostPass");
     graph.SetFinalPass("PostPass");
@@ -5250,8 +5653,8 @@ TEST(RenderGraphResourceLifetimes, TransientResourceHasCorrectFirstAndLastPass)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "PassA");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "PassA",
         [](RGBuilder& builder)
         {
@@ -5260,12 +5663,10 @@ TEST(RenderGraphResourceLifetimes, TransientResourceHasCorrectFirstAndLastPass)
                 1,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "Color"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto stubB = AddStub(graph, "PassB");
-    stubB->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "PassB",
         [](RGBuilder& builder)
         {
@@ -5274,8 +5675,7 @@ TEST(RenderGraphResourceLifetimes, TransientResourceHasCorrectFirstAndLastPass)
                 1,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "Color"));
             [[maybe_unused]] const auto r = builder.Read(tex, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.AddExecutionDependency("PassA", "PassB");
     graph.SetFinalPass("PassB");
@@ -5306,9 +5706,8 @@ TEST(RenderGraphResourceLifetimes, ImportedResourceHasExternalFirstWrite)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    auto stub = AddStub(graph, "ConsumerPass");
-    stub->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "ConsumerPass",
         [](RGBuilder& builder)
         {
@@ -5318,8 +5717,7 @@ TEST(RenderGraphResourceLifetimes, ImportedResourceHasExternalFirstWrite)
                 99,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ExtTex"));
             [[maybe_unused]] const auto r = builder.Read(tex, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.SetFinalPass("ConsumerPass");
     graph.BuildFrameGraph();
@@ -5345,9 +5743,8 @@ TEST(RenderGraphResourceLifetimes, WriteOnlyResourceHasEmptyLastRead)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    auto stub = AddStub(graph, "WriterPass");
-    stub->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "WriterPass",
         [](RGBuilder& builder)
         {
@@ -5356,8 +5753,7 @@ TEST(RenderGraphResourceLifetimes, WriteOnlyResourceHasEmptyLastRead)
                 7,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SinkTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.SetFinalPass("WriterPass");
     graph.BuildFrameGraph();
@@ -5384,8 +5780,8 @@ TEST(RenderGraphResourceLifetimes, DumpToJsonIncludesResourceLifetimes)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "ScenePass");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "ScenePass",
         [](RGBuilder& builder)
         {
@@ -5394,12 +5790,10 @@ TEST(RenderGraphResourceLifetimes, DumpToJsonIncludesResourceLifetimes)
                 10,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto postPass = AddStub(graph, "PostPass");
-    postPass->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "PostPass",
         [](RGBuilder& builder)
         {
@@ -5408,8 +5802,7 @@ TEST(RenderGraphResourceLifetimes, DumpToJsonIncludesResourceLifetimes)
                 10,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto r = builder.Read(tex, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.AddExecutionDependency("ScenePass", "PostPass");
     graph.SetFinalPass("PostPass");
@@ -5457,8 +5850,8 @@ TEST(RenderGraphSubresourceRange, FullRangeByDefaultWhenNoRangeSpecified)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "Writer");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Writer",
         [](RGBuilder& builder)
         {
@@ -5467,12 +5860,10 @@ TEST(RenderGraphSubresourceRange, FullRangeByDefaultWhenNoRangeSpecified)
                 1,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ColorTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto reader = AddStub(graph, "Reader");
-    reader->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "Reader",
         [](RGBuilder& builder)
         {
@@ -5481,8 +5872,7 @@ TEST(RenderGraphSubresourceRange, FullRangeByDefaultWhenNoRangeSpecified)
                 1,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ColorTex"));
             [[maybe_unused]] const auto r = builder.Read(tex, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.ConnectPass("Writer", "Reader");
     graph.SetFinalPass("Reader");
@@ -5509,8 +5899,8 @@ TEST(RenderGraphSubresourceRange, MipRangePreservedInTransition)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "MipWriter");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "MipWriter",
         [](RGBuilder& builder)
         {
@@ -5519,12 +5909,10 @@ TEST(RenderGraphSubresourceRange, MipRangePreservedInTransition)
                 2,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "MipTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto reader = AddStub(graph, "MipReader");
-    reader->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "MipReader",
         [](RGBuilder& builder)
         {
@@ -5534,8 +5922,7 @@ TEST(RenderGraphSubresourceRange, MipRangePreservedInTransition)
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "MipTex"));
             [[maybe_unused]] const auto r =
                 builder.Read(tex, RGReadUsage::ShaderSample, RGSubresourceRange::Mip(2));
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.ConnectPass("MipWriter", "MipReader");
     graph.SetFinalPass("MipReader");
@@ -5560,8 +5947,8 @@ TEST(RenderGraphSubresourceRange, LayerRangePreservedInTransition)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "LayerWriter");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "LayerWriter",
         [](RGBuilder& builder)
         {
@@ -5570,12 +5957,10 @@ TEST(RenderGraphSubresourceRange, LayerRangePreservedInTransition)
                 3,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "LayerTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto reader = AddStub(graph, "LayerReader");
-    reader->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "LayerReader",
         [](RGBuilder& builder)
         {
@@ -5585,8 +5970,7 @@ TEST(RenderGraphSubresourceRange, LayerRangePreservedInTransition)
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "LayerTex"));
             [[maybe_unused]] const auto r =
                 builder.Read(tex, RGReadUsage::ShaderSample, RGSubresourceRange::Layer(3));
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.ConnectPass("LayerWriter", "LayerReader");
     graph.SetFinalPass("LayerReader");
@@ -5609,8 +5993,8 @@ TEST(RenderGraphSubresourceRange, MultiLayerDeclarationsProducePerLayerTransitio
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "ShadowWriter");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "ShadowWriter",
         [](RGBuilder& builder)
         {
@@ -5622,12 +6006,10 @@ TEST(RenderGraphSubresourceRange, MultiLayerDeclarationsProducePerLayerTransitio
             {
                 builder.Write(csm, RGWriteUsage::DepthStencil, RGSubresourceRange::Layer(cascade));
             }
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto reader = AddStub(graph, "ShadowReader");
-    reader->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "ShadowReader",
         [](RGBuilder& builder)
         {
@@ -5640,8 +6022,7 @@ TEST(RenderGraphSubresourceRange, MultiLayerDeclarationsProducePerLayerTransitio
                 [[maybe_unused]] const auto r =
                     builder.Read(csm, RGReadUsage::ShaderSample, RGSubresourceRange::Layer(cascade));
             }
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.ConnectPass("ShadowWriter", "ShadowReader");
     graph.SetFinalPass("ShadowReader");
@@ -5669,8 +6050,8 @@ TEST(RenderGraphSubresourceRange, SliceRangePreservedInTransition)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "PointShadowWriter");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "PointShadowWriter",
         [](RGBuilder& builder)
         {
@@ -5682,12 +6063,10 @@ TEST(RenderGraphSubresourceRange, SliceRangePreservedInTransition)
             faceRange.BaseSlice = 4u;
             faceRange.SliceCount = 1u;
             builder.Write(cubemap, RGWriteUsage::DepthStencil, faceRange);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto reader = AddStub(graph, "PointShadowReader");
-    reader->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "PointShadowReader",
         [](RGBuilder& builder)
         {
@@ -5699,8 +6078,7 @@ TEST(RenderGraphSubresourceRange, SliceRangePreservedInTransition)
             faceRange.BaseSlice = 4u;
             faceRange.SliceCount = 1u;
             [[maybe_unused]] const auto r = builder.Read(cubemap, RGReadUsage::ShaderSample, faceRange);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.ConnectPass("PointShadowWriter", "PointShadowReader");
     graph.SetFinalPass("PointShadowReader");
@@ -5726,8 +6104,8 @@ TEST(RenderGraphSubresourceRange, PlannedBarrierCarriesRange)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "BarrierWriter");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "BarrierWriter",
         [](RGBuilder& builder)
         {
@@ -5736,12 +6114,10 @@ TEST(RenderGraphSubresourceRange, PlannedBarrierCarriesRange)
                 4,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "BaTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto reader = AddStub(graph, "BarrierReader");
-    reader->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "BarrierReader",
         [](RGBuilder& builder)
         {
@@ -5751,8 +6127,7 @@ TEST(RenderGraphSubresourceRange, PlannedBarrierCarriesRange)
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "BaTex"));
             [[maybe_unused]] const auto r =
                 builder.Read(tex, RGReadUsage::ShaderSample, RGSubresourceRange::Mip(1));
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.ConnectPass("BarrierWriter", "BarrierReader");
     graph.SetFinalPass("BarrierReader");
@@ -5776,8 +6151,8 @@ TEST(RenderGraphSubresourceRange, DumpToJsonIncludesRange)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "JsonWriter");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "JsonWriter",
         [](RGBuilder& builder)
         {
@@ -5786,12 +6161,10 @@ TEST(RenderGraphSubresourceRange, DumpToJsonIncludesRange)
                 5,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "JsonTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto reader = AddStub(graph, "JsonReader");
-    reader->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "JsonReader",
         [](RGBuilder& builder)
         {
@@ -5801,8 +6174,7 @@ TEST(RenderGraphSubresourceRange, DumpToJsonIncludesRange)
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "JsonTex"));
             [[maybe_unused]] const auto r =
                 builder.Read(tex, RGReadUsage::ShaderSample, RGSubresourceRange::Mip(0));
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.ConnectPass("JsonWriter", "JsonReader");
     graph.SetFinalPass("JsonReader");
@@ -5847,8 +6219,8 @@ TEST(RenderGraphCrossLaneSync, PureGraphicsGraphHasNoCrossLaneTransitions)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "GfxWriter");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "GfxWriter",
         [](RGBuilder& builder)
         {
@@ -5857,12 +6229,10 @@ TEST(RenderGraphCrossLaneSync, PureGraphicsGraphHasNoCrossLaneTransitions)
                 1,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "GfxTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto gfxReader = AddStub(graph, "GfxReader");
-    gfxReader->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "GfxReader",
         [](RGBuilder& builder)
         {
@@ -5871,8 +6241,7 @@ TEST(RenderGraphCrossLaneSync, PureGraphicsGraphHasNoCrossLaneTransitions)
                 1,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "GfxTex"));
             [[maybe_unused]] const auto r = builder.Read(tex, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.AddExecutionDependency("GfxWriter", "GfxReader");
     graph.SetFinalPass("GfxReader");
@@ -5898,10 +6267,10 @@ TEST(RenderGraphCrossLaneSync, ComputeToGraphicsTransitionIsCrossLane)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    auto computeWriter = AddStub(graph, "ComputeWriter");
-    computeWriter->SetPassWorkType(RenderPass::PassWorkType::Compute);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "ComputeWriter",
+        RenderGraphNodeFlags::Compute,
         [](RGBuilder& builder)
         {
             auto tex = builder.ImportTexture(
@@ -5909,12 +6278,10 @@ TEST(RenderGraphCrossLaneSync, ComputeToGraphicsTransitionIsCrossLane)
                 7,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ComputeResult"));
             builder.Write(tex, RGWriteUsage::ShaderStorage);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto gfxReader = AddStub(graph, "GfxReader");
-    gfxReader->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "GfxReader",
         [](RGBuilder& builder)
         {
@@ -5923,8 +6290,7 @@ TEST(RenderGraphCrossLaneSync, ComputeToGraphicsTransitionIsCrossLane)
                 7,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ComputeResult"));
             [[maybe_unused]] const auto r = builder.Read(tex, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.AddExecutionDependency("ComputeWriter", "GfxReader");
     graph.SetFinalPass("GfxReader");
@@ -5958,10 +6324,10 @@ TEST(RenderGraphCrossLaneSync, DumpToJsonIncludesCrossLaneSyncFields)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    auto computeWriter = AddStub(graph, "CsWriter");
-    computeWriter->SetPassWorkType(RenderPass::PassWorkType::Compute);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "CsWriter",
+        RenderGraphNodeFlags::Compute,
         [](RGBuilder& builder)
         {
             auto tex = builder.ImportTexture(
@@ -5969,12 +6335,10 @@ TEST(RenderGraphCrossLaneSync, DumpToJsonIncludesCrossLaneSyncFields)
                 9,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "CsTex"));
             builder.Write(tex, RGWriteUsage::ShaderStorage);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto gfxReader = AddStub(graph, "GsReader");
-    gfxReader->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "GsReader",
         [](RGBuilder& builder)
         {
@@ -5983,8 +6347,7 @@ TEST(RenderGraphCrossLaneSync, DumpToJsonIncludesCrossLaneSyncFields)
                 9,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "CsTex"));
             [[maybe_unused]] const auto r = builder.Read(tex, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.AddExecutionDependency("CsWriter", "GsReader");
     graph.SetFinalPass("GsReader");
@@ -6031,8 +6394,8 @@ TEST(RenderGraphQueueAwareScheduler, LegalOverlapDisjointResourcesNoHazard)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "GfxPre");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "GfxPre",
         [](RGBuilder& builder)
         {
@@ -6041,14 +6404,12 @@ TEST(RenderGraphQueueAwareScheduler, LegalOverlapDisjointResourcesNoHazard)
                 1,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SceneColor"));
             builder.Write(sc, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto computeAO = AddStub(graph, "ComputeAO");
-    computeAO->SetPassWorkType(RenderPass::PassWorkType::Compute);
-    computeAO->SetAsyncComputeCandidate(true);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "ComputeAO",
+        RenderGraphNodeFlags::Compute | RenderGraphNodeFlags::AsyncCandidateMetadata,
         [](RGBuilder& builder)
         {
             auto ao = builder.ImportTexture(
@@ -6056,12 +6417,10 @@ TEST(RenderGraphQueueAwareScheduler, LegalOverlapDisjointResourcesNoHazard)
                 2,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "AO"));
             builder.Write(ao, RGWriteUsage::ShaderStorage);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto gfxPost = AddStub(graph, "GfxPost");
-    gfxPost->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "GfxPost",
         [](RGBuilder& builder)
         {
@@ -6076,8 +6435,7 @@ TEST(RenderGraphQueueAwareScheduler, LegalOverlapDisjointResourcesNoHazard)
                 2,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "AO"));
             [[maybe_unused]] const auto r2 = builder.Read(ao, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.AddExecutionDependency("GfxPre", "GfxPost");
     graph.AddExecutionDependency("ComputeAO", "GfxPost");
@@ -6098,10 +6456,10 @@ TEST(RenderGraphQueueAwareScheduler, ForbiddenOverlapComputeWritesAfterGraphicsR
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    auto gfxReader = AddStub(graph, "GfxReader");
-    gfxReader->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "GfxReader",
+        RenderGraphNodeFlags::Graphics | RenderGraphNodeFlags::NeverCull,
         [](RGBuilder& builder)
         {
             auto depth = builder.ImportTexture(
@@ -6109,14 +6467,12 @@ TEST(RenderGraphQueueAwareScheduler, ForbiddenOverlapComputeWritesAfterGraphicsR
                 3,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SceneDepth"));
             [[maybe_unused]] const auto r = builder.Read(depth, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto computeWriter = AddStub(graph, "ComputeWriter");
-    computeWriter->SetPassWorkType(RenderPass::PassWorkType::Compute);
-    computeWriter->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "ComputeWriter",
+        RenderGraphNodeFlags::Compute,
         [](RGBuilder& builder)
         {
             auto depth = builder.ImportTexture(
@@ -6124,8 +6480,7 @@ TEST(RenderGraphQueueAwareScheduler, ForbiddenOverlapComputeWritesAfterGraphicsR
                 3,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SceneDepth"));
             builder.Write(depth, RGWriteUsage::ShaderStorage);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     // Intentionally NO execution dependency from GfxReader to ComputeWriter —
     // this models a programmer error that the hazard validator must catch.
@@ -6153,26 +6508,21 @@ TEST(RenderGraphQueueAwareScheduler, OrderingPreservedAfterComputeHoist)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "GfxA");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "GfxA",
-        [](RGBuilder& /*builder*/) {},
-        [](RGCommandContext& /*context*/) {});
+        [](RGBuilder& /*builder*/) {});
 
-    auto computeB = AddStub(graph, "ComputeB");
-    computeB->SetPassWorkType(RenderPass::PassWorkType::Compute);
-    computeB->SetAsyncComputeCandidate(true);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "ComputeB",
-        [](RGBuilder& /*builder*/) {},
-        [](RGCommandContext& /*context*/) {});
+        RenderGraphNodeFlags::Compute | RenderGraphNodeFlags::AsyncCandidateMetadata,
+        [](RGBuilder& /*builder*/) {});
 
-    auto gfxC = AddStub(graph, "GfxC");
-    gfxC->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "GfxC",
-        [](RGBuilder& /*builder*/) {},
-        [](RGCommandContext& /*context*/) {});
+        [](RGBuilder& /*builder*/) {});
 
     graph.AddExecutionDependency("GfxA", "ComputeB");
     graph.AddExecutionDependency("ComputeB", "GfxC");
@@ -6199,10 +6549,10 @@ TEST(RenderGraphQueueAwareScheduler, GTAOStyleComputeToGraphicsCrossLaneTransiti
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    auto hzb = AddStub(graph, "HZBPass");
-    hzb->SetPassWorkType(RenderPass::PassWorkType::Compute);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "HZBPass",
+        RenderGraphNodeFlags::Compute,
         [](RGBuilder& builder)
         {
             auto ao = builder.ImportTexture(
@@ -6210,12 +6560,10 @@ TEST(RenderGraphQueueAwareScheduler, GTAOStyleComputeToGraphicsCrossLaneTransiti
                 10,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "AOTexture"));
             builder.Write(ao, RGWriteUsage::ShaderStorage);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto lighting = AddStub(graph, "LightingPass");
-    lighting->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "LightingPass",
         [](RGBuilder& builder)
         {
@@ -6224,8 +6572,7 @@ TEST(RenderGraphQueueAwareScheduler, GTAOStyleComputeToGraphicsCrossLaneTransiti
                 10,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "AOTexture"));
             [[maybe_unused]] const auto r = builder.Read(ao, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.AddExecutionDependency("HZBPass", "LightingPass");
     graph.SetFinalPass("LightingPass");
@@ -6261,11 +6608,10 @@ TEST(RenderGraphQueueAwareScheduler, HazardValidatorRemainsGreenAfterComputeHois
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    auto c1 = AddStub(graph, "ComputeGTAO");
-    c1->SetPassWorkType(RenderPass::PassWorkType::Compute);
-    c1->SetAsyncComputeCandidate(true);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "ComputeGTAO",
+        RenderGraphNodeFlags::Compute | RenderGraphNodeFlags::AsyncCandidateMetadata,
         [](RGBuilder& builder)
         {
             auto ao = builder.ImportTexture(
@@ -6273,14 +6619,12 @@ TEST(RenderGraphQueueAwareScheduler, HazardValidatorRemainsGreenAfterComputeHois
                 20,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "GTAOResult"));
             builder.Write(ao, RGWriteUsage::ShaderStorage);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto c2 = AddStub(graph, "ComputeSSGI");
-    c2->SetPassWorkType(RenderPass::PassWorkType::Compute);
-    c2->SetAsyncComputeCandidate(true);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "ComputeSSGI",
+        RenderGraphNodeFlags::Compute | RenderGraphNodeFlags::AsyncCandidateMetadata,
         [](RGBuilder& builder)
         {
             auto gi = builder.ImportTexture(
@@ -6288,12 +6632,10 @@ TEST(RenderGraphQueueAwareScheduler, HazardValidatorRemainsGreenAfterComputeHois
                 21,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SSGIResult"));
             builder.Write(gi, RGWriteUsage::ShaderStorage);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto gfxLighting = AddStub(graph, "DeferredLighting");
-    gfxLighting->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "DeferredLighting",
         [](RGBuilder& builder)
         {
@@ -6308,8 +6650,7 @@ TEST(RenderGraphQueueAwareScheduler, HazardValidatorRemainsGreenAfterComputeHois
                 21,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SSGIResult"));
             [[maybe_unused]] const auto r2 = builder.Read(gi, RGReadUsage::ShaderSample);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.AddExecutionDependency("ComputeGTAO", "DeferredLighting");
     graph.AddExecutionDependency("ComputeSSGI", "DeferredLighting");
@@ -6343,7 +6684,7 @@ TEST(RenderGraphFallbackTelemetry, InvalidTypedHandleResolvesAreRecorded)
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     auto probe = Ref<FallbackProbePass>::Create("ProbePass");
-    graph.AddPass(probe);
+    AddPassNode(graph, probe);
     graph.SetFinalPass("ProbePass");
 
     graph.Execute();
@@ -6385,7 +6726,7 @@ TEST(RenderGraphFallbackTelemetry, ValidTextureResolveDoesNotEmitTextureFallback
 
     auto probe = Ref<FallbackProbePass>::Create("ProbePass");
     probe->SetTextureHandle(textureHandle);
-    graph.AddPass(probe);
+    AddPassNode(graph, probe);
     graph.SetFinalPass("ProbePass");
 
     graph.Execute();
@@ -6406,10 +6747,10 @@ TEST(RenderGraphFallbackTelemetry, ValidTextureResolveDoesNotEmitTextureFallback
 }
 
 // ============================================================
-// Phase H Slice 3 — SceneColor RMW chain via builder callbacks
-// Verifies that RegisterGraphPass Read+Write declarations drive
-// correct RAW-edge derivation in BuildFrameGraph, replacing the
-// prior WAW-insertion-order-only mechanism.
+// SceneColor RMW chain via builder callbacks
+// Verifies that node-owned read/write declarations drive the
+// correct RAW-edge derivation in BuildFrameGraph instead of
+// relying on write-after-write insertion order.
 // ============================================================
 
 TEST(RenderGraphSceneColorChain, RMWChainDrivesRAWEdgesViaBuilderCallbacks)
@@ -6422,8 +6763,8 @@ TEST(RenderGraphSceneColorChain, RMWChainDrivesRAWEdgesViaBuilderCallbacks)
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "ScenePass");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "ScenePass",
         [](RGBuilder& builder)
         {
@@ -6432,11 +6773,10 @@ TEST(RenderGraphSceneColorChain, RMWChainDrivesRAWEdgesViaBuilderCallbacks)
                 1u,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
             builder.Write(sc, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    AddStub(graph, "FoliagePass");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "FoliagePass",
         [](RGBuilder& builder)
         {
@@ -6446,12 +6786,10 @@ TEST(RenderGraphSceneColorChain, RMWChainDrivesRAWEdgesViaBuilderCallbacks)
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto r = builder.Read(sc, RGReadUsage::RenderTargetRead);
             builder.Write(sc, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto decalStub = AddStub(graph, "DecalPass");
-    decalStub->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "DecalPass",
         [](RGBuilder& builder)
         {
@@ -6461,8 +6799,7 @@ TEST(RenderGraphSceneColorChain, RMWChainDrivesRAWEdgesViaBuilderCallbacks)
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto r = builder.Read(sc, RGReadUsage::RenderTargetRead);
             builder.Write(sc, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.SetFinalPass("DecalPass");
 
@@ -6497,8 +6834,8 @@ TEST(RenderGraphSceneColorChain, DeferredSceneColorRMWChainViaBuilderCallbacksIs
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    AddStub(graph, "DeferredLightingPass");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "DeferredLightingPass",
         [](RGBuilder& builder)
         {
@@ -6507,11 +6844,10 @@ TEST(RenderGraphSceneColorChain, DeferredSceneColorRMWChainViaBuilderCallbacksIs
                 2u,
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
             builder.Write(sc, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    AddStub(graph, "ForwardOverlayPass");
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "ForwardOverlayPass",
         [](RGBuilder& builder)
         {
@@ -6521,12 +6857,10 @@ TEST(RenderGraphSceneColorChain, DeferredSceneColorRMWChainViaBuilderCallbacksIs
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto r = builder.Read(sc, RGReadUsage::RenderTargetRead);
             builder.Write(sc, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
-    auto foliageStub = AddStub(graph, "FoliagePass");
-    foliageStub->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    graph.RegisterGraphPass(
+    AddSetupNode(
+        graph,
         "FoliagePass",
         [](RGBuilder& builder)
         {
@@ -6536,8 +6870,7 @@ TEST(RenderGraphSceneColorChain, DeferredSceneColorRMWChainViaBuilderCallbacksIs
                 RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto r = builder.Read(sc, RGReadUsage::RenderTargetRead);
             builder.Write(sc, RGWriteUsage::RenderTarget);
-        },
-        [](RGCommandContext& /*context*/) {});
+        });
 
     graph.SetFinalPass("FoliagePass");
 

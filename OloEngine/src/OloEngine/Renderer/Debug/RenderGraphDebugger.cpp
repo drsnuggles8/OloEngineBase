@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugger.h"
+#include "OloEngine/Renderer/PassGraphNode.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Utils/PlatformUtils.h"
@@ -59,18 +60,21 @@ namespace OloEngine
             if (!graph)
                 return visible;
 
-            const auto allPasses = graph->GetAllPasses();
+            const auto allEntries = graph->GetPassSubmissionInfo();
             std::unordered_map<std::string, Ref<RenderPass>> passByName;
-            passByName.reserve(allPasses.size());
-            for (const auto& pass : allPasses)
+            passByName.reserve(allEntries.size());
+            for (const auto& entry : allEntries)
             {
-                if (pass)
-                    passByName.emplace(pass->GetName(), pass);
+                if (const auto passNode = graph->GetNode<PassGraphNode>(entry.PassName))
+                {
+                    if (const auto& pass = passNode->GetPass(); pass)
+                        passByName.emplace(entry.PassName, pass);
+                }
             }
 
             const auto culled = BuildCulledPassSet(graph);
             std::unordered_set<std::string> appended;
-            appended.reserve(allPasses.size());
+            appended.reserve(passByName.size());
 
             const auto appendIfVisible = [&](const std::string& passName)
             {
@@ -90,11 +94,10 @@ namespace OloEngine
             }
 
             // Before the first frame graph build, GetPassOrder() can be empty.
-            // Fall back to all registered passes so the debugger still has a view.
-            for (const auto& pass : allPasses)
+            // Fall back to all registered wrapped pass nodes so the debugger still has a view.
+            for (const auto& entry : allEntries)
             {
-                if (pass)
-                    appendIfVisible(pass->GetName());
+                appendIfVisible(entry.PassName);
             }
 
             return visible;

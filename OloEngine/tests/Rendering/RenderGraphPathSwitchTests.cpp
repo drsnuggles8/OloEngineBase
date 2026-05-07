@@ -6,7 +6,8 @@
 // `Renderer3D::ConfigureRenderGraph(RenderingPath)` is invoked whenever the
 // user toggles between `RenderingPath::Forward`, `ForwardPlus`, and
 // `Deferred`. Each call:
-//   1. `RenderGraph::ResetTopology()` — drops passes, edges, pass-order cache.
+//   1. `RenderGraph::ResetTopology()` — drops passes, nodes, compatibility
+//      setup registrations, and cached execution/submission state.
 //   2. Re-adds only the passes relevant to the new path.
 //   3. Re-declares the execution edges (keeps only the explicit deferred
 //      Scene->DeferredOpaqueDecal edge plus path-shared downstream handoffs,
@@ -32,6 +33,7 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
+#include "OloEngine/Renderer/PassGraphNode.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
@@ -74,11 +76,95 @@ namespace
         }
     };
 
+    ResourceHandle::Kind NormalizeDeclarationKind(const ResourceHandle::Kind kind)
+    {
+        return kind == ResourceHandle::Kind::Unknown ? ResourceHandle::Kind::Texture2D : kind;
+    }
+
+    void MirrorPassRead(RGBuilder& builder, const ResourceHandle& resource)
+    {
+        const auto kind = NormalizeDeclarationKind(resource.Type);
+        const auto desc = RGResourceDesc::FromLegacy(kind, resource.Name);
+
+        switch (kind)
+        {
+            case ResourceHandle::Kind::Framebuffer:
+            {
+                auto handle = builder.ImportFramebuffer(resource.Name, nullptr, desc);
+                [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::RenderTargetRead);
+                break;
+            }
+            case ResourceHandle::Kind::UniformBuffer:
+            case ResourceHandle::Kind::StorageBuffer:
+            {
+                auto handle = builder.ImportBuffer(resource.Name, 0, desc);
+                [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::ShaderStorage);
+                break;
+            }
+            default:
+            {
+                auto handle = builder.ImportTexture(resource.Name, 0, desc);
+                [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::ShaderSample);
+                break;
+            }
+        }
+    }
+
+    void MirrorPassWrite(RGBuilder& builder, const ResourceHandle& resource)
+    {
+        const auto kind = NormalizeDeclarationKind(resource.Type);
+        const auto desc = RGResourceDesc::FromLegacy(kind, resource.Name);
+
+        switch (kind)
+        {
+            case ResourceHandle::Kind::Framebuffer:
+            {
+                auto handle = builder.ImportFramebuffer(resource.Name, nullptr, desc);
+                builder.Write(handle, RGWriteUsage::RenderTarget);
+                break;
+            }
+            case ResourceHandle::Kind::UniformBuffer:
+            case ResourceHandle::Kind::StorageBuffer:
+            {
+                auto handle = builder.ImportBuffer(resource.Name, 0, desc);
+                builder.Write(handle, RGWriteUsage::ShaderStorage);
+                break;
+            }
+            default:
+            {
+                auto handle = builder.ImportTexture(resource.Name, 0, desc);
+                builder.Write(handle, RGWriteUsage::RenderTarget);
+                break;
+            }
+        }
+    }
+
+    void MirrorPassDeclarations(RGBuilder& builder, const RenderPass& pass)
+    {
+        for (const auto& read : pass.GetReads())
+            MirrorPassRead(builder, read);
+
+        for (const auto& write : pass.GetWrites())
+            MirrorPassWrite(builder, write);
+    }
+
+    void RegisterDeclarativeStubNode(RenderGraph& graph, const Ref<DeclarativeStubPass>& pass)
+    {
+        auto node = Ref<PassGraphNode>::Create(
+            std::string(pass->GetName()),
+            pass.As<RenderPass>(),
+            [pass](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
+            {
+                MirrorPassDeclarations(builder, *pass);
+            });
+        graph.AddNode(node);
+    }
+
     Ref<DeclarativeStubPass> AddDeclStub(RenderGraph& graph, const std::string& name)
     {
         auto pass = Ref<DeclarativeStubPass>::Create(name);
         pass->SetName(name);
-        graph.AddPass(pass);
+        RegisterDeclarativeStubNode(graph, pass);
         return pass;
     }
 
@@ -97,10 +183,10 @@ namespace
 
     bool ContainsPass(const RenderGraph& graph, const std::string& name)
     {
-        const auto passes = graph.GetAllPasses();
-        return std::any_of(passes.begin(), passes.end(),
-                           [&](const Ref<RenderPass>& p)
-                           { return p && p->GetName() == name; });
+        const auto entries = graph.GetPassSubmissionInfo();
+        return std::any_of(entries.begin(), entries.end(),
+                           [&](const RenderGraph::PassSubmissionInfo& entry)
+                           { return entry.PassName == name; });
     }
 
     // Minimal production-shaped topology. Only the passes relevant to the
@@ -268,7 +354,7 @@ TEST(RenderGraphPathSwitch, AlternatingRebuildsHaveStablePassCounts)
             << "Cycle " << i << " (deferred=" << paths[i] << "): " << HazardsToString(hazards);
 
         const sizet expected = paths[i] ? kDeferredPassCount : kForwardPassCount;
-        EXPECT_EQ(graph.GetAllPasses().size(), expected)
+        EXPECT_EQ(graph.GetPassSubmissionInfo().size(), expected)
             << "Cycle " << i << " (deferred=" << paths[i] << "): pass count drift — ResetTopology leaking";
     }
 }
@@ -445,7 +531,7 @@ TEST(RenderGraphPathSwitch, ThreeWayCycleCleansUpAllPathSpecificPasses)
             << "Cycle " << i << " path=" << static_cast<i32>(steps[i].path)
             << ": " << HazardsToString(hazards);
 
-        EXPECT_EQ(graph.GetAllPasses().size(), steps[i].expected)
+        EXPECT_EQ(graph.GetPassSubmissionInfo().size(), steps[i].expected)
             << "Cycle " << i << ": pass count drift — ResetTopology leak";
 
         // Path-specific passes must be present iff path matches.
