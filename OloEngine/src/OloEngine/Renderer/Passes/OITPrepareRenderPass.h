@@ -3,25 +3,19 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
-#include "OloEngine/Renderer/Shader.h"
-#include "OloEngine/Renderer/UniformBuffer.h"
 
 namespace OloEngine
 {
-    // @brief Standalone colour-grading post-process pass.
+    // @brief Prepares the graph-owned weighted-blended OIT target for the frame.
     //
-    // Phase F slice 17 — standalone effect in the dynamic post chain
-    // following the pattern established by FXAARenderPass (slice 16).
-    //
-    // Sits second in the extracted-effect sub-chain:
-    //   PostProcess → ChromAberration → ColorGrading → ToneMap → Vignette → FXAA
-    //
-    // Operates in HDR space. Passthrough when `Enabled` is false.
-    class ColorGradingRenderPass : public RenderPass
+    // Clears the accumulation / revealage attachments and seeds the OIT depth
+    // attachment from the current scene framebuffer so transparent contributors
+    // can render into a fully graph-owned transient target.
+    class OITPrepareRenderPass : public RenderPass
     {
       public:
-        ColorGradingRenderPass();
-        ~ColorGradingRenderPass() override = default;
+        OITPrepareRenderPass();
+        ~OITPrepareRenderPass() override = default;
 
         void Init(const FramebufferSpecification& spec) override;
         void Execute() override;
@@ -44,16 +38,9 @@ namespace OloEngine
             return m_Enabled;
         }
 
-        void SetPostProcessUBO(const Ref<UniformBuffer>& ubo) noexcept
-        {
-            m_PostProcessUBO = ubo;
-        }
-
       private:
-        void CreateFramebuffer(u32 width, u32 height);
-
-        Ref<Shader> m_Shader;
-        Ref<UniformBuffer> m_PostProcessUBO;
+        static void PrepareFramebuffer(const Ref<Framebuffer>& oitFramebuffer,
+                                       const Ref<Framebuffer>& sceneFramebuffer);
 
         bool m_Enabled = false;
     };

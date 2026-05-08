@@ -9,6 +9,8 @@
 
 #include <glad/gl.h>
 
+#include <span>
+
 namespace OloEngine
 {
     AOApplyRenderPass::AOApplyRenderPass()
@@ -40,17 +42,19 @@ namespace OloEngine
 
     void AOApplyRenderPass::CreateFramebuffer(u32 width, u32 height)
     {
-        FramebufferSpecification fbSpec;
-        fbSpec.Width = width;
-        fbSpec.Height = height;
-        fbSpec.Samples = 1;
-        fbSpec.Attachments = { FramebufferTextureFormat::RGBA16F };
-        m_OutputFB = Framebuffer::Create(fbSpec);
+        if (width == 0 || height == 0)
+        {
+            OLO_CORE_WARN("AOApplyRenderPass::CreateFramebuffer: Invalid dimensions {}x{}", width, height);
+            m_Target = nullptr;
+            return;
+        }
+
+        m_Target = nullptr;
     }
 
     Ref<Framebuffer> AOApplyRenderPass::GetTarget() const
     {
-        return m_OutputFB;
+        return m_Target;
     }
 
     void AOApplyRenderPass::Execute()
@@ -67,8 +71,12 @@ namespace OloEngine
         // if written this frame, fall back to SceneColor.  Mirrors the
         // conditional that EndScene() previously computed and pushed via the
         // side-channel setter.
+        const auto* board = context.GetBlackboard();
         Ref<Framebuffer> inputFramebuffer;
-        if (const auto* board = context.GetBlackboard())
+        Ref<Framebuffer> outputFramebuffer;
+        u32 aoTextureID = 0;
+        u32 sceneDepthID = 0;
+        if (board)
         {
             if (board->SSSColor.IsValid())
             {
@@ -81,59 +89,54 @@ namespace OloEngine
                 if (auto resolvedScene = context.ResolveFramebuffer(board->SceneColor))
                     inputFramebuffer = resolvedScene;
             }
-        }
-        // Self-resolving AO texture and SceneDepth.
-        u32 aoTextureID = 0;
-        u32 sceneDepthID = 0;
-        if (const auto* board = context.GetBlackboard())
-        {
+
+            if (board->AOApplyColor.IsValid())
+            {
+                if (auto resolvedOutput = context.ResolveFramebuffer(board->AOApplyColor))
+                    outputFramebuffer = resolvedOutput;
+            }
+
             aoTextureID = context.ResolveTexture(board->AOBuffer);
             sceneDepthID = context.ResolveTexture(board->SceneDepth);
         }
 
-        if (!inputFramebuffer || !m_OutputFB)
+        if (!m_Enabled)
         {
+            m_Target = inputFramebuffer;
+            return;
+        }
+
+        if (!inputFramebuffer || !outputFramebuffer)
+        {
+            m_Target = nullptr;
             static u32 s_MissingInputOrOutputWarnings = 0;
             if (s_MissingInputOrOutputWarnings++ < 10)
             {
                 OLO_CORE_WARN("AOApplyRenderPass: missing input/output (inputFB={}, outputFB={}, aoTex={}, depthTex={})",
                               inputFramebuffer ? inputFramebuffer->GetRendererID() : 0u,
-                              m_OutputFB ? m_OutputFB->GetRendererID() : 0u,
+                              outputFramebuffer ? outputFramebuffer->GetRendererID() : 0u,
                               aoTextureID,
                               sceneDepthID);
             }
+            OLO_CORE_ASSERT(false, "AOApplyRenderPass enabled without resolved graph input/output");
             return;
         }
 
-        const bool canApplyAO = m_Enabled && m_SSAOApplyShader &&
-                                aoTextureID != 0 && sceneDepthID != 0;
-        if (!canApplyAO)
+        const bool shaderReady = m_SSAOApplyShader && m_SSAOApplyShader->IsReady();
+        if (!shaderReady || aoTextureID == 0 || sceneDepthID == 0)
         {
-            // Robust fallback: pass input through unchanged so downstream
-            // PostProcessColor never points at an uninitialized/black target.
-            // This avoids frame-to-frame black propagation when AO is
-            // temporarily unavailable (startup, resize, technique toggles).
-            const u32 srcFbo = inputFramebuffer->GetRendererID();
-            const u32 dstFbo = m_OutputFB->GetRendererID();
-            const auto& srcSpec = inputFramebuffer->GetSpecification();
-            const auto& dstSpec = m_OutputFB->GetSpecification();
-
-            glNamedFramebufferReadBuffer(srcFbo, GL_COLOR_ATTACHMENT0);
-            glNamedFramebufferDrawBuffer(dstFbo, GL_COLOR_ATTACHMENT0);
-            glBlitNamedFramebuffer(
-                srcFbo, dstFbo,
-                0, 0, static_cast<GLint>(srcSpec.Width), static_cast<GLint>(srcSpec.Height),
-                0, 0, static_cast<GLint>(dstSpec.Width), static_cast<GLint>(dstSpec.Height),
-                GL_COLOR_BUFFER_BIT, GL_NEAREST);
-
-            static u32 s_AOPassthroughWarnings = 0;
-            if (s_AOPassthroughWarnings++ < 10)
+            m_Target = nullptr;
+            static u32 s_InvalidExecutionStateWarnings = 0;
+            if (s_InvalidExecutionStateWarnings++ < 10)
             {
-                OLO_CORE_WARN("AOApplyRenderPass: passthrough fallback (enabled={}, shader={}, aoTex={}, depthTex={})",
-                              m_Enabled, m_SSAOApplyShader != nullptr, aoTextureID, sceneDepthID);
+                OLO_CORE_WARN("AOApplyRenderPass: enabled without complete execution state (shaderReady={}, aoTex={}, depthTex={})",
+                              shaderReady, aoTextureID, sceneDepthID);
             }
+            OLO_CORE_ASSERT(false, "AOApplyRenderPass enabled without ready shader or resolved AO/depth inputs");
             return;
         }
+
+        m_Target = outputFramebuffer;
 
         {
             static u32 s_PrevAOTextureID = 0;
@@ -155,15 +158,15 @@ namespace OloEngine
             m_SSAOUBO->Bind();
 
         constexpr u32 colorAttachment = 0;
-        m_OutputFB->Bind();
+        outputFramebuffer->Bind();
 
         {
             static u32 s_PrevInputFB = 0;
             static u32 s_PrevOutputFB = 0;
             static u32 s_PrevOutputTex = 0;
             const u32 inputFB = inputFramebuffer->GetRendererID();
-            const u32 outputFB = m_OutputFB->GetRendererID();
-            const u32 outputTex = m_OutputFB->GetColorAttachmentRendererID(0);
+            const u32 outputFB = outputFramebuffer->GetRendererID();
+            const u32 outputTex = outputFramebuffer->GetColorAttachmentRendererID(0);
             if (inputFB != s_PrevInputFB || outputFB != s_PrevOutputFB || outputTex != s_PrevOutputTex)
             {
                 OLO_CORE_TRACE("AOApplyRenderPass: inputFB={} outputFB={} outputTex={} aoTex={} depthTex={}",
@@ -199,23 +202,29 @@ namespace OloEngine
         RenderCommand::DrawIndexed(va);
 
         RenderCommand::SetDepthMask(true);
-        m_OutputFB->Unbind();
+        outputFramebuffer->Unbind();
     }
 
     void AOApplyRenderPass::SetupFramebuffer(u32 width, u32 height)
     {
+        m_FramebufferSpec.Width = width;
+        m_FramebufferSpec.Height = height;
         CreateFramebuffer(width, height);
     }
 
     void AOApplyRenderPass::ResizeFramebuffer(u32 width, u32 height)
     {
-        if (m_OutputFB)
-            m_OutputFB->Resize(width, height);
+        if (width == 0 || height == 0)
+            return;
+
+        m_FramebufferSpec.Width = width;
+        m_FramebufferSpec.Height = height;
+        CreateFramebuffer(width, height);
     }
 
     void AOApplyRenderPass::OnReset()
     {
-        CreateFramebuffer(m_FramebufferSpec.Width, m_FramebufferSpec.Height);
+        m_Target = nullptr;
     }
 
 } // namespace OloEngine

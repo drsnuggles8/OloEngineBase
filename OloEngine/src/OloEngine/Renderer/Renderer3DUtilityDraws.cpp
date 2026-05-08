@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Renderer/Renderer3DDrawHelpers.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
@@ -26,7 +27,7 @@ namespace OloEngine
     CommandPacket* Renderer3D::DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture)
     {
         OLO_PROFILE_FUNCTION();
-        if (!s_Data.ScenePass)
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             OLO_CORE_ERROR("Renderer3D::DrawQuad: ScenePass is null!");
             return nullptr;
@@ -77,7 +78,7 @@ namespace OloEngine
     CommandPacket* Renderer3D::DrawLightCube(const glm::mat4& modelMatrix)
     {
         OLO_PROFILE_FUNCTION();
-        if (!s_Data.ScenePass)
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             OLO_CORE_ERROR("Renderer3D::DrawLightCube: ScenePass is null!");
             return nullptr;
@@ -91,7 +92,7 @@ namespace OloEngine
         // to the ForwardOverlayPass if the G-Buffer variant failed to load.
         const bool deferredActive = (s_Data.Settings.Path == RenderingPath::Deferred);
         const bool useGBufferVariant = deferredActive && s_Data.LightCubeGBufferShader;
-        const bool overlayRoute = deferredActive && !useGBufferVariant && s_Data.ForwardOverlayPass;
+        const bool overlayRoute = deferredActive && !useGBufferVariant && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay;
         Ref<Shader> activeShader = useGBufferVariant ? s_Data.LightCubeGBufferShader : s_Data.LightCubeShader;
 
         // Create POD command on the appropriate bucket.
@@ -160,7 +161,7 @@ namespace OloEngine
 
     CommandPacket* Renderer3D::DrawSkybox(const Ref<TextureCubemap>& skyboxTexture)
     {
-        if (!s_Data.ScenePass)
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             OLO_CORE_ERROR("Renderer3D::DrawSkybox: ScenePass is null!");
             return nullptr;
@@ -186,7 +187,7 @@ namespace OloEngine
         // variant failed to load.
         const bool deferredActive = (s_Data.Settings.Path == RenderingPath::Deferred);
         const bool useGBufferVariant = deferredActive && s_Data.SkyboxGBufferShader;
-        const bool overlayRoute = deferredActive && !useGBufferVariant && s_Data.ForwardOverlayPass;
+        const bool overlayRoute = deferredActive && !useGBufferVariant && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay;
         Ref<Shader> activeShader = useGBufferVariant ? s_Data.SkyboxGBufferShader : s_Data.SkyboxShader;
 
         // Create POD command on the appropriate bucket
@@ -240,7 +241,7 @@ namespace OloEngine
 
     CommandPacket* Renderer3D::DrawLine(const glm::vec3& start, const glm::vec3& end, const glm::vec3& color, f32 thickness)
     {
-        if (!s_Data.ScenePass)
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             OLO_CORE_ERROR("Renderer3D::DrawLine: ScenePass is null!");
             return nullptr;
@@ -319,7 +320,7 @@ namespace OloEngine
 
     CommandPacket* Renderer3D::DrawSphere(const glm::vec3& position, f32 radius, const glm::vec3& color)
     {
-        if (!s_Data.ScenePass)
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             OLO_CORE_ERROR("Renderer3D::DrawSphere: ScenePass is null!");
             return nullptr;
@@ -382,7 +383,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!s_Data.ScenePass)
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             OLO_CORE_ERROR("Renderer3D::DrawCameraFrustum: ScenePass is null!");
             return;
@@ -530,7 +531,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!s_Data.ScenePass)
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             OLO_CORE_ERROR("Renderer3D::DrawInfiniteGrid: ScenePass is null!");
             return nullptr;
@@ -559,7 +560,7 @@ namespace OloEngine
         // depth buffer so downstream SSR behaves like Forward+.
         const bool deferredActive = (s_Data.Settings.Path == RenderingPath::Deferred);
         const bool useGBufferVariant = false;
-        const bool overlayRoute = deferredActive && s_Data.ForwardOverlayPass;
+        const bool overlayRoute = deferredActive && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay;
         Ref<Shader> activeShader = useGBufferVariant ? s_Data.InfiniteGridGBufferShader : s_Data.InfiniteGridShader;
 
         // Create POD command packet
@@ -636,7 +637,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!s_Data.ScenePass)
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             OLO_CORE_ERROR("Renderer3D::DrawTerrainPatch: ScenePass is null!");
             return nullptr;
@@ -660,7 +661,7 @@ namespace OloEngine
                 activeShader = s_Data.VoxelGBufferShader;
         }
         const bool useGBufferVariant = deferredActive && (activeShader != shader);
-        const bool overlayRoute = deferredActive && !useGBufferVariant && s_Data.ForwardOverlayPass;
+        const bool overlayRoute = deferredActive && !useGBufferVariant && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay;
 
         CommandPacket* packet = overlayRoute
                                     ? CreateForwardOverlayDrawCall<DrawTerrainPatchCommand>()
@@ -720,7 +721,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!s_Data.ScenePass)
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             OLO_CORE_ERROR("Renderer3D::DrawVoxelMesh: ScenePass is null!");
             return nullptr;
@@ -737,7 +738,7 @@ namespace OloEngine
         if (deferredActive && shader == s_Data.VoxelPBRShader && s_Data.VoxelGBufferShader)
             activeShader = s_Data.VoxelGBufferShader;
         const bool useGBufferVariant = deferredActive && (activeShader != shader);
-        const bool overlayRoute = deferredActive && !useGBufferVariant && s_Data.ForwardOverlayPass;
+        const bool overlayRoute = deferredActive && !useGBufferVariant && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay;
 
         CommandPacket* packet = overlayRoute
                                     ? CreateForwardOverlayDrawCall<DrawVoxelMeshCommand>()
@@ -788,7 +789,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!s_Data.ScenePass)
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             return;
         }
@@ -866,7 +867,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!s_Data.ScenePass)
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             return;
         }
@@ -958,7 +959,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!s_Data.ScenePass)
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             return;
         }
@@ -1060,7 +1061,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!s_Data.ScenePass)
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             return;
         }
@@ -1176,7 +1177,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!s_Data.ScenePass)
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             return;
         }
@@ -1259,7 +1260,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!s_Data.ScenePass)
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             return;
         }
@@ -1336,7 +1337,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!s_Data.ScenePass)
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             return;
         }
@@ -1384,7 +1385,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!s_Data.ScenePass)
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             return;
         }
@@ -1489,7 +1490,7 @@ namespace OloEngine
     void Renderer3D::DrawSkeleton(const Skeleton& skeleton, const glm::mat4& modelMatrix,
                                   bool showBones, bool showJoints, f32 jointSize, f32 boneThickness)
     {
-        if (!s_Data.ScenePass)
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             OLO_CORE_ERROR("Renderer3D::DrawSkeleton: ScenePass is null!");
             return;

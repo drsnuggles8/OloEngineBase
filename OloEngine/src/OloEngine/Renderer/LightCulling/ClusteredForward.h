@@ -56,7 +56,7 @@ namespace OloEngine
         // Unbind after color pass
         void UnbindAfterShading() const;
 
-        // Upload UBO with Enabled=0 (called by BindSceneUBOs as baseline)
+        // Upload UBO with Enabled=0 (called by shared scene-resource rebinding as baseline)
         void UploadDisabledUBO();
 
         // Should Forward+ be active this frame?

@@ -61,12 +61,8 @@ namespace OloEngine
       private:
         void CreateFramebuffer(u32 width, u32 height);
 
-        Ref<Framebuffer> m_OutputFB;
-
         Ref<Shader> m_PrecipitationShader;
         Ref<UniformBuffer> m_PrecipitationScreenUBO;
-
-        FramebufferSpecification m_FramebufferSpec;
         bool m_Enabled = false;
     };
 } // namespace OloEngine

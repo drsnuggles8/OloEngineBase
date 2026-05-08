@@ -10,6 +10,8 @@
 
 #include <glad/gl.h>
 
+#include <span>
+
 namespace OloEngine
 {
     FogRenderPass::FogRenderPass()
@@ -39,22 +41,12 @@ namespace OloEngine
         if (width == 0 || height == 0)
         {
             OLO_CORE_WARN("FogRenderPass::CreateFramebuffers: Invalid dimensions {}x{}", width, height);
-            m_OutputFB = nullptr;
-            m_FogHalfResFB = nullptr;
+            m_Target = nullptr;
             m_FogHistoryFB = nullptr;
             m_FogHalfWidth = 0;
             m_FogHalfHeight = 0;
+            m_FogHistoryValid = false;
             return;
-        }
-
-        // Full-resolution output: composited scene colour.
-        {
-            FramebufferSpecification fbSpec;
-            fbSpec.Width = width;
-            fbSpec.Height = height;
-            fbSpec.Samples = 1;
-            fbSpec.Attachments = { FramebufferTextureFormat::RGBA16F };
-            m_OutputFB = Framebuffer::Create(fbSpec);
         }
 
         // Half-resolution framebuffers for ray-march and temporal history.
@@ -67,9 +59,11 @@ namespace OloEngine
             halfSpec.Height = m_FogHalfHeight;
             halfSpec.Samples = 1;
             halfSpec.Attachments = { FramebufferTextureFormat::RGBA16F };
-            m_FogHalfResFB = Framebuffer::Create(halfSpec);
             m_FogHistoryFB = Framebuffer::Create(halfSpec);
         }
+
+        m_Target = nullptr;
+        m_FogHistoryValid = false;
     }
 
     void FogRenderPass::Execute()
@@ -85,8 +79,12 @@ namespace OloEngine
         // Phase F slice 42 — self-resolving input framebuffer from the
         // render-graph blackboard. Preference chain matches prior EndScene()
         // setter: Precipitation > TAA > MotionBlur > DOF > Bloom > PostProcess.
+        const auto* board = context.GetBlackboard();
         Ref<Framebuffer> inputFramebuffer;
-        if (const auto* board = context.GetBlackboard())
+        Ref<Framebuffer> outputFramebuffer;
+        Ref<Framebuffer> fogHalfResFramebuffer;
+        u32 fogHistoryTextureID = 0;
+        if (board)
         {
             if (!inputFramebuffer)
                 if (auto fb = context.ResolveFramebuffer(board->PrecipitationColor))
@@ -106,24 +104,45 @@ namespace OloEngine
             if (!inputFramebuffer)
                 if (auto fb = context.ResolveFramebuffer(board->PostProcessColor))
                     inputFramebuffer = fb;
+
+            if (board->FogColor.IsValid())
+            {
+                if (auto resolvedOutput = context.ResolveFramebuffer(board->FogColor))
+                    outputFramebuffer = resolvedOutput;
+            }
+
+            if (board->FogHalfRes.IsValid())
+            {
+                if (auto resolvedHalfRes = context.ResolveFramebuffer(board->FogHalfRes))
+                    fogHalfResFramebuffer = resolvedHalfRes;
+            }
+
+            fogHistoryTextureID = context.ResolveTexture(board->FogHistory);
         }
-        if (!m_Enabled || !inputFramebuffer || !m_OutputFB || !m_FogShader || !m_FogUpsampleShader || !m_FogHalfResFB)
+
+        if (!m_Enabled)
         {
+            m_Target = inputFramebuffer;
             return;
         }
 
+        if (!board || !board->FogColor.IsValid() || !board->FogHalfRes.IsValid() ||
+            !inputFramebuffer || !outputFramebuffer || !m_FogShader || !m_FogUpsampleShader || !fogHalfResFramebuffer)
+        {
+            m_Target = nullptr;
+            return;
+        }
+
+        m_Target = outputFramebuffer;
+
         // Phase F slice 42 / Phase H follow-up — self-resolve scene depth and
         // shadow map CSM from the render-graph blackboard.
-        u32 sceneDepthTextureID = 0;
-        if (const auto* board = context.GetBlackboard())
-            sceneDepthTextureID = context.ResolveTexture(board->SceneDepth);
+        const u32 sceneDepthTextureID = context.ResolveTexture(board->SceneDepth);
 
         if (sceneDepthTextureID == 0)
             return; // Fog pass requires depth.
 
-        u32 shadowCSMTextureID = 0;
-        if (const auto* board = context.GetBlackboard())
-            shadowCSMTextureID = context.ResolveTexture(board->ShadowMapCSM);
+        const u32 shadowCSMTextureID = context.ResolveTexture(board->ShadowMapCSM);
 
         // Re-bind PostProcessUBO at binding 7 — IBL precompute and bloom-mip
         // updates can transiently claim this slot before the post-process chain.
@@ -134,8 +153,9 @@ namespace OloEngine
         // Pass A — Half-resolution ray-march.
         // Output: RGBA16F (RGB = accumulated inscatter, A = transmittance).
         // ----------------------------------------------------------------
-        m_FogHalfResFB->Bind();
-        context.SetViewport(0, 0, m_FogHalfWidth, m_FogHalfHeight);
+        fogHalfResFramebuffer->Bind();
+        const auto& fogHalfSpec = fogHalfResFramebuffer->GetSpecification();
+        context.SetViewport(0, 0, fogHalfSpec.Width, fogHalfSpec.Height);
         context.SetDepthTest(false);
         context.SetDepthMask(false);
         context.SetBlendState(false);
@@ -157,34 +177,23 @@ namespace OloEngine
         context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID);
 
         // Temporal history for reprojection (slot 3).
-        if (m_FogHistoryFB)
-        {
-            const u32 historyID = m_FogHistoryFB->GetColorAttachmentRendererID(0);
-            context.BindTexture(3, historyID);
-        }
+        context.BindTexture(3, fogHistoryTextureID);
 
         // CSM shadow map for volumetric light shafts (slot TEX_SHADOW = 8).
-        if (shadowCSMTextureID != 0)
-            context.BindTexture(ShaderBindingLayout::TEX_SHADOW, shadowCSMTextureID);
+        context.BindTexture(ShaderBindingLayout::TEX_SHADOW, shadowCSMTextureID);
 
         {
             const auto va = MeshPrimitives::GetFullscreenTriangle();
             va->Bind();
             context.DrawIndexed(va);
         }
-        m_FogHalfResFB->Unbind();
-
-        // Swap ray-march result into history for next frame's temporal reprojection.
-        // After the swap:
-        //   m_FogHistoryFB  = this frame's result  (read next frame)
-        //   m_FogHalfResFB  = previous history      (overwritten next frame)
-        std::swap(m_FogHalfResFB, m_FogHistoryFB);
+        fogHalfResFramebuffer->Unbind();
 
         // ----------------------------------------------------------------
         // Pass B — Bilateral upsample + composite onto full-resolution scene.
         // ----------------------------------------------------------------
-        m_OutputFB->Bind();
-        const auto& outSpec = m_OutputFB->GetSpecification();
+        outputFramebuffer->Bind();
+        const auto& outSpec = outputFramebuffer->GetSpecification();
         context.SetViewport(0, 0, outSpec.Width, outSpec.Height);
         context.SetDepthTest(false);
         context.SetDepthMask(false);
@@ -208,8 +217,7 @@ namespace OloEngine
         context.BindTexture(0, srcColorID);
         m_FogUpsampleShader->SetInt("u_SceneColor", 0);
 
-        // Half-res fog result is now in m_FogHistoryFB after the swap.
-        const u32 fogID = m_FogHistoryFB->GetColorAttachmentRendererID(0);
+        const u32 fogID = fogHalfResFramebuffer->GetColorAttachmentRendererID(0);
         context.BindTexture(1, fogID);
         m_FogUpsampleShader->SetInt("u_FogTexture", 1);
 
@@ -224,21 +232,47 @@ namespace OloEngine
         }
 
         context.SetDepthMask(true);
-        m_OutputFB->Unbind();
+        outputFramebuffer->Unbind();
+
+        context.ExtractHistoryTexture(ResourceNames::FogHistory,
+                                      board->FogHalfRes,
+                                      [this](const u32 textureID)
+                                      {
+                                          StoreHistoryTexture(textureID);
+                                      });
     }
 
     Ref<Framebuffer> FogRenderPass::GetTarget() const
     {
-        if (!m_Enabled || !m_OutputFB)
+        if (!m_Target)
             return nullptr;
-        return m_OutputFB;
+        return m_Target;
     }
 
     u32 FogRenderPass::GetFogHistoryTextureID() const
     {
-        if (!m_FogHistoryFB)
+        if (!m_FogHistoryValid || !m_FogHistoryFB)
             return 0;
         return m_FogHistoryFB->GetColorAttachmentRendererID(0);
+    }
+
+    void FogRenderPass::StoreHistoryTexture(const u32 textureID)
+    {
+        if (textureID == 0 || !m_FogHistoryFB)
+            return;
+
+        const u32 historyTextureID = m_FogHistoryFB->GetColorAttachmentRendererID(0);
+        if (historyTextureID == 0)
+            return;
+
+        const auto& historySpec = m_FogHistoryFB->GetSpecification();
+        if (historySpec.Width == 0 || historySpec.Height == 0)
+            return;
+
+        glCopyImageSubData(textureID, GL_TEXTURE_2D, 0, 0, 0, 0,
+                           historyTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
+                           static_cast<GLsizei>(historySpec.Width), static_cast<GLsizei>(historySpec.Height), 1);
+        m_FogHistoryValid = true;
     }
 
     void FogRenderPass::SetupFramebuffer(u32 width, u32 height)
@@ -259,5 +293,7 @@ namespace OloEngine
 
     void FogRenderPass::OnReset()
     {
+        m_Target = nullptr;
+        m_FogHistoryValid = false;
     }
 } // namespace OloEngine

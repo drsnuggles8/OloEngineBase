@@ -1,25 +1,35 @@
 #include "OloEnginePCH.h"
-#include "OloEngine/Renderer/Renderer3DFrameGraphBuilderInternal.h"
+#include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 
 #include "OloEngine/Renderer/Passes/AOApplyRenderPass.h"
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"
 #include "OloEngine/Renderer/Passes/GTAORenderPass.h"
+#include "OloEngine/Renderer/Passes/OITPrepareRenderPass.h"
 #include "OloEngine/Renderer/Passes/OITResolveRenderPass.h"
 #include "OloEngine/Renderer/Passes/ParticleRenderPass.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
-#include "OloEngine/Renderer/Passes/WaterRenderPass.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
 #include <algorithm>
 #include <cmath>
 
-namespace OloEngine::Renderer3DFrameGraphBuilderInternal
+namespace OloEngine::RenderPipelineBuilderInternal
 {
+    namespace
+    {
+        [[nodiscard]] bool HasOITContributor(ParticleRenderPass* particlePass,
+                                             DecalRenderPass* decalPass)
+        {
+            return (particlePass && particlePass->HasRenderCallback()) ||
+                   (decalPass && decalPass->GetCommandBucket().GetCommandCount() > 0);
+        }
+    } // namespace
+
     [[nodiscard]] auto CreateSSAONodeSetup(PostProcessSettings* postProcess,
-                                           SSAORenderPass* ssaoPass) -> PassGraphNode::SetupCallback
+                                           SSAORenderPass* ssaoPass) -> RenderPass::SetupCallback
     {
         return [postProcess, ssaoPass](RGBuilder& builder, FrameBlackboard& board)
         {
@@ -60,7 +70,7 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
     }
 
     [[nodiscard]] auto CreateGTAONodeSetup(PostProcessSettings* postProcess,
-                                           SceneRenderPass* scenePass) -> PassGraphNode::SetupCallback
+                                           SceneRenderPass* scenePass) -> RenderPass::SetupCallback
     {
         return [postProcess, scenePass](RGBuilder& builder, FrameBlackboard& board)
         {
@@ -132,7 +142,7 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
     }
 
     [[nodiscard]] auto CreateParticleNodeSetup(RendererSettings* settings,
-                                               ParticleRenderPass* particlePass) -> PassGraphNode::SetupCallback
+                                               ParticleRenderPass* particlePass) -> RenderPass::SetupCallback
     {
         return [settings, particlePass](RGBuilder& builder, FrameBlackboard& board)
         {
@@ -145,9 +155,15 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
             if (oitEnabled)
             {
                 if (board.OITAccum.IsValid())
+                {
+                    [[maybe_unused]] const auto oitAccumRead = builder.Read(board.OITAccum, RGReadUsage::RenderTargetRead);
                     builder.Write(board.OITAccum, RGWriteUsage::RenderTarget);
+                }
                 if (board.OITRevealage.IsValid())
+                {
+                    [[maybe_unused]] const auto oitRevealageRead = builder.Read(board.OITRevealage, RGReadUsage::RenderTargetRead);
                     builder.Write(board.OITRevealage, RGWriteUsage::RenderTarget);
+                }
             }
             else if (board.SceneColor.IsValid())
             {
@@ -156,20 +172,38 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
         };
     }
 
-    [[nodiscard]] auto CreateOITResolveNodeSetup(RendererSettings* settings,
+    [[nodiscard]] auto CreateOITPrepareNodeSetup(RendererSettings* settings,
                                                  ParticleRenderPass* particlePass,
-                                                 WaterRenderPass* waterPass,
-                                                 DecalRenderPass* decalPass) -> PassGraphNode::SetupCallback
+                                                 DecalRenderPass* decalPass) -> RenderPass::SetupCallback
     {
-        return [settings, particlePass, waterPass, decalPass](RGBuilder& builder, FrameBlackboard& board)
+        return [settings, particlePass, decalPass](RGBuilder& builder, FrameBlackboard& board)
         {
             const bool oitEnabled = settings && (settings->Path == RenderingPath::Deferred) &&
                                     settings->Deferred.OITEnabled;
-            const bool hasOITContributor =
-                (particlePass && particlePass->HasRenderCallback()) ||
-                (waterPass && waterPass->GetCommandBucket().GetCommandCount() > 0) ||
-                (decalPass && decalPass->GetCommandBucket().GetCommandCount() > 0);
-            if (!oitEnabled || !hasOITContributor)
+            if (!oitEnabled || !HasOITContributor(particlePass, decalPass))
+                return;
+
+            if (board.SceneColor.IsValid())
+            {
+                [[maybe_unused]] const auto sceneColorRead = builder.Read(board.SceneColor, RGReadUsage::RenderTargetRead);
+            }
+
+            if (board.OITAccum.IsValid())
+                builder.Write(board.OITAccum, RGWriteUsage::Clear);
+            if (board.OITRevealage.IsValid())
+                builder.Write(board.OITRevealage, RGWriteUsage::Clear);
+        };
+    }
+
+    [[nodiscard]] auto CreateOITResolveNodeSetup(RendererSettings* settings,
+                                                 ParticleRenderPass* particlePass,
+                                                 DecalRenderPass* decalPass) -> RenderPass::SetupCallback
+    {
+        return [settings, particlePass, decalPass](RGBuilder& builder, FrameBlackboard& board)
+        {
+            const bool oitEnabled = settings && (settings->Path == RenderingPath::Deferred) &&
+                                    settings->Deferred.OITEnabled;
+            if (!oitEnabled || !HasOITContributor(particlePass, decalPass))
                 return;
 
             if (board.OITAccum.IsValid())
@@ -190,25 +224,22 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
     }
 
     [[nodiscard]] auto CreateSSSNodeSetup(SnowSettings* snow,
-                                          SSSRenderPass* sssPass) -> PassGraphNode::SetupCallback
+                                          SSSRenderPass* sssPass) -> RenderPass::SetupCallback
     {
         return [snow, sssPass](RGBuilder& builder, FrameBlackboard& board)
         {
-            if (!snow || !snow->SSSBlurEnabled || !sssPass)
+            if (!snow || !snow->SSSBlurEnabled || !sssPass || !sssPass->IsReadyForExecution() || !board.SSSColor.IsValid())
                 return;
 
             if (board.SceneColor.IsValid())
             {
                 [[maybe_unused]] const auto sceneColorRead = builder.Read(board.SceneColor, RGReadUsage::RenderTargetRead);
             }
-            if (board.SSSColor.IsValid())
-            {
-                builder.Write(board.SSSColor, RGWriteUsage::RenderTarget);
-            }
+            builder.Write(board.SSSColor, RGWriteUsage::RenderTarget);
         };
     }
 
-    [[nodiscard]] auto CreateAOApplyNodeSetup(PostProcessSettings* postProcess) -> PassGraphNode::SetupCallback
+    [[nodiscard]] auto CreateAOApplyNodeSetup(PostProcessSettings* postProcess) -> RenderPass::SetupCallback
     {
         return [postProcess](RGBuilder& builder, FrameBlackboard& board)
         {
@@ -218,62 +249,59 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
             const bool aoApplyEnabled =
                 (postProcess->ActiveAOTechnique == AOTechnique::SSAO && postProcess->SSAOEnabled) ||
                 (postProcess->ActiveAOTechnique == AOTechnique::GTAO && postProcess->GTAOEnabled);
-            if (!aoApplyEnabled)
+            if (!aoApplyEnabled || !board.AOApplyColor.IsValid() || !board.AOBuffer.IsValid() || !board.SceneDepth.IsValid())
                 return;
 
             ReadFirstValidFramebuffer(builder, board.SSSColor, board.SceneColor);
-            if (board.AOBuffer.IsValid())
-            {
-                [[maybe_unused]] const auto aoBufferRead = builder.Read(board.AOBuffer, RGReadUsage::ShaderSample);
-            }
-            if (board.SceneDepth.IsValid())
-            {
-                [[maybe_unused]] const auto sceneDepthRead = builder.Read(board.SceneDepth, RGReadUsage::ShaderSample);
-            }
-            if (board.AOApplyColor.IsValid())
-                builder.Write(board.AOApplyColor, RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto aoBufferRead = builder.Read(board.AOBuffer, RGReadUsage::ShaderSample);
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(board.SceneDepth, RGReadUsage::ShaderSample);
+            builder.Write(board.AOApplyColor, RGWriteUsage::RenderTarget);
         };
     }
 
     void RegisterTransparencyAndAONodes(RenderGraph& graph,
-                                        const Renderer3DFrameGraphInputs& inputs)
+                                        const TransparencyAOStageInputs& inputs)
     {
-        graph.AddNode(MakePassNode("ParticlePass",
-                                   inputs.ParticlePass,
-                                   CreateParticleNodeSetup(inputs.Settings, inputs.ParticlePass)));
-        graph.AddNode(MakePassNode("OITResolvePass",
-                                   inputs.OITResolvePass,
-                                   CreateOITResolveNodeSetup(inputs.Settings,
-                                                             inputs.ParticlePass,
-                                                             inputs.WaterPass,
-                                                             inputs.DecalPass)));
-        graph.AddNode(MakePassNode("SSSPass",
-                                   inputs.SSSPass,
-                                   CreateSSSNodeSetup(inputs.Snow, inputs.SSSPass)));
+        OLO_CORE_ASSERT(inputs.Passes, "RegisterTransparencyAndAONodes requires pass inputs");
+        OLO_CORE_ASSERT(inputs.Runtime, "RegisterTransparencyAndAONodes requires runtime inputs");
+        graph.AddNode(PrepareGraphPass("ParticlePass",
+                           inputs.Passes->Particle,
+                           CreateParticleNodeSetup(inputs.Runtime->Renderer, inputs.Passes->Particle)));
+        graph.AddNode(PrepareGraphPass("OITPreparePass",
+                           inputs.Passes->OITPrepare,
+                           CreateOITPrepareNodeSetup(inputs.Runtime->Renderer,
+                                     inputs.Passes->Particle,
+                                     inputs.Passes->Decal)));
+        graph.AddNode(PrepareGraphPass("OITResolvePass",
+                           inputs.Passes->OITResolve,
+                           CreateOITResolveNodeSetup(inputs.Runtime->Renderer,
+                                     inputs.Passes->Particle,
+                                     inputs.Passes->Decal)));
+        graph.AddNode(PrepareGraphPass("SSSPass",
+                           inputs.Passes->SSS,
+                           CreateSSSNodeSetup(inputs.Runtime->Snow, inputs.Passes->SSS)));
 
-        if (inputs.PostProcess)
+        if (inputs.Runtime->PostProcess)
         {
-            switch (inputs.PostProcess->ActiveAOTechnique)
+            switch (inputs.Runtime->PostProcess->ActiveAOTechnique)
             {
                 case AOTechnique::SSAO:
-                    graph.AddNode(MakePassNode("SSAOPass",
-                                               inputs.SSAOPass,
-                                               CreateSSAONodeSetup(inputs.PostProcess, inputs.SSAOPass)));
+                    graph.AddNode(PrepareGraphPass("SSAOPass",
+                                                   inputs.Passes->SSAO,
+                                                   CreateSSAONodeSetup(inputs.Runtime->PostProcess, inputs.Passes->SSAO)));
                     break;
                 case AOTechnique::GTAO:
-                    graph.AddNode(MakePassNode("GTAOPass",
-                                               inputs.GTAOPass,
-                                               CreateGTAONodeSetup(inputs.PostProcess, inputs.ScenePass),
-                                               RenderGraphNodeFlags::Compute |
-                                                   RenderGraphNodeFlags::AsyncCandidateMetadata));
+                    graph.AddNode(PrepareGraphPass("GTAOPass",
+                                                   inputs.Passes->GTAO,
+                                                   CreateGTAONodeSetup(inputs.Runtime->PostProcess, inputs.Passes->Scene)));
                     break;
                 case AOTechnique::None:
                     break;
             }
         }
 
-        graph.AddNode(MakePassNode("AOApplyPass",
-                                   inputs.AOApplyPass,
-                                   CreateAOApplyNodeSetup(inputs.PostProcess)));
+        graph.AddNode(PrepareGraphPass("AOApplyPass",
+                                       inputs.Passes->AOApply,
+                                       CreateAOApplyNodeSetup(inputs.Runtime->PostProcess)));
     }
-} // namespace OloEngine::Renderer3DFrameGraphBuilderInternal
+} // namespace OloEngine::RenderPipelineBuilderInternal

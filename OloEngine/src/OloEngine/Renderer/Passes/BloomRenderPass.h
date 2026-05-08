@@ -29,9 +29,14 @@ namespace OloEngine
     //
     // Output:
     //   * BloomColor (RGBA16F, full-res — composite of scene + bloom glow)
+    //     written through the graph-owned framebuffer resolved from the
+    //     blackboard
     //
     // Passthrough semantics: when disabled, the pass no-ops and GetTarget()
-    // returns the input framebuffer directly (no copy).
+    // returns the input framebuffer directly (no copy). When bloom is not
+    // executable for the current frame, the graph omits BloomColor so
+    // downstream stages keep reading the upstream post-process source instead
+    // of relying on a runtime fallback blit.
     class BloomRenderPass : public RenderPass
     {
       public:
@@ -59,6 +64,14 @@ namespace OloEngine
             return m_Enabled;
         }
 
+        [[nodiscard]] bool IsReadyForExecution() const noexcept
+        {
+            return m_BloomThresholdShader && m_BloomThresholdShader->IsReady() &&
+                   m_BloomDownsampleShader && m_BloomDownsampleShader->IsReady() &&
+                   m_BloomUpsampleShader && m_BloomUpsampleShader->IsReady() &&
+                   m_BloomCompositeShader && m_BloomCompositeShader->IsReady();
+        }
+
         void SetPostProcessUBO(const Ref<UniformBuffer>& ubo) noexcept
         {
             m_PostProcessUBO = ubo;
@@ -81,9 +94,6 @@ namespace OloEngine
         u32 m_LastFailureMask = 0;
 
         bool m_Enabled = false;
-
-        // Full-resolution composite output (scene + bloom glow)
-        Ref<Framebuffer> m_OutputFB;
 
         Ref<Shader> m_BloomThresholdShader;
         Ref<Shader> m_BloomDownsampleShader;

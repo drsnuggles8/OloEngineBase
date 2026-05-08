@@ -24,8 +24,6 @@ namespace OloEngine
 
         m_FramebufferSpec = spec;
 
-        m_BlitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
-
         // JFA shaders
         m_JFAInitShader = Shader::Create("assets/shaders/JumpFlood_Init.glsl");
         m_JFAPassShader = Shader::Create("assets/shaders/JumpFlood_Pass.glsl");
@@ -37,10 +35,10 @@ namespace OloEngine
 
         CreateFramebuffer(spec.Width, spec.Height);
 
-        // Graph-visible contract: receives VignetteColor when FXAA is absent,
-        // or FXAAColor when FXAA precedes it. SceneColor is a conservative
-        // fallback so the pass can still blit the scene through when the late
-        // post chain is unavailable.
+        // Graph-visible contract: receives the current late-post source and
+        // the scene framebuffer used for entity-ID lookup, and emits the
+        // graph-owned SelectionOutlineColor output when the pass is enabled,
+        // has selected entities, and its JFA execution resources are ready.
         DeclareRead(ResourceNames::VignetteColor, ResourceHandle::Kind::Framebuffer);
         DeclareRead(ResourceNames::FXAAColor, ResourceHandle::Kind::Framebuffer);
         DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
@@ -58,15 +56,7 @@ namespace OloEngine
             return;
         }
 
-        FramebufferSpecification fbSpec;
-        fbSpec.Width = width;
-        fbSpec.Height = height;
-        fbSpec.Samples = 1;
-        fbSpec.Attachments = {
-            FramebufferTextureFormat::RGBA8 // [0] LDR color (scene + outline)
-        };
-
-        m_Target = Framebuffer::Create(fbSpec);
+        m_Target = nullptr;
     }
 
     void SelectionOutlineRenderPass::Execute()
@@ -129,45 +119,56 @@ namespace OloEngine
                 if (auto fb = context.ResolveFramebuffer(board->SceneColor))
                     inputFramebuffer = fb;
         }
-        if (!m_Target || !inputFramebuffer)
+
+        const auto* board = context.GetBlackboard();
+        Ref<Framebuffer> outputFramebuffer;
+        if (board)
         {
+            if (auto fb = context.ResolveFramebuffer(board->SelectionOutlineColor))
+                outputFramebuffer = fb;
+        }
+
+        if (!outputFramebuffer || !inputFramebuffer)
+        {
+            m_Target = nullptr;
             return;
         }
+
+        if (!m_Enabled || m_UBOData.SelectedCount == 0)
+        {
+            m_Target = nullptr;
+            return;
+        }
+
+        const bool readyForExecution = IsReadyForExecution();
+        if (!readyForExecution || !m_SceneFramebuffer)
+        {
+            m_Target = nullptr;
+            static u32 s_InvalidExecutionStateWarnings = 0;
+            if (s_InvalidExecutionStateWarnings++ < 10)
+            {
+                OLO_CORE_WARN("SelectionOutlineRenderPass: enabled without complete execution state (sceneFB={}, shadersReady={}, selectedCount={})",
+                              m_SceneFramebuffer ? m_SceneFramebuffer->GetRendererID() : 0u,
+                              readyForExecution,
+                              m_UBOData.SelectedCount);
+            }
+            OLO_CORE_ASSERT(false, "SelectionOutlineRenderPass enabled without ready shaders/UBOs or resolved SceneColor");
+            return;
+        }
+
+        m_Target = outputFramebuffer;
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         constexpr u32 colorAttachment = 0;
-
-        // Early-out: no selection, disabled, or no scene FB — blit input straight through
-        if (!m_Enabled || m_UBOData.SelectedCount == 0 || !m_SceneFramebuffer)
-        {
-            m_Target->Bind();
-            context.SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
-            context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
-            context.SetBlendState(false);
-            context.SetDepthTest(false);
-            context.SetDepthMask(false);
-            context.SetCulling(false);
-            RenderCommand::DisableStencilTest();
-            RenderCommand::DisableScissorTest();
-            RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-            RenderCommand::SetColorMask(true, true, true, true);
-
-            m_BlitShader->Bind();
-            context.BindTexture(0, inputFramebuffer->GetColorAttachmentRendererID(0));
-            m_BlitShader->SetInt("u_Texture", 0);
-
-            va->Bind();
-            context.DrawIndexed(va);
-
-            context.SetDepthTest(true);
-            return;
-        }
+        const auto& outputSpec = outputFramebuffer->GetSpecification();
+        const u32 w = outputSpec.Width;
+        const u32 h = outputSpec.Height;
 
         // Phase D / H follow-up: resolve JFA ping-pong framebuffers entirely
         // from the transient pool. The execute path no longer keeps owned
         // fallback framebuffers for headless / unit-test contexts.
         std::array<Ref<Framebuffer>, 2> jfaFBs{};
-        if (const auto* board = context.GetBlackboard())
+        if (board)
         {
             if (auto fb = context.ResolveFramebuffer(board->JFAPing))
                 jfaFBs[0] = fb;
@@ -175,10 +176,19 @@ namespace OloEngine
                 jfaFBs[1] = fb;
         }
         if (!jfaFBs[0] || !jfaFBs[1])
+        {
+            m_Target = nullptr;
+            static u32 s_MissingScratchWarnings = 0;
+            if (s_MissingScratchWarnings++ < 10)
+            {
+                OLO_CORE_WARN("SelectionOutlineRenderPass: enabled without resolved JFA scratch (pingFB={}, pongFB={})",
+                              jfaFBs[0] ? jfaFBs[0]->GetRendererID() : 0u,
+                              jfaFBs[1] ? jfaFBs[1]->GetRendererID() : 0u);
+            }
+            OLO_CORE_ASSERT(false, "SelectionOutlineRenderPass enabled without resolved JFA scratch framebuffers");
             return;
+        }
 
-        const u32 w = m_FramebufferSpec.Width;
-        const u32 h = m_FramebufferSpec.Height;
         const glm::vec4 texelSize(1.0f / static_cast<f32>(w), 1.0f / static_cast<f32>(h), 0.0f, 0.0f);
 
         // Upload SelectionOutlineUBO (entity IDs for Init pass)
@@ -258,7 +268,7 @@ namespace OloEngine
         m_JFAUboData.Step = 0; // Not used in composite
         m_JFAUbo->SetData(&m_JFAUboData, UBOStructures::JumpFloodUBO::GetSize());
 
-        m_Target->Bind();
+        outputFramebuffer->Bind();
         context.SetViewport(0, 0, w, h);
         context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
         context.SetBlendState(false);
@@ -272,7 +282,7 @@ namespace OloEngine
 
         // Slot 0: scene color from dynamic post chain output
         context.BindTexture(0, inputFramebuffer->GetColorAttachmentRendererID(0));
-        // Slot 1: final JFA distance field (from transient or fallback JFA ping-pong)
+        // Slot 1: final JFA distance field from the graph-owned ping-pong scratch
         context.BindTexture(1, jfaFBs[readIndex]->GetColorAttachmentRendererID(0));
 
         m_JFACompositeShader->Bind();
@@ -288,6 +298,8 @@ namespace OloEngine
 
     Ref<Framebuffer> SelectionOutlineRenderPass::GetTarget() const
     {
+        if (!m_Enabled || m_UBOData.SelectedCount == 0)
+            return nullptr;
         return m_Target;
     }
 
@@ -314,24 +326,15 @@ namespace OloEngine
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
 
-        if (m_Target)
-        {
-            m_Target->Resize(width, height);
-        }
-        else
-        {
-            CreateFramebuffer(width, height);
-        }
+        CreateFramebuffer(width, height);
     }
 
     void SelectionOutlineRenderPass::OnReset()
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_FramebufferSpec.Width > 0 && m_FramebufferSpec.Height > 0)
-        {
-            CreateFramebuffer(m_FramebufferSpec.Width, m_FramebufferSpec.Height);
-        }
+        m_Target = nullptr;
+        m_SceneFramebuffer = nullptr;
     }
 
     void SelectionOutlineRenderPass::SetSelectedEntityIDs(std::span<const i32> ids)

@@ -1,5 +1,5 @@
 #include "OloEnginePCH.h"
-#include "OloEngine/Renderer/Renderer3DFrameGraphBuilderInternal.h"
+#include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"
 #include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
@@ -7,9 +7,9 @@
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 
-namespace OloEngine::Renderer3DFrameGraphBuilderInternal
+namespace OloEngine::RenderPipelineBuilderInternal
 {
-    [[nodiscard]] auto CreateShadowNodeSetup() -> PassGraphNode::SetupCallback
+    [[nodiscard]] auto CreateShadowNodeSetup() -> RenderPass::SetupCallback
     {
         return [](RGBuilder& builder, FrameBlackboard& board)
         {
@@ -38,7 +38,7 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
     }
 
     [[nodiscard]] auto CreateDeferredOpaqueDecalNodeSetup(RendererSettings* settings,
-                                                          DecalRenderPass* decalPass) -> PassGraphNode::SetupCallback
+                                                          DecalRenderPass* decalPass) -> RenderPass::SetupCallback
     {
         return [settings, decalPass](RGBuilder& builder, FrameBlackboard& board)
         {
@@ -61,7 +61,7 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
         };
     }
 
-    [[nodiscard]] auto CreateDeferredLightingNodeSetup(RendererSettings* settings) -> PassGraphNode::SetupCallback
+    [[nodiscard]] auto CreateDeferredLightingNodeSetup(RendererSettings* settings) -> RenderPass::SetupCallback
     {
         return [settings](RGBuilder& builder, FrameBlackboard& board)
         {
@@ -122,42 +122,42 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
     }
 
     void RegisterRenderStreamNodes(RenderGraph& graph,
-                                   const Renderer3DFrameGraphInputs& inputs,
-                                   const bool deferred)
+                                   const RenderStreamStageInputs& inputs)
     {
-        AddExistingNode(graph, inputs.GeometryNode);
+        OLO_CORE_ASSERT(inputs.Nodes, "RegisterRenderStreamNodes requires node inputs");
+        AddExistingNode(graph, inputs.Nodes->Geometry);
 
-        if (deferred)
+        if (inputs.Deferred)
         {
-            AddExistingNode(graph, inputs.ForwardOverlayNode);
+            AddExistingNode(graph, inputs.Nodes->ForwardOverlay);
         }
 
-        AddExistingNode(graph, inputs.FoliageNode);
+        AddExistingNode(graph, inputs.Nodes->Foliage);
         // Keep insertion order aligned with the explicit baseline dependency
         // chain below (Foliage -> Decal -> Water). BuildFrameGraph derives
         // WAW edges in insertion order; inserting Water before Decal can
         // derive Water -> Decal and create a Decal <-> Water cycle.
-        AddExistingNode(graph, inputs.DecalNode);
-        AddExistingNode(graph, inputs.WaterNode);
+        AddExistingNode(graph, inputs.Nodes->Decal);
+        AddExistingNode(graph, inputs.Nodes->Water);
     }
 
     void RegisterSceneAndLightingNodes(RenderGraph& graph,
-                                       const Renderer3DFrameGraphInputs& inputs,
-                                       const bool deferred)
+                                       const SceneLightingStageInputs& inputs)
     {
-        graph.AddNode(MakePassNode("ShadowPass", inputs.ShadowPass, CreateShadowNodeSetup()));
+        OLO_CORE_ASSERT(inputs.Passes, "RegisterSceneAndLightingNodes requires pass inputs");
+        graph.AddNode(PrepareGraphPass("ShadowPass", inputs.Passes->Shadow, CreateShadowNodeSetup()));
 
-        if (!deferred)
+        if (!inputs.Deferred)
             return;
 
-        if (inputs.OpaqueDecalPass)
+        if (inputs.Passes->DeferredOpaqueDecal)
         {
-            graph.AddNode(MakePassNode("DeferredOpaqueDecalPass",
-                                       inputs.OpaqueDecalPass,
-                                       CreateDeferredOpaqueDecalNodeSetup(inputs.Settings, inputs.DecalPass)));
+            graph.AddNode(PrepareGraphPass("DeferredOpaqueDecalPass",
+                                           inputs.Passes->DeferredOpaqueDecal,
+                                           CreateDeferredOpaqueDecalNodeSetup(inputs.Renderer, inputs.Passes->Decal)));
         }
-        graph.AddNode(MakePassNode("DeferredLightingPass",
-                                   inputs.DeferredLightPass,
-                                   CreateDeferredLightingNodeSetup(inputs.Settings)));
+        graph.AddNode(PrepareGraphPass("DeferredLightingPass",
+                                       inputs.Passes->DeferredLighting,
+                                       CreateDeferredLightingNodeSetup(inputs.Renderer)));
     }
-} // namespace OloEngine::Renderer3DFrameGraphBuilderInternal
+} // namespace OloEngine::RenderPipelineBuilderInternal

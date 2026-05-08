@@ -1,5 +1,5 @@
 #include "OloEnginePCH.h"
-#include "OloEngine/Renderer/Renderer3DFrameGraphBuilderInternal.h"
+#include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 
 #include "OloEngine/Renderer/Passes/BloomRenderPass.h"
 #include "OloEngine/Renderer/Passes/ChromaticAberrationRenderPass.h"
@@ -18,14 +18,14 @@
 #include "OloEngine/Renderer/Passes/VignetteRenderPass.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 
-namespace OloEngine::Renderer3DFrameGraphBuilderInternal
+namespace OloEngine::RenderPipelineBuilderInternal
 {
     [[nodiscard]] auto CreateBloomNodeSetup(PostProcessSettings* postProcess,
-                                            SceneRenderPass* scenePass) -> PassGraphNode::SetupCallback
+                                            SceneRenderPass* scenePass) -> RenderPass::SetupCallback
     {
         return [postProcess, scenePass](RGBuilder& builder, FrameBlackboard& board)
         {
-            if (!postProcess || !postProcess->BloomEnabled)
+            if (!postProcess || !postProcess->BloomEnabled || !board.BloomColor.IsValid())
                 return;
 
             ReadFirstValidFramebuffer(builder,
@@ -36,10 +36,11 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
             if (board.BloomColor.IsValid())
                 builder.Write(board.BloomColor, RGWriteUsage::RenderTarget);
 
-            if (const auto target = scenePass ? scenePass->GetTarget() : nullptr; target != nullptr)
+            if (scenePass)
             {
-                auto mipW = target->GetSpecification().Width / 2;
-                auto mipH = target->GetSpecification().Height / 2;
+                const auto& sceneSpec = scenePass->GetFramebufferSpecification();
+                auto mipW = sceneSpec.Width / 2;
+                auto mipH = sceneSpec.Height / 2;
                 for (u32 i = 0; i < 5u; ++i)
                 {
                     if (mipW < 2 || mipH < 2)
@@ -60,7 +61,7 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
         };
     }
 
-    [[nodiscard]] auto CreateDOFNodeSetup(PostProcessSettings* postProcess) -> PassGraphNode::SetupCallback
+    [[nodiscard]] auto CreateDOFNodeSetup(PostProcessSettings* postProcess) -> RenderPass::SetupCallback
     {
         return [postProcess](RGBuilder& builder, FrameBlackboard& board)
         {
@@ -77,7 +78,7 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
         };
     }
 
-    [[nodiscard]] auto CreateMotionBlurNodeSetup(PostProcessSettings* postProcess) -> PassGraphNode::SetupCallback
+    [[nodiscard]] auto CreateMotionBlurNodeSetup(PostProcessSettings* postProcess) -> RenderPass::SetupCallback
     {
         return [postProcess](RGBuilder& builder, FrameBlackboard& board)
         {
@@ -97,7 +98,7 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
         };
     }
 
-    [[nodiscard]] auto CreateTAANodeSetup(PostProcessSettings* postProcess) -> PassGraphNode::SetupCallback
+    [[nodiscard]] auto CreateTAANodeSetup(PostProcessSettings* postProcess) -> RenderPass::SetupCallback
     {
         return [postProcess](RGBuilder& builder, FrameBlackboard& board)
         {
@@ -126,7 +127,7 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
         };
     }
 
-    [[nodiscard]] auto CreatePrecipitationNodeSetup(PrecipitationSettings* precipitation) -> PassGraphNode::SetupCallback
+    [[nodiscard]] auto CreatePrecipitationNodeSetup(PrecipitationSettings* precipitation) -> RenderPass::SetupCallback
     {
         return [precipitation](RGBuilder& builder, FrameBlackboard& board)
         {
@@ -147,9 +148,10 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
         };
     }
 
-    [[nodiscard]] auto CreateFogNodeSetup(FogSettings* fog) -> PassGraphNode::SetupCallback
+    [[nodiscard]] auto CreateFogNodeSetup(FogSettings* fog,
+                                          FogRenderPass* fogPass) -> RenderPass::SetupCallback
     {
-        return [fog](RGBuilder& builder, FrameBlackboard& board)
+        return [fog, fogPass](RGBuilder& builder, FrameBlackboard& board)
         {
             if (!fog || !fog->Enabled)
                 return;
@@ -161,12 +163,43 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
                                       board.DOFColor,
                                       board.BloomColor,
                                       board.PostProcessColor);
+
+            if (board.SceneDepth.IsValid())
+            {
+                [[maybe_unused]] const auto sceneDepthRead = builder.Read(board.SceneDepth, RGReadUsage::ShaderSample);
+            }
+            if (board.FogHistory.IsValid())
+            {
+                [[maybe_unused]] const auto fogHistoryRead = builder.Read(board.FogHistory, RGReadUsage::ShaderSample);
+            }
+            if (board.ShadowMapCSM.IsValid())
+            {
+                [[maybe_unused]] const auto shadowMapRead = builder.Read(board.ShadowMapCSM, RGReadUsage::ShaderSample);
+            }
+
+            if (fogPass)
+            {
+                const auto& targetSpec = fogPass->GetFramebufferSpecification();
+                if (targetSpec.Width > 0 && targetSpec.Height > 0)
+                {
+                    RGResourceDesc fogHalfDesc;
+                    fogHalfDesc.Kind = ResourceHandle::Kind::Framebuffer;
+                    fogHalfDesc.Format = RGResourceFormat::RGBA16Float;
+                    fogHalfDesc.Width = (targetSpec.Width + 1u) / 2u;
+                    fogHalfDesc.Height = (targetSpec.Height + 1u) / 2u;
+
+                    const auto fogHalfHandle = builder.CreateFramebuffer(ResourceNames::FogHalfRes, fogHalfDesc);
+                    builder.Write(fogHalfHandle, RGWriteUsage::RenderTarget);
+                    [[maybe_unused]] const auto fogHalfRead = builder.Read(fogHalfHandle, RGReadUsage::ShaderSample);
+                }
+            }
+
             if (board.FogColor.IsValid())
                 builder.Write(board.FogColor, RGWriteUsage::RenderTarget);
         };
     }
 
-    [[nodiscard]] auto CreateChromAberrationNodeSetup(PostProcessSettings* postProcess) -> PassGraphNode::SetupCallback
+    [[nodiscard]] auto CreateChromAberrationNodeSetup(PostProcessSettings* postProcess) -> RenderPass::SetupCallback
     {
         return [postProcess](RGBuilder& builder, FrameBlackboard& board)
         {
@@ -186,7 +219,7 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
         };
     }
 
-    [[nodiscard]] auto CreateColorGradingNodeSetup(PostProcessSettings* postProcess) -> PassGraphNode::SetupCallback
+    [[nodiscard]] auto CreateColorGradingNodeSetup(PostProcessSettings* postProcess) -> RenderPass::SetupCallback
     {
         return [postProcess](RGBuilder& builder, FrameBlackboard& board)
         {
@@ -207,7 +240,7 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
         };
     }
 
-    [[nodiscard]] auto CreateToneMapNodeSetup() -> PassGraphNode::SetupCallback
+    [[nodiscard]] auto CreateToneMapNodeSetup() -> RenderPass::SetupCallback
     {
         return [](RGBuilder& builder, FrameBlackboard& board)
         {
@@ -227,7 +260,7 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
         };
     }
 
-    [[nodiscard]] auto CreateVignetteNodeSetup(PostProcessSettings* postProcess) -> PassGraphNode::SetupCallback
+    [[nodiscard]] auto CreateVignetteNodeSetup(PostProcessSettings* postProcess) -> RenderPass::SetupCallback
     {
         return [postProcess](RGBuilder& builder, FrameBlackboard& board)
         {
@@ -250,7 +283,7 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
         };
     }
 
-    [[nodiscard]] auto CreateFXAANodeSetup(PostProcessSettings* postProcess) -> PassGraphNode::SetupCallback
+    [[nodiscard]] auto CreateFXAANodeSetup(PostProcessSettings* postProcess) -> RenderPass::SetupCallback
     {
         return [postProcess](RGBuilder& builder, FrameBlackboard& board)
         {
@@ -275,13 +308,19 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
         };
     }
 
-    [[nodiscard]] auto CreateSelectionOutlineNodeSetup(const bool* enableSelectionOutline,
-                                                       SelectionOutlineRenderPass* selectionOutlinePass) -> PassGraphNode::SetupCallback
+    [[nodiscard]] auto CreateSelectionOutlineNodeSetup(SelectionOutlineRenderPass* selectionOutlinePass) -> RenderPass::SetupCallback
     {
-        return [enableSelectionOutline, selectionOutlinePass](RGBuilder& builder, FrameBlackboard& board)
+        return [selectionOutlinePass](RGBuilder& builder, FrameBlackboard& board)
         {
-            if (!IsSelectionOutlineEnabled(enableSelectionOutline))
+            if (!selectionOutlinePass ||
+                !selectionOutlinePass->IsReadyForExecution() ||
+                !board.SelectionOutlineColor.IsValid())
                 return;
+
+            if (board.SceneColor.IsValid())
+            {
+                [[maybe_unused]] const auto sceneColorRead = builder.Read(board.SceneColor, RGReadUsage::RenderTargetRead);
+            }
 
             ReadFirstValidFramebuffer(builder,
                                       board.FXAAColor,
@@ -300,10 +339,11 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
             if (board.SelectionOutlineColor.IsValid())
                 builder.Write(board.SelectionOutlineColor, RGWriteUsage::RenderTarget);
 
-            if (const auto target = selectionOutlinePass ? selectionOutlinePass->GetTarget() : nullptr; target != nullptr)
+            if (selectionOutlinePass)
             {
-                const auto w = target->GetSpecification().Width;
-                const auto h = target->GetSpecification().Height;
+                const auto& outlineSpec = selectionOutlinePass->GetFramebufferSpecification();
+                const auto w = outlineSpec.Width;
+                const auto h = outlineSpec.Height;
                 if (w > 0 && h > 0)
                 {
                     RGResourceDesc jfaDesc;
@@ -324,52 +364,32 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
         };
     }
 
-    [[nodiscard]] auto CreateUICompositeNodeSetup(const bool* enableSelectionOutline) -> PassGraphNode::SetupCallback
+    [[nodiscard]] auto CreateUICompositeNodeSetup() -> RenderPass::SetupCallback
     {
-        return [enableSelectionOutline](RGBuilder& builder, FrameBlackboard& board)
+        return [](RGBuilder& builder, FrameBlackboard& board)
         {
             if (board.UIComposite.IsValid())
                 builder.Write(board.UIComposite, RGWriteUsage::RenderTarget);
 
-            if (IsSelectionOutlineEnabled(enableSelectionOutline))
-            {
-                ReadFirstValidFramebuffer(builder,
-                                          board.SelectionOutlineColor,
-                                          board.FXAAColor,
-                                          board.VignetteColor,
-                                          board.ToneMapColor,
-                                          board.ColorGradingColor,
-                                          board.ChromAbColor,
-                                          board.FogColor,
-                                          board.PrecipitationColor,
-                                          board.TAAColor,
-                                          board.MotionBlurColor,
-                                          board.DOFColor,
-                                          board.BloomColor,
-                                          board.PostProcessColor,
-                                          board.SceneColor);
-            }
-            else
-            {
-                ReadFirstValidFramebuffer(builder,
-                                          board.FXAAColor,
-                                          board.VignetteColor,
-                                          board.ToneMapColor,
-                                          board.ColorGradingColor,
-                                          board.ChromAbColor,
-                                          board.FogColor,
-                                          board.PrecipitationColor,
-                                          board.TAAColor,
-                                          board.MotionBlurColor,
-                                          board.DOFColor,
-                                          board.BloomColor,
-                                          board.PostProcessColor,
-                                          board.SceneColor);
-            }
+            ReadFirstValidFramebuffer(builder,
+                                      board.SelectionOutlineColor,
+                                      board.FXAAColor,
+                                      board.VignetteColor,
+                                      board.ToneMapColor,
+                                      board.ColorGradingColor,
+                                      board.ChromAbColor,
+                                      board.FogColor,
+                                      board.PrecipitationColor,
+                                      board.TAAColor,
+                                      board.MotionBlurColor,
+                                      board.DOFColor,
+                                      board.BloomColor,
+                                      board.PostProcessColor,
+                                      board.SceneColor);
         };
     }
 
-    [[nodiscard]] auto CreateFinalNodeSetup() -> PassGraphNode::SetupCallback
+    [[nodiscard]] auto CreateFinalNodeSetup() -> RenderPass::SetupCallback
     {
         return [](RGBuilder& builder, FrameBlackboard& board)
         {
@@ -396,57 +416,58 @@ namespace OloEngine::Renderer3DFrameGraphBuilderInternal
     }
 
     void RegisterPostProcessNodes(RenderGraph& graph,
-                                  const Renderer3DFrameGraphInputs& inputs)
+                                  const PostProcessStageInputs& inputs)
     {
-        graph.AddNode(MakePassNode("BloomPass",
-                                   inputs.BloomPass,
-                                   CreateBloomNodeSetup(inputs.PostProcess, inputs.ScenePass)));
-        graph.AddNode(MakePassNode("DOFPass",
-                                   inputs.DOFPass,
-                                   CreateDOFNodeSetup(inputs.PostProcess)));
-        graph.AddNode(MakePassNode("MotionBlurPass",
-                                   inputs.MotionBlurPass,
-                                   CreateMotionBlurNodeSetup(inputs.PostProcess)));
-        graph.AddNode(MakePassNode("TAAPass",
-                                   inputs.TAAPass,
-                                   CreateTAANodeSetup(inputs.PostProcess)));
-        graph.AddNode(MakePassNode("PrecipitationPass",
-                                   inputs.PrecipitationPass,
-                                   CreatePrecipitationNodeSetup(inputs.Precipitation)));
-        graph.AddNode(MakePassNode("FogPass",
-                                   inputs.FogPass,
-                                   CreateFogNodeSetup(inputs.Fog)));
-        graph.AddNode(MakePassNode("ChromAberrationPass",
-                                   inputs.ChromAberrationPass,
-                                   CreateChromAberrationNodeSetup(inputs.PostProcess)));
-        graph.AddNode(MakePassNode("ColorGradingPass",
-                                   inputs.ColorGradingPass,
-                                   CreateColorGradingNodeSetup(inputs.PostProcess)));
-        graph.AddNode(MakePassNode("ToneMapPass",
-                                   inputs.ToneMapPass,
-                                   CreateToneMapNodeSetup()));
-        graph.AddNode(MakePassNode("VignettePass",
-                                   inputs.VignettePass,
-                                   CreateVignetteNodeSetup(inputs.PostProcess)));
-        if (inputs.FXAAPass)
+        OLO_CORE_ASSERT(inputs.Passes, "RegisterPostProcessNodes requires pass inputs");
+        OLO_CORE_ASSERT(inputs.Runtime, "RegisterPostProcessNodes requires runtime inputs");
+        graph.AddNode(PrepareGraphPass("BloomPass",
+                                       inputs.Passes->Bloom,
+                                       CreateBloomNodeSetup(inputs.Runtime->PostProcess, inputs.Passes->Scene)));
+        graph.AddNode(PrepareGraphPass("DOFPass",
+                                       inputs.Passes->DOF,
+                                       CreateDOFNodeSetup(inputs.Runtime->PostProcess)));
+        graph.AddNode(PrepareGraphPass("MotionBlurPass",
+                                       inputs.Passes->MotionBlur,
+                                       CreateMotionBlurNodeSetup(inputs.Runtime->PostProcess)));
+        graph.AddNode(PrepareGraphPass("TAAPass",
+                                       inputs.Passes->TAA,
+                                       CreateTAANodeSetup(inputs.Runtime->PostProcess)));
+        graph.AddNode(PrepareGraphPass("PrecipitationPass",
+                                       inputs.Passes->Precipitation,
+                                       CreatePrecipitationNodeSetup(inputs.Runtime->Precipitation)));
+        graph.AddNode(PrepareGraphPass("FogPass",
+                                       inputs.Passes->Fog,
+                                       CreateFogNodeSetup(inputs.Runtime->Fog,
+                                                          inputs.Passes->Fog)));
+        graph.AddNode(PrepareGraphPass("ChromAberrationPass",
+                                       inputs.Passes->ChromAberration,
+                                       CreateChromAberrationNodeSetup(inputs.Runtime->PostProcess)));
+        graph.AddNode(PrepareGraphPass("ColorGradingPass",
+                                       inputs.Passes->ColorGrading,
+                                       CreateColorGradingNodeSetup(inputs.Runtime->PostProcess)));
+        graph.AddNode(PrepareGraphPass("ToneMapPass",
+                                       inputs.Passes->ToneMap,
+                                       CreateToneMapNodeSetup()));
+        graph.AddNode(PrepareGraphPass("VignettePass",
+                                       inputs.Passes->Vignette,
+                                       CreateVignetteNodeSetup(inputs.Runtime->PostProcess)));
+        if (inputs.Passes->FXAA)
         {
-            graph.AddNode(MakePassNode("FXAAPass",
-                                       inputs.FXAAPass,
-                                       CreateFXAANodeSetup(inputs.PostProcess)));
+            graph.AddNode(PrepareGraphPass("FXAAPass",
+                                           inputs.Passes->FXAA,
+                                           CreateFXAANodeSetup(inputs.Runtime->PostProcess)));
         }
-        if (IsSelectionOutlineEnabled(inputs.EnableSelectionOutline) && inputs.SelectionOutlinePass)
+        if (inputs.Passes->SelectionOutline)
         {
-            graph.AddNode(MakePassNode("SelectionOutlinePass",
-                                       inputs.SelectionOutlinePass,
-                                       CreateSelectionOutlineNodeSetup(inputs.EnableSelectionOutline,
-                                                                       inputs.SelectionOutlinePass)));
+            graph.AddNode(PrepareGraphPass("SelectionOutlinePass",
+                                           inputs.Passes->SelectionOutline,
+                                           CreateSelectionOutlineNodeSetup(inputs.Passes->SelectionOutline)));
         }
-        graph.AddNode(MakePassNode("UICompositePass",
-                                   inputs.UICompositePass,
-                                   CreateUICompositeNodeSetup(inputs.EnableSelectionOutline)));
-        graph.AddNode(MakePassNode("FinalPass",
-                                   inputs.FinalPass,
-                                   CreateFinalNodeSetup(),
-                                   RenderGraphNodeFlags::Graphics | RenderGraphNodeFlags::Present));
+        graph.AddNode(PrepareGraphPass("UICompositePass",
+                                       inputs.Passes->UIComposite,
+                                       CreateUICompositeNodeSetup()));
+        graph.AddNode(PrepareGraphPass("FinalPass",
+                                       inputs.Passes->Final,
+                                       CreateFinalNodeSetup()));
     }
-} // namespace OloEngine::Renderer3DFrameGraphBuilderInternal
+} // namespace OloEngine::RenderPipelineBuilderInternal

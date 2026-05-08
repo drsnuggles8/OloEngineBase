@@ -31,6 +31,10 @@ namespace OloEngine
         {
             m_Settings = settings;
         }
+        [[nodiscard]] bool IsReadyForExecution() const noexcept
+        {
+            return m_SSSBlurShader && m_SSSBlurShader->IsReady();
+        }
         void SetSSSUBO(Ref<UniformBuffer> ubo, SSSUBOData* gpuData)
         {
             m_SSSUBO = ubo;

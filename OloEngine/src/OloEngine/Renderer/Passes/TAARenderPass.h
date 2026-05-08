@@ -15,10 +15,12 @@ namespace OloEngine
     //   AOApply/Bloom/DOF/MotionBlur/Precipitation → TAA → Fog → ...
     //
     // Owns:
-    //   * Full-resolution RGBA16F output framebuffer (`TAAColor`)
     //   * Persistent RGBA16F history framebuffer imported next frame as
     //     `TAAHistory`
     //   * TAA parameters UBO at binding 32
+    //
+    // Writes the current-frame `TAAColor` output through the graph-owned
+    // framebuffer resolved from the frame blackboard.
     //
     // Inputs (resolved from the blackboard):
     //   * Post-process colour input framebuffer
@@ -70,12 +72,12 @@ namespace OloEngine
 
       private:
         void CreateFramebuffers(u32 width, u32 height);
+        void StoreHistoryTexture(u32 textureID);
 
       private:
         bool m_Enabled = false;
         PostProcessSettings m_Settings;
 
-        Ref<Framebuffer> m_OutputFB;
         Ref<Framebuffer> m_TAAHistoryFB;
 
         Ref<Shader> m_TAAShader;

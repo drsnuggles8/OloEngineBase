@@ -1323,36 +1323,33 @@ namespace OloEngine
                 // Set up the UICompositePass callback before the render graph executes.
                 // The callback runs during UICompositePass::Execute(), after the
                 // post-processed scene has been blitted as background.
-                if (auto uiPass = Renderer3D::GetUICompositePass())
-                {
-                    uiPass->SetRenderCallback([this, mainCamera, cameraTransform]()
-                                              {
-                        // World-space 2D overlays (sprites, circles, text)
-                        Renderer2D::BeginScene(*mainCamera, cameraTransform);
+                Renderer3D::SetUICompositeRenderCallback([this, mainCamera, cameraTransform]()
+                                                         {
+                                                             // World-space 2D overlays (sprites, circles, text)
+                                                             Renderer2D::BeginScene(*mainCamera, cameraTransform);
 
-                        for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
-                        {
-                            const auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
-                            Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(entity));
-                        }
+                                                             for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
+                                                             {
+                                                                 const auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
+                                                                 Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(entity));
+                                                             }
 
-                        for (const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>(); const auto entity : view)
-                        {
-                            const auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
-                            Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(entity));
-                        }
+                                                             for (const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>(); const auto entity : view)
+                                                             {
+                                                                 const auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
+                                                                 Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(entity));
+                                                             }
 
-                        for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
-                        {
-                            const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
-                            DrawTextWithShadow(text, transform, static_cast<int>(entity));
-                        }
+                                                             for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
+                                                             {
+                                                                 const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
+                                                                 DrawTextWithShadow(text, transform, static_cast<int>(entity));
+                                                             }
 
-                        Renderer2D::EndScene();
+                                                             Renderer2D::EndScene();
 
-                        // Screen-space UI overlay
-                        RenderUIOverlay(); });
-                }
+                                                             // Screen-space UI overlay
+                                                             RenderUIOverlay(); });
 
                 RenderScene3D(*mainCamera, cameraTransform);
             }
@@ -1664,22 +1661,19 @@ namespace OloEngine
                 // Set up the UICompositePass callback for editor overlays.
                 // Renders text and UI into the UICompositePass FBO so the editor
                 // viewport (which reads UICompositePass output) shows them.
-                if (auto uiPass = Renderer3D::GetUICompositePass())
-                {
-                    uiPass->SetRenderCallback([this, &camera]()
-                                              {
-                        Renderer2D::BeginScene(camera);
+                Renderer3D::SetUICompositeRenderCallback([this, &camera]()
+                                                         {
+                                                             Renderer2D::BeginScene(camera);
 
-                        for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
-                        {
-                            const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
-                            DrawTextWithShadow(text, transform, static_cast<int>(entity));
-                        }
+                                                             for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
+                                                             {
+                                                                 const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
+                                                                 DrawTextWithShadow(text, transform, static_cast<int>(entity));
+                                                             }
 
-                        Renderer2D::EndScene();
+                                                             Renderer2D::EndScene();
 
-                        RenderUIOverlay(); });
-                }
+                                                             RenderUIOverlay(); });
 
                 RenderScene3D(camera);
             }
@@ -3084,8 +3078,7 @@ namespace OloEngine
             {
                 auto terrainShader = Renderer3D::GetTerrainPBRShader();
                 auto voxelShader = Renderer3D::GetVoxelPBRShader();
-                auto shadowPass = Renderer3D::GetShadowPass();
-                bool hasActiveShadows = shadowPass && Renderer3D::GetShadowMap().IsEnabled();
+                const bool hasActiveShadows = Renderer3D::IsShadowPassAvailable() && Renderer3D::GetShadowMap().IsEnabled();
 
                 auto terrainRenderView = m_Registry.view<TransformComponent, TerrainComponent>();
                 for (auto entity : terrainRenderView)
@@ -3212,7 +3205,7 @@ namespace OloEngine
                                     // Shadow caster for this chunk
                                     if (hasActiveShadows)
                                     {
-                                        shadowPass->AddTerrainCaster(
+                                        Renderer3D::AddTerrainShadowCaster(
                                             va->GetRendererID(), rc.Chunk->GetIndexCount(), 3,
                                             transform.GetTransform(), heightmapID, terrainUBOData);
                                     }
@@ -3243,7 +3236,7 @@ namespace OloEngine
 
                                     if (hasActiveShadows)
                                     {
-                                        shadowPass->AddTerrainCaster(
+                                        Renderer3D::AddTerrainShadowCaster(
                                             va->GetRendererID(), chunk->GetIndexCount(), 3,
                                             transform.GetTransform(), heightmapID, terrainUBOData);
                                     }
@@ -3293,7 +3286,7 @@ namespace OloEngine
 
                                 if (hasActiveShadows)
                                 {
-                                    shadowPass->AddVoxelCaster(
+                                    Renderer3D::AddVoxelShadowCaster(
                                         mesh.VAO->GetRendererID(), mesh.IndexCount,
                                         transform.GetTransform());
                                 }
@@ -3310,7 +3303,7 @@ namespace OloEngine
                             auto foliageDepthShader = Renderer3D::GetFoliageDepthShader();
                             if (foliageDepthShader)
                             {
-                                shadowPass->AddFoliageCaster(
+                                Renderer3D::AddFoliageShadowCaster(
                                     foliage.m_Renderer.get(), foliageDepthShader, animationTime);
                             }
                         }
@@ -3445,19 +3438,6 @@ namespace OloEngine
                         safeLightDir = glm::vec3(0.0f, -1.0f, 0.0f);
                     }
                     waterParams.lightDirection = glm::vec4(glm::normalize(safeLightDir), 0.0f);
-
-                    // Screen params for depth/refraction — use framebuffer pixel dimensions (DPI-aware)
-                    f32 vpW = 0.0f;
-                    f32 vpH = 0.0f;
-                    if (auto scenePass = Renderer3D::GetScenePass(); scenePass && scenePass->GetTarget())
-                    {
-                        auto const& spec = scenePass->GetTarget()->GetSpecification();
-                        vpW = static_cast<f32>(spec.Width);
-                        vpH = static_cast<f32>(spec.Height);
-                    }
-                    waterParams.screenParams = glm::vec4(vpW, vpH,
-                                                         vpW > 0.0f ? 1.0f / vpW : 0.0f,
-                                                         vpH > 0.0f ? 1.0f / vpH : 0.0f);
 
                     // Depth, refraction, foam, SSS params
                     waterParams.depthRefractionParams = glm::vec4(
@@ -3704,8 +3684,7 @@ namespace OloEngine
         }
 
         // Shadow pass setup for mesh entity traversal
-        auto meshShadowPass = Renderer3D::GetShadowPass();
-        bool meshHasActiveShadows = meshShadowPass && Renderer3D::GetShadowMap().IsEnabled();
+        const bool meshHasActiveShadows = Renderer3D::IsShadowPassAvailable() && Renderer3D::GetShadowMap().IsEnabled();
 
         // Draw mesh entities (skip animated entities - they're rendered separately)
         {
@@ -3765,7 +3744,7 @@ namespace OloEngine
                             auto va = submesh->GetVertexArray();
                             if (va)
                             {
-                                meshShadowPass->AddMeshCaster(
+                                Renderer3D::AddMeshShadowCaster(
                                     va->GetRendererID(), submesh->GetIndexCount(),
                                     transform.GetTransform(), GetShadowVaoID(submesh),
                                     submesh->GetTransformedBoundingBox(transform.GetTransform()));
@@ -3821,7 +3800,7 @@ namespace OloEngine
                     auto va = submesh.m_Mesh->GetVertexArray();
                     if (va)
                     {
-                        meshShadowPass->AddMeshCaster(
+                        Renderer3D::AddMeshShadowCaster(
                             va->GetRendererID(), submesh.m_Mesh->GetIndexCount(),
                             transform.GetTransform(), GetShadowVaoID(submesh.m_Mesh),
                             submesh.m_Mesh->GetTransformedBoundingBox(transform.GetTransform()));
@@ -3896,7 +3875,7 @@ namespace OloEngine
                                     auto* cmd = packet->GetCommandData<DrawMeshCommand>();
                                     if (cmd)
                                     {
-                                        meshShadowPass->AddSkinnedCaster(
+                                        Renderer3D::AddSkinnedShadowCaster(
                                             va->GetRendererID(), submesh->GetIndexCount(),
                                             transform.GetTransform(),
                                             cmd->boneBufferOffset, cmd->boneCount,
@@ -3968,7 +3947,7 @@ namespace OloEngine
                             auto va = tileComp.TileMesh->GetVertexArray();
                             if (va)
                             {
-                                meshShadowPass->AddMeshCaster(
+                                Renderer3D::AddMeshShadowCaster(
                                     va->GetRendererID(), tileComp.TileMesh->GetIndexCount(),
                                     tileTransform, GetShadowVaoID(tileComp.TileMesh),
                                     tileComp.TileMesh->GetTransformedBoundingBox(tileTransform));
@@ -4270,24 +4249,21 @@ namespace OloEngine
         }
 
         // Set particle render callback — executed by ParticleRenderPass during graph execution
-        if (auto particlePass = Renderer3D::GetParticlePass())
-        {
-            particlePass->SetRenderCallback([this, &camera]()
-                                            {
-                ParticleBatchRenderer::BeginBatch(camera);
+        Renderer3D::SetParticleRenderCallback([this, &camera]()
+                                              {
+                                                  ParticleBatchRenderer::BeginBatch(camera);
 
-                glm::vec3 camPos = camera.GetPosition();
+                                                  glm::vec3 camPos = camera.GetPosition();
 
-                RenderParticleSystems(camPos, camera.GetNearClip(), camera.GetFarClip());
+                                                  RenderParticleSystems(camPos, camera.GetNearClip(), camera.GetFarClip());
 
-                // Render snow ejecta particles
-                SnowEjectaSystem::Render();
+                                                  // Render snow ejecta particles
+                                                  SnowEjectaSystem::Render();
 
-                // Render precipitation particles
-                PrecipitationSystem::Render();
+                                                  // Render precipitation particles
+                                                  PrecipitationSystem::Render();
 
-                ParticleBatchRenderer::EndBatch(); });
-        }
+                                                  ParticleBatchRenderer::EndBatch(); });
 
         Renderer3D::EndScene();
     }
@@ -4335,21 +4311,18 @@ namespace OloEngine
             cameraFarClip);
 
         // Set particle render callback — executed by ParticleRenderPass during graph execution
-        if (auto particlePass = Renderer3D::GetParticlePass())
-        {
-            particlePass->SetRenderCallback([this, &camera, cameraTransform, cameraNearClip, cameraFarClip, cameraPosition]()
-                                            {
-                ParticleBatchRenderer::BeginBatch(camera, cameraTransform);
-                RenderParticleSystems(cameraPosition, cameraNearClip, cameraFarClip);
+        Renderer3D::SetParticleRenderCallback([this, &camera, cameraTransform, cameraNearClip, cameraFarClip, cameraPosition]()
+                                              {
+                                                  ParticleBatchRenderer::BeginBatch(camera, cameraTransform);
+                                                  RenderParticleSystems(cameraPosition, cameraNearClip, cameraFarClip);
 
-                // Render snow ejecta particles
-                SnowEjectaSystem::Render();
+                                                  // Render snow ejecta particles
+                                                  SnowEjectaSystem::Render();
 
-                // Render precipitation particles
-                PrecipitationSystem::Render();
+                                                  // Render precipitation particles
+                                                  PrecipitationSystem::Render();
 
-                ParticleBatchRenderer::EndBatch(); });
-        }
+                                                  ParticleBatchRenderer::EndBatch(); });
 
         Renderer3D::EndScene();
     }
@@ -4399,16 +4372,19 @@ namespace OloEngine
             // Enable/disable soft particles per system
             {
                 SoftParticleParams softParams;
-                if (auto scenePass = Renderer3D::GetScenePass(); scenePass && scenePass->GetTarget())
+                if (auto sceneDepthTextureID = Renderer3D::ResolveFrameGraphTexture(ResourceNames::SceneDepth); sceneDepthTextureID != 0)
                 {
-                    auto fb = scenePass->GetTarget();
-                    auto& spec = fb->GetSpecification();
+                    i32 viewportWidth = 0;
+                    i32 viewportHeight = 0;
+                    glGetTextureLevelParameteriv(sceneDepthTextureID, 0, GL_TEXTURE_WIDTH, &viewportWidth);
+                    glGetTextureLevelParameteriv(sceneDepthTextureID, 0, GL_TEXTURE_HEIGHT, &viewportHeight);
+
                     softParams.Enabled = sys.SoftParticlesEnabled;
                     softParams.Distance = sys.SoftParticleDistance;
-                    softParams.DepthTextureID = fb->GetDepthAttachmentRendererID();
+                    softParams.DepthTextureID = sceneDepthTextureID;
                     softParams.NearClip = nearClip;
                     softParams.FarClip = farClip;
-                    softParams.ViewportSize = { static_cast<f32>(spec.Width), static_cast<f32>(spec.Height) };
+                    softParams.ViewportSize = { static_cast<f32>(viewportWidth), static_cast<f32>(viewportHeight) };
                 }
                 ParticleBatchRenderer::SetSoftParticleParams(softParams);
             }

@@ -19,6 +19,9 @@ namespace OloEngine
     //
     // This centralises all UI/overlay rendering into a single, well-defined pass, replacing
     // the ad-hoc framebuffer binding that was previously scattered through Scene.cpp.
+    // The current-frame `UIComposite` target is graph-owned and resolved from
+    // the blackboard during Execute(); `GetTarget()` reports the last resolved
+    // runtime surface for debug/editor consumers.
     class UICompositeRenderPass : public RenderPass
     {
       public:

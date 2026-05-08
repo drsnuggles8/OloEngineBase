@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -127,7 +128,7 @@ namespace OloEngine
         Ref<Shader>& shader = useMSAAShading ? m_ShaderMSAA : m_Shader;
         shader->Bind();
 
-        Renderer3D::BindSceneUBOs();
+        CommandDispatch::BindSceneResources();
 
         // Upload per-frame controls — IBL enable + intensity + cascade-debug
         // flag. Light-probe toggle mirrors RendererSettings::Deferred

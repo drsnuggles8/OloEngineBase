@@ -3,8 +3,10 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
+#include <functional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -24,16 +26,10 @@ namespace OloEngine
     // ordering still has to be correct, just unchecked. Migrating a pass is
     // as simple as calling `DeclareRead(ResourceNames::ShadowMapCSM)` etc.
     // in `Init()`.
-    class RenderPass : public RefCounted
+    class RenderPass : public RenderGraphNode
     {
       public:
-        enum class SubmissionModel : u8
-        {
-            Unknown = 0,
-            BucketOnly,
-            ImmediateOnly,
-            Mixed,
-        };
+        using SubmissionModel = RenderGraphSubmissionModel;
         enum class SideEffect : u8
         {
             None = 0,              // Pass is culled if unreachable
@@ -48,14 +44,21 @@ namespace OloEngine
         // A pass is exactly one of: Graphics (rasterization), Compute (dispatch-only),
         // or Copy (transfer/blit only). Used by the scheduler to determine which
         // hardware queue the pass can run on.
-        enum class PassWorkType : u8
-        {
-            Graphics = 0, // Default: vertex/fragment/rasterization pipeline
-            Compute = 1,  // Compute-dispatch only — no rasterization
-            Copy = 2,     // Transfer / blit only — no shaders
-        };
+        using PassWorkType = RenderGraphPassWorkType;
+        using SetupCallback = std::function<void(RGBuilder&, FrameBlackboard&)>;
 
         virtual ~RenderPass() = default;
+
+        [[nodiscard]] const std::string& GetName() const override
+        {
+            return m_Name;
+        }
+
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override
+        {
+            if (m_SetupCallback)
+                m_SetupCallback(builder, blackboard);
+        }
 
         virtual void Init(const FramebufferSpecification& spec) = 0;
         virtual void Execute() = 0;
@@ -65,14 +68,53 @@ namespace OloEngine
             Execute();
         }
         [[nodiscard]] virtual Ref<Framebuffer> GetTarget() const = 0;
+        [[nodiscard]] const FramebufferSpecification& GetFramebufferSpecification() const
+        {
+            return m_FramebufferSpec;
+        }
 
         void SetName(std::string_view name)
         {
             m_Name = name;
         }
-        [[nodiscard]] const std::string& GetName() const
+
+        void SetSetupCallback(SetupCallback callback)
         {
-            return m_Name;
+            m_SetupCallback = std::move(callback);
+        }
+
+        void ClearSetupCallback()
+        {
+            m_SetupCallback = {};
+        }
+
+        [[nodiscard]] RenderGraphNodeFlags GetFlags() const override
+        {
+            auto flags = RenderGraphNodeFlags::None;
+            switch (m_PassWorkType)
+            {
+                case PassWorkType::Compute:
+                    flags = flags | RenderGraphNodeFlags::Compute;
+                    break;
+                case PassWorkType::Copy:
+                    flags = flags | RenderGraphNodeFlags::Copy;
+                    break;
+                case PassWorkType::Graphics:
+                default:
+                    flags = flags | RenderGraphNodeFlags::Graphics;
+                    break;
+            }
+
+            if ((static_cast<u8>(m_SideEffects) & static_cast<u8>(SideEffect::Present)) != 0u)
+                flags = flags | RenderGraphNodeFlags::Present;
+            if ((static_cast<u8>(m_SideEffects) & static_cast<u8>(SideEffect::Readback)) != 0u)
+                flags = flags | RenderGraphNodeFlags::Readback;
+            if ((static_cast<u8>(m_SideEffects) & static_cast<u8>(SideEffect::NeverCull)) != 0u)
+                flags = flags | RenderGraphNodeFlags::NeverCull;
+            if ((static_cast<u8>(m_SideEffects) & (static_cast<u8>(SideEffect::DebugCapture) | static_cast<u8>(SideEffect::Timestamp))) != 0u)
+                flags = flags | RenderGraphNodeFlags::ExternalSideEffect;
+
+            return flags;
         }
 
         virtual void SetupFramebuffer(u32 /*width*/, u32 /*height*/) {}
@@ -97,6 +139,16 @@ namespace OloEngine
         [[nodiscard]] virtual SubmissionModel GetSubmissionModel() const
         {
             return SubmissionModel::Unknown;
+        }
+
+        [[nodiscard]] std::span<const ResourceHandle> GetDeclaredReads() const override
+        {
+            return { m_Reads.data(), m_Reads.size() };
+        }
+
+        [[nodiscard]] std::span<const ResourceHandle> GetDeclaredWrites() const override
+        {
+            return { m_Writes.data(), m_Writes.size() };
         }
 
         // Mark this pass as having side effects that prevent culling.
@@ -197,6 +249,7 @@ namespace OloEngine
         std::string m_Name = "RenderPass";
         Ref<Framebuffer> m_Target;
         FramebufferSpecification m_FramebufferSpec;
+        SetupCallback m_SetupCallback;
 
         // DRS render-viewport dimensions set by ApplyRenderViewport().
         // Zero means "use physical framebuffer size" (no DRS override active).

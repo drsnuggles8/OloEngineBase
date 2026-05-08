@@ -8,6 +8,7 @@
 
 #include <glm/vec4.hpp>
 
+#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -69,12 +70,19 @@ namespace OloEngine
         void EndAsyncBatch(u32 batchIndex);
         [[nodiscard]] u32 ResolveTexture(RGTextureHandle handle) const;
         [[nodiscard]] Ref<Framebuffer> ResolveFramebuffer(RGFramebufferHandle handle) const;
+        void ExtractHistoryTexture(std::string_view historyResource,
+                                   RGTextureHandle sourceHandle,
+                                   std::function<void(u32)> callback);
+        void ExtractHistoryTexture(std::string_view historyResource,
+                                   RGFramebufferHandle sourceHandle,
+                                   std::function<void(u32)> callback,
+                                   u32 colorAttachmentIndex = 0);
         // Expose the frame blackboard so Execute() callbacks
         // can resolve their own input handles without a per-frame side-channel
         // setter.  Returns nullptr when no render graph is attached (headless /
         // unit-test mode); callers must guard against nullptr.
         [[nodiscard]] const FrameBlackboard* GetBlackboard() const noexcept;
-        void SetRenderGraph(const RenderGraph* graph)
+        void SetRenderGraph(RenderGraph* graph)
         {
             m_RenderGraph = graph;
         }
@@ -82,6 +90,6 @@ namespace OloEngine
       private:
         std::string m_ActivePassName;
         bool m_IsPassActive = false;
-        const RenderGraph* m_RenderGraph = nullptr;
+        RenderGraph* m_RenderGraph = nullptr;
     };
 } // namespace OloEngine

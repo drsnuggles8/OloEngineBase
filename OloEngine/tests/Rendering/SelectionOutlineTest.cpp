@@ -2,7 +2,6 @@
 #include <gtest/gtest.h>
 
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
-#include "OloEngine/Renderer/PassGraphNode.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
@@ -39,11 +38,8 @@ static Ref<OutlineStubPass> AddStub(RenderGraph& graph, const std::string& name)
 {
     auto pass = Ref<OutlineStubPass>::Create(name);
     pass->SetName(name);
-    auto node = Ref<PassGraphNode>::Create(
-        name,
-        pass.As<RenderPass>(),
-        [](RGBuilder& /*builder*/, FrameBlackboard& /*blackboard*/) {});
-    graph.AddNode(node);
+    pass->SetSetupCallback([](RGBuilder& /*builder*/, FrameBlackboard& /*blackboard*/) {});
+    graph.AddNode(pass.As<RenderGraphNode>());
     return pass;
 }
 
@@ -144,14 +140,14 @@ TEST(SelectionOutlineGraph, PassInsertedBetweenPostProcessAndUIComposite)
     graph.SetFinalPass("FinalPass");
 
     // Graph should compile and all passes should be retrievable
-    auto retrievedOutline = graph.GetNode<PassGraphNode>("SelectionOutlinePass");
+    auto retrievedOutline = graph.GetNode<RenderPass>("SelectionOutlinePass");
     ASSERT_NE(retrievedOutline, nullptr);
     EXPECT_EQ(retrievedOutline->GetName(), "SelectionOutlinePass");
 
-    auto retrievedPost = graph.GetNode<PassGraphNode>("PostProcessPass");
+    auto retrievedPost = graph.GetNode<RenderPass>("PostProcessPass");
     ASSERT_NE(retrievedPost, nullptr);
 
-    auto retrievedUI = graph.GetNode<PassGraphNode>("UICompositePass");
+    auto retrievedUI = graph.GetNode<RenderPass>("UICompositePass");
     ASSERT_NE(retrievedUI, nullptr);
 }
 
@@ -173,7 +169,7 @@ TEST(SelectionOutlineGraph, TopologicalOrderRespectsChain)
     // Execute triggers UpdateDependencyGraph and populates pass order
     graph.Execute();
 
-    auto const& order = graph.GetPassOrder();
+    auto const& order = graph.GetExecutionOrder();
     ASSERT_FALSE(order.empty());
 
     // Find indices in topological order

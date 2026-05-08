@@ -115,6 +115,7 @@ namespace OloEngine
         RGBA32Float,
         Depth24Stencil8,
         Depth32Float,
+        R32Int,
     };
 
     enum class RGLoadAction : u8
@@ -204,8 +205,8 @@ namespace OloEngine
         std::string PlaceholderReason;
         std::string DebugName;
 
-        [[nodiscard]] static auto FromLegacy(ResourceHandle::Kind kind,
-                                             std::string_view debugName = {}) -> RGResourceDesc
+        [[nodiscard]] static auto FromHandleKind(ResourceHandle::Kind kind,
+                                                 std::string_view debugName = {}) -> RGResourceDesc
         {
             RGResourceDesc desc;
             desc.Kind = kind;
@@ -325,15 +326,16 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view BrdfLut = "BrdfLut";
 
     // Post-process chain.
-    inline constexpr std::string_view SSSColor = "SSSColor";                           // Output of SSS stage (or passthrough scene color)
+    inline constexpr std::string_view SSSColor = "SSSColor";                           // Full-resolution SSS output when the blur stage is enabled and ready
     inline constexpr std::string_view AOApplyColor = "AOApplyColor";                   // After AO apply (only valid when SSAO or GTAO is enabled)
-    inline constexpr std::string_view PostProcessColor = "PostProcessColor";           // Dynamic post-chain input (typically AOApply/SSS/Scene fallback)
+    inline constexpr std::string_view PostProcessColor = "PostProcessColor";           // Alias for the latest upstream full-resolution post-chain source (AOApply, SSS, or SceneColor)
     inline constexpr std::string_view BloomColor = "BloomColor";                       // After Bloom composite (only valid when Bloom is enabled)
     inline constexpr std::string_view DOFColor = "DOFColor";                           // After depth-of-field (only valid when DOF is enabled)
     inline constexpr std::string_view MotionBlurColor = "MotionBlurColor";             // After motion blur (only valid when motion blur is enabled)
     inline constexpr std::string_view TAAColor = "TAAColor";                           // After temporal AA resolve (only valid when TAA is enabled)
     inline constexpr std::string_view PrecipitationColor = "PrecipitationColor";       // After screen-space precipitation overlay (only valid when precipitation screen FX enabled)
     inline constexpr std::string_view FogColor = "FogColor";                           // After volumetric fog composite (only valid when fog is enabled)
+    inline constexpr std::string_view FogHalfRes = "FogHalfRes";                       // Half-resolution volumetric fog integration scratch
     inline constexpr std::string_view ChromAbColor = "ChromAbColor";                   // After chromatic aberration
     inline constexpr std::string_view ColorGradingColor = "ColorGradingColor";         // After colour grading
     inline constexpr std::string_view ToneMapColor = "ToneMapColor";                   // After tone mapping (HDR→LDR boundary)
@@ -348,16 +350,18 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view TAAHistory = "TAAHistory"; // Previous TAA accumulation buffer
     inline constexpr std::string_view FogHistory = "FogHistory"; // Previous volumetric fog integration
 
-    // Weighted-blended OIT accumulation targets (Water / Particle OIT modes
-    // write these; OITResolvePass reads them and composites back onto
-    // SceneColor). Modelled as separate resources so the L5 hazard
-    // validator can catch a missing Water -> OITResolve handoff (a RAW on
-    // OITAccum rather than the older "both write SceneColor" approximation,
-    // which let the real bug slip through).
+    // Weighted-blended OIT accumulation targets (particles and forward
+    // transparent decals write these; OITResolvePass reads them and
+    // composites back onto SceneColor). Modelled as separate resources so
+    // the L5 hazard validator can catch a missing contributor ->
+    // OITResolve handoff on OITAccum / OITRevealage instead of falling back
+    // to the older "both write SceneColor" approximation.
     // `OITBuffer` is the shared transient MRT framebuffer that backs both
-    // OITAccum (RT0 = RGBA16F) and OITRevealage (RT1 = RG16F). Both
-    // blackboard handles point to the same physical transient FB.
-    inline constexpr std::string_view OITBuffer = "OITBuffer";       // Transient MRT FB (RT0=RGBA16F accum, RT1=RG16F revealage)
+    // OITAccum (RT0 = RGBA16F) and OITRevealage (RT1 = RG16F), plus a
+    // graph-owned DEPTH24_STENCIL8 attachment seeded from SceneColor before
+    // transparent contributors execute. Both blackboard handles point to the
+    // same physical transient FB.
+    inline constexpr std::string_view OITBuffer = "OITBuffer";       // Transient MRT FB (RT0=RGBA16F accum, RT1=RG16F revealage, D=DEPTH24_STENCIL8)
     inline constexpr std::string_view OITAccum = "OITAccum";         // RGBA16F accumulation attachment
     inline constexpr std::string_view OITRevealage = "OITRevealage"; // RG16F revealage attachment
 } // namespace OloEngine::ResourceNames

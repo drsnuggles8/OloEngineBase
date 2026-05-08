@@ -55,7 +55,6 @@ namespace OloEngine
       private:
         void CreateFramebuffer(u32 width, u32 height);
 
-        Ref<Framebuffer> m_OutputFB;
         Ref<Shader> m_Shader;
         Ref<UniformBuffer> m_PostProcessUBO;
 

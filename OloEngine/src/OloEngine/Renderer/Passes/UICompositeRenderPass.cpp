@@ -55,20 +55,14 @@ namespace OloEngine
 
     void UICompositeRenderPass::CreateFramebuffer(u32 width, u32 height)
     {
-        FramebufferSpecification fbSpec;
-        fbSpec.Width = width;
-        fbSpec.Height = height;
-        fbSpec.Samples = 1;
-        // Match the ScenePass MRT layout so Renderer2D shaders (which output to 3
-        // locations: color, entity ID, view-normal) don't trigger NVIDIA driver
-        // shader recompilation when the draw-buffer configuration changes.
-        fbSpec.Attachments = {
-            FramebufferTextureFormat::RGBA8,       // [0] LDR color (composited scene + UI)
-            FramebufferTextureFormat::RED_INTEGER, // [1] Entity ID (for editor picking)
-            FramebufferTextureFormat::RG16F        // [2] View-normal (unused, but keeps MRT layout stable)
-        };
+        if (width == 0 || height == 0)
+        {
+            OLO_CORE_WARN("UICompositeRenderPass::CreateFramebuffer: Invalid dimensions {}x{}", width, height);
+            m_Target = nullptr;
+            return;
+        }
 
-        m_Target = Framebuffer::Create(fbSpec);
+        m_Target = nullptr;
     }
 
     void UICompositeRenderPass::Execute()
@@ -143,14 +137,27 @@ namespace OloEngine
                 s_PreviousInputColorID = inputColorID;
             }
         }
-        if (!m_Target)
+
+        const auto* board = context.GetBlackboard();
+        Ref<Framebuffer> outputFramebuffer;
+        if (board)
         {
+            if (auto fb = context.ResolveFramebuffer(board->UIComposite))
+                outputFramebuffer = fb;
+        }
+
+        if (!outputFramebuffer)
+        {
+            m_Target = nullptr;
             return;
         }
 
+        m_Target = outputFramebuffer;
+
         // Bind our FBO and clear all attachments (handles mixed integer/float types)
-        m_Target->Bind();
-        context.SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
+        outputFramebuffer->Bind();
+        const auto& outputSpec = outputFramebuffer->GetSpecification();
+        context.SetViewport(0, 0, outputSpec.Width, outputSpec.Height);
         constexpr u32 colorAttachment = 0;
         context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
         context.SetDepthTest(false);
@@ -161,7 +168,7 @@ namespace OloEngine
         RenderCommand::DisableScissorTest();
         RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         RenderCommand::SetColorMask(true, true, true, true);
-        m_Target->ClearAllAttachments({ 0.0f, 0.0f, 0.0f, 1.0f }, -1);
+        outputFramebuffer->ClearAllAttachments({ 0.0f, 0.0f, 0.0f, 1.0f }, -1);
 
         // Blit the post-processed scene as background
         if (inputFramebuffer && m_BlitShader)
@@ -248,10 +255,7 @@ namespace OloEngine
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
 
-        if (m_Target)
-        {
-            m_Target->Resize(width, height);
-        }
+        CreateFramebuffer(width, height);
 
         OLO_CORE_INFO("UICompositeRenderPass: Resized to {}x{}", width, height);
     }
@@ -260,10 +264,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_FramebufferSpec.Width > 0 && m_FramebufferSpec.Height > 0)
-        {
-            CreateFramebuffer(m_FramebufferSpec.Width, m_FramebufferSpec.Height);
-        }
+        m_Target = nullptr;
     }
 
     void UICompositeRenderPass::SetRenderCallback(RenderCallback callback)

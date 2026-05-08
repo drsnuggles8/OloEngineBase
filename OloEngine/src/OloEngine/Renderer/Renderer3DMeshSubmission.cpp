@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Renderer/Renderer3DDrawHelpers.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionCuller.h"
@@ -130,7 +131,7 @@ namespace OloEngine
     CommandPacket* Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic, i32 entityID, const LODGroup* lodGroup)
     {
         OLO_PROFILE_FUNCTION();
-        if (!s_Data.ScenePass)
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             OLO_CORE_ERROR("Renderer3D::DrawMesh: ScenePass is null!");
             return nullptr;
@@ -237,7 +238,7 @@ namespace OloEngine
             // output locations onto G-Buffer slots. Reroute to
             // ForwardOverlayPass so the override gets the forward FB layout
             // it was authored against.
-            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.ForwardOverlayPass &&
+            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay &&
                 !IsDeferredCapableShader(shaderToUse))
             {
                 overlayRoute = true;
@@ -257,7 +258,7 @@ namespace OloEngine
         else
         {
             shaderToUse = s_Data.LightingShader;
-            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.ForwardOverlayPass)
+            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay)
                 overlayRoute = true;
         }
 
@@ -352,7 +353,7 @@ namespace OloEngine
     CommandPacket* Renderer3D::DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic, u64 ownerKey)
     {
         OLO_PROFILE_FUNCTION();
-        if (!s_Data.ScenePass)
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             OLO_CORE_ERROR("Renderer3D::DrawMeshInstanced: ScenePass is null!");
             return nullptr;
@@ -513,7 +514,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!s_Data.ScenePass)
+        if (!s_Data.Pipeline->FrameCorePasses.Scene)
         {
             OLO_CORE_ERROR("Renderer3D::DrawAnimatedMesh: ScenePass is null!");
             return nullptr;
@@ -593,7 +594,7 @@ namespace OloEngine
             // override on the Deferred path must be rerouted to
             // ForwardOverlayPass so it doesn't alias forward outputs onto
             // G-Buffer slots.
-            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.ForwardOverlayPass &&
+            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay &&
                 !IsDeferredCapableShader(shaderToUse))
             {
                 overlayRoute = true;
@@ -609,7 +610,7 @@ namespace OloEngine
         else
         {
             shaderToUse = s_Data.SkinnedLightingShader;
-            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.ForwardOverlayPass)
+            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay)
                 overlayRoute = true;
         }
 
@@ -617,7 +618,7 @@ namespace OloEngine
         {
             OLO_CORE_WARN("Renderer3D::DrawAnimatedMesh: Preferred shader not available, falling back to Lighting3D");
             shaderToUse = s_Data.LightingShader;
-            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.ForwardOverlayPass)
+            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay)
                 overlayRoute = true;
         }
         if (!shaderToUse)
@@ -1111,7 +1112,7 @@ namespace OloEngine
         // PBR material never triggers this reroute.
         const bool overlayReroute = (s_Data.Settings.Path == RenderingPath::Deferred) &&
                                     !IsDeferredCapableShader(shaderToUse) &&
-                                    s_Data.ForwardOverlayPass;
+                                    s_Data.Pipeline->RenderStreamPasses.ForwardOverlay;
 
         const u32 vertexArrayID = meshToUse->GetVertexArray()->GetRendererID();
         const u32 shaderRendererID = shaderToUse->GetRendererID();

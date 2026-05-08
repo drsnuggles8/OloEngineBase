@@ -157,6 +157,12 @@ namespace OloEngine
         // @brief Get bound resources for sharing between registries
         std::unordered_map<std::string, ShaderResource> GetBoundResources() const;
 
+        // Global registry map keyed by shader program ID.
+        static void Register(u32 shaderID, ShaderResourceRegistry* registry);
+        static void Unregister(u32 shaderID);
+        static ShaderResourceRegistry* Find(u32 shaderID);
+        static const std::unordered_map<u32, ShaderResourceRegistry*>& GetRegisteredRegistries();
+
         // @brief Get binding information for a resource name
         const ResourceBinding* GetBindingInfo(const std::string& resourceName) const;
 

@@ -1,5 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Renderer3DInternal.h"
+#include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionCuller.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionState.h"
@@ -12,6 +14,55 @@ namespace OloEngine
     {
         bool s_ForceDisableCulling = false;
     } // namespace
+
+    bool Renderer3D::IsShadowPassAvailable()
+    {
+        return s_Data.Pipeline->FrameCorePasses.Shadow != nullptr;
+    }
+
+    void Renderer3D::AddMeshShadowCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform,
+                                         RendererID shadowVaoID, const BoundingBox& worldBounds)
+    {
+        if (auto shadowPass = s_Data.Pipeline->FrameCorePasses.Shadow; shadowPass)
+        {
+            shadowPass->AddMeshCaster(vaoID, indexCount, transform, shadowVaoID, worldBounds);
+        }
+    }
+
+    void Renderer3D::AddSkinnedShadowCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform,
+                                            u32 boneBufferOffset, u32 boneCount, const BoundingBox& worldBounds)
+    {
+        if (auto shadowPass = s_Data.Pipeline->FrameCorePasses.Shadow; shadowPass)
+        {
+            shadowPass->AddSkinnedCaster(vaoID, indexCount, transform, boneBufferOffset, boneCount, worldBounds);
+        }
+    }
+
+    void Renderer3D::AddTerrainShadowCaster(RendererID vaoID, u32 indexCount, u32 patchVertexCount,
+                                            const glm::mat4& transform, RendererID heightmapTextureID,
+                                            const ShaderBindingLayout::TerrainUBO& terrainUBO)
+    {
+        if (auto shadowPass = s_Data.Pipeline->FrameCorePasses.Shadow; shadowPass)
+        {
+            shadowPass->AddTerrainCaster(vaoID, indexCount, patchVertexCount, transform, heightmapTextureID, terrainUBO);
+        }
+    }
+
+    void Renderer3D::AddVoxelShadowCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform)
+    {
+        if (auto shadowPass = s_Data.Pipeline->FrameCorePasses.Shadow; shadowPass)
+        {
+            shadowPass->AddVoxelCaster(vaoID, indexCount, transform);
+        }
+    }
+
+    void Renderer3D::AddFoliageShadowCaster(FoliageRenderer* renderer, const Ref<Shader>& depthShader, f32 time)
+    {
+        if (auto shadowPass = s_Data.Pipeline->FrameCorePasses.Shadow; shadowPass)
+        {
+            shadowPass->AddFoliageCaster(renderer, depthShader, time);
+        }
+    }
 
     void Renderer3D::SetLight(const Light& light)
     {

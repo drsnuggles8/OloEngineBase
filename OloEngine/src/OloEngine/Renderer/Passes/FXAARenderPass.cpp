@@ -42,19 +42,11 @@ namespace OloEngine
         if (width == 0 || height == 0)
         {
             OLO_CORE_WARN("FXAARenderPass::CreateFramebuffer: Invalid dimensions {}x{}", width, height);
-            m_OutputFB = nullptr;
+            m_Target = nullptr;
             return;
         }
 
-        FramebufferSpecification fbSpec;
-        fbSpec.Width = width;
-        fbSpec.Height = height;
-        fbSpec.Samples = 1;
-        fbSpec.Attachments = {
-            FramebufferTextureFormat::RGBA8 // LDR — FXAA runs after tone mapping.
-        };
-
-        m_OutputFB = Framebuffer::Create(fbSpec);
+        m_Target = nullptr;
     }
 
     void FXAARenderPass::Execute()
@@ -70,8 +62,9 @@ namespace OloEngine
         // Phase F slice 44 — self-resolving input framebuffer from the render-graph
         // blackboard. Preference chain: Vignette > ToneMap > ColorGrading > ChromAb >
         // Fog > Precipitation > TAA > MotionBlur > DOF > Bloom > PostProcess.
+        const auto* board = context.GetBlackboard();
         Ref<Framebuffer> inputFramebuffer;
-        if (const auto* board = context.GetBlackboard())
+        if (board)
         {
             if (!inputFramebuffer)
                 if (auto fb = context.ResolveFramebuffer(board->VignetteColor))
@@ -107,10 +100,27 @@ namespace OloEngine
                 if (auto fb = context.ResolveFramebuffer(board->PostProcessColor))
                     inputFramebuffer = fb;
         }
-        if (!m_Enabled || !inputFramebuffer || !m_OutputFB || !m_FXAAShader)
+
+        Ref<Framebuffer> outputFramebuffer;
+        if (board)
         {
+            if (auto fb = context.ResolveFramebuffer(board->FXAAColor))
+                outputFramebuffer = fb;
+        }
+
+        if (!m_Enabled)
+        {
+            m_Target = inputFramebuffer;
             return;
         }
+
+        if (!board || !inputFramebuffer || !outputFramebuffer || !m_FXAAShader)
+        {
+            m_Target = nullptr;
+            return;
+        }
+
+        m_Target = outputFramebuffer;
 
         // PostProcessUBO (binding 7) is uploaded once per frame by Renderer3D
         // before the post-process chain runs. SetData() does not restore
@@ -120,9 +130,9 @@ namespace OloEngine
         if (m_PostProcessUBO)
             m_PostProcessUBO->Bind();
 
-        m_OutputFB->Bind();
+        outputFramebuffer->Bind();
 
-        const auto& outSpec = m_OutputFB->GetSpecification();
+        const auto& outSpec = outputFramebuffer->GetSpecification();
         context.SetViewport(0, 0, outSpec.Width, outSpec.Height);
         // Mirror the shared fullscreen colour-pass state setup — prefer
         // RGCommandContext setters where available (so graph hazard tracking
@@ -155,14 +165,14 @@ namespace OloEngine
         context.DrawIndexed(va);
 
         context.SetDepthMask(true);
-        m_OutputFB->Unbind();
+        outputFramebuffer->Unbind();
     }
 
     Ref<Framebuffer> FXAARenderPass::GetTarget() const
     {
-        if (!m_Enabled || !m_OutputFB)
+        if (!m_Target)
             return nullptr;
-        return m_OutputFB;
+        return m_Target;
     }
 
     void FXAARenderPass::SetupFramebuffer(u32 width, u32 height)
@@ -183,6 +193,6 @@ namespace OloEngine
 
     void FXAARenderPass::OnReset()
     {
-        // No persistent state to reset.
+        m_Target = nullptr;
     }
 } // namespace OloEngine

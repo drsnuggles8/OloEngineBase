@@ -1,6 +1,6 @@
 #pragma once
 
-#include "OloEngine/Renderer/PassGraphNode.h"
+#include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/Camera/PerspectiveCamera.h"
 #include "OloEngine/Renderer/Material.h"
@@ -9,34 +9,6 @@
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/LOD.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
-#include "OloEngine/Renderer/Passes/SceneRenderPass.h"
-#include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
-#include "OloEngine/Renderer/Passes/DeferredOpaqueDecalPass.h"
-#include "OloEngine/Renderer/Passes/FoliageRenderPass.h"
-#include "OloEngine/Renderer/Passes/ForwardOverlayRenderPass.h"
-#include "OloEngine/Renderer/Passes/WaterRenderPass.h"
-#include "OloEngine/Renderer/Passes/DecalRenderPass.h"
-#include "OloEngine/Renderer/Passes/ParticleRenderPass.h"
-#include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
-#include "OloEngine/Renderer/Passes/FinalRenderPass.h"
-#include "OloEngine/Renderer/Passes/AOApplyRenderPass.h"
-#include "OloEngine/Renderer/Passes/BloomRenderPass.h"
-#include "OloEngine/Renderer/Passes/DOFRenderPass.h"
-#include "OloEngine/Renderer/Passes/MotionBlurRenderPass.h"
-#include "OloEngine/Renderer/Passes/TAARenderPass.h"
-#include "OloEngine/Renderer/Passes/PrecipitationRenderPass.h"
-#include "OloEngine/Renderer/Passes/FogRenderPass.h"
-#include "OloEngine/Renderer/Passes/ChromaticAberrationRenderPass.h"
-#include "OloEngine/Renderer/Passes/ColorGradingRenderPass.h"
-#include "OloEngine/Renderer/Passes/ToneMapRenderPass.h"
-#include "OloEngine/Renderer/Passes/VignetteRenderPass.h"
-#include "OloEngine/Renderer/Passes/FXAARenderPass.h"
-#include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
-#include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
-#include "OloEngine/Renderer/Passes/SSAORenderPass.h"
-#include "OloEngine/Renderer/Passes/GTAORenderPass.h"
-#include "OloEngine/Renderer/Passes/SSSRenderPass.h"
-#include "OloEngine/Renderer/Passes/OITResolveRenderPass.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Core/Timestep.h"
@@ -50,6 +22,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <functional>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -58,6 +32,10 @@
 namespace OloEngine
 {
     class Texture2D;
+    class TextureCubemap;
+    class Shader;
+    class VertexArray;
+    class Framebuffer;
     class RenderCommand;
     class UniformBuffer;
     class CommandBucket;
@@ -66,6 +44,8 @@ namespace OloEngine
     class CommandAllocator;
     class EditorCamera;
     class AssetReloadedEvent;
+    class CommandPacket;
+    class FoliageRenderer;
     class Window;
     struct FramebufferSpecification;
     struct PODMaterialData;
@@ -73,8 +53,6 @@ namespace OloEngine
 
 namespace OloEngine
 {
-    struct Renderer3DFrameGraphInputs;
-
     // ========================================================================
     // Parallel Rendering Context
     // ========================================================================
@@ -137,6 +115,8 @@ namespace OloEngine
     class Renderer3D
     {
       public:
+        using RenderCallback = std::function<void()>;
+
         enum class RenderStreamType : u8
         {
             Geometry = 0,
@@ -625,83 +605,38 @@ namespace OloEngine
         {
             return s_Data.GlobalResourceRegistry.SetResource(name, resource);
         }
-        static void ApplyGlobalResources();
 
-        // Re-bind scene-pass UBOs (camera, light) to their binding points.
-        // Must be called before scene command execution since earlier passes
-        // (e.g. ShadowPass) may have bound their own UBOs to the same slots.
-        static void BindSceneUBOs();
-
-        // Shader registry management
-        static ShaderResourceRegistry* GetShaderRegistry(u32 shaderID);
-        static void RegisterShaderRegistry(u32 shaderID, ShaderResourceRegistry* registry);
-        static void UnregisterShaderRegistry(u32 shaderID);
-        static const std::unordered_map<u32, ShaderResourceRegistry*>& GetShaderRegistries();
-
-        // High-level resource setting methods
-        template<typename T>
-        static bool SetShaderResource(u32 shaderID, const std::string& name, const Ref<T>& resource)
-        {
-            auto* registry = GetShaderRegistry(shaderID);
-            if (registry)
-            {
-                return registry->SetResource(name, resource);
-            }
-            return false;
-        }
-        static void ApplyResourceBindings(u32 shaderID);
-
-        // Debug access to command bucket for debugging tools
-        static const CommandBucket* GetCommandBucket()
-        {
-            if (auto* geometryNode = GetRenderStreamNode(RenderStreamType::Geometry))
-                return &geometryNode->GetCommandBucket();
-            return nullptr;
-        }
-
-        // Entity ID picking support
-        /**
-         * @brief Read entity ID from the scene framebuffer at the given pixel coordinates
-         * @param x Pixel x coordinate
-         * @param y Pixel y coordinate
-         * @return Entity ID at the given position (0 if no entity)
-         */
-        static int ReadEntityIDFromFramebuffer(int x, int y)
-        {
-            if (!s_Data.ScenePass)
-            {
-                return 0;
-            }
-            auto framebuffer = s_Data.ScenePass->GetTarget();
-            if (!framebuffer)
-            {
-                return 0;
-            }
-            // Entity ID is stored in attachment index 1 (RED_INTEGER format)
-            return framebuffer->ReadPixel(1, x, y);
-        }
-
-        static Ref<Framebuffer> GetSceneFramebuffer()
-        {
-            if (!s_Data.ScenePass)
-            {
-                return nullptr;
-            }
-            return s_Data.ScenePass->GetTarget();
-        }
+        static bool IsShadowPassAvailable();
 
         // Window resize handling
         static void OnWindowResize(u32 width, u32 height);
-        static const Ref<RenderGraph>& GetRenderGraph()
+
+        static Ref<Framebuffer> ResolveFrameGraphFramebuffer(std::string_view resourceName)
         {
-            return s_Data.RGraph;
+            if (!s_Data.RGraph)
+            {
+                return nullptr;
+            }
+
+            return s_Data.RGraph->ResolveFramebuffer(s_Data.RGraph->GetFramebufferHandle(resourceName));
+        }
+
+        static u32 ResolveFrameGraphTexture(std::string_view resourceName)
+        {
+            if (!s_Data.RGraph)
+            {
+                return 0;
+            }
+
+            return s_Data.RGraph->ResolveTexture(s_Data.RGraph->GetTextureHandle(resourceName));
         }
 
         // Dynamic Resolution Scaling.
         // scale is clamped to [0.25, 1.0]; use 1.0 to disable DRS.
         // The render graph forwards the scale to all registered render passes
         // via ApplyRenderViewport, and the DRS UBO (binding 33) is updated
-        // each frame in BeginSceneCommon so shaders can clamp screen-space UVs.
+        // each frame during `RenderPipeline::PrepareFrame(...)` so shaders can
+        // clamp screen-space UVs.
         static void SetRenderScale(f32 scale);
         static f32 GetRenderScale()
         {
@@ -719,150 +654,16 @@ namespace OloEngine
             return std::min(s_Data.MaxMSAASamplesColor, s_Data.MaxMSAASamplesDepth);
         }
 
-        static const Ref<SceneRenderPass>& GetScenePass()
-        {
-            return s_Data.ScenePass;
-        }
+        static void SetParticleRenderCallback(RenderCallback callback);
 
-        static const Ref<ParticleRenderPass>& GetParticlePass()
-        {
-            return s_Data.SceneCompositePasses.Particle;
-        }
-
-        static const Ref<ShadowRenderPass>& GetShadowPass()
-        {
-            return s_Data.ShadowPass;
-        }
-
-        static const Ref<DeferredLightingPass>& GetDeferredLightingPass()
-        {
-            return s_Data.SceneCompositePasses.DeferredLighting;
-        }
-
-        static const Ref<DeferredOpaqueDecalPass>& GetDeferredOpaqueDecalPass()
-        {
-            return s_Data.SceneCompositePasses.DeferredOpaqueDecal;
-        }
-
-        static const Ref<ForwardOverlayRenderPass>& GetForwardOverlayPass()
-        {
-            return s_Data.ForwardOverlayPass;
-        }
-
-        static const Ref<FoliageRenderPass>& GetFoliagePass()
-        {
-            return s_Data.FoliagePass;
-        }
-
-        static const Ref<WaterRenderPass>& GetWaterPass()
-        {
-            return s_Data.WaterPass;
-        }
-
-        static const Ref<DecalRenderPass>& GetDecalPass()
-        {
-            return s_Data.DecalPass;
-        }
-
-        static const Ref<SSSRenderPass>& GetSSSPass()
-        {
-            return s_Data.PostProcessPasses.SSS;
-        }
-
-        static const Ref<OITResolveRenderPass>& GetOITResolvePass()
-        {
-            return s_Data.SceneCompositePasses.OITResolve;
-        }
-
-        static const Ref<SSAORenderPass>& GetSSAOPass()
-        {
-            return s_Data.SceneCompositePasses.SSAO;
-        }
-
-        static const Ref<GTAORenderPass>& GetGTAOPass()
-        {
-            return s_Data.SceneCompositePasses.GTAO;
-        }
-
-        static const Ref<AOApplyRenderPass>& GetAOApplyPass()
-        {
-            return s_Data.PostProcessPasses.AOApply;
-        }
-
-        static const Ref<BloomRenderPass>& GetBloomPass()
-        {
-            return s_Data.PostProcessPasses.Bloom;
-        }
-
-        static const Ref<DOFRenderPass>& GetDOFPass()
-        {
-            return s_Data.PostProcessPasses.DOF;
-        }
-
-        static const Ref<MotionBlurRenderPass>& GetMotionBlurPass()
-        {
-            return s_Data.PostProcessPasses.MotionBlur;
-        }
-
-        static const Ref<TAARenderPass>& GetTAAPass()
-        {
-            return s_Data.PostProcessPasses.TAA;
-        }
-
-        static const Ref<PrecipitationRenderPass>& GetPrecipitationPass()
-        {
-            return s_Data.PostProcessPasses.Precipitation;
-        }
-
-        static const Ref<FogRenderPass>& GetFogPass()
-        {
-            return s_Data.PostProcessPasses.Fog;
-        }
-
-        static const Ref<ChromaticAberrationRenderPass>& GetChromAberrationPass()
-        {
-            return s_Data.PostProcessPasses.ChromAberration;
-        }
-
-        static const Ref<ColorGradingRenderPass>& GetColorGradingPass()
-        {
-            return s_Data.PostProcessPasses.ColorGrading;
-        }
-
-        static const Ref<ToneMapRenderPass>& GetToneMapPass()
-        {
-            return s_Data.PostProcessPasses.ToneMap;
-        }
-
-        static const Ref<VignetteRenderPass>& GetVignettePass()
-        {
-            return s_Data.PostProcessPasses.Vignette;
-        }
-
-        static const Ref<FXAARenderPass>& GetFXAAPass()
-        {
-            return s_Data.PostProcessPasses.FXAA;
-        }
-
-        static const Ref<UICompositeRenderPass>& GetUICompositePass()
-        {
-            return s_Data.PostProcessPasses.UIComposite;
-        }
-
-        static const Ref<SelectionOutlineRenderPass>& GetSelectionOutlinePass()
-        {
-            return s_Data.PostProcessPasses.SelectionOutline;
-        }
-
-        static const Ref<FinalRenderPass>& GetFinalPass()
-        {
-            return s_Data.PostProcessPasses.Final;
-        }
+        static void SetUICompositeRenderCallback(RenderCallback callback);
 
         static void SetSelectionOutlineEnabled(bool enabled)
         {
             s_Data.EnableSelectionOutline = enabled;
         }
+
+        static void SetSelectionOutlineEntityIDs(const std::vector<i32>& ids);
 
         static bool IsSelectionOutlineEnabled()
         {
@@ -873,6 +674,20 @@ namespace OloEngine
         {
             return s_Data.Shadow;
         }
+
+        static void AddMeshShadowCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform,
+                                        RendererID shadowVaoID = 0, const BoundingBox& worldBounds = NoBounds);
+
+        static void AddSkinnedShadowCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform,
+                                           u32 boneBufferOffset, u32 boneCount, const BoundingBox& worldBounds = NoBounds);
+
+        static void AddTerrainShadowCaster(RendererID vaoID, u32 indexCount, u32 patchVertexCount,
+                                           const glm::mat4& transform, RendererID heightmapTextureID,
+                                           const ShaderBindingLayout::TerrainUBO& terrainUBO);
+
+        static void AddVoxelShadowCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform);
+
+        static void AddFoliageShadowCaster(FoliageRenderer* renderer, const Ref<Shader>& depthShader, f32 time);
 
         // @brief Record this frame's transform for an entity and return the
         // previous frame's transform (or the current one if no history exists
@@ -1093,7 +908,6 @@ namespace OloEngine
             glm::vec4 normalMapScroll = glm::vec4(0.0f);
             glm::vec4 normalMapSpeed = glm::vec4(0.0f);
             glm::vec4 lightDirection = glm::vec4(0.0f);
-            glm::vec4 screenParams = glm::vec4(0.0f);
             glm::vec4 depthRefractionParams = glm::vec4(0.0f);
             glm::vec4 refractionColor = glm::vec4(0.0f);
             glm::vec4 foamParams = glm::vec4(0.0f);
@@ -1212,52 +1026,6 @@ namespace OloEngine
         }
 
       private:
-        struct RenderStreamNodes
-        {
-            Ref<PassGraphNode> Geometry;
-            Ref<PassGraphNode> ForwardOverlay;
-            Ref<PassGraphNode> Foliage;
-            Ref<PassGraphNode> Water;
-            Ref<PassGraphNode> Decal;
-
-            [[nodiscard]] auto Get(RenderStreamType stream) -> PassGraphNode*
-            {
-                switch (stream)
-                {
-                    case RenderStreamType::Geometry:
-                        return Geometry.Raw();
-                    case RenderStreamType::ForwardOverlay:
-                        return ForwardOverlay.Raw();
-                    case RenderStreamType::Foliage:
-                        return Foliage.Raw();
-                    case RenderStreamType::Water:
-                        return Water.Raw();
-                    case RenderStreamType::Decal:
-                        return Decal.Raw();
-                }
-
-                return nullptr;
-            }
-
-            void ForEach(auto&& func)
-            {
-                func(Geometry.Raw());
-                func(ForwardOverlay.Raw());
-                func(Foliage.Raw());
-                func(Water.Raw());
-                func(Decal.Raw());
-            }
-
-            void Reset()
-            {
-                Geometry.Reset();
-                ForwardOverlay.Reset();
-                Foliage.Reset();
-                Water.Reset();
-                Decal.Reset();
-            }
-        };
-
         struct SceneBindingUBOs
         {
             Ref<UniformBuffer> Camera;
@@ -1317,76 +1085,13 @@ namespace OloEngine
             }
         };
 
-        struct PostProcessPassChain
-        {
-            Ref<SSSRenderPass> SSS;
-            Ref<AOApplyRenderPass> AOApply;
-            Ref<BloomRenderPass> Bloom;
-            Ref<DOFRenderPass> DOF;
-            Ref<MotionBlurRenderPass> MotionBlur;
-            Ref<TAARenderPass> TAA;
-            Ref<PrecipitationRenderPass> Precipitation;
-            Ref<FogRenderPass> Fog;
-            Ref<ChromaticAberrationRenderPass> ChromAberration;
-            Ref<ColorGradingRenderPass> ColorGrading;
-            Ref<ToneMapRenderPass> ToneMap;
-            Ref<VignetteRenderPass> Vignette;
-            Ref<FXAARenderPass> FXAA;
-            Ref<SelectionOutlineRenderPass> SelectionOutline;
-            Ref<UICompositeRenderPass> UIComposite;
-            Ref<FinalRenderPass> Final;
+        struct RenderStreamNodes;
+        struct PostProcessPassChain;
+        struct SceneCompositionPassSet;
+        struct FrameCorePassSet;
+        struct RenderStreamPassSet;
+        struct RenderPipeline;
 
-            void Reset()
-            {
-                SSS.Reset();
-                AOApply.Reset();
-                Bloom.Reset();
-                DOF.Reset();
-                MotionBlur.Reset();
-                TAA.Reset();
-                Precipitation.Reset();
-                Fog.Reset();
-                ChromAberration.Reset();
-                ColorGrading.Reset();
-                ToneMap.Reset();
-                Vignette.Reset();
-                FXAA.Reset();
-                SelectionOutline.Reset();
-                UIComposite.Reset();
-                Final.Reset();
-            }
-        };
-
-        struct SceneCompositionPassSet
-        {
-            Ref<DeferredLightingPass> DeferredLighting;
-            Ref<DeferredOpaqueDecalPass> DeferredOpaqueDecal;
-            Ref<SSAORenderPass> SSAO;
-            Ref<GTAORenderPass> GTAO;
-            Ref<ParticleRenderPass> Particle;
-            Ref<OITResolveRenderPass> OITResolve;
-
-            void Reset()
-            {
-                DeferredLighting.Reset();
-                DeferredOpaqueDecal.Reset();
-                SSAO.Reset();
-                GTAO.Reset();
-                Particle.Reset();
-                OITResolve.Reset();
-            }
-        };
-
-        static PassGraphNode* GetRenderStreamNode(RenderStreamType stream);
-        static void BeginSceneCommon();
-        static void UpdateCameraMatricesUBO(const glm::mat4& view, const glm::mat4& projection);
-        static void UpdateLightPropertiesUBO();
-        static void CreatePrimaryFrameGraphPasses(const FramebufferSpecification& shadowPassSpec,
-                              const FramebufferSpecification& scenePassSpec,
-                              const FramebufferSpecification& finalPassSpec);
-        static void CreateFrameGraphRenderStreamNodes();
-        static void ConfigureFrameGraphOITInfrastructure();
-        static void CreatePostProcessFrameGraphPasses(const FramebufferSpecification& finalPassSpec);
         static void SetupRenderGraph(u32 width, u32 height);
         // Rebuild the RenderGraph topology (registered passes + edges) for
         // the given rendering path. Called from SetupRenderGraph on startup
@@ -1394,18 +1099,8 @@ namespace OloEngine
         // Forward / Forward+ / Deferred. Passes that are no-ops in the
         // target path (DeferredLightingPass / ForwardOverlayPass in
         // Forward+/Forward) are simply NOT registered in that topology.
-        [[nodiscard]] static auto BuildFrameGraphInputs() -> Renderer3DFrameGraphInputs;
         static void FinalizeConfiguredRenderGraph(RenderingPath path);
         static void ConfigureRenderGraph(RenderingPath path);
-
-        // Phase B — Populate the graph's FrameBlackboard with live physical
-        // resources for the current frame. Called from EndScene() after
-        // per-frame pass settings/outputs are configured so imported handles
-        // reflect the active technique for THIS frame.
-        static void SetupFrameBlackboard();
-        static void ConfigureFrameGraphPassesForFrame();
-        static void UploadFrameGraphExecutionState();
-        static void RefreshCompiledFrameGraphBlackboard();
 
         // @brief Returns true if `shader` is one of the engine's
         // G-Buffer-writing variants (PBR / Skybox / LightCube / InfiniteGrid
@@ -1415,12 +1110,16 @@ namespace OloEngine
         // rerouted to ForwardOverlayPass to avoid aliasing its outputs onto
         // G-Buffer slots.
         static bool IsDeferredCapableShader(const Ref<Shader>& shader);
-                static auto ValidateDrawMeshRendererIDs(const char* context, u32 vaoID, u32 shaderID) -> bool;
-                static auto CreatePODMaterialDataForMaterial(const Material& material, RendererID shaderRendererID) -> PODMaterialData;
+        static auto GetRenderStreamNode(RenderStreamType stream) -> CommandBufferRenderPass*;
+        static auto ValidateDrawMeshRendererIDs(const char* context, u32 vaoID, u32 shaderID) -> bool;
+        static auto CreatePODMaterialDataForMaterial(const Material& material, RendererID shaderRendererID) -> PODMaterialData;
 
       private:
         struct Renderer3DData
         {
+            Renderer3DData();
+            ~Renderer3DData();
+
             Ref<Mesh> CubeMesh;
             Ref<Mesh> QuadMesh;
             Ref<Mesh> SkyboxMesh;
@@ -1479,9 +1178,6 @@ namespace OloEngine
             // Global resource registry for scene-wide resources like environment maps, shadows, etc.
             ShaderResourceRegistry GlobalResourceRegistry;
 
-            // Shader registry management
-            std::unordered_map<u32, ShaderResourceRegistry*> ShaderRegistries;
-
             // Per-entity transform history for G-Buffer motion vectors. Prev
             // holds the previous frame's world transform keyed by entityID;
             // Curr accumulates this frame's transforms and becomes Prev at the
@@ -1499,15 +1195,7 @@ namespace OloEngine
             std::unordered_map<u64, std::vector<glm::mat4>> CurrInstanceTransforms;
 
             Ref<RenderGraph> RGraph;
-            Ref<ShadowRenderPass> ShadowPass;
-            Ref<SceneRenderPass> ScenePass;
-            RenderStreamNodes StreamNodes;
-            SceneCompositionPassSet SceneCompositePasses;
-            Ref<ForwardOverlayRenderPass> ForwardOverlayPass;
-            Ref<FoliageRenderPass> FoliagePass;
-            Ref<WaterRenderPass> WaterPass;
-            Ref<DecalRenderPass> DecalPass;
-            PostProcessPassChain PostProcessPasses;
+            std::unique_ptr<RenderPipeline> Pipeline;
 
             // Shadow mapping
             ShadowMap Shadow;
@@ -1552,8 +1240,9 @@ namespace OloEngine
             glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
 
             // TAA projection jitter state (Halton(2,3) sub-pixel sequence).
-            // BeginSceneCommon rotates CurrJitterUV -> PrevJitterUV and then
-            // samples the next Halton pair when PostProcess.TAAEnabled; the
+            // `RenderPipeline::PrepareFrame(...)` rotates CurrJitterUV ->
+            // PrevJitterUV and then samples the next Halton pair when
+            // PostProcess.TAAEnabled; the
             // jitter offset is baked into `ProjectionMatrix` (and therefore
             // `ViewProjectionMatrix`) so all downstream passes observe the
             // jittered camera consistently. In Forward / Forward+ without
@@ -1598,6 +1287,9 @@ namespace OloEngine
 
             // Editor-only features gated behind opt-in flags
             bool EnableSelectionOutline = false;
+            std::vector<i32> SelectionOutlineEntityIDs;
+            RenderCallback PendingParticleRenderCallback;
+            RenderCallback PendingUICompositeRenderCallback;
         };
 
         static Renderer3DData s_Data;

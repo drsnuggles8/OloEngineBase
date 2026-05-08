@@ -8,9 +8,10 @@ namespace OloEngine
 {
     // @brief Typed per-frame blackboard for canonical RenderGraph resource handles.
     //
-    // `Renderer3D::SetupFrameBlackboard()` populates this at frame start by
-    // calling `RenderGraph::ImportTexture` / `ImportFramebuffer` / `ImportHistory`
-    // for each live physical resource, then storing the returned typed handles here.
+    // `RenderPipeline::PopulateBlackboard(...)` populates this at frame start
+    // by calling `RenderGraph::ImportTexture` / `ImportFramebuffer` /
+    // `ImportHistory` for each live physical resource, then storing the
+    // returned typed handles here.
     //
     // Passes that need to declare resources by slot can read handles from the
     // blackboard (e.g. `board.SceneColor`) and pass them to `DeclareRead`/
@@ -101,6 +102,11 @@ namespace OloEngine
         // refraction distortion. Internal to WaterRenderPass; never consumed by other passes.
         RGTextureHandle WaterRefraction;
 
+        // Phase D Slice 8: Fog half-resolution scratch framebuffer.
+        // RGBA16F at ceil(viewport/2). Written by Fog pass A, sampled by Fog pass B,
+        // then extracted into `FogHistory` for next-frame reprojection.
+        RGFramebufferHandle FogHalfRes;
+
         // -----------------------------------------------------------------------
         // Shadow maps
         // -----------------------------------------------------------------------
@@ -113,9 +119,9 @@ namespace OloEngine
         // -----------------------------------------------------------------------
         // Post-process chain outputs
         // -----------------------------------------------------------------------
-        RGFramebufferHandle SSSColor;              // Output of SSS stage (or passthrough scene color)
+        RGFramebufferHandle SSSColor;              // Full-resolution SSS output when the blur stage is enabled and ready
         RGFramebufferHandle AOApplyColor;          // After AO apply (only valid when SSAO or GTAO is enabled)
-        RGFramebufferHandle PostProcessColor;      // Dynamic post-chain input (typically AOApply/SSS/Scene fallback)
+        RGFramebufferHandle PostProcessColor;      // Alias for the latest upstream full-resolution post-chain source (AOApply, SSS, or SceneColor)
         RGFramebufferHandle BloomColor;            // After Bloom composite (only valid when Bloom is enabled)
         RGFramebufferHandle DOFColor;              // After depth-of-field (only valid when DOF is enabled)
         RGFramebufferHandle MotionBlurColor;       // After motion blur (only valid when motion blur is enabled)

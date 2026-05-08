@@ -54,6 +54,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        (void)context;
+
         const bool hasCasters = !m_MeshCasters.empty() || !m_SkinnedCasters.empty() ||
                                 !m_TerrainCasters.empty() || !m_VoxelCasters.empty() ||
                                 !m_FoliageCasters.empty();

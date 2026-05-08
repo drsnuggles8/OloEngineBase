@@ -61,8 +61,6 @@ namespace OloEngine
       private:
         bool m_Enabled = false;
 
-        Ref<Framebuffer> m_OutputFB;
-
         Ref<Shader> m_DOFShader;
         Ref<UniformBuffer> m_PostProcessUBO;
     };

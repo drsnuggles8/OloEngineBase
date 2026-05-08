@@ -1,7 +1,6 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/OITBuffer.h"
 #include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -62,22 +61,12 @@ namespace OloEngine
         // written into the G-Buffer via `ExecuteOnGBuffer` and are naturally
         // order-independent (depth test + G-buffer writes are not blended).
         // In the forward path they were previously alpha-blended in scene
-        // FB; when OIT is enabled the provider returns the lazy-materialised
-        // OITBuffer and `Execute()` routes them through the same WB-OIT
-        // compositing pipeline as water / particles. The provider is
-        // queried only when `m_OITEnabled` is true. Phase F slice 15 —
-        // replaces the cached `Ref<OITBuffer>` setter.
-        void SetOITBufferProvider(std::function<Ref<OITBuffer>()> provider) noexcept
-        {
-            m_OITBufferProvider = std::move(provider);
-        }
+        // FB; when OIT is enabled `Execute()` resolves the graph-owned OIT
+        // framebuffer and routes transparent decals through the same WB-OIT
+        // compositing pipeline as particles.
         void SetOITEnabled(bool enabled) noexcept
         {
             m_OITEnabled = enabled;
-        }
-        void SetOITAccumulationMarker(std::function<void()> marker)
-        {
-            m_AccumMarker = std::move(marker);
         }
         void SetOITShader(const Ref<Shader>& shader) noexcept
         {
@@ -87,10 +76,7 @@ namespace OloEngine
       private:
         Ref<Framebuffer> m_SceneFramebuffer;
 
-        Ref<OITBuffer> m_OITBuffer;
-        std::function<Ref<OITBuffer>()> m_OITBufferProvider;
         Ref<Shader> m_OITShader;
-        std::function<void()> m_AccumMarker;
         bool m_OITEnabled = false;
 
         // Set by `ExecuteOnGBuffer` (deferred path) after it has drained the

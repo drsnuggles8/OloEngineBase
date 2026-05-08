@@ -37,19 +37,11 @@ namespace OloEngine
         if (width == 0 || height == 0)
         {
             OLO_CORE_WARN("VignetteRenderPass::CreateFramebuffer: Invalid dimensions {}x{}", width, height);
-            m_OutputFB = nullptr;
+            m_Target = nullptr;
             return;
         }
 
-        FramebufferSpecification fbSpec;
-        fbSpec.Width = width;
-        fbSpec.Height = height;
-        fbSpec.Samples = 1;
-        fbSpec.Attachments = {
-            FramebufferTextureFormat::RGBA8 // LDR — vignette runs after tone mapping.
-        };
-
-        m_OutputFB = Framebuffer::Create(fbSpec);
+        m_Target = nullptr;
     }
 
     void VignetteRenderPass::Execute()
@@ -66,8 +58,9 @@ namespace OloEngine
         // blackboard. Vignette runs after tone mapping, so ToneMapColor is the
         // primary input. Fall back toward earlier HDR chain outputs only when
         // tone mapping is unavailable.
+        const auto* board = context.GetBlackboard();
         Ref<Framebuffer> inputFramebuffer;
-        if (const auto* board = context.GetBlackboard())
+        if (board)
         {
             if (!inputFramebuffer)
                 if (auto fb = context.ResolveFramebuffer(board->ToneMapColor))
@@ -100,17 +93,34 @@ namespace OloEngine
                 if (auto fb = context.ResolveFramebuffer(board->PostProcessColor))
                     inputFramebuffer = fb;
         }
-        if (!m_Enabled || !inputFramebuffer || !m_OutputFB || !m_Shader)
+
+        Ref<Framebuffer> outputFramebuffer;
+        if (board)
         {
+            if (auto fb = context.ResolveFramebuffer(board->VignetteColor))
+                outputFramebuffer = fb;
+        }
+
+        if (!m_Enabled)
+        {
+            m_Target = inputFramebuffer;
             return;
         }
+
+        if (!board || !inputFramebuffer || !outputFramebuffer || !m_Shader)
+        {
+            m_Target = nullptr;
+            return;
+        }
+
+        m_Target = outputFramebuffer;
 
         if (m_PostProcessUBO)
             m_PostProcessUBO->Bind();
 
-        m_OutputFB->Bind();
+        outputFramebuffer->Bind();
 
-        const auto& outSpec = m_OutputFB->GetSpecification();
+        const auto& outSpec = outputFramebuffer->GetSpecification();
         context.SetViewport(0, 0, outSpec.Width, outSpec.Height);
         context.SetDepthTest(false);
         context.SetDepthMask(false);
@@ -138,14 +148,14 @@ namespace OloEngine
         context.DrawIndexed(va);
 
         context.SetDepthMask(true);
-        m_OutputFB->Unbind();
+        outputFramebuffer->Unbind();
     }
 
     Ref<Framebuffer> VignetteRenderPass::GetTarget() const
     {
-        if (!m_Enabled || !m_OutputFB)
+        if (!m_Target)
             return nullptr;
-        return m_OutputFB;
+        return m_Target;
     }
 
     void VignetteRenderPass::SetupFramebuffer(u32 width, u32 height)
@@ -166,5 +176,6 @@ namespace OloEngine
 
     void VignetteRenderPass::OnReset()
     {
+        m_Target = nullptr;
     }
 } // namespace OloEngine

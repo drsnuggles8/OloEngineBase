@@ -6,8 +6,8 @@
 // `Renderer3D::ConfigureRenderGraph(RenderingPath)` is invoked whenever the
 // user toggles between `RenderingPath::Forward`, `ForwardPlus`, and
 // `Deferred`. Each call:
-//   1. `RenderGraph::ResetTopology()` — drops passes, nodes, compatibility
-//      setup registrations, and cached execution/submission state.
+//   1. `RenderGraph::ResetTopology()` — drops passes, nodes, per-frame
+//      declaration state, and cached execution/submission state.
 //   2. Re-adds only the passes relevant to the new path.
 //   3. Re-declares the execution edges (keeps only the explicit deferred
 //      Scene->DeferredOpaqueDecal edge plus path-shared downstream handoffs,
@@ -33,7 +33,6 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
-#include "OloEngine/Renderer/PassGraphNode.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
@@ -84,7 +83,7 @@ namespace
     void MirrorPassRead(RGBuilder& builder, const ResourceHandle& resource)
     {
         const auto kind = NormalizeDeclarationKind(resource.Type);
-        const auto desc = RGResourceDesc::FromLegacy(kind, resource.Name);
+        const auto desc = RGResourceDesc::FromHandleKind(kind, resource.Name);
 
         switch (kind)
         {
@@ -113,7 +112,7 @@ namespace
     void MirrorPassWrite(RGBuilder& builder, const ResourceHandle& resource)
     {
         const auto kind = NormalizeDeclarationKind(resource.Type);
-        const auto desc = RGResourceDesc::FromLegacy(kind, resource.Name);
+        const auto desc = RGResourceDesc::FromHandleKind(kind, resource.Name);
 
         switch (kind)
         {
@@ -148,16 +147,14 @@ namespace
             MirrorPassWrite(builder, write);
     }
 
-    void RegisterDeclarativeStubNode(RenderGraph& graph, const Ref<DeclarativeStubPass>& pass)
+    void RegisterDeclarativeStubNode(RenderGraph& graph, Ref<DeclarativeStubPass> pass)
     {
-        auto node = Ref<PassGraphNode>::Create(
-            std::string(pass->GetName()),
-            pass.As<RenderPass>(),
+        pass->SetSetupCallback(
             [pass](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
             {
                 MirrorPassDeclarations(builder, *pass);
             });
-        graph.AddNode(node);
+        graph.AddNode(pass.As<RenderGraphNode>());
     }
 
     Ref<DeclarativeStubPass> AddDeclStub(RenderGraph& graph, const std::string& name)
@@ -183,10 +180,10 @@ namespace
 
     bool ContainsPass(const RenderGraph& graph, const std::string& name)
     {
-        const auto entries = graph.GetPassSubmissionInfo();
+        const auto entries = graph.GetNodeSubmissionInfo();
         return std::any_of(entries.begin(), entries.end(),
-                           [&](const RenderGraph::PassSubmissionInfo& entry)
-                           { return entry.PassName == name; });
+                           [&](const RenderGraph::NodeSubmissionInfo& entry)
+                           { return entry.NodeName == name; });
     }
 
     // Minimal production-shaped topology. Only the passes relevant to the
@@ -354,14 +351,14 @@ TEST(RenderGraphPathSwitch, AlternatingRebuildsHaveStablePassCounts)
             << "Cycle " << i << " (deferred=" << paths[i] << "): " << HazardsToString(hazards);
 
         const sizet expected = paths[i] ? kDeferredPassCount : kForwardPassCount;
-        EXPECT_EQ(graph.GetPassSubmissionInfo().size(), expected)
+        EXPECT_EQ(graph.GetNodeSubmissionInfo().size(), expected)
             << "Cycle " << i << " (deferred=" << paths[i] << "): pass count drift — ResetTopology leaking";
     }
 }
 
 // =============================================================================
 // Hand-verify the edges map after a switch to prove the validator is
-// operating on the new topology, not stale cached state. Uses `GetPassOrder`
+// operating on the new topology, not stale cached state. Uses `GetExecutionOrder`
 // to sample the topologically-sorted result after each rebuild.
 // =============================================================================
 TEST(RenderGraphPathSwitch, PassOrderReflectsCurrentTopologyAfterSwitch)
@@ -371,7 +368,7 @@ TEST(RenderGraphPathSwitch, PassOrderReflectsCurrentTopologyAfterSwitch)
     RebuildTopology(graph, /*deferred=*/true);
     (void)graph.ValidateResourceHazards(); // triggers UpdateDependencyGraph → populates m_PassOrder
     {
-        const auto& order = graph.GetPassOrder();
+        const auto& order = graph.GetExecutionOrder();
         // Topological sort must place ScenePass before
         // DeferredOpaqueDecalPass before DeferredLightingPass before
         // ForwardOverlayPass.
@@ -391,7 +388,7 @@ TEST(RenderGraphPathSwitch, PassOrderReflectsCurrentTopologyAfterSwitch)
     RebuildTopology(graph, /*deferred=*/false);
     (void)graph.ValidateResourceHazards();
     {
-        const auto& order = graph.GetPassOrder();
+        const auto& order = graph.GetExecutionOrder();
         EXPECT_EQ(std::find(order.begin(), order.end(), "DeferredOpaqueDecalPass"), order.end())
             << "DeferredOpaqueDecalPass must not appear in Forward pass order";
         EXPECT_EQ(std::find(order.begin(), order.end(), "DeferredLightingPass"), order.end())
@@ -531,7 +528,7 @@ TEST(RenderGraphPathSwitch, ThreeWayCycleCleansUpAllPathSpecificPasses)
             << "Cycle " << i << " path=" << static_cast<i32>(steps[i].path)
             << ": " << HazardsToString(hazards);
 
-        EXPECT_EQ(graph.GetPassSubmissionInfo().size(), steps[i].expected)
+        EXPECT_EQ(graph.GetNodeSubmissionInfo().size(), steps[i].expected)
             << "Cycle " << i << ": pass count drift — ResetTopology leak";
 
         // Path-specific passes must be present iff path matches.
@@ -583,7 +580,7 @@ TEST(RenderGraphPathSwitch, DeferredDecalOrderingIsTopologicallyValid)
     RebuildTopologyMultiPath(graph, TestPath::Deferred);
     (void)graph.ValidateResourceHazards();
 
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     auto indexOf = [&](const char* name) -> i64
     {
         const auto it = std::find(order.begin(), order.end(), name);

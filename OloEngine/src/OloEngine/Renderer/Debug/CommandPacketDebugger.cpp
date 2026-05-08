@@ -3,6 +3,8 @@
 #include "FrameCaptureManager.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/Commands/DrawKey.h"
+#include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
+#include "OloEngine/Renderer/RenderGraph.h"
 
 #include <algorithm>
 #include <chrono>
@@ -16,6 +18,8 @@ namespace OloEngine
 {
     namespace
     {
+        constexpr std::string_view LiveGeometryNodeName = "ScenePass";
+
         std::string EscapeCsvField(const std::string& field)
         {
             if (field.find_first_of(",\"\n") == std::string::npos)
@@ -82,6 +86,21 @@ namespace OloEngine
                 return frame->GetSnapshotRenderState(index);
             return nullptr;
         }
+
+        const CommandBucket* ResolveLiveBucket(const RenderGraph* graph)
+        {
+            if (!graph)
+            {
+                return nullptr;
+            }
+
+            if (const auto node = graph->GetNode<CommandBufferRenderPass>(std::string(LiveGeometryNodeName)); node)
+            {
+                return &node->GetCommandBucket();
+            }
+
+            return nullptr;
+        }
     } // anonymous namespace
 
     CommandPacketDebugger& CommandPacketDebugger::GetInstance()
@@ -94,7 +113,7 @@ namespace OloEngine
     // Main entry point
     // ========================================================================
 
-    void CommandPacketDebugger::RenderDebugView(const CommandBucket* bucket, bool* open, const char* title)
+    void CommandPacketDebugger::RenderDebugView(const RenderGraph* graph, bool* open, const char* title)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -145,7 +164,7 @@ namespace OloEngine
             {
                 if (ImGui::BeginTabItem("Commands"))
                 {
-                    RenderCommandList(selectedFramePtr, bucket);
+                    RenderCommandList(selectedFramePtr);
                     ImGui::EndTabItem();
                 }
 
@@ -179,7 +198,7 @@ namespace OloEngine
         else
         {
             // No captures — show live view
-            RenderLiveView(bucket);
+            RenderLiveView(ResolveLiveBucket(graph));
         }
 
         ImGui::End();
@@ -309,7 +328,7 @@ namespace OloEngine
     // Command List Tab
     // ========================================================================
 
-    void CommandPacketDebugger::RenderCommandList(const CapturedFrameData* frame, [[maybe_unused]] const CommandBucket* liveBucket)
+    void CommandPacketDebugger::RenderCommandList(const CapturedFrameData* frame)
     {
         if (!frame)
         {

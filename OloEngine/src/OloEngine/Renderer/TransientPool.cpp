@@ -24,6 +24,7 @@ namespace OloEngine
                     return 3;
                 case ImageFormat::RGBA8:
                 case ImageFormat::R32F:
+                case ImageFormat::R32I:
                 case ImageFormat::DEPTH24STENCIL8:
                     return 4;
                 case ImageFormat::RGBA16F:
@@ -340,6 +341,8 @@ namespace OloEngine
                         ImageFormat imgFormat = ImageFormat::RGBA8; // default
                         if (firstAttach.TextureFormat == FramebufferTextureFormat::RGBA8)
                             imgFormat = ImageFormat::RGBA8;
+                        else if (firstAttach.TextureFormat == FramebufferTextureFormat::RED_INTEGER)
+                            imgFormat = ImageFormat::R32I;
                         else if (firstAttach.TextureFormat == FramebufferTextureFormat::RGBA16F)
                             imgFormat = ImageFormat::RGBA16F;
                         else if (firstAttach.TextureFormat == FramebufferTextureFormat::RGBA32F)
@@ -394,6 +397,8 @@ namespace OloEngine
                             ImageFormat imgFormat = ImageFormat::RGBA8; // default
                             if (firstAttach.TextureFormat == FramebufferTextureFormat::RGBA8)
                                 imgFormat = ImageFormat::RGBA8;
+                            else if (firstAttach.TextureFormat == FramebufferTextureFormat::RED_INTEGER)
+                                imgFormat = ImageFormat::R32I;
                             else if (firstAttach.TextureFormat == FramebufferTextureFormat::RGBA16F)
                                 imgFormat = ImageFormat::RGBA16F;
                             else if (firstAttach.TextureFormat == FramebufferTextureFormat::RGBA32F)

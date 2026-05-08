@@ -18,8 +18,8 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         m_FramebufferSpec = spec;
-        // No own framebuffer — this pass renders into the ScenePass target (classic)
-        // or into the OITBuffer (WB-OIT path).
+        // No own framebuffer — this pass renders into the ScenePass target
+        // (classic) or into the graph-owned OIT framebuffer (WB-OIT path).
 
         // Resource-aware RDG: in the OIT path we write the accumulation and
         // revealage buffers; in the classic path we write directly into SceneColor.
@@ -56,32 +56,26 @@ namespace OloEngine
             }
         }
 
-        // Phase F slice 15 — fetch the OITBuffer through the provider
-        // (lazy in OITResolveRenderPass). When OIT is disabled the
-        // provider is not queried, leaving the cached Ref null and
-        // skipping any chance of allocator churn from frame-by-frame
-        // refresh.
-        if (m_OITEnabled && m_OITBufferProvider)
-            m_OITBuffer = m_OITBufferProvider();
-        else
-            m_OITBuffer.Reset();
-
         if (!m_RenderCallback || !m_SceneFramebuffer)
         {
             return;
         }
 
-        const bool useOIT = m_OITEnabled && m_OITBuffer && m_OITBuffer->GetFramebuffer();
+        Ref<Framebuffer> oitFramebuffer;
+        if (m_OITEnabled)
+        {
+            if (const auto* board = context.GetBlackboard(); board && board->OITAccum.IsValid())
+                oitFramebuffer = context.ResolveFramebuffer(board->OITAccum);
+        }
+
+        const bool useOIT = m_OITEnabled && oitFramebuffer;
 
         if (useOIT)
         {
             // Weighted-blended OIT path. Transparent particles
-            // accumulate into OITBuffer and OITResolveRenderPass composites
+            // accumulate into the graph-owned OIT target and OITResolveRenderPass composites
             // the result over the scene FB.
-            Ref<Framebuffer> oitFB = m_OITBuffer->GetFramebuffer();
-
-            // Fresh per-frame accumulation state.
-            m_OITBuffer->ClearForFrame(m_SceneFramebuffer);
+            Ref<Framebuffer> oitFB = oitFramebuffer;
 
             oitFB->Bind();
 
@@ -100,10 +94,6 @@ namespace OloEngine
             m_RenderCallback();
 
             ParticleBatchRenderer::SetOITMode(false);
-
-            // Signal OITResolvePass that it has fresh accumulated content.
-            if (m_AccumMarker)
-                m_AccumMarker();
 
             // Restore global blend state so subsequent passes don't inherit
             // the per-attachment WB-OIT factors.

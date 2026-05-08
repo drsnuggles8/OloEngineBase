@@ -24,7 +24,8 @@ namespace OloEngine
         RG32F,   // Unsupported
         RGB32F,  // Unsupported
         DEPTH24STENCIL8,
-        RG16F // Keep appended to preserve legacy serialized enum values
+        RG16F, // Keep appended to preserve legacy serialized enum values
+        R32I
     };
 
     struct TextureSpecification

@@ -47,7 +47,23 @@ namespace OloEngine
             return SubmissionModel::BucketOnly;
         }
 
+        [[nodiscard]] RenderGraphNodeFlags GetFlags() const override
+        {
+            return RenderPass::GetFlags() | RenderGraphNodeFlags::UsesCommandBucket;
+        }
+
+        template<typename T>
+        CommandPacket* CreateDrawCall()
+        {
+            return m_CommandBucket.CreateDrawCall<T>();
+        }
+
         CommandBucket& GetCommandBucket()
+        {
+            return m_CommandBucket;
+        }
+
+        const CommandBucket& GetCommandBucket() const
         {
             return m_CommandBucket;
         }

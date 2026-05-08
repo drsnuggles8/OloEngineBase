@@ -7,6 +7,7 @@
 
 namespace OloEngine
 {
+    class ClusteredForward;
     class UniformBuffer;
     class Light;
     class ShaderResourceRegistry;
@@ -65,14 +66,20 @@ namespace OloEngine
         static const glm::mat4& GetViewProjectionMatrix();
         static const glm::vec3& GetViewPosition();
 
-        // UBO access - Renderer3D provides these, CommandDispatch uses them
+        // Shared scene/runtime bindings supplied by the renderer frontend at init.
         static void SetUBOReferences(
             const Ref<UniformBuffer>& cameraUBO,
             const Ref<UniformBuffer>& materialUBO,
             const Ref<UniformBuffer>& lightUBO,
             const Ref<UniformBuffer>& boneMatricesUBO,
             const Ref<UniformBuffer>& modelMatrixUBO,
-            const Ref<UniformBuffer>& prevBoneMatricesUBO = nullptr);
+            const Ref<UniformBuffer>& prevBoneMatricesUBO = nullptr,
+            ClusteredForward* forwardPlus = nullptr);
+
+        // Rebind the shared scene camera/light UBOs after earlier passes reused
+        // those binding points, and ensure the Forward+ UBO baseline remains
+        // valid even when clustered lighting is inactive this frame.
+        static void BindSceneResources();
 
         // State management dispatch functions
         static void SetViewport(const void* data, RendererAPI& api);

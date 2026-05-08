@@ -40,6 +40,8 @@ namespace OloEngine
                     return GL_RGBA;
                 case ImageFormat::R32F:
                     return GL_RED;
+                case ImageFormat::R32I:
+                    return GL_RED_INTEGER;
                 case ImageFormat::RG32F:
                     return GL_RG;
                 case ImageFormat::RGB32F:
@@ -76,6 +78,8 @@ namespace OloEngine
                     return GL_RGBA16F;
                 case ImageFormat::R32F:
                     return GL_R32F;
+                case ImageFormat::R32I:
+                    return GL_R32I;
                 case ImageFormat::RG32F:
                     return GL_RG32F;
                 case ImageFormat::RGB32F:
@@ -153,6 +157,9 @@ namespace OloEngine
                 bytesPerPixel = 8;
                 break;
             case ImageFormat::R32F:
+                bytesPerPixel = 4;
+                break;
+            case ImageFormat::R32I:
                 bytesPerPixel = 4;
                 break;
             case ImageFormat::RG32F:

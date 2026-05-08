@@ -11,6 +11,15 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        auto GetRegisteredShaderRegistryMap() -> std::unordered_map<u32, ShaderResourceRegistry*>&
+        {
+            static std::unordered_map<u32, ShaderResourceRegistry*> s_Registries;
+            return s_Registries;
+        }
+    } // namespace
+
     ShaderResourceRegistry::ShaderResourceRegistry(const Ref<Shader>& shader)
         : m_Shader(shader)
     {
@@ -335,6 +344,44 @@ namespace OloEngine
         }
 
         return boundResources;
+    }
+
+    void ShaderResourceRegistry::Register(u32 shaderID, ShaderResourceRegistry* registry)
+    {
+        if (registry == nullptr)
+        {
+            return;
+        }
+
+        auto& registries = GetRegisteredShaderRegistryMap();
+        registries[shaderID] = registry;
+        OLO_CORE_TRACE("ShaderResourceRegistry: Registered shader registry for shader ID {}", shaderID);
+    }
+
+    void ShaderResourceRegistry::Unregister(u32 shaderID)
+    {
+        auto& registries = GetRegisteredShaderRegistryMap();
+        if (auto it = registries.find(shaderID); it != registries.end())
+        {
+            registries.erase(it);
+            OLO_CORE_TRACE("ShaderResourceRegistry: Unregistered shader registry for shader ID {}", shaderID);
+        }
+    }
+
+    ShaderResourceRegistry* ShaderResourceRegistry::Find(u32 shaderID)
+    {
+        auto& registries = GetRegisteredShaderRegistryMap();
+        if (auto it = registries.find(shaderID); it != registries.end())
+        {
+            return it->second;
+        }
+
+        return nullptr;
+    }
+
+    const std::unordered_map<u32, ShaderResourceRegistry*>& ShaderResourceRegistry::GetRegisteredRegistries()
+    {
+        return GetRegisteredShaderRegistryMap();
     }
 
     const ResourceBinding* ShaderResourceRegistry::GetBindingInfo(const std::string& resourceName) const

@@ -44,16 +44,11 @@ namespace OloEngine
         if (width == 0 || height == 0)
         {
             OLO_CORE_WARN("BloomRenderPass::CreateFramebuffers: Invalid dimensions {}x{}", width, height);
-            m_OutputFB = nullptr;
+            m_Target = nullptr;
             return;
         }
 
-        FramebufferSpecification outSpec;
-        outSpec.Width = width;
-        outSpec.Height = height;
-        outSpec.Samples = 1;
-        outSpec.Attachments = { FramebufferTextureFormat::RGBA16F };
-        m_OutputFB = Framebuffer::Create(outSpec);
+        m_Target = nullptr;
     }
 
     void BloomRenderPass::Execute()
@@ -66,14 +61,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_Enabled)
-            return;
-
         // Phase F slice 43 — self-resolving input framebuffer from the render-graph
         // blackboard. Prefer the direct upstream chain and only then the
         // PostProcess alias, so bloom remains robust if alias wiring lags a
         // frame during resize/toggle churn.
         Ref<Framebuffer> inputFramebuffer;
+        Ref<Framebuffer> outputFramebuffer;
         if (const auto* board = context.GetBlackboard())
         {
             auto tryResolveValid = [&](const auto& handle)
@@ -91,6 +84,19 @@ namespace OloEngine
             tryResolveValid(board->SSSColor);
             tryResolveValid(board->PostProcessColor);
             tryResolveValid(board->SceneColor);
+
+            if (board->BloomColor.IsValid())
+            {
+                if (auto fb = context.ResolveFramebuffer(board->BloomColor))
+                    outputFramebuffer = fb;
+            }
+        }
+
+        if (!m_Enabled)
+        {
+            m_Target = inputFramebuffer;
+            m_LastFailureMask = 0;
+            return;
         }
 
         // Phase D / H follow-up: resolve the bloom mip-chain entirely from the
@@ -122,8 +128,7 @@ namespace OloEngine
             else
                 break;
         }
-        const bool shadersReady = m_BloomThresholdShader && m_BloomDownsampleShader &&
-                                  m_BloomUpsampleShader && m_BloomCompositeShader;
+        const bool shadersReady = IsReadyForExecution();
 
         constexpr u32 FAIL_NO_INPUT = 1u << 0u;
         constexpr u32 FAIL_NO_OUTPUT = 1u << 1u;
@@ -133,37 +138,12 @@ namespace OloEngine
         u32 failureMask = 0;
         if (!inputFramebuffer)
             failureMask |= FAIL_NO_INPUT;
-        if (!m_OutputFB)
+        if (!outputFramebuffer)
             failureMask |= FAIL_NO_OUTPUT;
         if (bloomMipCount == 0)
             failureMask |= FAIL_NO_MIPS;
         if (!shadersReady)
             failureMask |= FAIL_NO_SHADERS;
-
-        const auto blitInputToOutput = [&]()
-        {
-            if (!inputFramebuffer || !m_OutputFB)
-                return;
-
-            const auto srcFbo = inputFramebuffer->GetRendererID();
-            const auto dstFbo = m_OutputFB->GetRendererID();
-            const auto& srcSpec = inputFramebuffer->GetSpecification();
-            const auto& dstSpec = m_OutputFB->GetSpecification();
-
-            glNamedFramebufferReadBuffer(srcFbo, GL_COLOR_ATTACHMENT0);
-            glNamedFramebufferDrawBuffer(dstFbo, GL_COLOR_ATTACHMENT0);
-            glBlitNamedFramebuffer(
-                srcFbo, dstFbo,
-                0, 0, static_cast<GLint>(srcSpec.Width), static_cast<GLint>(srcSpec.Height),
-                0, 0, static_cast<GLint>(dstSpec.Width), static_cast<GLint>(dstSpec.Height),
-                GL_COLOR_BUFFER_BIT, GL_LINEAR);
-
-            if (const auto err = glGetError(); err != GL_NO_ERROR)
-            {
-                OLO_CORE_ERROR("BloomRenderPass: fallback blit failed (GL error 0x{:x}, srcFB={}, dstFB={})",
-                               err, srcFbo, dstFbo);
-            }
-        };
 
         if (failureMask != 0)
         {
@@ -172,17 +152,16 @@ namespace OloEngine
                 OLO_CORE_ERROR("BloomRenderPass: prerequisites missing (mask=0x{:x}, inputFB={}, outputFB={}, mipCount={}, mipHandlesValid={}, mipResolved={}, shadersReady={})",
                                failureMask,
                                inputFramebuffer ? inputFramebuffer->GetRendererID() : 0u,
-                               m_OutputFB ? m_OutputFB->GetRendererID() : 0u,
+                               outputFramebuffer ? outputFramebuffer->GetRendererID() : 0u,
                                bloomMipCount,
                                bloomMipHandleCount,
                                bloomMipResolvedCount,
                                shadersReady);
             }
 
-            // Keep the post chain alive even when bloom is temporarily unavailable.
-            // Without this, BloomColor stays black and darkens all downstream passes.
-            blitInputToOutput();
+            m_Target = nullptr;
             m_LastFailureMask = failureMask;
+            OLO_CORE_ASSERT(false, "BloomRenderPass enabled without complete graph/shader state");
             return;
         }
 
@@ -191,7 +170,7 @@ namespace OloEngine
             static u32 s_PrevOutputFB = 0;
             static u32 s_PrevInputTex = 0;
             const u32 inputFB = inputFramebuffer->GetRendererID();
-            const u32 outputFB = m_OutputFB->GetRendererID();
+            const u32 outputFB = outputFramebuffer->GetRendererID();
             const u32 inputTex = inputFramebuffer->GetColorAttachmentRendererID(0);
             if (inputFB != s_PrevInputFB || outputFB != s_PrevOutputFB || inputTex != s_PrevInputTex)
             {
@@ -211,9 +190,11 @@ namespace OloEngine
         if (m_LastFailureMask != 0)
         {
             OLO_CORE_INFO("BloomRenderPass: recovered (inputFB={}, outputFB={}, mipCount={})",
-                          inputFramebuffer->GetRendererID(), m_OutputFB->GetRendererID(), bloomMipCount);
+                          inputFramebuffer->GetRendererID(), outputFramebuffer->GetRendererID(), bloomMipCount);
             m_LastFailureMask = 0;
         }
+
+        m_Target = outputFramebuffer;
 
         if (m_PostProcessUBO)
             m_PostProcessUBO->Bind();
@@ -355,8 +336,8 @@ namespace OloEngine
         // Step 4: Composite bloom mip 0 onto scene color → output FB
         // ------------------------------------------------------------------
         {
-            m_OutputFB->Bind();
-            const auto& outSpec = m_OutputFB->GetSpecification();
+            outputFramebuffer->Bind();
+            const auto& outSpec = outputFramebuffer->GetSpecification();
             context.SetViewport(0, 0, outSpec.Width, outSpec.Height);
             context.SetDepthTest(false);
             context.SetDepthMask(false);
@@ -384,19 +365,20 @@ namespace OloEngine
             const auto va = MeshPrimitives::GetFullscreenTriangle();
             va->Bind();
             RenderCommand::DrawIndexed(va);
-            m_OutputFB->Unbind();
+            outputFramebuffer->Unbind();
         }
 
         // Restore full viewport for downstream passes.
-        context.SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
+        const auto& outputSpec = outputFramebuffer->GetSpecification();
+        context.SetViewport(0, 0, outputSpec.Width, outputSpec.Height);
         context.SetDepthMask(true);
     }
 
     Ref<Framebuffer> BloomRenderPass::GetTarget() const
     {
-        if (!m_Enabled || !m_OutputFB)
+        if (!m_Target)
             return nullptr;
-        return m_OutputFB;
+        return m_Target;
     }
 
     void BloomRenderPass::SetupFramebuffer(u32 width, u32 height)
@@ -411,15 +393,7 @@ namespace OloEngine
 
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
-
-        if (!m_OutputFB)
-        {
-            CreateFramebuffers(width, height);
-        }
-        else
-        {
-            m_OutputFB->Resize(width, height);
-        }
+        CreateFramebuffers(width, height);
     }
 
     void BloomRenderPass::ResizeFramebuffer(u32 width, u32 height)
@@ -434,9 +408,7 @@ namespace OloEngine
 
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
-
-        if (m_OutputFB)
-            m_OutputFB->Resize(width, height);
+        CreateFramebuffers(width, height);
 
         OLO_CORE_INFO("BloomRenderPass: Resized to {}x{}", width, height);
     }
@@ -445,11 +417,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_FramebufferSpec.Width > 0 && m_FramebufferSpec.Height > 0)
-        {
-            CreateFramebuffers(m_FramebufferSpec.Width, m_FramebufferSpec.Height);
-            OLO_CORE_INFO("BloomRenderPass reset with dimensions {}x{}",
-                          m_FramebufferSpec.Width, m_FramebufferSpec.Height);
-        }
+        m_Target = nullptr;
+        m_LastFailureMask = 0;
     }
 } // namespace OloEngine

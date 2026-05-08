@@ -128,19 +128,19 @@ namespace OloEngine
 
         if (!handle.IsValid())
         {
-            m_RenderGraph->RecordFallbackActivation(m_ActivePassName, "invalid-texture-handle");
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "invalid-texture-handle");
             return 0;
         }
 
         if (!m_RenderGraph->IsTextureHandleCurrent(handle))
         {
-            m_RenderGraph->RecordFallbackActivation(m_ActivePassName, "stale-texture-handle");
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "stale-texture-handle");
             return 0;
         }
 
         const auto resolved = m_RenderGraph->ResolveTexture(handle);
         if (resolved == 0)
-            m_RenderGraph->RecordFallbackActivation(m_ActivePassName, "texture-resolve-zero");
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "texture-resolve-zero");
 
         return resolved;
     }
@@ -152,21 +152,66 @@ namespace OloEngine
 
         if (!handle.IsValid())
         {
-            m_RenderGraph->RecordFallbackActivation(m_ActivePassName, "invalid-framebuffer-handle");
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "invalid-framebuffer-handle");
             return nullptr;
         }
 
         if (!m_RenderGraph->IsFramebufferHandleCurrent(handle))
         {
-            m_RenderGraph->RecordFallbackActivation(m_ActivePassName, "stale-framebuffer-handle");
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "stale-framebuffer-handle");
             return nullptr;
         }
 
         auto resolved = m_RenderGraph->ResolveFramebuffer(handle);
         if (!resolved)
-            m_RenderGraph->RecordFallbackActivation(m_ActivePassName, "framebuffer-resolve-null");
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "framebuffer-resolve-null");
 
         return resolved;
+    }
+
+    void RGCommandContext::ExtractHistoryTexture(std::string_view historyResource,
+                                                 const RGTextureHandle sourceHandle,
+                                                 std::function<void(u32)> callback)
+    {
+        if (!m_RenderGraph || historyResource.empty() || !callback)
+            return;
+
+        if (!sourceHandle.IsValid())
+        {
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "invalid-history-source-texture-handle");
+            return;
+        }
+
+        if (!m_RenderGraph->IsTextureHandleCurrent(sourceHandle))
+        {
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "stale-history-source-texture-handle");
+            return;
+        }
+
+        m_RenderGraph->ExtractHistoryTexture(historyResource, sourceHandle, std::move(callback));
+    }
+
+    void RGCommandContext::ExtractHistoryTexture(std::string_view historyResource,
+                                                 const RGFramebufferHandle sourceHandle,
+                                                 std::function<void(u32)> callback,
+                                                 const u32 colorAttachmentIndex)
+    {
+        if (!m_RenderGraph || historyResource.empty() || !callback)
+            return;
+
+        if (!sourceHandle.IsValid())
+        {
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "invalid-history-source-framebuffer-handle");
+            return;
+        }
+
+        if (!m_RenderGraph->IsFramebufferHandleCurrent(sourceHandle))
+        {
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "stale-history-source-framebuffer-handle");
+            return;
+        }
+
+        m_RenderGraph->ExtractHistoryTexture(historyResource, sourceHandle, std::move(callback), colorAttachmentIndex);
     }
 
     const FrameBlackboard* RGCommandContext::GetBlackboard() const noexcept

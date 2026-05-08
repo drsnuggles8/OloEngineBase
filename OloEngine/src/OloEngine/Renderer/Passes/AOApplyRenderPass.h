@@ -20,11 +20,15 @@ namespace OloEngine
     //   * PostProcessUBO (binding 7), uploaded by Renderer3D
     //
     // Output:
-    //   * AOApplyColor (RGBA16F) — AO-modulated scene color
+    //   * AOApplyColor (RGBA16F) — AO-modulated scene color written through
+    //     the graph-owned framebuffer resolved from the blackboard
     //
-    // Passthrough semantics: when disabled (no AO technique active or AO
-    // textures unavailable), the pass no-ops and GetTarget() returns the
-    // input framebuffer.
+    // Disabled semantics: when disabled, the pass no-ops and GetTarget()
+    // returns the input framebuffer. When AO apply is not executable for the
+    // current frame (for example no imported AO buffer or the shader is not
+    // ready yet), the graph simply omits AOApplyColor so downstream stages
+    // alias back to the upstream scene color instead of relying on a runtime
+    // passthrough blit.
     class AOApplyRenderPass : public RenderPass
     {
       public:
@@ -52,6 +56,11 @@ namespace OloEngine
             return m_Enabled;
         }
 
+        [[nodiscard]] bool IsReadyForExecution() const noexcept
+        {
+            return m_SSAOApplyShader && m_SSAOApplyShader->IsReady();
+        }
+
         void SetPostProcessUBO(const Ref<UniformBuffer>& ubo) noexcept
         {
             m_PostProcessUBO = ubo;
@@ -67,7 +76,6 @@ namespace OloEngine
 
       private:
         bool m_Enabled = false;
-        Ref<Framebuffer> m_OutputFB;
 
         Ref<Shader> m_SSAOApplyShader;
         Ref<UniformBuffer> m_PostProcessUBO;

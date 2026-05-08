@@ -1,6 +1,5 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugger.h"
-#include "OloEngine/Renderer/PassGraphNode.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Utils/PlatformUtils.h"
@@ -60,15 +59,14 @@ namespace OloEngine
             if (!graph)
                 return visible;
 
-            const auto allEntries = graph->GetPassSubmissionInfo();
+            const auto allEntries = graph->GetNodeSubmissionInfo();
             std::unordered_map<std::string, Ref<RenderPass>> passByName;
             passByName.reserve(allEntries.size());
             for (const auto& entry : allEntries)
             {
-                if (const auto passNode = graph->GetNode<PassGraphNode>(entry.PassName))
+                if (const auto pass = graph->GetNode<RenderPass>(entry.NodeName))
                 {
-                    if (const auto& pass = passNode->GetPass(); pass)
-                        passByName.emplace(entry.PassName, pass);
+                    passByName.emplace(entry.NodeName, pass);
                 }
             }
 
@@ -88,16 +86,16 @@ namespace OloEngine
                 }
             };
 
-            for (const auto& passName : graph->GetPassOrder())
+            for (const auto& passName : graph->GetExecutionOrder())
             {
                 appendIfVisible(passName);
             }
 
-            // Before the first frame graph build, GetPassOrder() can be empty.
+            // Before the first frame graph build, GetExecutionOrder() can be empty.
             // Fall back to all registered wrapped pass nodes so the debugger still has a view.
             for (const auto& entry : allEntries)
             {
-                appendIfVisible(entry.PassName);
+                appendIfVisible(entry.NodeName);
             }
 
             return visible;

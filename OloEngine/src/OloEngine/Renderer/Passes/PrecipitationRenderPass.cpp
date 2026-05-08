@@ -11,6 +11,8 @@
 
 #include <glad/gl.h>
 
+#include <span>
+
 namespace OloEngine
 {
     PrecipitationRenderPass::PrecipitationRenderPass()
@@ -41,17 +43,11 @@ namespace OloEngine
         if (width == 0 || height == 0)
         {
             OLO_CORE_WARN("PrecipitationRenderPass::CreateFramebuffer: Invalid dimensions {}x{}", width, height);
-            m_OutputFB = nullptr;
+            m_Target = nullptr;
             return;
         }
 
-        FramebufferSpecification fbSpec;
-        fbSpec.Width = width;
-        fbSpec.Height = height;
-        fbSpec.Samples = 1;
-        fbSpec.Attachments = { FramebufferTextureFormat::RGBA16F };
-
-        m_OutputFB = Framebuffer::Create(fbSpec);
+        m_Target = nullptr;
     }
 
     void PrecipitationRenderPass::Execute()
@@ -66,8 +62,10 @@ namespace OloEngine
 
         // Phase F slice 44 — self-resolving input framebuffer from the render-graph
         // blackboard. Preference chain: TAA > MotionBlur > DOF > Bloom > PostProcess.
+        const auto* board = context.GetBlackboard();
         Ref<Framebuffer> inputFramebuffer;
-        if (const auto* board = context.GetBlackboard())
+        Ref<Framebuffer> outputFramebuffer;
+        if (board)
         {
             if (!inputFramebuffer)
                 if (auto fb = context.ResolveFramebuffer(board->TAAColor))
@@ -84,16 +82,30 @@ namespace OloEngine
             if (!inputFramebuffer)
                 if (auto fb = context.ResolveFramebuffer(board->PostProcessColor))
                     inputFramebuffer = fb;
+
+            if (board->PrecipitationColor.IsValid())
+            {
+                if (auto resolvedOutput = context.ResolveFramebuffer(board->PrecipitationColor))
+                    outputFramebuffer = resolvedOutput;
+            }
         }
         if (!m_Enabled)
+        {
+            m_Target = inputFramebuffer;
             return;
+        }
 
-        if (!inputFramebuffer || !m_OutputFB || !m_PrecipitationShader || !m_PrecipitationScreenUBO)
+        if (!board || !inputFramebuffer || !outputFramebuffer || !m_PrecipitationShader || !m_PrecipitationScreenUBO)
+        {
+            m_Target = nullptr;
             return;
+        }
 
-        m_OutputFB->Bind();
+        m_Target = outputFramebuffer;
 
-        const auto& outSpec = m_OutputFB->GetSpecification();
+        outputFramebuffer->Bind();
+
+        const auto& outSpec = outputFramebuffer->GetSpecification();
         context.SetViewport(0, 0, outSpec.Width, outSpec.Height);
         context.SetDepthTest(false);
         context.SetDepthMask(false);
@@ -134,14 +146,14 @@ namespace OloEngine
         context.DrawIndexed(va);
 
         context.SetDepthMask(true);
-        m_OutputFB->Unbind();
+        outputFramebuffer->Unbind();
     }
 
     Ref<Framebuffer> PrecipitationRenderPass::GetTarget() const
     {
-        if (!m_Enabled || !m_OutputFB)
+        if (!m_Target)
             return nullptr;
-        return m_OutputFB;
+        return m_Target;
     }
 
     void PrecipitationRenderPass::SetupFramebuffer(u32 width, u32 height)
@@ -160,5 +172,8 @@ namespace OloEngine
         CreateFramebuffer(width, height);
     }
 
-    void PrecipitationRenderPass::OnReset() {}
+    void PrecipitationRenderPass::OnReset()
+    {
+        m_Target = nullptr;
+    }
 } // namespace OloEngine

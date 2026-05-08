@@ -7,11 +7,6 @@
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Renderer3D.h"
-#include "OloEngine/Renderer/Passes/SceneRenderPass.h"
-#include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
-#include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
-#include "OloEngine/Renderer/Passes/SSSRenderPass.h"
-#include "OloEngine/Renderer/Passes/OITResolveRenderPass.h"
 #include <algorithm>
 #include <array>
 #include <glad/gl.h>
@@ -532,7 +527,7 @@ namespace OloEngine
         m_PassesSeenThisCapture.insert(passName);
 
         GraphMetadata metadata;
-        const auto& passOrder = graph.GetPassOrder();
+        const auto& passOrder = graph.GetExecutionOrder();
         if (const auto it = std::find(passOrder.begin(), passOrder.end(), passName); it != passOrder.end())
         {
             metadata.PassOrderIndex = static_cast<u32>(std::distance(passOrder.begin(), it));
@@ -600,36 +595,48 @@ namespace OloEngine
             CaptureFramebuffer(passName, kind, textureID, width, height, resourceName, sourceFramebufferID, metadata);
         };
 
+        const auto captureGraphTexture = [&](Source kind, std::string_view resourceName)
+        {
+            const u32 textureID = graph.ResolveTexture(graph.GetTextureHandle(resourceName));
+            if (textureID == 0)
+            {
+                return;
+            }
+
+            GLint width = 0;
+            GLint height = 0;
+            glGetTextureLevelParameteriv(textureID, 0, GL_TEXTURE_WIDTH, &width);
+            glGetTextureLevelParameteriv(textureID, 0, GL_TEXTURE_HEIGHT, &height);
+            if (width <= 0 || height <= 0)
+            {
+                return;
+            }
+
+            captureTexture(kind, resourceName, textureID, static_cast<u32>(width), static_cast<u32>(height));
+        };
+
         // SceneColor is the primary timeline surface. Capture it after every
         // executed pass once ScenePass has produced the first scene image.
         if (sceneTimelineStarted)
         {
-            if (const auto& scenePass = Renderer3D::GetScenePass(); scenePass && scenePass->GetTarget())
+            if (const auto sceneFramebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor); sceneFramebuffer)
             {
-                captureFB(Source::SceneColor, ResourceNames::SceneColor, scenePass->GetTarget());
+                captureFB(Source::SceneColor, ResourceNames::SceneColor, sceneFramebuffer);
             }
         }
 
-        if ((passName == "ScenePass" || passName == "DeferredOpaqueDecalPass") &&
-            Renderer3D::GetScenePass() && Renderer3D::GetScenePass()->GetGBuffer())
+        if (passName == "ScenePass" || passName == "DeferredOpaqueDecalPass")
         {
-            const auto& gbuffer = Renderer3D::GetScenePass()->GetGBuffer();
-            const u32 samplingFB = gbuffer->GetSamplingFramebuffer() ? gbuffer->GetSamplingFramebuffer()->GetRendererID() : 0u;
-            captureTexture(Source::GBufferAlbedo, ResourceNames::GBufferAlbedo,
-                           gbuffer->GetColorAttachmentID(GBuffer::Albedo), gbuffer->GetWidth(), gbuffer->GetHeight(), samplingFB);
-            captureTexture(Source::GBufferNormal, ResourceNames::GBufferNormal,
-                           gbuffer->GetColorAttachmentID(GBuffer::Normal), gbuffer->GetWidth(), gbuffer->GetHeight(), samplingFB);
-            captureTexture(Source::GBufferEmissive, ResourceNames::GBufferEmissive,
-                           gbuffer->GetColorAttachmentID(GBuffer::Emissive), gbuffer->GetWidth(), gbuffer->GetHeight(), samplingFB);
-            captureTexture(Source::Velocity, ResourceNames::Velocity,
-                           gbuffer->GetColorAttachmentID(GBuffer::Velocity), gbuffer->GetWidth(), gbuffer->GetHeight(), samplingFB);
+            captureGraphTexture(Source::GBufferAlbedo, ResourceNames::GBufferAlbedo);
+            captureGraphTexture(Source::GBufferNormal, ResourceNames::GBufferNormal);
+            captureGraphTexture(Source::GBufferEmissive, ResourceNames::GBufferEmissive);
+            captureGraphTexture(Source::Velocity, ResourceNames::Velocity);
         }
 
         if (passName == "ScenePass")
         {
-            if (const auto& scenePass = Renderer3D::GetScenePass(); scenePass && scenePass->GetTarget())
+            if (const auto sceneFB = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor); sceneFB)
             {
-                const auto& sceneFB = scenePass->GetTarget();
                 const auto& spec = sceneFB->GetSpecification();
                 const u32 colorAttachmentCount = CountColorAttachments(spec);
                 if (colorAttachmentCount > 2)
@@ -646,67 +653,51 @@ namespace OloEngine
         }
 
         if (passName == "SSSPass")
-            captureFB(Source::SSSColor, ResourceNames::SSSColor, Renderer3D::GetSSSPass() ? Renderer3D::GetSSSPass()->GetTarget() : nullptr);
+            captureFB(Source::SSSColor, ResourceNames::SSSColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SSSColor));
         if (passName == "AOApplyPass")
-            captureFB(Source::AOApplyColor, ResourceNames::AOApplyColor, Renderer3D::GetAOApplyPass() ? Renderer3D::GetAOApplyPass()->GetTarget() : nullptr);
+            captureFB(Source::AOApplyColor, ResourceNames::AOApplyColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::AOApplyColor));
         if (passName == "BloomPass")
-            captureFB(Source::BloomColor, ResourceNames::BloomColor, Renderer3D::GetBloomPass() ? Renderer3D::GetBloomPass()->GetTarget() : nullptr);
+            captureFB(Source::BloomColor, ResourceNames::BloomColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::BloomColor));
         if (passName == "DOFPass")
-            captureFB(Source::DOFColor, ResourceNames::DOFColor, Renderer3D::GetDOFPass() ? Renderer3D::GetDOFPass()->GetTarget() : nullptr);
+            captureFB(Source::DOFColor, ResourceNames::DOFColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::DOFColor));
         if (passName == "MotionBlurPass")
-            captureFB(Source::MotionBlurColor, ResourceNames::MotionBlurColor, Renderer3D::GetMotionBlurPass() ? Renderer3D::GetMotionBlurPass()->GetTarget() : nullptr);
+            captureFB(Source::MotionBlurColor, ResourceNames::MotionBlurColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::MotionBlurColor));
         if (passName == "TAAPass")
-            captureFB(Source::TAAColor, ResourceNames::TAAColor, Renderer3D::GetTAAPass() ? Renderer3D::GetTAAPass()->GetTarget() : nullptr);
+            captureFB(Source::TAAColor, ResourceNames::TAAColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::TAAColor));
         if (passName == "PrecipitationPass")
-            captureFB(Source::PrecipitationColor, ResourceNames::PrecipitationColor, Renderer3D::GetPrecipitationPass() ? Renderer3D::GetPrecipitationPass()->GetTarget() : nullptr);
+            captureFB(Source::PrecipitationColor, ResourceNames::PrecipitationColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::PrecipitationColor));
         if (passName == "FogPass")
-            captureFB(Source::FogColor, ResourceNames::FogColor, Renderer3D::GetFogPass() ? Renderer3D::GetFogPass()->GetTarget() : nullptr);
+            captureFB(Source::FogColor, ResourceNames::FogColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::FogColor));
         if (passName == "ChromAberrationPass")
-            captureFB(Source::ChromAbColor, ResourceNames::ChromAbColor, Renderer3D::GetChromAberrationPass() ? Renderer3D::GetChromAberrationPass()->GetTarget() : nullptr);
+            captureFB(Source::ChromAbColor, ResourceNames::ChromAbColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ChromAbColor));
         if (passName == "ColorGradingPass")
-            captureFB(Source::ColorGradingColor, ResourceNames::ColorGradingColor, Renderer3D::GetColorGradingPass() ? Renderer3D::GetColorGradingPass()->GetTarget() : nullptr);
+            captureFB(Source::ColorGradingColor, ResourceNames::ColorGradingColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ColorGradingColor));
         if (passName == "ToneMapPass")
-            captureFB(Source::ToneMapColor, ResourceNames::ToneMapColor, Renderer3D::GetToneMapPass() ? Renderer3D::GetToneMapPass()->GetTarget() : nullptr);
+            captureFB(Source::ToneMapColor, ResourceNames::ToneMapColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor));
         if (passName == "VignettePass")
-            captureFB(Source::VignetteColor, ResourceNames::VignetteColor, Renderer3D::GetVignettePass() ? Renderer3D::GetVignettePass()->GetTarget() : nullptr);
+            captureFB(Source::VignetteColor, ResourceNames::VignetteColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::VignetteColor));
         if (passName == "FXAAPass")
-            captureFB(Source::FXAAColor, ResourceNames::FXAAColor, Renderer3D::GetFXAAPass() ? Renderer3D::GetFXAAPass()->GetTarget() : nullptr);
+            captureFB(Source::FXAAColor, ResourceNames::FXAAColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::FXAAColor));
         if (passName == "SelectionOutlinePass")
-            captureFB(Source::SelectionOutlineColor, ResourceNames::SelectionOutlineColor, Renderer3D::GetSelectionOutlinePass() ? Renderer3D::GetSelectionOutlinePass()->GetTarget() : nullptr);
+            captureFB(Source::SelectionOutlineColor, ResourceNames::SelectionOutlineColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SelectionOutlineColor));
         if (passName == "UICompositePass")
-            captureFB(Source::UIComposite, ResourceNames::UIComposite, Renderer3D::GetUICompositePass() ? Renderer3D::GetUICompositePass()->GetTarget() : nullptr);
+            captureFB(Source::UIComposite, ResourceNames::UIComposite, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite));
 
         if (passName == "SSAOPass")
-        {
-            if (const auto& ssaoPass = Renderer3D::GetSSAOPass(); ssaoPass)
-            {
-                const u32 aoID = ssaoPass->GetSSAOTextureID();
-                if (const auto& aoFB = ssaoPass->GetTarget(); aoFB && aoID != 0)
-                {
-                    const auto& spec = aoFB->GetSpecification();
-                    captureTexture(Source::AOTexture, ResourceNames::AOBuffer, aoID, spec.Width, spec.Height, aoFB->GetRendererID());
-                }
-            }
-        }
+            captureGraphTexture(Source::AOTexture, ResourceNames::AOBuffer);
 
         if (passName == "GTAOPass")
         {
-            if (const auto& gtaoPass = Renderer3D::GetGTAOPass(); gtaoPass)
-            {
-                captureTexture(Source::AOTexture, ResourceNames::AOBuffer,
-                               gtaoPass->GetGTAOTextureID(), gtaoPass->GetWidth(), gtaoPass->GetHeight());
-
-                const auto& hzb = gtaoPass->GetHZBGenerator();
-                captureTexture(Source::HZBDepth, "HZBDepth", hzb.GetHZBTextureID(), hzb.GetHZBWidth(), hzb.GetHZBHeight());
-            }
+            captureGraphTexture(Source::AOTexture, ResourceNames::AOBuffer);
+            captureGraphTexture(Source::HZBDepth, ResourceNames::HZBDepth);
         }
 
         if (passName == "FinalPass")
         {
             bool capturedPresentedImage = false;
-            if (const auto& uiPass = Renderer3D::GetUICompositePass(); uiPass && uiPass->GetTarget())
+            if (const auto uiFramebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite); uiFramebuffer)
             {
-                captureFB(Source::Backbuffer, ResourceNames::Backbuffer, uiPass->GetTarget());
+                captureFB(Source::Backbuffer, ResourceNames::Backbuffer, uiFramebuffer);
                 capturedPresentedImage = true;
             }
 
@@ -714,9 +705,9 @@ namespace OloEngine
             {
                 u32 width = 0;
                 u32 height = 0;
-                if (const auto& scenePass = Renderer3D::GetScenePass(); scenePass && scenePass->GetTarget())
+                if (const auto sceneFramebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor); sceneFramebuffer)
                 {
-                    const auto& spec = scenePass->GetTarget()->GetSpecification();
+                    const auto& spec = sceneFramebuffer->GetSpecification();
                     width = spec.Width;
                     height = spec.Height;
                 }

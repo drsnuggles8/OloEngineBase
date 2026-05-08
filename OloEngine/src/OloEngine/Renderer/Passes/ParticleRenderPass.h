@@ -1,7 +1,6 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/OITBuffer.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include <functional>
@@ -18,7 +17,7 @@ namespace OloEngine
     //     alpha blending. Sort order is back-to-front via DrawKey.
     //   - Weighted-blended OIT (Phase 6, toggle via
     //     RendererSettings::DeferredSettings::OITEnabled): renders into the
-    //     attached OITBuffer with per-attachment blend funcs
+    //     graph-owned OIT framebuffer with per-attachment blend funcs
     //     (accum: GL_ONE/GL_ONE, revealage: GL_ZERO/GL_ONE_MINUS_SRC_COLOR)
     //     and order-independent accumulation. OITResolvePass composites
     //     the result over the scene FB afterwards.
@@ -47,25 +46,6 @@ namespace OloEngine
         {
             return static_cast<bool>(m_RenderCallback);
         }
-
-        // Phase 6 OIT wiring. Provided by Renderer3D from the
-        // OITResolveRenderPass; when OIT is enabled the provider returns
-        // the lazy-materialised OITBuffer so this pass renders into it
-        // instead of the scene FB. The provider is queried only when
-        // `m_OITEnabled` is true so non-OIT frames do not trigger
-        // creation. Phase F slice 15 — replaces the previously cached
-        // `Ref<OITBuffer>` setter so the buffer can be transient w.r.t.
-        // the OIT toggle.
-        void SetOITBufferProvider(std::function<Ref<OITBuffer>()> provider)
-        {
-            m_OITBufferProvider = std::move(provider);
-        }
-        // Marker callback invoked after successful OIT accumulation so
-        // OITResolvePass knows it has content to composite this frame.
-        void SetOITAccumulationMarker(std::function<void()> marker)
-        {
-            m_AccumMarker = std::move(marker);
-        }
         void SetOITEnabled(bool enabled) noexcept
         {
             m_OITEnabled = enabled;
@@ -73,10 +53,7 @@ namespace OloEngine
 
       private:
         Ref<Framebuffer> m_SceneFramebuffer;
-        Ref<OITBuffer> m_OITBuffer;
-        std::function<Ref<OITBuffer>()> m_OITBufferProvider;
         RenderCallback m_RenderCallback;
-        std::function<void()> m_AccumMarker;
         bool m_OITEnabled = false;
     };
 } // namespace OloEngine

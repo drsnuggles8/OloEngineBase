@@ -71,6 +71,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        (void)context;
+
         if (!m_Target)
         {
             OLO_CORE_ERROR("SceneRenderPass::Execute: No target framebuffer!");
@@ -84,8 +86,7 @@ namespace OloEngine
         const bool deferredActive = (rendererSettings.Path == RenderingPath::Deferred);
         if (deferredActive)
         {
-            EnsureGBuffer(m_FramebufferSpec.Width, m_FramebufferSpec.Height,
-                          rendererSettings.Deferred.MSAASampleCount);
+            PrepareDeferredResources(rendererSettings.Deferred.MSAASampleCount);
         }
 
         Ref<Framebuffer> renderFB = deferredActive && m_GBuffer
@@ -167,9 +168,9 @@ namespace OloEngine
         if (capturing)
             captureManager.OnPostBatch(m_CommandBucket);
 
-        // Re-bind scene camera & light UBOs that earlier passes (e.g. ShadowPass)
+        // Re-bind shared scene resources that earlier passes (e.g. ShadowPass)
         // may have overwritten at the same binding points.
-        Renderer3D::BindSceneUBOs();
+        CommandDispatch::BindSceneResources();
 
         // Depth prepass: render all geometry depth-only first, then re-execute
         // with GL_EQUAL and no depth writes for the color pass. This eliminates
@@ -395,6 +396,27 @@ namespace OloEngine
         // Forward ↔ Deferred swap doesn't leave stale dimensions behind.
         if (m_GBuffer)
             m_GBuffer->Resize(width, height);
+    }
+
+    void SceneRenderPass::PrepareDeferredResources(u32 sampleCount)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_Target)
+        {
+            OLO_CORE_WARN("SceneRenderPass::PrepareDeferredResources: No scene framebuffer available");
+            return;
+        }
+
+        if (m_FramebufferSpec.Width == 0 || m_FramebufferSpec.Height == 0)
+        {
+            OLO_CORE_WARN("SceneRenderPass::PrepareDeferredResources: Invalid dimensions {}x{}",
+                          m_FramebufferSpec.Width,
+                          m_FramebufferSpec.Height);
+            return;
+        }
+
+        EnsureGBuffer(m_FramebufferSpec.Width, m_FramebufferSpec.Height, sampleCount);
     }
 
     void SceneRenderPass::EnsureGBuffer(u32 width, u32 height, u32 sampleCount)

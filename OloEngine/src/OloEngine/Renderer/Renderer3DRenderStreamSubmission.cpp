@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 
@@ -9,7 +10,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto* geometryNode = GetRenderStreamNode(RenderStreamType::Geometry);
+        auto* geometryNode = s_Data.Pipeline->StreamNodes.Get(RenderStreamType::Geometry);
         if (!geometryNode)
         {
             OLO_CORE_ERROR("Renderer3D::BeginParallelSubmission: Geometry render stream is unavailable!");
@@ -40,7 +41,7 @@ namespace OloEngine
         // Merge frame data scratch buffers
         FrameDataBufferManager::Get().MergeScratchBuffers();
 
-        auto* geometryNode = GetRenderStreamNode(RenderStreamType::Geometry);
+        auto* geometryNode = s_Data.Pipeline->StreamNodes.Get(RenderStreamType::Geometry);
         if (!geometryNode)
         {
             OLO_CORE_ERROR("Renderer3D::EndParallelSubmission: Geometry render stream is unavailable!");
@@ -69,7 +70,7 @@ namespace OloEngine
         ctx.Allocator = FrameResourceManager::Get().GetWorkerAllocator(workerIndex);
 
         // Get command bucket
-        if (auto* geometryNode = GetRenderStreamNode(RenderStreamType::Geometry))
+        if (auto* geometryNode = s_Data.Pipeline->StreamNodes.Get(RenderStreamType::Geometry))
         {
             ctx.Bucket = &geometryNode->GetCommandBucket();
             // Use the explicit worker index - no thread ID lookup needed
@@ -95,11 +96,6 @@ namespace OloEngine
         return s_Data.ParallelSubmissionActive;
     }
 
-    PassGraphNode* Renderer3D::GetRenderStreamNode(RenderStreamType stream)
-    {
-        return s_Data.StreamNodes.Get(stream);
-    }
-
     void Renderer3D::SubmitRenderStreamPacket(RenderStreamType stream, CommandPacket* packet)
     {
         OLO_PROFILE_FUNCTION();
@@ -110,7 +106,7 @@ namespace OloEngine
             return;
         }
 
-        if (auto* streamNode = GetRenderStreamNode(stream))
+        if (auto* streamNode = s_Data.Pipeline->StreamNodes.Get(stream))
         {
             streamNode->SubmitPacket(packet);
             return;

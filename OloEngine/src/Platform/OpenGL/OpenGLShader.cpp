@@ -392,9 +392,10 @@ namespace OloEngine
         m_PendingShaderIDs.clear();
 
         // Unregister the resource registry from Renderer3D
+        // Unregister the resource registry from the shader-system registry map
         if (m_RendererID != 0)
         {
-            OloEngine::Renderer3D::UnregisterShaderRegistry(m_RendererID);
+            ShaderResourceRegistry::Unregister(m_RendererID);
         }
 
         // Shutdown the resource registry
@@ -420,6 +421,10 @@ namespace OloEngine
         OLO_CORE_TRACE("OpenGLShader: InitializeResourceRegistry called for shader '{0}'", m_Name);
         m_ResourceRegistry.SetShader(shaderRef);
         m_ResourceRegistry.Initialize();
+        if (m_RendererID != 0)
+        {
+            ShaderResourceRegistry::Register(m_RendererID, &m_ResourceRegistry);
+        }
         OLO_CORE_TRACE("OpenGLShader: Initialized resource registry for shader '{0}'", m_Name);
     }
 

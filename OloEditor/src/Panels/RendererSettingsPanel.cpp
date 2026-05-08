@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "RendererSettingsPanel.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/QualityTiering.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 
@@ -432,11 +433,11 @@ namespace OloEngine
 
             // Live RenderGraph topology — rebuilt per RenderingPath, so the
             // pass list here reflects exactly what runs this frame.
-            if (const auto& graph = Renderer3D::GetRenderGraph(); graph)
+            if (const auto& graph = RenderGraphDebugRuntime::GetActiveGraph(); graph)
             {
                 if (ImGui::TreeNode("Render Graph (live topology)"))
                 {
-                    const auto& order = graph->GetPassOrder();
+                    const auto& order = graph->GetExecutionOrder();
                     if (order.empty())
                     {
                         ImGui::TextDisabled("(Execution order not yet computed — run a frame first.)");

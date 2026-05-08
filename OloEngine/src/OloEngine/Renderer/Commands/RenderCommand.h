@@ -842,7 +842,6 @@ namespace OloEngine
         glm::vec4 normalMapScroll = glm::vec4(0.0f);       // xy = scroll0 offset, zw = scroll1 offset
         glm::vec4 normalMapSpeed = glm::vec4(0.0f);        // x = speed0, y = speed1, z/w = unused
         glm::vec4 lightDirection = glm::vec4(0.0f);        // xyz = directional light dir, w = unused
-        glm::vec4 screenParams = glm::vec4(0.0f);          // x = width, y = height, z = 1/w, w = 1/h
         glm::vec4 depthRefractionParams = glm::vec4(0.0f); // depthSoftening, refrDistortion, refrHeightFactor
         glm::vec4 refractionColor = glm::vec4(0.0f);       // rgb = underwater tint
         glm::vec4 foamParams = glm::vec4(0.0f);            // foamHeightStart, foamFadeDistance, foamTiling, foamBrightness
@@ -863,14 +862,6 @@ namespace OloEngine
 
         // Entity ID for picking
         i32 entityID = -1;
-
-        // OIT program override. When non-zero, CommandDispatch::DrawWater
-        // will substitute this program ID for `shaderRendererID` so water
-        // commands composite via the WB-OIT 2-attachment layout without
-        // needing a second submission. WaterRenderPass populates this on
-        // the command itself (not a global) so the queue stays stateless
-        // and replay-safe.
-        u32 oitProgramOverride = 0;
 
         // Render state index (into FrameDataBuffer::RenderStateTable)
         u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;

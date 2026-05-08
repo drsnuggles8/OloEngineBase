@@ -4,7 +4,6 @@
 #include "RenderingTestUtils.h"
 #include "PropertyTests/RenderPropertyTest.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
-#include "OloEngine/Renderer/PassGraphNode.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
@@ -225,6 +224,23 @@ class StubFramebuffer : public Framebuffer
     FramebufferSpecification m_Specification;
 };
 
+class AttachmentStubFramebuffer : public StubFramebuffer
+{
+  public:
+    AttachmentStubFramebuffer(u32 rendererID, u32 colorAttachment0ID)
+        : StubFramebuffer(rendererID), m_ColorAttachment0ID(colorAttachment0ID)
+    {
+    }
+
+    [[nodiscard]] u32 GetColorAttachmentRendererID(u32 index) const override
+    {
+        return index == 0 ? m_ColorAttachment0ID : 0u;
+    }
+
+  private:
+    u32 m_ColorAttachment0ID = 0;
+};
+
 class ContextAwareStubPass : public RenderPass
 {
   public:
@@ -237,7 +253,7 @@ class ContextAwareStubPass : public RenderPass
 
     void Execute() override
     {
-        m_LegacyExecuteCount++;
+        m_ParameterlessExecuteCount++;
     }
 
     void Execute(RGCommandContext& context) override
@@ -257,9 +273,9 @@ class ContextAwareStubPass : public RenderPass
         return m_ContextExecuteCount;
     }
 
-    [[nodiscard]] u32 GetLegacyExecuteCount() const
+    [[nodiscard]] u32 GetParameterlessExecuteCount() const
     {
-        return m_LegacyExecuteCount;
+        return m_ParameterlessExecuteCount;
     }
 
     [[nodiscard]] bool WasContextActive() const
@@ -274,7 +290,7 @@ class ContextAwareStubPass : public RenderPass
 
   private:
     u32 m_ContextExecuteCount = 0;
-    u32 m_LegacyExecuteCount = 0;
+    u32 m_ParameterlessExecuteCount = 0;
     bool m_ContextWasActive = false;
     std::string m_ContextPassName;
 };
@@ -307,10 +323,10 @@ class InputTrackingStubPass : public RenderPass
     u32 m_ExecuteCount = 0;
 };
 
-class FallbackProbePass : public RenderPass
+class ResolveFailureProbePass : public RenderPass
 {
   public:
-    explicit FallbackProbePass(const std::string& name)
+    explicit ResolveFailureProbePass(const std::string& name)
     {
         m_Name = name;
     }
@@ -403,7 +419,7 @@ class TestGraphNode : public RenderGraphNode
     {
     }
 
-    [[nodiscard]] std::string_view GetName() const override
+    [[nodiscard]] const std::string& GetName() const override
     {
         return m_Name;
     }
@@ -429,9 +445,19 @@ class TestGraphNode : public RenderGraphNode
         return m_Flags;
     }
 
-    [[nodiscard]] RenderPass::SubmissionModel GetSubmissionModel() const override
+    [[nodiscard]] RenderGraphSubmissionModel GetSubmissionModel() const override
     {
         return m_SubmissionModelOverride ? m_SubmissionModel : RenderGraphNode::GetSubmissionModel();
+    }
+
+    [[nodiscard]] std::span<const ResourceHandle> GetDeclaredReads() const override
+    {
+        return { m_Reads.data(), m_Reads.size() };
+    }
+
+    [[nodiscard]] std::span<const ResourceHandle> GetDeclaredWrites() const override
+    {
+        return { m_Writes.data(), m_Writes.size() };
     }
 
     void SetupFramebuffer(u32 width, u32 height) override
@@ -460,10 +486,40 @@ class TestGraphNode : public RenderGraphNode
         m_Flags = flags;
     }
 
-    void SetSubmissionModel(RenderPass::SubmissionModel submissionModel)
+    void SetSubmissionModel(RenderGraphSubmissionModel submissionModel)
     {
         m_SubmissionModel = submissionModel;
         m_SubmissionModelOverride = true;
+    }
+
+    void DeclareRead(std::string_view name, ResourceHandle::Kind kind = ResourceHandle::Kind::Unknown)
+    {
+        if (const auto it = std::find_if(m_Reads.begin(), m_Reads.end(),
+                                         [name](const ResourceHandle& handle)
+                                         {
+                                             return handle.Name == name;
+                                         });
+            it != m_Reads.end())
+        {
+            return;
+        }
+
+        m_Reads.emplace_back(name, kind);
+    }
+
+    void DeclareWrite(std::string_view name, ResourceHandle::Kind kind = ResourceHandle::Kind::Unknown)
+    {
+        if (const auto it = std::find_if(m_Writes.begin(), m_Writes.end(),
+                                         [name](const ResourceHandle& handle)
+                                         {
+                                             return handle.Name == name;
+                                         });
+            it != m_Writes.end())
+        {
+            return;
+        }
+
+        m_Writes.emplace_back(name, kind);
     }
 
     [[nodiscard]] u32 GetSetupCount() const
@@ -536,7 +592,9 @@ class TestGraphNode : public RenderGraphNode
     SetupFn m_Setup;
     ExecuteFn m_Execute;
     RenderGraphNodeFlags m_Flags = RenderGraphNodeFlags::Graphics;
-    RenderPass::SubmissionModel m_SubmissionModel = RenderPass::SubmissionModel::ImmediateOnly;
+    RenderGraphSubmissionModel m_SubmissionModel = RenderGraphSubmissionModel::ImmediateOnly;
+    std::vector<ResourceHandle> m_Reads;
+    std::vector<ResourceHandle> m_Writes;
     u32 m_SetupCount = 0;
     u32 m_ExecuteCount = 0;
     u32 m_SetupFramebufferCount = 0;
@@ -555,22 +613,14 @@ class TestGraphNode : public RenderGraphNode
 
 template<typename TPass>
 static Ref<TPass> AddPassNode(RenderGraph& graph,
-                              const Ref<TPass>& pass,
-                              PassGraphNode::SetupCallback setup = {})
+                              Ref<TPass> pass,
+                              RenderPass::SetupCallback setup = {})
 {
     OLO_CORE_ASSERT(pass, "AddPassNode requires a valid pass");
     OLO_CORE_ASSERT(!pass->GetName().empty(), "AddPassNode requires a named pass");
 
-    if (const auto bucketPass = pass.template As<CommandBufferRenderPass>())
-    {
-        auto node = Ref<PassGraphNode>::Create(std::string(pass->GetName()), bucketPass, std::move(setup));
-        graph.AddNode(node);
-    }
-    else
-    {
-        auto node = Ref<PassGraphNode>::Create(std::string(pass->GetName()), pass.template As<RenderPass>(), std::move(setup));
-        graph.AddNode(node);
-    }
+    pass->SetSetupCallback(std::move(setup));
+    graph.AddNode(pass.template As<RenderGraphNode>());
 
     return pass;
 }
@@ -613,38 +663,37 @@ static Ref<TestGraphNode> AddSetupNode(RenderGraph& graph,
 // Basic Graph Construction
 // =============================================================================
 
-TEST(RenderGraph, WrappedPassNodeMakesUnderlyingPassRetrievable)
+TEST(RenderGraph, PassNodesAreRetrievableAsRenderPasses)
 {
     RenderGraph graph;
 
     auto pass = AddStub(graph, "PassA");
-    auto retrieved = graph.GetNode<PassGraphNode>("PassA");
+    auto retrieved = graph.GetNode<RenderPass>("PassA");
 
     ASSERT_NE(retrieved, nullptr);
-    ASSERT_NE(retrieved->GetPass(), nullptr);
     EXPECT_EQ(retrieved->GetName(), "PassA");
-    EXPECT_EQ(retrieved->GetPass().Raw(), pass.Raw());
+    EXPECT_EQ(retrieved.Raw(), pass.As<RenderPass>().Raw());
 }
 
 TEST(RenderGraph, GetNodeReturnsNullForUnknown)
 {
     RenderGraph graph;
-    auto node = graph.GetNode<PassGraphNode>("NonExistent");
+    auto node = graph.GetNode<RenderPass>("NonExistent");
     EXPECT_EQ(node, nullptr);
 }
 
-TEST(RenderGraph, GetPassSubmissionInfoReturnsAllRegisteredEntries)
+TEST(RenderGraph, GetNodeSubmissionInfoReturnsAllRegisteredEntries)
 {
     RenderGraph graph;
     AddStub(graph, "A");
     AddStub(graph, "B");
     AddStub(graph, "C");
 
-    const auto all = graph.GetPassSubmissionInfo();
+    const auto all = graph.GetNodeSubmissionInfo();
     EXPECT_EQ(all.size(), 3u);
 }
 
-TEST(RenderGraph, PassSubmissionInfoReportsModelsAndResourceDeclarations)
+TEST(RenderGraph, NodeSubmissionInfoReportsModelsAndResourceDeclarations)
 {
     RenderGraph graph;
 
@@ -655,20 +704,61 @@ TEST(RenderGraph, PassSubmissionInfoReportsModelsAndResourceDeclarations)
     AddPassNode(graph, bucket);
     AddPassNode(graph, immediate);
 
-    const auto info = graph.GetPassSubmissionInfo();
+    const auto info = graph.GetNodeSubmissionInfo();
     ASSERT_EQ(info.size(), 2u);
 
-    const auto bucketIt = std::find_if(info.begin(), info.end(), [](const RenderGraph::PassSubmissionInfo& entry)
-                                       { return entry.PassName == "BucketPass"; });
+    const auto bucketIt = std::find_if(info.begin(), info.end(), [](const RenderGraph::NodeSubmissionInfo& entry)
+                                       { return entry.NodeName == "BucketPass"; });
     ASSERT_NE(bucketIt, info.end());
-    EXPECT_EQ(bucketIt->Submission, RenderPass::SubmissionModel::BucketOnly);
+    EXPECT_EQ(bucketIt->Submission, RenderGraphSubmissionModel::BucketOnly);
     EXPECT_FALSE(bucketIt->DeclaresResources);
 
-    const auto immediateIt = std::find_if(info.begin(), info.end(), [](const RenderGraph::PassSubmissionInfo& entry)
-                                          { return entry.PassName == "ImmediatePass"; });
+    const auto immediateIt = std::find_if(info.begin(), info.end(), [](const RenderGraph::NodeSubmissionInfo& entry)
+                                          { return entry.NodeName == "ImmediatePass"; });
     ASSERT_NE(immediateIt, info.end());
-    EXPECT_EQ(immediateIt->Submission, RenderPass::SubmissionModel::ImmediateOnly);
+    EXPECT_EQ(immediateIt->Submission, RenderGraphSubmissionModel::ImmediateOnly);
     EXPECT_TRUE(immediateIt->DeclaresResources);
+}
+
+TEST(RenderGraph, GraphNodeStaticDeclarationsPopulateRegistryAndSubmissionInfo)
+{
+    RenderGraph graph;
+
+    auto producer = AddTestNode(graph, "GraphProducer");
+    auto final = AddTestNode(graph, "GraphFinal");
+
+    producer->DeclareWrite("GraphNodeColor", ResourceHandle::Kind::Texture2D);
+    final->DeclareRead("GraphNodeColor", ResourceHandle::Kind::Texture2D);
+
+    graph.SetFinalPass("GraphFinal");
+
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(hazards.empty());
+
+    const auto submissionInfo = graph.GetNodeSubmissionInfo();
+    const auto producerIt = std::find_if(submissionInfo.begin(), submissionInfo.end(),
+                                         [](const RenderGraph::NodeSubmissionInfo& entry)
+                                         {
+                                             return entry.NodeName == "GraphProducer";
+                                         });
+    ASSERT_NE(producerIt, submissionInfo.end());
+    EXPECT_TRUE(producerIt->DeclaresResources);
+
+    const auto finalIt = std::find_if(submissionInfo.begin(), submissionInfo.end(),
+                                      [](const RenderGraph::NodeSubmissionInfo& entry)
+                                      {
+                                          return entry.NodeName == "GraphFinal";
+                                      });
+    ASSERT_NE(finalIt, submissionInfo.end());
+    EXPECT_TRUE(finalIt->DeclaresResources);
+
+    const auto* resource = graph.FindRegisteredResource("GraphNodeColor");
+    ASSERT_NE(resource, nullptr);
+    EXPECT_EQ(resource->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    ASSERT_EQ(resource->Producers.size(), 1u);
+    EXPECT_EQ(resource->Producers[0], "GraphProducer");
+    ASSERT_EQ(resource->Consumers.size(), 1u);
+    EXPECT_EQ(resource->Consumers[0], "GraphFinal");
 }
 
 TEST(RenderGraph, ExecuteProvidesActiveCommandContextScope)
@@ -681,7 +771,7 @@ TEST(RenderGraph, ExecuteProvidesActiveCommandContextScope)
     graph.Execute();
 
     EXPECT_EQ(pass->GetContextExecuteCount(), 1u);
-    EXPECT_EQ(pass->GetLegacyExecuteCount(), 0u);
+    EXPECT_EQ(pass->GetParameterlessExecuteCount(), 0u);
     EXPECT_TRUE(pass->WasContextActive());
     EXPECT_EQ(pass->GetObservedContextPassName(), "ContextPass");
 }
@@ -711,7 +801,7 @@ TEST(RenderGraph, GraphNodeSetupAndExecuteUseCanonicalSubmissionPath)
             auto output = builder.ImportTexture(
                 "GraphNodeOutput",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "GraphNodeOutput"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "GraphNodeOutput"));
             builder.Write(output, RGWriteUsage::RenderTarget);
         });
 
@@ -729,7 +819,7 @@ TEST(RenderGraph, GraphNodeSetupAndExecuteUseCanonicalSubmissionPath)
     const auto plan = graph.GetSubmissionPlan();
     const auto nodeCommand = std::find_if(plan.begin(), plan.end(), [](const RenderGraph::SubmissionCommand& command)
                                           { return command.CommandKind == RenderGraph::SubmissionCommand::Kind::Pass &&
-                                                   command.PassName == "GraphNodeExecute"; });
+                                                   command.NodeName == "GraphNodeExecute"; });
     ASSERT_NE(nodeCommand, plan.end());
     EXPECT_NE(nodeCommand->NodePointer, nullptr);
 }
@@ -746,7 +836,7 @@ TEST(RenderGraph, GraphNodesDeriveProducerConsumerDependencyFromDeclarations)
             auto shared = builder.ImportTexture(
                 "GraphNodeSharedColor",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "GraphNodeSharedColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "GraphNodeSharedColor"));
             builder.Write(shared, RGWriteUsage::RenderTarget);
         });
 
@@ -757,7 +847,7 @@ TEST(RenderGraph, GraphNodesDeriveProducerConsumerDependencyFromDeclarations)
             auto shared = builder.ImportTexture(
                 "GraphNodeSharedColor",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "GraphNodeSharedColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "GraphNodeSharedColor"));
             [[maybe_unused]] const auto readShared = builder.Read(shared, RGReadUsage::ShaderSample);
         });
 
@@ -777,7 +867,7 @@ TEST(RenderGraph, GraphNodesDeriveProducerConsumerDependencyFromDeclarations)
                                           });
     EXPECT_NE(derivedEdge, connections.end());
 
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     const auto producerIt = std::find(order.begin(), order.end(), "GraphNodeProducer");
     const auto consumerIt = std::find(order.begin(), order.end(), "GraphNodeConsumer");
     ASSERT_NE(producerIt, order.end());
@@ -800,7 +890,7 @@ TEST(RenderGraph, GraphNodeReachabilityCullsUnusedNode)
             auto shared = builder.ImportTexture(
                 "ReachableNodeColor",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ReachableNodeColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ReachableNodeColor"));
             builder.Write(shared, RGWriteUsage::RenderTarget);
         });
 
@@ -811,7 +901,7 @@ TEST(RenderGraph, GraphNodeReachabilityCullsUnusedNode)
             auto shared = builder.ImportTexture(
                 "ReachableNodeColor",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ReachableNodeColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ReachableNodeColor"));
             [[maybe_unused]] const auto readShared = builder.Read(shared, RGReadUsage::ShaderSample);
         });
 
@@ -822,7 +912,7 @@ TEST(RenderGraph, GraphNodeReachabilityCullsUnusedNode)
             auto unusedColor = builder.ImportTexture(
                 "UnusedNodeColor",
                 2,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "UnusedNodeColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "UnusedNodeColor"));
             builder.Write(unusedColor, RGWriteUsage::RenderTarget);
         });
 
@@ -853,7 +943,7 @@ TEST(RenderGraph, GraphNodeFlagsDriveSubmissionMetadata)
             auto output = builder.ImportBuffer(
                 "ComputeGraphNodeOutput",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::StorageBuffer, "ComputeGraphNodeOutput"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::StorageBuffer, "ComputeGraphNodeOutput"));
             builder.Write(output, RGWriteUsage::ShaderStorage);
         });
     node->SetFlags(RenderGraphNodeFlags::Compute |
@@ -866,20 +956,20 @@ TEST(RenderGraph, GraphNodeFlagsDriveSubmissionMetadata)
     graph.BuildFrameGraph();
     graph.Execute();
 
-    const auto submissionInfo = graph.GetPassSubmissionInfo();
+    const auto submissionInfo = graph.GetNodeSubmissionInfo();
     ASSERT_EQ(submissionInfo.size(), 1u);
-    EXPECT_EQ(submissionInfo[0].PassName, "ComputeGraphNode");
-    EXPECT_EQ(submissionInfo[0].Submission, RenderPass::SubmissionModel::BucketOnly);
+    EXPECT_EQ(submissionInfo[0].NodeName, "ComputeGraphNode");
+    EXPECT_EQ(submissionInfo[0].Submission, RenderGraphSubmissionModel::BucketOnly);
     EXPECT_TRUE(submissionInfo[0].DeclaresResources);
-    EXPECT_EQ(submissionInfo[0].WorkType, RenderPass::PassWorkType::Compute);
+    EXPECT_EQ(submissionInfo[0].WorkType, RenderGraphPassWorkType::Compute);
     EXPECT_TRUE(submissionInfo[0].AsyncComputeCandidate);
 
     const auto plan = graph.GetSubmissionPlan();
     const auto nodeCommand = std::find_if(plan.begin(), plan.end(), [](const RenderGraph::SubmissionCommand& command)
                                           { return command.CommandKind == RenderGraph::SubmissionCommand::Kind::Pass &&
-                                                   command.PassName == "ComputeGraphNode"; });
+                                                   command.NodeName == "ComputeGraphNode"; });
     ASSERT_NE(nodeCommand, plan.end());
-    EXPECT_EQ(nodeCommand->WorkType, RenderPass::PassWorkType::Compute);
+    EXPECT_EQ(nodeCommand->WorkType, RenderGraphPassWorkType::Compute);
     EXPECT_EQ(nodeCommand->Lane, RenderGraph::QueueLane::Compute);
     EXPECT_NE(nodeCommand->NodePointer, nullptr);
 
@@ -898,14 +988,14 @@ TEST(RenderGraph, GraphNodeSubmissionModelOverrideIsReported)
 
     auto node = Ref<TestGraphNode>::Create("MixedGraphNode");
     node->SetFlags(RenderGraphNodeFlags::Graphics | RenderGraphNodeFlags::UsesCommandBucket);
-    node->SetSubmissionModel(RenderPass::SubmissionModel::Mixed);
+    node->SetSubmissionModel(RenderGraphSubmissionModel::Mixed);
 
     graph.AddNode(node);
 
-    const auto info = graph.GetPassSubmissionInfo();
+    const auto info = graph.GetNodeSubmissionInfo();
     ASSERT_EQ(info.size(), 1u);
-    EXPECT_EQ(info[0].PassName, "MixedGraphNode");
-    EXPECT_EQ(info[0].Submission, RenderPass::SubmissionModel::Mixed);
+    EXPECT_EQ(info[0].NodeName, "MixedGraphNode");
+    EXPECT_EQ(info[0].Submission, RenderGraphSubmissionModel::Mixed);
 }
 
 TEST(RenderGraph, GraphNodeLifecycleHooksTrackInitResizeAndRenderScale)
@@ -931,7 +1021,7 @@ TEST(RenderGraph, GraphNodeLifecycleHooksTrackInitResizeAndRenderScale)
     EXPECT_EQ(node->GetLastRenderViewportHeight(), 0u);
 }
 
-TEST(RenderGraph, WrappedPassNodeAddedAfterGraphInitializationInheritsCurrentLifecycleState)
+TEST(RenderGraph, PassAddedAfterGraphInitializationInheritsCurrentLifecycleState)
 {
     RenderGraph graph;
 
@@ -983,7 +1073,7 @@ TEST(RenderGraph, PlansBarrierFromWriterToReaderTransition)
             auto sharedBuffer = builder.ImportBuffer(
                 "SharedBuffer",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::StorageBuffer, "SharedBuffer"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::StorageBuffer, "SharedBuffer"));
             builder.Write(sharedBuffer, RGWriteUsage::ShaderStorage);
         },
         [](RGCommandContext& /*context*/) {});
@@ -996,7 +1086,7 @@ TEST(RenderGraph, PlansBarrierFromWriterToReaderTransition)
             auto sharedBuffer = builder.ImportBuffer(
                 "SharedBuffer",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::StorageBuffer, "SharedBuffer"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::StorageBuffer, "SharedBuffer"));
             [[maybe_unused]] const auto readHandle = builder.Read(sharedBuffer, RGReadUsage::ShaderStorage);
         },
         [](RGCommandContext& /*context*/) {});
@@ -1033,7 +1123,7 @@ TEST(RenderGraph, PlansFramebufferAndTextureFetchBarrierForRenderTargetToSample)
             auto sceneColor = builder.ImportTexture(
                 "SceneColorTex",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SceneColorTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColorTex"));
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
@@ -1046,7 +1136,7 @@ TEST(RenderGraph, PlansFramebufferAndTextureFetchBarrierForRenderTargetToSample)
             auto sceneColor = builder.ImportTexture(
                 "SceneColorTex",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SceneColorTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColorTex"));
             [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::ShaderSample);
         },
         [](RGCommandContext& /*context*/) {});
@@ -1083,7 +1173,7 @@ TEST(RenderGraph, ReportsMissingProducerDiagnosticForReadOnlyResource)
             auto orphanResource = builder.ImportTexture(
                 "OrphanResource",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "OrphanResource"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "OrphanResource"));
             [[maybe_unused]] const auto readHandle = builder.Read(orphanResource, RGReadUsage::ShaderSample);
         },
         [](RGCommandContext& /*context*/) {});
@@ -1118,7 +1208,7 @@ TEST(RenderGraph, DerivedDependenciesAreRebuiltFromCurrentFrameDeclarations)
             auto sceneColor = builder.ImportTexture(
                 "SceneColor",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SceneColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColor"));
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
@@ -1134,13 +1224,13 @@ TEST(RenderGraph, DerivedDependenciesAreRebuiltFromCurrentFrameDeclarations)
             auto sceneColor = builder.ImportTexture(
                 "SceneColor",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SceneColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColor"));
             [[maybe_unused]] const auto readScene = builder.Read(sceneColor, RGReadUsage::ShaderSample);
 
             auto optionalColor = builder.ImportTexture(
                 "OptionalColor",
                 2,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "OptionalColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "OptionalColor"));
             builder.Write(optionalColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
@@ -1153,8 +1243,8 @@ TEST(RenderGraph, DerivedDependenciesAreRebuiltFromCurrentFrameDeclarations)
             auto input = builder.ImportTexture(
                 optionalEnabled ? "OptionalColor" : "SceneColor",
                 optionalEnabled ? 2u : 1u,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D,
-                                           optionalEnabled ? "OptionalColor" : "SceneColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D,
+                                               optionalEnabled ? "OptionalColor" : "SceneColor"));
             [[maybe_unused]] const auto readInput = builder.Read(input, RGReadUsage::ShaderSample);
         },
         [](RGCommandContext& /*context*/) {});
@@ -1196,7 +1286,7 @@ TEST(RenderGraph, ReportsStaleExtractionHandleDiagnostic)
     const auto stale = graph.ImportTexture(
         "TemporalColor",
         7,
-        RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "TemporalColor"));
+        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "TemporalColor"));
 
     graph.ClearImportedResources();
 
@@ -1233,7 +1323,7 @@ TEST(RenderGraph, ReportsExtractionOfCulledResourceDiagnostic)
             auto transientColor = builder.ImportTexture(
                 "CulledColor",
                 11,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "CulledColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "CulledColor"));
             builder.Write(transientColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
@@ -1246,7 +1336,7 @@ TEST(RenderGraph, ReportsExtractionOfCulledResourceDiagnostic)
             auto finalColor = builder.ImportTexture(
                 "FinalColorTex",
                 12,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
             builder.Write(finalColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
@@ -1291,7 +1381,7 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
             auto shared = builder.ImportBuffer(
                 "SharedBuffer",
                 41,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::StorageBuffer, "SharedBuffer"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::StorageBuffer, "SharedBuffer"));
             builder.Write(shared, RGWriteUsage::ShaderStorage);
         },
         [](RGCommandContext& /*context*/) {});
@@ -1304,7 +1394,7 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
             auto shared = builder.ImportBuffer(
                 "SharedBuffer",
                 41,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::StorageBuffer, "SharedBuffer"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::StorageBuffer, "SharedBuffer"));
             [[maybe_unused]] const auto readHandle = builder.Read(shared, RGReadUsage::ShaderStorage);
         },
         [](RGCommandContext& /*context*/) {});
@@ -1321,7 +1411,7 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
     ASSERT_TRUE(in.is_open());
 
     std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    EXPECT_NE(json.find("\"schemaVersion\": 13"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 14"), std::string::npos);
     EXPECT_NE(json.find("\"timingVersion\": 4"), std::string::npos);
     EXPECT_NE(json.find("\"hasTimings\": true"), std::string::npos);
     EXPECT_NE(json.find("\"frameSummary\""), std::string::npos);
@@ -1419,7 +1509,7 @@ TEST(RenderGraph, LinearChainOrder)
     // Execute triggers UpdateDependencyGraph
     graph.Execute();
 
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     ASSERT_EQ(order.size(), 3u);
 
     // A must appear before B, and B before C
@@ -1451,7 +1541,7 @@ TEST(RenderGraph, DiamondDependency)
 
     graph.Execute();
 
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     ASSERT_EQ(order.size(), 4u);
 
     auto posA = std::find(order.begin(), order.end(), "A") - order.begin();
@@ -1480,7 +1570,7 @@ TEST(RenderGraph, ExecutionDependencyOrdering)
 
     graph.Execute();
 
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     ASSERT_EQ(order.size(), 2u);
 
     auto posShadow = std::find(order.begin(), order.end(), "Shadow") - order.begin();
@@ -1512,7 +1602,7 @@ TEST(RenderGraph, AllPassesPresentInOrder)
 
     graph.Execute();
 
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     EXPECT_EQ(order.size(), names.size());
 
     // Verify all names present
@@ -1536,11 +1626,11 @@ TEST(RenderGraph, IndependentPassesAllExecute)
 
     graph.Execute();
 
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     EXPECT_EQ(order.size(), 3u);
 
-    // Legacy behavior when final pass is auto-selected: all independent
-    // passes still execute.
+    // Graphs without an explicit final pass keep all independent passes
+    // reachable, so every registered pass still executes.
     EXPECT_EQ(a->GetExecuteCount(), 1u);
     EXPECT_EQ(b->GetExecuteCount(), 1u);
     EXPECT_EQ(c->GetExecuteCount(), 1u);
@@ -1628,6 +1718,29 @@ TEST(RenderGraph, DeclarationOnlyProducerChainRemainsReachable)
     EXPECT_EQ(final->GetExecuteCount(), 1u);
 }
 
+TEST(RenderGraph, GraphNodeDeclarationOnlyProducerChainRemainsReachable)
+{
+    RenderGraph graph;
+
+    auto producer = AddTestNode(graph, "NodeProducer");
+    auto middle = AddTestNode(graph, "NodeMiddle");
+    auto final = AddTestNode(graph, "NodeFinal");
+
+    producer->DeclareWrite("PostProcessColor", ResourceHandle::Kind::Framebuffer);
+    middle->DeclareRead("PostProcessColor", ResourceHandle::Kind::Framebuffer);
+    middle->DeclareWrite("ToneMapColor", ResourceHandle::Kind::Framebuffer);
+    final->DeclareRead("ToneMapColor", ResourceHandle::Kind::Framebuffer);
+
+    graph.SetFinalPass("NodeFinal");
+    graph.Execute();
+
+    EXPECT_EQ(producer->GetExecuteCount(), 1u)
+        << "Declaration-only graph-node producer must remain reachable from the final node";
+    EXPECT_EQ(middle->GetExecuteCount(), 1u)
+        << "Intermediate declaration-only graph node must not be culled";
+    EXPECT_EQ(final->GetExecuteCount(), 1u);
+}
+
 // =============================================================================
 // Layer 5 structural validation — production ordering invariants
 //
@@ -1657,7 +1770,7 @@ TEST(RenderGraphStructural, ProductionPassOrderingAlwaysRespected)
 
     graph.Execute();
 
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     auto posOf = [&](const std::string& n)
     {
         return std::find(order.begin(), order.end(), n) - order.begin();
@@ -1704,7 +1817,7 @@ TEST(RenderGraphStructural, FinalPresentSinkUsesOrderingOnly)
     EXPECT_EQ(final->GetExecuteCount(), 1u)
         << "FinalPass must still execute via ordering dependency";
 
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     auto posOf = [&](const std::string& n)
     {
         return std::find(order.begin(), order.end(), n) - order.begin();
@@ -1794,7 +1907,7 @@ TEST(RenderGraphStructural, DerivedEdgeDoesNotIntroduceReverseCycle)
             auto sceneColor = builder.ImportTexture(
                 "SceneColor",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SceneColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColor"));
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
@@ -1807,7 +1920,7 @@ TEST(RenderGraphStructural, DerivedEdgeDoesNotIntroduceReverseCycle)
             auto sceneColor = builder.ImportTexture(
                 "SceneColor",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SceneColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColor"));
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
@@ -1825,7 +1938,7 @@ TEST(RenderGraphStructural, DerivedEdgeDoesNotIntroduceReverseCycle)
                                           return h.Kind == RenderGraph::HazardKind::Cycle;
                                       });
     EXPECT_FALSE(hasCycle) << "Derived edge insertion must not create cycles";
-    EXPECT_EQ(graph.GetPassOrder().size(), 2u)
+    EXPECT_EQ(graph.GetExecutionOrder().size(), 2u)
         << "Cycle guard must preserve a valid two-pass topological order";
 }
 
@@ -1842,15 +1955,15 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfyDeferredCoreWithoutManualEdges)
             auto sceneDepth = builder.ImportTexture(
                 std::string(ResourceNames::SceneDepth),
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
             auto sceneNormals = builder.ImportTexture(
                 std::string(ResourceNames::SceneNormals),
                 2,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
             auto sceneColor = builder.ImportTexture(
                 std::string(ResourceNames::SceneColor),
                 3,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneColor)));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneColor)));
 
             builder.Write(sceneDepth, RGWriteUsage::DepthStencil);
             builder.Write(sceneNormals, RGWriteUsage::RenderTarget);
@@ -1866,11 +1979,11 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfyDeferredCoreWithoutManualEdges)
             auto sceneDepth = builder.ImportTexture(
                 std::string(ResourceNames::SceneDepth),
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
             auto sceneColor = builder.ImportTexture(
                 std::string(ResourceNames::SceneColor),
                 3,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneColor)));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneColor)));
 
             [[maybe_unused]] const auto depthRead = builder.Read(sceneDepth, RGReadUsage::ShaderSample);
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
@@ -1885,15 +1998,15 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfyDeferredCoreWithoutManualEdges)
             auto sceneDepth = builder.ImportTexture(
                 std::string(ResourceNames::SceneDepth),
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
             auto sceneNormals = builder.ImportTexture(
                 std::string(ResourceNames::SceneNormals),
                 2,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
             auto sceneColor = builder.ImportTexture(
                 std::string(ResourceNames::SceneColor),
                 3,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneColor)));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneColor)));
 
             [[maybe_unused]] const auto depthRead = builder.Read(sceneDepth, RGReadUsage::ShaderSample);
             [[maybe_unused]] const auto normalsRead = builder.Read(sceneNormals, RGReadUsage::ShaderSample);
@@ -1909,7 +2022,7 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfyDeferredCoreWithoutManualEdges)
             auto sceneColor = builder.ImportTexture(
                 std::string(ResourceNames::SceneColor),
                 3,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneColor)));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneColor)));
             [[maybe_unused]] const auto sceneColorRead = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
         },
         [](RGCommandContext& /*context*/) {});
@@ -1920,7 +2033,7 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfyDeferredCoreWithoutManualEdges)
     const auto hazards = graph.ValidateResourceHazards();
     EXPECT_TRUE(hazards.empty()) << "Derived deferred-core edges should satisfy hazards";
 
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     auto posOf = [&](const char* name)
     {
         return std::find(order.begin(), order.end(), name) - order.begin();
@@ -1943,11 +2056,11 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfySceneToSSAOWithoutManualEdge)
             auto sceneDepth = builder.ImportTexture(
                 std::string(ResourceNames::SceneDepth),
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
             auto sceneNormals = builder.ImportTexture(
                 std::string(ResourceNames::SceneNormals),
                 2,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
             builder.Write(sceneDepth, RGWriteUsage::DepthStencil);
             builder.Write(sceneNormals, RGWriteUsage::RenderTarget);
         },
@@ -1961,15 +2074,15 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfySceneToSSAOWithoutManualEdge)
             auto sceneDepth = builder.ImportTexture(
                 std::string(ResourceNames::SceneDepth),
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
             auto sceneNormals = builder.ImportTexture(
                 std::string(ResourceNames::SceneNormals),
                 2,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
             auto ao = builder.ImportTexture(
                 std::string(ResourceNames::AOBuffer),
                 3,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::AOBuffer)));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::AOBuffer)));
 
             [[maybe_unused]] const auto depthRead = builder.Read(sceneDepth, RGReadUsage::ShaderSample);
             [[maybe_unused]] const auto normalsRead = builder.Read(sceneNormals, RGReadUsage::ShaderSample);
@@ -1985,7 +2098,7 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfySceneToSSAOWithoutManualEdge)
             auto ao = builder.ImportTexture(
                 std::string(ResourceNames::AOBuffer),
                 3,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::AOBuffer)));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::AOBuffer)));
             [[maybe_unused]] const auto aoRead = builder.Read(ao, RGReadUsage::ShaderSample);
         },
         [](RGCommandContext& /*context*/) {});
@@ -2010,11 +2123,11 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfySceneToGTAOWithoutManualEdge)
             auto sceneDepth = builder.ImportTexture(
                 std::string(ResourceNames::SceneDepth),
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
             auto sceneNormals = builder.ImportTexture(
                 std::string(ResourceNames::SceneNormals),
                 2,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
             builder.Write(sceneDepth, RGWriteUsage::DepthStencil);
             builder.Write(sceneNormals, RGWriteUsage::RenderTarget);
         },
@@ -2028,15 +2141,15 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfySceneToGTAOWithoutManualEdge)
             auto sceneDepth = builder.ImportTexture(
                 std::string(ResourceNames::SceneDepth),
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
             auto sceneNormals = builder.ImportTexture(
                 std::string(ResourceNames::SceneNormals),
                 2,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
             auto ao = builder.ImportTexture(
                 std::string(ResourceNames::AOBuffer),
                 3,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::AOBuffer)));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::AOBuffer)));
 
             [[maybe_unused]] const auto depthRead = builder.Read(sceneDepth, RGReadUsage::ShaderSample);
             [[maybe_unused]] const auto normalsRead = builder.Read(sceneNormals, RGReadUsage::ShaderSample);
@@ -2052,7 +2165,7 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfySceneToGTAOWithoutManualEdge)
             auto ao = builder.ImportTexture(
                 std::string(ResourceNames::AOBuffer),
                 3,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::AOBuffer)));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::AOBuffer)));
             [[maybe_unused]] const auto aoRead = builder.Read(ao, RGReadUsage::ShaderSample);
         },
         [](RGCommandContext& /*context*/) {});
@@ -2075,7 +2188,7 @@ TEST(RenderGraphStructural, ConnectingToMissingPassDoesNotCorruptGraph)
     graph.ConnectPass("Nonexistent", "A");
 
     EXPECT_NO_THROW(graph.Execute());
-    EXPECT_EQ(graph.GetPassSubmissionInfo().size(), 1u)
+    EXPECT_EQ(graph.GetNodeSubmissionInfo().size(), 1u)
         << "Connect calls with missing graph entries must not register new entries";
 }
 
@@ -2112,7 +2225,7 @@ TEST(RenderGraph, MultipleExecuteIdempotent)
 
     EXPECT_EQ(pass->GetExecuteCount(), 3u);
 
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     EXPECT_EQ(order.size(), 1u);
 }
 
@@ -2127,7 +2240,7 @@ TEST(RenderGraph, SinglePassGraph)
 
     graph.Execute();
 
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     ASSERT_EQ(order.size(), 1u);
     EXPECT_EQ(order[0], "Only");
     EXPECT_EQ(pass->GetExecuteCount(), 1u);
@@ -2154,15 +2267,15 @@ TEST(RenderGraphResetTopology, ClearsPassesAndAllowsRebuild)
     graph.ConnectPass("B", "C");
     graph.SetFinalPass("C");
     graph.Execute();
-    EXPECT_EQ(graph.GetPassSubmissionInfo().size(), 3u);
-    EXPECT_EQ(graph.GetPassOrder().size(), 3u);
+    EXPECT_EQ(graph.GetNodeSubmissionInfo().size(), 3u);
+    EXPECT_EQ(graph.GetExecutionOrder().size(), 3u);
 
     graph.ResetTopology();
 
     // After reset the graph must behave as freshly constructed: no
     // passes, no cached order, no stale connections leaking into the
     // next rebuild.
-    EXPECT_EQ(graph.GetPassSubmissionInfo().size(), 0u);
+    EXPECT_EQ(graph.GetNodeSubmissionInfo().size(), 0u);
     EXPECT_EQ(graph.GetConnections().size(), 0u);
 
     // Rebuild as a different "forward-like" topology (2 passes).
@@ -2172,37 +2285,35 @@ TEST(RenderGraphResetTopology, ClearsPassesAndAllowsRebuild)
     graph.SetFinalPass("Y");
     graph.Execute();
 
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     ASSERT_EQ(order.size(), 2u);
     EXPECT_EQ(order[0], "X");
     EXPECT_EQ(order[1], "Y");
-    EXPECT_EQ(graph.GetNode<PassGraphNode>("A"), nullptr)
+    EXPECT_EQ(graph.GetNode<RenderPass>("A"), nullptr)
         << "Old graph entries must not be retrievable after ResetTopology";
-    EXPECT_EQ(graph.GetNode<PassGraphNode>("B"), nullptr);
-    EXPECT_EQ(graph.GetNode<PassGraphNode>("C"), nullptr);
+    EXPECT_EQ(graph.GetNode<RenderPass>("B"), nullptr);
+    EXPECT_EQ(graph.GetNode<RenderPass>("C"), nullptr);
 }
 
-TEST(RenderGraphResetTopology, PreservesNodeAndPassReferenceOwnership)
+TEST(RenderGraphResetTopology, PreservesPassReferenceOwnership)
 {
     // ResetTopology must only drop the graph's references, not destroy
-    // nodes or wrapped passes still held by external owners (in the real
-    // engine that's Renderer3D::s_Data). The test below verifies that
-    // external Refs keep both objects alive after the graph forgets them.
+    // passes still held by external owners (in the real engine that's
+    // Renderer3D::s_Data). The test below verifies that external Refs keep
+    // the pass alive after the graph forgets it.
     RenderGraph graph;
     auto a = Ref<StubRenderPass>::Create("A");
     a->SetName("A");
-    auto node = Ref<PassGraphNode>::Create("A", a.As<RenderPass>(), PassGraphNode::SetupCallback{});
-    graph.AddNode(node);
+    graph.AddNode(a.As<RenderGraphNode>());
 
     graph.ResetTopology();
 
     ASSERT_NE(a.Raw(), nullptr);
-    ASSERT_NE(node.Raw(), nullptr);
     EXPECT_EQ(a->GetName(), "A");
 
-    // Re-registering the same node instance is legal — simulates the
+    // Re-registering the same pass instance is legal — simulates the
     // per-path rebuild re-adding persistent graph entries.
-    graph.AddNode(node);
+    graph.AddNode(a.As<RenderGraphNode>());
     graph.SetFinalPass("A");
     graph.Execute();
     EXPECT_EQ(a->GetExecuteCount(), 1u);
@@ -2219,7 +2330,7 @@ TEST(RenderGraphResetTopology, MultipleResetsAreSafe)
         AddStub(graph, "P");
         graph.SetFinalPass("P");
         graph.Execute();
-        EXPECT_EQ(graph.GetPassSubmissionInfo().size(), 1u);
+        EXPECT_EQ(graph.GetNodeSubmissionInfo().size(), 1u);
     }
 }
 
@@ -2227,15 +2338,15 @@ TEST(RenderGraphResetTopology, ImportedHandleSlotsAreRebackedAfterReset)
 {
     RenderGraph graph;
 
-    auto textureDesc = RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ImportedTexture");
+    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ImportedTexture");
     const auto oldTexture = graph.ImportTexture("ImportedTexture", 42u, textureDesc);
     EXPECT_EQ(graph.ResolveTexture(oldTexture), 42u);
 
-    auto bufferDesc = RGResourceDesc::FromLegacy(ResourceHandle::Kind::UniformBuffer, "ImportedBuffer");
+    auto bufferDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::UniformBuffer, "ImportedBuffer");
     const auto oldBuffer = graph.ImportBuffer("ImportedBuffer", 77u, bufferDesc);
     EXPECT_EQ(graph.ResolveBuffer(oldBuffer), 77u);
 
-    auto framebufferDesc = RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "ImportedFramebuffer");
+    auto framebufferDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "ImportedFramebuffer");
     auto oldFramebufferRef = Ref<StubFramebuffer>::Create(10u);
     const auto oldFramebuffer = graph.ImportFramebuffer("ImportedFramebuffer", oldFramebufferRef, framebufferDesc);
     EXPECT_EQ(graph.ResolveFramebuffer(oldFramebuffer).Raw(), oldFramebufferRef.Raw());
@@ -2272,7 +2383,7 @@ TEST(RenderGraphResetTopology, ClearsGraphNodeBuildDeclarations)
             auto nodeResource = builder.ImportTexture(
                 "NodeResetSentinel",
                 17u,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "NodeResetSentinel"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "NodeResetSentinel"));
             builder.Write(nodeResource, RGWriteUsage::RenderTarget);
         });
 
@@ -2370,7 +2481,7 @@ TEST(RenderGraphTransientPool, UnreachableTransientResourceIsNotPlannedForAlloca
             auto sceneColor = builder.ImportTexture(
                 "FinalColorTex",
                 9,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         });
 
@@ -2428,7 +2539,7 @@ TEST(RenderGraphTransientPool, NonOverlappingTransientResourcesReuseAliasSlot)
             auto sceneColor = builder.ImportTexture(
                 "SceneColorTex",
                 15,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SceneColorTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColorTex"));
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         });
 
@@ -3316,11 +3427,8 @@ TEST(RenderGraphTransientPool, DumpToJsonIncludesTransientAliasDiagnostics)
     std::filesystem::remove(outputPath, ec);
 }
 
-TEST(RenderGraphTransientPool, MaterializationEnabledIsSafeWithoutBackend)
+TEST(RenderGraphTransientPool, MaterializationEnabledIsSafeForNonAllocatableTransient)
 {
-    if (RendererAPI::GetAPI() != RendererAPI::API::None)
-        GTEST_SKIP() << "No-backend safety check is only valid when RendererAPI::None is active";
-
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
     graph.SetTransientMaterializationEnabled(true);
@@ -3332,11 +3440,11 @@ TEST(RenderGraphTransientPool, MaterializationEnabledIsSafeWithoutBackend)
         {
             RGResourceDesc desc;
             desc.Kind = ResourceHandle::Kind::Texture2D;
-            desc.Format = RGResourceFormat::RGBA16Float;
+            desc.Format = RGResourceFormat::Unknown;
             desc.Width = 320;
             desc.Height = 180;
 
-            const auto temp = builder.CreateTexture("HeadlessTransient", desc);
+            const auto temp = builder.CreateTexture("NonAllocatableTransient", desc);
             builder.Write(temp, RGWriteUsage::RenderTarget);
         });
 
@@ -3347,23 +3455,35 @@ TEST(RenderGraphTransientPool, MaterializationEnabledIsSafeWithoutBackend)
         {
             RGResourceDesc desc;
             desc.Kind = ResourceHandle::Kind::Texture2D;
-            desc.Format = RGResourceFormat::RGBA16Float;
+            desc.Format = RGResourceFormat::Unknown;
             desc.Width = 320;
             desc.Height = 180;
 
-            const auto temp = builder.CreateTexture("HeadlessTransient", desc);
+            const auto temp = builder.CreateTexture("NonAllocatableTransient", desc);
             [[maybe_unused]] const auto readTemp = builder.Read(temp, RGReadUsage::ShaderSample);
         });
 
     graph.SetFinalPass("Final");
     graph.BuildFrameGraph();
 
+    const auto& transientPlan = graph.GetTransientPlan();
+    const auto planIt = std::find_if(transientPlan.begin(), transientPlan.end(),
+                                     [](const RenderGraph::TransientPlanEntry& entry)
+                                     {
+                                         return entry.Resource == "NonAllocatableTransient";
+                                     });
+
+    ASSERT_NE(planIt, transientPlan.end()) << "Transient should exist in the plan";
+    EXPECT_TRUE(planIt->Reachable) << "Transient should still participate in the frame graph";
+    EXPECT_FALSE(planIt->WillAllocate) << "Unknown-format transient must not be materialized";
+    EXPECT_EQ(planIt->SkipReason, "unknown-format");
+
     EXPECT_NO_THROW(graph.Execute());
 
-    const auto handle = graph.GetTextureHandle("HeadlessTransient");
+    const auto handle = graph.GetTextureHandle("NonAllocatableTransient");
     ASSERT_TRUE(handle.IsValid());
     EXPECT_EQ(graph.ResolveTexture(handle), 0u)
-        << "No-backend execution must not create physical textures";
+        << "Non-allocatable transients must not create physical textures";
 }
 
 TEST(RenderGraphTransientPool, TransientTextureIsAllocatedFromPoolWhenMaterializationEnabled)
@@ -3477,15 +3597,12 @@ TEST(RenderGraphTransientPool, MaterializedTransientExtractionReturnsValidTextur
 
     EXPECT_NO_THROW(graph.Execute());
     EXPECT_TRUE(callbackCalled) << "Transient extraction callback must fire after Execute";
-    if (extractedTextureID == 0u)
-        GTEST_SKIP() << "Backend present but transient materialization produced texture ID 0 in this environment";
+    EXPECT_NE(extractedTextureID, 0u)
+        << "Materialized transient extraction must resolve a live texture ID when a GPU context is available";
 }
 
-TEST(RenderGraphTransientPool, HeadlessTransientExtractionInvokesCallbackWithZeroTexture)
+TEST(RenderGraphTransientPool, NonAllocatableTransientExtractionInvokesCallbackWithZeroTexture)
 {
-    if (RendererAPI::GetAPI() != RendererAPI::API::None)
-        GTEST_SKIP() << "Headless transient extraction check is only valid when RendererAPI::None is active";
-
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
     graph.SetTransientMaterializationEnabled(true);
@@ -3497,18 +3614,29 @@ TEST(RenderGraphTransientPool, HeadlessTransientExtractionInvokesCallbackWithZer
         {
             RGResourceDesc desc;
             desc.Kind = ResourceHandle::Kind::Texture2D;
-            desc.Format = RGResourceFormat::RGBA16Float;
+            desc.Format = RGResourceFormat::Unknown;
             desc.Width = 128;
             desc.Height = 128;
 
-            const auto transient = builder.CreateTexture("ReadbackTransient", desc);
+            const auto transient = builder.CreateTexture("NonAllocatableReadbackTransient", desc);
             builder.Write(transient, RGWriteUsage::RenderTarget);
         });
 
     graph.SetFinalPass("TransientWriter");
     graph.BuildFrameGraph();
 
-    const auto handle = graph.GetTextureHandle("ReadbackTransient");
+    const auto& transientPlan = graph.GetTransientPlan();
+    const auto planIt = std::find_if(transientPlan.begin(), transientPlan.end(),
+                                     [](const RenderGraph::TransientPlanEntry& entry)
+                                     {
+                                         return entry.Resource == "NonAllocatableReadbackTransient";
+                                     });
+    ASSERT_NE(planIt, transientPlan.end()) << "Transient should exist in the plan";
+    EXPECT_TRUE(planIt->Reachable) << "Transient should still participate in the frame graph";
+    EXPECT_FALSE(planIt->WillAllocate) << "Unknown-format transient must not be materialized";
+    EXPECT_EQ(planIt->SkipReason, "unknown-format");
+
+    const auto handle = graph.GetTextureHandle("NonAllocatableReadbackTransient");
     ASSERT_TRUE(handle.IsValid()) << "Transient handle must be valid after graph build";
 
     bool callbackCalled = false;
@@ -3541,7 +3669,7 @@ TEST(RenderGraphTransientPool, PhaseD_DeclareTransientFramebufferReturnsValidHan
     oitDesc.Kind = ResourceHandle::Kind::Framebuffer;
     oitDesc.Width = 1280;
     oitDesc.Height = 720;
-    oitDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float };
+    oitDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float, RGResourceFormat::Depth24Stencil8 };
 
     const auto handle = graph.DeclareTransientFramebuffer(ResourceNames::OITBuffer, oitDesc);
     EXPECT_TRUE(handle.IsValid())
@@ -3554,8 +3682,8 @@ TEST(RenderGraphTransientPool, PhaseD_DeclareTransientFramebufferReturnsValidHan
         << "DeclareTransientFramebuffer and GetFramebufferHandle must return the same slot";
 }
 
-// Verify that an MRT OIT transient descriptor is planned for allocation when
-// its resource is reachable (Producer writes it, Consumer reads it).
+// Verify that an MRT OIT transient descriptor (including the graph-owned depth
+// attachment) is planned for allocation when its resource is reachable.
 TEST(RenderGraphTransientPool, PhaseD_OITBufferDeclaredAsSharedTransientMRTFramebuffer)
 {
     RenderGraph graph;
@@ -3567,7 +3695,7 @@ TEST(RenderGraphTransientPool, PhaseD_OITBufferDeclaredAsSharedTransientMRTFrame
     oitDesc.Kind = ResourceHandle::Kind::Framebuffer;
     oitDesc.Width = 1280;
     oitDesc.Height = 720;
-    oitDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float };
+    oitDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float, RGResourceFormat::Depth24Stencil8 };
     oitDesc.DebugName = std::string(ResourceNames::OITBuffer);
 
     const auto oitHandle = graph.DeclareTransientFramebuffer(ResourceNames::OITBuffer, oitDesc);
@@ -3605,10 +3733,11 @@ TEST(RenderGraphTransientPool, PhaseD_OITBufferDeclaredAsSharedTransientMRTFrame
         << "OITBuffer MRT must be planned for allocation; skip reason: " << it->SkipReason;
     EXPECT_EQ(it->SkipReason, "") << "unexpected skip reason: " << it->SkipReason;
 
-    // EstimatedBytes must cover both attachments: RGBA16F (8 bytes) + RG16F (4 bytes) per pixel.
-    const u64 expectedBytes = (8ull + 4ull) * 1280ull * 720ull;
+    // EstimatedBytes must cover both color attachments plus depth:
+    // RGBA16F (8 bytes) + RG16F (4 bytes) + DEPTH24_STENCIL8 (4 bytes) per pixel.
+    const u64 expectedBytes = (8ull + 4ull + 4ull) * 1280ull * 720ull;
     EXPECT_EQ(it->EstimatedBytes, expectedBytes)
-        << "MRT estimated bytes must sum across all attachments";
+        << "MRT estimated bytes must sum across all color and depth attachments";
 
     // Both OITAccum and OITRevealage blackboard slots point to the same handle.
     const auto afterBuildHandle = graph.GetFramebufferHandle(ResourceNames::OITBuffer);
@@ -3617,29 +3746,25 @@ TEST(RenderGraphTransientPool, PhaseD_OITBufferDeclaredAsSharedTransientMRTFrame
         << "stable handle index must not change between declaration and post-build lookup";
 }
 
-// Verify that OverrideTransientFramebuffer correctly injects an external FB
-// into the physical slot so ResolveFramebuffer returns it.
-TEST(RenderGraphTransientPool, PhaseD_OverrideTransientFramebufferPatchesPhysicalSlot)
+// Verify that the graph-owned OIT descriptor remains incompatible with the old
+// color-only MRT shape so alias planning cannot silently regress to a bridge
+// era descriptor that omits depth.
+TEST(RenderGraphTransientPool, PhaseD_OITBufferDepthAttachmentParticipatesInCompatibility)
 {
-    RenderGraph graph;
-    graph.SetRuntimeBarrierExecutionEnabled(false);
+    RGResourceDesc colorOnly;
+    colorOnly.Kind = ResourceHandle::Kind::Framebuffer;
+    colorOnly.Width = 1280;
+    colorOnly.Height = 720;
+    colorOnly.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float };
 
-    RGResourceDesc oitDesc;
-    oitDesc.Kind = ResourceHandle::Kind::Framebuffer;
-    oitDesc.Width = 1280;
-    oitDesc.Height = 720;
-    oitDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float };
+    RGResourceDesc withDepth;
+    withDepth.Kind = ResourceHandle::Kind::Framebuffer;
+    withDepth.Width = 1280;
+    withDepth.Height = 720;
+    withDepth.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float, RGResourceFormat::Depth24Stencil8 };
 
-    [[maybe_unused]] const auto oitTransientHandle = graph.DeclareTransientFramebuffer(ResourceNames::OITBuffer, oitDesc);
-
-    // OverrideTransientFramebuffer with a nullptr should be safe (no crash).
-    EXPECT_NO_THROW(graph.OverrideTransientFramebuffer(ResourceNames::OITBuffer, nullptr));
-
-    // After override with nullptr, ResolveFramebuffer should return nullptr.
-    const auto handle = graph.GetFramebufferHandle(ResourceNames::OITBuffer);
-    ASSERT_TRUE(handle.IsValid());
-    EXPECT_EQ(graph.ResolveFramebuffer(handle), nullptr)
-        << "After injecting nullptr the resolved framebuffer must be null";
+    EXPECT_FALSE(withDepth.IsCompatibleWith(colorOnly));
+    EXPECT_FALSE(colorOnly.IsCompatibleWith(withDepth));
 }
 
 // Verify that MRT alias group keys differ from single-attachment keys so
@@ -3656,7 +3781,7 @@ TEST(RenderGraphTransientPool, PhaseD_MRTAliasGroupDiffersFromSingleAttachmentKe
     mrt.Kind = ResourceHandle::Kind::Framebuffer;
     mrt.Width = 1280;
     mrt.Height = 720;
-    mrt.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float };
+    mrt.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float, RGResourceFormat::Depth24Stencil8 };
 
     // Use the IsCompatibleWith predicate: MRT and single must NOT be compatible.
     EXPECT_FALSE(mrt.IsCompatibleWith(single))
@@ -3669,7 +3794,7 @@ TEST(RenderGraphTransientPool, PhaseD_MRTAliasGroupDiffersFromSingleAttachmentKe
     mrt2.Kind = ResourceHandle::Kind::Framebuffer;
     mrt2.Width = 1280;
     mrt2.Height = 720;
-    mrt2.Attachments = { RGResourceFormat::RG16Float, RGResourceFormat::RGBA16Float };
+    mrt2.Attachments = { RGResourceFormat::RG16Float, RGResourceFormat::RGBA16Float, RGResourceFormat::Depth24Stencil8 };
 
     EXPECT_FALSE(mrt.IsCompatibleWith(mrt2))
         << "MRT descs with different attachment orders must not be compatible";
@@ -3682,9 +3807,10 @@ TEST(RenderGraphTransientPool, PhaseD_MRTEstimatedBytesAreCorrect)
     oitDesc.Kind = ResourceHandle::Kind::Framebuffer;
     oitDesc.Width = 1280;
     oitDesc.Height = 720;
-    oitDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float };
+    oitDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float, RGResourceFormat::Depth24Stencil8 };
 
-    // RGBA16F = 8 bytes/px, RG16F = 4 bytes/px → (8+4) * 1280 * 720.
+    // RGBA16F = 8 bytes/px, RG16F = 4 bytes/px, DEPTH24_STENCIL8 = 4 bytes/px
+    // → (8+4+4) * 1280 * 720.
     // Use the public IsTransientDescriptorAllocatable + transient plan approach
     // by registering and building.
     RenderGraph graph;
@@ -3704,8 +3830,8 @@ TEST(RenderGraphTransientPool, PhaseD_MRTEstimatedBytesAreCorrect)
                                  [](const RenderGraph::TransientPlanEntry& e)
                                  { return e.Resource == "MRTEstimate"; });
     ASSERT_NE(it, plan.end());
-    EXPECT_EQ(it->EstimatedBytes, (8ull + 4ull) * 1280ull * 720ull)
-        << "RGBA16F+RG16F MRT estimated bytes must sum to 12 bytes/px";
+    EXPECT_EQ(it->EstimatedBytes, (8ull + 4ull + 4ull) * 1280ull * 720ull)
+        << "RGBA16F+RG16F+Depth MRT estimated bytes must sum to 16 bytes/px";
 }
 
 // =============================================================================
@@ -3726,8 +3852,9 @@ TEST(RenderGraphTransientPool, PhaseD_PostProcessChainRGBA16FOutputsDeclaredAsTr
     constexpr u32 vh = 720;
 
     const std::vector<std::string> hdOutputs = {
-        "BloomColor", "DOFColor", "MotionBlurColor", "TAAColor",
-        "FogColor", "ChromAbColor", "ColorGradingColor", "ToneMapColor"
+        "SSSColor", "AOApplyColor", "BloomColor", "DOFColor",
+        "MotionBlurColor", "TAAColor", "PrecipitationColor", "FogColor",
+        "ChromAbColor", "ColorGradingColor", "ToneMapColor"
     };
 
     for (const auto& name : hdOutputs)
@@ -3813,8 +3940,6 @@ TEST(RenderGraphTransientPool, PhaseD_PostProcessTransientNotInImportedResources
     // Post-process outputs declared via DeclareTransientFramebuffer must NOT
     // be flagged as IsImported in resource lifetime records — they are
     // graph-owned transients, not externally-owned imports.
-    // OverrideTransientFramebuffer silently no-ops for imported resources, so
-    // this distinction is load-bearing for the real-FB injection in EndScene.
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
@@ -3827,7 +3952,14 @@ TEST(RenderGraphTransientPool, PhaseD_PostProcessTransientNotInImportedResources
         RGResourceFormat Format;
     };
     const std::vector<PassSpec> specs = {
+        { "SSSColor", RGResourceFormat::RGBA16Float },
+        { "AOApplyColor", RGResourceFormat::RGBA16Float },
         { "BloomColor", RGResourceFormat::RGBA16Float },
+        { "DOFColor", RGResourceFormat::RGBA16Float },
+        { "MotionBlurColor", RGResourceFormat::RGBA16Float },
+        { "TAAColor", RGResourceFormat::RGBA16Float },
+        { "PrecipitationColor", RGResourceFormat::RGBA16Float },
+        { "FogColor", RGResourceFormat::RGBA16Float },
         { "ToneMapColor", RGResourceFormat::RGBA16Float },
         { "FXAAColor", RGResourceFormat::RGBA8UNorm },
         { "UIComposite", RGResourceFormat::RGBA8UNorm },
@@ -3850,7 +3982,6 @@ TEST(RenderGraphTransientPool, PhaseD_PostProcessTransientNotInImportedResources
 
     // Register a separate writer pass for each resource, and chain them so
     // the graph has a single final pass.
-    // Writer0 → Writer1 → Writer2 → FinalWriter (writes handles[3])
     for (std::size_t i = 0; i < specs.size(); ++i)
     {
         const auto h = handles[i];
@@ -3858,10 +3989,12 @@ TEST(RenderGraphTransientPool, PhaseD_PostProcessTransientNotInImportedResources
         AddSetupNode(graph, passName, [h](RGBuilder& builder)
                      { builder.Write(h, RGWriteUsage::RenderTarget); });
     }
-    graph.AddExecutionDependency("Writer0", "Writer1");
-    graph.AddExecutionDependency("Writer1", "Writer2");
-    graph.AddExecutionDependency("Writer2", "Writer3");
-    graph.SetFinalPass("Writer3");
+    for (std::size_t i = 1; i < specs.size(); ++i)
+    {
+        graph.AddExecutionDependency("Writer" + std::to_string(i - 1),
+                                     "Writer" + std::to_string(i));
+    }
+    graph.SetFinalPass("Writer" + std::to_string(specs.size() - 1));
     graph.BuildFrameGraph();
 
     // Use resource lifetime records (Phase G Slice 11 API) to confirm IsImported == false.
@@ -3879,20 +4012,13 @@ TEST(RenderGraphTransientPool, PhaseD_PostProcessTransientNotInImportedResources
                 << s.Name << " must be flagged IsTransient";
         }
     }
-
-    // Override must succeed (resource is a transient, not an import).
-    // We verify the call doesn't crash; real FB injection happens in production EndScene.
-    for (const auto& s : specs)
-    {
-        EXPECT_NO_FATAL_FAILURE(graph.OverrideTransientFramebuffer(s.Name, nullptr));
-    }
 }
 
 TEST(RenderGraphTransientPool, PhaseH_ScratchTransientsRemainGraphOwned)
 {
-    // Scratch resources that used to have execute-path owned fallbacks must
-    // stay graph-owned transients so passes cannot silently drift back to raw
-    // compatibility bridges.
+    // Scratch resources that support optional fullscreen stages must stay
+    // graph-owned transients so passes cannot silently drift back to hidden
+    // owner-backed side paths.
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
@@ -3913,6 +4039,7 @@ TEST(RenderGraphTransientPool, PhaseH_ScratchTransientsRemainGraphOwned)
         { "JFAPing", ResourceHandle::Kind::Framebuffer, RGResourceFormat::RGBA32Float, vw, vh },
         { "JFAPong", ResourceHandle::Kind::Framebuffer, RGResourceFormat::RGBA32Float, vw, vh },
         { "BloomMip0", ResourceHandle::Kind::Framebuffer, RGResourceFormat::RGBA16Float, vw / 2, vh / 2 },
+        { "FogHalfRes", ResourceHandle::Kind::Framebuffer, RGResourceFormat::RGBA16Float, vw / 2, vh / 2 },
         { "GTAOEdge", ResourceHandle::Kind::Texture2D, RGResourceFormat::R8UNorm, vw, vh },
         { "HZBDepth", ResourceHandle::Kind::Texture2D, RGResourceFormat::R32Float, 2048, 1024 },
         { "WaterRefraction", ResourceHandle::Kind::Texture2D, RGResourceFormat::RGBA16Float, vw, vh },
@@ -3978,13 +4105,23 @@ TEST(RenderGraphTransientPool, PhaseH_ScratchTransientsRemainGraphOwned)
                      desc.Format = RGResourceFormat::RGBA16Float;
                      const auto bloom = builder.CreateFramebuffer("BloomMip0", desc);
                      builder.Write(bloom, RGWriteUsage::RenderTarget); });
+    AddSetupNode(graph, "FBWriterFogHalfRes", [](RGBuilder& builder)
+                 {
+                     RGResourceDesc desc;
+                     desc.Kind = ResourceHandle::Kind::Framebuffer;
+                     desc.Width = vw / 2;
+                     desc.Height = vh / 2;
+                     desc.Format = RGResourceFormat::RGBA16Float;
+                     const auto fogHalf = builder.CreateFramebuffer("FogHalfRes", desc);
+                     builder.Write(fogHalf, RGWriteUsage::RenderTarget); });
 
     graph.AddExecutionDependency("FBWriter0", "FBWriter1");
     graph.AddExecutionDependency("FBWriter1", "FBWriter2");
+    graph.AddExecutionDependency("FBWriter2", "FBWriterFogHalfRes");
     graph.AddExecutionDependency("GTAOEdgeWriter", "GTAOEdgeReader");
     graph.AddExecutionDependency("HZBDepthWriter", "HZBDepthReader");
     graph.AddExecutionDependency("WaterRefractionWriter", "WaterRefractionReader");
-    graph.AddExecutionDependency("FBWriter2", "GTAOEdgeWriter");
+    graph.AddExecutionDependency("FBWriterFogHalfRes", "GTAOEdgeWriter");
     graph.AddExecutionDependency("GTAOEdgeReader", "HZBDepthWriter");
     graph.AddExecutionDependency("HZBDepthReader", "WaterRefractionWriter");
     graph.SetFinalPass("WaterRefractionReader");
@@ -4101,9 +4238,9 @@ TEST(RenderGraphPassFlags, NeverCullPreventsCulling)
     EXPECT_EQ(isolated->GetExecuteCount(), 1u) << "NeverCull pass must not be culled";
 }
 
-TEST(RenderGraphPassFlags, PassSubmissionInfoReportsWorkTypeAndAsyncFlag)
+TEST(RenderGraphPassFlags, NodeSubmissionInfoReportsWorkTypeAndAsyncFlag)
 {
-    // GetPassSubmissionInfo() must surface PassWorkType and AsyncComputeCandidate.
+    // GetNodeSubmissionInfo() must surface PassWorkType and AsyncComputeCandidate.
     RenderGraph graph;
     auto graphics = AddStub(graph, "GraphicsPass");
     auto compute = AddStub(graph, "ComputePass");
@@ -4112,19 +4249,19 @@ TEST(RenderGraphPassFlags, PassSubmissionInfoReportsWorkTypeAndAsyncFlag)
 
     graph.SetFinalPass("GraphicsPass");
 
-    const auto infos = graph.GetPassSubmissionInfo();
+    const auto infos = graph.GetNodeSubmissionInfo();
     ASSERT_FALSE(infos.empty());
 
     for (const auto& info : infos)
     {
-        if (info.PassName == "GraphicsPass")
+        if (info.NodeName == "GraphicsPass")
         {
-            EXPECT_EQ(info.WorkType, RenderPass::PassWorkType::Graphics);
+            EXPECT_EQ(info.WorkType, RenderGraphPassWorkType::Graphics);
             EXPECT_FALSE(info.AsyncComputeCandidate);
         }
-        else if (info.PassName == "ComputePass")
+        else if (info.NodeName == "ComputePass")
         {
-            EXPECT_EQ(info.WorkType, RenderPass::PassWorkType::Compute);
+            EXPECT_EQ(info.WorkType, RenderGraphPassWorkType::Compute);
             EXPECT_TRUE(info.AsyncComputeCandidate);
         }
     }
@@ -4148,7 +4285,7 @@ TEST(RenderGraphComputeHoist, NoCandidatesLeavesOrderUnchanged)
 
     graph.Execute();
 
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     ASSERT_EQ(order.size(), 3u);
     EXPECT_EQ(order[0], "A");
     EXPECT_EQ(order[1], "B");
@@ -4173,7 +4310,7 @@ TEST(RenderGraphComputeHoist, IndependentComputePassIsHoistedToFront)
 
     graph.Execute();
 
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     ASSERT_EQ(order.size(), 3u);
     // C must be scheduled before both graphics passes.
     const auto posC = std::find(order.begin(), order.end(), "C") - order.begin();
@@ -4198,7 +4335,7 @@ TEST(RenderGraphComputeHoist, DependentComputePassRemainsAfterDependency)
 
     graph.Execute();
 
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     ASSERT_EQ(order.size(), 2u);
     const auto posG1 = std::find(order.begin(), order.end(), "G1") - order.begin();
     const auto posC = std::find(order.begin(), order.end(), "C") - order.begin();
@@ -4224,7 +4361,7 @@ TEST(RenderGraphComputeHoist, MultipleComputePassesAllHoisted)
 
     graph.Execute();
 
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     ASSERT_EQ(order.size(), 3u);
     const auto posG1 = std::find(order.begin(), order.end(), "G1") - order.begin();
     const auto posC1 = std::find(order.begin(), order.end(), "C1") - order.begin();
@@ -4264,7 +4401,7 @@ TEST(RenderGraphDumpJson, PassFlagsAreSurfacedInDump)
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
     // Schema version bump
-    EXPECT_NE(json.find("\"schemaVersion\": 13"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 14"), std::string::npos);
 
     // frameSummary compute counts
     EXPECT_NE(json.find("\"computePassCount\": 1"), std::string::npos);
@@ -4391,7 +4528,7 @@ TEST(RenderGraphAsyncBatch, NoCandidatesReturnsEmptyBatches)
 TEST(RenderGraphAsyncBatch, SingleComputePassFormsBatchWithCorrectSignalPass)
 {
     // Graph: Compute → GfxPass (final).
-    // Batch: {ComputePass}, WaitPasses={}, SignalPasses={GfxPass}.
+    // Batch: {ComputePass}, WaitNodes={}, SignalNodes={GfxPass}.
     RenderGraph graph;
     auto compute = AddStub(graph, "ComputePass");
     compute->SetPassWorkType(RenderPass::PassWorkType::Compute);
@@ -4409,21 +4546,21 @@ TEST(RenderGraphAsyncBatch, SingleComputePassFormsBatchWithCorrectSignalPass)
     const auto& batch = batches[0];
     EXPECT_EQ(batch.Lane, RenderGraph::QueueLane::Compute)
         << "Async compute batches must be assigned to compute lane";
-    ASSERT_EQ(batch.ComputePasses.size(), 1u);
-    EXPECT_EQ(batch.ComputePasses[0], "ComputePass");
+    ASSERT_EQ(batch.ComputeNodes.size(), 1u);
+    EXPECT_EQ(batch.ComputeNodes[0], "ComputePass");
 
     // ComputePass has no non-batch predecessors
-    EXPECT_TRUE(batch.WaitPasses.empty());
+    EXPECT_TRUE(batch.WaitNodes.empty());
 
-    // GfxPass depends on ComputePass — must appear in SignalPasses
-    ASSERT_EQ(batch.SignalPasses.size(), 1u);
-    EXPECT_EQ(batch.SignalPasses[0], "GfxPass");
+    // GfxPass depends on ComputePass — must appear in SignalNodes
+    ASSERT_EQ(batch.SignalNodes.size(), 1u);
+    EXPECT_EQ(batch.SignalNodes[0], "GfxPass");
 }
 
 TEST(RenderGraphAsyncBatch, IndependentComputePassHasEmptyWaitAndSignalLists)
 {
     // ComputePass is NeverCull but has no edges to/from GfxFinal.
-    // Both WaitPasses and SignalPasses must be empty.
+    // Both WaitNodes and SignalNodes must be empty.
     RenderGraph graph;
     auto compute = AddStub(graph, "ComputePass");
     compute->SetPassWorkType(RenderPass::PassWorkType::Compute);
@@ -4437,9 +4574,9 @@ TEST(RenderGraphAsyncBatch, IndependentComputePassHasEmptyWaitAndSignalLists)
     ASSERT_EQ(batches.size(), 1u);
 
     const auto& batch = batches[0];
-    EXPECT_EQ(batch.ComputePasses.size(), 1u);
-    EXPECT_TRUE(batch.WaitPasses.empty());
-    EXPECT_TRUE(batch.SignalPasses.empty());
+    EXPECT_EQ(batch.ComputeNodes.size(), 1u);
+    EXPECT_TRUE(batch.WaitNodes.empty());
+    EXPECT_TRUE(batch.SignalNodes.empty());
 }
 
 TEST(RenderGraphAsyncBatch, ConsecutiveComputePassesGroupedInOneBatch)
@@ -4468,17 +4605,17 @@ TEST(RenderGraphAsyncBatch, ConsecutiveComputePassesGroupedInOneBatch)
     ASSERT_EQ(batches.size(), 1u) << "C1 and C2 are consecutive — one batch expected";
 
     const auto& batch = batches[0];
-    EXPECT_EQ(batch.ComputePasses.size(), 2u);
+    EXPECT_EQ(batch.ComputeNodes.size(), 2u);
 
-    // GfxFinal depends on C2 — must be in SignalPasses
-    ASSERT_EQ(batch.SignalPasses.size(), 1u);
-    EXPECT_EQ(batch.SignalPasses[0], "GfxFinal");
+    // GfxFinal depends on C2 — must be in SignalNodes
+    ASSERT_EQ(batch.SignalNodes.size(), 1u);
+    EXPECT_EQ(batch.SignalNodes[0], "GfxFinal");
 }
 
 TEST(RenderGraphAsyncBatch, ComputeBatchWaitsForGraphicsPrerequisite)
 {
     // Graph: GfxPre → Compute → GfxPost (final).
-    // Batch WaitPasses must contain GfxPre; SignalPasses must contain GfxPost.
+    // Batch WaitNodes must contain GfxPre; SignalNodes must contain GfxPost.
     RenderGraph graph;
     AddStub(graph, "GfxPre");
 
@@ -4497,12 +4634,12 @@ TEST(RenderGraphAsyncBatch, ComputeBatchWaitsForGraphicsPrerequisite)
     ASSERT_EQ(batches.size(), 1u);
 
     const auto& batch = batches[0];
-    ASSERT_EQ(batch.WaitPasses.size(), 1u);
-    EXPECT_EQ(batch.WaitPasses[0], "GfxPre")
+    ASSERT_EQ(batch.WaitNodes.size(), 1u);
+    EXPECT_EQ(batch.WaitNodes[0], "GfxPre")
         << "ComputePass must list GfxPre as a prerequisite to wait for";
 
-    ASSERT_EQ(batch.SignalPasses.size(), 1u);
-    EXPECT_EQ(batch.SignalPasses[0], "GfxPost")
+    ASSERT_EQ(batch.SignalNodes.size(), 1u);
+    EXPECT_EQ(batch.SignalNodes[0], "GfxPost")
         << "GfxPost must be listed as waiting for the compute batch";
 }
 
@@ -4529,7 +4666,7 @@ namespace
         for (const auto& cmd : plan)
         {
             if (cmd.CommandKind == SCKind::Pass)
-                names.push_back(cmd.PassName);
+                names.push_back(cmd.NodeName);
         }
         return names;
     }
@@ -4594,12 +4731,12 @@ TEST(RenderGraphSubmissionPlan, ComputePassWrappedInBatchBeginEnd)
     auto computeIt = std::find_if(plan.begin(), plan.end(),
                                   [](const auto& c)
                                   {
-                                      return c.CommandKind == SCKind::Pass && c.PassName == "ComputePass";
+                                      return c.CommandKind == SCKind::Pass && c.NodeName == "ComputePass";
                                   });
     auto gfxIt = std::find_if(plan.begin(), plan.end(),
                               [](const auto& c)
                               {
-                                  return c.CommandKind == SCKind::Pass && c.PassName == "GfxFinal";
+                                  return c.CommandKind == SCKind::Pass && c.NodeName == "GfxFinal";
                               });
 
     ASSERT_NE(beginIt, plan.end());
@@ -4637,15 +4774,15 @@ TEST(RenderGraphSubmissionPlan, PassCommandsCarryCorrectWorkType)
     {
         if (cmd.CommandKind != SCKind::Pass)
             continue;
-        if (cmd.PassName == "ComputePass")
+        if (cmd.NodeName == "ComputePass")
         {
-            EXPECT_EQ(cmd.WorkType, RenderPass::PassWorkType::Compute);
+            EXPECT_EQ(cmd.WorkType, RenderGraphPassWorkType::Compute);
             EXPECT_EQ(cmd.Lane, RenderGraph::QueueLane::Compute)
                 << "Compute pass must map to compute lane";
         }
-        else if (cmd.PassName == "GfxFinal")
+        else if (cmd.NodeName == "GfxFinal")
         {
-            EXPECT_EQ(cmd.WorkType, RenderPass::PassWorkType::Graphics);
+            EXPECT_EQ(cmd.WorkType, RenderGraphPassWorkType::Graphics);
             EXPECT_EQ(cmd.Lane, RenderGraph::QueueLane::Graphics)
                 << "Graphics pass must map to graphics lane";
         }
@@ -4667,7 +4804,7 @@ TEST(RenderGraphSubmissionPlan, BatchBeginCarriesWaitAndInputResources)
             auto tex = builder.ImportTexture(
                 "SharedTex",
                 401,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SharedTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SharedTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -4680,7 +4817,7 @@ TEST(RenderGraphSubmissionPlan, BatchBeginCarriesWaitAndInputResources)
             auto tex = builder.ImportTexture(
                 "SharedTex",
                 401,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SharedTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SharedTex"));
             [[maybe_unused]] const auto readTex = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -4699,12 +4836,12 @@ TEST(RenderGraphSubmissionPlan, BatchBeginCarriesWaitAndInputResources)
     EXPECT_EQ(beginIt->Lane, RenderGraph::QueueLane::Compute)
         << "BatchBegin lane should be compute";
 
-    ASSERT_EQ(beginIt->WaitPasses.size(), 1u);
-    EXPECT_EQ(beginIt->WaitPasses[0], "GfxPre");
+    ASSERT_EQ(beginIt->WaitNodes.size(), 1u);
+    EXPECT_EQ(beginIt->WaitNodes[0], "GfxPre");
 
     ASSERT_EQ(beginIt->InputResources.size(), 1u);
     EXPECT_EQ(beginIt->InputResources[0].ResourceName, "SharedTex");
-    EXPECT_EQ(beginIt->InputResources[0].ExternalPass, "GfxPre");
+    EXPECT_EQ(beginIt->InputResources[0].ExternalNode, "GfxPre");
 }
 
 TEST(RenderGraphSubmissionPlan, BatchEndCarriesSignalAndOutputResources)
@@ -4724,7 +4861,7 @@ TEST(RenderGraphSubmissionPlan, BatchEndCarriesSignalAndOutputResources)
             auto tex = builder.ImportTexture(
                 "ResultTex",
                 402,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ResultTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ResultTex"));
             builder.Write(tex, RGWriteUsage::ShaderImage);
         });
 
@@ -4736,7 +4873,7 @@ TEST(RenderGraphSubmissionPlan, BatchEndCarriesSignalAndOutputResources)
             auto tex = builder.ImportTexture(
                 "ResultTex",
                 402,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ResultTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ResultTex"));
             [[maybe_unused]] const auto readTex = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -4753,12 +4890,12 @@ TEST(RenderGraphSubmissionPlan, BatchEndCarriesSignalAndOutputResources)
     EXPECT_EQ(endIt->Lane, RenderGraph::QueueLane::Compute)
         << "BatchEnd lane should be compute";
 
-    ASSERT_EQ(endIt->SignalPasses.size(), 1u);
-    EXPECT_EQ(endIt->SignalPasses[0], "GfxPost");
+    ASSERT_EQ(endIt->SignalNodes.size(), 1u);
+    EXPECT_EQ(endIt->SignalNodes[0], "GfxPost");
 
     ASSERT_EQ(endIt->OutputResources.size(), 1u);
     EXPECT_EQ(endIt->OutputResources[0].ResourceName, "ResultTex");
-    EXPECT_EQ(endIt->OutputResources[0].ExternalPass, "GfxPost");
+    EXPECT_EQ(endIt->OutputResources[0].ExternalNode, "GfxPost");
 }
 
 TEST(RenderGraphSubmissionPlan, DumpToJsonIncludesSubmissionPlan)
@@ -4783,7 +4920,7 @@ TEST(RenderGraphSubmissionPlan, DumpToJsonIncludesSubmissionPlan)
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 13"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 14"), std::string::npos);
     EXPECT_NE(json.find("\"submissionCommandCount\":"), std::string::npos);
     EXPECT_NE(json.find("\"submissionPlan\""), std::string::npos);
     EXPECT_NE(json.find("\"kind\": \"BatchBegin\""), std::string::npos);
@@ -4833,7 +4970,7 @@ TEST(RenderGraphSubmissionPlan, MultipleComputePassesSameIndexGetOneBatchPair)
 TEST(RenderGraphSubmissionPlan, PlanPreservesHoistedExecutionOrder)
 {
     // The Pass commands in the plan must appear in the same order as
-    // graph.GetPassOrder() (which reflects HoistComputePasses()).
+    // graph.GetExecutionOrder() (which reflects HoistComputePasses()).
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
@@ -4849,7 +4986,7 @@ TEST(RenderGraphSubmissionPlan, PlanPreservesHoistedExecutionOrder)
 
     const auto plan = graph.GetSubmissionPlan();
     const auto planPassOrder = PassOrder(plan);
-    const auto& graphPassOrder = graph.GetPassOrder();
+    const auto& graphPassOrder = graph.GetExecutionOrder();
 
     ASSERT_EQ(planPassOrder.size(), graphPassOrder.size());
     for (u32 i = 0; i < static_cast<u32>(planPassOrder.size()); ++i)
@@ -4887,11 +5024,11 @@ TEST(RenderGraphExecutePlanDriven, PureGraphicsGraphPassesExecuteInOrder)
     EXPECT_EQ(c->GetExecuteCount(), 1u);
     EXPECT_EQ(batchEventCount, 0u) << "No async batches — no batch events expected";
 
-    const auto& timings = graph.GetLastPassTimings();
+    const auto& timings = graph.GetLastExecutionTimings();
     ASSERT_EQ(timings.size(), 3u);
-    EXPECT_EQ(timings[0].PassName, "A");
-    EXPECT_EQ(timings[1].PassName, "B");
-    EXPECT_EQ(timings[2].PassName, "C");
+    EXPECT_EQ(timings[0].NodeName, "A");
+    EXPECT_EQ(timings[1].NodeName, "B");
+    EXPECT_EQ(timings[2].NodeName, "C");
 }
 
 TEST(RenderGraphExecutePlanDriven, CulledPassIsSkippedInPlanDrivenExecution)
@@ -4968,7 +5105,7 @@ TEST(RenderGraphExecutePlanDriven, BatchEventHookBatchIndexIsZeroForFirstBatch)
 
 TEST(RenderGraphExecutePlanDriven, PostPassHookStillFiresForEachPass)
 {
-    // SetPostPassHook compatibility: the hook must fire once per executed pass
+    // SetPostPassHook contract: the hook must fire once per executed pass
     // in order, regardless of whether the plan-driven path is active.
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
@@ -5001,7 +5138,7 @@ TEST(RenderGraphTemporalHistoryContracts, ExtractHistoryTextureRecordsContractAn
     const auto history = graph.ImportHistory(
         "TAAHistory",
         77,
-        RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "TAAHistory"));
+        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "TAAHistory"));
     ASSERT_TRUE(history.IsValid());
 
     AddSetupNode(
@@ -5012,7 +5149,7 @@ TEST(RenderGraphTemporalHistoryContracts, ExtractHistoryTextureRecordsContractAn
             auto color = builder.ImportTexture(
                 "CurrentFrameColor",
                 41,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "CurrentFrameColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "CurrentFrameColor"));
             builder.Write(color, RGWriteUsage::RenderTarget);
         });
 
@@ -5059,7 +5196,7 @@ TEST(RenderGraphTemporalHistoryContracts, InvalidHistoryContractReportsDiagnosti
             auto color = builder.ImportTexture(
                 "CurrentFrameColor",
                 51,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "CurrentFrameColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "CurrentFrameColor"));
             builder.Write(color, RGWriteUsage::RenderTarget);
         });
 
@@ -5100,7 +5237,7 @@ TEST(RenderGraphTemporalHistoryContracts, DumpToJsonIncludesHistoryResourcesAndC
     const auto history = graph.ImportHistory(
         "TAAHistory",
         88,
-        RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "TAAHistory"));
+        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "TAAHistory"));
     ASSERT_TRUE(history.IsValid());
 
     AddSetupNode(
@@ -5111,7 +5248,7 @@ TEST(RenderGraphTemporalHistoryContracts, DumpToJsonIncludesHistoryResourcesAndC
             auto color = builder.ImportTexture(
                 "CurrentFrameColor",
                 61,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "CurrentFrameColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "CurrentFrameColor"));
             builder.Write(color, RGWriteUsage::RenderTarget);
         });
 
@@ -5135,7 +5272,7 @@ TEST(RenderGraphTemporalHistoryContracts, DumpToJsonIncludesHistoryResourcesAndC
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 13"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 14"), std::string::npos);
     EXPECT_NE(json.find("\"historyResourceCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"temporalHistoryContractCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"name\": \"TAAHistory\", \"kind\": \"Texture2D\", \"imported\": true, \"isHistory\": true"), std::string::npos);
@@ -5149,6 +5286,60 @@ TEST(RenderGraphTemporalHistoryContracts, DumpToJsonIncludesHistoryResourcesAndC
     std::filesystem::remove(outputPath, ec);
 }
 
+TEST(RenderGraphTemporalHistoryContracts, ExtractHistoryTextureFromFramebufferAttachmentRecordsContractAndInvokesCallback)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    const auto history = graph.ImportHistory(
+        "FogHistory",
+        91,
+        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FogHistory"));
+    ASSERT_TRUE(history.IsValid());
+
+    auto currentFrameFramebuffer = Ref<AttachmentStubFramebuffer>(new AttachmentStubFramebuffer(17, 123));
+    AddSetupNode(
+        graph,
+        "CurrentFrameProducer",
+        [currentFrameFramebuffer](RGBuilder& builder)
+        {
+            auto color = builder.ImportFramebuffer(
+                "CurrentFrameFogHalfRes",
+                currentFrameFramebuffer,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "CurrentFrameFogHalfRes"));
+            builder.Write(color, RGWriteUsage::RenderTarget);
+        });
+
+    graph.SetFinalPass("CurrentFrameProducer");
+    graph.BuildFrameGraph();
+
+    const auto sourceHandle = graph.GetFramebufferHandle("CurrentFrameFogHalfRes");
+    ASSERT_TRUE(sourceHandle.IsValid());
+
+    bool callbackCalled = false;
+    u32 extractedTextureID = 0;
+    graph.ExtractHistoryTexture(
+        "FogHistory",
+        sourceHandle,
+        [&callbackCalled, &extractedTextureID](const u32 textureID)
+        {
+            callbackCalled = true;
+            extractedTextureID = textureID;
+        });
+
+    graph.Execute();
+
+    EXPECT_TRUE(callbackCalled);
+    EXPECT_EQ(extractedTextureID, 123u);
+
+    const auto& contracts = graph.GetTemporalHistoryContracts();
+    ASSERT_EQ(contracts.size(), 1u);
+    EXPECT_EQ(contracts[0].HistoryResource, "FogHistory");
+    EXPECT_EQ(contracts[0].SourceResource, "CurrentFrameFogHalfRes");
+    EXPECT_TRUE(contracts[0].HistoryImported);
+    EXPECT_TRUE(contracts[0].SourceReachable);
+}
+
 // =============================================================================
 // RenderGraphAsyncBatchResources — Phase G Slice 8: cross-batch resource deps
 // =============================================================================
@@ -5156,7 +5347,7 @@ TEST(RenderGraphTemporalHistoryContracts, DumpToJsonIncludesHistoryResourcesAndC
 TEST(RenderGraphAsyncBatchResources, NoBatchResourceDepsWhenNoAccessDeclarations)
 {
     // Stub passes have no registered access declarations, so InputResources
-    // and OutputResources must both be empty even when WaitPasses/SignalPasses
+    // and OutputResources must both be empty even when WaitNodes/SignalNodes
     // are populated.
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
@@ -5196,7 +5387,7 @@ TEST(RenderGraphAsyncBatchResources, SingleResourceFlowsIntoBatch)
             auto tex = builder.ImportTexture(
                 "SharedTex",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SharedTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SharedTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -5209,7 +5400,7 @@ TEST(RenderGraphAsyncBatchResources, SingleResourceFlowsIntoBatch)
             auto tex = builder.ImportTexture(
                 "SharedTex",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SharedTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SharedTex"));
             [[maybe_unused]] const auto readTex = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -5227,7 +5418,7 @@ TEST(RenderGraphAsyncBatchResources, SingleResourceFlowsIntoBatch)
     ASSERT_EQ(batch.InputResources.size(), 1u)
         << "SharedTex is written by GfxPre (external) and read by ComputePass → 1 InputResource";
     EXPECT_EQ(batch.InputResources[0].ResourceName, "SharedTex");
-    EXPECT_EQ(batch.InputResources[0].ExternalPass, "GfxPre");
+    EXPECT_EQ(batch.InputResources[0].ExternalNode, "GfxPre");
 
     EXPECT_TRUE(batch.OutputResources.empty())
         << "ComputePass does not write SharedTex → no OutputResources";
@@ -5250,7 +5441,7 @@ TEST(RenderGraphAsyncBatchResources, BatchOutputFlowsToGraphicsPass)
             auto tex = builder.ImportTexture(
                 "ResultTex",
                 2,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ResultTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ResultTex"));
             builder.Write(tex, RGWriteUsage::ShaderImage);
         });
 
@@ -5262,7 +5453,7 @@ TEST(RenderGraphAsyncBatchResources, BatchOutputFlowsToGraphicsPass)
             auto tex = builder.ImportTexture(
                 "ResultTex",
                 2,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ResultTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ResultTex"));
             [[maybe_unused]] const auto readTex = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -5281,7 +5472,7 @@ TEST(RenderGraphAsyncBatchResources, BatchOutputFlowsToGraphicsPass)
     ASSERT_EQ(batch.OutputResources.size(), 1u)
         << "ResultTex is written by ComputePass and read by GfxPost (external) → 1 OutputResource";
     EXPECT_EQ(batch.OutputResources[0].ResourceName, "ResultTex");
-    EXPECT_EQ(batch.OutputResources[0].ExternalPass, "GfxPost");
+    EXPECT_EQ(batch.OutputResources[0].ExternalNode, "GfxPost");
 }
 
 TEST(RenderGraphAsyncBatchResources, IndependentBatchHasNoCrossBoundaryResources)
@@ -5301,7 +5492,7 @@ TEST(RenderGraphAsyncBatchResources, IndependentBatchHasNoCrossBoundaryResources
             auto tex = builder.ImportTexture(
                 "PrivateTex",
                 3,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "PrivateTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "PrivateTex"));
             builder.Write(tex, RGWriteUsage::ShaderImage);
         });
 
@@ -5333,7 +5524,7 @@ TEST(RenderGraphAsyncBatchResources, DumpToJsonIncludesBatchResourceDeps)
             auto tex = builder.ImportTexture(
                 "InTex",
                 10,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "InTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "InTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -5346,13 +5537,13 @@ TEST(RenderGraphAsyncBatchResources, DumpToJsonIncludesBatchResourceDeps)
             auto inTex = builder.ImportTexture(
                 "InTex",
                 10,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "InTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "InTex"));
             [[maybe_unused]] const auto readInTex = builder.Read(inTex, RGReadUsage::ShaderSample);
 
             auto outTex = builder.ImportTexture(
                 "OutTex",
                 11,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "OutTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "OutTex"));
             builder.Write(outTex, RGWriteUsage::ShaderImage);
         });
 
@@ -5364,7 +5555,7 @@ TEST(RenderGraphAsyncBatchResources, DumpToJsonIncludesBatchResourceDeps)
             auto outTex = builder.ImportTexture(
                 "OutTex",
                 11,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "OutTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "OutTex"));
             [[maybe_unused]] const auto readOutTex = builder.Read(outTex, RGReadUsage::ShaderSample);
         });
 
@@ -5382,7 +5573,7 @@ TEST(RenderGraphAsyncBatchResources, DumpToJsonIncludesBatchResourceDeps)
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 13"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 14"), std::string::npos);
     EXPECT_NE(json.find("\"asyncBatchCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"batchInputResourceCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"batchOutputResourceCount\": 1"), std::string::npos);
@@ -5437,7 +5628,7 @@ TEST(RenderGraphResourceTransitions, SingleTransitionCapturesProducerAndConsumer
             auto tex = builder.ImportTexture(
                 "ColorTex",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "ColorTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "ColorTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -5449,7 +5640,7 @@ TEST(RenderGraphResourceTransitions, SingleTransitionCapturesProducerAndConsumer
             auto tex = builder.ImportTexture(
                 "ColorTex",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "ColorTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "ColorTex"));
             [[maybe_unused]] const auto sampledTex = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -5486,7 +5677,7 @@ TEST(RenderGraphResourceTransitions, ProducerIsLastWriterBeforeConsumer)
             auto tex = builder.ImportTexture(
                 "Tex",
                 5,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "Tex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "Tex"));
             builder.Write(tex, RGWriteUsage::ShaderImage);
         });
 
@@ -5498,7 +5689,7 @@ TEST(RenderGraphResourceTransitions, ProducerIsLastWriterBeforeConsumer)
             auto tex = builder.ImportTexture(
                 "Tex",
                 5,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "Tex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "Tex"));
             builder.Write(tex, RGWriteUsage::ShaderStorage);
         });
 
@@ -5510,7 +5701,7 @@ TEST(RenderGraphResourceTransitions, ProducerIsLastWriterBeforeConsumer)
             auto tex = builder.ImportTexture(
                 "Tex",
                 5,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "Tex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "Tex"));
             [[maybe_unused]] const auto sampledTex = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -5539,7 +5730,7 @@ TEST(RenderGraphResourceTransitions, ExternalImportHasNoProducerPass)
     [[maybe_unused]] const auto shadowHandle = graph.ImportTexture(
         "ShadowMap",
         42,
-        RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ShadowMap"));
+        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ShadowMap"));
 
     AddSetupNode(
         graph,
@@ -5549,7 +5740,7 @@ TEST(RenderGraphResourceTransitions, ExternalImportHasNoProducerPass)
             auto tex = builder.ImportTexture(
                 "ShadowMap",
                 42,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ShadowMap"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ShadowMap"));
             [[maybe_unused]] const auto sampledShadow = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -5583,7 +5774,7 @@ TEST(RenderGraphResourceTransitions, DumpToJsonIncludesResourceTransitions)
             auto tex = builder.ImportTexture(
                 "SceneColor",
                 10,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -5595,7 +5786,7 @@ TEST(RenderGraphResourceTransitions, DumpToJsonIncludesResourceTransitions)
             auto tex = builder.ImportTexture(
                 "SceneColor",
                 10,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto sampledScene = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -5612,8 +5803,8 @@ TEST(RenderGraphResourceTransitions, DumpToJsonIncludesResourceTransitions)
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 13"), std::string::npos)
-        << "Schema must be version 12 for Slice 14";
+    EXPECT_NE(json.find("\"schemaVersion\": 14"), std::string::npos)
+        << "Schema must be version 14 for resolve-failure telemetry dump updates";
     EXPECT_NE(json.find("\"resourceTransitionCount\": 1"), std::string::npos)
         << "frameSummary must expose resourceTransitionCount";
     EXPECT_NE(json.find("\"resourceTransitions\""), std::string::npos)
@@ -5661,7 +5852,7 @@ TEST(RenderGraphResourceLifetimes, TransientResourceHasCorrectFirstAndLastPass)
             auto tex = builder.ImportTexture(
                 "Color",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "Color"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "Color"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -5673,7 +5864,7 @@ TEST(RenderGraphResourceLifetimes, TransientResourceHasCorrectFirstAndLastPass)
             auto tex = builder.ImportTexture(
                 "Color",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "Color"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "Color"));
             [[maybe_unused]] const auto r = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -5715,7 +5906,7 @@ TEST(RenderGraphResourceLifetimes, ImportedResourceHasExternalFirstWrite)
             auto tex = builder.ImportTexture(
                 "ExtTex",
                 99,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ExtTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ExtTex"));
             [[maybe_unused]] const auto r = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -5751,7 +5942,7 @@ TEST(RenderGraphResourceLifetimes, WriteOnlyResourceHasEmptyLastRead)
             auto tex = builder.ImportTexture(
                 "SinkTex",
                 7,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SinkTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SinkTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -5788,7 +5979,7 @@ TEST(RenderGraphResourceLifetimes, DumpToJsonIncludesResourceLifetimes)
             auto tex = builder.ImportTexture(
                 "SceneColor",
                 10,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -5800,7 +5991,7 @@ TEST(RenderGraphResourceLifetimes, DumpToJsonIncludesResourceLifetimes)
             auto tex = builder.ImportTexture(
                 "SceneColor",
                 10,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto r = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -5817,8 +6008,8 @@ TEST(RenderGraphResourceLifetimes, DumpToJsonIncludesResourceLifetimes)
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 13"), std::string::npos)
-        << "Schema must be version 12 for Slice 14";
+    EXPECT_NE(json.find("\"schemaVersion\": 14"), std::string::npos)
+        << "Schema must be version 14 for resolve-failure telemetry dump updates";
     EXPECT_NE(json.find("\"resourceLifetimeCount\""), std::string::npos)
         << "frameSummary must expose resourceLifetimeCount";
     EXPECT_NE(json.find("\"resourceLifetimes\""), std::string::npos)
@@ -5858,7 +6049,7 @@ TEST(RenderGraphSubresourceRange, FullRangeByDefaultWhenNoRangeSpecified)
             auto tex = builder.ImportTexture(
                 "ColorTex",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ColorTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ColorTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -5870,7 +6061,7 @@ TEST(RenderGraphSubresourceRange, FullRangeByDefaultWhenNoRangeSpecified)
             auto tex = builder.ImportTexture(
                 "ColorTex",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ColorTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ColorTex"));
             [[maybe_unused]] const auto r = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -5907,7 +6098,7 @@ TEST(RenderGraphSubresourceRange, MipRangePreservedInTransition)
             auto tex = builder.ImportTexture(
                 "MipTex",
                 2,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "MipTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "MipTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -5919,7 +6110,7 @@ TEST(RenderGraphSubresourceRange, MipRangePreservedInTransition)
             auto tex = builder.ImportTexture(
                 "MipTex",
                 2,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "MipTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "MipTex"));
             [[maybe_unused]] const auto r =
                 builder.Read(tex, RGReadUsage::ShaderSample, RGSubresourceRange::Mip(2));
         });
@@ -5955,7 +6146,7 @@ TEST(RenderGraphSubresourceRange, LayerRangePreservedInTransition)
             auto tex = builder.ImportTexture(
                 "LayerTex",
                 3,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "LayerTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "LayerTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -5967,7 +6158,7 @@ TEST(RenderGraphSubresourceRange, LayerRangePreservedInTransition)
             auto tex = builder.ImportTexture(
                 "LayerTex",
                 3,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "LayerTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "LayerTex"));
             [[maybe_unused]] const auto r =
                 builder.Read(tex, RGReadUsage::ShaderSample, RGSubresourceRange::Layer(3));
         });
@@ -6001,7 +6192,7 @@ TEST(RenderGraphSubresourceRange, MultiLayerDeclarationsProducePerLayerTransitio
             auto csm = builder.ImportTexture(
                 "ShadowCSM",
                 13,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2DArray, "ShadowCSM"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2DArray, "ShadowCSM"));
             for (u32 cascade = 0; cascade < 4u; ++cascade)
             {
                 builder.Write(csm, RGWriteUsage::DepthStencil, RGSubresourceRange::Layer(cascade));
@@ -6016,7 +6207,7 @@ TEST(RenderGraphSubresourceRange, MultiLayerDeclarationsProducePerLayerTransitio
             auto csm = builder.ImportTexture(
                 "ShadowCSM",
                 13,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2DArray, "ShadowCSM"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2DArray, "ShadowCSM"));
             for (u32 cascade = 0; cascade < 4u; ++cascade)
             {
                 [[maybe_unused]] const auto r =
@@ -6058,7 +6249,7 @@ TEST(RenderGraphSubresourceRange, SliceRangePreservedInTransition)
             auto cubemap = builder.ImportTexture(
                 "ShadowPoint0",
                 21,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::TextureCube, "ShadowPoint0"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::TextureCube, "ShadowPoint0"));
             RGSubresourceRange faceRange{};
             faceRange.BaseSlice = 4u;
             faceRange.SliceCount = 1u;
@@ -6073,7 +6264,7 @@ TEST(RenderGraphSubresourceRange, SliceRangePreservedInTransition)
             auto cubemap = builder.ImportTexture(
                 "ShadowPoint0",
                 21,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::TextureCube, "ShadowPoint0"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::TextureCube, "ShadowPoint0"));
             RGSubresourceRange faceRange{};
             faceRange.BaseSlice = 4u;
             faceRange.SliceCount = 1u;
@@ -6112,7 +6303,7 @@ TEST(RenderGraphSubresourceRange, PlannedBarrierCarriesRange)
             auto tex = builder.ImportTexture(
                 "BaTex",
                 4,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "BaTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "BaTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -6124,7 +6315,7 @@ TEST(RenderGraphSubresourceRange, PlannedBarrierCarriesRange)
             auto tex = builder.ImportTexture(
                 "BaTex",
                 4,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "BaTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "BaTex"));
             [[maybe_unused]] const auto r =
                 builder.Read(tex, RGReadUsage::ShaderSample, RGSubresourceRange::Mip(1));
         });
@@ -6159,7 +6350,7 @@ TEST(RenderGraphSubresourceRange, DumpToJsonIncludesRange)
             auto tex = builder.ImportTexture(
                 "JsonTex",
                 5,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "JsonTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "JsonTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -6171,7 +6362,7 @@ TEST(RenderGraphSubresourceRange, DumpToJsonIncludesRange)
             auto tex = builder.ImportTexture(
                 "JsonTex",
                 5,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "JsonTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "JsonTex"));
             [[maybe_unused]] const auto r =
                 builder.Read(tex, RGReadUsage::ShaderSample, RGSubresourceRange::Mip(0));
         });
@@ -6189,8 +6380,8 @@ TEST(RenderGraphSubresourceRange, DumpToJsonIncludesRange)
     ASSERT_TRUE(in.is_open()) << "DumpToJson must create the output file";
     std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 13"), std::string::npos)
-        << "Schema must be bumped to 12 for Slice 14";
+    EXPECT_NE(json.find("\"schemaVersion\": 14"), std::string::npos)
+        << "Schema must be version 14 for resolve-failure telemetry dump updates";
     EXPECT_NE(json.find("\"range\""), std::string::npos)
         << "At least one range object must be present in the JSON output";
     EXPECT_NE(json.find("\"baseMip\""), std::string::npos)
@@ -6227,7 +6418,7 @@ TEST(RenderGraphCrossLaneSync, PureGraphicsGraphHasNoCrossLaneTransitions)
             auto tex = builder.ImportTexture(
                 "GfxTex",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "GfxTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "GfxTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -6239,7 +6430,7 @@ TEST(RenderGraphCrossLaneSync, PureGraphicsGraphHasNoCrossLaneTransitions)
             auto tex = builder.ImportTexture(
                 "GfxTex",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "GfxTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "GfxTex"));
             [[maybe_unused]] const auto r = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -6276,7 +6467,7 @@ TEST(RenderGraphCrossLaneSync, ComputeToGraphicsTransitionIsCrossLane)
             auto tex = builder.ImportTexture(
                 "ComputeResult",
                 7,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ComputeResult"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ComputeResult"));
             builder.Write(tex, RGWriteUsage::ShaderStorage);
         });
 
@@ -6288,7 +6479,7 @@ TEST(RenderGraphCrossLaneSync, ComputeToGraphicsTransitionIsCrossLane)
             auto tex = builder.ImportTexture(
                 "ComputeResult",
                 7,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ComputeResult"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ComputeResult"));
             [[maybe_unused]] const auto r = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -6333,7 +6524,7 @@ TEST(RenderGraphCrossLaneSync, DumpToJsonIncludesCrossLaneSyncFields)
             auto tex = builder.ImportTexture(
                 "CsTex",
                 9,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "CsTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "CsTex"));
             builder.Write(tex, RGWriteUsage::ShaderStorage);
         });
 
@@ -6345,7 +6536,7 @@ TEST(RenderGraphCrossLaneSync, DumpToJsonIncludesCrossLaneSyncFields)
             auto tex = builder.ImportTexture(
                 "CsTex",
                 9,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "CsTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "CsTex"));
             [[maybe_unused]] const auto r = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -6362,8 +6553,8 @@ TEST(RenderGraphCrossLaneSync, DumpToJsonIncludesCrossLaneSyncFields)
     ASSERT_TRUE(in.is_open()) << "DumpToJson must create the output file";
     std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 13"), std::string::npos)
-        << "Schema must be version 12 for Slice 14";
+    EXPECT_NE(json.find("\"schemaVersion\": 14"), std::string::npos)
+        << "Schema must be version 14 for resolve-failure telemetry dump updates";
     EXPECT_NE(json.find("\"crossLaneSyncCount\""), std::string::npos)
         << "frameSummary must include crossLaneSyncCount";
     EXPECT_NE(json.find("\"isCrossLane\""), std::string::npos)
@@ -6402,7 +6593,7 @@ TEST(RenderGraphQueueAwareScheduler, LegalOverlapDisjointResourcesNoHazard)
             auto sc = builder.ImportTexture(
                 "SceneColor",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SceneColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColor"));
             builder.Write(sc, RGWriteUsage::RenderTarget);
         });
 
@@ -6415,7 +6606,7 @@ TEST(RenderGraphQueueAwareScheduler, LegalOverlapDisjointResourcesNoHazard)
             auto ao = builder.ImportTexture(
                 "AO",
                 2,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "AO"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "AO"));
             builder.Write(ao, RGWriteUsage::ShaderStorage);
         });
 
@@ -6427,13 +6618,13 @@ TEST(RenderGraphQueueAwareScheduler, LegalOverlapDisjointResourcesNoHazard)
             auto sc = builder.ImportTexture(
                 "SceneColor",
                 1,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SceneColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColor"));
             [[maybe_unused]] const auto r1 = builder.Read(sc, RGReadUsage::ShaderSample);
 
             auto ao = builder.ImportTexture(
                 "AO",
                 2,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "AO"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "AO"));
             [[maybe_unused]] const auto r2 = builder.Read(ao, RGReadUsage::ShaderSample);
         });
 
@@ -6465,7 +6656,7 @@ TEST(RenderGraphQueueAwareScheduler, ForbiddenOverlapComputeWritesAfterGraphicsR
             auto depth = builder.ImportTexture(
                 "SceneDepth",
                 3,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SceneDepth"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneDepth"));
             [[maybe_unused]] const auto r = builder.Read(depth, RGReadUsage::ShaderSample);
         });
 
@@ -6478,7 +6669,7 @@ TEST(RenderGraphQueueAwareScheduler, ForbiddenOverlapComputeWritesAfterGraphicsR
             auto depth = builder.ImportTexture(
                 "SceneDepth",
                 3,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SceneDepth"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneDepth"));
             builder.Write(depth, RGWriteUsage::ShaderStorage);
         });
 
@@ -6530,7 +6721,7 @@ TEST(RenderGraphQueueAwareScheduler, OrderingPreservedAfterComputeHoist)
     graph.BuildFrameGraph();
     graph.Execute();
 
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     ASSERT_EQ(order.size(), 3u);
 
     const auto posA = std::find(order.begin(), order.end(), "GfxA") - order.begin();
@@ -6558,7 +6749,7 @@ TEST(RenderGraphQueueAwareScheduler, GTAOStyleComputeToGraphicsCrossLaneTransiti
             auto ao = builder.ImportTexture(
                 "AOTexture",
                 10,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "AOTexture"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "AOTexture"));
             builder.Write(ao, RGWriteUsage::ShaderStorage);
         });
 
@@ -6570,7 +6761,7 @@ TEST(RenderGraphQueueAwareScheduler, GTAOStyleComputeToGraphicsCrossLaneTransiti
             auto ao = builder.ImportTexture(
                 "AOTexture",
                 10,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "AOTexture"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "AOTexture"));
             [[maybe_unused]] const auto r = builder.Read(ao, RGReadUsage::ShaderSample);
         });
 
@@ -6617,7 +6808,7 @@ TEST(RenderGraphQueueAwareScheduler, HazardValidatorRemainsGreenAfterComputeHois
             auto ao = builder.ImportTexture(
                 "GTAOResult",
                 20,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "GTAOResult"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "GTAOResult"));
             builder.Write(ao, RGWriteUsage::ShaderStorage);
         });
 
@@ -6630,7 +6821,7 @@ TEST(RenderGraphQueueAwareScheduler, HazardValidatorRemainsGreenAfterComputeHois
             auto gi = builder.ImportTexture(
                 "SSGIResult",
                 21,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SSGIResult"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SSGIResult"));
             builder.Write(gi, RGWriteUsage::ShaderStorage);
         });
 
@@ -6642,13 +6833,13 @@ TEST(RenderGraphQueueAwareScheduler, HazardValidatorRemainsGreenAfterComputeHois
             auto ao = builder.ImportTexture(
                 "GTAOResult",
                 20,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "GTAOResult"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "GTAOResult"));
             [[maybe_unused]] const auto r1 = builder.Read(ao, RGReadUsage::ShaderSample);
 
             auto gi = builder.ImportTexture(
                 "SSGIResult",
                 21,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "SSGIResult"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SSGIResult"));
             [[maybe_unused]] const auto r2 = builder.Read(gi, RGReadUsage::ShaderSample);
         });
 
@@ -6662,7 +6853,7 @@ TEST(RenderGraphQueueAwareScheduler, HazardValidatorRemainsGreenAfterComputeHois
     EXPECT_TRUE(hazards.empty())
         << "Hazard validator must remain green after compute hoist on multi-compute graph";
 
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     const auto posGTAO = std::find(order.begin(), order.end(), "ComputeGTAO") - order.begin();
     const auto posSSGI = std::find(order.begin(), order.end(), "ComputeSSGI") - order.begin();
     const auto posLighting =
@@ -6675,37 +6866,37 @@ TEST(RenderGraphQueueAwareScheduler, HazardValidatorRemainsGreenAfterComputeHois
 }
 
 // ============================================================
-// Phase H Slice 1 — fallback telemetry contracts
+// Phase H Slice 1 — resolve-failure telemetry contracts
 // ============================================================
 
-TEST(RenderGraphFallbackTelemetry, InvalidTypedHandleResolvesAreRecorded)
+TEST(RenderGraphResolveFailureTelemetry, InvalidTypedHandleResolvesAreRecorded)
 {
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    auto probe = Ref<FallbackProbePass>::Create("ProbePass");
+    auto probe = Ref<ResolveFailureProbePass>::Create("ProbePass");
     AddPassNode(graph, probe);
     graph.SetFinalPass("ProbePass");
 
     graph.Execute();
 
-    const auto& activations = graph.GetFallbackActivations();
-    ASSERT_FALSE(activations.empty())
-        << "Invalid typed-handle resolves should emit fallback telemetry";
+    const auto& failures = graph.GetResolveFailures();
+    ASSERT_FALSE(failures.empty())
+        << "Invalid typed-handle resolves should emit resolve-failure telemetry";
 
-    const auto hasInvalidTexture = std::any_of(activations.begin(), activations.end(),
-                                               [](const RenderGraph::FallbackActivation& activation)
+    const auto hasInvalidTexture = std::any_of(failures.begin(), failures.end(),
+                                               [](const RenderGraph::ResolveFailure& failure)
                                                {
-                                                   return activation.PassName == "ProbePass" &&
-                                                          activation.Reason == "invalid-texture-handle" &&
-                                                          activation.Count >= 1u;
+                                                   return failure.PassName == "ProbePass" &&
+                                                          failure.Reason == "invalid-texture-handle" &&
+                                                          failure.Count >= 1u;
                                                });
-    const auto hasInvalidFramebuffer = std::any_of(activations.begin(), activations.end(),
-                                                   [](const RenderGraph::FallbackActivation& activation)
+    const auto hasInvalidFramebuffer = std::any_of(failures.begin(), failures.end(),
+                                                   [](const RenderGraph::ResolveFailure& failure)
                                                    {
-                                                       return activation.PassName == "ProbePass" &&
-                                                              activation.Reason == "invalid-framebuffer-handle" &&
-                                                              activation.Count >= 1u;
+                                                       return failure.PassName == "ProbePass" &&
+                                                              failure.Reason == "invalid-framebuffer-handle" &&
+                                                              failure.Count >= 1u;
                                                    });
 
     EXPECT_TRUE(hasInvalidTexture);
@@ -6713,7 +6904,7 @@ TEST(RenderGraphFallbackTelemetry, InvalidTypedHandleResolvesAreRecorded)
     EXPECT_TRUE(probe->LastResolvedFramebufferWasNull());
 }
 
-TEST(RenderGraphFallbackTelemetry, ValidTextureResolveDoesNotEmitTextureFallback)
+TEST(RenderGraphResolveFailureTelemetry, ValidTextureResolveDoesNotEmitTextureFailure)
 {
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
@@ -6721,10 +6912,10 @@ TEST(RenderGraphFallbackTelemetry, ValidTextureResolveDoesNotEmitTextureFallback
     const auto textureHandle = graph.ImportTexture(
         "TelemetryTex",
         123,
-        RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "TelemetryTex"));
+        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "TelemetryTex"));
     ASSERT_TRUE(textureHandle.IsValid());
 
-    auto probe = Ref<FallbackProbePass>::Create("ProbePass");
+    auto probe = Ref<ResolveFailureProbePass>::Create("ProbePass");
     probe->SetTextureHandle(textureHandle);
     AddPassNode(graph, probe);
     graph.SetFinalPass("ProbePass");
@@ -6733,17 +6924,45 @@ TEST(RenderGraphFallbackTelemetry, ValidTextureResolveDoesNotEmitTextureFallback
 
     EXPECT_EQ(probe->GetLastResolvedTexture(), 123u);
 
-    const auto& activations = graph.GetFallbackActivations();
-    const auto hasTextureFallback = std::any_of(activations.begin(), activations.end(),
-                                                [](const RenderGraph::FallbackActivation& activation)
-                                                {
-                                                    return activation.PassName == "ProbePass" &&
-                                                           (activation.Reason == "invalid-texture-handle" ||
-                                                            activation.Reason == "stale-texture-handle" ||
-                                                            activation.Reason == "texture-resolve-zero");
-                                                });
-    EXPECT_FALSE(hasTextureFallback)
-        << "Valid texture resolve should not emit texture fallback telemetry";
+    const auto& failures = graph.GetResolveFailures();
+    const auto hasTextureFailure = std::any_of(failures.begin(), failures.end(),
+                                               [](const RenderGraph::ResolveFailure& failure)
+                                               {
+                                                   return failure.PassName == "ProbePass" &&
+                                                          (failure.Reason == "invalid-texture-handle" ||
+                                                           failure.Reason == "stale-texture-handle" ||
+                                                           failure.Reason == "texture-resolve-zero");
+                                               });
+    EXPECT_FALSE(hasTextureFailure)
+        << "Valid texture resolve should not emit texture resolve-failure telemetry";
+}
+
+TEST(RenderGraphResolveFailureTelemetry, DumpToJsonUsesResolveFailureFieldNames)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto probe = Ref<ResolveFailureProbePass>::Create("ProbePass");
+    AddPassNode(graph, probe);
+    graph.SetFinalPass("ProbePass");
+
+    graph.Execute();
+
+    const auto outputPath = std::filesystem::temp_directory_path() / "render_graph_resolve_failure_dump.json";
+    ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
+
+    std::ifstream in(outputPath);
+    ASSERT_TRUE(in.is_open());
+
+    std::stringstream buffer;
+    buffer << in.rdbuf();
+    const std::string json = buffer.str();
+
+    EXPECT_NE(json.find("\"schemaVersion\": 14"), std::string::npos);
+    EXPECT_NE(json.find("\"resolveFailureCount\": 2"), std::string::npos);
+    EXPECT_NE(json.find("\"resolveFailures\": ["), std::string::npos);
+    EXPECT_EQ(json.find("\"fallbackActivationCount\""), std::string::npos);
+    EXPECT_EQ(json.find("\"fallbackActivations\""), std::string::npos);
 }
 
 // ============================================================
@@ -6771,7 +6990,7 @@ TEST(RenderGraphSceneColorChain, RMWChainDrivesRAWEdgesViaBuilderCallbacks)
             auto sc = builder.ImportTexture(
                 "SceneColor",
                 1u,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
             builder.Write(sc, RGWriteUsage::RenderTarget);
         });
 
@@ -6783,7 +7002,7 @@ TEST(RenderGraphSceneColorChain, RMWChainDrivesRAWEdgesViaBuilderCallbacks)
             auto sc = builder.ImportTexture(
                 "SceneColor",
                 1u,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto r = builder.Read(sc, RGReadUsage::RenderTargetRead);
             builder.Write(sc, RGWriteUsage::RenderTarget);
         });
@@ -6796,7 +7015,7 @@ TEST(RenderGraphSceneColorChain, RMWChainDrivesRAWEdgesViaBuilderCallbacks)
             auto sc = builder.ImportTexture(
                 "SceneColor",
                 1u,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto r = builder.Read(sc, RGReadUsage::RenderTargetRead);
             builder.Write(sc, RGWriteUsage::RenderTarget);
         });
@@ -6812,7 +7031,7 @@ TEST(RenderGraphSceneColorChain, RMWChainDrivesRAWEdgesViaBuilderCallbacks)
         << "BuildFrameGraph must derive at least 2 edges from the SceneColor RMW chain";
 
     // Execution order must reflect the derived RAW chain: ScenePass first, DecalPass last.
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     const auto scenePos = std::find(order.begin(), order.end(), "ScenePass") - order.begin();
     const auto foliagePos = std::find(order.begin(), order.end(), "FoliagePass") - order.begin();
     const auto decalPos = std::find(order.begin(), order.end(), "DecalPass") - order.begin();
@@ -6842,7 +7061,7 @@ TEST(RenderGraphSceneColorChain, DeferredSceneColorRMWChainViaBuilderCallbacksIs
             auto sc = builder.ImportTexture(
                 "SceneColor",
                 2u,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
             builder.Write(sc, RGWriteUsage::RenderTarget);
         });
 
@@ -6854,7 +7073,7 @@ TEST(RenderGraphSceneColorChain, DeferredSceneColorRMWChainViaBuilderCallbacksIs
             auto sc = builder.ImportTexture(
                 "SceneColor",
                 2u,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto r = builder.Read(sc, RGReadUsage::RenderTargetRead);
             builder.Write(sc, RGWriteUsage::RenderTarget);
         });
@@ -6867,7 +7086,7 @@ TEST(RenderGraphSceneColorChain, DeferredSceneColorRMWChainViaBuilderCallbacksIs
             auto sc = builder.ImportTexture(
                 "SceneColor",
                 2u,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto r = builder.Read(sc, RGReadUsage::RenderTargetRead);
             builder.Write(sc, RGWriteUsage::RenderTarget);
         });
@@ -6883,7 +7102,7 @@ TEST(RenderGraphSceneColorChain, DeferredSceneColorRMWChainViaBuilderCallbacksIs
         << "BuildFrameGraph must derive at least 2 RAW edges for the deferred SceneColor chain";
 
     // Execution order must reflect the derived chain.
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     const auto lightingPos =
         std::find(order.begin(), order.end(), "DeferredLightingPass") - order.begin();
     const auto overlayPos =

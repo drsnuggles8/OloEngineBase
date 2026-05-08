@@ -37,19 +37,11 @@ namespace OloEngine
         if (width == 0 || height == 0)
         {
             OLO_CORE_WARN("ToneMapRenderPass::CreateFramebuffer: Invalid dimensions {}x{}", width, height);
-            m_OutputFB = nullptr;
+            m_Target = nullptr;
             return;
         }
 
-        FramebufferSpecification fbSpec;
-        fbSpec.Width = width;
-        fbSpec.Height = height;
-        fbSpec.Samples = 1;
-        fbSpec.Attachments = {
-            FramebufferTextureFormat::RGBA16F // Keeps precision for the LDR result that feeds Vignette/FXAA.
-        };
-
-        m_OutputFB = Framebuffer::Create(fbSpec);
+        m_Target = nullptr;
     }
 
     void ToneMapRenderPass::Execute()
@@ -65,8 +57,9 @@ namespace OloEngine
         // Phase F slice 43 — self-resolving input framebuffer from the render-graph
         // blackboard. Preference chain: Fog > Precipitation > TAA > MotionBlur >
         // DOF > Bloom > PostProcess.
+        const auto* board = context.GetBlackboard();
         Ref<Framebuffer> inputFramebuffer;
-        if (const auto* board = context.GetBlackboard())
+        if (board)
         {
             auto tryResolveValid = [&](const auto& handle)
             {
@@ -88,22 +81,39 @@ namespace OloEngine
             tryResolveValid(board->PostProcessColor);
             tryResolveValid(board->SceneColor);
         }
-        if (!m_Enabled || !inputFramebuffer || !m_OutputFB || !m_Shader)
+
+        Ref<Framebuffer> outputFramebuffer;
+        if (board)
         {
+            if (auto fb = context.ResolveFramebuffer(board->ToneMapColor))
+                outputFramebuffer = fb;
+        }
+
+        if (!m_Enabled)
+        {
+            m_Target = inputFramebuffer;
+            return;
+        }
+
+        if (!board || !inputFramebuffer || !outputFramebuffer || !m_Shader)
+        {
+            m_Target = nullptr;
             static u32 s_MissingInputWarnings = 0;
-            if (m_Enabled && m_OutputFB && m_Shader && !inputFramebuffer && s_MissingInputWarnings++ < 10)
+            if (outputFramebuffer && m_Shader && !inputFramebuffer && s_MissingInputWarnings++ < 10)
             {
                 OLO_CORE_WARN("ToneMapRenderPass: No valid input framebuffer resolved (fallback chain exhausted)");
             }
             return;
         }
 
+        m_Target = outputFramebuffer;
+
         if (m_PostProcessUBO)
             m_PostProcessUBO->Bind();
 
-        m_OutputFB->Bind();
+        outputFramebuffer->Bind();
 
-        const auto& outSpec = m_OutputFB->GetSpecification();
+        const auto& outSpec = outputFramebuffer->GetSpecification();
         context.SetViewport(0, 0, outSpec.Width, outSpec.Height);
         context.SetDepthTest(false);
         context.SetDepthMask(false);
@@ -131,14 +141,14 @@ namespace OloEngine
         context.DrawIndexed(va);
 
         context.SetDepthMask(true);
-        m_OutputFB->Unbind();
+        outputFramebuffer->Unbind();
     }
 
     Ref<Framebuffer> ToneMapRenderPass::GetTarget() const
     {
-        if (!m_Enabled || !m_OutputFB)
+        if (!m_Target)
             return nullptr;
-        return m_OutputFB;
+        return m_Target;
     }
 
     void ToneMapRenderPass::SetupFramebuffer(u32 width, u32 height)
@@ -159,5 +169,6 @@ namespace OloEngine
 
     void ToneMapRenderPass::OnReset()
     {
+        m_Target = nullptr;
     }
 } // namespace OloEngine

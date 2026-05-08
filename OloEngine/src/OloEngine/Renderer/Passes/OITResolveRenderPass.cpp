@@ -27,9 +27,6 @@ namespace OloEngine
 
         m_FramebufferSpec = spec;
 
-        // Phase F slice 15 — OITBuffer is allocated lazily on first use
-        // (`GetOrCreateOITBuffer`). Paths that never enable OIT do not
-        // pay the ~2x screen-sized RGBA16F+RG16F GPU memory cost.
         m_ResolveShader = Shader::Create("assets/shaders/OIT_Resolve.glsl");
 
         // Resource-aware RDG: reads the OIT accumulation and revealage buffers
@@ -42,19 +39,7 @@ namespace OloEngine
         DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
         DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
 
-        OLO_CORE_INFO("OITResolveRenderPass: initialised at {}x{} (OITBuffer deferred until first use)", spec.Width, spec.Height);
-    }
-
-    const Ref<OITBuffer>& OITResolveRenderPass::GetOrCreateOITBuffer()
-    {
-        if (!m_OITBuffer)
-        {
-            const u32 width = m_FramebufferSpec.Width != 0 ? m_FramebufferSpec.Width : 1u;
-            const u32 height = m_FramebufferSpec.Height != 0 ? m_FramebufferSpec.Height : 1u;
-            m_OITBuffer = OITBuffer::Create(width, height);
-            OLO_CORE_INFO("OITResolveRenderPass: lazily allocated OITBuffer ({}x{})", width, height);
-        }
-        return m_OITBuffer;
+        OLO_CORE_INFO("OITResolveRenderPass: initialised at {}x{}", spec.Width, spec.Height);
     }
 
     void OITResolveRenderPass::Execute()
@@ -71,6 +56,7 @@ namespace OloEngine
         // from the render graph blackboard so no per-frame side-channel setter
         // call is needed from EndScene().
         Ref<Framebuffer> inputFB;
+        Ref<Framebuffer> oitFramebuffer;
         if (const auto* board = context.GetBlackboard())
         {
             if (board->SceneColor.IsValid())
@@ -78,20 +64,19 @@ namespace OloEngine
                 if (auto resolvedInput = context.ResolveFramebuffer(board->SceneColor))
                     inputFB = resolvedInput;
             }
+            if (board->OITAccum.IsValid())
+            {
+                if (auto resolvedOITFramebuffer = context.ResolveFramebuffer(board->OITAccum))
+                    oitFramebuffer = resolvedOITFramebuffer;
+            }
+            else if (board->OITRevealage.IsValid())
+            {
+                if (auto resolvedOITFramebuffer = context.ResolveFramebuffer(board->OITRevealage))
+                    oitFramebuffer = resolvedOITFramebuffer;
+            }
         }
 
-        // Grab-and-reset the "has accumulation" flag so a skipped frame
-        // cannot leak content from the previous one.
-        const bool hasAccum = m_HasAccumulation;
-        m_HasAccumulation = false;
-        // Always re-arm the OITBuffer's per-frame clear guard so the next
-        // frame's first transparent pass performs a fresh clear — even when
-        // we early-out (disabled / no accum / missing FB). Otherwise stale
-        // accumulation from a previously-OIT-enabled frame would leak if OIT
-        // toggles on mid-session.
-        if (m_OITBuffer)
-            m_OITBuffer->ResetClearFlag();
-        if (!m_Enabled || !hasAccum || !inputFB || !m_OITBuffer || !m_ResolveShader)
+        if (!m_Enabled || !inputFB || !oitFramebuffer || !m_ResolveShader)
         {
             return;
         }
@@ -128,8 +113,8 @@ namespace OloEngine
         RenderCommand::SetColorMaskForAttachment(2, false, false, false, false);
 
         m_ResolveShader->Bind();
-        context.BindTexture(ShaderBindingLayout::TEX_OIT_ACCUM, m_OITBuffer->GetAccumAttachmentID());
-        context.BindTexture(ShaderBindingLayout::TEX_OIT_REVEALAGE, m_OITBuffer->GetRevealageAttachmentID());
+        context.BindTexture(ShaderBindingLayout::TEX_OIT_ACCUM, oitFramebuffer->GetColorAttachmentRendererID(0));
+        context.BindTexture(ShaderBindingLayout::TEX_OIT_REVEALAGE, oitFramebuffer->GetColorAttachmentRendererID(1));
 
         DrawFullscreenTriangle(context);
 
@@ -138,6 +123,8 @@ namespace OloEngine
         RenderCommand::SetColorMaskForAttachment(2, true, true, true, true);
         RenderCommand::SetBlendStateForAttachment(0, false);
         context.SetBlendState(false);
+        context.BindTexture(ShaderBindingLayout::TEX_OIT_ACCUM, 0);
+        context.BindTexture(ShaderBindingLayout::TEX_OIT_REVEALAGE, 0);
         context.SetDepthMask(true);
         context.SetDepthTest(true);
 
@@ -179,8 +166,6 @@ namespace OloEngine
     {
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
-        if (m_OITBuffer)
-            m_OITBuffer->Resize(width, height);
     }
 
     void OITResolveRenderPass::ResizeFramebuffer(u32 width, u32 height)
@@ -189,13 +174,10 @@ namespace OloEngine
             return;
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
-        if (m_OITBuffer)
-            m_OITBuffer->Resize(width, height);
     }
 
     void OITResolveRenderPass::OnReset()
     {
-        m_HasAccumulation = false;
     }
 
     void OITResolveRenderPass::DrawFullscreenTriangle(RGCommandContext& context)

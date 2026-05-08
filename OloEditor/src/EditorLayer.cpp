@@ -13,6 +13,7 @@
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
 #include "OloEngine/Renderer/Debug/CommandPacketDebugger.h"
+#include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugger.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
@@ -283,26 +284,24 @@ namespace OloEngine
         }
 
         // Feed selected entity IDs to the selection outline pass (editor-only, 3D Edit mode)
-        if (auto outlinePass = Renderer3D::GetSelectionOutlinePass(); outlinePass)
+        if (m_Is3DMode && m_SceneState == SceneState::Edit)
         {
-            if (m_Is3DMode && m_SceneState == SceneState::Edit)
+            auto& selectedEntities = m_SceneHierarchyPanel.GetSelectedEntities();
+            std::vector<i32> ids;
+            ids.reserve(selectedEntities.size());
+            for (auto& entity : selectedEntities)
             {
-                auto& selectedEntities = m_SceneHierarchyPanel.GetSelectedEntities();
-                std::vector<i32> ids;
-                ids.reserve(selectedEntities.size());
-                for (auto& entity : selectedEntities)
+                if (entity)
                 {
-                    if (entity)
-                    {
-                        ids.push_back(static_cast<i32>(static_cast<u32>(entity)));
-                    }
+                    ids.push_back(static_cast<i32>(static_cast<u32>(entity)));
                 }
-                outlinePass->SetSelectedEntityIDs(ids);
             }
-            else
-            {
-                outlinePass->SetSelectedEntityIDs({});
-            }
+
+            Renderer3D::SetSelectionOutlineEntityIDs(ids);
+        }
+        else
+        {
+            Renderer3D::SetSelectionOutlineEntityIDs({});
         }
 
         // Camera updates always run so the editor stays responsive even when
@@ -400,7 +399,7 @@ namespace OloEngine
                     }
 
                     // Step 2: Issue async read for this frame into the write PBO
-                    auto framebuffer = Renderer3D::GetSceneFramebuffer();
+                    auto framebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
                     if (framebuffer)
                     {
                         glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer->GetRendererID());
@@ -737,22 +736,16 @@ namespace OloEngine
         if (m_Is3DMode)
         {
             // Use UICompositePass output (post-processed scene + 2D overlays + UI)
-            if (auto uiPass = Renderer3D::GetUICompositePass(); uiPass)
+            if (auto uiFramebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite); uiFramebuffer)
             {
-                if (auto target = uiPass->GetTarget(); target)
-                {
-                    textureID = target->GetColorAttachmentRendererID(0);
-                }
+                textureID = uiFramebuffer->GetColorAttachmentRendererID(0);
             }
             // Fallback to scene pass if post-process pass is not available
             if (textureID == 0)
             {
-                if (auto scenePass = Renderer3D::GetScenePass(); scenePass)
+                if (auto sceneFramebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor); sceneFramebuffer)
                 {
-                    if (auto target = scenePass->GetTarget(); target)
-                    {
-                        textureID = target->GetColorAttachmentRendererID(0);
-                    }
+                    textureID = sceneFramebuffer->GetColorAttachmentRendererID(0);
                 }
             }
         }
@@ -1350,7 +1343,7 @@ namespace OloEngine
         if (m_ShowCommandBucketInspector)
         {
             CommandPacketDebugger::GetInstance().RenderDebugView(
-                Renderer3D::GetCommandBucket(), &m_ShowCommandBucketInspector, "Command Bucket Inspector");
+                RenderGraphDebugRuntime::GetActiveGraph().Raw(), &m_ShowCommandBucketInspector, "Command Bucket Inspector");
         }
 
         if (m_ShowRendererProfiler)
@@ -1361,7 +1354,7 @@ namespace OloEngine
         if (m_ShowRenderGraphDebugger)
         {
             static RenderGraphDebugger s_RenderGraphDebugger;
-            s_RenderGraphDebugger.RenderDebugView(Renderer3D::GetRenderGraph(), &m_ShowRenderGraphDebugger, "Render Graph Debugger");
+            s_RenderGraphDebugger.RenderDebugView(RenderGraphDebugRuntime::GetActiveGraph(), &m_ShowRenderGraphDebugger, "Render Graph Debugger");
         }
 #endif
     }

@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Renderer/Renderer3DDrawHelpers.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Mesh.h"
@@ -41,7 +42,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!s_Data.DecalPass)
+        if (!s_Data.Pipeline->RenderStreamPasses.Decal)
         {
             OLO_CORE_ERROR("Renderer3D::DrawDecal: DecalPass is null!");
             return nullptr;
@@ -173,7 +174,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!s_Data.FoliagePass)
+        if (!s_Data.Pipeline->RenderStreamPasses.Foliage)
         {
             OLO_CORE_ERROR("Renderer3D::DrawFoliageLayer: FoliagePass is null!");
             return nullptr;
@@ -189,7 +190,7 @@ namespace OloEngine
         // lighting composite. Falls back to the forward FoliagePass route
         // when the variant is missing.
         const bool deferredActive = (s_Data.Settings.Path == RenderingPath::Deferred);
-        const bool useGBufferVariant = deferredActive && s_Data.FoliageGBufferShader && s_Data.ScenePass;
+        const bool useGBufferVariant = deferredActive && s_Data.FoliageGBufferShader && s_Data.Pipeline->FrameCorePasses.Scene;
         Ref<Shader> activeShader = useGBufferVariant ? s_Data.FoliageGBufferShader : s_Data.FoliageShader;
 
         // Frustum cull the entire layer using the precomputed bounding box.
@@ -267,7 +268,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!s_Data.WaterPass)
+        if (!s_Data.Pipeline->RenderStreamPasses.Water)
         {
             OLO_CORE_ERROR("Renderer3D::DrawWaterSurface: WaterPass is null!");
             return nullptr;
@@ -319,7 +320,6 @@ namespace OloEngine
         // reprojection (closes the wave-animation gap in the RT3 motion vector).
         cmd->normalMapSpeed.z = prevTime;
         cmd->lightDirection = params.lightDirection;
-        cmd->screenParams = params.screenParams;
         cmd->depthRefractionParams = params.depthRefractionParams;
         cmd->refractionColor = params.refractionColor;
         cmd->foamParams = params.foamParams;

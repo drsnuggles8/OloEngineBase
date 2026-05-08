@@ -158,7 +158,6 @@ TEST(WaterRendering, DrawWaterCommandZeroInitNoNaN)
     ValidateVec4(cmd.normalMapScroll, "normalMapScroll");
     ValidateVec4(cmd.normalMapSpeed, "normalMapSpeed");
     ValidateVec4(cmd.lightDirection, "lightDirection");
-    ValidateVec4(cmd.screenParams, "screenParams");
     ValidateVec4(cmd.depthRefractionParams, "depthRefractionParams");
     ValidateVec4(cmd.refractionColor, "refractionColor");
     ValidateVec4(cmd.foamParams, "foamParams");

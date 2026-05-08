@@ -30,7 +30,6 @@
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
-#include "OloEngine/Renderer/PassGraphNode.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 
@@ -84,7 +83,7 @@ namespace
     void MirrorPassRead(RGBuilder& builder, const ResourceHandle& resource)
     {
         const auto kind = NormalizeDeclarationKind(resource.Type);
-        const auto desc = RGResourceDesc::FromLegacy(kind, resource.Name);
+        const auto desc = RGResourceDesc::FromHandleKind(kind, resource.Name);
 
         switch (kind)
         {
@@ -113,7 +112,7 @@ namespace
     void MirrorPassWrite(RGBuilder& builder, const ResourceHandle& resource)
     {
         const auto kind = NormalizeDeclarationKind(resource.Type);
-        const auto desc = RGResourceDesc::FromLegacy(kind, resource.Name);
+        const auto desc = RGResourceDesc::FromHandleKind(kind, resource.Name);
 
         switch (kind)
         {
@@ -148,16 +147,14 @@ namespace
             MirrorPassWrite(builder, write);
     }
 
-    void RegisterDeclarativeStubNode(RenderGraph& graph, const Ref<DeclarativeStubPass>& pass)
+    void RegisterDeclarativeStubNode(RenderGraph& graph, Ref<DeclarativeStubPass> pass)
     {
-        auto node = Ref<PassGraphNode>::Create(
-            std::string(pass->GetName()),
-            pass.As<RenderPass>(),
+        pass->SetSetupCallback(
             [pass](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
             {
                 MirrorPassDeclarations(builder, *pass);
             });
-        graph.AddNode(node);
+        graph.AddNode(pass.As<RenderGraphNode>());
     }
 
     Ref<DeclarativeStubPass> AddDeclStub(RenderGraph& graph, const std::string& name)
@@ -178,7 +175,7 @@ namespace
         {
         }
 
-        [[nodiscard]] std::string_view GetName() const override
+        [[nodiscard]] const std::string& GetName() const override
         {
             return m_Name;
         }
@@ -619,7 +616,7 @@ TEST(RenderGraphResourceHazards, ImportedResourceIsTrackedByRegistry)
 {
     RenderGraph graph;
 
-    auto importedDesc = RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2DArray, "ImportedShadowMap");
+    auto importedDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2DArray, "ImportedShadowMap");
     importedDesc.Format = RGResourceFormat::Depth32Float;
     graph.ImportResource("ImportedShadowMap", importedDesc);
 
@@ -777,7 +774,7 @@ TEST(RenderGraphResourceHazards, SamePassOverlappingReadWriteWithoutFeedbackIsFl
             auto color = builder.ImportTexture(
                 "FeedbackTex",
                 21,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "FeedbackTex"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FeedbackTex"));
             [[maybe_unused]] const auto sampled = builder.Read(color, RGReadUsage::ShaderSample, RGSubresourceRange::Mip(0));
             builder.Write(color, RGWriteUsage::RenderTarget, RGSubresourceRange::Mip(0));
         });
@@ -807,7 +804,7 @@ TEST(RenderGraphResourceHazards, ImportedProducedAndConsumedWithoutBackingIsFlag
             auto imported = builder.ImportTexture(
                 "ImportedNoBacking",
                 0,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ImportedNoBacking"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ImportedNoBacking"));
             builder.Write(imported, RGWriteUsage::RenderTarget);
         });
 
@@ -819,7 +816,7 @@ TEST(RenderGraphResourceHazards, ImportedProducedAndConsumedWithoutBackingIsFlag
             auto imported = builder.ImportTexture(
                 "ImportedNoBacking",
                 0,
-                RGResourceDesc::FromLegacy(ResourceHandle::Kind::Texture2D, "ImportedNoBacking"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ImportedNoBacking"));
             [[maybe_unused]] const auto sampled = builder.Read(imported, RGReadUsage::ShaderSample);
         });
 
@@ -1101,8 +1098,10 @@ namespace
         {
             // Mirrors Renderer3D::ConfigureRenderGraph's EnableSelectionOutline
             // branch. Declares both possible input resources so the validator
-            // derives the correct ordering edge for whichever producer is present.
+            // derives the correct ordering edge for whichever producer is present,
+            // plus SceneColor for the entity-ID attachment source.
             f.SelectionOutline = AddDeclStub(f.Graph, "SelectionOutlinePass");
+            f.SelectionOutline->TestDeclareRead(std::string(ResourceNames::SceneColor));
             f.SelectionOutline->TestDeclareRead(std::string(ResourceNames::VignetteColor));
             if (enableFXAA)
                 f.SelectionOutline->TestDeclareRead(std::string(ResourceNames::FXAAColor));
@@ -1539,7 +1538,7 @@ TEST(RenderGraphConfigureTopology, Slice29_FullGeometryTailNoExplicitEdgesIsHaza
 // =============================================================================
 // Phase F slice 30 — SSAO/GTAO AOBuffer contracts.
 // SSAOPass/GTAOPass DeclareWrite(AOBuffer) + AOApplyPass DeclareRead(AOBuffer)
-// derive AO producer -> AOApply ordering. Legacy SSAO/GTAO -> Particle edges
+// derive AO producer -> AOApply ordering. Direct SSAO/GTAO -> Particle edges
 // are no longer needed for AO correctness.
 // =============================================================================
 
@@ -1976,10 +1975,10 @@ TEST(RenderGraphConfigureTopology, Slice32_WaterToParticleDerivedFromSceneColor)
 
 // =============================================================================
 // Phase F slice 33 — deferred-path derived edges.
-// All five deferred explicit edges are now derived from declaration pairs:
+// All five deferred ordering edges are now derived from declaration pairs:
 //   ScenePass→DeferredOpaqueDecalPass  — SceneDepth RAW
 //   DeferredOpaqueDecalPass→DeferredLightingPass — SceneColor RAW
-//   ScenePass→DeferredLightingPass (fallback) — SceneDepth RAW
+//   ScenePass→DeferredLightingPass — direct SceneDepth RAW
 //   DeferredLightingPass→ForwardOverlayPass — SceneColor RAW
 //   ForwardOverlayPass→FoliagePass — SceneColor RAW (Foliage RMW from slice 32)
 // =============================================================================
@@ -2469,7 +2468,7 @@ TEST(RenderGraphConfigureTopology, ResetTopologyAndRebuildAcrossPathsNoLeaks)
         // Pass set must match what this cycle installed — no residual edges
         // or passes leaked from a previous cycle (the ResetTopology contract).
         const sizet expectedPassCount = paths[i] ? 5u : 3u;
-        EXPECT_EQ(graph.GetPassSubmissionInfo().size(), expectedPassCount)
+        EXPECT_EQ(graph.GetNodeSubmissionInfo().size(), expectedPassCount)
             << "Cycle " << i << ": residual passes from prior cycle";
     }
 }
@@ -2575,8 +2574,9 @@ TEST(RenderGraphConfigureTopology, Slice34_NoneAOTechniqueNoAOPassInGraphIsHazar
 {
     // Positive test: AOTechnique::None — neither SSAO nor GTAO is registered.
     // AOBuffer has no writer; the graph is trivially hazard-free on that
-    // resource. AOApplyPass reads a zero/black texture at runtime when AO
-    // is disabled, but the validator only reasons about declared producers.
+    // resource. In production the dynamic post chain simply keeps using the
+    // upstream scene/SSS color when AOApplyColor is not materialized, and the
+    // validator only reasons about declared producers.
     RenderGraph graph;
 
     auto scene = AddDeclStub(graph, "ScenePass");
@@ -2828,12 +2828,9 @@ TEST(RenderGraphConfigureTopology, Slice36_FoliageAndOverlayAfterSceneColorWrite
 }
 
 // ---------------------------------------------------------------------------
-// Phase H follow-up — DecalRenderPass raw depth fallback removed
+// Phase H follow-up — DecalRenderPass resolves SceneDepth from the blackboard
 //
-// DecalRenderPass previously fell back to
-// `m_SceneFramebuffer->GetDepthAttachmentRendererID()` when the blackboard
-// SceneDepth resolve returned 0. That fallback is now removed: the pass
-// self-resolves exclusively from `board->SceneDepth`, matching the same
+// DecalRenderPass self-resolves exclusively from `board->SceneDepth`, matching the same
 // blackboard-only pattern used by SSAORenderPass and GTAORenderPass.
 //
 // This test verifies that the declaration-derived topology still produces
@@ -2841,12 +2838,12 @@ TEST(RenderGraphConfigureTopology, Slice36_FoliageAndOverlayAfterSceneColorWrite
 // SceneDepth with zero side-channel setters.
 // ---------------------------------------------------------------------------
 
-TEST(RenderGraphConfigureTopology, PhaseH_DecalPassSceneDepthNoRawFallback)
+TEST(RenderGraphConfigureTopology, PhaseH_DecalPassResolvesSceneDepthFromBlackboardOnly)
 {
     // ScenePass writes SceneDepth + SceneColor.
     // DecalPass reads both (SceneDepth for projection, SceneColor as render target).
-    // The two RAW edges must be derived from declarations; no raw framebuffer
-    // fallback should be needed.
+    // The two RAW edges must be derived from declarations; the pass should not
+    // require any scene-framebuffer side path.
     RenderGraph graph;
 
     auto scene = AddDeclStub(graph, "ScenePass");
@@ -2865,7 +2862,7 @@ TEST(RenderGraphConfigureTopology, PhaseH_DecalPassSceneDepthNoRawFallback)
     const auto hazards = graph.ValidateResourceHazards();
     EXPECT_TRUE(hazards.empty())
         << "Phase H: DecalPass resolves SceneDepth purely from the blackboard "
-           "— no raw framebuffer fallback needed; ordering is hazard-free."
+           "— ordering is hazard-free without any scene-framebuffer side path."
         << HazardsToString(hazards);
 }
 
@@ -3406,12 +3403,12 @@ TEST(RenderGraphConfigureTopology, Slice42_FogPassSelfResolvesUpstreamChain)
 }
 
 // ---------------------------------------------------------------------------
-// Phase H — Follow-up: AO/DOF/MotionBlur/TAA/Fog no longer keep raw
-// depth/shadow fallback IDs. The blackboard declarations alone must drive the
-// full post-process dependency chain.
+// Phase H — Follow-up: AO/DOF/MotionBlur/TAA/Fog resolve depth/shadow inputs
+// from the blackboard alone. The declarations must drive the full
+// post-process dependency chain.
 // ---------------------------------------------------------------------------
 
-TEST(RenderGraphConfigureTopology, PhaseH_PostChainDepthAndShadowUsersNeedNoRawFallbackIDs)
+TEST(RenderGraphConfigureTopology, PhaseH_PostChainDepthAndShadowUsersResolveBlackboardInputsOnly)
 {
     RenderGraph graph;
 
@@ -3464,7 +3461,7 @@ TEST(RenderGraphConfigureTopology, PhaseH_PostChainDepthAndShadowUsersNeedNoRawF
 
     const auto hazards = graph.ValidateResourceHazards();
     EXPECT_TRUE(hazards.empty())
-        << "Phase H follow-up: AO/DOF/MotionBlur/TAA/Fog should derive their full depth/shadow ordering from blackboard reads only; no raw fallback texture IDs required."
+        << "Phase H follow-up: AO/DOF/MotionBlur/TAA/Fog should derive their full depth/shadow ordering from blackboard reads only."
         << HazardsToString(hazards);
 }
 
@@ -3664,6 +3661,7 @@ TEST(RenderGraphConfigureTopology, Slice44_SelectionOutlinePassSelfResolvesUpstr
     fxaa->TestDeclareWrite(std::string(ResourceNames::FXAAColor));
 
     auto selection = AddDeclStub(graph, "SelectionOutlinePass");
+    selection->TestDeclareRead(std::string(ResourceNames::SceneColor));
     selection->TestDeclareRead(std::string(ResourceNames::FXAAColor)); // Prefers this
     selection->TestDeclareWrite(std::string(ResourceNames::SelectionOutlineColor));
 

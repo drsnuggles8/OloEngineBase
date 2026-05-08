@@ -22,6 +22,14 @@ namespace OloEngine
     //
     // Sits between the post chain output and UICompositePass in the render graph:
     //   PostChainOutput -> SelectionOutline -> UIComposite -> Final
+    //
+    // Writes the final `SelectionOutlineColor` through the graph-owned
+    // framebuffer resolved from the blackboard when the effect is actually
+    // executable for the frame. If the pass is disabled, has no selected
+    // entities, or its shaders are unavailable, the graph omits
+    // `SelectionOutlineColor` and downstream passes continue from the
+    // upstream late-post chain directly. The JFA ping-pong surfaces are
+    // graph-owned scratch framebuffers sized from this pass's framebuffer spec.
     class SelectionOutlineRenderPass : public RenderPass
     {
       public:
@@ -45,6 +53,17 @@ namespace OloEngine
         void SetOutlineColor(const glm::vec4& color);
         void SetOutlineWidth(i32 width);
         void SetEnabled(bool enabled);
+        [[nodiscard]] bool IsEnabled() const noexcept
+        {
+            return m_Enabled;
+        }
+        [[nodiscard]] bool IsReadyForExecution() const noexcept
+        {
+            return m_JFAInitShader && m_JFAInitShader->IsReady() &&
+                   m_JFAPassShader && m_JFAPassShader->IsReady() &&
+                   m_JFACompositeShader && m_JFACompositeShader->IsReady() &&
+                   m_OutlineUBO && m_JFAUbo;
+        }
 
         // JFA-specific configuration
         void SetOutlineThickness(f32 inner, f32 outer);
@@ -75,7 +94,6 @@ namespace OloEngine
         void CreateFramebuffer(u32 width, u32 height);
 
         Ref<Framebuffer> m_SceneFramebuffer;
-        Ref<Shader> m_BlitShader;
 
         // Selection ID UBO (binding 27) — shared with JFA Init for entity ID lookup
         Ref<UniformBuffer> m_OutlineUBO;

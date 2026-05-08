@@ -46,7 +46,7 @@ namespace OloEngine
         // color + post-process color + final).
         enum class Source : u8
         {
-            SceneColor = 0,        // Live HDR scene framebuffer (Renderer3D::GetScenePass()->GetTarget())
+            SceneColor = 0,        // Canonical SceneColor framebuffer resolved from the render graph
             GBufferAlbedo,         // Deferred G-Buffer RT0 (albedo + metallic)
             GBufferNormal,         // Deferred G-Buffer RT1 (normal + roughness + material AO)
             GBufferEmissive,       // Deferred G-Buffer RT2 (emissive + flags)

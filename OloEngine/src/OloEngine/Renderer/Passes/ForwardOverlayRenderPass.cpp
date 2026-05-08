@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 
 #include <glad/gl.h>
 
@@ -116,9 +117,9 @@ namespace OloEngine
         rendererAPI.SetCullFace(GL_BACK);
         rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
-        // Rebind scene camera + light UBOs so overlay shaders see the same
+        // Rebind shared scene resources so overlay shaders see the same
         // view/projection/light data forward shaders expect.
-        Renderer3D::BindSceneUBOs();
+        CommandDispatch::BindSceneResources();
 
         // Sort and dispatch — skybox sorts last via its large depth key, so
         // terrain/voxel/grid render first, then the sky fills pixels with

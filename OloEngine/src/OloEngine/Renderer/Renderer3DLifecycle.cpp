@@ -1,7 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Renderer/Renderer3DDrawHelpers.h"
-#include "OloEngine/Renderer/Renderer3DFrameGraphBuilder.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
@@ -26,7 +26,6 @@
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
-#include "OloEngine/Renderer/PassGraphNode.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 
@@ -35,6 +34,7 @@
 
 #include <chrono>
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionState.h"
@@ -160,7 +160,7 @@ namespace OloEngine
 
         u32 shaderIdx = 0;
         // NOTE: Keep totalShaders3D in sync with the number of Load() calls below.
-        constexpr u32 totalShaders3D = 42;
+        constexpr u32 totalShaders3D = 41;
 
         // Boot + fallback are idempotent — no-ops when already initialized by
         // Renderer::Init().  Needed here for the lazy-init path (EditorLayer
@@ -173,7 +173,7 @@ namespace OloEngine
         // All Load() calls issue glLinkProgram() back-to-back WITHOUT checking
         // GL_LINK_STATUS. When GL_ARB_parallel_shader_compile is available the
         // driver links them all in parallel. Status is checked later via
-        // PollPendingShaders() each frame in BeginSceneCommon().
+        // PollPendingShaders() each frame from `RenderPipeline::PrepareFrame()`.
         static constexpr std::array s_ShaderPaths = {
             "assets/shaders/LightCube.glsl",
             "assets/shaders/Lighting3D.glsl",
@@ -208,7 +208,6 @@ namespace OloEngine
             "assets/shaders/Foliage_Instance_GBuffer.glsl",
             "assets/shaders/Foliage_Depth.glsl",
             "assets/shaders/Water.glsl",
-            "assets/shaders/Water_OIT.glsl",
             "assets/shaders/Decal.glsl",
             "assets/shaders/Decal_OIT.glsl",
             "assets/shaders/Decal_GBuffer.glsl",
@@ -334,7 +333,8 @@ namespace OloEngine
             s_Data.SharedSceneUBOs.LightProperties,
             s_Data.BoneMatricesUBO,
             s_Data.ModelMatrixUBO,
-            s_Data.PrevBoneMatricesUBO);
+            s_Data.PrevBoneMatricesUBO,
+            &s_Data.ForwardPlus);
 
         EnvironmentMap::InitializeIBLSystem(m_ShaderLibrary);
         OLO_CORE_INFO("IBL system initialized.");
@@ -354,6 +354,7 @@ namespace OloEngine
         s_Data.Stats.Reset();
 
         s_Data.RGraph = Ref<RenderGraph>::Create();
+        RenderGraphDebugRuntime::SetActiveGraph(s_Data.RGraph);
         // Headless init (window == nullptr) uses a placeholder framebuffer size;
         // the real size is applied later via Renderer3D::OnWindowResize.
         const u32 fbWidth = window ? window->GetFramebufferWidth() : 1280u;
@@ -390,7 +391,7 @@ namespace OloEngine
 
     bool Renderer3D::IsInitialized()
     {
-        return s_Data.RGraph != nullptr && s_Data.ScenePass != nullptr;
+        return s_Data.RGraph != nullptr && s_Data.Pipeline->FrameCorePasses.Scene != nullptr;
     }
 
     void Renderer3D::Shutdown()
@@ -428,9 +429,6 @@ namespace OloEngine
         // Clear any pending GPU resource commands
         GPUResourceQueue::Clear();
 
-        // Clear shader registries
-        s_Data.ShaderRegistries.clear();
-
         // Reset fog temporal state
         s_Data.FogFrameIndex = 0;
         s_Data.FogLastTime = {};
@@ -441,17 +439,11 @@ namespace OloEngine
             s_Data.RGraph->Shutdown();
         }
 
+        RenderGraphDebugRuntime::SetActiveGraph(nullptr);
+
         // Release all render passes now while the GL context and RendererAPI are still alive.
         // Their destructors call RenderCommand::DeleteTexture() which needs s_RendererAPI.
-        s_Data.StreamNodes.Reset();
-        s_Data.ShadowPass.Reset();
-        s_Data.ScenePass.Reset();
-        s_Data.SceneCompositePasses.Reset();
-        s_Data.PostProcessPasses.Reset();
-        s_Data.FoliagePass.Reset();
-        s_Data.WaterPass.Reset();
-        s_Data.DecalPass.Reset();
-        s_Data.ForwardOverlayPass.Reset();
+        s_Data.Pipeline->Reset();
         s_Data.RGraph.Reset();
 
         // Release UBOs explicitly while the GL context is still alive
@@ -521,7 +513,7 @@ namespace OloEngine
 
         // If render graph exists but passes were never created (Init ran with 0x0 window),
         // create them now that we have valid dimensions.
-        if (s_Data.RGraph && !s_Data.ScenePass)
+        if (s_Data.RGraph && !s_Data.Pipeline->FrameCorePasses.Scene)
         {
             if (IsRenderGraphDiagnosticsEnabled())
             {

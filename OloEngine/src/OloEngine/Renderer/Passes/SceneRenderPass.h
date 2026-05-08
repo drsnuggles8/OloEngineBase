@@ -55,6 +55,10 @@ namespace OloEngine
             return m_GBuffer;
         }
 
+        // Ensure the deferred G-buffer exists and matches the current scene
+        // framebuffer dimensions before graph blackboard population/import.
+        void PrepareDeferredResources(u32 sampleCount);
+
       private:
         // Lazily create / resize the G-Buffer to match the forward target.
         void EnsureGBuffer(u32 width, u32 height, u32 sampleCount);

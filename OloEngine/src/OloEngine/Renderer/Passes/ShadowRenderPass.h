@@ -8,7 +8,6 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <glm/glm.hpp>
-#include <limits>
 #include <vector>
 
 namespace OloEngine
@@ -29,12 +28,6 @@ namespace OloEngine
     // This replaces the callback pattern: Scene.cpp adds casters during its entity loop,
     // and ShadowRenderPass::Execute() iterates them per light cascade/face with the
     // appropriate depth shader. No duplicate entity traversal, no per-frame lambda allocation.
-
-    // Sentinel value: WorldBounds.Min == FLT_MAX means "no bounds — include in every view".
-    inline const BoundingBox NoBounds{
-        glm::vec3(std::numeric_limits<f32>::max()),
-        glm::vec3(-std::numeric_limits<f32>::max())
-    };
 
     struct ShadowMeshCaster
     {

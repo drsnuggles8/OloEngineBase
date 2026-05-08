@@ -61,14 +61,6 @@ namespace OloEngine
         if (const auto* board = context.GetBlackboard())
             depthTextureID = context.ResolveTexture(board->SceneDepth);
 
-        // Phase F slice 15 — fetch the OITBuffer through the provider
-        // (lazy in OITResolveRenderPass). When OIT is disabled the
-        // provider is not queried, leaving the cached Ref null.
-        if (m_OITEnabled && m_OITBufferProvider)
-            m_OITBuffer = m_OITBufferProvider();
-        else
-            m_OITBuffer.Reset();
-
         // Detector-only guard: captures GL state at entry and on destruction
         // diffs against exit state, logging any field this pass failed to
         // restore. The explicit restore calls further down still perform the
@@ -126,19 +118,24 @@ namespace OloEngine
             return;
         }
 
-        const bool useOIT = m_OITEnabled && m_OITBuffer && m_OITBuffer->GetFramebuffer() && m_OITShader;
+        Ref<Framebuffer> oitFramebuffer;
+        if (m_OITEnabled)
+        {
+            if (const auto* board = context.GetBlackboard(); board && board->OITAccum.IsValid())
+                oitFramebuffer = context.ResolveFramebuffer(board->OITAccum);
+        }
+
+        const bool useOIT = m_OITEnabled && oitFramebuffer && m_OITShader;
 
         if (useOIT)
         {
             // Weighted-blended OIT forward-decal path. Decal draws accumulate
-            // into the shared OITBuffer (RGBA16F accum + RG16F revealage) with
+            // into the shared graph-owned OIT framebuffer (RGBA16F accum + RG16F revealage) with
             // per-attachment blend funcs; `OITResolveRenderPass` composites
             // the result over the scene FB. Scene depth is still sampled from
             // the scene framebuffer so decal-world-position reconstruction
             // matches opaque geometry.
-            Ref<Framebuffer> oitFB = m_OITBuffer->GetFramebuffer();
-
-            m_OITBuffer->ClearForFrame(m_SceneFramebuffer);
+            Ref<Framebuffer> oitFB = oitFramebuffer;
             oitFB->Bind();
 
             RenderCommand::SetDepthTest(true);
@@ -175,9 +172,6 @@ namespace OloEngine
                 if (shouldDrawHere(packet))
                     packet->Execute(rendererAPI);
             }
-
-            if (m_AccumMarker)
-                m_AccumMarker();
 
             RenderCommand::SetBlendStateForAttachment(0, false);
             RenderCommand::SetBlendStateForAttachment(1, false);

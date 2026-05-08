@@ -40,17 +40,11 @@ namespace OloEngine
         if (width == 0 || height == 0)
         {
             OLO_CORE_WARN("DOFRenderPass::CreateFramebuffer: Invalid dimensions {}x{}", width, height);
-            m_OutputFB = nullptr;
+            m_Target = nullptr;
             return;
         }
 
-        FramebufferSpecification fbSpec;
-        fbSpec.Width = width;
-        fbSpec.Height = height;
-        fbSpec.Samples = 1;
-        fbSpec.Attachments = { FramebufferTextureFormat::RGBA16F };
-
-        m_OutputFB = Framebuffer::Create(fbSpec);
+        m_Target = nullptr;
     }
 
     void DOFRenderPass::Execute()
@@ -65,8 +59,10 @@ namespace OloEngine
 
         // Phase F slice 40 — self-resolving input framebuffer.
         // Prefer BloomColor (if Bloom ran upstream) else PostProcessColor.
+        const auto* board = context.GetBlackboard();
         Ref<Framebuffer> inputFramebuffer;
-        if (const auto* board = context.GetBlackboard())
+        Ref<Framebuffer> outputFramebuffer;
+        if (board)
         {
             const auto inputHandle = board->BloomColor.IsValid() ? board->BloomColor : board->PostProcessColor;
             if (inputHandle.IsValid())
@@ -74,26 +70,41 @@ namespace OloEngine
                 if (auto resolved = context.ResolveFramebuffer(inputHandle))
                     inputFramebuffer = resolved;
             }
+            if (board->DOFColor.IsValid())
+            {
+                if (auto resolvedOutput = context.ResolveFramebuffer(board->DOFColor))
+                    outputFramebuffer = resolvedOutput;
+            }
         }
-        if (!m_Enabled || !inputFramebuffer || !m_OutputFB || !m_DOFShader)
+        if (!m_Enabled)
         {
+            m_Target = inputFramebuffer;
+            return;
+        }
+
+        if (!board || !inputFramebuffer || !outputFramebuffer || !m_DOFShader)
+        {
+            m_Target = nullptr;
             return;
         }
 
         // Phase F slice 40 / Phase H follow-up — self-resolving SceneDepth.
-        u32 sceneDepthTextureID = 0;
-        if (const auto* board = context.GetBlackboard())
-            sceneDepthTextureID = context.ResolveTexture(board->SceneDepth);
+        const u32 sceneDepthTextureID = context.ResolveTexture(board->SceneDepth);
 
         if (sceneDepthTextureID == 0)
+        {
+            m_Target = nullptr;
             return;
+        }
+
+        m_Target = outputFramebuffer;
 
         if (m_PostProcessUBO)
             m_PostProcessUBO->Bind();
 
-        m_OutputFB->Bind();
+        outputFramebuffer->Bind();
 
-        const auto& outSpec = m_OutputFB->GetSpecification();
+        const auto& outSpec = outputFramebuffer->GetSpecification();
         context.SetViewport(0, 0, outSpec.Width, outSpec.Height);
         context.SetDepthTest(false);
         context.SetDepthMask(false);
@@ -124,14 +135,14 @@ namespace OloEngine
         context.DrawIndexed(va);
 
         context.SetDepthMask(true);
-        m_OutputFB->Unbind();
+        outputFramebuffer->Unbind();
     }
 
     Ref<Framebuffer> DOFRenderPass::GetTarget() const
     {
-        if (!m_Enabled || !m_OutputFB)
+        if (!m_Target)
             return nullptr;
-        return m_OutputFB;
+        return m_Target;
     }
 
     void DOFRenderPass::SetupFramebuffer(u32 width, u32 height)
@@ -152,5 +163,6 @@ namespace OloEngine
 
     void DOFRenderPass::OnReset()
     {
+        m_Target = nullptr;
     }
 } // namespace OloEngine
