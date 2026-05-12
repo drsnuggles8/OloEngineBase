@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 
 #include <glad/gl.h>
 
@@ -19,6 +20,42 @@ namespace OloEngine
         OLO_CORE_INFO("Creating AOApplyRenderPass.");
     }
 
+    void AOApplyRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+        m_SelectedAOTexture = {};
+        m_SelectedSceneDepthTexture = {};
+
+        (void)blackboard;
+        [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(
+            builder,
+            this,
+            {
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SSSColor, ResourceNames::SSSColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SceneColor, ResourceNames::SceneColorTexture),
+            });
+
+        if (!m_Enabled || !blackboard.AOApplyColor.IsValid() || !blackboard.AOBuffer.IsValid() || !blackboard.SceneDepth.IsValid())
+            return;
+
+        [[maybe_unused]] const auto aoBufferRead = builder.Read(blackboard.AOBuffer, RGReadUsage::ShaderSample);
+        [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.SceneDepth, RGReadUsage::ShaderSample);
+        m_SelectedAOTexture = blackboard.AOBuffer;
+        m_SelectedSceneDepthTexture = blackboard.SceneDepth;
+
+        constexpr std::string_view aoApplyVersionTag = "AOApplyPass";
+        const auto outputHandle = builder.WriteNewVersion(blackboard.AOApplyColor, RGWriteUsage::RenderTarget, aoApplyVersionTag);
+        if (!outputHandle.IsValid())
+            return;
+
+        SetPrimaryOutputFramebufferHandle(outputHandle);
+        SetPrimaryOutputTextureHandle(
+            builder.CreateFramebufferAttachmentView(std::string(ResourceNames::AOApplyColorTexture) + "@" +
+                                                        std::string(aoApplyVersionTag),
+                                                    outputHandle,
+                                                    0u));
+    }
+
     void AOApplyRenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
@@ -27,15 +64,6 @@ namespace OloEngine
         CreateFramebuffer(spec.Width, spec.Height);
 
         m_SSAOApplyShader = Shader::Create("assets/shaders/PostProcess_SSAOApply.glsl");
-
-        // Resource-aware RDG: AO Apply reads the accumulated scene color
-        // (SSSColor or SceneColor), the AO buffer, and the scene depth (for
-        // bilateral upsampling), and emits AO-modulated HDR scene color.
-        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
-        DeclareRead(ResourceNames::SSSColor, ResourceHandle::Kind::Framebuffer);
-        DeclareRead(ResourceNames::AOBuffer, ResourceHandle::Kind::Texture2D);
-        DeclareRead(ResourceNames::SceneDepth, ResourceHandle::Kind::Texture2D);
-        DeclareWrite(ResourceNames::AOApplyColor, ResourceHandle::Kind::Framebuffer);
 
         OLO_CORE_INFO("AOApplyRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
     }
@@ -52,53 +80,32 @@ namespace OloEngine
         m_Target = nullptr;
     }
 
-    Ref<Framebuffer> AOApplyRenderPass::GetTarget() const
-    {
-        return m_Target;
-    }
-
-    void AOApplyRenderPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
-    }
-
     void AOApplyRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Self-resolving input framebuffer: prefer SSSColor
-        // if written this frame, fall back to SceneColor.  Mirrors the
-        // conditional that EndScene() previously computed and pushed via the
-        // side-channel setter.
-        const auto* board = context.GetBlackboard();
         Ref<Framebuffer> inputFramebuffer;
+        u32 inputColorTextureID = 0u;
+        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
+        {
+            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
+                inputFramebuffer = resolvedInput;
+        }
+        if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
+            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
+
         Ref<Framebuffer> outputFramebuffer;
         u32 aoTextureID = 0;
         u32 sceneDepthID = 0;
-        if (board)
+        if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
         {
-            if (board->SSSColor.IsValid())
-            {
-                if (auto resolvedSSS = context.ResolveFramebuffer(board->SSSColor))
-                    inputFramebuffer = resolvedSSS;
-            }
-
-            if (!inputFramebuffer && board->SceneColor.IsValid())
-            {
-                if (auto resolvedScene = context.ResolveFramebuffer(board->SceneColor))
-                    inputFramebuffer = resolvedScene;
-            }
-
-            if (board->AOApplyColor.IsValid())
-            {
-                if (auto resolvedOutput = context.ResolveFramebuffer(board->AOApplyColor))
-                    outputFramebuffer = resolvedOutput;
-            }
-
-            aoTextureID = context.ResolveTexture(board->AOBuffer);
-            sceneDepthID = context.ResolveTexture(board->SceneDepth);
+            if (auto resolvedOutput = context.ResolveFramebuffer(outputHandle))
+                outputFramebuffer = resolvedOutput;
         }
+        if (m_SelectedAOTexture.IsValid())
+            aoTextureID = context.ResolveTexture(m_SelectedAOTexture);
+        if (m_SelectedSceneDepthTexture.IsValid())
+            sceneDepthID = context.ResolveTexture(m_SelectedSceneDepthTexture);
 
         if (!m_Enabled)
         {
@@ -106,14 +113,15 @@ namespace OloEngine
             return;
         }
 
-        if (!inputFramebuffer || !outputFramebuffer)
+        if (!inputFramebuffer || inputColorTextureID == 0u || !outputFramebuffer)
         {
             m_Target = nullptr;
             static u32 s_MissingInputOrOutputWarnings = 0;
             if (s_MissingInputOrOutputWarnings++ < 10)
             {
-                OLO_CORE_WARN("AOApplyRenderPass: missing input/output (inputFB={}, outputFB={}, aoTex={}, depthTex={})",
+                OLO_CORE_WARN("AOApplyRenderPass: missing input/output (inputFB={}, inputTex={}, outputFB={}, aoTex={}, depthTex={})",
                               inputFramebuffer ? inputFramebuffer->GetRendererID() : 0u,
+                              inputColorTextureID,
                               outputFramebuffer ? outputFramebuffer->GetRendererID() : 0u,
                               aoTextureID,
                               sceneDepthID);
@@ -191,8 +199,7 @@ namespace OloEngine
         context.Clear();
 
         m_SSAOApplyShader->Bind();
-        const u32 srcColorID = inputFramebuffer->GetColorAttachmentRendererID(0);
-        context.BindTexture(0, srcColorID);
+        context.BindTexture(0, inputColorTextureID);
         context.BindTexture(ShaderBindingLayout::TEX_SSAO, aoTextureID);
         // Scene depth is used by the apply shader for bilateral upsampling.
         context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthID);
@@ -225,6 +232,8 @@ namespace OloEngine
     void AOApplyRenderPass::OnReset()
     {
         m_Target = nullptr;
+        m_SelectedAOTexture = {};
+        m_SelectedSceneDepthTexture = {};
     }
 
 } // namespace OloEngine

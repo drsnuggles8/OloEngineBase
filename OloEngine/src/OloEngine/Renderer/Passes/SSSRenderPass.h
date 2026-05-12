@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -9,14 +9,14 @@
 
 namespace OloEngine
 {
-    class SSSRenderPass : public RenderPass
+    class SSSRenderPass : public RenderGraphNode
     {
       public:
         SSSRenderPass();
         ~SSSRenderPass() override = default;
 
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] SubmissionModel GetSubmissionModel() const override
         {
@@ -48,6 +48,7 @@ namespace OloEngine
         Ref<Shader> m_SSSBlurShader;
         Ref<UniformBuffer> m_SSSUBO;
         SSSUBOData* m_GPUData = nullptr;
+        RGTextureHandle m_SelectedSceneDepthTexture{};
 
         SnowSettings m_Settings;
     };

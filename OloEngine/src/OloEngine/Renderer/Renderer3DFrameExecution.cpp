@@ -62,35 +62,61 @@ namespace OloEngine
         // Phase C: compile graph-native pass declarations before execution.
         s_Data.RGraph->BuildFrameGraph();
 
+        bool buildStatsChanged = false;
         {
             const auto& buildStats = s_Data.RGraph->GetLastBuildStats();
             static RenderGraph::FrameBuildStats s_LastBuildStats{};
             static bool s_HasLastBuildStats = false;
 
-            const bool changed = !s_HasLastBuildStats ||
-                                 buildStats.PassesVisited != s_LastBuildStats.PassesVisited ||
-                                 buildStats.DeclaredReads != s_LastBuildStats.DeclaredReads ||
-                                 buildStats.DeclaredWrites != s_LastBuildStats.DeclaredWrites ||
-                                 buildStats.DerivedEdges != s_LastBuildStats.DerivedEdges;
+            buildStatsChanged = !s_HasLastBuildStats ||
+                                buildStats.PassesVisited != s_LastBuildStats.PassesVisited ||
+                                buildStats.DeclaredReads != s_LastBuildStats.DeclaredReads ||
+                                buildStats.DeclaredWrites != s_LastBuildStats.DeclaredWrites ||
+                                buildStats.DerivedEdges != s_LastBuildStats.DerivedEdges ||
+                                buildStats.OrderSensitiveResults != s_LastBuildStats.OrderSensitiveResults ||
+                                buildStats.SetupCallbackPasses != s_LastBuildStats.SetupCallbackPasses ||
+                                buildStats.DynamicDeclarationPasses != s_LastBuildStats.DynamicDeclarationPasses ||
+                                buildStats.BucketBackedPasses != s_LastBuildStats.BucketBackedPasses;
 
-            if (changed)
+            if (buildStatsChanged)
             {
                 if (IsRenderGraphDiagnosticsEnabled())
                 {
-                    OLO_CORE_TRACE("RenderGraph BuildFrameGraph stats: passes={}, reads={}, writes={}, derivedEdges={}",
+                    OLO_CORE_TRACE("RenderGraph BuildFrameGraph stats: passes={}, reads={}, writes={}, derivedEdges={}, orderSensitiveResults={}, setupCallbacks={}, dynamicDeclarations={}, bucketBacked={}",
                                    buildStats.PassesVisited,
                                    buildStats.DeclaredReads,
                                    buildStats.DeclaredWrites,
-                                   buildStats.DerivedEdges);
+                                   buildStats.DerivedEdges,
+                                   buildStats.OrderSensitiveResults,
+                                   buildStats.SetupCallbackPasses,
+                                   buildStats.DynamicDeclarationPasses,
+                                   buildStats.BucketBackedPasses);
                 }
                 s_LastBuildStats = buildStats;
                 s_HasLastBuildStats = true;
             }
         }
 
-        // Phase D Slice 1: after BuildFrameGraph, stable handles for transient resources
-        // are assigned. Populate the blackboard so Execute callbacks can resolve them.
-        pipeline.RefreshBlackboardHandles(s_Data);
+        bool validateCompiledHazards = IsRenderGraphDiagnosticsEnabled();
+#if !defined(OLO_DIST)
+        validateCompiledHazards = validateCompiledHazards || buildStatsChanged;
+#endif
+
+        if (validateCompiledHazards)
+        {
+            const auto compiledHazards = s_Data.RGraph->ValidateCompiledResourceHazards();
+            if (!compiledHazards.empty())
+            {
+                OLO_CORE_ERROR("Renderer3D::EndScene: compiled RenderGraph validation found {} resource hazards — see previous log entries for details.",
+                               compiledHazards.size());
+                OLO_CORE_ASSERT(compiledHazards.empty(), "Compiled RenderGraph resource hazard detected (see log). Fix the offending setup-time resource declarations or ordering edges.");
+            }
+            else if (IsRenderGraphDiagnosticsEnabled() && buildStatsChanged)
+            {
+                OLO_CORE_TRACE("Renderer3D::EndScene: compiled RenderGraph validation passed.");
+            }
+        }
+
         s_Data.RGraph->Execute();
 
         // End occlusion query frame after render graph execution
@@ -109,7 +135,7 @@ namespace OloEngine
             if (node)
                 node->SetCommandAllocator(nullptr);
         };
-        pipeline.StreamNodes.ForEach(clearRenderStreamAllocator);
+        pipeline.ForEachRenderStreamNode(clearRenderStreamAllocator);
 
         RendererProfiler::GetInstance().EndFrame();
 

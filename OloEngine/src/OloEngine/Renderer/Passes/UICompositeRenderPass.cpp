@@ -7,6 +7,8 @@
 #include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
+#include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 
 #include <span>
 
@@ -20,6 +22,48 @@ namespace OloEngine
         OLO_CORE_INFO("Creating UICompositeRenderPass.");
     }
 
+    void UICompositeRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+
+        if (blackboard.UIComposite.IsValid())
+        {
+            constexpr std::string_view uiCompositeVersionTag = "UICompositePass";
+            const auto outputHandle =
+                builder.WriteNewVersion(blackboard.UIComposite, RGWriteUsage::RenderTarget, uiCompositeVersionTag);
+            if (outputHandle.IsValid())
+            {
+                SetPrimaryOutputFramebufferHandle(outputHandle);
+                SetPrimaryOutputTextureHandle(
+                    builder.CreateFramebufferAttachmentView(std::string(ResourceNames::UICompositeTexture) + "@" +
+                                                                std::string(uiCompositeVersionTag),
+                                                            outputHandle,
+                                                            0u));
+            }
+        }
+
+        (void)blackboard;
+        [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(
+            builder,
+            this,
+            {
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SelectionOutlineColor, ResourceNames::SelectionOutlineColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::FXAAColor, ResourceNames::FXAAColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::VignetteColor, ResourceNames::VignetteColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::ToneMapColor, ResourceNames::ToneMapColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::ColorGradingColor, ResourceNames::ColorGradingColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::ChromAbColor, ResourceNames::ChromAbColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::FogColor, ResourceNames::FogColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::PrecipitationColor, ResourceNames::PrecipitationColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::TAAColor, ResourceNames::TAAColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::MotionBlurColor, ResourceNames::MotionBlurColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::DOFColor, ResourceNames::DOFColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::BloomColor, ResourceNames::BloomColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::PostProcessColor, ResourceNames::PostProcessColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SceneColor, ResourceNames::SceneColorTexture),
+            });
+    }
+
     void UICompositeRenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
@@ -29,26 +73,6 @@ namespace OloEngine
         m_BlitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
 
         CreateFramebuffer(spec.Width, spec.Height);
-
-        // Resource-aware RDG: composites post-processed LDR scene + UI.
-        // Declare the full upstream preference chain plus a SceneColor
-        // emergency fallback so reachability/order inference remains robust
-        // even when intermediate effects are disabled.
-        DeclareRead(ResourceNames::ToneMapColor, ResourceHandle::Kind::Framebuffer);
-        DeclareRead(ResourceNames::ColorGradingColor, ResourceHandle::Kind::Framebuffer);
-        DeclareRead(ResourceNames::ChromAbColor, ResourceHandle::Kind::Framebuffer);
-        DeclareRead(ResourceNames::FogColor, ResourceHandle::Kind::Framebuffer);
-        DeclareRead(ResourceNames::PrecipitationColor, ResourceHandle::Kind::Framebuffer);
-        DeclareRead(ResourceNames::TAAColor, ResourceHandle::Kind::Framebuffer);
-        DeclareRead(ResourceNames::MotionBlurColor, ResourceHandle::Kind::Framebuffer);
-        DeclareRead(ResourceNames::DOFColor, ResourceHandle::Kind::Framebuffer);
-        DeclareRead(ResourceNames::BloomColor, ResourceHandle::Kind::Framebuffer);
-        DeclareRead(ResourceNames::PostProcessColor, ResourceHandle::Kind::Framebuffer);
-        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
-        DeclareRead(ResourceNames::VignetteColor, ResourceHandle::Kind::Framebuffer);
-        DeclareRead(ResourceNames::FXAAColor, ResourceHandle::Kind::Framebuffer);
-        DeclareRead(ResourceNames::SelectionOutlineColor, ResourceHandle::Kind::Framebuffer);
-        DeclareWrite(ResourceNames::UIComposite, ResourceHandle::Kind::Framebuffer);
 
         OLO_CORE_INFO("UICompositeRenderPass: Initialized {}x{}", spec.Width, spec.Height);
     }
@@ -65,84 +89,50 @@ namespace OloEngine
         m_Target = nullptr;
     }
 
-    void UICompositeRenderPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
-    }
-
     void UICompositeRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Phase F slice 44 — self-resolving input framebuffer from the render-graph
-        // blackboard. Prefer the latest post-chain output first, then fall
-        // back toward earlier HDR inputs. SceneColor must be LAST; choosing it
-        // first bypasses AOApply/ToneMap/FXAA and makes those passes appear to
-        // run correctly while having zero visual effect.
         Ref<Framebuffer> inputFramebuffer;
-        std::string inputResourceName;
-        if (const auto* board = context.GetBlackboard())
+        u32 inputColorTextureID = 0u;
+        const auto inputHandle = GetPrimaryInputFramebufferHandle();
+        if (inputHandle.IsValid())
         {
-            auto tryResolveValid = [&](std::string_view resourceName, const auto& handle)
-            {
-                if (inputFramebuffer || !handle.IsValid())
-                    return;
-                if (auto fb = context.ResolveFramebuffer(handle))
-                {
-                    if (fb->GetColorAttachmentRendererID(0) != 0)
-                    {
-                        inputFramebuffer = fb;
-                        inputResourceName = std::string(resourceName);
-                    }
-                }
-            };
-
-            tryResolveValid(ResourceNames::SelectionOutlineColor, board->SelectionOutlineColor);
-            tryResolveValid(ResourceNames::FXAAColor, board->FXAAColor);
-            tryResolveValid(ResourceNames::VignetteColor, board->VignetteColor);
-            tryResolveValid(ResourceNames::ToneMapColor, board->ToneMapColor);
-            tryResolveValid(ResourceNames::ColorGradingColor, board->ColorGradingColor);
-            tryResolveValid(ResourceNames::ChromAbColor, board->ChromAbColor);
-            tryResolveValid(ResourceNames::FogColor, board->FogColor);
-            tryResolveValid(ResourceNames::PrecipitationColor, board->PrecipitationColor);
-            tryResolveValid(ResourceNames::TAAColor, board->TAAColor);
-            tryResolveValid(ResourceNames::MotionBlurColor, board->MotionBlurColor);
-            tryResolveValid(ResourceNames::DOFColor, board->DOFColor);
-            tryResolveValid(ResourceNames::BloomColor, board->BloomColor);
-            tryResolveValid(ResourceNames::PostProcessColor, board->PostProcessColor);
-            tryResolveValid(ResourceNames::SceneColor, board->SceneColor);
+            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
+                inputFramebuffer = resolvedInput;
         }
+        if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
+            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
         {
-            static std::string s_PreviousInputResourceName;
+            static RGFramebufferHandle s_PreviousInputHandle{};
             static u32 s_PreviousInputFramebufferID = 0;
             static u32 s_PreviousInputColorID = 0;
             static u32 s_TransitionLogCount = 0;
             const u32 inputFramebufferID = inputFramebuffer ? inputFramebuffer->GetRendererID() : 0u;
-            const u32 inputColorID = inputFramebuffer ? inputFramebuffer->GetColorAttachmentRendererID(0) : 0u;
-            if (inputResourceName != s_PreviousInputResourceName ||
+            const u32 inputColorID = inputColorTextureID;
+            if (inputHandle != s_PreviousInputHandle ||
                 inputFramebufferID != s_PreviousInputFramebufferID ||
                 inputColorID != s_PreviousInputColorID)
             {
                 if (s_TransitionLogCount < 16)
                 {
-                    OLO_CORE_TRACE("UICompositePass: scene input={} fb={} colorTex={}",
-                                   inputResourceName.empty() ? std::string("<none>") : inputResourceName,
+                    OLO_CORE_TRACE("UICompositePass: scene inputHandle=(idx={}, gen={}) fb={} colorTex={}",
+                                   inputHandle.Index,
+                                   inputHandle.Generation,
                                    inputFramebufferID,
                                    inputColorID);
                     ++s_TransitionLogCount;
                 }
-                s_PreviousInputResourceName = inputResourceName;
+                s_PreviousInputHandle = inputHandle;
                 s_PreviousInputFramebufferID = inputFramebufferID;
                 s_PreviousInputColorID = inputColorID;
             }
         }
 
-        const auto* board = context.GetBlackboard();
         Ref<Framebuffer> outputFramebuffer;
-        if (board)
+        if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
         {
-            if (auto fb = context.ResolveFramebuffer(board->UIComposite))
+            if (auto fb = context.ResolveFramebuffer(outputHandle))
                 outputFramebuffer = fb;
         }
 
@@ -171,21 +161,10 @@ namespace OloEngine
         outputFramebuffer->ClearAllAttachments({ 0.0f, 0.0f, 0.0f, 1.0f }, -1);
 
         // Blit the post-processed scene as background
-        if (inputFramebuffer && m_BlitShader)
+        if (inputColorTextureID != 0u && m_BlitShader)
         {
             m_BlitShader->Bind();
-            const auto inputColorAttachment = inputFramebuffer->GetColorAttachmentRendererID(0);
-            if (inputColorAttachment == 0)
-            {
-                static u32 s_InvalidInputColorWarnings = 0;
-                if (s_InvalidInputColorWarnings++ < 10)
-                {
-                    const auto& inSpec = inputFramebuffer->GetSpecification();
-                    OLO_CORE_WARN("UICompositePass: input framebuffer has invalid color attachment 0 (id=0). Size={}x{}, attachmentCount={}",
-                                  inSpec.Width, inSpec.Height, inSpec.Attachments.Attachments.size());
-                }
-            }
-            context.BindTexture(0, inputColorAttachment);
+            context.BindTexture(0, inputColorTextureID);
             m_BlitShader->SetInt("u_Texture", 0);
 
             const auto va = MeshPrimitives::GetFullscreenTriangle();
@@ -194,8 +173,8 @@ namespace OloEngine
         }
         else if (m_NoInputWarningCount++ < 5)
         {
-            OLO_CORE_WARN("UICompositePass: No input framebuffer ({}) or blit shader ({}) — scene background will be black",
-                          inputFramebuffer != nullptr, m_BlitShader != nullptr);
+            OLO_CORE_WARN("UICompositePass: No input texture ({}) or blit shader ({}) — scene background will be black",
+                          inputColorTextureID != 0u, m_BlitShader != nullptr);
         }
 
         // Render 2D overlays and screen-space UI via the per-frame callback
@@ -223,11 +202,6 @@ namespace OloEngine
         {
             OLO_CORE_WARN("UICompositePass: No render callback set — UI will not render this frame");
         }
-    }
-
-    Ref<Framebuffer> UICompositeRenderPass::GetTarget() const
-    {
-        return m_Target;
     }
 
     void UICompositeRenderPass::SetupFramebuffer(u32 width, u32 height)

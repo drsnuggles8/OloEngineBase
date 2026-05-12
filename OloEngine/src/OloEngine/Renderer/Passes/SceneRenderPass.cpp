@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Renderer.h"
@@ -23,6 +24,72 @@ namespace OloEngine
         OLO_CORE_INFO("Creating SceneRenderPass.");
     }
 
+    void SceneRenderPass::Setup(RGBuilder& builder, FrameBlackboard& board)
+    {
+        RenderGraphNode::Setup(builder, board);
+        m_SelectedSceneDepthExport = {};
+        m_SelectedSceneNormalsExport = {};
+        m_SelectedVelocityExport = {};
+
+        if (board.SceneColor.IsValid())
+            SetPrimaryInputFramebufferHandle(board.SceneColor);
+
+        builder.DependsOnPass("ShadowPass");
+
+        if (board.ShadowMapCSM.IsValid())
+        {
+            [[maybe_unused]] const auto shadowCSMRead = builder.Read(board.ShadowMapCSM, RGReadUsage::ShaderSample);
+        }
+        if (board.ShadowMapSpot.IsValid())
+        {
+            [[maybe_unused]] const auto shadowSpotRead = builder.Read(board.ShadowMapSpot, RGReadUsage::ShaderSample);
+        }
+
+        for (const auto& pointHandle : board.ShadowMapPoint)
+        {
+            if (pointHandle.IsValid())
+            {
+                [[maybe_unused]] const auto pointRead = builder.Read(pointHandle, RGReadUsage::ShaderSample);
+            }
+        }
+
+        if (board.IrradianceMap.IsValid())
+        {
+            [[maybe_unused]] const auto irradianceRead = builder.Read(board.IrradianceMap, RGReadUsage::ShaderSample);
+        }
+        if (board.PrefilterMap.IsValid())
+        {
+            [[maybe_unused]] const auto prefilterRead = builder.Read(board.PrefilterMap, RGReadUsage::ShaderSample);
+        }
+        if (board.BrdfLut.IsValid())
+        {
+            [[maybe_unused]] const auto brdfRead = builder.Read(board.BrdfLut, RGReadUsage::ShaderSample);
+        }
+
+        if (board.SceneDepth.IsValid())
+        {
+            m_SelectedSceneDepthExport = board.SceneDepth;
+            builder.Write(board.SceneDepth, RGWriteUsage::TransferDest);
+        }
+        if (board.Velocity.IsValid())
+        {
+            m_SelectedVelocityExport = board.Velocity;
+            builder.Write(board.Velocity, RGWriteUsage::TransferDest);
+        }
+
+        const auto& rendererSettings = Renderer3D::GetRendererSettings();
+        if (rendererSettings.Path != RenderingPath::Deferred)
+        {
+            if (board.SceneNormals.IsValid())
+            {
+                m_SelectedSceneNormalsExport = board.SceneNormals;
+                builder.Write(board.SceneNormals, RGWriteUsage::TransferDest);
+            }
+            if (board.SceneColor.IsValid())
+                builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
+        }
+    }
+
     void SceneRenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
@@ -41,18 +108,6 @@ namespace OloEngine
 
         m_Target = Framebuffer::Create(m_FramebufferSpec);
 
-        // Resource-aware RDG: scene reads the shadow map + IBL maps, writes
-        // the HDR scene color + shared depth. Subsequent passes (foliage,
-        // water, decal, particle, SSS) all share the same framebuffer, so
-        // they continue writing SceneColor / SceneDepth — those passes can
-        // opt in via DeclareRead/Write as they are migrated.
-        DeclareRead(ResourceNames::ShadowMapCSM, ResourceHandle::Kind::Texture2DArray);
-        DeclareRead(ResourceNames::IrradianceMap, ResourceHandle::Kind::TextureCube);
-        DeclareRead(ResourceNames::PrefilterMap, ResourceHandle::Kind::TextureCube);
-        DeclareRead(ResourceNames::BrdfLut, ResourceHandle::Kind::Texture2D);
-        DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
-        DeclareWrite(ResourceNames::SceneDepth, ResourceHandle::Kind::Texture2D);
-
         // Lazy-loaded — only materialised when the user actually selects the
         // RMA debug channel for the first time (keeps Forward startup cheap).
         m_DebugRMAShader = nullptr;
@@ -61,17 +116,15 @@ namespace OloEngine
                       m_FramebufferSpec.Width, m_FramebufferSpec.Height);
     }
 
-    void SceneRenderPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
-    }
-
     void SceneRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        (void)context;
+        if (const auto sceneHandle = GetPrimaryInputFramebufferHandle(); sceneHandle.IsValid())
+        {
+            if (auto resolvedSceneFB = context.ResolveFramebuffer(sceneHandle))
+                m_Target = resolvedSceneFB;
+        }
 
         if (!m_Target)
         {
@@ -318,16 +371,57 @@ namespace OloEngine
 
         // Per-sample path: force a color resolve whenever a downstream pass
         // samples resolved G-Buffer color attachments (debug overlay, SSAO, GTAO).
-        // This keeps SceneNormals current for AO passes while preserving the
-        // multisample attachments for per-sample deferred lighting.
+        // This keeps the resolved single-sample G-Buffer attachments current
+        // for AO/export consumers while preserving the multisample
+        // attachments for per-sample deferred lighting.
         const auto& postProcessSettings = Renderer3D::GetPostProcessSettings();
         const bool aoNeedsResolvedNormals =
             (postProcessSettings.ActiveAOTechnique == AOTechnique::SSAO && postProcessSettings.SSAOEnabled) ||
             (postProcessSettings.ActiveAOTechnique == AOTechnique::GTAO && postProcessSettings.GTAOEnabled);
-        if (perSampleLighting && (debugNeedsColour || aoNeedsResolvedNormals))
+        const bool postNeedsResolvedVelocity = postProcessSettings.MotionBlurEnabled || postProcessSettings.TAAEnabled;
+        if (perSampleLighting && (debugNeedsColour || aoNeedsResolvedNormals || postNeedsResolvedVelocity))
         {
             m_GBuffer->Resolve();
         }
+
+        // Publish scene-derived textures through graph-owned handles. The
+        // scene pass still renders into the legacy scene/G-Buffer
+        // attachments, but downstream consumers now sample the exported graph
+        // textures instead of importing those attachments directly.
+        const auto copySceneExport = [&](const RGTextureHandle handle, const u32 sourceTextureID)
+        {
+            if (!handle.IsValid() || sourceTextureID == 0u ||
+                m_FramebufferSpec.Width == 0u || m_FramebufferSpec.Height == 0u)
+            {
+                return;
+            }
+
+            const u32 exportedTextureID = context.ResolveTexture(handle);
+            if (exportedTextureID == 0u || exportedTextureID == sourceTextureID)
+                return;
+
+            glCopyImageSubData(sourceTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
+                               exportedTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
+                               static_cast<GLsizei>(m_FramebufferSpec.Width),
+                               static_cast<GLsizei>(m_FramebufferSpec.Height),
+                               1);
+        };
+
+        const u32 sourceDepthID = deferredActive && m_GBuffer
+                                      ? m_GBuffer->GetDepthAttachmentID()
+                                      : m_Target->GetDepthAttachmentRendererID();
+        copySceneExport(m_SelectedSceneDepthExport, sourceDepthID);
+
+        if (!deferredActive)
+        {
+            const u32 sourceNormalsID = m_Target->GetColorAttachmentRendererID(2);
+            copySceneExport(m_SelectedSceneNormalsExport, sourceNormalsID);
+        }
+
+        const u32 sourceVelocityID = deferredActive && m_GBuffer
+                                         ? m_GBuffer->GetColorAttachmentID(GBuffer::Velocity)
+                                         : m_Target->GetColorAttachmentRendererID(3);
+        copySceneExport(m_SelectedVelocityExport, sourceVelocityID);
 
         // Deferred debug visualisation: until DeferredLightingPass lands in
         // Phase 3, copy the selected G-Buffer channel into the forward scene
@@ -343,11 +437,6 @@ namespace OloEngine
             // DebugChannel=5 capability for the forward paths.
             BlitForwardVelocityDebug();
         }
-    }
-
-    Ref<Framebuffer> SceneRenderPass::GetTarget() const
-    {
-        return m_Target;
     }
 
     void SceneRenderPass::SetupFramebuffer(u32 width, u32 height)
@@ -647,6 +736,9 @@ namespace OloEngine
     void SceneRenderPass::OnReset()
     {
         OLO_PROFILE_FUNCTION();
+        m_SelectedSceneDepthExport = {};
+        m_SelectedSceneNormalsExport = {};
+        m_SelectedVelocityExport = {};
 
         // Recreate the framebuffer with current specs
         if (m_FramebufferSpec.Width > 0 && m_FramebufferSpec.Height > 0)

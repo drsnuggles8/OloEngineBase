@@ -28,8 +28,7 @@ namespace OloEngine
         ForwardOverlayRenderPass();
         ~ForwardOverlayRenderPass() override = default;
 
-        void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         [[nodiscard]] SubmissionModel GetSubmissionModel() const override

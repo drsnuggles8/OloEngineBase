@@ -188,6 +188,8 @@ namespace OloEngine
             .Width = spec.Width,
             .Height = spec.Height,
             .Format = static_cast<u32>(spec.Format),
+            .MipLevels = spec.MipLevels,
+            .Samples = spec.Samples,
             .Flags = spec.GenerateMips ? 1u : 0u,
         };
     }
@@ -215,7 +217,8 @@ namespace OloEngine
 
     u64 TransientPool::EstimateTextureBytes(const TextureSpecification& spec)
     {
-        return static_cast<u64>(spec.Width) * static_cast<u64>(spec.Height) * BytesPerPixel(spec.Format);
+        return static_cast<u64>(spec.Width) * static_cast<u64>(spec.Height) *
+               BytesPerPixel(spec.Format) * static_cast<u64>(std::max(spec.Samples, 1u));
     }
 
     void TransientPool::Clear()
@@ -290,6 +293,8 @@ namespace OloEngine
             spec.Width = key.Width;
             spec.Height = key.Height;
             spec.Format = static_cast<ImageFormat>(key.Format);
+            spec.MipLevels = key.MipLevels;
+            spec.Samples = key.Samples;
             spec.GenerateMips = (key.Flags & 1u) != 0u;
             totalBytes += EstimateTextureBytes(spec) * pool.size();
         }
@@ -373,6 +378,8 @@ namespace OloEngine
                 spec.Width = key.Width;
                 spec.Height = key.Height;
                 spec.Format = static_cast<ImageFormat>(key.Format);
+                spec.MipLevels = key.MipLevels;
+                spec.Samples = key.Samples;
                 spec.GenerateMips = (key.Flags & 1u) != 0u;
                 u64 itemBytes = EstimateTextureBytes(spec);
                 report.PotentialAliasingBytes += itemBytes * (pool.size() - 1);

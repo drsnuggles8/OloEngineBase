@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
 
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -35,6 +36,104 @@ namespace OloEngine
         SetName("DeferredLightingPass");
     }
 
+    void DeferredLightingPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+
+        m_SelectedInputs = {};
+        m_UseMSAAShading = false;
+
+        if (!m_GBuffer)
+            return;
+
+        m_UseMSAAShading = m_PerSampleLighting && m_GBuffer->GetSampleCount() > 1u && static_cast<bool>(m_ShaderMSAA);
+        const bool useMSAAShading = m_UseMSAAShading;
+
+        if (useMSAAShading)
+        {
+            m_SelectedInputs.GBufferAlbedo = blackboard.GBufferAlbedoMS;
+            m_SelectedInputs.GBufferNormal = blackboard.GBufferNormalMS;
+            m_SelectedInputs.GBufferEmissive = blackboard.GBufferEmissiveMS;
+            m_SelectedInputs.SceneDepth = blackboard.SceneDepthMS;
+            m_SelectedInputs.Velocity = blackboard.VelocityMS;
+        }
+        else
+        {
+            m_SelectedInputs.GBufferAlbedo = blackboard.GBufferAlbedo;
+            m_SelectedInputs.GBufferNormal = blackboard.GBufferNormal;
+            m_SelectedInputs.GBufferEmissive = blackboard.GBufferEmissive;
+            m_SelectedInputs.SceneDepth = blackboard.SceneDepth;
+            m_SelectedInputs.Velocity = blackboard.Velocity;
+        }
+
+        if (m_SelectedInputs.GBufferAlbedo.IsValid())
+        {
+            [[maybe_unused]] const auto gbufferAlbedoRead = builder.Read(m_SelectedInputs.GBufferAlbedo, RGReadUsage::ShaderSample);
+        }
+        if (m_SelectedInputs.GBufferNormal.IsValid())
+        {
+            [[maybe_unused]] const auto gbufferNormalRead = builder.Read(m_SelectedInputs.GBufferNormal, RGReadUsage::ShaderSample);
+        }
+        if (m_SelectedInputs.GBufferEmissive.IsValid())
+        {
+            [[maybe_unused]] const auto gbufferEmissiveRead = builder.Read(m_SelectedInputs.GBufferEmissive, RGReadUsage::ShaderSample);
+        }
+        if (m_SelectedInputs.SceneDepth.IsValid())
+        {
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(m_SelectedInputs.SceneDepth, RGReadUsage::ShaderSample);
+        }
+        if (m_SelectedInputs.Velocity.IsValid())
+        {
+            [[maybe_unused]] const auto velocityRead = builder.Read(m_SelectedInputs.Velocity, RGReadUsage::ShaderSample);
+        }
+
+        if (blackboard.ShadowMapCSM.IsValid())
+        {
+            m_SelectedInputs.ShadowMapCSM = blackboard.ShadowMapCSM;
+            [[maybe_unused]] const auto shadowCSMRead = builder.Read(blackboard.ShadowMapCSM, RGReadUsage::ShaderSample);
+        }
+        if (blackboard.ShadowMapSpot.IsValid())
+        {
+            m_SelectedInputs.ShadowMapSpot = blackboard.ShadowMapSpot;
+            [[maybe_unused]] const auto shadowSpotRead = builder.Read(blackboard.ShadowMapSpot, RGReadUsage::ShaderSample);
+        }
+        for (size_t i = 0; i < blackboard.ShadowMapPoint.size() && i < m_SelectedInputs.ShadowMapPoint.size(); ++i)
+        {
+            const auto& pointHandle = blackboard.ShadowMapPoint[i];
+            if (pointHandle.IsValid())
+            {
+                m_SelectedInputs.ShadowMapPoint[i] = pointHandle;
+                [[maybe_unused]] const auto pointRead = builder.Read(pointHandle, RGReadUsage::ShaderSample);
+            }
+        }
+        if (blackboard.AOBuffer.IsValid())
+        {
+            m_SelectedInputs.AOBuffer = blackboard.AOBuffer;
+            [[maybe_unused]] const auto aoRead = builder.Read(blackboard.AOBuffer, RGReadUsage::ShaderSample);
+        }
+        if (blackboard.IrradianceMap.IsValid())
+        {
+            m_SelectedInputs.IrradianceMap = blackboard.IrradianceMap;
+            [[maybe_unused]] const auto irradianceRead = builder.Read(blackboard.IrradianceMap, RGReadUsage::ShaderSample);
+        }
+        if (blackboard.PrefilterMap.IsValid())
+        {
+            m_SelectedInputs.PrefilterMap = blackboard.PrefilterMap;
+            [[maybe_unused]] const auto prefilterRead = builder.Read(blackboard.PrefilterMap, RGReadUsage::ShaderSample);
+        }
+        if (blackboard.BrdfLut.IsValid())
+        {
+            m_SelectedInputs.BrdfLut = blackboard.BrdfLut;
+            [[maybe_unused]] const auto brdfRead = builder.Read(blackboard.BrdfLut, RGReadUsage::ShaderSample);
+        }
+
+        if (blackboard.SceneColor.IsValid())
+        {
+            SetPrimaryInputFramebufferHandle(blackboard.SceneColor);
+            builder.Write(blackboard.SceneColor, RGWriteUsage::RenderTarget);
+        }
+    }
+
     void DeferredLightingPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
@@ -45,35 +144,19 @@ namespace OloEngine
         m_ControlsUBO = UniformBuffer::Create(sizeof(DeferredControlsData),
                                               ShaderBindingLayout::UBO_DEFERRED_LIGHTING);
 
-        // Phase F slice 33 — declare G-Buffer reads so the hazard validator
-        // derives the ordering edges for the deferred chain:
-        //   ScenePass→DeferredOpaqueDecalPass (SceneDepth RAW already works)
-        //   DeferredOpaqueDecalPass→DeferredLightingPass  via DeclareRead(SceneColor)
-        //   ScenePass→DeferredLightingPass (fallback)     via DeclareRead(SceneDepth)
-        DeclareRead(ResourceNames::SceneDepth, ResourceHandle::Kind::Texture2D);
-        DeclareRead(ResourceNames::SceneNormals, ResourceHandle::Kind::Texture2D);
-        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
-        DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
-
         OLO_CORE_INFO("DeferredLightingPass: Initialized ({}x{}); writes into scene FB color[0]",
                       spec.Width, spec.Height);
-    }
-
-    void DeferredLightingPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
     }
 
     void DeferredLightingPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Phase F slice 41 — self-resolving scene color framebuffer from the
-        // active render graph blackboard.
-        if (const auto* board = context.GetBlackboard())
+        // Resolve the setup-selected scene framebuffer instead of replaying
+        // a blackboard lookup ladder at execute time.
+        if (const auto sceneHandle = GetPrimaryInputFramebufferHandle(); sceneHandle.IsValid())
         {
-            if (auto resolvedSceneFB = context.ResolveFramebuffer(board->SceneColor))
+            if (auto resolvedSceneFB = context.ResolveFramebuffer(sceneHandle))
                 m_SceneFramebuffer = resolvedSceneFB;
         }
 
@@ -124,7 +207,7 @@ namespace OloEngine
         RenderCommand::SetCullFace(GL_BACK);
 
         const u32 sampleCount = m_GBuffer->GetSampleCount();
-        const bool useMSAAShading = m_PerSampleLighting && sampleCount > 1u && m_ShaderMSAA;
+        const bool useMSAAShading = m_UseMSAAShading;
         Ref<Shader>& shader = useMSAAShading ? m_ShaderMSAA : m_Shader;
         shader->Bind();
 
@@ -156,15 +239,11 @@ namespace OloEngine
         m_ControlsUBO->SetData(&controls, sizeof(controls));
         m_ControlsUBO->Bind();
 
-        // G-Buffer samplers (slots 43-47). In per-sample shading mode we
-        // bind the raw multisample attachments; otherwise bind the resolved
-        // single-sample copies produced by GBuffer::Resolve().
-        //
-        // Phase F slice 41 — self-resolving G-Buffer texture handles from the
-        // render-graph blackboard. When a handle resolves to 0 (headless /
-        // unit-test / when not in deferred path), fall back to raw `m_GBuffer`
-        // accessors. MSAA companion handles are only available when the
-        // G-Buffer's sample count > 1.
+        // G-Buffer samplers (slots 43-47). Setup already chose the canonical
+        // handle family (MSAA vs resolved); Execute only resolves those chosen
+        // handles. When a chosen handle resolves to 0 (headless / unit-test /
+        // when not in deferred path), fall back to raw `m_GBuffer` accessors
+        // that match the setup-selected family.
         //
         // Defensive: if any required attachment ID is zero we bail before
         // issuing the fullscreen draw. A zero ID means the G-Buffer was
@@ -172,93 +251,31 @@ namespace OloEngine
         // disabled in a non-TAA configuration). Binding 0 to a sampler
         // reads undefined data, which on NVIDIA surfaces as random black
         // pixels and on AMD as driver crashes.
-        const u32 albedoID = useMSAAShading
-                                 ? [&]
+        const auto resolveSelectedTexture = [&context](RGTextureHandle handle, u32 fallbackID) -> u32
         {
             u32 id = 0;
-            if (const auto* board = context.GetBlackboard())
-                id = context.ResolveTexture(board->GBufferAlbedoMS);
+            if (handle.IsValid())
+                id = context.ResolveTexture(handle);
             if (id == 0)
-                id = m_GBuffer->GetMSColorAttachmentID(GBuffer::Albedo);
+                id = fallbackID;
             return id;
-        }()
-                                 : [&]
-        {
-            u32 id = 0;
-            if (const auto* board = context.GetBlackboard())
-                id = context.ResolveTexture(board->GBufferAlbedo);
-            if (id == 0)
-                id = m_GBuffer->GetColorAttachmentID(GBuffer::Albedo);
-            return id;
-        }();
-        const u32 normalID = useMSAAShading
-                                 ? [&]
-        {
-            u32 id = 0;
-            if (const auto* board = context.GetBlackboard())
-                id = context.ResolveTexture(board->GBufferNormalMS);
-            if (id == 0)
-                id = m_GBuffer->GetMSColorAttachmentID(GBuffer::Normal);
-            return id;
-        }()
-                                 : [&]
-        {
-            u32 id = 0;
-            if (const auto* board = context.GetBlackboard())
-                id = context.ResolveTexture(board->GBufferNormal);
-            if (id == 0)
-                id = m_GBuffer->GetColorAttachmentID(GBuffer::Normal);
-            return id;
-        }();
-        const u32 emissiveID = useMSAAShading
-                                   ? [&]
-        {
-            u32 id = 0;
-            if (const auto* board = context.GetBlackboard())
-                id = context.ResolveTexture(board->GBufferEmissiveMS);
-            if (id == 0)
-                id = m_GBuffer->GetMSColorAttachmentID(GBuffer::Emissive);
-            return id;
-        }()
-                                   : [&]
-        {
-            u32 id = 0;
-            if (const auto* board = context.GetBlackboard())
-                id = context.ResolveTexture(board->GBufferEmissive);
-            if (id == 0)
-                id = m_GBuffer->GetColorAttachmentID(GBuffer::Emissive);
-            return id;
-        }();
-        const u32 velocityID = useMSAAShading
-                                   ? [&]
-        {
-            u32 id = 0;
-            if (const auto* board = context.GetBlackboard())
-                id = context.ResolveTexture(board->VelocityMS);
-            if (id == 0)
-                id = m_GBuffer->GetMSColorAttachmentID(GBuffer::Velocity);
-            return id;
-        }()
-                                   : m_GBuffer->GetColorAttachmentID(GBuffer::Velocity);
-        const u32 depthID = useMSAAShading
-                                ? [&]
-        {
-            u32 id = 0;
-            if (const auto* board = context.GetBlackboard())
-                id = context.ResolveTexture(board->SceneDepthMS);
-            if (id == 0)
-                id = m_GBuffer->GetMSDepthAttachmentID();
-            return id;
-        }()
-                                : [&]
-        {
-            u32 id = 0;
-            if (const auto* board = context.GetBlackboard())
-                id = context.ResolveTexture(board->SceneDepth);
-            if (id == 0)
-                id = m_GBuffer->GetDepthAttachmentID();
-            return id;
-        }();
+        };
+
+        const u32 albedoID = resolveSelectedTexture(m_SelectedInputs.GBufferAlbedo,
+                                                    useMSAAShading ? m_GBuffer->GetMSColorAttachmentID(GBuffer::Albedo)
+                                                                   : m_GBuffer->GetColorAttachmentID(GBuffer::Albedo));
+        const u32 normalID = resolveSelectedTexture(m_SelectedInputs.GBufferNormal,
+                                                    useMSAAShading ? m_GBuffer->GetMSColorAttachmentID(GBuffer::Normal)
+                                                                   : m_GBuffer->GetColorAttachmentID(GBuffer::Normal));
+        const u32 emissiveID = resolveSelectedTexture(m_SelectedInputs.GBufferEmissive,
+                                                      useMSAAShading ? m_GBuffer->GetMSColorAttachmentID(GBuffer::Emissive)
+                                                                     : m_GBuffer->GetColorAttachmentID(GBuffer::Emissive));
+        const u32 velocityID = resolveSelectedTexture(m_SelectedInputs.Velocity,
+                                                      useMSAAShading ? m_GBuffer->GetMSColorAttachmentID(GBuffer::Velocity)
+                                                                     : m_GBuffer->GetColorAttachmentID(GBuffer::Velocity));
+        const u32 depthID = resolveSelectedTexture(m_SelectedInputs.SceneDepth,
+                                                   useMSAAShading ? m_GBuffer->GetMSDepthAttachmentID()
+                                                                  : m_GBuffer->GetDepthAttachmentID());
         if (albedoID == 0 || normalID == 0 || emissiveID == 0 || depthID == 0)
         {
             OLO_CORE_ERROR("DeferredLightingPass: required G-Buffer attachment missing (albedo={}, normal={}, emissive={}, depth={}) - aborting lighting",
@@ -273,26 +290,52 @@ namespace OloEngine
         context.BindTexture(ShaderBindingLayout::TEX_GBUFFER_VELOCITY, velocityID);
         context.BindTexture(ShaderBindingLayout::TEX_GBUFFER_DEPTH, depthID);
 
-        // IBL (safe to rebind regardless — shader branches on DeferredControls).
+        // IBL — resolve through the graph from the setup-stored handles.
+        // The graph imports these textures (see RenderPipeline::PopulateBlackboard),
+        // so the resolved ID is identical to Renderer3D::GetGlobal*MapID() but the
+        // bind now goes through the graph's resolve path for consistency with the
+        // rest of the pass and future barrier / transition / debug-capture
+        // infrastructure. The shader branches on DeferredControls.iblAvailable.
         if (iblAvailable)
         {
-            context.BindTexture(ShaderBindingLayout::TEX_USER_0,
-                                Renderer3D::GetGlobalIrradianceMapID());
-            context.BindTexture(ShaderBindingLayout::TEX_USER_1,
-                                Renderer3D::GetGlobalPrefilterMapID());
-            context.BindTexture(ShaderBindingLayout::TEX_USER_2,
-                                Renderer3D::GetGlobalBRDFLutMapID());
+            const u32 irradianceID = m_SelectedInputs.IrradianceMap.IsValid()
+                                         ? context.ResolveTexture(m_SelectedInputs.IrradianceMap)
+                                         : 0u;
+            const u32 prefilterID = m_SelectedInputs.PrefilterMap.IsValid()
+                                        ? context.ResolveTexture(m_SelectedInputs.PrefilterMap)
+                                        : 0u;
+            const u32 brdfLutID = m_SelectedInputs.BrdfLut.IsValid()
+                                      ? context.ResolveTexture(m_SelectedInputs.BrdfLut)
+                                      : 0u;
+            context.BindTexture(ShaderBindingLayout::TEX_USER_0, irradianceID);
+            context.BindTexture(ShaderBindingLayout::TEX_USER_1, prefilterID);
+            context.BindTexture(ShaderBindingLayout::TEX_USER_2, brdfLutID);
         }
 
-        // Shadow maps — reuse the same slots the Forward shader expects so
-        // shadow UBO binding 6 carries compatible matrices.
-        auto& shadow = Renderer3D::GetShadowMap();
-        context.BindTexture(ShaderBindingLayout::TEX_SHADOW, shadow.GetCSMRendererID());
-        context.BindTexture(ShaderBindingLayout::TEX_SHADOW_SPOT, shadow.GetSpotRendererID());
-        context.BindTexture(ShaderBindingLayout::TEX_SHADOW_POINT_0, shadow.GetPointRendererID(0));
-        context.BindTexture(ShaderBindingLayout::TEX_SHADOW_POINT_1, shadow.GetPointRendererID(1));
-        context.BindTexture(ShaderBindingLayout::TEX_SHADOW_POINT_2, shadow.GetPointRendererID(2));
-        context.BindTexture(ShaderBindingLayout::TEX_SHADOW_POINT_3, shadow.GetPointRendererID(3));
+        // Shadow maps — resolve through the graph from setup-stored handles.
+        // The Forward shader expects these in the same slots so binding 6 (shadow
+        // matrices UBO) carries compatible data either path.
+        const u32 csmShadowID = m_SelectedInputs.ShadowMapCSM.IsValid()
+                                    ? context.ResolveTexture(m_SelectedInputs.ShadowMapCSM)
+                                    : 0u;
+        const u32 spotShadowID = m_SelectedInputs.ShadowMapSpot.IsValid()
+                                     ? context.ResolveTexture(m_SelectedInputs.ShadowMapSpot)
+                                     : 0u;
+        context.BindTexture(ShaderBindingLayout::TEX_SHADOW, csmShadowID);
+        context.BindTexture(ShaderBindingLayout::TEX_SHADOW_SPOT, spotShadowID);
+        static constexpr std::array<u32, 4u> pointShadowSlots = {
+            ShaderBindingLayout::TEX_SHADOW_POINT_0,
+            ShaderBindingLayout::TEX_SHADOW_POINT_1,
+            ShaderBindingLayout::TEX_SHADOW_POINT_2,
+            ShaderBindingLayout::TEX_SHADOW_POINT_3,
+        };
+        for (u32 i = 0u; i < pointShadowSlots.size(); ++i)
+        {
+            const u32 pointID = m_SelectedInputs.ShadowMapPoint[i].IsValid()
+                                    ? context.ResolveTexture(m_SelectedInputs.ShadowMapPoint[i])
+                                    : 0u;
+            context.BindTexture(pointShadowSlots[i], pointID);
+        }
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
@@ -355,5 +398,7 @@ namespace OloEngine
 
     void DeferredLightingPass::OnReset()
     {
+        m_SelectedInputs = {};
+        m_UseMSAAShading = false;
     }
 } // namespace OloEngine

@@ -33,9 +33,9 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
+#include "TestDeclarativeNode.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 
 #include <algorithm>
@@ -47,7 +47,7 @@ using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 
 namespace
 {
-    class DeclarativeStubPass : public RenderPass
+    class DeclarativeStubPass : public TestDeclarativeNode
     {
       public:
         explicit DeclarativeStubPass(const std::string& name)
@@ -56,7 +56,8 @@ namespace
         }
 
         void Init(const FramebufferSpecification& /*spec*/) override {}
-        void Execute() override {}
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
+        void Execute(RGCommandContext& /*context*/) override {}
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override
         {
             return nullptr;
@@ -67,93 +68,23 @@ namespace
 
         void TestDeclareRead(std::string_view name)
         {
-            DeclareRead(name);
+            DeclareTestRead(name);
         }
         void TestDeclareWrite(std::string_view name)
         {
-            DeclareWrite(name);
+            DeclareTestWrite(name);
         }
     };
 
-    ResourceHandle::Kind NormalizeDeclarationKind(const ResourceHandle::Kind kind)
+    void DeclarativeStubPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
     {
-        return kind == ResourceHandle::Kind::Unknown ? ResourceHandle::Kind::Texture2D : kind;
-    }
-
-    void MirrorPassRead(RGBuilder& builder, const ResourceHandle& resource)
-    {
-        const auto kind = NormalizeDeclarationKind(resource.Type);
-        const auto desc = RGResourceDesc::FromHandleKind(kind, resource.Name);
-
-        switch (kind)
-        {
-            case ResourceHandle::Kind::Framebuffer:
-            {
-                auto handle = builder.ImportFramebuffer(resource.Name, nullptr, desc);
-                [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::RenderTargetRead);
-                break;
-            }
-            case ResourceHandle::Kind::UniformBuffer:
-            case ResourceHandle::Kind::StorageBuffer:
-            {
-                auto handle = builder.ImportBuffer(resource.Name, 0, desc);
-                [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::ShaderStorage);
-                break;
-            }
-            default:
-            {
-                auto handle = builder.ImportTexture(resource.Name, 0, desc);
-                [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::ShaderSample);
-                break;
-            }
-        }
-    }
-
-    void MirrorPassWrite(RGBuilder& builder, const ResourceHandle& resource)
-    {
-        const auto kind = NormalizeDeclarationKind(resource.Type);
-        const auto desc = RGResourceDesc::FromHandleKind(kind, resource.Name);
-
-        switch (kind)
-        {
-            case ResourceHandle::Kind::Framebuffer:
-            {
-                auto handle = builder.ImportFramebuffer(resource.Name, nullptr, desc);
-                builder.Write(handle, RGWriteUsage::RenderTarget);
-                break;
-            }
-            case ResourceHandle::Kind::UniformBuffer:
-            case ResourceHandle::Kind::StorageBuffer:
-            {
-                auto handle = builder.ImportBuffer(resource.Name, 0, desc);
-                builder.Write(handle, RGWriteUsage::ShaderStorage);
-                break;
-            }
-            default:
-            {
-                auto handle = builder.ImportTexture(resource.Name, 0, desc);
-                builder.Write(handle, RGWriteUsage::RenderTarget);
-                break;
-            }
-        }
-    }
-
-    void MirrorPassDeclarations(RGBuilder& builder, const RenderPass& pass)
-    {
-        for (const auto& read : pass.GetReads())
-            MirrorPassRead(builder, read);
-
-        for (const auto& write : pass.GetWrites())
-            MirrorPassWrite(builder, write);
+        // TestDeclarativeNode::Setup flushes the recorded reads/writes
+        // through the setup-time path (import + builder.Read/Write).
+        TestDeclarativeNode::Setup(builder, blackboard);
     }
 
     void RegisterDeclarativeStubNode(RenderGraph& graph, Ref<DeclarativeStubPass> pass)
     {
-        pass->SetSetupCallback(
-            [pass](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
-            {
-                MirrorPassDeclarations(builder, *pass);
-            });
         graph.AddNode(pass.As<RenderGraphNode>());
     }
 

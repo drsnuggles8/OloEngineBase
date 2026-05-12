@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Frustum.h"
@@ -16,6 +17,63 @@ namespace OloEngine
         SetName("ShadowRenderPass");
     }
 
+    void ShadowRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+
+        if (blackboard.ShadowMapCSM.IsValid())
+        {
+            for (u32 cascade = 0; cascade < ShadowMap::MAX_CSM_CASCADES; ++cascade)
+            {
+                if (const auto cascadeView = blackboard.ShadowMapCSMCascades[cascade]; cascadeView.IsValid())
+                {
+                    builder.Write(cascadeView, RGWriteUsage::DepthStencil);
+                }
+                else
+                {
+                    builder.Write(blackboard.ShadowMapCSM, RGWriteUsage::DepthStencil, RGSubresourceRange::Layer(cascade));
+                }
+            }
+        }
+
+        if (blackboard.ShadowMapSpot.IsValid())
+        {
+            for (u32 light = 0; light < ShadowMap::MAX_SPOT_SHADOWS; ++light)
+            {
+                if (const auto spotLayerView = blackboard.ShadowMapSpotLayers[light]; spotLayerView.IsValid())
+                {
+                    builder.Write(spotLayerView, RGWriteUsage::DepthStencil);
+                }
+                else
+                {
+                    builder.Write(blackboard.ShadowMapSpot, RGWriteUsage::DepthStencil, RGSubresourceRange::Layer(light));
+                }
+            }
+        }
+
+        for (u32 light = 0; light < ShadowMap::MAX_POINT_SHADOWS; ++light)
+        {
+            const auto& pointHandle = blackboard.ShadowMapPoint[light];
+            if (!pointHandle.IsValid())
+                continue;
+
+            for (u32 face = 0; face < FrameBlackboard::MaxShadowMapCubeFaces; ++face)
+            {
+                if (const auto faceView = blackboard.ShadowMapPointFaces[light][face]; faceView.IsValid())
+                {
+                    builder.Write(faceView, RGWriteUsage::DepthStencil);
+                }
+                else
+                {
+                    RGSubresourceRange faceRange{};
+                    faceRange.BaseSlice = face;
+                    faceRange.SliceCount = 1u;
+                    builder.Write(pointHandle, RGWriteUsage::DepthStencil, faceRange);
+                }
+            }
+        }
+    }
+
     ShadowRenderPass::~ShadowRenderPass() = default;
 
     void ShadowRenderPass::Init(const FramebufferSpecification& spec)
@@ -31,23 +89,6 @@ namespace OloEngine
         shadowSpec.Height = spec.Height;
         shadowSpec.Attachments = { FramebufferTextureFormat::ShadowDepth };
         m_ShadowFramebuffer = Framebuffer::Create(shadowSpec);
-
-        // Resource-aware RDG: this pass produces the CSM shadow map that
-        // Scene / PostProcess (fog) / Terrain passes sample downstream.
-        DeclareWrite(ResourceNames::ShadowMapCSM, ResourceHandle::Kind::Texture2DArray);
-        // Spot-light shadow atlas (one layer per spot light).
-        DeclareWrite(ResourceNames::ShadowMapSpot, ResourceHandle::Kind::Texture2DArray);
-        // Per-light point shadow cubemaps (up to MAX_POINT_SHADOWS, bindings 14-17).
-        for (u32 i = 0; i < ShadowMap::MAX_POINT_SHADOWS; ++i)
-        {
-            DeclareWrite(ResourceNames::ShadowMapPoint[i], ResourceHandle::Kind::TextureCube);
-        }
-    }
-
-    void ShadowRenderPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
     }
 
     void ShadowRenderPass::Execute(RGCommandContext& context)

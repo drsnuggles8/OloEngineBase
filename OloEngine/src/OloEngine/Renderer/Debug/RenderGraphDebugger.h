@@ -1,8 +1,8 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
 #include "OloEngine/Renderer/RenderGraph.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/Debug/RenderGraphFrameCapture.h"
 
 #include <imgui.h>
@@ -37,9 +37,9 @@ namespace OloEngine
 
       private:
         // Helper methods for visualization
-        void DrawNode(const Ref<RenderPass>& pass, ImDrawList* drawList, const ImVec2& offset, f32& maxWidth);
+        void DrawNode(const Ref<RenderGraphNode>& node, ImDrawList* drawList, const ImVec2& offset, f32& maxWidth);
         void DrawConnections(const Ref<RenderGraph>& graph, ImDrawList* drawList, const ImVec2& offset);
-        void DrawTooltip(const Ref<RenderPass>& pass) const;
+        void DrawTooltip(const Ref<RenderGraphNode>& node) const;
 
         // Cache for node positions and sizes
         struct NodeData

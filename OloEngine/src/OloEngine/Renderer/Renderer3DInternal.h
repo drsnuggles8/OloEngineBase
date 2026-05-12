@@ -30,56 +30,11 @@
 #include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
 #include "OloEngine/Renderer/Passes/VignetteRenderPass.h"
 #include "OloEngine/Renderer/Passes/WaterRenderPass.h"
+#include "OloEngine/Renderer/Texture.h"
 
 namespace OloEngine
 {
     struct RenderPipelineInputs;
-
-    struct Renderer3D::RenderStreamNodes
-    {
-        Ref<CommandBufferRenderPass> Geometry;
-        Ref<CommandBufferRenderPass> ForwardOverlay;
-        Ref<CommandBufferRenderPass> Foliage;
-        Ref<CommandBufferRenderPass> Water;
-        Ref<CommandBufferRenderPass> Decal;
-
-        [[nodiscard]] auto Get(RenderStreamType stream) -> CommandBufferRenderPass*
-        {
-            switch (stream)
-            {
-                case RenderStreamType::Geometry:
-                    return Geometry.Raw();
-                case RenderStreamType::ForwardOverlay:
-                    return ForwardOverlay.Raw();
-                case RenderStreamType::Foliage:
-                    return Foliage.Raw();
-                case RenderStreamType::Water:
-                    return Water.Raw();
-                case RenderStreamType::Decal:
-                    return Decal.Raw();
-            }
-
-            return nullptr;
-        }
-
-        void ForEach(auto&& func)
-        {
-            func(Geometry.Raw());
-            func(ForwardOverlay.Raw());
-            func(Foliage.Raw());
-            func(Water.Raw());
-            func(Decal.Raw());
-        }
-
-        void Reset()
-        {
-            Geometry.Reset();
-            ForwardOverlay.Reset();
-            Foliage.Reset();
-            Water.Reset();
-            Decal.Reset();
-        }
-    };
 
     struct Renderer3D::PostProcessPassChain
     {
@@ -173,11 +128,43 @@ namespace OloEngine
 
     struct Renderer3D::RenderPipeline
     {
-        RenderStreamNodes StreamNodes;
         FrameCorePassSet FrameCorePasses;
         SceneCompositionPassSet SceneCompositePasses;
         RenderStreamPassSet RenderStreamPasses;
         PostProcessPassChain PostProcessPasses;
+        Ref<Texture2D> TAAHistoryTexture;
+        Ref<Texture2D> FogHistoryTexture;
+        bool TAAHistoryValid = false;
+        bool FogHistoryValid = false;
+
+        [[nodiscard]] auto GetRenderStreamNode(const RenderStreamType stream) -> CommandBufferRenderPass*
+        {
+            switch (stream)
+            {
+                case RenderStreamType::Geometry:
+                    return FrameCorePasses.Scene.Raw();
+                case RenderStreamType::ForwardOverlay:
+                    return RenderStreamPasses.ForwardOverlay.Raw();
+                case RenderStreamType::Foliage:
+                    return RenderStreamPasses.Foliage.Raw();
+                case RenderStreamType::Water:
+                    return RenderStreamPasses.Water.Raw();
+                case RenderStreamType::Decal:
+                    return RenderStreamPasses.Decal.Raw();
+            }
+
+            return nullptr;
+        }
+
+        template<typename TFunc>
+        void ForEachRenderStreamNode(TFunc&& func)
+        {
+            func(GetRenderStreamNode(RenderStreamType::Geometry));
+            func(GetRenderStreamNode(RenderStreamType::ForwardOverlay));
+            func(GetRenderStreamNode(RenderStreamType::Foliage));
+            func(GetRenderStreamNode(RenderStreamType::Water));
+            func(GetRenderStreamNode(RenderStreamType::Decal));
+        }
 
         void Setup(Renderer3DData& data,
                    ShaderLibrary& shaderLibrary,
@@ -188,16 +175,18 @@ namespace OloEngine
         void ConfigurePassesForFrame(Renderer3DData& data);
         void UploadExecutionState(Renderer3DData& data);
         void PopulateBlackboard(Renderer3DData& data);
-        void RefreshBlackboardHandles(Renderer3DData& data);
         [[nodiscard]] auto BuildInputs(Renderer3DData& data) -> RenderPipelineInputs;
 
         void Reset()
         {
-            StreamNodes.Reset();
             FrameCorePasses.Reset();
             SceneCompositePasses.Reset();
             RenderStreamPasses.Reset();
             PostProcessPasses.Reset();
+            TAAHistoryTexture.Reset();
+            FogHistoryTexture.Reset();
+            TAAHistoryValid = false;
+            FogHistoryValid = false;
         }
 
       private:
@@ -207,7 +196,6 @@ namespace OloEngine
                                const FramebufferSpecification& shadowPassSpec,
                                const FramebufferSpecification& scenePassSpec,
                                const FramebufferSpecification& finalPassSpec);
-        void CreateRenderStreamNodes(Renderer3DData& data);
         void CreatePostProcessPasses(const FramebufferSpecification& finalPassSpec);
     };
 

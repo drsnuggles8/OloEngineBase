@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/GBuffer.h"
 #include "OloEngine/Renderer/GPUResourceQueue.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionState.h"
@@ -30,6 +31,8 @@ namespace OloEngine
 {
     namespace
     {
+        constexpr ImageFormat kTemporalHistoryFormat = ImageFormat::RGBA16F;
+
         bool IsTruthyEnvironmentVariable(const char* name)
         {
             const char* value = std::getenv(name);
@@ -60,6 +63,51 @@ namespace OloEngine
             }
             return r;
         }
+
+        void ResetHistoryStorage(Ref<Texture2D>& historyTexture, bool& historyValid)
+        {
+            historyTexture.Reset();
+            historyValid = false;
+        }
+
+        void EnsureHistoryStorage(Ref<Texture2D>& historyTexture,
+                                  bool& historyValid,
+                                  const u32 width,
+                                  const u32 height)
+        {
+            if (width == 0 || height == 0)
+            {
+                ResetHistoryStorage(historyTexture, historyValid);
+                return;
+            }
+
+            TextureSpecification historySpec;
+            historySpec.Width = width;
+            historySpec.Height = height;
+            historySpec.Format = kTemporalHistoryFormat;
+            historySpec.GenerateMips = false;
+            historySpec.MipLevels = 1u;
+
+            if (!historyTexture)
+            {
+                historyTexture = Texture2D::Create(historySpec);
+                historyValid = false;
+                return;
+            }
+
+            if (const auto& currentSpec = historyTexture->GetSpecification(); currentSpec.Format != kTemporalHistoryFormat)
+            {
+                historyTexture = Texture2D::Create(historySpec);
+                historyValid = false;
+                return;
+            }
+
+            if (historyTexture->GetWidth() != width || historyTexture->GetHeight() != height)
+            {
+                historyTexture->Resize(width, height);
+                historyValid = false;
+            }
+        }
     } // namespace
 
     void Renderer3D::RenderPipeline::Setup(Renderer3DData& data,
@@ -75,7 +123,6 @@ namespace OloEngine
 
         Reset();
         CreateFramePasses(data, shaderLibrary, shadowPassSpec, scenePassSpec, finalPassSpec);
-        CreateRenderStreamNodes(data);
         CreatePostProcessPasses(finalPassSpec);
     }
 
@@ -128,7 +175,7 @@ namespace OloEngine
             if (node)
                 node->SetCommandAllocator(frameAllocator);
         };
-        StreamNodes.ForEach(setRenderStreamAllocator);
+        ForEachRenderStreamNode(setRenderStreamAllocator);
 
         // TAA projection jitter. We bake a sub-pixel Halton offset into the
         // projection matrix so the same pixel samples a slightly different
@@ -283,7 +330,7 @@ namespace OloEngine
             if (node)
                 node->ResetCommandBucket();
         };
-        StreamNodes.ForEach(resetRenderStreamBucket);
+        ForEachRenderStreamNode(resetRenderStreamBucket);
 
         CommandDispatch::ResetState();
 
@@ -333,21 +380,16 @@ namespace OloEngine
 
     void Renderer3D::RenderPipeline::ConfigurePassesForFrame(Renderer3DData& data)
     {
-        // OITResolvePass and SSSPass are self-resolving:
-        // their Execute(RGCommandContext&) calls context.GetBlackboard() to look
-        // up SceneColor directly, eliminating the per-frame side-channel.
-        // (A previous typed-handle side-channel block was removed;
-        // removed since those two passes resolve via the blackboard.)
-
-        // ForwardOverlayPass, FoliagePass, WaterPass,
-        // DecalPass and ParticlePass now self-resolve SceneColor (and
-        // SceneDepth for Decal) directly from the render-graph blackboard
-        // inside their Execute() implementations. No per-frame side-channel
-        // setter calls are needed here.
+        // The production pass layer no longer needs per-frame blackboard
+        // handle setter plumbing for canonical scene/post resources.
+        // Setup() selects and stores the relevant graph handles on each pass,
+        // so Execute() resolves that setup-owned state directly instead of
+        // repeating blackboard lookup ladders here.
         {
-            // DeferredLightingPass now self-resolves all
-            // G-Buffer and scene depth handles from the render-graph
-            // blackboard. No SetXxx calls needed.
+            // DeferredLightingPass follows the same pattern: setup selects the
+            // canonical G-buffer/depth/velocity family and scene target, while
+            // this frame hook only pushes dynamic settings like debug channel
+            // and per-sample lighting.
         }
 
         if (FrameCorePasses.Scene && data.Settings.Path == RenderingPath::Deferred)
@@ -363,8 +405,8 @@ namespace OloEngine
         if (SceneCompositePasses.SSAO)
         {
             SceneCompositePasses.SSAO->SetSettings(data.PostProcess);
-            // SSAOPass now self-resolves SceneDepth and
-            // SceneNormals from the blackboard; no per-frame handle setters needed.
+            // SSAOPass resolves its setup-selected depth/normal handles at
+            // execution time; only technique settings and UBO contents vary here.
 
             // Upload projection matrices for SSAO position reconstruction
             data.PostProcessGPU.SSAOData.Projection = data.ProjectionMatrix;
@@ -376,8 +418,8 @@ namespace OloEngine
             SceneCompositePasses.GTAO->SetSettings(data.PostProcess);
             SceneCompositePasses.GTAO->SetProjectionMatrix(data.ProjectionMatrix);
             SceneCompositePasses.GTAO->SetViewMatrix(data.ViewMatrix);
-            // GTAOPass now self-resolves SceneDepth and
-            // SceneNormals from the blackboard; no per-frame handle setters needed.
+            // GTAOPass likewise keeps its canonical graph handles in setup-owned
+            // state; this hook only updates dynamic technique parameters.
 
             // When GTAO is active, override the SSAO UBO debug/intensity fields
             // so the PostProcess_SSAOApply shader reads correct values for GTAO,
@@ -402,8 +444,8 @@ namespace OloEngine
             const bool gtaoEnabled = data.PostProcess.ActiveAOTechnique == AOTechnique::GTAO && data.PostProcess.GTAOEnabled;
             const bool aoApplyEnabled = (ssaoEnabled || gtaoEnabled) && PostProcessPasses.AOApply->IsReadyForExecution();
             PostProcessPasses.AOApply->SetEnabled(aoApplyEnabled);
-            // SetAOTextureID was removed; AOApplyPass::Execute()
-            // self-resolves AO texture via the render-graph blackboard.
+            // AO texture selection is setup-owned too; the per-frame hook only
+            // updates the enable state and bound UBOs.
             PostProcessPasses.AOApply->SetPostProcessUBO(data.PostProcessGPU.PostProcess);
             PostProcessPasses.AOApply->SetSSAOUBO(data.PostProcessGPU.SSAO);
         }
@@ -478,8 +520,8 @@ namespace OloEngine
         {
             PostProcessPasses.SelectionOutline->SetSelectedEntityIDs(data.SelectionOutlineEntityIDs);
             const bool selectionOutlineEnabled = data.EnableSelectionOutline &&
-                                                !data.SelectionOutlineEntityIDs.empty() &&
-                                                PostProcessPasses.SelectionOutline->IsReadyForExecution();
+                                                 !data.SelectionOutlineEntityIDs.empty() &&
+                                                 PostProcessPasses.SelectionOutline->IsReadyForExecution();
             PostProcessPasses.SelectionOutline->SetEnabled(selectionOutlineEnabled);
         }
 
@@ -516,14 +558,23 @@ namespace OloEngine
         // every frame so UI changes take effect immediately.
         {
             const bool oitEnabled = (data.Settings.Path == RenderingPath::Deferred) && data.Settings.Deferred.OITEnabled;
+            const bool hasOITContributors =
+                (SceneCompositePasses.Particle && SceneCompositePasses.Particle->HasRenderCallback()) ||
+                (RenderStreamPasses.Decal && RenderStreamPasses.Decal->GetCommandBucket().GetCommandCount() > 0);
             if (SceneCompositePasses.Particle)
                 SceneCompositePasses.Particle->SetOITEnabled(oitEnabled);
             if (RenderStreamPasses.Decal)
                 RenderStreamPasses.Decal->SetOITEnabled(oitEnabled);
             if (SceneCompositePasses.OITPrepare)
+            {
                 SceneCompositePasses.OITPrepare->SetEnabled(oitEnabled);
+                SceneCompositePasses.OITPrepare->SetHasContributors(hasOITContributors);
+            }
             if (SceneCompositePasses.OITResolve)
+            {
                 SceneCompositePasses.OITResolve->SetEnabled(oitEnabled);
+                SceneCompositePasses.OITResolve->SetHasContributors(hasOITContributors);
+            }
         }
     }
 
@@ -770,40 +821,28 @@ namespace OloEngine
         // ------------------------------------------------------------------
         // Scene outputs
         // ------------------------------------------------------------------
-        if (pipeline.FrameCorePasses.Scene && pipeline.FrameCorePasses.Scene->GetTarget())
+        if (pipeline.FrameCorePasses.Scene)
         {
-            board.SceneColor = graph.ImportFramebuffer(
-                ResourceNames::SceneColor, pipeline.FrameCorePasses.Scene->GetTarget());
-
-            // Sanity-check: importing must immediately resolve to the same
-            // framebuffer. If not, the RenderGraph handle layer is broken.
-            // Logged ONCE per change so we notice regressions without
-            // spamming the log every frame.
+            const auto& sceneSpec = pipeline.FrameCorePasses.Scene->GetFramebufferSpecification();
+            if (sceneSpec.Width > 0u && sceneSpec.Height > 0u)
             {
-                static u32 s_PrevFbGL = 0;
-                static u32 s_PrevTex0 = 0;
-                const auto importedFB = pipeline.FrameCorePasses.Scene->GetTarget();
-                const auto resolveNow = graph.ResolveFramebuffer(board.SceneColor);
-                const u32 importedFbGL = importedFB->GetRendererID();
-                const u32 importedTex0 = importedFB->GetColorAttachmentRendererID(0);
-                const u32 resolveFbGL = resolveNow ? resolveNow->GetRendererID() : 0u;
-                const u32 resolveTex0 = resolveNow ? resolveNow->GetColorAttachmentRendererID(0) : 0u;
-                if (importedFbGL != resolveFbGL || importedTex0 != resolveTex0)
-                {
-                    OLO_CORE_ERROR("Renderer3D: SceneColor IMPORT/RESOLVE MISMATCH: handle=(idx={}, gen={}) importedFbGL={} importedTex0={} resolveFbGL={} resolveTex0={}",
-                                   board.SceneColor.Index, board.SceneColor.Generation,
-                                   importedFbGL, importedTex0, resolveFbGL, resolveTex0);
-                }
-                else if (importedFbGL != s_PrevFbGL || importedTex0 != s_PrevTex0)
-                {
-                    if (IsRenderGraphDiagnosticsEnabled())
-                    {
-                        OLO_CORE_TRACE("Renderer3D: SceneColor IMPORT OK: handle=(idx={}, gen={}) fbGL={} tex0={}",
-                                       board.SceneColor.Index, board.SceneColor.Generation, importedFbGL, importedTex0);
-                    }
-                    s_PrevFbGL = importedFbGL;
-                    s_PrevTex0 = importedTex0;
-                }
+                RGResourceDesc sceneDesc;
+                sceneDesc.Kind = ResourceHandle::Kind::Framebuffer;
+                sceneDesc.Width = sceneSpec.Width;
+                sceneDesc.Height = sceneSpec.Height;
+                sceneDesc.Attachments = {
+                    RGResourceFormat::RGBA16Float,
+                    RGResourceFormat::R32Int,
+                    RGResourceFormat::RG16Float,
+                    RGResourceFormat::RG16Float,
+                    RGResourceFormat::Depth24Stencil8,
+                };
+                sceneDesc.DebugName = std::string(ResourceNames::SceneColor);
+                board.SceneColor = graph.DeclareTransientFramebuffer(ResourceNames::SceneColor, sceneDesc);
+                board.SceneColorTexture = graph.CreateFramebufferAttachmentView(ResourceNames::SceneColorTexture, board.SceneColor, 0u);
+                board.SceneEntityID = graph.CreateFramebufferAttachmentView(ResourceNames::SceneEntityID, board.SceneColor, 1u);
+                board.SceneViewNormals = graph.CreateFramebufferAttachmentView(ResourceNames::SceneViewNormals, board.SceneColor, 2u);
+                board.SceneDepthAttachment = graph.CreateFramebufferDepthAttachmentView(ResourceNames::SceneDepthAttachment, board.SceneColor);
             }
 
             // AO/Deferred consumers need true geometric depth + view-space
@@ -815,21 +854,24 @@ namespace OloEngine
             OLO_CORE_ASSERT(!deferredActive || gbuffer,
                             "Renderer3D: Deferred path requires a prepared GBuffer before blackboard population");
 
-            const u32 depthID = deferredActive
-                                    ? gbuffer->GetDepthAttachmentID()
-                                    : pipeline.FrameCorePasses.Scene->GetTarget()->GetDepthAttachmentRendererID();
-            board.SceneDepth = graph.ImportTexture(
-                ResourceNames::SceneDepth,
-                depthID,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, ResourceNames::SceneDepth));
+            if (sceneSpec.Width > 0u && sceneSpec.Height > 0u && !deferredActive)
+            {
+                RGResourceDesc depthDesc;
+                depthDesc.Kind = ResourceHandle::Kind::Texture2D;
+                depthDesc.Format = RGResourceFormat::Depth24Stencil8;
+                depthDesc.Width = sceneSpec.Width;
+                depthDesc.Height = sceneSpec.Height;
+                depthDesc.DebugName = std::string(ResourceNames::SceneDepth);
+                board.SceneDepth = graph.AllocateTransientTextureHandle(ResourceNames::SceneDepth, depthDesc);
 
-            const u32 sceneNormalsID = deferredActive
-                                           ? gbuffer->GetColorAttachmentID(GBuffer::Normal)
-                                           : pipeline.FrameCorePasses.Scene->GetTarget()->GetColorAttachmentRendererID(2);
-            board.SceneNormals = graph.ImportTexture(
-                ResourceNames::SceneNormals,
-                sceneNormalsID,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, ResourceNames::SceneNormals));
+                RGResourceDesc normalsDesc;
+                normalsDesc.Kind = ResourceHandle::Kind::Texture2D;
+                normalsDesc.Format = RGResourceFormat::RG16Float;
+                normalsDesc.Width = sceneSpec.Width;
+                normalsDesc.Height = sceneSpec.Height;
+                normalsDesc.DebugName = std::string(ResourceNames::SceneNormals);
+                board.SceneNormals = graph.AllocateTransientTextureHandle(ResourceNames::SceneNormals, normalsDesc);
+            }
         }
 
         // ------------------------------------------------------------------
@@ -837,7 +879,7 @@ namespace OloEngine
         // ------------------------------------------------------------------
         const bool deferredActive = (data.Settings.Path == RenderingPath::Deferred);
         if (deferredActive && pipeline.FrameCorePasses.Scene)
-            {
+        {
             const auto& gbuffer = pipeline.FrameCorePasses.Scene->GetGBuffer();
             OLO_CORE_ASSERT(gbuffer,
                             "Renderer3D: Deferred path requires a prepared GBuffer before GBuffer import");
@@ -850,69 +892,117 @@ namespace OloEngine
             //   RT0 Albedo   — albedo.rgb + metallic.a
             //   RT1 Normal   — octahedral normal + roughness + AO
             //   RT2 Emissive — emissive HDR
-            //   RT3 Velocity — exposed via the dedicated `Velocity` import
-            //                  block below; not duplicated here.
-            auto importGBuf = [&](std::string_view name, GBuffer::AttachmentIndex slot) -> RGTextureHandle
+            //   RT3 Velocity — screen-space motion vectors
+            auto buildGBufferFramebufferDesc = [&](const u32 sampleCount, std::string_view debugName) -> RGResourceDesc
             {
-                const u32 id = gbuffer->GetColorAttachmentID(slot);
-                return graph.ImportTexture(name, id,
-                                           RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, name));
+                RGResourceDesc desc;
+                desc.Kind = ResourceHandle::Kind::Framebuffer;
+                desc.Width = gbuffer->GetWidth();
+                desc.Height = gbuffer->GetHeight();
+                desc.Samples = sampleCount;
+                desc.Attachments = {
+                    RGResourceFormat::RGBA8UNorm,
+                    RGResourceFormat::RGBA16Float,
+                    RGResourceFormat::RGBA16Float,
+                    RGResourceFormat::RG16Float,
+                    RGResourceFormat::Depth24Stencil8,
+                };
+                desc.DebugName = std::string(debugName);
+                return desc;
             };
 
-            board.GBufferAlbedo = importGBuf(ResourceNames::GBufferAlbedo, GBuffer::Albedo);
-            board.GBufferNormal = importGBuf(ResourceNames::GBufferNormal, GBuffer::Normal);
-            board.GBufferEmissive = importGBuf(ResourceNames::GBufferEmissive, GBuffer::Emissive);
+            const auto resolvedGBuffer = graph.DeclareTransientFramebuffer(
+                ResourceNames::GBufferResolved,
+                buildGBufferFramebufferDesc(1u, ResourceNames::GBufferResolved),
+                gbuffer->GetSamplingFramebuffer());
 
-            // Multisample companion handles. Imported
-            // only when MSAA is active so the typed-handle path can drive
-            // per-sample shading without going through the raw GBuffer
-            // accessor. SceneDepthMS is also exposed here (rather than
-            // alongside SceneDepth) because the multisample depth lives on
-            // the G-Buffer, not on the lit scene framebuffer.
+            // Multisample companion handles. Declared only when MSAA is active
+            // so the typed-handle path can drive per-sample shading without
+            // going through the raw GBuffer accessor. DeferredOpaqueDecalPass
+            // publishes these post-decal to preserve the same semantics as the
+            // single-sample deferred exports. SceneDepthMS is also exposed here
+            // (rather than alongside SceneDepth) because the multisample depth
+            // lives on the G-Buffer, not on the lit scene framebuffer.
             if (gbuffer->GetSampleCount() > 1u)
             {
-                auto importGBufMS = [&](std::string_view name, GBuffer::AttachmentIndex slot) -> RGTextureHandle
+                const auto buildResolvedBackingName = [](std::string_view resourceName)
                 {
-                    const u32 id = gbuffer->GetMSColorAttachmentID(slot);
-                    return graph.ImportTexture(name, id,
-                                               RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, name));
+                    return std::string(resourceName) + "__ResolvedBacking";
                 };
 
-                board.GBufferAlbedoMS = importGBufMS(ResourceNames::GBufferAlbedoMS, GBuffer::Albedo);
-                board.GBufferNormalMS = importGBufMS(ResourceNames::GBufferNormalMS, GBuffer::Normal);
-                board.GBufferEmissiveMS = importGBufMS(ResourceNames::GBufferEmissiveMS, GBuffer::Emissive);
-                board.VelocityMS = importGBufMS(ResourceNames::VelocityMS, GBuffer::Velocity);
+                const auto multisampleGBuffer = graph.DeclareTransientFramebuffer(
+                    ResourceNames::GBufferMS,
+                    buildGBufferFramebufferDesc(gbuffer->GetSampleCount(), ResourceNames::GBufferMS),
+                    gbuffer->GetFramebuffer());
 
-                if (const u32 depthMSID = gbuffer->GetMSDepthAttachmentID(); depthMSID != 0)
-                {
-                    board.SceneDepthMS = graph.ImportTexture(
-                        ResourceNames::SceneDepthMS, depthMSID,
-                        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, ResourceNames::SceneDepthMS));
-                }
+                board.GBufferAlbedoMS = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferAlbedoMS, multisampleGBuffer, 0u);
+                board.GBufferNormalMS = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferNormalMS, multisampleGBuffer, 1u);
+                board.GBufferEmissiveMS = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferEmissiveMS, multisampleGBuffer, 2u);
+                board.VelocityMS = graph.CreateFramebufferAttachmentView(ResourceNames::VelocityMS, multisampleGBuffer, 3u);
+                board.SceneDepthMS = graph.CreateFramebufferDepthAttachmentView(ResourceNames::SceneDepthMS, multisampleGBuffer);
+
+                const auto sceneDepthResolvedBacking =
+                    graph.CreateFramebufferDepthAttachmentView(buildResolvedBackingName(ResourceNames::SceneDepth), resolvedGBuffer);
+                const auto sceneNormalsResolvedBacking =
+                    graph.CreateFramebufferAttachmentView(buildResolvedBackingName(ResourceNames::SceneNormals), resolvedGBuffer, 1u);
+                const auto gbufferAlbedoResolvedBacking =
+                    graph.CreateFramebufferAttachmentView(buildResolvedBackingName(ResourceNames::GBufferAlbedo), resolvedGBuffer, 0u);
+                const auto gbufferNormalResolvedBacking =
+                    graph.CreateFramebufferAttachmentView(buildResolvedBackingName(ResourceNames::GBufferNormal), resolvedGBuffer, 1u);
+                const auto gbufferEmissiveResolvedBacking =
+                    graph.CreateFramebufferAttachmentView(buildResolvedBackingName(ResourceNames::GBufferEmissive), resolvedGBuffer, 2u);
+                const auto velocityResolvedBacking =
+                    graph.CreateFramebufferAttachmentView(buildResolvedBackingName(ResourceNames::Velocity), resolvedGBuffer, 3u);
+
+                // Canonical deferred single-sample handles remain the semantic
+                // read surface for downstream passes, but when MSAA is active
+                // model them explicitly as resolve views over the multisample
+                // attachments rather than as unrelated sibling names.
+                board.SceneDepth = graph.CreateTextureMultisampleResolveView(ResourceNames::SceneDepth,
+                                                                             board.SceneDepthMS,
+                                                                             sceneDepthResolvedBacking);
+                board.SceneNormals = graph.CreateTextureMultisampleResolveView(ResourceNames::SceneNormals,
+                                                                               board.GBufferNormalMS,
+                                                                               sceneNormalsResolvedBacking);
+                board.GBufferAlbedo = graph.CreateTextureMultisampleResolveView(ResourceNames::GBufferAlbedo,
+                                                                                board.GBufferAlbedoMS,
+                                                                                gbufferAlbedoResolvedBacking);
+                board.GBufferNormal = graph.CreateTextureMultisampleResolveView(ResourceNames::GBufferNormal,
+                                                                                board.GBufferNormalMS,
+                                                                                gbufferNormalResolvedBacking);
+                board.GBufferEmissive = graph.CreateTextureMultisampleResolveView(ResourceNames::GBufferEmissive,
+                                                                                  board.GBufferEmissiveMS,
+                                                                                  gbufferEmissiveResolvedBacking);
+                board.Velocity = graph.CreateTextureMultisampleResolveView(ResourceNames::Velocity,
+                                                                           board.VelocityMS,
+                                                                           velocityResolvedBacking);
+            }
+            else
+            {
+                board.SceneDepth = graph.CreateFramebufferDepthAttachmentView(ResourceNames::SceneDepth, resolvedGBuffer);
+                board.SceneNormals = graph.CreateFramebufferAttachmentView(ResourceNames::SceneNormals, resolvedGBuffer, 1u);
+                board.GBufferAlbedo = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferAlbedo, resolvedGBuffer, 0u);
+                board.GBufferNormal = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferNormal, resolvedGBuffer, 1u);
+                board.GBufferEmissive = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferEmissive, resolvedGBuffer, 2u);
+                board.Velocity = graph.CreateFramebufferAttachmentView(ResourceNames::Velocity, resolvedGBuffer, 3u);
             }
         }
 
         // ------------------------------------------------------------------
         // Velocity buffer
         // ------------------------------------------------------------------
+        if (!deferredActive && pipeline.FrameCorePasses.Scene)
         {
-            u32 velocityID = 0;
-            if (data.Settings.Path == RenderingPath::Deferred && pipeline.FrameCorePasses.Scene)
+            const auto& sceneSpec = pipeline.FrameCorePasses.Scene->GetFramebufferSpecification();
+            if (sceneSpec.Width > 0u && sceneSpec.Height > 0u)
             {
-                const auto& gbuffer = pipeline.FrameCorePasses.Scene->GetGBuffer();
-                OLO_CORE_ASSERT(gbuffer,
-                                "Renderer3D: Deferred path requires a prepared GBuffer before velocity import");
-                velocityID = gbuffer->GetColorAttachmentID(GBuffer::Velocity);
-            }
-            else if (pipeline.FrameCorePasses.Scene && pipeline.FrameCorePasses.Scene->GetTarget())
-            {
-                velocityID = pipeline.FrameCorePasses.Scene->GetTarget()->GetColorAttachmentRendererID(3);
-            }
-            if (velocityID != 0)
-            {
-                board.Velocity = graph.ImportTexture(
-                    ResourceNames::Velocity, velocityID,
-                    RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, ResourceNames::Velocity));
+                RGResourceDesc velocityDesc;
+                velocityDesc.Kind = ResourceHandle::Kind::Texture2D;
+                velocityDesc.Format = RGResourceFormat::RG16Float;
+                velocityDesc.Width = sceneSpec.Width;
+                velocityDesc.Height = sceneSpec.Height;
+                velocityDesc.DebugName = std::string(ResourceNames::Velocity);
+                board.Velocity = graph.AllocateTransientTextureHandle(ResourceNames::Velocity, velocityDesc);
             }
         }
 
@@ -920,47 +1010,85 @@ namespace OloEngine
         // AO buffer
         // ------------------------------------------------------------------
         {
-            u32 aoID = 0;
-            if (pipeline.SceneCompositePasses.SSAO && data.PostProcess.SSAOEnabled &&
-                data.PostProcess.ActiveAOTechnique == AOTechnique::SSAO)
+            const bool ssaoReady = pipeline.SceneCompositePasses.SSAO &&
+                                   data.PostProcess.SSAOEnabled &&
+                                   data.PostProcess.ActiveAOTechnique == AOTechnique::SSAO &&
+                                   pipeline.SceneCompositePasses.SSAO->IsReadyForExecution();
+            const bool gtaoReady = pipeline.SceneCompositePasses.GTAO &&
+                                   data.PostProcess.GTAOEnabled &&
+                                   data.PostProcess.ActiveAOTechnique == AOTechnique::GTAO &&
+                                   pipeline.SceneCompositePasses.GTAO->IsReadyForExecution();
+
+            if (ssaoReady)
             {
-                aoID = pipeline.SceneCompositePasses.SSAO->GetSSAOTextureID();
+                u32 aoWidth = 1u;
+                u32 aoHeight = 1u;
+                if (pipeline.FrameCorePasses.Scene)
+                {
+                    const auto& sceneSpec = pipeline.FrameCorePasses.Scene->GetFramebufferSpecification();
+                    aoWidth = std::max(1u, sceneSpec.Width / 2u);
+                    aoHeight = std::max(1u, sceneSpec.Height / 2u);
+                }
+
+                RGResourceDesc aoDesc;
+                aoDesc.Kind = ResourceHandle::Kind::Texture2D;
+                aoDesc.Format = RGResourceFormat::RG16Float;
+                aoDesc.Width = aoWidth;
+                aoDesc.Height = aoHeight;
+                aoDesc.DebugName = std::string(ResourceNames::AOBuffer);
+                board.AOBuffer = graph.AllocateTransientTextureHandle(ResourceNames::AOBuffer, aoDesc);
             }
-            else if (pipeline.SceneCompositePasses.GTAO && data.PostProcess.GTAOEnabled &&
-                     data.PostProcess.ActiveAOTechnique == AOTechnique::GTAO)
+            else if (gtaoReady)
             {
-                aoID = pipeline.SceneCompositePasses.GTAO->GetGTAOTextureID();
-            }
-            if (aoID != 0)
-            {
-                board.AOBuffer = graph.ImportTexture(
-                    ResourceNames::AOBuffer, aoID,
-                    RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, ResourceNames::AOBuffer));
+                u32 aoWidth = 1u;
+                u32 aoHeight = 1u;
+                if (pipeline.FrameCorePasses.Scene)
+                {
+                    const auto& sceneSpec = pipeline.FrameCorePasses.Scene->GetFramebufferSpecification();
+                    aoWidth = sceneSpec.Width > 0u ? sceneSpec.Width : 1u;
+                    aoHeight = sceneSpec.Height > 0u ? sceneSpec.Height : 1u;
+                }
+
+                RGResourceDesc aoDesc;
+                aoDesc.Kind = ResourceHandle::Kind::Texture2D;
+                aoDesc.Format = RGResourceFormat::R8UNorm;
+                aoDesc.Width = aoWidth;
+                aoDesc.Height = aoHeight;
+                aoDesc.DebugName = std::string(ResourceNames::AOBuffer);
+                board.AOBuffer = graph.AllocateTransientTextureHandle(ResourceNames::AOBuffer, aoDesc);
             }
 
-            static u32 s_PrevAOID = 0;
             static i32 s_PrevAOTechnique = -1;
             static bool s_PrevSSAOEnabled = false;
             static bool s_PrevGTAOEnabled = false;
+            static bool s_PrevSSAOReady = false;
+            static bool s_PrevGTAOReady = false;
+            static bool s_PrevAOHandleValid = false;
             const i32 activeTechnique = static_cast<i32>(data.PostProcess.ActiveAOTechnique);
-            if (aoID != s_PrevAOID ||
-                activeTechnique != s_PrevAOTechnique ||
+            const bool aoHandleValid = board.AOBuffer.IsValid();
+            if (activeTechnique != s_PrevAOTechnique ||
                 data.PostProcess.SSAOEnabled != s_PrevSSAOEnabled ||
-                data.PostProcess.GTAOEnabled != s_PrevGTAOEnabled)
+                data.PostProcess.GTAOEnabled != s_PrevGTAOEnabled ||
+                ssaoReady != s_PrevSSAOReady ||
+                gtaoReady != s_PrevGTAOReady ||
+                aoHandleValid != s_PrevAOHandleValid)
             {
                 if (IsRenderGraphDiagnosticsEnabled())
                 {
-                    OLO_CORE_TRACE("Renderer3D: AO import state: technique={}, ssaoEnabled={}, gtaoEnabled={}, aoTexID={}, aoHandleValid={}",
+                    OLO_CORE_TRACE("Renderer3D: AO output state: technique={}, ssaoEnabled={}, gtaoEnabled={}, ssaoReady={}, gtaoReady={}, aoHandleValid={}",
                                    activeTechnique,
                                    data.PostProcess.SSAOEnabled,
                                    data.PostProcess.GTAOEnabled,
-                                   aoID,
-                                   board.AOBuffer.IsValid());
+                                   ssaoReady,
+                                   gtaoReady,
+                                   aoHandleValid);
                 }
-                s_PrevAOID = aoID;
                 s_PrevAOTechnique = activeTechnique;
                 s_PrevSSAOEnabled = data.PostProcess.SSAOEnabled;
                 s_PrevGTAOEnabled = data.PostProcess.GTAOEnabled;
+                s_PrevSSAOReady = ssaoReady;
+                s_PrevGTAOReady = gtaoReady;
+                s_PrevAOHandleValid = aoHandleValid;
             }
         }
 
@@ -968,29 +1096,71 @@ namespace OloEngine
         // Shadow maps
         // ------------------------------------------------------------------
         {
+            const auto shadowResolution = std::max(data.Shadow.GetResolution(), 1u);
+            const auto buildShadowTextureDesc = [shadowResolution](const ResourceHandle::Kind kind,
+                                                                   std::string_view debugName,
+                                                                   const u32 depthOrLayers)
+            {
+                auto desc = RGResourceDesc::FromHandleKind(kind, debugName);
+                desc.Format = RGResourceFormat::Depth32Float;
+                desc.Width = shadowResolution;
+                desc.Height = shadowResolution;
+                desc.DepthOrLayers = depthOrLayers;
+                return desc;
+            };
+
             const u32 csmID = data.Shadow.GetCSMRendererID();
             const u32 spotID = data.Shadow.GetSpotRendererID();
             if (csmID != 0)
             {
-                board.ShadowMapCSM = graph.ImportTexture(
-                    ResourceNames::ShadowMapCSM, csmID,
-                    RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2DArray, ResourceNames::ShadowMapCSM));
+                board.ShadowMapCSM = graph.DeclareTransientTexture(
+                    ResourceNames::ShadowMapCSM,
+                    buildShadowTextureDesc(ResourceHandle::Kind::Texture2DArray,
+                                           ResourceNames::ShadowMapCSM,
+                                           FrameBlackboard::MaxShadowMapCascades),
+                    csmID);
+
+                for (u32 cascade = 0; cascade < FrameBlackboard::MaxShadowMapCascades; ++cascade)
+                {
+                    board.ShadowMapCSMCascades[cascade] = graph.CreateTextureArrayLayerView(
+                        ResourceNames::ShadowMapCSMCascade[cascade], board.ShadowMapCSM, cascade);
+                }
             }
             if (spotID != 0)
             {
-                board.ShadowMapSpot = graph.ImportTexture(
-                    ResourceNames::ShadowMapSpot, spotID,
-                    RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2DArray, ResourceNames::ShadowMapSpot));
+                board.ShadowMapSpot = graph.DeclareTransientTexture(
+                    ResourceNames::ShadowMapSpot,
+                    buildShadowTextureDesc(ResourceHandle::Kind::Texture2DArray,
+                                           ResourceNames::ShadowMapSpot,
+                                           FrameBlackboard::MaxShadowMapSpotLights),
+                    spotID);
+
+                for (u32 light = 0; light < FrameBlackboard::MaxShadowMapSpotLights; ++light)
+                {
+                    board.ShadowMapSpotLayers[light] = graph.CreateTextureArrayLayerView(
+                        ResourceNames::ShadowMapSpotLayer[light], board.ShadowMapSpot, light);
+                }
             }
-            // Point-light shadow cubemaps — import each active light slot separately.
+            // Point-light shadow cubemaps — declare each active light slot as a
+            // frame-local transient root with explicit external backing.
             for (u32 i = 0; i < ShadowMap::MAX_POINT_SHADOWS; ++i)
             {
                 const u32 pointID = data.Shadow.GetPointRendererID(i);
                 if (pointID != 0)
                 {
-                    board.ShadowMapPoint[i] = graph.ImportTexture(
-                        ResourceNames::ShadowMapPoint[i], pointID,
-                        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::TextureCube, ResourceNames::ShadowMapPoint[i]));
+                    board.ShadowMapPoint[i] = graph.DeclareTransientTexture(
+                        ResourceNames::ShadowMapPoint[i],
+                        buildShadowTextureDesc(ResourceHandle::Kind::TextureCube,
+                                               ResourceNames::ShadowMapPoint[i],
+                                               FrameBlackboard::MaxShadowMapCubeFaces),
+                        pointID);
+
+                    for (u32 face = 0; face < FrameBlackboard::MaxShadowMapCubeFaces; ++face)
+                    {
+                        const auto faceViewName = std::string(ResourceNames::ShadowMapPoint[i]) + "Face" + std::to_string(face);
+                        board.ShadowMapPointFaces[i][face] = graph.CreateTextureCubeFaceView(
+                            faceViewName, board.ShadowMapPoint[i], face);
+                    }
                 }
             }
         }
@@ -1013,8 +1183,20 @@ namespace OloEngine
             postProcessHeight = sceneSpec.Height > 0 ? sceneSpec.Height : 1u;
         }
 
+        auto declareGraphOnlyFramebuffer =
+            [&graph](std::string_view name, const RGResourceDesc& desc) -> RGFramebufferHandle
+        {
+            return graph.DeclareTransientFramebuffer(name, desc);
+        };
+
+        auto declareGraphOnlyTexture =
+            [&graph](std::string_view name, const RGResourceDesc& desc) -> RGTextureHandle
+        {
+            return graph.AllocateTransientTextureHandle(name, desc);
+        };
+
         auto declareGraphOnlyPostProcessFB =
-            [&](std::string_view name, RGResourceFormat fmt) -> RGFramebufferHandle
+            [&](std::string_view name, const RGResourceFormat fmt) -> RGFramebufferHandle
         {
             RGResourceDesc desc;
             desc.Kind = ResourceHandle::Kind::Framebuffer;
@@ -1022,15 +1204,139 @@ namespace OloEngine
             desc.Height = postProcessHeight;
             desc.Format = fmt;
             desc.DebugName = std::string(name);
-            return graph.DeclareTransientFramebuffer(name, desc);
+            return declareGraphOnlyFramebuffer(name, desc);
         };
+
+        struct GraphOnlyPostProcessOutput
+        {
+            RGFramebufferHandle Framebuffer;
+            RGTextureHandle Texture;
+        };
+
+        auto declareGraphOnlyPostProcessOutput =
+            [&](std::string_view framebufferName,
+                std::string_view textureName,
+                const RGResourceFormat fmt) -> GraphOnlyPostProcessOutput
+        {
+            const auto framebuffer = declareGraphOnlyPostProcessFB(framebufferName, fmt);
+            const auto texture = framebuffer.IsValid()
+                                     ? graph.CreateFramebufferAttachmentView(textureName, framebuffer, 0u)
+                                     : RGTextureHandle{};
+            return GraphOnlyPostProcessOutput{ .Framebuffer = framebuffer, .Texture = texture };
+        };
+
+        // ------------------------------------------------------------------
+        // Graph-owned scratch resources
+        // ------------------------------------------------------------------
+        if (pipeline.SceneCompositePasses.SSAO &&
+            data.PostProcess.ActiveAOTechnique == AOTechnique::SSAO &&
+            data.PostProcess.SSAOEnabled &&
+            board.AOBuffer.IsValid())
+        {
+            const auto& ssaoSpec = pipeline.SceneCompositePasses.SSAO->GetFramebufferSpecification();
+            if (ssaoSpec.Width > 0u && ssaoSpec.Height > 0u)
+            {
+                RGResourceDesc rawDesc;
+                rawDesc.Kind = ResourceHandle::Kind::Framebuffer;
+                rawDesc.Format = RGResourceFormat::RG16Float;
+                rawDesc.Width = ssaoSpec.Width;
+                rawDesc.Height = ssaoSpec.Height;
+                rawDesc.DebugName = "SSAORaw";
+                board.SSAORaw = declareGraphOnlyFramebuffer("SSAORaw", rawDesc);
+
+                RGResourceDesc blurDesc = rawDesc;
+                blurDesc.DebugName = std::string(ResourceNames::SSAOBlur);
+                board.SSAOBlur = declareGraphOnlyFramebuffer(ResourceNames::SSAOBlur, blurDesc);
+            }
+        }
+
+        if (pipeline.SceneCompositePasses.GTAO &&
+            data.PostProcess.ActiveAOTechnique == AOTechnique::GTAO &&
+            data.PostProcess.GTAOEnabled &&
+            board.AOBuffer.IsValid() &&
+            board.SceneDepth.IsValid() &&
+            board.SceneNormals.IsValid())
+        {
+            const auto nextPow2 = [](u32 value)
+            {
+                u32 result = 1u;
+                while (result < value)
+                    result <<= 1u;
+                return result;
+            };
+
+            const u32 hzbW = nextPow2(postProcessWidth);
+            const u32 hzbH = nextPow2(postProcessHeight);
+            u32 mipCount = 1u;
+            for (u32 mipW = hzbW, mipH = hzbH; mipW > 1u || mipH > 1u; ++mipCount)
+            {
+                mipW = mipW > 1u ? (mipW / 2u) : 1u;
+                mipH = mipH > 1u ? (mipH / 2u) : 1u;
+            }
+
+            RGResourceDesc hzbDesc;
+            hzbDesc.Kind = ResourceHandle::Kind::Texture2D;
+            hzbDesc.Format = RGResourceFormat::R32Float;
+            hzbDesc.Width = hzbW;
+            hzbDesc.Height = hzbH;
+            hzbDesc.MipLevels = mipCount;
+            hzbDesc.DebugName = std::string(ResourceNames::HZBDepth);
+            board.HZBDepth = declareGraphOnlyTexture(ResourceNames::HZBDepth, hzbDesc);
+
+            if (board.HZBDepth.IsValid())
+            {
+                const auto declaredMipViewCount = std::min<u32>(mipCount, FrameBlackboard::MaxHZBMipViews);
+                for (u32 mip = 0u; mip < declaredMipViewCount; ++mip)
+                {
+                    const auto mipViewName = std::string(ResourceNames::HZBDepth) + "Mip" + std::to_string(mip);
+                    board.HZBDepthMipViews[mip] = graph.CreateTextureMipView(mipViewName, board.HZBDepth, mip);
+                }
+            }
+
+            RGResourceDesc edgeDesc;
+            edgeDesc.Kind = ResourceHandle::Kind::Texture2D;
+            edgeDesc.Format = RGResourceFormat::R8UNorm;
+            edgeDesc.Width = postProcessWidth;
+            edgeDesc.Height = postProcessHeight;
+            edgeDesc.DebugName = "GTAOEdge";
+            board.GTAOEdge = declareGraphOnlyTexture("GTAOEdge", edgeDesc);
+
+            RGResourceDesc denoiseDesc;
+            denoiseDesc.Kind = ResourceHandle::Kind::Texture2D;
+            denoiseDesc.Format = RGResourceFormat::R8UNorm;
+            denoiseDesc.Width = postProcessWidth;
+            denoiseDesc.Height = postProcessHeight;
+            denoiseDesc.DebugName = std::string(ResourceNames::GTAODenoisePing);
+            board.GTAODenoisePing = declareGraphOnlyTexture(ResourceNames::GTAODenoisePing, denoiseDesc);
+
+            denoiseDesc.DebugName = std::string(ResourceNames::GTAODenoisePong);
+            board.GTAODenoisePong = declareGraphOnlyTexture(ResourceNames::GTAODenoisePong, denoiseDesc);
+        }
+
+        if (pipeline.RenderStreamPasses.Water &&
+            pipeline.RenderStreamPasses.Water->GetCommandBucket().GetCommandCount() > 0 &&
+            board.SceneColor.IsValid())
+        {
+            RGResourceDesc refrDesc;
+            refrDesc.Kind = ResourceHandle::Kind::Texture2D;
+            refrDesc.Format = RGResourceFormat::RGBA16Float;
+            refrDesc.Width = postProcessWidth;
+            refrDesc.Height = postProcessHeight;
+            refrDesc.DebugName = "WaterRefraction";
+            board.WaterRefraction = declareGraphOnlyTexture("WaterRefraction", refrDesc);
+        }
 
         if (pipeline.PostProcessPasses.SSS &&
             data.Snow.Enabled &&
             data.Snow.SSSBlurEnabled &&
             pipeline.PostProcessPasses.SSS->IsReadyForExecution())
         {
-            board.SSSColor = declareGraphOnlyPostProcessFB(ResourceNames::SSSColor, RGResourceFormat::RGBA16Float);
+            const auto sssOutput = declareGraphOnlyPostProcessOutput(
+                ResourceNames::SSSColor,
+                ResourceNames::SSSColorTexture,
+                RGResourceFormat::RGBA16Float);
+            board.SSSColor = sssOutput.Framebuffer;
+            board.SSSColorTexture = sssOutput.Texture;
         }
 
         // AOApplyColor exists only when AO apply is actually executable for
@@ -1043,7 +1349,12 @@ namespace OloEngine
                 board.AOBuffer.IsValid() &&
                 board.SceneDepth.IsValid())
             {
-                board.AOApplyColor = declareGraphOnlyPostProcessFB(ResourceNames::AOApplyColor, RGResourceFormat::RGBA16Float);
+                const auto aoApplyOutput = declareGraphOnlyPostProcessOutput(
+                    ResourceNames::AOApplyColor,
+                    ResourceNames::AOApplyColorTexture,
+                    RGResourceFormat::RGBA16Float);
+                board.AOApplyColor = aoApplyOutput.Framebuffer;
+                board.AOApplyColorTexture = aoApplyOutput.Texture;
             }
         }
 
@@ -1055,11 +1366,20 @@ namespace OloEngine
         // producer/consumer chain, which lets AO/SSS get culled and can feed
         // stale/black data into the post stack.
         if (board.AOApplyColor.IsValid())
+        {
             board.PostProcessColor = board.AOApplyColor;
+            board.PostProcessColorTexture = board.AOApplyColorTexture;
+        }
         else if (board.SSSColor.IsValid())
+        {
             board.PostProcessColor = board.SSSColor;
+            board.PostProcessColorTexture = board.SSSColorTexture;
+        }
         else
+        {
             board.PostProcessColor = board.SceneColor;
+            board.PostProcessColorTexture = board.SceneColorTexture;
+        }
 
         // BloomColor exists only when bloom is executable for this frame and
         // the scene dimensions are large enough for the graph-owned mip chain
@@ -1086,56 +1406,194 @@ namespace OloEngine
                 pipeline.PostProcessPasses.Bloom->IsReadyForExecution() &&
                 computeBloomMipCount() > 0u)
             {
-                board.BloomColor = declareGraphOnlyPostProcessFB(ResourceNames::BloomColor, RGResourceFormat::RGBA16Float);
+                const auto bloomOutput = declareGraphOnlyPostProcessOutput(
+                    ResourceNames::BloomColor,
+                    ResourceNames::BloomColorTexture,
+                    RGResourceFormat::RGBA16Float);
+                board.BloomColor = bloomOutput.Framebuffer;
+                board.BloomColorTexture = bloomOutput.Texture;
+
+                u32 mipW = postProcessWidth / 2u;
+                u32 mipH = postProcessHeight / 2u;
+                for (u32 i = 0; i < 5u; ++i)
+                {
+                    if (mipW < 2u || mipH < 2u)
+                        break;
+
+                    RGResourceDesc mipDesc;
+                    mipDesc.Kind = ResourceHandle::Kind::Framebuffer;
+                    mipDesc.Format = RGResourceFormat::RGBA16Float;
+                    mipDesc.Width = mipW;
+                    mipDesc.Height = mipH;
+                    mipDesc.DebugName = "BloomMip" + std::to_string(i);
+                    board.BloomMips[i] = declareGraphOnlyFramebuffer(mipDesc.DebugName, mipDesc);
+
+                    mipW /= 2u;
+                    mipH /= 2u;
+                }
             }
         }
 
         // DOFColor is declared only when DOF is enabled.
-        if (pipeline.PostProcessPasses.DOF && data.PostProcess.DOFEnabled)
-            board.DOFColor = declareGraphOnlyPostProcessFB(ResourceNames::DOFColor, RGResourceFormat::RGBA16Float);
+        if (pipeline.PostProcessPasses.DOF && data.PostProcess.DOFEnabled &&
+            pipeline.PostProcessPasses.DOF->IsReadyForExecution())
+        {
+            const auto dofOutput = declareGraphOnlyPostProcessOutput(
+                ResourceNames::DOFColor,
+                ResourceNames::DOFColorTexture,
+                RGResourceFormat::RGBA16Float);
+            board.DOFColor = dofOutput.Framebuffer;
+            board.DOFColorTexture = dofOutput.Texture;
+        }
 
         // MotionBlurColor is declared only when motion blur is enabled.
-        if (pipeline.PostProcessPasses.MotionBlur && data.PostProcess.MotionBlurEnabled)
-            board.MotionBlurColor = declareGraphOnlyPostProcessFB(ResourceNames::MotionBlurColor, RGResourceFormat::RGBA16Float);
+        if (pipeline.PostProcessPasses.MotionBlur && data.PostProcess.MotionBlurEnabled &&
+            pipeline.PostProcessPasses.MotionBlur->IsReadyForExecution())
+        {
+            const auto motionBlurOutput = declareGraphOnlyPostProcessOutput(
+                ResourceNames::MotionBlurColor,
+                ResourceNames::MotionBlurColorTexture,
+                RGResourceFormat::RGBA16Float);
+            board.MotionBlurColor = motionBlurOutput.Framebuffer;
+            board.MotionBlurColorTexture = motionBlurOutput.Texture;
+        }
 
         // TAAColor is declared only when TAA is enabled.
-        if (pipeline.PostProcessPasses.TAA && data.PostProcess.TAAEnabled)
-            board.TAAColor = declareGraphOnlyPostProcessFB(ResourceNames::TAAColor, RGResourceFormat::RGBA16Float);
+        if (pipeline.PostProcessPasses.TAA && data.PostProcess.TAAEnabled &&
+            pipeline.PostProcessPasses.TAA->IsReadyForExecution())
+        {
+            const auto taaOutput = declareGraphOnlyPostProcessOutput(
+                ResourceNames::TAAColor,
+                ResourceNames::TAAColorTexture,
+                RGResourceFormat::RGBA16Float);
+            board.TAAColor = taaOutput.Framebuffer;
+            board.TAAColorTexture = taaOutput.Texture;
+        }
 
         // PrecipitationColor is declared only when screen FX are active.
         const bool precipScreenEnabled = data.Precipitation.Enabled &&
                                          (data.Precipitation.ScreenStreaksEnabled ||
                                           data.Precipitation.LensImpactsEnabled);
-        if (pipeline.PostProcessPasses.Precipitation && precipScreenEnabled)
-            board.PrecipitationColor = declareGraphOnlyPostProcessFB(ResourceNames::PrecipitationColor, RGResourceFormat::RGBA16Float);
+        if (pipeline.PostProcessPasses.Precipitation && precipScreenEnabled &&
+            pipeline.PostProcessPasses.Precipitation->IsReadyForExecution())
+        {
+            const auto precipitationOutput = declareGraphOnlyPostProcessOutput(
+                ResourceNames::PrecipitationColor,
+                ResourceNames::PrecipitationColorTexture,
+                RGResourceFormat::RGBA16Float);
+            board.PrecipitationColor = precipitationOutput.Framebuffer;
+            board.PrecipitationColorTexture = precipitationOutput.Texture;
+        }
 
         // FogColor is declared only when fog is enabled.
-        if (pipeline.PostProcessPasses.Fog && data.Fog.Enabled)
-            board.FogColor = declareGraphOnlyPostProcessFB(ResourceNames::FogColor, RGResourceFormat::RGBA16Float);
+        if (pipeline.PostProcessPasses.Fog && data.Fog.Enabled &&
+            pipeline.PostProcessPasses.Fog->IsReadyForExecution())
+        {
+            const auto fogOutput = declareGraphOnlyPostProcessOutput(
+                ResourceNames::FogColor,
+                ResourceNames::FogColorTexture,
+                RGResourceFormat::RGBA16Float);
+            board.FogColor = fogOutput.Framebuffer;
+            board.FogColorTexture = fogOutput.Texture;
+
+            const auto& fogSpec = pipeline.PostProcessPasses.Fog->GetFramebufferSpecification();
+            if (fogSpec.Width > 0u && fogSpec.Height > 0u)
+            {
+                RGResourceDesc fogHalfDesc;
+                fogHalfDesc.Kind = ResourceHandle::Kind::Framebuffer;
+                fogHalfDesc.Format = RGResourceFormat::RGBA16Float;
+                fogHalfDesc.Width = (fogSpec.Width + 1u) / 2u;
+                fogHalfDesc.Height = (fogSpec.Height + 1u) / 2u;
+                fogHalfDesc.DebugName = std::string(ResourceNames::FogHalfRes);
+                board.FogHalfRes = declareGraphOnlyFramebuffer(ResourceNames::FogHalfRes, fogHalfDesc);
+            }
+        }
 
         // Extracted effect sub-chain. Each handle is
         // declared only when its effect is enabled so downstream consumers
         // can rely on IsValid() as the canonical "effect ran" signal.
         // ToneMap is declared unconditionally (no settings gate).
-        if (pipeline.PostProcessPasses.ChromAberration && data.PostProcess.ChromaticAberrationEnabled)
-            board.ChromAbColor = declareGraphOnlyPostProcessFB(ResourceNames::ChromAbColor, RGResourceFormat::RGBA16Float);
-        if (pipeline.PostProcessPasses.ColorGrading && data.PostProcess.ColorGradingEnabled)
-            board.ColorGradingColor = declareGraphOnlyPostProcessFB(ResourceNames::ColorGradingColor, RGResourceFormat::RGBA16Float);
-        if (pipeline.PostProcessPasses.ToneMap)
-            board.ToneMapColor = declareGraphOnlyPostProcessFB(ResourceNames::ToneMapColor, RGResourceFormat::RGBA16Float);
-        if (pipeline.PostProcessPasses.Vignette && data.PostProcess.VignetteEnabled)
-            board.VignetteColor = declareGraphOnlyPostProcessFB(ResourceNames::VignetteColor, RGResourceFormat::RGBA8UNorm);
+        if (pipeline.PostProcessPasses.ChromAberration && data.PostProcess.ChromaticAberrationEnabled &&
+            pipeline.PostProcessPasses.ChromAberration->IsReadyForExecution())
+        {
+            const auto chromAbOutput = declareGraphOnlyPostProcessOutput(
+                ResourceNames::ChromAbColor,
+                ResourceNames::ChromAbColorTexture,
+                RGResourceFormat::RGBA16Float);
+            board.ChromAbColor = chromAbOutput.Framebuffer;
+            board.ChromAbColorTexture = chromAbOutput.Texture;
+        }
+        if (pipeline.PostProcessPasses.ColorGrading && data.PostProcess.ColorGradingEnabled &&
+            pipeline.PostProcessPasses.ColorGrading->IsReadyForExecution())
+        {
+            const auto colorGradingOutput = declareGraphOnlyPostProcessOutput(
+                ResourceNames::ColorGradingColor,
+                ResourceNames::ColorGradingColorTexture,
+                RGResourceFormat::RGBA16Float);
+            board.ColorGradingColor = colorGradingOutput.Framebuffer;
+            board.ColorGradingColorTexture = colorGradingOutput.Texture;
+        }
+        if (pipeline.PostProcessPasses.ToneMap && pipeline.PostProcessPasses.ToneMap->IsReadyForExecution())
+        {
+            const auto toneMapOutput = declareGraphOnlyPostProcessOutput(
+                ResourceNames::ToneMapColor,
+                ResourceNames::ToneMapColorTexture,
+                RGResourceFormat::RGBA16Float);
+            board.ToneMapColor = toneMapOutput.Framebuffer;
+            board.ToneMapColorTexture = toneMapOutput.Texture;
+        }
+        if (pipeline.PostProcessPasses.Vignette && data.PostProcess.VignetteEnabled &&
+            pipeline.PostProcessPasses.Vignette->IsReadyForExecution())
+        {
+            const auto vignetteOutput = declareGraphOnlyPostProcessOutput(
+                ResourceNames::VignetteColor,
+                ResourceNames::VignetteColorTexture,
+                RGResourceFormat::RGBA8UNorm);
+            board.VignetteColor = vignetteOutput.Framebuffer;
+            board.VignetteColorTexture = vignetteOutput.Texture;
+        }
 
         // Only declare FXAAColor when FXAA is active so
         // downstream consumers can rely on `board.FXAAColor.IsValid()` as
         // the canonical "anti-aliased post-process available" signal.
-        if (pipeline.PostProcessPasses.FXAA && data.PostProcess.FXAAEnabled)
-            board.FXAAColor = declareGraphOnlyPostProcessFB(ResourceNames::FXAAColor, RGResourceFormat::RGBA8UNorm);
+        if (pipeline.PostProcessPasses.FXAA && data.PostProcess.FXAAEnabled &&
+            pipeline.PostProcessPasses.FXAA->IsReadyForExecution())
+        {
+            const auto fxaaOutput = declareGraphOnlyPostProcessOutput(
+                ResourceNames::FXAAColor,
+                ResourceNames::FXAAColorTexture,
+                RGResourceFormat::RGBA8UNorm);
+            board.FXAAColor = fxaaOutput.Framebuffer;
+            board.FXAAColorTexture = fxaaOutput.Texture;
+        }
 
         if (pipeline.PostProcessPasses.SelectionOutline &&
             pipeline.PostProcessPasses.SelectionOutline->IsEnabled() &&
             pipeline.PostProcessPasses.SelectionOutline->IsReadyForExecution())
-            board.SelectionOutlineColor = declareGraphOnlyPostProcessFB(ResourceNames::SelectionOutlineColor, RGResourceFormat::RGBA8UNorm);
+        {
+            const auto selectionOutlineOutput = declareGraphOnlyPostProcessOutput(
+                ResourceNames::SelectionOutlineColor,
+                ResourceNames::SelectionOutlineColorTexture,
+                RGResourceFormat::RGBA8UNorm);
+            board.SelectionOutlineColor = selectionOutlineOutput.Framebuffer;
+            board.SelectionOutlineColorTexture = selectionOutlineOutput.Texture;
+
+            const auto& outlineSpec = pipeline.PostProcessPasses.SelectionOutline->GetFramebufferSpecification();
+            if (outlineSpec.Width > 0u && outlineSpec.Height > 0u)
+            {
+                RGResourceDesc jfaDesc;
+                jfaDesc.Kind = ResourceHandle::Kind::Framebuffer;
+                jfaDesc.Format = RGResourceFormat::RGBA32Float;
+                jfaDesc.Width = outlineSpec.Width;
+                jfaDesc.Height = outlineSpec.Height;
+
+                jfaDesc.DebugName = "JFAPing";
+                board.JFAPing = declareGraphOnlyFramebuffer("JFAPing", jfaDesc);
+
+                jfaDesc.DebugName = "JFAPong";
+                board.JFAPong = declareGraphOnlyFramebuffer("JFAPong", jfaDesc);
+            }
+        }
 
         if (pipeline.PostProcessPasses.UIComposite)
         {
@@ -1146,6 +1604,7 @@ namespace OloEngine
             uiCompositeDesc.Attachments = { RGResourceFormat::RGBA8UNorm, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
             uiCompositeDesc.DebugName = std::string(ResourceNames::UIComposite);
             board.UIComposite = graph.DeclareTransientFramebuffer(ResourceNames::UIComposite, uiCompositeDesc);
+            board.UICompositeTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, board.UIComposite, 0u);
         }
 
         // Default framebuffer / swapchain target represented as an imported
@@ -1187,25 +1646,55 @@ namespace OloEngine
             oitDesc.DebugName = std::string(ResourceNames::OITBuffer);
 
             const auto oitHandle = graph.DeclareTransientFramebuffer(ResourceNames::OITBuffer, oitDesc);
-            board.OITAccum = oitHandle;
-            board.OITRevealage = oitHandle;
+            board.OITBuffer = oitHandle;
+            board.OITAccum = graph.CreateFramebufferAttachmentView(ResourceNames::OITAccum, oitHandle, 0u);
+            board.OITRevealage = graph.CreateFramebufferAttachmentView(ResourceNames::OITRevealage, oitHandle, 1u);
+            board.OITDepthAttachment = graph.CreateFramebufferDepthAttachmentView(ResourceNames::OITDepthAttachment, oitHandle);
         }
 
         // ------------------------------------------------------------------
         // Temporal histories (imported from prior frame)
         // ------------------------------------------------------------------
-        // TAAHistory is owned by TAARenderPass.
+        // TAAHistory persists in renderer-owned storage, is registered as a
+        // graph-managed sink every frame, and is imported only when the
+        // previous frame produced a valid history.
         if (pipeline.PostProcessPasses.TAA)
         {
+            const auto& taaSpec = pipeline.PostProcessPasses.TAA->GetFramebufferSpecification();
+            EnsureHistoryStorage(pipeline.TAAHistoryTexture, pipeline.TAAHistoryValid, taaSpec.Width, taaSpec.Height);
+            graph.RegisterHistoryTextureSink(
+                ResourceNames::TAAHistory,
+                pipeline.TAAHistoryTexture ? pipeline.TAAHistoryTexture->GetRendererID() : 0u,
+                pipeline.TAAHistoryTexture ? pipeline.TAAHistoryTexture->GetWidth() : 0u,
+                pipeline.TAAHistoryTexture ? pipeline.TAAHistoryTexture->GetHeight() : 0u,
+                &pipeline.TAAHistoryValid);
+        }
+        if (pipeline.TAAHistoryValid && pipeline.TAAHistoryTexture)
+        {
             board.TAAHistory = graph.ImportHistory(
-                ResourceNames::TAAHistory, pipeline.PostProcessPasses.TAA->GetTAAHistoryTextureID());
+                ResourceNames::TAAHistory, pipeline.TAAHistoryTexture->GetRendererID());
         }
 
-        // FogHistory is owned by FogRenderPass.
+        // FogHistory persists in renderer-owned storage, is registered as a
+        // graph-managed sink every frame, and is imported only when the
+        // previous frame produced a valid history.
         if (pipeline.PostProcessPasses.Fog)
         {
+            const auto& fogSpec = pipeline.PostProcessPasses.Fog->GetFramebufferSpecification();
+            const auto fogHalfWidth = (fogSpec.Width + 1u) / 2u;
+            const auto fogHalfHeight = (fogSpec.Height + 1u) / 2u;
+            EnsureHistoryStorage(pipeline.FogHistoryTexture, pipeline.FogHistoryValid, fogHalfWidth, fogHalfHeight);
+            graph.RegisterHistoryTextureSink(
+                ResourceNames::FogHistory,
+                pipeline.FogHistoryTexture ? pipeline.FogHistoryTexture->GetRendererID() : 0u,
+                pipeline.FogHistoryTexture ? pipeline.FogHistoryTexture->GetWidth() : 0u,
+                pipeline.FogHistoryTexture ? pipeline.FogHistoryTexture->GetHeight() : 0u,
+                &pipeline.FogHistoryValid);
+        }
+        if (pipeline.FogHistoryValid && pipeline.FogHistoryTexture)
+        {
             board.FogHistory = graph.ImportHistory(
-                ResourceNames::FogHistory, pipeline.PostProcessPasses.Fog->GetFogHistoryTextureID());
+                ResourceNames::FogHistory, pipeline.FogHistoryTexture->GetRendererID());
         }
 
         // ------------------------------------------------------------------
@@ -1231,84 +1720,18 @@ namespace OloEngine
         }
     }
 
-    void Renderer3D::RenderPipeline::RefreshBlackboardHandles(Renderer3DData& data)
-    {
-        auto& board = data.RGraph->GetBlackboard();
-        board.SSAORaw = data.RGraph->GetFramebufferHandle("SSAORaw");
-        // Phase D Slice 2: JFA ping-pong scratch framebuffers for SelectionOutlinePass.
-        board.JFAPing = data.RGraph->GetFramebufferHandle("JFAPing");
-        board.JFAPong = data.RGraph->GetFramebufferHandle("JFAPong");
-        // Refresh imported core handles as well. Handle generations can advance
-        // when the resource registry is rebuilt; using stale generations causes
-        // ResolveFramebuffer/ResolveTexture to fail and leaves downstream passes
-        // rendering into/reading from uninitialized outputs.
-        board.SceneColor = data.RGraph->GetFramebufferHandle(ResourceNames::SceneColor);
-        board.SceneDepth = data.RGraph->GetTextureHandle(ResourceNames::SceneDepth);
-        board.SceneNormals = data.RGraph->GetTextureHandle(ResourceNames::SceneNormals);
-        board.Velocity = data.RGraph->GetTextureHandle(ResourceNames::Velocity);
-        board.AOBuffer = data.RGraph->GetTextureHandle(ResourceNames::AOBuffer);
-        board.OITAccum = data.RGraph->GetFramebufferHandle(ResourceNames::OITBuffer);
-        board.OITRevealage = board.OITAccum;
-        // Refresh post-process transient framebuffer handles after BuildFrameGraph.
-        // BuildFrameGraph finalizes per-frame resource generations; using handles
-        // captured before build can resolve stale framebuffer slots (e.g. ping-pong
-        // IDs), which manifests as black/transparent post chain outputs.
-        board.SSSColor = data.RGraph->GetFramebufferHandle(ResourceNames::SSSColor);
-        board.AOApplyColor = data.RGraph->GetFramebufferHandle(ResourceNames::AOApplyColor);
-        board.BloomColor = data.RGraph->GetFramebufferHandle(ResourceNames::BloomColor);
-        board.DOFColor = data.RGraph->GetFramebufferHandle(ResourceNames::DOFColor);
-        board.MotionBlurColor = data.RGraph->GetFramebufferHandle(ResourceNames::MotionBlurColor);
-        board.TAAColor = data.RGraph->GetFramebufferHandle(ResourceNames::TAAColor);
-        board.PrecipitationColor = data.RGraph->GetFramebufferHandle(ResourceNames::PrecipitationColor);
-        board.FogColor = data.RGraph->GetFramebufferHandle(ResourceNames::FogColor);
-        board.FogHalfRes = data.RGraph->GetFramebufferHandle(ResourceNames::FogHalfRes);
-        board.ChromAbColor = data.RGraph->GetFramebufferHandle(ResourceNames::ChromAbColor);
-        board.ColorGradingColor = data.RGraph->GetFramebufferHandle(ResourceNames::ColorGradingColor);
-        board.ToneMapColor = data.RGraph->GetFramebufferHandle(ResourceNames::ToneMapColor);
-        board.VignetteColor = data.RGraph->GetFramebufferHandle(ResourceNames::VignetteColor);
-        board.FXAAColor = data.RGraph->GetFramebufferHandle(ResourceNames::FXAAColor);
-        board.SelectionOutlineColor = data.RGraph->GetFramebufferHandle(ResourceNames::SelectionOutlineColor);
-        board.UIComposite = data.RGraph->GetFramebufferHandle(ResourceNames::UIComposite);
-        board.TAAHistory = data.RGraph->GetTextureHandle(ResourceNames::TAAHistory);
-        board.FogHistory = data.RGraph->GetTextureHandle(ResourceNames::FogHistory);
-
-        // Rebuild dynamic post-chain alias from refreshed handles.
-        if (board.AOApplyColor.IsValid())
-            board.PostProcessColor = board.AOApplyColor;
-        else if (board.SSSColor.IsValid())
-            board.PostProcessColor = board.SSSColor;
-        else
-            board.PostProcessColor = board.SceneColor;
-
-        // Phase D Slice 3: Bloom mip-chain scratch framebuffers.
-        for (u32 i = 0; i < 5u; ++i)
-        {
-            const std::string mipName = "BloomMip" + std::to_string(i);
-            board.BloomMips[i] = data.RGraph->GetFramebufferHandle(mipName);
-        }
-        // Phase D Slice 4: GTAO edge scratch texture.
-        board.GTAOEdge = data.RGraph->GetTextureHandle("GTAOEdge");
-        // Phase D Slice 6: HZB depth pyramid scratch texture.
-        board.HZBDepth = data.RGraph->GetTextureHandle(ResourceNames::HZBDepth);
-        // Phase D Slice 5: Water refraction scratch texture.
-        board.WaterRefraction = data.RGraph->GetTextureHandle("WaterRefraction");
-    }
-
     auto Renderer3D::RenderPipeline::BuildInputs(Renderer3DData& data) -> RenderPipelineInputs
     {
         RenderPipelineInputs inputs{};
         inputs.Graph = data.RGraph.Raw();
-
-        inputs.Nodes.Geometry = StreamNodes.Geometry.Raw();
-        inputs.Nodes.ForwardOverlay = StreamNodes.ForwardOverlay.Raw();
-        inputs.Nodes.Foliage = StreamNodes.Foliage.Raw();
-        inputs.Nodes.Decal = StreamNodes.Decal.Raw();
-        inputs.Nodes.Water = StreamNodes.Water.Raw();
+        inputs.ActiveAOTechnique = data.PostProcess.ActiveAOTechnique;
 
         inputs.Passes.Scene = FrameCorePasses.Scene.Raw();
         inputs.Passes.Shadow = FrameCorePasses.Shadow.Raw();
         inputs.Passes.DeferredLighting = SceneCompositePasses.DeferredLighting.Raw();
         inputs.Passes.DeferredOpaqueDecal = SceneCompositePasses.DeferredOpaqueDecal.Raw();
+        inputs.Passes.ForwardOverlay = RenderStreamPasses.ForwardOverlay.Raw();
+        inputs.Passes.Foliage = RenderStreamPasses.Foliage.Raw();
         inputs.Passes.Water = RenderStreamPasses.Water.Raw();
         inputs.Passes.Decal = RenderStreamPasses.Decal.Raw();
         inputs.Passes.SSAO = SceneCompositePasses.SSAO.Raw();
@@ -1332,12 +1755,6 @@ namespace OloEngine
         inputs.Passes.SelectionOutline = PostProcessPasses.SelectionOutline.Raw();
         inputs.Passes.UIComposite = PostProcessPasses.UIComposite.Raw();
         inputs.Passes.Final = PostProcessPasses.Final.Raw();
-
-        inputs.Runtime.Renderer = &data.Settings;
-        inputs.Runtime.PostProcess = &data.PostProcess;
-        inputs.Runtime.Snow = &data.Snow;
-        inputs.Runtime.Fog = &data.Fog;
-        inputs.Runtime.Precipitation = &data.Precipitation;
 
         return inputs;
     }
@@ -1427,145 +1844,6 @@ namespace OloEngine
         SceneCompositePasses.OITResolve->SetName("OITResolvePass");
         SceneCompositePasses.OITResolve->Init(finalPassSpec);
         // Input binding deferred to per-frame handoff in EndScene().
-    }
-
-    void Renderer3D::RenderPipeline::CreateRenderStreamNodes(Renderer3DData& data)
-    {
-        auto* const rendererData = &data;
-        auto* const pipeline = this;
-
-        StreamNodes.Geometry = FrameCorePasses.Scene.As<CommandBufferRenderPass>();
-        OLO_CORE_ASSERT(StreamNodes.Geometry, "RenderPipeline::CreateRenderStreamNodes requires ScenePass to be bucket-backed");
-        FrameCorePasses.Scene->SetSetupCallback(
-            [rendererData](RGBuilder& builder, FrameBlackboard& board)
-            {
-                if (board.ShadowMapCSM.IsValid())
-                {
-                    [[maybe_unused]] const auto shadowCSMRead = builder.Read(board.ShadowMapCSM, RGReadUsage::ShaderSample);
-                }
-                if (board.ShadowMapSpot.IsValid())
-                {
-                    [[maybe_unused]] const auto shadowSpotRead = builder.Read(board.ShadowMapSpot, RGReadUsage::ShaderSample);
-                }
-
-                for (const auto& pointHandle : board.ShadowMapPoint)
-                {
-                    if (pointHandle.IsValid())
-                    {
-                        [[maybe_unused]] const auto pointRead = builder.Read(pointHandle, RGReadUsage::ShaderSample);
-                    }
-                }
-
-                if (board.SceneDepth.IsValid())
-                    builder.Write(board.SceneDepth, RGWriteUsage::DepthStencil);
-                if (board.Velocity.IsValid())
-                    builder.Write(board.Velocity, RGWriteUsage::RenderTarget);
-
-                if (rendererData->Settings.Path == RenderingPath::Deferred)
-                {
-                    if (board.GBufferAlbedo.IsValid())
-                        builder.Write(board.GBufferAlbedo, RGWriteUsage::RenderTarget);
-                    if (board.GBufferNormal.IsValid())
-                        builder.Write(board.GBufferNormal, RGWriteUsage::RenderTarget);
-                    if (board.GBufferEmissive.IsValid())
-                        builder.Write(board.GBufferEmissive, RGWriteUsage::RenderTarget);
-                }
-                else if (board.SceneColor.IsValid())
-                {
-                    builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
-                }
-            });
-
-        StreamNodes.ForwardOverlay = RenderStreamPasses.ForwardOverlay.As<CommandBufferRenderPass>();
-        OLO_CORE_ASSERT(StreamNodes.ForwardOverlay, "RenderPipeline::CreateRenderStreamNodes requires ForwardOverlayPass to be bucket-backed");
-        RenderStreamPasses.ForwardOverlay->SetSetupCallback(
-            [rendererData, pipeline](RGBuilder& builder, FrameBlackboard& board)
-            {
-                if (rendererData->Settings.Path != RenderingPath::Deferred)
-                    return;
-                if (!pipeline->RenderStreamPasses.ForwardOverlay ||
-                    pipeline->RenderStreamPasses.ForwardOverlay->GetCommandBucket().GetCommandCount() == 0)
-                    return;
-
-                if (board.SceneColor.IsValid())
-                    builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
-            });
-
-        StreamNodes.Foliage = RenderStreamPasses.Foliage.As<CommandBufferRenderPass>();
-        OLO_CORE_ASSERT(StreamNodes.Foliage, "RenderPipeline::CreateRenderStreamNodes requires FoliagePass to be bucket-backed");
-        RenderStreamPasses.Foliage->SetSetupCallback(
-            [pipeline](RGBuilder& builder, FrameBlackboard& board)
-            {
-                if (!pipeline->RenderStreamPasses.Foliage ||
-                    pipeline->RenderStreamPasses.Foliage->GetCommandBucket().GetCommandCount() == 0)
-                    return;
-
-                if (board.SceneColor.IsValid())
-                    builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
-            });
-
-        StreamNodes.Water = RenderStreamPasses.Water.As<CommandBufferRenderPass>();
-        OLO_CORE_ASSERT(StreamNodes.Water, "RenderPipeline::CreateRenderStreamNodes requires WaterPass to be bucket-backed");
-        RenderStreamPasses.Water->SetSetupCallback(
-            [pipeline](RGBuilder& builder, FrameBlackboard& board)
-            {
-                if (!pipeline->RenderStreamPasses.Water ||
-                    pipeline->RenderStreamPasses.Water->GetCommandBucket().GetCommandCount() == 0)
-                    return;
-
-                if (board.SceneColor.IsValid())
-                {
-                    builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
-                }
-
-                if (const auto sceneTarget = pipeline->FrameCorePasses.Scene ? pipeline->FrameCorePasses.Scene->GetTarget() : nullptr;
-                    sceneTarget)
-                {
-                    const auto& sceneTargetSpec = sceneTarget->GetSpecification();
-                    if (sceneTargetSpec.Width > 0 && sceneTargetSpec.Height > 0)
-                    {
-                        RGResourceDesc refrDesc;
-                        refrDesc.Kind = ResourceHandle::Kind::Texture2D;
-                        refrDesc.Format = RGResourceFormat::RGBA16Float;
-                        refrDesc.Width = sceneTargetSpec.Width;
-                        refrDesc.Height = sceneTargetSpec.Height;
-                        const auto refrHandle = builder.CreateTexture("WaterRefraction", refrDesc);
-                        builder.Write(refrHandle, RGWriteUsage::ShaderImage);
-                        [[maybe_unused]] const auto refrRead = builder.Read(refrHandle, RGReadUsage::ShaderSample);
-                    }
-                }
-            });
-
-        StreamNodes.Decal = RenderStreamPasses.Decal.As<CommandBufferRenderPass>();
-        OLO_CORE_ASSERT(StreamNodes.Decal, "RenderPipeline::CreateRenderStreamNodes requires DecalPass to be bucket-backed");
-        RenderStreamPasses.Decal->SetSetupCallback(
-            [rendererData, pipeline](RGBuilder& builder, FrameBlackboard& board)
-            {
-                if (!pipeline->RenderStreamPasses.Decal ||
-                    pipeline->RenderStreamPasses.Decal->GetCommandBucket().GetCommandCount() == 0)
-                    return;
-
-                const bool oitEnabled = (rendererData->Settings.Path == RenderingPath::Deferred) &&
-                                        rendererData->Settings.Deferred.OITEnabled;
-
-                if (oitEnabled)
-                {
-                    if (board.OITAccum.IsValid())
-                    {
-                        [[maybe_unused]] const auto oitAccumRead = builder.Read(board.OITAccum, RGReadUsage::RenderTargetRead);
-                        builder.Write(board.OITAccum, RGWriteUsage::RenderTarget);
-                    }
-                    if (board.OITRevealage.IsValid())
-                    {
-                        [[maybe_unused]] const auto oitRevealageRead = builder.Read(board.OITRevealage, RGReadUsage::RenderTargetRead);
-                        builder.Write(board.OITRevealage, RGWriteUsage::RenderTarget);
-                    }
-                }
-                else if (board.SceneColor.IsValid())
-                {
-                    builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
-                }
-            });
     }
 
     void Renderer3D::RenderPipeline::CreatePostProcessPasses(const FramebufferSpecification& finalPassSpec)

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -14,8 +14,8 @@ namespace OloEngine
     //   AOApply/Bloom/DOF -> MotionBlur -> TAA -> Precipitation -> Fog -> ...
     //
     // Inputs:
-    //   * Input framebuffer handle (typically PostProcessColor), resolved from the blackboard
-    //   * Scene depth texture handle (required), resolved from the blackboard
+    //   * Input framebuffer handle (typically PostProcessColor), selected during `Setup()`
+    //   * Scene depth texture handle (required), selected during `Setup()`
     //   * MotionBlurUBO (binding 8), uploaded by Renderer3D
     //
     // Output:
@@ -23,20 +23,19 @@ namespace OloEngine
     //
     // Passthrough semantics: when disabled, the pass no-ops and GetTarget()
     // returns the input framebuffer.
-    class MotionBlurRenderPass : public RenderPass
+    class MotionBlurRenderPass : public RenderGraphNode
     {
       public:
         MotionBlurRenderPass();
         ~MotionBlurRenderPass() override = default;
 
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] SubmissionModel GetSubmissionModel() const override
         {
             return SubmissionModel::ImmediateOnly;
         }
-        [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
@@ -55,6 +54,11 @@ namespace OloEngine
             m_MotionBlurUBO = ubo;
         }
 
+        [[nodiscard]] bool IsReadyForExecution() const noexcept
+        {
+            return m_MotionBlurShader && m_MotionBlurShader->IsReady() && m_MotionBlurUBO;
+        }
+
       private:
         void CreateFramebuffer(u32 width, u32 height);
 
@@ -63,5 +67,6 @@ namespace OloEngine
 
         Ref<Shader> m_MotionBlurShader;
         Ref<UniformBuffer> m_MotionBlurUBO;
+        RGTextureHandle m_SelectedSceneDepthTexture{};
     };
 } // namespace OloEngine

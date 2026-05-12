@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -19,20 +19,19 @@ namespace OloEngine
     // Operates in HDR space on the post-AO/Bloom/DOF/MotionBlur/TAA/Fog output.
     // Passthrough when `Enabled` is false; `GetTarget()` returns the input
     // framebuffer so downstream stages see the unmodified source.
-    class ChromaticAberrationRenderPass : public RenderPass
+    class ChromaticAberrationRenderPass : public RenderGraphNode
     {
       public:
         ChromaticAberrationRenderPass();
         ~ChromaticAberrationRenderPass() override = default;
 
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] SubmissionModel GetSubmissionModel() const override
         {
             return SubmissionModel::ImmediateOnly;
         }
-        [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
@@ -49,6 +48,11 @@ namespace OloEngine
         void SetPostProcessUBO(const Ref<UniformBuffer>& ubo) noexcept
         {
             m_PostProcessUBO = ubo;
+        }
+
+        [[nodiscard]] bool IsReadyForExecution() const noexcept
+        {
+            return m_Shader && m_Shader->IsReady() && m_PostProcessUBO;
         }
 
       private:

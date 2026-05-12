@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
@@ -20,6 +21,41 @@ namespace OloEngine
         SetName("PrecipitationPass");
     }
 
+    void PrecipitationRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+
+        (void)blackboard;
+        [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(
+            builder,
+            this,
+            {
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::TAAColor, ResourceNames::TAAColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::MotionBlurColor, ResourceNames::MotionBlurColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::DOFColor, ResourceNames::DOFColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::BloomColor, ResourceNames::BloomColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::PostProcessColor, ResourceNames::PostProcessColorTexture),
+            });
+
+        if (!m_Enabled)
+            return;
+
+        if (blackboard.PrecipitationColor.IsValid())
+        {
+            constexpr std::string_view precipitationVersionTag = "PrecipitationPass";
+            const auto outputHandle = builder.WriteNewVersion(blackboard.PrecipitationColor, RGWriteUsage::RenderTarget, precipitationVersionTag);
+            if (!outputHandle.IsValid())
+                return;
+
+            SetPrimaryOutputFramebufferHandle(outputHandle);
+            SetPrimaryOutputTextureHandle(
+                builder.CreateFramebufferAttachmentView(std::string(ResourceNames::PrecipitationColorTexture) + "@" +
+                                                            std::string(precipitationVersionTag),
+                                                        outputHandle,
+                                                        0u));
+        }
+    }
+
     void PrecipitationRenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
@@ -31,9 +67,6 @@ namespace OloEngine
         m_PrecipitationShader = Shader::Create("assets/shaders/PostProcess_Precipitation.glsl");
         m_PrecipitationScreenUBO = UniformBuffer::Create(
             PrecipitationScreenUBOData::GetSize(), ShaderBindingLayout::UBO_PRECIPITATION_SCREEN);
-
-        DeclareRead(ResourceNames::TAAColor, ResourceHandle::Kind::Framebuffer);
-        DeclareWrite(ResourceNames::PrecipitationColor, ResourceHandle::Kind::Framebuffer);
 
         OLO_CORE_INFO("PrecipitationRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
     }
@@ -50,44 +83,25 @@ namespace OloEngine
         m_Target = nullptr;
     }
 
-    void PrecipitationRenderPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
-    }
-
     void PrecipitationRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Phase F slice 44 — self-resolving input framebuffer from the render-graph
-        // blackboard. Preference chain: TAA > MotionBlur > DOF > Bloom > PostProcess.
-        const auto* board = context.GetBlackboard();
         Ref<Framebuffer> inputFramebuffer;
-        Ref<Framebuffer> outputFramebuffer;
-        if (board)
+        u32 inputColorTextureID = 0u;
+        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
         {
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->TAAColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->MotionBlurColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->DOFColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->BloomColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->PostProcessColor))
-                    inputFramebuffer = fb;
+            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
+                inputFramebuffer = resolvedInput;
+        }
+        if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
+            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
 
-            if (board->PrecipitationColor.IsValid())
-            {
-                if (auto resolvedOutput = context.ResolveFramebuffer(board->PrecipitationColor))
-                    outputFramebuffer = resolvedOutput;
-            }
+        Ref<Framebuffer> outputFramebuffer;
+        if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
+        {
+            if (auto resolvedOutput = context.ResolveFramebuffer(outputHandle))
+                outputFramebuffer = resolvedOutput;
         }
         if (!m_Enabled)
         {
@@ -95,7 +109,7 @@ namespace OloEngine
             return;
         }
 
-        if (!board || !inputFramebuffer || !outputFramebuffer || !m_PrecipitationShader || !m_PrecipitationScreenUBO)
+        if (!inputFramebuffer || inputColorTextureID == 0u || !outputFramebuffer || !m_PrecipitationShader || !m_PrecipitationScreenUBO)
         {
             m_Target = nullptr;
             return;
@@ -124,8 +138,7 @@ namespace OloEngine
 
         m_PrecipitationShader->Bind();
 
-        const u32 srcColorID = inputFramebuffer->GetColorAttachmentRendererID(0);
-        context.BindTexture(0, srcColorID);
+        context.BindTexture(0, inputColorTextureID);
         m_PrecipitationShader->SetInt("u_Texture", 0);
 
         {
@@ -147,13 +160,6 @@ namespace OloEngine
 
         context.SetDepthMask(true);
         outputFramebuffer->Unbind();
-    }
-
-    Ref<Framebuffer> PrecipitationRenderPass::GetTarget() const
-    {
-        if (!m_Target)
-            return nullptr;
-        return m_Target;
     }
 
     void PrecipitationRenderPass::SetupFramebuffer(u32 width, u32 height)

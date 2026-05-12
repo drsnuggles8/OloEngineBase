@@ -1,10 +1,14 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
+#include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+
+#include <glad/gl.h>
+
 #include <array>
 #include <random>
 
@@ -13,6 +17,48 @@ namespace OloEngine
     SSAORenderPass::SSAORenderPass()
     {
         SetName("SSAOPass");
+    }
+
+    void SSAORenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+        m_SelectedSceneDepthTexture = {};
+        m_SelectedSceneNormalsTexture = {};
+        m_SelectedAOOutputTexture = {};
+        m_SelectedBlurFramebuffer = {};
+
+        if (!m_Settings.SSAOEnabled || m_Settings.ActiveAOTechnique != AOTechnique::SSAO)
+            return;
+
+        if (blackboard.SceneDepth.IsValid())
+        {
+            m_SelectedSceneDepthTexture = blackboard.SceneDepth;
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.SceneDepth, RGReadUsage::ShaderSample);
+        }
+        if (blackboard.SceneNormals.IsValid())
+        {
+            m_SelectedSceneNormalsTexture = blackboard.SceneNormals;
+            [[maybe_unused]] const auto sceneNormalsRead = builder.Read(blackboard.SceneNormals, RGReadUsage::ShaderSample);
+        }
+        if (blackboard.AOBuffer.IsValid())
+        {
+            m_SelectedAOOutputTexture = blackboard.AOBuffer;
+            builder.Write(blackboard.AOBuffer, RGWriteUsage::RenderTarget);
+        }
+
+        if (blackboard.SSAORaw.IsValid())
+        {
+            SetPrimaryOutputFramebufferHandle(blackboard.SSAORaw);
+            builder.AllowFeedback(blackboard.SSAORaw);
+            builder.Write(blackboard.SSAORaw, RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto rawRead = builder.Read(blackboard.SSAORaw, RGReadUsage::RenderTargetRead);
+        }
+
+        if (blackboard.SSAOBlur.IsValid())
+        {
+            m_SelectedBlurFramebuffer = blackboard.SSAOBlur;
+            builder.Write(blackboard.SSAOBlur, RGWriteUsage::RenderTarget);
+        }
     }
 
     SSAORenderPass::~SSAORenderPass()
@@ -32,8 +78,6 @@ namespace OloEngine
         m_HalfWidth = std::max(1u, spec.Width / 2);
         m_HalfHeight = std::max(1u, spec.Height / 2);
 
-        CreateSSAOFramebuffers(m_HalfWidth, m_HalfHeight);
-
         // Load SSAO shaders
         m_SSAOShader = Shader::Create("assets/shaders/SSAO.glsl");
         m_SSAOBlurShader = Shader::Create("assets/shaders/SSAO_Blur.glsl");
@@ -41,32 +85,7 @@ namespace OloEngine
         // Create 4x4 noise texture for random rotation
         CreateNoiseTexture();
 
-        // Resource-aware RDG: SSAO reads scene depth/normals and writes AOBuffer
-        // consumed later by AOApplyPass. This allows the validator to derive
-        // SSAOPass -> AOApplyPass ordering via RAW on AOBuffer.
-        DeclareRead(ResourceNames::SceneDepth, ResourceHandle::Kind::Texture2D);
-        DeclareRead(ResourceNames::SceneNormals, ResourceHandle::Kind::Texture2D);
-        DeclareWrite(ResourceNames::AOBuffer, ResourceHandle::Kind::Texture2D);
-
         OLO_CORE_INFO("SSAORenderPass: Initialized with half-res {}x{}", m_HalfWidth, m_HalfHeight);
-    }
-
-    void SSAORenderPass::CreateSSAOFramebuffers(u32 width, u32 height)
-    {
-        OLO_PROFILE_FUNCTION();
-
-        if (width == 0 || height == 0)
-        {
-            return;
-        }
-
-        FramebufferSpecification ssaoSpec;
-        ssaoSpec.Width = width;
-        ssaoSpec.Height = height;
-        ssaoSpec.Samples = 1;
-        ssaoSpec.Attachments = { FramebufferTextureFormat::RG16F };
-
-        m_BlurFramebuffer = Framebuffer::Create(ssaoSpec);
     }
 
     void SSAORenderPass::CreateNoiseTexture()
@@ -93,17 +112,13 @@ namespace OloEngine
         RenderCommand::SetTextureParameter(m_NoiseTexture, GL_TEXTURE_WRAP_T, GL_REPEAT);
     }
 
-    void SSAORenderPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
-    }
-
     void SSAORenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_Settings.SSAOEnabled || m_Settings.ActiveAOTechnique != AOTechnique::SSAO || !m_SSAOShader || !m_SSAOBlurShader || !m_BlurFramebuffer)
+        m_Target = nullptr;
+
+        if (!m_Settings.SSAOEnabled || m_Settings.ActiveAOTechnique != AOTechnique::SSAO || !IsReadyForExecution())
         {
             return;
         }
@@ -113,12 +128,14 @@ namespace OloEngine
         // side-channel setter calls are needed from EndScene().
         u32 depthID = 0;
         u32 normalsID = 0;
-        if (const auto* board = context.GetBlackboard())
-        {
-            depthID = context.ResolveTexture(board->SceneDepth);
-            normalsID = context.ResolveTexture(board->SceneNormals);
-        }
-        if (depthID == 0 || normalsID == 0)
+        u32 aoOutputTexID = 0;
+        if (m_SelectedSceneDepthTexture.IsValid())
+            depthID = context.ResolveTexture(m_SelectedSceneDepthTexture);
+        if (m_SelectedSceneNormalsTexture.IsValid())
+            normalsID = context.ResolveTexture(m_SelectedSceneNormalsTexture);
+        if (m_SelectedAOOutputTexture.IsValid())
+            aoOutputTexID = context.ResolveTexture(m_SelectedAOOutputTexture);
+        if (depthID == 0 || normalsID == 0 || aoOutputTexID == 0)
         {
             return;
         }
@@ -128,16 +145,21 @@ namespace OloEngine
         // graph-owned scratch target; the owned fallback framebuffer has been
         // retired.
         Ref<Framebuffer> rawFB;
-        if (const auto* board = context.GetBlackboard(); board && board->SSAORaw.IsValid())
-            rawFB = context.ResolveFramebuffer(board->SSAORaw);
-        if (!rawFB)
+        if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
+            rawFB = context.ResolveFramebuffer(outputHandle);
+        Ref<Framebuffer> blurFB;
+        if (m_SelectedBlurFramebuffer.IsValid())
+            blurFB = context.ResolveFramebuffer(m_SelectedBlurFramebuffer);
+        if (!rawFB || !blurFB)
             return;
+
+        m_Target = blurFB;
 
         {
             static u32 s_PrevDepthID = 0;
             static u32 s_PrevNormalsID = 0;
             static u32 s_PrevAOID = 0;
-            const u32 aoID = m_BlurFramebuffer ? m_BlurFramebuffer->GetColorAttachmentRendererID(0) : 0;
+            const u32 aoID = aoOutputTexID;
             if (depthID != s_PrevDepthID || normalsID != s_PrevNormalsID || aoID != s_PrevAOID)
             {
                 OLO_CORE_INFO("SSAORenderPass: inputs depthTex={}, normalsTex={}, outputAOTex={} ({}x{})",
@@ -184,7 +206,7 @@ namespace OloEngine
         rawFB->Unbind();
 
         // --- Pass 2: Bilateral blur ---
-        m_BlurFramebuffer->Bind();
+        blurFB->Bind();
         context.SetViewport(0, 0, m_HalfWidth, m_HalfHeight);
         context.SetClearColor({ 1.0f, 1.0f, 1.0f, 1.0f });
         context.Clear();
@@ -201,7 +223,16 @@ namespace OloEngine
         context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
 
         DrawFullscreenTriangle();
-        m_BlurFramebuffer->Unbind();
+        blurFB->Unbind();
+
+        const u32 blurredAOTextureID = blurFB->GetColorAttachmentRendererID(0);
+        if (blurredAOTextureID != 0 && blurredAOTextureID != aoOutputTexID)
+        {
+            glCopyImageSubData(
+                blurredAOTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
+                aoOutputTexID, GL_TEXTURE_2D, 0, 0, 0, 0,
+                static_cast<GLsizei>(m_HalfWidth), static_cast<GLsizei>(m_HalfHeight), 1);
+        }
 
         // Restore full-res viewport (will be set by next pass anyway, but be clean)
         context.SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
@@ -212,20 +243,6 @@ namespace OloEngine
         auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
         RenderCommand::DrawIndexed(va);
-    }
-
-    u32 SSAORenderPass::GetSSAOTextureID() const
-    {
-        if (!m_Settings.SSAOEnabled || !m_BlurFramebuffer)
-        {
-            return 0;
-        }
-        return m_BlurFramebuffer->GetColorAttachmentRendererID(0);
-    }
-
-    Ref<Framebuffer> SSAORenderPass::GetTarget() const
-    {
-        return m_BlurFramebuffer;
     }
 
     void SSAORenderPass::SetupFramebuffer(u32 width, u32 height)
@@ -241,15 +258,7 @@ namespace OloEngine
         m_FramebufferSpec.Height = height;
         m_HalfWidth = std::max(1u, width / 2);
         m_HalfHeight = std::max(1u, height / 2);
-
-        if (!m_BlurFramebuffer)
-        {
-            CreateSSAOFramebuffers(m_HalfWidth, m_HalfHeight);
-        }
-        else
-        {
-            m_BlurFramebuffer->Resize(m_HalfWidth, m_HalfHeight);
-        }
+        m_Target = nullptr;
     }
 
     void SSAORenderPass::ResizeFramebuffer(u32 width, u32 height)
@@ -265,15 +274,15 @@ namespace OloEngine
         m_FramebufferSpec.Height = height;
         m_HalfWidth = std::max(1u, width / 2);
         m_HalfHeight = std::max(1u, height / 2);
-
-        if (m_BlurFramebuffer)
-        {
-            m_BlurFramebuffer->Resize(m_HalfWidth, m_HalfHeight);
-        }
+        m_Target = nullptr;
     }
 
     void SSAORenderPass::OnReset()
     {
-        // Nothing to reset per-frame
+        m_SelectedSceneDepthTexture = {};
+        m_SelectedSceneNormalsTexture = {};
+        m_SelectedAOOutputTexture = {};
+        m_SelectedBlurFramebuffer = {};
+        m_Target = nullptr;
     }
 } // namespace OloEngine

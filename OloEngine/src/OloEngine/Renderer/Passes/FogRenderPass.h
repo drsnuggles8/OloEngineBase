@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -24,10 +24,11 @@ namespace OloEngine
     //   Pass B — bilateral upsample + composite onto the full-resolution
     //            scene colour input.
     //
-    // The pass owns only the persistent temporal-history storage imported next
-    // frame as `FogHistory`. The current-frame full-resolution composite
+    // The pass uses renderer-owned persistent temporal-history storage imported
+    // next frame as `FogHistory`. The current-frame full-resolution composite
     // (`FogColor`) and half-resolution integration scratch (`FogHalfRes`) are
-    // graph-owned framebuffers resolved from the frame blackboard.
+    // graph-owned framebuffers selected during `Setup()` and resolved later in
+    // `Execute()`.
     //
     // Required bindings:
     //   * `PostProcessUBO`       (UBO binding 7) — re-bound at Execute start.
@@ -38,20 +39,19 @@ namespace OloEngine
     // `GetTarget()` returns the input framebuffer. Renderer3D skips importing
     // `FogColor` into the blackboard when fog is disabled, so graph consumers
     // fall back to `PostProcessColor` automatically.
-    class FogRenderPass : public RenderPass
+    class FogRenderPass : public RenderGraphNode
     {
       public:
         FogRenderPass();
         ~FogRenderPass() override = default;
 
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] SubmissionModel GetSubmissionModel() const override
         {
             return SubmissionModel::ImmediateOnly;
         }
-        [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
@@ -65,25 +65,23 @@ namespace OloEngine
             return m_Enabled;
         }
 
+        [[nodiscard]] bool IsReadyForExecution() const noexcept
+        {
+            return m_FogShader && m_FogShader->IsReady() &&
+                   m_FogUpsampleShader && m_FogUpsampleShader->IsReady() &&
+                   m_PostProcessUBO;
+        }
+
         void SetPostProcessUBO(const Ref<UniformBuffer>& ubo) noexcept
         {
             m_PostProcessUBO = ubo;
         }
 
-        // Returns the GL texture ID of the persistent fog history texture.
-        // Used by RenderPipeline::PopulateBlackboard(...) to import
-        // `FogHistory` into the blackboard so the fog shader can read it
-        // next frame.
-        // Returns 0 until a valid history frame has been written back.
-        [[nodiscard]] u32 GetFogHistoryTextureID() const;
-
       private:
         void CreateFramebuffers(u32 width, u32 height);
-        void StoreHistoryTexture(u32 textureID);
 
         bool m_Enabled = false;
 
-        Ref<Framebuffer> m_FogHistoryFB; // persistent temporal history for next-frame reprojection
         u32 m_FogHalfWidth = 0;
         u32 m_FogHalfHeight = 0;
 
@@ -91,6 +89,9 @@ namespace OloEngine
         Ref<Shader> m_FogUpsampleShader; // Pass B: bilateral upsample + composite
 
         Ref<UniformBuffer> m_PostProcessUBO;
-        bool m_FogHistoryValid = false;
+        RGFramebufferHandle m_SelectedFogHalfResFramebuffer{};
+        RGTextureHandle m_SelectedFogHistoryTexture{};
+        RGTextureHandle m_SelectedSceneDepthTexture{};
+        RGTextureHandle m_SelectedShadowCSMTexture{};
     };
 } // namespace OloEngine

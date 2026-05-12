@@ -25,8 +25,7 @@ namespace OloEngine
         DecalRenderPass();
         ~DecalRenderPass() override = default;
 
-        void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] SubmissionModel GetSubmissionModel() const override
         {
@@ -75,6 +74,8 @@ namespace OloEngine
 
       private:
         Ref<Framebuffer> m_SceneFramebuffer;
+        RGFramebufferHandle m_SelectedOITFramebuffer;
+        RGTextureHandle m_SelectedSceneDepthTexture;
 
         Ref<Shader> m_OITShader;
         bool m_OITEnabled = false;

@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
 #include <glad/gl.h>
@@ -16,6 +17,54 @@ namespace OloEngine
     BloomRenderPass::BloomRenderPass()
     {
         SetName("BloomPass");
+    }
+
+    void BloomRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+        m_SelectedBloomMipFramebuffers.fill({});
+
+        // Resolve upstream producer by base name: take the latest versioned
+        // output of any candidate upstream that ran this frame, else fall
+        // through to the canonical blackboard imports. The graph derives
+        // the ordering edge automatically from the Read on the versioned
+        // texture, so no typed pass-pointer setter is needed.
+        (void)blackboard;
+        [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(
+            builder,
+            this,
+            {
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::AOApplyColor, ResourceNames::AOApplyColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SSSColor, ResourceNames::SSSColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::PostProcessColor, ResourceNames::PostProcessColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SceneColor, ResourceNames::SceneColorTexture),
+            });
+
+        if (!m_Enabled || !blackboard.BloomColor.IsValid())
+            return;
+
+        constexpr std::string_view bloomVersionTag = "BloomPass";
+        const auto outputHandle = builder.WriteNewVersion(blackboard.BloomColor, RGWriteUsage::RenderTarget, bloomVersionTag);
+        if (!outputHandle.IsValid())
+            return;
+
+        SetPrimaryOutputFramebufferHandle(outputHandle);
+        SetPrimaryOutputTextureHandle(
+            builder.CreateFramebufferAttachmentView(std::string(ResourceNames::BloomColorTexture) + "@" +
+                                                        std::string(bloomVersionTag),
+                                                    outputHandle,
+                                                    0u));
+
+        for (u32 i = 0; i < MAX_BLOOM_MIPS; ++i)
+        {
+            if (!blackboard.BloomMips[i].IsValid())
+                break;
+
+            m_SelectedBloomMipFramebuffers[i] = blackboard.BloomMips[i];
+            builder.AllowFeedback(blackboard.BloomMips[i]);
+            builder.Write(blackboard.BloomMips[i], RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto mipRead = builder.Read(blackboard.BloomMips[i], RGReadUsage::RenderTargetRead);
+        }
     }
 
     void BloomRenderPass::Init(const FramebufferSpecification& spec)
@@ -30,9 +79,6 @@ namespace OloEngine
         m_BloomDownsampleShader = Shader::Create("assets/shaders/PostProcess_BloomDownsample.glsl");
         m_BloomUpsampleShader = Shader::Create("assets/shaders/PostProcess_BloomUpsample.glsl");
         m_BloomCompositeShader = Shader::Create("assets/shaders/PostProcess_BloomComposite.glsl");
-
-        DeclareRead(ResourceNames::PostProcessColor, ResourceHandle::Kind::Framebuffer);
-        DeclareWrite(ResourceNames::BloomColor, ResourceHandle::Kind::Framebuffer);
 
         OLO_CORE_INFO("BloomRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
     }
@@ -51,45 +97,25 @@ namespace OloEngine
         m_Target = nullptr;
     }
 
-    void BloomRenderPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
-    }
-
     void BloomRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Phase F slice 43 — self-resolving input framebuffer from the render-graph
-        // blackboard. Prefer the direct upstream chain and only then the
-        // PostProcess alias, so bloom remains robust if alias wiring lags a
-        // frame during resize/toggle churn.
         Ref<Framebuffer> inputFramebuffer;
-        Ref<Framebuffer> outputFramebuffer;
-        if (const auto* board = context.GetBlackboard())
+        u32 inputColorTextureID = 0u;
+        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
         {
-            auto tryResolveValid = [&](const auto& handle)
-            {
-                if (inputFramebuffer || !handle.IsValid())
-                    return;
-                if (auto fb = context.ResolveFramebuffer(handle))
-                {
-                    if (fb->GetColorAttachmentRendererID(0) != 0)
-                        inputFramebuffer = fb;
-                }
-            };
+            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
+                inputFramebuffer = resolvedInput;
+        }
+        if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
+            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
 
-            tryResolveValid(board->AOApplyColor);
-            tryResolveValid(board->SSSColor);
-            tryResolveValid(board->PostProcessColor);
-            tryResolveValid(board->SceneColor);
-
-            if (board->BloomColor.IsValid())
-            {
-                if (auto fb = context.ResolveFramebuffer(board->BloomColor))
-                    outputFramebuffer = fb;
-            }
+        Ref<Framebuffer> outputFramebuffer;
+        if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
+        {
+            if (auto fb = context.ResolveFramebuffer(outputHandle))
+                outputFramebuffer = fb;
         }
 
         if (!m_Enabled)
@@ -106,18 +132,15 @@ namespace OloEngine
         u32 bloomMipCount = 0;
         u32 bloomMipHandleCount = 0;
         u32 bloomMipResolvedCount = 0;
-        if (const auto* board = context.GetBlackboard())
+        for (u32 i = 0; i < MAX_BLOOM_MIPS; ++i)
         {
-            for (u32 i = 0; i < MAX_BLOOM_MIPS; ++i)
+            if (m_SelectedBloomMipFramebuffers[i].IsValid())
             {
-                if (board->BloomMips[i].IsValid())
+                ++bloomMipHandleCount;
+                if (auto fb = context.ResolveFramebuffer(m_SelectedBloomMipFramebuffers[i]))
                 {
-                    ++bloomMipHandleCount;
-                    if (auto fb = context.ResolveFramebuffer(board->BloomMips[i]))
-                    {
-                        bloomMips[i] = fb;
-                        ++bloomMipResolvedCount;
-                    }
+                    bloomMips[i] = fb;
+                    ++bloomMipResolvedCount;
                 }
             }
         }
@@ -136,7 +159,7 @@ namespace OloEngine
         constexpr u32 FAIL_NO_SHADERS = 1u << 3u;
 
         u32 failureMask = 0;
-        if (!inputFramebuffer)
+        if (!inputFramebuffer || inputColorTextureID == 0u)
             failureMask |= FAIL_NO_INPUT;
         if (!outputFramebuffer)
             failureMask |= FAIL_NO_OUTPUT;
@@ -149,9 +172,10 @@ namespace OloEngine
         {
             if (m_LastFailureMask != failureMask)
             {
-                OLO_CORE_ERROR("BloomRenderPass: prerequisites missing (mask=0x{:x}, inputFB={}, outputFB={}, mipCount={}, mipHandlesValid={}, mipResolved={}, shadersReady={})",
+                OLO_CORE_ERROR("BloomRenderPass: prerequisites missing (mask=0x{:x}, inputFB={}, inputTex={}, outputFB={}, mipCount={}, mipHandlesValid={}, mipResolved={}, shadersReady={})",
                                failureMask,
                                inputFramebuffer ? inputFramebuffer->GetRendererID() : 0u,
+                               inputColorTextureID,
                                outputFramebuffer ? outputFramebuffer->GetRendererID() : 0u,
                                bloomMipCount,
                                bloomMipHandleCount,
@@ -171,7 +195,7 @@ namespace OloEngine
             static u32 s_PrevInputTex = 0;
             const u32 inputFB = inputFramebuffer->GetRendererID();
             const u32 outputFB = outputFramebuffer->GetRendererID();
-            const u32 inputTex = inputFramebuffer->GetColorAttachmentRendererID(0);
+            const u32 inputTex = inputColorTextureID;
             if (inputFB != s_PrevInputFB || outputFB != s_PrevOutputFB || inputTex != s_PrevInputTex)
             {
                 OLO_CORE_TRACE("BloomRenderPass: inputFB={} outputFB={} inputTex={} mipCount={}",
@@ -222,8 +246,7 @@ namespace OloEngine
             context.Clear();
 
             m_BloomThresholdShader->Bind();
-            const u32 srcID = inputFramebuffer->GetColorAttachmentRendererID(0);
-            context.BindTexture(0, srcID);
+            context.BindTexture(0, inputColorTextureID);
             m_BloomThresholdShader->SetInt("u_Texture", 0);
 
             const auto va = MeshPrimitives::GetFullscreenTriangle();
@@ -354,8 +377,7 @@ namespace OloEngine
 
             m_BloomCompositeShader->Bind();
 
-            const u32 sceneColorID = inputFramebuffer->GetColorAttachmentRendererID(0);
-            context.BindTexture(0, sceneColorID);
+            context.BindTexture(0, inputColorTextureID);
             m_BloomCompositeShader->SetInt("u_SceneColor", 0);
 
             const u32 bloomColorID = bloomMips[0]->GetColorAttachmentRendererID(0);
@@ -372,13 +394,6 @@ namespace OloEngine
         const auto& outputSpec = outputFramebuffer->GetSpecification();
         context.SetViewport(0, 0, outputSpec.Width, outputSpec.Height);
         context.SetDepthMask(true);
-    }
-
-    Ref<Framebuffer> BloomRenderPass::GetTarget() const
-    {
-        if (!m_Target)
-            return nullptr;
-        return m_Target;
     }
 
     void BloomRenderPass::SetupFramebuffer(u32 width, u32 height)
@@ -419,5 +434,6 @@ namespace OloEngine
 
         m_Target = nullptr;
         m_LastFailureMask = 0;
+        m_SelectedBloomMipFramebuffers.fill({});
     }
 } // namespace OloEngine

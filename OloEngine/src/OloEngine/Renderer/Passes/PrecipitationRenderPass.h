@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -31,20 +31,19 @@ namespace OloEngine
     //
     // Passthrough semantics: when disabled the pass no-ops and GetTarget()
     // returns the input framebuffer so downstream stages fall back naturally.
-    class PrecipitationRenderPass : public RenderPass
+    class PrecipitationRenderPass : public RenderGraphNode
     {
       public:
         PrecipitationRenderPass();
         ~PrecipitationRenderPass() override = default;
 
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] SubmissionModel GetSubmissionModel() const override
         {
             return SubmissionModel::ImmediateOnly;
         }
-        [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
@@ -56,6 +55,11 @@ namespace OloEngine
         [[nodiscard]] bool IsEnabled() const noexcept
         {
             return m_Enabled;
+        }
+
+        [[nodiscard]] bool IsReadyForExecution() const noexcept
+        {
+            return m_PrecipitationShader && m_PrecipitationShader->IsReady() && m_PrecipitationScreenUBO;
         }
 
       private:

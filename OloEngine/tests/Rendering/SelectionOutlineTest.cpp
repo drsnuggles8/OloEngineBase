@@ -3,7 +3,7 @@
 
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/RenderGraph.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 
 #include <glm/glm.hpp>
@@ -15,7 +15,7 @@ using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 // Minimal Stub RenderPass (no GL)
 // =============================================================================
 
-class OutlineStubPass : public RenderPass
+class OutlineStubPass : public RenderGraphNode
 {
   public:
     explicit OutlineStubPass(const std::string& name)
@@ -24,7 +24,7 @@ class OutlineStubPass : public RenderPass
     }
 
     void Init(const FramebufferSpecification& /*spec*/) override {}
-    void Execute() override {}
+    void Execute(RGCommandContext& /*context*/) override {}
     [[nodiscard]] Ref<Framebuffer> GetTarget() const override
     {
         return nullptr;
@@ -38,7 +38,6 @@ static Ref<OutlineStubPass> AddStub(RenderGraph& graph, const std::string& name)
 {
     auto pass = Ref<OutlineStubPass>::Create(name);
     pass->SetName(name);
-    pass->SetSetupCallback([](RGBuilder& /*builder*/, FrameBlackboard& /*blackboard*/) {});
     graph.AddNode(pass.As<RenderGraphNode>());
     return pass;
 }
@@ -140,14 +139,14 @@ TEST(SelectionOutlineGraph, PassInsertedBetweenPostProcessAndUIComposite)
     graph.SetFinalPass("FinalPass");
 
     // Graph should compile and all passes should be retrievable
-    auto retrievedOutline = graph.GetNode<RenderPass>("SelectionOutlinePass");
+    auto retrievedOutline = graph.GetNode<RenderGraphNode>("SelectionOutlinePass");
     ASSERT_NE(retrievedOutline, nullptr);
     EXPECT_EQ(retrievedOutline->GetName(), "SelectionOutlinePass");
 
-    auto retrievedPost = graph.GetNode<RenderPass>("PostProcessPass");
+    auto retrievedPost = graph.GetNode<RenderGraphNode>("PostProcessPass");
     ASSERT_NE(retrievedPost, nullptr);
 
-    auto retrievedUI = graph.GetNode<RenderPass>("UICompositePass");
+    auto retrievedUI = graph.GetNode<RenderGraphNode>("UICompositePass");
     ASSERT_NE(retrievedUI, nullptr);
 }
 

@@ -1,12 +1,13 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 
+#include <array>
 #include <vector>
 
 namespace OloEngine
@@ -29,28 +30,28 @@ namespace OloEngine
     //
     // Output:
     //   * BloomColor (RGBA16F, full-res — composite of scene + bloom glow)
-    //     written through the graph-owned framebuffer resolved from the
-    //     blackboard
+    //     written through the setup-selected graph-owned framebuffer target.
+    //   * BloomMips[0..N] transient scratch framebuffers stored during Setup()
+    //     and resolved in Execute() without replaying blackboard selection.
     //
     // Passthrough semantics: when disabled, the pass no-ops and GetTarget()
     // returns the input framebuffer directly (no copy). When bloom is not
     // executable for the current frame, the graph omits BloomColor so
     // downstream stages keep reading the upstream post-process source instead
     // of relying on a runtime fallback blit.
-    class BloomRenderPass : public RenderPass
+    class BloomRenderPass : public RenderGraphNode
     {
       public:
         BloomRenderPass();
         ~BloomRenderPass() override = default;
 
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] SubmissionModel GetSubmissionModel() const override
         {
             return SubmissionModel::ImmediateOnly;
         }
-        [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
@@ -102,5 +103,7 @@ namespace OloEngine
 
         Ref<UniformBuffer> m_PostProcessUBO;
         PostProcessUBOData* m_GPUData = nullptr;
+
+        std::array<RGFramebufferHandle, MAX_BLOOM_MIPS> m_SelectedBloomMipFramebuffers{};
     };
 } // namespace OloEngine

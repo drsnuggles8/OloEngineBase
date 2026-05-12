@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include <functional>
 
@@ -21,7 +21,7 @@ namespace OloEngine
     //     (accum: GL_ONE/GL_ONE, revealage: GL_ZERO/GL_ONE_MINUS_SRC_COLOR)
     //     and order-independent accumulation. OITResolvePass composites
     //     the result over the scene FB afterwards.
-    class ParticleRenderPass : public RenderPass
+    class ParticleRenderPass : public RenderGraphNode
     {
       public:
         using RenderCallback = std::function<void()>;
@@ -29,8 +29,8 @@ namespace OloEngine
         ParticleRenderPass();
         ~ParticleRenderPass() override = default;
 
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] SubmissionModel GetSubmissionModel() const override
         {
@@ -53,6 +53,7 @@ namespace OloEngine
 
       private:
         Ref<Framebuffer> m_SceneFramebuffer;
+        RGFramebufferHandle m_SelectedOITFramebuffer;
         RenderCallback m_RenderCallback;
         bool m_OITEnabled = false;
     };

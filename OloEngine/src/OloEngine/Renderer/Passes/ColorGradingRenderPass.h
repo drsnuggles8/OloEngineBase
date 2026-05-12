@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -17,20 +17,19 @@ namespace OloEngine
     //   PostProcess → ChromAberration → ColorGrading → ToneMap → Vignette → FXAA
     //
     // Operates in HDR space. Passthrough when `Enabled` is false.
-    class ColorGradingRenderPass : public RenderPass
+    class ColorGradingRenderPass : public RenderGraphNode
     {
       public:
         ColorGradingRenderPass();
         ~ColorGradingRenderPass() override = default;
 
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] SubmissionModel GetSubmissionModel() const override
         {
             return SubmissionModel::ImmediateOnly;
         }
-        [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
@@ -47,6 +46,11 @@ namespace OloEngine
         void SetPostProcessUBO(const Ref<UniformBuffer>& ubo) noexcept
         {
             m_PostProcessUBO = ubo;
+        }
+
+        [[nodiscard]] bool IsReadyForExecution() const noexcept
+        {
+            return m_Shader && m_Shader->IsReady() && m_PostProcessUBO;
         }
 
       private:

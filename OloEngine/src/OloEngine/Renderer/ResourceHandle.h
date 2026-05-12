@@ -284,6 +284,20 @@ namespace OloEngine::ResourceNames
     // Shadow maps written by ShadowRenderPass, sampled everywhere.
     inline constexpr std::string_view ShadowMapCSM = "ShadowMapCSM";
     inline constexpr std::string_view ShadowMapSpot = "ShadowMapSpot";
+    inline constexpr std::string_view ShadowMapCSMCascade0 = "ShadowMapCSMCascade0";
+    inline constexpr std::string_view ShadowMapCSMCascade1 = "ShadowMapCSMCascade1";
+    inline constexpr std::string_view ShadowMapCSMCascade2 = "ShadowMapCSMCascade2";
+    inline constexpr std::string_view ShadowMapCSMCascade3 = "ShadowMapCSMCascade3";
+    inline constexpr std::array<std::string_view, 4> ShadowMapCSMCascade = {
+        ShadowMapCSMCascade0, ShadowMapCSMCascade1, ShadowMapCSMCascade2, ShadowMapCSMCascade3
+    };
+    inline constexpr std::string_view ShadowMapSpotLayer0 = "ShadowMapSpotLayer0";
+    inline constexpr std::string_view ShadowMapSpotLayer1 = "ShadowMapSpotLayer1";
+    inline constexpr std::string_view ShadowMapSpotLayer2 = "ShadowMapSpotLayer2";
+    inline constexpr std::string_view ShadowMapSpotLayer3 = "ShadowMapSpotLayer3";
+    inline constexpr std::array<std::string_view, 4> ShadowMapSpotLayer = {
+        ShadowMapSpotLayer0, ShadowMapSpotLayer1, ShadowMapSpotLayer2, ShadowMapSpotLayer3
+    };
     // Point-light shadow cubemaps — one per light slot (max 4, matches UBOStructures::ShadowUBO::MAX_POINT_SHADOWS).
     inline constexpr std::string_view ShadowMapPoint0 = "ShadowMapPoint0";
     inline constexpr std::string_view ShadowMapPoint1 = "ShadowMapPoint1";
@@ -295,21 +309,27 @@ namespace OloEngine::ResourceNames
     };
 
     // Scene rendering outputs.
-    inline constexpr std::string_view SceneColor = "SceneColor";     // HDR RGBA16F after main lighting
-    inline constexpr std::string_view SceneDepth = "SceneDepth";     // Shared depth buffer
-    inline constexpr std::string_view SceneNormals = "SceneNormals"; // GBuffer-style normals, sampled by SSAO/GTAO
+    inline constexpr std::string_view SceneColor = "SceneColor";                     // HDR scene framebuffer (MRT root)
+    inline constexpr std::string_view SceneColorTexture = "SceneColorTexture";       // Live SceneColor RT0 attachment view
+    inline constexpr std::string_view SceneEntityID = "SceneEntityID";               // Live SceneColor entity-ID attachment view (RT1)
+    inline constexpr std::string_view SceneViewNormals = "SceneViewNormals";         // Live SceneColor view-space normals attachment view (RT2)
+    inline constexpr std::string_view SceneDepthAttachment = "SceneDepthAttachment"; // Live SceneColor depth attachment view
+    inline constexpr std::string_view SceneDepth = "SceneDepth";                     // Semantic scene depth (forward snapshot or deferred G-Buffer depth)
+    inline constexpr std::string_view SceneNormals = "SceneNormals";                 // Semantic AO/deferred normals input
 
     // G-Buffer attachments (deferred path).
-    inline constexpr std::string_view GBufferAlbedo = "GBufferAlbedo";     // RT0 — sRGB albedo + metallic
-    inline constexpr std::string_view GBufferNormal = "GBufferNormal";     // RT1 — octahedral normal + roughness + AO
-    inline constexpr std::string_view GBufferEmissive = "GBufferEmissive"; // RT2 — emissive HDR (RT3 velocity exposed separately)
-    inline constexpr std::string_view Velocity = "Velocity";               // TAA motion vectors (screen-space)
+    inline constexpr std::string_view GBufferResolved = "GBufferResolved"; // Internal single-sample deferred G-Buffer root backing attachment views (graph-declared transient with explicit frame-local backing)
+    inline constexpr std::string_view GBufferMS = "GBufferMS";             // Internal multisample deferred G-Buffer root backing attachment views (graph-declared transient with explicit frame-local backing)
+    inline constexpr std::string_view GBufferAlbedo = "GBufferAlbedo";     // RT0 — canonical single-sample albedo + metallic view (direct attachment or MSAA resolve view)
+    inline constexpr std::string_view GBufferNormal = "GBufferNormal";     // RT1 — canonical single-sample normal + roughness + AO view (direct attachment or MSAA resolve view)
+    inline constexpr std::string_view GBufferEmissive = "GBufferEmissive"; // RT2 — canonical single-sample emissive HDR view (direct attachment or MSAA resolve view)
+    inline constexpr std::string_view Velocity = "Velocity";               // canonical single-sample motion vectors (direct attachment or MSAA resolve view)
 
-    // Multisample companion attachments (deferred + MSAA). Same backing
-    // memory as the resolved attachments above but exposed to the graph
-    // as separate handles so per-sample shading paths
-    // (`DeferredLightingPass` MSAA branch) can resolve them through
-    // `RGCommandContext::ResolveTexture`.
+    // Multisample deferred attachments (deferred + MSAA). When MSAA is active,
+    // the canonical single-sample handles above are modeled as explicit
+    // resolve views over these sources, while per-sample shading paths
+    // (`DeferredLightingPass` MSAA branch) still sample these multisample
+    // handles directly through `RGCommandContext::ResolveTexture`.
     inline constexpr std::string_view GBufferAlbedoMS = "GBufferAlbedoMS";
     inline constexpr std::string_view GBufferNormalMS = "GBufferNormalMS";
     inline constexpr std::string_view GBufferEmissiveMS = "GBufferEmissiveMS";
@@ -317,8 +337,11 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view SceneDepthMS = "SceneDepthMS";
 
     // Indirect occlusion outputs.
-    inline constexpr std::string_view AOBuffer = "AOBuffer"; // Either SSAO or GTAO output
-    inline constexpr std::string_view HZBDepth = "HZBDepth"; // GTAO hierarchical depth pyramid scratch (R32F mip chain)
+    inline constexpr std::string_view AOBuffer = "AOBuffer";               // Either SSAO or GTAO output
+    inline constexpr std::string_view SSAOBlur = "SSAOBlur";               // SSAO bilateral blur scratch framebuffer
+    inline constexpr std::string_view GTAODenoisePing = "GTAODenoisePing"; // GTAO main output / denoise ping scratch
+    inline constexpr std::string_view GTAODenoisePong = "GTAODenoisePong"; // GTAO denoise pong scratch
+    inline constexpr std::string_view HZBDepth = "HZBDepth";               // GTAO hierarchical depth pyramid scratch (R32F mip chain)
 
     // IBL resources (sampled read-only by Scene/PostProcess).
     inline constexpr std::string_view IrradianceMap = "IrradianceMap";
@@ -326,24 +349,40 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view BrdfLut = "BrdfLut";
 
     // Post-process chain.
-    inline constexpr std::string_view SSSColor = "SSSColor";                           // Full-resolution SSS output when the blur stage is enabled and ready
-    inline constexpr std::string_view AOApplyColor = "AOApplyColor";                   // After AO apply (only valid when SSAO or GTAO is enabled)
-    inline constexpr std::string_view PostProcessColor = "PostProcessColor";           // Alias for the latest upstream full-resolution post-chain source (AOApply, SSS, or SceneColor)
-    inline constexpr std::string_view BloomColor = "BloomColor";                       // After Bloom composite (only valid when Bloom is enabled)
-    inline constexpr std::string_view DOFColor = "DOFColor";                           // After depth-of-field (only valid when DOF is enabled)
-    inline constexpr std::string_view MotionBlurColor = "MotionBlurColor";             // After motion blur (only valid when motion blur is enabled)
-    inline constexpr std::string_view TAAColor = "TAAColor";                           // After temporal AA resolve (only valid when TAA is enabled)
-    inline constexpr std::string_view PrecipitationColor = "PrecipitationColor";       // After screen-space precipitation overlay (only valid when precipitation screen FX enabled)
-    inline constexpr std::string_view FogColor = "FogColor";                           // After volumetric fog composite (only valid when fog is enabled)
-    inline constexpr std::string_view FogHalfRes = "FogHalfRes";                       // Half-resolution volumetric fog integration scratch
-    inline constexpr std::string_view ChromAbColor = "ChromAbColor";                   // After chromatic aberration
-    inline constexpr std::string_view ColorGradingColor = "ColorGradingColor";         // After colour grading
-    inline constexpr std::string_view ToneMapColor = "ToneMapColor";                   // After tone mapping (HDR→LDR boundary)
-    inline constexpr std::string_view VignetteColor = "VignetteColor";                 // After vignette
-    inline constexpr std::string_view FXAAColor = "FXAAColor";                         // Anti-aliased post-process output
-    inline constexpr std::string_view SelectionOutlineColor = "SelectionOutlineColor"; // Post-process + selection outline composite
-    inline constexpr std::string_view UIComposite = "UIComposite";                     // UI composite over post-processed scene
-    inline constexpr std::string_view Backbuffer = "Backbuffer";                       // External present target (default framebuffer / swapchain)
+    inline constexpr std::string_view SSSColor = "SSSColor";                                         // Full-resolution SSS output when the blur stage is enabled and ready
+    inline constexpr std::string_view SSSColorTexture = "SSSColorTexture";                           // Color attachment view of SSSColor
+    inline constexpr std::string_view AOApplyColor = "AOApplyColor";                                 // After AO apply (only valid when SSAO or GTAO is enabled)
+    inline constexpr std::string_view AOApplyColorTexture = "AOApplyColorTexture";                   // Color attachment view of AOApplyColor
+    inline constexpr std::string_view PostProcessColor = "PostProcessColor";                         // Alias for the latest upstream full-resolution post-chain source (AOApply, SSS, or SceneColor)
+    inline constexpr std::string_view PostProcessColorTexture = "PostProcessColorTexture";           // Color attachment view alias matching PostProcessColor
+    inline constexpr std::string_view BloomColor = "BloomColor";                                     // After Bloom composite (only valid when Bloom is enabled)
+    inline constexpr std::string_view BloomColorTexture = "BloomColorTexture";                       // Color attachment view of BloomColor
+    inline constexpr std::string_view DOFColor = "DOFColor";                                         // After depth-of-field (only valid when DOF is enabled)
+    inline constexpr std::string_view DOFColorTexture = "DOFColorTexture";                           // Color attachment view of DOFColor
+    inline constexpr std::string_view MotionBlurColor = "MotionBlurColor";                           // After motion blur (only valid when motion blur is enabled)
+    inline constexpr std::string_view MotionBlurColorTexture = "MotionBlurColorTexture";             // Color attachment view of MotionBlurColor
+    inline constexpr std::string_view TAAColor = "TAAColor";                                         // After temporal AA resolve (only valid when TAA is enabled)
+    inline constexpr std::string_view TAAColorTexture = "TAAColorTexture";                           // Color attachment view of TAAColor
+    inline constexpr std::string_view PrecipitationColor = "PrecipitationColor";                     // After screen-space precipitation overlay (only valid when precipitation screen FX enabled)
+    inline constexpr std::string_view PrecipitationColorTexture = "PrecipitationColorTexture";       // Color attachment view of PrecipitationColor
+    inline constexpr std::string_view FogColor = "FogColor";                                         // After volumetric fog composite (only valid when fog is enabled)
+    inline constexpr std::string_view FogColorTexture = "FogColorTexture";                           // Color attachment view of FogColor
+    inline constexpr std::string_view FogHalfRes = "FogHalfRes";                                     // Half-resolution volumetric fog integration scratch
+    inline constexpr std::string_view ChromAbColor = "ChromAbColor";                                 // After chromatic aberration
+    inline constexpr std::string_view ChromAbColorTexture = "ChromAbColorTexture";                   // Color attachment view of ChromAbColor
+    inline constexpr std::string_view ColorGradingColor = "ColorGradingColor";                       // After colour grading
+    inline constexpr std::string_view ColorGradingColorTexture = "ColorGradingColorTexture";         // Color attachment view of ColorGradingColor
+    inline constexpr std::string_view ToneMapColor = "ToneMapColor";                                 // After tone mapping (HDR→LDR boundary)
+    inline constexpr std::string_view ToneMapColorTexture = "ToneMapColorTexture";                   // Color attachment view of ToneMapColor
+    inline constexpr std::string_view VignetteColor = "VignetteColor";                               // After vignette
+    inline constexpr std::string_view VignetteColorTexture = "VignetteColorTexture";                 // Color attachment view of VignetteColor
+    inline constexpr std::string_view FXAAColor = "FXAAColor";                                       // Anti-aliased post-process output
+    inline constexpr std::string_view FXAAColorTexture = "FXAAColorTexture";                         // Color attachment view of FXAAColor
+    inline constexpr std::string_view SelectionOutlineColor = "SelectionOutlineColor";               // Post-process + selection outline composite
+    inline constexpr std::string_view SelectionOutlineColorTexture = "SelectionOutlineColorTexture"; // Color attachment view of SelectionOutlineColor
+    inline constexpr std::string_view UIComposite = "UIComposite";                                   // UI composite over post-processed scene
+    inline constexpr std::string_view UICompositeTexture = "UICompositeTexture";                     // Color attachment view of UIComposite RT0
+    inline constexpr std::string_view Backbuffer = "Backbuffer";                                     // External present target (default framebuffer / swapchain)
 
     // Temporal histories — imported each frame from the previous frame's output,
     // consumed by TAA (TAAHistory) and volumetric fog (FogHistory).
@@ -359,9 +398,11 @@ namespace OloEngine::ResourceNames
     // `OITBuffer` is the shared transient MRT framebuffer that backs both
     // OITAccum (RT0 = RGBA16F) and OITRevealage (RT1 = RG16F), plus a
     // graph-owned DEPTH24_STENCIL8 attachment seeded from SceneColor before
-    // transparent contributors execute. Both blackboard handles point to the
-    // same physical transient FB.
-    inline constexpr std::string_view OITBuffer = "OITBuffer";       // Transient MRT FB (RT0=RGBA16F accum, RT1=RG16F revealage, D=DEPTH24_STENCIL8)
-    inline constexpr std::string_view OITAccum = "OITAccum";         // RGBA16F accumulation attachment
-    inline constexpr std::string_view OITRevealage = "OITRevealage"; // RG16F revealage attachment
+    // transparent contributors execute. `OITAccum` / `OITRevealage` are now
+    // texture/depth attachment views derived from that framebuffer, not
+    // duplicated framebuffer handles.
+    inline constexpr std::string_view OITBuffer = "OITBuffer";                   // Transient MRT FB (RT0=RGBA16F accum, RT1=RG16F revealage, D=DEPTH24_STENCIL8)
+    inline constexpr std::string_view OITAccum = "OITAccum";                     // RGBA16F accumulation attachment
+    inline constexpr std::string_view OITRevealage = "OITRevealage";             // RG16F revealage attachment
+    inline constexpr std::string_view OITDepthAttachment = "OITDepthAttachment"; // DEPTH24_STENCIL8 depth attachment view
 } // namespace OloEngine::ResourceNames

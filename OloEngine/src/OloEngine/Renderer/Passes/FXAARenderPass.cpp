@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
 #include <glad/gl.h>
@@ -16,6 +17,47 @@ namespace OloEngine
         SetName("FXAAPass");
     }
 
+    void FXAARenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+
+        (void)blackboard;
+        [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(
+            builder,
+            this,
+            {
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::VignetteColor, ResourceNames::VignetteColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::ToneMapColor, ResourceNames::ToneMapColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::ColorGradingColor, ResourceNames::ColorGradingColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::ChromAbColor, ResourceNames::ChromAbColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::FogColor, ResourceNames::FogColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::PrecipitationColor, ResourceNames::PrecipitationColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::TAAColor, ResourceNames::TAAColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::MotionBlurColor, ResourceNames::MotionBlurColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::DOFColor, ResourceNames::DOFColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::BloomColor, ResourceNames::BloomColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::PostProcessColor, ResourceNames::PostProcessColorTexture),
+            });
+
+        if (!m_Enabled)
+            return;
+
+        if (blackboard.FXAAColor.IsValid())
+        {
+            constexpr std::string_view fxaaVersionTag = "FXAAPass";
+            const auto outputHandle = builder.WriteNewVersion(blackboard.FXAAColor, RGWriteUsage::RenderTarget, fxaaVersionTag);
+            if (!outputHandle.IsValid())
+                return;
+
+            SetPrimaryOutputFramebufferHandle(outputHandle);
+            SetPrimaryOutputTextureHandle(
+                builder.CreateFramebufferAttachmentView(std::string(ResourceNames::FXAAColorTexture) + "@" +
+                                                            std::string(fxaaVersionTag),
+                                                        outputHandle,
+                                                        0u));
+        }
+    }
+
     void FXAARenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
@@ -25,14 +67,6 @@ namespace OloEngine
         CreateFramebuffer(spec.Width, spec.Height);
 
         m_FXAAShader = Shader::Create("assets/shaders/PostProcess_FXAA.glsl");
-
-        // Resource-aware RDG: FXAA samples PostProcessColor and writes
-        // FXAAColor. Both edges are gated at the Renderer3D level — when
-        // FXAA receives Vignette's output (VignetteColor) as its input.
-        // When FXAA is absent the blackboard never imports FXAAColor and
-        // the executor short-circuits this pass.
-        DeclareRead(ResourceNames::VignetteColor, ResourceHandle::Kind::Framebuffer);
-        DeclareWrite(ResourceNames::FXAAColor, ResourceHandle::Kind::Framebuffer);
 
         OLO_CORE_INFO("FXAARenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
     }
@@ -49,62 +83,24 @@ namespace OloEngine
         m_Target = nullptr;
     }
 
-    void FXAARenderPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
-    }
-
     void FXAARenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Phase F slice 44 — self-resolving input framebuffer from the render-graph
-        // blackboard. Preference chain: Vignette > ToneMap > ColorGrading > ChromAb >
-        // Fog > Precipitation > TAA > MotionBlur > DOF > Bloom > PostProcess.
-        const auto* board = context.GetBlackboard();
         Ref<Framebuffer> inputFramebuffer;
-        if (board)
+        u32 inputColorTextureID = 0u;
+        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
         {
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->VignetteColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->ToneMapColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->ColorGradingColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->ChromAbColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->FogColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->PrecipitationColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->TAAColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->MotionBlurColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->DOFColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->BloomColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->PostProcessColor))
-                    inputFramebuffer = fb;
+            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
+                inputFramebuffer = resolvedInput;
         }
+        if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
+            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
 
         Ref<Framebuffer> outputFramebuffer;
-        if (board)
+        if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
         {
-            if (auto fb = context.ResolveFramebuffer(board->FXAAColor))
+            if (auto fb = context.ResolveFramebuffer(outputHandle))
                 outputFramebuffer = fb;
         }
 
@@ -114,7 +110,7 @@ namespace OloEngine
             return;
         }
 
-        if (!board || !inputFramebuffer || !outputFramebuffer || !m_FXAAShader)
+        if (!inputFramebuffer || inputColorTextureID == 0u || !outputFramebuffer || !m_FXAAShader)
         {
             m_Target = nullptr;
             return;
@@ -156,8 +152,7 @@ namespace OloEngine
 
         m_FXAAShader->Bind();
 
-        const u32 srcColorID = inputFramebuffer->GetColorAttachmentRendererID(0);
-        context.BindTexture(0, srcColorID);
+        context.BindTexture(0, inputColorTextureID);
         m_FXAAShader->SetInt("u_Texture", 0);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
@@ -166,13 +161,6 @@ namespace OloEngine
 
         context.SetDepthMask(true);
         outputFramebuffer->Unbind();
-    }
-
-    Ref<Framebuffer> FXAARenderPass::GetTarget() const
-    {
-        if (!m_Target)
-            return nullptr;
-        return m_Target;
     }
 
     void FXAARenderPass::SetupFramebuffer(u32 width, u32 height)

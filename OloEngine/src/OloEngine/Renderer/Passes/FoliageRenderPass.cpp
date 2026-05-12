@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/FoliageRenderPass.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Renderer.h"
 
@@ -12,39 +13,33 @@ namespace OloEngine
         OLO_CORE_INFO("Creating FoliageRenderPass.");
     }
 
-    void FoliageRenderPass::Init(const FramebufferSpecification& spec)
+    void FoliageRenderPass::Setup(RGBuilder& builder, FrameBlackboard& board)
     {
-        OLO_PROFILE_FUNCTION();
+        RenderGraphNode::Setup(builder, board);
 
-        m_FramebufferSpec = spec;
-        // No own framebuffer — this pass renders into the ScenePass target
+        if (m_CommandBucket.GetCommandCount() == 0)
+            return;
 
-        // Phase F slice 32 — read-modify-write into SceneColor so the hazard
-        // validator can derive the ScenePass → FoliagePass RAW ordering edge.
-        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
-        DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
-    }
-
-    void FoliageRenderPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
+        if (board.SceneColor.IsValid())
+        {
+            SetPrimaryInputFramebufferHandle(board.SceneColor);
+            builder.AllowFeedback(board.SceneColor);
+            [[maybe_unused]] const auto sceneColorRead = builder.Read(board.SceneColor, RGReadUsage::RenderTargetRead);
+            builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
+            builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
+        }
     }
 
     void FoliageRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Phase F slice 36 — self-resolving SceneColor: look up directly
-        // from the render graph blackboard so no per-frame side-channel
-        // setter call is needed from EndScene().
-        if (const auto* board = context.GetBlackboard())
+        // Resolve the setup-selected scene framebuffer instead of replaying
+        // a blackboard lookup ladder at execute time.
+        if (const auto sceneHandle = GetPrimaryInputFramebufferHandle(); sceneHandle.IsValid())
         {
-            if (board->SceneColor.IsValid())
-            {
-                if (auto resolvedSceneFB = context.ResolveFramebuffer(board->SceneColor))
-                    m_SceneFramebuffer = resolvedSceneFB;
-            }
+            if (auto resolvedSceneFB = context.ResolveFramebuffer(sceneHandle))
+                m_SceneFramebuffer = resolvedSceneFB;
         }
 
         if (!m_SceneFramebuffer)

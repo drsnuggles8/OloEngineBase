@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
 #include <glad/gl.h>
@@ -16,6 +17,43 @@ namespace OloEngine
         SetName("ToneMapPass");
     }
 
+    void ToneMapRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+
+        (void)blackboard;
+        [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(
+            builder,
+            this,
+            {
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::ColorGradingColor, ResourceNames::ColorGradingColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::ChromAbColor, ResourceNames::ChromAbColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::FogColor, ResourceNames::FogColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::PrecipitationColor, ResourceNames::PrecipitationColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::TAAColor, ResourceNames::TAAColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::MotionBlurColor, ResourceNames::MotionBlurColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::DOFColor, ResourceNames::DOFColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::BloomColor, ResourceNames::BloomColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::PostProcessColor, ResourceNames::PostProcessColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SceneColor, ResourceNames::SceneColorTexture),
+            });
+
+        if (blackboard.ToneMapColor.IsValid())
+        {
+            constexpr std::string_view toneMapVersionTag = "ToneMapPass";
+            const auto outputHandle = builder.WriteNewVersion(blackboard.ToneMapColor, RGWriteUsage::RenderTarget, toneMapVersionTag);
+            if (!outputHandle.IsValid())
+                return;
+
+            SetPrimaryOutputFramebufferHandle(outputHandle);
+            SetPrimaryOutputTextureHandle(
+                builder.CreateFramebufferAttachmentView(std::string(ResourceNames::ToneMapColorTexture) + "@" +
+                                                            std::string(toneMapVersionTag),
+                                                        outputHandle,
+                                                        0u));
+        }
+    }
+
     void ToneMapRenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
@@ -25,9 +63,6 @@ namespace OloEngine
         CreateFramebuffer(spec.Width, spec.Height);
 
         m_Shader = Shader::Create("assets/shaders/PostProcess_ToneMap.glsl");
-
-        DeclareRead(ResourceNames::ColorGradingColor, ResourceHandle::Kind::Framebuffer);
-        DeclareWrite(ResourceNames::ToneMapColor, ResourceHandle::Kind::Framebuffer);
 
         OLO_CORE_INFO("ToneMapRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
     }
@@ -44,48 +79,24 @@ namespace OloEngine
         m_Target = nullptr;
     }
 
-    void ToneMapRenderPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
-    }
-
     void ToneMapRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Phase F slice 43 — self-resolving input framebuffer from the render-graph
-        // blackboard. Preference chain: Fog > Precipitation > TAA > MotionBlur >
-        // DOF > Bloom > PostProcess.
-        const auto* board = context.GetBlackboard();
         Ref<Framebuffer> inputFramebuffer;
-        if (board)
+        u32 inputColorTextureID = 0u;
+        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
         {
-            auto tryResolveValid = [&](const auto& handle)
-            {
-                if (inputFramebuffer || !handle.IsValid())
-                    return;
-                if (auto fb = context.ResolveFramebuffer(handle))
-                {
-                    if (fb->GetColorAttachmentRendererID(0) != 0)
-                        inputFramebuffer = fb;
-                }
-            };
-
-            tryResolveValid(board->FogColor);
-            tryResolveValid(board->PrecipitationColor);
-            tryResolveValid(board->TAAColor);
-            tryResolveValid(board->MotionBlurColor);
-            tryResolveValid(board->DOFColor);
-            tryResolveValid(board->BloomColor);
-            tryResolveValid(board->PostProcessColor);
-            tryResolveValid(board->SceneColor);
+            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
+                inputFramebuffer = resolvedInput;
         }
+        if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
+            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
 
         Ref<Framebuffer> outputFramebuffer;
-        if (board)
+        if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
         {
-            if (auto fb = context.ResolveFramebuffer(board->ToneMapColor))
+            if (auto fb = context.ResolveFramebuffer(outputHandle))
                 outputFramebuffer = fb;
         }
 
@@ -95,13 +106,15 @@ namespace OloEngine
             return;
         }
 
-        if (!board || !inputFramebuffer || !outputFramebuffer || !m_Shader)
+        if (!inputFramebuffer || inputColorTextureID == 0u || !outputFramebuffer || !m_Shader)
         {
             m_Target = nullptr;
             static u32 s_MissingInputWarnings = 0;
-            if (outputFramebuffer && m_Shader && !inputFramebuffer && s_MissingInputWarnings++ < 10)
+            if (outputFramebuffer && m_Shader && (!inputFramebuffer || inputColorTextureID == 0u) && s_MissingInputWarnings++ < 10)
             {
-                OLO_CORE_WARN("ToneMapRenderPass: No valid input framebuffer resolved (fallback chain exhausted)");
+                OLO_CORE_WARN("ToneMapRenderPass: No valid setup-selected input resolved (framebuffer={}, texture={})",
+                              inputFramebuffer != nullptr,
+                              inputColorTextureID);
             }
             return;
         }
@@ -132,8 +145,7 @@ namespace OloEngine
 
         m_Shader->Bind();
 
-        const u32 srcColorID = inputFramebuffer->GetColorAttachmentRendererID(0);
-        context.BindTexture(0, srcColorID);
+        context.BindTexture(0, inputColorTextureID);
         m_Shader->SetInt("u_Texture", 0);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
@@ -142,13 +154,6 @@ namespace OloEngine
 
         context.SetDepthMask(true);
         outputFramebuffer->Unbind();
-    }
-
-    Ref<Framebuffer> ToneMapRenderPass::GetTarget() const
-    {
-        if (!m_Target)
-            return nullptr;
-        return m_Target;
     }
 
     void ToneMapRenderPass::SetupFramebuffer(u32 width, u32 height)

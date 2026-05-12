@@ -103,8 +103,28 @@ namespace OloEngine
 
     void OpenGLTexture2D::CreateStorage()
     {
-        glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
-        glTextureStorage2D(m_RendererID, static_cast<GLsizei>(m_MipLevels), m_InternalFormat, static_cast<int>(m_Width), static_cast<int>(m_Height));
+        const auto sampleCount = std::max(m_Specification.Samples, 1u);
+        const bool multisampled = sampleCount > 1u;
+
+        glCreateTextures(multisampled ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D, 1, &m_RendererID);
+
+        if (multisampled)
+        {
+            glTextureStorage2DMultisample(m_RendererID,
+                                          static_cast<GLsizei>(sampleCount),
+                                          m_InternalFormat,
+                                          static_cast<GLsizei>(m_Width),
+                                          static_cast<GLsizei>(m_Height),
+                                          GL_FALSE);
+        }
+        else
+        {
+            glTextureStorage2D(m_RendererID,
+                               static_cast<GLsizei>(m_MipLevels),
+                               m_InternalFormat,
+                               static_cast<GLsizei>(m_Width),
+                               static_cast<GLsizei>(m_Height));
+        }
     }
 
     OpenGLTexture2D::OpenGLTexture2D(const TextureSpecification& specification)
@@ -112,10 +132,17 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        m_Specification.Samples = std::max(m_Specification.Samples, 1u);
         m_InternalFormat = Utils::OloEngineImageFormatToGLInternalFormat(m_Specification.Format);
         m_DataFormat = Utils::OloEngineImageFormatToGLDataFormat(m_Specification.Format);
 
-        if (m_Specification.MipLevels > 0)
+        if (m_Specification.Samples > 1u)
+        {
+            m_Specification.GenerateMips = false;
+            m_Specification.MipLevels = 1u;
+            m_MipLevels = 1u;
+        }
+        else if (m_Specification.MipLevels > 0)
         {
             m_MipLevels = m_Specification.MipLevels;
         }
@@ -175,7 +202,8 @@ namespace OloEngine
                 bytesPerPixel = 4;
                 break;
         }
-        sizet textureMemory = static_cast<sizet>(m_Width) * m_Height * bytesPerPixel;
+        auto textureMemory = static_cast<sizet>(m_Width) * static_cast<sizet>(m_Height) *
+                             static_cast<sizet>(bytesPerPixel) * static_cast<sizet>(m_Specification.Samples);
         // Track GPU memory allocation
         OLO_TRACK_GPU_ALLOC(this,
                             textureMemory,
@@ -185,13 +213,16 @@ namespace OloEngine
         // Register with GPU Resource Inspector
         GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, "Texture2D (spec)", "Texture2D");
 
-        // NOTE: Texture Wrapping
-        glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-        glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        if (m_Specification.Samples == 1u)
+        {
+            // NOTE: Texture Wrapping
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-        // NOTE: Texture Filtering
-        glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            // NOTE: Texture Filtering
+            glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        }
 
         m_IsLoaded = true;
     }
@@ -260,7 +291,13 @@ namespace OloEngine
         m_Specification.Height = height;
 
         // Recalculate mip count if auto
-        if (m_Specification.MipLevels > 0)
+        if (m_Specification.Samples > 1u)
+        {
+            m_Specification.GenerateMips = false;
+            m_Specification.MipLevels = 1u;
+            m_MipLevels = 1u;
+        }
+        else if (m_Specification.MipLevels > 0)
         {
             m_MipLevels = m_Specification.MipLevels;
         }
@@ -319,15 +356,19 @@ namespace OloEngine
             default:
                 break;
         }
-        sizet textureMemory = static_cast<sizet>(m_Width) * m_Height * bytesPerPixel;
+        auto textureMemory = static_cast<sizet>(m_Width) * static_cast<sizet>(m_Height) *
+                             static_cast<sizet>(bytesPerPixel) * static_cast<sizet>(m_Specification.Samples);
         OLO_TRACK_GPU_ALLOC(this, textureMemory, RendererMemoryTracker::ResourceType::Texture2D, "OpenGL Texture2D (resized)");
         GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, "Texture2D (resized)", "Texture2D");
 
-        // Reapply sampler state
-        glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, m_MipLevels > 1 ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
-        glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        if (m_Specification.Samples == 1u)
+        {
+            // Reapply sampler state
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, m_MipLevels > 1 ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        }
 
         m_IsLoaded = true;
     }
@@ -335,6 +376,12 @@ namespace OloEngine
     void OpenGLTexture2D::SetData(void* const data, const u32 size)
     {
         OLO_PROFILE_FUNCTION();
+
+        if (m_Specification.Samples > 1u)
+        {
+            OLO_CORE_ERROR("OpenGLTexture2D::SetData: multisample textures do not support data uploads");
+            return;
+        }
 
         // Calculate bytes per pixel based on the texture's image format
         u32 bpp = 4; // Default to RGBA8
@@ -401,6 +448,12 @@ namespace OloEngine
     void OpenGLTexture2D::SubImage(u32 x, u32 y, u32 width, u32 height, const void* data, [[maybe_unused]] u32 dataSize)
     {
         OLO_PROFILE_FUNCTION();
+
+        if (m_Specification.Samples > 1u)
+        {
+            OLO_CORE_ERROR("OpenGLTexture2D::SubImage: multisample textures do not support sub-image uploads");
+            return;
+        }
 
         if (!data || width == 0 || height == 0)
             return;
@@ -537,6 +590,12 @@ namespace OloEngine
         if (!m_IsLoaded || m_RendererID == 0)
         {
             OLO_CORE_ERROR("OpenGLTexture2D::GetData: Texture not loaded");
+            return false;
+        }
+
+        if (m_Specification.Samples > 1u)
+        {
+            OLO_CORE_ERROR("OpenGLTexture2D::GetData: multisample texture readback is not supported");
             return false;
         }
 

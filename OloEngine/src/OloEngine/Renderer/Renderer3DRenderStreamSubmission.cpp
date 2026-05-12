@@ -10,7 +10,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto* geometryNode = s_Data.Pipeline->StreamNodes.Get(RenderStreamType::Geometry);
+        auto* geometryNode = s_Data.Pipeline->GetRenderStreamNode(RenderStreamType::Geometry);
         if (!geometryNode)
         {
             OLO_CORE_ERROR("Renderer3D::BeginParallelSubmission: Geometry render stream is unavailable!");
@@ -41,7 +41,7 @@ namespace OloEngine
         // Merge frame data scratch buffers
         FrameDataBufferManager::Get().MergeScratchBuffers();
 
-        auto* geometryNode = s_Data.Pipeline->StreamNodes.Get(RenderStreamType::Geometry);
+        auto* geometryNode = s_Data.Pipeline->GetRenderStreamNode(RenderStreamType::Geometry);
         if (!geometryNode)
         {
             OLO_CORE_ERROR("Renderer3D::EndParallelSubmission: Geometry render stream is unavailable!");
@@ -70,7 +70,7 @@ namespace OloEngine
         ctx.Allocator = FrameResourceManager::Get().GetWorkerAllocator(workerIndex);
 
         // Get command bucket
-        if (auto* geometryNode = s_Data.Pipeline->StreamNodes.Get(RenderStreamType::Geometry))
+        if (auto* geometryNode = s_Data.Pipeline->GetRenderStreamNode(RenderStreamType::Geometry))
         {
             ctx.Bucket = &geometryNode->GetCommandBucket();
             // Use the explicit worker index - no thread ID lookup needed
@@ -106,7 +106,7 @@ namespace OloEngine
             return;
         }
 
-        if (auto* streamNode = s_Data.Pipeline->StreamNodes.Get(stream))
+        if (auto* streamNode = s_Data.Pipeline->GetRenderStreamNode(stream))
         {
             streamNode->SubmitPacket(packet);
             return;

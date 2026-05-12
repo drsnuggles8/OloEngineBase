@@ -1,163 +1,47 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 
-#include "OloEngine/Renderer/Passes/DecalRenderPass.h"
-#include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
-#include "OloEngine/Renderer/Passes/DeferredOpaqueDecalPass.h"
-#include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
-#include "OloEngine/Renderer/Shadow/ShadowMap.h"
-
 namespace OloEngine::RenderPipelineBuilderInternal
 {
-    [[nodiscard]] auto CreateShadowNodeSetup() -> RenderPass::SetupCallback
-    {
-        return [](RGBuilder& builder, FrameBlackboard& board)
-        {
-            if (board.ShadowMapCSM.IsValid())
-            {
-                for (u32 cascade = 0; cascade < ShadowMap::MAX_CSM_CASCADES; ++cascade)
-                {
-                    builder.Write(board.ShadowMapCSM, RGWriteUsage::DepthStencil, RGSubresourceRange::Layer(cascade));
-                }
-            }
-
-            if (board.ShadowMapSpot.IsValid())
-            {
-                for (u32 light = 0; light < ShadowMap::MAX_SPOT_SHADOWS; ++light)
-                {
-                    builder.Write(board.ShadowMapSpot, RGWriteUsage::DepthStencil, RGSubresourceRange::Layer(light));
-                }
-            }
-
-            for (const auto& pointHandle : board.ShadowMapPoint)
-            {
-                if (pointHandle.IsValid())
-                    builder.Write(pointHandle, RGWriteUsage::DepthStencil);
-            }
-        };
-    }
-
-    [[nodiscard]] auto CreateDeferredOpaqueDecalNodeSetup(RendererSettings* settings,
-                                                          DecalRenderPass* decalPass) -> RenderPass::SetupCallback
-    {
-        return [settings, decalPass](RGBuilder& builder, FrameBlackboard& board)
-        {
-            if (!settings || settings->Path != RenderingPath::Deferred)
-                return;
-            if (!decalPass || decalPass->GetCommandBucket().GetCommandCount() == 0)
-                return;
-
-            if (board.SceneDepth.IsValid())
-            {
-                [[maybe_unused]] const auto sceneDepthRead = builder.Read(board.SceneDepth, RGReadUsage::ShaderSample);
-            }
-
-            if (board.GBufferAlbedo.IsValid())
-                builder.Write(board.GBufferAlbedo, RGWriteUsage::RenderTarget);
-            if (board.GBufferNormal.IsValid())
-                builder.Write(board.GBufferNormal, RGWriteUsage::RenderTarget);
-            if (board.GBufferEmissive.IsValid())
-                builder.Write(board.GBufferEmissive, RGWriteUsage::RenderTarget);
-        };
-    }
-
-    [[nodiscard]] auto CreateDeferredLightingNodeSetup(RendererSettings* settings) -> RenderPass::SetupCallback
-    {
-        return [settings](RGBuilder& builder, FrameBlackboard& board)
-        {
-            if (!settings || settings->Path != RenderingPath::Deferred)
-                return;
-
-            if (board.GBufferAlbedo.IsValid())
-            {
-                [[maybe_unused]] const auto gbufferAlbedoRead = builder.Read(board.GBufferAlbedo, RGReadUsage::ShaderSample);
-            }
-            if (board.GBufferNormal.IsValid())
-            {
-                [[maybe_unused]] const auto gbufferNormalRead = builder.Read(board.GBufferNormal, RGReadUsage::ShaderSample);
-            }
-            if (board.GBufferEmissive.IsValid())
-            {
-                [[maybe_unused]] const auto gbufferEmissiveRead = builder.Read(board.GBufferEmissive, RGReadUsage::ShaderSample);
-            }
-            if (board.SceneDepth.IsValid())
-            {
-                [[maybe_unused]] const auto sceneDepthRead = builder.Read(board.SceneDepth, RGReadUsage::ShaderSample);
-            }
-            if (board.ShadowMapCSM.IsValid())
-            {
-                [[maybe_unused]] const auto shadowCSMRead = builder.Read(board.ShadowMapCSM, RGReadUsage::ShaderSample);
-            }
-            if (board.ShadowMapSpot.IsValid())
-            {
-                [[maybe_unused]] const auto shadowSpotRead = builder.Read(board.ShadowMapSpot, RGReadUsage::ShaderSample);
-            }
-            for (const auto& pointHandle : board.ShadowMapPoint)
-            {
-                if (pointHandle.IsValid())
-                {
-                    [[maybe_unused]] const auto pointRead = builder.Read(pointHandle, RGReadUsage::ShaderSample);
-                }
-            }
-            if (board.AOBuffer.IsValid())
-            {
-                [[maybe_unused]] const auto aoRead = builder.Read(board.AOBuffer, RGReadUsage::ShaderSample);
-            }
-            if (board.IrradianceMap.IsValid())
-            {
-                [[maybe_unused]] const auto irradianceRead = builder.Read(board.IrradianceMap, RGReadUsage::ShaderSample);
-            }
-            if (board.PrefilterMap.IsValid())
-            {
-                [[maybe_unused]] const auto prefilterRead = builder.Read(board.PrefilterMap, RGReadUsage::ShaderSample);
-            }
-            if (board.BrdfLut.IsValid())
-            {
-                [[maybe_unused]] const auto brdfRead = builder.Read(board.BrdfLut, RGReadUsage::ShaderSample);
-            }
-
-            if (board.SceneColor.IsValid())
-                builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
-        };
-    }
-
     void RegisterRenderStreamNodes(RenderGraph& graph,
                                    const RenderStreamStageInputs& inputs)
     {
-        OLO_CORE_ASSERT(inputs.Nodes, "RegisterRenderStreamNodes requires node inputs");
-        AddExistingNode(graph, inputs.Nodes->Geometry);
+        OLO_CORE_ASSERT(inputs.Passes, "RegisterRenderStreamNodes requires pass inputs");
 
+        // The SceneColor RMW chain is now pinned by each modifier's Setup
+        // calling builder.DependsOnPreviousWriter("SceneColor") — no
+        // class-specific setter wiring is required here. The chain is:
+        //   Scene (forward) OR DeferredLighting (deferred)
+        //     -> ForwardOverlay (deferred only) -> Foliage -> Decal -> Water
+        //     -> Particle -> OITResolve
+        // BuildRenderPipelineGraph registers the SceneColor producer
+        // (Scene / DeferredLighting) before this stage, so the modifier
+        // Setups run in the correct order and the name-based lookup
+        // resolves each predecessor.
         if (inputs.Deferred)
         {
-            AddExistingNode(graph, inputs.Nodes->ForwardOverlay);
+            AddExistingNode(graph, inputs.Passes->ForwardOverlay);
         }
 
-        AddExistingNode(graph, inputs.Nodes->Foliage);
-        // Keep insertion order aligned with the explicit baseline dependency
-        // chain below (Foliage -> Decal -> Water). BuildFrameGraph derives
-        // WAW edges in insertion order; inserting Water before Decal can
-        // derive Water -> Decal and create a Decal <-> Water cycle.
-        AddExistingNode(graph, inputs.Nodes->Decal);
-        AddExistingNode(graph, inputs.Nodes->Water);
+        AddExistingNode(graph, inputs.Passes->Foliage);
+        AddExistingNode(graph, inputs.Passes->Decal);
+        AddExistingNode(graph, inputs.Passes->Water);
     }
 
     void RegisterSceneAndLightingNodes(RenderGraph& graph,
                                        const SceneLightingStageInputs& inputs)
     {
         OLO_CORE_ASSERT(inputs.Passes, "RegisterSceneAndLightingNodes requires pass inputs");
-        graph.AddNode(PrepareGraphPass("ShadowPass", inputs.Passes->Shadow, CreateShadowNodeSetup()));
+        graph.AddNode(PrepareGraphNode("ShadowPass", inputs.Passes->Shadow));
+        AddExistingNode(graph, inputs.Passes->Scene);
 
         if (!inputs.Deferred)
             return;
 
         if (inputs.Passes->DeferredOpaqueDecal)
         {
-            graph.AddNode(PrepareGraphPass("DeferredOpaqueDecalPass",
-                                           inputs.Passes->DeferredOpaqueDecal,
-                                           CreateDeferredOpaqueDecalNodeSetup(inputs.Renderer, inputs.Passes->Decal)));
+            graph.AddNode(PrepareGraphNode("DeferredOpaqueDecalPass", inputs.Passes->DeferredOpaqueDecal));
         }
-        graph.AddNode(PrepareGraphPass("DeferredLightingPass",
-                                       inputs.Passes->DeferredLighting,
-                                       CreateDeferredLightingNodeSetup(inputs.Renderer)));
+        graph.AddNode(PrepareGraphNode("DeferredLightingPass", inputs.Passes->DeferredLighting));
     }
 } // namespace OloEngine::RenderPipelineBuilderInternal

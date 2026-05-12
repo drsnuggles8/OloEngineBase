@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/Passes/OITPrepareRenderPass.h"
 
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 
 #include <glad/gl.h>
@@ -37,21 +38,37 @@ namespace OloEngine
         SetName("OITPreparePass");
     }
 
+    void OITPrepareRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+        m_SelectedOITFramebuffer = {};
+
+        if (!m_Enabled || !m_HasContributors)
+            return;
+
+        if (blackboard.SceneColor.IsValid())
+            SetPrimaryInputFramebufferHandle(blackboard.SceneColor);
+        if (blackboard.OITBuffer.IsValid())
+            m_SelectedOITFramebuffer = blackboard.OITBuffer;
+
+        if (blackboard.SceneDepthAttachment.IsValid())
+        {
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.SceneDepthAttachment, RGReadUsage::TransferSource);
+        }
+
+        if (blackboard.OITAccum.IsValid())
+            builder.Write(blackboard.OITAccum, RGWriteUsage::Clear);
+        if (blackboard.OITRevealage.IsValid())
+            builder.Write(blackboard.OITRevealage, RGWriteUsage::Clear);
+        if (blackboard.OITDepthAttachment.IsValid())
+            builder.Write(blackboard.OITDepthAttachment, RGWriteUsage::TransferDest);
+    }
+
     void OITPrepareRenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
 
         m_FramebufferSpec = spec;
-
-        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
-        DeclareWrite(ResourceNames::OITAccum, ResourceHandle::Kind::Texture2D);
-        DeclareWrite(ResourceNames::OITRevealage, ResourceHandle::Kind::Texture2D);
-    }
-
-    void OITPrepareRenderPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
     }
 
     void OITPrepareRenderPass::Execute(RGCommandContext& context)
@@ -63,34 +80,18 @@ namespace OloEngine
 
         Ref<Framebuffer> sceneFramebuffer;
         Ref<Framebuffer> oitFramebuffer;
-        if (const auto* board = context.GetBlackboard())
+        if (const auto sceneHandle = GetPrimaryInputFramebufferHandle(); sceneHandle.IsValid())
         {
-            if (board->SceneColor.IsValid())
-            {
-                if (auto resolvedSceneFramebuffer = context.ResolveFramebuffer(board->SceneColor))
-                    sceneFramebuffer = resolvedSceneFramebuffer;
-            }
-            if (board->OITAccum.IsValid())
-            {
-                if (auto resolvedOITFramebuffer = context.ResolveFramebuffer(board->OITAccum))
-                    oitFramebuffer = resolvedOITFramebuffer;
-            }
-            else if (board->OITRevealage.IsValid())
-            {
-                if (auto resolvedOITFramebuffer = context.ResolveFramebuffer(board->OITRevealage))
-                    oitFramebuffer = resolvedOITFramebuffer;
-            }
+            if (auto resolvedSceneFramebuffer = context.ResolveFramebuffer(sceneHandle))
+                sceneFramebuffer = resolvedSceneFramebuffer;
         }
+        if (m_SelectedOITFramebuffer.IsValid())
+            oitFramebuffer = context.ResolveFramebuffer(m_SelectedOITFramebuffer);
 
         if (!oitFramebuffer)
             return;
 
         PrepareFramebuffer(oitFramebuffer, sceneFramebuffer);
-    }
-
-    Ref<Framebuffer> OITPrepareRenderPass::GetTarget() const
-    {
-        return nullptr;
     }
 
     void OITPrepareRenderPass::SetupFramebuffer(u32 width, u32 height)
@@ -110,6 +111,7 @@ namespace OloEngine
 
     void OITPrepareRenderPass::OnReset()
     {
+        m_SelectedOITFramebuffer = {};
     }
 
     void OITPrepareRenderPass::PrepareFramebuffer(const Ref<Framebuffer>& oitFramebuffer,

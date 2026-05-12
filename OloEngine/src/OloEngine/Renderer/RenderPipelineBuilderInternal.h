@@ -2,8 +2,7 @@
 
 #include "OloEngine/Core/Assert.h"
 #include "OloEngine/Core/Ref.h"
-#include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/RenderPipelineBuilder.h"
@@ -16,27 +15,25 @@ namespace OloEngine::RenderPipelineBuilderInternal
 {
     struct RenderStreamStageInputs
     {
-        const RenderPipelineNodeInputs* Nodes = nullptr;
+        const RenderPipelinePassInputs* Passes = nullptr;
         bool Deferred = false;
     };
 
     struct SceneLightingStageInputs
     {
         const RenderPipelinePassInputs* Passes = nullptr;
-        RendererSettings* Renderer = nullptr;
         bool Deferred = false;
     };
 
     struct TransparencyAOStageInputs
     {
         const RenderPipelinePassInputs* Passes = nullptr;
-        const RenderPipelineRuntimeInputs* Runtime = nullptr;
+        AOTechnique ActiveAOTechnique{};
     };
 
     struct PostProcessStageInputs
     {
         const RenderPipelinePassInputs* Passes = nullptr;
-        const RenderPipelineRuntimeInputs* Runtime = nullptr;
     };
 
     template<typename T>
@@ -48,100 +45,210 @@ namespace OloEngine::RenderPipelineBuilderInternal
     [[nodiscard]] inline auto MakeRenderStreamStageInputs(const RenderPipelineInputs& inputs,
                                                           const bool deferred) -> RenderStreamStageInputs
     {
-        return RenderStreamStageInputs{ .Nodes = &inputs.Nodes, .Deferred = deferred };
+        return RenderStreamStageInputs{ .Passes = &inputs.Passes, .Deferred = deferred };
     }
 
     [[nodiscard]] inline auto MakeSceneLightingStageInputs(const RenderPipelineInputs& inputs,
                                                            const bool deferred) -> SceneLightingStageInputs
     {
-        return SceneLightingStageInputs{ .Passes = &inputs.Passes, .Renderer = inputs.Runtime.Renderer, .Deferred = deferred };
+        return SceneLightingStageInputs{ .Passes = &inputs.Passes, .Deferred = deferred };
     }
 
     [[nodiscard]] inline auto MakeTransparencyAOStageInputs(const RenderPipelineInputs& inputs) -> TransparencyAOStageInputs
     {
-        return TransparencyAOStageInputs{ .Passes = &inputs.Passes, .Runtime = &inputs.Runtime };
+        return TransparencyAOStageInputs{ .Passes = &inputs.Passes, .ActiveAOTechnique = inputs.ActiveAOTechnique };
     }
 
     [[nodiscard]] inline auto MakePostProcessStageInputs(const RenderPipelineInputs& inputs) -> PostProcessStageInputs
     {
-        return PostProcessStageInputs{ .Passes = &inputs.Passes, .Runtime = &inputs.Runtime };
+        return PostProcessStageInputs{ .Passes = &inputs.Passes };
     }
 
-    // Keep post-chain source selection compact and consistent: each
-    // setup callback lists its preferred upstream framebuffers in order,
-    // and this helper emits exactly one dependency read from the first
-    // valid handle. That mirrors the runtime fallback policy used by the
-    // fullscreen passes without open-coding the same if/else ladder in
-    // every setup lambda.
-    template<typename... THandles>
-    inline void ReadFirstValidFramebuffer(RGBuilder& builder, const THandles&... handles)
+    struct FramebufferTextureInput
     {
-        bool readIssued = false;
-        const auto tryRead = [&builder, &readIssued](const RGFramebufferHandle& handle)
+        RGFramebufferHandle Framebuffer{};
+        RGTextureHandle Texture{};
+    };
+
+    [[nodiscard]] inline auto MakeFramebufferTextureInput(const RGFramebufferHandle framebuffer,
+                                                          const RGTextureHandle texture) -> FramebufferTextureInput
+    {
+        return FramebufferTextureInput{ .Framebuffer = framebuffer, .Texture = texture };
+    }
+
+    // Keep post-chain source selection compact and consistent: setup chooses
+    // one authoritative upstream framebuffer handle, and execute consumes
+    // that exact choice instead of replaying the fallback chain.
+    template<typename... THandles>
+    [[nodiscard]] inline auto SelectFirstValidFramebuffer(const THandles&... handles) -> RGFramebufferHandle
+    {
+        RGFramebufferHandle selected;
+        const auto trySelect = [&selected](const RGFramebufferHandle& handle)
         {
-            if (readIssued || !handle.IsValid())
+            if (selected.IsValid() || !handle.IsValid())
                 return;
 
-            [[maybe_unused]] const auto framebufferRead =
-                builder.Read(handle, RGReadUsage::RenderTargetRead);
-            readIssued = true;
+            selected = handle;
         };
 
-        (tryRead(handles), ...);
+        (trySelect(handles), ...);
+        return selected;
     }
 
-    inline void AddExistingNode(RenderGraph& graph, CommandBufferRenderPass* node)
+    template<typename... THandles>
+    [[nodiscard]] inline auto SelectFirstValidFramebufferForPass(RenderGraphNode* pass, const THandles&... handles) -> RGFramebufferHandle
+    {
+        const auto selected = SelectFirstValidFramebuffer(handles...);
+        if (pass)
+            pass->SetPrimaryInputFramebufferHandle(selected);
+        return selected;
+    }
+
+    template<typename... TInputs>
+    [[nodiscard]] inline auto SelectFirstValidFramebufferTextureInput(const TInputs&... inputs) -> FramebufferTextureInput
+    {
+        FramebufferTextureInput selected{};
+        const auto trySelect = [&selected](const FramebufferTextureInput& input)
+        {
+            if (selected.Framebuffer.IsValid() || selected.Texture.IsValid())
+                return;
+            if (!input.Framebuffer.IsValid() || !input.Texture.IsValid())
+                return;
+
+            selected = input;
+        };
+
+        (trySelect(inputs), ...);
+        return selected;
+    }
+
+    template<typename... TInputs>
+    [[nodiscard]] inline auto SelectFirstValidFramebufferTextureInputForPass(RenderGraphNode* pass,
+                                                                             const TInputs&... inputs) -> FramebufferTextureInput
+    {
+        const auto selected = SelectFirstValidFramebufferTextureInput(inputs...);
+        if (pass)
+        {
+            pass->SetPrimaryInputFramebufferHandle(selected.Framebuffer);
+            pass->SetPrimaryInputTextureHandle(selected.Texture);
+        }
+        return selected;
+    }
+
+    template<typename... TInputs>
+    [[nodiscard]] inline auto ReadFirstValidFramebufferTextureInputForPass(RGBuilder& builder,
+                                                                           RenderGraphNode* pass,
+                                                                           const TInputs&... inputs) -> FramebufferTextureInput
+    {
+        const auto selected = SelectFirstValidFramebufferTextureInputForPass(pass, inputs...);
+        if (!selected.Texture.IsValid())
+            return selected;
+
+        [[maybe_unused]] const auto textureRead =
+            builder.Read(selected.Texture, RGReadUsage::ShaderSample);
+        return selected;
+    }
+
+    // Resource base name pair (framebuffer name + texture-view name) used by
+    // the name-based post-process source selector. Each candidate is one
+    // potential upstream producer; the selector picks the first whose latest
+    // version (or canonical import) resolves to a valid handle pair.
+    struct CandidateBaseNames
+    {
+        std::string_view FramebufferName;
+        std::string_view TextureName;
+    };
+
+    [[nodiscard]] inline auto MakeCandidateBaseNames(std::string_view framebufferName,
+                                                     std::string_view textureName) -> CandidateBaseNames
+    {
+        return CandidateBaseNames{ .FramebufferName = framebufferName, .TextureName = textureName };
+    }
+
+    [[nodiscard]] inline auto SelectFirstValidVersionedInput(const RGBuilder& builder,
+                                                             std::initializer_list<CandidateBaseNames> candidates) -> FramebufferTextureInput
+    {
+        FramebufferTextureInput selected{};
+        const auto& graph = builder.GetGraph();
+        for (const auto& candidate : candidates)
+        {
+            const auto framebuffer = graph.GetFramebufferHandle(candidate.FramebufferName);
+            const auto texture = graph.GetTextureHandle(candidate.TextureName);
+            if (framebuffer.IsValid() && texture.IsValid())
+            {
+                selected = MakeFramebufferTextureInput(framebuffer, texture);
+                break;
+            }
+        }
+        return selected;
+    }
+
+    // Name-based equivalent of `ReadFirstValidFramebufferTextureInputForPass`.
+    // Each candidate is a (framebufferBaseName, textureBaseName) pair; the
+    // selector resolves each via the graph's latest-version map (falling back
+    // to the canonical import) and picks the first valid pair. Records the
+    // primary input handles on the pass and emits a ShaderSample Read on the
+    // chosen texture, matching the prior typed-pointer setter pattern.
+    inline auto ReadFirstValidVersionedInputForPass(RGBuilder& builder,
+                                                    RenderGraphNode* pass,
+                                                    std::initializer_list<CandidateBaseNames> candidates) -> FramebufferTextureInput
+    {
+        const auto selected = SelectFirstValidVersionedInput(builder, candidates);
+        if (pass)
+        {
+            pass->SetPrimaryInputFramebufferHandle(selected.Framebuffer);
+            pass->SetPrimaryInputTextureHandle(selected.Texture);
+        }
+        if (selected.Texture.IsValid())
+        {
+            [[maybe_unused]] const auto textureRead =
+                builder.Read(selected.Texture, RGReadUsage::ShaderSample);
+        }
+        return selected;
+    }
+
+    template<typename... THandles>
+    inline auto ReadFirstValidFramebuffer(RGBuilder& builder, const THandles&... handles) -> RGFramebufferHandle
+    {
+        const auto selected = SelectFirstValidFramebuffer(handles...);
+        if (!selected.IsValid())
+            return selected;
+
+        [[maybe_unused]] const auto framebufferRead =
+            builder.Read(selected, RGReadUsage::RenderTargetRead);
+        return selected;
+    }
+
+    template<typename... THandles>
+    inline auto ReadFirstValidFramebufferForPass(RGBuilder& builder, RenderGraphNode* pass, const THandles&... handles) -> RGFramebufferHandle
+    {
+        const auto selected = SelectFirstValidFramebufferForPass(pass, handles...);
+        if (!selected.IsValid())
+            return selected;
+
+        [[maybe_unused]] const auto framebufferRead =
+            builder.Read(selected, RGReadUsage::RenderTargetRead);
+        return selected;
+    }
+
+    inline void AddExistingNode(RenderGraph& graph, RenderGraphNode* node)
     {
         OLO_CORE_ASSERT(node, "BuildRenderPipelineGraph requires a valid render-stream pass");
         graph.AddNode(BorrowRef(node));
     }
 
     template<typename TPass>
-    [[nodiscard]] auto PrepareGraphPass(std::string_view name,
-                                        TPass* pass,
-                                        RenderPass::SetupCallback setup) -> Ref<TPass>
+    [[nodiscard]] auto PrepareGraphNode(std::string_view name,
+                                        TPass* pass) -> Ref<TPass>
     {
         auto passRef = BorrowRef(pass);
-        OLO_CORE_ASSERT(passRef, "BuildRenderPipelineGraph requires a valid render pass");
+        OLO_CORE_ASSERT(passRef, "BuildRenderPipelineGraph requires a valid render node");
+        // Production passes already implement RenderGraphNode directly.
+        // This helper only synchronizes the graph-facing name before
+        // registration; it does not wrap or adapt the node.
         passRef->SetName(name);
-        passRef->SetSetupCallback(std::move(setup));
         return passRef;
     }
-
-    [[nodiscard]] auto CreateShadowNodeSetup() -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateSSAONodeSetup(PostProcessSettings* postProcess,
-                                           SSAORenderPass* ssaoPass) -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateGTAONodeSetup(PostProcessSettings* postProcess,
-                                           SceneRenderPass* scenePass) -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateDeferredOpaqueDecalNodeSetup(RendererSettings* settings,
-                                                          DecalRenderPass* decalPass) -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateDeferredLightingNodeSetup(RendererSettings* settings) -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateParticleNodeSetup(RendererSettings* settings,
-                                               ParticleRenderPass* particlePass) -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateOITPrepareNodeSetup(RendererSettings* settings,
-                                                 ParticleRenderPass* particlePass,
-                                                 DecalRenderPass* decalPass) -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateOITResolveNodeSetup(RendererSettings* settings,
-                                                 ParticleRenderPass* particlePass,
-                                                 DecalRenderPass* decalPass) -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateSSSNodeSetup(SnowSettings* snow,
-                                          SSSRenderPass* sssPass) -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateAOApplyNodeSetup(PostProcessSettings* postProcess) -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateBloomNodeSetup(PostProcessSettings* postProcess,
-                                            SceneRenderPass* scenePass) -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateDOFNodeSetup(PostProcessSettings* postProcess) -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateMotionBlurNodeSetup(PostProcessSettings* postProcess) -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateTAANodeSetup(PostProcessSettings* postProcess) -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreatePrecipitationNodeSetup(PrecipitationSettings* precipitation) -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateFogNodeSetup(FogSettings* fog) -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateChromAberrationNodeSetup(PostProcessSettings* postProcess) -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateColorGradingNodeSetup(PostProcessSettings* postProcess) -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateToneMapNodeSetup() -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateVignetteNodeSetup(PostProcessSettings* postProcess) -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateFXAANodeSetup(PostProcessSettings* postProcess) -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateSelectionOutlineNodeSetup(SelectionOutlineRenderPass* selectionOutlinePass) -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateUICompositeNodeSetup() -> RenderPass::SetupCallback;
-    [[nodiscard]] auto CreateFinalNodeSetup() -> RenderPass::SetupCallback;
 
     void RegisterRenderStreamNodes(RenderGraph& graph,
                                    const RenderStreamStageInputs& inputs);

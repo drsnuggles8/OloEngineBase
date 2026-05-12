@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Passes/GTAORenderPass.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -47,6 +48,132 @@ namespace OloEngine
         SetAsyncComputeCandidate(true);
     }
 
+    void GTAORenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+        m_SelectedSceneDepthTexture = {};
+        m_SelectedSceneNormalsTexture = {};
+        m_SelectedAOOutputTexture = {};
+        m_SelectedEdgeTexture = {};
+        m_SelectedHZBDepthTexture = {};
+        m_SelectedDenoisePingTexture = {};
+        m_SelectedDenoisePongTexture = {};
+
+        if (!m_Settings.GTAOEnabled || m_Settings.ActiveAOTechnique != AOTechnique::GTAO)
+            return;
+
+        const bool willDispatchDenoise = m_Settings.GTAODenoiseEnabled && m_Settings.GTAODenoisePasses > 0;
+
+        if (blackboard.SceneDepth.IsValid())
+        {
+            m_SelectedSceneDepthTexture = blackboard.SceneDepth;
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.SceneDepth, RGReadUsage::ShaderSample);
+        }
+        if (blackboard.SceneNormals.IsValid())
+        {
+            m_SelectedSceneNormalsTexture = blackboard.SceneNormals;
+            [[maybe_unused]] const auto sceneNormalsRead = builder.Read(blackboard.SceneNormals, RGReadUsage::ShaderSample);
+        }
+        if (blackboard.AOBuffer.IsValid())
+        {
+            m_SelectedAOOutputTexture = blackboard.AOBuffer;
+            builder.Write(blackboard.AOBuffer, RGWriteUsage::ShaderImage);
+        }
+
+        if (m_Width == 0u || m_Height == 0u)
+            return;
+
+        const auto nextPow2 = [](u32 value)
+        {
+            u32 result = 1u;
+            while (result < value)
+                result <<= 1u;
+            return result;
+        };
+
+        const auto hzbW = nextPow2(m_Width);
+        const auto hzbH = nextPow2(m_Height);
+        u32 mipCount = 1u;
+        for (u32 mipW = hzbW, mipH = hzbH; mipW > 1u || mipH > 1u; ++mipCount)
+        {
+            mipW = mipW > 1u ? (mipW / 2u) : 1u;
+            mipH = mipH > 1u ? (mipH / 2u) : 1u;
+        }
+
+        if (blackboard.HZBDepth.IsValid())
+        {
+            m_SelectedHZBDepthTexture = blackboard.HZBDepth;
+            builder.AllowFeedback(blackboard.HZBDepth);
+
+            bool canUseMipViews = mipCount <= static_cast<u32>(blackboard.HZBDepthMipViews.size());
+            if (canUseMipViews)
+            {
+                for (u32 mip = 0u; mip < mipCount; ++mip)
+                {
+                    if (!blackboard.HZBDepthMipViews[mip].IsValid())
+                    {
+                        canUseMipViews = false;
+                        break;
+                    }
+                }
+            }
+
+            if (canUseMipViews)
+            {
+                builder.Write(blackboard.HZBDepthMipViews[0u], RGWriteUsage::ShaderImage);
+                for (u32 mip = 1u; mip < mipCount; ++mip)
+                {
+                    [[maybe_unused]] const auto hzbMipRead =
+                        builder.Read(blackboard.HZBDepthMipViews[mip - 1u], RGReadUsage::ShaderSample);
+                    builder.Write(blackboard.HZBDepthMipViews[mip], RGWriteUsage::ShaderImage);
+                }
+            }
+            else
+            {
+                builder.Write(blackboard.HZBDepth, RGWriteUsage::ShaderImage, RGSubresourceRange::Mip(0u));
+                for (u32 mip = 1u; mip < mipCount; ++mip)
+                {
+                    [[maybe_unused]] const auto hzbMipRead =
+                        builder.Read(blackboard.HZBDepth, RGReadUsage::ShaderSample, RGSubresourceRange::Mip(mip - 1u));
+                    builder.Write(blackboard.HZBDepth, RGWriteUsage::ShaderImage, RGSubresourceRange::Mip(mip));
+                }
+            }
+
+            [[maybe_unused]] const auto hzbRead = builder.Read(blackboard.HZBDepth, RGReadUsage::ShaderSample);
+        }
+
+        if (blackboard.GTAOEdge.IsValid())
+        {
+            m_SelectedEdgeTexture = blackboard.GTAOEdge;
+            builder.AllowFeedback(blackboard.GTAOEdge);
+            builder.Write(blackboard.GTAOEdge, RGWriteUsage::ShaderImage);
+            [[maybe_unused]] const auto edgeRead = builder.Read(blackboard.GTAOEdge, RGReadUsage::ShaderImage);
+        }
+
+        if (blackboard.GTAODenoisePing.IsValid())
+        {
+            m_SelectedDenoisePingTexture = blackboard.GTAODenoisePing;
+            if (willDispatchDenoise)
+            {
+                builder.AllowFeedback(blackboard.GTAODenoisePing);
+                builder.Write(blackboard.GTAODenoisePing, RGWriteUsage::ShaderImage);
+                [[maybe_unused]] const auto pingRead = builder.Read(blackboard.GTAODenoisePing, RGReadUsage::ShaderImage);
+            }
+            else
+            {
+                builder.Write(blackboard.GTAODenoisePing, RGWriteUsage::ShaderImage);
+            }
+        }
+
+        if (willDispatchDenoise && blackboard.GTAODenoisePong.IsValid())
+        {
+            m_SelectedDenoisePongTexture = blackboard.GTAODenoisePong;
+            builder.AllowFeedback(blackboard.GTAODenoisePong);
+            builder.Write(blackboard.GTAODenoisePong, RGWriteUsage::ShaderImage);
+            [[maybe_unused]] const auto pongRead = builder.Read(blackboard.GTAODenoisePong, RGReadUsage::ShaderImage);
+        }
+    }
+
     GTAORenderPass::~GTAORenderPass() = default;
 
     void GTAORenderPass::Init(const FramebufferSpecification& spec)
@@ -64,44 +191,13 @@ namespace OloEngine
         m_GTAOShader = ComputeShader::Create("assets/shaders/compute/GTAO.comp");
         m_DenoiseShader = ComputeShader::Create("assets/shaders/compute/GTAO_Denoise.comp");
 
-        // Create AO output textures
-        CreateGTAOTextures(m_Width, m_Height);
-
         // Generate Hilbert LUT
         GenerateHilbertLUT();
 
         // Initialize HZB for current viewport
         m_HZBGenerator.Resize(m_Width, m_Height);
 
-        // Resource-aware RDG: GTAO reads scene depth/normals and writes AOBuffer
-        // consumed later by AOApplyPass. This allows the validator to derive
-        // GTAOPass -> AOApplyPass ordering via RAW on AOBuffer.
-        DeclareRead(ResourceNames::SceneDepth, ResourceHandle::Kind::Texture2D);
-        DeclareRead(ResourceNames::SceneNormals, ResourceHandle::Kind::Texture2D);
-        DeclareWrite(ResourceNames::AOBuffer, ResourceHandle::Kind::Texture2D);
-
         OLO_CORE_INFO("GTAORenderPass: Initialized at {}x{}", m_Width, m_Height);
-    }
-
-    void GTAORenderPass::CreateGTAOTextures(u32 width, u32 height)
-    {
-        OLO_PROFILE_FUNCTION();
-
-        if (width == 0 || height == 0)
-        {
-            return;
-        }
-
-        // R8 AO textures (ping-pong for denoise)
-        TextureSpecification aoSpec;
-        aoSpec.Width = width;
-        aoSpec.Height = height;
-        aoSpec.Format = ImageFormat::R8;
-        aoSpec.GenerateMips = false;
-        aoSpec.MipLevels = 1;
-
-        m_AOTexture0 = Texture2D::Create(aoSpec);
-        m_AOTexture1 = Texture2D::Create(aoSpec);
     }
 
     void GTAORenderPass::GenerateHilbertLUT()
@@ -130,17 +226,11 @@ namespace OloEngine
         m_HilbertLUT->SetData(data.data(), static_cast<u32>(data.size() * sizeof(u16)));
     }
 
-    void GTAORenderPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
-    }
-
     void GTAORenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_Settings.GTAOEnabled || m_Settings.ActiveAOTechnique != AOTechnique::GTAO || !m_GTAOShader || !m_GTAOShader->IsValid())
+        if (!m_Settings.GTAOEnabled || m_Settings.ActiveAOTechnique != AOTechnique::GTAO || !IsReadyForExecution())
         {
             return;
         }
@@ -150,11 +240,10 @@ namespace OloEngine
         // side-channel setter calls are needed from EndScene().
         u32 depthID = 0;
         u32 normalsID = 0;
-        if (const auto* board = context.GetBlackboard())
-        {
-            depthID = context.ResolveTexture(board->SceneDepth);
-            normalsID = context.ResolveTexture(board->SceneNormals);
-        }
+        if (m_SelectedSceneDepthTexture.IsValid())
+            depthID = context.ResolveTexture(m_SelectedSceneDepthTexture);
+        if (m_SelectedSceneNormalsTexture.IsValid())
+            normalsID = context.ResolveTexture(m_SelectedSceneNormalsTexture);
         if (depthID == 0 || normalsID == 0)
         {
             return;
@@ -164,23 +253,30 @@ namespace OloEngine
         // the transient pool only. The execute path no longer falls back to
         // an owned edge texture.
         u32 edgeTexID = 0;
-        if (const auto* board = context.GetBlackboard())
-        {
-            if (board->GTAOEdge.IsValid())
-                if (const u32 transientID = context.ResolveTexture(board->GTAOEdge))
-                    edgeTexID = transientID;
-        }
-        if (edgeTexID == 0)
+        u32 aoOutputTexID = 0;
+        u32 denoisePingTexID = 0;
+        u32 denoisePongTexID = 0;
+        if (m_SelectedAOOutputTexture.IsValid())
+            aoOutputTexID = context.ResolveTexture(m_SelectedAOOutputTexture);
+        if (m_SelectedEdgeTexture.IsValid())
+            edgeTexID = context.ResolveTexture(m_SelectedEdgeTexture);
+        if (m_SelectedDenoisePingTexture.IsValid())
+            denoisePingTexID = context.ResolveTexture(m_SelectedDenoisePingTexture);
+
+        const bool willDispatchDenoise = m_Settings.GTAODenoiseEnabled && m_Settings.GTAODenoisePasses > 0;
+        if (willDispatchDenoise && m_SelectedDenoisePongTexture.IsValid())
+            denoisePongTexID = context.ResolveTexture(m_SelectedDenoisePongTexture);
+
+        if (edgeTexID == 0 || aoOutputTexID == 0 || denoisePingTexID == 0)
+            return;
+        if (willDispatchDenoise && denoisePongTexID == 0)
             return;
 
         // Phase D / H follow-up: resolve transient HZB scratch from the render
         // graph and require it to exist for execution.
         u32 transientHZBID = 0;
-        if (const auto* board = context.GetBlackboard())
-        {
-            if (board->HZBDepth.IsValid())
-                transientHZBID = context.ResolveTexture(board->HZBDepth);
-        }
+        if (m_SelectedHZBDepthTexture.IsValid())
+            transientHZBID = context.ResolveTexture(m_SelectedHZBDepthTexture);
         if (transientHZBID == 0)
         {
             m_HZBGenerator.ClearExternalHZBTexture();
@@ -192,7 +288,7 @@ namespace OloEngine
             static u32 s_PrevDepthID = 0;
             static u32 s_PrevNormalsID = 0;
             static u32 s_PrevAOID = 0;
-            const u32 aoID = GetGTAOTextureID();
+            const u32 aoID = aoOutputTexID;
             if (depthID != s_PrevDepthID || normalsID != s_PrevNormalsID || aoID != s_PrevAOID)
             {
                 OLO_CORE_INFO("GTAORenderPass: inputs depthTex={}, normalsTex={}, outputAOTex={} ({}x{})",
@@ -210,12 +306,28 @@ namespace OloEngine
         UploadGTAOUniforms();
 
         // Step 3: Dispatch GTAO main pass
-        DispatchGTAO(normalsID, edgeTexID);
+        DispatchGTAO(denoisePingTexID, normalsID, edgeTexID);
 
         // Step 4: Denoise (if enabled)
-        if (m_Settings.GTAODenoiseEnabled && m_DenoiseShader && m_DenoiseShader->IsValid())
+        if (willDispatchDenoise)
         {
-            DispatchDenoise(edgeTexID);
+            DispatchDenoise(edgeTexID, denoisePingTexID, denoisePongTexID);
+        }
+
+        const u32 finalAOTextureID = (willDispatchDenoise && (m_Settings.GTAODenoisePasses % 2 != 0))
+                                         ? denoisePongTexID
+                                         : denoisePingTexID;
+        if (finalAOTextureID != 0 && finalAOTextureID != aoOutputTexID)
+        {
+            RenderCommand::MemoryBarrier(
+                MemoryBarrierFlags::ShaderImageAccess |
+                MemoryBarrierFlags::TextureFetch |
+                MemoryBarrierFlags::TextureUpdate);
+
+            glCopyImageSubData(
+                finalAOTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
+                aoOutputTexID, GL_TEXTURE_2D, 0, 0, 0, 0,
+                static_cast<GLsizei>(m_Width), static_cast<GLsizei>(m_Height), 1);
         }
     }
 
@@ -264,14 +376,14 @@ namespace OloEngine
         m_GTAOUBO->Bind();
     }
 
-    void GTAORenderPass::DispatchGTAO(u32 normalsTextureID, u32 edgeTexID)
+    void GTAORenderPass::DispatchGTAO(u32 aoOutputTextureID, u32 normalsTextureID, u32 edgeTexID)
     {
         OLO_PROFILE_FUNCTION();
 
         m_GTAOShader->Bind();
 
         // Bind output images
-        RenderCommand::BindImageTexture(0, m_AOTexture0->GetRendererID(), 0, false, 0, GL_WRITE_ONLY, GL_R8);
+        RenderCommand::BindImageTexture(0, aoOutputTextureID, 0, false, 0, GL_WRITE_ONLY, GL_R8);
         RenderCommand::BindImageTexture(1, edgeTexID, 0, false, 0, GL_WRITE_ONLY, GL_R8);
 
         // Bind inputs
@@ -293,7 +405,7 @@ namespace OloEngine
         m_GTAOShader->Unbind();
     }
 
-    void GTAORenderPass::DispatchDenoise(u32 edgeTexID)
+    void GTAORenderPass::DispatchDenoise(u32 edgeTexID, u32 pingTextureID, u32 pongTextureID)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -315,13 +427,13 @@ namespace OloEngine
 
             if (readFromTex0)
             {
-                RenderCommand::BindImageTexture(0, m_AOTexture0->GetRendererID(), 0, false, 0, GL_READ_ONLY, GL_R8);
-                RenderCommand::BindImageTexture(1, m_AOTexture1->GetRendererID(), 0, false, 0, GL_WRITE_ONLY, GL_R8);
+                RenderCommand::BindImageTexture(0, pingTextureID, 0, false, 0, GL_READ_ONLY, GL_R8);
+                RenderCommand::BindImageTexture(1, pongTextureID, 0, false, 0, GL_WRITE_ONLY, GL_R8);
             }
             else
             {
-                RenderCommand::BindImageTexture(0, m_AOTexture1->GetRendererID(), 0, false, 0, GL_READ_ONLY, GL_R8);
-                RenderCommand::BindImageTexture(1, m_AOTexture0->GetRendererID(), 0, false, 0, GL_WRITE_ONLY, GL_R8);
+                RenderCommand::BindImageTexture(0, pongTextureID, 0, false, 0, GL_READ_ONLY, GL_R8);
+                RenderCommand::BindImageTexture(1, pingTextureID, 0, false, 0, GL_WRITE_ONLY, GL_R8);
             }
 
             RenderCommand::DispatchCompute(groupsX, groupsY, 1);
@@ -332,28 +444,6 @@ namespace OloEngine
 
         m_DenoiseShader->Unbind();
     }
-
-    u32 GTAORenderPass::GetGTAOTextureID() const
-    {
-        if (!m_AOTexture0)
-        {
-            return 0;
-        }
-
-        // After even number of denoise passes, result is in Texture0; odd → Texture1
-        if (m_Settings.GTAODenoiseEnabled && (m_Settings.GTAODenoisePasses % 2 != 0))
-        {
-            return m_AOTexture1 ? m_AOTexture1->GetRendererID() : 0;
-        }
-        return m_AOTexture0->GetRendererID();
-    }
-
-    Ref<Framebuffer> GTAORenderPass::GetTarget() const
-    {
-        // Compute-only pass — no framebuffer target.
-        return nullptr;
-    }
-
     void GTAORenderPass::SetupFramebuffer(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
@@ -368,7 +458,6 @@ namespace OloEngine
         m_Width = width;
         m_Height = height;
 
-        CreateGTAOTextures(width, height);
         m_HZBGenerator.Resize(width, height);
     }
 
@@ -386,15 +475,6 @@ namespace OloEngine
         m_Width = width;
         m_Height = height;
 
-        // Recreate textures at new size
-        if (m_AOTexture0)
-        {
-            m_AOTexture0->Resize(width, height);
-        }
-        if (m_AOTexture1)
-        {
-            m_AOTexture1->Resize(width, height);
-        }
         m_HZBGenerator.Resize(width, height);
 
         OLO_CORE_INFO("GTAORenderPass: Resized to {}x{}", width, height);
@@ -407,5 +487,12 @@ namespace OloEngine
         {
             m_GPUData->NoiseIndex = (m_GPUData->NoiseIndex + 1) % 256;
         }
+        m_SelectedSceneDepthTexture = {};
+        m_SelectedSceneNormalsTexture = {};
+        m_SelectedAOOutputTexture = {};
+        m_SelectedEdgeTexture = {};
+        m_SelectedHZBDepthTexture = {};
+        m_SelectedDenoisePingTexture = {};
+        m_SelectedDenoisePongTexture = {};
     }
 } // namespace OloEngine

@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Passes/ParticleRenderPass.h"
 #include "OloEngine/Particle/ParticleBatchRenderer.h"
@@ -13,6 +14,59 @@ namespace OloEngine
         SetName("ParticleRenderPass");
     }
 
+    void ParticleRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+        m_SelectedOITFramebuffer = {};
+
+        if (!m_RenderCallback)
+            return;
+
+        if (m_OITEnabled)
+        {
+            if (blackboard.SceneColor.IsValid())
+                SetPrimaryInputFramebufferHandle(blackboard.SceneColor);
+            if (blackboard.OITBuffer.IsValid())
+                m_SelectedOITFramebuffer = blackboard.OITBuffer;
+            if (blackboard.OITDepthAttachment.IsValid())
+            {
+                [[maybe_unused]] const auto oitDepthRead = builder.Read(blackboard.OITDepthAttachment, RGReadUsage::RenderTargetRead);
+            }
+            if (blackboard.OITAccum.IsValid())
+            {
+                builder.AllowFeedback(blackboard.OITAccum);
+                [[maybe_unused]] const auto oitAccumRead = builder.Read(blackboard.OITAccum, RGReadUsage::RenderTargetRead);
+                builder.Write(blackboard.OITAccum, RGWriteUsage::RenderTarget);
+            }
+            if (blackboard.OITRevealage.IsValid())
+            {
+                builder.AllowFeedback(blackboard.OITRevealage);
+                [[maybe_unused]] const auto oitRevealageRead = builder.Read(blackboard.OITRevealage, RGReadUsage::RenderTargetRead);
+                builder.Write(blackboard.OITRevealage, RGWriteUsage::RenderTarget);
+            }
+
+            // Pin OIT writer-chain ordering: OITPreparePass clears the targets,
+            // then contributors RMW into them in a chosen order. WB-OIT is
+            // mathematically commutative across contributors, so the chain just
+            // disambiguates the WAW order (which is registration-order-sensitive
+            // without explicit edges). Particle depends on OITPrepare (declared
+            // explicitly so the no-Decal case is still pinned) and on the
+            // previous OITAccum writer (the earlier contributor, e.g. Decal in
+            // OIT mode) discovered via the graph's last-writer tracker.
+            if (blackboard.OITAccum.IsValid() || blackboard.OITRevealage.IsValid())
+                builder.DependsOnPass("OITPreparePass");
+            builder.DependsOnPreviousWriter(ResourceNames::OITAccum);
+        }
+        else if (blackboard.SceneColor.IsValid())
+        {
+            SetPrimaryInputFramebufferHandle(blackboard.SceneColor);
+            builder.AllowFeedback(blackboard.SceneColor);
+            [[maybe_unused]] const auto sceneColorRead = builder.Read(blackboard.SceneColor, RGReadUsage::RenderTargetRead);
+            builder.Write(blackboard.SceneColor, RGWriteUsage::RenderTarget);
+            builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
+        }
+    }
+
     void ParticleRenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
@@ -20,40 +74,18 @@ namespace OloEngine
         m_FramebufferSpec = spec;
         // No own framebuffer — this pass renders into the ScenePass target
         // (classic) or into the graph-owned OIT framebuffer (WB-OIT path).
-
-        // Resource-aware RDG: in the OIT path we write the accumulation and
-        // revealage buffers; in the classic path we write directly into SceneColor.
-        // Declaring all three lets the hazard validator derive the RAW ordering
-        // edge to OITResolveRenderPass (which reads OITAccum/OITRevealage).
-        // Phase F slice 32 — also declare SceneColor read so the WaterPass →
-        // ParticlePass RAW ordering edge is derived (WaterPass writes SceneColor,
-        // this pass reads-then-writes it).
-        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
-        DeclareWrite(ResourceNames::OITAccum, ResourceHandle::Kind::Texture2D);
-        DeclareWrite(ResourceNames::OITRevealage, ResourceHandle::Kind::Texture2D);
-        DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
-    }
-
-    void ParticleRenderPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
     }
 
     void ParticleRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Phase F slice 36 — self-resolving SceneColor: look up directly
-        // from the render graph blackboard so no per-frame side-channel
-        // setter call is needed from EndScene().
-        if (const auto* board = context.GetBlackboard())
+        // Resolve the setup-selected scene framebuffer instead of replaying
+        // a blackboard lookup ladder at execute time.
+        if (const auto sceneHandle = GetPrimaryInputFramebufferHandle(); sceneHandle.IsValid())
         {
-            if (board->SceneColor.IsValid())
-            {
-                if (auto resolvedSceneFB = context.ResolveFramebuffer(board->SceneColor))
-                    m_SceneFramebuffer = resolvedSceneFB;
-            }
+            if (auto resolvedSceneFB = context.ResolveFramebuffer(sceneHandle))
+                m_SceneFramebuffer = resolvedSceneFB;
         }
 
         if (!m_RenderCallback || !m_SceneFramebuffer)
@@ -62,11 +94,8 @@ namespace OloEngine
         }
 
         Ref<Framebuffer> oitFramebuffer;
-        if (m_OITEnabled)
-        {
-            if (const auto* board = context.GetBlackboard(); board && board->OITAccum.IsValid())
-                oitFramebuffer = context.ResolveFramebuffer(board->OITAccum);
-        }
+        if (m_OITEnabled && m_SelectedOITFramebuffer.IsValid())
+            oitFramebuffer = context.ResolveFramebuffer(m_SelectedOITFramebuffer);
 
         const bool useOIT = m_OITEnabled && oitFramebuffer;
 
@@ -162,6 +191,7 @@ namespace OloEngine
 
     void ParticleRenderPass::OnReset()
     {
+        m_SelectedOITFramebuffer = {};
         // No own framebuffer to reset
     }
 } // namespace OloEngine

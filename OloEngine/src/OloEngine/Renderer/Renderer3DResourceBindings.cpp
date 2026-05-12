@@ -12,7 +12,7 @@ namespace OloEngine
             return nullptr;
         }
 
-        return s_Data.Pipeline->StreamNodes.Get(stream);
+        return s_Data.Pipeline->GetRenderStreamNode(stream);
     }
 
     void Renderer3D::SetRenderScale(f32 scale)

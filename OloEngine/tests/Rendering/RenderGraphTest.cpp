@@ -3,10 +3,29 @@
 
 #include "RenderingTestUtils.h"
 #include "PropertyTests/RenderPropertyTest.h"
+#include "TestDeclarativeNode.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderGraph.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
+#include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
+#include "OloEngine/Renderer/Passes/AOApplyRenderPass.h"
+#include "OloEngine/Renderer/Passes/BloomRenderPass.h"
 #include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/Passes/ChromaticAberrationRenderPass.h"
+#include "OloEngine/Renderer/Passes/ColorGradingRenderPass.h"
+#include "OloEngine/Renderer/Passes/DOFRenderPass.h"
+#include "OloEngine/Renderer/Passes/FXAARenderPass.h"
+#include "OloEngine/Renderer/Passes/FogRenderPass.h"
+#include "OloEngine/Renderer/Passes/FinalRenderPass.h"
+#include "OloEngine/Renderer/Passes/MotionBlurRenderPass.h"
+#include "OloEngine/Renderer/Passes/PrecipitationRenderPass.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
+#include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
+#include "OloEngine/Renderer/Passes/SSSRenderPass.h"
+#include "OloEngine/Renderer/Passes/TAARenderPass.h"
+#include "OloEngine/Renderer/Passes/ToneMapRenderPass.h"
+#include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
+#include "OloEngine/Renderer/Passes/VignetteRenderPass.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 
 #include <algorithm>
@@ -15,6 +34,7 @@
 #include <functional>
 #include <iterator>
 #include <string>
+#include <utility>
 #include <vector>
 #include <unordered_set>
 
@@ -24,7 +44,7 @@ using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 // Minimal Stub RenderPass for Graph Tests (no GL)
 // =============================================================================
 
-class StubRenderPass : public RenderPass
+class StubRenderPass : public RenderGraphNode
 {
   public:
     explicit StubRenderPass(const std::string& name)
@@ -34,7 +54,7 @@ class StubRenderPass : public RenderPass
     ~StubRenderPass() override = default;
 
     void Init(const FramebufferSpecification& /*spec*/) override {}
-    void Execute() override
+    void Execute(RGCommandContext& /*context*/) override
     {
         m_ExecuteCount++;
     }
@@ -55,6 +75,46 @@ class StubRenderPass : public RenderPass
     u32 m_ExecuteCount = 0;
 };
 
+class CallbackStyleStubPass : public RenderGraphNode
+{
+  public:
+    using SetupFn = std::function<void(RGBuilder&, FrameBlackboard&)>;
+
+    explicit CallbackStyleStubPass(const std::string& name)
+    {
+        m_Name = name;
+    }
+
+    void Init(const FramebufferSpecification& /*spec*/) override {}
+
+    void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+        if (m_Setup)
+            m_Setup(builder, blackboard);
+    }
+
+    void Execute(RGCommandContext& /*context*/) override {}
+
+    [[nodiscard]] Ref<Framebuffer> GetTarget() const override
+    {
+        return nullptr;
+    }
+
+    void SetSetupBehavior(SetupFn setup)
+    {
+        m_Setup = std::move(setup);
+    }
+
+    [[nodiscard]] bool UsesSetupCallback() const override
+    {
+        return static_cast<bool>(m_Setup);
+    }
+
+  private:
+    SetupFn m_Setup;
+};
+
 class BucketStubPass : public CommandBufferRenderPass
 {
   public:
@@ -64,14 +124,14 @@ class BucketStubPass : public CommandBufferRenderPass
     }
 
     void Init(const FramebufferSpecification& /*spec*/) override {}
-    void Execute() override {}
+    void Execute(RGCommandContext& /*context*/) override {}
     [[nodiscard]] Ref<Framebuffer> GetTarget() const override
     {
         return nullptr;
     }
 };
 
-class ImmediateStubPass : public RenderPass
+class ImmediateStubPass : public TestDeclarativeNode
 {
   public:
     explicit ImmediateStubPass(const std::string& name)
@@ -80,7 +140,7 @@ class ImmediateStubPass : public RenderPass
     }
 
     void Init(const FramebufferSpecification& /*spec*/) override {}
-    void Execute() override {}
+    void Execute(RGCommandContext& /*context*/) override {}
     [[nodiscard]] Ref<Framebuffer> GetTarget() const override
     {
         return nullptr;
@@ -90,13 +150,13 @@ class ImmediateStubPass : public RenderPass
         return SubmissionModel::ImmediateOnly;
     }
 
-    void DeclareTestRead(std::string_view resource)
+    void TestDeclareRead(std::string_view resource)
     {
-        DeclareRead(resource, ResourceHandle::Kind::Texture2D);
+        DeclareTestRead(resource, ResourceHandle::Kind::Texture2D);
     }
 };
 
-class LifecycleTrackingPass : public RenderPass
+class LifecycleTrackingPass : public RenderGraphNode
 {
   public:
     explicit LifecycleTrackingPass(const std::string& name)
@@ -105,7 +165,7 @@ class LifecycleTrackingPass : public RenderPass
     }
 
     void Init(const FramebufferSpecification& /*spec*/) override {}
-    void Execute() override {}
+    void Execute(RGCommandContext& /*context*/) override {}
     [[nodiscard]] Ref<Framebuffer> GetTarget() const override
     {
         return nullptr;
@@ -241,7 +301,30 @@ class AttachmentStubFramebuffer : public StubFramebuffer
     u32 m_ColorAttachment0ID = 0;
 };
 
-class ContextAwareStubPass : public RenderPass
+class MultiAttachmentStubFramebuffer : public StubFramebuffer
+{
+  public:
+    MultiAttachmentStubFramebuffer(u32 rendererID, std::initializer_list<u32> colorAttachmentIDs, u32 depthAttachmentID = 0u)
+        : StubFramebuffer(rendererID), m_ColorAttachmentIDs(colorAttachmentIDs), m_DepthAttachmentID(depthAttachmentID)
+    {
+    }
+
+    [[nodiscard]] u32 GetColorAttachmentRendererID(u32 index) const override
+    {
+        return index < m_ColorAttachmentIDs.size() ? m_ColorAttachmentIDs[index] : 0u;
+    }
+
+    [[nodiscard]] u32 GetDepthAttachmentRendererID() const override
+    {
+        return m_DepthAttachmentID;
+    }
+
+  private:
+    std::vector<u32> m_ColorAttachmentIDs;
+    u32 m_DepthAttachmentID = 0u;
+};
+
+class ContextAwareStubPass : public RenderGraphNode
 {
   public:
     explicit ContextAwareStubPass(const std::string& name)
@@ -250,11 +333,6 @@ class ContextAwareStubPass : public RenderPass
     }
 
     void Init(const FramebufferSpecification& /*spec*/) override {}
-
-    void Execute() override
-    {
-        m_ParameterlessExecuteCount++;
-    }
 
     void Execute(RGCommandContext& context) override
     {
@@ -273,11 +351,6 @@ class ContextAwareStubPass : public RenderPass
         return m_ContextExecuteCount;
     }
 
-    [[nodiscard]] u32 GetParameterlessExecuteCount() const
-    {
-        return m_ParameterlessExecuteCount;
-    }
-
     [[nodiscard]] bool WasContextActive() const
     {
         return m_ContextWasActive;
@@ -290,12 +363,11 @@ class ContextAwareStubPass : public RenderPass
 
   private:
     u32 m_ContextExecuteCount = 0;
-    u32 m_ParameterlessExecuteCount = 0;
     bool m_ContextWasActive = false;
     std::string m_ContextPassName;
 };
 
-class InputTrackingStubPass : public RenderPass
+class InputTrackingStubPass : public RenderGraphNode
 {
   public:
     explicit InputTrackingStubPass(const std::string& name)
@@ -304,7 +376,7 @@ class InputTrackingStubPass : public RenderPass
     }
 
     void Init(const FramebufferSpecification& /*spec*/) override {}
-    void Execute() override
+    void Execute(RGCommandContext& /*context*/) override
     {
         m_ExecuteCount++;
     }
@@ -323,7 +395,7 @@ class InputTrackingStubPass : public RenderPass
     u32 m_ExecuteCount = 0;
 };
 
-class ResolveFailureProbePass : public RenderPass
+class ResolveFailureProbePass : public RenderGraphNode
 {
   public:
     explicit ResolveFailureProbePass(const std::string& name)
@@ -332,7 +404,6 @@ class ResolveFailureProbePass : public RenderPass
     }
 
     void Init(const FramebufferSpecification& /*spec*/) override {}
-    void Execute() override {}
 
     void Execute(RGCommandContext& context) override
     {
@@ -370,7 +441,7 @@ class ResolveFailureProbePass : public RenderPass
     Ref<Framebuffer> m_LastResolvedFramebuffer = nullptr;
 };
 
-class DeclarationTrackingStubPass : public RenderPass
+class DeclarationTrackingStubPass : public TestDeclarativeNode
 {
   public:
     explicit DeclarationTrackingStubPass(const std::string& name)
@@ -379,7 +450,7 @@ class DeclarationTrackingStubPass : public RenderPass
     }
 
     void Init(const FramebufferSpecification& /*spec*/) override {}
-    void Execute() override
+    void Execute(RGCommandContext& /*context*/) override
     {
         m_ExecuteCount++;
     }
@@ -391,12 +462,12 @@ class DeclarationTrackingStubPass : public RenderPass
 
     void TestDeclareRead(std::string_view resource)
     {
-        DeclareRead(resource, ResourceHandle::Kind::Framebuffer);
+        DeclareTestRead(resource, ResourceHandle::Kind::Framebuffer);
     }
 
     void TestDeclareWrite(std::string_view resource)
     {
-        DeclareWrite(resource, ResourceHandle::Kind::Framebuffer);
+        DeclareTestWrite(resource, ResourceHandle::Kind::Framebuffer);
     }
 
     [[nodiscard]] u32 GetExecuteCount() const
@@ -427,6 +498,13 @@ class TestGraphNode : public RenderGraphNode
     void Setup(RGBuilder& builder, FrameBlackboard& /*blackboard*/) override
     {
         ++m_SetupCount;
+        // Flush stored DeclareRead/DeclareWrite entries through the setup-time
+        // path so tests that record declarations via these helpers exercise the
+        // same `m_PassAccessDeclarations` path production passes use.
+        for (const auto& read : m_Reads)
+            MirrorRead(builder, read);
+        for (const auto& write : m_Writes)
+            MirrorWrite(builder, write);
         if (m_Setup)
             m_Setup(builder);
     }
@@ -448,16 +526,6 @@ class TestGraphNode : public RenderGraphNode
     [[nodiscard]] RenderGraphSubmissionModel GetSubmissionModel() const override
     {
         return m_SubmissionModelOverride ? m_SubmissionModel : RenderGraphNode::GetSubmissionModel();
-    }
-
-    [[nodiscard]] std::span<const ResourceHandle> GetDeclaredReads() const override
-    {
-        return { m_Reads.data(), m_Reads.size() };
-    }
-
-    [[nodiscard]] std::span<const ResourceHandle> GetDeclaredWrites() const override
-    {
-        return { m_Writes.data(), m_Writes.size() };
     }
 
     void SetupFramebuffer(u32 width, u32 height) override
@@ -609,17 +677,83 @@ class TestGraphNode : public RenderGraphNode
     bool m_ContextWasActive = false;
     bool m_SubmissionModelOverride = false;
     std::string m_ContextPassName;
+
+    static ResourceHandle::Kind NormalizeKind(ResourceHandle::Kind kind)
+    {
+        return kind == ResourceHandle::Kind::Unknown ? ResourceHandle::Kind::Texture2D : kind;
+    }
+
+    static RGResourceDesc MakeMirrorDesc(ResourceHandle::Kind kind, std::string_view name)
+    {
+        auto desc = RGResourceDesc::FromHandleKind(kind, name);
+        desc.Imported = false;
+        return desc;
+    }
+
+    static void MirrorRead(RGBuilder& builder, const ResourceHandle& resource)
+    {
+        const auto kind = NormalizeKind(resource.Type);
+        const auto desc = MakeMirrorDesc(kind, resource.Name);
+        switch (kind)
+        {
+            case ResourceHandle::Kind::Framebuffer:
+            {
+                auto handle = builder.CreateFramebuffer(resource.Name, desc);
+                [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::RenderTargetRead);
+                break;
+            }
+            case ResourceHandle::Kind::UniformBuffer:
+            case ResourceHandle::Kind::StorageBuffer:
+            {
+                auto handle = builder.CreateBuffer(resource.Name, desc);
+                [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::ShaderStorage);
+                break;
+            }
+            default:
+            {
+                auto handle = builder.CreateTexture(resource.Name, desc);
+                [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::ShaderSample);
+                break;
+            }
+        }
+    }
+
+    static void MirrorWrite(RGBuilder& builder, const ResourceHandle& resource)
+    {
+        const auto kind = NormalizeKind(resource.Type);
+        const auto desc = MakeMirrorDesc(kind, resource.Name);
+        switch (kind)
+        {
+            case ResourceHandle::Kind::Framebuffer:
+            {
+                auto handle = builder.CreateFramebuffer(resource.Name, desc);
+                builder.Write(handle, RGWriteUsage::RenderTarget);
+                break;
+            }
+            case ResourceHandle::Kind::UniformBuffer:
+            case ResourceHandle::Kind::StorageBuffer:
+            {
+                auto handle = builder.CreateBuffer(resource.Name, desc);
+                builder.Write(handle, RGWriteUsage::ShaderStorage);
+                break;
+            }
+            default:
+            {
+                auto handle = builder.CreateTexture(resource.Name, desc);
+                builder.Write(handle, RGWriteUsage::RenderTarget);
+                break;
+            }
+        }
+    }
 };
 
 template<typename TPass>
 static Ref<TPass> AddPassNode(RenderGraph& graph,
-                              Ref<TPass> pass,
-                              RenderPass::SetupCallback setup = {})
+                              Ref<TPass> pass)
 {
     OLO_CORE_ASSERT(pass, "AddPassNode requires a valid pass");
     OLO_CORE_ASSERT(!pass->GetName().empty(), "AddPassNode requires a named pass");
 
-    pass->SetSetupCallback(std::move(setup));
     graph.AddNode(pass.template As<RenderGraphNode>());
 
     return pass;
@@ -668,17 +802,17 @@ TEST(RenderGraph, PassNodesAreRetrievableAsRenderPasses)
     RenderGraph graph;
 
     auto pass = AddStub(graph, "PassA");
-    auto retrieved = graph.GetNode<RenderPass>("PassA");
+    auto retrieved = graph.GetNode<RenderGraphNode>("PassA");
 
     ASSERT_NE(retrieved, nullptr);
     EXPECT_EQ(retrieved->GetName(), "PassA");
-    EXPECT_EQ(retrieved.Raw(), pass.As<RenderPass>().Raw());
+    EXPECT_EQ(retrieved.Raw(), pass.As<RenderGraphNode>().Raw());
 }
 
 TEST(RenderGraph, GetNodeReturnsNullForUnknown)
 {
     RenderGraph graph;
-    auto node = graph.GetNode<RenderPass>("NonExistent");
+    auto node = graph.GetNode<RenderGraphNode>("NonExistent");
     EXPECT_EQ(node, nullptr);
 }
 
@@ -696,13 +830,19 @@ TEST(RenderGraph, GetNodeSubmissionInfoReturnsAllRegisteredEntries)
 TEST(RenderGraph, NodeSubmissionInfoReportsModelsAndResourceDeclarations)
 {
     RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
 
     auto bucket = Ref<BucketStubPass>::Create("BucketPass");
     auto immediate = Ref<ImmediateStubPass>::Create("ImmediatePass");
-    immediate->DeclareTestRead("SceneColor");
+    immediate->TestDeclareRead("SceneColor");
 
     AddPassNode(graph, bucket);
     AddPassNode(graph, immediate);
+
+    // Declarations are flushed through the setup-time path; resource
+    // visibility comes from compiled state after BuildFrameGraph.
+    graph.SetFinalPass("ImmediatePass");
+    graph.BuildFrameGraph();
 
     const auto info = graph.GetNodeSubmissionInfo();
     ASSERT_EQ(info.size(), 2u);
@@ -731,6 +871,7 @@ TEST(RenderGraph, GraphNodeStaticDeclarationsPopulateRegistryAndSubmissionInfo)
     final->DeclareRead("GraphNodeColor", ResourceHandle::Kind::Texture2D);
 
     graph.SetFinalPass("GraphFinal");
+    graph.BuildFrameGraph();
 
     const auto hazards = graph.ValidateResourceHazards();
     EXPECT_TRUE(hazards.empty());
@@ -761,6 +902,55 @@ TEST(RenderGraph, GraphNodeStaticDeclarationsPopulateRegistryAndSubmissionInfo)
     EXPECT_EQ(resource->Consumers[0], "GraphFinal");
 }
 
+TEST(RenderGraph, ValidateExecutionTopologyReturnsFalseForCycles)
+{
+    RenderGraph graph;
+
+    AddStub(graph, "PassA");
+    AddStub(graph, "PassB");
+
+    graph.ConnectPass("PassA", "PassB");
+    graph.ConnectPass("PassB", "PassA");
+    graph.SetFinalPass("PassB");
+
+    EXPECT_FALSE(graph.ValidateExecutionTopology())
+        << "ValidateExecutionTopology should reject cyclic graphs without relying on resource declarations.";
+}
+
+TEST(RenderGraph, CompiledHazardValidationReportsDynamicFeedbackHazards)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddSetupNode(
+        graph,
+        "FeedbackPass",
+        [](RGBuilder& builder)
+        {
+            auto feedbackTexture = builder.ImportTexture(
+                "FeedbackTex",
+                5,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FeedbackTex"));
+            [[maybe_unused]] const auto readFeedback = builder.Read(feedbackTexture, RGReadUsage::ShaderSample);
+            builder.Write(feedbackTexture, RGWriteUsage::RenderTarget);
+        });
+
+    graph.SetFinalPass("FeedbackPass");
+    graph.BuildFrameGraph();
+
+    const auto hazards = graph.ValidateCompiledResourceHazards();
+    const bool hasFeedbackHazard = std::any_of(
+        hazards.begin(), hazards.end(),
+        [](const RenderGraph::Hazard& hazard)
+        {
+            return hazard.Kind == RenderGraph::HazardKind::FeedbackWithoutDeclaration &&
+                   hazard.Resource == "FeedbackTex" && hazard.Consumer == "FeedbackPass";
+        });
+
+    EXPECT_TRUE(hasFeedbackHazard)
+        << "Compiled-frame validation must report same-pass dynamic read/write feedback hazards";
+}
+
 TEST(RenderGraph, ExecuteProvidesActiveCommandContextScope)
 {
     RenderGraph graph;
@@ -771,9 +961,1473 @@ TEST(RenderGraph, ExecuteProvidesActiveCommandContextScope)
     graph.Execute();
 
     EXPECT_EQ(pass->GetContextExecuteCount(), 1u);
-    EXPECT_EQ(pass->GetParameterlessExecuteCount(), 0u);
     EXPECT_TRUE(pass->WasContextActive());
     EXPECT_EQ(pass->GetObservedContextPassName(), "ContextPass");
+}
+
+TEST(RenderGraph, SetupSelectedPrimaryInputFramebufferTracksCurrentFirstValidHandle)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto firstFramebuffer = Ref<AttachmentStubFramebuffer>::Create(101u, 201u);
+    auto secondFramebuffer = Ref<AttachmentStubFramebuffer>::Create(102u, 202u);
+
+    const auto firstHandle = graph.ImportFramebuffer("SelectedInputA", firstFramebuffer);
+    const auto secondHandle = graph.ImportFramebuffer("SelectedInputB", secondFramebuffer);
+
+    bool useFirstHandle = true;
+    bool useSecondHandle = true;
+    bool skipSelection = false;
+
+    auto pass = Ref<CallbackStyleStubPass>::Create("SelectedInputPass");
+    pass->SetSetupBehavior(
+        [passRaw = pass.Raw(), firstHandle, secondHandle, &useFirstHandle, &useSecondHandle, &skipSelection](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
+        {
+            if (skipSelection)
+                return;
+
+            RenderPipelineBuilderInternal::ReadFirstValidFramebufferForPass(
+                builder,
+                passRaw,
+                useFirstHandle ? firstHandle : RGFramebufferHandle{},
+                useSecondHandle ? secondHandle : RGFramebufferHandle{});
+        });
+    AddPassNode(graph, pass);
+
+    graph.SetFinalPass("SelectedInputPass");
+
+    graph.BuildFrameGraph();
+    EXPECT_EQ(pass->GetPrimaryInputFramebufferHandle(), firstHandle);
+    EXPECT_EQ(graph.ResolveFramebuffer(pass->GetPrimaryInputFramebufferHandle()).Raw(), firstFramebuffer.Raw());
+
+    useFirstHandle = false;
+    graph.BuildFrameGraph();
+    EXPECT_EQ(pass->GetPrimaryInputFramebufferHandle(), secondHandle);
+    EXPECT_EQ(graph.ResolveFramebuffer(pass->GetPrimaryInputFramebufferHandle()).Raw(), secondFramebuffer.Raw());
+
+    skipSelection = true;
+    graph.BuildFrameGraph();
+    EXPECT_FALSE(pass->GetPrimaryInputFramebufferHandle().IsValid());
+}
+
+TEST(RenderGraph, SetupSelectedPrimaryInputFramebufferTextureTracksCurrentFirstValidHandlePair)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto firstFramebuffer = Ref<AttachmentStubFramebuffer>::Create(111u, 211u);
+    auto secondFramebuffer = Ref<AttachmentStubFramebuffer>::Create(112u, 212u);
+
+    auto makeInputDesc = [](std::string_view name)
+    {
+        auto desc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, name);
+        desc.Format = RGResourceFormat::RGBA16Float;
+        desc.Width = 1u;
+        desc.Height = 1u;
+        return desc;
+    };
+
+    const auto firstHandle = graph.ImportFramebuffer("SelectedPairedInputA", firstFramebuffer, makeInputDesc("SelectedPairedInputA"));
+    const auto secondHandle = graph.ImportFramebuffer("SelectedPairedInputB", secondFramebuffer, makeInputDesc("SelectedPairedInputB"));
+    const auto firstTexture = graph.CreateFramebufferAttachmentView("SelectedPairedInputATexture", firstHandle, 0u);
+    const auto secondTexture = graph.CreateFramebufferAttachmentView("SelectedPairedInputBTexture", secondHandle, 0u);
+
+    bool useFirstHandle = true;
+    bool useSecondHandle = true;
+    bool skipSelection = false;
+
+    auto pass = Ref<CallbackStyleStubPass>::Create("SelectedPairedInputPass");
+    pass->SetSetupBehavior(
+        [passRaw = pass.Raw(), firstHandle, secondHandle, firstTexture, secondTexture, &useFirstHandle, &useSecondHandle, &skipSelection](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
+        {
+            if (skipSelection)
+                return;
+
+            [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidFramebufferTextureInputForPass(
+                builder,
+                passRaw,
+                RenderPipelineBuilderInternal::MakeFramebufferTextureInput(
+                    useFirstHandle ? firstHandle : RGFramebufferHandle{},
+                    useFirstHandle ? firstTexture : RGTextureHandle{}),
+                RenderPipelineBuilderInternal::MakeFramebufferTextureInput(
+                    useSecondHandle ? secondHandle : RGFramebufferHandle{},
+                    useSecondHandle ? secondTexture : RGTextureHandle{}));
+        });
+    AddPassNode(graph, pass);
+
+    graph.SetFinalPass("SelectedPairedInputPass");
+
+    graph.BuildFrameGraph();
+    EXPECT_EQ(pass->GetPrimaryInputFramebufferHandle(), firstHandle);
+    EXPECT_EQ(pass->GetPrimaryInputTextureHandle(), firstTexture);
+    EXPECT_EQ(graph.ResolveFramebuffer(pass->GetPrimaryInputFramebufferHandle()).Raw(), firstFramebuffer.Raw());
+    EXPECT_EQ(graph.ResolveTexture(pass->GetPrimaryInputTextureHandle()), 211u);
+
+    useFirstHandle = false;
+    graph.BuildFrameGraph();
+    EXPECT_EQ(pass->GetPrimaryInputFramebufferHandle(), secondHandle);
+    EXPECT_EQ(pass->GetPrimaryInputTextureHandle(), secondTexture);
+    EXPECT_EQ(graph.ResolveFramebuffer(pass->GetPrimaryInputFramebufferHandle()).Raw(), secondFramebuffer.Raw());
+    EXPECT_EQ(graph.ResolveTexture(pass->GetPrimaryInputTextureHandle()), 212u);
+
+    skipSelection = true;
+    graph.BuildFrameGraph();
+    EXPECT_FALSE(pass->GetPrimaryInputFramebufferHandle().IsValid());
+    EXPECT_FALSE(pass->GetPrimaryInputTextureHandle().IsValid());
+}
+
+TEST(RenderGraph, SetupSelectedPrimaryOutputFramebufferTracksCurrentHandleAndResetsBetweenFrames)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto firstFramebuffer = Ref<AttachmentStubFramebuffer>::Create(121u, 221u);
+    auto secondFramebuffer = Ref<AttachmentStubFramebuffer>::Create(122u, 222u);
+
+    const auto firstHandle = graph.ImportFramebuffer("SelectedOutputA", firstFramebuffer);
+    const auto secondHandle = graph.ImportFramebuffer("SelectedOutputB", secondFramebuffer);
+
+    bool useFirstHandle = true;
+    bool skipSelection = false;
+
+    auto pass = Ref<CallbackStyleStubPass>::Create("SelectedOutputPass");
+    pass->SetSetupBehavior(
+        [passRaw = pass.Raw(), firstHandle, secondHandle, &useFirstHandle, &skipSelection](RGBuilder& /*builder*/, FrameBlackboard& /*blackboard*/)
+        {
+            if (skipSelection)
+                return;
+
+            passRaw->SetPrimaryOutputFramebufferHandle(useFirstHandle ? firstHandle : secondHandle);
+        });
+    AddPassNode(graph, pass);
+
+    graph.SetFinalPass("SelectedOutputPass");
+
+    graph.BuildFrameGraph();
+    EXPECT_EQ(pass->GetPrimaryOutputFramebufferHandle(), firstHandle);
+    EXPECT_EQ(graph.ResolveFramebuffer(pass->GetPrimaryOutputFramebufferHandle()).Raw(), firstFramebuffer.Raw());
+
+    useFirstHandle = false;
+    graph.BuildFrameGraph();
+    EXPECT_EQ(pass->GetPrimaryOutputFramebufferHandle(), secondHandle);
+    EXPECT_EQ(graph.ResolveFramebuffer(pass->GetPrimaryOutputFramebufferHandle()).Raw(), secondFramebuffer.Raw());
+
+    skipSelection = true;
+    graph.BuildFrameGraph();
+    EXPECT_FALSE(pass->GetPrimaryOutputFramebufferHandle().IsValid());
+}
+
+TEST(RenderGraph, UICompositePublishesVersionedOutputAndFinalPrefersProducerOwnedVersion)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
+    {
+        RGResourceDesc desc;
+        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Width = 640u;
+        desc.Height = 360u;
+        desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
+        desc.DebugName = std::string(debugName);
+        return desc;
+    };
+
+    auto sceneFramebuffer = Ref<AttachmentStubFramebuffer>::Create(301u, 401u);
+    auto uiFramebuffer = Ref<AttachmentStubFramebuffer>::Create(302u, 402u);
+
+    const auto sceneHandle = graph.ImportFramebuffer(ResourceNames::SceneColor,
+                                                     sceneFramebuffer,
+                                                     makeFramebufferDesc(ResourceNames::SceneColor, RGResourceFormat::RGBA16Float));
+    const auto sceneTexture = graph.CreateFramebufferAttachmentView(ResourceNames::SceneColorTexture, sceneHandle, 0u);
+
+    const auto uiHandle = graph.ImportFramebuffer(ResourceNames::UIComposite,
+                                                  uiFramebuffer,
+                                                  makeFramebufferDesc(ResourceNames::UIComposite, RGResourceFormat::RGBA8UNorm));
+    const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
+
+    auto& blackboard = graph.GetBlackboard();
+    blackboard.SceneColor = sceneHandle;
+    blackboard.SceneColorTexture = sceneTexture;
+    blackboard.PostProcessColor = sceneHandle;
+    blackboard.PostProcessColorTexture = sceneTexture;
+    blackboard.UIComposite = uiHandle;
+    blackboard.UICompositeTexture = uiTexture;
+    blackboard.Backbuffer = graph.ImportFramebuffer(
+        ResourceNames::Backbuffer,
+        nullptr,
+        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, ResourceNames::Backbuffer));
+
+    auto uiComposite = Ref<UICompositeRenderPass>::Create();
+    uiComposite->SetName("UICompositePass");
+    auto finalPass = Ref<FinalRenderPass>::Create();
+    finalPass->SetName("FinalPass");
+
+    AddPassNode(graph, uiComposite);
+    AddPassNode(graph, finalPass);
+    graph.SetFinalPass("FinalPass");
+
+    graph.BuildFrameGraph();
+
+    const auto versionedOutput = uiComposite->GetPrimaryOutputFramebufferHandle();
+    const auto versionedOutputTexture = uiComposite->GetPrimaryOutputTextureHandle();
+    ASSERT_TRUE(versionedOutput.IsValid());
+    ASSERT_TRUE(versionedOutputTexture.IsValid());
+    EXPECT_EQ(graph.GetResourceName(versionedOutput), "UIComposite@UICompositePass");
+    EXPECT_EQ(finalPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(finalPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(graph.GetFramebufferHandle(ResourceNames::UIComposite), versionedOutput)
+        << "Canonical UIComposite lookup should follow the latest explicit version";
+    EXPECT_EQ(graph.GetFramebufferHandle("UIComposite@UICompositePass"), versionedOutput)
+        << "Exact versioned UIComposite lookup should remain valid";
+}
+
+TEST(RenderGraph, FXAAPublishesVersionedOutputAndDownstreamPassesPreferProducerOwnedVersion)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
+    {
+        RGResourceDesc desc;
+        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Width = 640u;
+        desc.Height = 360u;
+        desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
+        desc.DebugName = std::string(debugName);
+        return desc;
+    };
+
+    auto vignetteFramebuffer = Ref<AttachmentStubFramebuffer>::Create(311u, 411u);
+    auto fxaaFramebuffer = Ref<AttachmentStubFramebuffer>::Create(312u, 412u);
+    auto uiFramebuffer = Ref<AttachmentStubFramebuffer>::Create(313u, 413u);
+
+    const auto vignetteHandle = graph.ImportFramebuffer(ResourceNames::VignetteColor,
+                                                        vignetteFramebuffer,
+                                                        makeFramebufferDesc(ResourceNames::VignetteColor, RGResourceFormat::RGBA8UNorm));
+    const auto vignetteTexture = graph.CreateFramebufferAttachmentView(ResourceNames::VignetteColorTexture, vignetteHandle, 0u);
+
+    const auto fxaaHandle = graph.ImportFramebuffer(ResourceNames::FXAAColor,
+                                                    fxaaFramebuffer,
+                                                    makeFramebufferDesc(ResourceNames::FXAAColor, RGResourceFormat::RGBA8UNorm));
+    const auto fxaaTexture = graph.CreateFramebufferAttachmentView(ResourceNames::FXAAColorTexture, fxaaHandle, 0u);
+
+    const auto uiHandle = graph.ImportFramebuffer(ResourceNames::UIComposite,
+                                                  uiFramebuffer,
+                                                  makeFramebufferDesc(ResourceNames::UIComposite, RGResourceFormat::RGBA8UNorm));
+    const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
+
+    auto& blackboard = graph.GetBlackboard();
+    blackboard.VignetteColor = vignetteHandle;
+    blackboard.VignetteColorTexture = vignetteTexture;
+    blackboard.FXAAColor = fxaaHandle;
+    blackboard.FXAAColorTexture = fxaaTexture;
+    blackboard.UIComposite = uiHandle;
+    blackboard.UICompositeTexture = uiTexture;
+
+    auto fxaaPass = Ref<FXAARenderPass>::Create();
+    fxaaPass->SetName("FXAAPass");
+    fxaaPass->SetEnabled(true);
+
+    auto selectionOutlinePass = Ref<SelectionOutlineRenderPass>::Create();
+    selectionOutlinePass->SetName("SelectionOutlinePass");
+
+    auto uiCompositePass = Ref<UICompositeRenderPass>::Create();
+    uiCompositePass->SetName("UICompositePass");
+
+    AddPassNode(graph, fxaaPass);
+    AddPassNode(graph, selectionOutlinePass);
+    AddPassNode(graph, uiCompositePass);
+    graph.SetFinalPass("UICompositePass");
+
+    graph.BuildFrameGraph();
+
+    const auto versionedOutput = fxaaPass->GetPrimaryOutputFramebufferHandle();
+    const auto versionedOutputTexture = fxaaPass->GetPrimaryOutputTextureHandle();
+    ASSERT_TRUE(versionedOutput.IsValid());
+    ASSERT_TRUE(versionedOutputTexture.IsValid());
+    EXPECT_EQ(graph.GetResourceName(versionedOutput), "FXAAColor@FXAAPass");
+    EXPECT_EQ(selectionOutlinePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(selectionOutlinePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(graph.GetFramebufferHandle(ResourceNames::FXAAColor), versionedOutput)
+        << "Canonical FXAAColor lookup should follow the latest explicit version";
+    EXPECT_EQ(graph.GetFramebufferHandle("FXAAColor@FXAAPass"), versionedOutput)
+        << "Exact versioned FXAAColor lookup should remain valid";
+}
+
+TEST(RenderGraph, VignettePublishesVersionedOutputAndDownstreamPassesPreferProducerOwnedVersionWhenFXAAIsAbsent)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
+    {
+        RGResourceDesc desc;
+        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Width = 640u;
+        desc.Height = 360u;
+        desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
+        desc.DebugName = std::string(debugName);
+        return desc;
+    };
+
+    auto toneMapFramebuffer = Ref<AttachmentStubFramebuffer>::Create(321u, 421u);
+    auto vignetteFramebuffer = Ref<AttachmentStubFramebuffer>::Create(322u, 422u);
+    auto uiFramebuffer = Ref<AttachmentStubFramebuffer>::Create(323u, 423u);
+
+    const auto toneMapHandle = graph.ImportFramebuffer(ResourceNames::ToneMapColor,
+                                                       toneMapFramebuffer,
+                                                       makeFramebufferDesc(ResourceNames::ToneMapColor, RGResourceFormat::RGBA8UNorm));
+    const auto toneMapTexture = graph.CreateFramebufferAttachmentView(ResourceNames::ToneMapColorTexture, toneMapHandle, 0u);
+
+    const auto vignetteHandle = graph.ImportFramebuffer(ResourceNames::VignetteColor,
+                                                        vignetteFramebuffer,
+                                                        makeFramebufferDesc(ResourceNames::VignetteColor, RGResourceFormat::RGBA8UNorm));
+    const auto vignetteTexture = graph.CreateFramebufferAttachmentView(ResourceNames::VignetteColorTexture, vignetteHandle, 0u);
+
+    const auto uiHandle = graph.ImportFramebuffer(ResourceNames::UIComposite,
+                                                  uiFramebuffer,
+                                                  makeFramebufferDesc(ResourceNames::UIComposite, RGResourceFormat::RGBA8UNorm));
+    const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
+
+    auto& blackboard = graph.GetBlackboard();
+    blackboard.ToneMapColor = toneMapHandle;
+    blackboard.ToneMapColorTexture = toneMapTexture;
+    blackboard.VignetteColor = vignetteHandle;
+    blackboard.VignetteColorTexture = vignetteTexture;
+    blackboard.UIComposite = uiHandle;
+    blackboard.UICompositeTexture = uiTexture;
+
+    auto vignettePass = Ref<VignetteRenderPass>::Create();
+    vignettePass->SetName("VignettePass");
+    vignettePass->SetEnabled(true);
+
+    auto selectionOutlinePass = Ref<SelectionOutlineRenderPass>::Create();
+    selectionOutlinePass->SetName("SelectionOutlinePass");
+
+    auto uiCompositePass = Ref<UICompositeRenderPass>::Create();
+    uiCompositePass->SetName("UICompositePass");
+
+    AddPassNode(graph, vignettePass);
+    AddPassNode(graph, selectionOutlinePass);
+    AddPassNode(graph, uiCompositePass);
+    graph.SetFinalPass("UICompositePass");
+
+    graph.BuildFrameGraph();
+
+    const auto versionedOutput = vignettePass->GetPrimaryOutputFramebufferHandle();
+    const auto versionedOutputTexture = vignettePass->GetPrimaryOutputTextureHandle();
+    ASSERT_TRUE(versionedOutput.IsValid());
+    ASSERT_TRUE(versionedOutputTexture.IsValid());
+    EXPECT_EQ(graph.GetResourceName(versionedOutput), "VignetteColor@VignettePass");
+    EXPECT_EQ(selectionOutlinePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(selectionOutlinePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(graph.GetFramebufferHandle(ResourceNames::VignetteColor), versionedOutput)
+        << "Canonical VignetteColor lookup should follow the latest explicit version";
+    EXPECT_EQ(graph.GetFramebufferHandle("VignetteColor@VignettePass"), versionedOutput)
+        << "Exact versioned VignetteColor lookup should remain valid";
+}
+
+TEST(RenderGraph, ToneMapPublishesVersionedOutputAndDownstreamPassesPreferProducerOwnedVersionWhenLaterSeamsAreAbsent)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
+    {
+        RGResourceDesc desc;
+        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Width = 640u;
+        desc.Height = 360u;
+        desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
+        desc.DebugName = std::string(debugName);
+        return desc;
+    };
+
+    auto colorGradingFramebuffer = Ref<AttachmentStubFramebuffer>::Create(331u, 431u);
+    auto toneMapFramebuffer = Ref<AttachmentStubFramebuffer>::Create(332u, 432u);
+    auto uiFramebuffer = Ref<AttachmentStubFramebuffer>::Create(333u, 433u);
+
+    const auto colorGradingHandle = graph.ImportFramebuffer(ResourceNames::ColorGradingColor,
+                                                            colorGradingFramebuffer,
+                                                            makeFramebufferDesc(ResourceNames::ColorGradingColor, RGResourceFormat::RGBA8UNorm));
+    const auto colorGradingTexture = graph.CreateFramebufferAttachmentView(ResourceNames::ColorGradingColorTexture, colorGradingHandle, 0u);
+
+    const auto toneMapHandle = graph.ImportFramebuffer(ResourceNames::ToneMapColor,
+                                                       toneMapFramebuffer,
+                                                       makeFramebufferDesc(ResourceNames::ToneMapColor, RGResourceFormat::RGBA8UNorm));
+    const auto toneMapTexture = graph.CreateFramebufferAttachmentView(ResourceNames::ToneMapColorTexture, toneMapHandle, 0u);
+
+    const auto uiHandle = graph.ImportFramebuffer(ResourceNames::UIComposite,
+                                                  uiFramebuffer,
+                                                  makeFramebufferDesc(ResourceNames::UIComposite, RGResourceFormat::RGBA8UNorm));
+    const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
+
+    auto& blackboard = graph.GetBlackboard();
+    blackboard.ColorGradingColor = colorGradingHandle;
+    blackboard.ColorGradingColorTexture = colorGradingTexture;
+    blackboard.ToneMapColor = toneMapHandle;
+    blackboard.ToneMapColorTexture = toneMapTexture;
+    blackboard.UIComposite = uiHandle;
+    blackboard.UICompositeTexture = uiTexture;
+
+    auto toneMapPass = Ref<ToneMapRenderPass>::Create();
+    toneMapPass->SetName("ToneMapPass");
+
+    auto vignettePass = Ref<VignetteRenderPass>::Create();
+    vignettePass->SetName("VignettePass");
+    vignettePass->SetEnabled(false);
+
+    auto uiCompositePass = Ref<UICompositeRenderPass>::Create();
+    uiCompositePass->SetName("UICompositePass");
+
+    AddPassNode(graph, toneMapPass);
+    AddPassNode(graph, vignettePass);
+    AddPassNode(graph, uiCompositePass);
+    graph.SetFinalPass("UICompositePass");
+
+    graph.BuildFrameGraph();
+
+    const auto versionedOutput = toneMapPass->GetPrimaryOutputFramebufferHandle();
+    const auto versionedOutputTexture = toneMapPass->GetPrimaryOutputTextureHandle();
+    ASSERT_TRUE(versionedOutput.IsValid());
+    ASSERT_TRUE(versionedOutputTexture.IsValid());
+    EXPECT_EQ(graph.GetResourceName(versionedOutput), "ToneMapColor@ToneMapPass");
+    EXPECT_EQ(vignettePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(vignettePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(graph.GetFramebufferHandle(ResourceNames::ToneMapColor), versionedOutput)
+        << "Canonical ToneMapColor lookup should follow the latest explicit version";
+    EXPECT_EQ(graph.GetFramebufferHandle("ToneMapColor@ToneMapPass"), versionedOutput)
+        << "Exact versioned ToneMapColor lookup should remain valid";
+}
+
+TEST(RenderGraph, ColorGradingPublishesVersionedOutputAndDownstreamPassesPreferProducerOwnedVersionWhenLaterSeamsAreAbsent)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
+    {
+        RGResourceDesc desc;
+        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Width = 640u;
+        desc.Height = 360u;
+        desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
+        desc.DebugName = std::string(debugName);
+        return desc;
+    };
+
+    auto chromAbFramebuffer = Ref<AttachmentStubFramebuffer>::Create(341u, 441u);
+    auto colorGradingFramebuffer = Ref<AttachmentStubFramebuffer>::Create(342u, 442u);
+    auto uiFramebuffer = Ref<AttachmentStubFramebuffer>::Create(343u, 443u);
+
+    const auto chromAbHandle = graph.ImportFramebuffer(ResourceNames::ChromAbColor,
+                                                       chromAbFramebuffer,
+                                                       makeFramebufferDesc(ResourceNames::ChromAbColor, RGResourceFormat::RGBA8UNorm));
+    const auto chromAbTexture = graph.CreateFramebufferAttachmentView(ResourceNames::ChromAbColorTexture, chromAbHandle, 0u);
+
+    const auto colorGradingHandle = graph.ImportFramebuffer(ResourceNames::ColorGradingColor,
+                                                            colorGradingFramebuffer,
+                                                            makeFramebufferDesc(ResourceNames::ColorGradingColor, RGResourceFormat::RGBA8UNorm));
+    const auto colorGradingTexture = graph.CreateFramebufferAttachmentView(ResourceNames::ColorGradingColorTexture, colorGradingHandle, 0u);
+
+    const auto uiHandle = graph.ImportFramebuffer(ResourceNames::UIComposite,
+                                                  uiFramebuffer,
+                                                  makeFramebufferDesc(ResourceNames::UIComposite, RGResourceFormat::RGBA8UNorm));
+    const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
+
+    auto& blackboard = graph.GetBlackboard();
+    blackboard.ChromAbColor = chromAbHandle;
+    blackboard.ChromAbColorTexture = chromAbTexture;
+    blackboard.ColorGradingColor = colorGradingHandle;
+    blackboard.ColorGradingColorTexture = colorGradingTexture;
+    blackboard.UIComposite = uiHandle;
+    blackboard.UICompositeTexture = uiTexture;
+
+    auto colorGradingPass = Ref<ColorGradingRenderPass>::Create();
+    colorGradingPass->SetName("ColorGradingPass");
+    colorGradingPass->SetEnabled(true);
+
+    auto toneMapPass = Ref<ToneMapRenderPass>::Create();
+    toneMapPass->SetName("ToneMapPass");
+    toneMapPass->SetEnabled(false);
+
+    auto vignettePass = Ref<VignetteRenderPass>::Create();
+    vignettePass->SetName("VignettePass");
+    vignettePass->SetEnabled(false);
+
+    auto uiCompositePass = Ref<UICompositeRenderPass>::Create();
+    uiCompositePass->SetName("UICompositePass");
+
+    AddPassNode(graph, colorGradingPass);
+    AddPassNode(graph, toneMapPass);
+    AddPassNode(graph, vignettePass);
+    AddPassNode(graph, uiCompositePass);
+    graph.SetFinalPass("UICompositePass");
+
+    graph.BuildFrameGraph();
+
+    const auto versionedOutput = colorGradingPass->GetPrimaryOutputFramebufferHandle();
+    const auto versionedOutputTexture = colorGradingPass->GetPrimaryOutputTextureHandle();
+    ASSERT_TRUE(versionedOutput.IsValid());
+    ASSERT_TRUE(versionedOutputTexture.IsValid());
+    EXPECT_EQ(graph.GetResourceName(versionedOutput), "ColorGradingColor@ColorGradingPass");
+    EXPECT_EQ(toneMapPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(toneMapPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(vignettePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(vignettePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(graph.GetFramebufferHandle(ResourceNames::ColorGradingColor), versionedOutput)
+        << "Canonical ColorGradingColor lookup should follow the latest explicit version";
+    EXPECT_EQ(graph.GetFramebufferHandle("ColorGradingColor@ColorGradingPass"), versionedOutput)
+        << "Exact versioned ColorGradingColor lookup should remain valid";
+}
+
+TEST(RenderGraph, ChromaticAberrationPublishesVersionedOutputAndDownstreamPassesPreferProducerOwnedVersionWhenLaterSeamsAreAbsent)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
+    {
+        RGResourceDesc desc;
+        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Width = 640u;
+        desc.Height = 360u;
+        desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
+        desc.DebugName = std::string(debugName);
+        return desc;
+    };
+
+    auto fogFramebuffer = Ref<AttachmentStubFramebuffer>::Create(351u, 451u);
+    auto chromAbFramebuffer = Ref<AttachmentStubFramebuffer>::Create(352u, 452u);
+    auto uiFramebuffer = Ref<AttachmentStubFramebuffer>::Create(353u, 453u);
+
+    const auto fogHandle = graph.ImportFramebuffer(ResourceNames::FogColor,
+                                                   fogFramebuffer,
+                                                   makeFramebufferDesc(ResourceNames::FogColor, RGResourceFormat::RGBA16Float));
+    const auto fogTexture = graph.CreateFramebufferAttachmentView(ResourceNames::FogColorTexture, fogHandle, 0u);
+
+    const auto chromAbHandle = graph.ImportFramebuffer(ResourceNames::ChromAbColor,
+                                                       chromAbFramebuffer,
+                                                       makeFramebufferDesc(ResourceNames::ChromAbColor, RGResourceFormat::RGBA16Float));
+    const auto chromAbTexture = graph.CreateFramebufferAttachmentView(ResourceNames::ChromAbColorTexture, chromAbHandle, 0u);
+
+    const auto uiHandle = graph.ImportFramebuffer(ResourceNames::UIComposite,
+                                                  uiFramebuffer,
+                                                  makeFramebufferDesc(ResourceNames::UIComposite, RGResourceFormat::RGBA8UNorm));
+    const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
+
+    auto& blackboard = graph.GetBlackboard();
+    blackboard.FogColor = fogHandle;
+    blackboard.FogColorTexture = fogTexture;
+    blackboard.ChromAbColor = chromAbHandle;
+    blackboard.ChromAbColorTexture = chromAbTexture;
+    blackboard.UIComposite = uiHandle;
+    blackboard.UICompositeTexture = uiTexture;
+
+    auto chromAbPass = Ref<ChromaticAberrationRenderPass>::Create();
+    chromAbPass->SetName("ChromAberrationPass");
+    chromAbPass->SetEnabled(true);
+
+    auto colorGradingPass = Ref<ColorGradingRenderPass>::Create();
+    colorGradingPass->SetName("ColorGradingPass");
+    colorGradingPass->SetEnabled(false);
+
+    auto toneMapPass = Ref<ToneMapRenderPass>::Create();
+    toneMapPass->SetName("ToneMapPass");
+    toneMapPass->SetEnabled(false);
+
+    auto vignettePass = Ref<VignetteRenderPass>::Create();
+    vignettePass->SetName("VignettePass");
+    vignettePass->SetEnabled(false);
+
+    auto uiCompositePass = Ref<UICompositeRenderPass>::Create();
+    uiCompositePass->SetName("UICompositePass");
+
+    AddPassNode(graph, chromAbPass);
+    AddPassNode(graph, colorGradingPass);
+    AddPassNode(graph, toneMapPass);
+    AddPassNode(graph, vignettePass);
+    AddPassNode(graph, uiCompositePass);
+    graph.SetFinalPass("UICompositePass");
+
+    graph.BuildFrameGraph();
+
+    const auto versionedOutput = chromAbPass->GetPrimaryOutputFramebufferHandle();
+    const auto versionedOutputTexture = chromAbPass->GetPrimaryOutputTextureHandle();
+    ASSERT_TRUE(versionedOutput.IsValid());
+    ASSERT_TRUE(versionedOutputTexture.IsValid());
+    EXPECT_EQ(graph.GetResourceName(versionedOutput), "ChromAbColor@ChromAberrationPass");
+    EXPECT_EQ(colorGradingPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(colorGradingPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(toneMapPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(toneMapPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(vignettePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(vignettePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(graph.GetFramebufferHandle(ResourceNames::ChromAbColor), versionedOutput)
+        << "Canonical ChromAbColor lookup should follow the latest explicit version";
+    EXPECT_EQ(graph.GetFramebufferHandle("ChromAbColor@ChromAberrationPass"), versionedOutput)
+        << "Exact versioned ChromAbColor lookup should remain valid";
+}
+
+TEST(RenderGraph, FogPublishesVersionedOutputAndDownstreamPassesPreferProducerOwnedVersionWhenLaterSeamsAreAbsent)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
+    {
+        RGResourceDesc desc;
+        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Width = 640u;
+        desc.Height = 360u;
+        desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
+        desc.DebugName = std::string(debugName);
+        return desc;
+    };
+
+    auto precipitationFramebuffer = Ref<AttachmentStubFramebuffer>::Create(361u, 461u);
+    auto fogFramebuffer = Ref<AttachmentStubFramebuffer>::Create(362u, 462u);
+    auto uiFramebuffer = Ref<AttachmentStubFramebuffer>::Create(363u, 463u);
+
+    const auto precipitationHandle = graph.ImportFramebuffer(ResourceNames::PrecipitationColor,
+                                                             precipitationFramebuffer,
+                                                             makeFramebufferDesc(ResourceNames::PrecipitationColor, RGResourceFormat::RGBA16Float));
+    const auto precipitationTexture = graph.CreateFramebufferAttachmentView(ResourceNames::PrecipitationColorTexture, precipitationHandle, 0u);
+
+    const auto fogHandle = graph.ImportFramebuffer(ResourceNames::FogColor,
+                                                   fogFramebuffer,
+                                                   makeFramebufferDesc(ResourceNames::FogColor, RGResourceFormat::RGBA16Float));
+    const auto fogTexture = graph.CreateFramebufferAttachmentView(ResourceNames::FogColorTexture, fogHandle, 0u);
+
+    const auto uiHandle = graph.ImportFramebuffer(ResourceNames::UIComposite,
+                                                  uiFramebuffer,
+                                                  makeFramebufferDesc(ResourceNames::UIComposite, RGResourceFormat::RGBA8UNorm));
+    const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
+
+    auto& blackboard = graph.GetBlackboard();
+    blackboard.PrecipitationColor = precipitationHandle;
+    blackboard.PrecipitationColorTexture = precipitationTexture;
+    blackboard.FogColor = fogHandle;
+    blackboard.FogColorTexture = fogTexture;
+    blackboard.UIComposite = uiHandle;
+    blackboard.UICompositeTexture = uiTexture;
+
+    auto fogPass = Ref<FogRenderPass>::Create();
+    fogPass->SetName("FogPass");
+    fogPass->SetEnabled(true);
+
+    auto chromAbPass = Ref<ChromaticAberrationRenderPass>::Create();
+    chromAbPass->SetName("ChromAberrationPass");
+    chromAbPass->SetEnabled(false);
+
+    auto colorGradingPass = Ref<ColorGradingRenderPass>::Create();
+    colorGradingPass->SetName("ColorGradingPass");
+    colorGradingPass->SetEnabled(false);
+
+    auto toneMapPass = Ref<ToneMapRenderPass>::Create();
+    toneMapPass->SetName("ToneMapPass");
+    toneMapPass->SetEnabled(false);
+
+    auto vignettePass = Ref<VignetteRenderPass>::Create();
+    vignettePass->SetName("VignettePass");
+    vignettePass->SetEnabled(false);
+
+    auto uiCompositePass = Ref<UICompositeRenderPass>::Create();
+    uiCompositePass->SetName("UICompositePass");
+
+    AddPassNode(graph, fogPass);
+    AddPassNode(graph, chromAbPass);
+    AddPassNode(graph, colorGradingPass);
+    AddPassNode(graph, toneMapPass);
+    AddPassNode(graph, vignettePass);
+    AddPassNode(graph, uiCompositePass);
+    graph.SetFinalPass("UICompositePass");
+
+    graph.BuildFrameGraph();
+
+    const auto versionedOutput = fogPass->GetPrimaryOutputFramebufferHandle();
+    const auto versionedOutputTexture = fogPass->GetPrimaryOutputTextureHandle();
+    ASSERT_TRUE(versionedOutput.IsValid());
+    ASSERT_TRUE(versionedOutputTexture.IsValid());
+    EXPECT_EQ(graph.GetResourceName(versionedOutput), "FogColor@FogPass");
+    EXPECT_EQ(chromAbPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(chromAbPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(colorGradingPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(colorGradingPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(toneMapPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(toneMapPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(vignettePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(vignettePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(graph.GetFramebufferHandle(ResourceNames::FogColor), versionedOutput)
+        << "Canonical FogColor lookup should follow the latest explicit version";
+    EXPECT_EQ(graph.GetFramebufferHandle("FogColor@FogPass"), versionedOutput)
+        << "Exact versioned FogColor lookup should remain valid";
+}
+
+TEST(RenderGraph, PrecipitationPublishesVersionedOutputAndDownstreamPassesPreferProducerOwnedVersionWhenLaterSeamsAreAbsent)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
+    {
+        RGResourceDesc desc;
+        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Width = 640u;
+        desc.Height = 360u;
+        desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
+        desc.DebugName = std::string(debugName);
+        return desc;
+    };
+
+    auto motionBlurFramebuffer = Ref<AttachmentStubFramebuffer>::Create(371u, 471u);
+    auto precipitationFramebuffer = Ref<AttachmentStubFramebuffer>::Create(372u, 472u);
+    auto uiFramebuffer = Ref<AttachmentStubFramebuffer>::Create(373u, 473u);
+
+    const auto motionBlurHandle = graph.ImportFramebuffer(ResourceNames::MotionBlurColor,
+                                                          motionBlurFramebuffer,
+                                                          makeFramebufferDesc(ResourceNames::MotionBlurColor, RGResourceFormat::RGBA16Float));
+    const auto motionBlurTexture = graph.CreateFramebufferAttachmentView(ResourceNames::MotionBlurColorTexture, motionBlurHandle, 0u);
+
+    const auto precipitationHandle = graph.ImportFramebuffer(ResourceNames::PrecipitationColor,
+                                                             precipitationFramebuffer,
+                                                             makeFramebufferDesc(ResourceNames::PrecipitationColor, RGResourceFormat::RGBA16Float));
+    const auto precipitationTexture = graph.CreateFramebufferAttachmentView(ResourceNames::PrecipitationColorTexture, precipitationHandle, 0u);
+
+    const auto uiHandle = graph.ImportFramebuffer(ResourceNames::UIComposite,
+                                                  uiFramebuffer,
+                                                  makeFramebufferDesc(ResourceNames::UIComposite, RGResourceFormat::RGBA8UNorm));
+    const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
+
+    auto& blackboard = graph.GetBlackboard();
+    blackboard.MotionBlurColor = motionBlurHandle;
+    blackboard.MotionBlurColorTexture = motionBlurTexture;
+    blackboard.PrecipitationColor = precipitationHandle;
+    blackboard.PrecipitationColorTexture = precipitationTexture;
+    blackboard.UIComposite = uiHandle;
+    blackboard.UICompositeTexture = uiTexture;
+
+    auto precipitationPass = Ref<PrecipitationRenderPass>::Create();
+    precipitationPass->SetName("PrecipitationPass");
+    precipitationPass->SetEnabled(true);
+
+    auto fogPass = Ref<FogRenderPass>::Create();
+    fogPass->SetName("FogPass");
+    fogPass->SetEnabled(false);
+
+    auto chromAbPass = Ref<ChromaticAberrationRenderPass>::Create();
+    chromAbPass->SetName("ChromAberrationPass");
+    chromAbPass->SetEnabled(false);
+
+    auto colorGradingPass = Ref<ColorGradingRenderPass>::Create();
+    colorGradingPass->SetName("ColorGradingPass");
+    colorGradingPass->SetEnabled(false);
+
+    auto toneMapPass = Ref<ToneMapRenderPass>::Create();
+    toneMapPass->SetName("ToneMapPass");
+    toneMapPass->SetEnabled(false);
+
+    auto vignettePass = Ref<VignetteRenderPass>::Create();
+    vignettePass->SetName("VignettePass");
+    vignettePass->SetEnabled(false);
+
+    auto uiCompositePass = Ref<UICompositeRenderPass>::Create();
+    uiCompositePass->SetName("UICompositePass");
+
+    AddPassNode(graph, precipitationPass);
+    AddPassNode(graph, fogPass);
+    AddPassNode(graph, chromAbPass);
+    AddPassNode(graph, colorGradingPass);
+    AddPassNode(graph, toneMapPass);
+    AddPassNode(graph, vignettePass);
+    AddPassNode(graph, uiCompositePass);
+    graph.SetFinalPass("UICompositePass");
+
+    graph.BuildFrameGraph();
+
+    const auto versionedOutput = precipitationPass->GetPrimaryOutputFramebufferHandle();
+    const auto versionedOutputTexture = precipitationPass->GetPrimaryOutputTextureHandle();
+    ASSERT_TRUE(versionedOutput.IsValid());
+    ASSERT_TRUE(versionedOutputTexture.IsValid());
+    EXPECT_EQ(graph.GetResourceName(versionedOutput), "PrecipitationColor@PrecipitationPass");
+    EXPECT_EQ(fogPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(fogPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(chromAbPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(chromAbPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(colorGradingPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(colorGradingPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(toneMapPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(toneMapPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(vignettePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(vignettePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(graph.GetFramebufferHandle(ResourceNames::PrecipitationColor), versionedOutput)
+        << "Canonical PrecipitationColor lookup should follow the latest explicit version";
+    EXPECT_EQ(graph.GetFramebufferHandle("PrecipitationColor@PrecipitationPass"), versionedOutput)
+        << "Exact versioned PrecipitationColor lookup should remain valid";
+}
+
+TEST(RenderGraph, TAAPublishesVersionedOutputAndDownstreamPassesPreferProducerOwnedVersionWhenLaterSeamsAreAbsent)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
+    {
+        RGResourceDesc desc;
+        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Width = 640u;
+        desc.Height = 360u;
+        desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
+        desc.DebugName = std::string(debugName);
+        return desc;
+    };
+
+    auto motionBlurFramebuffer = Ref<AttachmentStubFramebuffer>::Create(381u, 481u);
+    auto taaFramebuffer = Ref<AttachmentStubFramebuffer>::Create(382u, 482u);
+    auto uiFramebuffer = Ref<AttachmentStubFramebuffer>::Create(383u, 483u);
+
+    const auto motionBlurHandle = graph.ImportFramebuffer(ResourceNames::MotionBlurColor,
+                                                          motionBlurFramebuffer,
+                                                          makeFramebufferDesc(ResourceNames::MotionBlurColor, RGResourceFormat::RGBA16Float));
+    const auto motionBlurTexture = graph.CreateFramebufferAttachmentView(ResourceNames::MotionBlurColorTexture, motionBlurHandle, 0u);
+
+    const auto taaHandle = graph.ImportFramebuffer(ResourceNames::TAAColor,
+                                                   taaFramebuffer,
+                                                   makeFramebufferDesc(ResourceNames::TAAColor, RGResourceFormat::RGBA16Float));
+    const auto taaTexture = graph.CreateFramebufferAttachmentView(ResourceNames::TAAColorTexture, taaHandle, 0u);
+
+    const auto uiHandle = graph.ImportFramebuffer(ResourceNames::UIComposite,
+                                                  uiFramebuffer,
+                                                  makeFramebufferDesc(ResourceNames::UIComposite, RGResourceFormat::RGBA8UNorm));
+    const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
+
+    auto& blackboard = graph.GetBlackboard();
+    blackboard.MotionBlurColor = motionBlurHandle;
+    blackboard.MotionBlurColorTexture = motionBlurTexture;
+    blackboard.TAAColor = taaHandle;
+    blackboard.TAAColorTexture = taaTexture;
+    blackboard.UIComposite = uiHandle;
+    blackboard.UICompositeTexture = uiTexture;
+
+    auto taaPass = Ref<TAARenderPass>::Create();
+    taaPass->SetName("TAAPass");
+    taaPass->SetEnabled(true);
+
+    auto precipitationPass = Ref<PrecipitationRenderPass>::Create();
+    precipitationPass->SetName("PrecipitationPass");
+    precipitationPass->SetEnabled(false);
+
+    auto fogPass = Ref<FogRenderPass>::Create();
+    fogPass->SetName("FogPass");
+    fogPass->SetEnabled(false);
+
+    auto chromAbPass = Ref<ChromaticAberrationRenderPass>::Create();
+    chromAbPass->SetName("ChromAberrationPass");
+    chromAbPass->SetEnabled(false);
+
+    auto colorGradingPass = Ref<ColorGradingRenderPass>::Create();
+    colorGradingPass->SetName("ColorGradingPass");
+    colorGradingPass->SetEnabled(false);
+
+    auto toneMapPass = Ref<ToneMapRenderPass>::Create();
+    toneMapPass->SetName("ToneMapPass");
+    toneMapPass->SetEnabled(false);
+
+    auto vignettePass = Ref<VignetteRenderPass>::Create();
+    vignettePass->SetName("VignettePass");
+    vignettePass->SetEnabled(false);
+
+    auto uiCompositePass = Ref<UICompositeRenderPass>::Create();
+    uiCompositePass->SetName("UICompositePass");
+
+    AddPassNode(graph, taaPass);
+    AddPassNode(graph, precipitationPass);
+    AddPassNode(graph, fogPass);
+    AddPassNode(graph, chromAbPass);
+    AddPassNode(graph, colorGradingPass);
+    AddPassNode(graph, toneMapPass);
+    AddPassNode(graph, vignettePass);
+    AddPassNode(graph, uiCompositePass);
+    graph.SetFinalPass("UICompositePass");
+
+    graph.BuildFrameGraph();
+
+    const auto versionedOutput = taaPass->GetPrimaryOutputFramebufferHandle();
+    const auto versionedOutputTexture = taaPass->GetPrimaryOutputTextureHandle();
+    ASSERT_TRUE(versionedOutput.IsValid());
+    ASSERT_TRUE(versionedOutputTexture.IsValid());
+    EXPECT_EQ(graph.GetResourceName(versionedOutput), "TAAColor@TAAPass");
+    EXPECT_EQ(precipitationPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(precipitationPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(fogPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(fogPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(chromAbPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(chromAbPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(colorGradingPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(colorGradingPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(toneMapPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(toneMapPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(vignettePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(vignettePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(graph.GetFramebufferHandle(ResourceNames::TAAColor), versionedOutput)
+        << "Canonical TAAColor lookup should follow the latest explicit version";
+    EXPECT_EQ(graph.GetFramebufferHandle("TAAColor@TAAPass"), versionedOutput)
+        << "Exact versioned TAAColor lookup should remain valid";
+}
+
+TEST(RenderGraph, SSSPublishesVersionedOutputAndAOApplyAndBloomPreferProducerOwnedVersion)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
+    {
+        RGResourceDesc desc;
+        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Width = 640u;
+        desc.Height = 360u;
+        desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
+        desc.DebugName = std::string(debugName);
+        return desc;
+    };
+
+    auto sceneFramebuffer = Ref<AttachmentStubFramebuffer>::Create(388u, 488u);
+    auto sssFramebuffer = Ref<AttachmentStubFramebuffer>::Create(387u, 487u);
+    auto bloomFramebuffer = Ref<AttachmentStubFramebuffer>::Create(390u, 490u);
+
+    const auto sceneHandle = graph.ImportFramebuffer(ResourceNames::SceneColor,
+                                                     sceneFramebuffer,
+                                                     makeFramebufferDesc(ResourceNames::SceneColor, RGResourceFormat::RGBA16Float));
+    const auto sceneTexture = graph.CreateFramebufferAttachmentView(ResourceNames::SceneColorTexture, sceneHandle, 0u);
+
+    const auto sssHandle = graph.ImportFramebuffer(ResourceNames::SSSColor,
+                                                   sssFramebuffer,
+                                                   makeFramebufferDesc(ResourceNames::SSSColor, RGResourceFormat::RGBA16Float));
+    const auto sssTexture = graph.CreateFramebufferAttachmentView(ResourceNames::SSSColorTexture, sssHandle, 0u);
+
+    const auto bloomHandle = graph.ImportFramebuffer(ResourceNames::BloomColor,
+                                                     bloomFramebuffer,
+                                                     makeFramebufferDesc(ResourceNames::BloomColor, RGResourceFormat::RGBA16Float));
+    const auto bloomTexture = graph.CreateFramebufferAttachmentView(ResourceNames::BloomColorTexture, bloomHandle, 0u);
+
+    auto& blackboard = graph.GetBlackboard();
+    blackboard.SceneColor = sceneHandle;
+    blackboard.SceneColorTexture = sceneTexture;
+    blackboard.SSSColor = sssHandle;
+    blackboard.SSSColorTexture = sssTexture;
+    blackboard.BloomColor = bloomHandle;
+    blackboard.BloomColorTexture = bloomTexture;
+
+    SnowSettings snowSettings;
+    snowSettings.Enabled = true;
+    snowSettings.SSSBlurEnabled = true;
+
+    auto sssPass = Ref<SSSRenderPass>::Create();
+    sssPass->SetName("SSSPass");
+    sssPass->SetSettings(snowSettings);
+
+    auto aoApplyPass = Ref<AOApplyRenderPass>::Create();
+    aoApplyPass->SetName("AOApplyPass");
+    aoApplyPass->SetEnabled(false);
+
+    auto bloomPass = Ref<BloomRenderPass>::Create();
+    bloomPass->SetName("BloomPass");
+    bloomPass->SetEnabled(false);
+
+    AddPassNode(graph, sssPass);
+    AddPassNode(graph, aoApplyPass);
+    AddPassNode(graph, bloomPass);
+    graph.SetFinalPass("BloomPass");
+
+    graph.BuildFrameGraph();
+
+    const auto versionedOutput = sssPass->GetPrimaryOutputFramebufferHandle();
+    const auto versionedOutputTexture = sssPass->GetPrimaryOutputTextureHandle();
+    ASSERT_TRUE(versionedOutput.IsValid());
+    ASSERT_TRUE(versionedOutputTexture.IsValid());
+    EXPECT_EQ(graph.GetResourceName(versionedOutput), "SSSColor@SSSPass");
+    EXPECT_EQ(aoApplyPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(aoApplyPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(bloomPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(bloomPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(graph.GetFramebufferHandle(ResourceNames::SSSColor), versionedOutput)
+        << "Canonical SSSColor lookup should follow the latest explicit version";
+    EXPECT_EQ(graph.GetFramebufferHandle("SSSColor@SSSPass"), versionedOutput)
+        << "Exact versioned SSSColor lookup should remain valid";
+}
+
+TEST(RenderGraph, AOApplyPublishesVersionedOutputAndBloomPrefersProducerOwnedVersion)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
+    {
+        RGResourceDesc desc;
+        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Width = 640u;
+        desc.Height = 360u;
+        desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
+        desc.DebugName = std::string(debugName);
+        return desc;
+    };
+
+    auto sceneFramebuffer = Ref<AttachmentStubFramebuffer>::Create(388u, 488u);
+    auto aoApplyFramebuffer = Ref<AttachmentStubFramebuffer>::Create(389u, 489u);
+    auto bloomFramebuffer = Ref<AttachmentStubFramebuffer>::Create(390u, 490u);
+
+    const auto sceneHandle = graph.ImportFramebuffer(ResourceNames::SceneColor,
+                                                     sceneFramebuffer,
+                                                     makeFramebufferDesc(ResourceNames::SceneColor, RGResourceFormat::RGBA16Float));
+    const auto sceneTexture = graph.CreateFramebufferAttachmentView(ResourceNames::SceneColorTexture, sceneHandle, 0u);
+
+    const auto aoApplyHandle = graph.ImportFramebuffer(ResourceNames::AOApplyColor,
+                                                       aoApplyFramebuffer,
+                                                       makeFramebufferDesc(ResourceNames::AOApplyColor, RGResourceFormat::RGBA16Float));
+    const auto aoApplyTexture = graph.CreateFramebufferAttachmentView(ResourceNames::AOApplyColorTexture, aoApplyHandle, 0u);
+
+    const auto bloomHandle = graph.ImportFramebuffer(ResourceNames::BloomColor,
+                                                     bloomFramebuffer,
+                                                     makeFramebufferDesc(ResourceNames::BloomColor, RGResourceFormat::RGBA16Float));
+    const auto bloomTexture = graph.CreateFramebufferAttachmentView(ResourceNames::BloomColorTexture, bloomHandle, 0u);
+
+    const auto aoBufferHandle = graph.ImportTexture(
+        ResourceNames::AOBuffer,
+        42u,
+        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, ResourceNames::AOBuffer));
+    const auto sceneDepthHandle = graph.ImportTexture(
+        ResourceNames::SceneDepth,
+        17u,
+        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, ResourceNames::SceneDepth));
+
+    auto& blackboard = graph.GetBlackboard();
+    blackboard.SceneColor = sceneHandle;
+    blackboard.SceneColorTexture = sceneTexture;
+    blackboard.AOApplyColor = aoApplyHandle;
+    blackboard.AOApplyColorTexture = aoApplyTexture;
+    blackboard.BloomColor = bloomHandle;
+    blackboard.BloomColorTexture = bloomTexture;
+    blackboard.AOBuffer = aoBufferHandle;
+    blackboard.SceneDepth = sceneDepthHandle;
+
+    auto aoApplyPass = Ref<AOApplyRenderPass>::Create();
+    aoApplyPass->SetName("AOApplyPass");
+    aoApplyPass->SetEnabled(true);
+
+    auto bloomPass = Ref<BloomRenderPass>::Create();
+    bloomPass->SetName("BloomPass");
+    bloomPass->SetEnabled(false);
+
+    AddPassNode(graph, aoApplyPass);
+    AddPassNode(graph, bloomPass);
+    graph.SetFinalPass("BloomPass");
+
+    graph.BuildFrameGraph();
+
+    const auto versionedOutput = aoApplyPass->GetPrimaryOutputFramebufferHandle();
+    const auto versionedOutputTexture = aoApplyPass->GetPrimaryOutputTextureHandle();
+    ASSERT_TRUE(versionedOutput.IsValid());
+    ASSERT_TRUE(versionedOutputTexture.IsValid());
+    EXPECT_EQ(graph.GetResourceName(versionedOutput), "AOApplyColor@AOApplyPass");
+    EXPECT_EQ(bloomPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(bloomPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(graph.GetFramebufferHandle(ResourceNames::AOApplyColor), versionedOutput)
+        << "Canonical AOApplyColor lookup should follow the latest explicit version";
+    EXPECT_EQ(graph.GetFramebufferHandle("AOApplyColor@AOApplyPass"), versionedOutput)
+        << "Exact versioned AOApplyColor lookup should remain valid";
+}
+
+TEST(RenderGraph, BloomPublishesVersionedOutputAndDownstreamPassesPreferProducerOwnedVersionWhenLaterSeamsAreAbsent)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
+    {
+        RGResourceDesc desc;
+        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Width = 640u;
+        desc.Height = 360u;
+        desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
+        desc.DebugName = std::string(debugName);
+        return desc;
+    };
+
+    auto bloomFramebuffer = Ref<AttachmentStubFramebuffer>::Create(390u, 490u);
+    auto postProcessFramebuffer = Ref<AttachmentStubFramebuffer>::Create(389u, 489u);
+    auto uiFramebuffer = Ref<AttachmentStubFramebuffer>::Create(393u, 493u);
+
+    const auto bloomHandle = graph.ImportFramebuffer(ResourceNames::BloomColor,
+                                                     bloomFramebuffer,
+                                                     makeFramebufferDesc(ResourceNames::BloomColor, RGResourceFormat::RGBA16Float));
+    const auto bloomTexture = graph.CreateFramebufferAttachmentView(ResourceNames::BloomColorTexture, bloomHandle, 0u);
+
+    const auto postProcessHandle = graph.ImportFramebuffer(ResourceNames::PostProcessColor,
+                                                           postProcessFramebuffer,
+                                                           makeFramebufferDesc(ResourceNames::PostProcessColor, RGResourceFormat::RGBA16Float));
+    const auto postProcessTexture = graph.CreateFramebufferAttachmentView(ResourceNames::PostProcessColorTexture, postProcessHandle, 0u);
+
+    const auto uiHandle = graph.ImportFramebuffer(ResourceNames::UIComposite,
+                                                  uiFramebuffer,
+                                                  makeFramebufferDesc(ResourceNames::UIComposite, RGResourceFormat::RGBA8UNorm));
+    const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
+
+    auto& blackboard = graph.GetBlackboard();
+    blackboard.BloomColor = bloomHandle;
+    blackboard.BloomColorTexture = bloomTexture;
+    blackboard.PostProcessColor = postProcessHandle;
+    blackboard.PostProcessColorTexture = postProcessTexture;
+    blackboard.UIComposite = uiHandle;
+    blackboard.UICompositeTexture = uiTexture;
+
+    auto bloomPass = Ref<BloomRenderPass>::Create();
+    bloomPass->SetName("BloomPass");
+    bloomPass->SetEnabled(true);
+
+    auto dofPass = Ref<DOFRenderPass>::Create();
+    dofPass->SetName("DOFPass");
+    dofPass->SetEnabled(false);
+
+    auto motionBlurPass = Ref<MotionBlurRenderPass>::Create();
+    motionBlurPass->SetName("MotionBlurPass");
+    motionBlurPass->SetEnabled(false);
+
+    auto taaPass = Ref<TAARenderPass>::Create();
+    taaPass->SetName("TAAPass");
+    taaPass->SetEnabled(false);
+
+    auto precipitationPass = Ref<PrecipitationRenderPass>::Create();
+    precipitationPass->SetName("PrecipitationPass");
+    precipitationPass->SetEnabled(false);
+
+    auto fogPass = Ref<FogRenderPass>::Create();
+    fogPass->SetName("FogPass");
+    fogPass->SetEnabled(false);
+
+    auto chromAbPass = Ref<ChromaticAberrationRenderPass>::Create();
+    chromAbPass->SetName("ChromAberrationPass");
+    chromAbPass->SetEnabled(false);
+
+    auto colorGradingPass = Ref<ColorGradingRenderPass>::Create();
+    colorGradingPass->SetName("ColorGradingPass");
+    colorGradingPass->SetEnabled(false);
+
+    auto toneMapPass = Ref<ToneMapRenderPass>::Create();
+    toneMapPass->SetName("ToneMapPass");
+    toneMapPass->SetEnabled(false);
+
+    auto vignettePass = Ref<VignetteRenderPass>::Create();
+    vignettePass->SetName("VignettePass");
+    vignettePass->SetEnabled(false);
+
+    auto uiCompositePass = Ref<UICompositeRenderPass>::Create();
+    uiCompositePass->SetName("UICompositePass");
+
+    AddPassNode(graph, bloomPass);
+    AddPassNode(graph, dofPass);
+    AddPassNode(graph, motionBlurPass);
+    AddPassNode(graph, taaPass);
+    AddPassNode(graph, precipitationPass);
+    AddPassNode(graph, fogPass);
+    AddPassNode(graph, chromAbPass);
+    AddPassNode(graph, colorGradingPass);
+    AddPassNode(graph, toneMapPass);
+    AddPassNode(graph, vignettePass);
+    AddPassNode(graph, uiCompositePass);
+    graph.SetFinalPass("UICompositePass");
+
+    graph.BuildFrameGraph();
+
+    const auto versionedOutput = bloomPass->GetPrimaryOutputFramebufferHandle();
+    const auto versionedOutputTexture = bloomPass->GetPrimaryOutputTextureHandle();
+    ASSERT_TRUE(versionedOutput.IsValid());
+    ASSERT_TRUE(versionedOutputTexture.IsValid());
+    EXPECT_EQ(graph.GetResourceName(versionedOutput), "BloomColor@BloomPass");
+    EXPECT_EQ(dofPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(dofPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(motionBlurPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(motionBlurPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(taaPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(taaPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(precipitationPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(precipitationPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(fogPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(fogPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(chromAbPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(chromAbPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(colorGradingPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(colorGradingPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(toneMapPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(toneMapPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(vignettePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(vignettePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(graph.GetFramebufferHandle(ResourceNames::BloomColor), versionedOutput)
+        << "Canonical BloomColor lookup should follow the latest explicit version";
+    EXPECT_EQ(graph.GetFramebufferHandle("BloomColor@BloomPass"), versionedOutput)
+        << "Exact versioned BloomColor lookup should remain valid";
+}
+
+TEST(RenderGraph, DOFPublishesVersionedOutputAndDownstreamPassesPreferProducerOwnedVersionWhenLaterSeamsAreAbsent)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
+    {
+        RGResourceDesc desc;
+        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Width = 640u;
+        desc.Height = 360u;
+        desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
+        desc.DebugName = std::string(debugName);
+        return desc;
+    };
+
+    auto bloomFramebuffer = Ref<AttachmentStubFramebuffer>::Create(390u, 490u);
+    auto dofFramebuffer = Ref<AttachmentStubFramebuffer>::Create(391u, 491u);
+    auto uiFramebuffer = Ref<AttachmentStubFramebuffer>::Create(393u, 493u);
+
+    const auto bloomHandle = graph.ImportFramebuffer(ResourceNames::BloomColor,
+                                                     bloomFramebuffer,
+                                                     makeFramebufferDesc(ResourceNames::BloomColor, RGResourceFormat::RGBA16Float));
+    const auto bloomTexture = graph.CreateFramebufferAttachmentView(ResourceNames::BloomColorTexture, bloomHandle, 0u);
+
+    const auto dofHandle = graph.ImportFramebuffer(ResourceNames::DOFColor,
+                                                   dofFramebuffer,
+                                                   makeFramebufferDesc(ResourceNames::DOFColor, RGResourceFormat::RGBA16Float));
+    const auto dofTexture = graph.CreateFramebufferAttachmentView(ResourceNames::DOFColorTexture, dofHandle, 0u);
+
+    const auto uiHandle = graph.ImportFramebuffer(ResourceNames::UIComposite,
+                                                  uiFramebuffer,
+                                                  makeFramebufferDesc(ResourceNames::UIComposite, RGResourceFormat::RGBA8UNorm));
+    const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
+
+    auto& blackboard = graph.GetBlackboard();
+    blackboard.BloomColor = bloomHandle;
+    blackboard.BloomColorTexture = bloomTexture;
+    blackboard.DOFColor = dofHandle;
+    blackboard.DOFColorTexture = dofTexture;
+    blackboard.UIComposite = uiHandle;
+    blackboard.UICompositeTexture = uiTexture;
+
+    auto dofPass = Ref<DOFRenderPass>::Create();
+    dofPass->SetName("DOFPass");
+    dofPass->SetEnabled(true);
+
+    auto motionBlurPass = Ref<MotionBlurRenderPass>::Create();
+    motionBlurPass->SetName("MotionBlurPass");
+    motionBlurPass->SetEnabled(false);
+
+    auto taaPass = Ref<TAARenderPass>::Create();
+    taaPass->SetName("TAAPass");
+    taaPass->SetEnabled(false);
+
+    auto precipitationPass = Ref<PrecipitationRenderPass>::Create();
+    precipitationPass->SetName("PrecipitationPass");
+    precipitationPass->SetEnabled(false);
+
+    auto fogPass = Ref<FogRenderPass>::Create();
+    fogPass->SetName("FogPass");
+    fogPass->SetEnabled(false);
+
+    auto chromAbPass = Ref<ChromaticAberrationRenderPass>::Create();
+    chromAbPass->SetName("ChromAberrationPass");
+    chromAbPass->SetEnabled(false);
+
+    auto colorGradingPass = Ref<ColorGradingRenderPass>::Create();
+    colorGradingPass->SetName("ColorGradingPass");
+    colorGradingPass->SetEnabled(false);
+
+    auto toneMapPass = Ref<ToneMapRenderPass>::Create();
+    toneMapPass->SetName("ToneMapPass");
+    toneMapPass->SetEnabled(false);
+
+    auto vignettePass = Ref<VignetteRenderPass>::Create();
+    vignettePass->SetName("VignettePass");
+    vignettePass->SetEnabled(false);
+
+    auto uiCompositePass = Ref<UICompositeRenderPass>::Create();
+    uiCompositePass->SetName("UICompositePass");
+
+    AddPassNode(graph, dofPass);
+    AddPassNode(graph, motionBlurPass);
+    AddPassNode(graph, taaPass);
+    AddPassNode(graph, precipitationPass);
+    AddPassNode(graph, fogPass);
+    AddPassNode(graph, chromAbPass);
+    AddPassNode(graph, colorGradingPass);
+    AddPassNode(graph, toneMapPass);
+    AddPassNode(graph, vignettePass);
+    AddPassNode(graph, uiCompositePass);
+    graph.SetFinalPass("UICompositePass");
+
+    graph.BuildFrameGraph();
+
+    const auto versionedOutput = dofPass->GetPrimaryOutputFramebufferHandle();
+    const auto versionedOutputTexture = dofPass->GetPrimaryOutputTextureHandle();
+    ASSERT_TRUE(versionedOutput.IsValid());
+    ASSERT_TRUE(versionedOutputTexture.IsValid());
+    EXPECT_EQ(graph.GetResourceName(versionedOutput), "DOFColor@DOFPass");
+    EXPECT_EQ(motionBlurPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(motionBlurPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(taaPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(taaPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(precipitationPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(precipitationPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(fogPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(fogPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(chromAbPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(chromAbPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(colorGradingPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(colorGradingPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(toneMapPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(toneMapPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(vignettePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(vignettePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(graph.GetFramebufferHandle(ResourceNames::DOFColor), versionedOutput)
+        << "Canonical DOFColor lookup should follow the latest explicit version";
+    EXPECT_EQ(graph.GetFramebufferHandle("DOFColor@DOFPass"), versionedOutput)
+        << "Exact versioned DOFColor lookup should remain valid";
+}
+
+TEST(RenderGraph, MotionBlurPublishesVersionedOutputAndDownstreamPassesPreferProducerOwnedVersionWhenLaterSeamsAreAbsent)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
+    {
+        RGResourceDesc desc;
+        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Width = 640u;
+        desc.Height = 360u;
+        desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
+        desc.DebugName = std::string(debugName);
+        return desc;
+    };
+
+    auto dofFramebuffer = Ref<AttachmentStubFramebuffer>::Create(391u, 491u);
+    auto motionBlurFramebuffer = Ref<AttachmentStubFramebuffer>::Create(392u, 492u);
+    auto uiFramebuffer = Ref<AttachmentStubFramebuffer>::Create(393u, 493u);
+
+    const auto dofHandle = graph.ImportFramebuffer(ResourceNames::DOFColor,
+                                                   dofFramebuffer,
+                                                   makeFramebufferDesc(ResourceNames::DOFColor, RGResourceFormat::RGBA16Float));
+    const auto dofTexture = graph.CreateFramebufferAttachmentView(ResourceNames::DOFColorTexture, dofHandle, 0u);
+
+    const auto motionBlurHandle = graph.ImportFramebuffer(ResourceNames::MotionBlurColor,
+                                                          motionBlurFramebuffer,
+                                                          makeFramebufferDesc(ResourceNames::MotionBlurColor, RGResourceFormat::RGBA16Float));
+    const auto motionBlurTexture = graph.CreateFramebufferAttachmentView(ResourceNames::MotionBlurColorTexture, motionBlurHandle, 0u);
+
+    const auto uiHandle = graph.ImportFramebuffer(ResourceNames::UIComposite,
+                                                  uiFramebuffer,
+                                                  makeFramebufferDesc(ResourceNames::UIComposite, RGResourceFormat::RGBA8UNorm));
+    const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
+
+    auto& blackboard = graph.GetBlackboard();
+    blackboard.DOFColor = dofHandle;
+    blackboard.DOFColorTexture = dofTexture;
+    blackboard.MotionBlurColor = motionBlurHandle;
+    blackboard.MotionBlurColorTexture = motionBlurTexture;
+    blackboard.UIComposite = uiHandle;
+    blackboard.UICompositeTexture = uiTexture;
+
+    auto motionBlurPass = Ref<MotionBlurRenderPass>::Create();
+    motionBlurPass->SetName("MotionBlurPass");
+    motionBlurPass->SetEnabled(true);
+
+    auto taaPass = Ref<TAARenderPass>::Create();
+    taaPass->SetName("TAAPass");
+    taaPass->SetEnabled(false);
+
+    auto precipitationPass = Ref<PrecipitationRenderPass>::Create();
+    precipitationPass->SetName("PrecipitationPass");
+    precipitationPass->SetEnabled(false);
+
+    auto fogPass = Ref<FogRenderPass>::Create();
+    fogPass->SetName("FogPass");
+    fogPass->SetEnabled(false);
+
+    auto chromAbPass = Ref<ChromaticAberrationRenderPass>::Create();
+    chromAbPass->SetName("ChromAberrationPass");
+    chromAbPass->SetEnabled(false);
+
+    auto colorGradingPass = Ref<ColorGradingRenderPass>::Create();
+    colorGradingPass->SetName("ColorGradingPass");
+    colorGradingPass->SetEnabled(false);
+
+    auto toneMapPass = Ref<ToneMapRenderPass>::Create();
+    toneMapPass->SetName("ToneMapPass");
+    toneMapPass->SetEnabled(false);
+
+    auto vignettePass = Ref<VignetteRenderPass>::Create();
+    vignettePass->SetName("VignettePass");
+    vignettePass->SetEnabled(false);
+
+    auto uiCompositePass = Ref<UICompositeRenderPass>::Create();
+    uiCompositePass->SetName("UICompositePass");
+
+    AddPassNode(graph, motionBlurPass);
+    AddPassNode(graph, taaPass);
+    AddPassNode(graph, precipitationPass);
+    AddPassNode(graph, fogPass);
+    AddPassNode(graph, chromAbPass);
+    AddPassNode(graph, colorGradingPass);
+    AddPassNode(graph, toneMapPass);
+    AddPassNode(graph, vignettePass);
+    AddPassNode(graph, uiCompositePass);
+    graph.SetFinalPass("UICompositePass");
+
+    graph.BuildFrameGraph();
+
+    const auto versionedOutput = motionBlurPass->GetPrimaryOutputFramebufferHandle();
+    const auto versionedOutputTexture = motionBlurPass->GetPrimaryOutputTextureHandle();
+    ASSERT_TRUE(versionedOutput.IsValid());
+    ASSERT_TRUE(versionedOutputTexture.IsValid());
+    EXPECT_EQ(graph.GetResourceName(versionedOutput), "MotionBlurColor@MotionBlurPass");
+    EXPECT_EQ(taaPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(taaPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(precipitationPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(precipitationPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(fogPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(fogPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(chromAbPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(chromAbPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(colorGradingPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(colorGradingPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(toneMapPass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(toneMapPass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(vignettePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(vignettePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputFramebufferHandle(), versionedOutput);
+    EXPECT_EQ(uiCompositePass->GetPrimaryInputTextureHandle(), versionedOutputTexture);
+    EXPECT_EQ(graph.GetFramebufferHandle(ResourceNames::MotionBlurColor), versionedOutput)
+        << "Canonical MotionBlurColor lookup should follow the latest explicit version";
+    EXPECT_EQ(graph.GetFramebufferHandle("MotionBlurColor@MotionBlurPass"), versionedOutput)
+        << "Exact versioned MotionBlurColor lookup should remain valid";
 }
 
 TEST(RenderGraph, AddNodeMakesItRetrievable)
@@ -1368,6 +3022,130 @@ TEST(RenderGraph, ReportsExtractionOfCulledResourceDiagnostic)
     EXPECT_FALSE(extractionCalled);
 }
 
+TEST(RenderGraph, ExtractTextureBeforeBuildRootsProducerAndInvokesCallback)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    const auto extractedColor = graph.ImportTexture(
+        "ExtractedColor",
+        11u,
+        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ExtractedColor"));
+
+    AddTestNode(
+        graph,
+        "ExtractOnlyProducer",
+        [extractedColor](RGBuilder& builder)
+        {
+            builder.Write(extractedColor, RGWriteUsage::RenderTarget);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    AddTestNode(
+        graph,
+        "FinalConsumer",
+        [](RGBuilder& builder)
+        {
+            const auto finalColor = builder.ImportTexture(
+                "FinalColorTex",
+                12u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
+            builder.Write(finalColor, RGWriteUsage::RenderTarget);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    bool extractionCalled = false;
+    u32 extractedID = 0u;
+    graph.ExtractTexture(extractedColor,
+                         [&extractionCalled, &extractedID](u32 textureID)
+                         {
+                             extractionCalled = true;
+                             extractedID = textureID;
+                         });
+
+    graph.SetFinalPass("FinalConsumer");
+    graph.BuildFrameGraph();
+
+    const auto& culledPasses = graph.GetCulledPasses();
+    EXPECT_EQ(std::find(culledPasses.begin(), culledPasses.end(), "ExtractOnlyProducer"), culledPasses.end());
+
+    graph.Execute();
+
+    EXPECT_TRUE(extractionCalled);
+    EXPECT_EQ(extractedID, 11u);
+
+    const auto& diagnostics = graph.GetBarrierDiagnostics();
+    const auto diagIt = std::find_if(diagnostics.begin(), diagnostics.end(),
+                                     [](const RenderGraph::BarrierDiagnostic& diagnostic)
+                                     {
+                                         return diagnostic.Kind == RenderGraph::BarrierDiagnosticKind::ExtractionOfCulledResource &&
+                                                diagnostic.Resource == "ExtractedColor";
+                                     });
+    EXPECT_EQ(diagIt, diagnostics.end());
+}
+
+TEST(RenderGraph, ExtractFramebufferBeforeBuildRootsProducerAndInvokesCallback)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    RGResourceDesc scratchDesc;
+    scratchDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    scratchDesc.Format = RGResourceFormat::RGBA16Float;
+    scratchDesc.Width = 640u;
+    scratchDesc.Height = 360u;
+
+    const auto extractedFramebuffer = graph.DeclareTransientFramebuffer("ExtractedFramebuffer", scratchDesc);
+
+    AddTestNode(
+        graph,
+        "ExtractOnlyProducer",
+        [extractedFramebuffer](RGBuilder& builder)
+        {
+            builder.Write(extractedFramebuffer, RGWriteUsage::RenderTarget);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    AddTestNode(
+        graph,
+        "FinalConsumer",
+        [](RGBuilder& builder)
+        {
+            const auto finalColor = builder.ImportTexture(
+                "FinalColorTex",
+                12u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
+            builder.Write(finalColor, RGWriteUsage::RenderTarget);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    bool extractionCalled = false;
+    graph.ExtractFramebuffer(extractedFramebuffer,
+                             [&extractionCalled](const Ref<Framebuffer>& /*framebuffer*/)
+                             {
+                                 extractionCalled = true;
+                             });
+
+    graph.SetFinalPass("FinalConsumer");
+    graph.BuildFrameGraph();
+
+    const auto& culledPasses = graph.GetCulledPasses();
+    EXPECT_EQ(std::find(culledPasses.begin(), culledPasses.end(), "ExtractOnlyProducer"), culledPasses.end());
+
+    graph.Execute();
+
+    EXPECT_TRUE(extractionCalled);
+
+    const auto& diagnostics = graph.GetBarrierDiagnostics();
+    const auto diagIt = std::find_if(diagnostics.begin(), diagnostics.end(),
+                                     [](const RenderGraph::BarrierDiagnostic& diagnostic)
+                                     {
+                                         return diagnostic.Kind == RenderGraph::BarrierDiagnosticKind::ExtractionOfCulledResource &&
+                                                diagnostic.Resource == "ExtractedFramebuffer";
+                                     });
+    EXPECT_EQ(diagIt, diagnostics.end());
+}
+
 TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
 {
     RenderGraph graph;
@@ -1411,7 +3189,7 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
     ASSERT_TRUE(in.is_open());
 
     std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    EXPECT_NE(json.find("\"schemaVersion\": 14"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos);
     EXPECT_NE(json.find("\"timingVersion\": 4"), std::string::npos);
     EXPECT_NE(json.find("\"hasTimings\": true"), std::string::npos);
     EXPECT_NE(json.find("\"frameSummary\""), std::string::npos);
@@ -1422,6 +3200,11 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
     EXPECT_NE(json.find("\"computePassCount\": 0"), std::string::npos);
     EXPECT_NE(json.find("\"asyncComputeCandidateCount\": 0"), std::string::npos);
     EXPECT_NE(json.find("\"historyResourceCount\": 0"), std::string::npos);
+    EXPECT_NE(json.find("\"externallyBackedTransientRootCount\": 0"), std::string::npos);
+    EXPECT_NE(json.find("\"externallyBackedResourceCount\": 0"), std::string::npos);
+    EXPECT_NE(json.find("\"setupCallbackPassCount\":"), std::string::npos);
+    EXPECT_NE(json.find("\"dynamicDeclarationPassCount\":"), std::string::npos);
+    EXPECT_NE(json.find("\"bucketBackedPassCount\":"), std::string::npos);
     EXPECT_NE(json.find("\"temporalHistoryContractCount\": 0"), std::string::npos);
     EXPECT_NE(json.find("\"passFlags\""), std::string::npos);
     EXPECT_NE(json.find("\"workType\": \"Graphics\""), std::string::npos);
@@ -1431,7 +3214,14 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
     EXPECT_NE(json.find("\"declaredReads\":"), std::string::npos);
     EXPECT_NE(json.find("\"declaredWrites\":"), std::string::npos);
     EXPECT_NE(json.find("\"derivedEdges\":"), std::string::npos);
+    EXPECT_NE(json.find("\"orderSensitiveResults\": 0"), std::string::npos);
+    EXPECT_NE(json.find("\"setupCallbackPasses\":"), std::string::npos);
+    EXPECT_NE(json.find("\"dynamicDeclarationPasses\":"), std::string::npos);
+    EXPECT_NE(json.find("\"bucketBackedPasses\":"), std::string::npos);
+    EXPECT_NE(json.find("\"buildDiagnosticCount\": 0"), std::string::npos);
+    EXPECT_NE(json.find("\"buildDiagnostics\""), std::string::npos);
     EXPECT_NE(json.find("\"passOrder\""), std::string::npos);
+    EXPECT_NE(json.find("\"passAuthoring\""), std::string::npos);
     EXPECT_NE(json.find("\"plannedBarriers\""), std::string::npos);
     EXPECT_NE(json.find("\"barrierDiagnostics\""), std::string::npos);
     EXPECT_NE(json.find("\"lifetimes\""), std::string::npos);
@@ -1468,7 +3258,7 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
     EXPECT_NE(json.find("\"lifetimeCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"accessCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"aliasCount\": 0"), std::string::npos);
-    EXPECT_NE(json.find("res:SharedBuffer:StorageBuffer:1"), std::string::npos);
+    EXPECT_NE(json.find("res:SharedBuffer:StorageBuffer:1:xb0"), std::string::npos);
     EXPECT_NE(json.find("life:SharedBuffer@0-1:r1:w1"), std::string::npos);
     EXPECT_NE(json.find("acc:SharedBuffer:r[ShaderStorage]:w[ShaderStorage]"), std::string::npos);
     EXPECT_NE(json.find("\"barrierDigest\": { \"version\": 1"), std::string::npos);
@@ -1478,7 +3268,10 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
     EXPECT_NE(json.find("\"entryCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("bar:Final/SharedBuffer/"), std::string::npos);
     EXPECT_NE(json.find("\"graphDigest\": { \"version\": 1"), std::string::npos);
-    EXPECT_NE(json.find("passes=2;resources=1;culled=0;barriers=1;diags=0;aliases=0;timings=2;compute=0;asyncCandidates=0;histories=0;historyContracts=0"), std::string::npos);
+    EXPECT_NE(json.find("passes=2;resources=1;culled=0;barriers=1;diags=0;aliases=0;timings=2;compute=0;asyncCandidates=0"), std::string::npos);
+    EXPECT_NE(json.find("histories=0"), std::string::npos);
+    EXPECT_NE(json.find("externalTextureSinks=0"), std::string::npos);
+    EXPECT_NE(json.find("historyContracts=0"), std::string::npos);
     EXPECT_NE(json.find("\"timings\""), std::string::npos);
     EXPECT_NE(json.find("\"orderIndex\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"cpuMs\":"), std::string::npos);
@@ -1486,6 +3279,275 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
     EXPECT_NE(json.find("\"ShaderStorage\""), std::string::npos);
     EXPECT_NE(json.find("\"Producer\""), std::string::npos);
     EXPECT_NE(json.find("\"Final\""), std::string::npos);
+
+    std::error_code ec;
+    std::filesystem::remove(outputPath, ec);
+}
+
+TEST(RenderGraph, BuilderExtractTextureRootsProducerAndInvokesCallback)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    bool extractionCalled = false;
+    u32 extractedID = 0u;
+
+    AddTestNode(
+        graph,
+        "BuilderExtractProducer",
+        [&extractionCalled, &extractedID](RGBuilder& builder)
+        {
+            const auto extractedColor = builder.ImportTexture(
+                "BuilderExtractColor",
+                21u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "BuilderExtractColor"));
+            builder.Write(extractedColor, RGWriteUsage::RenderTarget);
+            builder.ExtractTexture(
+                extractedColor,
+                [&extractionCalled, &extractedID](const u32 textureID)
+                {
+                    extractionCalled = true;
+                    extractedID = textureID;
+                });
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    AddTestNode(
+        graph,
+        "FinalConsumer",
+        [](RGBuilder& builder)
+        {
+            const auto finalColor = builder.ImportTexture(
+                "FinalColorTex",
+                22u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
+            builder.Write(finalColor, RGWriteUsage::RenderTarget);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.SetFinalPass("FinalConsumer");
+    graph.BuildFrameGraph();
+
+    const auto& culledPasses = graph.GetCulledPasses();
+    EXPECT_EQ(std::find(culledPasses.begin(), culledPasses.end(), "BuilderExtractProducer"), culledPasses.end());
+
+    graph.Execute();
+
+    EXPECT_TRUE(extractionCalled);
+    EXPECT_EQ(extractedID, 21u);
+}
+
+TEST(RenderGraph, BuilderExtractFramebufferRootsProducerAndInvokesCallback)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    bool extractionCalled = false;
+
+    AddTestNode(
+        graph,
+        "BuilderExtractProducer",
+        [&extractionCalled](RGBuilder& builder)
+        {
+            RGResourceDesc desc;
+            desc.Kind = ResourceHandle::Kind::Framebuffer;
+            desc.Format = RGResourceFormat::RGBA16Float;
+            desc.Width = 320u;
+            desc.Height = 180u;
+
+            const auto extractedFramebuffer = builder.CreateFramebuffer("BuilderExtractFramebuffer", desc);
+            builder.Write(extractedFramebuffer, RGWriteUsage::RenderTarget);
+            builder.ExtractFramebuffer(
+                extractedFramebuffer,
+                [&extractionCalled](const Ref<Framebuffer>& /*framebuffer*/)
+                {
+                    extractionCalled = true;
+                });
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    AddTestNode(
+        graph,
+        "FinalConsumer",
+        [](RGBuilder& builder)
+        {
+            const auto finalColor = builder.ImportTexture(
+                "FinalColorTex",
+                22u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
+            builder.Write(finalColor, RGWriteUsage::RenderTarget);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.SetFinalPass("FinalConsumer");
+    graph.BuildFrameGraph();
+
+    const auto& culledPasses = graph.GetCulledPasses();
+    EXPECT_EQ(std::find(culledPasses.begin(), culledPasses.end(), "BuilderExtractProducer"), culledPasses.end());
+
+    graph.Execute();
+
+    EXPECT_TRUE(extractionCalled);
+}
+
+TEST(RenderGraphExternalTextureSinks, BuilderRegisteredTextureSinkRootsProducerAndInvalidatesWithoutNewCopy)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    bool sinkValid = true;
+
+    AddTestNode(
+        graph,
+        "ExternalSinkProducer",
+        [&sinkValid](RGBuilder& builder)
+        {
+            const auto source = builder.ImportTexture(
+                "ExternalSinkColor",
+                31u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ExternalSinkColor"));
+            builder.Write(source, RGWriteUsage::RenderTarget);
+            builder.RegisterExternalTextureSink(source, 0u, 0u, 0u, &sinkValid);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    AddTestNode(
+        graph,
+        "FinalConsumer",
+        [](RGBuilder& builder)
+        {
+            const auto finalColor = builder.ImportTexture(
+                "FinalColorTex",
+                32u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
+            builder.Write(finalColor, RGWriteUsage::RenderTarget);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.SetFinalPass("FinalConsumer");
+    graph.BuildFrameGraph();
+
+    const auto& culledPasses = graph.GetCulledPasses();
+    EXPECT_EQ(std::find(culledPasses.begin(), culledPasses.end(), "ExternalSinkProducer"), culledPasses.end());
+
+    const auto& contracts = graph.GetExternalTextureSinkContracts();
+    ASSERT_EQ(contracts.size(), 1u);
+    EXPECT_EQ(contracts[0].SourceResource, "ExternalSinkColor");
+    EXPECT_EQ(contracts[0].SourceKind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(contracts[0].ColorAttachmentIndex, 0u);
+    EXPECT_TRUE(contracts[0].SourceReachable);
+
+    graph.Execute();
+
+    EXPECT_FALSE(sinkValid);
+}
+
+TEST(RenderGraphExternalTextureSinks, BuilderRegisteredFramebufferSinkRootsProducerAndKeepsAttachmentIndex)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    bool sinkValid = true;
+
+    AddTestNode(
+        graph,
+        "ExternalSinkProducer",
+        [&sinkValid](RGBuilder& builder)
+        {
+            RGResourceDesc desc;
+            desc.Kind = ResourceHandle::Kind::Framebuffer;
+            desc.Format = RGResourceFormat::RGBA16Float;
+            desc.Width = 320u;
+            desc.Height = 180u;
+
+            const auto source = builder.CreateFramebuffer("ExternalSinkFramebuffer", desc);
+            builder.Write(source, RGWriteUsage::RenderTarget);
+            builder.RegisterExternalTextureSink(source, 0u, 0u, 0u, 0u, &sinkValid);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    AddTestNode(
+        graph,
+        "FinalConsumer",
+        [](RGBuilder& builder)
+        {
+            const auto finalColor = builder.ImportTexture(
+                "FinalColorTex",
+                32u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
+            builder.Write(finalColor, RGWriteUsage::RenderTarget);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.SetFinalPass("FinalConsumer");
+    graph.BuildFrameGraph();
+
+    const auto& culledPasses = graph.GetCulledPasses();
+    EXPECT_EQ(std::find(culledPasses.begin(), culledPasses.end(), "ExternalSinkProducer"), culledPasses.end());
+
+    const auto& contracts = graph.GetExternalTextureSinkContracts();
+    ASSERT_EQ(contracts.size(), 1u);
+    EXPECT_EQ(contracts[0].SourceResource, "ExternalSinkFramebuffer");
+    EXPECT_EQ(contracts[0].SourceKind, ResourceHandle::Kind::Framebuffer);
+    EXPECT_EQ(contracts[0].ColorAttachmentIndex, 0u);
+    EXPECT_TRUE(contracts[0].SourceReachable);
+
+    graph.Execute();
+
+    EXPECT_FALSE(sinkValid);
+}
+
+TEST(RenderGraphExternalTextureSinks, DumpToJsonIncludesExternalTextureSinkContracts)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    bool sinkValid = false;
+
+    AddTestNode(
+        graph,
+        "ExternalSinkProducer",
+        [&sinkValid](RGBuilder& builder)
+        {
+            const auto source = builder.ImportTexture(
+                "ExternalSinkColor",
+                41u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ExternalSinkColor"));
+            builder.Write(source, RGWriteUsage::RenderTarget);
+            builder.RegisterExternalTextureSink(source, 0u, 0u, 0u, &sinkValid);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    AddTestNode(
+        graph,
+        "FinalConsumer",
+        [](RGBuilder& builder)
+        {
+            const auto finalColor = builder.ImportTexture(
+                "FinalColorTex",
+                42u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
+            builder.Write(finalColor, RGWriteUsage::RenderTarget);
+        },
+        [](RGCommandContext& /*context*/) {});
+
+    graph.SetFinalPass("FinalConsumer");
+    graph.BuildFrameGraph();
+    graph.Execute();
+
+    const auto outputPath = std::filesystem::temp_directory_path() / "render_graph_external_sink_dump.json";
+    ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
+
+    std::ifstream in(outputPath);
+    ASSERT_TRUE(in.is_open());
+    const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+
+    EXPECT_NE(json.find("\"externalTextureSinkContractCount\": 1"), std::string::npos);
+    EXPECT_NE(json.find("\"externalTextureSinkContracts\""), std::string::npos);
+    EXPECT_NE(json.find("\"sourceResource\": \"ExternalSinkColor\""), std::string::npos);
+    EXPECT_NE(json.find("\"sourceKind\": \"Texture2D\""), std::string::npos);
+    EXPECT_NE(json.find("\"sourceReachable\": true"), std::string::npos);
+    EXPECT_NE(json.find("externalTextureSinks=1"), std::string::npos);
 
     std::error_code ec;
     std::filesystem::remove(outputPath, ec);
@@ -1682,63 +3744,13 @@ TEST(RenderGraph, SideEffectingUnreachablePassStillExecutes)
     graph.SetFinalPass("B");
 
     // Mark isolated pass as side-effecting (e.g. GPU readback).
-    c->SetSideEffects(RenderPass::SideEffect::Readback);
+    c->SetSideEffects(RenderGraphNode::SideEffect::Readback);
 
     graph.Execute();
 
     EXPECT_EQ(a->GetExecuteCount(), 1u);
     EXPECT_EQ(b->GetExecuteCount(), 1u);
     EXPECT_EQ(c->GetExecuteCount(), 1u) << "Side-effecting pass must not be culled";
-}
-
-TEST(RenderGraph, DeclarationOnlyProducerChainRemainsReachable)
-{
-    RenderGraph graph;
-
-    auto producer = Ref<DeclarationTrackingStubPass>::Create("Producer");
-    auto middle = Ref<DeclarationTrackingStubPass>::Create("Middle");
-    auto final = Ref<DeclarationTrackingStubPass>::Create("Final");
-
-    AddPassNode(graph, producer);
-    AddPassNode(graph, middle);
-    AddPassNode(graph, final);
-
-    producer->TestDeclareWrite("PostProcessColor");
-    middle->TestDeclareRead("PostProcessColor");
-    middle->TestDeclareWrite("ToneMapColor");
-    final->TestDeclareRead("ToneMapColor");
-
-    graph.SetFinalPass("Final");
-    graph.Execute();
-
-    EXPECT_EQ(producer->GetExecuteCount(), 1u)
-        << "Declaration-only producer must remain reachable from the final pass";
-    EXPECT_EQ(middle->GetExecuteCount(), 1u)
-        << "Intermediate declaration-only pass must not be culled";
-    EXPECT_EQ(final->GetExecuteCount(), 1u);
-}
-
-TEST(RenderGraph, GraphNodeDeclarationOnlyProducerChainRemainsReachable)
-{
-    RenderGraph graph;
-
-    auto producer = AddTestNode(graph, "NodeProducer");
-    auto middle = AddTestNode(graph, "NodeMiddle");
-    auto final = AddTestNode(graph, "NodeFinal");
-
-    producer->DeclareWrite("PostProcessColor", ResourceHandle::Kind::Framebuffer);
-    middle->DeclareRead("PostProcessColor", ResourceHandle::Kind::Framebuffer);
-    middle->DeclareWrite("ToneMapColor", ResourceHandle::Kind::Framebuffer);
-    final->DeclareRead("ToneMapColor", ResourceHandle::Kind::Framebuffer);
-
-    graph.SetFinalPass("NodeFinal");
-    graph.Execute();
-
-    EXPECT_EQ(producer->GetExecuteCount(), 1u)
-        << "Declaration-only graph-node producer must remain reachable from the final node";
-    EXPECT_EQ(middle->GetExecuteCount(), 1u)
-        << "Intermediate declaration-only graph node must not be culled";
-    EXPECT_EQ(final->GetExecuteCount(), 1u);
 }
 
 // =============================================================================
@@ -1940,6 +3952,76 @@ TEST(RenderGraphStructural, DerivedEdgeDoesNotIntroduceReverseCycle)
     EXPECT_FALSE(hasCycle) << "Derived edge insertion must not create cycles";
     EXPECT_EQ(graph.GetExecutionOrder().size(), 2u)
         << "Cycle guard must preserve a valid two-pass topological order";
+}
+
+TEST(RenderGraphStructural, BuilderPassDependenciesOverrideReverseRegistrationOrder)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    const auto addSceneColorWriter = [&graph](const char* passName, const char* dependency)
+    {
+        AddSetupNode(
+            graph,
+            passName,
+            [dependency](RGBuilder& builder)
+            {
+                builder.DependsOnPass(dependency);
+
+                auto sceneColor = builder.ImportTexture(
+                    "SceneColor",
+                    1u,
+                    RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColor"));
+                builder.Write(sceneColor, RGWriteUsage::RenderTarget);
+            });
+    };
+
+    // Intentionally register the chain in reverse order. Builder-declared
+    // pass dependencies must still enforce the documented production order.
+    addSceneColorWriter("WaterPass", "DecalPass");
+    addSceneColorWriter("DecalPass", "FoliagePass");
+    addSceneColorWriter("FoliagePass", "ForwardOverlayPass");
+    addSceneColorWriter("ForwardOverlayPass", "DeferredLightingPass");
+    addSceneColorWriter("DeferredLightingPass", "DeferredOpaqueDecalPass");
+    addSceneColorWriter("DeferredOpaqueDecalPass", "ScenePass");
+    addSceneColorWriter("ScenePass", "ShadowPass");
+
+    AddSetupNode(
+        graph,
+        "ShadowPass",
+        [](RGBuilder& builder)
+        {
+            auto shadowMap = builder.ImportTexture(
+                "ShadowMapCSM",
+                2u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ShadowMapCSM"));
+            builder.Write(shadowMap, RGWriteUsage::DepthStencil);
+        });
+
+    graph.SetFinalPass("WaterPass");
+    graph.BuildFrameGraph();
+
+    const auto hazards = graph.ValidateResourceHazards();
+    const auto hasCycle = std::any_of(hazards.begin(), hazards.end(),
+                                      [](const RenderGraph::Hazard& h)
+                                      {
+                                          return h.Kind == RenderGraph::HazardKind::Cycle;
+                                      });
+    EXPECT_FALSE(hasCycle) << "Builder pass dependencies must stay cycle-free";
+
+    const auto& order = graph.GetExecutionOrder();
+    auto posOf = [&order](const char* name)
+    {
+        return std::find(order.begin(), order.end(), name) - order.begin();
+    };
+
+    EXPECT_LT(posOf("ShadowPass"), posOf("ScenePass"));
+    EXPECT_LT(posOf("ScenePass"), posOf("DeferredOpaqueDecalPass"));
+    EXPECT_LT(posOf("DeferredOpaqueDecalPass"), posOf("DeferredLightingPass"));
+    EXPECT_LT(posOf("DeferredLightingPass"), posOf("ForwardOverlayPass"));
+    EXPECT_LT(posOf("ForwardOverlayPass"), posOf("FoliagePass"));
+    EXPECT_LT(posOf("FoliagePass"), posOf("DecalPass"));
+    EXPECT_LT(posOf("DecalPass"), posOf("WaterPass"));
 }
 
 TEST(RenderGraphStructural, DerivedEdgesSatisfyDeferredCoreWithoutManualEdges)
@@ -2289,10 +4371,10 @@ TEST(RenderGraphResetTopology, ClearsPassesAndAllowsRebuild)
     ASSERT_EQ(order.size(), 2u);
     EXPECT_EQ(order[0], "X");
     EXPECT_EQ(order[1], "Y");
-    EXPECT_EQ(graph.GetNode<RenderPass>("A"), nullptr)
+    EXPECT_EQ(graph.GetNode<RenderGraphNode>("A"), nullptr)
         << "Old graph entries must not be retrievable after ResetTopology";
-    EXPECT_EQ(graph.GetNode<RenderPass>("B"), nullptr);
-    EXPECT_EQ(graph.GetNode<RenderPass>("C"), nullptr);
+    EXPECT_EQ(graph.GetNode<RenderGraphNode>("B"), nullptr);
+    EXPECT_EQ(graph.GetNode<RenderGraphNode>("C"), nullptr);
 }
 
 TEST(RenderGraphResetTopology, PreservesPassReferenceOwnership)
@@ -2744,6 +4826,97 @@ TEST(RenderGraphTransientPool, PhaseD_SSAOPassDeclaresTransientRawFramebuffer)
     EXPECT_TRUE(handle.IsValid()) << "stable handle for SSAORaw must be valid after BuildFrameGraph";
 }
 
+TEST(RenderGraphTransientPool, PhaseD_SSAOAOBufferDeclaredAsTransientTexture)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    RGResourceDesc aoDesc;
+    aoDesc.Kind = ResourceHandle::Kind::Texture2D;
+    aoDesc.Format = RGResourceFormat::RG16Float;
+    aoDesc.Width = 698;
+    aoDesc.Height = 418;
+    const auto aoHandle = graph.AllocateTransientTextureHandle(std::string(ResourceNames::AOBuffer), aoDesc);
+
+    AddSetupNode(
+        graph,
+        "SSAOPass",
+        [aoHandle](RGBuilder& builder)
+        {
+            builder.Write(aoHandle, RGWriteUsage::RenderTarget);
+        });
+
+    AddSetupNode(
+        graph,
+        "AOApplyPass",
+        [aoHandle](RGBuilder& builder)
+        {
+            [[maybe_unused]] const auto aoRead = builder.Read(aoHandle, RGReadUsage::ShaderSample);
+        });
+
+    graph.AddExecutionDependency("SSAOPass", "AOApplyPass");
+    graph.SetFinalPass("AOApplyPass");
+    graph.BuildFrameGraph();
+
+    const auto& plan = graph.GetTransientPlan();
+    const auto it = std::find_if(plan.begin(), plan.end(),
+                                 [](const RenderGraph::TransientPlanEntry& entry)
+                                 { return entry.Resource == ResourceNames::AOBuffer; });
+
+    ASSERT_NE(it, plan.end()) << "AOBuffer not found in transient plan";
+    EXPECT_TRUE(it->Reachable) << "AOBuffer must be reachable";
+    EXPECT_TRUE(it->WillAllocate) << "AOBuffer must be planned for allocation";
+    EXPECT_EQ(it->SkipReason, "") << "AOBuffer unexpected skip reason: " << it->SkipReason;
+    EXPECT_EQ(it->EstimatedBytes, 698ull * 418ull * 4ull)
+        << "AOBuffer (RG16F) should be 4 bytes per texel";
+
+    const auto handle = graph.GetTextureHandle(std::string(ResourceNames::AOBuffer));
+    EXPECT_TRUE(handle.IsValid()) << "stable handle for AOBuffer must be valid after BuildFrameGraph";
+}
+
+TEST(RenderGraphTransientPool, PhaseD_SSAOBlurFramebufferDeclaredAsTransientFramebuffer)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    RGResourceDesc blurDesc;
+    blurDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    blurDesc.Format = RGResourceFormat::RG16Float;
+    blurDesc.Width = 698;
+    blurDesc.Height = 418;
+    const auto blurHandle = graph.DeclareTransientFramebuffer(std::string(ResourceNames::SSAOBlur), blurDesc);
+
+    AddSetupNode(
+        graph,
+        "SSAOPass",
+        [blurHandle](RGBuilder& builder)
+        {
+            builder.Write(blurHandle, RGWriteUsage::RenderTarget);
+        });
+
+    AddSetupNode(
+        graph,
+        "FinalPass",
+        [](RGBuilder& /*builder*/) {});
+
+    graph.AddExecutionDependency("SSAOPass", "FinalPass");
+    graph.SetFinalPass("FinalPass");
+    graph.BuildFrameGraph();
+
+    const auto& plan = graph.GetTransientPlan();
+    const auto it = std::find_if(plan.begin(), plan.end(),
+                                 [](const RenderGraph::TransientPlanEntry& entry)
+                                 { return entry.Resource == ResourceNames::SSAOBlur; });
+
+    ASSERT_NE(it, plan.end()) << "SSAOBlur not found in transient plan";
+    EXPECT_TRUE(it->Reachable) << "SSAOBlur must be reachable";
+    EXPECT_TRUE(it->WillAllocate) << "SSAOBlur must be planned for allocation";
+    EXPECT_EQ(it->SkipReason, "") << "SSAOBlur unexpected skip reason: " << it->SkipReason;
+
+    const auto handle = graph.GetFramebufferHandle(std::string(ResourceNames::SSAOBlur));
+    EXPECT_TRUE(handle.IsValid()) << "stable handle for SSAOBlur must be valid after BuildFrameGraph";
+}
+
 // Phase D Slice 2: RGBA32F framebuffer format is now a supported transient FB type.
 TEST(RenderGraphTransientPool, PhaseD_RGBA32FFramebufferFormatIsAllocatable)
 {
@@ -2971,6 +5144,111 @@ TEST(RenderGraphTransientPool, PhaseD_GTAOEdgeTextureDeclaredAsTransientTexture)
 
     const auto handle = graph.GetTextureHandle("GTAOEdge");
     EXPECT_TRUE(handle.IsValid()) << "stable handle for GTAOEdge must be valid after BuildFrameGraph";
+}
+
+TEST(RenderGraphTransientPool, PhaseD_GTAOAOBufferDeclaredAsTransientTexture)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    RGResourceDesc aoDesc;
+    aoDesc.Kind = ResourceHandle::Kind::Texture2D;
+    aoDesc.Format = RGResourceFormat::R8UNorm;
+    aoDesc.Width = 1280;
+    aoDesc.Height = 720;
+    const auto aoHandle = graph.AllocateTransientTextureHandle(std::string(ResourceNames::AOBuffer), aoDesc);
+
+    AddSetupNode(
+        graph,
+        "GTAOPass",
+        [aoHandle](RGBuilder& builder)
+        {
+            builder.Write(aoHandle, RGWriteUsage::ShaderImage);
+        });
+
+    AddSetupNode(
+        graph,
+        "AOApplyPass",
+        [aoHandle](RGBuilder& builder)
+        {
+            [[maybe_unused]] const auto aoRead = builder.Read(aoHandle, RGReadUsage::ShaderSample);
+        });
+
+    graph.AddExecutionDependency("GTAOPass", "AOApplyPass");
+    graph.SetFinalPass("AOApplyPass");
+    graph.BuildFrameGraph();
+
+    const auto& plan = graph.GetTransientPlan();
+    const auto it = std::find_if(plan.begin(), plan.end(),
+                                 [](const RenderGraph::TransientPlanEntry& entry)
+                                 { return entry.Resource == ResourceNames::AOBuffer; });
+
+    ASSERT_NE(it, plan.end()) << "AOBuffer not found in transient plan";
+    EXPECT_TRUE(it->Reachable) << "AOBuffer must be reachable";
+    EXPECT_TRUE(it->WillAllocate) << "AOBuffer must be planned for allocation";
+    EXPECT_EQ(it->SkipReason, "") << "AOBuffer unexpected skip reason: " << it->SkipReason;
+    EXPECT_EQ(it->EstimatedBytes, 1280ull * 720ull * 1ull)
+        << "AOBuffer (R8) should be 1 byte per texel";
+
+    const auto handle = graph.GetTextureHandle(std::string(ResourceNames::AOBuffer));
+    EXPECT_TRUE(handle.IsValid()) << "stable handle for AOBuffer must be valid after BuildFrameGraph";
+}
+
+TEST(RenderGraphTransientPool, PhaseD_GTAODenoisePingPongDeclaredAsTransientTextures)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    RGResourceDesc denoiseDesc;
+    denoiseDesc.Kind = ResourceHandle::Kind::Texture2D;
+    denoiseDesc.Format = RGResourceFormat::R8UNorm;
+    denoiseDesc.Width = 1280;
+    denoiseDesc.Height = 720;
+    const auto pingHandle = graph.AllocateTransientTextureHandle(std::string(ResourceNames::GTAODenoisePing), denoiseDesc);
+    const auto pongHandle = graph.AllocateTransientTextureHandle(std::string(ResourceNames::GTAODenoisePong), denoiseDesc);
+
+    AddSetupNode(
+        graph,
+        "GTAOPass",
+        [pingHandle, pongHandle](RGBuilder& builder)
+        {
+            builder.AllowFeedback(pingHandle);
+            builder.Write(pingHandle, RGWriteUsage::ShaderImage);
+            [[maybe_unused]] const auto pingRead = builder.Read(pingHandle, RGReadUsage::ShaderImage);
+
+            builder.AllowFeedback(pongHandle);
+            builder.Write(pongHandle, RGWriteUsage::ShaderImage);
+            [[maybe_unused]] const auto pongRead = builder.Read(pongHandle, RGReadUsage::ShaderImage);
+        });
+
+    AddSetupNode(
+        graph,
+        "FinalPass",
+        [](RGBuilder& /*builder*/) {});
+
+    graph.AddExecutionDependency("GTAOPass", "FinalPass");
+    graph.SetFinalPass("FinalPass");
+    graph.BuildFrameGraph();
+
+    const auto& plan = graph.GetTransientPlan();
+    for (const auto resourceName : { ResourceNames::GTAODenoisePing, ResourceNames::GTAODenoisePong })
+    {
+        const auto it = std::find_if(plan.begin(), plan.end(),
+                                     [resourceName](const RenderGraph::TransientPlanEntry& entry)
+                                     { return entry.Resource == resourceName; });
+
+        ASSERT_NE(it, plan.end()) << resourceName << " not found in transient plan";
+        EXPECT_TRUE(it->Reachable) << resourceName << " must be reachable";
+        EXPECT_TRUE(it->WillAllocate) << resourceName << " must be planned for allocation";
+        EXPECT_EQ(it->SkipReason, "") << resourceName << " unexpected skip reason: " << it->SkipReason;
+        EXPECT_EQ(it->EstimatedBytes, 1280ull * 720ull * 1ull)
+            << resourceName << " (R8) should be 1 byte per texel";
+    }
+
+    EXPECT_TRUE(graph.GetTextureHandle(std::string(ResourceNames::GTAODenoisePing)).IsValid())
+        << "stable handle for GTAODenoisePing must be valid after BuildFrameGraph";
+    EXPECT_TRUE(graph.GetTextureHandle(std::string(ResourceNames::GTAODenoisePong)).IsValid())
+        << "stable handle for GTAODenoisePong must be valid after BuildFrameGraph";
 }
 
 // Phase D Slice 6: HZB scratch depth pyramid declared as transient R32F mip-chain texture.
@@ -3739,11 +6017,1036 @@ TEST(RenderGraphTransientPool, PhaseD_OITBufferDeclaredAsSharedTransientMRTFrame
     EXPECT_EQ(it->EstimatedBytes, expectedBytes)
         << "MRT estimated bytes must sum across all color and depth attachments";
 
-    // Both OITAccum and OITRevealage blackboard slots point to the same handle.
+    // The shared OITBuffer framebuffer handle remains stable across build;
+    // attachment views are layered on top separately.
     const auto afterBuildHandle = graph.GetFramebufferHandle(ResourceNames::OITBuffer);
     EXPECT_TRUE(afterBuildHandle.IsValid()) << "handle must still be valid after BuildFrameGraph";
     EXPECT_EQ(oitHandle.Index, afterBuildHandle.Index)
         << "stable handle index must not change between declaration and post-build lookup";
+}
+
+TEST(RenderGraphTransientPool, SameFrameImportsAndBuilderTransientsKeepStableHandles)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    const auto importedSceneColor = graph.ImportFramebuffer(
+        ResourceNames::SceneColor,
+        nullptr,
+        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, ResourceNames::SceneColor));
+    const auto importedSceneDepth = graph.ImportTexture(
+        ResourceNames::SceneDepth,
+        17u,
+        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, ResourceNames::SceneDepth));
+
+    RGFramebufferHandle writerFramebufferHandle{};
+    RGFramebufferHandle readerFramebufferHandle{};
+    RGTextureHandle writerTextureHandle{};
+    RGTextureHandle readerTextureHandle{};
+
+    AddSetupNode(
+        graph,
+        "Writer",
+        [&writerFramebufferHandle, &writerTextureHandle](RGBuilder& builder)
+        {
+            RGResourceDesc framebufferDesc;
+            framebufferDesc.Kind = ResourceHandle::Kind::Framebuffer;
+            framebufferDesc.Format = RGResourceFormat::RGBA16Float;
+            framebufferDesc.Width = 640u;
+            framebufferDesc.Height = 360u;
+
+            writerFramebufferHandle = builder.CreateFramebuffer("StableScratchFB", framebufferDesc);
+            builder.Write(writerFramebufferHandle, RGWriteUsage::RenderTarget);
+
+            RGResourceDesc textureDesc;
+            textureDesc.Kind = ResourceHandle::Kind::Texture2D;
+            textureDesc.Format = RGResourceFormat::R8UNorm;
+            textureDesc.Width = 640u;
+            textureDesc.Height = 360u;
+
+            writerTextureHandle = builder.CreateTexture("StableScratchTex", textureDesc);
+            builder.Write(writerTextureHandle, RGWriteUsage::ShaderImage);
+        });
+
+    AddSetupNode(
+        graph,
+        "Reader",
+        [&readerFramebufferHandle, &readerTextureHandle](RGBuilder& builder)
+        {
+            RGResourceDesc framebufferDesc;
+            framebufferDesc.Kind = ResourceHandle::Kind::Framebuffer;
+            framebufferDesc.Format = RGResourceFormat::RGBA16Float;
+            framebufferDesc.Width = 640u;
+            framebufferDesc.Height = 360u;
+
+            readerFramebufferHandle = builder.CreateFramebuffer("StableScratchFB", framebufferDesc);
+            [[maybe_unused]] const auto scratchFramebufferRead =
+                builder.Read(readerFramebufferHandle, RGReadUsage::RenderTargetRead);
+
+            RGResourceDesc textureDesc;
+            textureDesc.Kind = ResourceHandle::Kind::Texture2D;
+            textureDesc.Format = RGResourceFormat::R8UNorm;
+            textureDesc.Width = 640u;
+            textureDesc.Height = 360u;
+
+            readerTextureHandle = builder.CreateTexture("StableScratchTex", textureDesc);
+            [[maybe_unused]] const auto scratchTextureRead =
+                builder.Read(readerTextureHandle, RGReadUsage::ShaderSample);
+        });
+
+    graph.AddExecutionDependency("Writer", "Reader");
+    graph.SetFinalPass("Reader");
+    graph.BuildFrameGraph();
+
+    ASSERT_TRUE(importedSceneColor.IsValid());
+    ASSERT_TRUE(importedSceneDepth.IsValid());
+    EXPECT_EQ(std::string(graph.GetResourceName(importedSceneColor)), std::string(ResourceNames::SceneColor));
+    EXPECT_EQ(std::string(graph.GetResourceName(importedSceneDepth)), std::string(ResourceNames::SceneDepth));
+
+    const auto postBuildSceneColor = graph.GetFramebufferHandle(ResourceNames::SceneColor);
+    const auto postBuildSceneDepth = graph.GetTextureHandle(ResourceNames::SceneDepth);
+    EXPECT_EQ(importedSceneColor.Index, postBuildSceneColor.Index);
+    EXPECT_EQ(importedSceneColor.Generation, postBuildSceneColor.Generation);
+    EXPECT_EQ(importedSceneDepth.Index, postBuildSceneDepth.Index);
+    EXPECT_EQ(importedSceneDepth.Generation, postBuildSceneDepth.Generation);
+
+    ASSERT_TRUE(writerFramebufferHandle.IsValid());
+    ASSERT_TRUE(readerFramebufferHandle.IsValid());
+    EXPECT_EQ(writerFramebufferHandle.Index, readerFramebufferHandle.Index);
+    EXPECT_EQ(writerFramebufferHandle.Generation, readerFramebufferHandle.Generation);
+
+    ASSERT_TRUE(writerTextureHandle.IsValid());
+    ASSERT_TRUE(readerTextureHandle.IsValid());
+    EXPECT_EQ(writerTextureHandle.Index, readerTextureHandle.Index);
+    EXPECT_EQ(writerTextureHandle.Generation, readerTextureHandle.Generation);
+
+    const auto namedFramebufferHandle = graph.GetFramebufferHandle("StableScratchFB");
+    ASSERT_TRUE(namedFramebufferHandle.IsValid());
+    EXPECT_EQ(writerFramebufferHandle.Index, namedFramebufferHandle.Index);
+    EXPECT_EQ(writerFramebufferHandle.Generation, namedFramebufferHandle.Generation);
+
+    const auto namedTextureHandle = graph.GetTextureHandle("StableScratchTex");
+    ASSERT_TRUE(namedTextureHandle.IsValid());
+    EXPECT_EQ(writerTextureHandle.Index, namedTextureHandle.Index);
+    EXPECT_EQ(writerTextureHandle.Generation, namedTextureHandle.Generation);
+}
+
+TEST(RenderGraphTypedHandles, FramebufferAttachmentViewResolvesImportedFramebufferAttachment)
+{
+    RenderGraph graph;
+
+    FramebufferSpecification spec;
+    spec.Width = 640u;
+    spec.Height = 360u;
+    spec.Attachments = FramebufferAttachmentSpecification{
+        FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA16F },
+        FramebufferTextureSpecification{ FramebufferTextureFormat::RG16F },
+        FramebufferTextureSpecification{ FramebufferTextureFormat::DEPTH24STENCIL8 }
+    };
+
+    Ref<MultiAttachmentStubFramebuffer> framebuffer = Ref<MultiAttachmentStubFramebuffer>::Create(77u, std::initializer_list<u32>{ 101u, 202u });
+    framebuffer->Resize(spec.Width, spec.Height);
+
+    RGResourceDesc oitDesc;
+    oitDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    oitDesc.Width = spec.Width;
+    oitDesc.Height = spec.Height;
+    oitDesc.Attachments = {
+        RGResourceFormat::RGBA16Float,
+        RGResourceFormat::RG16Float,
+        RGResourceFormat::Depth24Stencil8,
+    };
+    oitDesc.DebugName = std::string(ResourceNames::OITBuffer);
+
+    const auto oitHandle = graph.ImportFramebuffer(ResourceNames::OITBuffer, framebuffer, oitDesc);
+    const auto accumView = graph.CreateFramebufferAttachmentView(ResourceNames::OITAccum, oitHandle, 0u);
+    const auto revealageView = graph.CreateFramebufferAttachmentView(ResourceNames::OITRevealage, oitHandle, 1u);
+
+    ASSERT_TRUE(accumView.IsValid());
+    ASSERT_TRUE(revealageView.IsValid());
+    EXPECT_EQ(graph.ResolveTexture(accumView), 101u);
+    EXPECT_EQ(graph.ResolveTexture(revealageView), 202u);
+
+    const auto* accumInfo = graph.FindRegisteredResource(ResourceNames::OITAccum);
+    ASSERT_NE(accumInfo, nullptr);
+    EXPECT_EQ(accumInfo->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(accumInfo->Desc.Format, RGResourceFormat::RGBA16Float);
+
+    const auto* revealageInfo = graph.FindRegisteredResource(ResourceNames::OITRevealage);
+    ASSERT_NE(revealageInfo, nullptr);
+    EXPECT_EQ(revealageInfo->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(revealageInfo->Desc.Format, RGResourceFormat::RG16Float);
+}
+
+TEST(RenderGraphTypedHandles, FramebufferDepthAttachmentViewResolvesImportedFramebufferDepthAttachment)
+{
+    RenderGraph graph;
+
+    auto framebuffer = Ref<MultiAttachmentStubFramebuffer>::Create(91u, std::initializer_list<u32>{ 111u }, 303u);
+
+    RGResourceDesc depthDesc;
+    depthDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    depthDesc.Width = 800u;
+    depthDesc.Height = 600u;
+    depthDesc.Samples = 4u;
+    depthDesc.Attachments = {
+        RGResourceFormat::RGBA16Float,
+        RGResourceFormat::Depth24Stencil8,
+    };
+    depthDesc.DebugName = "DepthViewParent";
+
+    const auto framebufferHandle = graph.ImportFramebuffer("DepthViewParent", framebuffer, depthDesc);
+    const auto depthView = graph.CreateFramebufferDepthAttachmentView("DepthView", framebufferHandle);
+
+    ASSERT_TRUE(depthView.IsValid());
+    EXPECT_EQ(graph.ResolveTexture(depthView), 303u);
+
+    const auto* depthInfo = graph.FindRegisteredResource("DepthView");
+    ASSERT_NE(depthInfo, nullptr);
+    EXPECT_EQ(depthInfo->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(depthInfo->Desc.Format, RGResourceFormat::Depth24Stencil8);
+    EXPECT_EQ(depthInfo->Desc.Samples, 4u);
+}
+
+TEST(RenderGraphTypedHandles, ExternallyBackedTransientFramebufferViewsResolveBackingAndRemainTransient)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto framebuffer = Ref<MultiAttachmentStubFramebuffer>::Create(1337u, std::initializer_list<u32>{ 101u, 202u }, 303u);
+    framebuffer->Resize(640u, 360u);
+
+    RGResourceDesc gbufferDesc;
+    gbufferDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    gbufferDesc.Width = 640u;
+    gbufferDesc.Height = 360u;
+    gbufferDesc.Attachments = {
+        RGResourceFormat::RGBA8UNorm,
+        RGResourceFormat::RGBA16Float,
+        RGResourceFormat::Depth24Stencil8,
+    };
+    gbufferDesc.DebugName = "ExternallyBackedGBuffer";
+
+    const auto gbufferHandle = graph.DeclareTransientFramebuffer("ExternallyBackedGBuffer", gbufferDesc, framebuffer);
+    const auto normalView = graph.CreateFramebufferAttachmentView("ExternallyBackedGBufferNormal", gbufferHandle, 1u);
+    const auto depthView = graph.CreateFramebufferDepthAttachmentView("ExternallyBackedGBufferDepth", gbufferHandle);
+
+    ASSERT_TRUE(gbufferHandle.IsValid());
+    ASSERT_TRUE(normalView.IsValid());
+    ASSERT_TRUE(depthView.IsValid());
+    EXPECT_EQ(graph.ResolveFramebuffer(gbufferHandle), framebuffer);
+    EXPECT_EQ(graph.ResolveTexture(normalView), 202u);
+    EXPECT_EQ(graph.ResolveTexture(depthView), 303u);
+
+    AddSetupNode(graph, "Writer", [gbufferHandle](RGBuilder& builder)
+                 { builder.Write(gbufferHandle, RGWriteUsage::RenderTarget); });
+    AddSetupNode(graph, "Reader", [normalView, depthView](RGBuilder& builder)
+                 {
+                     [[maybe_unused]] const auto normalRead = builder.Read(normalView, RGReadUsage::ShaderSample);
+                     [[maybe_unused]] const auto depthRead = builder.Read(depthView, RGReadUsage::ShaderSample); });
+
+    graph.AddExecutionDependency("Writer", "Reader");
+    graph.SetFinalPass("Reader");
+    graph.BuildFrameGraph();
+
+    const auto* gbufferInfo = graph.FindRegisteredResource("ExternallyBackedGBuffer");
+    ASSERT_NE(gbufferInfo, nullptr);
+    EXPECT_EQ(gbufferInfo->Desc.Kind, ResourceHandle::Kind::Framebuffer);
+    EXPECT_FALSE(gbufferInfo->Desc.Imported);
+    EXPECT_TRUE(gbufferInfo->HasExternalBacking);
+
+    const auto* normalInfo = graph.FindRegisteredResource("ExternallyBackedGBufferNormal");
+    ASSERT_NE(normalInfo, nullptr);
+    EXPECT_TRUE(normalInfo->HasExternalBacking);
+
+    const auto* depthInfo = graph.FindRegisteredResource("ExternallyBackedGBufferDepth");
+    ASSERT_NE(depthInfo, nullptr);
+    EXPECT_TRUE(depthInfo->HasExternalBacking);
+
+    const auto& transientPlan = graph.GetTransientPlan();
+    const auto planIt = std::find_if(transientPlan.begin(), transientPlan.end(),
+                                     [](const RenderGraph::TransientPlanEntry& entry)
+                                     {
+                                         return entry.Resource == "ExternallyBackedGBuffer";
+                                     });
+    ASSERT_NE(planIt, transientPlan.end());
+    EXPECT_TRUE(planIt->Reachable);
+    EXPECT_FALSE(planIt->WillAllocate);
+    EXPECT_EQ(planIt->SkipReason, "external-backing");
+
+    const auto lifetimes = graph.GetResourceLifetimes();
+    const auto lifetimeIt = std::find_if(lifetimes.begin(), lifetimes.end(),
+                                         [](const RenderGraph::ResourceLifetime& lifetime)
+                                         {
+                                             return lifetime.ResourceName == "ExternallyBackedGBuffer";
+                                         });
+    ASSERT_NE(lifetimeIt, lifetimes.end());
+    EXPECT_FALSE(lifetimeIt->IsImported);
+    EXPECT_TRUE(lifetimeIt->IsTransient);
+
+    const auto normalLifetimeIt = std::find_if(lifetimes.begin(), lifetimes.end(),
+                                               [](const RenderGraph::ResourceLifetime& lifetime)
+                                               {
+                                                   return lifetime.ResourceName == "ExternallyBackedGBufferNormal";
+                                               });
+    ASSERT_NE(normalLifetimeIt, lifetimes.end());
+    EXPECT_FALSE(normalLifetimeIt->IsImported);
+    EXPECT_TRUE(normalLifetimeIt->IsTransient);
+    EXPECT_TRUE(normalLifetimeIt->HasExternalBacking);
+
+    const auto depthLifetimeIt = std::find_if(lifetimes.begin(), lifetimes.end(),
+                                              [](const RenderGraph::ResourceLifetime& lifetime)
+                                              {
+                                                  return lifetime.ResourceName == "ExternallyBackedGBufferDepth";
+                                              });
+    ASSERT_NE(depthLifetimeIt, lifetimes.end());
+    EXPECT_FALSE(depthLifetimeIt->IsImported);
+    EXPECT_TRUE(depthLifetimeIt->IsTransient);
+    EXPECT_TRUE(depthLifetimeIt->HasExternalBacking);
+
+    EXPECT_TRUE(lifetimeIt->HasExternalBacking);
+
+    graph.Execute();
+
+    const auto outputPath = std::filesystem::temp_directory_path() / "render_graph_external_backing_dump.json";
+    ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
+
+    std::ifstream in(outputPath);
+    ASSERT_TRUE(in.is_open());
+    const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+
+    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos);
+    EXPECT_NE(json.find("\"externallyBackedTransientRootCount\": 1"), std::string::npos);
+    EXPECT_NE(json.find("\"externallyBackedResourceCount\": 3"), std::string::npos);
+    EXPECT_NE(json.find("\"hasExternalBacking\": true"), std::string::npos);
+    EXPECT_NE(json.find("\"resource\": \"ExternallyBackedGBufferNormal\", \"isImported\": false, \"isExtracted\": false, \"isHistory\": false, \"isTransient\": true, \"hasExternalBacking\": true"), std::string::npos);
+
+    std::error_code ec;
+    std::filesystem::remove(outputPath, ec);
+}
+
+TEST(RenderGraphTypedHandles, ExternallyBackedTransientTextureViewsResolveBackingAndRemainTransient)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto csmDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2DArray, "ExternallyBackedShadowCSM");
+    csmDesc.Format = RGResourceFormat::Depth32Float;
+    csmDesc.Width = 2048u;
+    csmDesc.Height = 2048u;
+    csmDesc.DepthOrLayers = 4u;
+
+    auto pointDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::TextureCube, "ExternallyBackedShadowPoint");
+    pointDesc.Format = RGResourceFormat::Depth32Float;
+    pointDesc.Width = 1024u;
+    pointDesc.Height = 1024u;
+    pointDesc.DepthOrLayers = 6u;
+
+    const auto csmHandle = graph.DeclareTransientTexture("ExternallyBackedShadowCSM", csmDesc, 1401u);
+    const auto cascadeView = graph.CreateTextureArrayLayerView("ExternallyBackedShadowCSMCascade2", csmHandle, 2u);
+    const auto pointHandle = graph.DeclareTransientTexture("ExternallyBackedShadowPoint", pointDesc, 1402u);
+    const auto faceView = graph.CreateTextureCubeFaceView("ExternallyBackedShadowPointFace4", pointHandle, 4u);
+
+    ASSERT_TRUE(csmHandle.IsValid());
+    ASSERT_TRUE(cascadeView.IsValid());
+    ASSERT_TRUE(pointHandle.IsValid());
+    ASSERT_TRUE(faceView.IsValid());
+    EXPECT_EQ(graph.ResolveTexture(csmHandle), 1401u);
+    EXPECT_EQ(graph.ResolveTexture(cascadeView), 1401u);
+    EXPECT_EQ(graph.ResolveTexture(pointHandle), 1402u);
+    EXPECT_EQ(graph.ResolveTexture(faceView), 1402u);
+
+    AddSetupNode(graph, "ShadowWriter", [csmHandle, pointHandle](RGBuilder& builder)
+                 {
+                     builder.Write(csmHandle, RGWriteUsage::DepthStencil);
+                     builder.Write(pointHandle, RGWriteUsage::DepthStencil); });
+    AddSetupNode(graph, "ShadowReader", [cascadeView, faceView](RGBuilder& builder)
+                 {
+                     [[maybe_unused]] const auto cascadeRead = builder.Read(cascadeView, RGReadUsage::ShaderSample);
+                     [[maybe_unused]] const auto faceRead = builder.Read(faceView, RGReadUsage::ShaderSample); });
+
+    graph.AddExecutionDependency("ShadowWriter", "ShadowReader");
+    graph.SetFinalPass("ShadowReader");
+    graph.BuildFrameGraph();
+
+    const auto hazards = graph.ValidateCompiledResourceHazards();
+    EXPECT_TRUE(hazards.empty());
+
+    const auto* csmInfo = graph.FindRegisteredResource("ExternallyBackedShadowCSM");
+    ASSERT_NE(csmInfo, nullptr);
+    EXPECT_FALSE(csmInfo->Desc.Imported);
+    EXPECT_TRUE(csmInfo->HasExternalBacking);
+
+    const auto* cascadeInfo = graph.FindRegisteredResource("ExternallyBackedShadowCSMCascade2");
+    ASSERT_NE(cascadeInfo, nullptr);
+    EXPECT_FALSE(cascadeInfo->Desc.Imported);
+    EXPECT_TRUE(cascadeInfo->HasExternalBacking);
+
+    const auto* pointInfo = graph.FindRegisteredResource("ExternallyBackedShadowPoint");
+    ASSERT_NE(pointInfo, nullptr);
+    EXPECT_FALSE(pointInfo->Desc.Imported);
+    EXPECT_TRUE(pointInfo->HasExternalBacking);
+
+    const auto* faceInfo = graph.FindRegisteredResource("ExternallyBackedShadowPointFace4");
+    ASSERT_NE(faceInfo, nullptr);
+    EXPECT_FALSE(faceInfo->Desc.Imported);
+    EXPECT_TRUE(faceInfo->HasExternalBacking);
+
+    const auto& transientPlan = graph.GetTransientPlan();
+    const auto csmPlanIt = std::find_if(transientPlan.begin(), transientPlan.end(),
+                                        [](const RenderGraph::TransientPlanEntry& entry)
+                                        {
+                                            return entry.Resource == "ExternallyBackedShadowCSM";
+                                        });
+    ASSERT_NE(csmPlanIt, transientPlan.end());
+    EXPECT_TRUE(csmPlanIt->Reachable);
+    EXPECT_FALSE(csmPlanIt->WillAllocate);
+    EXPECT_EQ(csmPlanIt->SkipReason, "external-backing");
+
+    const auto pointPlanIt = std::find_if(transientPlan.begin(), transientPlan.end(),
+                                          [](const RenderGraph::TransientPlanEntry& entry)
+                                          {
+                                              return entry.Resource == "ExternallyBackedShadowPoint";
+                                          });
+    ASSERT_NE(pointPlanIt, transientPlan.end());
+    EXPECT_TRUE(pointPlanIt->Reachable);
+    EXPECT_FALSE(pointPlanIt->WillAllocate);
+    EXPECT_EQ(pointPlanIt->SkipReason, "external-backing");
+
+    const auto lifetimes = graph.GetResourceLifetimes();
+    const auto expectLifetime = [&lifetimes](std::string_view resourceName)
+    {
+        const auto lifetimeIt = std::find_if(lifetimes.begin(), lifetimes.end(),
+                                             [resourceName](const RenderGraph::ResourceLifetime& lifetime)
+                                             {
+                                                 return lifetime.ResourceName == resourceName;
+                                             });
+        ASSERT_NE(lifetimeIt, lifetimes.end());
+        EXPECT_FALSE(lifetimeIt->IsImported);
+        EXPECT_TRUE(lifetimeIt->IsTransient);
+        EXPECT_TRUE(lifetimeIt->HasExternalBacking);
+    };
+
+    expectLifetime("ExternallyBackedShadowCSM");
+    expectLifetime("ExternallyBackedShadowCSMCascade2");
+    expectLifetime("ExternallyBackedShadowPoint");
+    expectLifetime("ExternallyBackedShadowPointFace4");
+
+    graph.Execute();
+
+    const auto outputPath = std::filesystem::temp_directory_path() / "render_graph_external_texture_backing_dump.json";
+    ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
+
+    std::ifstream in(outputPath);
+    ASSERT_TRUE(in.is_open());
+    const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+
+    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos);
+    EXPECT_NE(json.find("\"externallyBackedTransientRootCount\": 2"), std::string::npos);
+    EXPECT_NE(json.find("\"externallyBackedResourceCount\": 4"), std::string::npos);
+    EXPECT_NE(json.find("\"resource\": \"ExternallyBackedShadowCSMCascade2\", \"isImported\": false, \"isExtracted\": false, \"isHistory\": false, \"isTransient\": true, \"hasExternalBacking\": true"), std::string::npos);
+
+    std::error_code ec;
+    std::filesystem::remove(outputPath, ec);
+}
+
+TEST(RenderGraphTypedHandles, FramebufferAttachmentViewsCanBeCreatedFromTransientFramebufferDescriptors)
+{
+    RenderGraph graph;
+
+    RGResourceDesc sceneDesc;
+    sceneDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    sceneDesc.Width = 1280u;
+    sceneDesc.Height = 720u;
+    sceneDesc.Attachments = {
+        RGResourceFormat::RGBA16Float,
+        RGResourceFormat::R32Int,
+        RGResourceFormat::RG16Float,
+        RGResourceFormat::RG16Float,
+        RGResourceFormat::Depth24Stencil8,
+    };
+    sceneDesc.DebugName = std::string(ResourceNames::SceneColor);
+
+    const auto sceneHandle = graph.DeclareTransientFramebuffer(ResourceNames::SceneColor, sceneDesc);
+    const auto sceneColorTexture = graph.CreateFramebufferAttachmentView(ResourceNames::SceneColorTexture, sceneHandle, 0u);
+    const auto sceneEntityID = graph.CreateFramebufferAttachmentView(ResourceNames::SceneEntityID, sceneHandle, 1u);
+    const auto sceneViewNormals = graph.CreateFramebufferAttachmentView(ResourceNames::SceneViewNormals, sceneHandle, 2u);
+    const auto sceneDepthAttachment = graph.CreateFramebufferDepthAttachmentView(ResourceNames::SceneDepthAttachment, sceneHandle);
+
+    ASSERT_TRUE(sceneColorTexture.IsValid());
+    ASSERT_TRUE(sceneEntityID.IsValid());
+    ASSERT_TRUE(sceneViewNormals.IsValid());
+    ASSERT_TRUE(sceneDepthAttachment.IsValid());
+
+    const auto* sceneColorInfo = graph.FindRegisteredResource(ResourceNames::SceneColorTexture);
+    ASSERT_NE(sceneColorInfo, nullptr);
+    EXPECT_EQ(sceneColorInfo->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(sceneColorInfo->Desc.Format, RGResourceFormat::RGBA16Float);
+
+    const auto* entityInfo = graph.FindRegisteredResource(ResourceNames::SceneEntityID);
+    ASSERT_NE(entityInfo, nullptr);
+    EXPECT_EQ(entityInfo->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(entityInfo->Desc.Format, RGResourceFormat::R32Int);
+
+    const auto* normalsInfo = graph.FindRegisteredResource(ResourceNames::SceneViewNormals);
+    ASSERT_NE(normalsInfo, nullptr);
+    EXPECT_EQ(normalsInfo->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(normalsInfo->Desc.Format, RGResourceFormat::RG16Float);
+
+    const auto* depthInfo = graph.FindRegisteredResource(ResourceNames::SceneDepthAttachment);
+    ASSERT_NE(depthInfo, nullptr);
+    EXPECT_EQ(depthInfo->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(depthInfo->Desc.Format, RGResourceFormat::Depth24Stencil8);
+}
+
+TEST(RenderGraphTypedHandles, TextureMipViewResolvesImportedTextureAndTracksMipDimensions)
+{
+    RenderGraph graph;
+
+    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "HZBDepthParent");
+    textureDesc.Format = RGResourceFormat::R32Float;
+    textureDesc.Width = 512u;
+    textureDesc.Height = 256u;
+    textureDesc.MipLevels = 6u;
+
+    const auto textureHandle = graph.ImportTexture("HZBDepthParent", 707u, textureDesc);
+    const auto mipView = graph.CreateTextureMipView("HZBDepthParentMip3", textureHandle, 3u);
+
+    ASSERT_TRUE(textureHandle.IsValid());
+    ASSERT_TRUE(mipView.IsValid());
+    EXPECT_EQ(graph.ResolveTexture(mipView), 707u);
+
+    const auto* mipInfo = graph.FindRegisteredResource("HZBDepthParentMip3");
+    ASSERT_NE(mipInfo, nullptr);
+    EXPECT_EQ(mipInfo->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(mipInfo->Desc.Format, RGResourceFormat::R32Float);
+    EXPECT_EQ(mipInfo->Desc.Width, 64u);
+    EXPECT_EQ(mipInfo->Desc.Height, 32u);
+    EXPECT_EQ(mipInfo->Desc.MipLevels, 1u);
+}
+
+TEST(RenderGraphTypedHandles, TextureMipViewsCanBeCreatedFromTransientTextureDescriptors)
+{
+    RenderGraph graph;
+
+    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::HZBDepth));
+    textureDesc.Format = RGResourceFormat::R32Float;
+    textureDesc.Width = 1024u;
+    textureDesc.Height = 512u;
+    textureDesc.MipLevels = 11u;
+
+    const auto textureHandle = graph.AllocateTransientTextureHandle(ResourceNames::HZBDepth, textureDesc);
+    const auto mipView = graph.CreateTextureMipView("HZBDepthMip5", textureHandle, 5u);
+
+    ASSERT_TRUE(textureHandle.IsValid());
+    ASSERT_TRUE(mipView.IsValid());
+
+    const auto* mipInfo = graph.FindRegisteredResource("HZBDepthMip5");
+    ASSERT_NE(mipInfo, nullptr);
+    EXPECT_EQ(mipInfo->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(mipInfo->Desc.Format, RGResourceFormat::R32Float);
+    EXPECT_EQ(mipInfo->Desc.Width, 32u);
+    EXPECT_EQ(mipInfo->Desc.Height, 16u);
+    EXPECT_EQ(mipInfo->Desc.MipLevels, 1u);
+}
+
+TEST(RenderGraphTypedHandles, TextureArrayLayerViewResolvesImportedTextureArrayAndTracksLayerMetadata)
+{
+    RenderGraph graph;
+
+    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2DArray, "ShadowCSMParent");
+    textureDesc.Format = RGResourceFormat::Depth32Float;
+    textureDesc.Width = 2048u;
+    textureDesc.Height = 2048u;
+    textureDesc.DepthOrLayers = 4u;
+
+    const auto textureHandle = graph.ImportTexture("ShadowCSMParent", 719u, textureDesc);
+    const auto layerView = graph.CreateTextureArrayLayerView("ShadowCSMParentCascade2", textureHandle, 2u);
+
+    ASSERT_TRUE(textureHandle.IsValid());
+    ASSERT_TRUE(layerView.IsValid());
+    EXPECT_EQ(graph.ResolveTexture(layerView), 719u);
+
+    const auto* layerInfo = graph.FindRegisteredResource("ShadowCSMParentCascade2");
+    ASSERT_NE(layerInfo, nullptr);
+    EXPECT_EQ(layerInfo->Desc.Kind, ResourceHandle::Kind::Texture2DArray);
+    EXPECT_EQ(layerInfo->Desc.Format, RGResourceFormat::Depth32Float);
+    EXPECT_EQ(layerInfo->Desc.Width, 2048u);
+    EXPECT_EQ(layerInfo->Desc.Height, 2048u);
+    EXPECT_EQ(layerInfo->Desc.DepthOrLayers, 1u);
+}
+
+TEST(RenderGraphTypedHandles, TextureArrayLayerViewsCanBeCreatedFromTransientTextureDescriptors)
+{
+    RenderGraph graph;
+
+    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2DArray, std::string(ResourceNames::ShadowMapCSM));
+    textureDesc.Format = RGResourceFormat::Depth32Float;
+    textureDesc.Width = 1024u;
+    textureDesc.Height = 1024u;
+    textureDesc.DepthOrLayers = 4u;
+
+    const auto textureHandle = graph.AllocateTransientTextureHandle(ResourceNames::ShadowMapCSM, textureDesc);
+    const auto layerView = graph.CreateTextureArrayLayerView(ResourceNames::ShadowMapCSMCascade2, textureHandle, 2u);
+
+    ASSERT_TRUE(textureHandle.IsValid());
+    ASSERT_TRUE(layerView.IsValid());
+
+    const auto* layerInfo = graph.FindRegisteredResource(ResourceNames::ShadowMapCSMCascade2);
+    ASSERT_NE(layerInfo, nullptr);
+    EXPECT_EQ(layerInfo->Desc.Kind, ResourceHandle::Kind::Texture2DArray);
+    EXPECT_EQ(layerInfo->Desc.Format, RGResourceFormat::Depth32Float);
+    EXPECT_EQ(layerInfo->Desc.Width, 1024u);
+    EXPECT_EQ(layerInfo->Desc.Height, 1024u);
+    EXPECT_EQ(layerInfo->Desc.DepthOrLayers, 1u);
+}
+
+TEST(RenderGraphTypedHandles, TextureCubeFaceViewResolvesImportedCubeTextureAndTracksFaceMetadata)
+{
+    RenderGraph graph;
+
+    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::TextureCube, "ShadowPointParent");
+    textureDesc.Format = RGResourceFormat::Depth32Float;
+    textureDesc.Width = 1024u;
+    textureDesc.Height = 1024u;
+    textureDesc.DepthOrLayers = 6u;
+
+    const auto textureHandle = graph.ImportTexture("ShadowPointParent", 727u, textureDesc);
+    const auto faceView = graph.CreateTextureCubeFaceView("ShadowPointParentFace4", textureHandle, 4u);
+
+    ASSERT_TRUE(textureHandle.IsValid());
+    ASSERT_TRUE(faceView.IsValid());
+    EXPECT_EQ(graph.ResolveTexture(faceView), 727u);
+
+    const auto* faceInfo = graph.FindRegisteredResource("ShadowPointParentFace4");
+    ASSERT_NE(faceInfo, nullptr);
+    EXPECT_EQ(faceInfo->Desc.Kind, ResourceHandle::Kind::TextureCube);
+    EXPECT_EQ(faceInfo->Desc.Format, RGResourceFormat::Depth32Float);
+    EXPECT_EQ(faceInfo->Desc.Width, 1024u);
+    EXPECT_EQ(faceInfo->Desc.Height, 1024u);
+    EXPECT_EQ(faceInfo->Desc.DepthOrLayers, 1u);
+}
+
+TEST(RenderGraphTypedHandles, TextureMultisampleResolveViewResolvesSingleSampleBackingAndTracksResolvedMetadata)
+{
+    RenderGraph graph;
+
+    auto multisampleDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "GBufferAlbedoMSParent");
+    multisampleDesc.Format = RGResourceFormat::RGBA8UNorm;
+    multisampleDesc.Width = 1280u;
+    multisampleDesc.Height = 720u;
+    multisampleDesc.Samples = 4u;
+
+    auto resolvedDesc = multisampleDesc;
+    resolvedDesc.DebugName = "GBufferAlbedoResolvedBacking";
+    resolvedDesc.Samples = 1u;
+
+    const auto multisampleHandle = graph.ImportTexture("GBufferAlbedoMSParent", 751u, multisampleDesc);
+    const auto resolvedHandle = graph.ImportTexture("GBufferAlbedoResolvedBacking", 752u, resolvedDesc);
+    const auto resolveView =
+        graph.CreateTextureMultisampleResolveView("GBufferAlbedoResolved", multisampleHandle, resolvedHandle);
+
+    ASSERT_TRUE(multisampleHandle.IsValid());
+    ASSERT_TRUE(resolvedHandle.IsValid());
+    ASSERT_TRUE(resolveView.IsValid());
+    EXPECT_EQ(graph.ResolveTexture(resolveView), 752u);
+
+    const auto* resolveInfo = graph.FindRegisteredResource("GBufferAlbedoResolved");
+    ASSERT_NE(resolveInfo, nullptr);
+    EXPECT_EQ(resolveInfo->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(resolveInfo->Desc.Format, RGResourceFormat::RGBA8UNorm);
+    EXPECT_EQ(resolveInfo->Desc.Width, 1280u);
+    EXPECT_EQ(resolveInfo->Desc.Height, 720u);
+    EXPECT_EQ(resolveInfo->Desc.Samples, 1u);
+}
+
+TEST(RenderGraphTypedHandles, MultisampleParentWriterFeedsResolveViewReaderAcrossCompileStages)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto multisampleDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "AliasedResolveTextureMS");
+    multisampleDesc.Format = RGResourceFormat::RGBA16Float;
+    multisampleDesc.Width = 1280u;
+    multisampleDesc.Height = 720u;
+    multisampleDesc.Samples = 4u;
+
+    auto resolvedDesc = multisampleDesc;
+    resolvedDesc.DebugName = "AliasedResolveTextureBacking";
+    resolvedDesc.Samples = 1u;
+
+    const auto multisampleHandle = graph.ImportTexture("AliasedResolveTextureMS", 761u, multisampleDesc);
+    const auto resolvedHandle = graph.ImportTexture("AliasedResolveTextureBacking", 762u, resolvedDesc);
+    const auto resolveView =
+        graph.CreateTextureMultisampleResolveView("AliasedResolveTexture", multisampleHandle, resolvedHandle);
+
+    auto writerPass = Ref<CallbackStyleStubPass>::Create("ResolveSourceWriterPass");
+    writerPass->SetSetupBehavior(
+        [multisampleHandle](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
+        {
+            builder.Write(multisampleHandle, RGWriteUsage::TransferDest);
+        });
+    AddPassNode(graph, writerPass);
+
+    auto readerPass = Ref<CallbackStyleStubPass>::Create("ResolveViewReaderPass");
+    readerPass->SetSetupBehavior(
+        [resolveView](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
+        {
+            [[maybe_unused]] const auto resolvedRead = builder.Read(resolveView, RGReadUsage::ShaderSample);
+        });
+    AddPassNode(graph, readerPass);
+
+    graph.SetFinalPass("ResolveViewReaderPass");
+    graph.BuildFrameGraph();
+
+    const auto& executionOrder = graph.GetExecutionOrder();
+    const auto writerIt = std::find(executionOrder.begin(), executionOrder.end(), "ResolveSourceWriterPass");
+    const auto readerIt = std::find(executionOrder.begin(), executionOrder.end(), "ResolveViewReaderPass");
+    ASSERT_NE(writerIt, executionOrder.end());
+    ASSERT_NE(readerIt, executionOrder.end());
+    EXPECT_LT(writerIt, readerIt);
+
+    const auto hazards = graph.ValidateCompiledResourceHazards();
+    EXPECT_TRUE(hazards.empty());
+
+    const auto transitions = graph.GetResourceTransitions();
+    const auto transitionIt = std::find_if(transitions.begin(), transitions.end(),
+                                           [](const RenderGraph::ResourceTransition& transition)
+                                           {
+                                               return transition.ResourceName == "AliasedResolveTexture" &&
+                                                      transition.ProducerPass == "ResolveSourceWriterPass" &&
+                                                      transition.ConsumerPass == "ResolveViewReaderPass";
+                                           });
+    EXPECT_NE(transitionIt, transitions.end());
+}
+
+TEST(RenderGraphTypedHandles, ParentFramebufferWriterFeedsAttachmentViewReaderAcrossCompileStages)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto framebuffer = Ref<AttachmentStubFramebuffer>::Create(501u, 701u);
+
+    auto framebufferDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "AliasedFramebuffer");
+    framebufferDesc.Format = RGResourceFormat::RGBA16Float;
+    framebufferDesc.Width = 1u;
+    framebufferDesc.Height = 1u;
+
+    const auto framebufferHandle = graph.ImportFramebuffer("AliasedFramebuffer", framebuffer, framebufferDesc);
+    const auto attachmentView = graph.CreateFramebufferAttachmentView("AliasedFramebufferTexture", framebufferHandle, 0u);
+
+    auto writerPass = Ref<CallbackStyleStubPass>::Create("FramebufferWriterPass");
+    writerPass->SetSetupBehavior(
+        [framebufferHandle](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
+        {
+            builder.Write(framebufferHandle, RGWriteUsage::RenderTarget);
+        });
+    AddPassNode(graph, writerPass);
+
+    auto readerPass = Ref<CallbackStyleStubPass>::Create("AttachmentViewReaderPass");
+    readerPass->SetSetupBehavior(
+        [attachmentView](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
+        {
+            [[maybe_unused]] const auto readHandle = builder.Read(attachmentView, RGReadUsage::ShaderSample);
+        });
+    AddPassNode(graph, readerPass);
+
+    graph.SetFinalPass("AttachmentViewReaderPass");
+    graph.BuildFrameGraph();
+
+    const auto& executionOrder = graph.GetExecutionOrder();
+    const auto writerIt = std::find(executionOrder.begin(), executionOrder.end(), "FramebufferWriterPass");
+    const auto readerIt = std::find(executionOrder.begin(), executionOrder.end(), "AttachmentViewReaderPass");
+    ASSERT_NE(writerIt, executionOrder.end());
+    ASSERT_NE(readerIt, executionOrder.end());
+    EXPECT_LT(writerIt, readerIt);
+
+    const auto hazards = graph.ValidateCompiledResourceHazards();
+    EXPECT_TRUE(hazards.empty());
+
+    const auto& culledPasses = graph.GetCulledPasses();
+    EXPECT_TRUE(std::find(culledPasses.begin(), culledPasses.end(), "FramebufferWriterPass") == culledPasses.end());
+
+    const auto transitions = graph.GetResourceTransitions();
+    const auto transitionIt = std::find_if(transitions.begin(), transitions.end(),
+                                           [](const RenderGraph::ResourceTransition& transition)
+                                           {
+                                               return transition.ResourceName == "AliasedFramebufferTexture" &&
+                                                      transition.ProducerPass == "FramebufferWriterPass" &&
+                                                      transition.ConsumerPass == "AttachmentViewReaderPass";
+                                           });
+    EXPECT_NE(transitionIt, transitions.end());
+}
+
+TEST(RenderGraphTypedHandles, ParentTextureWriterFeedsMipViewReaderAcrossCompileStages)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "AliasedMipTexture");
+    textureDesc.Format = RGResourceFormat::R32Float;
+    textureDesc.Width = 512u;
+    textureDesc.Height = 256u;
+    textureDesc.MipLevels = 6u;
+
+    const auto textureHandle = graph.ImportTexture("AliasedMipTexture", 911u, textureDesc);
+    const auto mipView = graph.CreateTextureMipView("AliasedMipTextureMip2", textureHandle, 2u);
+
+    auto writerPass = Ref<CallbackStyleStubPass>::Create("TextureWriterPass");
+    writerPass->SetSetupBehavior(
+        [textureHandle](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
+        {
+            builder.Write(textureHandle, RGWriteUsage::ShaderImage, RGSubresourceRange::Mip(2u));
+        });
+    AddPassNode(graph, writerPass);
+
+    auto readerPass = Ref<CallbackStyleStubPass>::Create("MipViewReaderPass");
+    readerPass->SetSetupBehavior(
+        [mipView](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
+        {
+            [[maybe_unused]] const auto mipRead = builder.Read(mipView, RGReadUsage::ShaderSample);
+        });
+    AddPassNode(graph, readerPass);
+
+    graph.SetFinalPass("MipViewReaderPass");
+    graph.BuildFrameGraph();
+
+    const auto& executionOrder = graph.GetExecutionOrder();
+    const auto writerIt = std::find(executionOrder.begin(), executionOrder.end(), "TextureWriterPass");
+    const auto readerIt = std::find(executionOrder.begin(), executionOrder.end(), "MipViewReaderPass");
+    ASSERT_NE(writerIt, executionOrder.end());
+    ASSERT_NE(readerIt, executionOrder.end());
+    EXPECT_LT(writerIt, readerIt);
+
+    const auto hazards = graph.ValidateCompiledResourceHazards();
+    EXPECT_TRUE(hazards.empty());
+}
+
+TEST(RenderGraphTypedHandles, MipViewWriterFeedsParentTextureReaderAcrossCompileStages)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "AliasedMipTexture");
+    textureDesc.Format = RGResourceFormat::R32Float;
+    textureDesc.Width = 512u;
+    textureDesc.Height = 256u;
+    textureDesc.MipLevels = 6u;
+
+    const auto textureHandle = graph.ImportTexture("AliasedMipTexture", 913u, textureDesc);
+    const auto mipView = graph.CreateTextureMipView("AliasedMipTextureMip2", textureHandle, 2u);
+
+    auto writerPass = Ref<CallbackStyleStubPass>::Create("MipViewWriterPass");
+    writerPass->SetSetupBehavior(
+        [mipView](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
+        {
+            builder.Write(mipView, RGWriteUsage::ShaderImage);
+        });
+    AddPassNode(graph, writerPass);
+
+    auto readerPass = Ref<CallbackStyleStubPass>::Create("TextureReaderPass");
+    readerPass->SetSetupBehavior(
+        [textureHandle](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
+        {
+            [[maybe_unused]] const auto mipRead = builder.Read(textureHandle, RGReadUsage::ShaderSample, RGSubresourceRange::Mip(2u));
+        });
+    AddPassNode(graph, readerPass);
+
+    graph.SetFinalPass("TextureReaderPass");
+    graph.BuildFrameGraph();
+
+    const auto& executionOrder = graph.GetExecutionOrder();
+    const auto writerIt = std::find(executionOrder.begin(), executionOrder.end(), "MipViewWriterPass");
+    const auto readerIt = std::find(executionOrder.begin(), executionOrder.end(), "TextureReaderPass");
+    ASSERT_NE(writerIt, executionOrder.end());
+    ASSERT_NE(readerIt, executionOrder.end());
+    EXPECT_LT(writerIt, readerIt);
+
+    const auto hazards = graph.ValidateCompiledResourceHazards();
+    EXPECT_TRUE(hazards.empty());
+}
+
+TEST(RenderGraphTypedHandles, ParentTextureWriterFeedsArrayLayerViewReaderAcrossCompileStages)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2DArray, "AliasedLayerTexture");
+    textureDesc.Format = RGResourceFormat::Depth32Float;
+    textureDesc.Width = 1024u;
+    textureDesc.Height = 1024u;
+    textureDesc.DepthOrLayers = 4u;
+
+    const auto textureHandle = graph.ImportTexture("AliasedLayerTexture", 931u, textureDesc);
+    const auto layerView = graph.CreateTextureArrayLayerView("AliasedLayerTextureLayer2", textureHandle, 2u);
+
+    auto writerPass = Ref<CallbackStyleStubPass>::Create("LayerTextureWriterPass");
+    writerPass->SetSetupBehavior(
+        [textureHandle](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
+        {
+            builder.Write(textureHandle, RGWriteUsage::DepthStencil, RGSubresourceRange::Layer(2u));
+        });
+    AddPassNode(graph, writerPass);
+
+    auto readerPass = Ref<CallbackStyleStubPass>::Create("LayerViewReaderPass");
+    readerPass->SetSetupBehavior(
+        [layerView](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
+        {
+            [[maybe_unused]] const auto layerRead = builder.Read(layerView, RGReadUsage::ShaderSample);
+        });
+    AddPassNode(graph, readerPass);
+
+    graph.SetFinalPass("LayerViewReaderPass");
+    graph.BuildFrameGraph();
+
+    const auto& executionOrder = graph.GetExecutionOrder();
+    const auto writerIt = std::find(executionOrder.begin(), executionOrder.end(), "LayerTextureWriterPass");
+    const auto readerIt = std::find(executionOrder.begin(), executionOrder.end(), "LayerViewReaderPass");
+    ASSERT_NE(writerIt, executionOrder.end());
+    ASSERT_NE(readerIt, executionOrder.end());
+    EXPECT_LT(writerIt, readerIt);
+
+    const auto hazards = graph.ValidateCompiledResourceHazards();
+    EXPECT_TRUE(hazards.empty());
+}
+
+TEST(RenderGraphTypedHandles, ArrayLayerViewWriterFeedsParentTextureReaderAcrossCompileStages)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2DArray, "AliasedLayerTexture");
+    textureDesc.Format = RGResourceFormat::Depth32Float;
+    textureDesc.Width = 1024u;
+    textureDesc.Height = 1024u;
+    textureDesc.DepthOrLayers = 4u;
+
+    const auto textureHandle = graph.ImportTexture("AliasedLayerTexture", 937u, textureDesc);
+    const auto layerView = graph.CreateTextureArrayLayerView("AliasedLayerTextureLayer2", textureHandle, 2u);
+
+    auto writerPass = Ref<CallbackStyleStubPass>::Create("LayerViewWriterPass");
+    writerPass->SetSetupBehavior(
+        [layerView](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
+        {
+            builder.Write(layerView, RGWriteUsage::DepthStencil);
+        });
+    AddPassNode(graph, writerPass);
+
+    auto readerPass = Ref<CallbackStyleStubPass>::Create("LayerTextureReaderPass");
+    readerPass->SetSetupBehavior(
+        [textureHandle](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
+        {
+            [[maybe_unused]] const auto layerRead =
+                builder.Read(textureHandle, RGReadUsage::ShaderSample, RGSubresourceRange::Layer(2u));
+        });
+    AddPassNode(graph, readerPass);
+
+    graph.SetFinalPass("LayerTextureReaderPass");
+    graph.BuildFrameGraph();
+
+    const auto& executionOrder = graph.GetExecutionOrder();
+    const auto writerIt = std::find(executionOrder.begin(), executionOrder.end(), "LayerViewWriterPass");
+    const auto readerIt = std::find(executionOrder.begin(), executionOrder.end(), "LayerTextureReaderPass");
+    ASSERT_NE(writerIt, executionOrder.end());
+    ASSERT_NE(readerIt, executionOrder.end());
+    EXPECT_LT(writerIt, readerIt);
+
+    const auto hazards = graph.ValidateCompiledResourceHazards();
+    EXPECT_TRUE(hazards.empty());
+}
+
+TEST(RenderGraphTypedHandles, ParentTextureWriterFeedsCubeFaceViewReaderAcrossCompileStages)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::TextureCube, "AliasedCubeTexture");
+    textureDesc.Format = RGResourceFormat::Depth32Float;
+    textureDesc.Width = 1024u;
+    textureDesc.Height = 1024u;
+    textureDesc.DepthOrLayers = 6u;
+
+    const auto textureHandle = graph.ImportTexture("AliasedCubeTexture", 941u, textureDesc);
+    const auto faceView = graph.CreateTextureCubeFaceView("AliasedCubeTextureFace4", textureHandle, 4u);
+
+    auto writerPass = Ref<CallbackStyleStubPass>::Create("CubeTextureWriterPass");
+    writerPass->SetSetupBehavior(
+        [textureHandle](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
+        {
+            RGSubresourceRange faceRange{};
+            faceRange.BaseSlice = 4u;
+            faceRange.SliceCount = 1u;
+            builder.Write(textureHandle, RGWriteUsage::DepthStencil, faceRange);
+        });
+    AddPassNode(graph, writerPass);
+
+    auto readerPass = Ref<CallbackStyleStubPass>::Create("CubeFaceViewReaderPass");
+    readerPass->SetSetupBehavior(
+        [faceView](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
+        {
+            [[maybe_unused]] const auto faceRead = builder.Read(faceView, RGReadUsage::ShaderSample);
+        });
+    AddPassNode(graph, readerPass);
+
+    graph.SetFinalPass("CubeFaceViewReaderPass");
+    graph.BuildFrameGraph();
+
+    const auto& executionOrder = graph.GetExecutionOrder();
+    const auto writerIt = std::find(executionOrder.begin(), executionOrder.end(), "CubeTextureWriterPass");
+    const auto readerIt = std::find(executionOrder.begin(), executionOrder.end(), "CubeFaceViewReaderPass");
+    ASSERT_NE(writerIt, executionOrder.end());
+    ASSERT_NE(readerIt, executionOrder.end());
+    EXPECT_LT(writerIt, readerIt);
+
+    const auto hazards = graph.ValidateCompiledResourceHazards();
+    EXPECT_TRUE(hazards.empty());
+}
+
+TEST(RenderGraphTypedHandles, CubeFaceViewWriterFeedsParentTextureReaderAcrossCompileStages)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::TextureCube, "AliasedCubeTexture");
+    textureDesc.Format = RGResourceFormat::Depth32Float;
+    textureDesc.Width = 1024u;
+    textureDesc.Height = 1024u;
+    textureDesc.DepthOrLayers = 6u;
+
+    const auto textureHandle = graph.ImportTexture("AliasedCubeTexture", 947u, textureDesc);
+    const auto faceView = graph.CreateTextureCubeFaceView("AliasedCubeTextureFace4", textureHandle, 4u);
+
+    auto writerPass = Ref<CallbackStyleStubPass>::Create("CubeFaceViewWriterPass");
+    writerPass->SetSetupBehavior(
+        [faceView](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
+        {
+            builder.Write(faceView, RGWriteUsage::DepthStencil);
+        });
+    AddPassNode(graph, writerPass);
+
+    auto readerPass = Ref<CallbackStyleStubPass>::Create("CubeTextureReaderPass");
+    readerPass->SetSetupBehavior(
+        [textureHandle](RGBuilder& builder, FrameBlackboard& /*blackboard*/)
+        {
+            RGSubresourceRange faceRange{};
+            faceRange.BaseSlice = 4u;
+            faceRange.SliceCount = 1u;
+            [[maybe_unused]] const auto faceRead = builder.Read(textureHandle, RGReadUsage::ShaderSample, faceRange);
+        });
+    AddPassNode(graph, readerPass);
+
+    graph.SetFinalPass("CubeTextureReaderPass");
+    graph.BuildFrameGraph();
+
+    const auto& executionOrder = graph.GetExecutionOrder();
+    const auto writerIt = std::find(executionOrder.begin(), executionOrder.end(), "CubeFaceViewWriterPass");
+    const auto readerIt = std::find(executionOrder.begin(), executionOrder.end(), "CubeTextureReaderPass");
+    ASSERT_NE(writerIt, executionOrder.end());
+    ASSERT_NE(readerIt, executionOrder.end());
+    EXPECT_LT(writerIt, readerIt);
+
+    const auto hazards = graph.ValidateCompiledResourceHazards();
+    EXPECT_TRUE(hazards.empty());
 }
 
 // Verify that the graph-owned OIT descriptor remains incompatible with the old
@@ -3840,6 +7143,365 @@ TEST(RenderGraphTransientPool, PhaseD_MRTEstimatedBytesAreCorrect)
 // Each post-process pass output (BloomColor, DOFColor, ToneMapColor, etc.) is
 // now declared as a transient framebuffer rather than imported, so the graph's
 // transient pool can track lifetime and format for future aliasing.
+
+TEST(RenderGraphTransientPool, PhaseD_VelocityDeclaredAsTransientTexture)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    RGResourceDesc velocityDesc;
+    velocityDesc.Kind = ResourceHandle::Kind::Texture2D;
+    velocityDesc.Format = RGResourceFormat::RG16Float;
+    velocityDesc.Width = 1280u;
+    velocityDesc.Height = 720u;
+    const auto velocityHandle = graph.AllocateTransientTextureHandle(std::string(ResourceNames::Velocity), velocityDesc);
+
+    AddSetupNode(
+        graph,
+        "ScenePass",
+        [velocityHandle](RGBuilder& builder)
+        {
+            builder.Write(velocityHandle, RGWriteUsage::TransferDest);
+        });
+
+    AddSetupNode(
+        graph,
+        "TAAPass",
+        [velocityHandle](RGBuilder& builder)
+        {
+            [[maybe_unused]] const auto velocityRead = builder.Read(velocityHandle, RGReadUsage::ShaderSample);
+        });
+
+    graph.AddExecutionDependency("ScenePass", "TAAPass");
+    graph.SetFinalPass("TAAPass");
+    graph.BuildFrameGraph();
+
+    const auto& plan = graph.GetTransientPlan();
+    const auto it = std::find_if(plan.begin(), plan.end(),
+                                 [](const RenderGraph::TransientPlanEntry& entry)
+                                 { return entry.Resource == ResourceNames::Velocity; });
+
+    ASSERT_NE(it, plan.end()) << "Velocity not found in transient plan";
+    EXPECT_TRUE(it->Reachable) << "Velocity must be reachable";
+    EXPECT_TRUE(it->WillAllocate) << "Velocity must be planned for allocation";
+    EXPECT_EQ(it->SkipReason, "") << "Velocity unexpected skip reason: " << it->SkipReason;
+    EXPECT_EQ(it->EstimatedBytes, 1280ull * 720ull * 4ull)
+        << "Velocity (RG16F) should be 4 bytes per texel";
+
+    const auto handle = graph.GetTextureHandle(std::string(ResourceNames::Velocity));
+    EXPECT_TRUE(handle.IsValid()) << "stable handle for Velocity must be valid after BuildFrameGraph";
+}
+
+TEST(RenderGraphTransientPool, PhaseD_SceneDepthDeclaredAsTransientTexture)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    RGResourceDesc depthDesc;
+    depthDesc.Kind = ResourceHandle::Kind::Texture2D;
+    depthDesc.Format = RGResourceFormat::Depth24Stencil8;
+    depthDesc.Width = 1280u;
+    depthDesc.Height = 720u;
+    const auto depthHandle = graph.AllocateTransientTextureHandle(std::string(ResourceNames::SceneDepth), depthDesc);
+
+    AddSetupNode(
+        graph,
+        "ScenePass",
+        [depthHandle](RGBuilder& builder)
+        {
+            builder.Write(depthHandle, RGWriteUsage::TransferDest);
+        });
+
+    AddSetupNode(
+        graph,
+        "DOFPass",
+        [depthHandle](RGBuilder& builder)
+        {
+            [[maybe_unused]] const auto depthRead = builder.Read(depthHandle, RGReadUsage::ShaderSample);
+        });
+
+    graph.AddExecutionDependency("ScenePass", "DOFPass");
+    graph.SetFinalPass("DOFPass");
+    graph.BuildFrameGraph();
+
+    const auto& plan = graph.GetTransientPlan();
+    const auto it = std::find_if(plan.begin(), plan.end(),
+                                 [](const RenderGraph::TransientPlanEntry& entry)
+                                 { return entry.Resource == ResourceNames::SceneDepth; });
+
+    ASSERT_NE(it, plan.end()) << "SceneDepth not found in transient plan";
+    EXPECT_TRUE(it->Reachable) << "SceneDepth must be reachable";
+    EXPECT_TRUE(it->WillAllocate) << "SceneDepth must be planned for allocation";
+    EXPECT_EQ(it->SkipReason, "") << "SceneDepth unexpected skip reason: " << it->SkipReason;
+    EXPECT_EQ(it->EstimatedBytes, 1280ull * 720ull * 4ull)
+        << "SceneDepth (Depth24Stencil8) should be 4 bytes per texel";
+
+    const auto handle = graph.GetTextureHandle(std::string(ResourceNames::SceneDepth));
+    EXPECT_TRUE(handle.IsValid()) << "stable handle for SceneDepth must be valid after BuildFrameGraph";
+}
+
+TEST(RenderGraphTransientPool, PhaseD_SceneNormalsDeclaredAsTransientTexture)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    RGResourceDesc normalsDesc;
+    normalsDesc.Kind = ResourceHandle::Kind::Texture2D;
+    normalsDesc.Format = RGResourceFormat::RGBA16Float;
+    normalsDesc.Width = 1280u;
+    normalsDesc.Height = 720u;
+    const auto normalsHandle = graph.AllocateTransientTextureHandle(std::string(ResourceNames::SceneNormals), normalsDesc);
+
+    AddSetupNode(
+        graph,
+        "DeferredOpaqueDecalPass",
+        [normalsHandle](RGBuilder& builder)
+        {
+            builder.Write(normalsHandle, RGWriteUsage::TransferDest);
+        });
+
+    AddSetupNode(
+        graph,
+        "SSAOPass",
+        [normalsHandle](RGBuilder& builder)
+        {
+            [[maybe_unused]] const auto normalsRead = builder.Read(normalsHandle, RGReadUsage::ShaderSample);
+        });
+
+    graph.AddExecutionDependency("DeferredOpaqueDecalPass", "SSAOPass");
+    graph.SetFinalPass("SSAOPass");
+    graph.BuildFrameGraph();
+
+    const auto& plan = graph.GetTransientPlan();
+    const auto it = std::find_if(plan.begin(), plan.end(),
+                                 [](const RenderGraph::TransientPlanEntry& entry)
+                                 { return entry.Resource == ResourceNames::SceneNormals; });
+
+    ASSERT_NE(it, plan.end()) << "SceneNormals not found in transient plan";
+    EXPECT_TRUE(it->Reachable) << "SceneNormals must be reachable";
+    EXPECT_TRUE(it->WillAllocate) << "SceneNormals must be planned for allocation";
+    EXPECT_EQ(it->SkipReason, "") << "SceneNormals unexpected skip reason: " << it->SkipReason;
+    EXPECT_EQ(it->EstimatedBytes, 1280ull * 720ull * 8ull)
+        << "SceneNormals (RGBA16F deferred path) should be 8 bytes per texel";
+
+    const auto handle = graph.GetTextureHandle(std::string(ResourceNames::SceneNormals));
+    EXPECT_TRUE(handle.IsValid()) << "stable handle for SceneNormals must be valid after BuildFrameGraph";
+}
+
+TEST(RenderGraphTransientPool, PhaseD_DeferredGBufferRootsDeclaredAsTransientTextures)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    RGResourceDesc albedoDesc;
+    albedoDesc.Kind = ResourceHandle::Kind::Texture2D;
+    albedoDesc.Format = RGResourceFormat::RGBA8UNorm;
+    albedoDesc.Width = 1280u;
+    albedoDesc.Height = 720u;
+    const auto albedoHandle = graph.AllocateTransientTextureHandle(std::string(ResourceNames::GBufferAlbedo), albedoDesc);
+
+    RGResourceDesc normalDesc;
+    normalDesc.Kind = ResourceHandle::Kind::Texture2D;
+    normalDesc.Format = RGResourceFormat::RGBA16Float;
+    normalDesc.Width = 1280u;
+    normalDesc.Height = 720u;
+    const auto normalHandle = graph.AllocateTransientTextureHandle(std::string(ResourceNames::GBufferNormal), normalDesc);
+
+    RGResourceDesc emissiveDesc = normalDesc;
+    const auto emissiveHandle = graph.AllocateTransientTextureHandle(std::string(ResourceNames::GBufferEmissive), emissiveDesc);
+
+    AddSetupNode(
+        graph,
+        "DeferredOpaqueDecalPass",
+        [albedoHandle, normalHandle, emissiveHandle](RGBuilder& builder)
+        {
+            builder.Write(albedoHandle, RGWriteUsage::TransferDest);
+            builder.Write(normalHandle, RGWriteUsage::TransferDest);
+            builder.Write(emissiveHandle, RGWriteUsage::TransferDest);
+        });
+
+    AddSetupNode(
+        graph,
+        "DeferredLightingPass",
+        [albedoHandle, normalHandle, emissiveHandle](RGBuilder& builder)
+        {
+            [[maybe_unused]] const auto albedoRead = builder.Read(albedoHandle, RGReadUsage::ShaderSample);
+            [[maybe_unused]] const auto normalRead = builder.Read(normalHandle, RGReadUsage::ShaderSample);
+            [[maybe_unused]] const auto emissiveRead = builder.Read(emissiveHandle, RGReadUsage::ShaderSample);
+        });
+
+    graph.AddExecutionDependency("DeferredOpaqueDecalPass", "DeferredLightingPass");
+    graph.SetFinalPass("DeferredLightingPass");
+    graph.BuildFrameGraph();
+
+    struct ExpectedResource
+    {
+        std::string_view Name;
+        u64 EstimatedBytes;
+    };
+
+    const std::array<ExpectedResource, 3> expected = { {
+        { ResourceNames::GBufferAlbedo, 1280ull * 720ull * 4ull },
+        { ResourceNames::GBufferNormal, 1280ull * 720ull * 8ull },
+        { ResourceNames::GBufferEmissive, 1280ull * 720ull * 8ull },
+    } };
+
+    const auto& plan = graph.GetTransientPlan();
+    for (const auto& resource : expected)
+    {
+        const auto it = std::find_if(plan.begin(), plan.end(),
+                                     [&resource](const RenderGraph::TransientPlanEntry& entry)
+                                     { return entry.Resource == resource.Name; });
+
+        ASSERT_NE(it, plan.end()) << resource.Name << " not found in transient plan";
+        EXPECT_TRUE(it->Reachable) << resource.Name << " must be reachable";
+        EXPECT_TRUE(it->WillAllocate) << resource.Name << " must be planned for allocation";
+        EXPECT_EQ(it->SkipReason, "") << resource.Name << " unexpected skip reason: " << it->SkipReason;
+        EXPECT_EQ(it->EstimatedBytes, resource.EstimatedBytes)
+            << resource.Name << " estimated bytes mismatch";
+
+        const auto handle = graph.GetTextureHandle(std::string(resource.Name));
+        EXPECT_TRUE(handle.IsValid()) << "stable handle for " << resource.Name << " must be valid after BuildFrameGraph";
+    }
+}
+
+TEST(RenderGraphTransientPool, PhaseD_DeferredMSCompanionsDeclaredAsTransientTextures)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    auto declareMS = [&graph](std::string_view name, const RGResourceFormat format) -> RGTextureHandle
+    {
+        RGResourceDesc desc;
+        desc.Kind = ResourceHandle::Kind::Texture2D;
+        desc.Format = format;
+        desc.Width = 1280u;
+        desc.Height = 720u;
+        desc.Samples = 4u;
+        return graph.AllocateTransientTextureHandle(std::string(name), desc);
+    };
+
+    const auto albedoMSHandle = declareMS(ResourceNames::GBufferAlbedoMS, RGResourceFormat::RGBA8UNorm);
+    const auto normalMSHandle = declareMS(ResourceNames::GBufferNormalMS, RGResourceFormat::RGBA16Float);
+    const auto emissiveMSHandle = declareMS(ResourceNames::GBufferEmissiveMS, RGResourceFormat::RGBA16Float);
+    const auto velocityMSHandle = declareMS(ResourceNames::VelocityMS, RGResourceFormat::RG16Float);
+    const auto depthMSHandle = declareMS(ResourceNames::SceneDepthMS, RGResourceFormat::Depth24Stencil8);
+
+    AddSetupNode(
+        graph,
+        "DeferredOpaqueDecalPass",
+        [albedoMSHandle, normalMSHandle, emissiveMSHandle, velocityMSHandle, depthMSHandle](RGBuilder& builder)
+        {
+            builder.Write(albedoMSHandle, RGWriteUsage::TransferDest);
+            builder.Write(normalMSHandle, RGWriteUsage::TransferDest);
+            builder.Write(emissiveMSHandle, RGWriteUsage::TransferDest);
+            builder.Write(velocityMSHandle, RGWriteUsage::TransferDest);
+            builder.Write(depthMSHandle, RGWriteUsage::TransferDest);
+        });
+
+    AddSetupNode(
+        graph,
+        "DeferredLightingPass",
+        [albedoMSHandle, normalMSHandle, emissiveMSHandle, velocityMSHandle, depthMSHandle](RGBuilder& builder)
+        {
+            [[maybe_unused]] const auto albedoRead = builder.Read(albedoMSHandle, RGReadUsage::ShaderSample);
+            [[maybe_unused]] const auto normalRead = builder.Read(normalMSHandle, RGReadUsage::ShaderSample);
+            [[maybe_unused]] const auto emissiveRead = builder.Read(emissiveMSHandle, RGReadUsage::ShaderSample);
+            [[maybe_unused]] const auto velocityRead = builder.Read(velocityMSHandle, RGReadUsage::ShaderSample);
+            [[maybe_unused]] const auto depthRead = builder.Read(depthMSHandle, RGReadUsage::ShaderSample);
+        });
+
+    graph.AddExecutionDependency("DeferredOpaqueDecalPass", "DeferredLightingPass");
+    graph.SetFinalPass("DeferredLightingPass");
+    graph.BuildFrameGraph();
+
+    struct ExpectedResource
+    {
+        std::string_view Name;
+        u64 EstimatedBytes;
+    };
+
+    const std::array<ExpectedResource, 5> expected = { {
+        { ResourceNames::GBufferAlbedoMS, 1280ull * 720ull * 4ull * 4ull },
+        { ResourceNames::GBufferNormalMS, 1280ull * 720ull * 8ull * 4ull },
+        { ResourceNames::GBufferEmissiveMS, 1280ull * 720ull * 8ull * 4ull },
+        { ResourceNames::VelocityMS, 1280ull * 720ull * 4ull * 4ull },
+        { ResourceNames::SceneDepthMS, 1280ull * 720ull * 4ull * 4ull },
+    } };
+
+    const auto& plan = graph.GetTransientPlan();
+    for (const auto& resource : expected)
+    {
+        const auto it = std::find_if(plan.begin(), plan.end(),
+                                     [&resource](const RenderGraph::TransientPlanEntry& entry)
+                                     { return entry.Resource == resource.Name; });
+
+        ASSERT_NE(it, plan.end()) << resource.Name << " not found in transient plan";
+        EXPECT_TRUE(it->Reachable) << resource.Name << " must be reachable";
+        EXPECT_TRUE(it->WillAllocate) << resource.Name << " must be planned for allocation";
+        EXPECT_EQ(it->SkipReason, "") << resource.Name << " unexpected skip reason: " << it->SkipReason;
+        EXPECT_EQ(it->EstimatedBytes, resource.EstimatedBytes)
+            << resource.Name << " estimated bytes mismatch";
+
+        const auto handle = graph.GetTextureHandle(std::string(resource.Name));
+        EXPECT_TRUE(handle.IsValid()) << "stable handle for " << resource.Name << " must be valid after BuildFrameGraph";
+    }
+}
+
+TEST(RenderGraphTransientPool, PhaseD_SceneColorDeclaredAsTransientMRTFramebuffer)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    RGResourceDesc sceneDesc;
+    sceneDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    sceneDesc.Width = 1280u;
+    sceneDesc.Height = 720u;
+    sceneDesc.Attachments = {
+        RGResourceFormat::RGBA16Float,
+        RGResourceFormat::R32Int,
+        RGResourceFormat::RG16Float,
+        RGResourceFormat::RG16Float,
+        RGResourceFormat::Depth24Stencil8,
+    };
+    const auto sceneHandle = graph.DeclareTransientFramebuffer(std::string(ResourceNames::SceneColor), sceneDesc);
+
+    AddSetupNode(
+        graph,
+        "ScenePass",
+        [sceneHandle](RGBuilder& builder)
+        {
+            builder.Write(sceneHandle, RGWriteUsage::RenderTarget);
+        });
+
+    AddSetupNode(
+        graph,
+        "WaterPass",
+        [sceneHandle](RGBuilder& builder)
+        {
+            [[maybe_unused]] const auto sceneRead = builder.Read(sceneHandle, RGReadUsage::RenderTargetRead);
+            builder.Write(sceneHandle, RGWriteUsage::RenderTarget);
+        });
+
+    graph.AddExecutionDependency("ScenePass", "WaterPass");
+    graph.SetFinalPass("WaterPass");
+    graph.BuildFrameGraph();
+
+    const auto& plan = graph.GetTransientPlan();
+    const auto it = std::find_if(plan.begin(), plan.end(),
+                                 [](const RenderGraph::TransientPlanEntry& entry)
+                                 { return entry.Resource == ResourceNames::SceneColor; });
+
+    ASSERT_NE(it, plan.end()) << "SceneColor not found in transient plan";
+    EXPECT_TRUE(it->Reachable) << "SceneColor must be reachable";
+    EXPECT_TRUE(it->WillAllocate) << "SceneColor must be planned for allocation";
+    EXPECT_EQ(it->SkipReason, "") << "SceneColor unexpected skip reason: " << it->SkipReason;
+    EXPECT_EQ(it->EstimatedBytes, (8ull + 4ull + 4ull + 4ull + 4ull) * 1280ull * 720ull)
+        << "SceneColor MRT estimated bytes should sum all attachments";
+
+    const auto handle = graph.GetFramebufferHandle(std::string(ResourceNames::SceneColor));
+    EXPECT_TRUE(handle.IsValid()) << "stable handle for SceneColor must be valid after BuildFrameGraph";
+}
 // =============================================================================
 
 TEST(RenderGraphTransientPool, PhaseD_PostProcessChainRGBA16FOutputsDeclaredAsTransient)
@@ -4036,11 +7698,14 @@ TEST(RenderGraphTransientPool, PhaseH_ScratchTransientsRemainGraphOwned)
 
     const std::vector<ScratchSpec> specs = {
         { "SSAORaw", ResourceHandle::Kind::Framebuffer, RGResourceFormat::RG16Float, vw / 2, vh / 2 },
+        { std::string(ResourceNames::SSAOBlur), ResourceHandle::Kind::Framebuffer, RGResourceFormat::RG16Float, vw / 2, vh / 2 },
         { "JFAPing", ResourceHandle::Kind::Framebuffer, RGResourceFormat::RGBA32Float, vw, vh },
         { "JFAPong", ResourceHandle::Kind::Framebuffer, RGResourceFormat::RGBA32Float, vw, vh },
         { "BloomMip0", ResourceHandle::Kind::Framebuffer, RGResourceFormat::RGBA16Float, vw / 2, vh / 2 },
         { "FogHalfRes", ResourceHandle::Kind::Framebuffer, RGResourceFormat::RGBA16Float, vw / 2, vh / 2 },
         { "GTAOEdge", ResourceHandle::Kind::Texture2D, RGResourceFormat::R8UNorm, vw, vh },
+        { std::string(ResourceNames::GTAODenoisePing), ResourceHandle::Kind::Texture2D, RGResourceFormat::R8UNorm, vw, vh },
+        { std::string(ResourceNames::GTAODenoisePong), ResourceHandle::Kind::Texture2D, RGResourceFormat::R8UNorm, vw, vh },
         { "HZBDepth", ResourceHandle::Kind::Texture2D, RGResourceFormat::R32Float, 2048, 1024 },
         { "WaterRefraction", ResourceHandle::Kind::Texture2D, RGResourceFormat::RGBA16Float, vw, vh },
     };
@@ -4079,8 +7744,11 @@ TEST(RenderGraphTransientPool, PhaseH_ScratchTransientsRemainGraphOwned)
                      desc.Width = vw / 2;
                      desc.Height = vh / 2;
                      desc.Format = RGResourceFormat::RG16Float;
-                     const auto handle = builder.CreateFramebuffer("SSAORaw", desc);
-                     builder.Write(handle, RGWriteUsage::RenderTarget); });
+                     const auto raw = builder.CreateFramebuffer("SSAORaw", desc);
+                     builder.Write(raw, RGWriteUsage::RenderTarget);
+
+                     const auto blur = builder.CreateFramebuffer(std::string(ResourceNames::SSAOBlur), desc);
+                     builder.Write(blur, RGWriteUsage::RenderTarget); });
     AddSetupNode(graph, "FBWriter1", [](RGBuilder& builder)
                  {
                      RGResourceDesc desc;
@@ -4122,7 +7790,11 @@ TEST(RenderGraphTransientPool, PhaseH_ScratchTransientsRemainGraphOwned)
     graph.AddExecutionDependency("HZBDepthWriter", "HZBDepthReader");
     graph.AddExecutionDependency("WaterRefractionWriter", "WaterRefractionReader");
     graph.AddExecutionDependency("FBWriterFogHalfRes", "GTAOEdgeWriter");
-    graph.AddExecutionDependency("GTAOEdgeReader", "HZBDepthWriter");
+    graph.AddExecutionDependency("GTAOEdgeReader", "GTAODenoisePingWriter");
+    graph.AddExecutionDependency("GTAODenoisePingWriter", "GTAODenoisePingReader");
+    graph.AddExecutionDependency("GTAODenoisePingReader", "GTAODenoisePongWriter");
+    graph.AddExecutionDependency("GTAODenoisePongWriter", "GTAODenoisePongReader");
+    graph.AddExecutionDependency("GTAODenoisePongReader", "HZBDepthWriter");
     graph.AddExecutionDependency("HZBDepthReader", "WaterRefractionWriter");
     graph.SetFinalPass("WaterRefractionReader");
     graph.BuildFrameGraph();
@@ -4180,7 +7852,7 @@ TEST(RenderGraphPassFlags, PassWorkTypeDefaultsToGraphics)
     // Passes that do not call SetPassWorkType should default to Graphics.
     RenderGraph graph;
     auto pass = AddStub(graph, "SomePass");
-    EXPECT_EQ(pass->GetPassWorkType(), RenderPass::PassWorkType::Graphics);
+    EXPECT_EQ(pass->GetPassWorkType(), RenderGraphNode::PassWorkType::Graphics);
     EXPECT_FALSE(pass->IsComputeOnly());
 }
 
@@ -4189,8 +7861,8 @@ TEST(RenderGraphPassFlags, ComputePassTypeRoundTrips)
     // A pass explicitly flagged as Compute must report IsComputeOnly().
     RenderGraph graph;
     auto pass = AddStub(graph, "ComputePass");
-    pass->SetPassWorkType(RenderPass::PassWorkType::Compute);
-    EXPECT_EQ(pass->GetPassWorkType(), RenderPass::PassWorkType::Compute);
+    pass->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
+    EXPECT_EQ(pass->GetPassWorkType(), RenderGraphNode::PassWorkType::Compute);
     EXPECT_TRUE(pass->IsComputeOnly());
 }
 
@@ -4199,8 +7871,8 @@ TEST(RenderGraphPassFlags, CopyPassTypeRoundTrips)
     // A pass flagged as Copy must report Copy and must not be compute-only.
     RenderGraph graph;
     auto pass = AddStub(graph, "CopyPass");
-    pass->SetPassWorkType(RenderPass::PassWorkType::Copy);
-    EXPECT_EQ(pass->GetPassWorkType(), RenderPass::PassWorkType::Copy);
+    pass->SetPassWorkType(RenderGraphNode::PassWorkType::Copy);
+    EXPECT_EQ(pass->GetPassWorkType(), RenderGraphNode::PassWorkType::Copy);
     EXPECT_FALSE(pass->IsComputeOnly());
 }
 
@@ -4229,7 +7901,7 @@ TEST(RenderGraphPassFlags, NeverCullPreventsCulling)
 
     // NeverCull is a SideEffect bit — IsSideEffecting() returns true,
     // which prevents ComputeReachability() from culling the pass.
-    isolated->SetSideEffects(RenderPass::SideEffect::NeverCull);
+    isolated->SetSideEffects(RenderGraphNode::SideEffect::NeverCull);
 
     graph.Execute();
 
@@ -4244,7 +7916,7 @@ TEST(RenderGraphPassFlags, NodeSubmissionInfoReportsWorkTypeAndAsyncFlag)
     RenderGraph graph;
     auto graphics = AddStub(graph, "GraphicsPass");
     auto compute = AddStub(graph, "ComputePass");
-    compute->SetPassWorkType(RenderPass::PassWorkType::Compute);
+    compute->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
     compute->SetAsyncComputeCandidate(true);
 
     graph.SetFinalPass("GraphicsPass");
@@ -4301,12 +7973,12 @@ TEST(RenderGraphComputeHoist, IndependentComputePassIsHoistedToFront)
     AddStub(graph, "G1");
     AddStub(graph, "G2");
     auto c = AddStub(graph, "C");
-    c->SetPassWorkType(RenderPass::PassWorkType::Compute);
+    c->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
     c->SetAsyncComputeCandidate(true);
 
     graph.ConnectPass("G1", "G2");
     graph.SetFinalPass("G2");
-    c->SetSideEffects(RenderPass::SideEffect::NeverCull); // keep C alive
+    c->SetSideEffects(RenderGraphNode::SideEffect::NeverCull); // keep C alive
 
     graph.Execute();
 
@@ -4327,7 +7999,7 @@ TEST(RenderGraphComputeHoist, DependentComputePassRemainsAfterDependency)
     RenderGraph graph;
     AddStub(graph, "G1");
     auto c = AddStub(graph, "C");
-    c->SetPassWorkType(RenderPass::PassWorkType::Compute);
+    c->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
     c->SetAsyncComputeCandidate(true);
 
     graph.ConnectPass("G1", "C");
@@ -4350,14 +8022,14 @@ TEST(RenderGraphComputeHoist, MultipleComputePassesAllHoisted)
     AddStub(graph, "G1");
     auto c1 = AddStub(graph, "C1");
     auto c2 = AddStub(graph, "C2");
-    c1->SetPassWorkType(RenderPass::PassWorkType::Compute);
+    c1->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
     c1->SetAsyncComputeCandidate(true);
-    c2->SetPassWorkType(RenderPass::PassWorkType::Compute);
+    c2->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
     c2->SetAsyncComputeCandidate(true);
 
     graph.SetFinalPass("G1");
-    c1->SetSideEffects(RenderPass::SideEffect::NeverCull);
-    c2->SetSideEffects(RenderPass::SideEffect::NeverCull);
+    c1->SetSideEffects(RenderGraphNode::SideEffect::NeverCull);
+    c2->SetSideEffects(RenderGraphNode::SideEffect::NeverCull);
 
     graph.Execute();
 
@@ -4385,9 +8057,9 @@ TEST(RenderGraphDumpJson, PassFlagsAreSurfacedInDump)
 
     AddStub(graph, "GfxPass");
     auto computePass = AddStub(graph, "ComputePass");
-    computePass->SetPassWorkType(RenderPass::PassWorkType::Compute);
+    computePass->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
     computePass->SetAsyncComputeCandidate(true);
-    computePass->SetSideEffects(RenderPass::SideEffect::NeverCull);
+    computePass->SetSideEffects(RenderGraphNode::SideEffect::NeverCull);
 
     graph.ConnectPass("ComputePass", "GfxPass");
     graph.SetFinalPass("GfxPass");
@@ -4401,7 +8073,7 @@ TEST(RenderGraphDumpJson, PassFlagsAreSurfacedInDump)
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
     // Schema version bump
-    EXPECT_NE(json.find("\"schemaVersion\": 14"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos);
 
     // frameSummary compute counts
     EXPECT_NE(json.find("\"computePassCount\": 1"), std::string::npos);
@@ -4465,9 +8137,9 @@ TEST(RenderGraphDumpDot, ComputePassColoredDifferentlyToGraphics)
     RenderGraph graph;
     AddStub(graph, "GfxPass");
     auto computePass = AddStub(graph, "ComputePass");
-    computePass->SetPassWorkType(RenderPass::PassWorkType::Compute);
+    computePass->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
     computePass->SetAsyncComputeCandidate(true);
-    computePass->SetSideEffects(RenderPass::SideEffect::NeverCull);
+    computePass->SetSideEffects(RenderGraphNode::SideEffect::NeverCull);
 
     graph.ConnectPass("ComputePass", "GfxPass");
     graph.SetFinalPass("GfxPass");
@@ -4531,9 +8203,9 @@ TEST(RenderGraphAsyncBatch, SingleComputePassFormsBatchWithCorrectSignalPass)
     // Batch: {ComputePass}, WaitNodes={}, SignalNodes={GfxPass}.
     RenderGraph graph;
     auto compute = AddStub(graph, "ComputePass");
-    compute->SetPassWorkType(RenderPass::PassWorkType::Compute);
+    compute->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
     compute->SetAsyncComputeCandidate(true);
-    compute->SetSideEffects(RenderPass::SideEffect::NeverCull);
+    compute->SetSideEffects(RenderGraphNode::SideEffect::NeverCull);
     AddStub(graph, "GfxPass");
 
     graph.ConnectPass("ComputePass", "GfxPass");
@@ -4563,9 +8235,9 @@ TEST(RenderGraphAsyncBatch, IndependentComputePassHasEmptyWaitAndSignalLists)
     // Both WaitNodes and SignalNodes must be empty.
     RenderGraph graph;
     auto compute = AddStub(graph, "ComputePass");
-    compute->SetPassWorkType(RenderPass::PassWorkType::Compute);
+    compute->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
     compute->SetAsyncComputeCandidate(true);
-    compute->SetSideEffects(RenderPass::SideEffect::NeverCull);
+    compute->SetSideEffects(RenderGraphNode::SideEffect::NeverCull);
     AddStub(graph, "GfxFinal");
     graph.SetFinalPass("GfxFinal");
     graph.Execute();
@@ -4585,14 +8257,14 @@ TEST(RenderGraphAsyncBatch, ConsecutiveComputePassesGroupedInOneBatch)
     // C1 and C2 are consecutive in the hoisted order — one batch.
     RenderGraph graph;
     auto c1 = AddStub(graph, "C1");
-    c1->SetPassWorkType(RenderPass::PassWorkType::Compute);
+    c1->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
     c1->SetAsyncComputeCandidate(true);
-    c1->SetSideEffects(RenderPass::SideEffect::NeverCull);
+    c1->SetSideEffects(RenderGraphNode::SideEffect::NeverCull);
 
     auto c2 = AddStub(graph, "C2");
-    c2->SetPassWorkType(RenderPass::PassWorkType::Compute);
+    c2->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
     c2->SetAsyncComputeCandidate(true);
-    c2->SetSideEffects(RenderPass::SideEffect::NeverCull);
+    c2->SetSideEffects(RenderGraphNode::SideEffect::NeverCull);
 
     AddStub(graph, "GfxFinal");
 
@@ -4620,7 +8292,7 @@ TEST(RenderGraphAsyncBatch, ComputeBatchWaitsForGraphicsPrerequisite)
     AddStub(graph, "GfxPre");
 
     auto compute = AddStub(graph, "ComputePass");
-    compute->SetPassWorkType(RenderPass::PassWorkType::Compute);
+    compute->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
     compute->SetAsyncComputeCandidate(true);
 
     AddStub(graph, "GfxPost");
@@ -4706,9 +8378,9 @@ TEST(RenderGraphSubmissionPlan, ComputePassWrappedInBatchBeginEnd)
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     auto compute = AddStub(graph, "ComputePass");
-    compute->SetPassWorkType(RenderPass::PassWorkType::Compute);
+    compute->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
     compute->SetAsyncComputeCandidate(true);
-    compute->SetSideEffects(RenderPass::SideEffect::NeverCull);
+    compute->SetSideEffects(RenderGraphNode::SideEffect::NeverCull);
     AddStub(graph, "GfxFinal");
 
     graph.ConnectPass("ComputePass", "GfxFinal");
@@ -4759,9 +8431,9 @@ TEST(RenderGraphSubmissionPlan, PassCommandsCarryCorrectWorkType)
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     auto compute = AddStub(graph, "ComputePass");
-    compute->SetPassWorkType(RenderPass::PassWorkType::Compute);
+    compute->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
     compute->SetAsyncComputeCandidate(true);
-    compute->SetSideEffects(RenderPass::SideEffect::NeverCull);
+    compute->SetSideEffects(RenderGraphNode::SideEffect::NeverCull);
     AddStub(graph, "GfxFinal");
 
     graph.ConnectPass("ComputePass", "GfxFinal");
@@ -4904,9 +8576,9 @@ TEST(RenderGraphSubmissionPlan, DumpToJsonIncludesSubmissionPlan)
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     auto compute = AddStub(graph, "ComputePass");
-    compute->SetPassWorkType(RenderPass::PassWorkType::Compute);
+    compute->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
     compute->SetAsyncComputeCandidate(true);
-    compute->SetSideEffects(RenderPass::SideEffect::NeverCull);
+    compute->SetSideEffects(RenderGraphNode::SideEffect::NeverCull);
 
     AddStub(graph, "GfxFinal");
     graph.ConnectPass("ComputePass", "GfxFinal");
@@ -4920,7 +8592,7 @@ TEST(RenderGraphSubmissionPlan, DumpToJsonIncludesSubmissionPlan)
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 14"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos);
     EXPECT_NE(json.find("\"submissionCommandCount\":"), std::string::npos);
     EXPECT_NE(json.find("\"submissionPlan\""), std::string::npos);
     EXPECT_NE(json.find("\"kind\": \"BatchBegin\""), std::string::npos);
@@ -4943,14 +8615,14 @@ TEST(RenderGraphSubmissionPlan, MultipleComputePassesSameIndexGetOneBatchPair)
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     auto c1 = AddStub(graph, "C1");
-    c1->SetPassWorkType(RenderPass::PassWorkType::Compute);
+    c1->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
     c1->SetAsyncComputeCandidate(true);
-    c1->SetSideEffects(RenderPass::SideEffect::NeverCull);
+    c1->SetSideEffects(RenderGraphNode::SideEffect::NeverCull);
 
     auto c2 = AddStub(graph, "C2");
-    c2->SetPassWorkType(RenderPass::PassWorkType::Compute);
+    c2->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
     c2->SetAsyncComputeCandidate(true);
-    c2->SetSideEffects(RenderPass::SideEffect::NeverCull);
+    c2->SetSideEffects(RenderGraphNode::SideEffect::NeverCull);
 
     AddStub(graph, "GfxFinal");
     graph.ConnectPass("C1", "C2");
@@ -4975,9 +8647,9 @@ TEST(RenderGraphSubmissionPlan, PlanPreservesHoistedExecutionOrder)
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     auto compute = AddStub(graph, "ComputePass");
-    compute->SetPassWorkType(RenderPass::PassWorkType::Compute);
+    compute->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
     compute->SetAsyncComputeCandidate(true);
-    compute->SetSideEffects(RenderPass::SideEffect::NeverCull);
+    compute->SetSideEffects(RenderGraphNode::SideEffect::NeverCull);
     AddStub(graph, "GfxFinal");
 
     graph.ConnectPass("ComputePass", "GfxFinal");
@@ -5058,9 +8730,9 @@ TEST(RenderGraphExecutePlanDriven, BatchEventHookFiresBeginAndEndForAsyncCompute
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     auto compute = AddStub(graph, "ComputePass");
-    compute->SetPassWorkType(RenderPass::PassWorkType::Compute);
+    compute->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
     compute->SetAsyncComputeCandidate(true);
-    compute->SetSideEffects(RenderPass::SideEffect::NeverCull);
+    compute->SetSideEffects(RenderGraphNode::SideEffect::NeverCull);
     AddStub(graph, "GfxFinal");
 
     graph.ConnectPass("ComputePass", "GfxFinal");
@@ -5084,9 +8756,9 @@ TEST(RenderGraphExecutePlanDriven, BatchEventHookBatchIndexIsZeroForFirstBatch)
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     auto compute = AddStub(graph, "ComputePass");
-    compute->SetPassWorkType(RenderPass::PassWorkType::Compute);
+    compute->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
     compute->SetAsyncComputeCandidate(true);
-    compute->SetSideEffects(RenderPass::SideEffect::NeverCull);
+    compute->SetSideEffects(RenderGraphNode::SideEffect::NeverCull);
     AddStub(graph, "GfxFinal");
 
     graph.ConnectPass("ComputePass", "GfxFinal");
@@ -5183,6 +8855,119 @@ TEST(RenderGraphTemporalHistoryContracts, ExtractHistoryTextureRecordsContractAn
     EXPECT_TRUE(contracts[0].SourceReachable);
 }
 
+TEST(RenderGraphTemporalHistoryContracts, BuilderDeclaredHistoryExtractionRootsProducerAndDeduplicatesRuntimeContract)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    const auto history = graph.ImportHistory(
+        "TemporalHistory",
+        77,
+        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "TemporalHistory"));
+    ASSERT_TRUE(history.IsValid());
+
+    AddSetupNode(
+        graph,
+        "HistoryProducer",
+        [](RGBuilder& builder)
+        {
+            auto color = builder.ImportTexture(
+                "CurrentFrameColor",
+                41,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "CurrentFrameColor"));
+            builder.Write(color, RGWriteUsage::RenderTarget);
+            builder.ExtractHistoryTexture("TemporalHistory", color);
+        });
+
+    AddSetupNode(
+        graph,
+        "FinalConsumer",
+        [](RGBuilder& builder)
+        {
+            auto finalColor = builder.ImportTexture(
+                "FinalColorTex",
+                12,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
+            builder.Write(finalColor, RGWriteUsage::RenderTarget);
+        });
+
+    graph.SetFinalPass("FinalConsumer");
+    graph.BuildFrameGraph();
+
+    const auto& culledPasses = graph.GetCulledPasses();
+    const auto culledIt = std::find(culledPasses.begin(), culledPasses.end(), "HistoryProducer");
+    EXPECT_EQ(culledIt, culledPasses.end()) << "Builder-declared history extraction should root producer reachability";
+
+    const auto sourceHandle = graph.GetTextureHandle("CurrentFrameColor");
+    ASSERT_TRUE(sourceHandle.IsValid());
+
+    const auto& buildContracts = graph.GetTemporalHistoryContracts();
+    ASSERT_EQ(buildContracts.size(), 1u);
+    EXPECT_EQ(buildContracts[0].HistoryResource, "TemporalHistory");
+    EXPECT_EQ(buildContracts[0].SourceResource, "CurrentFrameColor");
+    EXPECT_TRUE(buildContracts[0].HistoryImported);
+    EXPECT_TRUE(buildContracts[0].SourceReachable);
+
+    bool callbackCalled = false;
+    u32 extractedTextureID = 0;
+    graph.ExtractHistoryTexture(
+        "TemporalHistory",
+        sourceHandle,
+        [&callbackCalled, &extractedTextureID](const u32 textureID)
+        {
+            callbackCalled = true;
+            extractedTextureID = textureID;
+        });
+
+    graph.Execute();
+
+    EXPECT_TRUE(callbackCalled);
+    EXPECT_EQ(extractedTextureID, 41u);
+
+    const auto& executeContracts = graph.GetTemporalHistoryContracts();
+    ASSERT_EQ(executeContracts.size(), 1u);
+    EXPECT_EQ(executeContracts[0].HistoryResource, "TemporalHistory");
+    EXPECT_EQ(executeContracts[0].SourceResource, "CurrentFrameColor");
+    EXPECT_TRUE(executeContracts[0].HistoryImported);
+    EXPECT_TRUE(executeContracts[0].SourceReachable);
+}
+
+TEST(RenderGraphTemporalHistoryContracts, RegisteredHistorySinkCountsAsImportedAndInvalidatesWithoutNewCopy)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    bool historyValid = true;
+    graph.RegisterHistoryTextureSink("TemporalHistory", 0, 0, 0, &historyValid);
+
+    AddSetupNode(
+        graph,
+        "HistoryProducer",
+        [](RGBuilder& builder)
+        {
+            auto color = builder.ImportTexture(
+                "CurrentFrameColor",
+                41,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "CurrentFrameColor"));
+            builder.Write(color, RGWriteUsage::RenderTarget);
+            builder.ExtractHistoryTexture("TemporalHistory", color);
+        });
+
+    graph.SetFinalPass("HistoryProducer");
+    graph.BuildFrameGraph();
+
+    const auto& contracts = graph.GetTemporalHistoryContracts();
+    ASSERT_EQ(contracts.size(), 1u);
+    EXPECT_EQ(contracts[0].HistoryResource, "TemporalHistory");
+    EXPECT_EQ(contracts[0].SourceResource, "CurrentFrameColor");
+    EXPECT_TRUE(contracts[0].HistoryImported);
+    EXPECT_TRUE(contracts[0].SourceReachable);
+
+    graph.Execute();
+
+    EXPECT_FALSE(historyValid);
+}
+
 TEST(RenderGraphTemporalHistoryContracts, InvalidHistoryContractReportsDiagnosticAndSkipsCallback)
 {
     RenderGraph graph;
@@ -5272,7 +9057,7 @@ TEST(RenderGraphTemporalHistoryContracts, DumpToJsonIncludesHistoryResourcesAndC
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 14"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos);
     EXPECT_NE(json.find("\"historyResourceCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"temporalHistoryContractCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"name\": \"TAAHistory\", \"kind\": \"Texture2D\", \"imported\": true, \"isHistory\": true"), std::string::npos);
@@ -5280,7 +9065,8 @@ TEST(RenderGraphTemporalHistoryContracts, DumpToJsonIncludesHistoryResourcesAndC
     EXPECT_NE(json.find("\"sourceResource\": \"CurrentFrameColor\""), std::string::npos);
     EXPECT_NE(json.find("\"historyImported\": true"), std::string::npos);
     EXPECT_NE(json.find("\"sourceReachable\": true"), std::string::npos);
-    EXPECT_NE(json.find("histories=1;historyContracts=1"), std::string::npos);
+    EXPECT_NE(json.find("histories=1"), std::string::npos);
+    EXPECT_NE(json.find("historyContracts=1"), std::string::npos);
 
     std::error_code ec;
     std::filesystem::remove(outputPath, ec);
@@ -5353,9 +9139,9 @@ TEST(RenderGraphAsyncBatchResources, NoBatchResourceDepsWhenNoAccessDeclarations
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     auto compute = AddStub(graph, "ComputePass");
-    compute->SetPassWorkType(RenderPass::PassWorkType::Compute);
+    compute->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
     compute->SetAsyncComputeCandidate(true);
-    compute->SetSideEffects(RenderPass::SideEffect::NeverCull);
+    compute->SetSideEffects(RenderGraphNode::SideEffect::NeverCull);
     AddStub(graph, "GfxPost");
 
     graph.ConnectPass("ComputePass", "GfxPost");
@@ -5573,7 +9359,7 @@ TEST(RenderGraphAsyncBatchResources, DumpToJsonIncludesBatchResourceDeps)
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 14"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos);
     EXPECT_NE(json.find("\"asyncBatchCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"batchInputResourceCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"batchOutputResourceCount\": 1"), std::string::npos);
@@ -5803,8 +9589,8 @@ TEST(RenderGraphResourceTransitions, DumpToJsonIncludesResourceTransitions)
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 14"), std::string::npos)
-        << "Schema must be version 14 for resolve-failure telemetry dump updates";
+    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos)
+        << "Schema must be version 16 after external-backing dump visibility updates";
     EXPECT_NE(json.find("\"resourceTransitionCount\": 1"), std::string::npos)
         << "frameSummary must expose resourceTransitionCount";
     EXPECT_NE(json.find("\"resourceTransitions\""), std::string::npos)
@@ -6008,12 +9794,14 @@ TEST(RenderGraphResourceLifetimes, DumpToJsonIncludesResourceLifetimes)
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 14"), std::string::npos)
-        << "Schema must be version 14 for resolve-failure telemetry dump updates";
+    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos)
+        << "Schema must be version 16 after external-backing dump visibility updates";
     EXPECT_NE(json.find("\"resourceLifetimeCount\""), std::string::npos)
         << "frameSummary must expose resourceLifetimeCount";
     EXPECT_NE(json.find("\"resourceLifetimes\""), std::string::npos)
         << "resourceLifetimes array must be present";
+    EXPECT_NE(json.find("\"hasExternalBacking\": false"), std::string::npos)
+        << "Resource lifetime dump must include hasExternalBacking";
     EXPECT_NE(json.find("\"firstWritePass\": \"ScenePass\""), std::string::npos)
         << "Lifetime record must name the first-write pass";
     EXPECT_NE(json.find("\"lastReadPass\": \"PostPass\""), std::string::npos)
@@ -6380,8 +10168,8 @@ TEST(RenderGraphSubresourceRange, DumpToJsonIncludesRange)
     ASSERT_TRUE(in.is_open()) << "DumpToJson must create the output file";
     std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 14"), std::string::npos)
-        << "Schema must be version 14 for resolve-failure telemetry dump updates";
+    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos)
+        << "Schema must be version 16 after external-backing dump visibility updates";
     EXPECT_NE(json.find("\"range\""), std::string::npos)
         << "At least one range object must be present in the JSON output";
     EXPECT_NE(json.find("\"baseMip\""), std::string::npos)
@@ -6553,8 +10341,8 @@ TEST(RenderGraphCrossLaneSync, DumpToJsonIncludesCrossLaneSyncFields)
     ASSERT_TRUE(in.is_open()) << "DumpToJson must create the output file";
     std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 14"), std::string::npos)
-        << "Schema must be version 14 for resolve-failure telemetry dump updates";
+    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos)
+        << "Schema must be version 16 after external-backing dump visibility updates";
     EXPECT_NE(json.find("\"crossLaneSyncCount\""), std::string::npos)
         << "frameSummary must include crossLaneSyncCount";
     EXPECT_NE(json.find("\"isCrossLane\""), std::string::npos)
@@ -6958,7 +10746,7 @@ TEST(RenderGraphResolveFailureTelemetry, DumpToJsonUsesResolveFailureFieldNames)
     buffer << in.rdbuf();
     const std::string json = buffer.str();
 
-    EXPECT_NE(json.find("\"schemaVersion\": 14"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos);
     EXPECT_NE(json.find("\"resolveFailureCount\": 2"), std::string::npos);
     EXPECT_NE(json.find("\"resolveFailures\": ["), std::string::npos);
     EXPECT_EQ(json.find("\"fallbackActivationCount\""), std::string::npos);
@@ -7114,4 +10902,432 @@ TEST(RenderGraphSceneColorChain, DeferredSceneColorRMWChainViaBuilderCallbacksIs
         << "DeferredLightingPass must precede ForwardOverlayPass (derived from SceneColor Read)";
     EXPECT_LT(overlayPos, foliagePos)
         << "ForwardOverlayPass must precede FoliagePass (derived from SceneColor Read)";
+}
+
+TEST(RenderGraphBuildDiagnostics, RegistrationOrderSensitivityIsReportedForReverseRmwChain)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddSetupNode(
+        graph,
+        "LatePass",
+        [](RGBuilder& builder)
+        {
+            auto sceneColor = builder.ImportTexture(
+                "SceneColor",
+                7u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+            [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
+            builder.Write(sceneColor, RGWriteUsage::RenderTarget);
+        });
+
+    AddSetupNode(
+        graph,
+        "EarlyPass",
+        [](RGBuilder& builder)
+        {
+            auto sceneColor = builder.ImportTexture(
+                "SceneColor",
+                7u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+            [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
+            builder.Write(sceneColor, RGWriteUsage::RenderTarget);
+        });
+
+    graph.SetFinalPass("EarlyPass");
+    graph.BuildFrameGraph();
+
+    const auto& stats = graph.GetLastBuildStats();
+    EXPECT_EQ(stats.OrderSensitiveResults, 1u)
+        << "Reversing the registration order of an otherwise identical SceneColor RMW pair should be reported exactly once.";
+
+    const auto& diagnostics = graph.GetBuildDiagnostics();
+    ASSERT_EQ(diagnostics.size(), 1u);
+
+    const auto& diagnostic = diagnostics.front();
+    EXPECT_EQ(diagnostic.Kind, RenderGraph::BuildDiagnosticKind::RegistrationOrderSensitivity);
+    EXPECT_EQ(diagnostic.Resource, "SceneColor");
+    EXPECT_EQ(diagnostic.CurrentBeforePass, "LatePass");
+    EXPECT_EQ(diagnostic.CurrentAfterPass, "EarlyPass");
+    EXPECT_EQ(diagnostic.AlternateBeforePass, "EarlyPass");
+    EXPECT_EQ(diagnostic.AlternateAfterPass, "LatePass");
+    EXPECT_NE(diagnostic.Message.find("SceneColor"), std::string::npos);
+}
+
+TEST(RenderGraphBuildDiagnostics, ExplicitDependencyRemovesRegistrationOrderSensitivity)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddSetupNode(
+        graph,
+        "LatePass",
+        [](RGBuilder& builder)
+        {
+            auto sceneColor = builder.ImportTexture(
+                "SceneColor",
+                8u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+            [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
+            builder.Write(sceneColor, RGWriteUsage::RenderTarget);
+        });
+
+    AddSetupNode(
+        graph,
+        "EarlyPass",
+        [](RGBuilder& builder)
+        {
+            auto sceneColor = builder.ImportTexture(
+                "SceneColor",
+                8u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+            [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
+            builder.Write(sceneColor, RGWriteUsage::RenderTarget);
+        });
+
+    graph.AddExecutionDependency("EarlyPass", "LatePass");
+    graph.SetFinalPass("LatePass");
+    graph.BuildFrameGraph();
+
+    const auto& stats = graph.GetLastBuildStats();
+    EXPECT_EQ(stats.OrderSensitiveResults, 0u);
+    EXPECT_TRUE(graph.GetBuildDiagnostics().empty())
+        << "An explicit semantic ordering edge must eliminate registration-order-sensitive derived edges.";
+
+    const auto& order = graph.GetExecutionOrder();
+    const auto earlyPos = std::find(order.begin(), order.end(), "EarlyPass") - order.begin();
+    const auto latePos = std::find(order.begin(), order.end(), "LatePass") - order.begin();
+    EXPECT_LT(earlyPos, latePos);
+}
+
+TEST(RenderGraphBuildDiagnostics, SetupDeclaredPassDependencyRemovesRegistrationOrderSensitivity)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddSetupNode(
+        graph,
+        "LatePass",
+        [](RGBuilder& builder)
+        {
+            builder.DependsOnPass("EarlyPass");
+
+            auto sceneColor = builder.ImportTexture(
+                "SceneColor",
+                9u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+            [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
+            builder.Write(sceneColor, RGWriteUsage::RenderTarget);
+        });
+
+    AddSetupNode(
+        graph,
+        "EarlyPass",
+        [](RGBuilder& builder)
+        {
+            auto sceneColor = builder.ImportTexture(
+                "SceneColor",
+                9u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+            [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
+            builder.Write(sceneColor, RGWriteUsage::RenderTarget);
+        });
+
+    graph.SetFinalPass("LatePass");
+    graph.BuildFrameGraph();
+
+    const auto& stats = graph.GetLastBuildStats();
+    EXPECT_EQ(stats.OrderSensitiveResults, 0u);
+    EXPECT_TRUE(graph.GetBuildDiagnostics().empty())
+        << "A setup-declared semantic ordering edge must eliminate registration-order-sensitive derived edges.";
+
+    const auto& order = graph.GetExecutionOrder();
+    const auto earlyPos = std::find(order.begin(), order.end(), "EarlyPass") - order.begin();
+    const auto latePos = std::find(order.begin(), order.end(), "LatePass") - order.begin();
+    EXPECT_LT(earlyPos, latePos);
+}
+
+TEST(RenderGraphBuildDiagnostics, TransitiveSetupDependenciesSuppressRedundantRegistrationOrderSensitivity)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddSetupNode(
+        graph,
+        "LastPass",
+        [](RGBuilder& builder)
+        {
+            builder.DependsOnPass("MiddlePass");
+
+            auto sceneColor = builder.ImportTexture(
+                "SceneColor",
+                10u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+            [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
+            builder.Write(sceneColor, RGWriteUsage::RenderTarget);
+        });
+
+    AddSetupNode(
+        graph,
+        "MiddlePass",
+        [](RGBuilder& builder)
+        {
+            builder.DependsOnPass("FirstPass");
+
+            auto sceneColor = builder.ImportTexture(
+                "SceneColor",
+                10u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+            [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
+            builder.Write(sceneColor, RGWriteUsage::RenderTarget);
+        });
+
+    AddSetupNode(
+        graph,
+        "FirstPass",
+        [](RGBuilder& builder)
+        {
+            auto sceneColor = builder.ImportTexture(
+                "SceneColor",
+                10u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+            [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
+            builder.Write(sceneColor, RGWriteUsage::RenderTarget);
+        });
+
+    graph.SetFinalPass("LastPass");
+    graph.BuildFrameGraph();
+
+    const auto& stats = graph.GetLastBuildStats();
+    EXPECT_EQ(stats.OrderSensitiveResults, 0u);
+    EXPECT_TRUE(graph.GetBuildDiagnostics().empty())
+        << "Redundant direct edges that do not change the final semantic ordering must not count as registration-order sensitivity.";
+
+    const auto& order = graph.GetExecutionOrder();
+    const auto firstPos = std::find(order.begin(), order.end(), "FirstPass") - order.begin();
+    const auto middlePos = std::find(order.begin(), order.end(), "MiddlePass") - order.begin();
+    const auto lastPos = std::find(order.begin(), order.end(), "LastPass") - order.begin();
+    EXPECT_LT(firstPos, middlePos);
+    EXPECT_LT(middlePos, lastPos);
+}
+
+// Mirrors the production SceneColor RMW chain (deferred path): seven passes —
+// `SceneOrDeferredLighting` (initial producer) plus six modifiers that all
+// read-modify-write `SceneColor`. Each modifier emits an explicit
+// `DependsOnPass(previous_writer)`. The test registers the seven nodes in
+// reverse order to ensure the explicit ordering edges, not registration order,
+// are what pin topology — and asserts the build emits no
+// RegistrationOrderSensitivity diagnostics.
+TEST(RenderGraphBuildDiagnostics, SceneColorRMWChainIsRegistrationOrderIndependentWithExplicitDependsOnPass)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    constexpr std::array<const char*, 7u> chainNames = {
+        "SceneOrDeferredLightingPass",
+        "ForwardOverlayPass",
+        "FoliagePass",
+        "DecalPass",
+        "WaterPass",
+        "ParticlePass",
+        "OITResolvePass",
+    };
+
+    auto makeNode = [&graph](const char* name, const char* previous)
+    {
+        AddSetupNode(
+            graph,
+            std::string(name),
+            [previous](RGBuilder& builder)
+            {
+                auto sceneColor = builder.ImportTexture(
+                    "SceneColor",
+                    11u,
+                    RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                builder.AllowFeedback(sceneColor);
+                [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
+                builder.Write(sceneColor, RGWriteUsage::RenderTarget);
+                if (previous != nullptr)
+                    builder.DependsOnPass(previous);
+            });
+    };
+
+    // Register in REVERSE chain order to prove registration order is non-load-bearing.
+    for (size_t i = chainNames.size(); i-- > 0;)
+    {
+        const char* previous = (i == 0u) ? nullptr : chainNames[i - 1u];
+        makeNode(chainNames[i], previous);
+    }
+
+    graph.SetFinalPass("OITResolvePass");
+    graph.BuildFrameGraph();
+
+    const auto& stats = graph.GetLastBuildStats();
+    EXPECT_EQ(stats.OrderSensitiveResults, 0u)
+        << "Explicit DependsOnPass edges between consecutive SceneColor modifiers must eliminate registration-order sensitivity.";
+    EXPECT_TRUE(graph.GetBuildDiagnostics().empty())
+        << "Pinned modifier chain must not emit RegistrationOrderSensitivity diagnostics.";
+
+    const auto& order = graph.GetExecutionOrder();
+    std::vector<size_t> chainPositions;
+    chainPositions.reserve(chainNames.size());
+    for (const auto* name : chainNames)
+    {
+        const auto it = std::find(order.begin(), order.end(), name);
+        ASSERT_NE(it, order.end()) << "Chain pass missing from execution order: " << name;
+        chainPositions.push_back(static_cast<size_t>(it - order.begin()));
+    }
+    for (size_t i = 1u; i < chainPositions.size(); ++i)
+    {
+        EXPECT_LT(chainPositions[i - 1u], chainPositions[i])
+            << "Chain pass " << chainNames[i - 1u] << " must execute before " << chainNames[i];
+    }
+}
+
+// Mirrors the production OIT contributor chain: `OITPrepare` clears
+// `OITAccum`/`OITRevealage`, then `Decal` and `Particle` (when both are
+// OIT-active) accumulate into them via RMW. WB-OIT is mathematically
+// commutative across contributors, but the graph compiler still flags
+// registration-order sensitivity for the Decal vs Particle pair when no
+// explicit edge pins their order. Particle's Setup now emits an explicit
+// `DependsOnPass(previousWriter)` derived via
+// `builder.DependsOnPreviousWriter("OITAccum")`, which removes the diagnostic
+// without changing math correctness.
+TEST(RenderGraphBuildDiagnostics, OITAccumContributorChainIsRegistrationOrderIndependentWithExplicitDependsOnPass)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    // Register in REVERSE chain order to prove registration order is non-load-bearing.
+    AddSetupNode(
+        graph,
+        "ParticlePass",
+        [](RGBuilder& builder)
+        {
+            auto oitAccum = builder.ImportTexture(
+                "OITAccum",
+                12u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "OITAccum"));
+            auto oitRevealage = builder.ImportTexture(
+                "OITRevealage",
+                13u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "OITRevealage"));
+            builder.AllowFeedback(oitAccum);
+            builder.AllowFeedback(oitRevealage);
+            [[maybe_unused]] const auto accumRead = builder.Read(oitAccum, RGReadUsage::RenderTargetRead);
+            builder.Write(oitAccum, RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto revealageRead = builder.Read(oitRevealage, RGReadUsage::RenderTargetRead);
+            builder.Write(oitRevealage, RGWriteUsage::RenderTarget);
+            builder.DependsOnPass("OITPreparePass");
+            builder.DependsOnPass("DecalPass");
+        });
+
+    AddSetupNode(
+        graph,
+        "DecalPass",
+        [](RGBuilder& builder)
+        {
+            auto oitAccum = builder.ImportTexture(
+                "OITAccum",
+                12u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "OITAccum"));
+            auto oitRevealage = builder.ImportTexture(
+                "OITRevealage",
+                13u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "OITRevealage"));
+            builder.AllowFeedback(oitAccum);
+            builder.AllowFeedback(oitRevealage);
+            [[maybe_unused]] const auto accumRead = builder.Read(oitAccum, RGReadUsage::RenderTargetRead);
+            builder.Write(oitAccum, RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto revealageRead = builder.Read(oitRevealage, RGReadUsage::RenderTargetRead);
+            builder.Write(oitRevealage, RGWriteUsage::RenderTarget);
+            builder.DependsOnPass("OITPreparePass");
+        });
+
+    AddSetupNode(
+        graph,
+        "OITPreparePass",
+        [](RGBuilder& builder)
+        {
+            auto oitAccum = builder.ImportTexture(
+                "OITAccum",
+                12u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "OITAccum"));
+            auto oitRevealage = builder.ImportTexture(
+                "OITRevealage",
+                13u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "OITRevealage"));
+            builder.Write(oitAccum, RGWriteUsage::Clear);
+            builder.Write(oitRevealage, RGWriteUsage::Clear);
+        });
+
+    graph.SetFinalPass("ParticlePass");
+    graph.BuildFrameGraph();
+
+    const auto& stats = graph.GetLastBuildStats();
+    EXPECT_EQ(stats.OrderSensitiveResults, 0u)
+        << "Explicit DependsOnPass between OIT contributors must eliminate registration-order sensitivity for OITAccum/OITRevealage.";
+    EXPECT_TRUE(graph.GetBuildDiagnostics().empty())
+        << "Pinned OIT contributor chain must not emit RegistrationOrderSensitivity diagnostics.";
+
+    const auto& order = graph.GetExecutionOrder();
+    const auto preparePos = std::find(order.begin(), order.end(), "OITPreparePass") - order.begin();
+    const auto decalPos = std::find(order.begin(), order.end(), "DecalPass") - order.begin();
+    const auto particlePos = std::find(order.begin(), order.end(), "ParticlePass") - order.begin();
+    EXPECT_LT(preparePos, decalPos) << "OITPreparePass must execute before any contributor (derived from Clear → RenderTargetRead).";
+    EXPECT_LT(preparePos, particlePos);
+    EXPECT_LT(decalPos, particlePos) << "ParticlePass must execute after DecalPass (pinned by explicit DependsOnPass).";
+}
+
+TEST(RenderGraphBuildDiagnostics, DumpToJsonIncludesRegistrationOrderSensitivityDiagnostics)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddSetupNode(
+        graph,
+        "LatePass",
+        [](RGBuilder& builder)
+        {
+            auto sceneColor = builder.ImportTexture(
+                "SceneColor",
+                9u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+            [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
+            builder.Write(sceneColor, RGWriteUsage::RenderTarget);
+        });
+
+    AddSetupNode(
+        graph,
+        "EarlyPass",
+        [](RGBuilder& builder)
+        {
+            auto sceneColor = builder.ImportTexture(
+                "SceneColor",
+                9u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+            [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
+            builder.Write(sceneColor, RGWriteUsage::RenderTarget);
+        });
+
+    graph.SetFinalPass("EarlyPass");
+    graph.BuildFrameGraph();
+
+    const auto outputPath = std::filesystem::temp_directory_path() / "render_graph_build_diagnostics_dump.json";
+    ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
+
+    std::ifstream in(outputPath);
+    ASSERT_TRUE(in.is_open());
+
+    std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_NE(json.find("\"buildDiagnosticCount\": 1"), std::string::npos);
+    EXPECT_NE(json.find("\"orderSensitiveResults\": 1"), std::string::npos);
+    EXPECT_NE(json.find("\"buildDiagnostics\": ["), std::string::npos);
+    EXPECT_NE(json.find("\"kind\": \"RegistrationOrderSensitivity\""), std::string::npos);
+    EXPECT_NE(json.find("\"resource\": \"SceneColor\""), std::string::npos);
+    EXPECT_NE(json.find("\"currentBeforePass\": \"LatePass\""), std::string::npos);
+    EXPECT_NE(json.find("\"currentAfterPass\": \"EarlyPass\""), std::string::npos);
+    EXPECT_NE(json.find("\"alternateBeforePass\": \"EarlyPass\""), std::string::npos);
+    EXPECT_NE(json.find("\"alternateAfterPass\": \"LatePass\""), std::string::npos);
 }

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -14,15 +14,15 @@ namespace OloEngine
     // Phase F slice 19 — standalone TAA stage in the dynamic chain:
     //   AOApply/Bloom/DOF/MotionBlur/Precipitation → TAA → Fog → ...
     //
-    // Owns:
-    //   * Persistent RGBA16F history framebuffer imported next frame as
-    //     `TAAHistory`
+    // Uses:
+    //   * Renderer-owned persistent RGBA16F history texture imported next
+    //     frame as `TAAHistory`
     //   * TAA parameters UBO at binding 32
     //
-    // Writes the current-frame `TAAColor` output through the graph-owned
-    // framebuffer resolved from the frame blackboard.
+    // Writes the current-frame `TAAColor` output through the setup-selected
+    // graph-owned framebuffer target.
     //
-    // Inputs (resolved from the blackboard):
+    // Inputs (selected during `Setup()`):
     //   * Post-process colour input framebuffer
     //   * Scene depth texture (required)
     //   * Velocity texture (optional, 0 = camera-only reprojection path)
@@ -31,20 +31,19 @@ namespace OloEngine
     // Passthrough semantics: when disabled the pass no-ops and GetTarget()
     // returns the input framebuffer so downstream stages naturally fall back
     // to PostProcessColor.
-    class TAARenderPass : public RenderPass
+    class TAARenderPass : public RenderGraphNode
     {
       public:
         TAARenderPass();
         ~TAARenderPass() override = default;
 
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] SubmissionModel GetSubmissionModel() const override
         {
             return SubmissionModel::ImmediateOnly;
         }
-        [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
@@ -58,30 +57,27 @@ namespace OloEngine
             return m_Enabled;
         }
 
+        [[nodiscard]] bool IsReadyForExecution() const noexcept
+        {
+            return m_TAAShader && m_TAAShader->IsReady() && m_TAAUBO;
+        }
+
         void SetSettings(const PostProcessSettings& settings)
         {
             m_Settings = settings;
         }
 
-        [[nodiscard]] u32 GetTAAHistoryTextureID() const
-        {
-            if (!m_TAAHistoryValid || !m_TAAHistoryFB)
-                return 0;
-            return m_TAAHistoryFB->GetColorAttachmentRendererID(0);
-        }
-
       private:
         void CreateFramebuffers(u32 width, u32 height);
-        void StoreHistoryTexture(u32 textureID);
 
       private:
         bool m_Enabled = false;
         PostProcessSettings m_Settings;
 
-        Ref<Framebuffer> m_TAAHistoryFB;
-
         Ref<Shader> m_TAAShader;
         Ref<UniformBuffer> m_TAAUBO;
-        bool m_TAAHistoryValid = false;
+        RGTextureHandle m_SelectedSceneDepthTexture{};
+        RGTextureHandle m_SelectedVelocityTexture{};
+        RGTextureHandle m_SelectedHistoryTexture{};
     };
 } // namespace OloEngine

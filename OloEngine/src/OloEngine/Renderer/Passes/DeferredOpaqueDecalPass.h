@@ -3,8 +3,9 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/GBuffer.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
 
 namespace OloEngine
 {
@@ -22,8 +23,9 @@ namespace OloEngine
     // node so:
     //
     //   - Ordering is declared via `AddExecutionDependency` edges,
-    //   - Resource writes on the G-Buffer albedo/normal/emissive RTs are
-    //     declared for the hazard validator (L5),
+    //   - Resource publication of the resolved G-Buffer albedo/normal/
+    //     emissive textures (plus deferred `SceneNormals`) is centralized
+    //     after opaque decals have run,
     //   - Future reorderings of the deferred pipeline don't accidentally
     //     invert the "opaque decals before lighting" contract.
     //
@@ -31,14 +33,13 @@ namespace OloEngine
     // the command bucket) and the `GBuffer` (target). It is registered
     // by `Renderer3D::ConfigureRenderGraph` only when
     // `RenderingPath::Deferred` is active.
-    class DeferredOpaqueDecalPass : public RenderPass
+    class DeferredOpaqueDecalPass : public RenderGraphNode
     {
       public:
         DeferredOpaqueDecalPass();
         ~DeferredOpaqueDecalPass() override = default;
 
-        void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         [[nodiscard]] SubmissionModel GetSubmissionModel() const override
@@ -67,5 +68,14 @@ namespace OloEngine
         Ref<DecalRenderPass> m_DecalPass;
         Ref<GBuffer> m_GBuffer;
         bool m_PerSampleLighting = false;
+        RGTextureHandle m_SelectedSceneNormalsExport{};
+        RGTextureHandle m_SelectedGBufferAlbedoExport{};
+        RGTextureHandle m_SelectedGBufferNormalExport{};
+        RGTextureHandle m_SelectedGBufferEmissiveExport{};
+        RGTextureHandle m_SelectedGBufferAlbedoMSExport{};
+        RGTextureHandle m_SelectedGBufferNormalMSExport{};
+        RGTextureHandle m_SelectedGBufferEmissiveMSExport{};
+        RGTextureHandle m_SelectedVelocityMSExport{};
+        RGTextureHandle m_SelectedSceneDepthMSExport{};
     };
 } // namespace OloEngine

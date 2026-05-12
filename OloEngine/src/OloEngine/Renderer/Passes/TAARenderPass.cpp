@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
@@ -19,6 +20,59 @@ namespace OloEngine
         SetName("TAAPass");
     }
 
+    void TAARenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+        m_SelectedSceneDepthTexture = {};
+        m_SelectedVelocityTexture = {};
+        m_SelectedHistoryTexture = {};
+
+        (void)blackboard;
+        [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(
+            builder,
+            this,
+            {
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::MotionBlurColor, ResourceNames::MotionBlurColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::DOFColor, ResourceNames::DOFColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::BloomColor, ResourceNames::BloomColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::PostProcessColor, ResourceNames::PostProcessColorTexture),
+            });
+
+        if (!m_Enabled)
+            return;
+
+        if (blackboard.SceneDepth.IsValid())
+        {
+            m_SelectedSceneDepthTexture = blackboard.SceneDepth;
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.SceneDepth, RGReadUsage::ShaderSample);
+        }
+        if (blackboard.Velocity.IsValid())
+        {
+            m_SelectedVelocityTexture = blackboard.Velocity;
+            [[maybe_unused]] const auto velocityRead = builder.Read(blackboard.Velocity, RGReadUsage::ShaderSample);
+        }
+        if (blackboard.TAAHistory.IsValid())
+        {
+            m_SelectedHistoryTexture = blackboard.TAAHistory;
+            [[maybe_unused]] const auto taaHistoryRead = builder.Read(blackboard.TAAHistory, RGReadUsage::ShaderSample);
+        }
+        if (blackboard.TAAColor.IsValid())
+        {
+            constexpr std::string_view taaVersionTag = "TAAPass";
+            const auto outputHandle = builder.WriteNewVersion(blackboard.TAAColor, RGWriteUsage::RenderTarget, taaVersionTag);
+            if (!outputHandle.IsValid())
+                return;
+
+            SetPrimaryOutputFramebufferHandle(outputHandle);
+            SetPrimaryOutputTextureHandle(
+                builder.CreateFramebufferAttachmentView(std::string(ResourceNames::TAAColorTexture) + "@" +
+                                                            std::string(taaVersionTag),
+                                                        outputHandle,
+                                                        0u));
+            builder.ExtractHistoryTexture(ResourceNames::TAAHistory, outputHandle);
+        }
+    }
+
     void TAARenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
@@ -30,9 +84,6 @@ namespace OloEngine
         m_TAAShader = Shader::Create("assets/shaders/PostProcess_TAA.glsl");
         m_TAAUBO = UniformBuffer::Create(TAAUBOData::GetSize(), ShaderBindingLayout::UBO_TAA);
 
-        DeclareRead(ResourceNames::MotionBlurColor, ResourceHandle::Kind::Framebuffer);
-        DeclareWrite(ResourceNames::TAAColor, ResourceHandle::Kind::Framebuffer);
-
         OLO_CORE_INFO("TAARenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
     }
 
@@ -42,78 +93,54 @@ namespace OloEngine
         {
             OLO_CORE_WARN("TAARenderPass::CreateFramebuffers: Invalid dimensions {}x{}", width, height);
             m_Target = nullptr;
-            m_TAAHistoryFB = nullptr;
-            m_TAAHistoryValid = false;
             return;
         }
 
-        FramebufferSpecification fbSpec;
-        fbSpec.Width = width;
-        fbSpec.Height = height;
-        fbSpec.Samples = 1;
-        fbSpec.Attachments = { FramebufferTextureFormat::RGBA16F };
-
-        m_TAAHistoryFB = Framebuffer::Create(fbSpec);
         m_Target = nullptr;
-        m_TAAHistoryValid = false;
-    }
-
-    void TAARenderPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
     }
 
     void TAARenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Phase F slice 40 — self-resolving input framebuffer.
-        // Prefer MotionBlurColor, then DOFColor, then BloomColor, else PostProcessColor.
-        const auto* board = context.GetBlackboard();
         Ref<Framebuffer> inputFramebuffer;
+        u32 inputColorTextureID = 0u;
+        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
+        {
+            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
+                inputFramebuffer = resolvedInput;
+        }
+        if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
+            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
+
         Ref<Framebuffer> outputFramebuffer;
         u32 sceneDepthTextureID = 0;
         u32 velocityTextureID = 0;
         u32 historyTextureID = 0;
-        if (board)
+        if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
         {
-            const auto inputHandle = board->MotionBlurColor.IsValid() ? board->MotionBlurColor
-                                     : board->DOFColor.IsValid()      ? board->DOFColor
-                                     : board->BloomColor.IsValid()    ? board->BloomColor
-                                                                      : board->PostProcessColor;
-            if (inputHandle.IsValid())
-            {
-                if (auto resolved = context.ResolveFramebuffer(inputHandle))
-                    inputFramebuffer = resolved;
-            }
-
-            if (board->TAAColor.IsValid())
-            {
-                if (auto resolvedOutput = context.ResolveFramebuffer(board->TAAColor))
-                    outputFramebuffer = resolvedOutput;
-            }
-
-            sceneDepthTextureID = context.ResolveTexture(board->SceneDepth);
-            velocityTextureID = context.ResolveTexture(board->Velocity);
-            historyTextureID = context.ResolveTexture(board->TAAHistory);
+            if (auto resolvedOutput = context.ResolveFramebuffer(outputHandle))
+                outputFramebuffer = resolvedOutput;
         }
+        if (m_SelectedSceneDepthTexture.IsValid())
+            sceneDepthTextureID = context.ResolveTexture(m_SelectedSceneDepthTexture);
+        if (m_SelectedVelocityTexture.IsValid())
+            velocityTextureID = context.ResolveTexture(m_SelectedVelocityTexture);
+        if (m_SelectedHistoryTexture.IsValid())
+            historyTextureID = context.ResolveTexture(m_SelectedHistoryTexture);
         if (!m_Enabled)
         {
-            m_TAAHistoryValid = false;
             m_Target = inputFramebuffer;
             return;
         }
 
-        if (!board || !board->TAAColor.IsValid() || !inputFramebuffer || !outputFramebuffer || !m_TAAShader || !m_TAAHistoryFB || !m_TAAUBO)
+        if (!inputFramebuffer || inputColorTextureID == 0u || !outputFramebuffer || !m_TAAShader || !m_TAAUBO)
         {
-            m_TAAHistoryValid = false;
             m_Target = nullptr;
             return;
         }
         if (sceneDepthTextureID == 0)
         {
-            m_TAAHistoryValid = false;
             m_Target = nullptr;
             return;
         }
@@ -141,11 +168,10 @@ namespace OloEngine
 
         m_TAAShader->Bind();
 
-        const u32 srcColorID = inputFramebuffer->GetColorAttachmentRendererID(0);
-        context.BindTexture(0, srcColorID);
+        context.BindTexture(0, inputColorTextureID);
         m_TAAShader->SetInt("u_Current", 0);
 
-        const u32 historyID = historyTextureID != 0 ? historyTextureID : srcColorID;
+        const u32 historyID = historyTextureID != 0 ? historyTextureID : inputColorTextureID;
         context.BindTexture(1, historyID);
         m_TAAShader->SetInt("u_History", 1);
 
@@ -173,41 +199,8 @@ namespace OloEngine
         va->Bind();
         context.DrawIndexed(va);
 
-        context.ExtractHistoryTexture(ResourceNames::TAAHistory,
-                                      board->TAAColor,
-                                      [this](const u32 textureID)
-                                      {
-                                          StoreHistoryTexture(textureID);
-                                      });
-
         context.SetDepthMask(true);
         outputFramebuffer->Unbind();
-    }
-
-    void TAARenderPass::StoreHistoryTexture(const u32 textureID)
-    {
-        if (textureID == 0 || !m_TAAHistoryFB)
-            return;
-
-        const u32 historyTextureID = m_TAAHistoryFB->GetColorAttachmentRendererID(0);
-        if (historyTextureID == 0)
-            return;
-
-        const auto& historySpec = m_TAAHistoryFB->GetSpecification();
-        if (historySpec.Width == 0 || historySpec.Height == 0)
-            return;
-
-        glCopyImageSubData(textureID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                           historyTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                           static_cast<GLsizei>(historySpec.Width), static_cast<GLsizei>(historySpec.Height), 1);
-        m_TAAHistoryValid = true;
-    }
-
-    Ref<Framebuffer> TAARenderPass::GetTarget() const
-    {
-        if (!m_Target)
-            return nullptr;
-        return m_Target;
     }
 
     void TAARenderPass::SetupFramebuffer(u32 width, u32 height)
@@ -228,7 +221,9 @@ namespace OloEngine
 
     void TAARenderPass::OnReset()
     {
-        m_TAAHistoryValid = false;
         m_Target = nullptr;
+        m_SelectedSceneDepthTexture = {};
+        m_SelectedVelocityTexture = {};
+        m_SelectedHistoryTexture = {};
     }
 } // namespace OloEngine

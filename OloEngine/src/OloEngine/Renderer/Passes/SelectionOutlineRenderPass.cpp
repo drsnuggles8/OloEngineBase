@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 
@@ -16,6 +17,69 @@ namespace OloEngine
     SelectionOutlineRenderPass::SelectionOutlineRenderPass()
     {
         SetName("SelectionOutlinePass");
+    }
+
+    void SelectionOutlineRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+        m_SelectedSceneEntityTexture = {};
+        m_SelectedJFAPingFramebuffer = {};
+        m_SelectedJFAPongFramebuffer = {};
+
+        (void)blackboard;
+        [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(
+            builder,
+            this,
+            {
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::FXAAColor, ResourceNames::FXAAColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::VignetteColor, ResourceNames::VignetteColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::ToneMapColor, ResourceNames::ToneMapColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::ColorGradingColor, ResourceNames::ColorGradingColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::ChromAbColor, ResourceNames::ChromAbColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::FogColor, ResourceNames::FogColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::PrecipitationColor, ResourceNames::PrecipitationColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::TAAColor, ResourceNames::TAAColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::MotionBlurColor, ResourceNames::MotionBlurColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::DOFColor, ResourceNames::DOFColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::BloomColor, ResourceNames::BloomColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::PostProcessColor, ResourceNames::PostProcessColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SceneColor, ResourceNames::SceneColorTexture),
+            });
+
+        if (!IsReadyForExecution() || !blackboard.SelectionOutlineColor.IsValid() || !blackboard.SceneEntityID.IsValid())
+            return;
+
+        m_SelectedSceneEntityTexture = blackboard.SceneEntityID;
+        [[maybe_unused]] const auto sceneEntityRead = builder.Read(blackboard.SceneEntityID, RGReadUsage::ShaderSample);
+
+        constexpr std::string_view selectionOutlineVersionTag = "SelectionOutlinePass";
+        const auto outputHandle =
+            builder.WriteNewVersion(blackboard.SelectionOutlineColor, RGWriteUsage::RenderTarget, selectionOutlineVersionTag);
+        if (!outputHandle.IsValid())
+            return;
+
+        SetPrimaryOutputFramebufferHandle(outputHandle);
+        SetPrimaryOutputTextureHandle(
+            builder.CreateFramebufferAttachmentView(std::string(ResourceNames::SelectionOutlineColorTexture) + "@" +
+                                                        std::string(selectionOutlineVersionTag),
+                                                    outputHandle,
+                                                    0u));
+
+        if (blackboard.JFAPing.IsValid())
+        {
+            m_SelectedJFAPingFramebuffer = blackboard.JFAPing;
+            builder.AllowFeedback(blackboard.JFAPing);
+            builder.Write(blackboard.JFAPing, RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto pingRead = builder.Read(blackboard.JFAPing, RGReadUsage::RenderTargetRead);
+        }
+
+        if (blackboard.JFAPong.IsValid())
+        {
+            m_SelectedJFAPongFramebuffer = blackboard.JFAPong;
+            builder.AllowFeedback(blackboard.JFAPong);
+            builder.Write(blackboard.JFAPong, RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto pongRead = builder.Read(blackboard.JFAPong, RGReadUsage::RenderTargetRead);
+        }
     }
 
     void SelectionOutlineRenderPass::Init(const FramebufferSpecification& spec)
@@ -35,15 +99,6 @@ namespace OloEngine
 
         CreateFramebuffer(spec.Width, spec.Height);
 
-        // Graph-visible contract: receives the current late-post source and
-        // the scene framebuffer used for entity-ID lookup, and emits the
-        // graph-owned SelectionOutlineColor output when the pass is enabled,
-        // has selected entities, and its JFA execution resources are ready.
-        DeclareRead(ResourceNames::VignetteColor, ResourceHandle::Kind::Framebuffer);
-        DeclareRead(ResourceNames::FXAAColor, ResourceHandle::Kind::Framebuffer);
-        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
-        DeclareWrite(ResourceNames::SelectionOutlineColor, ResourceHandle::Kind::Framebuffer);
-
         OLO_CORE_INFO("SelectionOutlineRenderPass: Initialized {}x{} (JFA, {} passes)", spec.Width, spec.Height, m_JFAPassCount);
     }
 
@@ -59,76 +114,31 @@ namespace OloEngine
         m_Target = nullptr;
     }
 
-    void SelectionOutlineRenderPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
-    }
-
     void SelectionOutlineRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Phase F slice 44 — self-resolving input framebuffer from the render-graph
-        // blackboard. Preference chain: FXAA > Vignette > ToneMap > ColorGrading >
-        // ChromAb > Fog > Precipitation > TAA > MotionBlur > DOF > Bloom > PostProcess > SceneColor.
         Ref<Framebuffer> inputFramebuffer;
-        if (const auto* board = context.GetBlackboard())
+        u32 inputColorTextureID = 0u;
+        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
         {
-            // Self-resolve the scene framebuffer (entity-ID attachment source).
-            if (auto fb = context.ResolveFramebuffer(board->SceneColor))
-                m_SceneFramebuffer = fb;
-
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->FXAAColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->VignetteColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->ToneMapColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->ColorGradingColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->ChromAbColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->FogColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->PrecipitationColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->TAAColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->MotionBlurColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->DOFColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->BloomColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->PostProcessColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->SceneColor))
-                    inputFramebuffer = fb;
+            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
+                inputFramebuffer = resolvedInput;
         }
+        if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
+            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
 
-        const auto* board = context.GetBlackboard();
         Ref<Framebuffer> outputFramebuffer;
-        if (board)
+        u32 sceneEntityTextureID = 0u;
+        if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
         {
-            if (auto fb = context.ResolveFramebuffer(board->SelectionOutlineColor))
+            if (auto fb = context.ResolveFramebuffer(outputHandle))
                 outputFramebuffer = fb;
         }
+        if (m_SelectedSceneEntityTexture.IsValid())
+            sceneEntityTextureID = context.ResolveTexture(m_SelectedSceneEntityTexture);
 
-        if (!outputFramebuffer || !inputFramebuffer)
+        if (!outputFramebuffer || !inputFramebuffer || inputColorTextureID == 0u || sceneEntityTextureID == 0u)
         {
             m_Target = nullptr;
             return;
@@ -141,18 +151,18 @@ namespace OloEngine
         }
 
         const bool readyForExecution = IsReadyForExecution();
-        if (!readyForExecution || !m_SceneFramebuffer)
+        if (!readyForExecution)
         {
             m_Target = nullptr;
             static u32 s_InvalidExecutionStateWarnings = 0;
             if (s_InvalidExecutionStateWarnings++ < 10)
             {
-                OLO_CORE_WARN("SelectionOutlineRenderPass: enabled without complete execution state (sceneFB={}, shadersReady={}, selectedCount={})",
-                              m_SceneFramebuffer ? m_SceneFramebuffer->GetRendererID() : 0u,
+                OLO_CORE_WARN("SelectionOutlineRenderPass: enabled without complete execution state (sceneEntityTex={}, shadersReady={}, selectedCount={})",
+                              sceneEntityTextureID,
                               readyForExecution,
                               m_UBOData.SelectedCount);
             }
-            OLO_CORE_ASSERT(false, "SelectionOutlineRenderPass enabled without ready shaders/UBOs or resolved SceneColor");
+            OLO_CORE_ASSERT(false, "SelectionOutlineRenderPass enabled without ready shaders/UBOs or resolved SceneEntityID");
             return;
         }
 
@@ -168,13 +178,10 @@ namespace OloEngine
         // from the transient pool. The execute path no longer keeps owned
         // fallback framebuffers for headless / unit-test contexts.
         std::array<Ref<Framebuffer>, 2> jfaFBs{};
-        if (board)
-        {
-            if (auto fb = context.ResolveFramebuffer(board->JFAPing))
-                jfaFBs[0] = fb;
-            if (auto fb = context.ResolveFramebuffer(board->JFAPong))
-                jfaFBs[1] = fb;
-        }
+        if (m_SelectedJFAPingFramebuffer.IsValid())
+            jfaFBs[0] = context.ResolveFramebuffer(m_SelectedJFAPingFramebuffer);
+        if (m_SelectedJFAPongFramebuffer.IsValid())
+            jfaFBs[1] = context.ResolveFramebuffer(m_SelectedJFAPongFramebuffer);
         if (!jfaFBs[0] || !jfaFBs[1])
         {
             m_Target = nullptr;
@@ -211,8 +218,8 @@ namespace OloEngine
         RenderCommand::SetColorMask(true, true, true, true);
         context.Clear();
 
-        // Bind entity ID texture from ScenePass attachment 1
-        context.BindTexture(0, m_SceneFramebuffer->GetColorAttachmentRendererID(1));
+        // Bind entity-ID texture from the graph-published SceneColor attachment view.
+        context.BindTexture(0, sceneEntityTextureID);
 
         m_JFAInitShader->Bind();
         m_JFAInitShader->SetInt("u_EntityID", 0);
@@ -280,8 +287,8 @@ namespace OloEngine
         RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         RenderCommand::SetColorMask(true, true, true, true);
 
-        // Slot 0: scene color from dynamic post chain output
-        context.BindTexture(0, inputFramebuffer->GetColorAttachmentRendererID(0));
+        // Slot 0: scene color from the selected dynamic post-chain texture view.
+        context.BindTexture(0, inputColorTextureID);
         // Slot 1: final JFA distance field from the graph-owned ping-pong scratch
         context.BindTexture(1, jfaFBs[readIndex]->GetColorAttachmentRendererID(0));
 
@@ -334,7 +341,9 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         m_Target = nullptr;
-        m_SceneFramebuffer = nullptr;
+        m_SelectedSceneEntityTexture = {};
+        m_SelectedJFAPingFramebuffer = {};
+        m_SelectedJFAPongFramebuffer = {};
     }
 
     void SelectionOutlineRenderPass::SetSelectedEntityIDs(std::span<const i32> ids)

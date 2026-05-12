@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/ForwardOverlayRenderPass.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -18,40 +19,35 @@ namespace OloEngine
         OLO_CORE_INFO("Creating ForwardOverlayRenderPass.");
     }
 
-    void ForwardOverlayRenderPass::Init(const FramebufferSpecification& spec)
+    void ForwardOverlayRenderPass::Setup(RGBuilder& builder, FrameBlackboard& board)
     {
-        OLO_PROFILE_FUNCTION();
-        m_FramebufferSpec = spec;
-        // No own framebuffer — we render into the scene FB supplied via
-        // SetSceneFramebuffer(), populated with lit HDR by DeferredLightingPass.
+        RenderGraphNode::Setup(builder, board);
 
-        // Phase F slice 33 — read-modify-write into SceneColor so the hazard
-        // validator can derive the DeferredLightingPass→ForwardOverlayPass and
-        // ForwardOverlayPass→FoliagePass RAW ordering edges.
-        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
-        DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
-    }
+        if (Renderer3D::GetRendererSettings().Path != RenderingPath::Deferred)
+            return;
+        if (m_CommandBucket.GetCommandCount() == 0)
+            return;
 
-    void ForwardOverlayRenderPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
+        if (board.SceneColor.IsValid())
+        {
+            SetPrimaryInputFramebufferHandle(board.SceneColor);
+            builder.AllowFeedback(board.SceneColor);
+            [[maybe_unused]] const auto sceneColorRead = builder.Read(board.SceneColor, RGReadUsage::RenderTargetRead);
+            builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
+            builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
+        }
     }
 
     void ForwardOverlayRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Phase F slice 36 — self-resolving SceneColor: look up directly
-        // from the render graph blackboard so no per-frame side-channel
-        // setter call is needed from EndScene().
-        if (const auto* board = context.GetBlackboard())
+        // Resolve the setup-selected scene framebuffer instead of replaying
+        // a blackboard lookup ladder at execute time.
+        if (const auto sceneHandle = GetPrimaryInputFramebufferHandle(); sceneHandle.IsValid())
         {
-            if (board->SceneColor.IsValid())
-            {
-                if (auto resolvedSceneFB = context.ResolveFramebuffer(board->SceneColor))
-                    m_SceneFramebuffer = resolvedSceneFB;
-            }
+            if (auto resolvedSceneFB = context.ResolveFramebuffer(sceneHandle))
+                m_SceneFramebuffer = resolvedSceneFB;
         }
 
         // Only runs when registered in the graph, which `Renderer3D::

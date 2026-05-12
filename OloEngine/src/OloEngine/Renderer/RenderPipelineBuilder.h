@@ -1,99 +1,59 @@
 #pragma once
 
+#include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 
 namespace OloEngine
 {
+    enum class AOTechnique : i32;
     class RenderGraph;
-    class CommandBufferRenderPass;
-    class SceneRenderPass;
-    class ShadowRenderPass;
-    class DeferredLightingPass;
-    class DeferredOpaqueDecalPass;
-    class WaterRenderPass;
-    class DecalRenderPass;
-    class SSAORenderPass;
-    class GTAORenderPass;
-    class ParticleRenderPass;
-    class OITPrepareRenderPass;
-    class OITResolveRenderPass;
-    class SSSRenderPass;
-    class AOApplyRenderPass;
-    class BloomRenderPass;
-    class DOFRenderPass;
-    class MotionBlurRenderPass;
-    class TAARenderPass;
-    class PrecipitationRenderPass;
-    class FogRenderPass;
-    class ChromaticAberrationRenderPass;
-    class ColorGradingRenderPass;
-    class ToneMapRenderPass;
-    class VignetteRenderPass;
-    class FXAARenderPass;
-    class SelectionOutlineRenderPass;
-    class UICompositeRenderPass;
-    class FinalRenderPass;
-    struct RendererSettings;
-    struct PostProcessSettings;
-    struct SnowSettings;
-    struct FogSettings;
-    struct PrecipitationSettings;
+    class RenderGraphNode;
 
-    struct RenderPipelineNodeInputs
-    {
-        CommandBufferRenderPass* Geometry = nullptr;
-        CommandBufferRenderPass* ForwardOverlay = nullptr;
-        CommandBufferRenderPass* Foliage = nullptr;
-        CommandBufferRenderPass* Decal = nullptr;
-        CommandBufferRenderPass* Water = nullptr;
-    };
-
+    // Pipeline pass inputs. Each field carries a pointer to a graph node the
+    // builder will register under the corresponding canonical name. The
+    // fields are typed as the unified `RenderGraphNode*` base — the pipeline
+    // builder doesn't need to know any concrete pass class, it just adds the
+    // node and lets the graph compiler resolve the rest from the node's own
+    // Setup-time declarations. Callers populate the fields via implicit
+    // upcast from each concrete pass class (which derives `RenderGraphNode`).
     struct RenderPipelinePassInputs
     {
-        SceneRenderPass* Scene = nullptr;
-        ShadowRenderPass* Shadow = nullptr;
-        DeferredLightingPass* DeferredLighting = nullptr;
-        DeferredOpaqueDecalPass* DeferredOpaqueDecal = nullptr;
-        WaterRenderPass* Water = nullptr;
-        DecalRenderPass* Decal = nullptr;
-        SSAORenderPass* SSAO = nullptr;
-        GTAORenderPass* GTAO = nullptr;
-        ParticleRenderPass* Particle = nullptr;
-        OITPrepareRenderPass* OITPrepare = nullptr;
-        OITResolveRenderPass* OITResolve = nullptr;
-        SSSRenderPass* SSS = nullptr;
-        AOApplyRenderPass* AOApply = nullptr;
-        BloomRenderPass* Bloom = nullptr;
-        DOFRenderPass* DOF = nullptr;
-        MotionBlurRenderPass* MotionBlur = nullptr;
-        TAARenderPass* TAA = nullptr;
-        PrecipitationRenderPass* Precipitation = nullptr;
-        FogRenderPass* Fog = nullptr;
-        ChromaticAberrationRenderPass* ChromAberration = nullptr;
-        ColorGradingRenderPass* ColorGrading = nullptr;
-        ToneMapRenderPass* ToneMap = nullptr;
-        VignetteRenderPass* Vignette = nullptr;
-        FXAARenderPass* FXAA = nullptr;
-        SelectionOutlineRenderPass* SelectionOutline = nullptr;
-        UICompositeRenderPass* UIComposite = nullptr;
-        FinalRenderPass* Final = nullptr;
-    };
-
-    struct RenderPipelineRuntimeInputs
-    {
-        RendererSettings* Renderer = nullptr;
-        PostProcessSettings* PostProcess = nullptr;
-        SnowSettings* Snow = nullptr;
-        FogSettings* Fog = nullptr;
-        PrecipitationSettings* Precipitation = nullptr;
+        RenderGraphNode* Scene = nullptr;
+        RenderGraphNode* Shadow = nullptr;
+        RenderGraphNode* DeferredLighting = nullptr;
+        RenderGraphNode* DeferredOpaqueDecal = nullptr;
+        RenderGraphNode* ForwardOverlay = nullptr;
+        RenderGraphNode* Foliage = nullptr;
+        RenderGraphNode* Water = nullptr;
+        RenderGraphNode* Decal = nullptr;
+        RenderGraphNode* SSAO = nullptr;
+        RenderGraphNode* GTAO = nullptr;
+        RenderGraphNode* Particle = nullptr;
+        RenderGraphNode* OITPrepare = nullptr;
+        RenderGraphNode* OITResolve = nullptr;
+        RenderGraphNode* SSS = nullptr;
+        RenderGraphNode* AOApply = nullptr;
+        RenderGraphNode* Bloom = nullptr;
+        RenderGraphNode* DOF = nullptr;
+        RenderGraphNode* MotionBlur = nullptr;
+        RenderGraphNode* TAA = nullptr;
+        RenderGraphNode* Precipitation = nullptr;
+        RenderGraphNode* Fog = nullptr;
+        RenderGraphNode* ChromAberration = nullptr;
+        RenderGraphNode* ColorGrading = nullptr;
+        RenderGraphNode* ToneMap = nullptr;
+        RenderGraphNode* Vignette = nullptr;
+        RenderGraphNode* FXAA = nullptr;
+        RenderGraphNode* SelectionOutline = nullptr;
+        RenderGraphNode* UIComposite = nullptr;
+        RenderGraphNode* Final = nullptr;
     };
 
     struct RenderPipelineInputs
     {
         RenderGraph* Graph = nullptr;
-        RenderPipelineNodeInputs Nodes;
         RenderPipelinePassInputs Passes;
-        RenderPipelineRuntimeInputs Runtime;
+        AOTechnique ActiveAOTechnique{};
     };
 
     void BuildRenderPipelineGraph(const RenderPipelineInputs& inputs, RenderingPath path);

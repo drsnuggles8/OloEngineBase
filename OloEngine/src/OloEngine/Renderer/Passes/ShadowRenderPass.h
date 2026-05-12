@@ -3,7 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
@@ -82,14 +82,14 @@ namespace OloEngine
     // traversal loop. Execute() iterates the caster lists per cascade/face,
     // binding the appropriate depth shader for each geometry type.
     // No callbacks, no duplicate entity traversal.
-    class ShadowRenderPass : public RenderPass
+    class ShadowRenderPass : public RenderGraphNode
     {
       public:
         ShadowRenderPass();
         ~ShadowRenderPass() override;
 
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] SubmissionModel GetSubmissionModel() const override
         {

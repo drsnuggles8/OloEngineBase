@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
 
@@ -22,20 +22,19 @@ namespace OloEngine
     // passes also branch on the same flag and fall back to their classic
     // alpha-blend path.
     //
-    class OITResolveRenderPass : public RenderPass
+    class OITResolveRenderPass : public RenderGraphNode
     {
       public:
         OITResolveRenderPass();
         ~OITResolveRenderPass() override = default;
 
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] SubmissionModel GetSubmissionModel() const override
         {
             return SubmissionModel::ImmediateOnly;
         }
-        [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
@@ -49,11 +48,19 @@ namespace OloEngine
             return m_Enabled;
         }
 
+        void SetHasContributors(bool hasContributors) noexcept
+        {
+            m_HasContributors = hasContributors;
+        }
+
       private:
         void DrawFullscreenTriangle(RGCommandContext& context);
 
         Ref<Shader> m_ResolveShader;
+        RGTextureHandle m_SelectedOITAccumTexture{};
+        RGTextureHandle m_SelectedOITRevealageTexture{};
 
         bool m_Enabled = false;
+        bool m_HasContributors = false;
     };
 } // namespace OloEngine

@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -18,39 +19,77 @@ namespace OloEngine
         OLO_CORE_INFO("Creating DecalRenderPass.");
     }
 
-    void DecalRenderPass::Init(const FramebufferSpecification& spec)
+    void DecalRenderPass::Setup(RGBuilder& builder, FrameBlackboard& board)
     {
-        OLO_PROFILE_FUNCTION();
+        RenderGraphNode::Setup(builder, board);
+        m_SelectedOITFramebuffer = {};
+        m_SelectedSceneDepthTexture = {};
 
-        m_FramebufferSpec = spec;
-        // No own framebuffer — this pass renders into the ScenePass target
+        if (m_CommandBucket.GetCommandCount() == 0)
+            return;
 
-        // Phase F slice 32 — read-modify-write into SceneColor so the hazard
-        // validator can derive the FoliagePass → DecalPass RAW ordering edge.
-        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
-        DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
-    }
+        const bool hasProjectionDepth = board.SceneDepth.IsValid();
+        const bool writesOIT = m_OITEnabled && (board.OITAccum.IsValid() || board.OITRevealage.IsValid());
+        const bool writesSceneColor = !m_OITEnabled && board.SceneColor.IsValid();
 
-    void DecalRenderPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
+        if (hasProjectionDepth && (writesOIT || writesSceneColor))
+        {
+            m_SelectedSceneDepthTexture = board.SceneDepth;
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(board.SceneDepth, RGReadUsage::ShaderSample);
+        }
+
+        if (m_OITEnabled)
+        {
+            if (board.SceneColor.IsValid())
+                SetPrimaryInputFramebufferHandle(board.SceneColor);
+            if (board.OITBuffer.IsValid())
+                m_SelectedOITFramebuffer = board.OITBuffer;
+            if (board.OITDepthAttachment.IsValid())
+            {
+                [[maybe_unused]] const auto oitDepthRead = builder.Read(board.OITDepthAttachment, RGReadUsage::RenderTargetRead);
+            }
+            if (board.OITAccum.IsValid())
+            {
+                builder.AllowFeedback(board.OITAccum);
+                [[maybe_unused]] const auto oitAccumRead = builder.Read(board.OITAccum, RGReadUsage::RenderTargetRead);
+                builder.Write(board.OITAccum, RGWriteUsage::RenderTarget);
+            }
+            if (board.OITRevealage.IsValid())
+            {
+                builder.AllowFeedback(board.OITRevealage);
+                [[maybe_unused]] const auto oitRevealageRead = builder.Read(board.OITRevealage, RGReadUsage::RenderTargetRead);
+                builder.Write(board.OITRevealage, RGWriteUsage::RenderTarget);
+            }
+
+            // Pin OIT writer-chain ordering against OITPreparePass's clear.
+            // Without this edge the Decal RMW vs OITPrepare Clear WAW chain is
+            // registration-order-sensitive. ParticleRenderPass mirrors this
+            // declaration; the contributor-to-contributor edge from Particle to
+            // Decal is now derived by Particle's Setup via
+            // builder.DependsOnPreviousWriter("OITAccum").
+            if (board.OITAccum.IsValid() || board.OITRevealage.IsValid())
+                builder.DependsOnPass("OITPreparePass");
+        }
+        else if (board.SceneColor.IsValid())
+        {
+            SetPrimaryInputFramebufferHandle(board.SceneColor);
+            builder.AllowFeedback(board.SceneColor);
+            [[maybe_unused]] const auto sceneColorRead = builder.Read(board.SceneColor, RGReadUsage::RenderTargetRead);
+            builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
+            builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
+        }
     }
 
     void DecalRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Phase F slice 36 — self-resolving SceneColor and SceneDepth: look
-        // up directly from the render graph blackboard so no per-frame
-        // side-channel setter calls are needed from EndScene().
-        if (const auto* board = context.GetBlackboard())
+        // Resolve the setup-selected scene framebuffer instead of replaying
+        // a blackboard lookup ladder at execute time.
+        if (const auto sceneHandle = GetPrimaryInputFramebufferHandle(); sceneHandle.IsValid())
         {
-            if (board->SceneColor.IsValid())
-            {
-                if (auto resolvedSceneFB = context.ResolveFramebuffer(board->SceneColor))
-                    m_SceneFramebuffer = resolvedSceneFB;
-            }
+            if (auto resolvedSceneFB = context.ResolveFramebuffer(sceneHandle))
+                m_SceneFramebuffer = resolvedSceneFB;
         }
 
         // Phase F slice 36 / Phase H follow-up — self-resolving SceneDepth
@@ -58,8 +97,8 @@ namespace OloEngine
         // blackboard is absent the depth slot is left unbound (acceptable for
         // headless / unit-test contexts where no geometry is dispatched).
         u32 depthTextureID = 0;
-        if (const auto* board = context.GetBlackboard())
-            depthTextureID = context.ResolveTexture(board->SceneDepth);
+        if (m_SelectedSceneDepthTexture.IsValid())
+            depthTextureID = context.ResolveTexture(m_SelectedSceneDepthTexture);
 
         // Detector-only guard: captures GL state at entry and on destruction
         // diffs against exit state, logging any field this pass failed to
@@ -119,11 +158,8 @@ namespace OloEngine
         }
 
         Ref<Framebuffer> oitFramebuffer;
-        if (m_OITEnabled)
-        {
-            if (const auto* board = context.GetBlackboard(); board && board->OITAccum.IsValid())
-                oitFramebuffer = context.ResolveFramebuffer(board->OITAccum);
-        }
+        if (m_OITEnabled && m_SelectedOITFramebuffer.IsValid())
+            oitFramebuffer = context.ResolveFramebuffer(m_SelectedOITFramebuffer);
 
         const bool useOIT = m_OITEnabled && oitFramebuffer && m_OITShader;
 
@@ -245,6 +281,8 @@ namespace OloEngine
         // hot-reload) doesn't leave it latched to "true" from the previous
         // frame, which would cause ExecuteOnGBuffer to skip all opaque decals.
         m_OpaqueDecalsDrained = false;
+        m_SelectedOITFramebuffer = {};
+        m_SelectedSceneDepthTexture = {};
         // No own framebuffer to reset
     }
 

@@ -627,29 +627,11 @@ namespace OloEngine
 
         if (passName == "ScenePass" || passName == "DeferredOpaqueDecalPass")
         {
+            captureGraphTexture(Source::SceneNormals, ResourceNames::SceneNormals);
             captureGraphTexture(Source::GBufferAlbedo, ResourceNames::GBufferAlbedo);
             captureGraphTexture(Source::GBufferNormal, ResourceNames::GBufferNormal);
             captureGraphTexture(Source::GBufferEmissive, ResourceNames::GBufferEmissive);
             captureGraphTexture(Source::Velocity, ResourceNames::Velocity);
-        }
-
-        if (passName == "ScenePass")
-        {
-            if (const auto sceneFB = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor); sceneFB)
-            {
-                const auto& spec = sceneFB->GetSpecification();
-                const u32 colorAttachmentCount = CountColorAttachments(spec);
-                if (colorAttachmentCount > 2)
-                {
-                    captureTexture(Source::SceneNormals, ResourceNames::SceneNormals,
-                                   sceneFB->GetColorAttachmentRendererID(2), spec.Width, spec.Height, sceneFB->GetRendererID());
-                }
-                if (colorAttachmentCount > 3)
-                {
-                    captureTexture(Source::Velocity, ResourceNames::Velocity,
-                                   sceneFB->GetColorAttachmentRendererID(3), spec.Width, spec.Height, sceneFB->GetRendererID());
-                }
-            }
         }
 
         if (passName == "SSSPass")

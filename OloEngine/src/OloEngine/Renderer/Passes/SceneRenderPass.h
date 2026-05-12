@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/GBuffer.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
 
 namespace OloEngine
 {
@@ -36,14 +37,13 @@ namespace OloEngine
         SceneRenderPass();
         ~SceneRenderPass() override = default;
 
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] SubmissionModel GetSubmissionModel() const override
         {
             return SubmissionModel::Mixed;
         }
-        [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
@@ -80,5 +80,8 @@ namespace OloEngine
         // RT1.w (AO) into one RGB image for DebugChannel == 3. The other
         // debug channels are cheap single-attachment blits.
         Ref<Shader> m_DebugRMAShader;
+        RGTextureHandle m_SelectedSceneDepthExport{};
+        RGTextureHandle m_SelectedSceneNormalsExport{};
+        RGTextureHandle m_SelectedVelocityExport{};
     };
 } // namespace OloEngine

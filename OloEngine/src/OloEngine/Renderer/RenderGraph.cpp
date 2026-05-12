@@ -1,5 +1,14 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RenderGraph.h"
+
+#include "OloEngine/Renderer/RenderGraphBarrierPlanner.h"
+#include "OloEngine/Renderer/RenderGraphHandleAllocator.h"
+#include "OloEngine/Renderer/RenderGraphHazardValidator.h"
+#include "OloEngine/Renderer/RenderGraphPlanExecutor.h"
+#include "OloEngine/Renderer/RenderGraphReachability.h"
+#include "OloEngine/Renderer/RenderGraphResourceRegistry.h"
+#include "OloEngine/Renderer/RenderGraphSubmissionPlan.h"
+#include "OloEngine/Renderer/RenderGraphTransientPlanner.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 
@@ -46,6 +55,19 @@ namespace OloEngine
             return enabled;
         }
 
+        [[nodiscard]] auto HasExplicitVersionQualifier(const std::string_view resourceName) -> bool
+        {
+            return resourceName.find('@') != std::string_view::npos;
+        }
+
+        [[nodiscard]] auto GetVersionLookupBaseName(const std::string_view resourceName) -> std::string_view
+        {
+            if (const auto versionPos = resourceName.find('@'); versionPos != std::string_view::npos)
+                return resourceName.substr(0u, versionPos);
+
+            return resourceName;
+        }
+
         Ref<RenderGraphNode> TryGetGraphEntryNode(
             std::string_view name,
             const std::unordered_map<std::string, Ref<RenderGraphNode>>& nodeLookup)
@@ -55,6 +77,41 @@ namespace OloEngine
 
             return nullptr;
         }
+
+        struct NodeAuthoringDiagnostics
+        {
+            bool UsesSetupCallback = false;
+            bool UsesDynamicDeclarations = false;
+            bool BucketBacked = false;
+        };
+
+        [[nodiscard]] auto GatherNodeAuthoringDiagnostics(
+            const RenderGraphNode& node,
+            const std::vector<RGAccessDeclaration>* dynamicAccesses = nullptr) -> NodeAuthoringDiagnostics
+        {
+            NodeAuthoringDiagnostics diagnostics{};
+            diagnostics.UsesSetupCallback = node.UsesSetupCallback();
+            diagnostics.UsesDynamicDeclarations = dynamicAccesses != nullptr && !dynamicAccesses->empty();
+
+            const auto submissionModel = node.GetSubmissionModel();
+            diagnostics.BucketBacked = submissionModel == RenderGraphSubmissionModel::BucketOnly ||
+                                       submissionModel == RenderGraphSubmissionModel::Mixed;
+            return diagnostics;
+        }
+
+        [[nodiscard]] auto FindPassAccessDeclarations(
+            const std::unordered_map<std::string, std::vector<RGAccessDeclaration>>& passAccessDeclarations,
+            std::string_view passName) -> const std::vector<RGAccessDeclaration>*
+        {
+            if (const auto accessIt = passAccessDeclarations.find(std::string(passName));
+                accessIt != passAccessDeclarations.end())
+            {
+                return &accessIt->second;
+            }
+
+            return nullptr;
+        }
+
     } // namespace
 
     void RenderGraph::Init(u32 width, u32 height)
@@ -92,22 +149,31 @@ namespace OloEngine
         m_HasExplicitFinalPass = false;
         m_ReachablePasses.clear();
         m_CulledPasses.clear();
+        m_LastBuildStats = {};
         m_PassAccessDeclarations.clear();
+        m_PassFeedbackDeclarations.clear();
         m_PassBarrierFlags.clear();
         m_PlannedBarriers.clear();
+        m_BuildDiagnostics.clear();
         m_BarrierDiagnostics.clear();
         m_LastExecutionTimings.clear();
         m_ResolveFailures.clear();
         m_CachedSubmissionPlan.clear();
         m_LastLoggedSubmissionPlanDigest.clear();
         m_LastLoggedCulledPassDigest.clear();
+        m_LastLoggedBuildDiagnosticDigest.clear();
         m_ImportedResources.clear();
         m_ResourceRegistry.clear();
         m_RegisteredResources.clear();
         m_ResourceRegistryDiagnostics.clear();
         m_TextureHandlesByName.clear();
+        m_LatestTextureHandlesByBaseName.clear();
+        m_TextureViewResourceDescs.clear();
+        m_TextureViewDefinitions.clear();
         m_BufferHandlesByName.clear();
+        m_LatestBufferHandlesByBaseName.clear();
         m_FramebufferHandlesByName.clear();
+        m_LatestFramebufferHandlesByBaseName.clear();
         m_TextureHandleSlots.clear();
         m_BufferHandleSlots.clear();
         m_FramebufferHandleSlots.clear();
@@ -118,12 +184,19 @@ namespace OloEngine
         m_PhysicalFramebuffers.clear();
         m_PhysicalBuffers.clear();
         m_TextureExtracts.clear();
+        m_ExternalTextureSinkContracts.clear();
         m_HistoryTextureExtracts.clear();
         m_FramebufferExtracts.clear();
         m_TemporalHistoryContracts.clear();
+        m_ExternalTextureSinks.clear();
+        m_HistoryTextureSinks.clear();
+        m_ExternallyBackedTransientTextures.clear();
+        m_ExternallyBackedTransientFramebuffers.clear();
         m_Blackboard.Reset();
         m_TransientResourceDescs.clear();
         m_TransientPlan.clear();
+        m_ExplicitVersionProducers.clear();
+        m_LastWriterPassNameByResource.clear();
         m_ResourceRegistryDirty = true;
     }
 
@@ -145,23 +218,32 @@ namespace OloEngine
         m_HasExplicitFinalPass = false;
         m_ReachablePasses.clear();
         m_CulledPasses.clear();
+        m_LastBuildStats = {};
         m_PassAccessDeclarations.clear();
+        m_PassFeedbackDeclarations.clear();
         m_PassBarrierFlags.clear();
         m_PlannedBarriers.clear();
+        m_BuildDiagnostics.clear();
         m_BarrierDiagnostics.clear();
         m_LastExecutionTimings.clear();
         m_ResolveFailures.clear();
         m_CachedSubmissionPlan.clear();
         m_LastLoggedSubmissionPlanDigest.clear();
         m_LastLoggedCulledPassDigest.clear();
+        m_LastLoggedBuildDiagnosticDigest.clear();
         m_DependencyGraphDirty = true;
         m_ImportedResources.clear();
         m_ResourceRegistry.clear();
         m_RegisteredResources.clear();
         m_ResourceRegistryDiagnostics.clear();
         m_TextureHandlesByName.clear();
+        m_LatestTextureHandlesByBaseName.clear();
+        m_TextureViewResourceDescs.clear();
+        m_TextureViewDefinitions.clear();
         m_BufferHandlesByName.clear();
+        m_LatestBufferHandlesByBaseName.clear();
         m_FramebufferHandlesByName.clear();
+        m_LatestFramebufferHandlesByBaseName.clear();
 
         auto invalidateSlots = [](auto& slots, auto& freeIndices)
         {
@@ -192,12 +274,18 @@ namespace OloEngine
         m_PhysicalFramebuffers.clear();
         m_PhysicalBuffers.clear();
         m_TextureExtracts.clear();
+        m_ExternalTextureSinkContracts.clear();
         m_HistoryTextureExtracts.clear();
         m_FramebufferExtracts.clear();
         m_TemporalHistoryContracts.clear();
+        m_ExternalTextureSinks.clear();
+        m_HistoryTextureSinks.clear();
+        m_ExternallyBackedTransientTextures.clear();
+        m_ExternallyBackedTransientFramebuffers.clear();
         m_Blackboard.Reset();
         m_TransientResourceDescs.clear();
         m_TransientPlan.clear();
+        m_ExplicitVersionProducers.clear();
 
         m_ResourceRegistryDirty = true;
     }
@@ -237,6 +325,16 @@ namespace OloEngine
     void RenderGraph::ClearImportedResources()
     {
         m_ImportedResources.clear();
+        m_TextureViewResourceDescs.clear();
+        m_TextureViewDefinitions.clear();
+        m_LatestTextureHandlesByBaseName.clear();
+        m_LatestBufferHandlesByBaseName.clear();
+        m_LatestFramebufferHandlesByBaseName.clear();
+        m_ExternalTextureSinkContracts.clear();
+        m_ExternalTextureSinks.clear();
+        m_HistoryTextureSinks.clear();
+        m_ExternallyBackedTransientTextures.clear();
+        m_ExternallyBackedTransientFramebuffers.clear();
         m_ResourceRegistryDirty = true;
     }
 
@@ -328,6 +426,31 @@ namespace OloEngine
 
         m_TextureHandlesByName[std::string(name)] = handle;
         return handle;
+    }
+
+    RGTextureHandle RenderGraph::CreateVersionedTextureHandle(const RGTextureHandle sourceHandle,
+                                                              std::string_view versionedName,
+                                                              std::string_view ownerPassName)
+    {
+        if (!sourceHandle.IsValid() || versionedName.empty())
+            return {};
+
+        const auto sourceResource = GetResourceName(sourceHandle);
+        if (sourceResource.empty())
+            return {};
+
+        auto desc = BuildVersionedResourceDesc(sourceResource,
+                                               ResourceHandle::Kind::Texture2D,
+                                               versionedName);
+        auto versionHandle = AllocateTransientTextureHandle(versionedName, desc);
+        if (!ownerPassName.empty())
+            m_ExplicitVersionProducers[std::string(versionedName)] = std::string(ownerPassName);
+        if (versionHandle.IsValid())
+        {
+            m_LatestTextureHandlesByBaseName[std::string(GetVersionLookupBaseName(sourceResource))] = versionHandle;
+        }
+
+        return versionHandle;
     }
 
     RGFramebufferHandle RenderGraph::AllocateFramebufferHandle(std::string_view name, const Ref<Framebuffer>& fb, bool isPlaceholder, std::string_view placeholderReason)
@@ -427,6 +550,31 @@ namespace OloEngine
         return handle;
     }
 
+    RGFramebufferHandle RenderGraph::CreateVersionedFramebufferHandle(const RGFramebufferHandle sourceHandle,
+                                                                      std::string_view versionedName,
+                                                                      std::string_view ownerPassName)
+    {
+        if (!sourceHandle.IsValid() || versionedName.empty())
+            return {};
+
+        const auto sourceResource = GetResourceName(sourceHandle);
+        if (sourceResource.empty())
+            return {};
+
+        auto desc = BuildVersionedResourceDesc(sourceResource,
+                                               ResourceHandle::Kind::Framebuffer,
+                                               versionedName);
+        auto versionHandle = AllocateTransientFramebufferHandle(versionedName, desc);
+        if (!ownerPassName.empty())
+            m_ExplicitVersionProducers[std::string(versionedName)] = std::string(ownerPassName);
+        if (versionHandle.IsValid())
+        {
+            m_LatestFramebufferHandlesByBaseName[std::string(GetVersionLookupBaseName(sourceResource))] = versionHandle;
+        }
+
+        return versionHandle;
+    }
+
     RGBufferHandle RenderGraph::AllocateBufferHandle(std::string_view name, u32 bufferID, bool isPlaceholder, std::string_view placeholderReason)
     {
         RGBufferHandle handle;
@@ -502,6 +650,31 @@ namespace OloEngine
         return handle;
     }
 
+    RGBufferHandle RenderGraph::CreateVersionedBufferHandle(const RGBufferHandle sourceHandle,
+                                                            std::string_view versionedName,
+                                                            std::string_view ownerPassName)
+    {
+        if (!sourceHandle.IsValid() || versionedName.empty())
+            return {};
+
+        const auto sourceResource = GetResourceName(sourceHandle);
+        if (sourceResource.empty())
+            return {};
+
+        auto desc = BuildVersionedResourceDesc(sourceResource,
+                                               ResourceHandle::Kind::StorageBuffer,
+                                               versionedName);
+        auto versionHandle = AllocateTransientBufferHandle(versionedName, desc);
+        if (!ownerPassName.empty())
+            m_ExplicitVersionProducers[std::string(versionedName)] = std::string(ownerPassName);
+        if (versionHandle.IsValid())
+        {
+            m_LatestBufferHandlesByBaseName[std::string(GetVersionLookupBaseName(sourceResource))] = versionHandle;
+        }
+
+        return versionHandle;
+    }
+
     RGTextureHandle RenderGraph::ImportTexture(std::string_view name, u32 textureID,
                                                const RGResourceDesc& desc)
     {
@@ -570,8 +743,441 @@ namespace OloEngine
         return AllocateTextureHandle(name, textureID, /*isHistory=*/true, importDesc.IsPlaceholder, importDesc.PlaceholderReason);
     }
 
+    RGTextureHandle RenderGraph::CreateFramebufferAttachmentView(std::string_view name,
+                                                                 const RGFramebufferHandle framebufferHandle,
+                                                                 const u32 colorAttachmentIndex)
+    {
+        if (name.empty() || !framebufferHandle.IsValid())
+            return {};
+
+        const auto parentResource = std::string(GetResourceName(framebufferHandle));
+        if (parentResource.empty())
+            return {};
+
+        const auto* parentInfo = FindRegisteredResource(parentResource);
+        if (!parentInfo || parentInfo->Desc.Kind != ResourceHandle::Kind::Framebuffer)
+        {
+            OLO_CORE_ERROR("RenderGraph::CreateFramebufferAttachmentView: parent '{}' is not a registered framebuffer resource",
+                           parentResource);
+            return {};
+        }
+
+        const auto isDepthFormat = [](const RGResourceFormat format)
+        {
+            return format == RGResourceFormat::Depth24Stencil8 ||
+                   format == RGResourceFormat::Depth32Float ||
+                   format == RGResourceFormat::Unknown;
+        };
+
+        RGResourceDesc viewDesc = parentInfo->Desc;
+        viewDesc.Kind = ResourceHandle::Kind::Texture2D;
+        viewDesc.DebugName = std::string(name);
+        viewDesc.Attachments.clear();
+        viewDesc.DepthOrLayers = 1u;
+
+        if (!parentInfo->Desc.Attachments.empty())
+        {
+            if (colorAttachmentIndex >= parentInfo->Desc.Attachments.size())
+            {
+                OLO_CORE_ERROR("RenderGraph::CreateFramebufferAttachmentView: attachment index {} is out of range for framebuffer '{}'",
+                               colorAttachmentIndex,
+                               parentResource);
+                return {};
+            }
+
+            const auto attachmentFormat = parentInfo->Desc.Attachments[colorAttachmentIndex];
+            if (isDepthFormat(attachmentFormat))
+            {
+                OLO_CORE_ERROR("RenderGraph::CreateFramebufferAttachmentView: attachment index {} of '{}' is not a colour attachment",
+                               colorAttachmentIndex,
+                               parentResource);
+                return {};
+            }
+
+            viewDesc.Format = attachmentFormat;
+        }
+        else
+        {
+            if (colorAttachmentIndex != 0u || isDepthFormat(parentInfo->Desc.Format))
+            {
+                OLO_CORE_ERROR("RenderGraph::CreateFramebufferAttachmentView: framebuffer '{}' has no matching colour attachment {}",
+                               parentResource,
+                               colorAttachmentIndex);
+                return {};
+            }
+
+            viewDesc.Format = parentInfo->Desc.Format;
+        }
+
+        const auto stableName = std::string(name);
+        m_TextureViewDefinitions[stableName] = TextureViewDefinition{
+            .ParentResource = parentResource,
+            .Kind = TextureViewKind::FramebufferColorAttachment,
+            .AttachmentIndex = colorAttachmentIndex,
+        };
+        m_TextureViewResourceDescs[stableName] = viewDesc;
+        m_ResourceRegistryDirty = true;
+
+        const auto handle = AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason);
+        if (handle.IsValid() && HasExplicitVersionQualifier(stableName))
+            m_LatestTextureHandlesByBaseName[std::string(GetVersionLookupBaseName(stableName))] = handle;
+        return handle;
+    }
+
+    RGTextureHandle RenderGraph::CreateFramebufferDepthAttachmentView(std::string_view name,
+                                                                      const RGFramebufferHandle framebufferHandle)
+    {
+        if (name.empty() || !framebufferHandle.IsValid())
+            return {};
+
+        const auto parentResource = std::string(GetResourceName(framebufferHandle));
+        if (parentResource.empty())
+            return {};
+
+        const auto* parentInfo = FindRegisteredResource(parentResource);
+        if (!parentInfo || parentInfo->Desc.Kind != ResourceHandle::Kind::Framebuffer)
+        {
+            OLO_CORE_ERROR("RenderGraph::CreateFramebufferDepthAttachmentView: parent '{}' is not a registered framebuffer resource",
+                           parentResource);
+            return {};
+        }
+
+        const auto isDepthFormat = [](const RGResourceFormat format)
+        {
+            return format == RGResourceFormat::Depth24Stencil8 ||
+                   format == RGResourceFormat::Depth32Float;
+        };
+
+        RGResourceDesc viewDesc = parentInfo->Desc;
+        viewDesc.Kind = ResourceHandle::Kind::Texture2D;
+        viewDesc.DebugName = std::string(name);
+        viewDesc.Attachments.clear();
+        viewDesc.DepthOrLayers = 1u;
+
+        if (!parentInfo->Desc.Attachments.empty())
+        {
+            if (const auto depthIt = std::find_if(parentInfo->Desc.Attachments.begin(),
+                                                  parentInfo->Desc.Attachments.end(),
+                                                  [&isDepthFormat](const RGResourceFormat format)
+                                                  {
+                                                      return isDepthFormat(format);
+                                                  });
+                depthIt != parentInfo->Desc.Attachments.end())
+            {
+                viewDesc.Format = *depthIt;
+            }
+            else
+            {
+                OLO_CORE_ERROR("RenderGraph::CreateFramebufferDepthAttachmentView: framebuffer '{}' has no depth attachment",
+                               parentResource);
+                return {};
+            }
+        }
+        else
+        {
+            if (!isDepthFormat(parentInfo->Desc.Format))
+            {
+                OLO_CORE_ERROR("RenderGraph::CreateFramebufferDepthAttachmentView: framebuffer '{}' has no depth attachment",
+                               parentResource);
+                return {};
+            }
+
+            viewDesc.Format = parentInfo->Desc.Format;
+        }
+
+        const auto stableName = std::string(name);
+        m_TextureViewDefinitions[stableName] = TextureViewDefinition{
+            .ParentResource = parentResource,
+            .Kind = TextureViewKind::FramebufferDepthAttachment,
+            .AttachmentIndex = 0u,
+        };
+        m_TextureViewResourceDescs[stableName] = viewDesc;
+        m_ResourceRegistryDirty = true;
+
+        return AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason);
+    }
+
+    RGTextureHandle RenderGraph::CreateTextureMipView(std::string_view name,
+                                                      const RGTextureHandle textureHandle,
+                                                      const u32 mipLevel)
+    {
+        if (name.empty() || !textureHandle.IsValid())
+            return {};
+
+        const auto parentResource = std::string(GetResourceName(textureHandle));
+        if (parentResource.empty())
+            return {};
+
+        if (m_TextureViewDefinitions.find(parentResource) != m_TextureViewDefinitions.end())
+        {
+            OLO_CORE_ERROR("RenderGraph::CreateTextureMipView: nested texture views are not supported for '{}'",
+                           parentResource);
+            return {};
+        }
+
+        const auto* parentInfo = FindRegisteredResource(parentResource);
+        if (!parentInfo)
+        {
+            OLO_CORE_ERROR("RenderGraph::CreateTextureMipView: parent '{}' is not a registered texture resource",
+                           parentResource);
+            return {};
+        }
+
+        const auto isTextureKind = [](const ResourceHandle::Kind kind)
+        {
+            return kind == ResourceHandle::Kind::Texture2D ||
+                   kind == ResourceHandle::Kind::Texture2DArray ||
+                   kind == ResourceHandle::Kind::TextureCube ||
+                   kind == ResourceHandle::Kind::TextureCubeArray;
+        };
+
+        if (!isTextureKind(parentInfo->Desc.Kind))
+        {
+            OLO_CORE_ERROR("RenderGraph::CreateTextureMipView: parent '{}' is not a registered texture resource",
+                           parentResource);
+            return {};
+        }
+
+        const auto parentMipCount = std::max(parentInfo->Desc.MipLevels, 1u);
+        if (mipLevel >= parentMipCount)
+        {
+            OLO_CORE_ERROR("RenderGraph::CreateTextureMipView: mip level {} is out of range for '{}' (mipCount={})",
+                           mipLevel,
+                           parentResource,
+                           parentMipCount);
+            return {};
+        }
+
+        const auto mipDimension = [](u32 dimension, const u32 targetMip)
+        {
+            if (dimension == 0u)
+                return 0u;
+
+            for (u32 mip = 0u; mip < targetMip; ++mip)
+                dimension = std::max(dimension / 2u, 1u);
+
+            return dimension;
+        };
+
+        RGResourceDesc viewDesc = parentInfo->Desc;
+        viewDesc.DebugName = std::string(name);
+        viewDesc.Attachments.clear();
+        viewDesc.Width = mipDimension(parentInfo->Desc.Width, mipLevel);
+        viewDesc.Height = mipDimension(parentInfo->Desc.Height, mipLevel);
+        viewDesc.MipLevels = 1u;
+
+        const auto stableName = std::string(name);
+        m_TextureViewDefinitions[stableName] = TextureViewDefinition{
+            .ParentResource = parentResource,
+            .Kind = TextureViewKind::TextureMip,
+            .AttachmentIndex = 0u,
+            .ParentRange = RGSubresourceRange::Mip(mipLevel),
+        };
+        m_TextureViewResourceDescs[stableName] = viewDesc;
+        m_ResourceRegistryDirty = true;
+
+        return AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason);
+    }
+
+    RGTextureHandle RenderGraph::CreateTextureArrayLayerView(std::string_view name,
+                                                             const RGTextureHandle textureHandle,
+                                                             const u32 layerIndex)
+    {
+        if (name.empty() || !textureHandle.IsValid())
+            return {};
+
+        const auto parentResource = std::string(GetResourceName(textureHandle));
+        if (parentResource.empty())
+            return {};
+
+        if (m_TextureViewDefinitions.find(parentResource) != m_TextureViewDefinitions.end())
+        {
+            OLO_CORE_ERROR("RenderGraph::CreateTextureArrayLayerView: nested texture views are not supported for '{}'",
+                           parentResource);
+            return {};
+        }
+
+        const auto* parentInfo = FindRegisteredResource(parentResource);
+        if (!parentInfo || parentInfo->Desc.Kind != ResourceHandle::Kind::Texture2DArray)
+        {
+            OLO_CORE_ERROR("RenderGraph::CreateTextureArrayLayerView: parent '{}' is not a registered texture-array resource",
+                           parentResource);
+            return {};
+        }
+
+        const auto parentLayerCount = std::max(parentInfo->Desc.DepthOrLayers, 1u);
+        if (layerIndex >= parentLayerCount)
+        {
+            OLO_CORE_ERROR("RenderGraph::CreateTextureArrayLayerView: layer index {} is out of range for '{}' (layerCount={})",
+                           layerIndex,
+                           parentResource,
+                           parentLayerCount);
+            return {};
+        }
+
+        RGResourceDesc viewDesc = parentInfo->Desc;
+        viewDesc.DebugName = std::string(name);
+        viewDesc.Attachments.clear();
+        viewDesc.DepthOrLayers = 1u;
+
+        const auto stableName = std::string(name);
+        m_TextureViewDefinitions[stableName] = TextureViewDefinition{
+            .ParentResource = parentResource,
+            .Kind = TextureViewKind::TextureArrayLayer,
+            .AttachmentIndex = 0u,
+            .ParentRange = RGSubresourceRange::Layer(layerIndex),
+        };
+        m_TextureViewResourceDescs[stableName] = viewDesc;
+        m_ResourceRegistryDirty = true;
+
+        return AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason);
+    }
+
+    RGTextureHandle RenderGraph::CreateTextureCubeFaceView(std::string_view name,
+                                                           const RGTextureHandle textureHandle,
+                                                           const u32 faceIndex)
+    {
+        if (name.empty() || !textureHandle.IsValid())
+            return {};
+
+        const auto parentResource = std::string(GetResourceName(textureHandle));
+        if (parentResource.empty())
+            return {};
+
+        if (m_TextureViewDefinitions.find(parentResource) != m_TextureViewDefinitions.end())
+        {
+            OLO_CORE_ERROR("RenderGraph::CreateTextureCubeFaceView: nested texture views are not supported for '{}'",
+                           parentResource);
+            return {};
+        }
+
+        const auto* parentInfo = FindRegisteredResource(parentResource);
+        if (!parentInfo || parentInfo->Desc.Kind != ResourceHandle::Kind::TextureCube)
+        {
+            OLO_CORE_ERROR("RenderGraph::CreateTextureCubeFaceView: parent '{}' is not a registered cubemap resource",
+                           parentResource);
+            return {};
+        }
+
+        if (faceIndex >= 6u)
+        {
+            OLO_CORE_ERROR("RenderGraph::CreateTextureCubeFaceView: face index {} is out of range for '{}'",
+                           faceIndex,
+                           parentResource);
+            return {};
+        }
+
+        RGResourceDesc viewDesc = parentInfo->Desc;
+        viewDesc.DebugName = std::string(name);
+        viewDesc.Attachments.clear();
+        viewDesc.DepthOrLayers = 1u;
+
+        RGSubresourceRange faceRange{};
+        faceRange.BaseSlice = faceIndex;
+        faceRange.SliceCount = 1u;
+
+        const auto stableName = std::string(name);
+        m_TextureViewDefinitions[stableName] = TextureViewDefinition{
+            .ParentResource = parentResource,
+            .Kind = TextureViewKind::TextureCubeFace,
+            .AttachmentIndex = 0u,
+            .ParentRange = faceRange,
+        };
+        m_TextureViewResourceDescs[stableName] = viewDesc;
+        m_ResourceRegistryDirty = true;
+
+        return AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason);
+    }
+
+    RGTextureHandle RenderGraph::CreateTextureMultisampleResolveView(std::string_view name,
+                                                                     const RGTextureHandle multisampleTextureHandle,
+                                                                     const RGTextureHandle resolvedTextureHandle)
+    {
+        if (name.empty() || !multisampleTextureHandle.IsValid() || !resolvedTextureHandle.IsValid())
+            return {};
+
+        const auto parentResource = std::string(GetResourceName(multisampleTextureHandle));
+        const auto backingResource = std::string(GetResourceName(resolvedTextureHandle));
+        if (parentResource.empty() || backingResource.empty())
+            return {};
+
+        const auto* parentInfo = FindRegisteredResource(parentResource);
+        const auto* backingInfo = FindRegisteredResource(backingResource);
+        if (!parentInfo || !backingInfo)
+        {
+            OLO_CORE_ERROR("RenderGraph::CreateTextureMultisampleResolveView: parent '{}' or backing '{}' is not a registered texture resource",
+                           parentResource,
+                           backingResource);
+            return {};
+        }
+
+        const auto isTextureKind = [](const ResourceHandle::Kind kind)
+        {
+            return kind == ResourceHandle::Kind::Texture2D ||
+                   kind == ResourceHandle::Kind::Texture2DArray ||
+                   kind == ResourceHandle::Kind::TextureCube ||
+                   kind == ResourceHandle::Kind::TextureCubeArray;
+        };
+
+        if (!isTextureKind(parentInfo->Desc.Kind) || !isTextureKind(backingInfo->Desc.Kind))
+        {
+            OLO_CORE_ERROR("RenderGraph::CreateTextureMultisampleResolveView: parent '{}' or backing '{}' is not a registered texture resource",
+                           parentResource,
+                           backingResource);
+            return {};
+        }
+
+        if (parentInfo->Desc.Samples <= 1u)
+        {
+            OLO_CORE_ERROR("RenderGraph::CreateTextureMultisampleResolveView: parent '{}' is not multisampled (samples={})",
+                           parentResource,
+                           parentInfo->Desc.Samples);
+            return {};
+        }
+
+        if (std::max(backingInfo->Desc.Samples, 1u) != 1u)
+        {
+            OLO_CORE_ERROR("RenderGraph::CreateTextureMultisampleResolveView: backing '{}' must be single-sample (samples={})",
+                           backingResource,
+                           backingInfo->Desc.Samples);
+            return {};
+        }
+
+        if (parentInfo->Desc.Kind != backingInfo->Desc.Kind ||
+            parentInfo->Desc.Format != backingInfo->Desc.Format ||
+            parentInfo->Desc.Width != backingInfo->Desc.Width ||
+            parentInfo->Desc.Height != backingInfo->Desc.Height ||
+            std::max(parentInfo->Desc.DepthOrLayers, 1u) != std::max(backingInfo->Desc.DepthOrLayers, 1u))
+        {
+            OLO_CORE_ERROR("RenderGraph::CreateTextureMultisampleResolveView: parent '{}' and backing '{}' descriptors do not match",
+                           parentResource,
+                           backingResource);
+            return {};
+        }
+
+        auto viewDesc = backingInfo->Desc;
+        viewDesc.DebugName = std::string(name);
+        viewDesc.Attachments.clear();
+        viewDesc.Samples = 1u;
+
+        const auto stableName = std::string(name);
+        m_TextureViewDefinitions[stableName] = TextureViewDefinition{
+            .ParentResource = parentResource,
+            .BackingResource = backingResource,
+            .Kind = TextureViewKind::TextureMultisampleResolve,
+            .AttachmentIndex = 0u,
+            .ParentRange = RGSubresourceRange::Full(),
+        };
+        m_TextureViewResourceDescs[stableName] = viewDesc;
+        m_ResourceRegistryDirty = true;
+
+        return AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason);
+    }
+
     u32 RenderGraph::ResolveTexture(RGTextureHandle handle) const
     {
+        EnsureResourceRegistryBuilt();
+
         if (!handle.IsValid() || handle.Index >= m_PhysicalTextures.size())
             return 0;
         if (handle.Index >= m_TextureHandleSlots.size())
@@ -588,11 +1194,60 @@ namespace OloEngine
             slot.PlaceholderWarnedThisFrame = true;
         }
 
+        if (const auto viewIt = m_TextureViewDefinitions.find(slot.Name);
+            viewIt != m_TextureViewDefinitions.end())
+        {
+            const auto isTextureSubresourceView = [](const TextureViewKind kind)
+            {
+                return kind == TextureViewKind::TextureMip ||
+                       kind == TextureViewKind::TextureArrayLayer ||
+                       kind == TextureViewKind::TextureCubeFace;
+            };
+
+            if (viewIt->second.Kind == TextureViewKind::TextureMultisampleResolve)
+            {
+                if (const auto backingIt = m_TextureHandlesByName.find(viewIt->second.BackingResource);
+                    backingIt != m_TextureHandlesByName.end() && IsTextureHandleCurrent(backingIt->second))
+                {
+                    return ResolveTexture(backingIt->second);
+                }
+
+                return 0;
+            }
+
+            if (isTextureSubresourceView(viewIt->second.Kind))
+            {
+                if (const auto parentIt = m_TextureHandlesByName.find(viewIt->second.ParentResource);
+                    parentIt != m_TextureHandlesByName.end() && IsTextureHandleCurrent(parentIt->second))
+                {
+                    return ResolveTexture(parentIt->second);
+                }
+
+                return 0;
+            }
+
+            if (const auto parentIt = m_FramebufferHandlesByName.find(viewIt->second.ParentResource);
+                parentIt != m_FramebufferHandlesByName.end() && IsFramebufferHandleCurrent(parentIt->second))
+            {
+                if (auto framebuffer = ResolveFramebuffer(parentIt->second))
+                {
+                    if (viewIt->second.Kind == TextureViewKind::FramebufferDepthAttachment)
+                        return framebuffer->GetDepthAttachmentRendererID();
+
+                    return framebuffer->GetColorAttachmentRendererID(viewIt->second.AttachmentIndex);
+                }
+            }
+
+            return 0;
+        }
+
         return m_PhysicalTextures[handle.Index].TextureID;
     }
 
     Ref<Framebuffer> RenderGraph::ResolveFramebuffer(RGFramebufferHandle handle) const
     {
+        EnsureResourceRegistryBuilt();
+
         if (!handle.IsValid() || handle.Index >= m_PhysicalFramebuffers.size())
             return nullptr;
         if (handle.Index >= m_FramebufferHandleSlots.size())
@@ -614,6 +1269,8 @@ namespace OloEngine
 
     u32 RenderGraph::ResolveBuffer(RGBufferHandle handle) const
     {
+        EnsureResourceRegistryBuilt();
+
         if (!handle.IsValid() || handle.Index >= m_PhysicalBuffers.size())
             return 0;
         if (handle.Index >= m_BufferHandleSlots.size())
@@ -676,6 +1333,170 @@ namespace OloEngine
         m_TextureExtracts.push_back({ handle, std::move(callback) });
     }
 
+    void RenderGraph::RegisterExternalTextureSink(RGTextureHandle sourceHandle,
+                                                  const u32 textureID,
+                                                  const u32 width,
+                                                  const u32 height,
+                                                  bool* const validFlag)
+    {
+        if (!sourceHandle.IsValid())
+            return;
+
+        const auto sourceResource = GetResourceName(sourceHandle);
+        if (sourceResource.empty())
+            return;
+
+        RegisterExternalTextureSink(sourceResource, textureID, width, height, 0u, validFlag);
+    }
+
+    void RenderGraph::RegisterExternalTextureSink(RGFramebufferHandle sourceHandle,
+                                                  const u32 textureID,
+                                                  const u32 width,
+                                                  const u32 height,
+                                                  const u32 colorAttachmentIndex,
+                                                  bool* const validFlag)
+    {
+        if (!sourceHandle.IsValid())
+            return;
+
+        const auto sourceResource = GetResourceName(sourceHandle);
+        if (sourceResource.empty())
+            return;
+
+        RegisterExternalTextureSink(sourceResource, textureID, width, height, colorAttachmentIndex, validFlag);
+    }
+
+    void RenderGraph::RegisterExternalTextureSink(std::string_view sourceResource,
+                                                  const u32 textureID,
+                                                  const u32 width,
+                                                  const u32 height,
+                                                  const u32 colorAttachmentIndex,
+                                                  bool* const validFlag)
+    {
+        if (sourceResource.empty())
+            return;
+
+        const ExternalTextureSinkKey key{ .SourceResource = std::string(sourceResource), .ColorAttachmentIndex = colorAttachmentIndex };
+        m_ExternalTextureSinks[key] = ExternalTextureSink{
+            .TextureID = textureID,
+            .Width = width,
+            .Height = height,
+            .ValidFlag = validFlag,
+        };
+        DeclareExternalTextureSink(sourceResource, colorAttachmentIndex);
+        RefreshExternalTextureSinkContracts();
+    }
+
+    void RenderGraph::DeclareExternalTextureSink(std::string_view sourceResource,
+                                                 const u32 colorAttachmentIndex)
+    {
+        if (sourceResource.empty())
+            return;
+
+        const auto existing = std::find_if(m_ExternalTextureSinkContracts.begin(),
+                                           m_ExternalTextureSinkContracts.end(),
+                                           [sourceResource, colorAttachmentIndex](const ExternalTextureSinkContract& contract)
+                                           {
+                                               return contract.SourceResource == sourceResource &&
+                                                      contract.ColorAttachmentIndex == colorAttachmentIndex;
+                                           });
+        if (existing != m_ExternalTextureSinkContracts.end())
+            return;
+
+        m_ExternalTextureSinkContracts.push_back(ExternalTextureSinkContract{
+            .SourceResource = std::string(sourceResource),
+            .ColorAttachmentIndex = colorAttachmentIndex,
+        });
+    }
+
+    void RenderGraph::RefreshExternalTextureSinkContracts()
+    {
+        if (m_ExternalTextureSinkContracts.empty())
+            return;
+
+        EnsureResourceRegistryBuilt();
+
+        for (auto& contract : m_ExternalTextureSinkContracts)
+        {
+            contract.SourceKind = ResourceHandle::Kind::Unknown;
+            contract.SourceReachable = IsResourceReachableForExtraction(contract.SourceResource);
+
+            if (const auto resourceIt = m_ResourceRegistry.find(contract.SourceResource);
+                resourceIt != m_ResourceRegistry.end())
+            {
+                contract.SourceKind = resourceIt->second.Desc.Kind;
+            }
+        }
+    }
+
+    void RenderGraph::RegisterHistoryTextureSink(std::string_view historyResource,
+                                                 const u32 textureID,
+                                                 const u32 width,
+                                                 const u32 height,
+                                                 bool* const validFlag)
+    {
+        if (historyResource.empty())
+            return;
+
+        m_HistoryTextureSinks[std::string(historyResource)] = HistoryTextureSink{
+            .TextureID = textureID,
+            .Width = width,
+            .Height = height,
+            .ValidFlag = validFlag,
+        };
+    }
+
+    void RenderGraph::DeclareHistoryTextureExtraction(std::string_view historyResource,
+                                                      std::string_view sourceResource,
+                                                      const TemporalHistoryContract::SourceKind kind,
+                                                      const u32 colorAttachmentIndex)
+    {
+        if (historyResource.empty() || sourceResource.empty())
+            return;
+
+        const auto existing = std::find_if(m_TemporalHistoryContracts.begin(),
+                                           m_TemporalHistoryContracts.end(),
+                                           [historyResource, sourceResource, kind, colorAttachmentIndex](const TemporalHistoryContract& contract)
+                                           {
+                                               return contract.HistoryResource == historyResource &&
+                                                      contract.SourceResource == sourceResource &&
+                                                      contract.Kind == kind &&
+                                                      contract.ColorAttachmentIndex == colorAttachmentIndex;
+                                           });
+        if (existing != m_TemporalHistoryContracts.end())
+            return;
+
+        m_TemporalHistoryContracts.push_back(TemporalHistoryContract{
+            .HistoryResource = std::string(historyResource),
+            .SourceResource = std::string(sourceResource),
+            .Kind = kind,
+            .ColorAttachmentIndex = colorAttachmentIndex,
+        });
+    }
+
+    void RenderGraph::RefreshTemporalHistoryContracts()
+    {
+        for (auto& contract : m_TemporalHistoryContracts)
+        {
+            contract.HistoryImported = HasHistoryTextureSink(contract.HistoryResource) ||
+                                       IsHistoryTextureResource(contract.HistoryResource);
+            contract.SourceReachable = IsResourceReachableForExtraction(contract.SourceResource);
+        }
+    }
+
+    void RenderGraph::ExtractHistoryTexture(std::string_view historyResource,
+                                            RGTextureHandle sourceHandle)
+    {
+        if (!sourceHandle.IsValid() || historyResource.empty())
+            return;
+
+        const auto sourceResource = std::string(GetResourceName(sourceHandle));
+        DeclareHistoryTextureExtraction(historyResource,
+                                        sourceResource,
+                                        TemporalHistoryContract::SourceKind::Texture);
+        RefreshTemporalHistoryContracts();
+    }
+
     void RenderGraph::ExtractHistoryTexture(std::string_view historyResource,
                                             RGTextureHandle sourceHandle,
                                             std::function<void(u32)> callback)
@@ -684,18 +1505,31 @@ namespace OloEngine
             return;
 
         const auto sourceResource = std::string(GetResourceName(sourceHandle));
-        m_TemporalHistoryContracts.push_back(TemporalHistoryContract{
-            .HistoryResource = std::string(historyResource),
-            .SourceResource = sourceResource,
-            .HistoryImported = IsHistoryTextureResource(historyResource),
-            .SourceReachable = IsResourceReachableForExtraction(sourceResource),
-        });
+        DeclareHistoryTextureExtraction(historyResource,
+                                        sourceResource,
+                                        TemporalHistoryContract::SourceKind::Texture);
+        RefreshTemporalHistoryContracts();
         m_HistoryTextureExtracts.push_back(HistoryTextureExtract{
             .HistoryResource = std::string(historyResource),
             .Kind = HistoryTextureExtract::SourceKind::Texture,
             .SourceTextureHandle = sourceHandle,
             .Callback = std::move(callback),
         });
+    }
+
+    void RenderGraph::ExtractHistoryTexture(std::string_view historyResource,
+                                            RGFramebufferHandle sourceHandle,
+                                            const u32 colorAttachmentIndex)
+    {
+        if (!sourceHandle.IsValid() || historyResource.empty())
+            return;
+
+        const auto sourceResource = std::string(GetResourceName(sourceHandle));
+        DeclareHistoryTextureExtraction(historyResource,
+                                        sourceResource,
+                                        TemporalHistoryContract::SourceKind::Framebuffer,
+                                        colorAttachmentIndex);
+        RefreshTemporalHistoryContracts();
     }
 
     void RenderGraph::ExtractHistoryTexture(std::string_view historyResource,
@@ -707,12 +1541,11 @@ namespace OloEngine
             return;
 
         const auto sourceResource = std::string(GetResourceName(sourceHandle));
-        m_TemporalHistoryContracts.push_back(TemporalHistoryContract{
-            .HistoryResource = std::string(historyResource),
-            .SourceResource = sourceResource,
-            .HistoryImported = IsHistoryTextureResource(historyResource),
-            .SourceReachable = IsResourceReachableForExtraction(sourceResource),
-        });
+        DeclareHistoryTextureExtraction(historyResource,
+                                        sourceResource,
+                                        TemporalHistoryContract::SourceKind::Framebuffer,
+                                        colorAttachmentIndex);
+        RefreshTemporalHistoryContracts();
         m_HistoryTextureExtracts.push_back(HistoryTextureExtract{
             .HistoryResource = std::string(historyResource),
             .Kind = HistoryTextureExtract::SourceKind::Framebuffer,
@@ -758,6 +1591,119 @@ namespace OloEngine
             });
             return false;
         };
+
+        for (auto& [historyResource, sink] : m_HistoryTextureSinks)
+        {
+            (void)historyResource;
+            if (sink.ValidFlag)
+                *sink.ValidFlag = false;
+        }
+
+        for (const auto& contract : m_TemporalHistoryContracts)
+        {
+            const auto sinkIt = m_HistoryTextureSinks.find(contract.HistoryResource);
+            if (sinkIt == m_HistoryTextureSinks.end())
+                continue;
+
+            auto& sink = sinkIt->second;
+            if (sink.TextureID == 0 || sink.Width == 0 || sink.Height == 0)
+                continue;
+
+            if (!diagnoseExtractionResource(contract.SourceResource, "<history-sink>"))
+                continue;
+
+            u32 sourceTextureID = 0;
+            if (contract.Kind == TemporalHistoryContract::SourceKind::Texture)
+            {
+                const auto sourceHandle = GetTextureHandle(contract.SourceResource);
+                if (!sourceHandle.IsValid() || !IsTextureHandleCurrent(sourceHandle))
+                {
+                    m_BarrierDiagnostics.push_back(BarrierDiagnostic{
+                        .Kind = BarrierDiagnosticKind::StaleExtractionHandle,
+                        .PassName = "<history-sink>",
+                        .Resource = std::string(contract.SourceResource),
+                        .Message = "History sink requested with stale or invalid source texture handle",
+                    });
+                    continue;
+                }
+
+                sourceTextureID = ResolveTexture(sourceHandle);
+            }
+            else
+            {
+                const auto sourceHandle = GetFramebufferHandle(contract.SourceResource);
+                if (!sourceHandle.IsValid() || !IsFramebufferHandleCurrent(sourceHandle))
+                {
+                    m_BarrierDiagnostics.push_back(BarrierDiagnostic{
+                        .Kind = BarrierDiagnosticKind::StaleExtractionHandle,
+                        .PassName = "<history-sink>",
+                        .Resource = std::string(contract.SourceResource),
+                        .Message = "History sink requested with stale or invalid source framebuffer handle",
+                    });
+                    continue;
+                }
+
+                if (auto sourceFramebuffer = ResolveFramebuffer(sourceHandle))
+                    sourceTextureID = sourceFramebuffer->GetColorAttachmentRendererID(contract.ColorAttachmentIndex);
+            }
+
+            if (sourceTextureID == 0)
+                continue;
+
+            glCopyImageSubData(sourceTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
+                               sink.TextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
+                               static_cast<GLsizei>(sink.Width),
+                               static_cast<GLsizei>(sink.Height),
+                               1);
+            if (sink.ValidFlag)
+                *sink.ValidFlag = true;
+        }
+
+        for (const auto& [sinkKey, sink] : m_ExternalTextureSinks)
+        {
+            if (sink.ValidFlag)
+                *sink.ValidFlag = false;
+
+            if (sink.TextureID == 0 || sink.Width == 0 || sink.Height == 0)
+                continue;
+
+            if (!diagnoseExtractionResource(sinkKey.SourceResource, "<external-sink>"))
+                continue;
+
+            u32 sourceTextureID = 0;
+            if (const auto textureHandle = GetTextureHandle(sinkKey.SourceResource);
+                textureHandle.IsValid() && IsTextureHandleCurrent(textureHandle))
+            {
+                sourceTextureID = ResolveTexture(textureHandle);
+            }
+            else if (const auto framebufferHandle = GetFramebufferHandle(sinkKey.SourceResource);
+                     framebufferHandle.IsValid() && IsFramebufferHandleCurrent(framebufferHandle))
+            {
+                if (auto sourceFramebuffer = ResolveFramebuffer(framebufferHandle))
+                    sourceTextureID = sourceFramebuffer->GetColorAttachmentRendererID(sinkKey.ColorAttachmentIndex);
+            }
+            else
+            {
+                m_BarrierDiagnostics.push_back(BarrierDiagnostic{
+                    .Kind = BarrierDiagnosticKind::StaleExtractionHandle,
+                    .PassName = "<external-sink>",
+                    .Resource = sinkKey.SourceResource,
+                    .Message = "External texture sink requested with stale or invalid source handle",
+                });
+                continue;
+            }
+
+            if (sourceTextureID == 0)
+                continue;
+
+            glCopyImageSubData(sourceTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
+                               sink.TextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
+                               static_cast<GLsizei>(sink.Width),
+                               static_cast<GLsizei>(sink.Height),
+                               1);
+            if (sink.ValidFlag)
+                *sink.ValidFlag = true;
+        }
 
         for (const auto& extract : m_TextureExtracts)
         {
@@ -863,124 +1809,350 @@ namespace OloEngine
 
     RGTextureHandle RenderGraph::AllocateTransientTextureHandle(std::string_view name, const RGResourceDesc& desc)
     {
+        const auto stableName = std::string(name);
+        const auto refreshLatestVersionLookup = [this, &stableName](const RGTextureHandle handle)
+        {
+            if (HasExplicitVersionQualifier(stableName))
+                m_LatestTextureHandlesByBaseName[std::string(GetVersionLookupBaseName(stableName))] = handle;
+        };
+
         auto transientDesc = desc;
         transientDesc.Imported = false;
         if (transientDesc.Kind == ResourceHandle::Kind::Unknown)
             transientDesc.Kind = ResourceHandle::Kind::Texture2D;
         if (transientDesc.DebugName.empty())
-            transientDesc.DebugName = std::string(name);
+            transientDesc.DebugName = stableName;
 
-        m_TransientResourceDescs[std::string(name)] = transientDesc;
+        m_TransientResourceDescs[stableName] = transientDesc;
         m_ResourceRegistryDirty = true;
+        m_ExternallyBackedTransientTextures.erase(stableName);
+
+        if (const auto existingIt = m_TextureHandlesByName.find(stableName);
+            existingIt != m_TextureHandlesByName.end() &&
+            existingIt->second.Index < m_TextureHandleSlots.size())
+        {
+            auto& slot = m_TextureHandleSlots[existingIt->second.Index];
+            if (slot.Generation == 0)
+                slot.Generation = 1;
+
+            slot.Alive = true;
+            slot.Name = stableName;
+            slot.IsPlaceholder = false;
+            slot.PlaceholderReason.clear();
+            slot.PlaceholderWarnedThisFrame = false;
+
+            const auto freeIt = std::find(m_FreeTextureHandleIndices.begin(),
+                                          m_FreeTextureHandleIndices.end(),
+                                          existingIt->second.Index);
+            if (freeIt != m_FreeTextureHandleIndices.end())
+                m_FreeTextureHandleIndices.erase(freeIt);
+
+            if (existingIt->second.Index >= m_PhysicalTextures.size())
+                m_PhysicalTextures.resize(static_cast<sizet>(existingIt->second.Index) + 1u);
+
+            const RGTextureHandle handle{ existingIt->second.Index, slot.Generation };
+            existingIt->second = handle;
+            refreshLatestVersionLookup(handle);
+            return handle;
+        }
 
         if (m_FreeTextureHandleIndices.empty())
         {
             u32 index = static_cast<u32>(m_TextureHandleSlots.size());
             m_TextureHandleSlots.emplace_back();
             m_TextureHandleSlots[index].Alive = true;
-            m_TextureHandleSlots[index].Name = std::string(name);
+            m_TextureHandleSlots[index].Name = stableName;
+            m_TextureHandleSlots[index].IsPlaceholder = false;
+            m_TextureHandleSlots[index].PlaceholderReason.clear();
+            m_TextureHandleSlots[index].PlaceholderWarnedThisFrame = false;
             m_PhysicalTextures.emplace_back();
-            return { index, static_cast<u32>(m_TextureHandleSlots[index].Generation) };
+            const RGTextureHandle handle{ index, static_cast<u32>(m_TextureHandleSlots[index].Generation) };
+            m_TextureHandlesByName[stableName] = handle;
+            refreshLatestVersionLookup(handle);
+            return handle;
         }
 
         u32 index = m_FreeTextureHandleIndices.back();
         m_FreeTextureHandleIndices.pop_back();
         auto& slot = m_TextureHandleSlots[index];
-        slot.Generation++;
+        if (slot.Generation == 0)
+            slot.Generation = 1;
         slot.Alive = true;
-        slot.Name = std::string(name);
+        slot.Name = stableName;
+        slot.IsPlaceholder = false;
+        slot.PlaceholderReason.clear();
+        slot.PlaceholderWarnedThisFrame = false;
         if (index >= m_PhysicalTextures.size())
             m_PhysicalTextures.resize(static_cast<sizet>(index) + 1u);
-        return { index, slot.Generation };
+
+        const RGTextureHandle handle{ index, slot.Generation };
+        m_TextureHandlesByName[stableName] = handle;
+        refreshLatestVersionLookup(handle);
+        return handle;
+    }
+
+    RGTextureHandle RenderGraph::DeclareTransientTexture(std::string_view name, const RGResourceDesc& desc)
+    {
+        return AllocateTransientTextureHandle(name, desc);
+    }
+
+    RGTextureHandle RenderGraph::DeclareTransientTexture(std::string_view name,
+                                                         const RGResourceDesc& desc,
+                                                         const u32 backingTextureID)
+    {
+        if (backingTextureID == 0)
+            return DeclareTransientTexture(name, desc);
+
+        auto handle = AllocateTransientTextureHandle(name, desc);
+        if (!handle.IsValid())
+            return handle;
+
+        const auto stableName = std::string(name);
+        m_ExternallyBackedTransientTextures.insert(stableName);
+
+        if (handle.Index >= m_PhysicalTextures.size())
+            m_PhysicalTextures.resize(static_cast<sizet>(handle.Index) + 1u);
+
+        auto& physicalTexture = m_PhysicalTextures[handle.Index];
+        physicalTexture.TextureID = backingTextureID;
+        physicalTexture.IsHistory = false;
+        return handle;
     }
 
     RGFramebufferHandle RenderGraph::AllocateTransientFramebufferHandle(std::string_view name, const RGResourceDesc& desc)
     {
+        const auto stableName = std::string(name);
+        const auto refreshLatestVersionLookup = [this, &stableName](const RGFramebufferHandle handle)
+        {
+            if (HasExplicitVersionQualifier(stableName))
+                m_LatestFramebufferHandlesByBaseName[std::string(GetVersionLookupBaseName(stableName))] = handle;
+        };
+
         auto transientDesc = desc;
         transientDesc.Imported = false;
         if (transientDesc.Kind == ResourceHandle::Kind::Unknown)
             transientDesc.Kind = ResourceHandle::Kind::Framebuffer;
         if (transientDesc.DebugName.empty())
-            transientDesc.DebugName = std::string(name);
+            transientDesc.DebugName = stableName;
 
-        m_TransientResourceDescs[std::string(name)] = transientDesc;
+        m_TransientResourceDescs[stableName] = transientDesc;
         m_ResourceRegistryDirty = true;
+        m_ExternallyBackedTransientFramebuffers.erase(stableName);
+
+        if (const auto existingIt = m_FramebufferHandlesByName.find(stableName);
+            existingIt != m_FramebufferHandlesByName.end() &&
+            existingIt->second.Index < m_FramebufferHandleSlots.size())
+        {
+            auto& slot = m_FramebufferHandleSlots[existingIt->second.Index];
+            if (slot.Generation == 0)
+                slot.Generation = 1;
+
+            slot.Alive = true;
+            slot.Name = stableName;
+            slot.IsPlaceholder = false;
+            slot.PlaceholderReason.clear();
+            slot.PlaceholderWarnedThisFrame = false;
+
+            const auto freeIt = std::find(m_FreeFramebufferHandleIndices.begin(),
+                                          m_FreeFramebufferHandleIndices.end(),
+                                          existingIt->second.Index);
+            if (freeIt != m_FreeFramebufferHandleIndices.end())
+                m_FreeFramebufferHandleIndices.erase(freeIt);
+
+            if (existingIt->second.Index >= m_PhysicalFramebuffers.size())
+                m_PhysicalFramebuffers.resize(static_cast<sizet>(existingIt->second.Index) + 1u);
+
+            const RGFramebufferHandle handle{ existingIt->second.Index, slot.Generation };
+            existingIt->second = handle;
+            refreshLatestVersionLookup(handle);
+            return handle;
+        }
 
         if (m_FreeFramebufferHandleIndices.empty())
         {
             u32 index = static_cast<u32>(m_FramebufferHandleSlots.size());
             m_FramebufferHandleSlots.emplace_back();
             m_FramebufferHandleSlots[index].Alive = true;
-            m_FramebufferHandleSlots[index].Name = std::string(name);
+            m_FramebufferHandleSlots[index].Name = stableName;
+            m_FramebufferHandleSlots[index].IsPlaceholder = false;
+            m_FramebufferHandleSlots[index].PlaceholderReason.clear();
+            m_FramebufferHandleSlots[index].PlaceholderWarnedThisFrame = false;
             m_PhysicalFramebuffers.emplace_back();
-            return { index, static_cast<u32>(m_FramebufferHandleSlots[index].Generation) };
+            const RGFramebufferHandle handle{ index, static_cast<u32>(m_FramebufferHandleSlots[index].Generation) };
+            m_FramebufferHandlesByName[stableName] = handle;
+            refreshLatestVersionLookup(handle);
+            return handle;
         }
 
         u32 index = m_FreeFramebufferHandleIndices.back();
         m_FreeFramebufferHandleIndices.pop_back();
         auto& slot = m_FramebufferHandleSlots[index];
-        slot.Generation++;
+        if (slot.Generation == 0)
+            slot.Generation = 1;
         slot.Alive = true;
-        slot.Name = std::string(name);
+        slot.Name = stableName;
+        slot.IsPlaceholder = false;
+        slot.PlaceholderReason.clear();
+        slot.PlaceholderWarnedThisFrame = false;
         if (index >= m_PhysicalFramebuffers.size())
             m_PhysicalFramebuffers.resize(static_cast<sizet>(index) + 1u);
-        return { index, slot.Generation };
+
+        const RGFramebufferHandle handle{ index, slot.Generation };
+        m_FramebufferHandlesByName[stableName] = handle;
+        refreshLatestVersionLookup(handle);
+        return handle;
     }
 
     RGFramebufferHandle RenderGraph::DeclareTransientFramebuffer(std::string_view name, const RGResourceDesc& desc)
     {
-        // Register the descriptor so EnsureResourceRegistryBuilt() creates a
-        // stable typed handle.  Then return that handle.  If this is called
-        // before any EnsureResourceRegistryBuilt() the AllocateTransient path
-        // creates a "ghost" slot; the subsequent GetFramebufferHandle call
-        // triggers EnsureResourceRegistryBuilt which promotes it to a stable
-        // named slot that MaterializeTransientResources() can find.
-        auto transientDesc = desc;
-        transientDesc.Imported = false;
-        if (transientDesc.Kind == ResourceHandle::Kind::Unknown)
-            transientDesc.Kind = ResourceHandle::Kind::Framebuffer;
-        if (transientDesc.DebugName.empty())
-            transientDesc.DebugName = std::string(name);
+        return AllocateTransientFramebufferHandle(name, desc);
+    }
 
-        m_TransientResourceDescs[std::string(name)] = transientDesc;
-        m_ResourceRegistryDirty = true;
+    RGFramebufferHandle RenderGraph::DeclareTransientFramebuffer(std::string_view name,
+                                                                 const RGResourceDesc& desc,
+                                                                 const Ref<Framebuffer>& backingFramebuffer)
+    {
+        if (!backingFramebuffer)
+            return DeclareTransientFramebuffer(name, desc);
 
-        // EnsureResourceRegistryBuilt is called inside GetFramebufferHandle
-        // which creates and caches the stable handle in m_FramebufferHandlesByName.
-        return GetFramebufferHandle(name);
+        auto handle = AllocateTransientFramebufferHandle(name, desc);
+        if (!handle.IsValid())
+            return handle;
+
+        const auto stableName = std::string(name);
+        m_ExternallyBackedTransientFramebuffers.insert(stableName);
+
+        if (handle.Index >= m_PhysicalFramebuffers.size())
+            m_PhysicalFramebuffers.resize(static_cast<sizet>(handle.Index) + 1u);
+
+        m_PhysicalFramebuffers[handle.Index].FB = backingFramebuffer;
+        return handle;
     }
 
     RGBufferHandle RenderGraph::AllocateTransientBufferHandle(std::string_view name, const RGResourceDesc& desc)
     {
+        const auto stableName = std::string(name);
+        const auto refreshLatestVersionLookup = [this, &stableName](const RGBufferHandle handle)
+        {
+            if (HasExplicitVersionQualifier(stableName))
+                m_LatestBufferHandlesByBaseName[std::string(GetVersionLookupBaseName(stableName))] = handle;
+        };
+
         auto transientDesc = desc;
         transientDesc.Imported = false;
         if (transientDesc.Kind == ResourceHandle::Kind::Unknown)
             transientDesc.Kind = ResourceHandle::Kind::StorageBuffer;
         if (transientDesc.DebugName.empty())
-            transientDesc.DebugName = std::string(name);
+            transientDesc.DebugName = stableName;
 
-        m_TransientResourceDescs[std::string(name)] = transientDesc;
+        m_TransientResourceDescs[stableName] = transientDesc;
         m_ResourceRegistryDirty = true;
+
+        if (const auto existingIt = m_BufferHandlesByName.find(stableName);
+            existingIt != m_BufferHandlesByName.end() &&
+            existingIt->second.Index < m_BufferHandleSlots.size())
+        {
+            auto& slot = m_BufferHandleSlots[existingIt->second.Index];
+            if (slot.Generation == 0)
+                slot.Generation = 1;
+
+            slot.Alive = true;
+            slot.Name = stableName;
+            slot.IsPlaceholder = false;
+            slot.PlaceholderReason.clear();
+            slot.PlaceholderWarnedThisFrame = false;
+
+            const auto freeIt = std::find(m_FreeBufferHandleIndices.begin(),
+                                          m_FreeBufferHandleIndices.end(),
+                                          existingIt->second.Index);
+            if (freeIt != m_FreeBufferHandleIndices.end())
+                m_FreeBufferHandleIndices.erase(freeIt);
+
+            if (existingIt->second.Index >= m_PhysicalBuffers.size())
+                m_PhysicalBuffers.resize(static_cast<sizet>(existingIt->second.Index) + 1u);
+
+            const RGBufferHandle handle{ existingIt->second.Index, slot.Generation };
+            existingIt->second = handle;
+            refreshLatestVersionLookup(handle);
+            return handle;
+        }
 
         if (m_FreeBufferHandleIndices.empty())
         {
             u32 index = static_cast<u32>(m_BufferHandleSlots.size());
             m_BufferHandleSlots.emplace_back();
             m_BufferHandleSlots[index].Alive = true;
-            m_BufferHandleSlots[index].Name = std::string(name);
+            m_BufferHandleSlots[index].Name = stableName;
+            m_BufferHandleSlots[index].IsPlaceholder = false;
+            m_BufferHandleSlots[index].PlaceholderReason.clear();
+            m_BufferHandleSlots[index].PlaceholderWarnedThisFrame = false;
             m_PhysicalBuffers.emplace_back();
-            return { index, static_cast<u32>(m_BufferHandleSlots[index].Generation) };
+            const RGBufferHandle handle{ index, static_cast<u32>(m_BufferHandleSlots[index].Generation) };
+            m_BufferHandlesByName[stableName] = handle;
+            refreshLatestVersionLookup(handle);
+            return handle;
         }
 
         u32 index = m_FreeBufferHandleIndices.back();
         m_FreeBufferHandleIndices.pop_back();
         auto& slot = m_BufferHandleSlots[index];
-        slot.Generation++;
+        if (slot.Generation == 0)
+            slot.Generation = 1;
         slot.Alive = true;
-        slot.Name = std::string(name);
+        slot.Name = stableName;
+        slot.IsPlaceholder = false;
+        slot.PlaceholderReason.clear();
+        slot.PlaceholderWarnedThisFrame = false;
         if (index >= m_PhysicalBuffers.size())
             m_PhysicalBuffers.resize(static_cast<sizet>(index) + 1u);
-        return { index, slot.Generation };
+
+        const RGBufferHandle handle{ index, slot.Generation };
+        m_BufferHandlesByName[stableName] = handle;
+        refreshLatestVersionLookup(handle);
+        return handle;
+    }
+
+    RGResourceDesc RenderGraph::BuildVersionedResourceDesc(std::string_view sourceResource,
+                                                           const ResourceHandle::Kind fallbackKind,
+                                                           std::string_view versionedName) const
+    {
+        const auto sourceName = std::string(sourceResource);
+        const auto debugName = std::string(versionedName);
+
+        const auto cloneDesc = [&debugName, fallbackKind](const RGResourceDesc& sourceDesc)
+        {
+            auto clonedDesc = sourceDesc;
+            clonedDesc.Imported = false;
+            clonedDesc.IsPlaceholder = false;
+            clonedDesc.PlaceholderReason.clear();
+            clonedDesc.DebugName = debugName;
+            if (clonedDesc.Kind == ResourceHandle::Kind::Unknown)
+                clonedDesc.Kind = fallbackKind;
+            return clonedDesc;
+        };
+
+        if (const auto transientIt = m_TransientResourceDescs.find(sourceName);
+            transientIt != m_TransientResourceDescs.end())
+        {
+            return cloneDesc(transientIt->second);
+        }
+
+        if (const auto importedIt = m_ImportedResources.find(sourceName);
+            importedIt != m_ImportedResources.end())
+        {
+            return cloneDesc(importedIt->second);
+        }
+
+        EnsureResourceRegistryBuilt();
+        if (const auto registeredIt = m_ResourceRegistry.find(sourceName);
+            registeredIt != m_ResourceRegistry.end())
+        {
+            return cloneDesc(registeredIt->second.Desc);
+        }
+
+        auto desc = RGResourceDesc::FromHandleKind(fallbackKind, versionedName);
+        desc.Imported = false;
+        return desc;
     }
 
     const std::vector<RenderGraph::ResourceInfo>& RenderGraph::GetRegisteredResources() const
@@ -1003,7 +2175,17 @@ namespace OloEngine
     {
         EnsureResourceRegistryBuilt();
 
-        if (auto it = m_TextureHandlesByName.find(std::string(name)); it != m_TextureHandlesByName.end())
+        const auto lookupName = std::string(name);
+        if (!HasExplicitVersionQualifier(name))
+        {
+            if (const auto versionIt = m_LatestTextureHandlesByBaseName.find(lookupName);
+                versionIt != m_LatestTextureHandlesByBaseName.end() && IsTextureHandleCurrent(versionIt->second))
+            {
+                return versionIt->second;
+            }
+        }
+
+        if (auto it = m_TextureHandlesByName.find(lookupName); it != m_TextureHandlesByName.end())
             return it->second;
 
         return {};
@@ -1013,7 +2195,17 @@ namespace OloEngine
     {
         EnsureResourceRegistryBuilt();
 
-        if (auto it = m_BufferHandlesByName.find(std::string(name)); it != m_BufferHandlesByName.end())
+        const auto lookupName = std::string(name);
+        if (!HasExplicitVersionQualifier(name))
+        {
+            if (const auto versionIt = m_LatestBufferHandlesByBaseName.find(lookupName);
+                versionIt != m_LatestBufferHandlesByBaseName.end() && IsBufferHandleCurrent(versionIt->second))
+            {
+                return versionIt->second;
+            }
+        }
+
+        if (auto it = m_BufferHandlesByName.find(lookupName); it != m_BufferHandlesByName.end())
             return it->second;
 
         return {};
@@ -1023,10 +2215,33 @@ namespace OloEngine
     {
         EnsureResourceRegistryBuilt();
 
-        if (auto it = m_FramebufferHandlesByName.find(std::string(name)); it != m_FramebufferHandlesByName.end())
+        const auto lookupName = std::string(name);
+        if (!HasExplicitVersionQualifier(name))
+        {
+            if (const auto versionIt = m_LatestFramebufferHandlesByBaseName.find(lookupName);
+                versionIt != m_LatestFramebufferHandlesByBaseName.end() && IsFramebufferHandleCurrent(versionIt->second))
+            {
+                return versionIt->second;
+            }
+        }
+
+        if (auto it = m_FramebufferHandlesByName.find(lookupName); it != m_FramebufferHandlesByName.end())
             return it->second;
 
         return {};
+    }
+
+    auto RenderGraph::GetLastWriterPassName(std::string_view resourceName) const -> const std::string&
+    {
+        static const std::string emptyName;
+        if (resourceName.empty())
+            return emptyName;
+        if (const auto it = m_LastWriterPassNameByResource.find(std::string(resourceName));
+            it != m_LastWriterPassNameByResource.end())
+        {
+            return it->second;
+        }
+        return emptyName;
     }
 
     bool RenderGraph::IsTextureHandleCurrent(RGTextureHandle handle) const
@@ -1167,68 +2382,22 @@ namespace OloEngine
 
         MaterializeTransientResources();
 
-        // Execute passes in order (zero-overhead — no lookups, no branching)
+        // Run the pre-built submission-plan IR through the extracted plan
+        // executor module (Phase 7 slice 7). The executor is a thin loop
+        // over the cached IR that dispatches each command to the abstract
+        // RGCommandContext — backend bindings stay one level deeper in
+        // OpenGLRendererAPI.
         RGCommandContext commandContext;
         commandContext.SetRenderGraph(this);
-        // Walk the pre-built submission-plan IR.
-        // Each command kind maps to a distinct action; barrier placement and
-        // async-compute batch boundaries are encoded in the plan so this loop
-        // requires no topology lookups or per-frame map probes.
-        for (const auto& cmd : m_CachedSubmissionPlan)
-        {
-            switch (cmd.CommandKind)
-            {
-                case SubmissionCommand::Kind::BatchBegin:
-                {
-                    commandContext.BeginAsyncBatch(cmd.BatchIndex);
-                    if (m_BatchEventHook)
-                        m_BatchEventHook(cmd.BatchIndex, true);
-                    break;
-                }
-                case SubmissionCommand::Kind::BatchEnd:
-                {
-                    commandContext.EndAsyncBatch(cmd.BatchIndex);
-                    if (m_BatchEventHook)
-                        m_BatchEventHook(cmd.BatchIndex, false);
-                    break;
-                }
-                case SubmissionCommand::Kind::MemoryBarrier:
-                {
-                    if (m_RuntimeBarrierExecutionEnabled)
-                        commandContext.MemoryBarrier(cmd.Barriers);
-                    break;
-                }
-                case SubmissionCommand::Kind::Pass:
-                {
-                    if (!IsPassReachable(cmd.NodeName))
-                    {
-                        break;
-                    }
-
-                    if (!cmd.NodePointer)
-                        break;
-
-                    commandContext.BeginPass(cmd.NodeName);
-                    const auto executeStart = std::chrono::steady_clock::now();
-                    cmd.NodePointer->Execute(commandContext);
-                    const auto executeEnd = std::chrono::steady_clock::now();
-                    commandContext.EndPass();
-
-                    const auto elapsedMs = std::chrono::duration<f64, std::milli>(executeEnd - executeStart).count();
-                    m_LastExecutionTimings.push_back(ExecutionTiming{
-                        .NodeName = cmd.NodeName,
-                        .CpuMs = elapsedMs,
-                    });
-
-                    // Debug post-pass hook — fires after EndPass() but before the
-                    // next pass begins. Lets debug tooling snapshot intermediate
-                    // resource state (see RenderGraphFrameCapture).
-                    if (m_PostPassHook)
-                        m_PostPassHook(cmd.NodeName, *this);
-                    break;
-                }
-            }
-        }
+        m_LastExecutionTimings = RenderGraphPlanExecutor::ExecutePlan({
+            .SubmissionPlan = m_CachedSubmissionPlan,
+            .Context = commandContext,
+            .RuntimeBarrierExecutionEnabled = m_RuntimeBarrierExecutionEnabled,
+            .IsPassReachable = [this](const std::string& passName) { return IsPassReachable(passName); },
+            .BatchEventHook = m_BatchEventHook,
+            .PostPassHook = m_PostPassHook,
+            .GraphForPostPassHook = this,
+        });
         commandContext.SetRenderGraph(nullptr);
 
         // Third pass: fire extraction callbacks queued by passes during Execute().
@@ -1337,16 +2506,14 @@ namespace OloEngine
 
         for (const auto& entry : m_TransientPlan)
         {
-            // Guard: never let transient resource planning touch imported
-            // resources. If a resource name appears in m_ImportedResources,
-            // its physical slot is owned by the importer (e.g.
-            // RenderPipeline::PopulateBlackboard(...)) and must not be reset or
-            // overwritten by transient pool allocations. Without this guard
-            // a name collision between a transient descriptor and an
-            // imported resource silently corrupts the imported physical
-            // slot — consumers reading through the blackboard handle then
-            // see a blank transient FB instead of the real imported one.
-            if (m_ImportedResources.contains(entry.Resource))
+            // Guard: never let transient resource planning touch resources
+            // whose physical backing is owned outside the transient pool.
+            // Imported resources are owned by the importer (for example
+            // RenderPipeline::PopulateBlackboard(...)); externally-backed
+            // transients resolve to caller-supplied frame-local backing.
+            // Either case must preserve the existing physical slot.
+            if (m_ImportedResources.contains(entry.Resource) ||
+                IsExternallyBackedTransientResource(entry.Resource))
             {
                 continue;
             }
@@ -1400,6 +2567,7 @@ namespace OloEngine
                         spec.Format = ToImageFormat(desc.Format);
                         spec.GenerateMips = desc.MipLevels > 1;
                         spec.MipLevels = desc.MipLevels;
+                        spec.Samples = std::max(desc.Samples, 1u);
 
                         auto transientTexture = m_TransientPool.AcquireTexture(spec);
                         textureIt = textureAliases.emplace(aliasKey, transientTexture).first;
@@ -1596,13 +2764,11 @@ namespace OloEngine
             if (const auto nodeIt = m_NodeLookup.find(name); nodeIt != m_NodeLookup.end() && nodeIt->second)
             {
                 const auto declarationsIt = m_PassAccessDeclarations.find(name);
-                const auto& declaredReads = nodeIt->second->GetDeclaredReads();
-                const auto& declaredWrites = nodeIt->second->GetDeclaredWrites();
                 result.push_back(NodeSubmissionInfo{
                     .NodeName = name,
                     .Submission = nodeIt->second->GetSubmissionModel(),
-                    .DeclaresResources = !declaredReads.empty() || !declaredWrites.empty() ||
-                                         (declarationsIt != m_PassAccessDeclarations.end() && !declarationsIt->second.empty()),
+                    .DeclaresResources = declarationsIt != m_PassAccessDeclarations.end() &&
+                                         !declarationsIt->second.empty(),
                     .WorkType = nodeIt->second->GetPassWorkType(),
                     .AsyncComputeCandidate = nodeIt->second->IsAsyncComputeCandidate(),
                 });
@@ -1746,25 +2912,20 @@ namespace OloEngine
         // function is called (e.g. from ValidateResourceHazards before the
         // first BuildFrameGraph run has added them).
         {
-            // Build lastWriter from both node-owned static declaration
-            // metadata and frame-setup access declarations
-            // (m_PassAccessDeclarations).
+            // Build lastWriter from the authoritative declaration source for
+            // each pass. After BuildFrameGraph(), passes that participated in
+            // setup own a compiled access entry (possibly empty), so their
+            // legacy static declarations must not leak back into scheduler
+            // ordering. Fall back to static declarations only for pre-build /
+            // legacy-only paths that have no compiled access entry at all.
             std::unordered_map<std::string, std::string> lastWriter;
             lastWriter.reserve(m_ExecutionOrder.size() * 4u);
 
             for (const auto& prodName : m_ExecutionOrder)
             {
-                // Node-owned declaration metadata.
-                if (const auto node = TryGetGraphEntryNode(prodName, m_NodeLookup))
+                if (const auto* accesses = FindPassAccessDeclarations(m_PassAccessDeclarations, prodName))
                 {
-                    for (const auto& w : node->GetDeclaredWrites())
-                        lastWriter[w.Name] = prodName;
-                }
-                // Graph-native builder.Write() access declarations
-                if (const auto aIt = m_PassAccessDeclarations.find(prodName);
-                    aIt != m_PassAccessDeclarations.end())
-                {
-                    for (const auto& access : aIt->second)
+                    for (const auto& access : *accesses)
                     {
                         if (access.IsWrite && !access.ResourceName.empty())
                             lastWriter[access.ResourceName] = prodName;
@@ -1788,26 +2949,17 @@ namespace OloEngine
                     ++inDegree[consName];
                 };
 
-                // Node-owned declaration metadata.
-                if (const auto node = TryGetGraphEntryNode(consName, m_NodeLookup))
+                if (const auto* accesses = FindPassAccessDeclarations(m_PassAccessDeclarations, consName))
                 {
-                    for (const auto& r : node->GetDeclaredReads())
-                    {
-                        if (const auto wIt = lastWriter.find(r.Name); wIt != lastWriter.end())
-                            addImplicitEdge(wIt->second);
-                    }
-                }
-                // Graph-native builder.Read() access declarations
-                if (const auto aIt = m_PassAccessDeclarations.find(consName);
-                    aIt != m_PassAccessDeclarations.end())
-                {
-                    for (const auto& access : aIt->second)
+                    for (const auto& access : *accesses)
                     {
                         if (!access.IsWrite && !access.ResourceName.empty())
                         {
                             if (const auto wIt = lastWriter.find(access.ResourceName);
                                 wIt != lastWriter.end())
+                            {
                                 addImplicitEdge(wIt->second);
+                            }
                         }
                     }
                 }
@@ -1891,193 +3043,12 @@ namespace OloEngine
     // barrier backends (Vulkan semaphores, DX12 fence Signal/Wait).
     std::vector<RenderGraph::AsyncComputeBatch> RenderGraph::GetAsyncComputeBatches() const
     {
-        OLO_PROFILE_FUNCTION();
-
-        std::vector<AsyncComputeBatch> batches;
-
-        // --- Step 1: group consecutive AsyncComputeCandidate passes ---
-        AsyncComputeBatch current;
-        for (const auto& passName : m_ExecutionOrder)
-        {
-            const bool isCandidate = IsGraphEntryAsyncComputeCandidate(passName);
-
-            if (isCandidate)
-            {
-                current.ComputeNodes.push_back(passName);
-            }
-            else
-            {
-                if (!current.ComputeNodes.empty())
-                {
-                    batches.push_back(std::move(current));
-                    current = {};
-                }
-            }
-        }
-        if (!current.ComputeNodes.empty())
-            batches.push_back(std::move(current));
-
-        if (batches.empty())
-            return batches;
-
-        // --- Step 2: build successor map (A → passes that depend on A) ---
-        std::unordered_set<std::string_view> passSet;
-        passSet.reserve(m_ExecutionOrder.size());
-        for (const auto& name : m_ExecutionOrder)
-            passSet.insert(name);
-
-        std::unordered_map<std::string, std::vector<std::string>> successors;
-        successors.reserve(m_ExecutionOrder.size());
-        for (const auto& name : m_ExecutionOrder)
-        {
-            const auto depIt = m_Dependencies.find(name);
-            if (depIt == m_Dependencies.end())
-                continue;
-            for (const auto& dep : depIt->second)
-            {
-                if (passSet.contains(dep))
-                    successors[dep].push_back(name);
-            }
-        }
-
-        // --- Step 3: fill WaitNodes / SignalNodes for each batch ---
-        for (auto& batch : batches)
-        {
-            std::unordered_set<std::string> batchSet(batch.ComputeNodes.begin(),
-                                                     batch.ComputeNodes.end());
-            std::unordered_set<std::string> waitSet;
-            std::unordered_set<std::string> signalSet;
-
-            for (const auto& computePass : batch.ComputeNodes)
-            {
-                // WaitNodes: direct predecessors not in this batch
-                if (const auto depIt = m_Dependencies.find(computePass);
-                    depIt != m_Dependencies.end())
-                {
-                    for (const auto& dep : depIt->second)
-                    {
-                        if (!batchSet.contains(dep) && passSet.contains(dep))
-                            waitSet.insert(dep);
-                    }
-                }
-
-                // SignalNodes: direct successors not in this batch
-                if (const auto sucIt = successors.find(computePass); sucIt != successors.end())
-                {
-                    for (const auto& succ : sucIt->second)
-                    {
-                        if (!batchSet.contains(succ))
-                            signalSet.insert(succ);
-                    }
-                }
-            }
-
-            batch.WaitNodes = std::vector<std::string>(waitSet.begin(), waitSet.end());
-            batch.SignalNodes = std::vector<std::string>(signalSet.begin(), signalSet.end());
-        }
-
-        // --- Step 4: fill InputResources / OutputResources for each batch ---
-        // Build a pass-order index for fast boundary detection.
-        std::unordered_map<std::string, sizet> passOrderIndex;
-        passOrderIndex.reserve(m_ExecutionOrder.size());
-        for (sizet i = 0; i < m_ExecutionOrder.size(); ++i)
-            passOrderIndex[m_ExecutionOrder[i]] = i;
-
-        for (auto& batch : batches)
-        {
-            const std::unordered_set<std::string> batchSet(batch.ComputeNodes.begin(),
-                                                           batch.ComputeNodes.end());
-
-            // Find the inclusive pass-order range [batchStart, batchEnd].
-            sizet batchStart = m_ExecutionOrder.size();
-            sizet batchEnd = 0;
-            for (const auto& cp : batch.ComputeNodes)
-            {
-                if (const auto idxIt = passOrderIndex.find(cp); idxIt != passOrderIndex.end())
-                {
-                    batchStart = std::min(batchStart, idxIt->second);
-                    batchEnd = std::max(batchEnd, idxIt->second);
-                }
-            }
-            if (batchStart > batchEnd)
-                continue;
-
-            // Collect all resources read / written by batch passes.
-            std::unordered_set<std::string> batchReadResources;
-            std::unordered_set<std::string> batchWrittenResources;
-            for (const auto& cp : batch.ComputeNodes)
-            {
-                if (const auto accessIt = m_PassAccessDeclarations.find(cp);
-                    accessIt != m_PassAccessDeclarations.end())
-                {
-                    for (const auto& acc : accessIt->second)
-                    {
-                        if (acc.IsWrite)
-                            batchWrittenResources.insert(acc.ResourceName);
-                        else
-                            batchReadResources.insert(acc.ResourceName);
-                    }
-                }
-            }
-
-            // InputResources: for each resource read by the batch, scan passes
-            // *before* batchStart to find the last external writer.
-            std::unordered_map<std::string, std::string> inputByResource;
-            for (sizet i = 0; i < batchStart; ++i)
-            {
-                const auto& passName = m_ExecutionOrder[i];
-                if (batchSet.contains(passName))
-                    continue;
-                if (const auto accessIt = m_PassAccessDeclarations.find(passName);
-                    accessIt != m_PassAccessDeclarations.end())
-                {
-                    for (const auto& acc : accessIt->second)
-                    {
-                        if (acc.IsWrite && batchReadResources.contains(acc.ResourceName))
-                            inputByResource[acc.ResourceName] = passName; // last writer wins
-                    }
-                }
-            }
-
-            // OutputResources: for each resource written by the batch, scan passes
-            // *after* batchEnd to find the first external reader.
-            std::unordered_map<std::string, std::string> outputByResource;
-            for (sizet i = batchEnd + 1; i < m_ExecutionOrder.size(); ++i)
-            {
-                const auto& passName = m_ExecutionOrder[i];
-                if (batchSet.contains(passName))
-                    continue;
-                if (const auto accessIt = m_PassAccessDeclarations.find(passName);
-                    accessIt != m_PassAccessDeclarations.end())
-                {
-                    for (const auto& acc : accessIt->second)
-                    {
-                        if (!acc.IsWrite && batchWrittenResources.contains(acc.ResourceName) &&
-                            !outputByResource.contains(acc.ResourceName))
-                        {
-                            outputByResource[acc.ResourceName] = passName; // first reader wins
-                        }
-                    }
-                }
-            }
-
-            // Convert to sorted vectors for deterministic ordering.
-            batch.InputResources.reserve(inputByResource.size());
-            for (auto& [res, externalNode] : inputByResource)
-                batch.InputResources.push_back({ res, externalNode });
-            std::sort(batch.InputResources.begin(), batch.InputResources.end(),
-                      [](const BatchResourceDependency& a, const BatchResourceDependency& b)
-                      { return a.ResourceName < b.ResourceName; });
-
-            batch.OutputResources.reserve(outputByResource.size());
-            for (auto& [res, externalNode] : outputByResource)
-                batch.OutputResources.push_back({ res, externalNode });
-            std::sort(batch.OutputResources.begin(), batch.OutputResources.end(),
-                      [](const BatchResourceDependency& a, const BatchResourceDependency& b)
-                      { return a.ResourceName < b.ResourceName; });
-        }
-
-        return batches;
+        return RenderGraphSubmissionPlan::ComputeBatches({
+            .ExecutionOrder = m_ExecutionOrder,
+            .Dependencies = m_Dependencies,
+            .PassAccessDeclarations = m_PassAccessDeclarations,
+            .IsGraphEntryAsyncComputeCandidate = [this](std::string_view name) { return IsGraphEntryAsyncComputeCandidate(name); },
+        });
     }
 
     // Submission-plan IR.
@@ -2086,148 +3057,22 @@ namespace OloEngine
     // command stream that a backend can replay without touching the graph.
     std::vector<RenderGraph::SubmissionCommand> RenderGraph::GetSubmissionPlan() const
     {
-        OLO_PROFILE_FUNCTION();
-
-        const auto mapWorkTypeToLane = [](const RenderGraphPassWorkType workType)
-        {
-            switch (workType)
-            {
-                case RenderGraphPassWorkType::Compute:
-                    return QueueLane::Compute;
-                case RenderGraphPassWorkType::Copy:
-                    return QueueLane::Copy;
-                case RenderGraphPassWorkType::Graphics:
-                default:
-                    return QueueLane::Graphics;
-            }
-        };
-
-        std::vector<SubmissionCommand> plan;
-        plan.reserve(m_ExecutionOrder.size() * 2); // rough upper bound
-
-        // Build a set of passes that are members of some async batch so we can
-        // quickly look up which batch (if any) a pass belongs to.
+        // Delegate to the extracted submission-plan module (Phase 7 slice 6).
+        // GetAsyncComputeBatches itself delegates; here we just plumb the
+        // results into the IR builder.
         const auto batches = GetAsyncComputeBatches();
-
-        std::unordered_map<u32, const AsyncComputeBatch*> batchByIndex;
-        batchByIndex.reserve(batches.size());
-        for (u32 batchIdx = 0; batchIdx < static_cast<u32>(batches.size()); ++batchIdx)
-            batchByIndex.emplace(batchIdx, &batches[batchIdx]);
-
-        // Map: passName → batch index (only for passes inside a batch)
-        std::unordered_map<std::string, u32> passToBatch;
-        for (u32 batchIdx = 0; batchIdx < static_cast<u32>(batches.size()); ++batchIdx)
-        {
-            for (const auto& passName : batches[batchIdx].ComputeNodes)
-                passToBatch.emplace(passName, batchIdx);
-        }
-
-        // Build a map: passName → barrier flags from the compiled barrier plan.
-        std::unordered_map<std::string, MemoryBarrierFlags> barrierForPass;
-        for (const auto& planned : m_PlannedBarriers)
-        {
-            // Barriers are keyed on the pass AFTER which they should fire — i.e.
-            // the consumer pass that triggered them. Insert before that pass.
-            auto& flags = barrierForPass[planned.BeforePass];
-            flags = flags | planned.Flags;
-        }
-
-        // Walk the execution order and emit commands.
-        u32 currentBatch = std::numeric_limits<u32>::max();
-
-        for (const auto& passName : m_ExecutionOrder)
-        {
-            const auto batchIt = passToBatch.find(passName);
-            const bool inBatch = (batchIt != passToBatch.end());
-            const u32 batchIdx = inBatch ? batchIt->second : std::numeric_limits<u32>::max();
-
-            // --- Batch-boundary open ---
-            if (inBatch && batchIdx != currentBatch)
+        return RenderGraphSubmissionPlan::BuildPlan({
+            .ExecutionOrder = m_ExecutionOrder,
+            .PlannedBarriers = m_PlannedBarriers,
+            .Batches = batches,
+            .GetPassWorkType = [this](const std::string& passName) { return GetGraphEntryWorkType(passName); },
+            .ResolveNodePointer = [this](const std::string& passName) -> RenderGraphNode*
             {
-                // Close the previous batch (if any) before opening a new one.
-                if (currentBatch != std::numeric_limits<u32>::max())
-                {
-                    SubmissionCommand end;
-                    end.CommandKind = SubmissionCommand::Kind::BatchEnd;
-                    end.BatchIndex = currentBatch;
-                    end.Lane = QueueLane::Compute;
-                    plan.push_back(std::move(end));
-                }
-
-                SubmissionCommand begin;
-                begin.CommandKind = SubmissionCommand::Kind::BatchBegin;
-                begin.BatchIndex = batchIdx;
-                begin.Lane = QueueLane::Compute;
-                if (const auto batchInfoIt = batchByIndex.find(batchIdx); batchInfoIt != batchByIndex.end())
-                {
-                    begin.WaitNodes = batchInfoIt->second->WaitNodes;
-                    begin.InputResources = batchInfoIt->second->InputResources;
-                }
-                plan.push_back(std::move(begin));
-                currentBatch = batchIdx;
-            }
-
-            // --- Batch-boundary close (returning to graphics after a batch) ---
-            if (!inBatch && currentBatch != std::numeric_limits<u32>::max())
-            {
-                SubmissionCommand end;
-                end.CommandKind = SubmissionCommand::Kind::BatchEnd;
-                end.BatchIndex = currentBatch;
-                end.Lane = QueueLane::Compute;
-                if (const auto batchInfoIt = batchByIndex.find(currentBatch); batchInfoIt != batchByIndex.end())
-                {
-                    end.SignalNodes = batchInfoIt->second->SignalNodes;
-                    end.OutputResources = batchInfoIt->second->OutputResources;
-                }
-                plan.push_back(std::move(end));
-                currentBatch = std::numeric_limits<u32>::max();
-            }
-
-            auto passWorkType = GetGraphEntryWorkType(passName);
-            RenderGraphNode* nodePtr = nullptr;
-            if (auto nodeIt = m_NodeLookup.find(passName); nodeIt != m_NodeLookup.end() && nodeIt->second)
-            {
-                nodePtr = const_cast<RenderGraphNode*>(nodeIt->second.Raw());
-            }
-
-            const auto passLane = mapWorkTypeToLane(passWorkType);
-
-            // --- Memory barrier before this pass (if any) ---
-            if (const auto barIt = barrierForPass.find(passName); barIt != barrierForPass.end())
-            {
-                SubmissionCommand barrier;
-                barrier.CommandKind = SubmissionCommand::Kind::MemoryBarrier;
-                barrier.Barriers = barIt->second;
-                barrier.Lane = passLane;
-                plan.push_back(std::move(barrier));
-            }
-
-            // --- Pass command ---
-            SubmissionCommand passCmd;
-            passCmd.CommandKind = SubmissionCommand::Kind::Pass;
-            passCmd.NodeName = passName;
-            passCmd.NodePointer = nodePtr;
-            passCmd.WorkType = passWorkType;
-            passCmd.Lane = passLane;
-            plan.push_back(std::move(passCmd));
-        }
-
-        // Close any trailing open batch.
-        if (currentBatch != std::numeric_limits<u32>::max())
-        {
-            SubmissionCommand end;
-            end.CommandKind = SubmissionCommand::Kind::BatchEnd;
-            end.BatchIndex = currentBatch;
-            end.Lane = QueueLane::Compute;
-            if (const auto batchInfoIt = batchByIndex.find(currentBatch); batchInfoIt != batchByIndex.end())
-            {
-                end.SignalNodes = batchInfoIt->second->SignalNodes;
-                end.OutputResources = batchInfoIt->second->OutputResources;
-            }
-            plan.push_back(std::move(end));
-        }
-
-        return plan;
+                if (auto nodeIt = m_NodeLookup.find(passName); nodeIt != m_NodeLookup.end() && nodeIt->second)
+                    return const_cast<RenderGraphNode*>(nodeIt->second.Raw());
+                return nullptr;
+            },
+        });
     }
 
     // -------------------------------------------------------------------
@@ -2235,107 +3080,13 @@ namespace OloEngine
     // -------------------------------------------------------------------
     std::vector<RenderGraph::ResourceTransition> RenderGraph::GetResourceTransitions() const
     {
-        if (m_PlannedBarriers.empty())
-            return {};
-
-        // Build a pass → execution-order-index map for the backward producer scan.
-        std::unordered_map<std::string, std::size_t> passOrderIdx;
-        passOrderIdx.reserve(m_ExecutionOrder.size());
-        for (std::size_t i = 0; i < m_ExecutionOrder.size(); ++i)
-            passOrderIdx.emplace(m_ExecutionOrder[i], i);
-
-        // Build a pass → queue lane map so transitions can
-        // detect when the producer and consumer are on different queue lanes.
-        const auto passToLane = [&](const std::string& passName) -> QueueLane
-        {
-            switch (GetGraphEntryWorkType(passName))
-            {
-                case RenderGraphPassWorkType::Compute:
-                    return QueueLane::Compute;
-                case RenderGraphPassWorkType::Copy:
-                    return QueueLane::Copy;
-                case RenderGraphPassWorkType::Graphics:
-                default:
-                    return QueueLane::Graphics;
-            }
-        };
-
-        std::vector<ResourceTransition> transitions;
-        transitions.reserve(m_PlannedBarriers.size());
-
-        for (const auto& barrier : m_PlannedBarriers)
-        {
-            ResourceTransition t;
-            t.ResourceName = barrier.Resource;
-            t.ConsumerPass = barrier.BeforePass;
-            t.Flags = barrier.Flags;
-            t.Range = barrier.Range;
-
-            // Determine the consumer's read usage from its declared accesses.
-            // Default to ShaderSample when no frame-setup declaration is present
-            // (for example nodes that expose only static declaration metadata
-            // instead of per-frame builder reads).
-            t.ToUsage = RGReadUsage::ShaderSample;
-            if (const auto dit = m_PassAccessDeclarations.find(barrier.BeforePass);
-                dit != m_PassAccessDeclarations.end())
-            {
-                for (const auto& decl : dit->second)
-                {
-                    if (decl.ResourceName == barrier.Resource && !decl.IsWrite)
-                    {
-                        t.ToUsage = decl.ReadUsage;
-                        break;
-                    }
-                }
-            }
-
-            // Walk the execution order from the start up to (but not including)
-            // the consumer to find the LAST writer — that is the producer for
-            // this transition.  When no writer is found the resource is imported
-            // externally (initial state) so ProducerPass stays "external".
-            t.ProducerPass = "external";
-            t.FromUsage = RGWriteUsage::RenderTarget;
-
-            const auto consumerIdxIt = passOrderIdx.find(barrier.BeforePass);
-            if (consumerIdxIt != passOrderIdx.end())
-            {
-                const std::size_t consumerIdx = consumerIdxIt->second;
-                for (std::size_t i = 0; i < consumerIdx; ++i)
-                {
-                    const auto& passName = m_ExecutionOrder[i];
-                    if (const auto dit = m_PassAccessDeclarations.find(passName);
-                        dit != m_PassAccessDeclarations.end())
-                    {
-                        for (const auto& decl : dit->second)
-                        {
-                            if (decl.ResourceName == barrier.Resource && decl.IsWrite)
-                            {
-                                // Keep scanning — we want the LAST writer.
-                                t.ProducerPass = passName;
-                                t.FromUsage = decl.WriteUsage;
-                            }
-                        }
-                    }
-                }
-            }
-
-            transitions.push_back(std::move(t));
-        }
-
-        // Annotate each transition with cross-lane sync metadata.
-        for (auto& tr : transitions)
-        {
-            // External producers (imported resources) are treated as Graphics lane.
-            const QueueLane producerLane = (tr.ProducerPass == "external")
-                                               ? QueueLane::Graphics
-                                               : passToLane(tr.ProducerPass);
-            const QueueLane consumerLane = passToLane(tr.ConsumerPass);
-            tr.ProducerLane = producerLane;
-            tr.ConsumerLane = consumerLane;
-            tr.IsCrossLane = (producerLane != consumerLane);
-        }
-
-        return transitions;
+        // Delegate to the extracted barrier-planner module (Phase 7 split).
+        return RenderGraphBarrierPlanner::BuildResourceTransitions({
+            .PlannedBarriers = m_PlannedBarriers,
+            .ExecutionOrder = m_ExecutionOrder,
+            .PassAccessDeclarations = m_PassAccessDeclarations,
+            .GetPassWorkType = [this](const std::string& passName) { return GetGraphEntryWorkType(passName); },
+        });
     }
 
     std::vector<RenderGraph::ResourceLifetime> RenderGraph::GetResourceLifetimes() const
@@ -2348,24 +3099,20 @@ namespace OloEngine
         //   • the FIRST write  (producer; "external" when import-only)
         //   • the LAST  read   (last consumer; "" when write-only)
         //
-        // Flags (IsImported / IsExtracted / IsHistory / IsTransient) are
-        // derived from the internal data structures that the graph already
-        // maintains — no new per-resource metadata is needed.
+        // Flags (IsImported / IsExtracted / IsHistory / IsTransient /
+        // HasExternalBacking) are derived from the internal data structures
+        // that the graph already maintains.
         // ----------------------------------------------------------------
 
         // --- Build auxiliary lookup sets --------------------------------
 
-        // Imported: any resource registered via ImportTexture/ImportFramebuffer/
-        // ImportBuffer (the key is the canonical resource name).
-        std::unordered_set<std::string> importedNames;
-        importedNames.reserve(m_ImportedResources.size());
-        for (const auto& [name, _] : m_ImportedResources)
-            importedNames.insert(name);
-
         // Extracted: resources with a pending TextureExtract or
         // FramebufferExtract callback.  Resolve handles → names.
         std::unordered_set<std::string> extractedNames;
-        extractedNames.reserve(m_TextureExtracts.size() + m_FramebufferExtracts.size());
+        extractedNames.reserve(m_TextureExtracts.size() +
+                               m_FramebufferExtracts.size() +
+                               m_TemporalHistoryContracts.size() +
+                               m_ExternalTextureSinkContracts.size());
         for (const auto& ex : m_TextureExtracts)
         {
             const auto n = GetResourceName(ex.Handle);
@@ -2378,6 +3125,16 @@ namespace OloEngine
             if (!n.empty())
                 extractedNames.emplace(n);
         }
+        for (const auto& contract : m_TemporalHistoryContracts)
+        {
+            if (!contract.SourceResource.empty())
+                extractedNames.insert(contract.SourceResource);
+        }
+        for (const auto& contract : m_ExternalTextureSinkContracts)
+        {
+            if (!contract.SourceResource.empty())
+                extractedNames.insert(contract.SourceResource);
+        }
 
         // History: resources listed as HistoryResource in any temporal
         // contract (they are imported from the previous frame).
@@ -2385,14 +3142,6 @@ namespace OloEngine
         historyNames.reserve(m_TemporalHistoryContracts.size());
         for (const auto& contract : m_TemporalHistoryContracts)
             historyNames.insert(contract.HistoryResource);
-
-        // Transient: resources that appear in the transient plan and will
-        // actually be allocated (WillAllocate == true).
-        std::unordered_set<std::string> transientNames;
-        transientNames.reserve(m_TransientPlan.size());
-        for (const auto& entry : m_TransientPlan)
-            if (entry.WillAllocate)
-                transientNames.insert(entry.Resource);
 
         // --- Build pass-order index map ---------------------------------
         std::unordered_map<std::string, u32> passOrderIdx;
@@ -2411,10 +3160,11 @@ namespace OloEngine
         {
             ResourceLifetime lt;
             lt.ResourceName = info.Name;
-            lt.IsImported = importedNames.contains(info.Name);
+            lt.IsImported = IsImportedResource(info.Name);
             lt.IsExtracted = extractedNames.contains(info.Name);
             lt.IsHistory = historyNames.contains(info.Name);
-            lt.IsTransient = transientNames.contains(info.Name);
+            lt.IsTransient = IsTransientResource(info.Name);
+            lt.HasExternalBacking = IsExternallyBackedTransientResource(info.Name);
 
             // Walk the execution order to find first write and last read.
             for (u32 i = 0; i < static_cast<u32>(m_ExecutionOrder.size()); ++i)
@@ -2551,149 +3301,63 @@ namespace OloEngine
         m_ReachablePasses.clear();
         m_CulledPasses.clear();
 
-        // Only apply culling when the final output is explicitly requested.
-        // Graphs without an explicit final pass keep all registered passes
-        // reachable so ad-hoc/unit-test graphs preserve their no-final
-        // execution semantics.
-        if (!m_HasExplicitFinalPass)
-        {
-            for (const auto& passName : m_InsertionOrder)
-                m_ReachablePasses.insert(passName);
-            return;
-        }
-
-        if (m_FinalPassName.empty())
+        if (m_HasExplicitFinalPass && m_FinalPassName.empty())
         {
             OLO_CORE_WARN("ComputeReachability: final pass not set; all passes marked reachable");
-            for (const auto& passName : m_InsertionOrder)
-                m_ReachablePasses.insert(passName);
-            return;
         }
 
-        std::unordered_set<std::string> visited;
-        std::vector<std::string> stack;
-
-        stack.push_back(m_FinalPassName);
-        m_ReachablePasses.insert(m_FinalPassName);
-
-        while (!stack.empty())
+        // Gather extraction / temporal-history / external-sink resource roots
+        // for the BFS. The reachability module needs only resource names; we
+        // filter stale handles and skip empty contract entries here.
+        std::vector<std::string> extractedResourceNames;
+        extractedResourceNames.reserve(m_TextureExtracts.size() + m_FramebufferExtracts.size() +
+                                       m_TemporalHistoryContracts.size() + m_ExternalTextureSinkContracts.size());
+        for (const auto& extract : m_TextureExtracts)
         {
-            const auto current = stack.back();
-            stack.pop_back();
-
-            if (visited.contains(current))
+            if (!IsTextureHandleCurrent(extract.Handle))
                 continue;
-            visited.insert(current);
-
-            if (m_Dependencies.contains(current))
-            {
-                for (const auto& dependency : m_Dependencies[current])
-                {
-                    if (!m_ReachablePasses.contains(dependency))
-                    {
-                        m_ReachablePasses.insert(dependency);
-                        stack.push_back(dependency);
-                    }
-                }
-            }
+            auto name = std::string(GetResourceName(extract.Handle));
+            if (!name.empty())
+                extractedResourceNames.push_back(std::move(name));
         }
-
-        // Also walk backward using declared resource dependencies
-        // (DeclareRead / DeclareWrite). Wrapped passes whose ordering edges are
-        // intentionally omitted from m_Dependencies in favour of
-        // declaration-derived ordering must still be reachable from the final
-        // pass or they would all be culled.
-        //
-        // Algorithm:
-        //   1. Build a resource-name → writer-pass map from every graph entry
-        //      with node-owned declaration metadata.
-        //   2. Iteratively expand m_ReachablePasses: for each already-reachable
-        //      pass, look up its declared reads and add the writer(s) of each
-        //      read resource.  Repeat until stable.
+        for (const auto& extract : m_FramebufferExtracts)
         {
-            std::unordered_map<std::string, std::vector<std::string>> resourceWriters;
-            resourceWriters.reserve(m_InsertionOrder.size() * 4u);
-
-            const auto findFrameAccesses = [this](const std::string& passName) -> const std::vector<RGAccessDeclaration>*
-            {
-                if (const auto accessIt = m_PassAccessDeclarations.find(passName); accessIt != m_PassAccessDeclarations.end())
-                {
-                    return &accessIt->second;
-                }
-                return nullptr;
-            };
-
-            for (const auto& passName : m_InsertionOrder)
-            {
-                if (const auto* accesses = findFrameAccesses(passName))
-                {
-                    for (const auto& access : *accesses)
-                    {
-                        if (access.IsWrite && !access.ResourceName.empty())
-                        {
-                            resourceWriters[access.ResourceName].push_back(passName);
-                        }
-                    }
-                    continue;
-                }
-
-                const auto node = TryGetGraphEntryNode(passName, m_NodeLookup);
-                if (!node)
-                    continue;
-
-                for (const ResourceHandle& write : node->GetDeclaredWrites())
-                {
-                    if (!write.Name.empty())
-                        resourceWriters[write.Name].push_back(passName);
-                }
-            }
-
-            bool anyNew = true;
-            while (anyNew)
-            {
-                anyNew = false;
-                const std::vector<std::string> snapshot(m_ReachablePasses.begin(),
-                                                        m_ReachablePasses.end());
-                for (const auto& passName : snapshot)
-                {
-                    if (const auto* accesses = findFrameAccesses(passName))
-                    {
-                        for (const auto& access : *accesses)
-                        {
-                            if (access.IsWrite)
-                                continue;
-
-                            auto writerIt = resourceWriters.find(access.ResourceName);
-                            if (writerIt == resourceWriters.end())
-                                continue;
-                            for (const auto& writerName : writerIt->second)
-                            {
-                                if (m_ReachablePasses.insert(writerName).second)
-                                    anyNew = true;
-                            }
-                        }
-                        continue;
-                    }
-
-                    const auto node = TryGetGraphEntryNode(passName, m_NodeLookup);
-                    if (!node)
-                        continue;
-
-                    for (const ResourceHandle& read : node->GetDeclaredReads())
-                    {
-                        auto writerIt = resourceWriters.find(read.Name);
-                        if (writerIt == resourceWriters.end())
-                            continue;
-                        for (const auto& writerName : writerIt->second)
-                        {
-                            if (m_ReachablePasses.insert(writerName).second)
-                                anyNew = true;
-                        }
-                    }
-                }
-            }
+            if (!IsFramebufferHandleCurrent(extract.Handle))
+                continue;
+            auto name = std::string(GetResourceName(extract.Handle));
+            if (!name.empty())
+                extractedResourceNames.push_back(std::move(name));
+        }
+        for (const auto& contract : m_TemporalHistoryContracts)
+        {
+            if (!contract.SourceResource.empty())
+                extractedResourceNames.push_back(contract.SourceResource);
+        }
+        for (const auto& contract : m_ExternalTextureSinkContracts)
+        {
+            if (!contract.SourceResource.empty())
+                extractedResourceNames.push_back(contract.SourceResource);
         }
 
+        // Delegate the BFS / iterative read→writer expansion to the
+        // RenderGraphReachability module (Phase 7 split).
+        m_ReachablePasses = RenderGraphReachability::ComputeReachableSet({
+            .HasExplicitFinalPass = m_HasExplicitFinalPass,
+            .FinalPassName = m_FinalPassName,
+            .InsertionOrder = m_InsertionOrder,
+            .PassAccessDeclarations = m_PassAccessDeclarations,
+            .Dependencies = m_Dependencies,
+            .ExtractedResourceNames = extractedResourceNames,
+        });
+
+        // Refresh contract metadata (depends on m_ReachablePasses) before the
+        // culling sweep so any contract that lost its producer is reported.
+        RefreshTemporalHistoryContracts();
+        RefreshExternalTextureSinkContracts();
+
+        // Sweep: passes not reachable but side-effecting (Present / Readback /
+        // NeverCull / ExternalSideEffect) come back into the reachable set so
+        // their side effects still run; everything else lands in m_CulledPasses.
         for (const auto& passName : m_InsertionOrder)
         {
             if (m_ReachablePasses.contains(passName))
@@ -2733,244 +3397,33 @@ namespace OloEngine
 
     MemoryBarrierFlags RenderGraph::ResolveProducerBarrierFlags(const RGWriteUsage usage)
     {
-        switch (usage)
-        {
-            case RGWriteUsage::ShaderImage:
-                return MemoryBarrierFlags::ShaderImageAccess;
-            case RGWriteUsage::ShaderStorage:
-                return MemoryBarrierFlags::ShaderStorage;
-            case RGWriteUsage::TransferDest:
-                return MemoryBarrierFlags::TextureUpdate | MemoryBarrierFlags::BufferUpdate;
-            case RGWriteUsage::RenderTarget:
-            case RGWriteUsage::DepthStencil:
-            case RGWriteUsage::Clear:
-                return MemoryBarrierFlags::Framebuffer;
-            default:
-                return MemoryBarrierFlags::None;
-        }
+        return RenderGraphBarrierPlanner::ResolveProducerBarrierFlags(usage);
     }
 
     MemoryBarrierFlags RenderGraph::ResolveConsumerBarrierFlags(const RGReadUsage usage)
     {
-        switch (usage)
-        {
-            case RGReadUsage::ShaderSample:
-                return MemoryBarrierFlags::TextureFetch;
-            case RGReadUsage::ShaderImage:
-                return MemoryBarrierFlags::ShaderImageAccess;
-            case RGReadUsage::ShaderStorage:
-                return MemoryBarrierFlags::ShaderStorage;
-            case RGReadUsage::TransferSource:
-                return MemoryBarrierFlags::TextureUpdate | MemoryBarrierFlags::BufferUpdate;
-            case RGReadUsage::RenderTargetRead:
-            case RGReadUsage::InputAttachment:
-                return MemoryBarrierFlags::Framebuffer;
-            case RGReadUsage::ComputeIndirectArgs:
-                return MemoryBarrierFlags::Command;
-            default:
-                return MemoryBarrierFlags::None;
-        }
+        return RenderGraphBarrierPlanner::ResolveConsumerBarrierFlags(usage);
     }
 
     void RenderGraph::ComputeBarrierPlan()
     {
         OLO_PROFILE_FUNCTION();
 
-        m_PassBarrierFlags.clear();
-        m_PlannedBarriers.clear();
-        m_BarrierDiagnostics.clear();
+        // Delegate to the extracted barrier-planner module (Phase 7 split).
+        // The module is backend-agnostic: it consumes the compiled-frame access
+        // declarations + execution order, produces a `PlannedBarrier` list and
+        // a per-pass barrier-flag map. The OpenGL backend then translates the
+        // flags to `glMemoryBarrier` bits via the abstract
+        // `RGCommandContext::MemoryBarrier(flags)` entry point.
+        auto plan = RenderGraphBarrierPlanner::ComputePlan({
+            .ExecutionOrder = m_ExecutionOrder,
+            .PassAccessDeclarations = m_PassAccessDeclarations,
+            .IsPassReachable = [this](const std::string& passName) { return IsPassReachable(passName); },
+        });
 
-        // Per-subresource writer state: tracks the last pass that wrote each
-        // unique subresource of a resource (mip / layer granularity).
-        struct LastWriterState
-        {
-            std::string PassName;
-            RGWriteUsage Usage = RGWriteUsage::RenderTarget;
-            RGSubresourceRange Range = RGSubresourceRange::Full();
-        };
-
-        // Returns true when two 1-D intervals [baseA, baseA+countA) and
-        // [baseB, baseB+countB) overlap. ~0u means "unbounded" (all).
-        auto rangeOverlaps1D = [](u32 baseA, u32 countA, u32 baseB, u32 countB) -> bool
-        {
-            if (countA == ~0u || countB == ~0u)
-                return true;
-            return baseA < baseB + countB && baseB < baseA + countA;
-        };
-
-        auto subresourceRangesOverlap = [&rangeOverlaps1D](const RGSubresourceRange& a,
-                                                           const RGSubresourceRange& b) -> bool
-        {
-            return rangeOverlaps1D(a.BaseMip, a.MipCount, b.BaseMip, b.MipCount) &&
-                   rangeOverlaps1D(a.BaseLayer, a.LayerCount, b.BaseLayer, b.LayerCount);
-        };
-
-        // resource name → per-subresource writer slots (one entry per (pass, range) pair)
-        std::unordered_map<std::string, std::vector<LastWriterState>> lastWriterByResource;
-        lastWriterByResource.reserve(m_ExecutionOrder.size() * 2u);
-
-        std::unordered_map<std::string, std::unordered_set<std::string>> allWriterPassesByResource;
-        allWriterPassesByResource.reserve(m_PassAccessDeclarations.size() * 2u);
-        for (const auto& [passName, accessDeclarations] : m_PassAccessDeclarations)
-        {
-            for (const auto& access : accessDeclarations)
-            {
-                if (!access.IsWrite || access.ResourceName.empty())
-                    continue;
-                allWriterPassesByResource[access.ResourceName].insert(passName);
-            }
-        }
-
-        for (const auto& passName : m_ExecutionOrder)
-        {
-            if (!IsPassReachable(passName))
-                continue;
-
-            const auto declarationIt = m_PassAccessDeclarations.find(passName);
-            if (declarationIt == m_PassAccessDeclarations.end())
-                continue;
-
-            auto plannedFlags = MemoryBarrierFlags::None;
-            for (const auto& access : declarationIt->second)
-            {
-                if (access.ResourceName.empty())
-                    continue;
-
-                if (!access.IsWrite)
-                {
-                    // Find every writer whose subresource range overlaps this read.
-                    const auto writerIt = lastWriterByResource.find(access.ResourceName);
-                    if (writerIt == lastWriterByResource.end() || writerIt->second.empty())
-                    {
-                        const auto allWritersIt = allWriterPassesByResource.find(access.ResourceName);
-                        if (allWritersIt == allWriterPassesByResource.end() || allWritersIt->second.empty())
-                        {
-                            m_BarrierDiagnostics.push_back(BarrierDiagnostic{
-                                .Kind = BarrierDiagnosticKind::MissingProducer,
-                                .PassName = passName,
-                                .Resource = access.ResourceName,
-                                .Message = "No producer declared for read resource '" + access.ResourceName + "' before pass '" + passName + "'",
-                            });
-                        }
-                        else
-                        {
-                            auto hasReachableWriter = false;
-                            for (const auto& writerPassName : allWritersIt->second)
-                            {
-                                if (IsPassReachable(writerPassName))
-                                {
-                                    hasReachableWriter = true;
-                                    break;
-                                }
-                            }
-
-                            if (!hasReachableWriter)
-                            {
-                                m_BarrierDiagnostics.push_back(BarrierDiagnostic{
-                                    .Kind = BarrierDiagnosticKind::CulledProducer,
-                                    .PassName = passName,
-                                    .Resource = access.ResourceName,
-                                    .Message = "Read resource '" + access.ResourceName + "' in pass '" + passName + "' only has unreachable/culled producers",
-                                });
-                            }
-                        }
-                        continue;
-                    }
-
-                    // Emit one barrier per overlapping writer — different mip writes
-                    // can have different producer flags and must be tracked separately.
-                    for (const auto& writer : writerIt->second)
-                    {
-                        if (writer.PassName == passName)
-                            continue;
-                        if (!subresourceRangesOverlap(writer.Range, access.Range))
-                            continue;
-
-                        const auto flags = ResolveProducerBarrierFlags(writer.Usage) |
-                                           ResolveConsumerBarrierFlags(access.ReadUsage);
-                        if (flags == MemoryBarrierFlags::None)
-                        {
-                            m_BarrierDiagnostics.push_back(BarrierDiagnostic{
-                                .Kind = BarrierDiagnosticKind::UnmappedTransition,
-                                .PassName = passName,
-                                .Resource = access.ResourceName,
-                                .Message = "No barrier mapping for transition to pass '" + passName + "' on resource '" + access.ResourceName + "'",
-                            });
-                            continue;
-                        }
-
-                        plannedFlags |= flags;
-                        m_PlannedBarriers.push_back(PlannedBarrier{
-                            .BeforePass = passName,
-                            .Resource = access.ResourceName,
-                            .Flags = flags,
-                            .Range = access.Range,
-                        });
-                    }
-                }
-                else
-                {
-                    // WAW: emit a barrier for every prior writer whose range overlaps.
-                    auto& writerVec = lastWriterByResource[access.ResourceName];
-                    for (const auto& writer : writerVec)
-                    {
-                        if (writer.PassName == passName)
-                            continue;
-                        if (!subresourceRangesOverlap(writer.Range, access.Range))
-                            continue;
-
-                        const auto flags = ResolveProducerBarrierFlags(writer.Usage) |
-                                           ResolveProducerBarrierFlags(access.WriteUsage);
-                        if (flags == MemoryBarrierFlags::None)
-                        {
-                            m_BarrierDiagnostics.push_back(BarrierDiagnostic{
-                                .Kind = BarrierDiagnosticKind::UnmappedTransition,
-                                .PassName = passName,
-                                .Resource = access.ResourceName,
-                                .Message = "No barrier mapping for write-after-write transition in pass '" + passName + "' on resource '" + access.ResourceName + "'",
-                            });
-                        }
-                        else
-                        {
-                            plannedFlags |= flags;
-                            m_PlannedBarriers.push_back(PlannedBarrier{
-                                .BeforePass = passName,
-                                .Resource = access.ResourceName,
-                                .Flags = flags,
-                                .Range = access.Range,
-                            });
-                        }
-                    }
-
-                    // Upsert the writer slot for this pass + range.
-                    // If the same pass already owns an overlapping slot, update it
-                    // (avoids growing the vector unboundedly for multi-write passes).
-                    bool slotUpdated = false;
-                    for (auto& writer : writerVec)
-                    {
-                        if (writer.PassName == passName &&
-                            subresourceRangesOverlap(writer.Range, access.Range))
-                        {
-                            writer.Usage = access.WriteUsage;
-                            writer.Range = access.Range;
-                            slotUpdated = true;
-                            break;
-                        }
-                    }
-                    if (!slotUpdated)
-                    {
-                        writerVec.push_back(LastWriterState{
-                            .PassName = passName,
-                            .Usage = access.WriteUsage,
-                            .Range = access.Range,
-                        });
-                    }
-                }
-            }
-
-            if (plannedFlags != MemoryBarrierFlags::None)
-                m_PassBarrierFlags[passName] = plannedFlags;
-        }
+        m_PlannedBarriers = std::move(plan.PlannedBarriers);
+        m_PassBarrierFlags = std::move(plan.PassBarrierFlags);
+        m_BarrierDiagnostics = std::move(plan.Diagnostics);
     }
 
     bool RenderGraph::IsPassReachable(const std::string& passName) const
@@ -3018,6 +3471,81 @@ namespace OloEngine
         return m_PhysicalTextures[handle.Index].IsHistory;
     }
 
+    bool RenderGraph::IsImportedResource(std::string_view resourceName) const
+    {
+        if (resourceName.empty())
+            return false;
+
+        const auto stableName = std::string(resourceName);
+        if (m_ImportedResources.contains(stableName))
+            return true;
+
+        if (const auto viewIt = m_TextureViewDefinitions.find(stableName);
+            viewIt != m_TextureViewDefinitions.end() &&
+            viewIt->second.ParentResource != stableName)
+        {
+            return IsImportedResource(viewIt->second.ParentResource);
+        }
+
+        return false;
+    }
+
+    bool RenderGraph::IsTransientResource(std::string_view resourceName) const
+    {
+        if (resourceName.empty())
+            return false;
+
+        const auto stableName = std::string(resourceName);
+        if (m_TransientResourceDescs.contains(stableName))
+            return true;
+
+        if (const auto viewIt = m_TextureViewDefinitions.find(stableName);
+            viewIt != m_TextureViewDefinitions.end() &&
+            viewIt->second.ParentResource != stableName)
+        {
+            return IsTransientResource(viewIt->second.ParentResource);
+        }
+
+        return false;
+    }
+
+    bool RenderGraph::IsExternallyBackedTransientResource(std::string_view resourceName) const
+    {
+        if (resourceName.empty())
+            return false;
+
+        const auto stableName = std::string(resourceName);
+        if (m_ExternallyBackedTransientTextures.contains(stableName))
+            return true;
+
+        if (m_ExternallyBackedTransientFramebuffers.contains(stableName))
+            return true;
+
+        if (const auto viewIt = m_TextureViewDefinitions.find(stableName);
+            viewIt != m_TextureViewDefinitions.end())
+        {
+            if (!viewIt->second.BackingResource.empty() &&
+                viewIt->second.BackingResource != stableName &&
+                IsExternallyBackedTransientResource(viewIt->second.BackingResource))
+            {
+                return true;
+            }
+
+            if (viewIt->second.ParentResource != stableName)
+                return IsExternallyBackedTransientResource(viewIt->second.ParentResource);
+        }
+
+        return false;
+    }
+
+    bool RenderGraph::HasHistoryTextureSink(std::string_view historyResource) const
+    {
+        if (historyResource.empty())
+            return false;
+
+        return m_HistoryTextureSinks.contains(std::string(historyResource));
+    }
+
     bool RenderGraph::IsResourceReachableForExtraction(std::string_view resourceName) const
     {
         if (resourceName.empty())
@@ -3047,18 +3575,42 @@ namespace OloEngine
     //
     // Transitive closure is built on-demand from m_Dependencies (which holds
     // every edge — ConnectPass + AddExecutionDependency both append here).
+    bool RenderGraph::ValidateExecutionTopology()
+    {
+        if (!m_DependencyGraphDirty)
+            return true;
+
+        return UpdateDependencyGraph();
+    }
+
     std::vector<RenderGraph::Hazard> RenderGraph::ValidateResourceHazards()
+    {
+        // Setup-time declarations only land in m_PassAccessDeclarations after
+        // BuildFrameGraph runs each pass's Setup callback. Auto-build only
+        // when the dependency graph is actually dirty so back-to-back calls
+        // (or a caller that already ran BuildFrameGraph this frame) don't
+        // pay for a redundant per-pass Setup rebuild — that double-build
+        // was the cause of the 2026-05-12 Debug-mode FPS regression
+        // (Renderer3DFrameExecution validates before Execute()).
+        if (m_DependencyGraphDirty)
+            BuildFrameGraph();
+        return ValidateResourceHazardsInternal();
+    }
+
+    std::vector<RenderGraph::Hazard> RenderGraph::ValidateCompiledResourceHazards()
+    {
+        if (m_DependencyGraphDirty)
+            BuildFrameGraph();
+        return ValidateResourceHazardsInternal();
+    }
+
+    std::vector<RenderGraph::Hazard> RenderGraph::ValidateResourceHazardsInternal()
     {
         OLO_PROFILE_FUNCTION();
 
-        const auto getNode = [this](const std::string& passName) -> Ref<RenderGraphNode>
-        {
-            return TryGetGraphEntryNode(passName, m_NodeLookup);
-        };
-
+        // Ensure the registry and topology are up to date before delegating
+        // to the pure validator module.
         EnsureResourceRegistryBuilt();
-
-        std::vector<Hazard> hazards = m_ResourceRegistryDiagnostics;
 
         if (m_DependencyGraphDirty)
         {
@@ -3072,6 +3624,7 @@ namespace OloEngine
                 // validate" (the empty-vector overload used to conflate
                 // both).
                 OLO_CORE_ERROR("RenderGraph::ValidateResourceHazards: aborting (graph has a cycle)");
+                std::vector<Hazard> hazards;
                 Hazard h;
                 h.Kind = HazardKind::Cycle;
                 h.Message = "RenderGraph contains a cycle; resource hazard validation aborted";
@@ -3083,336 +3636,26 @@ namespace OloEngine
             // submission-plan rebuild. The validator only needs topo order.
         }
 
-        // Build transitive dependency closure: for each pass P, closure[P]
-        // is the set of all passes that must execute before P.
-        std::unordered_map<std::string, std::unordered_set<std::string>> closure;
-        closure.reserve(m_ExecutionOrder.size());
-        for (const auto& passName : m_ExecutionOrder)
-        {
-            std::unordered_set<std::string>& cls = closure[passName];
-            std::vector<std::string> frontier;
-            auto depsIt = m_Dependencies.find(passName);
-            if (depsIt != m_Dependencies.end())
-            {
-                frontier.insert(frontier.end(), depsIt->second.begin(), depsIt->second.end());
-            }
-            while (!frontier.empty())
-            {
-                const std::string parent = std::move(frontier.back());
-                frontier.pop_back();
-                if (!cls.insert(parent).second)
-                    continue;
-                auto parentDeps = m_Dependencies.find(parent);
-                if (parentDeps == m_Dependencies.end())
-                    continue;
-                for (const auto& grand : parentDeps->second)
-                {
-                    if (!cls.contains(grand))
-                        frontier.push_back(grand);
-                }
-            }
-        }
-
-        // Declaration-derived edge synthesis.
-        // Augment the closure with implicit RAW (read-after-write) edges that
-        // can be derived from pass-level DeclareRead/DeclareWrite pairs.  This
-        // allows passes that declare their resource access correctly to omit
-        // explicit AddExecutionDependency calls for those resources.
-        //
-        // Algorithm:
-        //   1. For every (producer, consumer) pair where producer.GetWrites()
-        //      and consumer.GetReads() share a resource name, add a direct
-        //      derived edge: consumer depends on producer.
-        //   2. Run a fixed-point iteration so the new edges propagate through
-        //      the closure (i.e. passes that depend on the consumer also
-        //      transitively depend on the producer).
-        {
-            for (const auto& producerName : m_ExecutionOrder)
-            {
-                const auto producerNode = getNode(producerName);
-                if (!producerNode)
-                    continue;
-
-                for (const ResourceHandle& write : producerNode->GetDeclaredWrites())
-                {
-                    for (const auto& consumerName : m_ExecutionOrder)
-                    {
-                        if (consumerName == producerName)
-                            continue;
-                        const auto consumerNode = getNode(consumerName);
-                        if (!consumerNode)
-                            continue;
-
-                        for (const ResourceHandle& read : consumerNode->GetDeclaredReads())
-                        {
-                            if (read.Name == write.Name)
-                            {
-                                closure[consumerName].insert(producerName);
-                                break; // one match per write is enough
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Propagate transitivity of the newly added derived edges until
-            // no new entries are inserted.
-            bool anyChange = true;
-            while (anyChange)
-            {
-                anyChange = false;
-                for (auto& [passName, cls] : closure)
-                {
-                    std::vector<std::string> toAdd;
-                    for (const auto& dep : cls)
-                    {
-                        auto depIt = closure.find(dep);
-                        if (depIt == closure.end())
-                            continue;
-                        for (const auto& ancestor : depIt->second)
-                        {
-                            if (!cls.contains(ancestor))
-                                toAdd.push_back(ancestor);
-                        }
-                    }
-                    for (const auto& a : toAdd)
-                    {
-                        if (cls.insert(a).second)
-                            anyChange = true;
-                    }
-                }
-            }
-        }
-
-        auto dependsOn = [&closure](const std::string& later, const std::string& earlier) -> bool
-        {
-            auto it = closure.find(later);
-            if (it == closure.end())
-                return false;
-            return it->second.contains(earlier);
-        };
-
-        // -----------------------------------------------------------------
-        // Validation: same-pass overlapping read/write requires an
-        // explicit feedback declaration (not yet exposed), so flag for now.
-        // -----------------------------------------------------------------
-        auto rangesOverlap = [](const RGSubresourceRange& lhs, const RGSubresourceRange& rhs) -> bool
-        {
-            auto spanOverlap = [](u32 lhsBase, u32 lhsCount, u32 rhsBase, u32 rhsCount) -> bool
-            {
-                const auto lhsEndExclusive = lhsCount == ~0u
-                                                 ? std::numeric_limits<u64>::max()
-                                                 : static_cast<u64>(lhsBase) + static_cast<u64>(lhsCount);
-                const auto rhsEndExclusive = rhsCount == ~0u
-                                                 ? std::numeric_limits<u64>::max()
-                                                 : static_cast<u64>(rhsBase) + static_cast<u64>(rhsCount);
-
-                return static_cast<u64>(lhsBase) < rhsEndExclusive &&
-                       static_cast<u64>(rhsBase) < lhsEndExclusive;
-            };
-
-            return spanOverlap(lhs.BaseMip, lhs.MipCount, rhs.BaseMip, rhs.MipCount) &&
-                   spanOverlap(lhs.BaseLayer, lhs.LayerCount, rhs.BaseLayer, rhs.LayerCount) &&
-                   spanOverlap(lhs.BaseSlice, lhs.SliceCount, rhs.BaseSlice, rhs.SliceCount);
-        };
-
-        for (const auto& [passName, accesses] : m_PassAccessDeclarations)
-        {
-            for (sizet readIdx = 0; readIdx < accesses.size(); ++readIdx)
-            {
-                const auto& readAccess = accesses[readIdx];
-                if (readAccess.IsWrite)
-                    continue;
-
-                for (sizet writeIdx = 0; writeIdx < accesses.size(); ++writeIdx)
-                {
-                    const auto& writeAccess = accesses[writeIdx];
-                    if (!writeAccess.IsWrite)
-                        continue;
-                    if (readAccess.ResourceName != writeAccess.ResourceName)
-                        continue;
-                    if (!rangesOverlap(readAccess.Range, writeAccess.Range))
-                        continue;
-
-                    Hazard h;
-                    h.Kind = HazardKind::FeedbackWithoutDeclaration;
-                    h.Resource = readAccess.ResourceName;
-                    h.Producer = passName;
-                    h.Consumer = passName;
-                    h.Message = "Feedback hazard: pass '" + passName +
-                                "' reads and writes overlapping subresources of resource '" +
-                                readAccess.ResourceName + "' without an explicit feedback declaration";
-                    OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message);
-                    hazards.push_back(std::move(h));
-                    break;
-                }
-            }
-        }
-
-        // -----------------------------------------------------------------
-        // Validation: imported resource lifetime misuse.
-        // If an imported resource is both produced and consumed in-graph,
-        // it must have a currently valid backing object.
-        // -----------------------------------------------------------------
-        for (const auto& resource : m_RegisteredResources)
-        {
-            if (!resource.Desc.Imported)
-                continue;
-            if (resource.Producers.empty() || resource.Consumers.empty())
-                continue;
-
-            bool hasValidBacking = true;
-            if (resource.TextureHandle.IsValid())
-                hasValidBacking = ResolveTexture(resource.TextureHandle) != 0;
-            else if (resource.BufferHandle.IsValid())
-                hasValidBacking = ResolveBuffer(resource.BufferHandle) != 0;
-            else if (resource.FramebufferHandle.IsValid())
-                hasValidBacking = ResolveFramebuffer(resource.FramebufferHandle) != nullptr;
-
-            if (hasValidBacking)
-                continue;
-
-            Hazard h;
-            h.Kind = HazardKind::ImportedResourceLifetimeMisuse;
-            h.Resource = resource.Name;
-            h.Producer = resource.Producers.front();
-            h.Consumer = resource.Consumers.front();
-            h.Message = "Imported resource lifetime misuse: resource '" + resource.Name +
-                        "' is produced and consumed in-graph but has no valid backing object";
-            OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message);
-            hazards.push_back(std::move(h));
-        }
-
-        struct ResourceState
-        {
-            std::string LastWriter;                      // empty => never written
-            std::unordered_set<std::string> LiveReaders; // readers since lastWriter
-        };
-        std::unordered_map<std::string, ResourceState> state;
-
-        for (const auto& passName : m_ExecutionOrder)
-        {
-            const auto node = getNode(passName);
-
-            // Collect read resource names from both node-owned declaration
-            // metadata and frame-setup (builder.Read) access declarations,
-            // deduplicating.
-            std::vector<std::string> readNames;
-            if (node)
-            {
-                for (const ResourceHandle& r : node->GetDeclaredReads())
-                    readNames.push_back(r.Name);
-            }
-            if (const auto aIt = m_PassAccessDeclarations.find(passName);
-                aIt != m_PassAccessDeclarations.end())
-            {
-                for (const auto& access : aIt->second)
-                {
-                    if (!access.IsWrite && !access.ResourceName.empty())
-                    {
-                        if (std::find(readNames.begin(), readNames.end(), access.ResourceName) ==
-                            readNames.end())
-                            readNames.push_back(access.ResourceName);
-                    }
-                }
-            }
-
-            // Collect write resource names from both sources, deduplicating.
-            std::vector<std::string> writeNames;
-            if (node)
-            {
-                for (const ResourceHandle& w : node->GetDeclaredWrites())
-                    writeNames.push_back(w.Name);
-            }
-            if (const auto aIt = m_PassAccessDeclarations.find(passName);
-                aIt != m_PassAccessDeclarations.end())
-            {
-                for (const auto& access : aIt->second)
-                {
-                    if (access.IsWrite && !access.ResourceName.empty())
-                    {
-                        if (std::find(writeNames.begin(), writeNames.end(), access.ResourceName) ==
-                            writeNames.end())
-                            writeNames.push_back(access.ResourceName);
-                    }
-                }
-            }
-
-            // Record reads first — a same-pass read+write on the same
-            // resource isn't a hazard against itself.
-            for (const auto& rName : readNames)
-            {
-                ResourceState& st = state[rName];
-                if (!st.LastWriter.empty() && st.LastWriter != passName && !dependsOn(passName, st.LastWriter))
-                {
-                    Hazard h;
-                    h.Kind = HazardKind::ReadAfterWrite;
-                    h.Resource = rName;
-                    h.Producer = st.LastWriter;
-                    h.Consumer = passName;
-                    h.Message = "RAW: pass '" + passName + "' reads resource '" + rName +
-                                "' written by '" + st.LastWriter +
-                                "' without declaring a dependency";
-                    OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message);
-                    hazards.push_back(std::move(h));
-                }
-                st.LiveReaders.insert(passName);
-            }
-
-            for (const auto& wName : writeNames)
-            {
-                ResourceState& st = state[wName];
-
-                if (!st.LastWriter.empty() && st.LastWriter != passName && !dependsOn(passName, st.LastWriter))
-                {
-                    Hazard h;
-                    h.Kind = HazardKind::WriteAfterWrite;
-                    h.Resource = wName;
-                    h.Producer = st.LastWriter;
-                    h.Consumer = passName;
-                    h.Message = "WAW: pass '" + passName + "' writes resource '" + wName +
-                                "' previously written by '" + st.LastWriter +
-                                "' without declaring a dependency";
-                    OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message);
-                    hazards.push_back(std::move(h));
-                }
-
-                for (const auto& reader : st.LiveReaders)
-                {
-                    if (reader == passName)
-                        continue;
-                    if (!dependsOn(passName, reader))
-                    {
-                        Hazard h;
-                        h.Kind = HazardKind::WriteAfterRead;
-                        h.Resource = wName;
-                        h.Producer = reader;
-                        h.Consumer = passName;
-                        h.Message = "WAR: pass '" + passName + "' overwrites resource '" + wName +
-                                    "' still live for reader '" + reader +
-                                    "' without declaring a dependency";
-                        OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message);
-                        hazards.push_back(std::move(h));
-                    }
-                }
-
-                st.LastWriter = passName;
-                st.LiveReaders.clear();
-            }
-        }
-
-        return hazards;
+        // Delegate to the extracted hazard-validator module (Phase 7 split).
+        return RenderGraphHazardValidator::Validate({
+            .IsPassReachable = [this](const std::string& passName) { return IsPassReachable(passName); },
+            .ResolveTexture = [this](RGTextureHandle handle) { return ResolveTexture(handle); },
+            .ResolveBuffer = [this](RGBufferHandle handle) { return ResolveBuffer(handle); },
+            .ResolveFramebuffer = [this](RGFramebufferHandle handle) { return ResolveFramebuffer(handle); },
+            .ExecutionOrder = m_ExecutionOrder,
+            .Dependencies = m_Dependencies,
+            .PassAccessDeclarations = m_PassAccessDeclarations,
+            .PassFeedbackDeclarations = m_PassFeedbackDeclarations,
+            .RegistryDiagnostics = m_ResourceRegistryDiagnostics,
+            .RegisteredResources = m_RegisteredResources,
+        });
     }
+
 
     void RenderGraph::EnsureResourceRegistryBuilt() const
     {
         if (!m_ResourceRegistryDirty)
             return;
-
-        const auto getNode = [this](const std::string& passName) -> Ref<RenderGraphNode>
-        {
-            return TryGetGraphEntryNode(passName, m_NodeLookup);
-        };
 
         auto isTextureKind = [](const ResourceHandle::Kind kind)
         {
@@ -3428,163 +3671,26 @@ namespace OloEngine
                    kind == ResourceHandle::Kind::StorageBuffer;
         };
 
-        m_ResourceRegistry.clear();
-        m_RegisteredResources.clear();
-        m_ResourceRegistryDiagnostics.clear();
-        for (auto& info : m_RegisteredResources)
-        {
-            info.TextureHandle = {};
-            info.BufferHandle = {};
-            info.FramebufferHandle = {};
-        }
+        // Phase A — pure registry build (descriptor merging + access walking +
+        // kind-mismatch diagnostics + canonical sort). Delegated to the
+        // RenderGraphResourceRegistry module (Phase 7 split).
+        auto built = RenderGraphResourceRegistry::Build({
+            .ImportedResources = m_ImportedResources,
+            .TransientResourceDescs = m_TransientResourceDescs,
+            .TextureViewResourceDescs = m_TextureViewResourceDescs,
+            .InsertionOrder = m_InsertionOrder,
+            .PassAccessDeclarations = m_PassAccessDeclarations,
+            .IsExternallyBackedTransientResource = [this](std::string_view name) { return IsExternallyBackedTransientResource(name); },
+        });
 
-        auto appendUnique = [](std::vector<std::string>& names, const std::string& value)
-        {
-            if (std::find(names.begin(), names.end(), value) == names.end())
-                names.push_back(value);
-        };
+        m_ResourceRegistry = std::move(built.Registry);
+        m_RegisteredResources = std::move(built.Sorted);
+        m_ResourceRegistryDiagnostics = std::move(built.Diagnostics);
 
-        for (const auto& [name, desc] : m_ImportedResources)
-        {
-            ResourceInfo info;
-            info.Name = name;
-            info.Desc = desc;
-            if (info.Desc.DebugName.empty())
-                info.Desc.DebugName = name;
-            info.Desc.Imported = true;
-            m_ResourceRegistry[name] = std::move(info);
-        }
-
-        for (const auto& [name, desc] : m_TransientResourceDescs)
-        {
-            ResourceInfo info;
-            info.Name = name;
-            info.Desc = desc;
-            if (info.Desc.DebugName.empty())
-                info.Desc.DebugName = name;
-            info.Desc.Imported = false;
-            m_ResourceRegistry[name] = std::move(info);
-        }
-
-        auto registerDeclaration = [this, &appendUnique](const std::string& passName,
-                                                         const ResourceHandle& handle,
-                                                         const bool isWrite)
-        {
-            auto [it, inserted] = m_ResourceRegistry.try_emplace(handle.Name);
-            auto& info = it->second;
-            if (inserted)
-            {
-                info.Name = handle.Name;
-                info.Desc = RGResourceDesc::FromHandleKind(handle.Type, handle.Name);
-            }
-            else if (info.Desc.DebugName.empty())
-            {
-                info.Desc.DebugName = handle.Name;
-            }
-
-            const auto declaredKind = handle.Type;
-            const auto existingKind = info.Desc.Kind;
-            if (existingKind == ResourceHandle::Kind::Unknown && declaredKind != ResourceHandle::Kind::Unknown)
-            {
-                info.Desc.Kind = declaredKind;
-            }
-            else if (existingKind != ResourceHandle::Kind::Unknown &&
-                     declaredKind != ResourceHandle::Kind::Unknown &&
-                     existingKind != declaredKind)
-            {
-                const auto priorPass = !info.Producers.empty()
-                                           ? info.Producers.front()
-                                           : (!info.Consumers.empty() ? info.Consumers.front() : std::string{});
-
-                Hazard h;
-                h.Kind = HazardKind::ResourceKindMismatch;
-                h.Resource = handle.Name;
-                h.Producer = priorPass;
-                h.Consumer = passName;
-                h.Message = "Kind mismatch: resource '" + handle.Name +
-                            "' was previously declared as '" + std::string(ToString(existingKind)) +
-                            "' but pass '" + passName + "' declares it as '" +
-                            std::string(ToString(declaredKind)) + "'";
-                OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message);
-                m_ResourceRegistryDiagnostics.push_back(std::move(h));
-            }
-
-            if (isWrite)
-                appendUnique(info.Producers, passName);
-            else
-                appendUnique(info.Consumers, passName);
-        };
-
-        for (const auto& passName : m_InsertionOrder)
-        {
-            const auto node = getNode(passName);
-            if (!node)
-                continue;
-
-            for (const auto& read : node->GetDeclaredReads())
-            {
-                registerDeclaration(passName, read, false);
-            }
-
-            for (const auto& write : node->GetDeclaredWrites())
-            {
-                registerDeclaration(passName, write, true);
-            }
-        }
-
-        // Include setup-time builder declarations so per-frame graph access
-        // remains visible in producer/consumer tracking and typed handle
-        // assignment even when a node only exposes its resource contract
-        // dynamically during setup.
-        for (const auto& [passName, accesses] : m_PassAccessDeclarations)
-        {
-            for (const auto& access : accesses)
-            {
-                ResourceHandle syntheticHandle(access.ResourceName, ResourceHandle::Kind::Unknown);
-                registerDeclaration(passName, syntheticHandle, access.IsWrite);
-            }
-        }
-
-        m_RegisteredResources.reserve(m_ResourceRegistry.size());
-        for (const auto& [name, info] : m_ResourceRegistry)
-        {
-            m_RegisteredResources.push_back(info);
-        }
-        std::sort(m_RegisteredResources.begin(), m_RegisteredResources.end(),
-                  [](const ResourceInfo& lhs, const ResourceInfo& rhs)
-                  {
-                      return lhs.Name < rhs.Name;
-                  });
-
-        auto reconcileTypeHandles = [](auto& handlesByName,
-                                       auto& slots,
-                                       auto& freeIndices,
-                                       const std::unordered_set<std::string>& activeNames)
-        {
-            for (auto it = handlesByName.begin(); it != handlesByName.end();)
-            {
-                if (activeNames.contains(it->first))
-                {
-                    ++it;
-                    continue;
-                }
-
-                const auto staleHandle = it->second;
-                if (staleHandle.IsValid() && staleHandle.Index < slots.size())
-                {
-                    auto& slot = slots[staleHandle.Index];
-                    slot.Alive = false;
-                    slot.Name.clear();
-                    if (slot.Generation == 0)
-                        slot.Generation = 1;
-                    ++slot.Generation;
-                    freeIndices.push_back(staleHandle.Index);
-                }
-
-                it = handlesByName.erase(it);
-            }
-        };
-
+        // Phase B — reconcile per-type handle slot tables + allocate handles
+        // for live resources. The generic slot-allocator pattern is shared
+        // across the three handle families and lives in the
+        // RenderGraphHandleAllocator module (Phase 7 slice 8).
         std::unordered_set<std::string> activeTextureNames;
         std::unordered_set<std::string> activeBufferNames;
         std::unordered_set<std::string> activeFramebufferNames;
@@ -3598,92 +3704,47 @@ namespace OloEngine
                 activeFramebufferNames.insert(info.Name);
         }
 
-        reconcileTypeHandles(m_TextureHandlesByName, m_TextureHandleSlots, m_FreeTextureHandleIndices, activeTextureNames);
-        reconcileTypeHandles(m_BufferHandlesByName, m_BufferHandleSlots, m_FreeBufferHandleIndices, activeBufferNames);
-        reconcileTypeHandles(m_FramebufferHandlesByName, m_FramebufferHandleSlots, m_FreeFramebufferHandleIndices, activeFramebufferNames);
-
-        auto allocateHandle = [](const std::string& name,
-                                 auto& handlesByName,
-                                 auto& slots,
-                                 auto& physicals,
-                                 auto& freeIndices,
-                                 auto makeHandle)
-        {
-            auto ensurePhysicalCapacity = [&physicals](const u32 index)
-            {
-                if (index >= physicals.size())
-                    physicals.resize(static_cast<sizet>(index) + 1u);
-            };
-
-            if (auto it = handlesByName.find(name); it != handlesByName.end())
-            {
-                ensurePhysicalCapacity(it->second.Index);
-                return it->second;
-            }
-
-            u32 index = 0;
-            if (!freeIndices.empty())
-            {
-                index = freeIndices.back();
-                freeIndices.pop_back();
-
-                auto& slot = slots[index];
-                slot.Alive = true;
-                slot.Name = name;
-                if (slot.Generation == 0)
-                    slot.Generation = 1;
-
-                ensurePhysicalCapacity(index);
-                auto handle = makeHandle(index, slot.Generation);
-                handlesByName[name] = handle;
-                return handle;
-            }
-
-            index = static_cast<u32>(slots.size());
-            slots.push_back({ 1, true, name });
-            physicals.resize(slots.size());
-            auto handle = makeHandle(index, 1);
-            handlesByName[name] = handle;
-            return handle;
-        };
+        RenderGraphHandleAllocator::Reconcile(m_TextureHandlesByName, m_TextureHandleSlots, m_FreeTextureHandleIndices, activeTextureNames);
+        RenderGraphHandleAllocator::Reconcile(m_BufferHandlesByName, m_BufferHandleSlots, m_FreeBufferHandleIndices, activeBufferNames);
+        RenderGraphHandleAllocator::Reconcile(m_FramebufferHandlesByName, m_FramebufferHandleSlots, m_FreeFramebufferHandleIndices, activeFramebufferNames);
 
         for (auto& info : m_RegisteredResources)
         {
             if (isTextureKind(info.Desc.Kind))
             {
-                info.TextureHandle = allocateHandle(info.Name,
-                                                    m_TextureHandlesByName,
-                                                    m_TextureHandleSlots,
-                                                    m_PhysicalTextures,
-                                                    m_FreeTextureHandleIndices,
-                                                    [](u32 index, u32 generation)
-                                                    {
-                                                        return RGTextureHandle{ index, generation };
-                                                    });
+                info.TextureHandle = RenderGraphHandleAllocator::Allocate(info.Name,
+                                                                          m_TextureHandlesByName,
+                                                                          m_TextureHandleSlots,
+                                                                          m_PhysicalTextures,
+                                                                          m_FreeTextureHandleIndices,
+                                                                          [](u32 index, u32 generation)
+                                                                          {
+                                                                              return RGTextureHandle{ index, generation };
+                                                                          });
             }
             else if (isBufferKind(info.Desc.Kind))
             {
-                info.BufferHandle = allocateHandle(info.Name,
-                                                   m_BufferHandlesByName,
-                                                   m_BufferHandleSlots,
-                                                   m_PhysicalBuffers,
-                                                   m_FreeBufferHandleIndices,
-                                                   [](u32 index, u32 generation)
-                                                   {
-                                                       return RGBufferHandle{ index, generation };
-                                                   });
+                info.BufferHandle = RenderGraphHandleAllocator::Allocate(info.Name,
+                                                                         m_BufferHandlesByName,
+                                                                         m_BufferHandleSlots,
+                                                                         m_PhysicalBuffers,
+                                                                         m_FreeBufferHandleIndices,
+                                                                         [](u32 index, u32 generation)
+                                                                         {
+                                                                             return RGBufferHandle{ index, generation };
+                                                                         });
             }
             else if (info.Desc.Kind == ResourceHandle::Kind::Framebuffer)
             {
-                info.FramebufferHandle = allocateHandle(info.Name,
-                                                        m_FramebufferHandlesByName,
-                                                        m_FramebufferHandleSlots,
-                                                        m_PhysicalFramebuffers,
-                                                        m_FreeFramebufferHandleIndices,
-                                                        [](u32 index, u32 generation)
-                                                        {
-                                                            return RGFramebufferHandle{ index, generation };
-                                                        });
+                info.FramebufferHandle = RenderGraphHandleAllocator::Allocate(info.Name,
+                                                                              m_FramebufferHandlesByName,
+                                                                              m_FramebufferHandleSlots,
+                                                                              m_PhysicalFramebuffers,
+                                                                              m_FreeFramebufferHandleIndices,
+                                                                              [](u32 index, u32 generation)
+                                                                              {
+                                                                                  return RGFramebufferHandle{ index, generation };
+                                                                              });
             }
         }
 
@@ -3692,303 +3753,35 @@ namespace OloEngine
 
     std::string RenderGraph::BuildTransientAliasGroup(const RGResourceDesc& desc)
     {
-        // Base key covers kind, dimensions, mips, samples and queue.
-        std::string key = std::to_string(static_cast<u32>(desc.Kind)) + ":" +
-                          std::to_string(static_cast<u32>(desc.Format)) + ":" +
-                          std::to_string(desc.Width) + "x" + std::to_string(desc.Height) +
-                          "x" + std::to_string(desc.DepthOrLayers) + ":m" + std::to_string(desc.MipLevels) +
-                          ":s" + std::to_string(desc.Samples) + ":q" + std::to_string(static_cast<u32>(desc.Queue));
-        // MRT: append each attachment format so MRT layouts don't alias
-        // with single-attachment FBs or with each other.
-        if (!desc.Attachments.empty())
-        {
-            key += ":mrt";
-            for (const auto fmt : desc.Attachments)
-                key += "," + std::to_string(static_cast<u32>(fmt));
-        }
-        return key;
+        return RenderGraphTransientPlanner::BuildAliasGroup(desc);
     }
 
     u64 RenderGraph::EstimateTransientBytes(const RGResourceDesc& desc)
     {
-        auto bytesPerPixelForFormat = [](const RGResourceFormat format) -> u64
-        {
-            switch (format)
-            {
-                case RGResourceFormat::R8UNorm:
-                    return 1;
-                case RGResourceFormat::R32Float:
-                case RGResourceFormat::RG16Float:
-                case RGResourceFormat::RGBA8UNorm:
-                case RGResourceFormat::Depth24Stencil8:
-                case RGResourceFormat::Depth32Float:
-                case RGResourceFormat::R32Int:
-                    return 4;
-                case RGResourceFormat::RGBA16Float:
-                    return 8;
-                case RGResourceFormat::Unknown:
-                default:
-                    return 0;
-            }
-        };
-
-        if (desc.Kind == ResourceHandle::Kind::StorageBuffer || desc.Kind == ResourceHandle::Kind::UniformBuffer)
-            return desc.Width;
-
-        if (desc.Width == 0 || desc.Height == 0)
-            return 0;
-
-        const auto layerCount = std::max(desc.DepthOrLayers, 1u);
-        const auto mipCount = std::max(desc.MipLevels, 1u);
-        const auto sampleCount = std::max(desc.Samples, 1u);
-
-        // MRT: sum bytes across all attachment layers.
-        if (!desc.Attachments.empty())
-        {
-            u64 total = 0;
-            for (const auto fmt : desc.Attachments)
-            {
-                const auto bpp = bytesPerPixelForFormat(fmt);
-                total += bpp * static_cast<u64>(desc.Width) * static_cast<u64>(desc.Height) *
-                         static_cast<u64>(layerCount) * static_cast<u64>(mipCount) * static_cast<u64>(sampleCount);
-            }
-            return total;
-        }
-
-        const auto bpp = bytesPerPixelForFormat(desc.Format);
-        if (bpp == 0)
-            return 0;
-
-        return bpp * static_cast<u64>(desc.Width) * static_cast<u64>(desc.Height) *
-               static_cast<u64>(layerCount) * static_cast<u64>(mipCount) * static_cast<u64>(sampleCount);
+        return RenderGraphTransientPlanner::EstimateBytes(desc);
     }
 
     bool RenderGraph::IsTransientDescriptorAllocatable(const RGResourceDesc& desc)
     {
-        if (desc.Imported)
-            return false;
-
-        switch (desc.Kind)
-        {
-            case ResourceHandle::Kind::Texture2D:
-            case ResourceHandle::Kind::Texture2DArray:
-            case ResourceHandle::Kind::TextureCube:
-            case ResourceHandle::Kind::TextureCubeArray:
-                return desc.Width > 0 &&
-                       desc.Height > 0 &&
-                       desc.Format != RGResourceFormat::Unknown &&
-                       ToImageFormat(desc.Format) != ImageFormat::None;
-            case ResourceHandle::Kind::Framebuffer:
-                // MRT: at least one valid attachment required; dims must be set.
-                if (!desc.Attachments.empty())
-                {
-                    return desc.Width > 0 &&
-                           desc.Height > 0 &&
-                           std::any_of(desc.Attachments.begin(), desc.Attachments.end(),
-                                       [](const RGResourceFormat fmt)
-                                       {
-                                           return ToFramebufferFormat(fmt) != FramebufferTextureFormat::None;
-                                       });
-                }
-                return desc.Width > 0 &&
-                       desc.Height > 0 &&
-                       desc.Format != RGResourceFormat::Unknown &&
-                       ToFramebufferFormat(desc.Format) != FramebufferTextureFormat::None;
-            case ResourceHandle::Kind::StorageBuffer:
-            case ResourceHandle::Kind::UniformBuffer:
-                return desc.Width > 0;
-            case ResourceHandle::Kind::Unknown:
-            default:
-                return false;
-        }
+        return RenderGraphTransientPlanner::IsAllocatable(desc);
     }
 
     std::string_view RenderGraph::GetTransientDescriptorSkipReason(const RGResourceDesc& desc)
     {
-        if (desc.Imported)
-            return "imported-resource";
-
-        switch (desc.Kind)
-        {
-            case ResourceHandle::Kind::Texture2D:
-            case ResourceHandle::Kind::Texture2DArray:
-            case ResourceHandle::Kind::TextureCube:
-            case ResourceHandle::Kind::TextureCubeArray:
-            {
-                if (desc.Width == 0 || desc.Height == 0)
-                    return "missing-dimensions";
-                if (desc.Format == RGResourceFormat::Unknown)
-                    return "unknown-format";
-                if (ToImageFormat(desc.Format) == ImageFormat::None)
-                    return "unsupported-image-format";
-                return "descriptor-incomplete";
-            }
-            case ResourceHandle::Kind::Framebuffer:
-            {
-                if (desc.Width == 0 || desc.Height == 0)
-                    return "missing-dimensions";
-                // MRT path: a non-empty Attachments list replaces Format.
-                if (!desc.Attachments.empty())
-                {
-                    const bool anyValid = std::any_of(desc.Attachments.begin(), desc.Attachments.end(),
-                                                      [](const RGResourceFormat fmt)
-                                                      {
-                                                          return ToFramebufferFormat(fmt) != FramebufferTextureFormat::None;
-                                                      });
-                    if (!anyValid)
-                        return "unsupported-framebuffer-format";
-                    return "descriptor-incomplete";
-                }
-                if (desc.Format == RGResourceFormat::Unknown)
-                    return "unknown-format";
-                if (ToFramebufferFormat(desc.Format) == FramebufferTextureFormat::None)
-                    return "unsupported-framebuffer-format";
-                return "descriptor-incomplete";
-            }
-            case ResourceHandle::Kind::StorageBuffer:
-            case ResourceHandle::Kind::UniformBuffer:
-            {
-                if (desc.Width == 0)
-                    return "zero-size-buffer";
-                return "descriptor-incomplete";
-            }
-            case ResourceHandle::Kind::Unknown:
-            default:
-                return "unknown-kind";
-        }
+        return RenderGraphTransientPlanner::GetSkipReason(desc);
     }
 
     void RenderGraph::RebuildTransientPlan()
     {
-        m_TransientPlan.clear();
-        if (m_TransientResourceDescs.empty())
-            return;
-
-        struct Lifetime
-        {
-            bool Reachable = false;
-            u32 First = std::numeric_limits<u32>::max();
-            u32 Last = 0;
-            std::string FirstPass;
-            std::string LastPass;
-        };
-
-        std::unordered_map<std::string, Lifetime> lifetimes;
-        lifetimes.reserve(m_TransientResourceDescs.size());
-
-        for (u32 passIndex = 0; passIndex < static_cast<u32>(m_ExecutionOrder.size()); ++passIndex)
-        {
-            const auto& passName = m_ExecutionOrder[passIndex];
-            const auto accessIt = m_PassAccessDeclarations.find(passName);
-            if (accessIt == m_PassAccessDeclarations.end())
-                continue;
-
-            for (const auto& access : accessIt->second)
-            {
-                if (!m_TransientResourceDescs.contains(access.ResourceName))
-                    continue;
-
-                auto& lifetime = lifetimes[access.ResourceName];
-                if (!IsPassReachable(passName))
-                    continue;
-
-                lifetime.Reachable = true;
-                if (passIndex < lifetime.First)
-                {
-                    lifetime.First = passIndex;
-                    lifetime.FirstPass = passName;
-                }
-                if (passIndex >= lifetime.Last)
-                {
-                    lifetime.Last = passIndex;
-                    lifetime.LastPass = passName;
-                }
-            }
-        }
-
-        m_TransientPlan.reserve(m_TransientResourceDescs.size());
-        for (const auto& [resourceName, desc] : m_TransientResourceDescs)
-        {
-            TransientPlanEntry entry;
-            entry.Resource = resourceName;
-            entry.Kind = desc.Kind;
-            entry.AliasGroup = BuildTransientAliasGroup(desc);
-            entry.EstimatedBytes = EstimateTransientBytes(desc);
-
-            if (const auto ltIt = lifetimes.find(resourceName); ltIt != lifetimes.end())
-            {
-                const auto& lt = ltIt->second;
-                entry.Reachable = lt.Reachable;
-                entry.FirstPassIndex = lt.First;
-                entry.LastPassIndex = lt.Last;
-                entry.FirstPass = lt.FirstPass;
-                entry.LastPass = lt.LastPass;
-            }
-
-            if (!entry.Reachable)
-            {
-                entry.SkipReason = "unreachable-or-disabled";
-            }
-            else if (!IsTransientDescriptorAllocatable(desc))
-            {
-                entry.SkipReason = std::string(GetTransientDescriptorSkipReason(desc));
-            }
-            else
-            {
-                entry.WillAllocate = true;
-            }
-
-            m_TransientPlan.push_back(std::move(entry));
-        }
-
-        std::sort(m_TransientPlan.begin(), m_TransientPlan.end(),
-                  [](const TransientPlanEntry& lhs, const TransientPlanEntry& rhs)
-                  {
-                      if (lhs.AliasGroup != rhs.AliasGroup)
-                          return lhs.AliasGroup < rhs.AliasGroup;
-                      if (lhs.FirstPassIndex != rhs.FirstPassIndex)
-                          return lhs.FirstPassIndex < rhs.FirstPassIndex;
-                      return lhs.Resource < rhs.Resource;
-                  });
-
-        struct ActiveSlot
-        {
-            u32 Slot = 0;
-            u32 LastPassIndex = 0;
-        };
-
-        std::unordered_map<std::string, std::vector<ActiveSlot>> activeByGroup;
-        activeByGroup.reserve(m_TransientPlan.size());
-
-        std::unordered_map<std::string, u32> nextSlotByGroup;
-        nextSlotByGroup.reserve(m_TransientPlan.size());
-
-        for (auto& entry : m_TransientPlan)
-        {
-            if (!entry.WillAllocate)
-                continue;
-
-            auto& active = activeByGroup[entry.AliasGroup];
-            auto slotAssigned = std::numeric_limits<u32>::max();
-
-            for (auto& candidate : active)
-            {
-                if (candidate.LastPassIndex < entry.FirstPassIndex)
-                {
-                    slotAssigned = candidate.Slot;
-                    candidate.LastPassIndex = entry.LastPassIndex;
-                    break;
-                }
-            }
-
-            if (slotAssigned == std::numeric_limits<u32>::max())
-            {
-                slotAssigned = nextSlotByGroup[entry.AliasGroup]++;
-                active.push_back(ActiveSlot{ .Slot = slotAssigned, .LastPassIndex = entry.LastPassIndex });
-            }
-
-            entry.AliasSlot = slotAssigned;
-        }
+        // Delegate the lifetime scan + alias-slot assignment to the
+        // RenderGraphTransientPlanner module (Phase 7 slice 5).
+        m_TransientPlan = RenderGraphTransientPlanner::ComputePlan({
+            .TransientResourceDescs = m_TransientResourceDescs,
+            .ExecutionOrder = m_ExecutionOrder,
+            .PassAccessDeclarations = m_PassAccessDeclarations,
+            .IsPassReachable = [this](const std::string& passName) { return IsPassReachable(passName); },
+            .IsExternallyBackedTransientResource = [this](std::string_view name) { return IsExternallyBackedTransientResource(name); },
+        });
     }
 
     bool RenderGraph::DumpToDot(const std::string& filePath) const
@@ -4345,22 +4138,9 @@ namespace OloEngine
         {
             const auto& passName = m_ExecutionOrder[passIndex];
 
-            if (const auto node = TryGetGraphEntryNode(passName, m_NodeLookup))
+            if (const auto* accesses = FindPassAccessDeclarations(m_PassAccessDeclarations, passName))
             {
-                for (const auto& read : node->GetDeclaredReads())
-                {
-                    noteLifetimeAccess(read.Name, false, passName, passIndex);
-                }
-                for (const auto& write : node->GetDeclaredWrites())
-                {
-                    noteLifetimeAccess(write.Name, true, passName, passIndex);
-                }
-            }
-
-            if (const auto declarationIt = m_PassAccessDeclarations.find(passName);
-                declarationIt != m_PassAccessDeclarations.end())
-            {
-                for (const auto& access : declarationIt->second)
+                for (const auto& access : *accesses)
                 {
                     noteLifetimeAccess(access.ResourceName, access.IsWrite, passName, passIndex);
                     if (access.IsWrite)
@@ -4436,7 +4216,8 @@ namespace OloEngine
             for (const auto& resource : m_RegisteredResources)
             {
                 descriptorEntries.push_back(std::string("res:") + std::string(resource.Name) + ":" + std::string(ToString(resource.Desc.Kind)) +
-                                            ":" + (resource.Desc.Imported ? "1" : "0"));
+                                            ":" + (resource.Desc.Imported ? "1" : "0") +
+                                            ":xb" + (resource.HasExternalBacking ? "1" : "0"));
             }
             std::sort(descriptorEntries.begin(), descriptorEntries.end());
             resourceDigestEntries.insert(resourceDigestEntries.end(), descriptorEntries.begin(), descriptorEntries.end());
@@ -4617,6 +4398,22 @@ namespace OloEngine
         u32 computePassCount = 0;
         u32 asyncComputeCandidateCount = 0;
         u32 historyResourceCount = 0;
+        const auto externalTextureSinkContractCount = static_cast<u32>(m_ExternalTextureSinkContracts.size());
+        const auto externallyBackedTransientRootCount =
+            static_cast<u32>(m_ExternallyBackedTransientTextures.size() + m_ExternallyBackedTransientFramebuffers.size());
+        u32 externallyBackedResourceCount = 0;
+        struct PassAuthoringRow
+        {
+            std::string PassName;
+            RenderGraphSubmissionModel Submission = RenderGraphSubmissionModel::Unknown;
+            bool Reachable = false;
+            bool UsesSetupCallback = false;
+            bool UsesDynamicDeclarations = false;
+            bool BucketBacked = false;
+        };
+
+        std::vector<PassAuthoringRow> passAuthoringRows;
+        passAuthoringRows.reserve(m_InsertionOrder.size());
         for (const auto& passName : m_ExecutionOrder)
         {
             if (GetGraphEntryWorkType(passName) == RenderGraphPassWorkType::Compute)
@@ -4628,7 +4425,45 @@ namespace OloEngine
         {
             if (IsHistoryTextureResource(resource.Name))
                 ++historyResourceCount;
+            if (resource.HasExternalBacking)
+                ++externallyBackedResourceCount;
         }
+
+        for (const auto& passName : m_InsertionOrder)
+        {
+            const auto node = TryGetGraphEntryNode(passName, m_NodeLookup);
+            if (!node)
+                continue;
+
+            const auto declarationIt = m_PassAccessDeclarations.find(passName);
+            const auto* dynamicAccesses = declarationIt != m_PassAccessDeclarations.end() ? &declarationIt->second : nullptr;
+            const auto authoringDiagnostics = GatherNodeAuthoringDiagnostics(*node, dynamicAccesses);
+
+            passAuthoringRows.push_back(PassAuthoringRow{
+                .PassName = passName,
+                .Submission = node->GetSubmissionModel(),
+                .Reachable = m_ReachablePasses.contains(passName),
+                .UsesSetupCallback = authoringDiagnostics.UsesSetupCallback,
+                .UsesDynamicDeclarations = authoringDiagnostics.UsesDynamicDeclarations,
+                .BucketBacked = authoringDiagnostics.BucketBacked,
+            });
+        }
+
+        const auto submissionModelToString = [](const RenderGraphSubmissionModel submission) -> const char*
+        {
+            switch (submission)
+            {
+                case RenderGraphSubmissionModel::BucketOnly:
+                    return "BucketOnly";
+                case RenderGraphSubmissionModel::ImmediateOnly:
+                    return "ImmediateOnly";
+                case RenderGraphSubmissionModel::Mixed:
+                    return "Mixed";
+                case RenderGraphSubmissionModel::Unknown:
+                default:
+                    return "Unknown";
+            }
+        };
 
         // Batch resource dependency counts for frameSummary/graphDigest.
         const auto dumpBatches = GetAsyncComputeBatches();
@@ -4675,7 +4510,7 @@ namespace OloEngine
         };
 
         out << "{\n";
-        out << "  \"schemaVersion\": 14,\n";
+        out << "  \"schemaVersion\": 16,\n";
         out << "  \"timingVersion\": 4,\n";
         out << "  \"finalPass\": \"" << jsonEscape(m_FinalPassName) << "\",\n";
         out << "  \"hasExplicitFinalPass\": " << (m_HasExplicitFinalPass ? "true" : "false") << ",\n";
@@ -4685,13 +4520,20 @@ namespace OloEngine
             << ", \"resourceCount\": " << m_RegisteredResources.size()
             << ", \"culledPassCount\": " << m_CulledPasses.size()
             << ", \"plannedBarrierCount\": " << m_PlannedBarriers.size()
+            << ", \"buildDiagnosticCount\": " << m_BuildDiagnostics.size()
             << ", \"barrierDiagnosticCount\": " << m_BarrierDiagnostics.size()
             << ", \"transientAliasCount\": " << m_TransientPlan.size()
             << ", \"timingsCount\": " << executedPassCount
             << ", \"computePassCount\": " << computePassCount
             << ", \"asyncComputeCandidateCount\": " << asyncComputeCandidateCount
             << ", \"historyResourceCount\": " << historyResourceCount
+            << ", \"externallyBackedTransientRootCount\": " << externallyBackedTransientRootCount
+            << ", \"externallyBackedResourceCount\": " << externallyBackedResourceCount
+            << ", \"setupCallbackPassCount\": " << m_LastBuildStats.SetupCallbackPasses
+            << ", \"dynamicDeclarationPassCount\": " << m_LastBuildStats.DynamicDeclarationPasses
+            << ", \"bucketBackedPassCount\": " << m_LastBuildStats.BucketBackedPasses
             << ", \"temporalHistoryContractCount\": " << m_TemporalHistoryContracts.size()
+            << ", \"externalTextureSinkContractCount\": " << externalTextureSinkContractCount
             << ", \"asyncBatchCount\": " << dumpBatches.size()
             << ", \"batchInputResourceCount\": " << batchInputResourceCount
             << ", \"batchOutputResourceCount\": " << batchOutputResourceCount
@@ -4706,7 +4548,39 @@ namespace OloEngine
             << ", \"declaredReads\": " << m_LastBuildStats.DeclaredReads
             << ", \"declaredWrites\": " << m_LastBuildStats.DeclaredWrites
             << ", \"derivedEdges\": " << m_LastBuildStats.DerivedEdges
+            << ", \"orderSensitiveResults\": " << m_LastBuildStats.OrderSensitiveResults
+            << ", \"setupCallbackPasses\": " << m_LastBuildStats.SetupCallbackPasses
+            << ", \"dynamicDeclarationPasses\": " << m_LastBuildStats.DynamicDeclarationPasses
+            << ", \"bucketBackedPasses\": " << m_LastBuildStats.BucketBackedPasses
             << " },\n";
+
+        const auto buildDiagnosticKindToString = [](const BuildDiagnosticKind kind)
+        {
+            switch (kind)
+            {
+                case BuildDiagnosticKind::RegistrationOrderSensitivity:
+                    return "RegistrationOrderSensitivity";
+            }
+
+            return "Unknown";
+        };
+
+        out << "  \"buildDiagnostics\": [\n";
+        for (sizet i = 0; i < m_BuildDiagnostics.size(); ++i)
+        {
+            const auto& diagnostic = m_BuildDiagnostics[i];
+            out << "    { \"kind\": \"" << buildDiagnosticKindToString(diagnostic.Kind)
+                << "\", \"resource\": \"" << jsonEscape(diagnostic.Resource)
+                << "\", \"currentBeforePass\": \"" << jsonEscape(diagnostic.CurrentBeforePass)
+                << "\", \"currentAfterPass\": \"" << jsonEscape(diagnostic.CurrentAfterPass)
+                << "\", \"alternateBeforePass\": \"" << jsonEscape(diagnostic.AlternateBeforePass)
+                << "\", \"alternateAfterPass\": \"" << jsonEscape(diagnostic.AlternateAfterPass)
+                << "\", \"message\": \"" << jsonEscape(diagnostic.Message) << "\" }";
+            if (i + 1 < m_BuildDiagnostics.size())
+                out << ",";
+            out << "\n";
+        }
+        out << "  ],\n";
 
         out << "  \"passOrder\": [";
         for (sizet i = 0; i < m_ExecutionOrder.size(); ++i)
@@ -4737,6 +4611,22 @@ namespace OloEngine
                 << "\", \"workType\": \"" << workType
                 << "\", \"asyncComputeCandidate\": " << (asyncCandidate ? "true" : "false") << " }";
             if (i + 1 < m_ExecutionOrder.size())
+                out << ",";
+            out << "\n";
+        }
+        out << "  ],\n";
+
+        out << "  \"passAuthoring\": [\n";
+        for (sizet i = 0; i < passAuthoringRows.size(); ++i)
+        {
+            const auto& row = passAuthoringRows[i];
+            out << "    { \"pass\": \"" << jsonEscape(row.PassName)
+                << "\", \"submissionModel\": \"" << submissionModelToString(row.Submission)
+                << "\", \"reachable\": " << (row.Reachable ? "true" : "false")
+                << ", \"usesSetupCallback\": " << (row.UsesSetupCallback ? "true" : "false")
+                << ", \"usesDynamicDeclarations\": " << (row.UsesDynamicDeclarations ? "true" : "false")
+                << ", \"bucketBacked\": " << (row.BucketBacked ? "true" : "false") << " }";
+            if (i + 1 < passAuthoringRows.size())
                 out << ",";
             out << "\n";
         }
@@ -4794,11 +4684,26 @@ namespace OloEngine
                 << "\", \"kind\": \"" << ToString(resource.Desc.Kind)
                 << "\", \"imported\": " << (resource.Desc.Imported ? "true" : "false")
                 << ", \"isHistory\": " << (IsHistoryTextureResource(resource.Name) ? "true" : "false")
+                << ", \"hasExternalBacking\": " << (resource.HasExternalBacking ? "true" : "false")
                 << ", \"textureID\": " << textureID
                 << ", \"bufferID\": " << bufferID
                 << ", \"framebufferID\": " << framebufferID
                 << ", \"framebufferColor0ID\": " << framebufferColor0ID << " }";
             if (i + 1 < m_RegisteredResources.size())
+                out << ",";
+            out << "\n";
+        }
+        out << "  ],\n";
+
+        out << "  \"externalTextureSinkContracts\": [\n";
+        for (sizet i = 0; i < m_ExternalTextureSinkContracts.size(); ++i)
+        {
+            const auto& contract = m_ExternalTextureSinkContracts[i];
+            out << "    { \"sourceResource\": \"" << jsonEscape(contract.SourceResource)
+                << "\", \"sourceKind\": \"" << ToString(contract.SourceKind)
+                << "\", \"colorAttachmentIndex\": " << contract.ColorAttachmentIndex
+                << ", \"sourceReachable\": " << (contract.SourceReachable ? "true" : "false") << " }";
+            if (i + 1 < m_ExternalTextureSinkContracts.size())
                 out << ",";
             out << "\n";
         }
@@ -4810,6 +4715,8 @@ namespace OloEngine
             const auto& contract = m_TemporalHistoryContracts[i];
             out << "    { \"historyResource\": \"" << jsonEscape(contract.HistoryResource)
                 << "\", \"sourceResource\": \"" << jsonEscape(contract.SourceResource)
+                << "\", \"sourceKind\": \"" << (contract.Kind == TemporalHistoryContract::SourceKind::Texture ? "Texture" : "Framebuffer")
+                << "\", \"colorAttachmentIndex\": " << contract.ColorAttachmentIndex
                 << "\", \"historyImported\": " << (contract.HistoryImported ? "true" : "false")
                 << ", \"sourceReachable\": " << (contract.SourceReachable ? "true" : "false") << " }";
             if (i + 1 < m_TemporalHistoryContracts.size())
@@ -4995,6 +4902,8 @@ namespace OloEngine
             << ", \"lifetimeCount\": " << lifetimeByResource.size()
             << ", \"accessCount\": " << resourceDigestAccessCount
             << ", \"aliasCount\": " << m_TransientPlan.size()
+            << ", \"externallyBackedTransientRootCount\": " << externallyBackedTransientRootCount
+            << ", \"externallyBackedResourceCount\": " << externallyBackedResourceCount
             << ", \"concat\": \"" << jsonEscape(resourceDigestConcat)
             << "\" },\n";
 
@@ -5022,6 +4931,9 @@ namespace OloEngine
                                        ";compute=" + std::to_string(computePassCount) +
                                        ";asyncCandidates=" + std::to_string(asyncComputeCandidateCount) +
                                        ";histories=" + std::to_string(historyResourceCount) +
+                                       ";externalBackingRoots=" + std::to_string(externallyBackedTransientRootCount) +
+                                       ";externalBackingResources=" + std::to_string(externallyBackedResourceCount) +
+                                       ";externalTextureSinks=" + std::to_string(externalTextureSinkContractCount) +
                                        ";historyContracts=" + std::to_string(m_TemporalHistoryContracts.size()) +
                                        ";batches=" + std::to_string(dumpBatches.size()) +
                                        ";batchInputResources=" + std::to_string(batchInputResourceCount) +
@@ -5212,6 +5124,7 @@ namespace OloEngine
                 << ", \"isExtracted\": " << (lt.IsExtracted ? "true" : "false")
                 << ", \"isHistory\": " << (lt.IsHistory ? "true" : "false")
                 << ", \"isTransient\": " << (lt.IsTransient ? "true" : "false")
+                << ", \"hasExternalBacking\": " << (lt.HasExternalBacking ? "true" : "false")
                 << ", \"firstWritePassIndex\": "
                 << (lt.FirstWritePassIndex == std::numeric_limits<u32>::max()
                         ? -1
@@ -5288,10 +5201,17 @@ namespace OloEngine
         m_Dependencies = m_ExplicitDependencies;
         m_DependencyGraphDirty = true;
         m_PassAccessDeclarations.clear();
+        m_PassFeedbackDeclarations.clear();
         m_PassBarrierFlags.clear();
         m_PlannedBarriers.clear();
+        m_BuildDiagnostics.clear();
         m_BarrierDiagnostics.clear();
         m_TemporalHistoryContracts.clear();
+        m_ExplicitVersionProducers.clear();
+        m_LastWriterPassNameByResource.clear();
+        m_LatestTextureHandlesByBaseName.clear();
+        m_LatestBufferHandlesByBaseName.clear();
+        m_LatestFramebufferHandlesByBaseName.clear();
 
         RGBuilder builder(*this, m_Blackboard);
 
@@ -5307,6 +5227,43 @@ namespace OloEngine
         const auto graphEntryCount = m_InsertionOrder.size();
         lastWriterByResource.reserve(graphEntryCount * 4u);
 
+        struct EdgeKey
+        {
+            std::string BeforePass;
+            std::string AfterPass;
+
+            auto operator==(const EdgeKey&) const -> bool = default;
+        };
+
+        struct EdgeKeyHasher
+        {
+            [[nodiscard]] auto operator()(const EdgeKey& key) const -> sizet
+            {
+                auto beforeHash = std::hash<std::string>{}(key.BeforePass);
+                auto afterHash = std::hash<std::string>{}(key.AfterPass);
+                return beforeHash ^ (afterHash + 0x9e3779b9u + (beforeHash << 6u) + (beforeHash >> 2u));
+            }
+        };
+
+        struct DerivedEdgeOrigin
+        {
+            std::string ResourceName;
+            bool FromPassDependency = false;
+        };
+
+        using DerivedEdgeMap = std::unordered_map<EdgeKey, DerivedEdgeOrigin, EdgeKeyHasher>;
+
+        struct SimulatedDependencyResult
+        {
+            std::unordered_map<std::string, std::vector<std::string>> Dependencies;
+            DerivedEdgeMap DerivedEdges;
+        };
+
+        std::unordered_map<std::string, std::vector<std::string>> declaredPassDependenciesByPass;
+        declaredPassDependenciesByPass.reserve(graphEntryCount);
+        std::vector<std::string> processedNodeNames;
+        processedNodeNames.reserve(graphEntryCount);
+
         // Subresource overlap helper (same semantics as in ComputeBarrierPlan).
         auto depRangeOverlaps1D = [](u32 baseA, u32 countA, u32 baseB, u32 countB) -> bool
         {
@@ -5319,6 +5276,195 @@ namespace OloEngine
         {
             return depRangeOverlaps1D(a.BaseMip, a.MipCount, b.BaseMip, b.MipCount) &&
                    depRangeOverlaps1D(a.BaseLayer, a.LayerCount, b.BaseLayer, b.LayerCount);
+        };
+
+        auto accessDeclarationsEqual = [](const RGAccessDeclaration& lhs,
+                                          const RGAccessDeclaration& rhs) -> bool
+        {
+            return lhs.ResourceName == rhs.ResourceName &&
+                   lhs.IsWrite == rhs.IsWrite &&
+                   lhs.ReadUsage == rhs.ReadUsage &&
+                   lhs.WriteUsage == rhs.WriteUsage &&
+                   lhs.Range.BaseMip == rhs.Range.BaseMip &&
+                   lhs.Range.MipCount == rhs.Range.MipCount &&
+                   lhs.Range.BaseLayer == rhs.Range.BaseLayer &&
+                   lhs.Range.LayerCount == rhs.Range.LayerCount &&
+                   lhs.Range.BaseSlice == rhs.Range.BaseSlice &&
+                   lhs.Range.SliceCount == rhs.Range.SliceCount;
+        };
+
+        auto feedbackDeclarationsEqual = [](const RGFeedbackDeclaration& lhs,
+                                            const RGFeedbackDeclaration& rhs) -> bool
+        {
+            return lhs.ResourceName == rhs.ResourceName &&
+                   lhs.Range.BaseMip == rhs.Range.BaseMip &&
+                   lhs.Range.MipCount == rhs.Range.MipCount &&
+                   lhs.Range.BaseLayer == rhs.Range.BaseLayer &&
+                   lhs.Range.LayerCount == rhs.Range.LayerCount &&
+                   lhs.Range.BaseSlice == rhs.Range.BaseSlice &&
+                   lhs.Range.SliceCount == rhs.Range.SliceCount;
+        };
+
+        auto appendUniqueAccessDeclaration = [&accessDeclarationsEqual](std::vector<RGAccessDeclaration>& declarations,
+                                                                        const RGAccessDeclaration& declaration)
+        {
+            if (declaration.ResourceName.empty())
+                return;
+
+            if (std::find_if(declarations.begin(), declarations.end(),
+                             [&declaration, &accessDeclarationsEqual](const RGAccessDeclaration& existing)
+                             {
+                                 return accessDeclarationsEqual(existing, declaration);
+                             }) == declarations.end())
+            {
+                declarations.push_back(declaration);
+            }
+        };
+
+        auto appendUniqueFeedbackDeclaration = [&feedbackDeclarationsEqual](std::vector<RGFeedbackDeclaration>& declarations,
+                                                                            const RGFeedbackDeclaration& declaration)
+        {
+            if (declaration.ResourceName.empty())
+                return;
+
+            if (std::find_if(declarations.begin(), declarations.end(),
+                             [&declaration, &feedbackDeclarationsEqual](const RGFeedbackDeclaration& existing)
+                             {
+                                 return feedbackDeclarationsEqual(existing, declaration);
+                             }) == declarations.end())
+            {
+                declarations.push_back(declaration);
+            }
+        };
+
+        auto expandTextureViewAccesses =
+            [this, &appendUniqueAccessDeclaration, &depSubresourceRangesOverlap](const std::vector<RGAccessDeclaration>& accesses)
+        {
+            std::vector<RGAccessDeclaration> expandedAccesses;
+            expandedAccesses.reserve(accesses.size() * 3u);
+
+            const auto isTextureSubresourceView = [](const TextureViewKind kind)
+            {
+                return kind == TextureViewKind::TextureMip ||
+                       kind == TextureViewKind::TextureArrayLayer ||
+                       kind == TextureViewKind::TextureCubeFace;
+            };
+
+            for (const auto& access : accesses)
+            {
+                appendUniqueAccessDeclaration(expandedAccesses, access);
+                if (access.ResourceName.empty())
+                    continue;
+
+                const auto resourceKey = std::string(access.ResourceName);
+                if (const auto viewIt = m_TextureViewDefinitions.find(resourceKey);
+                    viewIt != m_TextureViewDefinitions.end())
+                {
+                    if (isTextureSubresourceView(viewIt->second.Kind))
+                    {
+                        auto expandedAccess = access;
+                        expandedAccess.ResourceName = viewIt->second.ParentResource;
+                        expandedAccess.Range = viewIt->second.ParentRange;
+                        appendUniqueAccessDeclaration(expandedAccesses, expandedAccess);
+                    }
+                    else if (viewIt->second.Kind == TextureViewKind::TextureMultisampleResolve &&
+                             !viewIt->second.BackingResource.empty())
+                    {
+                        auto expandedAccess = access;
+                        expandedAccess.ResourceName = viewIt->second.BackingResource;
+                        expandedAccess.Range = RGSubresourceRange::Full();
+                        appendUniqueAccessDeclaration(expandedAccesses, expandedAccess);
+                    }
+
+                    continue;
+                }
+
+                for (const auto& [viewName, viewDef] : m_TextureViewDefinitions)
+                {
+                    if (viewDef.ParentResource != access.ResourceName)
+                        continue;
+
+                    if (isTextureSubresourceView(viewDef.Kind) &&
+                        !depSubresourceRangesOverlap(access.Range, viewDef.ParentRange))
+                    {
+                        continue;
+                    }
+
+                    auto expandedAccess = access;
+                    expandedAccess.ResourceName = viewName;
+                    if (isTextureSubresourceView(viewDef.Kind) ||
+                        viewDef.Kind == TextureViewKind::TextureMultisampleResolve)
+                        expandedAccess.Range = RGSubresourceRange::Full();
+                    appendUniqueAccessDeclaration(expandedAccesses, expandedAccess);
+                }
+            }
+
+            return expandedAccesses;
+        };
+
+        auto expandTextureViewFeedbacks =
+            [this, &appendUniqueFeedbackDeclaration, &depSubresourceRangesOverlap](const std::vector<RGFeedbackDeclaration>& feedbacks)
+        {
+            std::vector<RGFeedbackDeclaration> expandedFeedbacks;
+            expandedFeedbacks.reserve(feedbacks.size() * 3u);
+
+            const auto isTextureSubresourceView = [](const TextureViewKind kind)
+            {
+                return kind == TextureViewKind::TextureMip ||
+                       kind == TextureViewKind::TextureArrayLayer ||
+                       kind == TextureViewKind::TextureCubeFace;
+            };
+
+            for (const auto& feedback : feedbacks)
+            {
+                appendUniqueFeedbackDeclaration(expandedFeedbacks, feedback);
+                if (feedback.ResourceName.empty())
+                    continue;
+
+                const auto resourceKey = std::string(feedback.ResourceName);
+                if (const auto viewIt = m_TextureViewDefinitions.find(resourceKey);
+                    viewIt != m_TextureViewDefinitions.end())
+                {
+                    if (isTextureSubresourceView(viewIt->second.Kind))
+                    {
+                        auto expandedFeedback = feedback;
+                        expandedFeedback.ResourceName = viewIt->second.ParentResource;
+                        expandedFeedback.Range = viewIt->second.ParentRange;
+                        appendUniqueFeedbackDeclaration(expandedFeedbacks, expandedFeedback);
+                    }
+                    else if (viewIt->second.Kind == TextureViewKind::TextureMultisampleResolve &&
+                             !viewIt->second.BackingResource.empty())
+                    {
+                        auto expandedFeedback = feedback;
+                        expandedFeedback.ResourceName = viewIt->second.BackingResource;
+                        expandedFeedback.Range = RGSubresourceRange::Full();
+                        appendUniqueFeedbackDeclaration(expandedFeedbacks, expandedFeedback);
+                    }
+
+                    continue;
+                }
+
+                for (const auto& [viewName, viewDef] : m_TextureViewDefinitions)
+                {
+                    if (viewDef.ParentResource != feedback.ResourceName)
+                        continue;
+
+                    if (isTextureSubresourceView(viewDef.Kind) &&
+                        !depSubresourceRangesOverlap(feedback.Range, viewDef.ParentRange))
+                    {
+                        continue;
+                    }
+
+                    auto expandedFeedback = feedback;
+                    expandedFeedback.ResourceName = viewName;
+                    if (isTextureSubresourceView(viewDef.Kind) ||
+                        viewDef.Kind == TextureViewKind::TextureMultisampleResolve)
+                        expandedFeedback.Range = RGSubresourceRange::Full();
+                    appendUniqueFeedbackDeclaration(expandedFeedbacks, expandedFeedback);
+                }
+            }
+
+            return expandedFeedbacks;
         };
 
         auto tryAddDerivedDependency = [this](const std::string& beforePass, const std::string& afterPass) -> bool
@@ -5401,15 +5547,49 @@ namespace OloEngine
             m_LastBuildStats.DeclaredReads += static_cast<u32>(reads.size());
 
             const auto& accesses = builder.GetDeclaredAccesses();
-            m_PassAccessDeclarations[nodeName] = accesses;
+            const auto expandedAccesses = expandTextureViewAccesses(accesses);
+            m_PassAccessDeclarations[nodeName] = expandedAccesses;
 
-            for (const auto& access : accesses)
+            const auto& feedbacks = builder.GetDeclaredFeedbacks();
+            m_PassFeedbackDeclarations[nodeName] = expandTextureViewFeedbacks(feedbacks);
+
+            const auto authoringDiagnostics = GatherNodeAuthoringDiagnostics(node, &accesses);
+            if (authoringDiagnostics.UsesSetupCallback)
+                ++m_LastBuildStats.SetupCallbackPasses;
+            if (authoringDiagnostics.UsesDynamicDeclarations)
+                ++m_LastBuildStats.DynamicDeclarationPasses;
+            if (authoringDiagnostics.BucketBacked)
+                ++m_LastBuildStats.BucketBackedPasses;
+
+            const auto& passDependencies = builder.GetDeclaredPassDependencies();
+            declaredPassDependenciesByPass[nodeName] = passDependencies;
+            for (const auto& beforePass : passDependencies)
+            {
+                if (beforePass.empty())
+                    continue;
+
+                if (tryAddDerivedDependency(beforePass, nodeName))
+                    ++m_LastBuildStats.DerivedEdges;
+            }
+
+            for (const auto& access : expandedAccesses)
             {
                 if (access.ResourceName.empty())
                     continue;
 
                 if (!access.IsWrite)
                 {
+                    if (const auto explicitVersionIt = m_ExplicitVersionProducers.find(access.ResourceName);
+                        explicitVersionIt != m_ExplicitVersionProducers.end())
+                    {
+                        if (explicitVersionIt->second != nodeName &&
+                            tryAddDerivedDependency(explicitVersionIt->second, nodeName))
+                        {
+                            ++m_LastBuildStats.DerivedEdges;
+                        }
+                        continue;
+                    }
+
                     const auto writerIt = lastWriterByResource.find(access.ResourceName);
                     if (writerIt == lastWriterByResource.end())
                         continue;
@@ -5448,6 +5628,12 @@ namespace OloEngine
                     }
                     if (!slotUpdated)
                         writerVec.push_back(DepWriterSlot{ nodeName, access.Range });
+
+                    // Track the most-recent writer by resource base name so a
+                    // subsequent RMW pass's Setup can call
+                    // RenderGraph::GetLastWriterPassName(resource) and emit an
+                    // explicit DependsOnPass edge without a typed setter.
+                    m_LastWriterPassNameByResource[access.ResourceName] = nodeName;
                 }
             }
 
@@ -5465,6 +5651,8 @@ namespace OloEngine
                 if (resourceName.empty())
                     OLO_CORE_WARN("processGraphNode: node '{}' declared empty-name write (handle mapping failed)", nodeName);
             }
+
+            processedNodeNames.push_back(nodeName);
         };
 
         // Use insertion order as the canonical ordering seed for dependency
@@ -5477,6 +5665,361 @@ namespace OloEngine
             if (nodeIt != m_NodeLookup.end() && nodeIt->second)
                 processGraphNode(*nodeIt->second);
         }
+
+        auto simulateDerivedDependencies =
+            [this, &declaredPassDependenciesByPass, &depSubresourceRangesOverlap](const std::vector<std::string>& visitOrder) -> SimulatedDependencyResult
+        {
+            SimulatedDependencyResult result{};
+            result.Dependencies = m_ExplicitDependencies;
+            std::unordered_map<std::string, std::vector<DepWriterSlot>> simulatedLastWriterByResource;
+            simulatedLastWriterByResource.reserve(visitOrder.size() * 4u);
+
+            result.DerivedEdges.reserve(visitOrder.size() * 4u);
+
+            auto tryAddSimulatedDerivedDependency =
+                [this, &result](const std::string& beforePass,
+                                const std::string& afterPass,
+                                const DerivedEdgeOrigin& origin) -> bool
+            {
+                if (beforePass == afterPass)
+                    return false;
+                if (!ContainsGraphEntry(beforePass) || !ContainsGraphEntry(afterPass))
+                    return false;
+
+                auto& deps = result.Dependencies[afterPass];
+                if (std::find(deps.begin(), deps.end(), beforePass) != deps.end())
+                    return false;
+
+                std::unordered_set<std::string> visited;
+                std::vector<std::string> frontier{ beforePass };
+                while (!frontier.empty())
+                {
+                    auto current = std::move(frontier.back());
+                    frontier.pop_back();
+
+                    if (!visited.insert(current).second)
+                        continue;
+
+                    if (current == afterPass)
+                        return false;
+
+                    const auto existingIt = result.Dependencies.find(current);
+                    if (existingIt == result.Dependencies.end())
+                        continue;
+
+                    for (const auto& producer : existingIt->second)
+                    {
+                        if (!visited.contains(producer))
+                            frontier.push_back(producer);
+                    }
+                }
+
+                deps.push_back(beforePass);
+                result.DerivedEdges.emplace(EdgeKey{ beforePass, afterPass }, origin);
+                return true;
+            };
+
+            for (const auto& nodeName : visitOrder)
+            {
+                if (const auto passDependencyIt = declaredPassDependenciesByPass.find(nodeName);
+                    passDependencyIt != declaredPassDependenciesByPass.end())
+                {
+                    for (const auto& beforePass : passDependencyIt->second)
+                    {
+                        if (beforePass.empty())
+                            continue;
+
+                        tryAddSimulatedDerivedDependency(beforePass, nodeName, DerivedEdgeOrigin{ "", true });
+                    }
+                }
+
+                const auto accessIt = m_PassAccessDeclarations.find(nodeName);
+                if (accessIt == m_PassAccessDeclarations.end())
+                    continue;
+
+                for (const auto& access : accessIt->second)
+                {
+                    if (access.ResourceName.empty())
+                        continue;
+
+                    if (!access.IsWrite)
+                    {
+                        if (const auto explicitVersionIt = m_ExplicitVersionProducers.find(access.ResourceName);
+                            explicitVersionIt != m_ExplicitVersionProducers.end())
+                        {
+                            if (explicitVersionIt->second != nodeName)
+                            {
+                                tryAddSimulatedDerivedDependency(explicitVersionIt->second,
+                                                                 nodeName,
+                                                                 DerivedEdgeOrigin{ access.ResourceName, false });
+                            }
+                            continue;
+                        }
+
+                        const auto writerIt = simulatedLastWriterByResource.find(access.ResourceName);
+                        if (writerIt == simulatedLastWriterByResource.end())
+                            continue;
+
+                        for (const auto& slot : writerIt->second)
+                        {
+                            if (slot.PassName == nodeName)
+                                continue;
+                            if (!depSubresourceRangesOverlap(slot.Range, access.Range))
+                                continue;
+
+                            tryAddSimulatedDerivedDependency(slot.PassName,
+                                                             nodeName,
+                                                             DerivedEdgeOrigin{ access.ResourceName, false });
+                        }
+                    }
+                    else
+                    {
+                        auto& writerVec = simulatedLastWriterByResource[access.ResourceName];
+                        for (const auto& slot : writerVec)
+                        {
+                            if (slot.PassName == nodeName)
+                                continue;
+                            if (!depSubresourceRangesOverlap(slot.Range, access.Range))
+                                continue;
+
+                            tryAddSimulatedDerivedDependency(slot.PassName,
+                                                             nodeName,
+                                                             DerivedEdgeOrigin{ access.ResourceName, false });
+                        }
+
+                        bool slotUpdated = false;
+                        for (auto& slot : writerVec)
+                        {
+                            if (slot.PassName == nodeName && depSubresourceRangesOverlap(slot.Range, access.Range))
+                            {
+                                slot.Range = access.Range;
+                                slotUpdated = true;
+                                break;
+                            }
+                        }
+
+                        if (!slotUpdated)
+                            writerVec.push_back(DepWriterSlot{ nodeName, access.Range });
+                    }
+                }
+            }
+
+            return result;
+        };
+
+        // Registration-order-sensitivity diagnostic. Pure analysis: compares forward vs.
+        // reversed-iteration derived dependency results and reports edges that differ.
+        // Stripped in Dist; gated behind OLO_RENDERGRAPH_DIAGNOSTICS otherwise so it
+        // does not run on the per-frame hot path unless explicitly enabled.
+#if !defined(OLO_DIST)
+        if (IsRenderGraphDiagnosticsEnabled())
+        {
+        const auto currentSimulation = simulateDerivedDependencies(processedNodeNames);
+        auto reversedProcessedNodeNames = processedNodeNames;
+        std::reverse(reversedProcessedNodeNames.begin(), reversedProcessedNodeNames.end());
+        const auto reversedSimulation = simulateDerivedDependencies(reversedProcessedNodeNames);
+
+        enum class SimulatedOrderingRelation
+        {
+            Unordered,
+            BeforeAfter,
+            AfterBefore,
+        };
+
+        const auto hasSimulatedOrdering = [](const std::unordered_map<std::string, std::vector<std::string>>& dependencies,
+                                             const std::string& beforePass,
+                                             const std::string& afterPass) -> bool
+        {
+            if (beforePass.empty() || afterPass.empty() || beforePass == afterPass)
+                return false;
+
+            std::unordered_set<std::string> visited;
+            std::vector<std::string> frontier{ afterPass };
+            while (!frontier.empty())
+            {
+                auto current = std::move(frontier.back());
+                frontier.pop_back();
+
+                if (!visited.insert(current).second)
+                    continue;
+
+                if (current == beforePass)
+                    return true;
+
+                const auto it = dependencies.find(current);
+                if (it == dependencies.end())
+                    continue;
+
+                for (const auto& producer : it->second)
+                {
+                    if (!visited.contains(producer))
+                        frontier.push_back(producer);
+                }
+            }
+
+            return false;
+        };
+
+        const auto getSimulatedOrderingRelation = [&hasSimulatedOrdering](const std::unordered_map<std::string, std::vector<std::string>>& dependencies,
+                                                                          const std::string& passA,
+                                                                          const std::string& passB) -> SimulatedOrderingRelation
+        {
+            const bool aBeforeB = hasSimulatedOrdering(dependencies, passA, passB);
+            const bool bBeforeA = hasSimulatedOrdering(dependencies, passB, passA);
+
+            if (aBeforeB && !bBeforeA)
+                return SimulatedOrderingRelation::BeforeAfter;
+            if (!aBeforeB && bBeforeA)
+                return SimulatedOrderingRelation::AfterBefore;
+            return SimulatedOrderingRelation::Unordered;
+        };
+
+        const auto shouldReportBuildDiagnostic =
+            [&currentSimulation, &reversedSimulation, &getSimulatedOrderingRelation](const EdgeKey* currentEdge,
+                                                                                     const EdgeKey* alternateEdge) -> bool
+        {
+            const auto* comparisonEdge = currentEdge ? currentEdge : alternateEdge;
+            if (!comparisonEdge)
+                return false;
+
+            const auto currentRelation = getSimulatedOrderingRelation(currentSimulation.Dependencies,
+                                                                      comparisonEdge->BeforePass,
+                                                                      comparisonEdge->AfterPass);
+            const auto alternateRelation = getSimulatedOrderingRelation(reversedSimulation.Dependencies,
+                                                                        comparisonEdge->BeforePass,
+                                                                        comparisonEdge->AfterPass);
+            return currentRelation != alternateRelation;
+        };
+
+        auto appendBuildDiagnostic =
+            [this](const EdgeKey* currentEdge,
+                   const DerivedEdgeOrigin* currentOrigin,
+                   const EdgeKey* alternateEdge,
+                   const DerivedEdgeOrigin* alternateOrigin)
+        {
+            BuildDiagnostic diagnostic{};
+            diagnostic.Kind = BuildDiagnosticKind::RegistrationOrderSensitivity;
+
+            if (currentOrigin && !currentOrigin->ResourceName.empty())
+                diagnostic.Resource = currentOrigin->ResourceName;
+            else if (alternateOrigin && !alternateOrigin->ResourceName.empty())
+                diagnostic.Resource = alternateOrigin->ResourceName;
+
+            if (currentEdge)
+            {
+                diagnostic.CurrentBeforePass = currentEdge->BeforePass;
+                diagnostic.CurrentAfterPass = currentEdge->AfterPass;
+            }
+
+            if (alternateEdge)
+            {
+                diagnostic.AlternateBeforePass = alternateEdge->BeforePass;
+                diagnostic.AlternateAfterPass = alternateEdge->AfterPass;
+            }
+
+            std::string message = "registration order changed derived dependency result";
+            if (!diagnostic.Resource.empty())
+                message += " for resource '" + diagnostic.Resource + "'";
+
+            if (currentEdge && alternateEdge)
+            {
+                message += ": current build derives '" + diagnostic.CurrentBeforePass + "' -> '" + diagnostic.CurrentAfterPass +
+                           "', reversed visitation derives '" + diagnostic.AlternateBeforePass + "' -> '" + diagnostic.AlternateAfterPass + "'";
+            }
+            else if (currentEdge)
+            {
+                message += ": current build derives '" + diagnostic.CurrentBeforePass + "' -> '" + diagnostic.CurrentAfterPass +
+                           "', reversed visitation derives no matching edge";
+            }
+            else if (alternateEdge)
+            {
+                message += ": current build derives no matching edge, reversed visitation derives '" + diagnostic.AlternateBeforePass +
+                           "' -> '" + diagnostic.AlternateAfterPass + "'";
+            }
+
+            diagnostic.Message = std::move(message);
+            m_BuildDiagnostics.push_back(std::move(diagnostic));
+        };
+
+        std::unordered_set<EdgeKey, EdgeKeyHasher> consumedReversedEdges;
+        for (const auto& [edge, origin] : currentSimulation.DerivedEdges)
+        {
+            if (reversedSimulation.DerivedEdges.contains(edge))
+                continue;
+
+            const EdgeKey oppositeEdge{ edge.AfterPass, edge.BeforePass };
+            if (const auto oppositeIt = reversedSimulation.DerivedEdges.find(oppositeEdge);
+                oppositeIt != reversedSimulation.DerivedEdges.end())
+            {
+                if (!shouldReportBuildDiagnostic(&edge, &oppositeEdge))
+                    continue;
+
+                appendBuildDiagnostic(&edge, &origin, &oppositeEdge, &oppositeIt->second);
+                consumedReversedEdges.insert(oppositeEdge);
+                continue;
+            }
+
+            if (!shouldReportBuildDiagnostic(&edge, nullptr))
+                continue;
+
+            appendBuildDiagnostic(&edge, &origin, nullptr, nullptr);
+        }
+
+        for (const auto& [edge, origin] : reversedSimulation.DerivedEdges)
+        {
+            if (currentSimulation.DerivedEdges.contains(edge) || consumedReversedEdges.contains(edge))
+                continue;
+
+            if (!shouldReportBuildDiagnostic(nullptr, &edge))
+                continue;
+
+            appendBuildDiagnostic(nullptr, nullptr, &edge, &origin);
+        }
+
+        std::sort(m_BuildDiagnostics.begin(), m_BuildDiagnostics.end(),
+                  [](const BuildDiagnostic& lhs, const BuildDiagnostic& rhs)
+                  {
+                      if (lhs.Resource != rhs.Resource)
+                          return lhs.Resource < rhs.Resource;
+                      if (lhs.CurrentBeforePass != rhs.CurrentBeforePass)
+                          return lhs.CurrentBeforePass < rhs.CurrentBeforePass;
+                      if (lhs.CurrentAfterPass != rhs.CurrentAfterPass)
+                          return lhs.CurrentAfterPass < rhs.CurrentAfterPass;
+                      if (lhs.AlternateBeforePass != rhs.AlternateBeforePass)
+                          return lhs.AlternateBeforePass < rhs.AlternateBeforePass;
+                      if (lhs.AlternateAfterPass != rhs.AlternateAfterPass)
+                          return lhs.AlternateAfterPass < rhs.AlternateAfterPass;
+                      return lhs.Message < rhs.Message;
+                  });
+
+        m_LastBuildStats.OrderSensitiveResults = static_cast<u32>(m_BuildDiagnostics.size());
+
+        if (m_BuildDiagnostics.empty())
+        {
+            m_LastLoggedBuildDiagnosticDigest.clear();
+        }
+        else
+        {
+            std::string buildDiagnosticDigest;
+            for (const auto& diagnostic : m_BuildDiagnostics)
+            {
+                if (!buildDiagnosticDigest.empty())
+                    buildDiagnosticDigest += ';';
+                buildDiagnosticDigest += diagnostic.Message;
+            }
+
+            if (buildDiagnosticDigest != m_LastLoggedBuildDiagnosticDigest)
+            {
+                OLO_CORE_WARN("RenderGraph::BuildFrameGraph: registration order changed the derived dependency result ({} diagnostics)",
+                              m_BuildDiagnostics.size());
+                for (const auto& diagnostic : m_BuildDiagnostics)
+                    OLO_CORE_WARN("RenderGraph::BuildFrameGraph: {}", diagnostic.Message);
+
+                m_LastLoggedBuildDiagnosticDigest = std::move(buildDiagnosticDigest);
+            }
+        }
+        } // end if (IsRenderGraphDiagnosticsEnabled())
+#endif // !defined(OLO_DIST)
 
         if (m_DependencyGraphDirty && !UpdateDependencyGraph())
         {
@@ -5491,6 +6034,7 @@ namespace OloEngine
         }
 
         ComputeReachability();
+        RefreshTemporalHistoryContracts();
         ComputeBarrierPlan();
         RebuildTransientPlan();
 

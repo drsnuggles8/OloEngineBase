@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <glad/gl.h>
@@ -15,6 +16,38 @@ namespace OloEngine
     SSSRenderPass::SSSRenderPass()
     {
         SetName("SSSPass");
+    }
+
+    void SSSRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+        m_SelectedSceneDepthTexture = {};
+
+        [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidFramebufferTextureInputForPass(
+            builder,
+            this,
+            RenderPipelineBuilderInternal::MakeFramebufferTextureInput(blackboard.SceneColor, blackboard.SceneColorTexture));
+
+        if (!m_Settings.Enabled || !m_Settings.SSSBlurEnabled || !blackboard.SSSColor.IsValid())
+            return;
+
+        if (blackboard.SceneDepthAttachment.IsValid())
+        {
+            m_SelectedSceneDepthTexture = blackboard.SceneDepthAttachment;
+            [[maybe_unused]] const auto depthRead = builder.Read(blackboard.SceneDepthAttachment, RGReadUsage::ShaderSample);
+        }
+
+        constexpr std::string_view sssVersionTag = "SSSPass";
+        const auto outputHandle = builder.WriteNewVersion(blackboard.SSSColor, RGWriteUsage::RenderTarget, sssVersionTag);
+        if (!outputHandle.IsValid())
+            return;
+
+        SetPrimaryOutputFramebufferHandle(outputHandle);
+        SetPrimaryOutputTextureHandle(
+            builder.CreateFramebufferAttachmentView(std::string(ResourceNames::SSSColorTexture) + "@" +
+                                                        std::string(sssVersionTag),
+                                                    outputHandle,
+                                                    0u));
     }
 
     void SSSRenderPass::Init(const FramebufferSpecification& spec)
@@ -29,45 +62,33 @@ namespace OloEngine
         // Load SSS blur shader
         m_SSSBlurShader = Shader::Create("assets/shaders/SSS_Blur.glsl");
 
-        // Resource-aware RDG: reads the scene-color output produced by the
-        // OIT-resolve stage (SceneColor) and emits the graph-owned SSSColor
-        // framebuffer. This derives the OITResolvePass → SSSPass RAW edge on
-        // SceneColor and the SSSPass → AOApplyPass RAW edge on SSSColor.
-        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
-        DeclareWrite(ResourceNames::SSSColor, ResourceHandle::Kind::Framebuffer);
-
         OLO_CORE_INFO("SSSRenderPass: Initialized with {}x{} framebuffer", spec.Width, spec.Height);
-    }
-
-    void SSSRenderPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
     }
 
     void SSSRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Phase F slice 35 — self-resolving input: look up SceneColor directly
-        // from the render graph blackboard so no per-frame side-channel setter
-        // call is needed from EndScene().
         Ref<Framebuffer> inputFB;
-        const auto* board = context.GetBlackboard();
         Ref<Framebuffer> outputFramebuffer;
-        if (board)
+        u32 inputColorTextureID = 0u;
+        u32 depthID = 0u;
+        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
         {
-            if (board->SceneColor.IsValid())
-            {
-                if (auto resolvedInput = context.ResolveFramebuffer(board->SceneColor))
-                    inputFB = resolvedInput;
-            }
-            if (board->SSSColor.IsValid())
-            {
-                if (auto resolvedOutput = context.ResolveFramebuffer(board->SSSColor))
-                    outputFramebuffer = resolvedOutput;
-            }
+            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
+                inputFB = resolvedInput;
         }
+        if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
+            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
+
+        if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
+        {
+            if (auto resolvedOutput = context.ResolveFramebuffer(outputHandle))
+                outputFramebuffer = resolvedOutput;
+        }
+
+        if (m_SelectedSceneDepthTexture.IsValid())
+            depthID = context.ResolveTexture(m_SelectedSceneDepthTexture);
 
         if (!m_Settings.Enabled || !m_Settings.SSSBlurEnabled)
         {
@@ -75,7 +96,7 @@ namespace OloEngine
             return;
         }
 
-        if (!inputFB || !outputFramebuffer)
+        if (!inputFB || inputColorTextureID == 0u || !outputFramebuffer || depthID == 0u)
         {
             m_Target = nullptr;
             return;
@@ -111,11 +132,9 @@ namespace OloEngine
 
         // Bind input scene color as texture — no read-write hazard since we
         // read from inputFB and write to the graph-owned SSSColor target.
-        const auto colorID = inputFB->GetColorAttachmentRendererID(0);
-        context.BindTexture(0, colorID);
+        context.BindTexture(0, inputColorTextureID);
 
         // Bind scene depth for bilateral filtering
-        const auto depthID = inputFB->GetDepthAttachmentRendererID();
         context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
 
         DrawFullscreenTriangle(context);
@@ -167,6 +186,7 @@ namespace OloEngine
     void SSSRenderPass::OnReset()
     {
         m_Target = nullptr;
+        m_SelectedSceneDepthTexture = {};
     }
 
     void SSSRenderPass::CreateOutputFramebuffer(u32 width, u32 height)

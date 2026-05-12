@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <glad/gl.h>
@@ -21,6 +22,39 @@ namespace OloEngine
         SetName("OITResolvePass");
     }
 
+    void OITResolveRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+        m_SelectedOITAccumTexture = {};
+        m_SelectedOITRevealageTexture = {};
+
+        const auto inputHandle = RenderPipelineBuilderInternal::SelectFirstValidFramebufferForPass(this, blackboard.SceneColor);
+
+        if (!m_Enabled || !m_HasContributors)
+            return;
+
+        if (blackboard.OITAccum.IsValid())
+        {
+            m_SelectedOITAccumTexture = blackboard.OITAccum;
+            [[maybe_unused]] const auto oitAccumRead = builder.Read(blackboard.OITAccum, RGReadUsage::RenderTargetRead);
+        }
+        if (blackboard.OITRevealage.IsValid())
+        {
+            m_SelectedOITRevealageTexture = blackboard.OITRevealage;
+            [[maybe_unused]] const auto oitRevealageRead = builder.Read(blackboard.OITRevealage, RGReadUsage::RenderTargetRead);
+        }
+
+        if (blackboard.SceneColor.IsValid())
+            builder.AllowFeedback(blackboard.SceneColor);
+
+        RenderPipelineBuilderInternal::ReadFirstValidFramebuffer(builder, inputHandle);
+        if (blackboard.SceneColor.IsValid())
+        {
+            builder.Write(blackboard.SceneColor, RGWriteUsage::RenderTarget);
+            builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
+        }
+    }
+
     void OITResolveRenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
@@ -29,54 +63,28 @@ namespace OloEngine
 
         m_ResolveShader = Shader::Create("assets/shaders/OIT_Resolve.glsl");
 
-        // Resource-aware RDG: reads the OIT accumulation and revealage buffers
-        // written by ParticlePass (OIT path), and composites them into SceneColor
-        // (read-modify-write). Declaring OITAccum/OITRevealage lets the validator
-        // derive the RAW ordering edge from ParticlePass; SceneColor read+write
-        // derives the OITResolvePass → SSSPass RAW edge.
-        DeclareRead(ResourceNames::OITAccum, ResourceHandle::Kind::Texture2D);
-        DeclareRead(ResourceNames::OITRevealage, ResourceHandle::Kind::Texture2D);
-        DeclareRead(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
-        DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
-
         OLO_CORE_INFO("OITResolveRenderPass: initialised at {}x{}", spec.Width, spec.Height);
-    }
-
-    void OITResolveRenderPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
     }
 
     void OITResolveRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Phase F slice 35 — self-resolving input: look up SceneColor directly
-        // from the render graph blackboard so no per-frame side-channel setter
-        // call is needed from EndScene().
         Ref<Framebuffer> inputFB;
-        Ref<Framebuffer> oitFramebuffer;
-        if (const auto* board = context.GetBlackboard())
+        u32 oitAccumTextureID = 0;
+        u32 oitRevealageTextureID = 0;
+        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
         {
-            if (board->SceneColor.IsValid())
-            {
-                if (auto resolvedInput = context.ResolveFramebuffer(board->SceneColor))
-                    inputFB = resolvedInput;
-            }
-            if (board->OITAccum.IsValid())
-            {
-                if (auto resolvedOITFramebuffer = context.ResolveFramebuffer(board->OITAccum))
-                    oitFramebuffer = resolvedOITFramebuffer;
-            }
-            else if (board->OITRevealage.IsValid())
-            {
-                if (auto resolvedOITFramebuffer = context.ResolveFramebuffer(board->OITRevealage))
-                    oitFramebuffer = resolvedOITFramebuffer;
-            }
+            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
+                inputFB = resolvedInput;
         }
 
-        if (!m_Enabled || !inputFB || !oitFramebuffer || !m_ResolveShader)
+        if (m_SelectedOITAccumTexture.IsValid())
+            oitAccumTextureID = context.ResolveTexture(m_SelectedOITAccumTexture);
+        if (m_SelectedOITRevealageTexture.IsValid())
+            oitRevealageTextureID = context.ResolveTexture(m_SelectedOITRevealageTexture);
+
+        if (!m_Enabled || !inputFB || oitAccumTextureID == 0 || oitRevealageTextureID == 0 || !m_ResolveShader)
         {
             return;
         }
@@ -113,8 +121,8 @@ namespace OloEngine
         RenderCommand::SetColorMaskForAttachment(2, false, false, false, false);
 
         m_ResolveShader->Bind();
-        context.BindTexture(ShaderBindingLayout::TEX_OIT_ACCUM, oitFramebuffer->GetColorAttachmentRendererID(0));
-        context.BindTexture(ShaderBindingLayout::TEX_OIT_REVEALAGE, oitFramebuffer->GetColorAttachmentRendererID(1));
+        context.BindTexture(ShaderBindingLayout::TEX_OIT_ACCUM, oitAccumTextureID);
+        context.BindTexture(ShaderBindingLayout::TEX_OIT_REVEALAGE, oitRevealageTextureID);
 
         DrawFullscreenTriangle(context);
 
@@ -157,11 +165,6 @@ namespace OloEngine
         inputFB->Unbind();
     }
 
-    Ref<Framebuffer> OITResolveRenderPass::GetTarget() const
-    {
-        return nullptr;
-    }
-
     void OITResolveRenderPass::SetupFramebuffer(u32 width, u32 height)
     {
         m_FramebufferSpec.Width = width;
@@ -178,6 +181,8 @@ namespace OloEngine
 
     void OITResolveRenderPass::OnReset()
     {
+        m_SelectedOITAccumTexture = {};
+        m_SelectedOITRevealageTexture = {};
     }
 
     void OITResolveRenderPass::DrawFullscreenTriangle(RGCommandContext& context)

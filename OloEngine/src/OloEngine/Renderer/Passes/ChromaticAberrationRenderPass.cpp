@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
 #include <glad/gl.h>
@@ -16,6 +17,43 @@ namespace OloEngine
         SetName("ChromAberrationPass");
     }
 
+    void ChromaticAberrationRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+
+        (void)blackboard;
+        [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(
+            builder,
+            this,
+            {
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::FogColor, ResourceNames::FogColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::PrecipitationColor, ResourceNames::PrecipitationColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::TAAColor, ResourceNames::TAAColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::MotionBlurColor, ResourceNames::MotionBlurColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::DOFColor, ResourceNames::DOFColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::BloomColor, ResourceNames::BloomColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::PostProcessColor, ResourceNames::PostProcessColorTexture),
+            });
+
+        if (!m_Enabled)
+            return;
+
+        if (blackboard.ChromAbColor.IsValid())
+        {
+            constexpr std::string_view chromAbVersionTag = "ChromAberrationPass";
+            const auto outputHandle = builder.WriteNewVersion(blackboard.ChromAbColor, RGWriteUsage::RenderTarget, chromAbVersionTag);
+            if (!outputHandle.IsValid())
+                return;
+
+            SetPrimaryOutputFramebufferHandle(outputHandle);
+            SetPrimaryOutputTextureHandle(
+                builder.CreateFramebufferAttachmentView(std::string(ResourceNames::ChromAbColorTexture) + "@" +
+                                                            std::string(chromAbVersionTag),
+                                                        outputHandle,
+                                                        0u));
+        }
+    }
+
     void ChromaticAberrationRenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
@@ -25,9 +63,6 @@ namespace OloEngine
         CreateFramebuffer(spec.Width, spec.Height);
 
         m_Shader = Shader::Create("assets/shaders/PostProcess_ChromaticAberration.glsl");
-
-        DeclareRead(ResourceNames::FogColor, ResourceHandle::Kind::Framebuffer);
-        DeclareWrite(ResourceNames::ChromAbColor, ResourceHandle::Kind::Framebuffer);
 
         OLO_CORE_INFO("ChromaticAberrationRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
     }
@@ -44,50 +79,24 @@ namespace OloEngine
         m_Target = nullptr;
     }
 
-    void ChromaticAberrationRenderPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
-    }
-
     void ChromaticAberrationRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Phase F slice 43 — self-resolving input framebuffer from the render-graph
-        // blackboard. Preference chain: Fog > Precipitation > TAA > MotionBlur >
-        // DOF > Bloom > PostProcess.
-        const auto* board = context.GetBlackboard();
         Ref<Framebuffer> inputFramebuffer;
-        if (board)
+        u32 inputColorTextureID = 0u;
+        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
         {
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->FogColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->PrecipitationColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->TAAColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->MotionBlurColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->DOFColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->BloomColor))
-                    inputFramebuffer = fb;
-            if (!inputFramebuffer)
-                if (auto fb = context.ResolveFramebuffer(board->PostProcessColor))
-                    inputFramebuffer = fb;
+            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
+                inputFramebuffer = resolvedInput;
         }
+        if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
+            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
 
         Ref<Framebuffer> outputFramebuffer;
-        if (board)
+        if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
         {
-            if (auto fb = context.ResolveFramebuffer(board->ChromAbColor))
+            if (auto fb = context.ResolveFramebuffer(outputHandle))
                 outputFramebuffer = fb;
         }
 
@@ -97,7 +106,7 @@ namespace OloEngine
             return;
         }
 
-        if (!board || !inputFramebuffer || !outputFramebuffer || !m_Shader)
+        if (!inputFramebuffer || inputColorTextureID == 0u || !outputFramebuffer || !m_Shader)
         {
             m_Target = nullptr;
             return;
@@ -129,8 +138,7 @@ namespace OloEngine
 
         m_Shader->Bind();
 
-        const u32 srcColorID = inputFramebuffer->GetColorAttachmentRendererID(0);
-        context.BindTexture(0, srcColorID);
+        context.BindTexture(0, inputColorTextureID);
         m_Shader->SetInt("u_Texture", 0);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
@@ -139,13 +147,6 @@ namespace OloEngine
 
         context.SetDepthMask(true);
         outputFramebuffer->Unbind();
-    }
-
-    Ref<Framebuffer> ChromaticAberrationRenderPass::GetTarget() const
-    {
-        if (!m_Target)
-            return nullptr;
-        return m_Target;
     }
 
     void ChromaticAberrationRenderPass::SetupFramebuffer(u32 width, u32 height)

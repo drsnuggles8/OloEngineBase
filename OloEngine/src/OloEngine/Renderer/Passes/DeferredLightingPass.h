@@ -1,13 +1,14 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/GBuffer.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 
+#include <array>
 #include <glm/glm.hpp>
 
 namespace OloEngine
@@ -26,14 +27,14 @@ namespace OloEngine
     // If `RenderingPath::Deferred` is inactive or the G-Buffer was not
     // provided, Execute() is a no-op — the pass is safe to register
     // unconditionally in the render graph.
-    class DeferredLightingPass : public RenderPass
+    class DeferredLightingPass : public RenderGraphNode
     {
       public:
         DeferredLightingPass();
         ~DeferredLightingPass() override = default;
 
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] SubmissionModel GetSubmissionModel() const override
         {
@@ -68,12 +69,32 @@ namespace OloEngine
         }
 
       private:
+        static constexpr u32 MaxPointShadowSlots = 4u;
+
+        struct SelectedInputs
+        {
+            RGTextureHandle GBufferAlbedo;
+            RGTextureHandle GBufferNormal;
+            RGTextureHandle GBufferEmissive;
+            RGTextureHandle Velocity;
+            RGTextureHandle SceneDepth;
+            RGTextureHandle AOBuffer;
+            RGTextureHandle ShadowMapCSM;
+            RGTextureHandle ShadowMapSpot;
+            std::array<RGTextureHandle, MaxPointShadowSlots> ShadowMapPoint{};
+            RGTextureHandle IrradianceMap;
+            RGTextureHandle PrefilterMap;
+            RGTextureHandle BrdfLut;
+        };
+
         Ref<Shader> m_Shader;     // sampler2D variant (non-MSAA / resolved)
         Ref<Shader> m_ShaderMSAA; // sampler2DMS variant (per-sample)
         Ref<GBuffer> m_GBuffer;
         Ref<Framebuffer> m_SceneFramebuffer;
         Ref<UniformBuffer> m_ControlsUBO;
+        SelectedInputs m_SelectedInputs{};
         u32 m_DebugChannel = 0;
         bool m_PerSampleLighting = true;
+        bool m_UseMSAAShading = false;
     };
 } // namespace OloEngine

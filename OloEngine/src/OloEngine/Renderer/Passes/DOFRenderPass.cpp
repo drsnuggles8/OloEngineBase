@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
@@ -19,6 +20,44 @@ namespace OloEngine
         SetName("DOFPass");
     }
 
+    void DOFRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+        m_SelectedSceneDepthTexture = {};
+
+        (void)blackboard;
+        [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(
+            builder,
+            this,
+            {
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::BloomColor, ResourceNames::BloomColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::PostProcessColor, ResourceNames::PostProcessColorTexture),
+            });
+
+        if (!m_Enabled)
+            return;
+
+        if (blackboard.SceneDepth.IsValid())
+        {
+            m_SelectedSceneDepthTexture = blackboard.SceneDepth;
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.SceneDepth, RGReadUsage::ShaderSample);
+        }
+        if (blackboard.DOFColor.IsValid())
+        {
+            constexpr std::string_view dofVersionTag = "DOFPass";
+            const auto outputHandle = builder.WriteNewVersion(blackboard.DOFColor, RGWriteUsage::RenderTarget, dofVersionTag);
+            if (!outputHandle.IsValid())
+                return;
+
+            SetPrimaryOutputFramebufferHandle(outputHandle);
+            SetPrimaryOutputTextureHandle(
+                builder.CreateFramebufferAttachmentView(std::string(ResourceNames::DOFColorTexture) + "@" +
+                                                            std::string(dofVersionTag),
+                                                        outputHandle,
+                                                        0u));
+        }
+    }
+
     void DOFRenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
@@ -28,9 +67,6 @@ namespace OloEngine
         CreateFramebuffer(spec.Width, spec.Height);
 
         m_DOFShader = Shader::Create("assets/shaders/PostProcess_DOF.glsl");
-
-        DeclareRead(ResourceNames::BloomColor, ResourceHandle::Kind::Framebuffer);
-        DeclareWrite(ResourceNames::DOFColor, ResourceHandle::Kind::Framebuffer);
 
         OLO_CORE_INFO("DOFRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
     }
@@ -47,34 +83,25 @@ namespace OloEngine
         m_Target = nullptr;
     }
 
-    void DOFRenderPass::Execute()
-    {
-        RGCommandContext context;
-        Execute(context);
-    }
-
     void DOFRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Phase F slice 40 — self-resolving input framebuffer.
-        // Prefer BloomColor (if Bloom ran upstream) else PostProcessColor.
-        const auto* board = context.GetBlackboard();
         Ref<Framebuffer> inputFramebuffer;
-        Ref<Framebuffer> outputFramebuffer;
-        if (board)
+        u32 inputColorTextureID = 0u;
+        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
         {
-            const auto inputHandle = board->BloomColor.IsValid() ? board->BloomColor : board->PostProcessColor;
-            if (inputHandle.IsValid())
-            {
-                if (auto resolved = context.ResolveFramebuffer(inputHandle))
-                    inputFramebuffer = resolved;
-            }
-            if (board->DOFColor.IsValid())
-            {
-                if (auto resolvedOutput = context.ResolveFramebuffer(board->DOFColor))
-                    outputFramebuffer = resolvedOutput;
-            }
+            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
+                inputFramebuffer = resolvedInput;
+        }
+        if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
+            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
+
+        Ref<Framebuffer> outputFramebuffer;
+        if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
+        {
+            if (auto resolvedOutput = context.ResolveFramebuffer(outputHandle))
+                outputFramebuffer = resolvedOutput;
         }
         if (!m_Enabled)
         {
@@ -82,14 +109,15 @@ namespace OloEngine
             return;
         }
 
-        if (!board || !inputFramebuffer || !outputFramebuffer || !m_DOFShader)
+        if (!inputFramebuffer || inputColorTextureID == 0u || !outputFramebuffer || !m_DOFShader)
         {
             m_Target = nullptr;
             return;
         }
 
-        // Phase F slice 40 / Phase H follow-up — self-resolving SceneDepth.
-        const u32 sceneDepthTextureID = context.ResolveTexture(board->SceneDepth);
+        const u32 sceneDepthTextureID = m_SelectedSceneDepthTexture.IsValid()
+                                            ? context.ResolveTexture(m_SelectedSceneDepthTexture)
+                                            : 0u;
 
         if (sceneDepthTextureID == 0)
         {
@@ -123,8 +151,7 @@ namespace OloEngine
 
         m_DOFShader->Bind();
 
-        const u32 srcColorID = inputFramebuffer->GetColorAttachmentRendererID(0);
-        context.BindTexture(0, srcColorID);
+        context.BindTexture(0, inputColorTextureID);
         m_DOFShader->SetInt("u_Texture", 0);
 
         context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID);
@@ -136,13 +163,6 @@ namespace OloEngine
 
         context.SetDepthMask(true);
         outputFramebuffer->Unbind();
-    }
-
-    Ref<Framebuffer> DOFRenderPass::GetTarget() const
-    {
-        if (!m_Target)
-            return nullptr;
-        return m_Target;
     }
 
     void DOFRenderPass::SetupFramebuffer(u32 width, u32 height)
@@ -164,5 +184,6 @@ namespace OloEngine
     void DOFRenderPass::OnReset()
     {
         m_Target = nullptr;
+        m_SelectedSceneDepthTexture = {};
     }
 } // namespace OloEngine

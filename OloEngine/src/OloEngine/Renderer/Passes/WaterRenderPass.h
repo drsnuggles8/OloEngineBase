@@ -25,8 +25,7 @@ namespace OloEngine
         WaterRenderPass(WaterRenderPass&&) = delete;
         WaterRenderPass& operator=(WaterRenderPass&&) = delete;
 
-        void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] SubmissionModel GetSubmissionModel() const override
         {
@@ -38,5 +37,11 @@ namespace OloEngine
         void OnReset() override;
 
         Ref<Framebuffer> m_SceneFramebuffer;
+
+      private:
+        RGTextureHandle m_SelectedSceneColorTexture{};
+        RGTextureHandle m_SelectedSceneDepthTexture{};
+        RGTextureHandle m_SelectedSceneNormalsTexture{};
+        RGTextureHandle m_SelectedRefractionTexture{};
     };
 } // namespace OloEngine

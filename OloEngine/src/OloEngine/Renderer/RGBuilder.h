@@ -7,6 +7,7 @@
 #include <functional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace OloEngine
@@ -102,6 +103,12 @@ namespace OloEngine
         RGSubresourceRange Range = RGSubresourceRange::Full();
     };
 
+    struct RGFeedbackDeclaration
+    {
+        std::string ResourceName;
+        RGSubresourceRange Range = RGSubresourceRange::Full();
+    };
+
     // ========================================================================
     // RGBuilder — declared-access interface for pass setup
     // ========================================================================
@@ -148,6 +155,61 @@ namespace OloEngine
         void Write(
             RGBufferHandle handle,
             RGWriteUsage usage = RGWriteUsage::ShaderStorage);
+
+        // -------------------------------------------------------------------
+        // Versioned write operations
+        // -------------------------------------------------------------------
+
+        // Opt-in explicit write-renaming for resources that are logically
+        // rewritten in sequence. The returned handle names a new graph-owned
+        // version cloned from the source descriptor and is already recorded
+        // as the written resource for the current pass.
+        [[nodiscard]] RGTextureHandle WriteNewVersion(
+            RGTextureHandle sourceHandle,
+            RGWriteUsage usage = RGWriteUsage::RenderTarget,
+            std::string_view versionTag = {},
+            const RGSubresourceRange& range = RGSubresourceRange::Full());
+
+        [[nodiscard]] RGFramebufferHandle WriteNewVersion(
+            RGFramebufferHandle sourceHandle,
+            RGWriteUsage usage = RGWriteUsage::RenderTarget,
+            std::string_view versionTag = {});
+
+        [[nodiscard]] RGBufferHandle WriteNewVersion(
+            RGBufferHandle sourceHandle,
+            RGWriteUsage usage = RGWriteUsage::ShaderStorage,
+            std::string_view versionTag = {});
+
+        // -------------------------------------------------------------------
+        // View creation helpers
+        // -------------------------------------------------------------------
+
+        [[nodiscard]] RGTextureHandle CreateFramebufferAttachmentView(
+            std::string_view name,
+            RGFramebufferHandle framebufferHandle,
+            u32 colorAttachmentIndex);
+
+        [[nodiscard]] RGTextureHandle CreateFramebufferDepthAttachmentView(
+            std::string_view name,
+            RGFramebufferHandle framebufferHandle);
+
+        // -------------------------------------------------------------------
+        // Feedback declarations
+        // -------------------------------------------------------------------
+
+        // Declare an intentional same-pass read/write overlap for graph-owned
+        // scratch or accumulation resources. This suppresses the explicit
+        // feedback hazard for the declared subresource range only.
+        void AllowFeedback(
+            RGTextureHandle handle,
+            const RGSubresourceRange& range = RGSubresourceRange::Full());
+
+        void AllowFeedback(
+            RGFramebufferHandle handle);
+
+        void AllowFeedback(
+            RGBufferHandle handle,
+            const RGSubresourceRange& range = RGSubresourceRange::Full());
 
         // -------------------------------------------------------------------
         // Create operations — allocate virtual (transient) resources
@@ -203,6 +265,37 @@ namespace OloEngine
             RGFramebufferHandle handle,
             std::function<void(Ref<Framebuffer>)> callback);
 
+        // Declare a persistent external sink update during graph setup.
+        // This roots the producing subgraph and copies the current-frame
+        // resource into a caller-owned texture after Execute() completes.
+        void RegisterExternalTextureSink(
+            RGTextureHandle sourceHandle,
+            u32 textureID,
+            u32 width,
+            u32 height,
+            bool* validFlag = nullptr);
+
+        void RegisterExternalTextureSink(
+            RGFramebufferHandle sourceHandle,
+            u32 textureID,
+            u32 width,
+            u32 height,
+            u32 colorAttachmentIndex = 0,
+            bool* validFlag = nullptr);
+
+        // Declare a temporal-history egress contract during graph setup.
+        // This does not queue the runtime copy-back callback; it only tells
+        // the graph compiler that the current-frame resource must remain
+        // reachable because it feeds a next-frame history import.
+        void ExtractHistoryTexture(
+            std::string_view historyResource,
+            RGTextureHandle sourceHandle);
+
+        void ExtractHistoryTexture(
+            std::string_view historyResource,
+            RGFramebufferHandle sourceHandle,
+            u32 colorAttachmentIndex = 0);
+
         // -------------------------------------------------------------------
         // Blackboard access
         // -------------------------------------------------------------------
@@ -219,6 +312,17 @@ namespace OloEngine
 
         void BeginPass(std::string_view passName);
 
+        void DependsOnPass(std::string_view passName);
+
+        // Convenience: emit DependsOnPass(previousWriter) for the most recent
+        // writer of the given resource base name, if any. Used by read-modify-
+        // write modifier chains (SceneColor RMW, OITAccum/OITRevealage) so
+        // each modifier's Setup can pin its predecessor without the pipeline
+        // builder needing to wire a typed pass pointer via class-specific
+        // setters. No-op when no previous writer exists or when the previous
+        // writer is the current pass itself.
+        void DependsOnPreviousWriter(std::string_view resourceName);
+
         [[nodiscard]] const std::vector<std::string>& GetDeclaredReads() const noexcept
         {
             return m_DeclaredReads;
@@ -234,7 +338,30 @@ namespace OloEngine
             return m_DeclaredAccesses;
         }
 
+        [[nodiscard]] const std::vector<RGFeedbackDeclaration>& GetDeclaredFeedbacks() const noexcept
+        {
+            return m_DeclaredFeedbacks;
+        }
+
+        [[nodiscard]] const std::vector<std::string>& GetDeclaredPassDependencies() const noexcept
+        {
+            return m_DeclaredPassDependencies;
+        }
+
+        // Builder-side accessor for the owning graph. Used by free helpers
+        // (e.g. `RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass`)
+        // that need to look up the latest-version handle for a resource base
+        // name from inside a pass's Setup. Read-only — Setup paths declare
+        // accesses through this builder, not by mutating the graph directly.
+        [[nodiscard]] const RenderGraph& GetGraph() const noexcept
+        {
+            return m_Graph;
+        }
+
       private:
+        [[nodiscard]] std::string BuildVersionedResourceName(std::string_view resourceName,
+                                                             std::string_view versionTag);
+        void RecordFeedback(std::string_view resourceName, const RGSubresourceRange& range);
         void RecordRead(std::string_view resourceName, RGReadUsage usage, const RGSubresourceRange& range);
         void RecordWrite(std::string_view resourceName, RGWriteUsage usage, const RGSubresourceRange& range);
 
@@ -244,6 +371,9 @@ namespace OloEngine
         std::vector<std::string> m_DeclaredReads;
         std::vector<std::string> m_DeclaredWrites;
         std::vector<RGAccessDeclaration> m_DeclaredAccesses;
+        std::vector<RGFeedbackDeclaration> m_DeclaredFeedbacks;
+        std::vector<std::string> m_DeclaredPassDependencies;
+        std::unordered_map<std::string, u32> m_NextVersionOrdinalByResource;
     };
 
 } // namespace OloEngine

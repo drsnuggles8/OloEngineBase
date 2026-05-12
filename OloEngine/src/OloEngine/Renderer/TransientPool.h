@@ -106,12 +106,14 @@ namespace OloEngine
             u32 Width;
             u32 Height;
             u32 Format; // ImageFormat as u32
-            u32 Flags;  // TextureWrapMode, TextureFilterMode, etc.
+            u32 MipLevels;
+            u32 Samples;
+            u32 Flags; // TextureWrapMode, TextureFilterMode, etc.
 
             bool operator==(const TextureDescriptorKey& other) const
             {
                 return Width == other.Width && Height == other.Height && Format == other.Format &&
-                       Flags == other.Flags;
+                       MipLevels == other.MipLevels && Samples == other.Samples && Flags == other.Flags;
             }
         };
 
@@ -119,8 +121,20 @@ namespace OloEngine
         {
             u64 operator()(const TextureDescriptorKey& key) const
             {
-                return (static_cast<u64>(key.Width) << 48) | (static_cast<u64>(key.Height) << 32) |
-                       (static_cast<u64>(key.Format) << 16) | key.Flags;
+                u64 hash = 1469598103934665603ull;
+                hash ^= key.Width;
+                hash *= 1099511628211ull;
+                hash ^= key.Height;
+                hash *= 1099511628211ull;
+                hash ^= key.Format;
+                hash *= 1099511628211ull;
+                hash ^= key.MipLevels;
+                hash *= 1099511628211ull;
+                hash ^= key.Samples;
+                hash *= 1099511628211ull;
+                hash ^= key.Flags;
+                hash *= 1099511628211ull;
+                return hash;
             }
         };
 

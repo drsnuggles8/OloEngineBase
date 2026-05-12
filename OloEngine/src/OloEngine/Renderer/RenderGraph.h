@@ -27,6 +27,8 @@ namespace OloEngine
         RenderGraph() = default;
         ~RenderGraph() = default;
 
+        friend class RGBuilder;
+
         void Init(u32 width, u32 height);
         void Shutdown();
 
@@ -132,15 +134,29 @@ namespace OloEngine
             return m_ExecutionOrder;
         }
 
+        // Validates only the dependency topology/cycle state without
+        // inspecting resource declarations. Use this before frame
+        // compilation when the caller needs a cycle-free graph but compiled
+        // resource validation will happen later from authoritative
+        // RGBuilder-produced accesses.
+        [[nodiscard]] bool ValidateExecutionTopology();
+
         // -------------------------------------------------------------------
         // Resource-aware hazard validation
         // -------------------------------------------------------------------
-        // Walks the topologically-sorted execution order and, using each
-        // pass's declared reads/writes (see RenderPass::DeclareRead/Write),
-        // validates that every read has a transitive execution dependency
-        // on its producer, that no two parallel passes write the same
-        // resource, and that writers don't overwrite live reads. Catches
-        // missing `ConnectPass` / `AddExecutionDependency` calls.
+        // Validates resource hazards using the best declaration source
+        // currently available:
+        //  - before BuildFrameGraph(), it uses legacy DeclareRead/DeclareWrite
+        //    metadata for topology-time validation;
+        //  - after BuildFrameGraph() has produced dynamic RGBuilder accesses,
+        //    it automatically switches to compiled-frame validation using the
+        //    current frame's declarations and culling state.
+        // This catches missing `ConnectPass` / `AddExecutionDependency` calls
+        // during topology composition while still making built frames validate
+        // against setup-authoritative resource contracts.
+        // Production runtime code should treat pre-build results as
+        // diagnostics only; authoritative correctness comes from
+        // ValidateCompiledResourceHazards() after BuildFrameGraph().
         //
         // Call this AFTER all passes are added and connections made — the
         // first call forces topological sort if needed. Returns the list of
@@ -166,10 +182,18 @@ namespace OloEngine
         };
         [[nodiscard]] std::vector<Hazard> ValidateResourceHazards();
 
+        // Validates the compiled frame after BuildFrameGraph() using the
+        // current frame's dynamic RGBuilder declarations and culling state.
+        // This is the authoritative per-frame validation path for graph-native
+        // nodes whose setup contract can legitimately declare zero accesses
+        // when disabled.
+        [[nodiscard]] std::vector<Hazard> ValidateCompiledResourceHazards();
+
         struct ResourceInfo
         {
             std::string Name;
             RGResourceDesc Desc;
+            bool HasExternalBacking = false;
             RGTextureHandle TextureHandle;
             RGBufferHandle BufferHandle;
             RGFramebufferHandle FramebufferHandle;
@@ -181,9 +205,20 @@ namespace OloEngine
         void ClearImportedResources();
         [[nodiscard]] const std::vector<ResourceInfo>& GetRegisteredResources() const;
         [[nodiscard]] const ResourceInfo* FindRegisteredResource(std::string_view name) const;
+        // Base-name lookups return the latest explicit version when one exists
+        // (for example "SceneColor" -> "SceneColor@PassB"). Exact
+        // versioned names still resolve verbatim.
         [[nodiscard]] RGTextureHandle GetTextureHandle(std::string_view name) const;
         [[nodiscard]] RGBufferHandle GetBufferHandle(std::string_view name) const;
         [[nodiscard]] RGFramebufferHandle GetFramebufferHandle(std::string_view name) const;
+
+        // Returns the most recent pass that wrote the named resource during
+        // BuildFrameGraph's Setup loop, or an empty string if none. Updated
+        // incrementally as each pass's Setup runs, so a downstream RMW pass
+        // can call this from its own Setup to discover its predecessor and
+        // emit an explicit DependsOnPass edge without the pipeline builder
+        // needing to wire pass pointers via class-specific setters.
+        [[nodiscard]] auto GetLastWriterPassName(std::string_view resourceName) const -> const std::string&;
         [[nodiscard]] bool IsTextureHandleCurrent(RGTextureHandle handle) const;
         [[nodiscard]] bool IsBufferHandleCurrent(RGBufferHandle handle) const;
         [[nodiscard]] bool IsFramebufferHandleCurrent(RGFramebufferHandle handle) const;
@@ -204,6 +239,57 @@ namespace OloEngine
         [[nodiscard]] RGFramebufferHandle ImportFramebuffer(std::string_view name,
                                                             const Ref<Framebuffer>& fb,
                                                             const RGResourceDesc& desc = {});
+
+        // Create a texture view that resolves to a framebuffer colour
+        // attachment. The returned texture handle shares the framebuffer's
+        // physical storage and is intended for explicit attachment-level graph
+        // declarations (for example OIT accum/revealage views over one MRT).
+        [[nodiscard]] RGTextureHandle CreateFramebufferAttachmentView(std::string_view name,
+                                                                      RGFramebufferHandle framebufferHandle,
+                                                                      u32 colorAttachmentIndex);
+
+        // Create a texture view that resolves to a framebuffer depth
+        // attachment. The returned texture handle shares the framebuffer's
+        // physical storage and is intended for explicit depth-view modelling
+        // (for example deferred SceneDepth / SceneDepthMS attachment views).
+        [[nodiscard]] RGTextureHandle CreateFramebufferDepthAttachmentView(std::string_view name,
+                                                                           RGFramebufferHandle framebufferHandle);
+
+        // Create a logical single-mip texture view over an existing texture
+        // resource. The returned handle participates in graph declarations as
+        // its own resource while preserving the parent texture's storage and
+        // descriptor metadata. Under the GL backend this currently resolves to
+        // the parent texture object; callers that need a specific mip still
+        // select it explicitly when binding images/framebuffers.
+        [[nodiscard]] RGTextureHandle CreateTextureMipView(std::string_view name,
+                                                           RGTextureHandle textureHandle,
+                                                           u32 mipLevel);
+
+        // Create a logical single-layer texture-array view over an existing
+        // Texture2DArray resource. Like mip views, the returned handle models
+        // the declaration surface as its own resource while still resolving to
+        // the parent texture object under the current GL backend.
+        [[nodiscard]] RGTextureHandle CreateTextureArrayLayerView(std::string_view name,
+                                                                  RGTextureHandle textureHandle,
+                                                                  u32 layerIndex);
+
+        // Create a logical single-face cube texture view over an existing
+        // TextureCube resource. The handle participates in declarations as a
+        // face-scoped resource while resolving to the parent cubemap object in
+        // the current GL backend.
+        [[nodiscard]] RGTextureHandle CreateTextureCubeFaceView(std::string_view name,
+                                                                RGTextureHandle textureHandle,
+                                                                u32 faceIndex);
+
+        // Create a logical single-sample resolve view over an existing
+        // multisample texture resource. The returned handle participates in
+        // declarations as its own resource, resolves to `resolvedTextureHandle`
+        // under the current GL backend, and inherits producer ordering from
+        // `multisampleTextureHandle` so MSAA source writers can feed resolved
+        // readers without inventing a parallel naming scheme.
+        [[nodiscard]] RGTextureHandle CreateTextureMultisampleResolveView(std::string_view name,
+                                                                          RGTextureHandle multisampleTextureHandle,
+                                                                          RGTextureHandle resolvedTextureHandle);
 
         // Import a UBO or SSBO by its GL name/binding.
         [[nodiscard]] RGBufferHandle ImportBuffer(std::string_view name, u32 bufferID,
@@ -228,7 +314,9 @@ namespace OloEngine
         // Returns 0 for an invalid handle.
         [[nodiscard]] u32 ResolveBuffer(RGBufferHandle handle) const;
 
-        // Resolve a typed handle back to its canonical graph resource name.
+        // Resolve a typed handle back to its current graph resource name.
+        // For opt-in versioned writes this may be a derived version name
+        // rather than the original canonical blackboard/import name.
         // Returns empty when the handle is invalid or stale.
         [[nodiscard]] std::string_view GetResourceName(RGTextureHandle handle) const;
         [[nodiscard]] std::string_view GetResourceName(RGFramebufferHandle handle) const;
@@ -239,19 +327,75 @@ namespace OloEngine
         // a resource across frames (e.g. TAA history write-back).
         void ExtractTexture(RGTextureHandle handle, std::function<void(u32)> callback);
 
+        struct ExternalTextureSinkContract
+        {
+            std::string SourceResource;
+            ResourceHandle::Kind SourceKind = ResourceHandle::Kind::Unknown;
+            u32 ColorAttachmentIndex = 0;
+            bool SourceReachable = false;
+        };
+
+        // Register a persistent sink texture for a current-frame resource.
+        // Unlike temporal histories, this does not create a previous-frame
+        // readable import — it simply copies the named source resource into a
+        // caller-owned texture after Execute() completes.
+        void RegisterExternalTextureSink(RGTextureHandle sourceHandle,
+                                         u32 textureID,
+                                         u32 width,
+                                         u32 height,
+                                         bool* validFlag = nullptr);
+        void RegisterExternalTextureSink(RGFramebufferHandle sourceHandle,
+                                         u32 textureID,
+                                         u32 width,
+                                         u32 height,
+                                         u32 colorAttachmentIndex = 0,
+                                         bool* validFlag = nullptr);
+        void RegisterExternalTextureSink(std::string_view sourceResource,
+                                         u32 textureID,
+                                         u32 width,
+                                         u32 height,
+                                         u32 colorAttachmentIndex = 0,
+                                         bool* validFlag = nullptr);
+        [[nodiscard]] const std::vector<ExternalTextureSinkContract>& GetExternalTextureSinkContracts() const
+        {
+            return m_ExternalTextureSinkContracts;
+        }
+
+        // Register a persistent sink texture for a temporal history resource.
+        // This allows the graph to write next-frame history even when the
+        // previous-frame history was not imported as a readable input.
+        void RegisterHistoryTextureSink(std::string_view historyResource,
+                                        u32 textureID,
+                                        u32 width,
+                                        u32 height,
+                                        bool* validFlag = nullptr);
+
         // Queue a texture extraction that explicitly writes back into a named
         // imported history resource for the next frame. The callback receives
         // the resolved source texture ID after Execute() completes.
         struct TemporalHistoryContract
         {
+            enum class SourceKind : u8
+            {
+                Texture,
+                Framebuffer,
+            };
+
             std::string HistoryResource; ///< canonical imported-history name (previous-frame input)
             std::string SourceResource;  ///< current-frame resource extracted for next-frame reuse
+            SourceKind Kind = SourceKind::Texture;
+            u32 ColorAttachmentIndex = 0;
             bool HistoryImported = false;
             bool SourceReachable = false;
         };
         void ExtractHistoryTexture(std::string_view historyResource,
+                                   RGTextureHandle sourceHandle);
+        void ExtractHistoryTexture(std::string_view historyResource,
                                    RGTextureHandle sourceHandle,
                                    std::function<void(u32)> callback);
+        void ExtractHistoryTexture(std::string_view historyResource,
+                                   RGFramebufferHandle sourceHandle,
+                                   u32 colorAttachmentIndex = 0);
         void ExtractHistoryTexture(std::string_view historyResource,
                                    RGFramebufferHandle sourceHandle,
                                    std::function<void(u32)> callback,
@@ -314,6 +458,21 @@ namespace OloEngine
         // -------------------------------------------------------------------
         // Pre-build transient resource declaration
         // -------------------------------------------------------------------
+        // Declare a transient texture resource BEFORE BuildFrameGraph().
+        // Suitable for use during frame-blackboard population where a stable
+        // handle is needed before pass setup callbacks run. Returns a stable
+        // RGTextureHandle that remains valid until the graph is reset.
+        [[nodiscard]] RGTextureHandle DeclareTransientTexture(std::string_view name, const RGResourceDesc& desc);
+
+        // Declare a transient texture resource that resolves to caller-
+        // supplied physical backing for this frame. The graph still treats
+        // the resource as frame-local/transient for lifetime/diagnostic
+        // purposes, but skips transient-pool materialization and resolves the
+        // handle to the provided texture object.
+        [[nodiscard]] RGTextureHandle DeclareTransientTexture(std::string_view name,
+                                                              const RGResourceDesc& desc,
+                                                              u32 backingTextureID);
+
         // Declare a transient framebuffer resource BEFORE BuildFrameGraph().
         // Suitable for use during frame-blackboard population (e.g. OIT MRT
         // buffers, post-process outputs) where a stable handle is needed
@@ -324,6 +483,15 @@ namespace OloEngine
         // graph is reset. Calling this after EnsureResourceRegistryBuilt()
         // marks the registry dirty so the next GetXxxHandle() re-builds.
         [[nodiscard]] RGFramebufferHandle DeclareTransientFramebuffer(std::string_view name, const RGResourceDesc& desc);
+
+        // Declare a transient framebuffer resource that resolves to caller-
+        // supplied physical backing for this frame. The graph still treats
+        // the resource as frame-local/transient for lifetime/diagnostic
+        // purposes, but skips transient-pool materialization and resolves the
+        // handle to the provided framebuffer object.
+        [[nodiscard]] RGFramebufferHandle DeclareTransientFramebuffer(std::string_view name,
+                                                                      const RGResourceDesc& desc,
+                                                                      const Ref<Framebuffer>& backingFramebuffer);
 
         struct TransientPlanEntry
         {
@@ -360,11 +528,36 @@ namespace OloEngine
             u32 DeclaredReads = 0;
             u32 DeclaredWrites = 0;
             u32 DerivedEdges = 0;
+            u32 OrderSensitiveResults = 0;
+            u32 SetupCallbackPasses = 0;
+            u32 DynamicDeclarationPasses = 0;
+            u32 BucketBackedPasses = 0;
         };
 
         [[nodiscard]] const FrameBuildStats& GetLastBuildStats() const
         {
             return m_LastBuildStats;
+        }
+
+        enum class BuildDiagnosticKind
+        {
+            RegistrationOrderSensitivity,
+        };
+
+        struct BuildDiagnostic
+        {
+            BuildDiagnosticKind Kind = BuildDiagnosticKind::RegistrationOrderSensitivity;
+            std::string Resource;
+            std::string CurrentBeforePass;
+            std::string CurrentAfterPass;
+            std::string AlternateBeforePass;
+            std::string AlternateAfterPass;
+            std::string Message;
+        };
+
+        [[nodiscard]] const std::vector<BuildDiagnostic>& GetBuildDiagnostics() const
+        {
+            return m_BuildDiagnostics;
         }
 
         struct PlannedBarrier
@@ -717,8 +910,14 @@ namespace OloEngine
         //                 backend must keep the resource live after the last pass.
         //   IsHistory   — resource is a temporal-history input (imported from
         //                 the previous frame via ImportHistory / ExtractHistoryTexture).
-        //   IsTransient — resource is allocated by the transient pool; memory
-        //                 can be freed at LastPassIndex+1.
+        //   IsTransient — graph-declared frame-local resource. Pool-allocated
+        //                 transients can be freed at LastPassIndex+1;
+        //                 externally-backed transients retain caller-owned
+        //                 backing.
+        //   HasExternalBacking — resolves to caller-supplied frame-local
+        //                 backing instead of transient-pool materialization.
+        //                 Attachment/mip views inherit this flag from the
+        //                 parent resource.
         //
         //   FirstWritePassIndex / LastReadPassIndex are indices into GetExecutionOrder().
         //   When no write is found (import-only) FirstWritePassIndex == UINT32_MAX
@@ -730,7 +929,8 @@ namespace OloEngine
             bool IsImported = false;                                   ///< entered via ImportTexture/ImportFramebuffer/ImportBuffer
             bool IsExtracted = false;                                  ///< has a pending TextureExtract or FramebufferExtract
             bool IsHistory = false;                                    ///< temporal-history resource (ImportHistory)
-            bool IsTransient = false;                                  ///< allocated by the transient pool
+            bool IsTransient = false;                                  ///< graph-declared frame-local transient (pool-allocated or externally-backed)
+            bool HasExternalBacking = false;                           ///< resolves to caller-supplied frame-local backing instead of pool materialization
             u32 FirstWritePassIndex = std::numeric_limits<u32>::max(); ///< index in GetExecutionOrder(); UINT32_MAX when import-only
             u32 LastReadPassIndex = std::numeric_limits<u32>::max();   ///< index in GetExecutionOrder(); UINT32_MAX when write-only
             std::string FirstWritePass;                                ///< name of the first writing pass; "external" when import-only
@@ -763,11 +963,15 @@ namespace OloEngine
         // BuildFrameGraph() and Execute().
         [[nodiscard]] bool IsPassReachable(const std::string& passName) const;
         [[nodiscard]] bool IsHistoryTextureResource(std::string_view resourceName) const;
+        [[nodiscard]] bool IsImportedResource(std::string_view resourceName) const;
+        [[nodiscard]] bool IsTransientResource(std::string_view resourceName) const;
+        [[nodiscard]] bool IsExternallyBackedTransientResource(std::string_view resourceName) const;
         [[nodiscard]] bool IsResourceReachableForExtraction(std::string_view resourceName) const;
         [[nodiscard]] bool ContainsGraphEntry(std::string_view name) const;
         [[nodiscard]] bool IsGraphEntryAsyncComputeCandidate(std::string_view name) const;
         [[nodiscard]] bool IsGraphEntrySideEffecting(std::string_view name) const;
         [[nodiscard]] RenderGraphPassWorkType GetGraphEntryWorkType(std::string_view name) const;
+        [[nodiscard]] std::vector<Hazard> ValidateResourceHazardsInternal();
 
         std::unordered_map<std::string, Ref<RenderGraphNode>> m_NodeLookup;
         std::unordered_map<std::string, std::vector<std::string>> m_Dependencies;         // Execution ordering
@@ -793,8 +997,10 @@ namespace OloEngine
 
         // Barrier planning/execution
         std::unordered_map<std::string, std::vector<RGAccessDeclaration>> m_PassAccessDeclarations;
+        std::unordered_map<std::string, std::vector<RGFeedbackDeclaration>> m_PassFeedbackDeclarations;
         std::unordered_map<std::string, MemoryBarrierFlags> m_PassBarrierFlags;
         std::vector<PlannedBarrier> m_PlannedBarriers;
+        std::vector<BuildDiagnostic> m_BuildDiagnostics;
         std::vector<BarrierDiagnostic> m_BarrierDiagnostics;
         std::vector<ExecutionTiming> m_LastExecutionTimings;
         mutable std::vector<ResolveFailure> m_ResolveFailures;
@@ -810,6 +1016,7 @@ namespace OloEngine
         std::vector<SubmissionCommand> m_CachedSubmissionPlan; ///< IR cached after barrier planning
         std::string m_LastLoggedSubmissionPlanDigest;
         std::string m_LastLoggedCulledPassDigest;
+        std::string m_LastLoggedBuildDiagnosticDigest;
 
         std::unordered_map<std::string, RGResourceDesc> m_ImportedResources;
 
@@ -820,6 +1027,36 @@ namespace OloEngine
         mutable std::unordered_map<std::string, RGTextureHandle> m_TextureHandlesByName;
         mutable std::unordered_map<std::string, RGBufferHandle> m_BufferHandlesByName;
         mutable std::unordered_map<std::string, RGFramebufferHandle> m_FramebufferHandlesByName;
+        mutable std::unordered_map<std::string, RGTextureHandle> m_LatestTextureHandlesByBaseName;
+        mutable std::unordered_map<std::string, RGBufferHandle> m_LatestBufferHandlesByBaseName;
+        mutable std::unordered_map<std::string, RGFramebufferHandle> m_LatestFramebufferHandlesByBaseName;
+        mutable std::unordered_map<std::string, RGResourceDesc> m_TextureViewResourceDescs;
+
+        enum class FramebufferAttachmentViewKind : u8
+        {
+            Color,
+            Depth,
+        };
+
+        enum class TextureViewKind : u8
+        {
+            FramebufferColorAttachment,
+            FramebufferDepthAttachment,
+            TextureMip,
+            TextureArrayLayer,
+            TextureCubeFace,
+            TextureMultisampleResolve,
+        };
+
+        struct TextureViewDefinition
+        {
+            std::string ParentResource;
+            std::string BackingResource;
+            TextureViewKind Kind = TextureViewKind::FramebufferColorAttachment;
+            u32 AttachmentIndex = 0;
+            RGSubresourceRange ParentRange = RGSubresourceRange::Full();
+        };
+        mutable std::unordered_map<std::string, TextureViewDefinition> m_TextureViewDefinitions;
 
         struct HandleSlot
         {
@@ -868,6 +1105,29 @@ namespace OloEngine
             RGTextureHandle Handle;
             std::function<void(u32)> Callback;
         };
+        struct ExternalTextureSinkKey
+        {
+            std::string SourceResource;
+            u32 ColorAttachmentIndex = 0;
+
+            auto operator==(const ExternalTextureSinkKey&) const -> bool = default;
+        };
+        struct ExternalTextureSinkKeyHash
+        {
+            [[nodiscard]] auto operator()(const ExternalTextureSinkKey& key) const noexcept -> sizet
+            {
+                sizet seed = std::hash<std::string>{}(key.SourceResource);
+                seed ^= static_cast<sizet>(key.ColorAttachmentIndex) + 0x9e3779b9u + (seed << 6u) + (seed >> 2u);
+                return seed;
+            }
+        };
+        struct ExternalTextureSink
+        {
+            u32 TextureID = 0;
+            u32 Width = 0;
+            u32 Height = 0;
+            bool* ValidFlag = nullptr;
+        };
         struct HistoryTextureExtract
         {
             enum class SourceKind : u8
@@ -883,15 +1143,27 @@ namespace OloEngine
             u32 ColorAttachmentIndex = 0;
             std::function<void(u32)> Callback;
         };
+        struct HistoryTextureSink
+        {
+            u32 TextureID = 0;
+            u32 Width = 0;
+            u32 Height = 0;
+            bool* ValidFlag = nullptr;
+        };
         struct FramebufferExtract
         {
             RGFramebufferHandle Handle;
             std::function<void(Ref<Framebuffer>)> Callback;
         };
         std::vector<TextureExtract> m_TextureExtracts;
+        std::vector<ExternalTextureSinkContract> m_ExternalTextureSinkContracts;
         std::vector<HistoryTextureExtract> m_HistoryTextureExtracts;
         std::vector<FramebufferExtract> m_FramebufferExtracts;
         std::vector<TemporalHistoryContract> m_TemporalHistoryContracts;
+        std::unordered_map<ExternalTextureSinkKey, ExternalTextureSink, ExternalTextureSinkKeyHash> m_ExternalTextureSinks;
+        std::unordered_map<std::string, HistoryTextureSink> m_HistoryTextureSinks;
+        std::unordered_set<std::string> m_ExternallyBackedTransientTextures;
+        std::unordered_set<std::string> m_ExternallyBackedTransientFramebuffers;
 
         // -------------------------------------------------------------------
         // Frame blackboard
@@ -912,6 +1184,18 @@ namespace OloEngine
         RGTextureHandle AllocateTextureHandle(std::string_view name, u32 textureID, bool isHistory, bool isPlaceholder = false, std::string_view placeholderReason = "");
         RGFramebufferHandle AllocateFramebufferHandle(std::string_view name, const Ref<Framebuffer>& fb, bool isPlaceholder = false, std::string_view placeholderReason = "");
         RGBufferHandle AllocateBufferHandle(std::string_view name, u32 bufferID, bool isPlaceholder = false, std::string_view placeholderReason = "");
+        [[nodiscard]] RGTextureHandle CreateVersionedTextureHandle(RGTextureHandle sourceHandle,
+                                                                   std::string_view versionedName,
+                                                                   std::string_view ownerPassName);
+        [[nodiscard]] RGFramebufferHandle CreateVersionedFramebufferHandle(RGFramebufferHandle sourceHandle,
+                                                                           std::string_view versionedName,
+                                                                           std::string_view ownerPassName);
+        [[nodiscard]] RGBufferHandle CreateVersionedBufferHandle(RGBufferHandle sourceHandle,
+                                                                 std::string_view versionedName,
+                                                                 std::string_view ownerPassName);
+        [[nodiscard]] RGResourceDesc BuildVersionedResourceDesc(std::string_view sourceResource,
+                                                                ResourceHandle::Kind fallbackKind,
+                                                                std::string_view versionedName) const;
 
         void EnsureResourceRegistryBuilt() const;
         void RebuildTransientPlan();
@@ -921,10 +1205,35 @@ namespace OloEngine
         [[nodiscard]] static u64 EstimateTransientBytes(const RGResourceDesc& desc);
         [[nodiscard]] static bool IsTransientDescriptorAllocatable(const RGResourceDesc& desc);
         [[nodiscard]] static std::string_view GetTransientDescriptorSkipReason(const RGResourceDesc& desc);
+
+      public:
+        // Format-conversion helpers exposed publicly so the extracted
+        // RenderGraphTransientPlanner module (Phase 7 slice 5) can consume them
+        // without needing friend access into the graph's private region.
         [[nodiscard]] static ImageFormat ToImageFormat(RGResourceFormat format);
         [[nodiscard]] static FramebufferTextureFormat ToFramebufferFormat(RGResourceFormat format);
 
+      private:
+        void DeclareExternalTextureSink(std::string_view sourceResource,
+                                        u32 colorAttachmentIndex = 0);
+        void RefreshExternalTextureSinkContracts();
+        void DeclareHistoryTextureExtraction(std::string_view historyResource,
+                                             std::string_view sourceResource,
+                                             TemporalHistoryContract::SourceKind kind = TemporalHistoryContract::SourceKind::Texture,
+                                             u32 colorAttachmentIndex = 0);
+        void RefreshTemporalHistoryContracts();
+        [[nodiscard]] bool HasHistoryTextureSink(std::string_view historyResource) const;
+
         std::unordered_map<std::string, RGResourceDesc> m_TransientResourceDescs;
         std::vector<TransientPlanEntry> m_TransientPlan;
+        std::unordered_map<std::string, std::string> m_ExplicitVersionProducers;
+
+        // Tracks the most recent pass that wrote each resource (by base name).
+        // Populated incrementally during BuildFrameGraph's Setup loop so a
+        // pass's Setup can ask "who wrote SceneColor last?" and emit an
+        // explicit DependsOnPass edge for read-modify-write chains without
+        // every modifier needing a typed pass-pointer setter wired by the
+        // pipeline builder. Cleared at the start of every BuildFrameGraph.
+        std::unordered_map<std::string, std::string> m_LastWriterPassNameByResource;
     };
 } // namespace OloEngine

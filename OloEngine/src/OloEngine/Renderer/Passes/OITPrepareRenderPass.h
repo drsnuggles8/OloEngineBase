@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
 namespace OloEngine
@@ -11,20 +11,19 @@ namespace OloEngine
     // Clears the accumulation / revealage attachments and seeds the OIT depth
     // attachment from the current scene framebuffer so transparent contributors
     // can render into a fully graph-owned transient target.
-    class OITPrepareRenderPass : public RenderPass
+    class OITPrepareRenderPass : public RenderGraphNode
     {
       public:
         OITPrepareRenderPass();
         ~OITPrepareRenderPass() override = default;
 
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] SubmissionModel GetSubmissionModel() const override
         {
             return SubmissionModel::ImmediateOnly;
         }
-        [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
@@ -38,10 +37,17 @@ namespace OloEngine
             return m_Enabled;
         }
 
+        void SetHasContributors(bool hasContributors) noexcept
+        {
+            m_HasContributors = hasContributors;
+        }
+
       private:
         static void PrepareFramebuffer(const Ref<Framebuffer>& oitFramebuffer,
                                        const Ref<Framebuffer>& sceneFramebuffer);
 
+        RGFramebufferHandle m_SelectedOITFramebuffer;
         bool m_Enabled = false;
+        bool m_HasContributors = false;
     };
 } // namespace OloEngine

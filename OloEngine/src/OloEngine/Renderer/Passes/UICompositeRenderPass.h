@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/Shader.h"
 
 #include <functional>
@@ -19,10 +19,11 @@ namespace OloEngine
     //
     // This centralises all UI/overlay rendering into a single, well-defined pass, replacing
     // the ad-hoc framebuffer binding that was previously scattered through Scene.cpp.
-    // The current-frame `UIComposite` target is graph-owned and resolved from
-    // the blackboard during Execute(); `GetTarget()` reports the last resolved
+    // The current-frame `UIComposite` target is graph-owned and now publishes
+    // a producer-owned explicit version during setup; `Execute()` resolves that
+    // setup-selected output handle and `GetTarget()` reports the last resolved
     // runtime surface for debug/editor consumers.
-    class UICompositeRenderPass : public RenderPass
+    class UICompositeRenderPass : public RenderGraphNode
     {
       public:
         using RenderCallback = std::function<void()>;
@@ -30,14 +31,13 @@ namespace OloEngine
         UICompositeRenderPass();
         ~UICompositeRenderPass() override = default;
 
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] SubmissionModel GetSubmissionModel() const override
         {
             return SubmissionModel::ImmediateOnly;
         }
-        [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;

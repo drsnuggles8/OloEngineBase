@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -9,20 +9,19 @@
 
 namespace OloEngine
 {
-    class SSAORenderPass : public RenderPass
+    class SSAORenderPass : public RenderGraphNode
     {
       public:
         SSAORenderPass();
         ~SSAORenderPass() override;
 
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] SubmissionModel GetSubmissionModel() const override
         {
             return SubmissionModel::ImmediateOnly;
         }
-        [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
@@ -37,14 +36,16 @@ namespace OloEngine
             m_GPUData = gpuData;
         }
 
-        [[nodiscard]] u32 GetSSAOTextureID() const;
+        [[nodiscard]] bool IsReadyForExecution() const noexcept
+        {
+            return m_SSAOShader && m_SSAOShader->IsReady() &&
+                   m_SSAOBlurShader && m_SSAOBlurShader->IsReady() &&
+                   m_NoiseTexture != 0;
+        }
 
       private:
-        void CreateSSAOFramebuffers(u32 width, u32 height);
         void CreateNoiseTexture();
         void DrawFullscreenTriangle();
-
-        Ref<Framebuffer> m_BlurFramebuffer;
 
         Ref<Shader> m_SSAOShader;
         Ref<Shader> m_SSAOBlurShader;
@@ -53,6 +54,10 @@ namespace OloEngine
         SSAOUBOData* m_GPUData = nullptr;
 
         PostProcessSettings m_Settings;
+        RGTextureHandle m_SelectedSceneDepthTexture{};
+        RGTextureHandle m_SelectedSceneNormalsTexture{};
+        RGTextureHandle m_SelectedAOOutputTexture{};
+        RGFramebufferHandle m_SelectedBlurFramebuffer{};
 
         u32 m_NoiseTexture = 0;
         u32 m_HalfWidth = 0;
