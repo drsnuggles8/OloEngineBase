@@ -155,20 +155,10 @@ namespace OloEngine
 
         m_Target = blurFB;
 
-        {
-            static u32 s_PrevDepthID = 0;
-            static u32 s_PrevNormalsID = 0;
-            static u32 s_PrevAOID = 0;
-            const u32 aoID = aoOutputTexID;
-            if (depthID != s_PrevDepthID || normalsID != s_PrevNormalsID || aoID != s_PrevAOID)
-            {
-                OLO_CORE_INFO("SSAORenderPass: inputs depthTex={}, normalsTex={}, outputAOTex={} ({}x{})",
-                              depthID, normalsID, aoID, m_HalfWidth, m_HalfHeight);
-                s_PrevDepthID = depthID;
-                s_PrevNormalsID = normalsID;
-                s_PrevAOID = aoID;
-            }
-        }
+        // (Dropped the per-frame "inputs depthTex=N" trace: the AO output is
+        // double-buffered so the texture ID flips every frame and the dedup
+        // never held — fired ~60 times per second. Same broken pattern as the
+        // GTAORenderPass / AOApplyRenderPass logs that were removed earlier.)
 
         // Upload SSAO parameters to UBO
         if (m_SSAOUBO && m_GPUData)

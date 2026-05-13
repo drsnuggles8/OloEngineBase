@@ -41,7 +41,7 @@ namespace OloEngine
         {
             m_Enabled = enabled;
         }
-        [[nodiscard]] bool IsEnabled() const noexcept
+        [[nodiscard]] bool IsEnabled() const noexcept override
         {
             return m_Enabled;
         }
@@ -51,7 +51,7 @@ namespace OloEngine
             m_PostProcessUBO = ubo;
         }
 
-        [[nodiscard]] bool IsReadyForExecution() const noexcept
+        [[nodiscard]] bool IsReadyForExecution() const noexcept override
         {
             return m_Shader && m_Shader->IsReady() && m_PostProcessUBO;
         }

@@ -54,11 +54,11 @@ namespace OloEngine
         void SetOutlineColor(const glm::vec4& color);
         void SetOutlineWidth(i32 width);
         void SetEnabled(bool enabled);
-        [[nodiscard]] bool IsEnabled() const noexcept
+        [[nodiscard]] bool IsEnabled() const noexcept override
         {
             return m_Enabled;
         }
-        [[nodiscard]] bool IsReadyForExecution() const noexcept
+        [[nodiscard]] bool IsReadyForExecution() const noexcept override
         {
             return m_JFAInitShader && m_JFAInitShader->IsReady() &&
                    m_JFAPassShader && m_JFAPassShader->IsReady() &&

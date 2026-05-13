@@ -90,3 +90,24 @@ namespace OloEngine
 #define OLO_PERF_SCOPE(name, profiler) ((void)0)
 #define OLO_PERF_FUNCTION(profiler) ((void)0)
 #endif
+
+namespace OloEngine
+{
+    // Returns the process-wide PerformanceProfiler if the Application is alive,
+    // nullptr otherwise. Implemented in PerformanceProfiler.cpp to avoid pulling
+    // Application.h into every header that wants OLO_PERF_SCOPE_AUTO.
+    [[nodiscard]] PerformanceProfiler* GetGlobalPerformanceProfiler();
+} // namespace OloEngine
+
+// Auto-fetching variant: looks up the profiler from Application::TryGet() each
+// time the scope is entered. Use this in renderer / engine code where threading
+// the profiler pointer through call chains would be noisy. Stripped to a no-op
+// in Distribution builds, same as OLO_PERF_SCOPE.
+#if defined(OLO_DEBUG) || defined(OLO_RELEASE)
+#define OLO_PERF_SCOPE_AUTO_LINE2(name, line) \
+    ::OloEngine::ScopedPerformanceTimer olo_perf_timer_auto_##line(name, ::OloEngine::GetGlobalPerformanceProfiler())
+#define OLO_PERF_SCOPE_AUTO_LINE(name, line) OLO_PERF_SCOPE_AUTO_LINE2(name, line)
+#define OLO_PERF_SCOPE_AUTO(name) OLO_PERF_SCOPE_AUTO_LINE(name, __LINE__)
+#else
+#define OLO_PERF_SCOPE_AUTO(name) ((void)0)
+#endif

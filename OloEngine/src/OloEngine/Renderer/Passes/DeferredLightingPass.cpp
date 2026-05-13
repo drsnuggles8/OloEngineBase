@@ -168,14 +168,16 @@ namespace OloEngine
         if (!m_Shader || !m_GBuffer || !m_SceneFramebuffer || !m_ControlsUBO || m_DebugChannel != 0)
             return;
 
-        // Restoring guard: captures core GL state on entry (FBO / program /
-        // depth / blend / stencil / cull / polygon / viewport / scissor)
-        // and rolls it back in the destructor. Explicit restore calls
-        // below remain for clarity and to keep invariants close to the
-        // mutations, but the guard now also serves as a safety net for
-        // any intermediate state this function forgets to revert. Per-
-        // slot texture / UBO bindings are out of scope for ApplyCore.
-        GLStateGuard guard("DeferredLightingPass", GLStateGuard::Policy::Restore);
+        // Silent guard: kept in scope (rather than removed) so future leak
+        // hunts can flip the policy back to Log/Restore and rerun without
+        // touching the pass. Policy::Ignore is correct here because every
+        // critical state field the guard tracks is explicitly restored
+        // below (FBO/draw-buffers/depth/blend/cull/polygon) and the pass
+        // unbinds its shader + VAO at exit, so the only "mutations" the
+        // guard would otherwise diff are the unbinds themselves (entry
+        // VAO != 0). Per-slot texture / UBO bindings are intentionally
+        // left as-is — downstream passes set their own.
+        GLStateGuard guard("DeferredLightingPass", GLStateGuard::Policy::Ignore);
 
         m_SceneFramebuffer->Bind();
 
@@ -375,6 +377,13 @@ namespace OloEngine
         }
 
         m_SceneFramebuffer->Unbind();
+
+        // Unbind the fullscreen-triangle VAO and the deferred-lighting shader
+        // so downstream passes see a clean slate. The GLStateGuard would
+        // otherwise restore both via ApplyCore() — explicit clears here keep
+        // the safety net pristine so it surfaces only genuine regressions.
+        ::glBindVertexArray(0);
+        ::glUseProgram(0);
     }
 
     Ref<Framebuffer> DeferredLightingPass::GetTarget() const

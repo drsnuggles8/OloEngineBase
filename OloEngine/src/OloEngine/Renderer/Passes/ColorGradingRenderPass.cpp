@@ -7,14 +7,27 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <glad/gl.h>
+
+#include <array>
+#include <vector>
 
 namespace OloEngine
 {
     ColorGradingRenderPass::ColorGradingRenderPass()
     {
         SetName("ColorGradingPass");
+    }
+
+    ColorGradingRenderPass::~ColorGradingRenderPass()
+    {
+        if (m_IdentityLUTTexture != 0)
+        {
+            RenderCommand::DeleteTexture(m_IdentityLUTTexture);
+            m_IdentityLUTTexture = 0;
+        }
     }
 
     void ColorGradingRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
@@ -65,7 +78,47 @@ namespace OloEngine
 
         m_Shader = Shader::Create("assets/shaders/PostProcess_ColorGrading.glsl");
 
+        CreateIdentityLUT();
+
         OLO_CORE_INFO("ColorGradingRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
+    }
+
+    void ColorGradingRenderPass::CreateIdentityLUT()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // 16x16x16 LUT laid out as a 256x16 horizontal strip of 16 tiles.
+        // The shader at PostProcess_ColorGrading.glsl assumes LUT_SIZE = 16.
+        constexpr u32 lutSize = 16u;
+        constexpr u32 stripWidth = lutSize * lutSize; // 256
+        constexpr u32 stripHeight = lutSize;          // 16
+
+        std::vector<u8> pixels(stripWidth * stripHeight * 4u);
+        for (u32 b = 0; b < lutSize; ++b)
+        {
+            for (u32 g = 0; g < lutSize; ++g)
+            {
+                for (u32 r = 0; r < lutSize; ++r)
+                {
+                    const u32 x = b * lutSize + r;
+                    const u32 y = g;
+                    const u32 idx = (y * stripWidth + x) * 4u;
+                    pixels[idx + 0] = static_cast<u8>((r * 255u) / (lutSize - 1u));
+                    pixels[idx + 1] = static_cast<u8>((g * 255u) / (lutSize - 1u));
+                    pixels[idx + 2] = static_cast<u8>((b * 255u) / (lutSize - 1u));
+                    pixels[idx + 3] = 255u;
+                }
+            }
+        }
+
+        m_IdentityLUTTexture = RenderCommand::CreateTexture2D(stripWidth, stripHeight, GL_RGBA8);
+        RenderCommand::UploadTextureSubImage2D(m_IdentityLUTTexture, stripWidth, stripHeight, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+        // Linear filtering + clamp-to-edge so the shader's intra-tile bilinear
+        // and inter-tile mix() interpolate cleanly without wrap artifacts.
+        RenderCommand::SetTextureParameter(m_IdentityLUTTexture, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        RenderCommand::SetTextureParameter(m_IdentityLUTTexture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        RenderCommand::SetTextureParameter(m_IdentityLUTTexture, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        RenderCommand::SetTextureParameter(m_IdentityLUTTexture, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     }
 
     void ColorGradingRenderPass::CreateFramebuffer(u32 width, u32 height)
@@ -141,6 +194,12 @@ namespace OloEngine
 
         context.BindTexture(0, inputColorTextureID);
         m_Shader->SetInt("u_Texture", 0);
+
+        // The fragment shader emits its output entirely from the LUT — without
+        // a texture at TEX_POSTPROCESS_LUT it samples zero and the screen goes
+        // black. Bind the identity LUT as a default so enabling the toggle is
+        // a no-op when no user LUT has been wired up.
+        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_LUT, m_IdentityLUTTexture);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();

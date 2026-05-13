@@ -61,7 +61,7 @@ namespace OloEngine
             m_ViewMatrix = view;
         }
 
-        [[nodiscard]] bool IsReadyForExecution() const noexcept
+        [[nodiscard]] bool IsReadyForExecution() const noexcept override
         {
             const bool denoiseReady = !m_Settings.GTAODenoiseEnabled ||
                                       m_Settings.GTAODenoisePasses <= 0 ||

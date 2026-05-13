@@ -43,7 +43,7 @@ namespace OloEngine
         {
             m_Enabled = enabled;
         }
-        [[nodiscard]] bool IsEnabled() const noexcept
+        [[nodiscard]] bool IsEnabled() const noexcept override
         {
             return m_Enabled;
         }

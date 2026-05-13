@@ -189,26 +189,13 @@ namespace OloEngine
             return;
         }
 
+        // (Dropped the per-frame inputFB/outputFB trace: transient framebuffers
+        // are double-buffered so the dedup never held. The feedback-loop guard
+        // below stays — it's an error path, only fires on a real bug.)
+        if (inputFramebuffer->GetRendererID() == outputFramebuffer->GetRendererID())
         {
-            static u32 s_PrevInputFB = 0;
-            static u32 s_PrevOutputFB = 0;
-            static u32 s_PrevInputTex = 0;
-            const u32 inputFB = inputFramebuffer->GetRendererID();
-            const u32 outputFB = outputFramebuffer->GetRendererID();
-            const u32 inputTex = inputColorTextureID;
-            if (inputFB != s_PrevInputFB || outputFB != s_PrevOutputFB || inputTex != s_PrevInputTex)
-            {
-                OLO_CORE_TRACE("BloomRenderPass: inputFB={} outputFB={} inputTex={} mipCount={}",
-                               inputFB, outputFB, inputTex, bloomMipCount);
-                s_PrevInputFB = inputFB;
-                s_PrevOutputFB = outputFB;
-                s_PrevInputTex = inputTex;
-            }
-
-            if (inputFB == outputFB)
-            {
-                OLO_CORE_ERROR("BloomRenderPass: invalid feedback loop detected (inputFB == outputFB == {})", inputFB);
-            }
+            OLO_CORE_ERROR("BloomRenderPass: invalid feedback loop detected (inputFB == outputFB == {})",
+                           inputFramebuffer->GetRendererID());
         }
 
         if (m_LastFailureMask != 0)

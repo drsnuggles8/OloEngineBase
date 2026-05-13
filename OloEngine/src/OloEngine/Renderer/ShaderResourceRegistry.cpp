@@ -487,14 +487,20 @@ namespace OloEngine
     {
         bool isValid = true;
 
+        // These diagnostics fire once per shader at compile/reload — they
+        // identify uniforms whose binding slot isn't enumerated in
+        // ShaderBindingLayout's canonical layout. The shader still works;
+        // this is informational ("you'd benefit from adding this to the
+        // canonical list"). TRACE level keeps it discoverable for anyone
+        // auditing binding-layout coverage without spamming startup logs.
         for (const auto& [name, binding] : m_Bindings)
         {
             if (binding.Type == ShaderResourceType::UniformBuffer)
             {
                 if (!IsStandardUBOBinding(binding.BindingPoint, name))
                 {
-                    OLO_CORE_WARN("Non-standard UBO binding: '{}' at binding {}",
-                                  name, binding.BindingPoint);
+                    OLO_CORE_TRACE("Non-standard UBO binding: '{}' at binding {}",
+                                   name, binding.BindingPoint);
                     isValid = false;
                 }
             }
@@ -503,8 +509,8 @@ namespace OloEngine
             {
                 if (!IsStandardTextureBinding(binding.BindingPoint, name))
                 {
-                    OLO_CORE_WARN("Non-standard texture binding: '{}' at binding {}",
-                                  name, binding.BindingPoint);
+                    OLO_CORE_TRACE("Non-standard texture binding: '{}' at binding {}",
+                                   name, binding.BindingPoint);
                     isValid = false;
                 }
             }

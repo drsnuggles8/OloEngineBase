@@ -284,20 +284,10 @@ namespace OloEngine
         }
         m_HZBGenerator.SetExternalHZBTexture(transientHZBID, m_HZBGenerator.GetMipCount());
 
-        {
-            static u32 s_PrevDepthID = 0;
-            static u32 s_PrevNormalsID = 0;
-            static u32 s_PrevAOID = 0;
-            const u32 aoID = aoOutputTexID;
-            if (depthID != s_PrevDepthID || normalsID != s_PrevNormalsID || aoID != s_PrevAOID)
-            {
-                OLO_CORE_INFO("GTAORenderPass: inputs depthTex={}, normalsTex={}, outputAOTex={} ({}x{})",
-                              depthID, normalsID, aoID, m_Width, m_Height);
-                s_PrevDepthID = depthID;
-                s_PrevNormalsID = normalsID;
-                s_PrevAOID = aoID;
-            }
-        }
+        // (The previous "log on input change" diagnostic was dropped: the AO
+        // output is double-buffered, so the texture ID flips every frame and
+        // the dedup never holds — it fired ~60 times per second. If you need
+        // to trace AO inputs again, drop a one-shot OLO_CORE_TRACE here.)
 
         // Step 1: Generate HZB from scene depth
         m_HZBGenerator.Generate(depthID);

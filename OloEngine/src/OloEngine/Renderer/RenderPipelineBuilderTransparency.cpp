@@ -21,18 +21,9 @@ namespace OloEngine::RenderPipelineBuilderInternal
         graph.AddNode(PrepareGraphNode("OITResolvePass", inputs.Passes->OITResolve));
         graph.AddNode(PrepareGraphNode("SSSPass", inputs.Passes->SSS));
 
-        switch (inputs.ActiveAOTechnique)
-        {
-            case AOTechnique::SSAO:
-                graph.AddNode(PrepareGraphNode("SSAOPass", inputs.Passes->SSAO));
-                break;
-            case AOTechnique::GTAO:
-                graph.AddNode(PrepareGraphNode("GTAOPass", inputs.Passes->GTAO));
-                break;
-            case AOTechnique::None:
-                break;
-        }
-
+        // AO writer (SSAOPass / GTAOPass) is registered earlier in RegisterSceneAndLightingNodes
+        // so its AOBuffer write is visible to DeferredLightingPass's read in registration order.
+        // AOApply consumes the same AOBuffer here; the name-based predecessor lookup wires it up.
         graph.AddNode(PrepareGraphNode("AOApplyPass", inputs.Passes->AOApply));
     }
 } // namespace OloEngine::RenderPipelineBuilderInternal

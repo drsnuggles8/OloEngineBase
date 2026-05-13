@@ -79,10 +79,29 @@ namespace OloEngine
         bool m_CaptureWindowOpen = false;
         std::string m_VisiblePassDigest;
 
+        // Currently inspected pass (left-click on canvas selects). Empty when
+        // no pass is selected — the inspector section is then hidden.
+        std::string m_SelectedPassName;
+
+        // Auto-arm the per-pass capture whenever the debugger panel is open
+        // so the thumbnail strip always reflects the current frame's outputs.
+        // Toggle off to freeze on the last captured frame.
+        bool m_AutoCaptureEachFrame = true;
+
         // Layout algorithm
         void CalculateLayout(const Ref<RenderGraph>& graph);
 
         // Renders the per-pass capture pane (button + thumbnail strip + viewer).
         void DrawCapturePanel(const Ref<RenderGraph>& graph);
+
+        // Renders the inspector for m_SelectedPassName: declared reads/writes,
+        // resolved primary input/output handles, enabled / ready / culled flags.
+        void DrawPassInspector(const Ref<RenderGraph>& graph);
+
+        // Renders a compact horizontal thumbnail strip below the canvas
+        // showing one mini-image per captured pass output, with VISIBLE /
+        // BLACK / TRANSPARENT badges. Click a thumbnail to open the full
+        // capture viewer focused on that entry.
+        void DrawCaptureThumbnailStrip();
     };
 } // namespace OloEngine

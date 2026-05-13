@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 
+#include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Renderer/RenderGraphBarrierPlanner.h"
 #include "OloEngine/Renderer/RenderGraphHandleAllocator.h"
 #include "OloEngine/Renderer/RenderGraphHazardValidator.h"
@@ -330,6 +331,8 @@ namespace OloEngine
         m_LatestTextureHandlesByBaseName.clear();
         m_LatestBufferHandlesByBaseName.clear();
         m_LatestFramebufferHandlesByBaseName.clear();
+        m_TextureBaseNameAliases.clear();
+        m_FramebufferBaseNameAliases.clear();
         m_ExternalTextureSinkContracts.clear();
         m_ExternalTextureSinks.clear();
         m_HistoryTextureSinks.clear();
@@ -2188,6 +2191,16 @@ namespace OloEngine
         if (auto it = m_TextureHandlesByName.find(lookupName); it != m_TextureHandlesByName.end())
             return it->second;
 
+        // Base-name alias fallback: re-resolve through the target name so
+        // the caller picks up the latest version of whichever upstream is
+        // active this frame. One-hop only (alias targets are stored as
+        // canonical base names; chained aliasing isn't required).
+        if (const auto aliasIt = m_TextureBaseNameAliases.find(lookupName);
+            aliasIt != m_TextureBaseNameAliases.end() && aliasIt->second != lookupName)
+        {
+            return GetTextureHandle(aliasIt->second);
+        }
+
         return {};
     }
 
@@ -2228,7 +2241,70 @@ namespace OloEngine
         if (auto it = m_FramebufferHandlesByName.find(lookupName); it != m_FramebufferHandlesByName.end())
             return it->second;
 
+        // Base-name alias fallback (see GetTextureHandle for rationale).
+        if (const auto aliasIt = m_FramebufferBaseNameAliases.find(lookupName);
+            aliasIt != m_FramebufferBaseNameAliases.end() && aliasIt->second != lookupName)
+        {
+            return GetFramebufferHandle(aliasIt->second);
+        }
+
         return {};
+    }
+
+    void RenderGraph::RegisterTextureAlias(std::string_view aliasName, std::string_view targetBaseName)
+    {
+        if (aliasName.empty() || targetBaseName.empty() || aliasName == targetBaseName)
+            return;
+        m_TextureBaseNameAliases[std::string(aliasName)] = std::string(targetBaseName);
+    }
+
+    void RenderGraph::RegisterFramebufferAlias(std::string_view aliasName, std::string_view targetBaseName)
+    {
+        if (aliasName.empty() || targetBaseName.empty() || aliasName == targetBaseName)
+            return;
+        m_FramebufferBaseNameAliases[std::string(aliasName)] = std::string(targetBaseName);
+    }
+
+    std::string RenderGraph::ReverseResolveTextureName(RGTextureHandle handle) const
+    {
+        if (!handle.IsValid())
+            return {};
+        EnsureResourceRegistryBuilt();
+        for (const auto& info : m_RegisteredResources)
+        {
+            if (info.TextureHandle == handle)
+                return info.Name;
+        }
+        return {};
+    }
+
+    std::string RenderGraph::ReverseResolveFramebufferName(RGFramebufferHandle handle) const
+    {
+        if (!handle.IsValid())
+            return {};
+        EnsureResourceRegistryBuilt();
+        for (const auto& info : m_RegisteredResources)
+        {
+            if (info.FramebufferHandle == handle)
+                return info.Name;
+        }
+        return {};
+    }
+
+    std::string RenderGraph::FindAttachmentViewParent(std::string_view name) const
+    {
+        if (name.empty())
+            return {};
+        const auto it = m_TextureViewDefinitions.find(std::string(name));
+        if (it == m_TextureViewDefinitions.end())
+            return {};
+        // Only color-attachment views forward to a framebuffer parent.
+        // Other view kinds (mip, layer, multisample resolve) parent to a
+        // texture resource that has its own lifetime tracking already.
+        if (it->second.Kind != TextureViewKind::FramebufferColorAttachment &&
+            it->second.Kind != TextureViewKind::FramebufferDepthAttachment)
+            return {};
+        return it->second.ParentResource;
     }
 
     auto RenderGraph::GetLastWriterPassName(std::string_view resourceName) const -> const std::string&
@@ -2339,6 +2415,7 @@ namespace OloEngine
     void RenderGraph::Execute()
     {
         OLO_PROFILE_FUNCTION();
+        OLO_PERF_SCOPE_AUTO("RG::Execute");
 
         m_LastExecutionTimings.clear();
         m_LastExecutionTimings.reserve(m_ExecutionOrder.size());
@@ -4717,7 +4794,7 @@ namespace OloEngine
                 << "\", \"sourceResource\": \"" << jsonEscape(contract.SourceResource)
                 << "\", \"sourceKind\": \"" << (contract.Kind == TemporalHistoryContract::SourceKind::Texture ? "Texture" : "Framebuffer")
                 << "\", \"colorAttachmentIndex\": " << contract.ColorAttachmentIndex
-                << "\", \"historyImported\": " << (contract.HistoryImported ? "true" : "false")
+                << ", \"historyImported\": " << (contract.HistoryImported ? "true" : "false")
                 << ", \"sourceReachable\": " << (contract.SourceReachable ? "true" : "false") << " }";
             if (i + 1 < m_TemporalHistoryContracts.size())
                 out << ",";
@@ -5157,6 +5234,132 @@ namespace OloEngine
         }
         out << "  ],\n";
 
+        // Debug block — LLM-friendly diagnostic snapshot answering the
+        // single most common question: "why isn't the rendered output what
+        // I expect?". Contains FinalRenderPass's selected primary input,
+        // active base-name aliases, and per-pass enabled/ready/culled
+        // status with derived cull reasons.
+        out << "  \"debug\": {\n";
+        {
+            // FinalPass selected input — the resource that actually reaches
+            // the swap chain this frame. (Class is FinalRenderPass but the
+            // pipeline registers it under "FinalPass".)
+            std::string finalFb;
+            std::string finalTex;
+            if (!m_FinalPassName.empty())
+            {
+                if (const auto finalIt = m_NodeLookup.find(m_FinalPassName);
+                    finalIt != m_NodeLookup.end() && finalIt->second)
+                {
+                    finalFb = ReverseResolveFramebufferName(finalIt->second->GetPrimaryInputFramebufferHandle());
+                    finalTex = ReverseResolveTextureName(finalIt->second->GetPrimaryInputTextureHandle());
+                }
+            }
+            out << "    \"finalPassInput\": { "
+                << "\"framebuffer\": \"" << jsonEscape(finalFb)
+                << "\", \"texture\": \"" << jsonEscape(finalTex) << "\" },\n";
+
+            // Alias map snapshot. Empty objects when no aliases active.
+            const auto writeAliasMap = [&out, &jsonEscape](const char* label,
+                                                            const std::unordered_map<std::string, std::string>& aliases,
+                                                            bool trailingComma)
+            {
+                std::vector<std::pair<std::string, std::string>> sorted(aliases.begin(), aliases.end());
+                std::sort(sorted.begin(), sorted.end(),
+                          [](const auto& a, const auto& b) { return a.first < b.first; });
+                out << "    \"" << label << "\": {";
+                for (sizet i = 0; i < sorted.size(); ++i)
+                {
+                    out << " \"" << jsonEscape(sorted[i].first) << "\": \"" << jsonEscape(sorted[i].second) << "\"";
+                    if (i + 1 < sorted.size())
+                        out << ",";
+                }
+                out << " }";
+                if (trailingComma)
+                    out << ",";
+                out << "\n";
+            };
+            writeAliasMap("framebufferAliases", m_FramebufferBaseNameAliases, true);
+            writeAliasMap("textureAliases", m_TextureBaseNameAliases, true);
+
+            // Per-pass diagnostics: enabled / ready / culled + primary I/O
+            // handle resolutions + derived cull reason. Stable order =
+            // execution order, then any registered passes that didn't make
+            // it into the execution plan (culled with no scheduled slot).
+            out << "    \"passDiagnostics\": [\n";
+            std::vector<std::string> diagOrder;
+            diagOrder.reserve(m_NodeLookup.size());
+            std::unordered_set<std::string> emittedInDiag;
+            for (const auto& passName : m_ExecutionOrder)
+            {
+                diagOrder.push_back(passName);
+                emittedInDiag.insert(passName);
+            }
+            for (const auto& [passName, _node] : m_NodeLookup)
+            {
+                if (!emittedInDiag.contains(passName))
+                {
+                    diagOrder.push_back(passName);
+                    emittedInDiag.insert(passName);
+                }
+            }
+            std::sort(diagOrder.begin() + static_cast<std::ptrdiff_t>(m_ExecutionOrder.size()),
+                      diagOrder.end());
+
+            const auto deriveCullReason = [this, &culledPasses](const std::string& passName) -> std::string
+            {
+                std::vector<const ResourceInfo*> writtenResources;
+                for (const auto& info : m_RegisteredResources)
+                {
+                    if (std::find(info.Producers.begin(), info.Producers.end(), passName) != info.Producers.end())
+                        writtenResources.push_back(&info);
+                }
+                if (writtenResources.empty())
+                    return "no declared outputs";
+
+                for (const auto* info : writtenResources)
+                {
+                    for (const auto& consumer : info->Consumers)
+                    {
+                        if (!culledPasses.contains(consumer))
+                            return "indirectly unreachable";
+                    }
+                }
+                return "no downstream reader";
+            };
+
+            for (sizet pi = 0; pi < diagOrder.size(); ++pi)
+            {
+                const auto& passName = diagOrder[pi];
+                const auto nodeIt = m_NodeLookup.find(passName);
+                const auto node = nodeIt != m_NodeLookup.end() ? nodeIt->second : Ref<RenderGraphNode>{};
+                const bool culled = culledPasses.contains(passName);
+                const bool enabled = node ? node->IsEnabled() : false;
+                const bool ready = node ? node->IsReadyForExecution() : false;
+
+                const auto inFb = node ? node->GetPrimaryInputFramebufferHandle() : RGFramebufferHandle{};
+                const auto inTex = node ? node->GetPrimaryInputTextureHandle() : RGTextureHandle{};
+                const auto outFb = node ? node->GetPrimaryOutputFramebufferHandle() : RGFramebufferHandle{};
+                const auto outTex = node ? node->GetPrimaryOutputTextureHandle() : RGTextureHandle{};
+
+                out << "      { \"pass\": \"" << jsonEscape(passName)
+                    << "\", \"isEnabled\": " << (enabled ? "true" : "false")
+                    << ", \"isReady\": " << (ready ? "true" : "false")
+                    << ", \"isCulled\": " << (culled ? "true" : "false")
+                    << ", \"cullReason\": \"" << jsonEscape(culled ? deriveCullReason(passName) : std::string{})
+                    << "\", \"primaryInputFramebuffer\": \"" << jsonEscape(ReverseResolveFramebufferName(inFb))
+                    << "\", \"primaryInputTexture\": \"" << jsonEscape(ReverseResolveTextureName(inTex))
+                    << "\", \"primaryOutputFramebuffer\": \"" << jsonEscape(ReverseResolveFramebufferName(outFb))
+                    << "\", \"primaryOutputTexture\": \"" << jsonEscape(ReverseResolveTextureName(outTex))
+                    << "\" }";
+                if (pi + 1 < diagOrder.size())
+                    out << ",";
+                out << "\n";
+            }
+            out << "    ]\n";
+        }
+        out << "  },\n";
+
         out << "  \"timings\": [\n";
         for (sizet i = 0; i < m_LastExecutionTimings.size(); ++i)
         {
@@ -5184,14 +5387,36 @@ namespace OloEngine
     // Per-frame graph building
     // -------------------------------------------------------------------
 
-    void RenderGraph::BuildFrameGraph()
+    void RenderGraph::BuildFrameGraph(u64 cacheFingerprint)
     {
         OLO_PROFILE_FUNCTION();
+        OLO_PERF_SCOPE_AUTO("RG::BuildFrameGraph");
 
         // Defensive: if a previous frame aborted after acquiring transient
         // resources, recycle them before compiling the next frame.
         m_TransientPool.ReleaseAll();
         m_TransientPool.Trim(m_TransientPoolMaxBucketSize);
+
+        // Caller-driven cache: when the supplied fingerprint matches the last
+        // successful build and no external change has marked the graph dirty,
+        // the cached m_PassAccessDeclarations / m_Dependencies / reachability
+        // / barrier plan / transient plan / submission plan from the previous
+        // frame are still valid. Execute() will walk the cached submission
+        // plan unchanged.
+        if (cacheFingerprint != 0u &&
+            !m_DependencyGraphDirty &&
+            m_HasValidBuildFrameGraphCache &&
+            cacheFingerprint == m_LastBuildFrameGraphFingerprint)
+        {
+            return;
+        }
+
+        // Cache invariant: while we're rebuilding, the cached fingerprint is
+        // not yet valid. We clear m_PassAccessDeclarations / m_Dependencies /
+        // etc. below, so if the rebuild fails partway (e.g. cycle detection
+        // bails out at UpdateDependencyGraph), the previous frame's cached
+        // state is no longer consistent with what's in memory.
+        m_HasValidBuildFrameGraphCache = false;
 
         // Build per-frame declarations and derived dependencies from
         // graph-native node setup callbacks before compiling reachability,
@@ -5473,8 +5698,17 @@ namespace OloEngine
                 return false;
             if (!ContainsGraphEntry(beforePass) || !ContainsGraphEntry(afterPass))
             {
-                OLO_CORE_WARN("tryAddDerivedDependency: graph entry not found: {} -> {}",
-                              beforePass, afterPass);
+                // Intentional miss: passes name future producers (e.g. DLP
+                // declares DependsOnPass("SSAOPass") + DependsOnPass("GTAOPass")
+                // — only one is active per frame). Only surface this when
+                // diagnostics are explicitly enabled so it's available for
+                // catching typos during development without spamming
+                // production logs.
+                if (IsRenderGraphDiagnosticsEnabled())
+                {
+                    OLO_CORE_WARN("tryAddDerivedDependency: graph entry not found: {} -> {}",
+                                  beforePass, afterPass);
+                }
                 return false;
             }
 
@@ -5659,11 +5893,14 @@ namespace OloEngine
         // derivation. Only graph-native nodes contribute per-frame builder
         // declarations here; pass-only entries still participate through their
         // static RenderPass declarations in later reachability/hazard passes.
-        for (const auto& passName : m_InsertionOrder)
         {
-            const auto nodeIt = m_NodeLookup.find(passName);
-            if (nodeIt != m_NodeLookup.end() && nodeIt->second)
-                processGraphNode(*nodeIt->second);
+            OLO_PERF_SCOPE_AUTO("RG::BuildFrameGraph/SetupLoop");
+            for (const auto& passName : m_InsertionOrder)
+            {
+                const auto nodeIt = m_NodeLookup.find(passName);
+                if (nodeIt != m_NodeLookup.end() && nodeIt->second)
+                    processGraphNode(*nodeIt->second);
+            }
         }
 
         auto simulateDerivedDependencies =
@@ -6021,27 +6258,55 @@ namespace OloEngine
         } // end if (IsRenderGraphDiagnosticsEnabled())
 #endif // !defined(OLO_DIST)
 
-        if (m_DependencyGraphDirty && !UpdateDependencyGraph())
         {
-            OLO_CORE_ERROR("RenderGraph::BuildFrameGraph: dependency graph rebuild failed (cycle)");
-            return;
+            OLO_PERF_SCOPE_AUTO("RG::BuildFrameGraph/UpdateDependencyGraph");
+            if (m_DependencyGraphDirty && !UpdateDependencyGraph())
+            {
+                OLO_CORE_ERROR("RenderGraph::BuildFrameGraph: dependency graph rebuild failed (cycle)");
+                return;
+            }
+
+            if (m_DependencyGraphDirty)
+            {
+                ResolveFinalPass();
+                m_DependencyGraphDirty = false;
+            }
         }
 
-        if (m_DependencyGraphDirty)
         {
-            ResolveFinalPass();
-            m_DependencyGraphDirty = false;
+            OLO_PERF_SCOPE_AUTO("RG::BuildFrameGraph/ComputeReachability");
+            ComputeReachability();
         }
-
-        ComputeReachability();
         RefreshTemporalHistoryContracts();
-        ComputeBarrierPlan();
-        RebuildTransientPlan();
+        {
+            OLO_PERF_SCOPE_AUTO("RG::BuildFrameGraph/ComputeBarrierPlan");
+            ComputeBarrierPlan();
+        }
+        {
+            OLO_PERF_SCOPE_AUTO("RG::BuildFrameGraph/RebuildTransientPlan");
+            RebuildTransientPlan();
+        }
 
         // Cache the submission plan after barrier planning so
         // Execute() can walk the pre-built IR without re-deriving it.
-        m_CachedSubmissionPlan = GetSubmissionPlan();
+        {
+            OLO_PERF_SCOPE_AUTO("RG::BuildFrameGraph/GetSubmissionPlan");
+            m_CachedSubmissionPlan = GetSubmissionPlan();
+        }
         LogSubmissionPlanIfChanged();
+
+        // Cache the fingerprint of this successful build so subsequent calls
+        // with the same caller-supplied fingerprint can short-circuit the
+        // whole function.
+        if (cacheFingerprint != 0u)
+        {
+            m_LastBuildFrameGraphFingerprint = cacheFingerprint;
+            m_HasValidBuildFrameGraphCache = true;
+        }
+        else
+        {
+            m_HasValidBuildFrameGraphCache = false;
+        }
     }
 
 } // namespace OloEngine

@@ -159,6 +159,21 @@ namespace OloEngine
         else
         {
             RecordRead(resourceName, usage, range);
+
+            // When the read targets a framebuffer attachment view, also record
+            // the access against the parent framebuffer. The transient planner
+            // tracks lifetimes per registered transient resource, and an
+            // attachment-view name lives in a separate registry from the
+            // parent framebuffer. Without this propagation the parent's
+            // lifetime ends at its writer, letting the transient allocator
+            // alias the parent's storage onto another transient (e.g. the
+            // next pass's output) — producing a same-FB feedback loop when
+            // the reading pass also writes the aliased downstream resource.
+            if (auto parent = m_Graph.FindAttachmentViewParent(resourceName);
+                !parent.empty() && parent != resourceName)
+            {
+                RecordRead(parent, usage, range);
+            }
         }
 
         (void)usage;

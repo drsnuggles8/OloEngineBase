@@ -2,11 +2,14 @@
 #include "OloEngine/Renderer/Debug/RenderGraphDebugger.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <algorithm>
+#include <map>
 #include <queue>
 #include <fstream>
 #include <limits>
@@ -184,6 +187,176 @@ namespace OloEngine
 
             return labels;
         }
+
+        const char* RenderingPathName(RenderingPath path)
+        {
+            switch (path)
+            {
+                case RenderingPath::Forward:
+                    return "Forward";
+                case RenderingPath::ForwardPlus:
+                    return "Forward+";
+                case RenderingPath::Deferred:
+                    return "Deferred";
+                default:
+                    return "Unknown";
+            }
+        }
+
+        // Returns the registered name of the framebuffer the final pass
+        // selected as its primary input this frame. Empty when no such pass
+        // exists or it has no resolved input. Uses the graph's authoritative
+        // final-pass name rather than hard-coding "FinalRenderPass" (the
+        // class name) vs "FinalPass" (the pipeline-assigned registered name).
+        std::string GetFinalPassInputName(const Ref<RenderGraph>& graph)
+        {
+            if (!graph)
+                return {};
+            const auto& finalName = graph->GetFinalPassName();
+            if (finalName.empty())
+                return {};
+            const auto finalNode = graph->GetNode<RenderGraphNode>(finalName);
+            if (!finalNode)
+                return {};
+            return graph->ReverseResolveFramebufferName(finalNode->GetPrimaryInputFramebufferHandle());
+        }
+
+        // Derives a short, human-readable reason a pass was culled. Strategy:
+        //   - If the pass declares no outputs at all → "no declared outputs"
+        //   - If the pass's outputs are read by no other registered resource's
+        //     consumer set → "no downstream reader"
+        //   - Otherwise → "indirectly unreachable" (rare; reachability analysis
+        //     dropped it transitively).
+        // The classification reads from GetRegisteredResources()'s
+        // Producers/Consumers lists, which the graph populates during build.
+        std::string DeriveCullReason(const Ref<RenderGraph>& graph, const std::string& passName,
+                                     const std::unordered_set<std::string>& culledSet)
+        {
+            if (!graph)
+                return "unknown";
+
+            const auto& resources = graph->GetRegisteredResources();
+
+            std::vector<const RenderGraph::ResourceInfo*> writtenResources;
+            for (const auto& info : resources)
+            {
+                if (std::find(info.Producers.begin(), info.Producers.end(), passName) != info.Producers.end())
+                {
+                    writtenResources.push_back(&info);
+                }
+            }
+
+            if (writtenResources.empty())
+                return "no declared outputs";
+
+            bool hasNonCulledConsumer = false;
+            for (const auto* info : writtenResources)
+            {
+                for (const auto& consumer : info->Consumers)
+                {
+                    if (!culledSet.contains(consumer))
+                    {
+                        hasNonCulledConsumer = true;
+                        break;
+                    }
+                }
+                if (hasNonCulledConsumer)
+                    break;
+            }
+
+            if (!hasNonCulledConsumer)
+                return "no downstream reader";
+
+            return "indirectly unreachable";
+        }
+
+        void DrawPipelineStatusHeader(const Ref<RenderGraph>& graph)
+        {
+            if (!graph)
+                return;
+
+            if (!ImGui::CollapsingHeader("Pipeline Status", ImGuiTreeNodeFlags_DefaultOpen))
+                return;
+
+            ImGui::Indent();
+
+            const auto& renderer = Renderer3D::GetRendererSettings();
+            ImGui::Text("Rendering Path: %s", RenderingPathName(renderer.Path));
+            if (renderer.Path == RenderingPath::Deferred)
+            {
+                ImGui::SameLine();
+                ImGui::TextDisabled("(MSAA %ux, OIT %s)",
+                                    renderer.Deferred.MSAASampleCount,
+                                    renderer.Deferred.OITEnabled ? "on" : "off");
+            }
+
+            const auto finalInput = GetFinalPassInputName(graph);
+            if (finalInput.empty())
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.55f, 1.0f),
+                                   "Final input: <none resolved>");
+                ImGui::TextDisabled("FinalRenderPass has no resolved primary input \xE2\x80\x94 \n"
+                                    "screen will be cleared to black or show stale FB contents.");
+            }
+            else
+            {
+                ImGui::Text("Final input: %s", finalInput.c_str());
+                ImGui::TextDisabled("The framebuffer/texture FinalRenderPass blits to the\n"
+                                    "swap chain this frame. If this is SceneColor, none of\n"
+                                    "the post-process passes reached the screen.");
+            }
+
+            // Alias bindings — show ALL active aliases so the user can see
+            // PostProcessColor / PostProcessColorTexture targeting.
+            const auto& fbAliases = graph->GetFramebufferBaseNameAliases();
+            const auto& texAliases = graph->GetTextureBaseNameAliases();
+            if (!fbAliases.empty() || !texAliases.empty())
+            {
+                if (ImGui::TreeNodeEx("Aliases", ImGuiTreeNodeFlags_DefaultOpen))
+                {
+                    std::map<std::string, std::string> sortedFb(fbAliases.begin(), fbAliases.end());
+                    for (const auto& [alias, target] : sortedFb)
+                        ImGui::BulletText("FB:  %s \xE2\x86\x92 %s", alias.c_str(), target.c_str());
+
+                    std::map<std::string, std::string> sortedTex(texAliases.begin(), texAliases.end());
+                    for (const auto& [alias, target] : sortedTex)
+                        ImGui::BulletText("Tex: %s \xE2\x86\x92 %s", alias.c_str(), target.c_str());
+                    ImGui::TreePop();
+                }
+            }
+            else
+            {
+                ImGui::TextDisabled("Aliases: <none>");
+            }
+
+            // Cull list with derived reasons.
+            const auto& culledPasses = graph->GetCulledPasses();
+            const std::string cullHeader = "Culled passes (" + std::to_string(culledPasses.size()) + ")";
+            if (ImGui::TreeNodeEx(cullHeader.c_str(), culledPasses.empty() ? ImGuiTreeNodeFlags_Leaf : 0))
+            {
+                if (culledPasses.empty())
+                {
+                    ImGui::TextDisabled("No culled passes \xE2\x80\x94 every registered pass reached execution.");
+                }
+                else
+                {
+                    std::unordered_set<std::string> culledSet(culledPasses.begin(), culledPasses.end());
+                    std::vector<std::string> sortedCulled(culledPasses.begin(), culledPasses.end());
+                    std::sort(sortedCulled.begin(), sortedCulled.end());
+                    for (const auto& passName : sortedCulled)
+                    {
+                        const auto reason = DeriveCullReason(graph, passName, culledSet);
+                        ImGui::BulletText("%s", passName.c_str());
+                        ImGui::SameLine();
+                        ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.4f, 1.0f), "\xE2\x80\x94 %s", reason.c_str());
+                    }
+                }
+                ImGui::TreePop();
+            }
+
+            ImGui::Unindent();
+            ImGui::Spacing();
+        }
     } // namespace
 
     void RenderGraphDebugger::RenderDebugView(const Ref<RenderGraph>& graph, bool* open, const char* title)
@@ -252,6 +425,20 @@ namespace OloEngine
             }
         }
 
+        // JSON export — feeds the debug block (finalPassInput, aliases,
+        // per-pass diagnostics) plus barriers / lifetimes / aliases so the
+        // dump is self-describing for offline / LLM analysis.
+        ImGui::SameLine();
+        if (ImGui::Button("Export to JSON"))
+        {
+            const std::string path = "rendergraph.json";
+            if (graph->DumpToJson(path))
+                OLO_CORE_INFO("RenderGraph exported to '{}'", path);
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Writes rendergraph.json to the editor's working directory.\n"
+                              "Includes the `debug` block (finalPassInput, aliases, per-pass diagnostics).");
+
         ImGui::SameLine();
         if (ImGui::Button("Recalculate Layout"))
         {
@@ -269,6 +456,10 @@ namespace OloEngine
         // Add spacing between controls and canvas
         ImGui::Spacing();
         ImGui::Spacing();
+
+        // Pipeline Status header — top-level summary answering
+        // "what does FinalRenderPass actually see, and why is anything missing?"
+        DrawPipelineStatusHeader(graph);
 
         // Canvas setup with real ImGui scrollbars. The content item is sized
         // to the graph bounds, while drawing is clipped to the visible child.
@@ -359,10 +550,12 @@ namespace OloEngine
                 DrawNode(node, drawList, offset, maxWidth);
             }
 
-            // Show tooltip when hovering over a node
+            // Show tooltip when hovering over a node; left-click selects the
+            // pass for the detail inspector rendered below the canvas.
             if (isCanvasHovered && ImGui::IsMouseHoveringRect(viewMin, viewMax))
             {
                 const ImVec2 mousePos = ImGui::GetIO().MousePos;
+                const bool leftClicked = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
                 for (const auto& [passName, nodeData] : m_NodePositions)
                 {
                     auto nodeMin = ImVec2(offset.x + nodeData.Position.x, offset.y + nodeData.Position.y);
@@ -380,6 +573,8 @@ namespace OloEngine
                                 break;
                             }
                         }
+                        if (leftClicked)
+                            m_SelectedPassName = passName;
                         break;
                     }
                 }
@@ -388,6 +583,14 @@ namespace OloEngine
             drawList->PopClipRect();
         }
         ImGui::EndChild();
+
+        // Pass inspector — rendered below the canvas when a node is selected.
+        DrawPassInspector(graph);
+
+        // Inline thumbnail strip of all per-pass captures (auto-captured each
+        // frame when m_AutoCaptureEachFrame is on). Lets the user see what
+        // each pass actually wrote without opening the dedicated viewer.
+        DrawCaptureThumbnailStrip();
 
         ImGui::End();
     }
@@ -781,6 +984,21 @@ namespace OloEngine
             m_CaptureWindowOpen = true;
         }
 
+        ImGui::SameLine();
+        if (ImGui::Checkbox("Auto-capture", &m_AutoCaptureEachFrame))
+        {
+            if (m_AutoCaptureEachFrame && graph)
+                m_FrameCapture.InstallHook(const_cast<RenderGraph*>(graph.get()));
+        }
+        // When auto-capture is on, re-arm every frame so the thumbnail strip
+        // reflects the latest pipeline output without manual button presses.
+        if (m_AutoCaptureEachFrame && graph)
+        {
+            if (!graph->HasPostPassHook())
+                m_FrameCapture.InstallHook(const_cast<RenderGraph*>(graph.get()));
+            m_FrameCapture.RequestCapture();
+        }
+
         if (m_FrameCapture.HasCapture())
         {
             ImGui::SameLine();
@@ -917,5 +1135,175 @@ namespace OloEngine
         {
             m_FrameCapture.InstallHook(nullptr);
         }
+    }
+
+    void RenderGraphDebugger::DrawPassInspector(const Ref<RenderGraph>& graph)
+    {
+        if (m_SelectedPassName.empty() || !graph)
+            return;
+
+        ImGui::Spacing();
+        const std::string header = "Inspector: " + m_SelectedPassName;
+        if (!ImGui::CollapsingHeader(header.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
+            return;
+
+        ImGui::Indent();
+
+        const auto node = graph->GetNode<RenderGraphNode>(m_SelectedPassName);
+        if (!node)
+        {
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f),
+                               "Pass '%s' is not registered (was it culled before BuildFrameGraph?).",
+                               m_SelectedPassName.c_str());
+            ImGui::Unindent();
+            return;
+        }
+
+        const auto& culledPasses = graph->GetCulledPasses();
+        const bool culled = std::find(culledPasses.begin(), culledPasses.end(), m_SelectedPassName) != culledPasses.end();
+        const bool enabled = node->IsEnabled();
+        const bool ready = node->IsReadyForExecution();
+
+        // Status flags row.
+        const auto flagColor = [](bool ok, bool warn = false) {
+            if (warn)
+                return ImVec4(1.0f, 0.7f, 0.3f, 1.0f);
+            return ok ? ImVec4(0.4f, 0.9f, 0.4f, 1.0f) : ImVec4(0.95f, 0.5f, 0.5f, 1.0f);
+        };
+        ImGui::TextColored(flagColor(enabled), "Enabled: %s", enabled ? "yes" : "no");
+        ImGui::SameLine();
+        ImGui::TextColored(flagColor(ready), " | Ready: %s", ready ? "yes" : "no");
+        ImGui::SameLine();
+        ImGui::TextColored(flagColor(!culled, culled), " | Culled: %s", culled ? "yes" : "no");
+
+        if (culled)
+        {
+            std::unordered_set<std::string> culledSet(culledPasses.begin(), culledPasses.end());
+            const auto reason = DeriveCullReason(graph, m_SelectedPassName, culledSet);
+            ImGui::TextDisabled("Cull reason: %s", reason.c_str());
+        }
+        else if (!enabled)
+        {
+            ImGui::TextDisabled("Pass is registered but disabled; Execute() will pass-through or no-op.");
+        }
+        else if (!ready)
+        {
+            ImGui::TextDisabled("Pass is enabled but reports !IsReadyForExecution() \xE2\x80\x94 missing\n"
+                                "shader, UBO, or upstream resource. Check Init() and FrameCorePasses wiring.");
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+
+        // Primary input / output handles (the setup-authoritative choices).
+        const auto inFb = node->GetPrimaryInputFramebufferHandle();
+        const auto inTex = node->GetPrimaryInputTextureHandle();
+        const auto outFb = node->GetPrimaryOutputFramebufferHandle();
+        const auto outTex = node->GetPrimaryOutputTextureHandle();
+
+        ImGui::Text("Primary input  framebuffer: %s",
+                    inFb.IsValid() ? graph->ReverseResolveFramebufferName(inFb).c_str() : "<none>");
+        ImGui::Text("Primary input  texture:     %s",
+                    inTex.IsValid() ? graph->ReverseResolveTextureName(inTex).c_str() : "<none>");
+        ImGui::Text("Primary output framebuffer: %s",
+                    outFb.IsValid() ? graph->ReverseResolveFramebufferName(outFb).c_str() : "<none>");
+        ImGui::Text("Primary output texture:     %s",
+                    outTex.IsValid() ? graph->ReverseResolveTextureName(outTex).c_str() : "<none>");
+
+        ImGui::Spacing();
+        ImGui::Separator();
+
+        // Reads / Writes derived from registered resource producer/consumer
+        // lists. The graph populates these during BuildFrameGraph using each
+        // pass's Setup-time RGBuilder accesses, so the inspector reflects
+        // exactly what the scheduler saw.
+        std::vector<std::string> reads;
+        std::vector<std::string> writes;
+        for (const auto& res : graph->GetRegisteredResources())
+        {
+            if (std::find(res.Producers.begin(), res.Producers.end(), m_SelectedPassName) != res.Producers.end())
+                writes.push_back(res.Name);
+            if (std::find(res.Consumers.begin(), res.Consumers.end(), m_SelectedPassName) != res.Consumers.end())
+                reads.push_back(res.Name);
+        }
+        std::sort(reads.begin(), reads.end());
+        std::sort(writes.begin(), writes.end());
+
+        const std::string readsHeader = "Reads (" + std::to_string(reads.size()) + ")";
+        if (ImGui::TreeNodeEx(readsHeader.c_str(), reads.empty() ? ImGuiTreeNodeFlags_Leaf : ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            if (reads.empty())
+                ImGui::TextDisabled("(no declared reads)");
+            for (const auto& r : reads)
+                ImGui::BulletText("%s", r.c_str());
+            ImGui::TreePop();
+        }
+
+        const std::string writesHeader = "Writes (" + std::to_string(writes.size()) + ")";
+        if (ImGui::TreeNodeEx(writesHeader.c_str(), writes.empty() ? ImGuiTreeNodeFlags_Leaf : ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            if (writes.empty())
+                ImGui::TextDisabled("(no declared writes)");
+            for (const auto& w : writes)
+                ImGui::BulletText("%s", w.c_str());
+            ImGui::TreePop();
+        }
+
+        ImGui::Spacing();
+        if (ImGui::SmallButton("Clear selection"))
+            m_SelectedPassName.clear();
+
+        ImGui::Unindent();
+    }
+
+    void RenderGraphDebugger::DrawCaptureThumbnailStrip()
+    {
+        const auto& captures = m_FrameCapture.GetCaptures();
+        if (captures.empty())
+            return;
+
+        ImGui::Spacing();
+        const std::string header = "Pass output strip (" + std::to_string(captures.size()) + ")";
+        if (!ImGui::CollapsingHeader(header.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
+            return;
+
+        ImGui::TextDisabled("Click a thumbnail to open it in the full capture viewer.");
+
+        constexpr f32 thumbHeight = 96.0f;
+        if (ImGui::BeginChild("##capture_strip", ImVec2(0, thumbHeight + 56.0f), true,
+                              ImGuiWindowFlags_HorizontalScrollbar))
+        {
+            for (i32 i = 0; i < static_cast<i32>(captures.size()); ++i)
+            {
+                const auto& entry = captures[static_cast<sizet>(i)];
+                ImGui::PushID(i);
+
+                const f32 aspect = entry.Height > 0 ? static_cast<f32>(entry.Width) / static_cast<f32>(entry.Height) : 1.0f;
+                const f32 thumbWidth = thumbHeight * aspect;
+
+                ImGui::BeginGroup();
+
+                const ImTextureID texID = static_cast<ImTextureID>(static_cast<uintptr_t>(entry.TextureID));
+                if (ImGui::ImageButton("##strip_thumb", texID, ImVec2(thumbWidth, thumbHeight),
+                                       ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f)))
+                {
+                    m_SelectedCaptureIndex = i;
+                    m_CaptureWindowOpen = true;
+                }
+
+                ImGui::TextUnformatted(entry.PassName.c_str());
+                if (entry.NonBlackSamples == 0)
+                    ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "BLACK");
+                else if (entry.NonTransparentSamples == 0)
+                    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.35f, 1.0f), "TRANSPARENT");
+                else
+                    ImGui::TextColored(ImVec4(0.55f, 0.9f, 0.55f, 1.0f), "VISIBLE");
+
+                ImGui::EndGroup();
+                ImGui::SameLine();
+                ImGui::PopID();
+            }
+        }
+        ImGui::EndChild();
     }
 } // namespace OloEngine

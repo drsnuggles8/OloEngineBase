@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
+#include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
@@ -802,6 +803,136 @@ namespace OloEngine
         }
     }
 
+    namespace
+    {
+        constexpr u64 kFnv1aOffset = 0xcbf29ce484222325ull;
+        constexpr u64 kFnv1aPrime  = 0x100000001b3ull;
+
+        inline void HashByte(u64& h, u8 v) noexcept { h = (h ^ v) * kFnv1aPrime; }
+        inline void HashU32(u64& h, u32 v) noexcept
+        {
+            HashByte(h, static_cast<u8>(v & 0xffu));
+            HashByte(h, static_cast<u8>((v >> 8) & 0xffu));
+            HashByte(h, static_cast<u8>((v >> 16) & 0xffu));
+            HashByte(h, static_cast<u8>((v >> 24) & 0xffu));
+        }
+        inline void HashBool(u64& h, bool v) noexcept { HashByte(h, v ? 1u : 0u); }
+
+        template<typename PassPtr>
+        inline void HashPassState(u64& h, const PassPtr& pass) noexcept
+        {
+            // Hash the underlying pointer so rebuilding a pass with the same
+            // readiness still invalidates the cache. Per-pass enabled state
+            // is captured separately via the data.PostProcess.* flags below.
+            const auto addr = reinterpret_cast<uintptr_t>(pass.Raw());
+            HashU32(h, static_cast<u32>(addr));
+            HashU32(h, static_cast<u32>(addr >> 32u));
+            if (!pass)
+                return;
+            // Not every pass type exposes IsReadyForExecution(); fold it in
+            // when available so passes whose Setup() branches on readiness
+            // (Bloom, DOF, AOApply, etc.) still invalidate the cache when the
+            // flip happens.
+            if constexpr (requires { pass->IsReadyForExecution(); })
+                HashBool(h, pass->IsReadyForExecution());
+        }
+    } // anonymous namespace
+
+    u64 Renderer3D::RenderPipeline::ComputeBlackboardFingerprint(const Renderer3DData& data) const
+    {
+        u64 h = kFnv1aOffset;
+
+        // Scene framebuffer dimensions drive most transient resource sizes; a
+        // resize must trigger a full repopulate.
+        if (FrameCorePasses.Scene)
+        {
+            const auto& spec = FrameCorePasses.Scene->GetFramebufferSpecification();
+            HashU32(h, spec.Width);
+            HashU32(h, spec.Height);
+        }
+        else
+        {
+            HashU32(h, 0u);
+            HashU32(h, 0u);
+        }
+
+        // Rendering path / deferred sub-state
+        HashU32(h, static_cast<u32>(data.Settings.Path));
+        HashU32(h, data.Settings.Deferred.MSAASampleCount);
+        HashBool(h, data.Settings.Deferred.OITEnabled);
+        HashBool(h, data.Settings.Deferred.PerSampleLighting);
+
+        // Shadow renderer IDs change when shadow textures are (re)created; the
+        // blackboard imports them by raw GL ID so a change must invalidate.
+        HashU32(h, data.Shadow.GetResolution());
+        HashU32(h, data.Shadow.GetCSMRendererID());
+        HashU32(h, data.Shadow.GetSpotRendererID());
+        for (u32 i = 0; i < ShadowMap::MAX_POINT_SHADOWS; ++i)
+            HashU32(h, data.Shadow.GetPointRendererID(i));
+
+        // Post-process technique selection + per-effect toggles
+        HashU32(h, static_cast<u32>(data.PostProcess.ActiveAOTechnique));
+        HashBool(h, data.PostProcess.SSAOEnabled);
+        HashBool(h, data.PostProcess.GTAOEnabled);
+        HashBool(h, data.PostProcess.BloomEnabled);
+        HashBool(h, data.PostProcess.DOFEnabled);
+        HashBool(h, data.PostProcess.MotionBlurEnabled);
+        HashBool(h, data.PostProcess.TAAEnabled);
+        HashBool(h, data.PostProcess.ChromaticAberrationEnabled);
+        HashBool(h, data.PostProcess.ColorGradingEnabled);
+        HashBool(h, data.PostProcess.VignetteEnabled);
+        HashBool(h, data.PostProcess.FXAAEnabled);
+
+        // Other systems that gate blackboard branches
+        HashBool(h, data.Fog.Enabled);
+        HashBool(h, data.Snow.Enabled);
+        HashBool(h, data.Snow.SSSBlurEnabled);
+
+        // Pass-set readiness (covers branches like
+        //   `if (pipeline.PostProcessPasses.X && X->IsReadyForExecution())`)
+        // The same fingerprint is reused as the RenderGraph::BuildFrameGraph
+        // cache key, so it must cover every pass whose Setup() declarations
+        // may change between frames — not just the post-process chain.
+        HashPassState(h, FrameCorePasses.Shadow);
+        HashPassState(h, FrameCorePasses.Scene);
+        HashPassState(h, SceneCompositePasses.DeferredLighting);
+        HashPassState(h, SceneCompositePasses.DeferredOpaqueDecal);
+        HashPassState(h, SceneCompositePasses.SSAO);
+        HashPassState(h, SceneCompositePasses.GTAO);
+        HashPassState(h, SceneCompositePasses.Particle);
+        HashPassState(h, SceneCompositePasses.OITPrepare);
+        HashPassState(h, SceneCompositePasses.OITResolve);
+        HashPassState(h, RenderStreamPasses.ForwardOverlay);
+        HashPassState(h, RenderStreamPasses.Foliage);
+        HashPassState(h, RenderStreamPasses.Water);
+        HashPassState(h, RenderStreamPasses.Decal);
+        HashPassState(h, PostProcessPasses.SSS);
+        HashPassState(h, PostProcessPasses.AOApply);
+        HashPassState(h, PostProcessPasses.Bloom);
+        HashPassState(h, PostProcessPasses.DOF);
+        HashPassState(h, PostProcessPasses.MotionBlur);
+        HashPassState(h, PostProcessPasses.TAA);
+        HashPassState(h, PostProcessPasses.Precipitation);
+        HashPassState(h, PostProcessPasses.Fog);
+        HashPassState(h, PostProcessPasses.ChromAberration);
+        HashPassState(h, PostProcessPasses.ColorGrading);
+        HashPassState(h, PostProcessPasses.ToneMap);
+        HashPassState(h, PostProcessPasses.Vignette);
+        HashPassState(h, PostProcessPasses.FXAA);
+        HashPassState(h, PostProcessPasses.SelectionOutline);
+        HashPassState(h, PostProcessPasses.UIComposite);
+        HashPassState(h, PostProcessPasses.Final);
+
+        // Water needs a refraction texture only when it has draws this frame.
+        HashBool(h, RenderStreamPasses.Water &&
+                        RenderStreamPasses.Water->GetCommandBucket().GetCommandCount() > 0u);
+
+        // Non-zero sentinel so callers can use 0 to mean "no cache".
+        if (h == 0u)
+            h = 1u;
+        return h;
+    }
+
     void Renderer3D::RenderPipeline::PopulateBlackboard(Renderer3DData& data)
     {
         OLO_PROFILE_FUNCTION();
@@ -811,6 +942,25 @@ namespace OloEngine
 
         auto& graph = *data.RGraph;
         auto& pipeline = *this;
+
+        // ------------------------------------------------------------------
+        // Cache short-circuit
+        // ------------------------------------------------------------------
+        // PopulateBlackboard declares ~80 transient resources per frame, and
+        // every declaration touches multiple unordered_map<std::string, X>
+        // entries (find/insert/erase). In MSVC Debug each map op is dominated
+        // by iterator-debug overhead, so the whole function runs ~65ms per
+        // frame on a stable scene. Hash the inputs the function branches on;
+        // if nothing has changed since last frame, the existing handles in
+        // FrameBlackboard + the imported-resource maps inside RenderGraph are
+        // still valid and we can skip the entire body.
+        {
+            const u64 currentFingerprint = ComputeBlackboardFingerprint(data);
+            if (m_HasValidBlackboardCache && currentFingerprint == m_BlackboardFingerprint)
+                return;
+            m_BlackboardFingerprint = currentFingerprint;
+            m_HasValidBlackboardCache = true;
+        }
 
         // Clear prior-frame handles so stale handles are never accidentally resolved.
         graph.ClearBlackboard();
@@ -1233,14 +1383,20 @@ namespace OloEngine
             data.PostProcess.SSAOEnabled &&
             board.AOBuffer.IsValid())
         {
-            const auto& ssaoSpec = pipeline.SceneCompositePasses.SSAO->GetFramebufferSpecification();
-            if (ssaoSpec.Width > 0u && ssaoSpec.Height > 0u)
+            // SSAORaw / SSAOBlur must match the SSAO pass's half-res viewport.
+            // Using the full-res FramebufferSpecification here was the cause of
+            // "ghost copies" with SSAO enabled: the blur sampled SSAO data only
+            // in the FB's top-left quarter and spatially-shifted AO across the
+            // rest of the screen.
+            const u32 ssaoWidth = pipeline.SceneCompositePasses.SSAO->GetHalfWidth();
+            const u32 ssaoHeight = pipeline.SceneCompositePasses.SSAO->GetHalfHeight();
+            if (ssaoWidth > 0u && ssaoHeight > 0u)
             {
                 RGResourceDesc rawDesc;
                 rawDesc.Kind = ResourceHandle::Kind::Framebuffer;
                 rawDesc.Format = RGResourceFormat::RG16Float;
-                rawDesc.Width = ssaoSpec.Width;
-                rawDesc.Height = ssaoSpec.Height;
+                rawDesc.Width = ssaoWidth;
+                rawDesc.Height = ssaoHeight;
                 rawDesc.DebugName = "SSAORaw";
                 board.SSAORaw = declareGraphOnlyFramebuffer("SSAORaw", rawDesc);
 
@@ -1365,21 +1521,39 @@ namespace OloEngine
         // Importing a fresh `PostProcessColor` framebuffer here severs that
         // producer/consumer chain, which lets AO/SSS get culled and can feed
         // stale/black data into the post stack.
+        //
+        // The handle copies below keep board.PostProcessColor usable by code
+        // paths that already hold the typed handle. RegisterFramebufferAlias /
+        // RegisterTextureAlias also make the base-name "PostProcessColor"
+        // resolvable via graph.GetFramebufferHandle / GetTextureHandle, so
+        // post-process passes that read by name (DOF, MotionBlur, TAA, ...)
+        // pick up whichever upstream is active without each having to list
+        // every possible chain source explicitly in their candidate arrays.
+        std::string_view postProcessTargetFramebuffer;
+        std::string_view postProcessTargetTexture;
         if (board.AOApplyColor.IsValid())
         {
             board.PostProcessColor = board.AOApplyColor;
             board.PostProcessColorTexture = board.AOApplyColorTexture;
+            postProcessTargetFramebuffer = ResourceNames::AOApplyColor;
+            postProcessTargetTexture = ResourceNames::AOApplyColorTexture;
         }
         else if (board.SSSColor.IsValid())
         {
             board.PostProcessColor = board.SSSColor;
             board.PostProcessColorTexture = board.SSSColorTexture;
+            postProcessTargetFramebuffer = ResourceNames::SSSColor;
+            postProcessTargetTexture = ResourceNames::SSSColorTexture;
         }
         else
         {
             board.PostProcessColor = board.SceneColor;
             board.PostProcessColorTexture = board.SceneColorTexture;
+            postProcessTargetFramebuffer = ResourceNames::SceneColor;
+            postProcessTargetTexture = ResourceNames::SceneColorTexture;
         }
+        graph.RegisterFramebufferAlias(ResourceNames::PostProcessColor, postProcessTargetFramebuffer);
+        graph.RegisterTextureAlias(ResourceNames::PostProcessColorTexture, postProcessTargetTexture);
 
         // BloomColor exists only when bloom is executable for this frame and
         // the scene dimensions are large enough for the graph-owned mip chain

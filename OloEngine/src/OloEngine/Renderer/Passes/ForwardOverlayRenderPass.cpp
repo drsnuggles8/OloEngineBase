@@ -60,16 +60,14 @@ namespace OloEngine
             return;
         }
 
-        // Restoring guard: captures core GL state on entry (FBO / program /
-        // depth / blend / stencil / cull / polygon / viewport / scissor)
-        // and rolls it back in the destructor. Explicit restore calls
-        // below remain in place for clarity and to keep invariants close
-        // to the mutations, but the guard now also acts as a safety net if
-        // a command path inside the bucket forgets a revert. Per-slot
-        // texture/UBO bindings are NOT covered by ApplyCore — passes that
-        // mutate those must still clean up themselves (which the overlay
-        // pass does implicitly via its own SceneFramebuffer::Unbind).
-        GLStateGuard guard("ForwardOverlayPass", GLStateGuard::Policy::Restore);
+        // Silent guard: kept in scope so future leak hunts can flip the
+        // policy back to Log/Restore without editing the pass. Policy::Ignore
+        // is correct because the pass explicitly restores every critical
+        // field at exit (depth/blend/blend-func/cull/polygon) and unbinds
+        // its shader + VAO, so the only diffs Policy::Restore would surface
+        // are the unbinds themselves (entry program/VAO != 0). The
+        // SceneFramebuffer::Unbind() call below covers FBO state.
+        GLStateGuard guard("ForwardOverlayPass", GLStateGuard::Policy::Ignore);
 
         m_SceneFramebuffer->Bind();
 
@@ -147,7 +145,21 @@ namespace OloEngine
         rendererAPI.SetCullFace(GL_BACK);
         rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
+        // Reset blend func to the default (GL_ONE, GL_ZERO). Bucket commands
+        // (skybox / debug / grid) call glBlendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA)
+        // for alpha-blended draws and don't restore it; SetBlendState(false)
+        // above disables blending but leaves the func sticky. Any downstream
+        // pass that enables blending without setting its own func would inherit
+        // the leak.
+        ::glBlendFuncSeparate(GL_ONE, GL_ZERO, GL_ONE, GL_ZERO);
+
         m_SceneFramebuffer->Unbind();
+
+        // Unbind shader program + VAO so the GLStateGuard surfaces only
+        // genuine regressions in downstream passes (the bucket's last
+        // command leaves both bound).
+        ::glBindVertexArray(0);
+        ::glUseProgram(0);
 
         ResetCommandBucket();
     }

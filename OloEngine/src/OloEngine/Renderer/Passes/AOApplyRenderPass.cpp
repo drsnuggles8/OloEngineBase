@@ -146,14 +146,10 @@ namespace OloEngine
 
         m_Target = outputFramebuffer;
 
-        {
-            static u32 s_PrevAOTextureID = 0;
-            if (aoTextureID != s_PrevAOTextureID)
-            {
-                OLO_CORE_INFO("AOApplyRenderPass: applying AO with aoTex={} depthTex={}", aoTextureID, sceneDepthID);
-                s_PrevAOTextureID = aoTextureID;
-            }
-        }
+        // (Dropped the per-frame "applying AO with aoTex=N" trace: the AO
+        // producer's output is double-buffered, so the texture ID flips every
+        // frame and the dedup never held — it fired ~60 times per second.
+        // Drop a one-shot OLO_CORE_TRACE here if you need to inspect inputs.)
 
         // Rebind the PostProcessUBO before any fullscreen shader reads it.
         // SetData() updates the buffer object but does not restore the
@@ -168,22 +164,10 @@ namespace OloEngine
         constexpr u32 colorAttachment = 0;
         outputFramebuffer->Bind();
 
-        {
-            static u32 s_PrevInputFB = 0;
-            static u32 s_PrevOutputFB = 0;
-            static u32 s_PrevOutputTex = 0;
-            const u32 inputFB = inputFramebuffer->GetRendererID();
-            const u32 outputFB = outputFramebuffer->GetRendererID();
-            const u32 outputTex = outputFramebuffer->GetColorAttachmentRendererID(0);
-            if (inputFB != s_PrevInputFB || outputFB != s_PrevOutputFB || outputTex != s_PrevOutputTex)
-            {
-                OLO_CORE_TRACE("AOApplyRenderPass: inputFB={} outputFB={} outputTex={} aoTex={} depthTex={}",
-                               inputFB, outputFB, outputTex, aoTextureID, sceneDepthID);
-                s_PrevInputFB = inputFB;
-                s_PrevOutputFB = outputFB;
-                s_PrevOutputTex = outputTex;
-            }
-        }
+        // (Dropped the per-frame inputFB/outputFB trace: transient framebuffers
+        // are double-buffered so the GL IDs flip every frame and the dedup
+        // never held — fired ~60 times/sec. Same broken pattern as the
+        // GTAO/SSAO/BloomPass logs that were removed earlier.)
 
         RenderCommand::SetDepthTest(false);
         RenderCommand::SetDepthMask(false);

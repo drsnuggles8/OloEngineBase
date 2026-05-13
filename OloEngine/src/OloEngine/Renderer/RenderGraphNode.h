@@ -212,6 +212,21 @@ namespace OloEngine
             return false;
         }
 
+        // Debug-only introspection: lets the Render Graph Debugger ask any
+        // pass whether it's user-enabled and whether it has the resources it
+        // needs to actually execute this frame. Default-true so non-overriding
+        // passes (compute helpers, scene modifiers without an explicit gate)
+        // report "ready". Per-pass overrides reflect feature toggles and
+        // shader/UBO readiness so the inspector can show why a pass is a no-op.
+        [[nodiscard]] virtual bool IsEnabled() const noexcept
+        {
+            return true;
+        }
+        [[nodiscard]] virtual bool IsReadyForExecution() const noexcept
+        {
+            return true;
+        }
+
         [[nodiscard]] virtual bool IsSideEffecting() const
         {
             if (static_cast<u8>(m_SideEffects) != 0u)

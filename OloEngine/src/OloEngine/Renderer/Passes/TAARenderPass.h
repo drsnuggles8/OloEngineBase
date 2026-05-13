@@ -52,12 +52,12 @@ namespace OloEngine
         {
             m_Enabled = enabled;
         }
-        [[nodiscard]] bool IsEnabled() const noexcept
+        [[nodiscard]] bool IsEnabled() const noexcept override
         {
             return m_Enabled;
         }
 
-        [[nodiscard]] bool IsReadyForExecution() const noexcept
+        [[nodiscard]] bool IsReadyForExecution() const noexcept override
         {
             return m_TAAShader && m_TAAShader->IsReady() && m_TAAUBO;
         }

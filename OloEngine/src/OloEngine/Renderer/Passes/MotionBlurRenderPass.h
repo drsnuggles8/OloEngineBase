@@ -44,7 +44,7 @@ namespace OloEngine
         {
             m_Enabled = enabled;
         }
-        [[nodiscard]] bool IsEnabled() const noexcept
+        [[nodiscard]] bool IsEnabled() const noexcept override
         {
             return m_Enabled;
         }
@@ -54,7 +54,7 @@ namespace OloEngine
             m_MotionBlurUBO = ubo;
         }
 
-        [[nodiscard]] bool IsReadyForExecution() const noexcept
+        [[nodiscard]] bool IsReadyForExecution() const noexcept override
         {
             return m_MotionBlurShader && m_MotionBlurShader->IsReady() && m_MotionBlurUBO;
         }

@@ -21,7 +21,7 @@ namespace OloEngine
     {
       public:
         ColorGradingRenderPass();
-        ~ColorGradingRenderPass() override = default;
+        ~ColorGradingRenderPass() override;
 
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
@@ -38,7 +38,7 @@ namespace OloEngine
         {
             m_Enabled = enabled;
         }
-        [[nodiscard]] bool IsEnabled() const noexcept
+        [[nodiscard]] bool IsEnabled() const noexcept override
         {
             return m_Enabled;
         }
@@ -48,16 +48,22 @@ namespace OloEngine
             m_PostProcessUBO = ubo;
         }
 
-        [[nodiscard]] bool IsReadyForExecution() const noexcept
+        [[nodiscard]] bool IsReadyForExecution() const noexcept override
         {
             return m_Shader && m_Shader->IsReady() && m_PostProcessUBO;
         }
 
       private:
         void CreateFramebuffer(u32 width, u32 height);
+        // Builds a 16x16x16 identity LUT laid out as a 256x16 horizontal strip.
+        // Required so the pass is a pass-through when no user LUT is set —
+        // without it, sampler unit 18 is unbound and the shader emits black.
+        void CreateIdentityLUT();
 
         Ref<Shader> m_Shader;
         Ref<UniformBuffer> m_PostProcessUBO;
+
+        u32 m_IdentityLUTTexture = 0;
 
         bool m_Enabled = false;
     };

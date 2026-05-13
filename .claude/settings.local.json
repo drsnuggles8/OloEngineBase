@@ -45,7 +45,18 @@
       "Bash(awk 'NR>=3282 {if \\(/^    \\\\}/ && depth==1\\) {print NR; exit} if \\(/\\\\{/\\) {depth+=gsub\\(/\\\\{/,\"&\"\\)} if \\(/\\\\}/\\) {depth-=gsub\\(/\\\\}/,\"&\"\\)}}' OloEngine/src/OloEngine/Renderer/RenderGraph.cpp)",
       "Bash(awk 'NR>=3087 {if \\(/^    \\\\}/ && depth==1\\) {print NR; exit} if \\(/\\\\{/\\) {depth+=gsub\\(/\\\\{/,\"&\"\\)} if \\(/\\\\}/\\) {depth-=gsub\\(/\\\\}/,\"&\"\\)}}' OloEngine/src/OloEngine/Renderer/RenderGraph.cpp)",
       "Bash(awk 'NR>=2337 {if \\(/^    \\\\}/ && depth==1\\) {print NR; exit} if \\(/\\\\{/\\) {depth+=gsub\\(/\\\\{/,\"&\"\\)} if \\(/\\\\}/\\) {depth-=gsub\\(/\\\\}/,\"&\"\\)}}' OloEngine/src/OloEngine/Renderer/RenderGraph.cpp)",
-      "Bash(xargs grep -l 'LegacyDeclarativeRenderPass\\\\|TestDeclarativeNode')"
+      "Bash(xargs grep -l 'LegacyDeclarativeRenderPass\\\\|TestDeclarativeNode')",
+      "Bash(cmake .. -G \"Visual Studio 18 2026\" -A x64)",
+      "Bash(cmake ..)",
+      "PowerShell(cmake --build build --config Debug --target OloEngine 2>&1)",
+      "Bash(cmake --build /e/repos/OloEngineBase/build --config Debug --target OloEngine)",
+      "Bash(awk '/^    void Renderer3D::RenderPipeline::PopulateBlackboard/{flag=1; nl=NR} flag && /^    \\\\} \\\\/\\\\/ namespace|^    \\\\}$|^    void Renderer3D::RenderPipeline::/{if \\(NR > nl\\) {print \"End line:\", NR; exit}}' OloEngine/src/OloEngine/Renderer/RenderPipeline.cpp)",
+      "Bash(cmake --build /e/repos/OloEngineBase/build --config Debug --target OloEditor)",
+      "Bash(cmake --build \"e:/repos/OloEngineBase/build\" --config Debug --target OloEngine --target OloEditor)",
+      "Bash(cmake --build \"e:/repos/OloEngineBase/build\" --config Debug --target OloEngine)",
+      "Bash(cmake --build \"e:/repos/OloEngineBase/build\" --config Debug --target OloEditor)",
+      "Bash(cmake --build build --target OloEngine --config Debug)",
+      "Bash(git add *)"
     ],
     "additionalDirectories": [
       "\\tmp"

@@ -542,14 +542,13 @@ namespace OloEngine
         if (channel == 0)
             return;
 
-        // RAII guard: captures GL state at entry and restores the core
-        // subset (depth / blend / stencil / cull / polygon mode / scissor /
-        // viewport / FBO bindings / active program) on destruction. The
-        // explicit restore calls that previously lived at the end of each
-        // branch are now redundant for the covered subset. Per-attachment
-        // blend state and per-slot texture bindings are still NOT
-        // automatically restored — callers managing those must do so
-        // explicitly (none of the debug blit paths touch them).
+        // RAII guard: captures GL state on entry and restores the core subset
+        // (depth / blend / stencil / cull / polygon / scissor / viewport /
+        // FBO bindings / active program) on destruction. The channel==3
+        // branch below binds m_DebugRMAShader + the fullscreen-tri VAO and
+        // mutates the read-buffer; those bindings are explicitly cleared
+        // before return so this guard stays clean rather than acting as a
+        // silenced "every binding is a leak" detector.
         GLStateGuard guard("SceneRenderPass::BlitGBufferDebug", GLStateGuard::Policy::Restore);
 
         // Build the target FB's full multi-attachment draw-buffer list from
@@ -619,6 +618,12 @@ namespace OloEngine
                 0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
                 0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
                 GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+
+            // Unbind the blit shader + VAO so the RAII guard sees us leave
+            // shader/program/VAO state at zero, matching entry expectations
+            // for downstream passes that rebind their own.
+            ::glUseProgram(0);
+            ::glBindVertexArray(0);
             return;
         }
 
@@ -674,6 +679,11 @@ namespace OloEngine
             0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
             0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
             GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+
+        // Reset the G-Buffer's read buffer to attachment 0 so any downstream
+        // read on that FB picks up a deterministic default instead of the
+        // last debug channel we selected.
+        glNamedFramebufferReadBuffer(srcFB, GL_COLOR_ATTACHMENT0);
     }
 
     void SceneRenderPass::BlitForwardVelocityDebug()
@@ -691,11 +701,9 @@ namespace OloEngine
             attachments[3].TextureFormat != FramebufferTextureFormat::RG16F)
             return;
 
-        // Detector-only GL state guard.
-        // RAII guard as above — restores core state on return so the
-        // manual restore calls at the end of this helper only need to
-        // cover state outside the ApplyCore() subset (e.g. per-attachment
-        // blend).
+        // RAII guard — pure DSA blit, no shader/VAO mutations. Only the
+        // read-buffer selection drifts, and it's restored at the end of the
+        // function so the guard exits clean.
         GLStateGuard guard("SceneRenderPass::BlitForwardVelocityDebug", GLStateGuard::Policy::Restore);
 
         const u32 fb = m_Target->GetRendererID();
@@ -731,6 +739,10 @@ namespace OloEngine
         // Restore the scene FB's full multi-attachment draw-buffer list for
         // downstream passes (post-process, UI composite); see comment above.
         glNamedFramebufferDrawBuffers(fb, static_cast<GLsizei>(n), prevDrawBufs.data());
+
+        // Reset the read buffer selection so subsequent reads on this FB
+        // see the default (attachment 0) rather than the velocity slot.
+        glNamedFramebufferReadBuffer(fb, GL_COLOR_ATTACHMENT0);
     }
 
     void SceneRenderPass::OnReset()

@@ -108,6 +108,10 @@ namespace OloEngine
         }
 
         [[nodiscard]] bool IsFinalPass(const std::string& passName) const;
+        [[nodiscard]] const std::string& GetFinalPassName() const
+        {
+            return m_FinalPassName;
+        }
 
         struct ConnectionInfo
         {
@@ -207,10 +211,67 @@ namespace OloEngine
         [[nodiscard]] const ResourceInfo* FindRegisteredResource(std::string_view name) const;
         // Base-name lookups return the latest explicit version when one exists
         // (for example "SceneColor" -> "SceneColor@PassB"). Exact
-        // versioned names still resolve verbatim.
+        // versioned names still resolve verbatim. Falls through to the
+        // base-name alias table (see RegisterTextureAlias / RegisterFramebufferAlias)
+        // when the name itself is not registered — used for dynamic-chain
+        // names like "PostProcessColor" that point at whichever upstream
+        // pass produced the latest output for the active configuration.
         [[nodiscard]] RGTextureHandle GetTextureHandle(std::string_view name) const;
         [[nodiscard]] RGBufferHandle GetBufferHandle(std::string_view name) const;
         [[nodiscard]] RGFramebufferHandle GetFramebufferHandle(std::string_view name) const;
+
+        // -------------------------------------------------------------------
+        // Base-name aliases
+        // -------------------------------------------------------------------
+        // Register `aliasName` as a synonym for `targetBaseName` so
+        // GetTextureHandle / GetFramebufferHandle queries against the alias
+        // resolve through to the latest versioned producer of the target.
+        // Intended for "logical chain endpoints" — e.g.
+        // `RegisterFramebufferAlias("PostProcessColor", "AOApplyColor")` so
+        // downstream post-process passes that read by the abstract name
+        // `PostProcessColor` get the AOApply output without hard-coding
+        // every possible upstream. Pipeline code re-registers each frame
+        // (PopulateBlackboard) based on which upstream is active.
+        // Cleared by ClearImportedResources().
+        void RegisterTextureAlias(std::string_view aliasName, std::string_view targetBaseName);
+        void RegisterFramebufferAlias(std::string_view aliasName, std::string_view targetBaseName);
+
+        // Debug accessors: read-only views into the alias and latest-version
+        // tables. Used by the Render Graph Debugger to surface what
+        // GetTextureHandle / GetFramebufferHandle would resolve to without
+        // mutating state. Not for runtime use.
+        [[nodiscard]] const std::unordered_map<std::string, std::string>& GetTextureBaseNameAliases() const
+        {
+            return m_TextureBaseNameAliases;
+        }
+        [[nodiscard]] const std::unordered_map<std::string, std::string>& GetFramebufferBaseNameAliases() const
+        {
+            return m_FramebufferBaseNameAliases;
+        }
+        [[nodiscard]] const std::unordered_map<std::string, RGTextureHandle>& GetLatestTextureHandlesByBaseName() const
+        {
+            return m_LatestTextureHandlesByBaseName;
+        }
+        [[nodiscard]] const std::unordered_map<std::string, RGFramebufferHandle>& GetLatestFramebufferHandlesByBaseName() const
+        {
+            return m_LatestFramebufferHandlesByBaseName;
+        }
+
+        // Reverse-lookup: given a handle returned by ImportTexture /
+        // CreateFramebufferAttachmentView / WriteNewVersion, find the
+        // canonical registered name. Returns the first matching ResourceInfo
+        // name, or an empty string if no registered resource owns this
+        // handle. O(N) over registered resources — debug-only.
+        [[nodiscard]] std::string ReverseResolveTextureName(RGTextureHandle handle) const;
+        [[nodiscard]] std::string ReverseResolveFramebufferName(RGFramebufferHandle handle) const;
+
+        // If `name` is a texture view created via CreateFramebufferAttachmentView,
+        // returns the parent framebuffer's registered resource name. Empty
+        // string when the name is not a known attachment view. Used by the
+        // RGBuilder to propagate texture-view reads to the parent framebuffer's
+        // lifetime so the transient planner doesn't alias a parent framebuffer
+        // with a downstream pass that's still reading one of its attachments.
+        [[nodiscard]] std::string FindAttachmentViewParent(std::string_view name) const;
 
         // Returns the most recent pass that wrote the named resource during
         // BuildFrameGraph's Setup loop, or an empty string if none. Updated
@@ -520,7 +581,22 @@ namespace OloEngine
         // Build the frame graph by running all graph-native node setup callbacks.
         // Each setup callback declares its resource reads/writes to the builder.
         // After setup, the graph is topologically ordered and ready to execute.
-        void BuildFrameGraph();
+        //
+        // `cacheFingerprint` is an optional caller-supplied hash of the inputs
+        // that affect the per-pass Setup() output. When non-zero, the result
+        // of a successful build is cached; on subsequent calls with the same
+        // fingerprint (and no externally-marked topology changes) the entire
+        // body — Setup loop, reachability, barrier plan, transient plan,
+        // submission plan — is skipped. Pass 0 (default) to opt out.
+        void BuildFrameGraph(u64 cacheFingerprint = 0u);
+
+        // Marks the cached BuildFrameGraph output as invalid. Call from
+        // operations whose effect on the build cannot be captured in the
+        // caller's fingerprint (typically node insertion/removal).
+        void InvalidateBuildFrameGraphCache()
+        {
+            m_HasValidBuildFrameGraphCache = false;
+        }
 
         struct FrameBuildStats
         {
@@ -983,6 +1059,13 @@ namespace OloEngine
         bool m_HasExplicitFinalPass = false;
         bool m_DependencyGraphDirty = false;
 
+        // BuildFrameGraph cache: when the caller supplies a fingerprint of the
+        // per-frame inputs that drive Setup() output (typically computed in
+        // Renderer3D::EndScene from Renderer3DData + pipeline pass state), we
+        // skip the Setup loop and all downstream compilation on cache hits.
+        u64 m_LastBuildFrameGraphFingerprint = 0u;
+        bool m_HasValidBuildFrameGraphCache = false;
+
         // Dynamic Resolution Scaling state.
         // m_PhysicalWidth/Height reflect the last Resize() call (actual GPU allocation).
         // m_RenderScale is in [0.25, 1.0]; the active render viewport is
@@ -1030,6 +1113,12 @@ namespace OloEngine
         mutable std::unordered_map<std::string, RGTextureHandle> m_LatestTextureHandlesByBaseName;
         mutable std::unordered_map<std::string, RGBufferHandle> m_LatestBufferHandlesByBaseName;
         mutable std::unordered_map<std::string, RGFramebufferHandle> m_LatestFramebufferHandlesByBaseName;
+        // Base-name aliases: alias name -> target base name. Resolved by
+        // GetTextureHandle / GetFramebufferHandle through the latest-version
+        // maps, so callers reading by the alias name pick up whichever
+        // pass produced the latest output for the active configuration.
+        std::unordered_map<std::string, std::string> m_TextureBaseNameAliases;
+        std::unordered_map<std::string, std::string> m_FramebufferBaseNameAliases;
         mutable std::unordered_map<std::string, RGResourceDesc> m_TextureViewResourceDescs;
 
         enum class FramebufferAttachmentViewKind : u8

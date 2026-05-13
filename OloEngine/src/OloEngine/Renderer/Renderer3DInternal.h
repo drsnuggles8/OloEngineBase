@@ -187,7 +187,25 @@ namespace OloEngine
             FogHistoryTexture.Reset();
             TAAHistoryValid = false;
             FogHistoryValid = false;
+            InvalidateBlackboardCache();
         }
+
+        // PopulateBlackboard caches its previous-frame result via a fingerprint
+        // hash of the inputs that drive its branches. When the hash matches the
+        // previous frame, the function short-circuits and the existing handles
+        // in FrameBlackboard remain valid. Call this to force a full repopulate
+        // (e.g., on resize, settings change, or pass set rebuild).
+        void InvalidateBlackboardCache()
+        {
+            m_HasValidBlackboardCache = false;
+        }
+
+        // Computes a fingerprint of all per-frame inputs that affect both
+        // PopulateBlackboard's output and the per-pass Setup callbacks that run
+        // inside RenderGraph::BuildFrameGraph. The same fingerprint is used as
+        // the cache key for both layers so they short-circuit consistently
+        // whenever the inputs match the previous frame.
+        [[nodiscard]] u64 ComputeBlackboardFingerprint(const Renderer3DData& data) const;
 
       private:
         void ApplyGlobalResources(Renderer3DData& data);
@@ -197,6 +215,9 @@ namespace OloEngine
                                const FramebufferSpecification& scenePassSpec,
                                const FramebufferSpecification& finalPassSpec);
         void CreatePostProcessPasses(const FramebufferSpecification& finalPassSpec);
+
+        u64 m_BlackboardFingerprint = 0;
+        bool m_HasValidBlackboardCache = false;
     };
 
     inline Renderer3D::Renderer3DData::Renderer3DData()

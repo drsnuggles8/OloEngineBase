@@ -31,7 +31,7 @@ namespace OloEngine
         {
             m_Settings = settings;
         }
-        [[nodiscard]] bool IsReadyForExecution() const noexcept
+        [[nodiscard]] bool IsReadyForExecution() const noexcept override
         {
             return m_SSSBlurShader && m_SSSBlurShader->IsReady();
         }

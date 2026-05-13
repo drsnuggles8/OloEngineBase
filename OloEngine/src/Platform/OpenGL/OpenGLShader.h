@@ -54,8 +54,16 @@ namespace OloEngine
         {
             return m_CompilationStatus;
         }
+        // IsReady opportunistically polls async link completion when called.
+        // Without this, shaders that aren't tracked by ShaderLibrary (e.g.
+        // owned directly by a render pass) stay in Compiling forever because
+        // ShaderLibrary::PollPendingShaders only iterates library-registered
+        // shaders. Mirrors the GetRendererID() const_cast → EnsureLinked
+        // pattern below; same single-threaded GL context assumption applies.
         [[nodiscard]] bool IsReady() const override
         {
+            if (m_CompilationStatus == ShaderCompilationStatus::Compiling)
+                const_cast<OpenGLShader*>(this)->PollCompilationStatus();
             return m_CompilationStatus == ShaderCompilationStatus::Ready;
         }
         bool PollCompilationStatus() override;

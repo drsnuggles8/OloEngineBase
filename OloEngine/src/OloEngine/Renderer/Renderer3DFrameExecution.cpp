@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
+#include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
@@ -42,6 +43,7 @@ namespace OloEngine
     void Renderer3D::EndScene()
     {
         OLO_PROFILE_FUNCTION();
+        OLO_PERF_SCOPE_AUTO("Renderer3D::EndScene");
         auto& pipeline = *s_Data.Pipeline;
 
         if (!s_Data.RGraph)
@@ -50,17 +52,33 @@ namespace OloEngine
             return;
         }
 
-        pipeline.ConfigurePassesForFrame(s_Data);
+        {
+            OLO_PERF_SCOPE_AUTO("Renderer3D::ConfigurePassesForFrame");
+            pipeline.ConfigurePassesForFrame(s_Data);
+        }
 
         // Populate the graph blackboard AFTER per-frame pass configuration so
         // AOBuffer / PostProcessColor imports resolve the current frame's
         // active technique and enabled outputs rather than last frame's state.
-        pipeline.PopulateBlackboard(s_Data);
+        // Single fingerprint of all per-frame inputs that drive both the
+        // blackboard population and the per-pass Setup() callbacks. Pass it to
+        // both layers so they cache consistently — if the fingerprint matches
+        // last frame's, both layers short-circuit and the cached handles +
+        // submission plan are reused as-is.
+        const u64 frameFingerprint = pipeline.ComputeBlackboardFingerprint(s_Data);
 
-        pipeline.UploadExecutionState(s_Data);
+        {
+            OLO_PERF_SCOPE_AUTO("Renderer3D::PopulateBlackboard");
+            pipeline.PopulateBlackboard(s_Data);
+        }
+
+        {
+            OLO_PERF_SCOPE_AUTO("Renderer3D::UploadExecutionState");
+            pipeline.UploadExecutionState(s_Data);
+        }
 
         // Phase C: compile graph-native pass declarations before execution.
-        s_Data.RGraph->BuildFrameGraph();
+        s_Data.RGraph->BuildFrameGraph(frameFingerprint);
 
         bool buildStatsChanged = false;
         {

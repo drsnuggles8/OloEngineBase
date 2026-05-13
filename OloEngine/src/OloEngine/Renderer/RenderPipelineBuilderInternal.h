@@ -23,12 +23,16 @@ namespace OloEngine::RenderPipelineBuilderInternal
     {
         const RenderPipelinePassInputs* Passes = nullptr;
         bool Deferred = false;
+        // AO writer registered between Scene G-Buffer and DeferredLightingPass so the
+        // builder's read-from-AOBuffer edge derivation discovers the producer in the
+        // correct direction (registration order == intended execution order). The
+        // technique selector mirrors the value passed to RegisterTransparencyAndAONodes.
+        AOTechnique ActiveAOTechnique{};
     };
 
     struct TransparencyAOStageInputs
     {
         const RenderPipelinePassInputs* Passes = nullptr;
-        AOTechnique ActiveAOTechnique{};
     };
 
     struct PostProcessStageInputs
@@ -51,12 +55,14 @@ namespace OloEngine::RenderPipelineBuilderInternal
     [[nodiscard]] inline auto MakeSceneLightingStageInputs(const RenderPipelineInputs& inputs,
                                                            const bool deferred) -> SceneLightingStageInputs
     {
-        return SceneLightingStageInputs{ .Passes = &inputs.Passes, .Deferred = deferred };
+        return SceneLightingStageInputs{ .Passes = &inputs.Passes,
+                                         .Deferred = deferred,
+                                         .ActiveAOTechnique = inputs.ActiveAOTechnique };
     }
 
     [[nodiscard]] inline auto MakeTransparencyAOStageInputs(const RenderPipelineInputs& inputs) -> TransparencyAOStageInputs
     {
-        return TransparencyAOStageInputs{ .Passes = &inputs.Passes, .ActiveAOTechnique = inputs.ActiveAOTechnique };
+        return TransparencyAOStageInputs{ .Passes = &inputs.Passes };
     }
 
     [[nodiscard]] inline auto MakePostProcessStageInputs(const RenderPipelineInputs& inputs) -> PostProcessStageInputs
