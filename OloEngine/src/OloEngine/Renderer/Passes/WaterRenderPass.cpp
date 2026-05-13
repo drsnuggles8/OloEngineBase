@@ -60,7 +60,11 @@ namespace OloEngine
         {
             m_SelectedRefractionTexture = board.WaterRefraction;
             builder.AllowFeedback(board.WaterRefraction);
-            builder.Write(board.WaterRefraction, RGWriteUsage::ShaderImage);
+            // glCopyImageSubData from SceneColor → WaterRefraction, then sampled
+            // back as a shader resource — this is a transfer write, not an
+            // image-store. ShaderImage would let the barrier planner schedule
+            // an image-access fence instead of a copy-complete fence.
+            builder.Write(board.WaterRefraction, RGWriteUsage::TransferDest);
             [[maybe_unused]] const auto refractionRead = builder.Read(board.WaterRefraction, RGReadUsage::ShaderSample);
         }
     }

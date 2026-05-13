@@ -558,7 +558,11 @@ namespace OloEngine
         // participate in the WB-OIT path, plus the prepare/resolve passes,
         // every frame so UI changes take effect immediately.
         {
-            const bool oitEnabled = (data.Settings.Path == RenderingPath::Deferred) && data.Settings.Deferred.OITEnabled;
+            // OIT is path-agnostic — the shaders work in Forward, Forward+,
+            // and Deferred. Previously locked to Deferred which prevented
+            // enabling OIT at all from the Forward UI; relaxed so the toggle
+            // is the single source of truth.
+            const bool oitEnabled = data.Settings.OITEnabled;
             const bool hasOITContributors =
                 (SceneCompositePasses.Particle && SceneCompositePasses.Particle->HasRenderCallback()) ||
                 (RenderStreamPasses.Decal && RenderStreamPasses.Decal->GetCommandBucket().GetCommandCount() > 0);
@@ -859,7 +863,7 @@ namespace OloEngine
         // Rendering path / deferred sub-state
         HashU32(h, static_cast<u32>(data.Settings.Path));
         HashU32(h, data.Settings.Deferred.MSAASampleCount);
-        HashBool(h, data.Settings.Deferred.OITEnabled);
+        HashBool(h, data.Settings.OITEnabled);
         HashBool(h, data.Settings.Deferred.PerSampleLighting);
 
         // Shadow renderer IDs change when shadow textures are (re)created; the
@@ -1799,8 +1803,7 @@ namespace OloEngine
         // (`if (board.OITAccum.IsValid())` is already guarded), so the
         // graph never sees write edges into a buffer that nothing reads.
         // OITPreparePass and OITResolvePass also self-skip via `m_Enabled`.
-        const bool oitActive = (data.Settings.Path == RenderingPath::Deferred) &&
-                               data.Settings.Deferred.OITEnabled &&
+        const bool oitActive = data.Settings.OITEnabled &&
                                pipeline.SceneCompositePasses.OITResolve;
         if (oitActive)
         {

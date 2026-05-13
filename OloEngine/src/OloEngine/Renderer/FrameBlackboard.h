@@ -22,7 +22,7 @@ namespace OloEngine
     //  - Scene outputs (produced by SceneRenderPass / GBuffer fill)
     //  - AO / shadow maps (produced by SSAO/GTAO/ShadowRenderPass)
     //  - Post-process chain (produced by standalone dynamic post passes)
-    //  - OIT buffers (produced by WaterRenderPass / ParticleRenderPass / DecalRenderPass)
+    //  - OIT buffers (produced by ParticleRenderPass / DecalRenderPass)
     //  - Temporal histories (imported from prior frame)
     //
     // Unset handles (IsValid() == false) mean the resource is not available in

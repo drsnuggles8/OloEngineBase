@@ -65,12 +65,15 @@ namespace OloEngine
                                                     outputHandle,
                                                     0u));
 
+        // JFA passes shader-sample (texture()) the ping/pong color attachments
+        // — these are not input-attachment reads. The hazard planner needs the
+        // sample barrier, not a sub-pass attachment-read.
         if (blackboard.JFAPing.IsValid())
         {
             m_SelectedJFAPingFramebuffer = blackboard.JFAPing;
             builder.AllowFeedback(blackboard.JFAPing);
             builder.Write(blackboard.JFAPing, RGWriteUsage::RenderTarget);
-            [[maybe_unused]] const auto pingRead = builder.Read(blackboard.JFAPing, RGReadUsage::RenderTargetRead);
+            [[maybe_unused]] const auto pingRead = builder.Read(blackboard.JFAPing, RGReadUsage::ShaderSample);
         }
 
         if (blackboard.JFAPong.IsValid())
@@ -78,7 +81,7 @@ namespace OloEngine
             m_SelectedJFAPongFramebuffer = blackboard.JFAPong;
             builder.AllowFeedback(blackboard.JFAPong);
             builder.Write(blackboard.JFAPong, RGWriteUsage::RenderTarget);
-            [[maybe_unused]] const auto pongRead = builder.Read(blackboard.JFAPong, RGReadUsage::RenderTargetRead);
+            [[maybe_unused]] const auto pongRead = builder.Read(blackboard.JFAPong, RGReadUsage::ShaderSample);
         }
     }
 

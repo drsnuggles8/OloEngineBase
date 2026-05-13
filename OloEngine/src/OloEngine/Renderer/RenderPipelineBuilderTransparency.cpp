@@ -10,14 +10,20 @@ namespace OloEngine::RenderPipelineBuilderInternal
     {
         OLO_CORE_ASSERT(inputs.Passes, "RegisterTransparencyAndAONodes requires pass inputs");
 
-        // OIT contributor ordering between Decal (OIT mode) and Particle (OIT
-        // mode) is now resolved by Particle's Setup calling
-        // builder.DependsOnPreviousWriter("OITAccum") — DecalPass (registered
-        // earlier in RegisterRenderStreamNodes) shows up as the previous
-        // writer when its own OIT path is taken, and the call is a no-op
-        // otherwise.
-        graph.AddNode(PrepareGraphNode("ParticlePass", inputs.Passes->Particle));
+        // OIT pass ordering:
+        //   OITPreparePass must run BEFORE any OIT contributor (Particle,
+        //   Decal) so the accum/revealage attachments are cleared and the
+        //   depth is seeded before transparents write. Previously Prepare
+        //   was registered AFTER Particle, with a `DependsOnPass` edge
+        //   inside `if (m_OITEnabled)` papering over the order. Register in
+        //   the correct execution order so the dependency edges are an
+        //   invariant of the graph topology rather than a runtime gate.
+        //
+        //   OIT contributor ordering between Decal (OIT mode) and Particle
+        //   (OIT mode) is still resolved by Particle's Setup calling
+        //   builder.DependsOnPreviousWriter("OITAccum").
         graph.AddNode(PrepareGraphNode("OITPreparePass", inputs.Passes->OITPrepare));
+        graph.AddNode(PrepareGraphNode("ParticlePass", inputs.Passes->Particle));
         graph.AddNode(PrepareGraphNode("OITResolvePass", inputs.Passes->OITResolve));
         graph.AddNode(PrepareGraphNode("SSSPass", inputs.Passes->SSS));
 

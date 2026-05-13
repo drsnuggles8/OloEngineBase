@@ -615,7 +615,7 @@ namespace OloEngine
         static constexpr u32 TEX_GBUFFER_DEPTH = 47;    // G-Buffer depth attachment
         // Weighted-blended OIT accumulation targets. Sampled by
         // OIT_Resolve.glsl; written to (not sampled) by transparent passes
-        // when RendererSettings::DeferredSettings::OITEnabled is on.
+        // when RendererSettings::OITEnabled is on (path-agnostic).
         static constexpr u32 TEX_OIT_ACCUM = 48;      // OIT accum buffer (RGBA16F: sum(Ci*ai*wi), sum(ai*wi))
         static constexpr u32 TEX_OIT_REVEALAGE = 49;  // OIT revealage buffer (R16F: prod(1 - ai))
         static constexpr u32 TEX_SHADER_GRAPH_0 = 50; // First shader graph user texture slot (must be after all engine-reserved slots)

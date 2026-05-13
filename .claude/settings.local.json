@@ -56,7 +56,9 @@
       "Bash(cmake --build \"e:/repos/OloEngineBase/build\" --config Debug --target OloEngine)",
       "Bash(cmake --build \"e:/repos/OloEngineBase/build\" --config Debug --target OloEditor)",
       "Bash(cmake --build build --target OloEngine --config Debug)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(cmake --build build --target OloEngine OloEditor --config Debug)"
     ],
     "additionalDirectories": [
       "\\tmp"

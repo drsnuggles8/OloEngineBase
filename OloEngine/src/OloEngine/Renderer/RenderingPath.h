@@ -46,10 +46,6 @@ namespace OloEngine
         // G-Buffer is resolved pre-lighting (hardware edge averaging only).
         bool PerSampleLighting = true;
 
-        // Weighted-blended OIT for transparents (particles).
-        // Disabled by default until OIT accumulation passes are wired.
-        bool OITEnabled = false;
-
         // Debug view of a single G-Buffer channel (0 = off, 1 = albedo,
         // 2 = normal, 3 = roughness/metallic/AO, 4 = emissive, 5 = velocity).
         u32 DebugChannel = 0;
@@ -96,6 +92,12 @@ namespace OloEngine
 
         // --- Deferred tuning (when Path == Deferred) ---
         DeferredSettings Deferred;
+
+        // --- Transparency ---
+        // Weighted-blended OIT for transparents (particles, decals). The OIT
+        // shaders are path-agnostic — this is exposed at top level so it can
+        // be toggled in Forward, Forward+, and Deferred paths.
+        bool OITEnabled = false;
 
         // --- Debug overlays ---
         bool WireframeOverlay = false;

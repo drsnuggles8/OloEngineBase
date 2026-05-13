@@ -132,7 +132,7 @@ namespace OloEngine::Tests
         RendererSettings s;
         EXPECT_EQ(s.Path, RenderingPath::Forward);
         EXPECT_EQ(s.Deferred.MSAASampleCount, 1u);
-        EXPECT_FALSE(s.Deferred.OITEnabled);
+        EXPECT_FALSE(s.OITEnabled);
         EXPECT_EQ(s.Deferred.DebugChannel, 0u);
         EXPECT_TRUE(s.Deferred.GBufferDecalsEnabled);
         EXPECT_TRUE(s.Deferred.PerSampleLighting);

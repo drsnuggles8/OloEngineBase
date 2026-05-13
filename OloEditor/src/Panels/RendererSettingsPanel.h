@@ -32,6 +32,7 @@ namespace OloEngine
         void DrawRenderingPathSection();
         void DrawCullingSection();
         void DrawForwardPlusSection();
+        void DrawTransparencySection();
         void DrawDebugSection();
 
         // Quality-tiering helpers

@@ -6,10 +6,11 @@
 // emits accum + revealage into the OITBuffer attachments so overlapping
 // forward-path decals composite without back-to-front sorting.
 //
-// Selected by DecalRenderPass when
-// `RendererSettings::DeferredSettings::OITEnabled` is true AND the path
-// is Forward / Forward+ (deferred path uses the G-Buffer decal variants
-// which re-light the decal texels through DeferredLightingPass).
+// Selected by DecalRenderPass when `RendererSettings::OITEnabled` is true.
+// In the Deferred path, opaque decals are routed through the G-Buffer decal
+// variants instead (re-lit through DeferredLightingPass); only translucent
+// decals reach this shader. In Forward / Forward+ all decals participate
+// in OIT when enabled.
 //--------------------------
 #type vertex
 #version 450 core

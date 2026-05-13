@@ -115,7 +115,7 @@ namespace OloEngine
 
             AppendChange(changes, "Deferred.MSAASampleCount", before.Deferred.MSAASampleCount, after.Deferred.MSAASampleCount);
             AppendChange(changes, "Deferred.PerSampleLighting", before.Deferred.PerSampleLighting, after.Deferred.PerSampleLighting);
-            AppendChange(changes, "Deferred.OITEnabled", before.Deferred.OITEnabled, after.Deferred.OITEnabled);
+            AppendChange(changes, "OITEnabled", before.OITEnabled, after.OITEnabled);
             AppendChange(changes, "Deferred.GBufferDecalsEnabled", before.Deferred.GBufferDecalsEnabled, after.Deferred.GBufferDecalsEnabled);
             AppendChange(changes, "Deferred.EnableLightProbes", before.Deferred.EnableLightProbes, after.Deferred.EnableLightProbes);
             if (before.Deferred.DebugChannel != after.Deferred.DebugChannel)
@@ -148,6 +148,7 @@ namespace OloEngine
         DrawRenderingPathSection();
         DrawCullingSection();
         DrawForwardPlusSection();
+        DrawTransparencySection();
         DrawDebugSection();
 
         const RendererSettings settingsAfter = Renderer3D::GetRendererSettings();
@@ -474,10 +475,6 @@ namespace OloEngine
                         ImGui::EndDisabled();
                 }
 
-                if (ImGui::Checkbox("Weighted-Blended OIT", &deferred.OITEnabled))
-                {
-                    Renderer3D::ApplyRendererSettings();
-                }
                 if (ImGui::Checkbox("G-Buffer Decals (Phase 4)", &deferred.GBufferDecalsEnabled))
                 {
                     Renderer3D::ApplyRendererSettings();
@@ -624,6 +621,29 @@ namespace OloEngine
                 ImGui::Text("Point Lights: %u", fplus.GetPointLightCount());
                 ImGui::Text("Spot Lights:  %u", fplus.GetSpotLightCount());
                 ImGui::Text("Grid:         %ux%u tiles", fplus.GetTileCountX(), fplus.GetTileCountY());
+            }
+
+            ImGui::Unindent();
+        }
+    }
+
+    void RendererSettingsPanel::DrawTransparencySection()
+    {
+        auto& settings = Renderer3D::GetRendererSettings();
+
+        if (ImGui::CollapsingHeader("Transparency"))
+        {
+            ImGui::Indent();
+
+            if (ImGui::Checkbox("Weighted-Blended OIT", &settings.OITEnabled))
+            {
+                Renderer3D::ApplyRendererSettings();
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Order-Independent Transparency (McGuire/Bavoil 2013).\n"
+                                  "Works in Forward, Forward+, and Deferred paths.\n"
+                                  "Contributors: Particles, Decals.");
             }
 
             ImGui::Unindent();

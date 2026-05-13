@@ -77,7 +77,10 @@ namespace OloEngine
         if (blackboard.AOBuffer.IsValid())
         {
             m_SelectedAOOutputTexture = blackboard.AOBuffer;
-            builder.Write(blackboard.AOBuffer, RGWriteUsage::ShaderImage);
+            // AOBuffer is written via glCopyImageSubData from the final denoise
+            // ping-pong slot, not a compute image-store. The dispatch path
+            // writes to GTAODenoisePing/Pong (declared as ShaderImage above).
+            builder.Write(blackboard.AOBuffer, RGWriteUsage::TransferDest);
         }
 
         if (m_Width == 0u || m_Height == 0u)

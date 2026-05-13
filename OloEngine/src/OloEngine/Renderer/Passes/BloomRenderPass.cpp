@@ -55,6 +55,9 @@ namespace OloEngine
                                                     outputHandle,
                                                     0u));
 
+        // Downsample/upsample chain reads previous mip via texture() (shader
+        // sample), not as an input attachment — barrier planner needs the
+        // sample fence, not a sub-pass attachment-read.
         for (u32 i = 0; i < MAX_BLOOM_MIPS; ++i)
         {
             if (!blackboard.BloomMips[i].IsValid())
@@ -63,7 +66,7 @@ namespace OloEngine
             m_SelectedBloomMipFramebuffers[i] = blackboard.BloomMips[i];
             builder.AllowFeedback(blackboard.BloomMips[i]);
             builder.Write(blackboard.BloomMips[i], RGWriteUsage::RenderTarget);
-            [[maybe_unused]] const auto mipRead = builder.Read(blackboard.BloomMips[i], RGReadUsage::RenderTargetRead);
+            [[maybe_unused]] const auto mipRead = builder.Read(blackboard.BloomMips[i], RGReadUsage::ShaderSample);
         }
     }
 

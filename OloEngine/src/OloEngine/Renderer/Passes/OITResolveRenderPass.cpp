@@ -36,12 +36,15 @@ namespace OloEngine
         if (blackboard.OITAccum.IsValid())
         {
             m_SelectedOITAccumTexture = blackboard.OITAccum;
-            [[maybe_unused]] const auto oitAccumRead = builder.Read(blackboard.OITAccum, RGReadUsage::RenderTargetRead);
+            // Resolve samples OITAccum / OITRevealage as textures (see Execute
+            // BindTexture calls), not as input attachments — the hazard planner
+            // needs a sample barrier, not a sub-pass attachment-read.
+            [[maybe_unused]] const auto oitAccumRead = builder.Read(blackboard.OITAccum, RGReadUsage::ShaderSample);
         }
         if (blackboard.OITRevealage.IsValid())
         {
             m_SelectedOITRevealageTexture = blackboard.OITRevealage;
-            [[maybe_unused]] const auto oitRevealageRead = builder.Read(blackboard.OITRevealage, RGReadUsage::RenderTargetRead);
+            [[maybe_unused]] const auto oitRevealageRead = builder.Read(blackboard.OITRevealage, RGReadUsage::ShaderSample);
         }
 
         if (blackboard.SceneColor.IsValid())

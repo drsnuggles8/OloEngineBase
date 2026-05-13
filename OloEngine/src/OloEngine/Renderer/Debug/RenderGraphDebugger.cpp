@@ -285,10 +285,10 @@ namespace OloEngine
             if (renderer.Path == RenderingPath::Deferred)
             {
                 ImGui::SameLine();
-                ImGui::TextDisabled("(MSAA %ux, OIT %s)",
-                                    renderer.Deferred.MSAASampleCount,
-                                    renderer.Deferred.OITEnabled ? "on" : "off");
+                ImGui::TextDisabled("(MSAA %ux)", renderer.Deferred.MSAASampleCount);
             }
+            ImGui::SameLine();
+            ImGui::TextDisabled("[OIT %s]", renderer.OITEnabled ? "on" : "off");
 
             const auto finalInput = GetFinalPassInputName(graph);
             if (finalInput.empty())
