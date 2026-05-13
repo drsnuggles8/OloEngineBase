@@ -125,7 +125,6 @@ namespace OloEngine
         struct NodeSubmissionInfo
         {
             std::string NodeName;
-            RenderGraphSubmissionModel Submission = RenderGraphSubmissionModel::Unknown;
             bool DeclaresResources = false;
             RenderGraphPassWorkType WorkType = RenderGraphPassWorkType::Graphics; // Scheduler metadata
             bool AsyncComputeCandidate = false;                                   // Scheduler metadata
@@ -605,9 +604,6 @@ namespace OloEngine
             u32 DeclaredWrites = 0;
             u32 DerivedEdges = 0;
             u32 OrderSensitiveResults = 0;
-            u32 SetupCallbackPasses = 0;
-            u32 DynamicDeclarationPasses = 0;
-            u32 BucketBackedPasses = 0;
         };
 
         [[nodiscard]] const FrameBuildStats& GetLastBuildStats() const

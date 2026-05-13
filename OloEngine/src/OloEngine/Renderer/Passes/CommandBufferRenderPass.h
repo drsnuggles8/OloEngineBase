@@ -51,11 +51,6 @@ namespace OloEngine
             m_CommandBucket.SubmitPacket(packet);
         }
 
-        [[nodiscard]] SubmissionModel GetSubmissionModel() const override
-        {
-            return SubmissionModel::BucketOnly;
-        }
-
         [[nodiscard]] RenderGraphNodeFlags GetFlags() const override
         {
             return RenderGraphNode::GetFlags() | RenderGraphNodeFlags::UsesCommandBucket;

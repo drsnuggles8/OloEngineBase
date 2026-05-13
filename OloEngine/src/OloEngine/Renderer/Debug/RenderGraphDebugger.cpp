@@ -55,22 +55,6 @@ namespace OloEngine
             }
         }
 
-        const char* SubmissionModelToString(const RenderGraphSubmissionModel submissionModel)
-        {
-            switch (submissionModel)
-            {
-                case RenderGraphSubmissionModel::BucketOnly:
-                    return "BucketOnly";
-                case RenderGraphSubmissionModel::ImmediateOnly:
-                    return "ImmediateOnly";
-                case RenderGraphSubmissionModel::Mixed:
-                    return "Mixed";
-                case RenderGraphSubmissionModel::Unknown:
-                default:
-                    return "Unknown";
-            }
-        }
-
         std::unordered_set<std::string> BuildCulledPassSet(const Ref<RenderGraph>& graph)
         {
             std::unordered_set<std::string> culled;
@@ -653,8 +637,7 @@ namespace OloEngine
             else
             {
                 dotFile << "\\n"
-                        << WorkTypeToString(node->GetPassWorkType())
-                        << " / " << SubmissionModelToString(node->GetSubmissionModel());
+                        << WorkTypeToString(node->GetPassWorkType());
             }
 
             dotFile << "\"];\n";
@@ -818,7 +801,6 @@ namespace OloEngine
         ImGui::BeginTooltip();
         ImGui::Text("Node: %s", node->GetName().c_str());
         ImGui::Text("Work: %s", WorkTypeToString(node->GetPassWorkType()));
-        ImGui::Text("Submission: %s", SubmissionModelToString(node->GetSubmissionModel()));
 
         if (const auto renderPass = node.As<RenderGraphNode>())
         {

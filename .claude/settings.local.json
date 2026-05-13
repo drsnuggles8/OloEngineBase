@@ -58,7 +58,11 @@
       "Bash(cmake --build build --target OloEngine --config Debug)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(cmake --build build --target OloEngine OloEditor --config Debug)"
+      "Bash(cmake --build build --target OloEngine OloEditor --config Debug)",
+      "Bash(cmake --build build --target OloEngineTests --config Debug)",
+      "Bash(cmake --build build --target OloEngine-Tests --config Debug)",
+      "Bash(\"E:/repos/OloEngineBase/build/OloEngine/tests/Debug/OloEngine-Tests.exe\" --gtest_filter='RenderGraph.*' --gtest_brief=1)",
+      "Bash(\"E:/repos/OloEngineBase/build/OloEngine/tests/Debug/OloEngine-Tests.exe\" --gtest_filter='RenderGraph*:*RenderGraph*' --gtest_brief=1)"
     ],
     "additionalDirectories": [
       "\\tmp"

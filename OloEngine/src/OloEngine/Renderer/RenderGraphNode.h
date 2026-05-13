@@ -44,14 +44,6 @@ namespace OloEngine
         return (static_cast<u32>(flags) & static_cast<u32>(flag)) != 0u;
     }
 
-    enum class RenderGraphSubmissionModel : u8
-    {
-        Unknown = 0,
-        BucketOnly,
-        ImmediateOnly,
-        Mixed,
-    };
-
     enum class RenderGraphPassWorkType : u8
     {
         Graphics = 0,
@@ -67,7 +59,6 @@ namespace OloEngine
     class RenderGraphNode : public RefCounted
     {
       public:
-        using SubmissionModel = RenderGraphSubmissionModel;
         using PassWorkType = RenderGraphPassWorkType;
         enum class SideEffect : u8
         {
@@ -207,11 +198,6 @@ namespace OloEngine
             return flags;
         }
 
-        [[nodiscard]] virtual bool UsesSetupCallback() const
-        {
-            return false;
-        }
-
         // Debug-only introspection: lets the Render Graph Debugger ask any
         // pass whether it's user-enabled and whether it has the resources it
         // needs to actually execute this frame. Default-true so non-overriding
@@ -276,13 +262,6 @@ namespace OloEngine
         }
 
         virtual void OnReset() {}
-
-        [[nodiscard]] virtual RenderGraphSubmissionModel GetSubmissionModel() const
-        {
-            if (HasRenderGraphNodeFlag(GetFlags(), RenderGraphNodeFlags::UsesCommandBucket))
-                return RenderGraphSubmissionModel::BucketOnly;
-            return RenderGraphSubmissionModel::Unknown;
-        }
 
         // Side-effect storage and accessors.
         void SetSideEffects(SideEffect effects)

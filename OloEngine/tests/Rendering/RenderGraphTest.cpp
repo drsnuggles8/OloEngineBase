@@ -106,11 +106,6 @@ class CallbackStyleStubPass : public RenderGraphNode
         m_Setup = std::move(setup);
     }
 
-    [[nodiscard]] bool UsesSetupCallback() const override
-    {
-        return static_cast<bool>(m_Setup);
-    }
-
   private:
     SetupFn m_Setup;
 };
@@ -144,10 +139,6 @@ class ImmediateStubPass : public TestDeclarativeNode
     [[nodiscard]] Ref<Framebuffer> GetTarget() const override
     {
         return nullptr;
-    }
-    [[nodiscard]] SubmissionModel GetSubmissionModel() const override
-    {
-        return SubmissionModel::ImmediateOnly;
     }
 
     void TestDeclareRead(std::string_view resource)
@@ -523,11 +514,6 @@ class TestGraphNode : public RenderGraphNode
         return m_Flags;
     }
 
-    [[nodiscard]] RenderGraphSubmissionModel GetSubmissionModel() const override
-    {
-        return m_SubmissionModelOverride ? m_SubmissionModel : RenderGraphNode::GetSubmissionModel();
-    }
-
     void SetupFramebuffer(u32 width, u32 height) override
     {
         ++m_SetupFramebufferCount;
@@ -552,12 +538,6 @@ class TestGraphNode : public RenderGraphNode
     void SetFlags(RenderGraphNodeFlags flags)
     {
         m_Flags = flags;
-    }
-
-    void SetSubmissionModel(RenderGraphSubmissionModel submissionModel)
-    {
-        m_SubmissionModel = submissionModel;
-        m_SubmissionModelOverride = true;
     }
 
     void DeclareRead(std::string_view name, ResourceHandle::Kind kind = ResourceHandle::Kind::Unknown)
@@ -660,7 +640,6 @@ class TestGraphNode : public RenderGraphNode
     SetupFn m_Setup;
     ExecuteFn m_Execute;
     RenderGraphNodeFlags m_Flags = RenderGraphNodeFlags::Graphics;
-    RenderGraphSubmissionModel m_SubmissionModel = RenderGraphSubmissionModel::ImmediateOnly;
     std::vector<ResourceHandle> m_Reads;
     std::vector<ResourceHandle> m_Writes;
     u32 m_SetupCount = 0;
@@ -675,7 +654,6 @@ class TestGraphNode : public RenderGraphNode
     u32 m_LastRenderViewportWidth = 0;
     u32 m_LastRenderViewportHeight = 0;
     bool m_ContextWasActive = false;
-    bool m_SubmissionModelOverride = false;
     std::string m_ContextPassName;
 
     static ResourceHandle::Kind NormalizeKind(ResourceHandle::Kind kind)
@@ -827,7 +805,7 @@ TEST(RenderGraph, GetNodeSubmissionInfoReturnsAllRegisteredEntries)
     EXPECT_EQ(all.size(), 3u);
 }
 
-TEST(RenderGraph, NodeSubmissionInfoReportsModelsAndResourceDeclarations)
+TEST(RenderGraph, NodeSubmissionInfoReportsResourceDeclarations)
 {
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
@@ -850,13 +828,11 @@ TEST(RenderGraph, NodeSubmissionInfoReportsModelsAndResourceDeclarations)
     const auto bucketIt = std::find_if(info.begin(), info.end(), [](const RenderGraph::NodeSubmissionInfo& entry)
                                        { return entry.NodeName == "BucketPass"; });
     ASSERT_NE(bucketIt, info.end());
-    EXPECT_EQ(bucketIt->Submission, RenderGraphSubmissionModel::BucketOnly);
     EXPECT_FALSE(bucketIt->DeclaresResources);
 
     const auto immediateIt = std::find_if(info.begin(), info.end(), [](const RenderGraph::NodeSubmissionInfo& entry)
                                           { return entry.NodeName == "ImmediatePass"; });
     ASSERT_NE(immediateIt, info.end());
-    EXPECT_EQ(immediateIt->Submission, RenderGraphSubmissionModel::ImmediateOnly);
     EXPECT_TRUE(immediateIt->DeclaresResources);
 }
 
@@ -2613,7 +2589,6 @@ TEST(RenderGraph, GraphNodeFlagsDriveSubmissionMetadata)
     const auto submissionInfo = graph.GetNodeSubmissionInfo();
     ASSERT_EQ(submissionInfo.size(), 1u);
     EXPECT_EQ(submissionInfo[0].NodeName, "ComputeGraphNode");
-    EXPECT_EQ(submissionInfo[0].Submission, RenderGraphSubmissionModel::BucketOnly);
     EXPECT_TRUE(submissionInfo[0].DeclaresResources);
     EXPECT_EQ(submissionInfo[0].WorkType, RenderGraphPassWorkType::Compute);
     EXPECT_TRUE(submissionInfo[0].AsyncComputeCandidate);
@@ -2634,22 +2609,6 @@ TEST(RenderGraph, GraphNodeFlagsDriveSubmissionMetadata)
     EXPECT_NE(batchBegin, plan.end());
     EXPECT_NE(batchEnd, plan.end());
     EXPECT_EQ(node->GetExecuteCount(), 1u);
-}
-
-TEST(RenderGraph, GraphNodeSubmissionModelOverrideIsReported)
-{
-    RenderGraph graph;
-
-    auto node = Ref<TestGraphNode>::Create("MixedGraphNode");
-    node->SetFlags(RenderGraphNodeFlags::Graphics | RenderGraphNodeFlags::UsesCommandBucket);
-    node->SetSubmissionModel(RenderGraphSubmissionModel::Mixed);
-
-    graph.AddNode(node);
-
-    const auto info = graph.GetNodeSubmissionInfo();
-    ASSERT_EQ(info.size(), 1u);
-    EXPECT_EQ(info[0].NodeName, "MixedGraphNode");
-    EXPECT_EQ(info[0].Submission, RenderGraphSubmissionModel::Mixed);
 }
 
 TEST(RenderGraph, GraphNodeLifecycleHooksTrackInitResizeAndRenderScale)
@@ -3202,9 +3161,6 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
     EXPECT_NE(json.find("\"historyResourceCount\": 0"), std::string::npos);
     EXPECT_NE(json.find("\"externallyBackedTransientRootCount\": 0"), std::string::npos);
     EXPECT_NE(json.find("\"externallyBackedResourceCount\": 0"), std::string::npos);
-    EXPECT_NE(json.find("\"setupCallbackPassCount\":"), std::string::npos);
-    EXPECT_NE(json.find("\"dynamicDeclarationPassCount\":"), std::string::npos);
-    EXPECT_NE(json.find("\"bucketBackedPassCount\":"), std::string::npos);
     EXPECT_NE(json.find("\"temporalHistoryContractCount\": 0"), std::string::npos);
     EXPECT_NE(json.find("\"passFlags\""), std::string::npos);
     EXPECT_NE(json.find("\"workType\": \"Graphics\""), std::string::npos);
@@ -3215,9 +3171,6 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
     EXPECT_NE(json.find("\"declaredWrites\":"), std::string::npos);
     EXPECT_NE(json.find("\"derivedEdges\":"), std::string::npos);
     EXPECT_NE(json.find("\"orderSensitiveResults\": 0"), std::string::npos);
-    EXPECT_NE(json.find("\"setupCallbackPasses\":"), std::string::npos);
-    EXPECT_NE(json.find("\"dynamicDeclarationPasses\":"), std::string::npos);
-    EXPECT_NE(json.find("\"bucketBackedPasses\":"), std::string::npos);
     EXPECT_NE(json.find("\"buildDiagnosticCount\": 0"), std::string::npos);
     EXPECT_NE(json.find("\"buildDiagnostics\""), std::string::npos);
     EXPECT_NE(json.find("\"passOrder\""), std::string::npos);

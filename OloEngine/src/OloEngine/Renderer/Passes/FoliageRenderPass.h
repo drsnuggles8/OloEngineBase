@@ -25,10 +25,6 @@ namespace OloEngine
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
-        [[nodiscard]] SubmissionModel GetSubmissionModel() const override
-        {
-            return SubmissionModel::BucketOnly;
-        }
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;

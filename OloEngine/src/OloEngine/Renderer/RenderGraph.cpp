@@ -79,27 +79,6 @@ namespace OloEngine
             return nullptr;
         }
 
-        struct NodeAuthoringDiagnostics
-        {
-            bool UsesSetupCallback = false;
-            bool UsesDynamicDeclarations = false;
-            bool BucketBacked = false;
-        };
-
-        [[nodiscard]] auto GatherNodeAuthoringDiagnostics(
-            const RenderGraphNode& node,
-            const std::vector<RGAccessDeclaration>* dynamicAccesses = nullptr) -> NodeAuthoringDiagnostics
-        {
-            NodeAuthoringDiagnostics diagnostics{};
-            diagnostics.UsesSetupCallback = node.UsesSetupCallback();
-            diagnostics.UsesDynamicDeclarations = dynamicAccesses != nullptr && !dynamicAccesses->empty();
-
-            const auto submissionModel = node.GetSubmissionModel();
-            diagnostics.BucketBacked = submissionModel == RenderGraphSubmissionModel::BucketOnly ||
-                                       submissionModel == RenderGraphSubmissionModel::Mixed;
-            return diagnostics;
-        }
-
         [[nodiscard]] auto FindPassAccessDeclarations(
             const std::unordered_map<std::string, std::vector<RGAccessDeclaration>>& passAccessDeclarations,
             std::string_view passName) -> const std::vector<RGAccessDeclaration>*
@@ -2843,7 +2822,6 @@ namespace OloEngine
                 const auto declarationsIt = m_PassAccessDeclarations.find(name);
                 result.push_back(NodeSubmissionInfo{
                     .NodeName = name,
-                    .Submission = nodeIt->second->GetSubmissionModel(),
                     .DeclaresResources = declarationsIt != m_PassAccessDeclarations.end() &&
                                          !declarationsIt->second.empty(),
                     .WorkType = nodeIt->second->GetPassWorkType(),
@@ -4482,11 +4460,7 @@ namespace OloEngine
         struct PassAuthoringRow
         {
             std::string PassName;
-            RenderGraphSubmissionModel Submission = RenderGraphSubmissionModel::Unknown;
             bool Reachable = false;
-            bool UsesSetupCallback = false;
-            bool UsesDynamicDeclarations = false;
-            bool BucketBacked = false;
         };
 
         std::vector<PassAuthoringRow> passAuthoringRows;
@@ -4512,35 +4486,11 @@ namespace OloEngine
             if (!node)
                 continue;
 
-            const auto declarationIt = m_PassAccessDeclarations.find(passName);
-            const auto* dynamicAccesses = declarationIt != m_PassAccessDeclarations.end() ? &declarationIt->second : nullptr;
-            const auto authoringDiagnostics = GatherNodeAuthoringDiagnostics(*node, dynamicAccesses);
-
             passAuthoringRows.push_back(PassAuthoringRow{
                 .PassName = passName,
-                .Submission = node->GetSubmissionModel(),
                 .Reachable = m_ReachablePasses.contains(passName),
-                .UsesSetupCallback = authoringDiagnostics.UsesSetupCallback,
-                .UsesDynamicDeclarations = authoringDiagnostics.UsesDynamicDeclarations,
-                .BucketBacked = authoringDiagnostics.BucketBacked,
             });
         }
-
-        const auto submissionModelToString = [](const RenderGraphSubmissionModel submission) -> const char*
-        {
-            switch (submission)
-            {
-                case RenderGraphSubmissionModel::BucketOnly:
-                    return "BucketOnly";
-                case RenderGraphSubmissionModel::ImmediateOnly:
-                    return "ImmediateOnly";
-                case RenderGraphSubmissionModel::Mixed:
-                    return "Mixed";
-                case RenderGraphSubmissionModel::Unknown:
-                default:
-                    return "Unknown";
-            }
-        };
 
         // Batch resource dependency counts for frameSummary/graphDigest.
         const auto dumpBatches = GetAsyncComputeBatches();
@@ -4606,9 +4556,6 @@ namespace OloEngine
             << ", \"historyResourceCount\": " << historyResourceCount
             << ", \"externallyBackedTransientRootCount\": " << externallyBackedTransientRootCount
             << ", \"externallyBackedResourceCount\": " << externallyBackedResourceCount
-            << ", \"setupCallbackPassCount\": " << m_LastBuildStats.SetupCallbackPasses
-            << ", \"dynamicDeclarationPassCount\": " << m_LastBuildStats.DynamicDeclarationPasses
-            << ", \"bucketBackedPassCount\": " << m_LastBuildStats.BucketBackedPasses
             << ", \"temporalHistoryContractCount\": " << m_TemporalHistoryContracts.size()
             << ", \"externalTextureSinkContractCount\": " << externalTextureSinkContractCount
             << ", \"asyncBatchCount\": " << dumpBatches.size()
@@ -4626,9 +4573,6 @@ namespace OloEngine
             << ", \"declaredWrites\": " << m_LastBuildStats.DeclaredWrites
             << ", \"derivedEdges\": " << m_LastBuildStats.DerivedEdges
             << ", \"orderSensitiveResults\": " << m_LastBuildStats.OrderSensitiveResults
-            << ", \"setupCallbackPasses\": " << m_LastBuildStats.SetupCallbackPasses
-            << ", \"dynamicDeclarationPasses\": " << m_LastBuildStats.DynamicDeclarationPasses
-            << ", \"bucketBackedPasses\": " << m_LastBuildStats.BucketBackedPasses
             << " },\n";
 
         const auto buildDiagnosticKindToString = [](const BuildDiagnosticKind kind)
@@ -4698,11 +4642,7 @@ namespace OloEngine
         {
             const auto& row = passAuthoringRows[i];
             out << "    { \"pass\": \"" << jsonEscape(row.PassName)
-                << "\", \"submissionModel\": \"" << submissionModelToString(row.Submission)
-                << "\", \"reachable\": " << (row.Reachable ? "true" : "false")
-                << ", \"usesSetupCallback\": " << (row.UsesSetupCallback ? "true" : "false")
-                << ", \"usesDynamicDeclarations\": " << (row.UsesDynamicDeclarations ? "true" : "false")
-                << ", \"bucketBacked\": " << (row.BucketBacked ? "true" : "false") << " }";
+                << "\", \"reachable\": " << (row.Reachable ? "true" : "false") << " }";
             if (i + 1 < passAuthoringRows.size())
                 out << ",";
             out << "\n";
@@ -5786,14 +5726,6 @@ namespace OloEngine
 
             const auto& feedbacks = builder.GetDeclaredFeedbacks();
             m_PassFeedbackDeclarations[nodeName] = expandTextureViewFeedbacks(feedbacks);
-
-            const auto authoringDiagnostics = GatherNodeAuthoringDiagnostics(node, &accesses);
-            if (authoringDiagnostics.UsesSetupCallback)
-                ++m_LastBuildStats.SetupCallbackPasses;
-            if (authoringDiagnostics.UsesDynamicDeclarations)
-                ++m_LastBuildStats.DynamicDeclarationPasses;
-            if (authoringDiagnostics.BucketBacked)
-                ++m_LastBuildStats.BucketBackedPasses;
 
             const auto& passDependencies = builder.GetDeclaredPassDependencies();
             declaredPassDependenciesByPass[nodeName] = passDependencies;

@@ -91,24 +91,18 @@ namespace OloEngine
                                 buildStats.DeclaredReads != s_LastBuildStats.DeclaredReads ||
                                 buildStats.DeclaredWrites != s_LastBuildStats.DeclaredWrites ||
                                 buildStats.DerivedEdges != s_LastBuildStats.DerivedEdges ||
-                                buildStats.OrderSensitiveResults != s_LastBuildStats.OrderSensitiveResults ||
-                                buildStats.SetupCallbackPasses != s_LastBuildStats.SetupCallbackPasses ||
-                                buildStats.DynamicDeclarationPasses != s_LastBuildStats.DynamicDeclarationPasses ||
-                                buildStats.BucketBackedPasses != s_LastBuildStats.BucketBackedPasses;
+                                buildStats.OrderSensitiveResults != s_LastBuildStats.OrderSensitiveResults;
 
             if (buildStatsChanged)
             {
                 if (IsRenderGraphDiagnosticsEnabled())
                 {
-                    OLO_CORE_TRACE("RenderGraph BuildFrameGraph stats: passes={}, reads={}, writes={}, derivedEdges={}, orderSensitiveResults={}, setupCallbacks={}, dynamicDeclarations={}, bucketBacked={}",
+                    OLO_CORE_TRACE("RenderGraph BuildFrameGraph stats: passes={}, reads={}, writes={}, derivedEdges={}, orderSensitiveResults={}",
                                    buildStats.PassesVisited,
                                    buildStats.DeclaredReads,
                                    buildStats.DeclaredWrites,
                                    buildStats.DerivedEdges,
-                                   buildStats.OrderSensitiveResults,
-                                   buildStats.SetupCallbackPasses,
-                                   buildStats.DynamicDeclarationPasses,
-                                   buildStats.BucketBackedPasses);
+                                   buildStats.OrderSensitiveResults);
                 }
                 s_LastBuildStats = buildStats;
                 s_HasLastBuildStats = true;
