@@ -170,11 +170,43 @@ namespace OloEngine
     Ref<Font> Font::GetDefault()
     {
         static Ref<Font> DefaultFont;
-        if (!DefaultFont)
+        if (DefaultFont && DefaultFont->IsLoaded())
         {
-            DefaultFont = Font::Create("assets/fonts/opensans/OpenSans-Regular.ttf");
+            return DefaultFont;
         }
 
+        // Search a small list of well-known locations. Production code runs
+        // from `OloEditor/` (per CLAUDE.md), so the CWD-relative path wins
+        // there. Test binaries and headless tools run from the repo root,
+        // where the editor-relative variant is the one that exists. The
+        // first path that produces a loaded Font is cached.
+        static constexpr const char* kCandidates[] = {
+            "assets/fonts/opensans/OpenSans-Regular.ttf",
+            "OloEditor/assets/fonts/opensans/OpenSans-Regular.ttf",
+            "../OloEditor/assets/fonts/opensans/OpenSans-Regular.ttf",
+        };
+        for (const char* candidate : kCandidates)
+        {
+            std::error_code ec;
+            if (!std::filesystem::exists(candidate, ec) || ec)
+            {
+                continue;
+            }
+            auto candidateFont = Font::Create(candidate);
+            if (candidateFont && candidateFont->IsLoaded())
+            {
+                DefaultFont = candidateFont;
+                return DefaultFont;
+            }
+        }
+
+        // Nothing on disk loaded. Cache whatever the last attempt produced
+        // (an unloaded Font sentinel) so accessors can null-check via
+        // IsLoaded() without infinite re-load attempts.
+        if (!DefaultFont)
+        {
+            DefaultFont = Font::Create(kCandidates[0]);
+        }
         return DefaultFont;
     }
 

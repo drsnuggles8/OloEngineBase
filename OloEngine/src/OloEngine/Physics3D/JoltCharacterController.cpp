@@ -601,6 +601,39 @@ namespace OloEngine
         }
     }
 
+    void JoltCharacterController::OnContactPersisted([[maybe_unused]] const JPH::CharacterVirtual* inCharacter,
+                                                     const JPH::CharacterContact& inContact,
+                                                     [[maybe_unused]] JPH::CharacterContactSettings& ioSettings)
+    {
+        // Persistent-contact path. We deliberately do NOT touch m_CollisionFlags
+        // here — OnContactAdded handles the begin-of-frame reset+set; doing it
+        // again per-persistent-contact would clobber multi-contact state. We
+        // only need to route the begin-event callback (HandleCollision /
+        // HandleTrigger dedupe via m_CollidedBodies / m_TriggeredBodies, so
+        // the user-visible callback fires exactly once per body even if Jolt
+        // emits this for many frames).
+        bool isSensor = false;
+        if (m_Scene && m_Scene->GetJoltSystemPtr())
+        {
+            const auto& bodyLockInterface = m_Scene->GetBodyLockInterface();
+            JPH::BodyLockRead lock(bodyLockInterface, inContact.mBodyB);
+            if (lock.Succeeded())
+            {
+                const JPH::Body& body = lock.GetBody();
+                isSensor = body.IsSensor();
+            }
+        }
+
+        if (isSensor)
+        {
+            HandleTrigger(inContact.mBodyB);
+        }
+        else
+        {
+            HandleCollision(inContact.mBodyB);
+        }
+    }
+
     void JoltCharacterController::OnContactSolve([[maybe_unused]] const JPH::CharacterVirtual* inCharacter, [[maybe_unused]] const JPH::BodyID& inBodyID2,
                                                  [[maybe_unused]] const JPH::SubShapeID& inSubShapeID2, [[maybe_unused]] JPH::RVec3Arg inContactPosition,
                                                  [[maybe_unused]] JPH::Vec3Arg inContactNormal, [[maybe_unused]] JPH::Vec3Arg inContactVelocity,

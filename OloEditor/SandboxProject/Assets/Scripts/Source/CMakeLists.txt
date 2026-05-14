@@ -8,6 +8,7 @@
 		"GoblinAI.cs"
 		"Player.cs"
 		"PlayerController.cs"
+		"SaveLoadTestPlayer.cs"
 )
 
 add_library("Sandbox-Scripting" SHARED

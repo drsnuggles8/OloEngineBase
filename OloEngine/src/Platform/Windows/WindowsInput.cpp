@@ -31,7 +31,17 @@ namespace OloEngine
 
     bool Input::IsKeyPressed(const KeyCode key)
     {
-        auto* const nativeWindow = Application::Get().GetWindow().GetNativeWindow();
+        // Application may not exist yet (or at all, in headless test binaries
+        // that drive a Scene tick without constructing an Application). Falling
+        // back to the cached s_CurrentKeys state means "no key pressed" which
+        // is the right answer when there is no input source.
+        auto* const app = Application::TryGet();
+        if (!app)
+        {
+            const auto k = static_cast<i32>(key);
+            return (k >= 0 && k < s_MaxKeys) && s_CurrentKeys[k];
+        }
+        auto* const nativeWindow = app->GetWindow().GetNativeWindow();
         if (!nativeWindow)
         {
             const auto k = static_cast<i32>(key);

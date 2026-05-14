@@ -75,6 +75,11 @@ void main()
 #include "include/ForwardPlusCommon.glsl"
 
 // Camera UBO (binding 0) - for view position
+// Fragment-side CameraMatrices must declare the same block layout as the
+// vertex stage (above) — glLinkProgram() rejects per-program UBO blocks
+// whose members disagree between stages. We include the trailing
+// u_PrevViewProjection so the layouts match; the fragment shader doesn't
+// reference it, and the GLSL compiler dead-strips it.
 layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_ViewProjection;
     mat4 u_View;
@@ -198,6 +203,11 @@ vec2 octEncode(vec3 n)
 }
 
 // Model UBO (binding 3) for entity ID access
+// Fragment-side ModelMatrices must match the vertex stage's block layout
+// (which includes the trailing u_PrevModel for per-object velocity).
+// glLinkProgram() rejects per-program UBO blocks whose members disagree
+// between stages; u_PrevModel is unused in fragment but its declaration
+// keeps the two stages' block types identical.
 layout(std140, binding = 3) uniform ModelMatrices {
     mat4 u_Model;
     mat4 u_Normal;

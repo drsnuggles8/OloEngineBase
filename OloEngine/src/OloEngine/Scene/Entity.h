@@ -83,6 +83,11 @@ namespace OloEngine
         void RemoveComponent()
         {
             OLO_CORE_ASSERT(HasComponent<T>(), "Entity does not have component!");
+            // Notify the Scene before the component is gone so subsystem
+            // teardown (e.g. JoltScene::DestroyBody for Rigidbody3DComponent)
+            // can read the component's runtime state. Mirrors the
+            // OnComponentAdded dispatch in AddComponent.
+            m_Scene->OnComponentRemoved<T>(*this, m_Scene->m_Registry.get<T>(m_EntityHandle));
             m_Scene->m_Registry.remove<T>(m_EntityHandle);
         }
 

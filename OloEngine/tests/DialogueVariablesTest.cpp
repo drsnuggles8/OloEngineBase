@@ -1,99 +1,75 @@
 #include <gtest/gtest.h>
 #include "OloEngine/Dialogue/DialogueVariables.h"
 
+// =============================================================================
+// DialogueVariablesTest -- contracts of the typed key-value store used
+// by dialogue conditions/actions.
+//
+// Prior version had 8 TEST_F cases, four of which were per-type permutations
+// of the same Set/Get round-trip pattern. Per docs/testing.md
+// section 4.7 (type-permutation padding), one TEST that walks all four
+// types in a row covers the same contract. Total: 3 TESTs covering
+// (1) round-trip on every type, (2) missing-key default behaviour,
+// (3) lifecycle (Has + Clear + overwrite).
+// =============================================================================
+
 using namespace OloEngine;
 
-class DialogueVariablesTest : public ::testing::Test
+TEST(DialogueVariables, RoundTripAcrossAllSupportedTypes)
 {
-  protected:
     DialogueVariables vars;
-};
 
-TEST_F(DialogueVariablesTest, SetAndGetBool)
-{
     vars.SetBool("hasKey", true);
     EXPECT_TRUE(vars.GetBool("hasKey"));
-
     vars.SetBool("hasKey", false);
     EXPECT_FALSE(vars.GetBool("hasKey"));
-}
 
-TEST_F(DialogueVariablesTest, SetAndGetInt)
-{
     vars.SetInt("gold", 100);
     EXPECT_EQ(vars.GetInt("gold"), 100);
 
-    vars.SetInt("gold", 250);
-    EXPECT_EQ(vars.GetInt("gold"), 250);
-}
-
-TEST_F(DialogueVariablesTest, SetAndGetString)
-{
-    vars.SetString("playerName", "Hero");
-    EXPECT_EQ(vars.GetString("playerName"), "Hero");
-
-    vars.SetString("playerName", "Villain");
-    EXPECT_EQ(vars.GetString("playerName"), "Villain");
-}
-
-TEST_F(DialogueVariablesTest, SetAndGetFloat)
-{
     vars.SetFloat("speed", 1.5f);
     EXPECT_FLOAT_EQ(vars.GetFloat("speed"), 1.5f);
 
-    vars.SetFloat("speed", 3.14f);
-    EXPECT_FLOAT_EQ(vars.GetFloat("speed"), 3.14f);
+    vars.SetString("playerName", "Hero");
+    EXPECT_EQ(vars.GetString("playerName"), "Hero");
 }
 
-TEST_F(DialogueVariablesTest, GetMissingKeyReturnsDefault)
+TEST(DialogueVariables, MissingKeysReturnTheCallerProvidedDefault)
 {
-    EXPECT_FALSE(vars.GetBool("nonexistent"));
-    EXPECT_TRUE(vars.GetBool("nonexistent", true));
+    DialogueVariables vars;
 
-    EXPECT_EQ(vars.GetInt("nonexistent"), 0);
-    EXPECT_EQ(vars.GetInt("nonexistent", 42), 42);
+    EXPECT_FALSE(vars.GetBool("nope"));
+    EXPECT_TRUE (vars.GetBool("nope", true));
 
-    EXPECT_FLOAT_EQ(vars.GetFloat("nonexistent"), 0.0f);
-    EXPECT_FLOAT_EQ(vars.GetFloat("nonexistent", 2.5f), 2.5f);
+    EXPECT_EQ(vars.GetInt("nope"), 0);
+    EXPECT_EQ(vars.GetInt("nope", 42), 42);
 
-    EXPECT_EQ(vars.GetString("nonexistent"), "");
-    EXPECT_EQ(vars.GetString("nonexistent", "fallback"), "fallback");
+    EXPECT_FLOAT_EQ(vars.GetFloat("nope"), 0.0f);
+    EXPECT_FLOAT_EQ(vars.GetFloat("nope", 2.5f), 2.5f);
+
+    EXPECT_EQ(vars.GetString("nope"), "");
+    EXPECT_EQ(vars.GetString("nope", "fallback"), "fallback");
 }
 
-TEST_F(DialogueVariablesTest, HasKey)
+TEST(DialogueVariables, HasReportsPresenceAndClearWipesEverything)
 {
-    EXPECT_FALSE(vars.Has("testKey"));
+    DialogueVariables vars;
 
-    vars.SetBool("testKey", true);
-    EXPECT_TRUE(vars.Has("testKey"));
-
-    vars.SetInt("intKey", 5);
-    EXPECT_TRUE(vars.Has("intKey"));
-}
-
-TEST_F(DialogueVariablesTest, Clear)
-{
+    EXPECT_FALSE(vars.Has("a"));
     vars.SetBool("a", true);
     vars.SetInt("b", 10);
     vars.SetString("c", "hello");
+    EXPECT_TRUE(vars.Has("a"));
+    EXPECT_TRUE(vars.Has("b"));
+    EXPECT_TRUE(vars.Has("c"));
+
+    // Overwrite preserves Has + last write wins.
+    vars.SetInt("b", 11);
+    vars.SetInt("b", 12);
+    EXPECT_EQ(vars.GetInt("b"), 12);
 
     vars.Clear();
-
     EXPECT_FALSE(vars.Has("a"));
     EXPECT_FALSE(vars.Has("b"));
     EXPECT_FALSE(vars.Has("c"));
-}
-
-TEST_F(DialogueVariablesTest, OverwriteValue)
-{
-    vars.SetBool("flag", true);
-    EXPECT_TRUE(vars.GetBool("flag"));
-
-    vars.SetBool("flag", false);
-    EXPECT_FALSE(vars.GetBool("flag"));
-
-    vars.SetInt("counter", 1);
-    vars.SetInt("counter", 2);
-    vars.SetInt("counter", 3);
-    EXPECT_EQ(vars.GetInt("counter"), 3);
 }

@@ -121,6 +121,17 @@ namespace OloEngine
 
     Scene::~Scene()
     {
+        // Tear down subsystems that hold references back into the scene
+        // *before* the implicit member-destruction pass starts unwinding
+        // m_EntityMap / m_Registry. DialogueSystem owns a UIController whose
+        // ~Shutdown path calls Scene::GetEntityByUUID — that asserts on an
+        // empty m_EntityMap, which is what the implicit destruction order
+        // (members destroyed in reverse declaration order) would otherwise
+        // produce because m_EntityMap is declared after m_DialogueSystem.
+        // Reset the system here while every member it might touch is still
+        // alive.
+        m_DialogueSystem.reset();
+
         if (b2World_IsValid(m_PhysicsWorld))
         {
             b2DestroyWorld(m_PhysicsWorld);
@@ -381,11 +392,98 @@ namespace OloEngine
             }
         }
 
+        // Tear down physics bodies before the registry forgets about the entity —
+        // otherwise JoltScene's body table holds a dangling entity ID and trips
+        // an entt assertion at JoltScene::Shutdown when it tries to release the
+        // bodies. This mirrors what OnPhysics3DStop does for an entire scene
+        // teardown; here we do it for one entity.
+        if (m_JoltScene && entity.HasComponent<Rigidbody3DComponent>())
+        {
+            auto& rb3d = entity.GetComponent<Rigidbody3DComponent>();
+            if (rb3d.m_RuntimeBodyToken != 0)
+            {
+                m_JoltScene->DestroyBody(entity);
+                rb3d.m_RuntimeBodyToken = 0;
+            }
+        }
+
         m_Registry.destroy(entity);
         m_EntityMap.Remove(entityUUID);
 
         m_RuntimeSnowPrevPositions.Remove(entityUUID);
         m_EditorSnowPrevPositions.Remove(entityUUID);
+    }
+
+    void Scene::InitDialogueSystem()
+    {
+        m_DialogueSystem = std::make_unique<DialogueSystem>(this);
+    }
+
+    void Scene::InitAudioRuntime()
+    {
+        // Initialize audio events system. Extracted from OnRuntimeStart so
+        // headless test harnesses (Functional tests) can spin audio up
+        // without going through Application::Get().IsHeadless().
+        m_AudioCommandRegistry = std::make_unique<Audio::AudioCommandRegistry>();
+        m_AudioEventsManager = std::make_unique<Audio::AudioEventsManager>();
+
+        if (const auto project = Project::GetActive())
+        {
+            auto eventsPath = Project::GetAssetDirectory() / "audio" / "AudioEvents.yaml";
+            if (std::filesystem::exists(eventsPath))
+            {
+                m_AudioCommandRegistry->Deserialize(eventsPath);
+            }
+        }
+
+        m_AudioEventsManager->Init(m_AudioCommandRegistry.get());
+        m_AudioEventsManager->SetPositionResolver([this](u64 objectID, glm::vec3& outPos) -> bool
+                                                  {
+            if (auto entity = TryGetEntityWithUUID(UUID(objectID)); entity && entity->HasComponent<TransformComponent>())
+            {
+                outPos = entity->GetComponent<TransformComponent>().Translation;
+                return true;
+            }
+            return false; });
+        Audio::AudioPlayback::SetManager(m_AudioEventsManager.get());
+
+        for (auto listenerView = m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>); auto&& [e, ac, tc] : listenerView.each())
+        {
+            ac.Listener = Ref<AudioListener>::Create();
+            if (ac.Active)
+            {
+                const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
+                const glm::vec3 forward = normalize(glm::vec3(inverted[2]));
+                ac.Listener->SetConfig(ac.Config);
+                ac.Listener->SetPosition(tc.Translation);
+                ac.Listener->SetDirection(-forward);
+                break;
+            }
+        }
+
+        for (auto sourceView = m_Registry.group<AudioSourceComponent>(entt::get<TransformComponent>); auto&& [e, ac, tc] : sourceView.each())
+        {
+            // Event-driven audio: post the start event instead of direct play
+            if (ac.UseEventSystem && ac.StartCommandID.IsValid() && ac.Config.PlayOnAwake)
+            {
+                Entity entity(e, this);
+                ac.ActiveEventID = Audio::AudioPlayback::PostTrigger(ac.StartCommandID, static_cast<u64>(entity.GetUUID()));
+                continue;
+            }
+
+            if (ac.Source)
+            {
+                const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
+                const glm::vec3 forward = normalize(glm::vec3(inverted[2]));
+                ac.Source->SetConfig(ac.Config);
+                ac.Source->SetPosition(tc.Translation);
+                ac.Source->SetDirection(forward);
+                if (ac.Config.PlayOnAwake)
+                {
+                    ac.Source->Play();
+                }
+            }
+        }
     }
 
     void Scene::OnRuntimeStart()
@@ -411,71 +509,11 @@ namespace OloEngine
 
         if (!Application::Get().IsHeadless())
         {
-            // Initialize audio events system
-            m_AudioCommandRegistry = std::make_unique<Audio::AudioCommandRegistry>();
-            m_AudioEventsManager = std::make_unique<Audio::AudioEventsManager>();
-
-            if (const auto project = Project::GetActive())
-            {
-                auto eventsPath = Project::GetAssetDirectory() / "audio" / "AudioEvents.yaml";
-                if (std::filesystem::exists(eventsPath))
-                {
-                    m_AudioCommandRegistry->Deserialize(eventsPath);
-                }
-            }
-
-            m_AudioEventsManager->Init(m_AudioCommandRegistry.get());
-            m_AudioEventsManager->SetPositionResolver([this](u64 objectID, glm::vec3& outPos) -> bool
-                                                      {
-                if (auto entity = TryGetEntityWithUUID(UUID(objectID)); entity && entity->HasComponent<TransformComponent>())
-                {
-                    outPos = entity->GetComponent<TransformComponent>().Translation;
-                    return true;
-                }
-                return false; });
-            Audio::AudioPlayback::SetManager(m_AudioEventsManager.get());
-
-            for (auto listenerView = m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>); auto&& [e, ac, tc] : listenerView.each())
-            {
-                ac.Listener = Ref<AudioListener>::Create();
-                if (ac.Active)
-                {
-                    const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
-                    const glm::vec3 forward = normalize(glm::vec3(inverted[2]));
-                    ac.Listener->SetConfig(ac.Config);
-                    ac.Listener->SetPosition(tc.Translation);
-                    ac.Listener->SetDirection(-forward);
-                    break;
-                }
-            }
-
-            for (auto sourceView = m_Registry.group<AudioSourceComponent>(entt::get<TransformComponent>); auto&& [e, ac, tc] : sourceView.each())
-            {
-                // Event-driven audio: post the start event instead of direct play
-                if (ac.UseEventSystem && ac.StartCommandID.IsValid() && ac.Config.PlayOnAwake)
-                {
-                    Entity entity(e, this);
-                    ac.ActiveEventID = Audio::AudioPlayback::PostTrigger(ac.StartCommandID, static_cast<u64>(entity.GetUUID()));
-                    continue;
-                }
-
-                if (ac.Source)
-                {
-                    const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
-                    const glm::vec3 forward = normalize(glm::vec3(inverted[2]));
-                    ac.Source->SetConfig(ac.Config);
-                    ac.Source->SetPosition(tc.Translation);
-                    ac.Source->SetDirection(forward);
-                    if (ac.Config.PlayOnAwake)
-                    {
-                        ac.Source->Play();
-                    }
-                }
-            }
+            InitAudioRuntime();
         }
 
         // Dialogue system initialization
-        m_DialogueSystem = std::make_unique<DialogueSystem>(this);
+        InitDialogueSystem();
 
         // Scripting
         {
@@ -1081,7 +1119,14 @@ namespace OloEngine
             {
                 const i32 velocityIterations = 6;
                 // const i32 positionIterations = 2; // TODO: Use this parameter when implementing position iterations
-                b2World_Step(m_PhysicsWorld, ts.GetSeconds(), velocityIterations);
+                // Guard against ticking before OnPhysics2DStart created a world —
+                // the Jolt path below already does this; matching it keeps the
+                // tick safe for headless tests / minimal scenes that never opt
+                // in to 2D physics.
+                if (b2World_IsValid(m_PhysicsWorld))
+                {
+                    b2World_Step(m_PhysicsWorld, ts.GetSeconds(), velocityIterations);
+                }
 
                 // Update 3D physics
                 if (m_JoltScene)
@@ -1090,21 +1135,24 @@ namespace OloEngine
                 }
 
                 // Retrieve transform from Box2D
-                for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)
+                if (b2World_IsValid(m_PhysicsWorld))
                 {
-                    Entity entity = { e, this };
-                    auto& transform = entity.GetComponent<TransformComponent>();
-                    auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
-
-                    b2Vec2 position = b2Body_GetPosition(rb2d.RuntimeBody);
-                    b2Rot rotation = b2Body_GetRotation(rb2d.RuntimeBody);
-
-                    transform.Translation.x = position.x;
-                    transform.Translation.y = position.y;
+                    for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)
                     {
-                        glm::vec3 euler = transform.GetRotationEuler();
-                        euler.z = b2Rot_GetAngle(rotation);
-                        transform.SetRotationEuler(euler);
+                        Entity entity = { e, this };
+                        auto& transform = entity.GetComponent<TransformComponent>();
+                        auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
+
+                        b2Vec2 position = b2Body_GetPosition(rb2d.RuntimeBody);
+                        b2Rot rotation = b2Body_GetRotation(rb2d.RuntimeBody);
+
+                        transform.Translation.x = position.x;
+                        transform.Translation.y = position.y;
+                        {
+                            glm::vec3 euler = transform.GetRotationEuler();
+                            euler.z = b2Rot_GetAngle(rotation);
+                            transform.SetRotationEuler(euler);
+                        }
                     }
                 }
 
@@ -1126,6 +1174,25 @@ namespace OloEngine
 
                             transform.Translation = pos;
                             transform.SetRotation(glm::normalize(rot));
+                        }
+                    }
+                }
+
+                // Retrieve transforms from Jolt character controllers — without
+                // this loop the controller's CharacterVirtual moves internally
+                // but the entity's TransformComponent never updates, so the
+                // character "walks" only inside Jolt while ECS thinks it never
+                // moved. Mirrors the rigid-body sync above.
+                if (m_JoltScene)
+                {
+                    for (const auto view = m_Registry.view<CharacterController3DComponent, TransformComponent>(); const auto e : view)
+                    {
+                        Entity entity = { e, this };
+                        if (auto controller = m_JoltScene->GetCharacterController(entity))
+                        {
+                            auto& transform = entity.GetComponent<TransformComponent>();
+                            transform.Translation = controller->GetTranslation();
+                            transform.SetRotation(controller->GetRotation());
                         }
                     }
                 }
@@ -1441,7 +1508,14 @@ namespace OloEngine
             {
                 const i32 velocityIterations = 6;
                 // const i32 positionIterations = 2; // TODO: Use this parameter when implementing position iterations
-                b2World_Step(m_PhysicsWorld, ts.GetSeconds(), velocityIterations);
+                // Guard against ticking before OnPhysics2DStart created a world —
+                // the Jolt path below already does this; matching it keeps the
+                // tick safe for headless tests / minimal scenes that never opt
+                // in to 2D physics.
+                if (b2World_IsValid(m_PhysicsWorld))
+                {
+                    b2World_Step(m_PhysicsWorld, ts.GetSeconds(), velocityIterations);
+                }
 
                 // Update 3D physics
                 if (m_JoltScene)
@@ -1450,21 +1524,24 @@ namespace OloEngine
                 }
 
                 // Retrieve transform from Box2D
-                for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)
+                if (b2World_IsValid(m_PhysicsWorld))
                 {
-                    Entity entity = { e, this };
-                    auto& transform = entity.GetComponent<TransformComponent>();
-                    auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
-
-                    b2Vec2 position = b2Body_GetPosition(rb2d.RuntimeBody);
-                    b2Rot rotation = b2Body_GetRotation(rb2d.RuntimeBody);
-
-                    transform.Translation.x = position.x;
-                    transform.Translation.y = position.y;
+                    for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)
                     {
-                        glm::vec3 euler = transform.GetRotationEuler();
-                        euler.z = b2Rot_GetAngle(rotation);
-                        transform.SetRotationEuler(euler);
+                        Entity entity = { e, this };
+                        auto& transform = entity.GetComponent<TransformComponent>();
+                        auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
+
+                        b2Vec2 position = b2Body_GetPosition(rb2d.RuntimeBody);
+                        b2Rot rotation = b2Body_GetRotation(rb2d.RuntimeBody);
+
+                        transform.Translation.x = position.x;
+                        transform.Translation.y = position.y;
+                        {
+                            glm::vec3 euler = transform.GetRotationEuler();
+                            euler.z = b2Rot_GetAngle(rotation);
+                            transform.SetRotationEuler(euler);
+                        }
                     }
                 }
 
@@ -1486,6 +1563,25 @@ namespace OloEngine
 
                             transform.Translation = pos;
                             transform.SetRotation(glm::normalize(rot));
+                        }
+                    }
+                }
+
+                // Retrieve transforms from Jolt character controllers — without
+                // this loop the controller's CharacterVirtual moves internally
+                // but the entity's TransformComponent never updates, so the
+                // character "walks" only inside Jolt while ECS thinks it never
+                // moved. Mirrors the rigid-body sync above.
+                if (m_JoltScene)
+                {
+                    for (const auto view = m_Registry.view<CharacterController3DComponent, TransformComponent>(); const auto e : view)
+                    {
+                        Entity entity = { e, this };
+                        if (auto controller = m_JoltScene->GetCharacterController(entity))
+                        {
+                            auto& transform = entity.GetComponent<TransformComponent>();
+                            transform.Translation = controller->GetTranslation();
+                            transform.SetRotation(controller->GetRotation());
                         }
                     }
                 }
@@ -1854,6 +1950,64 @@ namespace OloEngine
     template<>
     void Scene::OnComponentAdded<TileRendererComponent>(Entity, TileRendererComponent&) {}
 
+    template<>
+    void Scene::OnComponentAdded<Rigidbody3DComponent>(Entity entity, Rigidbody3DComponent& component)
+    {
+        // If physics is already running when a Rigidbody3DComponent is added at
+        // runtime (projectile spawn, networked actor arrival, dropped loot),
+        // create the Jolt body immediately. Without this hook the runtime-added
+        // body silently never simulates because OnPhysics3DStart only iterates
+        // entities that existed at start time.
+        // Convention: callers should add the collider component (Box / Sphere /
+        // Capsule / Mesh) BEFORE the Rigidbody3DComponent so the body's shape
+        // resolves correctly on construction.
+        if (m_JoltScene && m_JoltScene->IsInitialized())
+        {
+            if (auto body = m_JoltScene->CreateBody(entity))
+            {
+                component.m_RuntimeBodyToken = static_cast<u64>(body->GetBodyID().GetIndexAndSequenceNumber());
+            }
+        }
+    }
+
+    // Specialisation: when a Rigidbody3DComponent is removed at runtime, the
+    // owning JoltScene must release the body. Without this hook, the body
+    // stays in JoltScene::m_Bodies and SynchronizeTransforms keeps writing
+    // its post-physics position into the (now-orphaned) TransformComponent.
+    template<>
+    void Scene::OnComponentRemoved<Rigidbody3DComponent>(Entity entity, Rigidbody3DComponent& component)
+    {
+        if (m_JoltScene && component.m_RuntimeBodyToken != 0)
+        {
+            m_JoltScene->DestroyBody(entity);
+            component.m_RuntimeBodyToken = 0;
+        }
+    }
+
+    // Specialisation: same idea for the character controller path.
+    template<>
+    void Scene::OnComponentRemoved<CharacterController3DComponent>(Entity entity, CharacterController3DComponent& /*component*/)
+    {
+        if (m_JoltScene)
+        {
+            m_JoltScene->DestroyCharacterController(entity);
+        }
+    }
+
+    template<>
+    void Scene::OnComponentAdded<CharacterController3DComponent>(Entity entity, CharacterController3DComponent& /*component*/)
+    {
+        // Mirrors the Rigidbody3DComponent hook above. JoltScene::CreateCharacterController
+        // builds the JoltCharacterController and registers it for per-frame Update().
+        // Convention: add the collider component (Capsule recommended) BEFORE the
+        // CharacterController3DComponent so the controller's shape resolves at
+        // construction time.
+        if (m_JoltScene && m_JoltScene->IsInitialized())
+        {
+            (void)m_JoltScene->CreateCharacterController(entity);
+        }
+    }
+
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name)
     {
         auto const nameStr = std::string(name);
@@ -2104,6 +2258,17 @@ namespace OloEngine
                 // Store only the body token for safe runtime access
                 rb3d.m_RuntimeBodyToken = static_cast<std::uint64_t>(body->GetBodyID().GetIndexAndSequenceNumber());
             }
+        }
+
+        // Build character controllers for any entity that already has a
+        // CharacterController3DComponent at start-of-physics. The runtime-add
+        // hook (OnComponentAdded specialization) covers entities created
+        // afterwards.
+        auto ccView = m_Registry.view<CharacterController3DComponent, TransformComponent>();
+        for (auto entity : ccView)
+        {
+            Entity ent = { entity, this };
+            (void)m_JoltScene->CreateCharacterController(ent);
         }
     }
 
@@ -4527,10 +4692,9 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::PrefabComponent>([[maybe_unus
 {
 }
 
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::Rigidbody3DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::Rigidbody3DComponent& component)
-{
-}
+// Rigidbody3DComponent specialization is defined inside the OloEngine
+// namespace earlier in this file (look for the runtime-add hook that creates
+// a Jolt body when physics is already running).
 
 template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::BoxCollider3DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::BoxCollider3DComponent& component)
@@ -4547,10 +4711,9 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::CapsuleCollider3DComponent>([
 {
 }
 
-template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::CharacterController3DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::CharacterController3DComponent& component)
-{
-}
+// CharacterController3DComponent specialization is defined inside the
+// OloEngine namespace earlier in this file (look for the runtime-add hook
+// that creates a JoltCharacterController when physics is already running).
 
 template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::MeshCollider3DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::MeshCollider3DComponent& component)
@@ -4721,3 +4884,103 @@ template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::IKTargetComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::IKTargetComponent& component)
 {
 }
+
+// ============================================================================
+// OnComponentRemoved specialisations — exhaustive no-op list mirroring the
+// OnComponentAdded set above. Component types whose removal needs to release
+// external resources (Jolt body, Box2D body, etc.) are specialised inside
+// the OloEngine namespace earlier in this file.
+// ============================================================================
+
+namespace OloEngine
+{
+
+#define OLO_ON_COMPONENT_REMOVED_NOOP(T) \
+    template<> void Scene::OnComponentRemoved<T>(Entity, T&) {}
+
+OLO_ON_COMPONENT_REMOVED_NOOP(IDComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(TransformComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(TagComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(RelationshipComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(CameraComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(ScriptComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(LuaScriptComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(SpriteRendererComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(CircleRendererComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(TextComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(MeshComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(ModelComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(SubmeshComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(AnimationStateComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(MorphTargetComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(SkeletonComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(MaterialComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(DirectionalLightComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(PointLightComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(SpotLightComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(EnvironmentMapComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(TerrainComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(FoliageComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(WaterComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(SnowDeformerComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(FogVolumeComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(DecalComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(LODGroupComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(LightProbeComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(LightProbeVolumeComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(DialogueComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(DialogueStateComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(NavMeshBoundsComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(NavAgentComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(AnimationGraphComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(BehaviorTreeComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(StateMachineComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(TileRendererComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(Rigidbody2DComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(BoxCollider2DComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(CircleCollider2DComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(BoxCollider3DComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(SphereCollider3DComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(CapsuleCollider3DComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(MeshCollider3DComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(ConvexMeshCollider3DComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(TriangleMeshCollider3DComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(AudioSourceComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(AudioListenerComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(PrefabComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(UICanvasComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(UIRectTransformComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(UIResolvedRectComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(UIImageComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(UIPanelComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(UITextComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(UIButtonComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(UISliderComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(UICheckboxComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(UIProgressBarComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(UIWorldAnchorComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(UIInputFieldComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(UIScrollViewComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(UIDropdownComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(UIGridLayoutComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(UIToggleComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(ParticleSystemComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(StreamingVolumeComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(NetworkIdentityComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(NetworkInterestComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(PhaseComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(InstancePortalComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(NetworkLODComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(InventoryComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(ItemPickupComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(ItemContainerComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(QuestJournalComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(QuestGiverComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(AbilityComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(NameplateComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(IKTargetComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(Skeleton)
+
+#undef OLO_ON_COMPONENT_REMOVED_NOOP
+
+} // namespace OloEngine

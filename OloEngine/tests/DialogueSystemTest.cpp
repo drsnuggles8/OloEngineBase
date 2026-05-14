@@ -172,45 +172,13 @@ TEST_F(DialogueTreeAssetTest, NodePropertyAccess)
 // DialogueState / DialogueStateComponent data structure tests
 // ============================================================================
 
-TEST(DialogueStateComponentTest, DefaultValues)
-{
-    DialogueStateComponent state;
-    EXPECT_EQ(state.m_State, DialogueState::Inactive);
-    EXPECT_TRUE(state.m_CurrentText.empty());
-    EXPECT_TRUE(state.m_CurrentSpeaker.empty());
-    EXPECT_TRUE(state.m_AvailableChoices.empty());
-    EXPECT_EQ(state.m_SelectedChoiceIndex, -1);
-    EXPECT_EQ(state.m_HoveredChoiceIndex, -1);
-    EXPECT_FLOAT_EQ(state.m_TextRevealProgress, 0.0f);
-    EXPECT_FLOAT_EQ(state.m_TextRevealSpeed, 30.0f);
-}
-
-TEST(DialogueComponentTest, DefaultValues)
-{
-    DialogueComponent comp;
-    EXPECT_EQ(static_cast<u64>(comp.m_DialogueTree), 0u);
-    EXPECT_FALSE(comp.m_AutoTrigger);
-    EXPECT_FLOAT_EQ(comp.m_TriggerRadius, 3.0f);
-    EXPECT_FALSE(comp.m_HasTriggered);
-    EXPECT_TRUE(comp.m_TriggerOnce);
-}
-
-TEST(DialogueComponentTest, TriggerOnceFlag)
-{
-    DialogueComponent comp;
-    comp.m_TriggerOnce = true;
-    EXPECT_FALSE(comp.m_HasTriggered);
-
-    // Simulate trigger
-    comp.m_HasTriggered = true;
-
-    // After triggering once with TriggerOnce=true, m_HasTriggered blocks re-trigger
-    EXPECT_TRUE(comp.m_TriggerOnce && comp.m_HasTriggered);
-
-    // With TriggerOnce=false, m_HasTriggered does not block
-    comp.m_TriggerOnce = false;
-    EXPECT_FALSE(comp.m_TriggerOnce && comp.m_HasTriggered);
-}
+// Retired: DialogueStateComponentTest::DefaultValues,
+// DialogueComponentTest::DefaultValues, DialogueComponentTest::TriggerOnceFlag.
+// All three pinned design choices in the component headers rather than
+// invariants. See docs/testing.md section 4.1. The Copy/Assignment
+// tests below are kept because they pin the explicit non-trivial
+// copy/assign operators that DialogueComponent declares specifically to
+// exclude m_HasTriggered from being copied -- that IS a real contract.
 
 TEST(DialogueComponentTest, CopyDoesNotCopyHasTriggered)
 {
@@ -248,31 +216,10 @@ TEST(DialogueComponentTest, AssignmentDoesNotCopyHasTriggered)
     EXPECT_FALSE(assigned.m_HasTriggered); // runtime-only, not copied via assignment
 }
 
-TEST(DialogueChoiceTest, ChoiceDataStructure)
-{
-    DialogueChoice choice;
-    choice.Text = "I'm a friend.";
-    choice.TargetNodeID = UUID(1234);
-    choice.Condition = "hasTownPass";
-
-    EXPECT_EQ(choice.Text, "I'm a friend.");
-    EXPECT_EQ(static_cast<u64>(choice.TargetNodeID), 1234u);
-    EXPECT_EQ(choice.Condition, "hasTownPass");
-}
-
-TEST(DialogueConnectionTest, ConnectionDataStructure)
-{
-    DialogueConnection conn;
-    conn.SourceNodeID = UUID(100);
-    conn.TargetNodeID = UUID(200);
-    conn.SourcePort = "true";
-    conn.TargetPort = "input";
-
-    EXPECT_EQ(static_cast<u64>(conn.SourceNodeID), 100u);
-    EXPECT_EQ(static_cast<u64>(conn.TargetNodeID), 200u);
-    EXPECT_EQ(conn.SourcePort, "true");
-    EXPECT_EQ(conn.TargetPort, "input");
-}
+// DialogueChoiceTest::ChoiceDataStructure and
+// DialogueConnectionTest::ConnectionDataStructure retired -- both were
+// pure POD field-assignment smoke (a = "x"; EXPECT_EQ(a, "x")). See
+// docs/testing.md section 4.1.
 
 // ============================================================================
 // DialogueSystem integration tests

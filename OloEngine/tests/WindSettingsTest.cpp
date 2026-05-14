@@ -8,23 +8,7 @@
 
 using namespace OloEngine;
 
-TEST(WindSettings, DefaultsAreReasonable)
-{
-    WindSettings wind;
-
-    EXPECT_FALSE(wind.Enabled);
-    EXPECT_GT(glm::length(wind.Direction), 0.9f);
-    EXPECT_LT(glm::length(wind.Direction), 1.1f);
-    EXPECT_GT(wind.Speed, 0.0f);
-    EXPECT_GE(wind.GustStrength, 0.0f);
-    EXPECT_LE(wind.GustStrength, 1.0f);
-    EXPECT_GT(wind.GustFrequency, 0.0f);
-    EXPECT_GE(wind.TurbulenceIntensity, 0.0f);
-    EXPECT_GT(wind.TurbulenceScale, 0.0f);
-    EXPECT_GT(wind.GridWorldSize, 0.0f);
-    EXPECT_GE(wind.GridResolution, 32u);
-    EXPECT_LE(wind.GridResolution, 256u);
-}
+// DefaultsAreReasonable retired — design-choice pinning. See docs/testing.md §4.1.
 
 TEST(WindUBOData, SizeIs64Bytes)
 {

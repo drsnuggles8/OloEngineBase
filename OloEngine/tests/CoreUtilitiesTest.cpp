@@ -2,11 +2,12 @@
 #include <gtest/gtest.h>
 #include <unordered_map>
 
-// Test the Core utility systems: Hash, Identifier, FastRandom, and Reflection TypeUtils
-// These are fundamental building blocks for audio graph parameter handling
+// Core utility contracts: Hash, Identifier, Reflection TypeUtils.
+// FastRandom block was retired here — FastRandomTest.cpp owns that
+// contract end-to-end (per-algorithm reproducibility + pinned-output
+// vector + range correctness). See docs/testing.md §4.7.
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Core/Identifier.h"
-#include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Core/Reflection/TypeUtils.h"
 
 namespace
@@ -87,54 +88,6 @@ TEST(CoreUtilitiesTest, IdentifierSystemTest)
     EXPECT_EQ(identifierMap[param1], 100);
     EXPECT_EQ(identifierMap[param2], 200);
     EXPECT_EQ(identifierMap[param3], 100); // param3 == param1
-}
-
-TEST(CoreUtilitiesTest, FastRandomTest)
-{
-    // Test FastRandom with fixed seed for deterministic results
-    OloEngine::FastRandom rng(12345);
-
-    // Test float range generation
-    auto randomFloat1 = rng.GetFloat32InRange(0.0f, 1.0f);
-    auto randomFloat2 = rng.GetFloat32InRange(0.0f, 1.0f);
-
-    // Values should be in range
-    EXPECT_GE(randomFloat1, 0.0f);
-    EXPECT_LE(randomFloat1, 1.0f);
-    EXPECT_GE(randomFloat2, 0.0f);
-    EXPECT_LE(randomFloat2, 1.0f);
-
-    // Test variability by drawing additional floats and ensuring at least one differs
-    bool foundDifferentValue = (randomFloat1 != randomFloat2);
-    if (!foundDifferentValue)
-    {
-        // Draw 4 more floats to check for variability
-        for (int i = 0; i < 4; ++i)
-        {
-            auto additionalFloat = rng.GetFloat32InRange(0.0f, 1.0f);
-            if (additionalFloat != randomFloat1)
-            {
-                foundDifferentValue = true;
-                break;
-            }
-        }
-    }
-    EXPECT_TRUE(foundDifferentValue);
-
-    // Test integer range generation
-    auto randomInt1 = rng.GetInt32InRange(1, 100);
-    auto randomInt2 = rng.GetInt32InRange(1, 100);
-
-    // Values should be in range
-    EXPECT_GE(randomInt1, 1);
-    EXPECT_LE(randomInt1, 100);
-    EXPECT_GE(randomInt2, 1);
-    EXPECT_LE(randomInt2, 100);
-
-    // Test global random utils
-    auto globalRandom = OloEngine::RandomUtils::Float32(0.0f, 10.0f);
-    EXPECT_GE(globalRandom, 0.0f);
-    EXPECT_LE(globalRandom, 10.0f);
 }
 
 TEST(CoreUtilitiesTest, IsSpecializedTest)

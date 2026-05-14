@@ -9,43 +9,10 @@ using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 // Preset Values
 // =============================================================================
 
-TEST(QualityTiering, LowPresetDisablesExpensiveFeatures)
-{
-    auto s = GetPresetSettings(QualityPreset::Low);
-    EXPECT_EQ(s.Preset, QualityPreset::Low);
-    EXPECT_FALSE(s.ShadowEnabled);
-    EXPECT_FALSE(s.BloomEnabled);
-    EXPECT_FALSE(s.FXAAEnabled);
-    EXPECT_FALSE(s.DOFEnabled);
-    EXPECT_FALSE(s.MotionBlurEnabled);
-    EXPECT_FALSE(s.VignetteEnabled);
-    EXPECT_FALSE(s.ChromaticAberrationEnabled);
-    EXPECT_EQ(s.AO, AOTechnique::None);
-}
-
-TEST(QualityTiering, UltraPresetEnablesEverything)
-{
-    auto s = GetPresetSettings(QualityPreset::Ultra);
-    EXPECT_EQ(s.Preset, QualityPreset::Ultra);
-    EXPECT_TRUE(s.ShadowEnabled);
-    EXPECT_TRUE(s.BloomEnabled);
-    EXPECT_TRUE(s.FXAAEnabled);
-    EXPECT_TRUE(s.DOFEnabled);
-    EXPECT_TRUE(s.MotionBlurEnabled);
-    EXPECT_FALSE(s.VignetteEnabled);
-    EXPECT_TRUE(s.ChromaticAberrationEnabled);
-    EXPECT_EQ(s.AO, AOTechnique::GTAO);
-    EXPECT_GE(s.ShadowResolution, 4096u);
-}
-
-TEST(QualityTiering, CustomReturnsHighDefaults)
-{
-    auto custom = GetPresetSettings(QualityPreset::Custom);
-    auto high = GetPresetSettings(QualityPreset::High);
-    EXPECT_EQ(custom.ShadowResolution, high.ShadowResolution);
-    EXPECT_EQ(custom.BloomEnabled, high.BloomEnabled);
-    EXPECT_EQ(custom.AO, high.AO);
-}
+// LowPresetDisablesExpensiveFeatures / UltraPresetEnablesEverything /
+// CustomReturnsHighDefaults retired — design-choice pinning on preset
+// LUT contents. The monotonicity invariant below is the real contract.
+// See docs/testing.md §4.1.
 
 TEST(QualityTiering, PresetsAreOrderedByQuality)
 {

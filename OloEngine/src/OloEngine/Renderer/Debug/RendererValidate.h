@@ -2,7 +2,7 @@
 // RendererValidate.h
 //
 // Layer-7 "Smoke / Sanity Readback" helpers per
-// docs/renderer-testing-strategy.md §7. Tiny, non-visual invariants that can
+// docs/testing.md §6.3 (L7). Tiny, non-visual invariants that can
 // run after every pass in debug builds as a continuous safety net.
 //
 // Not for property testing — those live in OloEngine/tests/. This is the

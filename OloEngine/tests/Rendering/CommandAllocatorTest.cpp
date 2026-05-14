@@ -237,15 +237,16 @@ TEST(CommandAllocator, AllocationCountTracksCorrectly)
 // Constants Are Sensible
 // =============================================================================
 
-TEST(CommandAllocator, ConstantsAreSensible)
-{
-    EXPECT_GE(CommandAllocator::DEFAULT_BLOCK_SIZE, 4096u)
-        << "Block size should be at least 4KB";
-    EXPECT_GE(CommandAllocator::MAX_COMMAND_SIZE, sizeof(DrawMeshCommand))
-        << "MAX_COMMAND_SIZE must fit the largest command";
-    EXPECT_EQ(CommandAllocator::COMMAND_ALIGNMENT % 16, 0u)
-        << "Alignment should be a multiple of 16";
-}
+// ConstantsAreSensible: all three checks are compile-time facts. Replaced
+// with static_asserts (docs/testing.md section 4.3 -- static
+// assert in disguise). If any of these regress, the build fails before
+// the test runner starts.
+static_assert(CommandAllocator::DEFAULT_BLOCK_SIZE >= 4096u,
+              "DEFAULT_BLOCK_SIZE must be at least 4 KB");
+static_assert(CommandAllocator::MAX_COMMAND_SIZE >= sizeof(DrawMeshCommand),
+              "MAX_COMMAND_SIZE must fit the largest command");
+static_assert(CommandAllocator::COMMAND_ALIGNMENT % 16 == 0u,
+              "COMMAND_ALIGNMENT must be a multiple of 16");
 
 // =============================================================================
 // ThreadLocalCache — Block Reuse After Reset

@@ -414,8 +414,12 @@ namespace OloEngine
         {
             data = YAML::LoadFile(filepath.string());
         }
-        catch (const YAML::ParserException& e)
+        catch (const YAML::Exception& e)
         {
+            // Catches both ParserException (malformed YAML) and BadFile
+            // (missing / unreadable path). The latter previously escaped
+            // unhandled and crashed OloEditor when a recent-projects
+            // entry pointed at a moved/deleted file.
             OLO_CORE_ERROR("Failed to load project file '{0}'\n     {1}", filepath, e.what());
             return false;
         }

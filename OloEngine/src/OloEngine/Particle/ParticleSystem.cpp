@@ -198,7 +198,11 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!Playing)
+        // After Playing flips to false (non-looping system reached Duration),
+        // we still need to tick existing alive particles down to expiration —
+        // otherwise the last cohort of an explosion freezes mid-fade. Bail
+        // only when there's truly nothing left to update.
+        if (!Playing && m_Pool.GetAliveCount() == 0)
         {
             return;
         }
@@ -240,11 +244,15 @@ namespace OloEngine
             m_BoundingSphere = BoundingSphere(emitterPosition, radius);
         }
 
-        // Check duration
+        // Check duration. Once a non-looping system has emitted its full
+        // budget we stop emission, but we deliberately do NOT return — the
+        // alive particles still need their lifetime ticked down so the
+        // pool drains to empty instead of freezing.
+        bool emissionAllowed = Playing;
         if (!Looping && m_Time >= Duration)
         {
             Playing = false;
-            return;
+            emissionAllowed = false;
         }
 
         if (Looping && m_Time >= Duration)
@@ -269,8 +277,14 @@ namespace OloEngine
         m_PendingTriggers.clear();
 
         // 1. Emit new particles (with LOD rate multiplier passed as parameter)
+        // Skip emission when the system has stopped playing (e.g. a non-
+        // looping system that exceeded its Duration); the rest of the
+        // function still runs so existing particles tick down.
         u32 prevAlive = m_Pool.GetAliveCount();
-        Emitter.Update(scaledDt, m_Pool, emitPos, m_LODSpawnRateMultiplier, emitterRotation);
+        if (emissionAllowed)
+        {
+            Emitter.Update(scaledDt, m_Pool, emitPos, m_LODSpawnRateMultiplier, emitterRotation);
+        }
         u32 newAlive = m_Pool.GetAliveCount();
 
         // Apply velocity inheritance: add parent entity velocity to newly spawned particles

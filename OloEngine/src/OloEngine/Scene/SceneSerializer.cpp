@@ -2934,7 +2934,14 @@ namespace OloEngine
                         }
                     }
 
-                    qjc.Journal.SetActiveQuestState(state.QuestID, std::move(state));
+                    // Copy QuestID into a local before `std::move(state)` —
+                    // function-argument evaluation order is unspecified, and
+                    // MSVC evaluates RHS first, leaving the LHS reference
+                    // pointing at a moved-from empty string. Then
+                    // m_ActiveQuests[""] gets the entry and the quest is
+                    // un-findable by its real ID.
+                    std::string keyCopy = state.QuestID;
+                    qjc.Journal.SetActiveQuestState(keyCopy, std::move(state));
                 }
             }
 

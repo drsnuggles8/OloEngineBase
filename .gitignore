@@ -54,8 +54,14 @@ OloEngine/vendor/*
 **.log
 **.tlog
 
-# Test failure capture artefacts (machine-specific timestamps / GL strings)
+# Test failure capture artefacts (machine-specific timestamps / GL strings).
+# Captured under whichever CWD the test ran from — OloEditor/ for the editor-
+# rooted suites, repo root for tests run via the harness's bare working dir.
 OloEditor/assets/tests/captures/
+/assets/tests/captures/
+
+# L12 Functional Test capture artefacts (scene snapshots on assertion failure)
+OloEngine/tests/Functional/captures/
 
 # Debug export files (Command Bucket Inspector)
 **/cmd_bucket_*.csv
@@ -73,3 +79,8 @@ GameBuilds/
 build-*/
 
 OloEditor/cmake_test_discovery_*.json
+
+# Per-user Claude Code state (project-local instructions, skills, agents)
+.claude/
+skills-lock.json
+docs/agents/

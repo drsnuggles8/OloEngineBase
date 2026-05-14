@@ -91,7 +91,9 @@ layout(std140, binding = 2) uniform MaterialProperties {
     vec4 u_MaterialSpecular;
     vec4 u_MaterialEmissive;
     int u_UseTextureMaps;
-    int _padding[3];
+    int u_AlphaMode;
+    int u_DoubleSided;
+    int _padding;
 };
 
 layout(binding = 0) uniform sampler2D u_DiffuseMap;

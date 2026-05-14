@@ -772,18 +772,30 @@ namespace OloEngine
                            name == "u_Texture" || name == "u_Textures" ||
                            // Slot 0 is also used as generic input for many shaders
                            name.contains("Scene") || name.contains("FontAtlas") ||
-                           name.contains("Equirectangular") || name.contains("SSAO");
+                           name.contains("Equirectangular") || name.contains("SSAO") ||
+                           // Post-process / fullscreen passes reuse slot 0 with
+                           // pass-local input names.
+                           name == "u_Current" || name == "u_EntityID" ||
+                           name == "u_CurveTexture";
                 case TEX_SPECULAR:
                     // Slot 1 is reused across shader contexts: Metallic/Roughness in PBR,
-                    // Depth textures in particle effects, Bloom textures in post-processing.
+                    // Depth textures in particle effects, Bloom textures in post-processing,
+                    // history / overlay buffers in fullscreen passes.
                     return name.contains("Specular") || name.contains("specular") ||
                            name.contains("Metallic") || name.contains("metallic") ||
-                           name.contains("Depth") || name.contains("Bloom");
+                           name.contains("Depth") || name.contains("Bloom") ||
+                           name == "u_History" || name == "u_FogTexture" ||
+                           name == "u_BandTexture" || name == "u_JFAResult" ||
+                           name == "u_EntityID";
                 case TEX_NORMAL:
-                    return name.contains("Normal") || name.contains("normal");
+                    return name.contains("Normal") || name.contains("normal") ||
+                           // Slot 2 is reused as the velocity input slot for TAA / motion-blur passes.
+                           name == "u_Velocity";
                 case TEX_HEIGHT:
                     return name.contains("Height") || name.contains("height") ||
-                           name.contains("Displacement") || name.contains("displacement");
+                           name.contains("Displacement") || name.contains("displacement") ||
+                           // Slot 3 is reused as the fog-history input slot for the fog pass.
+                           name == "u_FogHistory";
                 case TEX_AMBIENT:
                     return name.contains("AO") || name.contains("Ambient") ||
                            name.contains("ambient") || name.contains("Occlusion") ||
@@ -811,10 +823,15 @@ namespace OloEngine
                 case TEX_WATER_NORMAL_0:
                 case TEX_WATER_NORMAL_1:
                     return name.contains("WaterNormal") || name.contains("waterNormal") ||
-                           (name.contains("Water") && name.contains("Normal"));
+                           (name.contains("Water") && name.contains("Normal")) ||
+                           // Production water shaders use unprefixed names (Water.glsl,
+                           // Water_OIT.glsl bind u_NormalMap0 / u_NormalMap1 to these slots).
+                           name == "u_NormalMap0" || name == "u_NormalMap1";
                 case TEX_WATER_NOISE:
                     return name.contains("WaterNoise") || name.contains("waterNoise") ||
-                           (name.contains("Water") && name.contains("Noise"));
+                           (name.contains("Water") && name.contains("Noise")) ||
+                           // Production water shaders bind u_NoiseMap to this slot.
+                           name == "u_NoiseMap";
                 case TEX_WATER_DEPTH:
                     return name.contains("WaterDepth") || name.contains("waterDepth") ||
                            (name.contains("Scene") && name.contains("Depth"));
@@ -830,8 +847,14 @@ namespace OloEngine
                 case TEX_GBUFFER_EMISSIVE:
                 case TEX_GBUFFER_VELOCITY:
                 case TEX_GBUFFER_DEPTH:
+                    // Engine convention is `u_G<Attr>` (u_GAlbedo, u_GNormal,
+                    // u_GEmissive, u_GVelocity, u_GDepth); some debug shaders also
+                    // spell it `GBuffer*`.
                     return name.contains("GBuffer") || name.contains("gBuffer") ||
-                           name.contains("gbuffer");
+                           name.contains("gbuffer") ||
+                           name == "u_GAlbedo" || name == "u_GNormal" ||
+                           name == "u_GEmissive" || name == "u_GVelocity" ||
+                           name == "u_GDepth";
                 case TEX_OIT_ACCUM:
                 case TEX_OIT_REVEALAGE:
                     return name.contains("OIT") || name.contains("oit") ||

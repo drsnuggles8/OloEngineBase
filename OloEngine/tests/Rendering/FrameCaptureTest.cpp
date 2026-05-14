@@ -191,35 +191,14 @@ TEST(CapturedCommandData, CopyIsIndependent)
 // FrameCaptureStats Default Values
 // =============================================================================
 
-TEST(FrameCaptureStats, DefaultsAreZero)
-{
-    FrameCaptureStats stats;
-    EXPECT_EQ(stats.TotalCommands, 0u);
-    EXPECT_EQ(stats.BatchedCommands, 0u);
-    EXPECT_EQ(stats.DrawCalls, 0u);
-    EXPECT_EQ(stats.StateChanges, 0u);
-    EXPECT_EQ(stats.ShaderBinds, 0u);
-    EXPECT_EQ(stats.TextureBinds, 0u);
-    EXPECT_DOUBLE_EQ(stats.SortTimeMs, 0.0);
-    EXPECT_DOUBLE_EQ(stats.BatchTimeMs, 0.0);
-    EXPECT_DOUBLE_EQ(stats.ExecuteTimeMs, 0.0);
-    EXPECT_DOUBLE_EQ(stats.TotalFrameTimeMs, 0.0);
-}
+// FrameCaptureStats::DefaultsAreZero and CapturedFrameData::DefaulConstruction
+// retired -- pure POD zero-init smoke. The "stats start at zero" property
+// is enforced by member-default-init in the headers; a runtime check adds
+// no defence. See docs/testing.md section 4.1.
 
 // =============================================================================
 // CapturedFrameData Structure
 // =============================================================================
-
-TEST(CapturedFrameData, DefaulConstruction)
-{
-    CapturedFrameData frame;
-    EXPECT_EQ(frame.FrameNumber, 0u);
-    EXPECT_DOUBLE_EQ(frame.TimestampSeconds, 0.0);
-    EXPECT_TRUE(frame.PreSortCommands.empty());
-    EXPECT_TRUE(frame.PostSortCommands.empty());
-    EXPECT_TRUE(frame.PostBatchCommands.empty());
-    EXPECT_TRUE(frame.Notes.empty());
-}
 
 TEST(CapturedFrameData, CanStoreCommandsAtMultipleStages)
 {
