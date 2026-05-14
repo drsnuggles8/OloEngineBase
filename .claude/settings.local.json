@@ -74,7 +74,11 @@
       "Bash(cmake --build \"E:/repos/OloEngineBase/build\" --target OloEngine --config Debug)",
       "Bash(cmake --build \"E:/repos/OloEngineBase/build\" --target OloEngine OloEditor OloEngine-Tests --config Debug)",
       "Bash(\"E:/repos/OloEngineBase/build/OloEngine/tests/Debug/OloEngine-Tests.exe\" --gtest_filter='RenderGraph*:ResourceHazardValidation*:ForwardPlus*:OIT*')",
-      "Bash(cmake --build build --target RenderingTests --config Debug)"
+      "Bash(cmake --build build --target RenderingTests --config Debug)",
+      "Bash(cmake --build build --target OloEngine-Tests --config Debug -- -m -p:WarningLevel=2)",
+      "Bash(build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter='RenderGraph*:RGBuilder*' --gtest_brief=1)",
+      "Bash(build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_brief=1)",
+      "Bash(cmake --build build --target OloEngine-Tests --config Debug -- -m)"
     ],
     "additionalDirectories": [
       "\\tmp"

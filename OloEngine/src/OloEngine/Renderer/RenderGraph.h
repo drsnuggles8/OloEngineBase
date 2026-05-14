@@ -109,7 +109,13 @@ namespace OloEngine
             return 0u;
         }
 
-        [[nodiscard]] std::string_view NameOf(u32 id) const
+        // Returns an owning std::string by value, not a view into m_NameByID.
+        // m_NameByID is a std::vector<std::string>; an Intern() call between
+        // a NameOf() and its use can realloc the vector and free the SSO
+        // buffer the view pointed at, producing a heap-use-after-free. See
+        // RenderGraph::GetResourceName for the same hazard at the public
+        // API surface.
+        [[nodiscard]] std::string NameOf(u32 id) const
         {
             if (id == 0u || id >= m_NameByID.size())
                 return {};
@@ -497,9 +503,17 @@ namespace OloEngine
         // For opt-in versioned writes this may be a derived version name
         // rather than the original canonical blackboard/import name.
         // Returns empty when the handle is invalid or stale.
-        [[nodiscard]] std::string_view GetResourceName(RGTextureHandle handle) const;
-        [[nodiscard]] std::string_view GetResourceName(RGFramebufferHandle handle) const;
-        [[nodiscard]] std::string_view GetResourceName(RGBufferHandle handle) const;
+        // Returns an owning std::string by value (not a string_view into slot
+        // storage). Callers frequently hold the result across calls that
+        // mutate the handle-slot vectors (e.g. AllocateTransient*),
+        // which can realloc and invalidate any view into a slot's inline
+        // SSO buffer — yielding a heap-use-after-free that sanitizer builds
+        // (TSan/ASan) catch reliably. Returning by value makes the API
+        // safe-by-construction; the SSO buffer of the returned string lives
+        // in the caller's stack frame and is unaffected by graph mutations.
+        [[nodiscard]] std::string GetResourceName(RGTextureHandle handle) const;
+        [[nodiscard]] std::string GetResourceName(RGFramebufferHandle handle) const;
+        [[nodiscard]] std::string GetResourceName(RGBufferHandle handle) const;
 
         // Queue an extraction callback that fires after Execute() completes.
         // The callback receives the resolved texture ID. Useful for persisting

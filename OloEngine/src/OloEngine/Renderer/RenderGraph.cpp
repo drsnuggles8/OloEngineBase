@@ -1326,7 +1326,7 @@ namespace OloEngine
         return m_PhysicalBuffers[handle.Index].BufferID;
     }
 
-    std::string_view RenderGraph::GetResourceName(RGTextureHandle handle) const
+    std::string RenderGraph::GetResourceName(RGTextureHandle handle) const
     {
         if (!handle.IsValid() || handle.Index >= m_TextureHandleSlots.size())
             return {};
@@ -1338,7 +1338,7 @@ namespace OloEngine
         return slot.Name;
     }
 
-    std::string_view RenderGraph::GetResourceName(RGFramebufferHandle handle) const
+    std::string RenderGraph::GetResourceName(RGFramebufferHandle handle) const
     {
         if (!handle.IsValid() || handle.Index >= m_FramebufferHandleSlots.size())
             return {};
@@ -1350,7 +1350,7 @@ namespace OloEngine
         return slot.Name;
     }
 
-    std::string_view RenderGraph::GetResourceName(RGBufferHandle handle) const
+    std::string RenderGraph::GetResourceName(RGBufferHandle handle) const
     {
         if (!handle.IsValid() || handle.Index >= m_BufferHandleSlots.size())
             return {};
@@ -1762,7 +1762,7 @@ namespace OloEngine
 
         for (const auto& extract : m_HistoryTextureExtracts)
         {
-            std::string_view sourceResource;
+            std::string sourceResource;
             u32 sourceTextureID = 0;
 
             if (extract.Kind == HistoryTextureExtract::SourceKind::Texture)
