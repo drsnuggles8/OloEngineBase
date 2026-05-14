@@ -23,7 +23,9 @@ namespace OloEngine
         R32F,    // Unsupported
         RG32F,   // Unsupported
         RGB32F,  // Unsupported
-        DEPTH24STENCIL8
+        DEPTH24STENCIL8,
+        RG16F, // Keep appended to preserve legacy serialized enum values
+        R32I
     };
 
     struct TextureSpecification
@@ -34,6 +36,9 @@ namespace OloEngine
         bool GenerateMips = true;
         // Explicit mip level count. 0 = auto (1 if !GenerateMips, full chain if GenerateMips).
         u32 MipLevels = 0;
+        // Sample count. Values > 1 create multisample storage and force a
+        // single mip level.
+        u32 Samples = 1;
     };
 
     class Texture : public RendererResource

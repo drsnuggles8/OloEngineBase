@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/FoliageRenderPass.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/RGBuilder.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Renderer.h"
 
 namespace OloEngine
@@ -11,17 +13,38 @@ namespace OloEngine
         OLO_CORE_INFO("Creating FoliageRenderPass.");
     }
 
-    void FoliageRenderPass::Init(const FramebufferSpecification& spec)
+    void FoliageRenderPass::Setup(RGBuilder& builder, FrameBlackboard& board)
     {
-        OLO_PROFILE_FUNCTION();
+        RenderGraphNode::Setup(builder, board);
 
-        m_FramebufferSpec = spec;
-        // No own framebuffer — this pass renders into the ScenePass target
+        if (m_CommandBucket.GetCommandCount() == 0)
+            return;
+
+        if (board.Scene.SceneColor.IsValid())
+        {
+            // Inter-pass RMW: read the prior SceneColor version, then
+            // advertise a renamed output via WriteNewVersion so the
+            // validator does not see a same-pass feedback loop.
+            SetPrimaryInputFramebufferHandle(board.Scene.SceneColor);
+            [[maybe_unused]] const auto sceneColorRead = builder.Read(board.Scene.SceneColor, RGReadUsage::RenderTargetRead);
+            constexpr std::string_view foliageVersionTag = "FoliagePass";
+            [[maybe_unused]] const auto sceneColorNew =
+                builder.WriteNewVersion(board.Scene.SceneColor, RGWriteUsage::RenderTarget, foliageVersionTag);
+            builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
+        }
     }
 
-    void FoliageRenderPass::Execute()
+    void FoliageRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Resolve the setup-selected scene framebuffer instead of replaying
+        // a blackboard lookup ladder at execute time.
+        if (const auto sceneHandle = GetPrimaryInputFramebufferHandle(); sceneHandle.IsValid())
+        {
+            if (auto resolvedSceneFB = context.ResolveFramebuffer(sceneHandle))
+                m_SceneFramebuffer = resolvedSceneFB;
+        }
 
         if (!m_SceneFramebuffer)
         {
@@ -59,12 +82,6 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         // Return the ScenePass framebuffer since that's where we render
         return m_SceneFramebuffer;
-    }
-
-    void FoliageRenderPass::SetSceneFramebuffer(const Ref<Framebuffer>& fb)
-    {
-        OLO_PROFILE_FUNCTION();
-        m_SceneFramebuffer = fb;
     }
 
     void FoliageRenderPass::SetupFramebuffer(u32 width, u32 height)

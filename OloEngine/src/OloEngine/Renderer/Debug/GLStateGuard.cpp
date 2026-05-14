@@ -373,15 +373,20 @@ namespace OloEngine
 
             if (!diffs.empty())
             {
-                // Policy::Restore logs at warning level (the diff is useful
-                // diagnostic noise but not a correctness problem because
-                // we're about to roll the state back). Log/Assert surface
-                // at error level.
+                // Policy::Restore is the "trust me to clean up" path —
+                // mutations escaping into the destructor are EXPECTED for
+                // passes that bind transient FBs/shaders/VAOs without
+                // restoring them. The auto-rollback below makes it correct.
+                // Trace-level logging keeps the diagnostic available for
+                // when someone is actively leak-hunting (filter logs to
+                // TRACE) without spamming WARN every frame. Log/Assert
+                // policies remain loud since they signal explicit
+                // "this should not happen" contracts.
                 if (m_Policy == Policy::Restore)
                 {
-                    OLO_CORE_WARN("GLStateGuard[{}]: {} state mutation(s) escaped the pass (restoring):", m_PassName, diffs.size());
+                    OLO_CORE_TRACE("GLStateGuard[{}]: {} state mutation(s) escaped the pass (restoring):", m_PassName, diffs.size());
                     for (const auto& d : diffs)
-                        OLO_CORE_WARN("    {}", d);
+                        OLO_CORE_TRACE("    {}", d);
                 }
                 else
                 {

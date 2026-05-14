@@ -1,8 +1,11 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/ForwardOverlayRenderPass.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "OloEngine/Renderer/RGBuilder.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 
 #include <glad/gl.h>
 
@@ -16,17 +19,40 @@ namespace OloEngine
         OLO_CORE_INFO("Creating ForwardOverlayRenderPass.");
     }
 
-    void ForwardOverlayRenderPass::Init(const FramebufferSpecification& spec)
+    void ForwardOverlayRenderPass::Setup(RGBuilder& builder, FrameBlackboard& board)
     {
-        OLO_PROFILE_FUNCTION();
-        m_FramebufferSpec = spec;
-        // No own framebuffer — we render into the scene FB supplied via
-        // SetSceneFramebuffer(), populated with lit HDR by DeferredLightingPass.
+        RenderGraphNode::Setup(builder, board);
+
+        if (Renderer3D::GetRendererSettings().Path != RenderingPath::Deferred)
+            return;
+        if (m_CommandBucket.GetCommandCount() == 0)
+            return;
+
+        if (board.Scene.SceneColor.IsValid())
+        {
+            // Inter-pass RMW: read the prior SceneColor version, then
+            // advertise a renamed output via WriteNewVersion so the
+            // validator does not see a same-pass feedback loop.
+            SetPrimaryInputFramebufferHandle(board.Scene.SceneColor);
+            [[maybe_unused]] const auto sceneColorRead = builder.Read(board.Scene.SceneColor, RGReadUsage::RenderTargetRead);
+            constexpr std::string_view forwardOverlayVersionTag = "ForwardOverlayPass";
+            [[maybe_unused]] const auto sceneColorNew =
+                builder.WriteNewVersion(board.Scene.SceneColor, RGWriteUsage::RenderTarget, forwardOverlayVersionTag);
+            builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
+        }
     }
 
-    void ForwardOverlayRenderPass::Execute()
+    void ForwardOverlayRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Resolve the setup-selected scene framebuffer instead of replaying
+        // a blackboard lookup ladder at execute time.
+        if (const auto sceneHandle = GetPrimaryInputFramebufferHandle(); sceneHandle.IsValid())
+        {
+            if (auto resolvedSceneFB = context.ResolveFramebuffer(sceneHandle))
+                m_SceneFramebuffer = resolvedSceneFB;
+        }
 
         // Only runs when registered in the graph, which `Renderer3D::
         // ConfigureRenderGraph` does solely for RenderingPath::Deferred
@@ -38,16 +64,14 @@ namespace OloEngine
             return;
         }
 
-        // Restoring guard: captures core GL state on entry (FBO / program /
-        // depth / blend / stencil / cull / polygon / viewport / scissor)
-        // and rolls it back in the destructor. Explicit restore calls
-        // below remain in place for clarity and to keep invariants close
-        // to the mutations, but the guard now also acts as a safety net if
-        // a command path inside the bucket forgets a revert. Per-slot
-        // texture/UBO bindings are NOT covered by ApplyCore — passes that
-        // mutate those must still clean up themselves (which the overlay
-        // pass does implicitly via its own SceneFramebuffer::Unbind).
-        GLStateGuard guard("ForwardOverlayPass", GLStateGuard::Policy::Restore);
+        // Silent guard: kept in scope so future leak hunts can flip the
+        // policy back to Log/Restore without editing the pass. Policy::Ignore
+        // is correct because the pass explicitly restores every critical
+        // field at exit (depth/blend/blend-func/cull/polygon) and unbinds
+        // its shader + VAO, so the only diffs Policy::Restore would surface
+        // are the unbinds themselves (entry program/VAO != 0). The
+        // SceneFramebuffer::Unbind() call below covers FBO state.
+        GLStateGuard guard("ForwardOverlayPass", GLStateGuard::Policy::Ignore);
 
         m_SceneFramebuffer->Bind();
 
@@ -84,16 +108,16 @@ namespace OloEngine
             glNamedFramebufferDrawBuffers(sceneFBID, overlayDrawBufCount, drawBufs.data());
 
         auto& rendererAPI = RenderCommand::GetRendererAPI();
-        rendererAPI.SetDepthTest(true);
-        rendererAPI.SetDepthMask(true);
+        context.SetDepthTest(true);
+        context.SetDepthMask(true);
         rendererAPI.SetDepthFunc(GL_LESS);
-        rendererAPI.SetBlendState(false);
+        context.SetBlendState(false);
         rendererAPI.SetCullFace(GL_BACK);
         rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
-        // Rebind scene camera + light UBOs so overlay shaders see the same
+        // Rebind shared scene resources so overlay shaders see the same
         // view/projection/light data forward shaders expect.
-        Renderer3D::BindSceneUBOs();
+        CommandDispatch::BindSceneResources();
 
         // Sort and dispatch — skybox sorts last via its large depth key, so
         // terrain/voxel/grid render first, then the sky fills pixels with
@@ -117,15 +141,29 @@ namespace OloEngine
             glNamedFramebufferDrawBuffers(sceneFBID, static_cast<GLsizei>(n), fullDrawBufs.data());
         }
 
-        rendererAPI.SetDepthMask(true);
+        context.SetDepthMask(true);
         rendererAPI.SetDepthFunc(GL_LESS);
-        rendererAPI.SetBlendState(false);
+        context.SetBlendState(false);
         // Restore cull face + polygon mode — skybox / debug commands inside the
         // bucket may flip these and would otherwise leak into the next pass.
         rendererAPI.SetCullFace(GL_BACK);
         rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
+        // Reset blend func to the default (GL_ONE, GL_ZERO). Bucket commands
+        // (skybox / debug / grid) call glBlendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA)
+        // for alpha-blended draws and don't restore it; SetBlendState(false)
+        // above disables blending but leaves the func sticky. Any downstream
+        // pass that enables blending without setting its own func would inherit
+        // the leak.
+        ::glBlendFuncSeparate(GL_ONE, GL_ZERO, GL_ONE, GL_ZERO);
+
         m_SceneFramebuffer->Unbind();
+
+        // Unbind shader program + VAO so the GLStateGuard surfaces only
+        // genuine regressions in downstream passes (the bucket's last
+        // command leaves both bound).
+        ::glBindVertexArray(0);
+        ::glUseProgram(0);
 
         ResetCommandBucket();
     }
@@ -133,11 +171,6 @@ namespace OloEngine
     Ref<Framebuffer> ForwardOverlayRenderPass::GetTarget() const
     {
         return m_SceneFramebuffer;
-    }
-
-    void ForwardOverlayRenderPass::SetSceneFramebuffer(const Ref<Framebuffer>& fb)
-    {
-        m_SceneFramebuffer = fb;
     }
 
     void ForwardOverlayRenderPass::SetupFramebuffer(u32 width, u32 height)

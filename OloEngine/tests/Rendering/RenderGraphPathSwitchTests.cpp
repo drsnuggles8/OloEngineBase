@@ -6,14 +6,16 @@
 // `Renderer3D::ConfigureRenderGraph(RenderingPath)` is invoked whenever the
 // user toggles between `RenderingPath::Forward`, `ForwardPlus`, and
 // `Deferred`. Each call:
-//   1. `RenderGraph::ResetTopology()` — drops passes, edges, pass-order cache.
+//   1. `RenderGraph::ResetTopology()` — drops passes, nodes, per-frame
+//      declaration state, and cached execution/submission state.
 //   2. Re-adds only the passes relevant to the new path.
-//   3. Re-declares the execution edges (adds the G-Buffer lighting & overlay
-//      edges in Deferred, skips them in Forward / Forward+).
+//   3. Re-declares the execution edges (keeps only the explicit deferred
+//      Scene->DeferredOpaqueDecal edge plus path-shared downstream handoffs,
+//      while DeferredLighting/ForwardOverlay ordering is derived at runtime).
 //
 // The bug-classes this file guards against:
-//   * A pass that belongs only to Deferred (DeferredLightingPass,
-//     ForwardOverlayPass) lingers in the graph after a Deferred→Forward
+//   * A pass that belongs only to Deferred (DeferredOpaqueDecalPass,
+//     DeferredLightingPass, ForwardOverlayPass) lingers in the graph after a Deferred→Forward
 //     switch, re-declaring writes and producing a WAW hazard the next time
 //     `ValidateResourceHazards` runs.
 //   * The reverse: a Forward→Deferred switch forgets to AddExecutionDependency
@@ -31,9 +33,9 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
+#include "TestDeclarativeNode.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 
 #include <algorithm>
@@ -45,7 +47,7 @@ using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 
 namespace
 {
-    class DeclarativeStubPass : public RenderPass
+    class DeclarativeStubPass : public TestDeclarativeNode
     {
       public:
         explicit DeclarativeStubPass(const std::string& name)
@@ -54,7 +56,8 @@ namespace
         }
 
         void Init(const FramebufferSpecification& /*spec*/) override {}
-        void Execute() override {}
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
+        void Execute(RGCommandContext& /*context*/) override {}
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override
         {
             return nullptr;
@@ -65,19 +68,31 @@ namespace
 
         void TestDeclareRead(std::string_view name)
         {
-            DeclareRead(name);
+            DeclareTestRead(name);
         }
         void TestDeclareWrite(std::string_view name)
         {
-            DeclareWrite(name);
+            DeclareTestWrite(name);
         }
     };
+
+    void DeclarativeStubPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        // TestDeclarativeNode::Setup flushes the recorded reads/writes
+        // through the setup-time path (import + builder.Read/Write).
+        TestDeclarativeNode::Setup(builder, blackboard);
+    }
+
+    void RegisterDeclarativeStubNode(RenderGraph& graph, Ref<DeclarativeStubPass> pass)
+    {
+        graph.AddNode(pass.As<RenderGraphNode>());
+    }
 
     Ref<DeclarativeStubPass> AddDeclStub(RenderGraph& graph, const std::string& name)
     {
         auto pass = Ref<DeclarativeStubPass>::Create(name);
         pass->SetName(name);
-        graph.AddPass(pass);
+        RegisterDeclarativeStubNode(graph, pass);
         return pass;
     }
 
@@ -96,22 +111,22 @@ namespace
 
     bool ContainsPass(const RenderGraph& graph, const std::string& name)
     {
-        const auto passes = graph.GetAllPasses();
-        return std::any_of(passes.begin(), passes.end(),
-                           [&](const Ref<RenderPass>& p)
-                           { return p && p->GetName() == name; });
+        const auto entries = graph.GetNodeSubmissionInfo();
+        return std::any_of(entries.begin(), entries.end(),
+                           [&](const RenderGraph::NodeSubmissionInfo& entry)
+                           { return entry.NodeName == name; });
     }
 
     // Minimal production-shaped topology. Only the passes relevant to the
-    // path-switch invariants (ScenePass, DeferredLightingPass,
-    // ForwardOverlayPass, OITResolvePass, FinalPass) are instantiated;
+    // path-switch invariants (ScenePass, DeferredOpaqueDecalPass,
+    // DeferredLightingPass, ForwardOverlayPass, OITResolvePass, FinalPass) are instantiated;
     // downstream post-process chain collapses into FinalPass so the tests
     // focus on the edges ConfigureRenderGraph actually toggles.
     //
-    // When `forceSkipOverlayEdge` is true, the Forward→Deferred rebuild
-    // deliberately skips `ScenePass → DeferredLightingPass`, simulating
-    // the textbook regression this test suite is here to prevent.
-    void RebuildTopology(RenderGraph& graph, bool deferred, bool forceSkipLightingEdge = false)
+    // When `forceSkipDecalEdge` is true, the Forward→Deferred rebuild
+    // deliberately skips `ScenePass → DeferredOpaqueDecalPass`, simulating
+    // the deferred-edge regression this suite is here to prevent.
+    void RebuildTopology(RenderGraph& graph, bool deferred, bool forceSkipDecalEdge = false)
     {
         graph.ResetTopology();
 
@@ -122,28 +137,25 @@ namespace
 
         if (deferred)
         {
-            auto lighting = AddDeclStub(graph, "DeferredLightingPass");
-            lighting->TestDeclareRead(std::string(ResourceNames::SceneNormals));
-            lighting->TestDeclareRead(std::string(ResourceNames::SceneDepth));
-            lighting->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+            auto deferredDecal = AddDeclStub(graph, "DeferredOpaqueDecalPass");
+            deferredDecal->TestDeclareRead(std::string(ResourceNames::SceneDepth));
+            deferredDecal->TestDeclareWrite(std::string(ResourceNames::SceneColor));
 
-            auto overlay = AddDeclStub(graph, "ForwardOverlayPass");
-            overlay->TestDeclareRead(std::string(ResourceNames::SceneDepth));
-            overlay->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+            AddDeclStub(graph, "DeferredLightingPass");
+
+            AddDeclStub(graph, "ForwardOverlayPass");
         }
 
         auto oit = AddDeclStub(graph, "OITResolvePass");
-        oit->TestDeclareRead(std::string(ResourceNames::SceneColor));
-        oit->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+        (void)oit;
 
         auto fin = AddDeclStub(graph, "FinalPass");
-        fin->TestDeclareRead(std::string(ResourceNames::SceneColor));
-        fin->TestDeclareWrite(std::string(ResourceNames::FinalColor));
+        (void)fin;
 
         if (deferred)
         {
-            if (!forceSkipLightingEdge)
-                graph.AddExecutionDependency("ScenePass", "DeferredLightingPass");
+            if (!forceSkipDecalEdge)
+                graph.AddExecutionDependency("ScenePass", "DeferredOpaqueDecalPass");
             graph.AddExecutionDependency("DeferredLightingPass", "ForwardOverlayPass");
             graph.AddExecutionDependency("ForwardOverlayPass", "OITResolvePass");
         }
@@ -158,8 +170,9 @@ namespace
 } // namespace
 
 // =============================================================================
-// Forward→Deferred: the new passes (DeferredLightingPass, ForwardOverlayPass)
-// appear, the ScenePass→DeferredLightingPass edge is established, and
+// Forward→Deferred: the new passes (DeferredOpaqueDecalPass,
+// DeferredLightingPass, ForwardOverlayPass) appear, the
+// ScenePass→DeferredOpaqueDecalPass edge is established, and
 // validation continues to pass. This is the happy path the user hits every
 // time they flip the editor's `Path` dropdown.
 // =============================================================================
@@ -178,6 +191,7 @@ TEST(RenderGraphPathSwitch, ForwardToDeferredInsertsDeferredPassesAndEdges)
 
     RebuildTopology(graph, /*deferred=*/true);
 
+    EXPECT_TRUE(ContainsPass(graph, "DeferredOpaqueDecalPass"));
     EXPECT_TRUE(ContainsPass(graph, "DeferredLightingPass"));
     EXPECT_TRUE(ContainsPass(graph, "ForwardOverlayPass"));
     EXPECT_TRUE(ContainsPass(graph, "OITResolvePass"));
@@ -188,19 +202,22 @@ TEST(RenderGraphPathSwitch, ForwardToDeferredInsertsDeferredPassesAndEdges)
 
 // =============================================================================
 // Deferred→Forward: `ResetTopology` + a smaller pass set must leave the graph
-// with no lingering DeferredLightingPass / ForwardOverlayPass. A leftover
-// pass would re-declare `Write(SceneColor)` and produce a WAW hazard against
-// ScenePass.
+// with no lingering DeferredOpaqueDecalPass / DeferredLightingPass /
+// ForwardOverlayPass. A leftover pass would re-declare `Write(SceneColor)`
+// and produce a WAW hazard against ScenePass.
 // =============================================================================
 TEST(RenderGraphPathSwitch, DeferredToForwardRemovesDeferredOnlyPasses)
 {
     RenderGraph graph;
     RebuildTopology(graph, /*deferred=*/true);
+    ASSERT_TRUE(ContainsPass(graph, "DeferredOpaqueDecalPass"));
     ASSERT_TRUE(ContainsPass(graph, "DeferredLightingPass"));
     ASSERT_TRUE(ContainsPass(graph, "ForwardOverlayPass"));
 
     RebuildTopology(graph, /*deferred=*/false);
 
+    EXPECT_FALSE(ContainsPass(graph, "DeferredOpaqueDecalPass"))
+        << "DeferredOpaqueDecalPass must be dropped by ResetTopology when switching to Forward";
     EXPECT_FALSE(ContainsPass(graph, "DeferredLightingPass"))
         << "DeferredLightingPass must be dropped by ResetTopology when switching to Forward";
     EXPECT_FALSE(ContainsPass(graph, "ForwardOverlayPass"))
@@ -214,28 +231,30 @@ TEST(RenderGraphPathSwitch, DeferredToForwardRemovesDeferredOnlyPasses)
 
 // =============================================================================
 // Negative: Forward→Deferred forgetting to add `ScenePass →
-// DeferredLightingPass` must be flagged. This is the exact regression the
-// review flagged: if ConfigureRenderGraph ever drops the edge, the validator
-// must not stay silent.
+// DeferredOpaqueDecalPass` must be flagged. This models the current baseline
+// contract where DeferredLighting ordering is reached transitively through
+// DeferredOpaqueDecalPass.
 // =============================================================================
-TEST(RenderGraphPathSwitch, ForwardToDeferredMissingLightingEdgeIsFlagged)
+// =============================================================================
+// Phase F slice 27 — ScenePass → DeferredOpaqueDecalPass derived edge.
+// Previously, missing this explicit edge was detected as a RAW hazard.
+// Slice 27 derives the ordering from DeclareWrite(SceneDepth/SceneNormals) on
+// ScenePass + DeclareRead(SceneDepth) on DeferredOpaqueDecalPass, so no
+// explicit AddExecutionDependency call is needed.
+// =============================================================================
+TEST(RenderGraphPathSwitch, ForwardToDeferredMissingSceneToDecalExplicitEdge_DerivedEdgeSufficient)
 {
     RenderGraph graph;
     RebuildTopology(graph, /*deferred=*/false);
-    RebuildTopology(graph, /*deferred=*/true, /*forceSkipLightingEdge=*/true);
+    RebuildTopology(graph, /*deferred=*/true, /*forceSkipDecalEdge=*/true);
 
+    // Slice 27: ScenePass.DeclareWrite(SceneDepth) +
+    // DeferredOpaqueDecalPass.DeclareRead(SceneDepth) derives the RAW edge
+    // automatically.  No hazard expected.
     const auto hazards = graph.ValidateResourceHazards();
-    ASSERT_FALSE(hazards.empty()) << "Missing ScenePass→DeferredLightingPass edge must surface a hazard";
-
-    // The RAW hazard should name either SceneNormals or SceneDepth (the two
-    // resources DeferredLightingPass reads that ScenePass writes).
-    const bool targetsSceneResource = std::any_of(
-        hazards.begin(), hazards.end(),
-        [](const auto& h)
-        {
-            return h.Resource == ResourceNames::SceneNormals || h.Resource == ResourceNames::SceneDepth;
-        });
-    EXPECT_TRUE(targetsSceneResource) << "Expected RAW on SceneNormals / SceneDepth: " << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.empty())
+        << "slice 27: declaration-derived edge must prevent the SceneDepth RAW hazard."
+        << HazardsToString(hazards);
 }
 
 // =============================================================================
@@ -250,8 +269,9 @@ TEST(RenderGraphPathSwitch, AlternatingRebuildsHaveStablePassCounts)
 
     // Forward baseline: Scene + OITResolve + Final = 3.
     constexpr sizet kForwardPassCount = 3u;
-    // Deferred adds DeferredLightingPass + ForwardOverlayPass = 5.
-    constexpr sizet kDeferredPassCount = 5u;
+    // Deferred adds DeferredOpaqueDecalPass + DeferredLightingPass +
+    // ForwardOverlayPass = 6.
+    constexpr sizet kDeferredPassCount = 6u;
 
     const bool paths[] = { false, true, false, true, true, false };
     for (i32 i = 0; i < static_cast<i32>(std::size(paths)); ++i)
@@ -262,14 +282,14 @@ TEST(RenderGraphPathSwitch, AlternatingRebuildsHaveStablePassCounts)
             << "Cycle " << i << " (deferred=" << paths[i] << "): " << HazardsToString(hazards);
 
         const sizet expected = paths[i] ? kDeferredPassCount : kForwardPassCount;
-        EXPECT_EQ(graph.GetAllPasses().size(), expected)
+        EXPECT_EQ(graph.GetNodeSubmissionInfo().size(), expected)
             << "Cycle " << i << " (deferred=" << paths[i] << "): pass count drift — ResetTopology leaking";
     }
 }
 
 // =============================================================================
 // Hand-verify the edges map after a switch to prove the validator is
-// operating on the new topology, not stale cached state. Uses `GetPassOrder`
+// operating on the new topology, not stale cached state. Uses `GetExecutionOrder`
 // to sample the topologically-sorted result after each rebuild.
 // =============================================================================
 TEST(RenderGraphPathSwitch, PassOrderReflectsCurrentTopologyAfterSwitch)
@@ -279,23 +299,29 @@ TEST(RenderGraphPathSwitch, PassOrderReflectsCurrentTopologyAfterSwitch)
     RebuildTopology(graph, /*deferred=*/true);
     (void)graph.ValidateResourceHazards(); // triggers UpdateDependencyGraph → populates m_PassOrder
     {
-        const auto& order = graph.GetPassOrder();
-        // Topological sort must place ScenePass before DeferredLightingPass and
-        // DeferredLightingPass before ForwardOverlayPass.
+        const auto& order = graph.GetExecutionOrder();
+        // Topological sort must place ScenePass before
+        // DeferredOpaqueDecalPass before DeferredLightingPass before
+        // ForwardOverlayPass.
         const auto sceneIdx = std::find(order.begin(), order.end(), "ScenePass");
+        const auto decalIdx = std::find(order.begin(), order.end(), "DeferredOpaqueDecalPass");
         const auto lightingIdx = std::find(order.begin(), order.end(), "DeferredLightingPass");
         const auto overlayIdx = std::find(order.begin(), order.end(), "ForwardOverlayPass");
         ASSERT_NE(sceneIdx, order.end());
+        ASSERT_NE(decalIdx, order.end());
         ASSERT_NE(lightingIdx, order.end());
         ASSERT_NE(overlayIdx, order.end());
-        EXPECT_LT(sceneIdx - order.begin(), lightingIdx - order.begin());
+        EXPECT_LT(sceneIdx - order.begin(), decalIdx - order.begin());
+        EXPECT_LT(decalIdx - order.begin(), lightingIdx - order.begin());
         EXPECT_LT(lightingIdx - order.begin(), overlayIdx - order.begin());
     }
 
     RebuildTopology(graph, /*deferred=*/false);
     (void)graph.ValidateResourceHazards();
     {
-        const auto& order = graph.GetPassOrder();
+        const auto& order = graph.GetExecutionOrder();
+        EXPECT_EQ(std::find(order.begin(), order.end(), "DeferredOpaqueDecalPass"), order.end())
+            << "DeferredOpaqueDecalPass must not appear in Forward pass order";
         EXPECT_EQ(std::find(order.begin(), order.end(), "DeferredLightingPass"), order.end())
             << "DeferredLightingPass must not appear in Forward pass order";
         EXPECT_EQ(std::find(order.begin(), order.end(), "ForwardOverlayPass"), order.end())
@@ -361,23 +387,15 @@ namespace
             decal->TestDeclareWrite(std::string(ResourceNames::SceneColor));
             decal->TestDeclareWrite(std::string(ResourceNames::SceneNormals));
 
-            auto lighting = AddDeclStub(graph, "DeferredLightingPass");
-            lighting->TestDeclareRead(std::string(ResourceNames::SceneNormals));
-            lighting->TestDeclareRead(std::string(ResourceNames::SceneDepth));
-            lighting->TestDeclareWrite(std::string(ResourceNames::SceneColor));
-
-            auto overlay = AddDeclStub(graph, "ForwardOverlayPass");
-            overlay->TestDeclareRead(std::string(ResourceNames::SceneDepth));
-            overlay->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+            AddDeclStub(graph, "DeferredLightingPass");
+            AddDeclStub(graph, "ForwardOverlayPass");
         }
 
         auto oit = AddDeclStub(graph, "OITResolvePass");
-        oit->TestDeclareRead(std::string(ResourceNames::SceneColor));
-        oit->TestDeclareWrite(std::string(ResourceNames::SceneColor));
+        (void)oit;
 
         auto fin = AddDeclStub(graph, "FinalPass");
-        fin->TestDeclareRead(std::string(ResourceNames::SceneColor));
-        fin->TestDeclareWrite(std::string(ResourceNames::FinalColor));
+        (void)fin;
 
         if (path == TestPath::ForwardPlus)
         {
@@ -389,7 +407,6 @@ namespace
         {
             if (!skipDecalEdge)
                 graph.AddExecutionDependency("ScenePass", "DeferredOpaqueDecalPass");
-            graph.AddExecutionDependency("DeferredOpaqueDecalPass", "DeferredLightingPass");
             graph.AddExecutionDependency("DeferredLightingPass", "ForwardOverlayPass");
             graph.AddExecutionDependency("ForwardOverlayPass", "OITResolvePass");
         }
@@ -442,7 +459,7 @@ TEST(RenderGraphPathSwitch, ThreeWayCycleCleansUpAllPathSpecificPasses)
             << "Cycle " << i << " path=" << static_cast<i32>(steps[i].path)
             << ": " << HazardsToString(hazards);
 
-        EXPECT_EQ(graph.GetAllPasses().size(), steps[i].expected)
+        EXPECT_EQ(graph.GetNodeSubmissionInfo().size(), steps[i].expected)
             << "Cycle " << i << ": pass count drift — ResetTopology leak";
 
         // Path-specific passes must be present iff path matches.
@@ -456,50 +473,34 @@ TEST(RenderGraphPathSwitch, ThreeWayCycleCleansUpAllPathSpecificPasses)
     }
 }
 
-// Negative: Forward → Deferred without registering the
-// ScenePass→DeferredOpaqueDecalPass edge must surface a RAW hazard. This
-// specifically guards the Phase 2 decal-integration edge — a regression
-// would let the decal pass read the G-Buffer before ScenePass finishes.
-TEST(RenderGraphPathSwitch, MissingDecalEdgeSurfacesHazard)
+// Phase F slice 27: DeferredOpaqueDecalPass.DeclareRead(SceneDepth/SceneNormals)
+// + ScenePass.DeclareWrite(...) derives the ordering edge; no explicit
+// ScenePass→DeferredOpaqueDecalPass call needed.
+TEST(RenderGraphPathSwitch, MissingDecalExplicitEdge_DerivedEdgeSufficient)
 {
     RenderGraph graph;
     RebuildTopologyMultiPath(graph, TestPath::Forward);
     RebuildTopologyMultiPath(graph, TestPath::Deferred, /*skipDecalEdge=*/true);
 
     const auto hazards = graph.ValidateResourceHazards();
-    ASSERT_FALSE(hazards.empty())
-        << "Missing ScenePass→DeferredOpaqueDecalPass edge must be flagged as a hazard";
-
-    const bool namesSceneResource = std::any_of(
-        hazards.begin(), hazards.end(),
-        [](const auto& h)
-        {
-            return h.Resource == ResourceNames::SceneDepth ||
-                   h.Resource == ResourceNames::SceneNormals;
-        });
-    EXPECT_TRUE(namesSceneResource)
-        << "Expected RAW hazard on SceneDepth / SceneNormals: " << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.empty())
+        << "slice 27: ScenePass→DeferredOpaqueDecalPass is derived from declarations."
+        << HazardsToString(hazards);
 }
 
-// Negative: Forward+ without the LightCullingPass→ScenePass edge must be
-// flagged. Guards the Forward+ producer→consumer contract; a regression
-// would silently let ScenePass read stale/uninitialised LightGrid data.
-TEST(RenderGraphPathSwitch, MissingLightGridEdgeSurfacesHazard)
+// Phase F slice 27: LightCullingPass.DeclareWrite(LightGrid) +
+// ScenePass.DeclareRead(LightGrid) derives the ordering edge; no explicit
+// LightCullingPass→ScenePass call needed.
+TEST(RenderGraphPathSwitch, MissingLightGridExplicitEdge_DerivedEdgeSufficient)
 {
     RenderGraph graph;
     RebuildTopologyMultiPath(graph, TestPath::Forward);
     RebuildTopologyMultiPath(graph, TestPath::ForwardPlus, /*skipDecalEdge=*/false, /*skipLightGridEdge=*/true);
 
     const auto hazards = graph.ValidateResourceHazards();
-    ASSERT_FALSE(hazards.empty())
-        << "Missing LightCullingPass→ScenePass edge must surface a hazard";
-
-    const bool namesLightGrid = std::any_of(
-        hazards.begin(), hazards.end(),
-        [](const auto& h)
-        { return h.Resource == kLightGridResource; });
-    EXPECT_TRUE(namesLightGrid)
-        << "Expected hazard naming LightGrid resource: " << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.empty())
+        << "slice 27: LightCullingPass→ScenePass is derived from LightGrid declarations."
+        << HazardsToString(hazards);
 }
 
 // Topological-order invariants for Deferred with decal: decal runs AFTER
@@ -510,7 +511,7 @@ TEST(RenderGraphPathSwitch, DeferredDecalOrderingIsTopologicallyValid)
     RebuildTopologyMultiPath(graph, TestPath::Deferred);
     (void)graph.ValidateResourceHazards();
 
-    const auto& order = graph.GetPassOrder();
+    const auto& order = graph.GetExecutionOrder();
     auto indexOf = [&](const char* name) -> i64
     {
         const auto it = std::find(order.begin(), order.end(), name);

@@ -88,6 +88,10 @@ namespace OloEngine
         // @return Shared VertexArray for fullscreen triangle rendering
         [[nodiscard]] static Ref<VertexArray> GetFullscreenTriangle();
 
+        // @brief Release lazily-created shared primitive GPU resources while
+        // the OpenGL context is still alive.
+        static void Shutdown();
+
         // @brief Create an icosphere mesh
         // @param radius Sphere radius (must be > 0.0f)
         // @param subdivisions Number of subdivision levels (must be 0-6, higher = smoother but exponentially more triangles)

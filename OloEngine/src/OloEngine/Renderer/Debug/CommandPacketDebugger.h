@@ -15,6 +15,8 @@
 
 namespace OloEngine
 {
+    class RenderGraph;
+
     // @brief Debug visualization tool for command packets and draw keys
     //
     // RenderDoc-inspired recording and analysis tool for the command bucket system.
@@ -26,10 +28,10 @@ namespace OloEngine
         static CommandPacketDebugger& GetInstance();
 
         // @brief Renders the full debug view
-        // @param bucket Live command bucket (used for live view when no captures exist)
+        // @param graph Live render graph (used to resolve the geometry stream bucket when no captures exist)
         // @param open Window visibility toggle
         // @param title Window title
-        void RenderDebugView(const CommandBucket* bucket, bool* open = nullptr, const char* title = "Command Bucket Inspector");
+        void RenderDebugView(const RenderGraph* graph, bool* open = nullptr, const char* title = "Command Bucket Inspector");
 
         // @brief Exports captured frame data to CSV
         bool ExportToCSV(const std::string& outputPath) const;
@@ -49,7 +51,7 @@ namespace OloEngine
         // Tab rendering methods
         void RenderRecordingToolbar();
         void RenderFrameSelector();
-        void RenderCommandList(const CapturedFrameData* frame, const CommandBucket* liveBucket);
+        void RenderCommandList(const CapturedFrameData* frame);
         void RenderCommandDetail(const CapturedCommandData& cmd, const CapturedFrameData* frame);
         void RenderSortAnalysis(const CapturedFrameData* frame);
         void RenderStateChanges(const CapturedFrameData* frame);

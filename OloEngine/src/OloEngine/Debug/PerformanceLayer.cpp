@@ -11,8 +11,14 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cfloat>
+#include <cstdio>
+#include <ctime>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -112,27 +118,24 @@ namespace OloEngine
     {
         OLO_PROFILE_SCOPE("Performance/DrawPerformanceWindow");
 
-        constexpr ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
-
-        constexpr f32 padding = 10.0f;
-        auto const* viewport = ImGui::GetMainViewport();
-        auto workPos = viewport->WorkPos;
-        auto workSize = viewport->WorkSize;
-
-        // Position in top-right corner
-        ImGui::SetNextWindowPos(
-            ImVec2(workPos.x + workSize.x - padding, workPos.y + padding),
-            ImGuiCond_Always,
-            ImVec2(1.0f, 0.0f));
-        ImGui::SetNextWindowBgAlpha(0.65f);
-
-        if (ImGui::Begin("##PerformanceOverlay", nullptr, windowFlags))
+        ImGui::SetNextWindowSize(ImVec2(520.0f, 720.0f), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Performance", &m_Visible))
         {
-            ImGui::TextColored(DebugUtils::Colors::Info, "Performance (F4)");
-
+            ImGui::TextColored(DebugUtils::Colors::Info, "Performance (F4 to toggle)");
+            ImGui::SameLine();
             if (ImGui::SmallButton(m_Paused ? "Resume" : "Pause"))
             {
                 m_Paused = !m_Paused;
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Export Snapshot"))
+            {
+                m_LastExportPath = ExportSnapshotToFile();
+            }
+            if (!m_LastExportPath.empty())
+            {
+                ImGui::SameLine();
+                ImGui::TextDisabled("-> %s", m_LastExportPath.c_str());
             }
 
             ImGui::Separator();
@@ -292,12 +295,10 @@ namespace OloEngine
         auto const& profileData = app->GetProfilerPreviousFrameData();
         if (profileData.empty())
         {
+            ImGui::Text("CPU Scopes: (no data — instrument code with OLO_PERF_SCOPE_AUTO)");
             return;
         }
 
-        ImGui::Text("CPU Scopes:");
-
-        // Sort by time descending, show top entries
         struct ScopeEntry
         {
             const std::string* Name;
@@ -315,25 +316,161 @@ namespace OloEngine
         std::ranges::sort(entries, [](auto const& a, auto const& b)
                           { return a.Time > b.Time; });
 
-        constexpr u32 maxShown = 8;
-        auto const count = std::min(static_cast<u32>(entries.size()), maxShown);
-        for (u32 i = 0; i < count; ++i)
+        ImGui::Text("CPU Scopes (%zu):", entries.size());
+        ImGui::SameLine();
+        i32 limit = static_cast<i32>(m_CPUScopeLimit);
+        ImGui::SetNextItemWidth(80.0f);
+        if (ImGui::DragInt("limit", &limit, 1.0f, 4, 256))
+            m_CPUScopeLimit = static_cast<u32>(std::max(4, limit));
+
+        if (ImGui::BeginTable("CPUScopes", 3,
+                              ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                                  ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY,
+                              ImVec2(0.0f, 320.0f)))
         {
-            auto const& entry = entries[i];
-            auto const color = DebugUtils::GetPerformanceColor(entry.Time, 2.0f, 8.0f);
-            if (entry.Samples > 1)
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableSetupColumn("Scope", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Time (ms)", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+            ImGui::TableSetupColumn("Calls", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+            ImGui::TableHeadersRow();
+
+            auto const count = std::min(static_cast<u32>(entries.size()), m_CPUScopeLimit);
+            for (u32 i = 0; i < count; ++i)
             {
-                ImGui::TextColored(color, "  %s: %.2fms (%ux)", entry.Name->c_str(), entry.Time, entry.Samples);
+                auto const& entry = entries[i];
+                auto const color = DebugUtils::GetPerformanceColor(entry.Time, 2.0f, 8.0f);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextColored(color, "%s", entry.Name->c_str());
+                ImGui::TableSetColumnIndex(1);
+                ImGui::TextColored(color, "%.3f", entry.Time);
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("%u", entry.Samples);
             }
-            else
+            ImGui::EndTable();
+        }
+
+        if (entries.size() > m_CPUScopeLimit)
+        {
+            ImGui::TextDisabled("  ... +%zu more (raise limit to see)", entries.size() - m_CPUScopeLimit);
+        }
+    }
+
+    std::string PerformanceLayer::ExportSnapshotToFile() const
+    {
+        auto const now = std::chrono::system_clock::now();
+        auto const time = std::chrono::system_clock::to_time_t(now);
+        std::tm tm{};
+#if defined(_WIN32)
+        localtime_s(&tm, &time);
+#else
+        localtime_r(&time, &tm);
+#endif
+
+        std::ostringstream filename;
+        filename << "perf-snapshot-"
+                 << std::put_time(&tm, "%Y%m%d-%H%M%S")
+                 << ".txt";
+
+        std::ofstream out(filename.str());
+        if (!out)
+            return {};
+
+        out << "OloEngine Performance Snapshot\n";
+        out << "Captured: " << std::put_time(&tm, "%Y-%m-%d %H:%M:%S") << "\n";
+#if defined(OLO_DEBUG)
+        out << "Build: Debug\n";
+#elif defined(OLO_RELEASE)
+        out << "Build: Release\n";
+#elif defined(OLO_DIST)
+        out << "Build: Distribution\n";
+#endif
+        out << "----------------------------------------\n\n";
+
+        out << "Frame timing:\n";
+        out << "  Current FPS:   " << m_CurrentFPS << "\n";
+        out << "  Current frame: " << m_CurrentFrameTime << " ms\n";
+        out << "  Min:           " << m_FrameTimeMin << " ms\n";
+        out << "  Max:           " << m_FrameTimeMax << " ms\n";
+        if (m_FrameHistoryCount > 0)
+        {
+            f64 sum = 0.0;
+            for (u32 i = 0; i < m_FrameHistoryCount; ++i)
+                sum += m_FrameTimeHistory[i];
+            out << "  Avg (" << m_FrameHistoryCount << " frames): "
+                << (sum / m_FrameHistoryCount) << " ms\n";
+        }
+        out << "\n";
+
+#if defined(OLO_DEBUG)
+        {
+            auto const& fd = RendererProfiler::GetInstance().GetCurrentFrameData();
+            out << "Renderer (current frame):\n";
+            out << "  CPU:           " << fd.m_CPUTime << " ms\n";
+            out << "  GPU:           " << fd.m_GPUTime << " ms\n";
+            out << "  Sort:          " << fd.m_SortingTime << " ms\n";
+            out << "  Cull:          " << fd.m_CullingTime << " ms\n";
+            out << "  Draw calls:    " << fd.m_DrawCalls << "\n";
+            out << "  Triangles:     " << fd.m_TrianglesRendered << "\n";
+            out << "  Vertices:      " << fd.m_VerticesRendered << "\n";
+            out << "  State changes: " << fd.m_StateChanges << "\n";
+            out << "  Shader binds:  " << fd.m_ShaderBinds << "\n";
+            out << "  Texture binds: " << fd.m_TextureBinds << "\n";
+            out << "  Buffer binds:  " << fd.m_BufferBinds << "\n";
+            out << "  Cmd packets:   " << fd.m_CommandPackets << "\n";
+            out << "\n";
+        }
+#endif
+
+        if (auto const* app = Application::TryGet())
+        {
+            auto const& profileData = app->GetProfilerPreviousFrameData();
+            struct ExportEntry
             {
-                ImGui::TextColored(color, "  %s: %.2fms", entry.Name->c_str(), entry.Time);
+                std::string Name;
+                f32 Time;
+                u32 Samples;
+            };
+            std::vector<ExportEntry> entries;
+            entries.reserve(profileData.size());
+            for (auto const& [name, data] : profileData)
+                entries.push_back({ name, data.Time, data.Samples });
+
+            std::ranges::sort(entries, [](auto const& a, auto const& b)
+                              { return a.Time > b.Time; });
+
+            out << "CPU scopes (sorted by total time descending, full list):\n";
+            out << "  " << std::left;
+            // Header
+            char header[256];
+            std::snprintf(header, sizeof(header),
+                          "  %-60s %10s %8s\n", "Scope", "Time (ms)", "Calls");
+            out << header;
+            out << "  ----------------------------------------------------------------------------------\n";
+
+            for (auto const& e : entries)
+            {
+                char line[512];
+                std::snprintf(line, sizeof(line),
+                              "  %-60s %10.4f %8u\n",
+                              e.Name.c_str(), e.Time, e.Samples);
+                out << line;
             }
         }
 
-        if (entries.size() > maxShown)
+        out << "\n----------------------------------------\n";
+        out << "Frame time history (oldest -> newest, ms):\n";
+        for (u32 i = 0; i < m_FrameHistoryCount; ++i)
         {
-            ImGui::TextDisabled("  ... +%zu more", entries.size() - maxShown);
+            auto const idx = (m_FrameHistoryIndex + s_FrameHistorySize - m_FrameHistoryCount + i) % s_FrameHistorySize;
+            if (i > 0 && (i % 10) == 0)
+                out << "\n";
+            char buf[16];
+            std::snprintf(buf, sizeof(buf), "%6.2f ", m_FrameTimeHistory[idx]);
+            out << buf;
         }
+        out << "\n";
+
+        return filename.str();
     }
 } // namespace OloEngine

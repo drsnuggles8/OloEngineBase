@@ -1,0 +1,271 @@
+#include "OloEnginePCH.h"
+#include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
+#include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scene/Components.h"
+#include <glad/gl.h>
+#include <glm/gtc/type_ptr.hpp>
+
+namespace OloEngine
+{
+    void TiledForwardPlus::Initialize(u32 screenWidth, u32 screenHeight)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        m_LightGrid.Initialize(screenWidth, screenHeight, m_GridConfig);
+        m_LightBuffer.Initialize(1024, 256);
+        m_CullingPass.Initialize();
+
+        m_ForwardPlusUBO = UniformBuffer::Create(
+            UBOStructures::ForwardPlusUBO::GetSize(),
+            ShaderBindingLayout::UBO_FORWARD_PLUS);
+
+        // Only mark as initialized if all sub-components succeeded
+        if (!m_LightGrid.IsInitialized() || !m_LightBuffer.IsInitialized() || !m_CullingPass.IsValid() || !m_ForwardPlusUBO)
+        {
+            OLO_CORE_ERROR("TiledForwardPlus: Initialization failed — one or more sub-components are invalid");
+            m_Initialized = false;
+            return;
+        }
+
+        m_Initialized = true;
+        OLO_CORE_INFO("TiledForwardPlus: Initialized ({}x{}, tile={}px)",
+                      screenWidth, screenHeight, m_GridConfig.TileSizePixels);
+    }
+
+    void TiledForwardPlus::Shutdown()
+    {
+        m_ForwardPlusUBO.Reset();
+        m_LightGrid.Shutdown();
+        m_LightBuffer.Shutdown();
+        m_CullingPass.Shutdown();
+        m_ActiveThisFrame = false;
+        m_Initialized = false;
+    }
+
+    void TiledForwardPlus::Resize(u32 screenWidth, u32 screenHeight)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (m_Initialized)
+        {
+            m_LightGrid.Resize(screenWidth, screenHeight);
+        }
+    }
+
+    void TiledForwardPlus::GatherLights(const Scene& scene)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_Initialized)
+        {
+            return;
+        }
+
+        std::vector<GPUPointLight> pointLights;
+        std::vector<GPUSpotLight> spotLights;
+
+        // Gather point lights
+        auto pointLightView = scene.GetAllEntitiesWith<TransformComponent, PointLightComponent>();
+        for (auto entity : pointLightView)
+        {
+            auto& transform = pointLightView.template get<TransformComponent>(entity);
+            auto& light = pointLightView.template get<PointLightComponent>(entity);
+
+            GPUPointLight gpu;
+            gpu.PositionAndRadius = glm::vec4(transform.Translation, light.m_Range);
+            gpu.ColorAndIntensity = glm::vec4(light.m_Color, light.m_Intensity);
+            pointLights.push_back(gpu);
+        }
+
+        // Gather spot lights
+        auto spotLightView = scene.GetAllEntitiesWith<TransformComponent, SpotLightComponent>();
+        for (auto entity : spotLightView)
+        {
+            auto& transform = spotLightView.template get<TransformComponent>(entity);
+            auto& light = spotLightView.template get<SpotLightComponent>(entity);
+
+            GPUSpotLight gpu;
+            gpu.PositionAndRadius = glm::vec4(transform.Translation, light.m_Range);
+            gpu.DirectionAndAngle = glm::vec4(
+                glm::normalize(light.m_Direction),
+                glm::cos(glm::radians(light.m_OuterCutoff)));
+            gpu.ColorAndIntensity = glm::vec4(light.m_Color, light.m_Intensity);
+            gpu.SpotParams = glm::vec4(
+                glm::cos(glm::radians(light.m_InnerCutoff)),
+                light.m_Attenuation,
+                0.0f, 0.0f);
+            spotLights.push_back(gpu);
+        }
+
+        // Upload to GPU
+        m_LightBuffer.Update(pointLights, spotLights);
+
+        // Decide if Forward+ should be active
+        const u32 totalLights = static_cast<u32>(pointLights.size() + spotLights.size());
+        switch (m_Mode)
+        {
+            case ForwardPlusMode::Always:
+                m_ActiveThisFrame = (totalLights > 0);
+                break;
+            case ForwardPlusMode::Never:
+                m_ActiveThisFrame = false;
+                break;
+            case ForwardPlusMode::Auto:
+            default:
+                // Hysteresis: once active, stay active until the light count
+                // falls to the lower "downgrade" threshold. Prevents path
+                // oscillation when counts hover at the upgrade boundary.
+                // Treat an ill-configured down threshold (>= upper) as no
+                // hysteresis — use the upper bound on both sides.
+                if (m_ActiveThisFrame)
+                {
+                    const u32 downThreshold = (m_LightCountThresholdDown < m_LightCountThreshold)
+                                                  ? m_LightCountThresholdDown
+                                                  : m_LightCountThreshold;
+                    m_ActiveThisFrame = (totalLights > downThreshold);
+                }
+                else
+                {
+                    m_ActiveThisFrame = (totalLights > m_LightCountThreshold);
+                }
+                break;
+        }
+    }
+
+    void TiledForwardPlus::DispatchCulling(const glm::mat4& viewMatrix,
+                                           const glm::mat4& projectionMatrix,
+                                           u32 depthTextureID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_ActiveThisFrame || !m_Initialized)
+        {
+            return;
+        }
+
+        m_CullingPass.Dispatch(m_LightGrid, m_LightBuffer,
+                               viewMatrix, projectionMatrix, depthTextureID);
+    }
+
+    void TiledForwardPlus::BindForShading()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_ActiveThisFrame)
+        {
+            return;
+        }
+
+        m_LightBuffer.Bind();
+        m_LightGrid.Bind();
+
+        // Upload Forward+ parameters UBO
+        if (m_ForwardPlusUBO)
+        {
+            UBOStructures::ForwardPlusUBO uboData{};
+            uboData.Params = glm::uvec4(
+                m_LightGrid.GetTileSizePixels(),
+                m_LightGrid.GetTileCountX(),
+                1u, // Enabled
+                0u  // Reserved
+            );
+            m_ForwardPlusUBO->SetData(&uboData, sizeof(uboData));
+            m_ForwardPlusUBO->Bind();
+        }
+    }
+
+    void TiledForwardPlus::UnbindAfterShading() const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_ActiveThisFrame)
+        {
+            return;
+        }
+
+        m_LightGrid.Unbind();
+        m_LightBuffer.Unbind();
+    }
+
+    void TiledForwardPlus::UploadDisabledUBO()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_ForwardPlusUBO)
+        {
+            return;
+        }
+
+        UBOStructures::ForwardPlusUBO uboData{};
+        uboData.Params = glm::uvec4(0u, 0u, 0u, 0u); // Enabled = 0
+        m_ForwardPlusUBO->SetData(&uboData, sizeof(uboData));
+        m_ForwardPlusUBO->Bind();
+    }
+
+    bool TiledForwardPlus::ShouldUseForwardPlus() const
+    {
+        return m_ActiveThisFrame && m_Initialized;
+    }
+
+    void TiledForwardPlus::SetTileSize(u32 tileSize)
+    {
+        // The compute shader uses layout(local_size_x=16, local_size_y=16);
+        // only tileSize=16 is supported until shader variants are implemented.
+        if (tileSize != 16)
+        {
+            OLO_CORE_WARN("TiledForwardPlus::SetTileSize: Only tile size 16 is supported (requested {}). "
+                          "Clamping to 16 until shader variants are implemented.",
+                          tileSize);
+            tileSize = 16;
+        }
+
+        if (tileSize != m_GridConfig.TileSizePixels && tileSize > 0)
+        {
+            const auto oldConfig = m_GridConfig;
+            m_GridConfig.TileSizePixels = tileSize;
+            if (m_Initialized)
+            {
+                m_LightGrid.Initialize(m_LightGrid.GetScreenWidth(),
+                                       m_LightGrid.GetScreenHeight(),
+                                       m_GridConfig);
+                if (!m_LightGrid.IsInitialized())
+                {
+                    OLO_CORE_ERROR("TiledForwardPlus::SetTileSize: Re-initialization failed, rolling back");
+                    m_GridConfig = oldConfig;
+                    m_Initialized = false;
+                    m_ActiveThisFrame = false;
+                }
+            }
+        }
+    }
+
+    void TiledForwardPlus::RenderDebugOverlay(u32 fullscreenQuadVAO, const Ref<Shader>& debugShader)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_DebugVisualization || !m_Initialized || !m_ActiveThisFrame || !debugShader)
+        {
+            return;
+        }
+
+        // The Forward+ UBO and grid SSBO must already be bound
+        debugShader->Bind();
+
+        // Enable alpha blending for the overlay
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDisable(GL_DEPTH_TEST);
+
+        glBindVertexArray(fullscreenQuadVAO);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        glBindVertexArray(0);
+
+        // Restore state
+        glEnable(GL_DEPTH_TEST);
+        glDisable(GL_BLEND);
+
+        debugShader->Unbind();
+    }
+} // namespace OloEngine

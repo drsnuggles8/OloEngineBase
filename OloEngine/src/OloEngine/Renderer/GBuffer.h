@@ -12,8 +12,9 @@ namespace OloEngine
     // constants in ShaderBindingLayout::TEX_GBUFFER_*):
     //
     //   RT0 (RGBA8)       — Albedo RGB + Metallic A
-    //   RT1 (RGBA16F)     — Octahedral-encoded view-space normal (xy) +
+    //   RT1 (RGBA16F)     — Octahedral-encoded world-space normal (xy) +
     //                       Roughness (z) + AO (w)
+    //                       (GTAO converts to view-space at runtime via u_ViewMatrix)
     //   RT2 (RGBA16F)     — Emissive RGB + packed material-flags A
     //   RT3 (RG16F)       — Screen-space velocity (previous→current)
     //   Depth (D32F)      — shared with subsequent lighting / OIT passes

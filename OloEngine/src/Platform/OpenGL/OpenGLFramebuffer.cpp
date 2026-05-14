@@ -20,7 +20,7 @@ namespace OloEngine
 
     void OpenGLFramebuffer::InitSharedResources()
     {
-        // Legacy post-processing resources no longer needed — post-processing is handled by PostProcessRenderPass
+        // Legacy monolithic post-processing resources no longer needed — post-processing is handled by dynamic standalone passes
     }
 
     void OpenGLFramebuffer::ShutdownSharedResources()
@@ -174,12 +174,42 @@ namespace OloEngine
     void OpenGLFramebuffer::Bind()
     {
         glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
-        glViewport(0, 0, static_cast<GLsizei>(m_Specification.Width), static_cast<GLsizei>(m_Specification.Height));
+
+        if (m_ColorAttachments.empty())
+        {
+            glDrawBuffer(GL_NONE);
+        }
+        else if (m_ColorAttachments.size() == 1)
+        {
+            glDrawBuffer(GL_COLOR_ATTACHMENT0);
+        }
+        else
+        {
+            std::vector<GLenum> colorBuffers;
+            auto colorAttachmentCount = m_ColorAttachments.size();
+            colorBuffers.reserve(colorAttachmentCount);
+            for (sizet i = 0; i < colorAttachmentCount; ++i)
+            {
+                colorBuffers.emplace_back(static_cast<GLenum>(GL_COLOR_ATTACHMENT0 + i));
+            }
+            glDrawBuffers(static_cast<GLsizei>(colorBuffers.size()), colorBuffers.data());
+        }
+
+        // Use the DRS render viewport override when set; fall back to physical size.
+        const auto vpW = (m_RenderViewportWidth > 0) ? m_RenderViewportWidth : m_Specification.Width;
+        const auto vpH = (m_RenderViewportHeight > 0) ? m_RenderViewportHeight : m_Specification.Height;
+        glViewport(0, 0, static_cast<GLsizei>(vpW), static_cast<GLsizei>(vpH));
     }
 
     void OpenGLFramebuffer::Unbind()
     {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    void OpenGLFramebuffer::SetRenderViewportSize(const u32 width, const u32 height)
+    {
+        m_RenderViewportWidth = width;
+        m_RenderViewportHeight = height;
     }
 
     void OpenGLFramebuffer::Resize(u32 width, u32 height)
@@ -192,6 +222,10 @@ namespace OloEngine
 
         m_Specification.Width = width;
         m_Specification.Height = height;
+        // Physical resize supersedes the DRS override — clear it so the new
+        // physical size is used directly until SetRenderScale() re-applies.
+        m_RenderViewportWidth = 0;
+        m_RenderViewportHeight = 0;
 
         Invalidate();
     }
@@ -253,13 +287,29 @@ namespace OloEngine
         if (m_DepthAttachmentSpecification.TextureFormat != FramebufferTextureFormat::None)
         {
             GLbitfield clearBits = GL_DEPTH_BUFFER_BIT;
+            GLint previousStencilWriteMask = 0;
+            bool restoreStencilWriteMask = false;
             if (m_DepthAttachmentSpecification.TextureFormat == FramebufferTextureFormat::DEPTH24STENCIL8)
             {
                 clearBits |= GL_STENCIL_BUFFER_BIT;
                 glClearStencil(0);
+
+                glGetIntegerv(GL_STENCIL_WRITEMASK, &previousStencilWriteMask);
+                if (previousStencilWriteMask == 0)
+                {
+                    // Clearing stencil with write-mask 0x00 is a no-op and emits
+                    // GL debug warning 131076. Temporarily enable stencil writes.
+                    glStencilMask(0xFF);
+                    restoreStencilWriteMask = true;
+                }
             }
             glClearDepth(1.0);
             glClear(clearBits);
+
+            if (restoreStencilWriteMask)
+            {
+                glStencilMask(static_cast<GLuint>(previousStencilWriteMask));
+            }
         }
 
         // Clear each color attachment based on its type

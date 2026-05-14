@@ -10,16 +10,16 @@ namespace OloEngine
     {
         u32 TileSizePixels = 16;
         u32 MaxLightsPerTile = 256;
-        u32 DepthSlices = 1; // 1 = tiled (2D), >1 = clustered (3D)
         f32 NearPlane = 0.1f;
         f32 FarPlane = 1000.0f;
     };
 
-    // @brief Manages screen-space tile/cluster grid for Forward+ light culling.
+    // @brief Manages the screen-space 2D tile grid for tiled Forward+ light culling.
     //
-    // Divides the screen into tiles (2D) or clusters (3D) and maintains GPU
-    // resources for per-tile light assignment: a light index list SSBO and
-    // a light grid SSBO storing (offset, count) pairs for each tile.
+    // Divides the screen into a 2D grid of tiles and maintains GPU resources
+    // for per-tile light assignment: a light index list SSBO and a light grid
+    // SSBO storing (offset, count) pairs for each tile. No depth slicing /
+    // froxels — this is a pure 2D tiled implementation.
     class LightGrid
     {
       public:
@@ -52,13 +52,9 @@ namespace OloEngine
         {
             return m_TileCountY;
         }
-        [[nodiscard]] u32 GetDepthSlices() const
+        [[nodiscard]] u32 GetTotalTiles() const
         {
-            return m_Config.DepthSlices;
-        }
-        [[nodiscard]] u32 GetTotalClusters() const
-        {
-            return m_TileCountX * m_TileCountY * m_Config.DepthSlices;
+            return m_TileCountX * m_TileCountY;
         }
         [[nodiscard]] u32 GetTileSizePixels() const
         {

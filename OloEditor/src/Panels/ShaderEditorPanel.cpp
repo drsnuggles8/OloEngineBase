@@ -95,12 +95,6 @@ namespace OloEngine
                         reloaded = true;
                     }
 
-                    // Reload matching post-process shader
-                    if (auto ppPass = Renderer3D::GetPostProcessPass(); ppPass)
-                    {
-                        ppPass->ReloadShader(shaderName);
-                    }
-
                     if (reloaded)
                     {
                         m_CompileOutput = "Recompiled '" + shaderName + "' successfully.";

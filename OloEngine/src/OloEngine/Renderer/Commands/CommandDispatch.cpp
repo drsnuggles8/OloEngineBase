@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -16,6 +17,8 @@
 
 #include <glad/gl.h>
 #include <glm/gtc/type_ptr.hpp>
+
+#include <atomic>
 
 /*
  * POD Command Dispatch System
@@ -44,6 +47,7 @@ namespace OloEngine
         Ref<UniformBuffer> BoneMatricesUBO = nullptr;
         Ref<UniformBuffer> PrevBoneMatricesUBO = nullptr;
         Ref<UniformBuffer> ModelMatrixUBO = nullptr;
+        TiledForwardPlus* ForwardPlus = nullptr;
         glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
         glm::mat4 ViewMatrix = glm::mat4(1.0f);
         glm::mat4 ProjectionMatrix = glm::mat4(1.0f);
@@ -64,6 +68,8 @@ namespace OloEngine
         u16 LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
         u16 LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
         std::array<u32, ShaderBindingLayout::MAX_ENGINE_TEXTURE_SLOTS> BoundTextureIDs = { 0 };
+        u32 CurrentViewportWidth = 0;
+        u32 CurrentViewportHeight = 0;
 
         // Track currently bound UBO renderer IDs per binding point to avoid
         // redundant glBindBufferBase calls. Indexed by ShaderBindingLayout::UBO_*.
@@ -606,6 +612,7 @@ namespace OloEngine
         s_Data.BoneMatricesUBO.Reset();
         s_Data.PrevBoneMatricesUBO.Reset();
         s_Data.ModelMatrixUBO.Reset();
+        s_Data.ForwardPlus = nullptr;
     }
 
     void CommandDispatch::SetUBOReferences(
@@ -614,7 +621,8 @@ namespace OloEngine
         const Ref<UniformBuffer>& lightUBO,
         const Ref<UniformBuffer>& boneMatricesUBO,
         const Ref<UniformBuffer>& modelMatrixUBO,
-        const Ref<UniformBuffer>& prevBoneMatricesUBO)
+        const Ref<UniformBuffer>& prevBoneMatricesUBO,
+        TiledForwardPlus* forwardPlus)
     {
         s_Data.CameraUBO = cameraUBO;
         s_Data.MaterialUBO = materialUBO;
@@ -622,6 +630,25 @@ namespace OloEngine
         s_Data.BoneMatricesUBO = boneMatricesUBO;
         s_Data.ModelMatrixUBO = modelMatrixUBO;
         s_Data.PrevBoneMatricesUBO = prevBoneMatricesUBO;
+        s_Data.ForwardPlus = forwardPlus;
+    }
+
+    void CommandDispatch::BindSceneResources()
+    {
+        if (s_Data.CameraUBO)
+        {
+            BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
+        }
+
+        if (s_Data.LightUBO)
+        {
+            BindUBOIfNeeded(ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
+        }
+
+        if (s_Data.ForwardPlus)
+        {
+            s_Data.ForwardPlus->UploadDisabledUBO();
+        }
     }
 
     void CommandDispatch::ResetState()
@@ -631,6 +658,8 @@ namespace OloEngine
         s_Data.LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
         s_Data.LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
         s_Data.BoundTextureIDs.fill(0);
+        s_Data.CurrentViewportWidth = 0;
+        s_Data.CurrentViewportHeight = 0;
         s_Data.BoundUBOIDs.fill(0);
         s_Data.CSMShadowTextureID = 0;
         s_Data.SpotShadowTextureID = 0;
@@ -770,6 +799,8 @@ namespace OloEngine
     void CommandDispatch::SetViewport(const void* data, RendererAPI& api)
     {
         auto const* cmd = static_cast<const SetViewportCommand*>(data);
+        s_Data.CurrentViewportWidth = cmd->width;
+        s_Data.CurrentViewportHeight = cmd->height;
         api.SetViewport(cmd->x, cmd->y, cmd->width, cmd->height);
     }
 
@@ -936,7 +967,7 @@ namespace OloEngine
     {
         auto const* cmd = static_cast<const SetShaderResourceCommand*>(data);
 
-        auto* registry = Renderer3D::GetShaderRegistry(cmd->shaderID);
+        auto* registry = ShaderResourceRegistry::Find(cmd->shaderID);
         if (registry)
         {
             bool success = registry->SetResource(cmd->resourceName, cmd->resourceInput);
@@ -1024,7 +1055,12 @@ namespace OloEngine
         // Validate POD renderer IDs
         if (cmd->vertexArrayID == 0 || mat.shaderRendererID == 0)
         {
-            OLO_CORE_ERROR("CommandDispatch::DrawMesh: Invalid vertex array ID or shader ID");
+            static std::atomic<u64> s_InvalidDrawMeshLogCount{ 0 };
+            if (s_InvalidDrawMeshLogCount.fetch_add(1, std::memory_order_relaxed) < 16)
+            {
+                OLO_CORE_WARN("CommandDispatch::DrawMesh: Skipping draw with invalid IDs (VAO={}, Shader={})",
+                              cmd->vertexArrayID, mat.shaderRendererID);
+            }
             return;
         }
 
@@ -1073,8 +1109,8 @@ namespace OloEngine
         }
         else
         {
-            // Camera and Light UBO data is uploaded once per frame in BeginSceneCommon
-            // (via UpdateCameraMatricesUBO / UpdateLightPropertiesUBO), but their
+            // Camera and Light UBO data is uploaded once per frame during
+            // `RenderPipeline::PrepareFrame(...)`, but their
             // binding points may be overwritten by other subsystem UBOs (e.g.
             // ShadowMap creates its own Camera UBO at the same binding point).
             // Re-establish the binding so shaders read the correct scene-camera buffer.
@@ -1163,7 +1199,12 @@ namespace OloEngine
         // Validate POD renderer IDs
         if (cmd->vertexArrayID == 0 || mat.shaderRendererID == 0)
         {
-            OLO_CORE_ERROR("CommandDispatch::DrawMeshInstanced: Invalid vertex array ID or shader ID");
+            static std::atomic<u64> s_InvalidDrawMeshInstancedLogCount{ 0 };
+            if (s_InvalidDrawMeshInstancedLogCount.fetch_add(1, std::memory_order_relaxed) < 16)
+            {
+                OLO_CORE_WARN("CommandDispatch::DrawMeshInstanced: Skipping draw with invalid IDs (VAO={}, Shader={})",
+                              cmd->vertexArrayID, mat.shaderRendererID);
+            }
             return;
         }
 
@@ -1673,10 +1714,10 @@ namespace OloEngine
 
         // Bind shader (cached). DecalRenderPass may have installed an OIT
         // override on the packet itself (oitProgramOverride) -- substitute
-        // the Decal_OIT program when set so forward decal commands
-        // composite via the OITBuffer's 2-attachment layout without
-        // requiring resubmission of the bucket. Reading the override from
-        // the command keeps the queue stateless and replay-safe.
+        // the Decal_OIT program when set so forward decal commands target the
+        // graph-owned OIT MRT layout without requiring resubmission of the
+        // bucket. Reading the override from the command keeps the queue
+        // stateless and replay-safe.
         u32 decalProgramID = (cmd->oitProgramOverride != 0)
                                  ? cmd->oitProgramOverride
                                  : cmd->shaderRendererID;
@@ -1833,38 +1874,14 @@ namespace OloEngine
                            cmd ? cmd->indexCount : 0);
             return;
         }
-        // Resolve and apply render state from table (cull, depth, blend
-        // enable). When an OIT override is active the WB-OIT per-attachment
-        // blend funcs set up by WaterRenderPass (glBlendFunci 0 = ONE,ONE and
-        // 1 = ZERO, ONE_MINUS_SRC_COLOR) must be re-applied AFTER the POD
-        // state is written, because `ApplyPODRenderState` calls the global
-        // `glBlendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA)` from the water POD
-        // state, which overrides every per-buffer blend setting set earlier.
-        // Without this re-apply, revealage drops to 0 everywhere (water
-        // fully opaque) and the OITResolve composites black across the
-        // entire scene FB.
+        // Resolve and apply render state from table (cull, depth, blend enable).
         ApplyPODRenderState(cmd->renderStateIndex, api);
-        if (cmd->oitProgramOverride != 0)
-        {
-            api.SetBlendStateForAttachment(0, true);
-            api.SetBlendStateForAttachment(1, true);
-            api.SetBlendFuncForAttachment(0, GL_ONE, GL_ONE);
-            api.SetBlendFuncForAttachment(1, GL_ZERO, GL_ONE_MINUS_SRC_COLOR);
-        }
 
-        // Bind shader (cached). WaterRenderPass may have installed an OIT
-        // override on the packet itself (oitProgramOverride) -- substitute
-        // the Water_OIT program when set so water commands composited
-        // through the OITBuffer use the correct 2-attachment output layout
-        // without re-submission. Reading the override from the command
-        // keeps the queue stateless and replay-safe.
-        u32 waterProgramID = (cmd->oitProgramOverride != 0)
-                                 ? cmd->oitProgramOverride
-                                 : cmd->shaderRendererID;
-        if (s_Data.CurrentBoundShaderID != waterProgramID)
+        // Bind shader (cached).
+        if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
         {
-            glUseProgram(waterProgramID);
-            s_Data.CurrentBoundShaderID = waterProgramID;
+            glUseProgram(cmd->shaderRendererID);
+            s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
             ++s_Data.Stats.ShaderBinds;
         }
 
@@ -1884,6 +1901,9 @@ namespace OloEngine
         auto waterUBO = Renderer3D::GetWaterUBO();
         if (waterUBO)
         {
+            const f32 viewportWidth = static_cast<f32>(s_Data.CurrentViewportWidth);
+            const f32 viewportHeight = static_cast<f32>(s_Data.CurrentViewportHeight);
+
             ShaderBindingLayout::WaterUBO waterData{};
             waterData.WaveParams = cmd->waveParams;
             waterData.WaveDir0 = cmd->waveDir0;
@@ -1894,7 +1914,9 @@ namespace OloEngine
             waterData.NormalMapScroll = cmd->normalMapScroll;
             waterData.NormalMapSpeed = cmd->normalMapSpeed;
             waterData.LightDirection = cmd->lightDirection;
-            waterData.ScreenParams = cmd->screenParams;
+            waterData.ScreenParams = glm::vec4(viewportWidth, viewportHeight,
+                                               viewportWidth > 0.0f ? 1.0f / viewportWidth : 0.0f,
+                                               viewportHeight > 0.0f ? 1.0f / viewportHeight : 0.0f);
             waterData.DepthRefractionParams = cmd->depthRefractionParams;
             waterData.RefractionColor = cmd->refractionColor;
             waterData.FoamParams = cmd->foamParams;
@@ -1912,18 +1934,18 @@ namespace OloEngine
         BindTrackedTexture(cmd->noiseTextureID, ShaderBindingLayout::TEX_WATER_NOISE, GL_TEXTURE_2D);
         BindTrackedTexture(cmd->foamTextureID, ShaderBindingLayout::TEX_WATER_FOAM, GL_TEXTURE_2D);
 
-        // Bind VAO (cached) and draw water
-        // tessParams.x holds the tessellation factor (0 = disabled, >0 = enabled)
+        // Bind VAO (cached) and draw water.
+        // Water.glsl includes tessellation control / evaluation stages. With
+        // TES active, OpenGL requires GL_PATCHES
+        // input primitives; issuing GL_TRIANGLES triggers
+        // GL_INVALID_OPERATION ("primitive mode mismatch").
+        //
+        // The user-facing tessellation toggle still works: u_TessParams.x is
+        // consumed by TCS to collapse tess factors toward 1.0 when disabled,
+        // so we can keep a single, valid primitive mode at draw time.
         BindVAOIfNeeded(cmd->vertexArrayID);
-        if (cmd->tessParams.x > 0.0f)
-        {
-            glPatchParameteri(GL_PATCH_VERTICES, 3);
-            glDrawElements(GL_PATCHES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
-        }
-        else
-        {
-            glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
-        }
+        glPatchParameteri(GL_PATCH_VERTICES, 3);
+        glDrawElements(GL_PATCHES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
         ++s_Data.Stats.DrawCalls;
     }
 } // namespace OloEngine

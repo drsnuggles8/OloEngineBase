@@ -18,7 +18,6 @@ namespace OloEngine
 {
     // Static member definitions
     Ref<Mesh> IBLPrecompute::s_CubeMesh = nullptr;
-    Ref<Mesh> IBLPrecompute::s_QuadMesh = nullptr;
 
     // Helper method to update camera matrices UBO for IBL rendering
     static void UpdateIBLCameraUBO(const glm::mat4& view, const glm::mat4& projection)
@@ -40,7 +39,6 @@ namespace OloEngine
         cameraData.Position = glm::vec3(0.0f); // IBL rendering is done from origin
         cameraData._padding0 = 0.0f;
 
-        // Update the UBO and re-bind it to the binding point.
         // Scene rendering may have bound a different buffer to UBO_CAMERA since
         // the one-time creation above; SetData (glNamedBufferSubData) only
         // updates the buffer contents without touching the binding point.
@@ -127,7 +125,7 @@ namespace OloEngine
 
         auto shader = shaderLibrary.Get("BRDFLutGeneration");
 
-        RenderToTexture(brdfLutMap, shader, GetQuadMesh());
+        RenderToTexture(brdfLutMap, shader);
 
         OLO_CORE_INFO("BRDF lookup table generation complete");
     }
@@ -142,6 +140,7 @@ namespace OloEngine
 
         i32 width, height, channels;
         f32* data = stbi_loadf(filePath.c_str(), &width, &height, &channels, 0);
+        stbi_set_flip_vertically_on_load(false); // reset global flag to avoid polluting later stbi calls
 
         if (!data)
         {
@@ -271,8 +270,7 @@ namespace OloEngine
             RenderCommand::EnableStencilTest();
     }
 
-    void IBLPrecompute::RenderToTexture(const Ref<Texture2D>& texture, const Ref<Shader>& shader,
-                                        const Ref<Mesh>& quadMesh)
+    void IBLPrecompute::RenderToTexture(const Ref<Texture2D>& texture, const Ref<Shader>& shader)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -297,9 +295,11 @@ namespace OloEngine
         // Clear only color and depth buffers for IBL framebuffer
         RenderCommand::ClearColorAndDepth();
 
-        // Render fullscreen quad
+        // Render a fullscreen triangle. The old path used CreatePlane(), which
+        // lives in the XZ plane and is degenerate in clip-space for this shader;
+        // the BRDF LUT stayed black, making fully metallic PBR materials black.
         shader->Bind();
-        auto vertexArray = quadMesh->GetVertexArray();
+        auto vertexArray = MeshPrimitives::GetFullscreenTriangle();
         vertexArray->Bind();
         RenderCommand::DrawIndexed(vertexArray);
 
@@ -323,15 +323,6 @@ namespace OloEngine
             s_CubeMesh = MeshPrimitives::CreateSkyboxCube();
         }
         return s_CubeMesh;
-    }
-
-    const Ref<Mesh>& IBLPrecompute::GetQuadMesh()
-    {
-        if (!s_QuadMesh)
-        {
-            s_QuadMesh = MeshPrimitives::CreatePlane(2.0f, 2.0f); // Create a 2x2 quad for fullscreen rendering
-        }
-        return s_QuadMesh;
     }
 
     // Enhanced IBL generation methods implementation
@@ -517,7 +508,7 @@ namespace OloEngine
                 break;
         }
 
-        RenderToTextureAdvanced(brdfLutMap, shader, GetQuadMesh(), config);
+        RenderToTextureAdvanced(brdfLutMap, shader, config);
 
         OLO_CORE_INFO("Enhanced BRDF LUT generation complete");
     }
@@ -536,10 +527,10 @@ namespace OloEngine
     }
 
     void IBLPrecompute::RenderToTextureAdvanced(const Ref<Texture2D>& texture, const Ref<Shader>& shader,
-                                                const Ref<Mesh>& quadMesh, [[maybe_unused]] const IBLConfiguration& config)
+                                                [[maybe_unused]] const IBLConfiguration& config)
     {
         // Use standard render method for now - can be enhanced with additional quality parameters
-        RenderToTexture(texture, shader, quadMesh);
+        RenderToTexture(texture, shader);
 
         // TODO(IBL): Implement quality-based optimizations for BRDF LUT / texture generation.
         //   Goal: Use config.Quality to select multi-pass accumulation, higher-precision intermediate

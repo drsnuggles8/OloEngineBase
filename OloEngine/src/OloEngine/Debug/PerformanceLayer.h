@@ -42,9 +42,15 @@ namespace OloEngine
         void DrawMemoryStats();
         void DrawCPUProfileScopes();
 
+        // Writes a structured snapshot of the current frame to disk (perf-snapshot-<timestamp>.txt
+        // in the working dir). Returns the path written on success, empty string on failure.
+        std::string ExportSnapshotToFile() const;
+
       private:
         bool m_Visible = false;
         bool m_Paused = false;
+        u32 m_CPUScopeLimit = 32;
+        std::string m_LastExportPath;
 
         // Frame time ring buffer for graph
         static constexpr u32 s_FrameHistorySize = 240;

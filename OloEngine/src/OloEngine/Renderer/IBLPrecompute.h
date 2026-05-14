@@ -51,19 +51,16 @@ namespace OloEngine
                                     const Ref<Mesh>& cubeMesh, u32 mipLevel = 0);
 
         // Render to texture helper
-        static void RenderToTexture(const Ref<Texture2D>& texture, const Ref<Shader>& shader,
-                                    const Ref<Mesh>& quadMesh);
+        static void RenderToTexture(const Ref<Texture2D>& texture, const Ref<Shader>& shader);
 
         // Render to texture with advanced configuration
         static void RenderToTextureAdvanced(const Ref<Texture2D>& texture, const Ref<Shader>& shader,
-                                            const Ref<Mesh>& quadMesh, const IBLConfiguration& config);
+                                            const IBLConfiguration& config);
 
         // Get cube mesh for rendering
         static const Ref<Mesh>& GetCubeMesh();
-        static const Ref<Mesh>& GetQuadMesh();
 
         // Cached meshes
         static Ref<Mesh> s_CubeMesh;
-        static Ref<Mesh> s_QuadMesh;
     };
 } // namespace OloEngine

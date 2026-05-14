@@ -55,9 +55,12 @@ layout(location = 3) out vec2 o_Velocity;
 
 layout(binding = 9) uniform samplerCube u_Skybox;
 
+#include "include/SkyboxSampling.glsl"
+
 void main()
 {
-    o_Color = texture(u_Skybox, v_TexCoords);
+    vec3 sampleDir = GetSkyboxSampleDirection(v_TexCoords);
+    o_Color = texture(u_Skybox, sampleDir);
     o_EntityID = -1;          // No entity for skybox (sentinel for picking)
     o_ViewNormal = vec2(0.0); // Neutral normal for skybox pixels
 

@@ -1,6 +1,8 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+
+#include <limits>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -87,6 +89,12 @@ namespace OloEngine
             // Create a new bounding box from the transformed corners
             return BoundingBox(corners, 8);
         }
+    };
+
+    // Sentinel value: WorldBounds.Min == FLT_MAX means "no bounds — include in every view".
+    inline const BoundingBox NoBounds{
+        glm::vec3(std::numeric_limits<f32>::max()),
+        glm::vec3(-std::numeric_limits<f32>::max())
     };
 
     // Bounding sphere

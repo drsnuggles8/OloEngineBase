@@ -1,6 +1,6 @@
 #pragma once
 
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
 
 namespace OloEngine
@@ -10,7 +10,7 @@ namespace OloEngine
     // Only passes that participate in the sort-and-dispatch pipeline (e.g., SceneRenderPass,
     // and eventually ShadowRenderPass) should inherit from this class. Fullscreen
     // passes and callback-driven passes should inherit from plain RenderPass.
-    class CommandBufferRenderPass : public RenderPass
+    class CommandBufferRenderPass : public RenderGraphNode
     {
       public:
         CommandBufferRenderPass()
@@ -24,6 +24,12 @@ namespace OloEngine
             CommandBucketConfig config;
             config.EnableBatching = false;
             m_CommandBucket = CommandBucket(config);
+            // The bucket's internal `m_Allocator` is the one consumed by
+            // `CommandBucket::CreateDrawCall<T>()` / `BatchCommands` / etc.
+            // It is independent of `CommandBufferRenderPass::m_Allocator`, so
+            // it must be kept in sync — both at construction and whenever
+            // `SetCommandAllocator` is called.
+            m_CommandBucket.SetAllocator(m_Allocator);
         }
 
         void ResetCommandBucket()
@@ -35,6 +41,9 @@ namespace OloEngine
         void SetCommandAllocator(CommandAllocator* allocator)
         {
             m_Allocator = allocator ? allocator : m_OwnedAllocator.get();
+            // Keep the bucket-side allocator in sync — it is what
+            // `m_CommandBucket.CreateDrawCall<T>()` calls into.
+            m_CommandBucket.SetAllocator(m_Allocator);
         }
 
         void SubmitPacket(CommandPacket* packet)
@@ -42,7 +51,23 @@ namespace OloEngine
             m_CommandBucket.SubmitPacket(packet);
         }
 
+        [[nodiscard]] RenderGraphNodeFlags GetFlags() const override
+        {
+            return RenderGraphNode::GetFlags() | RenderGraphNodeFlags::UsesCommandBucket;
+        }
+
+        template<typename T>
+        CommandPacket* CreateDrawCall()
+        {
+            return m_CommandBucket.CreateDrawCall<T>();
+        }
+
         CommandBucket& GetCommandBucket()
+        {
+            return m_CommandBucket;
+        }
+
+        const CommandBucket& GetCommandBucket() const
         {
             return m_CommandBucket;
         }

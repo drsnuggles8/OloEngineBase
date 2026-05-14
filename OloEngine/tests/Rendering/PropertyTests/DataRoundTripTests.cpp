@@ -26,8 +26,11 @@
 
 #include "OloEngine/Renderer/IBLCache.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
+#include "OloEngine/Renderer/Commands/FrameResourceManager.h"
+#include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
+#include "OloEngine/Asset/MeshCache.h"
 
 #define GLFW_INCLUDE_NONE
 #include <glad/gl.h>
@@ -165,6 +168,141 @@ namespace OloEngine::Tests
             if (src[i] != dst[i])
                 ++diffs;
         EXPECT_EQ(diffs, 0u) << "RGBA8 round-trip produced " << diffs << " different bytes";
+    }
+
+    TEST(DataRoundTripTest, BackpackLegacyObjImportsPbrCompanionMaps)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const std::filesystem::path modelPath = "assets/backpack/backpack.obj";
+        std::error_code ec;
+        ASSERT_TRUE(std::filesystem::exists(modelPath, ec)) << "Missing backpack fixture: " << modelPath.string();
+        ASSERT_FALSE(ec) << "Failed to probe backpack fixture: " << ec.message();
+
+        // Force the Assimp path so this test validates importer behaviour,
+        // not a stale developer-local .omesh cache.
+        MeshCache::InvalidateCache(modelPath);
+
+        {
+            Model model(modelPath.string());
+            ASSERT_GT(model.GetMeshCount(), static_cast<sizet>(0));
+            ASSERT_GT(model.GetMaterialCount(), static_cast<sizet>(0));
+
+            auto material = model.GetMaterial(0);
+            ASSERT_TRUE(material);
+
+            ASSERT_TRUE(material->GetAlbedoMap()) << "backpack.mtl map_Kd diffuse.jpg should become the albedo map";
+            ASSERT_TRUE(material->GetNormalMap()) << "backpack.mtl map_Bump normal.png should become the normal map";
+            ASSERT_TRUE(material->GetMetallicRoughnessMap())
+                << "Legacy map_Ks specular.jpg plus roughness.jpg should be packed into the PBR metallic-roughness map";
+            ASSERT_TRUE(material->GetAOMap()) << "Loose ao.jpg companion should be discovered for the backpack material";
+
+            EXPECT_EQ(std::filesystem::path(material->GetAOMap()->GetPath()).filename().string(), "ao.jpg");
+            EXPECT_FLOAT_EQ(material->GetMetallicFactor(), 1.0f)
+                << "Packed metallic channel already contains scalar fallback/scale";
+            EXPECT_FLOAT_EQ(material->GetRoughnessFactor(), 1.0f)
+                << "Packed roughness channel already contains scalar fallback/scale";
+
+            std::vector<u8> packedMR;
+            ASSERT_TRUE(material->GetMetallicRoughnessMap()->GetData(packedMR));
+            ASSERT_GE(packedMR.size(), static_cast<sizet>(4));
+            ASSERT_EQ(packedMR.size() % 4u, static_cast<sizet>(0));
+
+            bool sawMetallicTexels = false;
+            bool sawRoughnessTexels = false;
+            bool sawDistinctChannels = false;
+            for (sizet offset = 0; offset + 3u < packedMR.size(); offset += 4u)
+            {
+                const auto roughness = packedMR[offset + 1u];
+                const auto metallic = packedMR[offset + 2u];
+                sawMetallicTexels = sawMetallicTexels || metallic > 32u;
+                sawRoughnessTexels = sawRoughnessTexels || roughness > 32u;
+                sawDistinctChannels = sawDistinctChannels || std::abs(static_cast<int>(roughness) - static_cast<int>(metallic)) > 8;
+            }
+
+            EXPECT_TRUE(sawMetallicTexels) << "Packed B channel should contain legacy specular/metalness data";
+            EXPECT_TRUE(sawRoughnessTexels) << "Packed G channel should contain roughness data";
+            EXPECT_TRUE(sawDistinctChannels) << "Packed G/B channels should not both be the same legacy specular image";
+        }
+
+        FrameResourceManager::Get().FlushAllDeletionQueues();
+        MeshCache::InvalidateCache(modelPath);
+    }
+
+    TEST(DataRoundTripTest, BackpackLegacyObjFlipsUvsToMatchTextureUploads)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const std::filesystem::path modelPath = "assets/backpack/backpack.obj";
+        std::error_code ec;
+        ASSERT_TRUE(std::filesystem::exists(modelPath, ec)) << "Missing backpack fixture: " << modelPath.string();
+        ASSERT_FALSE(ec) << "Failed to probe backpack fixture: " << ec.message();
+
+        MeshCache::InvalidateCache(modelPath);
+
+        f32 sourceMinV = std::numeric_limits<f32>::max();
+        f32 sourceMaxV = std::numeric_limits<f32>::lowest();
+        u32 sourceUVCount = 0;
+
+        Assimp::Importer importer;
+        const aiScene* scene = importer.ReadFile(modelPath.string(),
+                                                 aiProcess_Triangulate |
+                                                     aiProcess_GenNormals |
+                                                     aiProcess_CalcTangentSpace |
+                                                     aiProcess_JoinIdenticalVertices |
+                                                     aiProcess_ValidateDataStructure |
+                                                     aiProcess_PreTransformVertices);
+        ASSERT_NE(scene, nullptr) << importer.GetErrorString();
+        ASSERT_FALSE((scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) != 0);
+
+        for (u32 meshIndex = 0; meshIndex < scene->mNumMeshes; ++meshIndex)
+        {
+            const aiMesh* mesh = scene->mMeshes[meshIndex];
+            if (!mesh || mesh->mTextureCoords[0] == nullptr)
+                continue;
+
+            for (u32 vertexIndex = 0; vertexIndex < mesh->mNumVertices; ++vertexIndex)
+            {
+                const f32 sourceV = mesh->mTextureCoords[0][vertexIndex].y;
+                sourceMinV = std::min(sourceMinV, sourceV);
+                sourceMaxV = std::max(sourceMaxV, sourceV);
+                ++sourceUVCount;
+            }
+        }
+        ASSERT_GT(sourceUVCount, 0u);
+
+        {
+            Model model(modelPath.string());
+            ASSERT_GT(model.GetMeshCount(), static_cast<sizet>(0));
+
+            f32 importedMinV = std::numeric_limits<f32>::max();
+            f32 importedMaxV = std::numeric_limits<f32>::lowest();
+            u32 importedUVCount = 0;
+
+            for (const auto& mesh : model.GetMeshes())
+            {
+                ASSERT_TRUE(mesh);
+                const auto& vertices = mesh->GetVertices();
+                for (i32 vertexIndex = 0; vertexIndex < vertices.Num(); ++vertexIndex)
+                {
+                    const f32 importedV = vertices[vertexIndex].TexCoord.y;
+                    importedMinV = std::min(importedMinV, importedV);
+                    importedMaxV = std::max(importedMaxV, importedV);
+                    ++importedUVCount;
+                }
+            }
+
+            ASSERT_GT(importedUVCount, 0u);
+
+            constexpr f32 kTolerance = 1.0e-4f;
+            EXPECT_NEAR(importedMinV, 1.0f - sourceMaxV, kTolerance)
+                << "Default OBJ import should flip V to match Texture2D's flipped image upload";
+            EXPECT_NEAR(importedMaxV, 1.0f - sourceMinV, kTolerance)
+                << "Default OBJ import should flip V to match Texture2D's flipped image upload";
+        }
+
+        FrameResourceManager::Get().FlushAllDeletionQueues();
+        MeshCache::InvalidateCache(modelPath);
     }
 
     // =========================================================================

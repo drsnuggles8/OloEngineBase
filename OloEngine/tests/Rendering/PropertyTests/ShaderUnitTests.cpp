@@ -20,7 +20,14 @@
 
 #include "RenderPropertyTest.h"
 
+#include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/IBLPrecompute.h"
+#include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/ShaderLibrary.h"
+#include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/TextureCubemap.h"
 
 #define GLFW_INCLUDE_NONE
 #include <glad/gl.h>
@@ -29,8 +36,11 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstring>
+#include <filesystem>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -61,6 +71,31 @@ namespace OloEngine::Tests
             }
             ComputeBuffers(const ComputeBuffers&) = delete;
             ComputeBuffers& operator=(const ComputeBuffers&) = delete;
+        };
+
+        struct ScopedBuffer
+        {
+            GLuint m_Id = 0;
+
+            ScopedBuffer(GLsizeiptr byteSize, GLbitfield flags)
+            {
+                ::glCreateBuffers(1, &m_Id);
+                ::glNamedBufferStorage(m_Id, byteSize, nullptr, flags);
+            }
+
+            ~ScopedBuffer()
+            {
+                if (m_Id != 0)
+                    ::glDeleteBuffers(1, &m_Id);
+            }
+
+            ScopedBuffer(const ScopedBuffer&) = delete;
+            ScopedBuffer& operator=(const ScopedBuffer&) = delete;
+
+            operator GLuint() const
+            {
+                return m_Id;
+            }
         };
     } // namespace
 
@@ -129,6 +164,159 @@ namespace OloEngine::Tests
                 ++monotoneViolations;
         }
         EXPECT_EQ(monotoneViolations, 0u) << "LinearToSrgb must be monotonically non-decreasing";
+    }
+
+    // =========================================================================
+    // BRDF LUT generation smoke test. Fully metallic PBR surfaces rely on the
+    // split-sum BRDF LUT for specular IBL. A degenerate fullscreen primitive or
+    // wrong vertex attribute layout silently produces an all-zero RG32F LUT,
+    // which removes the entire specular IBL term and turns metals black.
+    // =========================================================================
+    TEST(ShaderUnitIBLTest, BRDFLutGenerationProducesNonZeroSplitSum)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kSize = 32;
+
+        ShaderLibrary shaderLibrary;
+        auto shader = shaderLibrary.Load("BRDFLutGeneration", "assets/shaders/BRDFLutGeneration.glsl");
+        ASSERT_TRUE(shader != nullptr) << "Failed to load BRDFLutGeneration shader";
+
+        TextureSpecification spec{};
+        spec.Width = kSize;
+        spec.Height = kSize;
+        spec.Format = ImageFormat::RG32F;
+        spec.GenerateMips = false;
+        auto lut = Texture2D::Create(spec);
+        ASSERT_TRUE(lut != nullptr) << "Texture2D::Create returned null for BRDF LUT";
+        const auto cleanupLut = [&lut]()
+        {
+            lut.Reset();
+            MeshPrimitives::Shutdown();
+            FrameResourceManager::Get().FlushAllDeletionQueues();
+        };
+
+        IBLPrecompute::GenerateBRDFLut(lut, shaderLibrary);
+        ::glFinish();
+
+        std::vector<u8> bytes;
+        if (!lut->GetData(bytes, 0))
+        {
+            cleanupLut();
+            FAIL() << "BRDF LUT readback failed";
+        }
+        if (bytes.size() != static_cast<std::size_t>(kSize) * kSize * 2 * sizeof(f32))
+        {
+            cleanupLut();
+            FAIL() << "BRDF LUT readback size mismatch";
+        }
+
+        f32 maxA = 0.0f;
+        f32 maxB = 0.0f;
+        f64 sum = 0.0;
+        u32 invalidCount = 0;
+        const auto sampleCount = bytes.size() / (2 * sizeof(f32));
+        for (std::size_t i = 0; i < sampleCount; ++i)
+        {
+            f32 a = 0.0f;
+            f32 b = 0.0f;
+            std::memcpy(&a, bytes.data() + i * 2 * sizeof(f32), sizeof(f32));
+            std::memcpy(&b, bytes.data() + (i * 2 + 1) * sizeof(f32), sizeof(f32));
+
+            if (!std::isfinite(a) || !std::isfinite(b))
+            {
+                ++invalidCount;
+                continue;
+            }
+
+            maxA = std::max(maxA, a);
+            maxB = std::max(maxB, b);
+            sum += static_cast<f64>(std::abs(a)) + static_cast<f64>(std::abs(b));
+        }
+
+        EXPECT_EQ(invalidCount, 0u) << "BRDF LUT contains NaN/Inf samples";
+        EXPECT_GT(maxA, 0.1f) << "BRDF LUT A channel is unexpectedly dark";
+        EXPECT_GT(maxB, 0.001f) << "BRDF LUT B channel is unexpectedly dark";
+        EXPECT_GT(sum, 1.0) << "BRDF LUT payload is all zero";
+
+        cleanupLut();
+    }
+
+    // =========================================================================
+    // Visible skybox orientation: the authored Sandbox skybox has bright sky in
+    // the top rows/top face and dark ground in the bottom rows/bottom face. The
+    // production GetSkyboxSampleDirection helper must keep that relationship
+    // intact when sampled through the actual GPU cubemap path.
+    // =========================================================================
+    TEST(ShaderUnitSkyboxTest, SamplingKeepsSkyAboveGround)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const std::vector<std::string> facePaths = {
+            "assets/textures/Skybox/right.jpg",
+            "assets/textures/Skybox/left.jpg",
+            "assets/textures/Skybox/top.jpg",
+            "assets/textures/Skybox/bottom.jpg",
+            "assets/textures/Skybox/front.jpg",
+            "assets/textures/Skybox/back.jpg",
+        };
+
+        for (const auto& facePath : facePaths)
+        {
+            std::error_code ec;
+            ASSERT_TRUE(std::filesystem::exists(facePath, ec)) << "Missing skybox fixture: " << facePath;
+            ASSERT_FALSE(ec) << "Failed to probe skybox fixture: " << facePath << ": " << ec.message();
+        }
+
+        Ref<TextureCubemap> skybox = TextureCubemap::Create(facePaths);
+        ASSERT_TRUE(skybox != nullptr);
+        ASSERT_TRUE(skybox->IsLoaded());
+
+        struct OutputColor
+        {
+            f32 r = 0.0f;
+            f32 g = 0.0f;
+            f32 b = 0.0f;
+            f32 a = 0.0f;
+        };
+
+        constexpr u32 kProbeCount = 4;
+        ScopedBuffer outputBuffer(static_cast<GLsizeiptr>(sizeof(OutputColor) * kProbeCount),
+                                  GL_DYNAMIC_STORAGE_BIT | GL_MAP_READ_BIT);
+
+        auto cs = ComputeShader::Create("assets/shaders/tests/ShaderUnit_SkyboxOrientation.glsl");
+        ASSERT_TRUE(cs && cs->IsValid()) << "skybox orientation compute shader failed to compile";
+        cs->Bind();
+
+        skybox->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, outputBuffer);
+        ::glDispatchCompute(kProbeCount, 1, 1);
+        ::glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT);
+
+        std::array<OutputColor, kProbeCount> outputs{};
+        ::glGetNamedBufferSubData(outputBuffer, 0,
+                                  static_cast<GLsizeiptr>(sizeof(OutputColor) * outputs.size()), outputs.data());
+
+        auto luminance = [](const OutputColor& color) -> f32
+        {
+            return color.r * 0.2126f + color.g * 0.7152f + color.b * 0.0722f;
+        };
+
+        const f32 screenTop = luminance(outputs[0]);
+        const f32 screenBottom = luminance(outputs[1]);
+        const f32 lookUp = luminance(outputs[2]);
+        const f32 lookDown = luminance(outputs[3]);
+
+        constexpr f32 kMinSkyGroundSeparation = 0.10f;
+        EXPECT_GT(screenTop, screenBottom + kMinSkyGroundSeparation)
+            << "Top-of-screen skybox sample should be brighter than bottom-of-screen sample; "
+            << "this catches vertical cubemap inversions.";
+        EXPECT_GT(lookUp, lookDown + kMinSkyGroundSeparation)
+            << "Mostly-up skybox sample should be brighter than mostly-down sample; "
+            << "this catches swapped +Y/-Y cubemap sampling.";
+
+        skybox.Reset();
+        FrameResourceManager::Get().FlushAllDeletionQueues();
     }
 
     // =========================================================================

@@ -55,7 +55,18 @@ namespace OloEngine
 
         static MonoAssembly* LoadMonoAssembly(const std::filesystem::path& assemblyPath, bool loadPDB = false)
         {
+            if (!std::filesystem::exists(assemblyPath))
+            {
+                OLO_CORE_WARN("[ScriptEngine] Assembly not found: {}", assemblyPath.string());
+                return nullptr;
+            }
+
             ScopedBuffer fileData = FileSystem::ReadFileBinary(assemblyPath);
+            if (fileData.Size() == 0)
+            {
+                OLO_CORE_WARN("[ScriptEngine] Assembly is empty or unreadable: {}", assemblyPath.string());
+                return nullptr;
+            }
 
             // NOTE: We can't use this image for anything other than loading the assembly because this image doesn't have a reference to the assembly
             MonoImageOpenStatus status;
@@ -177,7 +188,7 @@ namespace OloEngine
 
         if (bool status = LoadAssembly("Resources/Scripts/OloEngine-ScriptCore.dll"); !status)
         {
-            OLO_CORE_ERROR("[ScriptEngine] Could not load OloEngine-ScriptCore assembly.");
+            OLO_CORE_WARN("[ScriptEngine] OloEngine-ScriptCore assembly unavailable; C# scripting disabled for this session.");
             return;
         }
 

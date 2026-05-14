@@ -11,6 +11,15 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        auto GetRegisteredShaderRegistryMap() -> std::unordered_map<u32, ShaderResourceRegistry*>&
+        {
+            static std::unordered_map<u32, ShaderResourceRegistry*> s_Registries;
+            return s_Registries;
+        }
+    } // namespace
+
     ShaderResourceRegistry::ShaderResourceRegistry(const Ref<Shader>& shader)
         : m_Shader(shader)
     {
@@ -337,6 +346,44 @@ namespace OloEngine
         return boundResources;
     }
 
+    void ShaderResourceRegistry::Register(u32 shaderID, ShaderResourceRegistry* registry)
+    {
+        if (registry == nullptr)
+        {
+            return;
+        }
+
+        auto& registries = GetRegisteredShaderRegistryMap();
+        registries[shaderID] = registry;
+        OLO_CORE_TRACE("ShaderResourceRegistry: Registered shader registry for shader ID {}", shaderID);
+    }
+
+    void ShaderResourceRegistry::Unregister(u32 shaderID)
+    {
+        auto& registries = GetRegisteredShaderRegistryMap();
+        if (auto it = registries.find(shaderID); it != registries.end())
+        {
+            registries.erase(it);
+            OLO_CORE_TRACE("ShaderResourceRegistry: Unregistered shader registry for shader ID {}", shaderID);
+        }
+    }
+
+    ShaderResourceRegistry* ShaderResourceRegistry::Find(u32 shaderID)
+    {
+        auto& registries = GetRegisteredShaderRegistryMap();
+        if (auto it = registries.find(shaderID); it != registries.end())
+        {
+            return it->second;
+        }
+
+        return nullptr;
+    }
+
+    const std::unordered_map<u32, ShaderResourceRegistry*>& ShaderResourceRegistry::GetRegisteredRegistries()
+    {
+        return GetRegisteredShaderRegistryMap();
+    }
+
     const ResourceBinding* ShaderResourceRegistry::GetBindingInfo(const std::string& resourceName) const
     {
         auto it = m_Bindings.find(resourceName);
@@ -440,14 +487,20 @@ namespace OloEngine
     {
         bool isValid = true;
 
+        // These diagnostics fire once per shader at compile/reload — they
+        // identify uniforms whose binding slot isn't enumerated in
+        // ShaderBindingLayout's canonical layout. The shader still works;
+        // this is informational ("you'd benefit from adding this to the
+        // canonical list"). TRACE level keeps it discoverable for anyone
+        // auditing binding-layout coverage without spamming startup logs.
         for (const auto& [name, binding] : m_Bindings)
         {
             if (binding.Type == ShaderResourceType::UniformBuffer)
             {
                 if (!IsStandardUBOBinding(binding.BindingPoint, name))
                 {
-                    OLO_CORE_WARN("Non-standard UBO binding: '{}' at binding {}",
-                                  name, binding.BindingPoint);
+                    OLO_CORE_TRACE("Non-standard UBO binding: '{}' at binding {}",
+                                   name, binding.BindingPoint);
                     isValid = false;
                 }
             }
@@ -456,8 +509,8 @@ namespace OloEngine
             {
                 if (!IsStandardTextureBinding(binding.BindingPoint, name))
                 {
-                    OLO_CORE_WARN("Non-standard texture binding: '{}' at binding {}",
-                                  name, binding.BindingPoint);
+                    OLO_CORE_TRACE("Non-standard texture binding: '{}' at binding {}",
+                                   name, binding.BindingPoint);
                     isValid = false;
                 }
             }

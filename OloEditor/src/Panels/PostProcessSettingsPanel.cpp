@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "PostProcessSettingsPanel.h"
+#include "SettingsChangeLog.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
@@ -8,14 +9,125 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <glm/gtc/type_ptr.hpp>
+#include <sstream>
+#include <string>
+#include <vector>
 
 namespace OloEngine
 {
+    namespace
+    {
+        const char* AOTechniqueName(const AOTechnique technique)
+        {
+            switch (technique)
+            {
+                case AOTechnique::None:
+                    return "None";
+                case AOTechnique::SSAO:
+                    return "SSAO";
+                case AOTechnique::GTAO:
+                    return "GTAO";
+                default:
+                    return "Unknown";
+            }
+        }
+
+        const char* TonemapOperatorName(const TonemapOperator op)
+        {
+            switch (op)
+            {
+                case TonemapOperator::None:
+                    return "None";
+                case TonemapOperator::Reinhard:
+                    return "Reinhard";
+                case TonemapOperator::ACES:
+                    return "ACES";
+                case TonemapOperator::Uncharted2:
+                    return "Uncharted2";
+                default:
+                    return "Unknown";
+            }
+        }
+
+        void LogPostProcessSettingsChanges(const PostProcessSettings& before, const PostProcessSettings& after)
+        {
+            using SettingsChangeLog::AppendChange;
+
+            std::vector<std::string> changes;
+            changes.reserve(48);
+
+            if (before.Tonemap != after.Tonemap)
+            {
+                std::ostringstream oss;
+                oss << "Tonemap: " << TonemapOperatorName(before.Tonemap)
+                    << " -> " << TonemapOperatorName(after.Tonemap);
+                changes.emplace_back(oss.str());
+            }
+            AppendChange(changes, "Exposure", before.Exposure, after.Exposure);
+            AppendChange(changes, "Gamma", before.Gamma, after.Gamma);
+
+            AppendChange(changes, "BloomEnabled", before.BloomEnabled, after.BloomEnabled);
+            AppendChange(changes, "BloomThreshold", before.BloomThreshold, after.BloomThreshold);
+            AppendChange(changes, "BloomIntensity", before.BloomIntensity, after.BloomIntensity);
+            AppendChange(changes, "BloomIterations", before.BloomIterations, after.BloomIterations);
+
+            AppendChange(changes, "VignetteEnabled", before.VignetteEnabled, after.VignetteEnabled);
+            AppendChange(changes, "VignetteIntensity", before.VignetteIntensity, after.VignetteIntensity);
+            AppendChange(changes, "VignetteSmoothness", before.VignetteSmoothness, after.VignetteSmoothness);
+
+            AppendChange(changes, "ChromaticAberrationEnabled", before.ChromaticAberrationEnabled, after.ChromaticAberrationEnabled);
+            AppendChange(changes, "ChromaticAberrationIntensity", before.ChromaticAberrationIntensity, after.ChromaticAberrationIntensity);
+
+            AppendChange(changes, "FXAAEnabled", before.FXAAEnabled, after.FXAAEnabled);
+
+            AppendChange(changes, "DOFEnabled", before.DOFEnabled, after.DOFEnabled);
+            AppendChange(changes, "DOFFocusDistance", before.DOFFocusDistance, after.DOFFocusDistance);
+            AppendChange(changes, "DOFFocusRange", before.DOFFocusRange, after.DOFFocusRange);
+            AppendChange(changes, "DOFBokehRadius", before.DOFBokehRadius, after.DOFBokehRadius);
+
+            AppendChange(changes, "MotionBlurEnabled", before.MotionBlurEnabled, after.MotionBlurEnabled);
+            AppendChange(changes, "MotionBlurStrength", before.MotionBlurStrength, after.MotionBlurStrength);
+            AppendChange(changes, "MotionBlurSamples", before.MotionBlurSamples, after.MotionBlurSamples);
+
+            AppendChange(changes, "TAAEnabled", before.TAAEnabled, after.TAAEnabled);
+            AppendChange(changes, "TAAFeedback", before.TAAFeedback, after.TAAFeedback);
+            AppendChange(changes, "TAASharpness", before.TAASharpness, after.TAASharpness);
+
+            AppendChange(changes, "ColorGradingEnabled", before.ColorGradingEnabled, after.ColorGradingEnabled);
+
+            if (before.ActiveAOTechnique != after.ActiveAOTechnique)
+            {
+                std::ostringstream oss;
+                oss << "ActiveAOTechnique: " << AOTechniqueName(before.ActiveAOTechnique)
+                    << " -> " << AOTechniqueName(after.ActiveAOTechnique);
+                changes.emplace_back(oss.str());
+            }
+
+            AppendChange(changes, "SSAOEnabled", before.SSAOEnabled, after.SSAOEnabled);
+            AppendChange(changes, "SSAORadius", before.SSAORadius, after.SSAORadius);
+            AppendChange(changes, "SSAOBias", before.SSAOBias, after.SSAOBias);
+            AppendChange(changes, "SSAOIntensity", before.SSAOIntensity, after.SSAOIntensity);
+            AppendChange(changes, "SSAOSamples", before.SSAOSamples, after.SSAOSamples);
+            AppendChange(changes, "SSAODebugView", before.SSAODebugView, after.SSAODebugView);
+
+            AppendChange(changes, "GTAOEnabled", before.GTAOEnabled, after.GTAOEnabled);
+            AppendChange(changes, "GTAORadius", before.GTAORadius, after.GTAORadius);
+            AppendChange(changes, "GTAOPower", before.GTAOPower, after.GTAOPower);
+            AppendChange(changes, "GTAODenoiseEnabled", before.GTAODenoiseEnabled, after.GTAODenoiseEnabled);
+            AppendChange(changes, "GTAODenoisePasses", before.GTAODenoisePasses, after.GTAODenoisePasses);
+            AppendChange(changes, "GTAODebugView", before.GTAODebugView, after.GTAODebugView);
+
+            SettingsChangeLog::EmitLog("PostProcessSettingsPanel", changes);
+        }
+    } // namespace
+
     void PostProcessSettingsPanel::OnImGuiRender(bool* p_open)
     {
         OLO_PROFILE_FUNCTION();
 
         ImGui::Begin("Post Processing", p_open);
+
+        const PostProcessSettings settingsBefore = Renderer3D::GetPostProcessSettings();
 
         // Snapshot all renderer settings before any UI for undo tracking
         if (m_CommandHistory && !m_IsEditing)
@@ -63,6 +175,9 @@ namespace OloEngine
                 m_IsEditing = false;
             }
         }
+
+        const PostProcessSettings settingsAfter = Renderer3D::GetPostProcessSettings();
+        LogPostProcessSettingsChanges(settingsBefore, settingsAfter);
 
         ImGui::End();
     }
@@ -258,6 +373,25 @@ namespace OloEngine
             if (ImGui::Combo("Technique##AO", &currentTechnique, aoTechniqueNames, IM_ARRAYSIZE(aoTechniqueNames)))
             {
                 settings.ActiveAOTechnique = static_cast<AOTechnique>(currentTechnique);
+                switch (settings.ActiveAOTechnique)
+                {
+                    case AOTechnique::None:
+                        settings.SSAOEnabled = false;
+                        settings.GTAOEnabled = false;
+                        break;
+                    case AOTechnique::SSAO:
+                        settings.SSAOEnabled = true;
+                        settings.GTAOEnabled = false;
+                        break;
+                    case AOTechnique::GTAO:
+                        settings.SSAOEnabled = false;
+                        settings.GTAOEnabled = true;
+                        break;
+                }
+                // Technique change affects graph topology
+                // (only the active technique's pass is registered). Trigger a
+                // ConfigureRenderGraph rebuild via ApplyRendererSettings.
+                Renderer3D::ApplyRendererSettings();
             }
 
             // SSAO settings

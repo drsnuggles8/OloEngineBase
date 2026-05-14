@@ -123,6 +123,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 u_PrevViewProjection;
 };
 
 // Multi-Light UBO (binding 5)
@@ -240,6 +241,7 @@ layout(std140, binding = 3) uniform ModelMatrices {
     int _paddingEntity0;
     int _paddingEntity1;
     int _paddingEntity2;
+    mat4 u_PrevModel;
 };
 
 // =============================================================================

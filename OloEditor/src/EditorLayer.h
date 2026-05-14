@@ -175,7 +175,7 @@ namespace OloEngine
         bool m_ShowGPUResourceInspector = false;
         bool m_ShowCommandBucketInspector = false;
         bool m_ShowRendererProfiler = false;
-        bool m_ShowRenderGraphDebugger = false;
+        bool m_ShowRenderGraphDebugger = true;
         bool m_ShowAssetPackBuilder = false;
         bool m_ShowBuildGame = false;
 
@@ -217,7 +217,7 @@ namespace OloEngine
         bool m_ShowStatistics = true;
         bool m_ShowAnimationPanel = true;
         bool m_ShowPostProcessSettings = true;
-        bool m_ShowRendererSettings = false;
+        bool m_ShowRendererSettings = true;
         bool m_ShowTerrainEditor = false;
         bool m_ShowStreamingPanel = false;
         bool m_ShowInputSettings = false;

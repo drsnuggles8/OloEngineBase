@@ -255,10 +255,17 @@ CPMAddPackage(NAME imguizmo
 	GIT_TAG master
 	DOWNLOAD_ONLY YES)
 if (imguizmo_ADDED)
-	file(GLOB IMGUIZMO_SOURCES ${imguizmo_SOURCE_DIR}/*.cpp)
-	file(GLOB IMGUIZMO_HEADERS ${imguizmo_SOURCE_DIR}/*.h)  
+	# As of tag 1.9 the repository moved sources into a src/ subdirectory.
+	# Fall back to the root for older checkouts to stay forward-compatible.
+	if (EXISTS "${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp")
+		set(IMGUIZMO_SRC_DIR "${imguizmo_SOURCE_DIR}/src")
+	else()
+		set(IMGUIZMO_SRC_DIR "${imguizmo_SOURCE_DIR}")
+	endif()
+	file(GLOB IMGUIZMO_SOURCES ${IMGUIZMO_SRC_DIR}/*.cpp)
+	file(GLOB IMGUIZMO_HEADERS ${IMGUIZMO_SRC_DIR}/*.h)
 	add_library(imguizmo STATIC ${IMGUIZMO_SOURCES} ${IMGUIZMO_HEADERS})
-	target_include_directories(imguizmo PUBLIC ${imguizmo_SOURCE_DIR} ${imgui_SOURCE_DIR})
+	target_include_directories(imguizmo PUBLIC ${IMGUIZMO_SRC_DIR} ${imgui_SOURCE_DIR})
 	set_target_properties(imguizmo	PROPERTIES
 		ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imguizmo-build"
 		LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imguizmo-build"

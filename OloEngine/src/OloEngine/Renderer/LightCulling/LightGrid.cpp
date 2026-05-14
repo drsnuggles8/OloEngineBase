@@ -31,9 +31,9 @@ namespace OloEngine
 
         m_Initialized = true;
 
-        OLO_CORE_INFO("LightGrid: Initialized {}x{} tiles ({}px), {} depth slices, {} total clusters",
+        OLO_CORE_INFO("LightGrid: Initialized {}x{} tiles ({}px), {} total tiles",
                       m_TileCountX, m_TileCountY, config.TileSizePixels,
-                      config.DepthSlices, GetTotalClusters());
+                      GetTotalTiles());
     }
 
     void LightGrid::Shutdown()
@@ -120,15 +120,15 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        const u32 totalClusters = GetTotalClusters();
+        const u32 totalTiles = GetTotalTiles();
 
         // Light index list: worst case each tile has MaxLightsPerTile lights
-        // In practice, we size for average occupancy. Use totalClusters * MaxLightsPerTile as upper bound.
-        const u32 lightIndexCapacity = totalClusters * m_Config.MaxLightsPerTile;
+        // In practice, we size for average occupancy. Use totalTiles * MaxLightsPerTile as upper bound.
+        const u32 lightIndexCapacity = totalTiles * m_Config.MaxLightsPerTile;
         const u32 lightIndexBufferSize = lightIndexCapacity * sizeof(u32);
 
-        // Light grid: 2 u32s per cluster (offset, count)
-        const u32 lightGridBufferSize = totalClusters * 2 * sizeof(u32);
+        // Light grid: 2 u32s per tile (offset, count)
+        const u32 lightGridBufferSize = totalTiles * 2 * sizeof(u32);
 
         // Global atomic counter: single u32
         const u32 globalIndexBufferSize = sizeof(u32);

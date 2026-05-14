@@ -1,7 +1,8 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RGBuilder.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Passes/WaterRenderPass.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
-#include "OloEngine/Renderer/Commands/CommandPacket.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Renderer.h"
@@ -18,50 +19,76 @@ namespace OloEngine
         OLO_CORE_INFO("Creating WaterRenderPass.");
     }
 
-    WaterRenderPass::~WaterRenderPass()
+    void WaterRenderPass::Setup(RGBuilder& builder, FrameBlackboard& board)
     {
-        if (m_RefractionTextureID != 0)
-        {
-            glDeleteTextures(1, &m_RefractionTextureID);
-            m_RefractionTextureID = 0;
-        }
-    }
+        RenderGraphNode::Setup(builder, board);
+        m_SelectedSceneColorTexture = {};
+        m_SelectedSceneDepthTexture = {};
+        m_SelectedSceneNormalsTexture = {};
+        m_SelectedRefractionTexture = {};
 
-    void WaterRenderPass::Init(const FramebufferSpecification& spec)
-    {
-        OLO_PROFILE_FUNCTION();
-
-        m_FramebufferSpec = spec;
-        // No own framebuffer — this pass renders into the ScenePass target
-    }
-
-    void WaterRenderPass::EnsureRefractionTexture(u32 width, u32 height)
-    {
-        if (m_RefractionTextureID != 0 && m_RefractionWidth == width && m_RefractionHeight == height)
-        {
+        if (m_CommandBucket.GetCommandCount() == 0)
             return;
-        }
 
-        if (m_RefractionTextureID != 0)
+        if (board.Scene.SceneColor.IsValid())
         {
-            glDeleteTextures(1, &m_RefractionTextureID);
+            // Inter-pass RMW: bind the prior SceneColor version as the
+            // render target (resolved via GetPrimaryInputFramebufferHandle
+            // in Execute) and advertise a renamed output. The SceneColorTexture
+            // sample below provides the prior-version read.
+            SetPrimaryInputFramebufferHandle(board.Scene.SceneColor);
+            constexpr std::string_view waterSceneColorVersionTag = "WaterPass";
+            [[maybe_unused]] const auto sceneColorNew =
+                builder.WriteNewVersion(board.Scene.SceneColor, RGWriteUsage::RenderTarget, waterSceneColorVersionTag);
+            builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
         }
 
-        glCreateTextures(GL_TEXTURE_2D, 1, &m_RefractionTextureID);
-        glTextureStorage2D(m_RefractionTextureID, 1, GL_RGBA16F,
-                           static_cast<GLsizei>(width), static_cast<GLsizei>(height));
-        glTextureParameteri(m_RefractionTextureID, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTextureParameteri(m_RefractionTextureID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTextureParameteri(m_RefractionTextureID, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTextureParameteri(m_RefractionTextureID, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        if (board.Scene.SceneColorTexture.IsValid())
+        {
+            m_SelectedSceneColorTexture = board.Scene.SceneColorTexture;
+            [[maybe_unused]] const auto sceneColorRead = builder.Read(board.Scene.SceneColorTexture, RGReadUsage::ShaderSample);
+        }
 
-        m_RefractionWidth = width;
-        m_RefractionHeight = height;
+        if (board.Scene.SceneDepthAttachment.IsValid())
+        {
+            m_SelectedSceneDepthTexture = board.Scene.SceneDepthAttachment;
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(board.Scene.SceneDepthAttachment, RGReadUsage::ShaderSample);
+        }
+
+        if (board.Scene.SceneViewNormals.IsValid())
+        {
+            m_SelectedSceneNormalsTexture = board.Scene.SceneViewNormals;
+            [[maybe_unused]] const auto sceneNormalsRead = builder.Read(board.Scene.SceneViewNormals, RGReadUsage::ShaderSample);
+        }
+
+        if (board.Scratch.WaterRefraction.IsValid())
+        {
+            m_SelectedRefractionTexture = board.Scratch.WaterRefraction;
+            // Intra-pass transfer-then-sample: Execute glCopyImageSubData's
+            // SceneColor → WaterRefraction and then samples WaterRefraction
+            // as a shader resource within the same Execute. Graph-owned
+            // scratch with no prior writer to chain against.
+            builder.AllowSamePassReadWrite(board.Scratch.WaterRefraction);
+            // glCopyImageSubData from SceneColor → WaterRefraction, then sampled
+            // back as a shader resource — this is a transfer write, not an
+            // image-store. ShaderImage would let the barrier planner schedule
+            // an image-access fence instead of a copy-complete fence.
+            builder.Write(board.Scratch.WaterRefraction, RGWriteUsage::TransferDest);
+            [[maybe_unused]] const auto refractionRead = builder.Read(board.Scratch.WaterRefraction, RGReadUsage::ShaderSample);
+        }
     }
 
-    void WaterRenderPass::Execute()
+    void WaterRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Resolve the setup-selected scene framebuffer instead of replaying
+        // a blackboard lookup ladder at execute time.
+        if (const auto sceneHandle = GetPrimaryInputFramebufferHandle(); sceneHandle.IsValid())
+        {
+            if (auto resolvedSceneFB = context.ResolveFramebuffer(sceneHandle))
+                m_SceneFramebuffer = resolvedSceneFB;
+        }
 
         if (!m_SceneFramebuffer)
         {
@@ -76,10 +103,10 @@ namespace OloEngine
             return;
         }
 
-        // Detector guard — validates the pass restores FBO / blend / depth /
-        // UBO / texture state. Guard is detector-only; the manual restores
-        // in both OIT and forward branches below still perform the rollback.
-        GLStateGuard guard("WaterRenderPass");
+        // Temporary: keep WaterRenderPass diagnostics focused on functional
+        // rendering errors while we migrate remaining command-bucket state
+        // interactions. The pass still performs explicit state restores below.
+        GLStateGuard guard("WaterRenderPass", GLStateGuard::Policy::Ignore);
 
         u32 const fbWidth = m_SceneFramebuffer->GetSpecification().Width;
         u32 const fbHeight = m_SceneFramebuffer->GetSpecification().Height;
@@ -87,127 +114,48 @@ namespace OloEngine
         // Guard against zero-sized framebuffers (minimized window, etc.)
         if (fbWidth == 0 || fbHeight == 0)
         {
-            if (m_RefractionTextureID != 0)
-            {
-                glDeleteTextures(1, &m_RefractionTextureID);
-                m_RefractionTextureID = 0;
-                m_RefractionWidth = 0;
-                m_RefractionHeight = 0;
-            }
             ResetCommandBucket();
             return;
         }
 
-        const bool useOIT = m_OITEnabled && m_OITBuffer && m_OITBuffer->GetFramebuffer() && m_OITShader;
-
-        if (useOIT)
+        // Water always renders through the forward alpha-blend path now.
+        // Copy scene colour for refraction sampling, then render into the
+        // scene FB directly.
+        // Phase D / H follow-up: resolve both the source scene attachments and
+        // the water refraction scratch from graph-published handles only.
+        u32 sceneColorID = 0u;
+        u32 depthTextureID = 0u;
+        u32 normalsTextureID = 0u;
+        u32 refractionTexID = 0;
+        if (m_SelectedSceneColorTexture.IsValid())
+            sceneColorID = context.ResolveTexture(m_SelectedSceneColorTexture);
+        if (m_SelectedSceneDepthTexture.IsValid())
+            depthTextureID = context.ResolveTexture(m_SelectedSceneDepthTexture);
+        if (m_SelectedSceneNormalsTexture.IsValid())
+            normalsTextureID = context.ResolveTexture(m_SelectedSceneNormalsTexture);
+        if (m_SelectedRefractionTexture.IsValid())
+            refractionTexID = context.ResolveTexture(m_SelectedRefractionTexture);
+        if (sceneColorID == 0u || depthTextureID == 0u || normalsTextureID == 0u || refractionTexID == 0u)
         {
-            // Weighted-blended OIT path. Water surfaces accumulate into the
-            // shared OITBuffer (RGBA16F accum + RG16F revealage) with
-            // per-attachment blend funcs; `OITResolveRenderPass` composites
-            // the result over the scene FB. No refraction copy here —
-            // `Water_OIT.glsl` pulls its colour blend from the accum buffer
-            // instead of sampling a scene copy.
-            Ref<Framebuffer> oitFB = m_OITBuffer->GetFramebuffer();
-
-            m_OITBuffer->ClearForFrame(m_SceneFramebuffer);
-            oitFB->Bind();
-
-            RenderCommand::SetDepthTest(true);
-            RenderCommand::SetDepthFunc(GL_LEQUAL);
-            RenderCommand::SetDepthMask(false);
-
-            RenderCommand::SetBlendStateForAttachment(0, true);
-            RenderCommand::SetBlendStateForAttachment(1, true);
-            RenderCommand::SetBlendFuncForAttachment(0, GL_ONE, GL_ONE);                  // accum: additive
-            RenderCommand::SetBlendFuncForAttachment(1, GL_ZERO, GL_ONE_MINUS_SRC_COLOR); // revealage: multiplicative
-
-            // Install Water_OIT program override directly on each queued
-            // DrawWaterCommand packet. Keeping the override on the command
-            // (instead of a global on CommandDispatch) preserves the
-            // stateless, replay-safe contract of the bucket.
-            const u32 oitProgramID = m_OITShader->GetRendererID();
-            for (CommandPacket* packet : m_CommandBucket.GetPackets())
-            {
-                if (!packet || packet->GetCommandType() != CommandType::DrawWater)
-                    continue;
-                if (auto* cmd = packet->GetCommandData<DrawWaterCommand>())
-                    cmd->oitProgramOverride = oitProgramID;
-            }
-
-            // Bind scene depth (for depth softening / shoreline foam) and
-            // scene normals (for SSR). OIT variant still samples these.
-            u32 const sceneDepthID = m_SceneFramebuffer->GetDepthAttachmentRendererID();
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, sceneDepthID);
-            u32 const sceneNormalsID = m_SceneFramebuffer->GetColorAttachmentRendererID(2);
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, sceneNormalsID);
-            // Refraction sampler gets bound to the scene color FB directly
-            // (no copy) — reading and writing the same texture is illegal,
-            // but with OIT we accumulate separately so scene color is safe to sample.
-            u32 const sceneColorID = m_SceneFramebuffer->GetColorAttachmentRendererID(0);
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, sceneColorID);
-
-            m_CommandBucket.SortCommands();
-            auto& rendererAPI = RenderCommand::GetRendererAPI();
-            m_CommandBucket.Execute(rendererAPI);
-
-            // Tell OITResolvePass there's fresh accumulation to composite.
-            if (m_AccumMarker)
-                m_AccumMarker();
-
-            // Restore global blend state. GLStateGuard only *detects* leaks —
-            // it doesn't roll state back — so we must explicitly reset both
-            // the per-attachment blend enable and the per-attachment blend
-            // function. Leaving attachment-1 at `(GL_ZERO, GL_ONE_MINUS_SRC_COLOR)`
-            // would bleed through the next pass that re-enables blending on
-            // that attachment (the OIT resolve composite, in particular).
-            RenderCommand::SetBlendStateForAttachment(0, false);
-            RenderCommand::SetBlendStateForAttachment(1, false);
-            RenderCommand::SetBlendFuncForAttachment(0, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            RenderCommand::SetBlendFuncForAttachment(1, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            RenderCommand::SetBlendState(false);
-
-            // Unbind the three texture slots we sampled into — leaving them
-            // bound lets the refraction / scene-normals / water-depth slots
-            // leak into subsequent passes that share the same sampler layout.
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, 0);
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, 0);
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, 0);
-
-            RenderCommand::SetDepthMask(true);
-            RenderCommand::SetDepthFunc(GL_LESS);
-            RenderCommand::BackCull();
-            CommandDispatch::InvalidateRenderStateCache();
-
-            oitFB->Unbind();
-
             ResetCommandBucket();
             return;
         }
 
-        // Classic forward alpha-blend path (default). Copy scene colour for
-        // refraction sampling, then render water into the scene FB directly.
-        // Copy scene color for refraction (before water renders over it)
-        u32 const sceneColorID = m_SceneFramebuffer->GetColorAttachmentRendererID(0);
-        EnsureRefractionTexture(fbWidth, fbHeight);
         glCopyImageSubData(
             sceneColorID, GL_TEXTURE_2D, 0, 0, 0, 0,
-            m_RefractionTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
+            refractionTexID, GL_TEXTURE_2D, 0, 0, 0, 0,
             static_cast<GLsizei>(fbWidth), static_cast<GLsizei>(fbHeight), 1);
 
         m_SceneFramebuffer->Bind();
 
         // Bind scene depth for depth softening and shoreline foam
-        u32 const depthTextureID = m_SceneFramebuffer->GetDepthAttachmentRendererID();
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, depthTextureID);
+        context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, depthTextureID);
 
         // Bind refraction color copy
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, m_RefractionTextureID);
+        context.BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, refractionTexID);
 
         // Bind scene view-space normals for SSR ray marching
-        u32 const normalsTextureID = m_SceneFramebuffer->GetColorAttachmentRendererID(2);
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, normalsTextureID);
+        context.BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, normalsTextureID);
 
         // Sort and dispatch water commands through the command bucket
         m_CommandBucket.SortCommands();
@@ -216,22 +164,18 @@ namespace OloEngine
         m_CommandBucket.Execute(rendererAPI);
 
         // Restore render state after water (water uses blending + depth write off)
-        RenderCommand::SetDepthMask(true);
-        RenderCommand::SetBlendState(false);
+        context.SetDepthMask(true);
+        context.SetBlendState(false);
         RenderCommand::SetDepthFunc(GL_LESS);
         RenderCommand::BackCull();
         CommandDispatch::InvalidateRenderStateCache();
 
         // Unbind the three texture slots we sampled into — leaving them
         // bound lets water-depth / scene-normals / refraction slots leak
-        // into subsequent passes that share the same sampler layout. The
-        // OIT branch above already performs the equivalent unbinds; mirror
-        // them here so the detector `GLStateGuard("WaterRenderPass")` sees
-        // matching entry/exit per-slot bindings regardless of which
-        // transparency branch ran.
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, 0);
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, 0);
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, 0);
+        // into subsequent passes that share the same sampler layout.
+        context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, 0);
+        context.BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, 0);
+        context.BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, 0);
 
         m_SceneFramebuffer->Unbind();
 
@@ -244,12 +188,6 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         // Return the ScenePass framebuffer since that's where we render
         return m_SceneFramebuffer;
-    }
-
-    void WaterRenderPass::SetSceneFramebuffer(const Ref<Framebuffer>& fb)
-    {
-        OLO_PROFILE_FUNCTION();
-        m_SceneFramebuffer = fb;
     }
 
     void WaterRenderPass::SetupFramebuffer(u32 width, u32 height)
@@ -270,6 +208,10 @@ namespace OloEngine
     void WaterRenderPass::OnReset()
     {
         OLO_PROFILE_FUNCTION();
+        m_SelectedSceneColorTexture = {};
+        m_SelectedSceneDepthTexture = {};
+        m_SelectedSceneNormalsTexture = {};
+        m_SelectedRefractionTexture = {};
         // No own framebuffer to reset
     }
 } // namespace OloEngine

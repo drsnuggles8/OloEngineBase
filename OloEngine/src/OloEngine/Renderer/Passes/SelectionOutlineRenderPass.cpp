@@ -1,10 +1,16 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
-#include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 
+#include "OloEngine/Renderer/RenderCommand.h"
+
 #include <algorithm>
+#include <span>
+
+#include <glad/gl.h>
 
 namespace OloEngine
 {
@@ -13,13 +19,81 @@ namespace OloEngine
         SetName("SelectionOutlinePass");
     }
 
+    void SelectionOutlineRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+        m_SelectedSceneEntityTexture = {};
+        m_SelectedJFAPingFramebuffer = {};
+        m_SelectedJFAPongFramebuffer = {};
+
+        (void)blackboard;
+        [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(
+            builder,
+            this,
+            {
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::FXAAColor, ResourceNames::FXAAColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::VignetteColor, ResourceNames::VignetteColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::ToneMapColor, ResourceNames::ToneMapColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::ColorGradingColor, ResourceNames::ColorGradingColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::ChromAbColor, ResourceNames::ChromAbColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::FogColor, ResourceNames::FogColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::PrecipitationColor, ResourceNames::PrecipitationColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::TAAColor, ResourceNames::TAAColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::MotionBlurColor, ResourceNames::MotionBlurColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::DOFColor, ResourceNames::DOFColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::BloomColor, ResourceNames::BloomColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::PostProcessColor, ResourceNames::PostProcessColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SceneColor, ResourceNames::SceneColorTexture),
+            });
+
+        if (!IsReadyForExecution() || !blackboard.Post.SelectionOutlineColor.IsValid() || !blackboard.Scene.SceneEntityID.IsValid())
+            return;
+
+        m_SelectedSceneEntityTexture = blackboard.Scene.SceneEntityID;
+        [[maybe_unused]] const auto sceneEntityRead = builder.Read(blackboard.Scene.SceneEntityID, RGReadUsage::ShaderSample);
+
+        constexpr std::string_view selectionOutlineVersionTag = "SelectionOutlinePass";
+        const auto outputHandle =
+            builder.WriteNewVersion(blackboard.Post.SelectionOutlineColor, RGWriteUsage::RenderTarget, selectionOutlineVersionTag);
+        if (!outputHandle.IsValid())
+            return;
+
+        SetPrimaryOutputFramebufferHandle(outputHandle);
+        SetPrimaryOutputTextureHandle(
+            builder.CreateFramebufferAttachmentView(std::string(ResourceNames::SelectionOutlineColorTexture) + "@" +
+                                                        std::string(selectionOutlineVersionTag),
+                                                    outputHandle,
+                                                    0u));
+
+        // JFA passes shader-sample (texture()) the ping/pong color attachments
+        // — these are not input-attachment reads. The hazard planner needs the
+        // sample barrier, not a sub-pass attachment-read.
+        // Intra-pass JFA ping-pong: each jump-flood iteration alternates
+        // render-target binding between Ping and Pong while sampling from
+        // the other, all inside this pass's Execute. Both targets are
+        // graph-owned scratch with no prior writer to chain against.
+        if (blackboard.Scratch.JFAPing.IsValid())
+        {
+            m_SelectedJFAPingFramebuffer = blackboard.Scratch.JFAPing;
+            builder.AllowSamePassReadWrite(blackboard.Scratch.JFAPing);
+            builder.Write(blackboard.Scratch.JFAPing, RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto pingRead = builder.Read(blackboard.Scratch.JFAPing, RGReadUsage::ShaderSample);
+        }
+
+        if (blackboard.Scratch.JFAPong.IsValid())
+        {
+            m_SelectedJFAPongFramebuffer = blackboard.Scratch.JFAPong;
+            builder.AllowSamePassReadWrite(blackboard.Scratch.JFAPong);
+            builder.Write(blackboard.Scratch.JFAPong, RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto pongRead = builder.Read(blackboard.Scratch.JFAPong, RGReadUsage::ShaderSample);
+        }
+    }
+
     void SelectionOutlineRenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
 
         m_FramebufferSpec = spec;
-
-        m_BlitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
 
         // JFA shaders
         m_JFAInitShader = Shader::Create("assets/shaders/JumpFlood_Init.glsl");
@@ -31,7 +105,6 @@ namespace OloEngine
         m_JFAUbo = UniformBuffer::Create(UBOStructures::JumpFloodUBO::GetSize(), ShaderBindingLayout::UBO_JUMP_FLOOD);
 
         CreateFramebuffer(spec.Width, spec.Height);
-        CreateJFAFramebuffers(spec.Width, spec.Height);
 
         OLO_CORE_INFO("SelectionOutlineRenderPass: Initialized {}x{} (JFA, {} passes)", spec.Width, spec.Height, m_JFAPassCount);
     }
@@ -45,71 +118,87 @@ namespace OloEngine
             return;
         }
 
-        FramebufferSpecification fbSpec;
-        fbSpec.Width = width;
-        fbSpec.Height = height;
-        fbSpec.Samples = 1;
-        fbSpec.Attachments = {
-            FramebufferTextureFormat::RGBA8 // [0] LDR color (scene + outline)
-        };
-
-        m_Target = Framebuffer::Create(fbSpec);
+        m_Target = nullptr;
     }
 
-    void SelectionOutlineRenderPass::CreateJFAFramebuffers(u32 width, u32 height)
-    {
-        if (width == 0 || height == 0)
-        {
-            m_JFAFramebuffers[0] = nullptr;
-            m_JFAFramebuffers[1] = nullptr;
-            return;
-        }
-
-        for (auto& fb : m_JFAFramebuffers)
-        {
-            FramebufferSpecification fbSpec;
-            fbSpec.Width = width;
-            fbSpec.Height = height;
-            fbSpec.Samples = 1;
-            fbSpec.Attachments = {
-                FramebufferTextureFormat::RGBA32F // Distance field (xy=offset, z=sqDist, w=flag)
-            };
-            fb = Framebuffer::Create(fbSpec);
-        }
-    }
-
-    void SelectionOutlineRenderPass::Execute()
+    void SelectionOutlineRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_Target || !m_InputFramebuffer)
+        // Sample-only consumer: input framebuffer is intentionally not
+        // resolved here — see ReadFirstValidVersionedInputForPass docs.
+        u32 inputColorTextureID = 0u;
+        if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
+            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
+
+        Ref<Framebuffer> outputFramebuffer;
+        u32 sceneEntityTextureID = 0u;
+        if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
         {
+            if (auto fb = context.ResolveFramebuffer(outputHandle))
+                outputFramebuffer = fb;
+        }
+        if (m_SelectedSceneEntityTexture.IsValid())
+            sceneEntityTextureID = context.ResolveTexture(m_SelectedSceneEntityTexture);
+
+        if (!outputFramebuffer || inputColorTextureID == 0u || sceneEntityTextureID == 0u)
+        {
+            m_Target = nullptr;
             return;
         }
 
-        auto va = MeshPrimitives::GetFullscreenTriangle();
-
-        // Early-out: no selection, disabled, or no scene FB — blit input straight through
-        if (!m_Enabled || m_UBOData.SelectedCount == 0 || !m_SceneFramebuffer)
+        if (!m_Enabled || m_UBOData.SelectedCount == 0)
         {
-            m_Target->Bind();
-            RenderCommand::SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
-            RenderCommand::SetBlendState(false);
-            RenderCommand::SetDepthTest(false);
-
-            m_BlitShader->Bind();
-            RenderCommand::BindTexture(0, m_InputFramebuffer->GetColorAttachmentRendererID(0));
-            m_BlitShader->SetInt("u_Texture", 0);
-
-            va->Bind();
-            RenderCommand::DrawIndexed(va);
-
-            RenderCommand::SetDepthTest(true);
+            m_Target = nullptr;
             return;
         }
 
-        const u32 w = m_FramebufferSpec.Width;
-        const u32 h = m_FramebufferSpec.Height;
+        const bool readyForExecution = IsReadyForExecution();
+        if (!readyForExecution)
+        {
+            m_Target = nullptr;
+            static u32 s_InvalidExecutionStateWarnings = 0;
+            if (s_InvalidExecutionStateWarnings++ < 10)
+            {
+                OLO_CORE_WARN("SelectionOutlineRenderPass: enabled without complete execution state (sceneEntityTex={}, shadersReady={}, selectedCount={})",
+                              sceneEntityTextureID,
+                              readyForExecution,
+                              m_UBOData.SelectedCount);
+            }
+            OLO_CORE_ASSERT(false, "SelectionOutlineRenderPass enabled without ready shaders/UBOs or resolved SceneEntityID");
+            return;
+        }
+
+        m_Target = outputFramebuffer;
+
+        const auto va = MeshPrimitives::GetFullscreenTriangle();
+        constexpr u32 colorAttachment = 0;
+        const auto& outputSpec = outputFramebuffer->GetSpecification();
+        const u32 w = outputSpec.Width;
+        const u32 h = outputSpec.Height;
+
+        // Phase D / H follow-up: resolve JFA ping-pong framebuffers entirely
+        // from the transient pool. The execute path no longer keeps owned
+        // fallback framebuffers for headless / unit-test contexts.
+        std::array<Ref<Framebuffer>, 2> jfaFBs{};
+        if (m_SelectedJFAPingFramebuffer.IsValid())
+            jfaFBs[0] = context.ResolveFramebuffer(m_SelectedJFAPingFramebuffer);
+        if (m_SelectedJFAPongFramebuffer.IsValid())
+            jfaFBs[1] = context.ResolveFramebuffer(m_SelectedJFAPongFramebuffer);
+        if (!jfaFBs[0] || !jfaFBs[1])
+        {
+            m_Target = nullptr;
+            static u32 s_MissingScratchWarnings = 0;
+            if (s_MissingScratchWarnings++ < 10)
+            {
+                OLO_CORE_WARN("SelectionOutlineRenderPass: enabled without resolved JFA scratch (pingFB={}, pongFB={})",
+                              jfaFBs[0] ? jfaFBs[0]->GetRendererID() : 0u,
+                              jfaFBs[1] ? jfaFBs[1]->GetRendererID() : 0u);
+            }
+            OLO_CORE_ASSERT(false, "SelectionOutlineRenderPass enabled without resolved JFA scratch framebuffers");
+            return;
+        }
+
         const glm::vec4 texelSize(1.0f / static_cast<f32>(w), 1.0f / static_cast<f32>(h), 0.0f, 0.0f);
 
         // Upload SelectionOutlineUBO (entity IDs for Init pass)
@@ -119,20 +208,27 @@ namespace OloEngine
         // =====================================================================
         // Pass 1: JFA Init — entity IDs → distance field seed
         // =====================================================================
-        m_JFAFramebuffers[0]->Bind();
-        RenderCommand::SetViewport(0, 0, w, h);
-        RenderCommand::SetBlendState(false);
-        RenderCommand::SetDepthTest(false);
-        RenderCommand::Clear();
+        jfaFBs[0]->Bind();
+        context.SetViewport(0, 0, w, h);
+        context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
+        context.SetBlendState(false);
+        context.SetDepthTest(false);
+        context.SetDepthMask(false);
+        context.SetCulling(false);
+        RenderCommand::DisableStencilTest();
+        RenderCommand::DisableScissorTest();
+        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetColorMask(true, true, true, true);
+        context.Clear();
 
-        // Bind entity ID texture from ScenePass attachment 1
-        RenderCommand::BindTexture(0, m_SceneFramebuffer->GetColorAttachmentRendererID(1));
+        // Bind entity-ID texture from the graph-published SceneColor attachment view.
+        context.BindTexture(0, sceneEntityTextureID);
 
         m_JFAInitShader->Bind();
         m_JFAInitShader->SetInt("u_EntityID", 0);
 
         va->Bind();
-        RenderCommand::DrawIndexed(va);
+        context.DrawIndexed(va);
 
         // =====================================================================
         // Pass 2: JFA Flood — ping-pong propagation passes
@@ -149,18 +245,27 @@ namespace OloEngine
             m_JFAUboData.Step = step;
             m_JFAUbo->SetData(&m_JFAUboData, UBOStructures::JumpFloodUBO::GetSize());
 
-            m_JFAFramebuffers[writeIndex]->Bind();
-            RenderCommand::SetViewport(0, 0, w, h);
-            RenderCommand::Clear();
+            jfaFBs[writeIndex]->Bind();
+            context.SetViewport(0, 0, w, h);
+            context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
+            context.SetBlendState(false);
+            context.SetDepthTest(false);
+            context.SetDepthMask(false);
+            context.SetCulling(false);
+            RenderCommand::DisableStencilTest();
+            RenderCommand::DisableScissorTest();
+            RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            RenderCommand::SetColorMask(true, true, true, true);
+            context.Clear();
 
             // Bind previous JFA result
-            RenderCommand::BindTexture(0, m_JFAFramebuffers[readIndex]->GetColorAttachmentRendererID(0));
+            context.BindTexture(0, jfaFBs[readIndex]->GetColorAttachmentRendererID(0));
 
             m_JFAPassShader->Bind();
             m_JFAPassShader->SetInt("u_Texture", 0);
 
             va->Bind();
-            RenderCommand::DrawIndexed(va);
+            context.DrawIndexed(va);
 
             readIndex = writeIndex;
         }
@@ -173,27 +278,38 @@ namespace OloEngine
         m_JFAUboData.Step = 0; // Not used in composite
         m_JFAUbo->SetData(&m_JFAUboData, UBOStructures::JumpFloodUBO::GetSize());
 
-        m_Target->Bind();
-        RenderCommand::SetViewport(0, 0, w, h);
+        outputFramebuffer->Bind();
+        context.SetViewport(0, 0, w, h);
+        context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
+        context.SetBlendState(false);
+        context.SetDepthTest(false);
+        context.SetDepthMask(false);
+        context.SetCulling(false);
+        RenderCommand::DisableStencilTest();
+        RenderCommand::DisableScissorTest();
+        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetColorMask(true, true, true, true);
 
-        // Slot 0: scene color from PostProcessPass
-        RenderCommand::BindTexture(0, m_InputFramebuffer->GetColorAttachmentRendererID(0));
-        // Slot 1: final JFA distance field
-        RenderCommand::BindTexture(1, m_JFAFramebuffers[readIndex]->GetColorAttachmentRendererID(0));
+        // Slot 0: scene color from the selected dynamic post-chain texture view.
+        context.BindTexture(0, inputColorTextureID);
+        // Slot 1: final JFA distance field from the graph-owned ping-pong scratch
+        context.BindTexture(1, jfaFBs[readIndex]->GetColorAttachmentRendererID(0));
 
         m_JFACompositeShader->Bind();
         m_JFACompositeShader->SetInt("u_SceneColor", 0);
         m_JFACompositeShader->SetInt("u_JFAResult", 1);
 
         va->Bind();
-        RenderCommand::DrawIndexed(va);
+        context.DrawIndexed(va);
 
         // Restore state
-        RenderCommand::SetDepthTest(true);
+        context.SetDepthTest(true);
     }
 
     Ref<Framebuffer> SelectionOutlineRenderPass::GetTarget() const
     {
+        if (!m_Enabled || m_UBOData.SelectedCount == 0)
+            return nullptr;
         return m_Target;
     }
 
@@ -205,7 +321,6 @@ namespace OloEngine
         m_FramebufferSpec.Height = height;
 
         CreateFramebuffer(width, height);
-        CreateJFAFramebuffers(width, height);
     }
 
     void SelectionOutlineRenderPass::ResizeFramebuffer(u32 width, u32 height)
@@ -221,38 +336,17 @@ namespace OloEngine
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
 
-        if (m_Target)
-        {
-            m_Target->Resize(width, height);
-        }
-        else
-        {
-            CreateFramebuffer(width, height);
-        }
-
-        // Recreate JFA framebuffers (RGBA32F can't always resize in place)
-        CreateJFAFramebuffers(width, height);
+        CreateFramebuffer(width, height);
     }
 
     void SelectionOutlineRenderPass::OnReset()
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_FramebufferSpec.Width > 0 && m_FramebufferSpec.Height > 0)
-        {
-            CreateFramebuffer(m_FramebufferSpec.Width, m_FramebufferSpec.Height);
-            CreateJFAFramebuffers(m_FramebufferSpec.Width, m_FramebufferSpec.Height);
-        }
-    }
-
-    void SelectionOutlineRenderPass::SetInputFramebuffer(const Ref<Framebuffer>& input)
-    {
-        m_InputFramebuffer = input;
-    }
-
-    void SelectionOutlineRenderPass::SetSceneFramebuffer(const Ref<Framebuffer>& sceneFB)
-    {
-        m_SceneFramebuffer = sceneFB;
+        m_Target = nullptr;
+        m_SelectedSceneEntityTexture = {};
+        m_SelectedJFAPingFramebuffer = {};
+        m_SelectedJFAPongFramebuffer = {};
     }
 
     void SelectionOutlineRenderPass::SetSelectedEntityIDs(std::span<const i32> ids)

@@ -3,7 +3,7 @@
 
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/LightCulling/LightGrid.h"
-#include "OloEngine/Renderer/LightCulling/ClusteredForward.h"
+#include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 
 #include <glm/glm.hpp>
 
@@ -40,7 +40,6 @@ TEST(ForwardPlus, DefaultGridConfig)
     LightGridConfig config;
     EXPECT_EQ(config.TileSizePixels, 16u);
     EXPECT_EQ(config.MaxLightsPerTile, 256u);
-    EXPECT_EQ(config.DepthSlices, 1u);
 }
 
 TEST(ForwardPlus, TileCountCalculation)

@@ -519,11 +519,14 @@ namespace OloEngine
         ioAngularVelocity *= kVelocityReductionFactor;
     }
 
-    bool JoltCharacterController::OnContactValidate([[maybe_unused]] const JPH::CharacterVirtual* inCharacter, const JPH::BodyID& inBodyID2,
-                                                    [[maybe_unused]] const JPH::SubShapeID& inSubShapeID2)
+    bool JoltCharacterController::OnContactValidate([[maybe_unused]] const JPH::CharacterVirtual* inCharacter,
+                                                    const JPH::CharacterContact& inContact)
     {
         // Validate if character should collide with this body based on collision layers
         if (!m_Scene)
+            return true;
+
+        if (inContact.mBodyB.IsInvalid())
             return true;
 
         // Get the physics system to check collision layers
@@ -532,7 +535,7 @@ namespace OloEngine
             return true;
 
         // Get the body interface to access the other body
-        const JPH::BodyLockRead bodyLock(physicsSystem->GetBodyLockInterface(), inBodyID2);
+        const JPH::BodyLockRead bodyLock(physicsSystem->GetBodyLockInterface(), inContact.mBodyB);
         if (!bodyLock.Succeeded())
             return true;
 
@@ -549,15 +552,18 @@ namespace OloEngine
         return true;
     }
 
-    void JoltCharacterController::OnContactAdded([[maybe_unused]] const JPH::CharacterVirtual* inCharacter, const JPH::BodyID& inBodyID2,
-                                                 [[maybe_unused]] const JPH::SubShapeID& inSubShapeID2, [[maybe_unused]] JPH::Vec3Arg inContactPosition,
-                                                 JPH::Vec3Arg inContactNormal, [[maybe_unused]] JPH::CharacterContactSettings& ioSettings)
+    void JoltCharacterController::OnContactAdded([[maybe_unused]] const JPH::CharacterVirtual* inCharacter,
+                                                 const JPH::CharacterContact& inContact,
+                                                 [[maybe_unused]] JPH::CharacterContactSettings& ioSettings)
     {
         m_CollisionFlags = ECollisionFlags::None;
 
+        if (inContact.mBodyB.IsInvalid())
+            return;
+
         // Determine collision flags based on contact normal
         JPH::Vec3 up = JPH::Vec3(0, 1, 0);
-        f32 dotUp = inContactNormal.Dot(up);
+        f32 dotUp = inContact.mContactNormal.Dot(up);
 
         if (dotUp > kCollisionAngleDotThreshold) // Roughly 45 degrees
         {
@@ -577,7 +583,7 @@ namespace OloEngine
         if (m_Scene && m_Scene->GetJoltSystemPtr())
         {
             const auto& bodyLockInterface = m_Scene->GetBodyLockInterface();
-            JPH::BodyLockRead lock(bodyLockInterface, inBodyID2);
+            JPH::BodyLockRead lock(bodyLockInterface, inContact.mBodyB);
             if (lock.Succeeded())
             {
                 const JPH::Body& body = lock.GetBody();
@@ -587,11 +593,11 @@ namespace OloEngine
 
         if (isSensor)
         {
-            HandleTrigger(inBodyID2);
+            HandleTrigger(inContact.mBodyB);
         }
         else
         {
-            HandleCollision(inBodyID2);
+            HandleCollision(inContact.mBodyB);
         }
     }
 

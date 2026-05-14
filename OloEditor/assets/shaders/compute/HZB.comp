@@ -118,7 +118,16 @@ void main()
     // Mip 0 of this batch: first pass copies scene depth directly, subsequent max-reduce
     if (u_IsFirstPass != 0)
     {
-        WriteMip(0, dispatchThreadId, textureLod(u_InputDepth, bufferUV, 0.0).r);
+        // Scene depth is at viewport size, but bufferUV is computed for
+        // HZB-texel-to-viewport-uv mapping (HZBGenerator.cpp uses
+        // 1 / viewport_size for first-pass DispatchThreadIdToBufferUV).
+        // For HZB texels outside the viewport sub-rect, bufferUV exceeds
+        // 1.0; clamp to u_InputViewportMaxBound = (viewport - 0.5) /
+        // viewport so we read scene depth's edge pixel rather than
+        // sampling outside [0,1] (which would still be CLAMP_TO_EDGE
+        // behaviour but is left explicit for safety).
+        vec2 sampleUV = min(bufferUV, u_InputViewportMaxBound);
+        WriteMip(0, dispatchThreadId, textureLod(u_InputDepth, sampleUV, 0.0).r);
     }
     else
     {

@@ -1,8 +1,8 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/OITBuffer.h"
 #include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
 
 #include <functional>
@@ -25,14 +25,12 @@ namespace OloEngine
         DecalRenderPass();
         ~DecalRenderPass() override = default;
 
-        void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
+        void Execute(RGCommandContext& context) override;
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
-
-        void SetSceneFramebuffer(const Ref<Framebuffer>& fb);
 
         // Deferred-path entry point. Called by SceneRenderPass while the
         // G-Buffer is still bound, right after the main G-Buffer MRT write.
@@ -58,20 +56,12 @@ namespace OloEngine
         // written into the G-Buffer via `ExecuteOnGBuffer` and are naturally
         // order-independent (depth test + G-buffer writes are not blended).
         // In the forward path they were previously alpha-blended in scene
-        // FB; when an OIT buffer is attached and enabled, `Execute()` routes
-        // them through the same WB-OIT compositing pipeline as water /
-        // particles. See `WaterRenderPass::SetOITBuffer` for invariants.
-        void SetOITBuffer(const Ref<OITBuffer>& oitBuffer) noexcept
-        {
-            m_OITBuffer = oitBuffer;
-        }
+        // FB; when OIT is enabled `Execute()` resolves the graph-owned OIT
+        // framebuffer and routes transparent decals through the same WB-OIT
+        // compositing pipeline as particles.
         void SetOITEnabled(bool enabled) noexcept
         {
             m_OITEnabled = enabled;
-        }
-        void SetOITAccumulationMarker(std::function<void()> marker)
-        {
-            m_AccumMarker = std::move(marker);
         }
         void SetOITShader(const Ref<Shader>& shader) noexcept
         {
@@ -80,10 +70,10 @@ namespace OloEngine
 
       private:
         Ref<Framebuffer> m_SceneFramebuffer;
+        RGFramebufferHandle m_SelectedOITFramebuffer;
+        RGTextureHandle m_SelectedSceneDepthTexture;
 
-        Ref<OITBuffer> m_OITBuffer;
         Ref<Shader> m_OITShader;
-        std::function<void()> m_AccumMarker;
         bool m_OITEnabled = false;
 
         // Set by `ExecuteOnGBuffer` (deferred path) after it has drained the

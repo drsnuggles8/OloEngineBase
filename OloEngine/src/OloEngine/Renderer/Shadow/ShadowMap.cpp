@@ -352,6 +352,74 @@ namespace OloEngine
         return (index < MAX_POINT_SHADOWS) ? m_PointCubemapIDs[index] : 0;
     }
 
+    // ------------------------------------------------------------------
+    // Placeholder shadow textures
+    // ------------------------------------------------------------------
+    // Owned at namespace scope so they survive across multiple ShadowMap
+    // instances (e.g. resolution changes Shutdown+Init the per-instance
+    // textures but the placeholders only depend on type, not size).
+    namespace
+    {
+        Ref<Texture2DArray> g_PlaceholderShadowArray;
+        u32 g_PlaceholderShadowCube = 0u;
+
+        Ref<Texture2DArray> CreatePlaceholderShadowArray()
+        {
+            Texture2DArraySpecification spec;
+            spec.Width = 1u;
+            spec.Height = 1u;
+            spec.Layers = 1u;
+            spec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
+            spec.DepthComparisonMode = true;
+            return Texture2DArray::Create(spec);
+        }
+
+        u32 CreatePlaceholderShadowCube()
+        {
+            const u32 id = RenderCommand::CreateTextureCubemap(1u, 1u, GL_DEPTH_COMPONENT32F);
+            if (id == 0u)
+                return 0u;
+            RenderCommand::SetTextureParameter(id, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            RenderCommand::SetTextureParameter(id, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            RenderCommand::SetTextureParameter(id, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            RenderCommand::SetTextureParameter(id, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            RenderCommand::SetTextureParameter(id, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+            RenderCommand::SetTextureParameter(id, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+            RenderCommand::SetTextureParameter(id, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+            return id;
+        }
+    } // namespace
+
+    u32 ShadowMap::GetCSMPlaceholderRendererID()
+    {
+        if (!g_PlaceholderShadowArray)
+            g_PlaceholderShadowArray = CreatePlaceholderShadowArray();
+        return g_PlaceholderShadowArray ? g_PlaceholderShadowArray->GetRendererID() : 0u;
+    }
+
+    u32 ShadowMap::GetSpotPlaceholderRendererID()
+    {
+        // Spot shadows use the same sampler2DArrayShadow type as CSM — share.
+        return GetCSMPlaceholderRendererID();
+    }
+
+    u32 ShadowMap::GetPointPlaceholderRendererID()
+    {
+        if (g_PlaceholderShadowCube == 0u)
+            g_PlaceholderShadowCube = CreatePlaceholderShadowCube();
+        return g_PlaceholderShadowCube;
+    }
+
+    void ShadowMap::ShutdownPlaceholders()
+    {
+        g_PlaceholderShadowArray.Reset();
+        if (g_PlaceholderShadowCube != 0u)
+        {
+            RenderCommand::DeleteTexture(g_PlaceholderShadowCube);
+            g_PlaceholderShadowCube = 0u;
+        }
+    }
+
     void ShadowMap::SetSettings(const ShadowSettings& settings)
     {
         OLO_PROFILE_FUNCTION();

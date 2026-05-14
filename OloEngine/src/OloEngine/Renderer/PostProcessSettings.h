@@ -160,6 +160,22 @@ namespace OloEngine
         }
     };
 
+    // GPU-side UBO layout for Dynamic Resolution Scaling parameters (std140, binding 33).
+    // RenderScaleBounds.xy = (renderWidth / physicalWidth, renderHeight / physicalHeight).
+    // Screen-space passes that read DRS-scaled framebuffers clamp their UV to this range
+    // so they never sample uninitialised texels beyond the rendered region.
+    // Both components are 1.0 when DRS is inactive (scale == 1.0).
+    struct DRSUBOData
+    {
+        glm::vec2 RenderScaleBounds = glm::vec2(1.0f);
+        glm::vec2 _pad = glm::vec2(0.0f); // pad to 16 bytes (std140 vec2 alignment)
+
+        static constexpr u32 GetSize()
+        {
+            return sizeof(DRSUBOData);
+        }
+    };
+
     // GPU-side UBO layout for SSAO parameters (std140, binding 9)
     struct SSAOUBOData
     {

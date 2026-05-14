@@ -1,5 +1,8 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RGBuilder.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
+#include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
@@ -12,6 +15,70 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         SetName("ShadowRenderPass");
+    }
+
+    void ShadowRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+
+        // Skip declaring writes when shadow rendering is off — otherwise the
+        // graph records dependency edges that never materialise and consumers
+        // may end up reading uncleared shadow maps. Execute() already gates
+        // on the same condition.
+        if (!m_ShadowMap || !m_ShadowMap->IsEnabled())
+            return;
+
+        if (blackboard.Shadows.ShadowMapCSM.IsValid())
+        {
+            for (u32 cascade = 0; cascade < ShadowMap::MAX_CSM_CASCADES; ++cascade)
+            {
+                if (const auto cascadeView = blackboard.Shadows.ShadowMapCSMCascades[cascade]; cascadeView.IsValid())
+                {
+                    builder.Write(cascadeView, RGWriteUsage::DepthStencil);
+                }
+                else
+                {
+                    builder.Write(blackboard.Shadows.ShadowMapCSM, RGWriteUsage::DepthStencil, RGSubresourceRange::Layer(cascade));
+                }
+            }
+        }
+
+        if (blackboard.Shadows.ShadowMapSpot.IsValid())
+        {
+            for (u32 light = 0; light < ShadowMap::MAX_SPOT_SHADOWS; ++light)
+            {
+                if (const auto spotLayerView = blackboard.Shadows.ShadowMapSpotLayers[light]; spotLayerView.IsValid())
+                {
+                    builder.Write(spotLayerView, RGWriteUsage::DepthStencil);
+                }
+                else
+                {
+                    builder.Write(blackboard.Shadows.ShadowMapSpot, RGWriteUsage::DepthStencil, RGSubresourceRange::Layer(light));
+                }
+            }
+        }
+
+        for (u32 light = 0; light < ShadowMap::MAX_POINT_SHADOWS; ++light)
+        {
+            const auto& pointHandle = blackboard.Shadows.ShadowMapPoint[light];
+            if (!pointHandle.IsValid())
+                continue;
+
+            for (u32 face = 0; face < FrameBlackboard::MaxShadowMapCubeFaces; ++face)
+            {
+                if (const auto faceView = blackboard.Shadows.ShadowMapPointFaces[light][face]; faceView.IsValid())
+                {
+                    builder.Write(faceView, RGWriteUsage::DepthStencil);
+                }
+                else
+                {
+                    RGSubresourceRange faceRange{};
+                    faceRange.BaseSlice = face;
+                    faceRange.SliceCount = 1u;
+                    builder.Write(pointHandle, RGWriteUsage::DepthStencil, faceRange);
+                }
+            }
+        }
     }
 
     ShadowRenderPass::~ShadowRenderPass() = default;
@@ -29,15 +96,13 @@ namespace OloEngine
         shadowSpec.Height = spec.Height;
         shadowSpec.Attachments = { FramebufferTextureFormat::ShadowDepth };
         m_ShadowFramebuffer = Framebuffer::Create(shadowSpec);
-
-        // Resource-aware RDG: this pass produces the CSM shadow map that
-        // Scene / PostProcess (fog) / Terrain passes sample downstream.
-        DeclareWrite(ResourceNames::ShadowMapCSM, ResourceHandle::Kind::Texture2DArray);
     }
 
-    void ShadowRenderPass::Execute()
+    void ShadowRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
+
+        (void)context;
 
         const bool hasCasters = !m_MeshCasters.empty() || !m_SkinnedCasters.empty() ||
                                 !m_TerrainCasters.empty() || !m_VoxelCasters.empty() ||
@@ -94,11 +159,30 @@ namespace OloEngine
             }
             for (u32 cascade = 0; cascade < ShadowMap::MAX_CSM_CASCADES; ++cascade)
             {
+                const glm::mat4& lightVP = m_ShadowMap->GetCSMMatrix(cascade);
+                const Frustum cascadeFrustum(lightVP);
+
+                // Skip cascade if no bounded casters pass the frustum test and
+                // no unbounded casters (terrain, foliage, voxel) exist.
+                const bool hasUnbounded = !m_TerrainCasters.empty() ||
+                                          !m_FoliageCasters.empty() ||
+                                          !m_VoxelCasters.empty();
+                if (!hasUnbounded)
+                {
+                    const bool anyMesh = std::any_of(m_MeshCasters.begin(), m_MeshCasters.end(),
+                                                     [&](const ShadowMeshCaster& c)
+                                                     { return !ShouldCull(c.WorldBounds, cascadeFrustum); });
+                    const bool anySkinned = !anyMesh && std::any_of(m_SkinnedCasters.begin(), m_SkinnedCasters.end(),
+                                                                    [&](const ShadowSkinnedCaster& c)
+                                                                    { return !ShouldCull(c.WorldBounds, cascadeFrustum); });
+                    if (!anyMesh && !anySkinned)
+                        continue; // No work for this cascade — skip all GL state changes
+                }
+
                 m_ShadowFramebuffer->AttachDepthTextureArrayLayer(csmArray->GetRendererID(), cascade);
                 RenderCommand::ClearDepthOnly();
 
-                const glm::mat4& lightVP = m_ShadowMap->GetCSMMatrix(cascade);
-                RenderCascadeOrFace(lightVP, ShadowPassType::CSM, cascade);
+                RenderCascadeOrFace(lightVP, ShadowPassType::CSM, cascade, &cascadeFrustum);
             }
         }
 
@@ -154,7 +238,8 @@ namespace OloEngine
         m_FoliageCasters.clear();
     }
 
-    void ShadowRenderPass::RenderCascadeOrFace(const glm::mat4& lightVP, ShadowPassType type, u32 layerOrLight)
+    void ShadowRenderPass::RenderCascadeOrFace(const glm::mat4& lightVP, ShadowPassType type, u32 layerOrLight,
+                                               const Frustum* cullFrustum)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -206,6 +291,8 @@ namespace OloEngine
                 shadowShader->Bind();
                 for (const auto& caster : m_MeshCasters)
                 {
+                    if (cullFrustum && ShouldCull(caster.WorldBounds, *cullFrustum))
+                        continue;
                     uploadShadowModelUBO(caster.transform);
                     RendererID const drawVao = (caster.shadowVaoID != 0) ? caster.shadowVaoID : caster.vaoID;
                     RenderCommand::DrawIndexedRaw(drawVao, caster.indexCount);
@@ -233,6 +320,8 @@ namespace OloEngine
 
                 for (const auto& caster : m_SkinnedCasters)
                 {
+                    if (cullFrustum && ShouldCull(caster.WorldBounds, *cullFrustum))
+                        continue;
                     uploadShadowModelUBO(caster.transform);
 
                     if (caster.boneCount > 0)
@@ -312,16 +401,27 @@ namespace OloEngine
         }
     }
 
-    // Shadow caster submission methods
-    void ShadowRenderPass::AddMeshCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform, RendererID shadowVaoID)
+    // Returns true when the caster has valid world bounds AND those bounds lie
+    // entirely outside the frustum, meaning it can safely be skipped.
+    // Casters with NoBounds (Min.x == FLT_MAX) are never culled.
+    bool ShadowRenderPass::ShouldCull(const BoundingBox& worldBounds, const Frustum& frustum)
     {
-        m_MeshCasters.push_back({ vaoID, indexCount, transform, shadowVaoID });
+        if (worldBounds.Min.x >= std::numeric_limits<f32>::max())
+            return false; // No bounds provided — always include
+        return !frustum.IsBoxVisible(worldBounds.Min, worldBounds.Max);
+    }
+
+    // Shadow caster submission methods
+    void ShadowRenderPass::AddMeshCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform,
+                                         RendererID shadowVaoID, const BoundingBox& worldBounds)
+    {
+        m_MeshCasters.push_back({ vaoID, indexCount, transform, shadowVaoID, worldBounds });
     }
 
     void ShadowRenderPass::AddSkinnedCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform,
-                                            u32 boneBufferOffset, u32 boneCount)
+                                            u32 boneBufferOffset, u32 boneCount, const BoundingBox& worldBounds)
     {
-        m_SkinnedCasters.push_back({ vaoID, indexCount, transform, boneBufferOffset, boneCount });
+        m_SkinnedCasters.push_back({ vaoID, indexCount, transform, boneBufferOffset, boneCount, worldBounds });
     }
 
     void ShadowRenderPass::AddTerrainCaster(RendererID vaoID, u32 indexCount, u32 patchVertexCount,

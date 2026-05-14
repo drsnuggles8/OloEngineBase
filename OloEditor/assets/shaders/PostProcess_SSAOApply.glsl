@@ -125,6 +125,11 @@ void main()
     }
 
     float ao = bilateralUpsampleAO(v_TexCoord);
+    if (isnan(ao) || isinf(ao))
+    {
+        ao = 1.0;
+    }
+    ao = clamp(ao, 0.0, 1.0);
 
     // Mix between full color and AO-modulated color based on intensity
     vec3 result = sceneColor * mix(1.0, ao, u_Intensity);

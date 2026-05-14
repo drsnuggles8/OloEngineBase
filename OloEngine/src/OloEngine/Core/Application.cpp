@@ -418,4 +418,11 @@ namespace OloEngine
         return false;
     }
 
+    PerformanceProfiler* GetGlobalPerformanceProfiler()
+    {
+        if (auto* app = Application::TryGet())
+            return app->GetPerformanceProfiler();
+        return nullptr;
+    }
+
 } // namespace OloEngine

@@ -205,6 +205,31 @@ namespace OloEngine
 
         s_Data.TrailVertexBase.reset();
         s_Data.TrailVertexPtr = nullptr;
+
+        // Release every Ref<> field so the underlying GPU objects are
+        // destroyed while the engine's static subsystems are still alive.
+        // Without this the shaders / VAOs / UBOs survive in `s_Data` until
+        // static-destruction-order tears down `ShaderResourceRegistry`'s
+        // map first, and then `OpenGLShader::~OpenGLShader` triggers a
+        // use-after-free trying to `Unregister(...)` against a destroyed
+        // hash map.
+        s_Data.VAO.Reset();
+        s_Data.QuadVBO.Reset();
+        s_Data.InstanceVBO.Reset();
+        s_Data.ParticleShader.Reset();
+        s_Data.ParticleShaderOIT.Reset();
+        s_Data.CurrentTexture.Reset();
+        s_Data.WhiteTexture.Reset();
+        s_Data.CameraUBO.Reset();
+        s_Data.ParticleParamsUBO.Reset();
+        s_Data.MeshParticleShader.Reset();
+        s_Data.MeshInstanceUBO.Reset();
+        s_Data.TrailVAO.Reset();
+        s_Data.TrailVBO.Reset();
+        s_Data.TrailShader.Reset();
+        s_Data.CurrentTrailTexture.Reset();
+        s_Data.GPUVAO.Reset();
+        s_Data.GPUBillboardShader.Reset();
     }
 
     void ParticleBatchRenderer::BeginBatch(const EditorCamera& camera)

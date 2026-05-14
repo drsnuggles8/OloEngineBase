@@ -34,6 +34,8 @@ namespace OloEngine
     {
         m_HZBShader.Reset();
         m_HZBTexture.Reset();
+        m_ExternalHZBTextureID = 0;
+        m_ExternalMipCount = 0;
         m_HZBWidth = 0;
         m_HZBHeight = 0;
         m_MipCount = 0;
@@ -89,7 +91,7 @@ namespace OloEngine
         // Always recreate — mip count may change when viewport changes
         m_HZBTexture = Texture2D::Create(spec);
 
-        m_MipCount = m_HZBTexture->GetMipLevelCount();
+        m_MipCount = mipCount;
 
         OLO_CORE_INFO("HZBGenerator: Resized to {}x{} ({} mips), viewport {}x{}, UVFactor ({:.3f}, {:.3f})",
                       hzbW, hzbH, m_MipCount, viewportWidth, viewportHeight, m_UVFactor.x, m_UVFactor.y);
@@ -99,19 +101,18 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_HZBShader || !m_HZBShader->IsValid() || !m_HZBTexture || m_MipCount == 0)
+        const u32 activeMipCount = (m_ExternalHZBTextureID != 0 && m_ExternalMipCount > 0) ? m_ExternalMipCount : m_MipCount;
+        if (!m_HZBShader || !m_HZBShader->IsValid() || GetHZBTextureID() == 0 || activeMipCount == 0)
         {
             return;
         }
 
-        u32 hzbTexID = m_HZBTexture->GetRendererID();
-
         m_HZBShader->Bind();
 
         // Process mips in batches of 4
-        for (u32 startMip = 0; startMip < m_MipCount; startMip += MAX_MIP_BATCH_SIZE)
+        for (u32 startMip = 0; startMip < activeMipCount; startMip += MAX_MIP_BATCH_SIZE)
         {
-            DispatchMipBatch(startMip, sceneDepthTextureID);
+            DispatchMipBatch(startMip, activeMipCount, sceneDepthTextureID);
         }
 
         m_HZBShader->Unbind();
@@ -120,13 +121,25 @@ namespace OloEngine
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::TextureFetch | MemoryBarrierFlags::ShaderImageAccess);
     }
 
-    void HZBGenerator::DispatchMipBatch(u32 startMip, u32 sceneDepthTextureID)
+    void HZBGenerator::SetExternalHZBTexture(u32 textureID, u32 mipCount)
     {
-        u32 hzbTexID = m_HZBTexture->GetRendererID();
+        m_ExternalHZBTextureID = textureID;
+        m_ExternalMipCount = mipCount;
+    }
+
+    void HZBGenerator::ClearExternalHZBTexture()
+    {
+        m_ExternalHZBTextureID = 0;
+        m_ExternalMipCount = 0;
+    }
+
+    void HZBGenerator::DispatchMipBatch(u32 startMip, u32 mipCount, u32 sceneDepthTextureID)
+    {
+        u32 hzbTexID = GetHZBTextureID();
         bool isFirstPass = (startMip == 0);
 
         // Bind output image mips (up to 4 per batch)
-        u32 endMip = std::min(startMip + MAX_MIP_BATCH_SIZE, m_MipCount);
+        u32 endMip = std::min(startMip + MAX_MIP_BATCH_SIZE, mipCount);
         for (u32 mip = startMip; mip < endMip; mip++)
         {
             u32 localIdx = mip - startMip;
@@ -150,18 +163,51 @@ namespace OloEngine
             RenderCommand::BindTexture(4, hzbTexID);
         }
 
-        // Compute source and destination sizes
-        u32 parentMip = isFirstPass ? 0 : (startMip - 1);
-        u32 srcW = std::max(1u, m_HZBWidth >> parentMip);
-        u32 srcH = std::max(1u, m_HZBHeight >> parentMip);
+        // Compute source and destination sizes.
+        //
+        // First pass reads from the SCENE DEPTH texture, which is sized to
+        // the viewport (m_ViewportWidth x m_ViewportHeight) — NOT to the
+        // power-of-two HZB. Using `m_HZBWidth >> 0` here would cause the
+        // shader to sample scene depth at UVs in [0, 1] of the *HZB*, which
+        // effectively stretches the viewport-sized depth across the full
+        // HZB. Downstream (GTAO) compensates with u_HZBUVFactor = vw/hzbW
+        // when sampling, so the net effect is that GTAO reads depth at
+        // viewport UVs scaled by a factor of (vw/hzbW)² — phantom geometry
+        // appears at mismatched positions because normals (sampled at the
+        // correct viewport UV) and depth (effectively double-scaled)
+        // disagree about where geometry is. SSAO is unaffected because it
+        // reads scene depth directly without going through the HZB.
+        //
+        // Subsequent passes read from the HZB itself, where mip N really
+        // is `m_HZBWidth >> N`, so the original computation is correct.
+        u32 srcW;
+        u32 srcH;
+        if (isFirstPass)
+        {
+            srcW = std::max(1u, m_ViewportWidth);
+            srcH = std::max(1u, m_ViewportHeight);
+        }
+        else
+        {
+            const u32 parentMip = startMip - 1;
+            srcW = std::max(1u, m_HZBWidth >> parentMip);
+            srcH = std::max(1u, m_HZBHeight >> parentMip);
+        }
         u32 dstW = std::max(1u, m_HZBWidth >> startMip);
         u32 dstH = std::max(1u, m_HZBHeight >> startMip);
 
         // Set uniforms
         if (isFirstPass)
         {
+            // bufferUV must map HZB texel coords -> scene-depth UVs.
+            // bufferUV = (threadId + 0.5) * (1/vw, 1/vh) so that an HZB
+            // texel at threadId in [0, vw) lands on scene-depth pixel
+            // threadId. Threads at threadId >= vw produce bufferUV > 1
+            // and are clamped via u_InputViewportMaxBound to the viewport
+            // edge; the resulting outside-viewport HZB region is never
+            // sampled by GTAO (which uses u_HZBUVFactor = vw/hzbW).
             m_HZBShader->SetFloat2("u_DispatchThreadIdToBufferUV",
-                                   glm::vec2(1.0f / static_cast<f32>(dstW), 1.0f / static_cast<f32>(dstH)));
+                                   glm::vec2(1.0f / static_cast<f32>(srcW), 1.0f / static_cast<f32>(srcH)));
             m_HZBShader->SetFloat2("u_InputViewportMaxBound",
                                    glm::vec2((static_cast<f32>(srcW) - 0.5f) / static_cast<f32>(srcW),
                                              (static_cast<f32>(srcH) - 0.5f) / static_cast<f32>(srcH)));
@@ -186,11 +232,13 @@ namespace OloEngine
 
     bool HZBGenerator::IsValid() const
     {
-        return m_HZBShader && m_HZBShader->IsValid() && m_HZBTexture && m_MipCount > 0;
+        return m_HZBShader && m_HZBShader->IsValid() && GetHZBTextureID() != 0 && m_MipCount > 0;
     }
 
     u32 HZBGenerator::GetHZBTextureID() const
     {
+        if (m_ExternalHZBTextureID != 0)
+            return m_ExternalHZBTextureID;
         return m_HZBTexture ? m_HZBTexture->GetRendererID() : 0;
     }
 

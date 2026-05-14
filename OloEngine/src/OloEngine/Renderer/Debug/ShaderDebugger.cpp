@@ -234,10 +234,14 @@ namespace OloEngine
             OLO_CORE_TRACE("Shader compilation ended: {0} (ID: {1}), Success: {2}, Time: {3:.2f}ms",
                            info.m_Name, rendererID, success, compileTimeMs);
         }
-        else
-        {
-            OLO_CORE_WARN("ShaderDebugger: OnCompilationEnd called for unregistered shader ID {0}", rendererID);
-        }
+        // No else-branch: OnCompilationEnd is regularly called for the very
+        // first compile of a shader *before* the OpenGLShader constructor
+        // gets a chance to call RegisterShader(rendererID, name, path). The
+        // earlier info log above already records the event; the per-shader
+        // ShaderInfo (instruction count, file path, timing history) starts
+        // accumulating once RegisterShader runs. The previous WARN here
+        // surfaced this expected ordering as a "bug" for every shader at
+        // startup — pure noise.
     }
 
     void ShaderDebugger::OnReloadStart(u32 rendererID)

@@ -1,0 +1,187 @@
+#include "OloEnginePCH.h"
+#include "OloEngine/Renderer/Passes/PrecipitationRenderPass.h"
+
+#include "OloEngine/Precipitation/PrecipitationSystem.h"
+#include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
+#include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+
+#include <glad/gl.h>
+
+#include <span>
+
+namespace OloEngine
+{
+    PrecipitationRenderPass::PrecipitationRenderPass()
+    {
+        SetName("PrecipitationPass");
+    }
+
+    void PrecipitationRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+
+        (void)blackboard;
+        [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(
+            builder,
+            this,
+            {
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::TAAColor, ResourceNames::TAAColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::MotionBlurColor, ResourceNames::MotionBlurColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::DOFColor, ResourceNames::DOFColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::BloomColor, ResourceNames::BloomColorTexture),
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::PostProcessColor, ResourceNames::PostProcessColorTexture),
+            });
+
+        if (!m_Enabled)
+            return;
+
+        if (blackboard.Post.PrecipitationColor.IsValid())
+        {
+            constexpr std::string_view precipitationVersionTag = "PrecipitationPass";
+            const auto outputHandle = builder.WriteNewVersion(blackboard.Post.PrecipitationColor, RGWriteUsage::RenderTarget, precipitationVersionTag);
+            if (!outputHandle.IsValid())
+                return;
+
+            SetPrimaryOutputFramebufferHandle(outputHandle);
+            SetPrimaryOutputTextureHandle(
+                builder.CreateFramebufferAttachmentView(std::string(ResourceNames::PrecipitationColorTexture) + "@" +
+                                                            std::string(precipitationVersionTag),
+                                                        outputHandle,
+                                                        0u));
+        }
+    }
+
+    void PrecipitationRenderPass::Init(const FramebufferSpecification& spec)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        m_FramebufferSpec = spec;
+
+        CreateFramebuffer(spec.Width, spec.Height);
+
+        m_PrecipitationShader = Shader::Create("assets/shaders/PostProcess_Precipitation.glsl");
+        m_PrecipitationScreenUBO = UniformBuffer::Create(
+            PrecipitationScreenUBOData::GetSize(), ShaderBindingLayout::UBO_PRECIPITATION_SCREEN);
+
+        OLO_CORE_INFO("PrecipitationRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
+    }
+
+    void PrecipitationRenderPass::CreateFramebuffer(u32 width, u32 height)
+    {
+        if (width == 0 || height == 0)
+        {
+            OLO_CORE_WARN("PrecipitationRenderPass::CreateFramebuffer: Invalid dimensions {}x{}", width, height);
+            m_Target = nullptr;
+            return;
+        }
+
+        m_Target = nullptr;
+    }
+
+    void PrecipitationRenderPass::Execute(RGCommandContext& context)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Sample-only consumer: input framebuffer is intentionally not
+        // resolved here — see ReadFirstValidVersionedInputForPass docs.
+        u32 inputColorTextureID = 0u;
+        if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
+            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
+
+        Ref<Framebuffer> outputFramebuffer;
+        if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
+        {
+            if (auto resolvedOutput = context.ResolveFramebuffer(outputHandle))
+                outputFramebuffer = resolvedOutput;
+        }
+        if (!m_Enabled)
+        {
+            m_Target = nullptr;
+            return;
+        }
+
+        if (inputColorTextureID == 0u || !outputFramebuffer || !m_PrecipitationShader || !m_PrecipitationScreenUBO)
+        {
+            m_Target = nullptr;
+            return;
+        }
+
+        m_Target = outputFramebuffer;
+
+        outputFramebuffer->Bind();
+
+        const auto& outSpec = outputFramebuffer->GetSpecification();
+        context.SetViewport(0, 0, outSpec.Width, outSpec.Height);
+        context.SetDepthTest(false);
+        context.SetDepthMask(false);
+        context.SetBlendState(false);
+        context.SetCulling(false);
+        RenderCommand::DisableStencilTest();
+        RenderCommand::DisableScissorTest();
+        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetColorMask(true, true, true, true);
+
+        constexpr u32 colorAttachment = 0;
+        context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
+
+        context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+        context.Clear();
+
+        m_PrecipitationShader->Bind();
+
+        // Rebind the main precipitation UBO (binding 18) — other passes may
+        // have displaced it between PrecipitationSystem::Update and here.
+        if (const auto precipitationUBO = PrecipitationSystem::GetPrecipitationUBO())
+            precipitationUBO->Bind();
+
+        context.BindTexture(0, inputColorTextureID);
+        m_PrecipitationShader->SetInt("u_Texture", 0);
+
+        {
+            PrecipitationScreenUBOData uboData;
+            uboData.StreakParams = ScreenSpacePrecipitation::GetStreakParams();
+            const auto lensData = ScreenSpacePrecipitation::GetLensImpactGPUData();
+            for (u32 i = 0; i < ScreenSpacePrecipitation::MAX_LENS_IMPACTS; ++i)
+            {
+                uboData.LensImpacts[i].PositionAndSize = lensData[i].PositionAndSize;
+                uboData.LensImpacts[i].TimeParams = lensData[i].TimeParams;
+            }
+            m_PrecipitationScreenUBO->SetData(&uboData, PrecipitationScreenUBOData::GetSize());
+            m_PrecipitationScreenUBO->Bind();
+        }
+
+        const auto va = MeshPrimitives::GetFullscreenTriangle();
+        va->Bind();
+        context.DrawIndexed(va);
+
+        context.SetDepthMask(true);
+        outputFramebuffer->Unbind();
+    }
+
+    void PrecipitationRenderPass::SetupFramebuffer(u32 width, u32 height)
+    {
+        m_FramebufferSpec.Width = width;
+        m_FramebufferSpec.Height = height;
+        CreateFramebuffer(width, height);
+    }
+
+    void PrecipitationRenderPass::ResizeFramebuffer(u32 width, u32 height)
+    {
+        if (width == 0 || height == 0)
+            return;
+        m_FramebufferSpec.Width = width;
+        m_FramebufferSpec.Height = height;
+        CreateFramebuffer(width, height);
+    }
+
+    void PrecipitationRenderPass::OnReset()
+    {
+        m_Target = nullptr;
+    }
+} // namespace OloEngine

@@ -1,7 +1,8 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RGBuilder.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Passes/ParticleRenderPass.h"
 #include "OloEngine/Particle/ParticleBatchRenderer.h"
-#include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Renderer.h"
 
 #include <glad/gl.h>
@@ -13,48 +14,112 @@ namespace OloEngine
         SetName("ParticleRenderPass");
     }
 
+    void ParticleRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+        m_SelectedOITFramebuffer = {};
+
+        if (!m_RenderCallback)
+            return;
+
+        if (m_OITEnabled)
+        {
+            if (blackboard.Scene.SceneColor.IsValid())
+                SetPrimaryInputFramebufferHandle(blackboard.Scene.SceneColor);
+            if (blackboard.OIT.OITBuffer.IsValid())
+                m_SelectedOITFramebuffer = blackboard.OIT.OITBuffer;
+            if (blackboard.OIT.OITDepthAttachment.IsValid())
+            {
+                [[maybe_unused]] const auto oitDepthRead = builder.Read(blackboard.OIT.OITDepthAttachment, RGReadUsage::RenderTargetRead);
+            }
+            // Inter-pass RMW into the OIT accum/revealage targets (cleared
+            // by OITPreparePass, possibly already written by Decal). Read the
+            // prior version for blending, then advertise a renamed output via
+            // WriteNewVersion so the validator does not see a same-pass loop.
+            constexpr std::string_view particleOITVersionTag = "ParticlePass";
+            if (blackboard.OIT.OITAccum.IsValid())
+            {
+                [[maybe_unused]] const auto oitAccumRead = builder.Read(blackboard.OIT.OITAccum, RGReadUsage::RenderTargetRead);
+                [[maybe_unused]] const auto oitAccumNew =
+                    builder.WriteNewVersion(blackboard.OIT.OITAccum, RGWriteUsage::RenderTarget, particleOITVersionTag);
+            }
+            if (blackboard.OIT.OITRevealage.IsValid())
+            {
+                [[maybe_unused]] const auto oitRevealageRead = builder.Read(blackboard.OIT.OITRevealage, RGReadUsage::RenderTargetRead);
+                [[maybe_unused]] const auto oitRevealageNew =
+                    builder.WriteNewVersion(blackboard.OIT.OITRevealage, RGWriteUsage::RenderTarget, particleOITVersionTag);
+            }
+
+            // Pin OIT writer-chain ordering: OITPreparePass clears the targets,
+            // then contributors RMW into them in a chosen order. WB-OIT is
+            // mathematically commutative across contributors, so the chain just
+            // disambiguates the WAW order (which is registration-order-sensitive
+            // without explicit edges). Particle depends on OITPrepare (declared
+            // explicitly so the no-Decal case is still pinned) and on the
+            // previous OITAccum writer (the earlier contributor, e.g. Decal in
+            // OIT mode) discovered via the graph's last-writer tracker.
+            if (blackboard.OIT.OITAccum.IsValid() || blackboard.OIT.OITRevealage.IsValid())
+                builder.DependsOnPass("OITPreparePass");
+            builder.DependsOnPreviousWriter(ResourceNames::OITAccum);
+        }
+        else if (blackboard.Scene.SceneColor.IsValid())
+        {
+            // Inter-pass RMW: read the prior SceneColor version, then
+            // advertise a renamed output via WriteNewVersion so the
+            // validator does not see a same-pass feedback loop.
+            SetPrimaryInputFramebufferHandle(blackboard.Scene.SceneColor);
+            [[maybe_unused]] const auto sceneColorRead = builder.Read(blackboard.Scene.SceneColor, RGReadUsage::RenderTargetRead);
+            constexpr std::string_view particleSceneColorVersionTag = "ParticlePass";
+            [[maybe_unused]] const auto sceneColorNew =
+                builder.WriteNewVersion(blackboard.Scene.SceneColor, RGWriteUsage::RenderTarget, particleSceneColorVersionTag);
+            builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
+        }
+    }
+
     void ParticleRenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
 
         m_FramebufferSpec = spec;
-        // No own framebuffer — this pass renders into the ScenePass target (classic)
-        // or into the OITBuffer (WB-OIT path).
+        // No own framebuffer — this pass renders into the ScenePass target
+        // (classic) or into the graph-owned OIT framebuffer (WB-OIT path).
     }
 
-    void ParticleRenderPass::Execute()
+    void ParticleRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Resolve the setup-selected scene framebuffer instead of replaying
+        // a blackboard lookup ladder at execute time.
+        if (const auto sceneHandle = GetPrimaryInputFramebufferHandle(); sceneHandle.IsValid())
+        {
+            if (auto resolvedSceneFB = context.ResolveFramebuffer(sceneHandle))
+                m_SceneFramebuffer = resolvedSceneFB;
+        }
 
         if (!m_RenderCallback || !m_SceneFramebuffer)
         {
             return;
         }
 
-        // Detector-only guard: captures GL state at entry and on destruction
-        // diffs against exit state, logging any field this pass failed to
-        // restore. The explicit restore calls below still perform the actual
-        // restoration (the current GLStateGuard only detects leaks, it does
-        // not roll back).
-        GLStateGuard guard("ParticleRenderPass");
+        Ref<Framebuffer> oitFramebuffer;
+        if (m_OITEnabled && m_SelectedOITFramebuffer.IsValid())
+            oitFramebuffer = context.ResolveFramebuffer(m_SelectedOITFramebuffer);
 
-        const bool useOIT = m_OITEnabled && m_OITBuffer && m_OITBuffer->GetFramebuffer();
+        const bool useOIT = m_OITEnabled && oitFramebuffer;
 
         if (useOIT)
         {
             // Weighted-blended OIT path. Transparent particles
-            // accumulate into OITBuffer and OITResolveRenderPass composites
+            // accumulate into the graph-owned OIT target and OITResolveRenderPass composites
             // the result over the scene FB.
-            Ref<Framebuffer> oitFB = m_OITBuffer->GetFramebuffer();
-
-            // Fresh per-frame accumulation state.
-            m_OITBuffer->ClearForFrame(m_SceneFramebuffer);
+            Ref<Framebuffer> oitFB = oitFramebuffer;
 
             oitFB->Bind();
 
-            RenderCommand::SetDepthTest(true);
+            context.SetDepthTest(true);
             RenderCommand::SetDepthFunc(GL_LEQUAL);
-            RenderCommand::SetDepthMask(false);
+            context.SetDepthMask(false);
 
             // Per-attachment blend state: both enabled, different factors.
             RenderCommand::SetBlendStateForAttachment(0, true);                           // accum
@@ -68,19 +133,15 @@ namespace OloEngine
 
             ParticleBatchRenderer::SetOITMode(false);
 
-            // Signal OITResolvePass that it has fresh accumulated content.
-            if (m_AccumMarker)
-                m_AccumMarker();
-
             // Restore global blend state so subsequent passes don't inherit
             // the per-attachment WB-OIT factors.
             RenderCommand::SetBlendStateForAttachment(0, false);
             RenderCommand::SetBlendStateForAttachment(1, false);
             RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            RenderCommand::SetBlendState(false);
+            context.SetBlendState(false);
 
             RenderCommand::SetDepthFunc(GL_LESS);
-            RenderCommand::SetDepthMask(true);
+            context.SetDepthMask(true);
 
             oitFB->Unbind();
         }
@@ -89,9 +150,9 @@ namespace OloEngine
             // Classic alpha-blended path.
             m_SceneFramebuffer->Bind();
 
-            RenderCommand::SetDepthTest(true);
+            context.SetDepthTest(true);
             RenderCommand::SetDepthFunc(GL_LEQUAL);
-            RenderCommand::SetDepthMask(false);
+            context.SetDepthMask(false);
 
             // Enable blending only on draw buffer 0 (color).
             // Draw buffer 1 is RED_INTEGER (entity ID); Draw buffer 2 is view-space normals.
@@ -103,9 +164,9 @@ namespace OloEngine
             m_RenderCallback();
 
             RenderCommand::SetDepthFunc(GL_LESS);
-            RenderCommand::SetDepthMask(true);
+            context.SetDepthMask(true);
             RenderCommand::SetBlendStateForAttachment(0, false);
-            RenderCommand::SetBlendState(false);
+            context.SetBlendState(false);
 
             m_SceneFramebuffer->Unbind();
         }
@@ -118,11 +179,6 @@ namespace OloEngine
         // Always report the scene FB as our target: OIT composite lands
         // back into the scene FB via OITResolvePass.
         return m_SceneFramebuffer;
-    }
-
-    void ParticleRenderPass::SetSceneFramebuffer(const Ref<Framebuffer>& fb)
-    {
-        m_SceneFramebuffer = fb;
     }
 
     void ParticleRenderPass::SetRenderCallback(RenderCallback callback)
@@ -144,6 +200,7 @@ namespace OloEngine
 
     void ParticleRenderPass::OnReset()
     {
+        m_SelectedOITFramebuffer = {};
         // No own framebuffer to reset
     }
 } // namespace OloEngine

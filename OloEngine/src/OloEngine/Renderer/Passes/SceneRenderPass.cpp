@@ -1,4 +1,6 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RGBuilder.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -22,6 +24,72 @@ namespace OloEngine
         OLO_CORE_INFO("Creating SceneRenderPass.");
     }
 
+    void SceneRenderPass::Setup(RGBuilder& builder, FrameBlackboard& board)
+    {
+        RenderGraphNode::Setup(builder, board);
+        m_SelectedSceneDepthExport = {};
+        m_SelectedSceneNormalsExport = {};
+        m_SelectedVelocityExport = {};
+
+        if (board.Scene.SceneColor.IsValid())
+            SetPrimaryInputFramebufferHandle(board.Scene.SceneColor);
+
+        builder.DependsOnPass("ShadowPass");
+
+        if (board.Shadows.ShadowMapCSM.IsValid())
+        {
+            [[maybe_unused]] const auto shadowCSMRead = builder.Read(board.Shadows.ShadowMapCSM, RGReadUsage::ShaderSample);
+        }
+        if (board.Shadows.ShadowMapSpot.IsValid())
+        {
+            [[maybe_unused]] const auto shadowSpotRead = builder.Read(board.Shadows.ShadowMapSpot, RGReadUsage::ShaderSample);
+        }
+
+        for (const auto& pointHandle : board.Shadows.ShadowMapPoint)
+        {
+            if (pointHandle.IsValid())
+            {
+                [[maybe_unused]] const auto pointRead = builder.Read(pointHandle, RGReadUsage::ShaderSample);
+            }
+        }
+
+        if (board.IBL.IrradianceMap.IsValid())
+        {
+            [[maybe_unused]] const auto irradianceRead = builder.Read(board.IBL.IrradianceMap, RGReadUsage::ShaderSample);
+        }
+        if (board.IBL.PrefilterMap.IsValid())
+        {
+            [[maybe_unused]] const auto prefilterRead = builder.Read(board.IBL.PrefilterMap, RGReadUsage::ShaderSample);
+        }
+        if (board.IBL.BrdfLut.IsValid())
+        {
+            [[maybe_unused]] const auto brdfRead = builder.Read(board.IBL.BrdfLut, RGReadUsage::ShaderSample);
+        }
+
+        if (board.Scene.SceneDepth.IsValid())
+        {
+            m_SelectedSceneDepthExport = board.Scene.SceneDepth;
+            builder.Write(board.Scene.SceneDepth, RGWriteUsage::TransferDest);
+        }
+        if (board.GBuffer.Velocity.IsValid())
+        {
+            m_SelectedVelocityExport = board.GBuffer.Velocity;
+            builder.Write(board.GBuffer.Velocity, RGWriteUsage::TransferDest);
+        }
+
+        const auto& rendererSettings = Renderer3D::GetRendererSettings();
+        if (rendererSettings.Path != RenderingPath::Deferred)
+        {
+            if (board.Scene.SceneNormals.IsValid())
+            {
+                m_SelectedSceneNormalsExport = board.Scene.SceneNormals;
+                builder.Write(board.Scene.SceneNormals, RGWriteUsage::TransferDest);
+            }
+            if (board.Scene.SceneColor.IsValid())
+                builder.Write(board.Scene.SceneColor, RGWriteUsage::RenderTarget);
+        }
+    }
+
     void SceneRenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
@@ -40,18 +108,6 @@ namespace OloEngine
 
         m_Target = Framebuffer::Create(m_FramebufferSpec);
 
-        // Resource-aware RDG: scene reads the shadow map + IBL maps, writes
-        // the HDR scene color + shared depth. Subsequent passes (foliage,
-        // water, decal, particle, SSS) all share the same framebuffer, so
-        // they continue writing SceneColor / SceneDepth — those passes can
-        // opt in via DeclareRead/Write as they are migrated.
-        DeclareRead(ResourceNames::ShadowMapCSM, ResourceHandle::Kind::Texture2DArray);
-        DeclareRead(ResourceNames::IrradianceMap, ResourceHandle::Kind::TextureCube);
-        DeclareRead(ResourceNames::PrefilterMap, ResourceHandle::Kind::TextureCube);
-        DeclareRead(ResourceNames::BrdfLut, ResourceHandle::Kind::Texture2D);
-        DeclareWrite(ResourceNames::SceneColor, ResourceHandle::Kind::Framebuffer);
-        DeclareWrite(ResourceNames::SceneDepth, ResourceHandle::Kind::Framebuffer);
-
         // Lazy-loaded — only materialised when the user actually selects the
         // RMA debug channel for the first time (keeps Forward startup cheap).
         m_DebugRMAShader = nullptr;
@@ -60,9 +116,15 @@ namespace OloEngine
                       m_FramebufferSpec.Width, m_FramebufferSpec.Height);
     }
 
-    void SceneRenderPass::Execute()
+    void SceneRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
+
+        if (const auto sceneHandle = GetPrimaryInputFramebufferHandle(); sceneHandle.IsValid())
+        {
+            if (auto resolvedSceneFB = context.ResolveFramebuffer(sceneHandle))
+                m_Target = resolvedSceneFB;
+        }
 
         if (!m_Target)
         {
@@ -77,8 +139,7 @@ namespace OloEngine
         const bool deferredActive = (rendererSettings.Path == RenderingPath::Deferred);
         if (deferredActive)
         {
-            EnsureGBuffer(m_FramebufferSpec.Width, m_FramebufferSpec.Height,
-                          rendererSettings.Deferred.MSAASampleCount);
+            PrepareDeferredResources(rendererSettings.Deferred.MSAASampleCount);
         }
 
         Ref<Framebuffer> renderFB = deferredActive && m_GBuffer
@@ -160,9 +221,9 @@ namespace OloEngine
         if (capturing)
             captureManager.OnPostBatch(m_CommandBucket);
 
-        // Re-bind scene camera & light UBOs that earlier passes (e.g. ShadowPass)
+        // Re-bind shared scene resources that earlier passes (e.g. ShadowPass)
         // may have overwritten at the same binding points.
-        Renderer3D::BindSceneUBOs();
+        CommandDispatch::BindSceneResources();
 
         // Depth prepass: render all geometry depth-only first, then re-execute
         // with GL_EQUAL and no depth writes for the color pass. This eliminates
@@ -308,13 +369,59 @@ namespace OloEngine
         // per-sample lighting. Documented as a known limitation of the
         // debug overlay; non-debug paths are unaffected.
 
-        // Per-sample path: if debug overlay is active keep the pre-extraction
-        // resolve so the debug blit samples resolved single-sample colour
-        // (even though it will be pre-decal — see comment above).
-        if (perSampleLighting && debugNeedsColour)
+        // Per-sample path: force a color resolve whenever a downstream pass
+        // samples resolved G-Buffer color attachments (debug overlay, SSAO, GTAO).
+        // This keeps the resolved single-sample G-Buffer attachments current
+        // for AO/export consumers while preserving the multisample
+        // attachments for per-sample deferred lighting.
+        const auto& postProcessSettings = Renderer3D::GetPostProcessSettings();
+        const bool aoNeedsResolvedNormals =
+            (postProcessSettings.ActiveAOTechnique == AOTechnique::SSAO && postProcessSettings.SSAOEnabled) ||
+            (postProcessSettings.ActiveAOTechnique == AOTechnique::GTAO && postProcessSettings.GTAOEnabled);
+        const bool postNeedsResolvedVelocity = postProcessSettings.MotionBlurEnabled || postProcessSettings.TAAEnabled;
+        if (perSampleLighting && (debugNeedsColour || aoNeedsResolvedNormals || postNeedsResolvedVelocity))
         {
             m_GBuffer->Resolve();
         }
+
+        // Publish scene-derived textures through graph-owned handles. The
+        // scene pass still renders into the legacy scene/G-Buffer
+        // attachments, but downstream consumers now sample the exported graph
+        // textures instead of importing those attachments directly.
+        const auto copySceneExport = [&](const RGTextureHandle handle, const u32 sourceTextureID)
+        {
+            if (!handle.IsValid() || sourceTextureID == 0u ||
+                m_FramebufferSpec.Width == 0u || m_FramebufferSpec.Height == 0u)
+            {
+                return;
+            }
+
+            const u32 exportedTextureID = context.ResolveTexture(handle);
+            if (exportedTextureID == 0u || exportedTextureID == sourceTextureID)
+                return;
+
+            glCopyImageSubData(sourceTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
+                               exportedTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
+                               static_cast<GLsizei>(m_FramebufferSpec.Width),
+                               static_cast<GLsizei>(m_FramebufferSpec.Height),
+                               1);
+        };
+
+        const u32 sourceDepthID = deferredActive && m_GBuffer
+                                      ? m_GBuffer->GetDepthAttachmentID()
+                                      : m_Target->GetDepthAttachmentRendererID();
+        copySceneExport(m_SelectedSceneDepthExport, sourceDepthID);
+
+        if (!deferredActive)
+        {
+            const u32 sourceNormalsID = m_Target->GetColorAttachmentRendererID(2);
+            copySceneExport(m_SelectedSceneNormalsExport, sourceNormalsID);
+        }
+
+        const u32 sourceVelocityID = deferredActive && m_GBuffer
+                                         ? m_GBuffer->GetColorAttachmentID(GBuffer::Velocity)
+                                         : m_Target->GetColorAttachmentRendererID(3);
+        copySceneExport(m_SelectedVelocityExport, sourceVelocityID);
 
         // Deferred debug visualisation: until DeferredLightingPass lands in
         // Phase 3, copy the selected G-Buffer channel into the forward scene
@@ -330,11 +437,6 @@ namespace OloEngine
             // DebugChannel=5 capability for the forward paths.
             BlitForwardVelocityDebug();
         }
-    }
-
-    Ref<Framebuffer> SceneRenderPass::GetTarget() const
-    {
-        return m_Target;
     }
 
     void SceneRenderPass::SetupFramebuffer(u32 width, u32 height)
@@ -385,6 +487,27 @@ namespace OloEngine
             m_GBuffer->Resize(width, height);
     }
 
+    void SceneRenderPass::PrepareDeferredResources(u32 sampleCount)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_Target)
+        {
+            OLO_CORE_WARN("SceneRenderPass::PrepareDeferredResources: No scene framebuffer available");
+            return;
+        }
+
+        if (m_FramebufferSpec.Width == 0 || m_FramebufferSpec.Height == 0)
+        {
+            OLO_CORE_WARN("SceneRenderPass::PrepareDeferredResources: Invalid dimensions {}x{}",
+                          m_FramebufferSpec.Width,
+                          m_FramebufferSpec.Height);
+            return;
+        }
+
+        EnsureGBuffer(m_FramebufferSpec.Width, m_FramebufferSpec.Height, sampleCount);
+    }
+
     void SceneRenderPass::EnsureGBuffer(u32 width, u32 height, u32 sampleCount)
     {
         if (sampleCount == 0)
@@ -419,14 +542,13 @@ namespace OloEngine
         if (channel == 0)
             return;
 
-        // RAII guard: captures GL state at entry and restores the core
-        // subset (depth / blend / stencil / cull / polygon mode / scissor /
-        // viewport / FBO bindings / active program) on destruction. The
-        // explicit restore calls that previously lived at the end of each
-        // branch are now redundant for the covered subset. Per-attachment
-        // blend state and per-slot texture bindings are still NOT
-        // automatically restored — callers managing those must do so
-        // explicitly (none of the debug blit paths touch them).
+        // RAII guard: captures GL state on entry and restores the core subset
+        // (depth / blend / stencil / cull / polygon / scissor / viewport /
+        // FBO bindings / active program) on destruction. The channel==3
+        // branch below binds m_DebugRMAShader + the fullscreen-tri VAO and
+        // mutates the read-buffer; those bindings are explicitly cleared
+        // before return so this guard stays clean rather than acting as a
+        // silenced "every binding is a leak" detector.
         GLStateGuard guard("SceneRenderPass::BlitGBufferDebug", GLStateGuard::Policy::Restore);
 
         // Build the target FB's full multi-attachment draw-buffer list from
@@ -496,6 +618,12 @@ namespace OloEngine
                 0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
                 0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
                 GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+
+            // Unbind the blit shader + VAO so the RAII guard sees us leave
+            // shader/program/VAO state at zero, matching entry expectations
+            // for downstream passes that rebind their own.
+            ::glUseProgram(0);
+            ::glBindVertexArray(0);
             return;
         }
 
@@ -551,6 +679,11 @@ namespace OloEngine
             0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
             0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
             GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+
+        // Reset the G-Buffer's read buffer to attachment 0 so any downstream
+        // read on that FB picks up a deterministic default instead of the
+        // last debug channel we selected.
+        glNamedFramebufferReadBuffer(srcFB, GL_COLOR_ATTACHMENT0);
     }
 
     void SceneRenderPass::BlitForwardVelocityDebug()
@@ -568,11 +701,9 @@ namespace OloEngine
             attachments[3].TextureFormat != FramebufferTextureFormat::RG16F)
             return;
 
-        // Detector-only GL state guard.
-        // RAII guard as above — restores core state on return so the
-        // manual restore calls at the end of this helper only need to
-        // cover state outside the ApplyCore() subset (e.g. per-attachment
-        // blend).
+        // RAII guard — pure DSA blit, no shader/VAO mutations. Only the
+        // read-buffer selection drifts, and it's restored at the end of the
+        // function so the guard exits clean.
         GLStateGuard guard("SceneRenderPass::BlitForwardVelocityDebug", GLStateGuard::Policy::Restore);
 
         const u32 fb = m_Target->GetRendererID();
@@ -608,11 +739,18 @@ namespace OloEngine
         // Restore the scene FB's full multi-attachment draw-buffer list for
         // downstream passes (post-process, UI composite); see comment above.
         glNamedFramebufferDrawBuffers(fb, static_cast<GLsizei>(n), prevDrawBufs.data());
+
+        // Reset the read buffer selection so subsequent reads on this FB
+        // see the default (attachment 0) rather than the velocity slot.
+        glNamedFramebufferReadBuffer(fb, GL_COLOR_ATTACHMENT0);
     }
 
     void SceneRenderPass::OnReset()
     {
         OLO_PROFILE_FUNCTION();
+        m_SelectedSceneDepthExport = {};
+        m_SelectedSceneNormalsExport = {};
+        m_SelectedVelocityExport = {};
 
         // Recreate the framebuffer with current specs
         if (m_FramebufferSpec.Width > 0 && m_FramebufferSpec.Height > 0)

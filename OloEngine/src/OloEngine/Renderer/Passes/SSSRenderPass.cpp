@@ -1,8 +1,15 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
-#include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+
+#include <glad/gl.h>
+
+#include <span>
 
 namespace OloEngine
 {
@@ -11,13 +18,45 @@ namespace OloEngine
         SetName("SSSPass");
     }
 
+    void SSSRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
+    {
+        RenderGraphNode::Setup(builder, blackboard);
+        m_SelectedSceneDepthTexture = {};
+
+        [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidFramebufferTextureInputForPass(
+            builder,
+            this,
+            RenderPipelineBuilderInternal::MakeFramebufferTextureInput(blackboard.Scene.SceneColor, blackboard.Scene.SceneColorTexture));
+
+        if (!m_Settings.Enabled || !m_Settings.SSSBlurEnabled || !blackboard.Post.SSSColor.IsValid())
+            return;
+
+        if (blackboard.Scene.SceneDepthAttachment.IsValid())
+        {
+            m_SelectedSceneDepthTexture = blackboard.Scene.SceneDepthAttachment;
+            [[maybe_unused]] const auto depthRead = builder.Read(blackboard.Scene.SceneDepthAttachment, RGReadUsage::ShaderSample);
+        }
+
+        constexpr std::string_view sssVersionTag = "SSSPass";
+        const auto outputHandle = builder.WriteNewVersion(blackboard.Post.SSSColor, RGWriteUsage::RenderTarget, sssVersionTag);
+        if (!outputHandle.IsValid())
+            return;
+
+        SetPrimaryOutputFramebufferHandle(outputHandle);
+        SetPrimaryOutputTextureHandle(
+            builder.CreateFramebufferAttachmentView(std::string(ResourceNames::SSSColorTexture) + "@" +
+                                                        std::string(sssVersionTag),
+                                                    outputHandle,
+                                                    0u));
+    }
+
     void SSSRenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
 
         m_FramebufferSpec = spec;
 
-        // Create own output framebuffer (RGBA16F, no depth — fullscreen effect)
+        // Track framebuffer metadata for the graph-owned current-frame output.
         CreateOutputFramebuffer(spec.Width, spec.Height);
 
         // Load SSS blur shader
@@ -26,57 +65,98 @@ namespace OloEngine
         OLO_CORE_INFO("SSSRenderPass: Initialized with {}x{} framebuffer", spec.Width, spec.Height);
     }
 
-    void SSSRenderPass::Execute()
+    void SSSRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Only run when snow is enabled AND SSS blur is explicitly turned on.
-        // When disabled, GetTarget() returns m_InputFramebuffer (passthrough),
-        // so downstream passes read the unmodified scene color.
-        if (!m_Settings.Enabled || !m_Settings.SSSBlurEnabled ||
-            !m_InputFramebuffer || !m_SSSBlurShader)
+        // Sample-only consumer: input framebuffer is intentionally not
+        // resolved here — only the input texture is sampled, and the pass
+        // binds its own graph-owned output framebuffer.
+        Ref<Framebuffer> outputFramebuffer;
+        u32 inputColorTextureID = 0u;
+        u32 depthID = 0u;
+        if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
+            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
+
+        if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
         {
+            if (auto resolvedOutput = context.ResolveFramebuffer(outputHandle))
+                outputFramebuffer = resolvedOutput;
+        }
+
+        if (m_SelectedSceneDepthTexture.IsValid())
+            depthID = context.ResolveTexture(m_SelectedSceneDepthTexture);
+
+        if (!m_Settings.Enabled || !m_Settings.SSSBlurEnabled)
+        {
+            m_Target = nullptr;
             return;
         }
 
-        // SSS UBO is already uploaded by Renderer3D::EndScene each frame.
+        if (inputColorTextureID == 0u || !outputFramebuffer || depthID == 0u)
+        {
+            m_Target = nullptr;
+            return;
+        }
 
-        m_Target->Bind();
+        if (!IsReadyForExecution())
+        {
+            m_Target = nullptr;
+            return;
+        }
 
-        const auto& targetSpec = m_Target->GetSpecification();
-        RenderCommand::SetViewport(0, 0, targetSpec.Width, targetSpec.Height);
-        RenderCommand::SetDepthTest(false);
-        RenderCommand::SetBlendState(false);
+        m_Target = outputFramebuffer;
+
+        const auto& targetSpec = outputFramebuffer->GetSpecification();
+        constexpr u32 colorAttachment = 0;
+
+        // SSS UBO data is uploaded by Renderer3D::EndScene, but SetData()
+        // doesn't refresh the indexed binding — other passes (IBL precompute,
+        // Bloom mip updates) may have displaced binding 14 between EndScene
+        // and this Execute. Rebind here.
+        if (m_SSSUBO)
+            m_SSSUBO->Bind();
+
+        outputFramebuffer->Bind();
+
+        context.SetViewport(0, 0, targetSpec.Width, targetSpec.Height);
+        context.SetDepthTest(false);
+        context.SetDepthMask(false);
+        context.SetBlendState(false);
+        RenderCommand::DisableStencilTest();
+        RenderCommand::DisableCulling();
+        RenderCommand::DisableScissorTest();
+        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetColorMask(true, true, true, true);
+        context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
 
         m_SSSBlurShader->Bind();
 
-        // Bind input scene color as texture — no read-write hazard since we
-        // read from m_InputFramebuffer and write to m_Target.
-        u32 colorID = m_InputFramebuffer->GetColorAttachmentRendererID(0);
-        RenderCommand::BindTexture(0, colorID);
+        // Bind input scene color as texture — no read-write hazard since the
+        // input is sampled and we write to the graph-owned SSSColor target.
+        context.BindTexture(0, inputColorTextureID);
 
         // Bind scene depth for bilateral filtering
-        u32 depthID = m_InputFramebuffer->GetDepthAttachmentRendererID();
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
 
-        DrawFullscreenTriangle();
+        DrawFullscreenTriangle(context);
 
-        m_Target->Unbind();
+        context.SetDepthMask(true);
+        outputFramebuffer->Unbind();
     }
 
-    void SSSRenderPass::DrawFullscreenTriangle()
+    void SSSRenderPass::DrawFullscreenTriangle(RGCommandContext& context)
     {
-        auto va = MeshPrimitives::GetFullscreenTriangle();
+        const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
-        RenderCommand::DrawIndexed(va);
+        context.DrawIndexed(va);
     }
 
     Ref<Framebuffer> SSSRenderPass::GetTarget() const
     {
-        // Passthrough when SSS is disabled — downstream reads the input directly
         if (!m_Settings.Enabled || !m_Settings.SSSBlurEnabled)
         {
-            return m_InputFramebuffer;
+            return nullptr;
         }
         return m_Target;
     }
@@ -102,32 +182,23 @@ namespace OloEngine
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
 
-        if (m_Target)
-        {
-            m_Target->Resize(width, height);
-        }
+        CreateOutputFramebuffer(width, height);
     }
 
     void SSSRenderPass::OnReset()
     {
-        // Framebuffer managed by Ref<> — nothing to manually clean up
+        m_Target = nullptr;
+        m_SelectedSceneDepthTexture = {};
     }
 
     void SSSRenderPass::CreateOutputFramebuffer(u32 width, u32 height)
     {
         if (width == 0 || height == 0)
         {
+            m_Target = nullptr;
             return;
         }
 
-        FramebufferSpecification spec;
-        spec.Width = width;
-        spec.Height = height;
-        spec.Samples = 1;
-        spec.Attachments = {
-            FramebufferTextureFormat::RGBA16F
-        };
-
-        m_Target = Framebuffer::Create(spec);
+        m_Target = nullptr;
     }
 } // namespace OloEngine

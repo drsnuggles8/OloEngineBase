@@ -1,24 +1,158 @@
 #include "OloEnginePCH.h"
 #include "RendererSettingsPanel.h"
+#include "SettingsChangeLog.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/QualityTiering.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 
 #include <imgui.h>
 
+#include <sstream>
+#include <string>
+#include <vector>
+
 namespace OloEngine
 {
+    namespace
+    {
+        const char* QualityPresetName(const QualityPreset preset)
+        {
+            switch (preset)
+            {
+                case QualityPreset::Low:
+                    return "Low";
+                case QualityPreset::Medium:
+                    return "Medium";
+                case QualityPreset::High:
+                    return "High";
+                case QualityPreset::Ultra:
+                    return "Ultra";
+                case QualityPreset::Custom:
+                    return "Custom";
+                default:
+                    return "Unknown";
+            }
+        }
+
+        const char* AOTechniqueName(const AOTechnique technique)
+        {
+            switch (technique)
+            {
+                case AOTechnique::None:
+                    return "None";
+                case AOTechnique::SSAO:
+                    return "SSAO";
+                case AOTechnique::GTAO:
+                    return "GTAO";
+                default:
+                    return "Unknown";
+            }
+        }
+
+        const char* RenderingPathName(const RenderingPath path)
+        {
+            switch (path)
+            {
+                case RenderingPath::Forward:
+                    return "Forward";
+                case RenderingPath::ForwardPlus:
+                    return "Forward+";
+                case RenderingPath::Deferred:
+                    return "Deferred";
+                default:
+                    return "Unknown";
+            }
+        }
+
+        // Names mirror the combo entries in DrawRenderingPathSection so the
+        // log diff matches what the user clicked. Keep in sync if channels
+        // are added.
+        const char* DeferredDebugChannelName(u32 channel)
+        {
+            switch (channel)
+            {
+                case 0:
+                    return "Off (lit)";
+                case 1:
+                    return "Albedo";
+                case 2:
+                    return "Normal";
+                case 3:
+                    return "Roughness/Metallic/AO";
+                case 4:
+                    return "Emissive";
+                case 5:
+                    return "Velocity";
+                default:
+                    return "Unknown";
+            }
+        }
+
+        void LogRendererSettingsChanges(const RendererSettings& before, const RendererSettings& after)
+        {
+            using SettingsChangeLog::AppendChange;
+
+            std::vector<std::string> changes;
+            changes.reserve(24);
+
+            if (before.Path != after.Path)
+            {
+                std::ostringstream oss;
+                oss << "Path: " << RenderingPathName(before.Path) << " -> " << RenderingPathName(after.Path);
+                changes.emplace_back(oss.str());
+            }
+
+            AppendChange(changes, "FrustumCulling", before.FrustumCullingEnabled, after.FrustumCullingEnabled);
+            AppendChange(changes, "OcclusionCulling", before.OcclusionCullingEnabled, after.OcclusionCullingEnabled);
+            AppendChange(changes, "DepthPrepass", before.DepthPrepassEnabled, after.DepthPrepassEnabled);
+
+            AppendChange(changes, "ForwardPlusAutoSwitch", before.ForwardPlusAutoSwitch, after.ForwardPlusAutoSwitch);
+            AppendChange(changes, "ForwardPlusLightThreshold", before.ForwardPlusLightThreshold, after.ForwardPlusLightThreshold);
+            AppendChange(changes, "ForwardPlusLightThresholdDown", before.ForwardPlusLightThresholdDown, after.ForwardPlusLightThresholdDown);
+            AppendChange(changes, "ForwardPlusTileSize", before.ForwardPlusTileSize, after.ForwardPlusTileSize);
+            AppendChange(changes, "ForwardPlusDebugHeatmap", before.ForwardPlusDebugHeatmap, after.ForwardPlusDebugHeatmap);
+
+            AppendChange(changes, "Deferred.MSAASampleCount", before.Deferred.MSAASampleCount, after.Deferred.MSAASampleCount);
+            AppendChange(changes, "Deferred.PerSampleLighting", before.Deferred.PerSampleLighting, after.Deferred.PerSampleLighting);
+            AppendChange(changes, "OITEnabled", before.OITEnabled, after.OITEnabled);
+            AppendChange(changes, "Deferred.GBufferDecalsEnabled", before.Deferred.GBufferDecalsEnabled, after.Deferred.GBufferDecalsEnabled);
+            AppendChange(changes, "Deferred.EnableLightProbes", before.Deferred.EnableLightProbes, after.Deferred.EnableLightProbes);
+            if (before.Deferred.DebugChannel != after.Deferred.DebugChannel)
+            {
+                std::ostringstream oss;
+                oss << "Deferred.DebugChannel: " << DeferredDebugChannelName(before.Deferred.DebugChannel)
+                    << " -> " << DeferredDebugChannelName(after.Deferred.DebugChannel);
+                changes.emplace_back(oss.str());
+            }
+
+            AppendChange(changes, "WireframeOverlay", before.WireframeOverlay, after.WireframeOverlay);
+            AppendChange(changes, "ShowGrid", before.ShowGrid, after.ShowGrid);
+            AppendChange(changes, "ShowPhysicsColliders", before.ShowPhysicsColliders, after.ShowPhysicsColliders);
+            AppendChange(changes, "ShowLightGizmos", before.ShowLightGizmos, after.ShowLightGizmos);
+            AppendChange(changes, "DebugVelocityOverlayForward", before.DebugVelocityOverlayForward, after.DebugVelocityOverlayForward);
+
+            SettingsChangeLog::EmitLog("RendererSettingsPanel", changes);
+        }
+    } // namespace
+
     void RendererSettingsPanel::OnImGuiRender(bool* p_open)
     {
         OLO_PROFILE_FUNCTION();
 
         ImGui::Begin("Renderer Settings", p_open);
 
+        const RendererSettings settingsBefore = Renderer3D::GetRendererSettings();
+
         DrawQualityTieringSection();
         DrawRenderingPathSection();
         DrawCullingSection();
         DrawForwardPlusSection();
+        DrawTransparencySection();
         DrawDebugSection();
+
+        const RendererSettings settingsAfter = Renderer3D::GetRendererSettings();
+        LogRendererSettingsChanges(settingsBefore, settingsAfter);
 
         ImGui::End();
     }
@@ -37,10 +171,14 @@ namespace OloEngine
         if (ImGui::Combo("Preset", &currentPreset, presetItems, IM_ARRAYSIZE(presetItems)))
         {
             auto selected = static_cast<QualityPreset>(currentPreset);
+            OLO_CORE_INFO("RendererSettingsPanel: Quality preset selected -> {}", QualityPresetName(selected));
             if (selected != QualityPreset::Custom)
             {
                 qt = GetPresetSettings(selected);
                 ApplyQualityTieringToRuntime(qt);
+                OLO_CORE_INFO("RendererSettingsPanel: Applied preset {} (AO={}, SSAOEnabled={}, GTAOEnabled={})",
+                              QualityPresetName(qt.Preset), AOTechniqueName(qt.AO),
+                              qt.AO == AOTechnique::SSAO, qt.AO == AOTechnique::GTAO);
             }
             else
             {
@@ -140,9 +278,11 @@ namespace OloEngine
 
         auto& qt = project->GetConfig().QualityTiering;
 
-        if (ImGui::CollapsingHeader("Quality Preset", ImGuiTreeNodeFlags_DefaultOpen))
+        if (ImGui::CollapsingHeader("Quality Preset"))
         {
             ImGui::Indent();
+
+            const QualityTieringSettings before = qt;
 
             DrawPresetControls(qt);
             ImGui::Separator();
@@ -156,6 +296,11 @@ namespace OloEngine
             {
                 qt.Preset = QualityPreset::Custom;
                 ApplyQualityTieringToRuntime(qt);
+                OLO_CORE_INFO("RendererSettingsPanel: Tier overrides applied (AO={} -> {}, ShadowEnabled={} -> {}, Bloom={} -> {}, FXAA={} -> {})",
+                              AOTechniqueName(before.AO), AOTechniqueName(qt.AO),
+                              before.ShadowEnabled, qt.ShadowEnabled,
+                              before.BloomEnabled, qt.BloomEnabled,
+                              before.FXAAEnabled, qt.FXAAEnabled);
             }
 
             if (qt.Preset == QualityPreset::Custom)
@@ -165,6 +310,7 @@ namespace OloEngine
                 {
                     qt = GetPresetSettings(QualityPreset::High);
                     ApplyQualityTieringToRuntime(qt);
+                    OLO_CORE_INFO("RendererSettingsPanel: Reset quality to High preset");
                 }
             }
 
@@ -240,7 +386,7 @@ namespace OloEngine
             {
                 ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f),
                                    "Forward+ pipeline active.");
-                ImGui::TextDisabled("Tile-based clustered culling for many lights.");
+                ImGui::TextDisabled("2D tiled light culling for many lights.");
 
                 // Velocity debug overlay (parity with Deferred DebugChannel=5).
                 if (ImGui::Checkbox("Debug: Velocity Overlay", &settings.DebugVelocityOverlayForward))
@@ -329,10 +475,6 @@ namespace OloEngine
                         ImGui::EndDisabled();
                 }
 
-                if (ImGui::Checkbox("Weighted-Blended OIT", &deferred.OITEnabled))
-                {
-                    Renderer3D::ApplyRendererSettings();
-                }
                 if (ImGui::Checkbox("G-Buffer Decals (Phase 4)", &deferred.GBufferDecalsEnabled))
                 {
                     Renderer3D::ApplyRendererSettings();
@@ -381,38 +523,9 @@ namespace OloEngine
                 ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "Active: Forward");
             }
 
-            // Live RenderGraph topology — rebuilt per RenderingPath, so the
-            // pass list here reflects exactly what runs this frame.
-            if (const auto& graph = Renderer3D::GetRenderGraph(); graph)
-            {
-                if (ImGui::TreeNode("Render Graph (live topology)"))
-                {
-                    const auto& order = graph->GetPassOrder();
-                    if (order.empty())
-                    {
-                        ImGui::TextDisabled("(Execution order not yet computed — run a frame first.)");
-                    }
-                    else
-                    {
-                        ImGui::Text("%zu passes in execution order:", order.size());
-                        for (std::size_t i = 0; i < order.size(); ++i)
-                            ImGui::BulletText("%zu. %s", i + 1, order[i].c_str());
-                    }
-
-                    ImGui::Separator();
-                    if (ImGui::Button("Export DOT..."))
-                    {
-                        const std::string path = "rendergraph.dot";
-                        if (graph->DumpToDot(path))
-                            OLO_CORE_INFO("RenderGraph exported to '{}'. Render with 'dot -Tsvg {} -o graph.svg'.",
-                                          path, path);
-                    }
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("→ rendergraph.dot (cwd)");
-
-                    ImGui::TreePop();
-                }
-            }
+            ImGui::TextDisabled("Live graph topology, execution order, per-pass\n"
+                                "diagnostics, and JSON export live in\n"
+                                "View \xE2\x86\x92 Render Graph Debugger.");
 
             ImGui::Unindent();
         }
@@ -508,6 +621,29 @@ namespace OloEngine
                 ImGui::Text("Point Lights: %u", fplus.GetPointLightCount());
                 ImGui::Text("Spot Lights:  %u", fplus.GetSpotLightCount());
                 ImGui::Text("Grid:         %ux%u tiles", fplus.GetTileCountX(), fplus.GetTileCountY());
+            }
+
+            ImGui::Unindent();
+        }
+    }
+
+    void RendererSettingsPanel::DrawTransparencySection()
+    {
+        auto& settings = Renderer3D::GetRendererSettings();
+
+        if (ImGui::CollapsingHeader("Transparency"))
+        {
+            ImGui::Indent();
+
+            if (ImGui::Checkbox("Weighted-Blended OIT", &settings.OITEnabled))
+            {
+                Renderer3D::ApplyRendererSettings();
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Order-Independent Transparency (McGuire/Bavoil 2013).\n"
+                                  "Works in Forward, Forward+, and Deferred paths.\n"
+                                  "Contributors: Particles, Decals.");
             }
 
             ImGui::Unindent();

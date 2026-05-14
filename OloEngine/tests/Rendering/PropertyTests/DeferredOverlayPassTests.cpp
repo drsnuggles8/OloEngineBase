@@ -12,7 +12,7 @@
 //     through the radix-sorted command bucket without disturbing POD-ness.
 //   * ForwardOverlayRenderPass existence — the class that routes skybox /
 //     terrain / voxel / grid / light-cube draws away from the G-Buffer MRT
-//     must compile and expose a SetSceneFramebuffer hook.
+//     write must compile and construct cleanly off-device.
 //
 // These are CPU-side contracts. Full integration (actually rendering a
 // deferred scene end-to-end) is covered by the OloEditor running a sample
@@ -101,11 +101,10 @@ namespace OloEngine::Tests
 
     TEST(ForwardOverlayRenderPassConstruction, DefaultConstructsAndExposesSetter)
     {
-        // Smoke: can be constructed off-device and the framebuffer-injection
-        // API exists. Actual Execute() requires a live GL context and is
-        // exercised through OloEditor's Deferred-mode sample scenes.
+        // Smoke: can be constructed off-device.
+        // Actual Execute() requires a live GL context and is exercised
+        // through OloEditor's Deferred-mode sample scenes.
         ForwardOverlayRenderPass pass;
-        pass.SetSceneFramebuffer(nullptr); // accepts null (no-op) without asserting
         SUCCEED();
     }
 } // namespace OloEngine::Tests

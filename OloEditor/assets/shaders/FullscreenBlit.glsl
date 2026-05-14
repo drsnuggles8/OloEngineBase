@@ -21,7 +21,18 @@ layout(location = 0) in vec2 v_TexCoord;
 
 layout(binding = 0) uniform sampler2D u_Texture;
 
+// DRS bounds: xy = (renderWidth / physicalWidth, renderHeight / physicalHeight).
+// Clamp screen-space UVs to [0, bounds] so the upscale blit never samples
+// uninitialised texels beyond the DRS-rendered region.
+// Both components are 1.0 when DRS is inactive (scale == 1.0).
+layout(std140, binding = 33) uniform DRSParams
+{
+    vec2 u_RenderScaleBounds;
+    vec2 _drsPad;
+};
+
 void main()
 {
-    o_Color = texture(u_Texture, v_TexCoord);
+    vec2 uv = min(v_TexCoord, u_RenderScaleBounds);
+    o_Color = texture(u_Texture, uv);
 }

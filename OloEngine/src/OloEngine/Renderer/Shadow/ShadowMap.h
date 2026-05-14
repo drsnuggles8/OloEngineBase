@@ -95,6 +95,19 @@ namespace OloEngine
         [[nodiscard]] u32 GetSpotRendererID() const;
         [[nodiscard]] u32 GetPointRendererID(u32 index) const;
 
+        // Placeholder shadow textures for when no real shadow map is available
+        // this frame. Some drivers validate the bound texture target at draw
+        // time when a sampler2DArrayShadow / samplerCubeShadow uniform exists,
+        // even if the shader guards the actual sample with a uniform flag.
+        // These return 1x1 depth-comparison textures of the correct target.
+        // Lazy-initialised on first call; freed in ShutdownPlaceholders().
+        // Must be called from the render thread.
+        [[nodiscard]] static u32 GetCSMPlaceholderRendererID();
+        [[nodiscard]] static u32 GetSpotPlaceholderRendererID();
+        [[nodiscard]] static u32 GetPointPlaceholderRendererID();
+        // Release placeholder textures. Called at renderer shutdown.
+        static void ShutdownPlaceholders();
+
         [[nodiscard]] const glm::mat4& GetCSMMatrix(u32 cascade) const
         {
             return m_UBOData.DirectionalLightSpaceMatrices[cascade];

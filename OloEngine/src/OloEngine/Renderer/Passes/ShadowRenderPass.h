@@ -1,8 +1,9 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
@@ -12,6 +13,7 @@
 namespace OloEngine
 {
     class FoliageRenderer;
+    class Frustum;
     class Shader;
 
     // Indicates which shadow type is being rendered in the current callback invocation
@@ -32,7 +34,8 @@ namespace OloEngine
         RendererID vaoID = 0;
         u32 indexCount = 0;
         glm::mat4 transform = glm::mat4(1.0f);
-        RendererID shadowVaoID = 0; // Position-merged shadow IB; 0 = use vaoID
+        RendererID shadowVaoID = 0;         // Position-merged shadow IB; 0 = use vaoID
+        BoundingBox WorldBounds = NoBounds; // World-space AABB; NoBounds = always include
     };
 
     struct ShadowSkinnedCaster
@@ -42,6 +45,7 @@ namespace OloEngine
         glm::mat4 transform = glm::mat4(1.0f);
         u32 boneBufferOffset = 0;
         u32 boneCount = 0;
+        BoundingBox WorldBounds = NoBounds; // World-space AABB; NoBounds = always include
     };
 
     struct ShadowTerrainCaster
@@ -78,14 +82,15 @@ namespace OloEngine
     // traversal loop. Execute() iterates the caster lists per cascade/face,
     // binding the appropriate depth shader for each geometry type.
     // No callbacks, no duplicate entity traversal.
-    class ShadowRenderPass : public RenderPass
+    class ShadowRenderPass : public RenderGraphNode
     {
       public:
         ShadowRenderPass();
         ~ShadowRenderPass() override;
 
+        void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
-        void Execute() override;
+        void Execute(RGCommandContext& context) override;
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
@@ -96,10 +101,14 @@ namespace OloEngine
             m_ShadowMap = shadowMap;
         }
 
-        // Shadow caster submission — called during Scene entity traversal
-        void AddMeshCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform, RendererID shadowVaoID = 0);
+        // Shadow caster submission — called during Scene entity traversal.
+        // Pass worldBounds (world-space AABB) when available; it enables per-cascade
+        // frustum culling in Execute() so empty cascades skip all GPU work.
+        // Leave as NoBounds when no tight bounds are available (foliage, terrain, etc.).
+        void AddMeshCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform,
+                           RendererID shadowVaoID = 0, const BoundingBox& worldBounds = NoBounds);
         void AddSkinnedCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform,
-                              u32 boneBufferOffset, u32 boneCount);
+                              u32 boneBufferOffset, u32 boneCount, const BoundingBox& worldBounds = NoBounds);
         void AddTerrainCaster(RendererID vaoID, u32 indexCount, u32 patchVertexCount,
                               const glm::mat4& transform, RendererID heightmapTextureID,
                               const ShaderBindingLayout::TerrainUBO& terrainUBO);
@@ -107,7 +116,12 @@ namespace OloEngine
         void AddFoliageCaster(FoliageRenderer* renderer, const Ref<Shader>& depthShader, f32 time);
 
       private:
-        void RenderCascadeOrFace(const glm::mat4& lightVP, ShadowPassType type, u32 layerOrLight);
+        // Returns true if caster has valid bounds AND those bounds fail the frustum test.
+        // Casters with NoBounds always pass (are included).
+        [[nodiscard]] static bool ShouldCull(const BoundingBox& worldBounds, const Frustum& frustum);
+
+        void RenderCascadeOrFace(const glm::mat4& lightVP, ShadowPassType type, u32 layerOrLight,
+                                 const Frustum* cullFrustum = nullptr);
 
         ShadowMap* m_ShadowMap = nullptr;
         Ref<Framebuffer> m_ShadowFramebuffer; // Depth-only FBO for shadow rendering

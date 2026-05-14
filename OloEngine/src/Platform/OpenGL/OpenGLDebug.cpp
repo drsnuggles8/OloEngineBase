@@ -3,6 +3,8 @@
 
 #include <glad/gl.h>
 
+#include <cstring>
+
 namespace OloEngine
 {
     void OpenGLMessageCallback(
@@ -19,16 +21,30 @@ namespace OloEngine
         // 131204: Texture state usage warning
         // 131220: "A fragment program/shader is required to correctly render to an integer framebuffer"
         // 131140: "Blending/Dithering is enabled, but is not supported for integer framebuffers"
+        // 131168: "The drawbuffer supplied (...) is currently bound to NONE"
+        //         NVIDIA emits this as low-value chatter during resize /
+        //         partial-MRT clear transitions. It is noisy and has not
+        //         correlated with a real rendering fault in our pipeline.
         // The last two fire because our framebuffers use mixed attachments (e.g., RGBA8 color +
         // R32I entity ID) and the NVIDIA debug layer checks aggregate blend state rather than
         // per-buffer state managed via glEnablei/glDisablei.
-        constexpr unsigned int suppressedIDs[] = { 131185, 131204, 131220, 131140 };
+        constexpr unsigned int suppressedIDs[] = { 131185, 131204, 131220, 131140, 131168 };
         for (const auto suppressed : suppressedIDs)
         {
             if (id == suppressed)
             {
                 return;
             }
+        }
+
+        // RenderGraph async batches are pushed as KHR_debug application markers
+        // (e.g. "AsyncBatch[0]") to aid GPU capture tools. Logging them at
+        // info level floods OloEngine.log and hides actionable diagnostics.
+        if (source == GL_DEBUG_SOURCE_APPLICATION && message != nullptr)
+        {
+            constexpr const char* asyncBatchPrefix = "AsyncBatch[";
+            if (std::strncmp(message, asyncBatchPrefix, std::strlen(asyncBatchPrefix)) == 0)
+                return;
         }
 
         std::string sourceStr;
