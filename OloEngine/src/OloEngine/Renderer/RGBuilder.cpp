@@ -390,16 +390,16 @@ namespace OloEngine
         return m_Graph.CreateFramebufferDepthAttachmentView(name, framebufferHandle);
     }
 
-    void RGBuilder::AllowFeedback(
+    void RGBuilder::AllowSamePassReadWrite(
         const RGTextureHandle handle,
         const RGSubresourceRange& range)
     {
-        OLO_CORE_ASSERT(handle.IsValid(), "Cannot declare feedback for an invalid texture handle");
+        OLO_CORE_ASSERT(handle.IsValid(), "Cannot declare same-pass read/write for an invalid texture handle");
 
         const auto resourceName = m_Graph.GetResourceName(handle);
         if (resourceName.empty())
         {
-            OLO_CORE_ERROR("RGBuilder::AllowFeedback: pass='{}' texture handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
+            OLO_CORE_ERROR("RGBuilder::AllowSamePassReadWrite: pass='{}' texture handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
                            m_CurrentPassName, handle.Index, handle.Generation);
             return;
         }
@@ -407,15 +407,15 @@ namespace OloEngine
         RecordFeedback(resourceName, range);
     }
 
-    void RGBuilder::AllowFeedback(
+    void RGBuilder::AllowSamePassReadWrite(
         const RGFramebufferHandle handle)
     {
-        OLO_CORE_ASSERT(handle.IsValid(), "Cannot declare feedback for an invalid framebuffer handle");
+        OLO_CORE_ASSERT(handle.IsValid(), "Cannot declare same-pass read/write for an invalid framebuffer handle");
 
         const auto resourceName = m_Graph.GetResourceName(handle);
         if (resourceName.empty())
         {
-            OLO_CORE_ERROR("RGBuilder::AllowFeedback: pass='{}' framebuffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
+            OLO_CORE_ERROR("RGBuilder::AllowSamePassReadWrite: pass='{}' framebuffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
                            m_CurrentPassName, handle.Index, handle.Generation);
             return;
         }
@@ -423,16 +423,16 @@ namespace OloEngine
         RecordFeedback(resourceName, RGSubresourceRange::Full());
     }
 
-    void RGBuilder::AllowFeedback(
+    void RGBuilder::AllowSamePassReadWrite(
         const RGBufferHandle handle,
         const RGSubresourceRange& range)
     {
-        OLO_CORE_ASSERT(handle.IsValid(), "Cannot declare feedback for an invalid buffer handle");
+        OLO_CORE_ASSERT(handle.IsValid(), "Cannot declare same-pass read/write for an invalid buffer handle");
 
         const auto resourceName = m_Graph.GetResourceName(handle);
         if (resourceName.empty())
         {
-            OLO_CORE_ERROR("RGBuilder::AllowFeedback: pass='{}' buffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
+            OLO_CORE_ERROR("RGBuilder::AllowSamePassReadWrite: pass='{}' buffer handle (idx={}, gen={}) resolved to empty resource name — handle is stale or resource was never imported",
                            m_CurrentPassName, handle.Index, handle.Generation);
             return;
         }

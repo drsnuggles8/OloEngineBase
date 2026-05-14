@@ -64,23 +64,23 @@ namespace OloEngine
 
         const bool willDispatchDenoise = m_Settings.GTAODenoiseEnabled && m_Settings.GTAODenoisePasses > 0;
 
-        if (blackboard.SceneDepth.IsValid())
+        if (blackboard.Scene.SceneDepth.IsValid())
         {
-            m_SelectedSceneDepthTexture = blackboard.SceneDepth;
-            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.SceneDepth, RGReadUsage::ShaderSample);
+            m_SelectedSceneDepthTexture = blackboard.Scene.SceneDepth;
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.Scene.SceneDepth, RGReadUsage::ShaderSample);
         }
-        if (blackboard.SceneNormals.IsValid())
+        if (blackboard.Scene.SceneNormals.IsValid())
         {
-            m_SelectedSceneNormalsTexture = blackboard.SceneNormals;
-            [[maybe_unused]] const auto sceneNormalsRead = builder.Read(blackboard.SceneNormals, RGReadUsage::ShaderSample);
+            m_SelectedSceneNormalsTexture = blackboard.Scene.SceneNormals;
+            [[maybe_unused]] const auto sceneNormalsRead = builder.Read(blackboard.Scene.SceneNormals, RGReadUsage::ShaderSample);
         }
-        if (blackboard.AOBuffer.IsValid())
+        if (blackboard.AO.AOBuffer.IsValid())
         {
-            m_SelectedAOOutputTexture = blackboard.AOBuffer;
+            m_SelectedAOOutputTexture = blackboard.AO.AOBuffer;
             // AOBuffer is written via glCopyImageSubData from the final denoise
             // ping-pong slot, not a compute image-store. The dispatch path
             // writes to GTAODenoisePing/Pong (declared as ShaderImage above).
-            builder.Write(blackboard.AOBuffer, RGWriteUsage::TransferDest);
+            builder.Write(blackboard.AO.AOBuffer, RGWriteUsage::TransferDest);
         }
 
         if (m_Width == 0u || m_Height == 0u)
@@ -103,17 +103,19 @@ namespace OloEngine
             mipH = mipH > 1u ? (mipH / 2u) : 1u;
         }
 
-        if (blackboard.HZBDepth.IsValid())
+        if (blackboard.Scratch.HZBDepth.IsValid())
         {
-            m_SelectedHZBDepthTexture = blackboard.HZBDepth;
-            builder.AllowFeedback(blackboard.HZBDepth);
+            m_SelectedHZBDepthTexture = blackboard.Scratch.HZBDepth;
+            // Intra-pass HZB mip-chain reduction: each compute dispatch reads
+            // mip[i-1] and writes mip[i] of the same texture in sequence.
+            builder.AllowSamePassReadWrite(blackboard.Scratch.HZBDepth);
 
-            bool canUseMipViews = mipCount <= static_cast<u32>(blackboard.HZBDepthMipViews.size());
+            bool canUseMipViews = mipCount <= static_cast<u32>(blackboard.Scratch.HZBDepthMipViews.size());
             if (canUseMipViews)
             {
                 for (u32 mip = 0u; mip < mipCount; ++mip)
                 {
-                    if (!blackboard.HZBDepthMipViews[mip].IsValid())
+                    if (!blackboard.Scratch.HZBDepthMipViews[mip].IsValid())
                     {
                         canUseMipViews = false;
                         break;
@@ -123,57 +125,63 @@ namespace OloEngine
 
             if (canUseMipViews)
             {
-                builder.Write(blackboard.HZBDepthMipViews[0u], RGWriteUsage::ShaderImage);
+                builder.Write(blackboard.Scratch.HZBDepthMipViews[0u], RGWriteUsage::ShaderImage);
                 for (u32 mip = 1u; mip < mipCount; ++mip)
                 {
                     [[maybe_unused]] const auto hzbMipRead =
-                        builder.Read(blackboard.HZBDepthMipViews[mip - 1u], RGReadUsage::ShaderSample);
-                    builder.Write(blackboard.HZBDepthMipViews[mip], RGWriteUsage::ShaderImage);
+                        builder.Read(blackboard.Scratch.HZBDepthMipViews[mip - 1u], RGReadUsage::ShaderSample);
+                    builder.Write(blackboard.Scratch.HZBDepthMipViews[mip], RGWriteUsage::ShaderImage);
                 }
             }
             else
             {
-                builder.Write(blackboard.HZBDepth, RGWriteUsage::ShaderImage, RGSubresourceRange::Mip(0u));
+                builder.Write(blackboard.Scratch.HZBDepth, RGWriteUsage::ShaderImage, RGSubresourceRange::Mip(0u));
                 for (u32 mip = 1u; mip < mipCount; ++mip)
                 {
                     [[maybe_unused]] const auto hzbMipRead =
-                        builder.Read(blackboard.HZBDepth, RGReadUsage::ShaderSample, RGSubresourceRange::Mip(mip - 1u));
-                    builder.Write(blackboard.HZBDepth, RGWriteUsage::ShaderImage, RGSubresourceRange::Mip(mip));
+                        builder.Read(blackboard.Scratch.HZBDepth, RGReadUsage::ShaderSample, RGSubresourceRange::Mip(mip - 1u));
+                    builder.Write(blackboard.Scratch.HZBDepth, RGWriteUsage::ShaderImage, RGSubresourceRange::Mip(mip));
                 }
             }
 
-            [[maybe_unused]] const auto hzbRead = builder.Read(blackboard.HZBDepth, RGReadUsage::ShaderSample);
+            [[maybe_unused]] const auto hzbRead = builder.Read(blackboard.Scratch.HZBDepth, RGReadUsage::ShaderSample);
         }
 
-        if (blackboard.GTAOEdge.IsValid())
+        if (blackboard.Scratch.GTAOEdge.IsValid())
         {
-            m_SelectedEdgeTexture = blackboard.GTAOEdge;
-            builder.AllowFeedback(blackboard.GTAOEdge);
-            builder.Write(blackboard.GTAOEdge, RGWriteUsage::ShaderImage);
-            [[maybe_unused]] const auto edgeRead = builder.Read(blackboard.GTAOEdge, RGReadUsage::ShaderImage);
+            m_SelectedEdgeTexture = blackboard.Scratch.GTAOEdge;
+            // Intra-pass write-then-imageLoad: the GTAO main dispatch writes
+            // GTAOEdge, then the denoise dispatch reads it back via imageLoad.
+            builder.AllowSamePassReadWrite(blackboard.Scratch.GTAOEdge);
+            builder.Write(blackboard.Scratch.GTAOEdge, RGWriteUsage::ShaderImage);
+            [[maybe_unused]] const auto edgeRead = builder.Read(blackboard.Scratch.GTAOEdge, RGReadUsage::ShaderImage);
         }
 
-        if (blackboard.GTAODenoisePing.IsValid())
+        if (blackboard.Scratch.GTAODenoisePing.IsValid())
         {
-            m_SelectedDenoisePingTexture = blackboard.GTAODenoisePing;
+            m_SelectedDenoisePingTexture = blackboard.Scratch.GTAODenoisePing;
             if (willDispatchDenoise)
             {
-                builder.AllowFeedback(blackboard.GTAODenoisePing);
-                builder.Write(blackboard.GTAODenoisePing, RGWriteUsage::ShaderImage);
-                [[maybe_unused]] const auto pingRead = builder.Read(blackboard.GTAODenoisePing, RGReadUsage::ShaderImage);
+                // Intra-pass denoise ping-pong: each denoise iteration reads
+                // one and writes the other; the chain alternates inside this
+                // single Execute.
+                builder.AllowSamePassReadWrite(blackboard.Scratch.GTAODenoisePing);
+                builder.Write(blackboard.Scratch.GTAODenoisePing, RGWriteUsage::ShaderImage);
+                [[maybe_unused]] const auto pingRead = builder.Read(blackboard.Scratch.GTAODenoisePing, RGReadUsage::ShaderImage);
             }
             else
             {
-                builder.Write(blackboard.GTAODenoisePing, RGWriteUsage::ShaderImage);
+                builder.Write(blackboard.Scratch.GTAODenoisePing, RGWriteUsage::ShaderImage);
             }
         }
 
-        if (willDispatchDenoise && blackboard.GTAODenoisePong.IsValid())
+        if (willDispatchDenoise && blackboard.Scratch.GTAODenoisePong.IsValid())
         {
-            m_SelectedDenoisePongTexture = blackboard.GTAODenoisePong;
-            builder.AllowFeedback(blackboard.GTAODenoisePong);
-            builder.Write(blackboard.GTAODenoisePong, RGWriteUsage::ShaderImage);
-            [[maybe_unused]] const auto pongRead = builder.Read(blackboard.GTAODenoisePong, RGReadUsage::ShaderImage);
+            m_SelectedDenoisePongTexture = blackboard.Scratch.GTAODenoisePong;
+            // Intra-pass denoise ping-pong (see GTAODenoisePing above).
+            builder.AllowSamePassReadWrite(blackboard.Scratch.GTAODenoisePong);
+            builder.Write(blackboard.Scratch.GTAODenoisePong, RGWriteUsage::ShaderImage);
+            [[maybe_unused]] const auto pongRead = builder.Read(blackboard.Scratch.GTAODenoisePong, RGReadUsage::ShaderImage);
         }
     }
 

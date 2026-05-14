@@ -24,25 +24,30 @@ namespace OloEngine
 
         if (m_OITEnabled)
         {
-            if (blackboard.SceneColor.IsValid())
-                SetPrimaryInputFramebufferHandle(blackboard.SceneColor);
-            if (blackboard.OITBuffer.IsValid())
-                m_SelectedOITFramebuffer = blackboard.OITBuffer;
-            if (blackboard.OITDepthAttachment.IsValid())
+            if (blackboard.Scene.SceneColor.IsValid())
+                SetPrimaryInputFramebufferHandle(blackboard.Scene.SceneColor);
+            if (blackboard.OIT.OITBuffer.IsValid())
+                m_SelectedOITFramebuffer = blackboard.OIT.OITBuffer;
+            if (blackboard.OIT.OITDepthAttachment.IsValid())
             {
-                [[maybe_unused]] const auto oitDepthRead = builder.Read(blackboard.OITDepthAttachment, RGReadUsage::RenderTargetRead);
+                [[maybe_unused]] const auto oitDepthRead = builder.Read(blackboard.OIT.OITDepthAttachment, RGReadUsage::RenderTargetRead);
             }
-            if (blackboard.OITAccum.IsValid())
+            // Inter-pass RMW into the OIT accum/revealage targets (cleared
+            // by OITPreparePass, possibly already written by Decal). Read the
+            // prior version for blending, then advertise a renamed output via
+            // WriteNewVersion so the validator does not see a same-pass loop.
+            constexpr std::string_view particleOITVersionTag = "ParticlePass";
+            if (blackboard.OIT.OITAccum.IsValid())
             {
-                builder.AllowFeedback(blackboard.OITAccum);
-                [[maybe_unused]] const auto oitAccumRead = builder.Read(blackboard.OITAccum, RGReadUsage::RenderTargetRead);
-                builder.Write(blackboard.OITAccum, RGWriteUsage::RenderTarget);
+                [[maybe_unused]] const auto oitAccumRead = builder.Read(blackboard.OIT.OITAccum, RGReadUsage::RenderTargetRead);
+                [[maybe_unused]] const auto oitAccumNew =
+                    builder.WriteNewVersion(blackboard.OIT.OITAccum, RGWriteUsage::RenderTarget, particleOITVersionTag);
             }
-            if (blackboard.OITRevealage.IsValid())
+            if (blackboard.OIT.OITRevealage.IsValid())
             {
-                builder.AllowFeedback(blackboard.OITRevealage);
-                [[maybe_unused]] const auto oitRevealageRead = builder.Read(blackboard.OITRevealage, RGReadUsage::RenderTargetRead);
-                builder.Write(blackboard.OITRevealage, RGWriteUsage::RenderTarget);
+                [[maybe_unused]] const auto oitRevealageRead = builder.Read(blackboard.OIT.OITRevealage, RGReadUsage::RenderTargetRead);
+                [[maybe_unused]] const auto oitRevealageNew =
+                    builder.WriteNewVersion(blackboard.OIT.OITRevealage, RGWriteUsage::RenderTarget, particleOITVersionTag);
             }
 
             // Pin OIT writer-chain ordering: OITPreparePass clears the targets,
@@ -53,16 +58,20 @@ namespace OloEngine
             // explicitly so the no-Decal case is still pinned) and on the
             // previous OITAccum writer (the earlier contributor, e.g. Decal in
             // OIT mode) discovered via the graph's last-writer tracker.
-            if (blackboard.OITAccum.IsValid() || blackboard.OITRevealage.IsValid())
+            if (blackboard.OIT.OITAccum.IsValid() || blackboard.OIT.OITRevealage.IsValid())
                 builder.DependsOnPass("OITPreparePass");
             builder.DependsOnPreviousWriter(ResourceNames::OITAccum);
         }
-        else if (blackboard.SceneColor.IsValid())
+        else if (blackboard.Scene.SceneColor.IsValid())
         {
-            SetPrimaryInputFramebufferHandle(blackboard.SceneColor);
-            builder.AllowFeedback(blackboard.SceneColor);
-            [[maybe_unused]] const auto sceneColorRead = builder.Read(blackboard.SceneColor, RGReadUsage::RenderTargetRead);
-            builder.Write(blackboard.SceneColor, RGWriteUsage::RenderTarget);
+            // Inter-pass RMW: read the prior SceneColor version, then
+            // advertise a renamed output via WriteNewVersion so the
+            // validator does not see a same-pass feedback loop.
+            SetPrimaryInputFramebufferHandle(blackboard.Scene.SceneColor);
+            [[maybe_unused]] const auto sceneColorRead = builder.Read(blackboard.Scene.SceneColor, RGReadUsage::RenderTargetRead);
+            constexpr std::string_view particleSceneColorVersionTag = "ParticlePass";
+            [[maybe_unused]] const auto sceneColorNew =
+                builder.WriteNewVersion(blackboard.Scene.SceneColor, RGWriteUsage::RenderTarget, particleSceneColorVersionTag);
             builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
         }
     }

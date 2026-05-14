@@ -195,6 +195,20 @@ namespace OloEngine::RenderPipelineBuilderInternal
     // to the canonical import) and picks the first valid pair. Records the
     // primary input handles on the pass and emits a ShaderSample Read on the
     // chosen texture, matching the prior typed-pointer setter pattern.
+    //
+    // Note on the primary input framebuffer handle: this is set for symmetry
+    // with the typed setters, but post-process passes that consume the input
+    // by sampling (`ReadFirstValidVersionedInputForPass`-style consumers like
+    // AOApply, Bloom, ToneMap, FXAA, …) must NOT call
+    // `context.ResolveFramebuffer(GetPrimaryInputFramebufferHandle())` at
+    // execute time. The framebuffer is the latest *versioned* handle (e.g.
+    // `SceneColor@DecalPass`), which the transient planner allocates as a
+    // separate alias slot from the canonical FB; no pass physically writes
+    // into the versioned sibling — it exists purely for read→write
+    // dependency tracking — so the resolve returns null. The input texture
+    // resolves correctly because its `ParentResource` is the canonical name.
+    // Sample-only consumers should rely solely on
+    // `GetPrimaryInputTextureHandle()`.
     inline auto ReadFirstValidVersionedInputForPass(RGBuilder& builder,
                                                     RenderGraphNode* pass,
                                                     std::initializer_list<CandidateBaseNames> candidates) -> FramebufferTextureInput

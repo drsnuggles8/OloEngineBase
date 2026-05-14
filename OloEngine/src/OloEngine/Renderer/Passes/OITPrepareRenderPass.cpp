@@ -46,22 +46,22 @@ namespace OloEngine
         if (!m_Enabled || !m_HasContributors)
             return;
 
-        if (blackboard.SceneColor.IsValid())
-            SetPrimaryInputFramebufferHandle(blackboard.SceneColor);
-        if (blackboard.OITBuffer.IsValid())
-            m_SelectedOITFramebuffer = blackboard.OITBuffer;
+        if (blackboard.Scene.SceneColor.IsValid())
+            SetPrimaryInputFramebufferHandle(blackboard.Scene.SceneColor);
+        if (blackboard.OIT.OITBuffer.IsValid())
+            m_SelectedOITFramebuffer = blackboard.OIT.OITBuffer;
 
-        if (blackboard.SceneDepthAttachment.IsValid())
+        if (blackboard.Scene.SceneDepthAttachment.IsValid())
         {
-            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.SceneDepthAttachment, RGReadUsage::TransferSource);
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.Scene.SceneDepthAttachment, RGReadUsage::TransferSource);
         }
 
-        if (blackboard.OITAccum.IsValid())
-            builder.Write(blackboard.OITAccum, RGWriteUsage::Clear);
-        if (blackboard.OITRevealage.IsValid())
-            builder.Write(blackboard.OITRevealage, RGWriteUsage::Clear);
-        if (blackboard.OITDepthAttachment.IsValid())
-            builder.Write(blackboard.OITDepthAttachment, RGWriteUsage::TransferDest);
+        if (blackboard.OIT.OITAccum.IsValid())
+            builder.Write(blackboard.OIT.OITAccum, RGWriteUsage::Clear);
+        if (blackboard.OIT.OITRevealage.IsValid())
+            builder.Write(blackboard.OIT.OITRevealage, RGWriteUsage::Clear);
+        if (blackboard.OIT.OITDepthAttachment.IsValid())
+            builder.Write(blackboard.OIT.OITDepthAttachment, RGWriteUsage::TransferDest);
     }
 
     void OITPrepareRenderPass::Init(const FramebufferSpecification& spec)

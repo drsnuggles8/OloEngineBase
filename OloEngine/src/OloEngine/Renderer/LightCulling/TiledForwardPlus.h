@@ -22,21 +22,22 @@ namespace OloEngine
         Never   // Disabled — always use simple forward
     };
 
-    // @brief High-level Forward+ integration for SceneRenderPass.
+    // @brief High-level 2D tiled Forward+ integration for SceneRenderPass.
     //
-    // Owns the LightGrid, LightCullingBuffer, and LightCullingPass.
-    // Call GatherLights() to pack scene lights into SSBOs, then
+    // Owns the LightGrid, LightCullingBuffer, and LightCullingPass. The
+    // compute shader culls lights into screen-space tiles (no depth slicing
+    // / froxels). Call GatherLights() to pack scene lights into SSBOs, then
     // DispatchCulling() after the depth pre-pass, and BindForShading()
     // before the color pass.
-    class ClusteredForward
+    class TiledForwardPlus
     {
       public:
-        ClusteredForward() = default;
-        ~ClusteredForward() = default;
-        ClusteredForward(const ClusteredForward&) = delete;
-        ClusteredForward& operator=(const ClusteredForward&) = delete;
-        ClusteredForward(ClusteredForward&&) = delete;
-        ClusteredForward& operator=(ClusteredForward&&) = delete;
+        TiledForwardPlus() = default;
+        ~TiledForwardPlus() = default;
+        TiledForwardPlus(const TiledForwardPlus&) = delete;
+        TiledForwardPlus& operator=(const TiledForwardPlus&) = delete;
+        TiledForwardPlus(TiledForwardPlus&&) = delete;
+        TiledForwardPlus& operator=(TiledForwardPlus&&) = delete;
 
         void Initialize(u32 screenWidth, u32 screenHeight);
         void Shutdown();
@@ -73,10 +74,9 @@ namespace OloEngine
         }
 
         void SetTileSize(u32 tileSize);
-        void SetDepthSlices(u32 slices);
         // The upgrade threshold must be >= 1 so the strict `down < up` invariant
         // (enforced in SetLightCountThresholdDown and consumed by
-        // ClusteredForward::GatherLights) can be satisfied.
+        // TiledForwardPlus::GatherLights) can be satisfied.
         void SetLightCountThreshold(u32 threshold)
         {
             m_LightCountThreshold = threshold > 0 ? threshold : 1u;

@@ -708,7 +708,7 @@ TEST(RenderGraphResourceHazards, SamePassOverlappingReadWriteWithFeedbackIsAllow
                 "FeedbackTex",
                 21,
                 RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FeedbackTex"));
-            builder.AllowFeedback(color, RGSubresourceRange::Mip(0));
+            builder.AllowSamePassReadWrite(color, RGSubresourceRange::Mip(0));
             [[maybe_unused]] const auto sampled = builder.Read(color, RGReadUsage::ShaderSample, RGSubresourceRange::Mip(0));
             builder.Write(color, RGWriteUsage::RenderTarget, RGSubresourceRange::Mip(0));
         });
@@ -739,7 +739,7 @@ TEST(RenderGraphResourceHazards, FeedbackDeclarationIsRangeScoped)
                 "FeedbackTex",
                 21,
                 RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FeedbackTex"));
-            builder.AllowFeedback(color, RGSubresourceRange::Mip(0));
+            builder.AllowSamePassReadWrite(color, RGSubresourceRange::Mip(0));
             [[maybe_unused]] const auto sampled = builder.Read(color, RGReadUsage::ShaderSample, RGSubresourceRange::Mip(1));
             builder.Write(color, RGWriteUsage::RenderTarget, RGSubresourceRange::Mip(1));
         });
@@ -793,7 +793,7 @@ TEST(RenderGraphResourceHazards, DynamicDecalProjectionContractDerivesSceneDepth
         [sceneDepth, sceneColor](RGBuilder& builder)
         {
             [[maybe_unused]] const auto sceneDepthRead = builder.Read(sceneDepth, RGReadUsage::ShaderSample);
-            builder.AllowFeedback(sceneColor);
+            builder.AllowSamePassReadWrite(sceneColor);
             [[maybe_unused]] const auto sceneColorRead = builder.Read(sceneColor, RGReadUsage::ShaderSample);
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         });
@@ -887,10 +887,10 @@ TEST(RenderGraphResourceHazards, DynamicOITDepthContractDerivesPrepareAndContrib
         [oitDepthAttachment, oitAccum, oitRevealage](RGBuilder& builder)
         {
             [[maybe_unused]] const auto oitDepthRead = builder.Read(oitDepthAttachment, RGReadUsage::RenderTargetRead);
-            builder.AllowFeedback(oitAccum);
+            builder.AllowSamePassReadWrite(oitAccum);
             [[maybe_unused]] const auto oitAccumRead = builder.Read(oitAccum, RGReadUsage::RenderTargetRead);
             builder.Write(oitAccum, RGWriteUsage::RenderTarget);
-            builder.AllowFeedback(oitRevealage);
+            builder.AllowSamePassReadWrite(oitRevealage);
             [[maybe_unused]] const auto oitRevealageRead = builder.Read(oitRevealage, RGReadUsage::RenderTargetRead);
             builder.Write(oitRevealage, RGWriteUsage::RenderTarget);
         });
@@ -2677,7 +2677,7 @@ TEST(RGCommandContextBlackboard, Slice35_GetBlackboardReturnsGraphBlackboardWhen
     ASSERT_NE(board, nullptr)
         << "Slice 35: GetBlackboard() must return the graph's blackboard "
            "when a render graph is attached.";
-    EXPECT_FALSE(board->SceneColor.IsValid())
+    EXPECT_FALSE(board->Scene.SceneColor.IsValid())
         << "Freshly-constructed blackboard should have no populated handles.";
 }
 
@@ -2877,7 +2877,7 @@ TEST(RenderGraphConfigureTopology, Slice36_FoliageAndOverlayAfterSceneColorWrite
 // ---------------------------------------------------------------------------
 // Phase H follow-up — DecalRenderPass resolves SceneDepth from the blackboard
 //
-// DecalRenderPass self-resolves exclusively from `board->SceneDepth`, matching the same
+// DecalRenderPass self-resolves exclusively from `board->Scene.SceneDepth`, matching the same
 // blackboard-only pattern used by SSAORenderPass and GTAORenderPass.
 //
 // This test verifies that the declaration-derived topology still produces

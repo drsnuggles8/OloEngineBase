@@ -7,7 +7,7 @@
 
 namespace OloEngine
 {
-    class ClusteredForward;
+    class TiledForwardPlus;
     class UniformBuffer;
     class Light;
     class ShaderResourceRegistry;
@@ -74,11 +74,11 @@ namespace OloEngine
             const Ref<UniformBuffer>& boneMatricesUBO,
             const Ref<UniformBuffer>& modelMatrixUBO,
             const Ref<UniformBuffer>& prevBoneMatricesUBO = nullptr,
-            ClusteredForward* forwardPlus = nullptr);
+            TiledForwardPlus* forwardPlus = nullptr);
 
         // Rebind the shared scene camera/light UBOs after earlier passes reused
         // those binding points, and ensure the Forward+ UBO baseline remains
-        // valid even when clustered lighting is inactive this frame.
+        // valid even when tiled Forward+ lighting is inactive this frame.
         static void BindSceneResources();
 
         // State management dispatch functions

@@ -31,21 +31,21 @@ namespace OloEngine
         m_SelectedSceneNormalsExport = {};
         m_SelectedVelocityExport = {};
 
-        if (board.SceneColor.IsValid())
-            SetPrimaryInputFramebufferHandle(board.SceneColor);
+        if (board.Scene.SceneColor.IsValid())
+            SetPrimaryInputFramebufferHandle(board.Scene.SceneColor);
 
         builder.DependsOnPass("ShadowPass");
 
-        if (board.ShadowMapCSM.IsValid())
+        if (board.Shadows.ShadowMapCSM.IsValid())
         {
-            [[maybe_unused]] const auto shadowCSMRead = builder.Read(board.ShadowMapCSM, RGReadUsage::ShaderSample);
+            [[maybe_unused]] const auto shadowCSMRead = builder.Read(board.Shadows.ShadowMapCSM, RGReadUsage::ShaderSample);
         }
-        if (board.ShadowMapSpot.IsValid())
+        if (board.Shadows.ShadowMapSpot.IsValid())
         {
-            [[maybe_unused]] const auto shadowSpotRead = builder.Read(board.ShadowMapSpot, RGReadUsage::ShaderSample);
+            [[maybe_unused]] const auto shadowSpotRead = builder.Read(board.Shadows.ShadowMapSpot, RGReadUsage::ShaderSample);
         }
 
-        for (const auto& pointHandle : board.ShadowMapPoint)
+        for (const auto& pointHandle : board.Shadows.ShadowMapPoint)
         {
             if (pointHandle.IsValid())
             {
@@ -53,40 +53,40 @@ namespace OloEngine
             }
         }
 
-        if (board.IrradianceMap.IsValid())
+        if (board.IBL.IrradianceMap.IsValid())
         {
-            [[maybe_unused]] const auto irradianceRead = builder.Read(board.IrradianceMap, RGReadUsage::ShaderSample);
+            [[maybe_unused]] const auto irradianceRead = builder.Read(board.IBL.IrradianceMap, RGReadUsage::ShaderSample);
         }
-        if (board.PrefilterMap.IsValid())
+        if (board.IBL.PrefilterMap.IsValid())
         {
-            [[maybe_unused]] const auto prefilterRead = builder.Read(board.PrefilterMap, RGReadUsage::ShaderSample);
+            [[maybe_unused]] const auto prefilterRead = builder.Read(board.IBL.PrefilterMap, RGReadUsage::ShaderSample);
         }
-        if (board.BrdfLut.IsValid())
+        if (board.IBL.BrdfLut.IsValid())
         {
-            [[maybe_unused]] const auto brdfRead = builder.Read(board.BrdfLut, RGReadUsage::ShaderSample);
+            [[maybe_unused]] const auto brdfRead = builder.Read(board.IBL.BrdfLut, RGReadUsage::ShaderSample);
         }
 
-        if (board.SceneDepth.IsValid())
+        if (board.Scene.SceneDepth.IsValid())
         {
-            m_SelectedSceneDepthExport = board.SceneDepth;
-            builder.Write(board.SceneDepth, RGWriteUsage::TransferDest);
+            m_SelectedSceneDepthExport = board.Scene.SceneDepth;
+            builder.Write(board.Scene.SceneDepth, RGWriteUsage::TransferDest);
         }
-        if (board.Velocity.IsValid())
+        if (board.GBuffer.Velocity.IsValid())
         {
-            m_SelectedVelocityExport = board.Velocity;
-            builder.Write(board.Velocity, RGWriteUsage::TransferDest);
+            m_SelectedVelocityExport = board.GBuffer.Velocity;
+            builder.Write(board.GBuffer.Velocity, RGWriteUsage::TransferDest);
         }
 
         const auto& rendererSettings = Renderer3D::GetRendererSettings();
         if (rendererSettings.Path != RenderingPath::Deferred)
         {
-            if (board.SceneNormals.IsValid())
+            if (board.Scene.SceneNormals.IsValid())
             {
-                m_SelectedSceneNormalsExport = board.SceneNormals;
-                builder.Write(board.SceneNormals, RGWriteUsage::TransferDest);
+                m_SelectedSceneNormalsExport = board.Scene.SceneNormals;
+                builder.Write(board.Scene.SceneNormals, RGWriteUsage::TransferDest);
             }
-            if (board.SceneColor.IsValid())
-                builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
+            if (board.Scene.SceneColor.IsValid())
+                builder.Write(board.Scene.SceneColor, RGWriteUsage::RenderTarget);
         }
     }
 

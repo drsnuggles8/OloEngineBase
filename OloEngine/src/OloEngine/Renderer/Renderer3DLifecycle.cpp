@@ -425,6 +425,9 @@ namespace OloEngine
 
         // Shutdown shadow mapping
         s_Data.Shadow.Shutdown();
+        // Release the static placeholder shadow textures lazy-initialised on
+        // first bind-when-real-shadow-absent. Idempotent.
+        ShadowMap::ShutdownPlaceholders();
 
         // Clear any pending GPU resource commands
         GPUResourceQueue::Clear();

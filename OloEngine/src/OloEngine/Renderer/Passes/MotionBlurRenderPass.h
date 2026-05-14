@@ -50,6 +50,15 @@ namespace OloEngine
             m_MotionBlurUBO = ubo;
         }
 
+        // PostProcessUBO (binding 7) carries u_MotionBlurStrength / Samples /
+        // etc. — other passes (IBL precompute, Bloom mip updates) can displace
+        // binding 7 between EndScene's upload and this pass's Execute. Hold a
+        // reference and Bind() it before each draw.
+        void SetPostProcessUBO(const Ref<UniformBuffer>& ubo) noexcept
+        {
+            m_PostProcessUBO = ubo;
+        }
+
         [[nodiscard]] bool IsReadyForExecution() const noexcept override
         {
             return m_MotionBlurShader && m_MotionBlurShader->IsReady() && m_MotionBlurUBO;
@@ -63,6 +72,7 @@ namespace OloEngine
 
         Ref<Shader> m_MotionBlurShader;
         Ref<UniformBuffer> m_MotionBlurUBO;
+        Ref<UniformBuffer> m_PostProcessUBO;
         RGTextureHandle m_SelectedSceneDepthTexture{};
     };
 } // namespace OloEngine

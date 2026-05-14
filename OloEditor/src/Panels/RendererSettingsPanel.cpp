@@ -386,7 +386,7 @@ namespace OloEngine
             {
                 ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f),
                                    "Forward+ pipeline active.");
-                ImGui::TextDisabled("Tile-based clustered culling for many lights.");
+                ImGui::TextDisabled("2D tiled light culling for many lights.");
 
                 // Velocity debug overlay (parity with Deferred DebugChannel=5).
                 if (ImGui::Checkbox("Debug: Velocity Overlay", &settings.DebugVelocityOverlayForward))

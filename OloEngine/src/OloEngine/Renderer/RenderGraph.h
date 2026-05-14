@@ -11,6 +11,7 @@
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include <functional>
 #include <limits>
+#include <map>
 #include <vector>
 #include <unordered_map>
 #include <string>
@@ -20,6 +21,106 @@
 
 namespace OloEngine
 {
+    // Lightweight string-interner used by RenderGraph to convert resource and
+    // pass names into stable u32 IDs. Hot-path maps store IDs as keys so
+    // lookups avoid the per-call string hashing + comparison cost that
+    // dominates MSVC Debug profiles of `PopulateBlackboard`.
+    //
+    // Two instances live on RenderGraph: `m_ResourceNames` (texture /
+    // framebuffer / buffer / view names) and `m_PassNames` (pass / node
+    // names). Keep them separate so resource and pass IDs do not collide in
+    // any shared map (none today, but the contract is enforced by
+    // construction).
+    //
+    // ID 0 is reserved as the invalid sentinel; the first real interned ID
+    // is 1. `Intern` adds; `Find` is read-only.
+    // Heterogeneous hash + equality so a `std::unordered_map<std::string, V>`
+    // can be looked up via `std::string_view` / `const char*` without
+    // allocating a temporary `std::string` per call. Use these as the third
+    // and fourth template arguments to `unordered_map` / `unordered_set` to
+    // get free transparent lookup. Also used internally by `RGStringInterner`
+    // for the same reason.
+    struct RGStringTransparentHash
+    {
+        using is_transparent = void;
+        [[nodiscard]] size_t operator()(std::string_view sv) const noexcept { return std::hash<std::string_view>{}(sv); }
+        [[nodiscard]] size_t operator()(const std::string& s) const noexcept { return std::hash<std::string_view>{}(s); }
+        [[nodiscard]] size_t operator()(const char* s) const noexcept { return std::hash<std::string_view>{}(s); }
+    };
+    struct RGStringTransparentEqual
+    {
+        using is_transparent = void;
+        [[nodiscard]] bool operator()(std::string_view a, std::string_view b) const noexcept { return a == b; }
+        [[nodiscard]] bool operator()(const std::string& a, std::string_view b) const noexcept { return a == b; }
+        [[nodiscard]] bool operator()(std::string_view a, const std::string& b) const noexcept { return a == b; }
+        [[nodiscard]] bool operator()(const std::string& a, const std::string& b) const noexcept { return a == b; }
+    };
+
+    template <typename V>
+    using RGTransparentStringMap = std::unordered_map<std::string, V, RGStringTransparentHash, RGStringTransparentEqual>;
+    using RGTransparentStringSet = std::unordered_set<std::string, RGStringTransparentHash, RGStringTransparentEqual>;
+
+    class RGStringInterner
+    {
+      public:
+        // Returns a stable u32 ID for `name`. Same name -> same ID across
+        // the lifetime of the interner. Empty names return 0.
+        u32 Intern(std::string_view name)
+        {
+            if (name.empty())
+                return 0u;
+            if (const auto it = m_IDByName.find(name); it != m_IDByName.end())
+                return it->second;
+            const auto id = static_cast<u32>(m_NameByID.size());
+            m_NameByID.emplace_back(name);
+            // Reference into the owned NameByID vector so the map's key is
+            // stable; entries are append-only so this is safe.
+            m_IDByName.emplace(m_NameByID.back(), id);
+            return id;
+        }
+
+        [[nodiscard]] u32 Find(std::string_view name) const
+        {
+            if (name.empty())
+                return 0u;
+            if (const auto it = m_IDByName.find(name); it != m_IDByName.end())
+                return it->second;
+            return 0u;
+        }
+
+        [[nodiscard]] std::string_view NameOf(u32 id) const
+        {
+            if (id == 0u || id >= m_NameByID.size())
+                return {};
+            return m_NameByID[id];
+        }
+
+        [[nodiscard]] sizet Size() const
+        {
+            // Index 0 is reserved as the invalid sentinel.
+            return m_NameByID.empty() ? 0u : (m_NameByID.size() - 1u);
+        }
+
+        void Clear()
+        {
+            m_IDByName.clear();
+            m_NameByID.clear();
+            // Reserve slot 0 as the invalid sentinel.
+            m_NameByID.emplace_back();
+        }
+
+        RGStringInterner()
+        {
+            // Reserve slot 0 as the invalid sentinel so a default-constructed
+            // ID always means "unknown".
+            m_NameByID.emplace_back();
+        }
+
+      private:
+        RGTransparentStringMap<u32> m_IDByName;
+        std::vector<std::string> m_NameByID; // index 0 unused (invalid sentinel)
+    };
+
     // @brief Manages a graph of render nodes forming a complete rendering pipeline.
     class RenderGraph : public RefCounted
     {
@@ -239,19 +340,16 @@ namespace OloEngine
         // tables. Used by the Render Graph Debugger to surface what
         // GetTextureHandle / GetFramebufferHandle would resolve to without
         // mutating state. Not for runtime use.
-        [[nodiscard]] const std::unordered_map<std::string, std::string>& GetTextureBaseNameAliases() const
-        {
-            return m_TextureBaseNameAliases;
-        }
-        [[nodiscard]] const std::unordered_map<std::string, std::string>& GetFramebufferBaseNameAliases() const
-        {
-            return m_FramebufferBaseNameAliases;
-        }
-        [[nodiscard]] const std::unordered_map<std::string, RGTextureHandle>& GetLatestTextureHandlesByBaseName() const
+        // Resolved alias snapshots for the debugger. Built on demand from
+        // the id-keyed internal maps so the storage layout can stay packed
+        // without forcing the debugger to learn about interned IDs.
+        [[nodiscard]] std::map<std::string, std::string> GetTextureBaseNameAliases() const;
+        [[nodiscard]] std::map<std::string, std::string> GetFramebufferBaseNameAliases() const;
+        [[nodiscard]] const RGTransparentStringMap<RGTextureHandle>& GetLatestTextureHandlesByBaseName() const
         {
             return m_LatestTextureHandlesByBaseName;
         }
-        [[nodiscard]] const std::unordered_map<std::string, RGFramebufferHandle>& GetLatestFramebufferHandlesByBaseName() const
+        [[nodiscard]] const RGTransparentStringMap<RGFramebufferHandle>& GetLatestFramebufferHandlesByBaseName() const
         {
             return m_LatestFramebufferHandlesByBaseName;
         }
@@ -1045,6 +1143,13 @@ namespace OloEngine
         [[nodiscard]] RenderGraphPassWorkType GetGraphEntryWorkType(std::string_view name) const;
         [[nodiscard]] std::vector<Hazard> ValidateResourceHazardsInternal();
 
+        // String interners — see `RGStringInterner` for rationale.
+        // `m_ResourceNames` covers texture / framebuffer / buffer / view
+        // names; `m_PassNames` covers pass / node names. Kept separate so
+        // resource and pass IDs never share an ID space.
+        mutable RGStringInterner m_ResourceNames;
+        mutable RGStringInterner m_PassNames;
+
         std::unordered_map<std::string, Ref<RenderGraphNode>> m_NodeLookup;
         std::unordered_map<std::string, std::vector<std::string>> m_Dependencies;         // Execution ordering
         std::unordered_map<std::string, std::vector<std::string>> m_ExplicitDependencies; // Persistent ordering edges
@@ -1103,18 +1208,25 @@ namespace OloEngine
         mutable std::unordered_map<std::string, ResourceInfo> m_ResourceRegistry;
         mutable std::vector<ResourceInfo> m_RegisteredResources;
         mutable std::vector<Hazard> m_ResourceRegistryDiagnostics;
-        mutable std::unordered_map<std::string, RGTextureHandle> m_TextureHandlesByName;
-        mutable std::unordered_map<std::string, RGBufferHandle> m_BufferHandlesByName;
-        mutable std::unordered_map<std::string, RGFramebufferHandle> m_FramebufferHandlesByName;
-        mutable std::unordered_map<std::string, RGTextureHandle> m_LatestTextureHandlesByBaseName;
-        mutable std::unordered_map<std::string, RGBufferHandle> m_LatestBufferHandlesByBaseName;
-        mutable std::unordered_map<std::string, RGFramebufferHandle> m_LatestFramebufferHandlesByBaseName;
+        // Transparent string maps so `find(string_view)` is allocation-free.
+        // Keys stay as `std::string` (callers still create the entries via
+        // `string`, and the templated `RenderGraphHandleAllocator` operates
+        // on the string key directly), but reads avoid the per-call
+        // temporary-string round trip that was the actual hot-path cost.
+        mutable RGTransparentStringMap<RGTextureHandle> m_TextureHandlesByName;
+        mutable RGTransparentStringMap<RGBufferHandle> m_BufferHandlesByName;
+        mutable RGTransparentStringMap<RGFramebufferHandle> m_FramebufferHandlesByName;
+        mutable RGTransparentStringMap<RGTextureHandle> m_LatestTextureHandlesByBaseName;
+        mutable RGTransparentStringMap<RGBufferHandle> m_LatestBufferHandlesByBaseName;
+        mutable RGTransparentStringMap<RGFramebufferHandle> m_LatestFramebufferHandlesByBaseName;
         // Base-name aliases: alias name -> target base name. Resolved by
         // GetTextureHandle / GetFramebufferHandle through the latest-version
         // maps, so callers reading by the alias name pick up whichever
         // pass produced the latest output for the active configuration.
-        std::unordered_map<std::string, std::string> m_TextureBaseNameAliases;
-        std::unordered_map<std::string, std::string> m_FramebufferBaseNameAliases;
+        // Interned aliasName ID -> interned targetBaseName ID. Both sides
+        // hit the resource interner; lookups are O(1) u32 compares.
+        std::unordered_map<u32, u32> m_TextureBaseNameAliases;
+        std::unordered_map<u32, u32> m_FramebufferBaseNameAliases;
         mutable std::unordered_map<std::string, RGResourceDesc> m_TextureViewResourceDescs;
 
         enum class FramebufferAttachmentViewKind : u8
@@ -1247,8 +1359,12 @@ namespace OloEngine
         std::vector<TemporalHistoryContract> m_TemporalHistoryContracts;
         std::unordered_map<ExternalTextureSinkKey, ExternalTextureSink, ExternalTextureSinkKeyHash> m_ExternalTextureSinks;
         std::unordered_map<std::string, HistoryTextureSink> m_HistoryTextureSinks;
-        std::unordered_set<std::string> m_ExternallyBackedTransientTextures;
-        std::unordered_set<std::string> m_ExternallyBackedTransientFramebuffers;
+        // Interned resource-name IDs (via m_ResourceNames) of transient
+        // resources that were imported with explicit external backing. Set
+        // membership replaces the previous string-keyed sets, eliminating
+        // per-lookup string construction in the hot frame-build path.
+        std::unordered_set<u32> m_ExternallyBackedTransientTextures;
+        std::unordered_set<u32> m_ExternallyBackedTransientFramebuffers;
 
         // -------------------------------------------------------------------
         // Frame blackboard
@@ -1311,7 +1427,7 @@ namespace OloEngine
 
         std::unordered_map<std::string, RGResourceDesc> m_TransientResourceDescs;
         std::vector<TransientPlanEntry> m_TransientPlan;
-        std::unordered_map<std::string, std::string> m_ExplicitVersionProducers;
+        RGTransparentStringMap<std::string> m_ExplicitVersionProducers;
 
         // Tracks the most recent pass that wrote each resource (by base name).
         // Populated incrementally during BuildFrameGraph's Setup loop so a
@@ -1319,6 +1435,6 @@ namespace OloEngine
         // explicit DependsOnPass edge for read-modify-write chains without
         // every modifier needing a typed pass-pointer setter wired by the
         // pipeline builder. Cleared at the start of every BuildFrameGraph.
-        std::unordered_map<std::string, std::string> m_LastWriterPassNameByResource;
+        RGTransparentStringMap<std::string> m_LastWriterPassNameByResource;
     };
 } // namespace OloEngine

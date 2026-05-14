@@ -29,6 +29,40 @@ namespace OloEngine::RenderGraphTransientPlanner
         return key;
     }
 
+    auto HashAliasGroup(const RGResourceDesc& desc) -> u64
+    {
+        // 64-bit FNV-1a over the descriptor fields. Same identity contract as
+        // BuildAliasGroup — anything that affects backing compatibility goes in.
+        constexpr u64 fnvOffset = 14695981039346656037ULL;
+        constexpr u64 fnvPrime = 1099511628211ULL;
+        u64 h = fnvOffset;
+        const auto mix = [&](u64 v)
+        {
+            for (u32 i = 0; i < 8; ++i)
+            {
+                h ^= (v >> (i * 8u)) & 0xFFu;
+                h *= fnvPrime;
+            }
+        };
+        mix(static_cast<u64>(desc.Kind));
+        mix(static_cast<u64>(desc.Format));
+        mix(static_cast<u64>(desc.Width));
+        mix(static_cast<u64>(desc.Height));
+        mix(static_cast<u64>(desc.DepthOrLayers));
+        mix(static_cast<u64>(desc.MipLevels));
+        mix(static_cast<u64>(desc.Samples));
+        mix(static_cast<u64>(desc.Queue));
+        // MRT formats — order matters and a sentinel separates from a non-MRT
+        // descriptor that happens to have one trailing attachment.
+        if (!desc.Attachments.empty())
+        {
+            mix(0xDEADBEEFCAFEBABEULL); // MRT marker
+            for (const auto fmt : desc.Attachments)
+                mix(static_cast<u64>(fmt));
+        }
+        return h;
+    }
+
     auto EstimateBytes(const RGResourceDesc& desc) -> u64
     {
         auto bytesPerPixelForFormat = [](const RGResourceFormat format) -> u64
@@ -229,8 +263,18 @@ namespace OloEngine::RenderGraphTransientPlanner
         }
 
         // 2. Compose one plan entry per transient descriptor; classify into
-        //    allocatable vs skip-with-reason.
+        //    allocatable vs skip-with-reason. We compute the hashed alias
+        //    group key once per entry and use it for the sort comparator
+        //    and the slot-assignment lookups below — string compares would
+        //    cost O(L) per touch otherwise. The string form survives only
+        //    for JSON output via `TransientPlanEntry::AliasGroup`.
         plan.reserve(input.TransientResourceDescs.size());
+        // Sidecar map: resourceName → hashed alias group. The key uses the
+        // owned std::string in the input map (stable through this function),
+        // not a string_view into entry.Resource which gets moved-from when we
+        // push_back below.
+        std::unordered_map<std::string, u64> aliasGroupHashByResource;
+        aliasGroupHashByResource.reserve(input.TransientResourceDescs.size());
         for (const auto& [resourceName, desc] : input.TransientResourceDescs)
         {
             RenderGraph::TransientPlanEntry entry;
@@ -238,6 +282,7 @@ namespace OloEngine::RenderGraphTransientPlanner
             entry.Kind = desc.Kind;
             entry.AliasGroup = BuildAliasGroup(desc);
             entry.EstimatedBytes = EstimateBytes(desc);
+            aliasGroupHashByResource.emplace(resourceName, HashAliasGroup(desc));
 
             if (const auto ltIt = lifetimes.find(resourceName); ltIt != lifetimes.end())
             {
@@ -269,30 +314,34 @@ namespace OloEngine::RenderGraphTransientPlanner
             plan.push_back(std::move(entry));
         }
 
-        // 3. Canonical sort: by alias group, then by first-use pass index,
-        //    then by resource name (deterministic across rebuilds).
+        // 3. Canonical sort: by alias-group hash, then by first-use pass
+        //    index, then by resource name (deterministic across rebuilds).
+        //    The hash lookup replaces an O(L) string compare per probe.
         std::sort(plan.begin(), plan.end(),
-                  [](const RenderGraph::TransientPlanEntry& lhs, const RenderGraph::TransientPlanEntry& rhs)
+                  [&](const RenderGraph::TransientPlanEntry& lhs, const RenderGraph::TransientPlanEntry& rhs)
                   {
-                      if (lhs.AliasGroup != rhs.AliasGroup)
-                          return lhs.AliasGroup < rhs.AliasGroup;
+                      const auto lhsHash = aliasGroupHashByResource.at(lhs.Resource);
+                      const auto rhsHash = aliasGroupHashByResource.at(rhs.Resource);
+                      if (lhsHash != rhsHash)
+                          return lhsHash < rhsHash;
                       if (lhs.FirstPassIndex != rhs.FirstPassIndex)
                           return lhs.FirstPassIndex < rhs.FirstPassIndex;
                       return lhs.Resource < rhs.Resource;
                   });
 
         // 4. Alias-slot assignment per alias group: non-overlapping lifetimes
-        //    share a slot, otherwise allocate a new one.
+        //    share a slot, otherwise allocate a new one. Keyed by hash, not
+        //    string, so lookups are O(1) hash compare instead of O(L) string.
         struct ActiveSlot
         {
             u32 Slot = 0;
             u32 LastPassIndex = 0;
         };
 
-        std::unordered_map<std::string, std::vector<ActiveSlot>> activeByGroup;
+        std::unordered_map<u64, std::vector<ActiveSlot>> activeByGroup;
         activeByGroup.reserve(plan.size());
 
-        std::unordered_map<std::string, u32> nextSlotByGroup;
+        std::unordered_map<u64, u32> nextSlotByGroup;
         nextSlotByGroup.reserve(plan.size());
 
         for (auto& entry : plan)
@@ -300,7 +349,8 @@ namespace OloEngine::RenderGraphTransientPlanner
             if (!entry.WillAllocate)
                 continue;
 
-            auto& active = activeByGroup[entry.AliasGroup];
+            const auto groupHash = aliasGroupHashByResource.at(entry.Resource);
+            auto& active = activeByGroup[groupHash];
             auto slotAssigned = std::numeric_limits<u32>::max();
 
             for (auto& candidate : active)
@@ -315,7 +365,7 @@ namespace OloEngine::RenderGraphTransientPlanner
 
             if (slotAssigned == std::numeric_limits<u32>::max())
             {
-                slotAssigned = nextSlotByGroup[entry.AliasGroup]++;
+                slotAssigned = nextSlotByGroup[groupHash]++;
                 active.push_back(ActiveSlot{ .Slot = slotAssigned, .LastPassIndex = entry.LastPassIndex });
             }
 

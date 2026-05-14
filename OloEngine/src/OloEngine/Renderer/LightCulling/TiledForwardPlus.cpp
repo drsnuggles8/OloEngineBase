@@ -1,5 +1,5 @@
 #include "OloEnginePCH.h"
-#include "OloEngine/Renderer/LightCulling/ClusteredForward.h"
+#include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Scene/Scene.h"
@@ -9,7 +9,7 @@
 
 namespace OloEngine
 {
-    void ClusteredForward::Initialize(u32 screenWidth, u32 screenHeight)
+    void TiledForwardPlus::Initialize(u32 screenWidth, u32 screenHeight)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -24,17 +24,17 @@ namespace OloEngine
         // Only mark as initialized if all sub-components succeeded
         if (!m_LightGrid.IsInitialized() || !m_LightBuffer.IsInitialized() || !m_CullingPass.IsValid() || !m_ForwardPlusUBO)
         {
-            OLO_CORE_ERROR("ClusteredForward: Initialization failed — one or more sub-components are invalid");
+            OLO_CORE_ERROR("TiledForwardPlus: Initialization failed — one or more sub-components are invalid");
             m_Initialized = false;
             return;
         }
 
         m_Initialized = true;
-        OLO_CORE_INFO("ClusteredForward: Initialized ({}x{}, tile={}px)",
+        OLO_CORE_INFO("TiledForwardPlus: Initialized ({}x{}, tile={}px)",
                       screenWidth, screenHeight, m_GridConfig.TileSizePixels);
     }
 
-    void ClusteredForward::Shutdown()
+    void TiledForwardPlus::Shutdown()
     {
         m_ForwardPlusUBO.Reset();
         m_LightGrid.Shutdown();
@@ -44,7 +44,7 @@ namespace OloEngine
         m_Initialized = false;
     }
 
-    void ClusteredForward::Resize(u32 screenWidth, u32 screenHeight)
+    void TiledForwardPlus::Resize(u32 screenWidth, u32 screenHeight)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -54,7 +54,7 @@ namespace OloEngine
         }
     }
 
-    void ClusteredForward::GatherLights(const Scene& scene)
+    void TiledForwardPlus::GatherLights(const Scene& scene)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -134,7 +134,7 @@ namespace OloEngine
         }
     }
 
-    void ClusteredForward::DispatchCulling(const glm::mat4& viewMatrix,
+    void TiledForwardPlus::DispatchCulling(const glm::mat4& viewMatrix,
                                            const glm::mat4& projectionMatrix,
                                            u32 depthTextureID)
     {
@@ -149,7 +149,7 @@ namespace OloEngine
                                viewMatrix, projectionMatrix, depthTextureID);
     }
 
-    void ClusteredForward::BindForShading()
+    void TiledForwardPlus::BindForShading()
     {
         OLO_PROFILE_FUNCTION();
 
@@ -176,7 +176,7 @@ namespace OloEngine
         }
     }
 
-    void ClusteredForward::UnbindAfterShading() const
+    void TiledForwardPlus::UnbindAfterShading() const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -189,7 +189,7 @@ namespace OloEngine
         m_LightBuffer.Unbind();
     }
 
-    void ClusteredForward::UploadDisabledUBO()
+    void TiledForwardPlus::UploadDisabledUBO()
     {
         OLO_PROFILE_FUNCTION();
 
@@ -204,18 +204,18 @@ namespace OloEngine
         m_ForwardPlusUBO->Bind();
     }
 
-    bool ClusteredForward::ShouldUseForwardPlus() const
+    bool TiledForwardPlus::ShouldUseForwardPlus() const
     {
         return m_ActiveThisFrame && m_Initialized;
     }
 
-    void ClusteredForward::SetTileSize(u32 tileSize)
+    void TiledForwardPlus::SetTileSize(u32 tileSize)
     {
         // The compute shader uses layout(local_size_x=16, local_size_y=16);
         // only tileSize=16 is supported until shader variants are implemented.
         if (tileSize != 16)
         {
-            OLO_CORE_WARN("ClusteredForward::SetTileSize: Only tile size 16 is supported (requested {}). "
+            OLO_CORE_WARN("TiledForwardPlus::SetTileSize: Only tile size 16 is supported (requested {}). "
                           "Clamping to 16 until shader variants are implemented.",
                           tileSize);
             tileSize = 16;
@@ -232,7 +232,7 @@ namespace OloEngine
                                        m_GridConfig);
                 if (!m_LightGrid.IsInitialized())
                 {
-                    OLO_CORE_ERROR("ClusteredForward::SetTileSize: Re-initialization failed, rolling back");
+                    OLO_CORE_ERROR("TiledForwardPlus::SetTileSize: Re-initialization failed, rolling back");
                     m_GridConfig = oldConfig;
                     m_Initialized = false;
                     m_ActiveThisFrame = false;
@@ -241,29 +241,7 @@ namespace OloEngine
         }
     }
 
-    void ClusteredForward::SetDepthSlices(u32 slices)
-    {
-        if (slices != m_GridConfig.DepthSlices && slices > 0)
-        {
-            const auto oldConfig = m_GridConfig;
-            m_GridConfig.DepthSlices = slices;
-            if (m_Initialized)
-            {
-                m_LightGrid.Initialize(m_LightGrid.GetScreenWidth(),
-                                       m_LightGrid.GetScreenHeight(),
-                                       m_GridConfig);
-                if (!m_LightGrid.IsInitialized())
-                {
-                    OLO_CORE_ERROR("ClusteredForward::SetDepthSlices: Re-initialization failed, rolling back");
-                    m_GridConfig = oldConfig;
-                    m_Initialized = false;
-                    m_ActiveThisFrame = false;
-                }
-            }
-        }
-    }
-
-    void ClusteredForward::RenderDebugOverlay(u32 fullscreenQuadVAO, const Ref<Shader>& debugShader)
+    void TiledForwardPlus::RenderDebugOverlay(u32 fullscreenQuadVAO, const Ref<Shader>& debugShader)
     {
         OLO_PROFILE_FUNCTION();
 

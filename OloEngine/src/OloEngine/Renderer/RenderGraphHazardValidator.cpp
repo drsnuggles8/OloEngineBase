@@ -100,7 +100,10 @@ namespace OloEngine::RenderGraphHazardValidator
 
         // 3. Same-pass feedback validation. A pass that reads and writes
         //    overlapping subresources of the same resource must declare it
-        //    via builder.AllowFeedback(); otherwise emit a Feedback hazard.
+        //    via builder.AllowSamePassReadWrite(); otherwise emit a Feedback
+        //    hazard. The declaration is only correct for genuine intra-pass
+        //    ping-pong / iteration patterns; inter-pass RMW must rename via
+        //    WriteNewVersion instead.
         const auto feedbackCoversOverlap = [&input](const std::string& passName,
                                                     const RGAccessDeclaration& readAccess,
                                                     const RGAccessDeclaration& writeAccess)

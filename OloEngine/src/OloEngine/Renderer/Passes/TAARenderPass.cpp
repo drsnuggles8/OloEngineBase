@@ -41,25 +41,25 @@ namespace OloEngine
         if (!m_Enabled)
             return;
 
-        if (blackboard.SceneDepth.IsValid())
+        if (blackboard.Scene.SceneDepth.IsValid())
         {
-            m_SelectedSceneDepthTexture = blackboard.SceneDepth;
-            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.SceneDepth, RGReadUsage::ShaderSample);
+            m_SelectedSceneDepthTexture = blackboard.Scene.SceneDepth;
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.Scene.SceneDepth, RGReadUsage::ShaderSample);
         }
-        if (blackboard.Velocity.IsValid())
+        if (blackboard.GBuffer.Velocity.IsValid())
         {
-            m_SelectedVelocityTexture = blackboard.Velocity;
-            [[maybe_unused]] const auto velocityRead = builder.Read(blackboard.Velocity, RGReadUsage::ShaderSample);
+            m_SelectedVelocityTexture = blackboard.GBuffer.Velocity;
+            [[maybe_unused]] const auto velocityRead = builder.Read(blackboard.GBuffer.Velocity, RGReadUsage::ShaderSample);
         }
-        if (blackboard.TAAHistory.IsValid())
+        if (blackboard.Temporal.TAAHistory.IsValid())
         {
-            m_SelectedHistoryTexture = blackboard.TAAHistory;
-            [[maybe_unused]] const auto taaHistoryRead = builder.Read(blackboard.TAAHistory, RGReadUsage::ShaderSample);
+            m_SelectedHistoryTexture = blackboard.Temporal.TAAHistory;
+            [[maybe_unused]] const auto taaHistoryRead = builder.Read(blackboard.Temporal.TAAHistory, RGReadUsage::ShaderSample);
         }
-        if (blackboard.TAAColor.IsValid())
+        if (blackboard.Post.TAAColor.IsValid())
         {
             constexpr std::string_view taaVersionTag = "TAAPass";
-            const auto outputHandle = builder.WriteNewVersion(blackboard.TAAColor, RGWriteUsage::RenderTarget, taaVersionTag);
+            const auto outputHandle = builder.WriteNewVersion(blackboard.Post.TAAColor, RGWriteUsage::RenderTarget, taaVersionTag);
             if (!outputHandle.IsValid())
                 return;
 
@@ -103,13 +103,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        Ref<Framebuffer> inputFramebuffer;
+        // Sample-only consumer: input framebuffer is intentionally not
+        // resolved here — see ReadFirstValidVersionedInputForPass docs.
         u32 inputColorTextureID = 0u;
-        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
-        {
-            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
-                inputFramebuffer = resolvedInput;
-        }
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
             inputColorTextureID = context.ResolveTexture(inputTextureHandle);
 
@@ -130,11 +126,11 @@ namespace OloEngine
             historyTextureID = context.ResolveTexture(m_SelectedHistoryTexture);
         if (!m_Enabled)
         {
-            m_Target = inputFramebuffer;
+            m_Target = nullptr;
             return;
         }
 
-        if (!inputFramebuffer || inputColorTextureID == 0u || !outputFramebuffer || !m_TAAShader || !m_TAAUBO)
+        if (inputColorTextureID == 0u || !outputFramebuffer || !m_TAAShader || !m_TAAUBO)
         {
             m_Target = nullptr;
             return;

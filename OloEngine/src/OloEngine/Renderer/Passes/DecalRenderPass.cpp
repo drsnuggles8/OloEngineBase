@@ -28,37 +28,44 @@ namespace OloEngine
         if (m_CommandBucket.GetCommandCount() == 0)
             return;
 
-        const bool hasProjectionDepth = board.SceneDepth.IsValid();
-        const bool writesOIT = m_OITEnabled && (board.OITAccum.IsValid() || board.OITRevealage.IsValid());
-        const bool writesSceneColor = !m_OITEnabled && board.SceneColor.IsValid();
+        const bool hasProjectionDepth = board.Scene.SceneDepth.IsValid();
+        const bool writesOIT = m_OITEnabled && (board.OIT.OITAccum.IsValid() || board.OIT.OITRevealage.IsValid());
+        const bool writesSceneColor = !m_OITEnabled && board.Scene.SceneColor.IsValid();
 
         if (hasProjectionDepth && (writesOIT || writesSceneColor))
         {
-            m_SelectedSceneDepthTexture = board.SceneDepth;
-            [[maybe_unused]] const auto sceneDepthRead = builder.Read(board.SceneDepth, RGReadUsage::ShaderSample);
+            m_SelectedSceneDepthTexture = board.Scene.SceneDepth;
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(board.Scene.SceneDepth, RGReadUsage::ShaderSample);
         }
 
         if (m_OITEnabled)
         {
-            if (board.SceneColor.IsValid())
-                SetPrimaryInputFramebufferHandle(board.SceneColor);
-            if (board.OITBuffer.IsValid())
-                m_SelectedOITFramebuffer = board.OITBuffer;
-            if (board.OITDepthAttachment.IsValid())
+            if (board.Scene.SceneColor.IsValid())
+                SetPrimaryInputFramebufferHandle(board.Scene.SceneColor);
+            if (board.OIT.OITBuffer.IsValid())
+                m_SelectedOITFramebuffer = board.OIT.OITBuffer;
+            if (board.OIT.OITDepthAttachment.IsValid())
             {
-                [[maybe_unused]] const auto oitDepthRead = builder.Read(board.OITDepthAttachment, RGReadUsage::RenderTargetRead);
+                [[maybe_unused]] const auto oitDepthRead = builder.Read(board.OIT.OITDepthAttachment, RGReadUsage::RenderTargetRead);
             }
-            if (board.OITAccum.IsValid())
+            // Inter-pass RMW into the OIT accum/revealage targets cleared
+            // by OITPreparePass. The prior version's RenderTargetRead is the
+            // input side; WriteNewVersion renames the output, so the
+            // validator sees Read("OITAccum") → Write("OITAccum@DecalPass")
+            // with no same-pass feedback loop and downstream readers pick up
+            // the new version via the resource-name version map.
+            constexpr std::string_view decalOITVersionTag = "DecalPass";
+            if (board.OIT.OITAccum.IsValid())
             {
-                builder.AllowFeedback(board.OITAccum);
-                [[maybe_unused]] const auto oitAccumRead = builder.Read(board.OITAccum, RGReadUsage::RenderTargetRead);
-                builder.Write(board.OITAccum, RGWriteUsage::RenderTarget);
+                [[maybe_unused]] const auto oitAccumRead = builder.Read(board.OIT.OITAccum, RGReadUsage::RenderTargetRead);
+                [[maybe_unused]] const auto oitAccumNew =
+                    builder.WriteNewVersion(board.OIT.OITAccum, RGWriteUsage::RenderTarget, decalOITVersionTag);
             }
-            if (board.OITRevealage.IsValid())
+            if (board.OIT.OITRevealage.IsValid())
             {
-                builder.AllowFeedback(board.OITRevealage);
-                [[maybe_unused]] const auto oitRevealageRead = builder.Read(board.OITRevealage, RGReadUsage::RenderTargetRead);
-                builder.Write(board.OITRevealage, RGWriteUsage::RenderTarget);
+                [[maybe_unused]] const auto oitRevealageRead = builder.Read(board.OIT.OITRevealage, RGReadUsage::RenderTargetRead);
+                [[maybe_unused]] const auto oitRevealageNew =
+                    builder.WriteNewVersion(board.OIT.OITRevealage, RGWriteUsage::RenderTarget, decalOITVersionTag);
             }
 
             // Pin OIT writer-chain ordering against OITPreparePass's clear.
@@ -67,15 +74,21 @@ namespace OloEngine
             // declaration; the contributor-to-contributor edge from Particle to
             // Decal is now derived by Particle's Setup via
             // builder.DependsOnPreviousWriter("OITAccum").
-            if (board.OITAccum.IsValid() || board.OITRevealage.IsValid())
+            if (board.OIT.OITAccum.IsValid() || board.OIT.OITRevealage.IsValid())
                 builder.DependsOnPass("OITPreparePass");
         }
-        else if (board.SceneColor.IsValid())
+        else if (board.Scene.SceneColor.IsValid())
         {
-            SetPrimaryInputFramebufferHandle(board.SceneColor);
-            builder.AllowFeedback(board.SceneColor);
-            [[maybe_unused]] const auto sceneColorRead = builder.Read(board.SceneColor, RGReadUsage::RenderTargetRead);
-            builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
+            // Inter-pass RMW: bind the prior SceneColor version as the
+            // render target (so Execute resolves the same physical FB via
+            // GetPrimaryInputFramebufferHandle) and advertise a new version
+            // as this pass's logical output. The prior-version Read precedes
+            // the rename so no same-pass feedback loop is created.
+            SetPrimaryInputFramebufferHandle(board.Scene.SceneColor);
+            [[maybe_unused]] const auto sceneColorRead = builder.Read(board.Scene.SceneColor, RGReadUsage::RenderTargetRead);
+            constexpr std::string_view decalSceneColorVersionTag = "DecalPass";
+            [[maybe_unused]] const auto sceneColorNew =
+                builder.WriteNewVersion(board.Scene.SceneColor, RGWriteUsage::RenderTarget, decalSceneColorVersionTag);
             builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
         }
     }

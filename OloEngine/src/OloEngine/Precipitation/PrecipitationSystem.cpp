@@ -490,6 +490,10 @@ namespace OloEngine
             0.0f, 0.0f, 0.0f);
 
         s_Data.m_PrecipitationUBO->SetData(&gpu, PrecipitationUBOData::GetSize());
+        // SetData updates the underlying buffer but doesn't refresh the
+        // indexed binding point — passes like IBL precompute can displace
+        // binding 18 between this upload and the precipitation post pass.
+        s_Data.m_PrecipitationUBO->Bind();
     }
 
     void PrecipitationSystem::Reset()
@@ -563,5 +567,10 @@ namespace OloEngine
             stats.GPUTimeMs = s_Data.m_LastFrameTimeMs;
         }
         return stats;
+    }
+
+    Ref<UniformBuffer> PrecipitationSystem::GetPrecipitationUBO()
+    {
+        return s_Data.m_PrecipitationUBO;
     }
 } // namespace OloEngine

@@ -51,19 +51,19 @@ namespace OloEngine
 
         if (useMSAAShading)
         {
-            m_SelectedInputs.GBufferAlbedo = blackboard.GBufferAlbedoMS;
-            m_SelectedInputs.GBufferNormal = blackboard.GBufferNormalMS;
-            m_SelectedInputs.GBufferEmissive = blackboard.GBufferEmissiveMS;
-            m_SelectedInputs.SceneDepth = blackboard.SceneDepthMS;
-            m_SelectedInputs.Velocity = blackboard.VelocityMS;
+            m_SelectedInputs.GBufferAlbedo = blackboard.GBuffer.GBufferAlbedoMS;
+            m_SelectedInputs.GBufferNormal = blackboard.GBuffer.GBufferNormalMS;
+            m_SelectedInputs.GBufferEmissive = blackboard.GBuffer.GBufferEmissiveMS;
+            m_SelectedInputs.SceneDepth = blackboard.GBuffer.SceneDepthMS;
+            m_SelectedInputs.Velocity = blackboard.GBuffer.VelocityMS;
         }
         else
         {
-            m_SelectedInputs.GBufferAlbedo = blackboard.GBufferAlbedo;
-            m_SelectedInputs.GBufferNormal = blackboard.GBufferNormal;
-            m_SelectedInputs.GBufferEmissive = blackboard.GBufferEmissive;
-            m_SelectedInputs.SceneDepth = blackboard.SceneDepth;
-            m_SelectedInputs.Velocity = blackboard.Velocity;
+            m_SelectedInputs.GBufferAlbedo = blackboard.GBuffer.GBufferAlbedo;
+            m_SelectedInputs.GBufferNormal = blackboard.GBuffer.GBufferNormal;
+            m_SelectedInputs.GBufferEmissive = blackboard.GBuffer.GBufferEmissive;
+            m_SelectedInputs.SceneDepth = blackboard.Scene.SceneDepth;
+            m_SelectedInputs.Velocity = blackboard.GBuffer.Velocity;
         }
 
         if (m_SelectedInputs.GBufferAlbedo.IsValid())
@@ -87,50 +87,50 @@ namespace OloEngine
             [[maybe_unused]] const auto velocityRead = builder.Read(m_SelectedInputs.Velocity, RGReadUsage::ShaderSample);
         }
 
-        if (blackboard.ShadowMapCSM.IsValid())
+        if (blackboard.Shadows.ShadowMapCSM.IsValid())
         {
-            m_SelectedInputs.ShadowMapCSM = blackboard.ShadowMapCSM;
-            [[maybe_unused]] const auto shadowCSMRead = builder.Read(blackboard.ShadowMapCSM, RGReadUsage::ShaderSample);
+            m_SelectedInputs.ShadowMapCSM = blackboard.Shadows.ShadowMapCSM;
+            [[maybe_unused]] const auto shadowCSMRead = builder.Read(blackboard.Shadows.ShadowMapCSM, RGReadUsage::ShaderSample);
         }
-        if (blackboard.ShadowMapSpot.IsValid())
+        if (blackboard.Shadows.ShadowMapSpot.IsValid())
         {
-            m_SelectedInputs.ShadowMapSpot = blackboard.ShadowMapSpot;
-            [[maybe_unused]] const auto shadowSpotRead = builder.Read(blackboard.ShadowMapSpot, RGReadUsage::ShaderSample);
+            m_SelectedInputs.ShadowMapSpot = blackboard.Shadows.ShadowMapSpot;
+            [[maybe_unused]] const auto shadowSpotRead = builder.Read(blackboard.Shadows.ShadowMapSpot, RGReadUsage::ShaderSample);
         }
-        for (size_t i = 0; i < blackboard.ShadowMapPoint.size() && i < m_SelectedInputs.ShadowMapPoint.size(); ++i)
+        for (size_t i = 0; i < blackboard.Shadows.ShadowMapPoint.size() && i < m_SelectedInputs.ShadowMapPoint.size(); ++i)
         {
-            const auto& pointHandle = blackboard.ShadowMapPoint[i];
+            const auto& pointHandle = blackboard.Shadows.ShadowMapPoint[i];
             if (pointHandle.IsValid())
             {
                 m_SelectedInputs.ShadowMapPoint[i] = pointHandle;
                 [[maybe_unused]] const auto pointRead = builder.Read(pointHandle, RGReadUsage::ShaderSample);
             }
         }
-        if (blackboard.AOBuffer.IsValid())
+        if (blackboard.AO.AOBuffer.IsValid())
         {
-            m_SelectedInputs.AOBuffer = blackboard.AOBuffer;
-            [[maybe_unused]] const auto aoRead = builder.Read(blackboard.AOBuffer, RGReadUsage::ShaderSample);
+            m_SelectedInputs.AOBuffer = blackboard.AO.AOBuffer;
+            [[maybe_unused]] const auto aoRead = builder.Read(blackboard.AO.AOBuffer, RGReadUsage::ShaderSample);
         }
-        if (blackboard.IrradianceMap.IsValid())
+        if (blackboard.IBL.IrradianceMap.IsValid())
         {
-            m_SelectedInputs.IrradianceMap = blackboard.IrradianceMap;
-            [[maybe_unused]] const auto irradianceRead = builder.Read(blackboard.IrradianceMap, RGReadUsage::ShaderSample);
+            m_SelectedInputs.IrradianceMap = blackboard.IBL.IrradianceMap;
+            [[maybe_unused]] const auto irradianceRead = builder.Read(blackboard.IBL.IrradianceMap, RGReadUsage::ShaderSample);
         }
-        if (blackboard.PrefilterMap.IsValid())
+        if (blackboard.IBL.PrefilterMap.IsValid())
         {
-            m_SelectedInputs.PrefilterMap = blackboard.PrefilterMap;
-            [[maybe_unused]] const auto prefilterRead = builder.Read(blackboard.PrefilterMap, RGReadUsage::ShaderSample);
+            m_SelectedInputs.PrefilterMap = blackboard.IBL.PrefilterMap;
+            [[maybe_unused]] const auto prefilterRead = builder.Read(blackboard.IBL.PrefilterMap, RGReadUsage::ShaderSample);
         }
-        if (blackboard.BrdfLut.IsValid())
+        if (blackboard.IBL.BrdfLut.IsValid())
         {
-            m_SelectedInputs.BrdfLut = blackboard.BrdfLut;
-            [[maybe_unused]] const auto brdfRead = builder.Read(blackboard.BrdfLut, RGReadUsage::ShaderSample);
+            m_SelectedInputs.BrdfLut = blackboard.IBL.BrdfLut;
+            [[maybe_unused]] const auto brdfRead = builder.Read(blackboard.IBL.BrdfLut, RGReadUsage::ShaderSample);
         }
 
-        if (blackboard.SceneColor.IsValid())
+        if (blackboard.Scene.SceneColor.IsValid())
         {
-            SetPrimaryInputFramebufferHandle(blackboard.SceneColor);
-            builder.Write(blackboard.SceneColor, RGWriteUsage::RenderTarget);
+            SetPrimaryInputFramebufferHandle(blackboard.Scene.SceneColor);
+            builder.Write(blackboard.Scene.SceneColor, RGWriteUsage::RenderTarget);
         }
     }
 
@@ -317,12 +317,16 @@ namespace OloEngine
         // Shadow maps — resolve through the graph from setup-stored handles.
         // The Forward shader expects these in the same slots so binding 6 (shadow
         // matrices UBO) carries compatible data either path.
+        // Bind 1x1 placeholder shadow textures of the correct target type
+        // when no real shadow map is available — the shader's
+        // u_*ShadowEnabled flags still prevent sampling, but some drivers
+        // validate the bound target against the sampler type at draw time.
         const u32 csmShadowID = m_SelectedInputs.ShadowMapCSM.IsValid()
                                     ? context.ResolveTexture(m_SelectedInputs.ShadowMapCSM)
-                                    : 0u;
+                                    : ShadowMap::GetCSMPlaceholderRendererID();
         const u32 spotShadowID = m_SelectedInputs.ShadowMapSpot.IsValid()
                                      ? context.ResolveTexture(m_SelectedInputs.ShadowMapSpot)
-                                     : 0u;
+                                     : ShadowMap::GetSpotPlaceholderRendererID();
         context.BindTexture(ShaderBindingLayout::TEX_SHADOW, csmShadowID);
         context.BindTexture(ShaderBindingLayout::TEX_SHADOW_SPOT, spotShadowID);
         static constexpr std::array<u32, 4u> pointShadowSlots = {
@@ -335,7 +339,7 @@ namespace OloEngine
         {
             const u32 pointID = m_SelectedInputs.ShadowMapPoint[i].IsValid()
                                     ? context.ResolveTexture(m_SelectedInputs.ShadowMapPoint[i])
-                                    : 0u;
+                                    : ShadowMap::GetPointPlaceholderRendererID();
             context.BindTexture(pointShadowSlots[i], pointID);
         }
 

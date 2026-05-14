@@ -30,42 +30,51 @@ namespace OloEngine
         if (m_CommandBucket.GetCommandCount() == 0)
             return;
 
-        if (board.SceneColor.IsValid())
+        if (board.Scene.SceneColor.IsValid())
         {
-            SetPrimaryInputFramebufferHandle(board.SceneColor);
-            builder.AllowFeedback(board.SceneColor);
-            builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
+            // Inter-pass RMW: bind the prior SceneColor version as the
+            // render target (resolved via GetPrimaryInputFramebufferHandle
+            // in Execute) and advertise a renamed output. The SceneColorTexture
+            // sample below provides the prior-version read.
+            SetPrimaryInputFramebufferHandle(board.Scene.SceneColor);
+            constexpr std::string_view waterSceneColorVersionTag = "WaterPass";
+            [[maybe_unused]] const auto sceneColorNew =
+                builder.WriteNewVersion(board.Scene.SceneColor, RGWriteUsage::RenderTarget, waterSceneColorVersionTag);
             builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
         }
 
-        if (board.SceneColorTexture.IsValid())
+        if (board.Scene.SceneColorTexture.IsValid())
         {
-            m_SelectedSceneColorTexture = board.SceneColorTexture;
-            [[maybe_unused]] const auto sceneColorRead = builder.Read(board.SceneColorTexture, RGReadUsage::ShaderSample);
+            m_SelectedSceneColorTexture = board.Scene.SceneColorTexture;
+            [[maybe_unused]] const auto sceneColorRead = builder.Read(board.Scene.SceneColorTexture, RGReadUsage::ShaderSample);
         }
 
-        if (board.SceneDepthAttachment.IsValid())
+        if (board.Scene.SceneDepthAttachment.IsValid())
         {
-            m_SelectedSceneDepthTexture = board.SceneDepthAttachment;
-            [[maybe_unused]] const auto sceneDepthRead = builder.Read(board.SceneDepthAttachment, RGReadUsage::ShaderSample);
+            m_SelectedSceneDepthTexture = board.Scene.SceneDepthAttachment;
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(board.Scene.SceneDepthAttachment, RGReadUsage::ShaderSample);
         }
 
-        if (board.SceneViewNormals.IsValid())
+        if (board.Scene.SceneViewNormals.IsValid())
         {
-            m_SelectedSceneNormalsTexture = board.SceneViewNormals;
-            [[maybe_unused]] const auto sceneNormalsRead = builder.Read(board.SceneViewNormals, RGReadUsage::ShaderSample);
+            m_SelectedSceneNormalsTexture = board.Scene.SceneViewNormals;
+            [[maybe_unused]] const auto sceneNormalsRead = builder.Read(board.Scene.SceneViewNormals, RGReadUsage::ShaderSample);
         }
 
-        if (board.WaterRefraction.IsValid())
+        if (board.Scratch.WaterRefraction.IsValid())
         {
-            m_SelectedRefractionTexture = board.WaterRefraction;
-            builder.AllowFeedback(board.WaterRefraction);
+            m_SelectedRefractionTexture = board.Scratch.WaterRefraction;
+            // Intra-pass transfer-then-sample: Execute glCopyImageSubData's
+            // SceneColor → WaterRefraction and then samples WaterRefraction
+            // as a shader resource within the same Execute. Graph-owned
+            // scratch with no prior writer to chain against.
+            builder.AllowSamePassReadWrite(board.Scratch.WaterRefraction);
             // glCopyImageSubData from SceneColor → WaterRefraction, then sampled
             // back as a shader resource — this is a transfer write, not an
             // image-store. ShaderImage would let the barrier planner schedule
             // an image-access fence instead of a copy-complete fence.
-            builder.Write(board.WaterRefraction, RGWriteUsage::TransferDest);
-            [[maybe_unused]] const auto refractionRead = builder.Read(board.WaterRefraction, RGReadUsage::ShaderSample);
+            builder.Write(board.Scratch.WaterRefraction, RGWriteUsage::TransferDest);
+            [[maybe_unused]] const auto refractionRead = builder.Read(board.Scratch.WaterRefraction, RGReadUsage::ShaderSample);
         }
     }
 

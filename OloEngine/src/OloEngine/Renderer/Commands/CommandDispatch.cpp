@@ -8,7 +8,7 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
-#include "OloEngine/Renderer/LightCulling/ClusteredForward.h"
+#include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -47,7 +47,7 @@ namespace OloEngine
         Ref<UniformBuffer> BoneMatricesUBO = nullptr;
         Ref<UniformBuffer> PrevBoneMatricesUBO = nullptr;
         Ref<UniformBuffer> ModelMatrixUBO = nullptr;
-        ClusteredForward* ForwardPlus = nullptr;
+        TiledForwardPlus* ForwardPlus = nullptr;
         glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
         glm::mat4 ViewMatrix = glm::mat4(1.0f);
         glm::mat4 ProjectionMatrix = glm::mat4(1.0f);
@@ -622,7 +622,7 @@ namespace OloEngine
         const Ref<UniformBuffer>& boneMatricesUBO,
         const Ref<UniformBuffer>& modelMatrixUBO,
         const Ref<UniformBuffer>& prevBoneMatricesUBO,
-        ClusteredForward* forwardPlus)
+        TiledForwardPlus* forwardPlus)
     {
         s_Data.CameraUBO = cameraUBO;
         s_Data.MaterialUBO = materialUBO;

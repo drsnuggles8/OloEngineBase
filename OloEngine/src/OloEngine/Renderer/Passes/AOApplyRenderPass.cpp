@@ -35,16 +35,16 @@ namespace OloEngine
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SceneColor, ResourceNames::SceneColorTexture),
             });
 
-        if (!m_Enabled || !blackboard.AOApplyColor.IsValid() || !blackboard.AOBuffer.IsValid() || !blackboard.SceneDepth.IsValid())
+        if (!m_Enabled || !blackboard.Post.AOApplyColor.IsValid() || !blackboard.AO.AOBuffer.IsValid() || !blackboard.Scene.SceneDepth.IsValid())
             return;
 
-        [[maybe_unused]] const auto aoBufferRead = builder.Read(blackboard.AOBuffer, RGReadUsage::ShaderSample);
-        [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.SceneDepth, RGReadUsage::ShaderSample);
-        m_SelectedAOTexture = blackboard.AOBuffer;
-        m_SelectedSceneDepthTexture = blackboard.SceneDepth;
+        [[maybe_unused]] const auto aoBufferRead = builder.Read(blackboard.AO.AOBuffer, RGReadUsage::ShaderSample);
+        [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.Scene.SceneDepth, RGReadUsage::ShaderSample);
+        m_SelectedAOTexture = blackboard.AO.AOBuffer;
+        m_SelectedSceneDepthTexture = blackboard.Scene.SceneDepth;
 
         constexpr std::string_view aoApplyVersionTag = "AOApplyPass";
-        const auto outputHandle = builder.WriteNewVersion(blackboard.AOApplyColor, RGWriteUsage::RenderTarget, aoApplyVersionTag);
+        const auto outputHandle = builder.WriteNewVersion(blackboard.Post.AOApplyColor, RGWriteUsage::RenderTarget, aoApplyVersionTag);
         if (!outputHandle.IsValid())
             return;
 
@@ -84,13 +84,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        Ref<Framebuffer> inputFramebuffer;
+        // Sample-only consumer: input framebuffer is intentionally not
+        // resolved here — see ReadFirstValidVersionedInputForPass docs.
         u32 inputColorTextureID = 0u;
-        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
-        {
-            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
-                inputFramebuffer = resolvedInput;
-        }
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
             inputColorTextureID = context.ResolveTexture(inputTextureHandle);
 
@@ -109,18 +105,17 @@ namespace OloEngine
 
         if (!m_Enabled)
         {
-            m_Target = inputFramebuffer;
+            m_Target = nullptr;
             return;
         }
 
-        if (!inputFramebuffer || inputColorTextureID == 0u || !outputFramebuffer)
+        if (inputColorTextureID == 0u || !outputFramebuffer)
         {
             m_Target = nullptr;
             static u32 s_MissingInputOrOutputWarnings = 0;
             if (s_MissingInputOrOutputWarnings++ < 10)
             {
-                OLO_CORE_WARN("AOApplyRenderPass: missing input/output (inputFB={}, inputTex={}, outputFB={}, aoTex={}, depthTex={})",
-                              inputFramebuffer ? inputFramebuffer->GetRendererID() : 0u,
+                OLO_CORE_WARN("AOApplyRenderPass: missing input/output (inputTex={}, outputFB={}, aoTex={}, depthTex={})",
                               inputColorTextureID,
                               outputFramebuffer ? outputFramebuffer->GetRendererID() : 0u,
                               aoTextureID,

@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -29,11 +30,15 @@ namespace OloEngine::RenderGraphHandleAllocator
     //     the slot table otherwise. Keeps the parallel physical-resource
     //     array sized to the slot table.
 
-    template <typename HandleT, typename SlotT>
-    void Reconcile(std::unordered_map<std::string, HandleT>& handlesByName,
+    // The HandlesByNameT / ActiveNamesT parameters are template-deducible so
+    // callers can pass either the plain `unordered_map<string, ...>` form or
+    // the transparent-hash variants used by `RenderGraph` without forcing two
+    // overloads. Same applies to `activeNames` (set vs transparent set).
+    template <typename HandlesByNameT, typename SlotT, typename ActiveNamesT>
+    void Reconcile(HandlesByNameT& handlesByName,
                    std::vector<SlotT>& slots,
                    std::vector<u32>& freeIndices,
-                   const std::unordered_set<std::string>& activeNames)
+                   const ActiveNamesT& activeNames)
     {
         for (auto it = handlesByName.begin(); it != handlesByName.end();)
         {
@@ -59,14 +64,16 @@ namespace OloEngine::RenderGraphHandleAllocator
         }
     }
 
-    template <typename HandleT, typename SlotT, typename PhysicalT, typename MakeHandleFn>
-    HandleT Allocate(const std::string& name,
-                     std::unordered_map<std::string, HandleT>& handlesByName,
-                     std::vector<SlotT>& slots,
-                     std::vector<PhysicalT>& physicals,
-                     std::vector<u32>& freeIndices,
-                     MakeHandleFn makeHandle)
+    template <typename HandlesByNameT, typename SlotT, typename PhysicalT, typename MakeHandleFn>
+    auto Allocate(const std::string& name,
+                  HandlesByNameT& handlesByName,
+                  std::vector<SlotT>& slots,
+                  std::vector<PhysicalT>& physicals,
+                  std::vector<u32>& freeIndices,
+                  MakeHandleFn makeHandle)
     {
+        // HandleT is deduced from the lambda's return type.
+        using HandleT = std::invoke_result_t<MakeHandleFn, u32, u32>;
         const auto ensurePhysicalCapacity = [&physicals](const u32 index)
         {
             if (index >= physicals.size())

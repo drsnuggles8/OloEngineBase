@@ -177,6 +177,8 @@ namespace OloEngine
         m_TransientPlan.clear();
         m_ExplicitVersionProducers.clear();
         m_LastWriterPassNameByResource.clear();
+        m_ResourceNames.Clear();
+        m_PassNames.Clear();
         m_ResourceRegistryDirty = true;
     }
 
@@ -266,6 +268,8 @@ namespace OloEngine
         m_TransientResourceDescs.clear();
         m_TransientPlan.clear();
         m_ExplicitVersionProducers.clear();
+        m_ResourceNames.Clear();
+        m_PassNames.Clear();
 
         m_ResourceRegistryDirty = true;
     }
@@ -338,9 +342,37 @@ namespace OloEngine
         {
             handle.Index = existingIt->second.Index;
             auto& slot = m_TextureHandleSlots[handle.Index];
+
+            // If this slot was previously marked free, remove it from the free
+            // list before reusing it to avoid duplicate allocations of the same index.
+            // Tracked separately so we can decide whether to bump the generation
+            // (free-list reuse always invalidates prior handles).
+            const auto freeIt = std::find(m_FreeTextureHandleIndices.begin(),
+                                          m_FreeTextureHandleIndices.end(),
+                                          handle.Index);
+            const bool wasOnFreeList = (freeIt != m_FreeTextureHandleIndices.end());
+            if (wasOnFreeList)
+                m_FreeTextureHandleIndices.erase(freeIt);
+
+            if (handle.Index >= m_PhysicalTextures.size())
+                m_PhysicalTextures.resize(static_cast<sizet>(handle.Index) + 1u);
+
+            auto& phys = m_PhysicalTextures[handle.Index];
+
+            // Compare prior backing state BEFORE we overwrite it. We only bump
+            // the generation when something the handle actually identifies has
+            // changed; otherwise re-importing the same resource keeps prior
+            // handle copies valid (avoids invalidating every consumer each frame).
+            const bool resourceChanged = (phys.TextureID != textureID) || (phys.IsHistory != isHistory);
+            const bool placeholderChanged = (slot.IsPlaceholder != isPlaceholder) ||
+                                            (slot.PlaceholderReason != placeholderReason);
+            const bool needsGenBump = wasOnFreeList || !slot.Alive || resourceChanged || placeholderChanged;
+
             if (slot.Generation == 0)
                 slot.Generation = 1;
-            ++slot.Generation;
+            if (needsGenBump)
+                ++slot.Generation;
+
             slot.Alive = true;
             slot.Name = std::string(name);
             slot.IsPlaceholder = isPlaceholder;
@@ -348,18 +380,6 @@ namespace OloEngine
             slot.PlaceholderWarnedThisFrame = false;
             handle.Generation = slot.Generation;
 
-            // If this slot was previously marked free, remove it from the free
-            // list before reusing it to avoid duplicate allocations of the same index.
-            const auto freeIt = std::find(m_FreeTextureHandleIndices.begin(),
-                                          m_FreeTextureHandleIndices.end(),
-                                          handle.Index);
-            if (freeIt != m_FreeTextureHandleIndices.end())
-                m_FreeTextureHandleIndices.erase(freeIt);
-
-            if (handle.Index >= m_PhysicalTextures.size())
-                m_PhysicalTextures.resize(static_cast<sizet>(handle.Index) + 1u);
-
-            auto& phys = m_PhysicalTextures[handle.Index];
             phys.TextureID = textureID;
             phys.IsHistory = isHistory;
 
@@ -452,10 +472,36 @@ namespace OloEngine
         {
             handle.Index = existingIt->second.Index;
             auto& slot = m_FramebufferHandleSlots[handle.Index];
-            // Bump generation so any handle copies held by callers from a
-            // previous frame won't accidentally resolve via the old gen — they
-            // just become invalid until the caller re-imports.
-            ++slot.Generation;
+
+            // If this slot was previously marked free, remove it from the free
+            // list before reusing it. Free-list reuse always counts as a
+            // backing-state change for generation purposes.
+            const auto freeIt = std::find(m_FreeFramebufferHandleIndices.begin(),
+                                          m_FreeFramebufferHandleIndices.end(),
+                                          handle.Index);
+            const bool wasOnFreeList = (freeIt != m_FreeFramebufferHandleIndices.end());
+            if (wasOnFreeList)
+                m_FreeFramebufferHandleIndices.erase(freeIt);
+
+            if (handle.Index >= m_PhysicalFramebuffers.size())
+                m_PhysicalFramebuffers.resize(static_cast<sizet>(handle.Index) + 1u);
+
+            auto& phys = m_PhysicalFramebuffers[handle.Index];
+
+            // Bump generation only when the backing resource or placeholder
+            // state actually changes. A no-op re-import keeps prior handle
+            // copies valid, so consumers caching handles across frames don't
+            // get spuriously invalidated.
+            const bool resourceChanged = (phys.FB.get() != fb.get());
+            const bool placeholderChanged = (slot.IsPlaceholder != isPlaceholder) ||
+                                            (slot.PlaceholderReason != placeholderReason);
+            const bool needsGenBump = wasOnFreeList || !slot.Alive || resourceChanged || placeholderChanged;
+
+            if (slot.Generation == 0)
+                slot.Generation = 1;
+            if (needsGenBump)
+                ++slot.Generation;
+
             slot.Alive = true;
             slot.Name = std::string(name);
             slot.IsPlaceholder = isPlaceholder;
@@ -463,16 +509,7 @@ namespace OloEngine
             slot.PlaceholderWarnedThisFrame = false;
             handle.Generation = slot.Generation;
 
-            const auto freeIt = std::find(m_FreeFramebufferHandleIndices.begin(),
-                                          m_FreeFramebufferHandleIndices.end(),
-                                          handle.Index);
-            if (freeIt != m_FreeFramebufferHandleIndices.end())
-                m_FreeFramebufferHandleIndices.erase(freeIt);
-
-            if (handle.Index >= m_PhysicalFramebuffers.size())
-                m_PhysicalFramebuffers.resize(static_cast<sizet>(handle.Index) + 1u);
-
-            m_PhysicalFramebuffers[handle.Index].FB = fb;
+            phys.FB = fb;
             m_FramebufferHandlesByName[std::string(name)] = handle;
             return handle;
         }
@@ -568,9 +605,35 @@ namespace OloEngine
         {
             handle.Index = existingIt->second.Index;
             auto& slot = m_BufferHandleSlots[handle.Index];
+
+            // If this slot was previously marked free, remove it from the free
+            // list before reusing it. Free-list reuse always counts as a
+            // backing-state change for generation purposes.
+            const auto freeIt = std::find(m_FreeBufferHandleIndices.begin(),
+                                          m_FreeBufferHandleIndices.end(),
+                                          handle.Index);
+            const bool wasOnFreeList = (freeIt != m_FreeBufferHandleIndices.end());
+            if (wasOnFreeList)
+                m_FreeBufferHandleIndices.erase(freeIt);
+
+            if (handle.Index >= m_PhysicalBuffers.size())
+                m_PhysicalBuffers.resize(static_cast<sizet>(handle.Index) + 1u);
+
+            auto& phys = m_PhysicalBuffers[handle.Index];
+
+            // Bump generation only when the backing resource or placeholder
+            // state actually changes. A no-op re-import keeps prior handle
+            // copies valid for callers caching handles across frames.
+            const bool resourceChanged = (phys.BufferID != bufferID);
+            const bool placeholderChanged = (slot.IsPlaceholder != isPlaceholder) ||
+                                            (slot.PlaceholderReason != placeholderReason);
+            const bool needsGenBump = wasOnFreeList || !slot.Alive || resourceChanged || placeholderChanged;
+
             if (slot.Generation == 0)
                 slot.Generation = 1;
-            ++slot.Generation;
+            if (needsGenBump)
+                ++slot.Generation;
+
             slot.Alive = true;
             slot.Name = std::string(name);
             slot.IsPlaceholder = isPlaceholder;
@@ -578,16 +641,7 @@ namespace OloEngine
             slot.PlaceholderWarnedThisFrame = false;
             handle.Generation = slot.Generation;
 
-            const auto freeIt = std::find(m_FreeBufferHandleIndices.begin(),
-                                          m_FreeBufferHandleIndices.end(),
-                                          handle.Index);
-            if (freeIt != m_FreeBufferHandleIndices.end())
-                m_FreeBufferHandleIndices.erase(freeIt);
-
-            if (handle.Index >= m_PhysicalBuffers.size())
-                m_PhysicalBuffers.resize(static_cast<sizet>(handle.Index) + 1u);
-
-            m_PhysicalBuffers[handle.Index].BufferID = bufferID;
+            phys.BufferID = bufferID;
             m_BufferHandlesByName[std::string(name)] = handle;
             return handle;
         }
@@ -1807,7 +1861,8 @@ namespace OloEngine
 
         m_TransientResourceDescs[stableName] = transientDesc;
         m_ResourceRegistryDirty = true;
-        m_ExternallyBackedTransientTextures.erase(stableName);
+        if (const u32 nameId = m_ResourceNames.Find(stableName); nameId != 0u)
+            m_ExternallyBackedTransientTextures.erase(nameId);
 
         if (const auto existingIt = m_TextureHandlesByName.find(stableName);
             existingIt != m_TextureHandlesByName.end() &&
@@ -1890,7 +1945,7 @@ namespace OloEngine
             return handle;
 
         const auto stableName = std::string(name);
-        m_ExternallyBackedTransientTextures.insert(stableName);
+        m_ExternallyBackedTransientTextures.insert(m_ResourceNames.Intern(stableName));
 
         if (handle.Index >= m_PhysicalTextures.size())
             m_PhysicalTextures.resize(static_cast<sizet>(handle.Index) + 1u);
@@ -1919,7 +1974,8 @@ namespace OloEngine
 
         m_TransientResourceDescs[stableName] = transientDesc;
         m_ResourceRegistryDirty = true;
-        m_ExternallyBackedTransientFramebuffers.erase(stableName);
+        if (const u32 nameId = m_ResourceNames.Find(stableName); nameId != 0u)
+            m_ExternallyBackedTransientFramebuffers.erase(nameId);
 
         if (const auto existingIt = m_FramebufferHandlesByName.find(stableName);
             existingIt != m_FramebufferHandlesByName.end() &&
@@ -2002,7 +2058,7 @@ namespace OloEngine
             return handle;
 
         const auto stableName = std::string(name);
-        m_ExternallyBackedTransientFramebuffers.insert(stableName);
+        m_ExternallyBackedTransientFramebuffers.insert(m_ResourceNames.Intern(stableName));
 
         if (handle.Index >= m_PhysicalFramebuffers.size())
             m_PhysicalFramebuffers.resize(static_cast<sizet>(handle.Index) + 1u);
@@ -2157,27 +2213,31 @@ namespace OloEngine
     {
         EnsureResourceRegistryBuilt();
 
-        const auto lookupName = std::string(name);
+        // Transparent lookups: pass `name` (string_view) directly into the
+        // transparent map — no per-call std::string construction.
         if (!HasExplicitVersionQualifier(name))
         {
-            if (const auto versionIt = m_LatestTextureHandlesByBaseName.find(lookupName);
+            if (const auto versionIt = m_LatestTextureHandlesByBaseName.find(name);
                 versionIt != m_LatestTextureHandlesByBaseName.end() && IsTextureHandleCurrent(versionIt->second))
             {
                 return versionIt->second;
             }
         }
 
-        if (auto it = m_TextureHandlesByName.find(lookupName); it != m_TextureHandlesByName.end())
+        if (auto it = m_TextureHandlesByName.find(name); it != m_TextureHandlesByName.end())
             return it->second;
 
         // Base-name alias fallback: re-resolve through the target name so
         // the caller picks up the latest version of whichever upstream is
         // active this frame. One-hop only (alias targets are stored as
         // canonical base names; chained aliasing isn't required).
-        if (const auto aliasIt = m_TextureBaseNameAliases.find(lookupName);
-            aliasIt != m_TextureBaseNameAliases.end() && aliasIt->second != lookupName)
+        if (const u32 nameId = m_ResourceNames.Find(name); nameId != 0u)
         {
-            return GetTextureHandle(aliasIt->second);
+            if (const auto aliasIt = m_TextureBaseNameAliases.find(nameId);
+                aliasIt != m_TextureBaseNameAliases.end() && aliasIt->second != nameId)
+            {
+                return GetTextureHandle(m_ResourceNames.NameOf(aliasIt->second));
+            }
         }
 
         return {};
@@ -2187,17 +2247,16 @@ namespace OloEngine
     {
         EnsureResourceRegistryBuilt();
 
-        const auto lookupName = std::string(name);
         if (!HasExplicitVersionQualifier(name))
         {
-            if (const auto versionIt = m_LatestBufferHandlesByBaseName.find(lookupName);
+            if (const auto versionIt = m_LatestBufferHandlesByBaseName.find(name);
                 versionIt != m_LatestBufferHandlesByBaseName.end() && IsBufferHandleCurrent(versionIt->second))
             {
                 return versionIt->second;
             }
         }
 
-        if (auto it = m_BufferHandlesByName.find(lookupName); it != m_BufferHandlesByName.end())
+        if (auto it = m_BufferHandlesByName.find(name); it != m_BufferHandlesByName.end())
             return it->second;
 
         return {};
@@ -2207,24 +2266,26 @@ namespace OloEngine
     {
         EnsureResourceRegistryBuilt();
 
-        const auto lookupName = std::string(name);
         if (!HasExplicitVersionQualifier(name))
         {
-            if (const auto versionIt = m_LatestFramebufferHandlesByBaseName.find(lookupName);
+            if (const auto versionIt = m_LatestFramebufferHandlesByBaseName.find(name);
                 versionIt != m_LatestFramebufferHandlesByBaseName.end() && IsFramebufferHandleCurrent(versionIt->second))
             {
                 return versionIt->second;
             }
         }
 
-        if (auto it = m_FramebufferHandlesByName.find(lookupName); it != m_FramebufferHandlesByName.end())
+        if (auto it = m_FramebufferHandlesByName.find(name); it != m_FramebufferHandlesByName.end())
             return it->second;
 
         // Base-name alias fallback (see GetTextureHandle for rationale).
-        if (const auto aliasIt = m_FramebufferBaseNameAliases.find(lookupName);
-            aliasIt != m_FramebufferBaseNameAliases.end() && aliasIt->second != lookupName)
+        if (const u32 nameId = m_ResourceNames.Find(name); nameId != 0u)
         {
-            return GetFramebufferHandle(aliasIt->second);
+            if (const auto aliasIt = m_FramebufferBaseNameAliases.find(nameId);
+                aliasIt != m_FramebufferBaseNameAliases.end() && aliasIt->second != nameId)
+            {
+                return GetFramebufferHandle(m_ResourceNames.NameOf(aliasIt->second));
+            }
         }
 
         return {};
@@ -2234,14 +2295,36 @@ namespace OloEngine
     {
         if (aliasName.empty() || targetBaseName.empty() || aliasName == targetBaseName)
             return;
-        m_TextureBaseNameAliases[std::string(aliasName)] = std::string(targetBaseName);
+        const u32 aliasId = m_ResourceNames.Intern(aliasName);
+        const u32 targetId = m_ResourceNames.Intern(targetBaseName);
+        m_TextureBaseNameAliases[aliasId] = targetId;
     }
 
     void RenderGraph::RegisterFramebufferAlias(std::string_view aliasName, std::string_view targetBaseName)
     {
         if (aliasName.empty() || targetBaseName.empty() || aliasName == targetBaseName)
             return;
-        m_FramebufferBaseNameAliases[std::string(aliasName)] = std::string(targetBaseName);
+        const u32 aliasId = m_ResourceNames.Intern(aliasName);
+        const u32 targetId = m_ResourceNames.Intern(targetBaseName);
+        m_FramebufferBaseNameAliases[aliasId] = targetId;
+    }
+
+    std::map<std::string, std::string> RenderGraph::GetTextureBaseNameAliases() const
+    {
+        std::map<std::string, std::string> result;
+        for (const auto& [aliasId, targetId] : m_TextureBaseNameAliases)
+            result.emplace(std::string(m_ResourceNames.NameOf(aliasId)),
+                           std::string(m_ResourceNames.NameOf(targetId)));
+        return result;
+    }
+
+    std::map<std::string, std::string> RenderGraph::GetFramebufferBaseNameAliases() const
+    {
+        std::map<std::string, std::string> result;
+        for (const auto& [aliasId, targetId] : m_FramebufferBaseNameAliases)
+            result.emplace(std::string(m_ResourceNames.NameOf(aliasId)),
+                           std::string(m_ResourceNames.NameOf(targetId)));
+        return result;
     }
 
     std::string RenderGraph::ReverseResolveTextureName(RGTextureHandle handle) const
@@ -2552,59 +2635,62 @@ namespace OloEngine
         if (RendererAPI::GetAPI() == RendererAPI::API::None)
             return;
 
-        std::unordered_map<std::string, Ref<Texture>> textureAliases;
-        std::unordered_map<std::string, Ref<Framebuffer>> framebufferAliases;
-        std::unordered_map<std::string, Ref<StorageBuffer>> bufferAliases;
+        // Per (alias-group + alias-slot) — used during pass 1 to acquire a
+        // GPU object once and reuse it for every WillAllocate=true entry that
+        // shares the same group+slot. The transient planner already proved
+        // these entries have non-overlapping lifetimes, so a single physical
+        // resource backs them all.
+        std::unordered_map<std::string, Ref<Texture>> textureAliasesBySlot;
+        std::unordered_map<std::string, Ref<Framebuffer>> framebufferAliasesBySlot;
+        std::unordered_map<std::string, Ref<StorageBuffer>> bufferAliasesBySlot;
 
-        textureAliases.reserve(m_TransientPlan.size());
-        framebufferAliases.reserve(m_TransientPlan.size());
-        bufferAliases.reserve(m_TransientPlan.size());
+        // Per alias-group only (any slot) — used during pass 2 to wire a
+        // WillAllocate=false handle to *some* live sibling in the same group.
+        // These handles previously got their physical pointer nulled even
+        // when a sibling alias still held the live GPU object, breaking the
+        // invariant that "the GPU object is shared by everyone in the group."
+        // External consumers querying these handles (editor picking, frame
+        // capture thumbnails) saw null where the actual resource was sitting
+        // one alias-step away.
+        std::unordered_map<std::string, Ref<Texture>> textureAliasesByGroup;
+        std::unordered_map<std::string, Ref<Framebuffer>> framebufferAliasesByGroup;
+        std::unordered_map<std::string, Ref<StorageBuffer>> bufferAliasesByGroup;
 
+        textureAliasesBySlot.reserve(m_TransientPlan.size());
+        framebufferAliasesBySlot.reserve(m_TransientPlan.size());
+        bufferAliasesBySlot.reserve(m_TransientPlan.size());
+        textureAliasesByGroup.reserve(m_TransientPlan.size());
+        framebufferAliasesByGroup.reserve(m_TransientPlan.size());
+        bufferAliasesByGroup.reserve(m_TransientPlan.size());
+
+        const auto entryIsManaged = [this](const RenderGraph::TransientPlanEntry& entry) -> bool
+        {
+            // Skip resources whose physical backing is owned outside the
+            // transient pool — imported resources keep the importer's slot,
+            // externally-backed transients resolve to caller-supplied backing.
+            // Either case must preserve the existing physical pointer.
+            return !m_ImportedResources.contains(entry.Resource) &&
+                   !IsExternallyBackedTransientResource(entry.Resource);
+        };
+
+        // -------------------------------------------------------------------
+        // Pass 1: acquire GPU objects for WillAllocate=true entries and wire
+        // each entry's handle to its slot's physical pointer. Populate the
+        // by-group map alongside so pass 2 can find sibling aliases.
+        // -------------------------------------------------------------------
         for (const auto& entry : m_TransientPlan)
         {
-            // Guard: never let transient resource planning touch resources
-            // whose physical backing is owned outside the transient pool.
-            // Imported resources are owned by the importer (for example
-            // RenderPipeline::PopulateBlackboard(...)); externally-backed
-            // transients resolve to caller-supplied frame-local backing.
-            // Either case must preserve the existing physical slot.
-            if (m_ImportedResources.contains(entry.Resource) ||
-                IsExternallyBackedTransientResource(entry.Resource))
-            {
+            if (!entryIsManaged(entry))
                 continue;
-            }
 
             const auto descriptorIt = m_TransientResourceDescs.find(entry.Resource);
             if (descriptorIt == m_TransientResourceDescs.end())
                 continue;
 
-            const auto& desc = descriptorIt->second;
             if (!entry.WillAllocate)
-            {
-                if (const auto texIt = m_TextureHandlesByName.find(entry.Resource);
-                    texIt != m_TextureHandlesByName.end() &&
-                    texIt->second.Index < m_PhysicalTextures.size())
-                {
-                    m_PhysicalTextures[texIt->second.Index].TextureID = 0;
-                }
+                continue; // pass 2
 
-                if (const auto fbIt = m_FramebufferHandlesByName.find(entry.Resource);
-                    fbIt != m_FramebufferHandlesByName.end() &&
-                    fbIt->second.Index < m_PhysicalFramebuffers.size())
-                {
-                    m_PhysicalFramebuffers[fbIt->second.Index].FB.Reset();
-                }
-
-                if (const auto bufferIt = m_BufferHandlesByName.find(entry.Resource);
-                    bufferIt != m_BufferHandlesByName.end() &&
-                    bufferIt->second.Index < m_PhysicalBuffers.size())
-                {
-                    m_PhysicalBuffers[bufferIt->second.Index].BufferID = 0;
-                }
-
-                continue;
-            }
-
+            const auto& desc = descriptorIt->second;
             const auto aliasKey = entry.AliasGroup + "#" + std::to_string(entry.AliasSlot);
 
             switch (desc.Kind)
@@ -2614,8 +2700,8 @@ namespace OloEngine
                 case ResourceHandle::Kind::TextureCube:
                 case ResourceHandle::Kind::TextureCubeArray:
                 {
-                    auto textureIt = textureAliases.find(aliasKey);
-                    if (textureIt == textureAliases.end())
+                    auto textureIt = textureAliasesBySlot.find(aliasKey);
+                    if (textureIt == textureAliasesBySlot.end())
                     {
                         TextureSpecification spec;
                         spec.Width = desc.Width;
@@ -2626,7 +2712,10 @@ namespace OloEngine
                         spec.Samples = std::max(desc.Samples, 1u);
 
                         auto transientTexture = m_TransientPool.AcquireTexture(spec);
-                        textureIt = textureAliases.emplace(aliasKey, transientTexture).first;
+                        textureIt = textureAliasesBySlot.emplace(aliasKey, transientTexture).first;
+                        // First time we've seen this alias group with a live
+                        // physical — record it so pass 2's siblings can share.
+                        textureAliasesByGroup.try_emplace(entry.AliasGroup, transientTexture);
                     }
 
                     if (const auto texHandleIt = m_TextureHandlesByName.find(entry.Resource);
@@ -2639,8 +2728,8 @@ namespace OloEngine
                 }
                 case ResourceHandle::Kind::Framebuffer:
                 {
-                    auto framebufferIt = framebufferAliases.find(aliasKey);
-                    if (framebufferIt == framebufferAliases.end())
+                    auto framebufferIt = framebufferAliasesBySlot.find(aliasKey);
+                    if (framebufferIt == framebufferAliasesBySlot.end())
                     {
                         FramebufferSpecification spec;
                         spec.Width = desc.Width;
@@ -2677,7 +2766,8 @@ namespace OloEngine
                         }
 
                         auto transientFramebuffer = m_TransientPool.AcquireFramebuffer(spec);
-                        framebufferIt = framebufferAliases.emplace(aliasKey, transientFramebuffer).first;
+                        framebufferIt = framebufferAliasesBySlot.emplace(aliasKey, transientFramebuffer).first;
+                        framebufferAliasesByGroup.try_emplace(entry.AliasGroup, transientFramebuffer);
                     }
 
                     if (const auto fbHandleIt = m_FramebufferHandlesByName.find(entry.Resource);
@@ -2691,11 +2781,12 @@ namespace OloEngine
                 case ResourceHandle::Kind::UniformBuffer:
                 case ResourceHandle::Kind::StorageBuffer:
                 {
-                    auto bufferIt = bufferAliases.find(aliasKey);
-                    if (bufferIt == bufferAliases.end())
+                    auto bufferIt = bufferAliasesBySlot.find(aliasKey);
+                    if (bufferIt == bufferAliasesBySlot.end())
                     {
                         auto transientBuffer = m_TransientPool.AcquireBuffer(desc.Width);
-                        bufferIt = bufferAliases.emplace(aliasKey, transientBuffer).first;
+                        bufferIt = bufferAliasesBySlot.emplace(aliasKey, transientBuffer).first;
+                        bufferAliasesByGroup.try_emplace(entry.AliasGroup, transientBuffer);
                     }
 
                     if (const auto bufferHandleIt = m_BufferHandlesByName.find(entry.Resource);
@@ -2703,6 +2794,81 @@ namespace OloEngine
                         bufferHandleIt->second.Index < m_PhysicalBuffers.size())
                     {
                         m_PhysicalBuffers[bufferHandleIt->second.Index].BufferID = bufferIt->second ? bufferIt->second->GetRendererID() : 0;
+                    }
+                    break;
+                }
+                case ResourceHandle::Kind::Unknown:
+                default:
+                    break;
+            }
+        }
+
+        // -------------------------------------------------------------------
+        // Pass 2: WillAllocate=false entries inherit the physical resource of
+        // any sibling in the same alias group. If no sibling exists (i.e. the
+        // entire group is unallocated this frame), the handle's physical is
+        // explicitly cleared so a stale pointer from a previous frame can't
+        // resolve to a now-recycled GPU object.
+        // -------------------------------------------------------------------
+        for (const auto& entry : m_TransientPlan)
+        {
+            if (!entryIsManaged(entry))
+                continue;
+
+            const auto descriptorIt = m_TransientResourceDescs.find(entry.Resource);
+            if (descriptorIt == m_TransientResourceDescs.end())
+                continue;
+
+            if (entry.WillAllocate)
+                continue; // already handled in pass 1
+
+            const auto& desc = descriptorIt->second;
+
+            switch (desc.Kind)
+            {
+                case ResourceHandle::Kind::Texture2D:
+                case ResourceHandle::Kind::Texture2DArray:
+                case ResourceHandle::Kind::TextureCube:
+                case ResourceHandle::Kind::TextureCubeArray:
+                {
+                    Ref<Texture> sibling;
+                    if (const auto it = textureAliasesByGroup.find(entry.AliasGroup); it != textureAliasesByGroup.end())
+                        sibling = it->second;
+
+                    if (const auto texHandleIt = m_TextureHandlesByName.find(entry.Resource);
+                        texHandleIt != m_TextureHandlesByName.end() &&
+                        texHandleIt->second.Index < m_PhysicalTextures.size())
+                    {
+                        m_PhysicalTextures[texHandleIt->second.Index].TextureID = sibling ? sibling->GetRendererID() : 0;
+                    }
+                    break;
+                }
+                case ResourceHandle::Kind::Framebuffer:
+                {
+                    Ref<Framebuffer> sibling;
+                    if (const auto it = framebufferAliasesByGroup.find(entry.AliasGroup); it != framebufferAliasesByGroup.end())
+                        sibling = it->second;
+
+                    if (const auto fbHandleIt = m_FramebufferHandlesByName.find(entry.Resource);
+                        fbHandleIt != m_FramebufferHandlesByName.end() &&
+                        fbHandleIt->second.Index < m_PhysicalFramebuffers.size())
+                    {
+                        m_PhysicalFramebuffers[fbHandleIt->second.Index].FB = sibling;
+                    }
+                    break;
+                }
+                case ResourceHandle::Kind::UniformBuffer:
+                case ResourceHandle::Kind::StorageBuffer:
+                {
+                    Ref<StorageBuffer> sibling;
+                    if (const auto it = bufferAliasesByGroup.find(entry.AliasGroup); it != bufferAliasesByGroup.end())
+                        sibling = it->second;
+
+                    if (const auto bufferHandleIt = m_BufferHandlesByName.find(entry.Resource);
+                        bufferHandleIt != m_BufferHandlesByName.end() &&
+                        bufferHandleIt->second.Index < m_PhysicalBuffers.size())
+                    {
+                        m_PhysicalBuffers[bufferHandleIt->second.Index].BufferID = sibling ? sibling->GetRendererID() : 0;
                     }
                     break;
                 }
@@ -2854,37 +3020,61 @@ namespace OloEngine
 
         m_ExecutionOrder.clear();
 
-        // Topological sort to determine execution order
+        // Iterative DFS-based topological sort. Previously this used a
+        // recursive std::function<bool(const std::string&)>, which heap-
+        // allocates per call and was the slower of the two topo sorts that
+        // run back-to-back here (UpdateDependencyGraph + HoistComputePasses).
+        // The explicit stack avoids the allocation and call-frame overhead.
         std::unordered_set<std::string> visited;
         std::unordered_set<std::string> inProgress;
 
-        std::function<bool(const std::string&)> visit = [&](const std::string& node)
+        struct Frame
         {
-            if (inProgress.contains(node))
-            {
-                OLO_CORE_ERROR("RenderGraph::UpdateDependencyGraph: Cycle detected in graph!");
-                return false;
-            }
+            const std::string* Node;
+            std::size_t NextDepIdx;
+        };
+        std::vector<Frame> stack;
+        stack.reserve(m_InsertionOrder.size());
 
-            if (visited.contains(node))
-            {
+        const auto visit = [&](const std::string& root) -> bool
+        {
+            if (visited.contains(root))
                 return true;
-            }
 
-            inProgress.insert(node);
+            stack.push_back(Frame{ &root, 0u });
+            inProgress.insert(root);
 
-            if (m_Dependencies.contains(node))
+            while (!stack.empty())
             {
-                for (const auto& dep : m_Dependencies[node])
-                {
-                    if (!visit(dep))
-                        return false;
-                }
-            }
+                auto& frame = stack.back();
+                const auto& nodeName = *frame.Node;
 
-            visited.insert(node);
-            inProgress.erase(node);
-            m_ExecutionOrder.push_back(node);
+                const auto depIt = m_Dependencies.find(nodeName);
+                const bool hasDeps = depIt != m_Dependencies.end();
+                const auto* deps = hasDeps ? &depIt->second : nullptr;
+
+                if (deps && frame.NextDepIdx < deps->size())
+                {
+                    const auto& dep = (*deps)[frame.NextDepIdx++];
+                    if (inProgress.contains(dep))
+                    {
+                        OLO_CORE_ERROR("RenderGraph::UpdateDependencyGraph: Cycle detected in graph!");
+                        return false;
+                    }
+                    if (visited.contains(dep))
+                        continue;
+
+                    inProgress.insert(dep);
+                    stack.push_back(Frame{ &dep, 0u });
+                    continue;
+                }
+
+                // All dependencies processed — emit this node in post-order.
+                visited.insert(nodeName);
+                inProgress.erase(nodeName);
+                m_ExecutionOrder.push_back(nodeName);
+                stack.pop_back();
+            }
 
             return true;
         };
@@ -3570,11 +3760,15 @@ namespace OloEngine
             return false;
 
         const auto stableName = std::string(resourceName);
-        if (m_ExternallyBackedTransientTextures.contains(stableName))
-            return true;
-
-        if (m_ExternallyBackedTransientFramebuffers.contains(stableName))
-            return true;
+        // Read-only lookup via Find — if the name was never interned, it
+        // can't be in either set, so we can short-circuit to false.
+        if (const u32 nameId = m_ResourceNames.Find(stableName); nameId != 0u)
+        {
+            if (m_ExternallyBackedTransientTextures.contains(nameId))
+                return true;
+            if (m_ExternallyBackedTransientFramebuffers.contains(nameId))
+                return true;
+        }
 
         if (const auto viewIt = m_TextureViewDefinitions.find(stableName);
             viewIt != m_TextureViewDefinitions.end())
@@ -5200,18 +5394,22 @@ namespace OloEngine
                 << "\", \"texture\": \"" << jsonEscape(finalTex) << "\" },\n";
 
             // Alias map snapshot. Empty objects when no aliases active.
-            const auto writeAliasMap = [&out, &jsonEscape](const char* label,
-                                                            const std::unordered_map<std::string, std::string>& aliases,
-                                                            bool trailingComma)
+            // Maps are u32->u32 internally; resolve through the interner once
+            // here for emission. std::map for deterministic JSON ordering.
+            const auto writeAliasMap = [this, &out, &jsonEscape](const char* label,
+                                                                  const std::unordered_map<u32, u32>& aliases,
+                                                                  bool trailingComma)
             {
-                std::vector<std::pair<std::string, std::string>> sorted(aliases.begin(), aliases.end());
-                std::sort(sorted.begin(), sorted.end(),
-                          [](const auto& a, const auto& b) { return a.first < b.first; });
+                std::map<std::string, std::string> sorted;
+                for (const auto& [aliasId, targetId] : aliases)
+                    sorted.emplace(std::string(m_ResourceNames.NameOf(aliasId)),
+                                   std::string(m_ResourceNames.NameOf(targetId)));
                 out << "    \"" << label << "\": {";
-                for (sizet i = 0; i < sorted.size(); ++i)
+                sizet idx = 0;
+                for (const auto& [aliasName, targetName] : sorted)
                 {
-                    out << " \"" << jsonEscape(sorted[i].first) << "\": \"" << jsonEscape(sorted[i].second) << "\"";
-                    if (i + 1 < sorted.size())
+                    out << " \"" << jsonEscape(aliasName) << "\": \"" << jsonEscape(targetName) << "\"";
+                    if (++idx < sorted.size())
                         out << ",";
                 }
                 out << " }";
@@ -5705,6 +5903,13 @@ namespace OloEngine
             ++m_LastBuildStats.PassesVisited;
 
             builder.BeginPass(nodeName);
+
+            // Clear the per-pass primary I/O handles before Setup so each
+            // frame starts fresh — previously this lived inside the default
+            // Setup() impl, which silently reset state and was a footgun for
+            // any derived pass that forgot to chain to base. Doing it here,
+            // outside the pass, makes the contract enforced by the graph.
+            node.ResetPrimaryHandlesForFrame();
 
             try
             {

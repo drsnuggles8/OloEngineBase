@@ -38,10 +38,10 @@ namespace OloEngine
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SceneColor, ResourceNames::SceneColorTexture),
             });
 
-        if (blackboard.ToneMapColor.IsValid())
+        if (blackboard.Post.ToneMapColor.IsValid())
         {
             constexpr std::string_view toneMapVersionTag = "ToneMapPass";
-            const auto outputHandle = builder.WriteNewVersion(blackboard.ToneMapColor, RGWriteUsage::RenderTarget, toneMapVersionTag);
+            const auto outputHandle = builder.WriteNewVersion(blackboard.Post.ToneMapColor, RGWriteUsage::RenderTarget, toneMapVersionTag);
             if (!outputHandle.IsValid())
                 return;
 
@@ -83,13 +83,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        Ref<Framebuffer> inputFramebuffer;
+        // Sample-only consumer: input framebuffer is intentionally not
+        // resolved here — see ReadFirstValidVersionedInputForPass docs.
         u32 inputColorTextureID = 0u;
-        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
-        {
-            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
-                inputFramebuffer = resolvedInput;
-        }
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
             inputColorTextureID = context.ResolveTexture(inputTextureHandle);
 
@@ -102,19 +98,17 @@ namespace OloEngine
 
         if (!m_Enabled)
         {
-            m_Target = inputFramebuffer;
+            m_Target = nullptr;
             return;
         }
 
-        if (!inputFramebuffer || inputColorTextureID == 0u || !outputFramebuffer || !m_Shader)
+        if (inputColorTextureID == 0u || !outputFramebuffer || !m_Shader)
         {
             m_Target = nullptr;
             static u32 s_MissingInputWarnings = 0;
-            if (outputFramebuffer && m_Shader && (!inputFramebuffer || inputColorTextureID == 0u) && s_MissingInputWarnings++ < 10)
+            if (outputFramebuffer && m_Shader && inputColorTextureID == 0u && s_MissingInputWarnings++ < 10)
             {
-                OLO_CORE_WARN("ToneMapRenderPass: No valid setup-selected input resolved (framebuffer={}, texture={})",
-                              inputFramebuffer != nullptr,
-                              inputColorTextureID);
+                OLO_CORE_WARN("ToneMapRenderPass: No valid setup-selected input texture resolved");
             }
             return;
         }

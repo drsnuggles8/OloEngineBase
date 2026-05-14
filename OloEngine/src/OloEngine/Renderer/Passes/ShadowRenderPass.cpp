@@ -21,45 +21,52 @@ namespace OloEngine
     {
         RenderGraphNode::Setup(builder, blackboard);
 
-        if (blackboard.ShadowMapCSM.IsValid())
+        // Skip declaring writes when shadow rendering is off — otherwise the
+        // graph records dependency edges that never materialise and consumers
+        // may end up reading uncleared shadow maps. Execute() already gates
+        // on the same condition.
+        if (!m_ShadowMap || !m_ShadowMap->IsEnabled())
+            return;
+
+        if (blackboard.Shadows.ShadowMapCSM.IsValid())
         {
             for (u32 cascade = 0; cascade < ShadowMap::MAX_CSM_CASCADES; ++cascade)
             {
-                if (const auto cascadeView = blackboard.ShadowMapCSMCascades[cascade]; cascadeView.IsValid())
+                if (const auto cascadeView = blackboard.Shadows.ShadowMapCSMCascades[cascade]; cascadeView.IsValid())
                 {
                     builder.Write(cascadeView, RGWriteUsage::DepthStencil);
                 }
                 else
                 {
-                    builder.Write(blackboard.ShadowMapCSM, RGWriteUsage::DepthStencil, RGSubresourceRange::Layer(cascade));
+                    builder.Write(blackboard.Shadows.ShadowMapCSM, RGWriteUsage::DepthStencil, RGSubresourceRange::Layer(cascade));
                 }
             }
         }
 
-        if (blackboard.ShadowMapSpot.IsValid())
+        if (blackboard.Shadows.ShadowMapSpot.IsValid())
         {
             for (u32 light = 0; light < ShadowMap::MAX_SPOT_SHADOWS; ++light)
             {
-                if (const auto spotLayerView = blackboard.ShadowMapSpotLayers[light]; spotLayerView.IsValid())
+                if (const auto spotLayerView = blackboard.Shadows.ShadowMapSpotLayers[light]; spotLayerView.IsValid())
                 {
                     builder.Write(spotLayerView, RGWriteUsage::DepthStencil);
                 }
                 else
                 {
-                    builder.Write(blackboard.ShadowMapSpot, RGWriteUsage::DepthStencil, RGSubresourceRange::Layer(light));
+                    builder.Write(blackboard.Shadows.ShadowMapSpot, RGWriteUsage::DepthStencil, RGSubresourceRange::Layer(light));
                 }
             }
         }
 
         for (u32 light = 0; light < ShadowMap::MAX_POINT_SHADOWS; ++light)
         {
-            const auto& pointHandle = blackboard.ShadowMapPoint[light];
+            const auto& pointHandle = blackboard.Shadows.ShadowMapPoint[light];
             if (!pointHandle.IsValid())
                 continue;
 
             for (u32 face = 0; face < FrameBlackboard::MaxShadowMapCubeFaces; ++face)
             {
-                if (const auto faceView = blackboard.ShadowMapPointFaces[light][face]; faceView.IsValid())
+                if (const auto faceView = blackboard.Shadows.ShadowMapPointFaces[light][face]; faceView.IsValid())
                 {
                     builder.Write(faceView, RGWriteUsage::DepthStencil);
                 }

@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/Shadow/ShadowMap.h"
 
 #include <glad/gl.h>
 
@@ -43,35 +44,40 @@ namespace OloEngine
         if (!m_Enabled)
             return;
 
-        if (blackboard.SceneDepth.IsValid())
+        if (blackboard.Scene.SceneDepth.IsValid())
         {
-            m_SelectedSceneDepthTexture = blackboard.SceneDepth;
-            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.SceneDepth, RGReadUsage::ShaderSample);
+            m_SelectedSceneDepthTexture = blackboard.Scene.SceneDepth;
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.Scene.SceneDepth, RGReadUsage::ShaderSample);
         }
-        if (blackboard.FogHistory.IsValid())
+        if (blackboard.Temporal.FogHistory.IsValid())
         {
-            m_SelectedFogHistoryTexture = blackboard.FogHistory;
-            [[maybe_unused]] const auto fogHistoryRead = builder.Read(blackboard.FogHistory, RGReadUsage::ShaderSample);
+            m_SelectedFogHistoryTexture = blackboard.Temporal.FogHistory;
+            [[maybe_unused]] const auto fogHistoryRead = builder.Read(blackboard.Temporal.FogHistory, RGReadUsage::ShaderSample);
         }
-        if (blackboard.ShadowMapCSM.IsValid())
+        if (blackboard.Shadows.ShadowMapCSM.IsValid())
         {
-            m_SelectedShadowCSMTexture = blackboard.ShadowMapCSM;
-            [[maybe_unused]] const auto shadowMapRead = builder.Read(blackboard.ShadowMapCSM, RGReadUsage::ShaderSample);
-        }
-
-        if (blackboard.FogHalfRes.IsValid())
-        {
-            m_SelectedFogHalfResFramebuffer = blackboard.FogHalfRes;
-            builder.AllowFeedback(blackboard.FogHalfRes);
-            builder.Write(blackboard.FogHalfRes, RGWriteUsage::RenderTarget);
-            [[maybe_unused]] const auto fogHalfRead = builder.Read(blackboard.FogHalfRes, RGReadUsage::ShaderSample);
-            builder.ExtractHistoryTexture(ResourceNames::FogHistory, blackboard.FogHalfRes);
+            m_SelectedShadowCSMTexture = blackboard.Shadows.ShadowMapCSM;
+            [[maybe_unused]] const auto shadowMapRead = builder.Read(blackboard.Shadows.ShadowMapCSM, RGReadUsage::ShaderSample);
         }
 
-        if (blackboard.FogColor.IsValid())
+        if (blackboard.Scratch.FogHalfRes.IsValid())
+        {
+            m_SelectedFogHalfResFramebuffer = blackboard.Scratch.FogHalfRes;
+            // Intra-pass write-then-sample: Pass A renders the half-resolution
+            // ray-march into FogHalfRes; Pass B (bilateral upsample) samples
+            // that result inside the same Execute. Graph-owned scratch with
+            // no prior writer to chain against (history is consumed via
+            // FogHistory, not FogHalfRes).
+            builder.AllowSamePassReadWrite(blackboard.Scratch.FogHalfRes);
+            builder.Write(blackboard.Scratch.FogHalfRes, RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto fogHalfRead = builder.Read(blackboard.Scratch.FogHalfRes, RGReadUsage::ShaderSample);
+            builder.ExtractHistoryTexture(ResourceNames::FogHistory, blackboard.Scratch.FogHalfRes);
+        }
+
+        if (blackboard.Post.FogColor.IsValid())
         {
             constexpr std::string_view fogVersionTag = "FogPass";
-            const auto outputHandle = builder.WriteNewVersion(blackboard.FogColor, RGWriteUsage::RenderTarget, fogVersionTag);
+            const auto outputHandle = builder.WriteNewVersion(blackboard.Post.FogColor, RGWriteUsage::RenderTarget, fogVersionTag);
             if (!outputHandle.IsValid())
                 return;
 
@@ -120,13 +126,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        Ref<Framebuffer> inputFramebuffer;
+        // Sample-only consumer: input framebuffer is intentionally not
+        // resolved here — see ReadFirstValidVersionedInputForPass docs.
         u32 inputColorTextureID = 0u;
-        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
-        {
-            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
-                inputFramebuffer = resolvedInput;
-        }
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
             inputColorTextureID = context.ResolveTexture(inputTextureHandle);
 
@@ -145,11 +147,11 @@ namespace OloEngine
 
         if (!m_Enabled)
         {
-            m_Target = inputFramebuffer;
+            m_Target = nullptr;
             return;
         }
 
-        if (!inputFramebuffer || inputColorTextureID == 0u || !outputFramebuffer || !m_FogShader || !m_FogUpsampleShader || !fogHalfResFramebuffer)
+        if (inputColorTextureID == 0u || !outputFramebuffer || !m_FogShader || !m_FogUpsampleShader || !fogHalfResFramebuffer)
         {
             m_Target = nullptr;
             return;
@@ -164,9 +166,11 @@ namespace OloEngine
         if (sceneDepthTextureID == 0)
             return; // Fog pass requires depth.
 
+        // Placeholder sampler2DArrayShadow when no real CSM bound — shader's
+        // u_DirectionalShadowEnabled still gates the actual sample.
         const u32 shadowCSMTextureID = m_SelectedShadowCSMTexture.IsValid()
                                            ? context.ResolveTexture(m_SelectedShadowCSMTexture)
-                                           : 0u;
+                                           : ShadowMap::GetCSMPlaceholderRendererID();
 
         // Re-bind PostProcessUBO at binding 7 — IBL precompute and bloom-mip
         // updates can transiently claim this slot before the post-process chain.

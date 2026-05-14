@@ -26,19 +26,19 @@ namespace OloEngine
         [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidFramebufferTextureInputForPass(
             builder,
             this,
-            RenderPipelineBuilderInternal::MakeFramebufferTextureInput(blackboard.SceneColor, blackboard.SceneColorTexture));
+            RenderPipelineBuilderInternal::MakeFramebufferTextureInput(blackboard.Scene.SceneColor, blackboard.Scene.SceneColorTexture));
 
-        if (!m_Settings.Enabled || !m_Settings.SSSBlurEnabled || !blackboard.SSSColor.IsValid())
+        if (!m_Settings.Enabled || !m_Settings.SSSBlurEnabled || !blackboard.Post.SSSColor.IsValid())
             return;
 
-        if (blackboard.SceneDepthAttachment.IsValid())
+        if (blackboard.Scene.SceneDepthAttachment.IsValid())
         {
-            m_SelectedSceneDepthTexture = blackboard.SceneDepthAttachment;
-            [[maybe_unused]] const auto depthRead = builder.Read(blackboard.SceneDepthAttachment, RGReadUsage::ShaderSample);
+            m_SelectedSceneDepthTexture = blackboard.Scene.SceneDepthAttachment;
+            [[maybe_unused]] const auto depthRead = builder.Read(blackboard.Scene.SceneDepthAttachment, RGReadUsage::ShaderSample);
         }
 
         constexpr std::string_view sssVersionTag = "SSSPass";
-        const auto outputHandle = builder.WriteNewVersion(blackboard.SSSColor, RGWriteUsage::RenderTarget, sssVersionTag);
+        const auto outputHandle = builder.WriteNewVersion(blackboard.Post.SSSColor, RGWriteUsage::RenderTarget, sssVersionTag);
         if (!outputHandle.IsValid())
             return;
 
@@ -69,15 +69,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        Ref<Framebuffer> inputFB;
+        // Sample-only consumer: input framebuffer is intentionally not
+        // resolved here — only the input texture is sampled, and the pass
+        // binds its own graph-owned output framebuffer.
         Ref<Framebuffer> outputFramebuffer;
         u32 inputColorTextureID = 0u;
         u32 depthID = 0u;
-        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
-        {
-            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
-                inputFB = resolvedInput;
-        }
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
             inputColorTextureID = context.ResolveTexture(inputTextureHandle);
 
@@ -96,7 +93,7 @@ namespace OloEngine
             return;
         }
 
-        if (!inputFB || inputColorTextureID == 0u || !outputFramebuffer || depthID == 0u)
+        if (inputColorTextureID == 0u || !outputFramebuffer || depthID == 0u)
         {
             m_Target = nullptr;
             return;
@@ -113,7 +110,12 @@ namespace OloEngine
         const auto& targetSpec = outputFramebuffer->GetSpecification();
         constexpr u32 colorAttachment = 0;
 
-        // SSS UBO is already uploaded by Renderer3D::EndScene each frame.
+        // SSS UBO data is uploaded by Renderer3D::EndScene, but SetData()
+        // doesn't refresh the indexed binding — other passes (IBL precompute,
+        // Bloom mip updates) may have displaced binding 14 between EndScene
+        // and this Execute. Rebind here.
+        if (m_SSSUBO)
+            m_SSSUBO->Bind();
 
         outputFramebuffer->Bind();
 
@@ -130,8 +132,8 @@ namespace OloEngine
 
         m_SSSBlurShader->Bind();
 
-        // Bind input scene color as texture — no read-write hazard since we
-        // read from inputFB and write to the graph-owned SSSColor target.
+        // Bind input scene color as texture — no read-write hazard since the
+        // input is sampled and we write to the graph-owned SSSColor target.
         context.BindTexture(0, inputColorTextureID);
 
         // Bind scene depth for bilateral filtering

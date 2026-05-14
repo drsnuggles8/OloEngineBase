@@ -20,12 +20,16 @@ namespace OloEngine
         if (m_CommandBucket.GetCommandCount() == 0)
             return;
 
-        if (board.SceneColor.IsValid())
+        if (board.Scene.SceneColor.IsValid())
         {
-            SetPrimaryInputFramebufferHandle(board.SceneColor);
-            builder.AllowFeedback(board.SceneColor);
-            [[maybe_unused]] const auto sceneColorRead = builder.Read(board.SceneColor, RGReadUsage::RenderTargetRead);
-            builder.Write(board.SceneColor, RGWriteUsage::RenderTarget);
+            // Inter-pass RMW: read the prior SceneColor version, then
+            // advertise a renamed output via WriteNewVersion so the
+            // validator does not see a same-pass feedback loop.
+            SetPrimaryInputFramebufferHandle(board.Scene.SceneColor);
+            [[maybe_unused]] const auto sceneColorRead = builder.Read(board.Scene.SceneColor, RGReadUsage::RenderTargetRead);
+            constexpr std::string_view foliageVersionTag = "FoliagePass";
+            [[maybe_unused]] const auto sceneColorNew =
+                builder.WriteNewVersion(board.Scene.SceneColor, RGWriteUsage::RenderTarget, foliageVersionTag);
             builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
         }
     }

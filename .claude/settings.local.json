@@ -62,7 +62,19 @@
       "Bash(cmake --build build --target OloEngineTests --config Debug)",
       "Bash(cmake --build build --target OloEngine-Tests --config Debug)",
       "Bash(\"E:/repos/OloEngineBase/build/OloEngine/tests/Debug/OloEngine-Tests.exe\" --gtest_filter='RenderGraph.*' --gtest_brief=1)",
-      "Bash(\"E:/repos/OloEngineBase/build/OloEngine/tests/Debug/OloEngine-Tests.exe\" --gtest_filter='RenderGraph*:*RenderGraph*' --gtest_brief=1)"
+      "Bash(git mv *)",
+      "Bash(\"E:/repos/OloEngineBase/build/OloEngine/tests/Debug/OloEngine-Tests.exe\" --gtest_filter=ForwardPlus.*)",
+      "Bash(E:/repos/OloEngineBase/build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=RenderGraph*)",
+      "Bash(cmake --build E:/repos/OloEngineBase/build --target OloEngine OloEditor --config Debug)",
+      "Bash(./build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter='RenderGraph*:ResourceHazardValidation*')",
+      "Bash(./bin/Debug/OloEngine-Tests/OloEngine-Tests.exe --gtest_filter=RenderGraph*)",
+      "Bash(cmake --build build --target OloEngine OloEditor OloEngine-Tests --config Debug)",
+      "Bash(./build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter='RenderGraph*')",
+      "Bash(cmake --build build --target OloEditor --config Debug)",
+      "Bash(cmake --build \"E:/repos/OloEngineBase/build\" --target OloEngine --config Debug)",
+      "Bash(cmake --build \"E:/repos/OloEngineBase/build\" --target OloEngine OloEditor OloEngine-Tests --config Debug)",
+      "Bash(\"E:/repos/OloEngineBase/build/OloEngine/tests/Debug/OloEngine-Tests.exe\" --gtest_filter='RenderGraph*:ResourceHazardValidation*:ForwardPlus*:OIT*')",
+      "Bash(cmake --build build --target RenderingTests --config Debug)"
     ],
     "additionalDirectories": [
       "\\tmp"

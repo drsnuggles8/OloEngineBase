@@ -26,11 +26,11 @@ namespace OloEngine
     {
         RenderGraphNode::Setup(builder, blackboard);
 
-        if (blackboard.UIComposite.IsValid())
+        if (blackboard.Post.UIComposite.IsValid())
         {
             constexpr std::string_view uiCompositeVersionTag = "UICompositePass";
             const auto outputHandle =
-                builder.WriteNewVersion(blackboard.UIComposite, RGWriteUsage::RenderTarget, uiCompositeVersionTag);
+                builder.WriteNewVersion(blackboard.Post.UIComposite, RGWriteUsage::RenderTarget, uiCompositeVersionTag);
             if (outputHandle.IsValid())
             {
                 SetPrimaryOutputFramebufferHandle(outputHandle);
@@ -93,39 +93,29 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        Ref<Framebuffer> inputFramebuffer;
+        // Sample-only consumer: input framebuffer is intentionally not
+        // resolved here — see ReadFirstValidVersionedInputForPass docs.
         u32 inputColorTextureID = 0u;
         const auto inputHandle = GetPrimaryInputFramebufferHandle();
-        if (inputHandle.IsValid())
-        {
-            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
-                inputFramebuffer = resolvedInput;
-        }
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
             inputColorTextureID = context.ResolveTexture(inputTextureHandle);
         {
             static RGFramebufferHandle s_PreviousInputHandle{};
-            static u32 s_PreviousInputFramebufferID = 0;
             static u32 s_PreviousInputColorID = 0;
             static u32 s_TransitionLogCount = 0;
-            const u32 inputFramebufferID = inputFramebuffer ? inputFramebuffer->GetRendererID() : 0u;
-            const u32 inputColorID = inputColorTextureID;
             if (inputHandle != s_PreviousInputHandle ||
-                inputFramebufferID != s_PreviousInputFramebufferID ||
-                inputColorID != s_PreviousInputColorID)
+                inputColorTextureID != s_PreviousInputColorID)
             {
                 if (s_TransitionLogCount < 16)
                 {
-                    OLO_CORE_TRACE("UICompositePass: scene inputHandle=(idx={}, gen={}) fb={} colorTex={}",
+                    OLO_CORE_TRACE("UICompositePass: scene inputHandle=(idx={}, gen={}) colorTex={}",
                                    inputHandle.Index,
                                    inputHandle.Generation,
-                                   inputFramebufferID,
-                                   inputColorID);
+                                   inputColorTextureID);
                     ++s_TransitionLogCount;
                 }
                 s_PreviousInputHandle = inputHandle;
-                s_PreviousInputFramebufferID = inputFramebufferID;
-                s_PreviousInputColorID = inputColorID;
+                s_PreviousInputColorID = inputColorTextureID;
             }
         }
 

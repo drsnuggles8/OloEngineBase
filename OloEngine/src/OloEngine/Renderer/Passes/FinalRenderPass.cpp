@@ -42,8 +42,8 @@ namespace OloEngine
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SceneColor, ResourceNames::SceneColorTexture),
             });
 
-        if (blackboard.Backbuffer.IsValid())
-            builder.Write(blackboard.Backbuffer, RGWriteUsage::RenderTarget);
+        if (blackboard.Post.Backbuffer.IsValid())
+            builder.Write(blackboard.Post.Backbuffer, RGWriteUsage::RenderTarget);
     }
 
     void FinalRenderPass::Init(const FramebufferSpecification& spec)
@@ -67,13 +67,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        Ref<Framebuffer> inputFramebuffer;
+        // Sample-only consumer: input framebuffer is intentionally not
+        // resolved here — see ReadFirstValidVersionedInputForPass docs.
         u32 inputColorTextureID = 0u;
-        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
-        {
-            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
-                inputFramebuffer = resolvedInput;
-        }
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
             inputColorTextureID = context.ResolveTexture(inputTextureHandle);
         context.ResetGraphicsStateToDefault();

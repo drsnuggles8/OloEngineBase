@@ -51,6 +51,15 @@ namespace OloEngine
         Copy = 2,
     };
 
+    // Per-frame primary I/O handles selected by Setup() and consumed by Execute(). Reset by the graph between frames via ResetPrimaryHandlesForFrame().
+    struct RGPrimaryHandleSet
+    {
+        RGFramebufferHandle InputFramebuffer;
+        RGTextureHandle     InputTexture;
+        RGFramebufferHandle OutputFramebuffer;
+        RGTextureHandle     OutputTexture;
+    };
+
     // RenderGraphNode is the single base class for all graph entries. It provides
     // storage-backed defaults for the framebuffer slot, primary I/O handles,
     // side-effect flags, work-type, and DRS viewport state — i.e. the surface
@@ -89,10 +98,16 @@ namespace OloEngine
         {
             (void)builder;
             (void)blackboard;
-            m_PrimaryInputFramebufferHandle = {};
-            m_PrimaryInputTextureHandle = {};
-            m_PrimaryOutputFramebufferHandle = {};
-            m_PrimaryOutputTextureHandle = {};
+        }
+
+        // Per-frame reset of pass-local handle state — called by the graph
+        // builder before Setup runs. Previously the default Setup() impl
+        // silently performed this, which meant any pass that forgot to chain
+        // to RenderGraphNode::Setup carried stale handles. Now it's a graph
+        // invariant, not a passive contract on the override.
+        void ResetPrimaryHandlesForFrame()
+        {
+            m_PrimaryHandles = {};
         }
 
         virtual void Execute(RGCommandContext& context) = 0;
@@ -131,42 +146,42 @@ namespace OloEngine
         // of repeating the setup-time fallback ladder.
         void SetPrimaryInputFramebufferHandle(const RGFramebufferHandle handle)
         {
-            m_PrimaryInputFramebufferHandle = handle;
+            m_PrimaryHandles.InputFramebuffer = handle;
         }
 
         void SetPrimaryInputTextureHandle(const RGTextureHandle handle)
         {
-            m_PrimaryInputTextureHandle = handle;
+            m_PrimaryHandles.InputTexture = handle;
         }
 
         void SetPrimaryOutputFramebufferHandle(const RGFramebufferHandle handle)
         {
-            m_PrimaryOutputFramebufferHandle = handle;
+            m_PrimaryHandles.OutputFramebuffer = handle;
         }
 
         void SetPrimaryOutputTextureHandle(const RGTextureHandle handle)
         {
-            m_PrimaryOutputTextureHandle = handle;
+            m_PrimaryHandles.OutputTexture = handle;
         }
 
         [[nodiscard]] auto GetPrimaryInputFramebufferHandle() const -> RGFramebufferHandle
         {
-            return m_PrimaryInputFramebufferHandle;
+            return m_PrimaryHandles.InputFramebuffer;
         }
 
         [[nodiscard]] auto GetPrimaryInputTextureHandle() const -> RGTextureHandle
         {
-            return m_PrimaryInputTextureHandle;
+            return m_PrimaryHandles.InputTexture;
         }
 
         [[nodiscard]] auto GetPrimaryOutputFramebufferHandle() const -> RGFramebufferHandle
         {
-            return m_PrimaryOutputFramebufferHandle;
+            return m_PrimaryHandles.OutputFramebuffer;
         }
 
         [[nodiscard]] auto GetPrimaryOutputTextureHandle() const -> RGTextureHandle
         {
-            return m_PrimaryOutputTextureHandle;
+            return m_PrimaryHandles.OutputTexture;
         }
 
         [[nodiscard]] virtual RenderGraphNodeFlags GetFlags() const
@@ -304,10 +319,7 @@ namespace OloEngine
         u32 m_RenderViewportHeight = 0;
 
         // Per-frame setup-authoritative upstream fullscreen/post input.
-        RGFramebufferHandle m_PrimaryInputFramebufferHandle{};
-        RGTextureHandle m_PrimaryInputTextureHandle{};
-        RGFramebufferHandle m_PrimaryOutputFramebufferHandle{};
-        RGTextureHandle m_PrimaryOutputTextureHandle{};
+        RGPrimaryHandleSet m_PrimaryHandles{};
 
         SideEffect m_SideEffects = SideEffect::None;
         PassWorkType m_PassWorkType = PassWorkType::Graphics;

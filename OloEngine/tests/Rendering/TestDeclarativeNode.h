@@ -127,7 +127,7 @@ namespace OloEngine
                 {
                     auto handle = builder.CreateFramebuffer(resource.Name, desc);
                     if (allowFeedback)
-                        builder.AllowFeedback(handle);
+                        builder.AllowSamePassReadWrite(handle);
                     builder.Write(handle, RGWriteUsage::RenderTarget);
                     break;
                 }
@@ -136,7 +136,7 @@ namespace OloEngine
                 {
                     auto handle = builder.CreateBuffer(resource.Name, desc);
                     if (allowFeedback)
-                        builder.AllowFeedback(handle);
+                        builder.AllowSamePassReadWrite(handle);
                     builder.Write(handle, RGWriteUsage::ShaderStorage);
                     break;
                 }
@@ -144,7 +144,7 @@ namespace OloEngine
                 {
                     auto handle = builder.CreateTexture(resource.Name, desc);
                     if (allowFeedback)
-                        builder.AllowFeedback(handle);
+                        builder.AllowSamePassReadWrite(handle);
                     builder.Write(handle, RGWriteUsage::RenderTarget);
                     break;
                 }

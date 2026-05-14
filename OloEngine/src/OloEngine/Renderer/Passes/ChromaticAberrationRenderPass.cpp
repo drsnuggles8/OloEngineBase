@@ -38,10 +38,10 @@ namespace OloEngine
         if (!m_Enabled)
             return;
 
-        if (blackboard.ChromAbColor.IsValid())
+        if (blackboard.Post.ChromAbColor.IsValid())
         {
             constexpr std::string_view chromAbVersionTag = "ChromAberrationPass";
-            const auto outputHandle = builder.WriteNewVersion(blackboard.ChromAbColor, RGWriteUsage::RenderTarget, chromAbVersionTag);
+            const auto outputHandle = builder.WriteNewVersion(blackboard.Post.ChromAbColor, RGWriteUsage::RenderTarget, chromAbVersionTag);
             if (!outputHandle.IsValid())
                 return;
 
@@ -83,13 +83,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        Ref<Framebuffer> inputFramebuffer;
+        // Sample-only consumer: input framebuffer is intentionally not
+        // resolved here — see ReadFirstValidVersionedInputForPass docs.
         u32 inputColorTextureID = 0u;
-        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
-        {
-            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
-                inputFramebuffer = resolvedInput;
-        }
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
             inputColorTextureID = context.ResolveTexture(inputTextureHandle);
 
@@ -102,11 +98,11 @@ namespace OloEngine
 
         if (!m_Enabled)
         {
-            m_Target = inputFramebuffer;
+            m_Target = nullptr;
             return;
         }
 
-        if (!inputFramebuffer || inputColorTextureID == 0u || !outputFramebuffer || !m_Shader)
+        if (inputColorTextureID == 0u || !outputFramebuffer || !m_Shader)
         {
             m_Target = nullptr;
             return;

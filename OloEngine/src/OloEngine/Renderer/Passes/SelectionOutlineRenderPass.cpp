@@ -46,15 +46,15 @@ namespace OloEngine
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SceneColor, ResourceNames::SceneColorTexture),
             });
 
-        if (!IsReadyForExecution() || !blackboard.SelectionOutlineColor.IsValid() || !blackboard.SceneEntityID.IsValid())
+        if (!IsReadyForExecution() || !blackboard.Post.SelectionOutlineColor.IsValid() || !blackboard.Scene.SceneEntityID.IsValid())
             return;
 
-        m_SelectedSceneEntityTexture = blackboard.SceneEntityID;
-        [[maybe_unused]] const auto sceneEntityRead = builder.Read(blackboard.SceneEntityID, RGReadUsage::ShaderSample);
+        m_SelectedSceneEntityTexture = blackboard.Scene.SceneEntityID;
+        [[maybe_unused]] const auto sceneEntityRead = builder.Read(blackboard.Scene.SceneEntityID, RGReadUsage::ShaderSample);
 
         constexpr std::string_view selectionOutlineVersionTag = "SelectionOutlinePass";
         const auto outputHandle =
-            builder.WriteNewVersion(blackboard.SelectionOutlineColor, RGWriteUsage::RenderTarget, selectionOutlineVersionTag);
+            builder.WriteNewVersion(blackboard.Post.SelectionOutlineColor, RGWriteUsage::RenderTarget, selectionOutlineVersionTag);
         if (!outputHandle.IsValid())
             return;
 
@@ -68,20 +68,24 @@ namespace OloEngine
         // JFA passes shader-sample (texture()) the ping/pong color attachments
         // — these are not input-attachment reads. The hazard planner needs the
         // sample barrier, not a sub-pass attachment-read.
-        if (blackboard.JFAPing.IsValid())
+        // Intra-pass JFA ping-pong: each jump-flood iteration alternates
+        // render-target binding between Ping and Pong while sampling from
+        // the other, all inside this pass's Execute. Both targets are
+        // graph-owned scratch with no prior writer to chain against.
+        if (blackboard.Scratch.JFAPing.IsValid())
         {
-            m_SelectedJFAPingFramebuffer = blackboard.JFAPing;
-            builder.AllowFeedback(blackboard.JFAPing);
-            builder.Write(blackboard.JFAPing, RGWriteUsage::RenderTarget);
-            [[maybe_unused]] const auto pingRead = builder.Read(blackboard.JFAPing, RGReadUsage::ShaderSample);
+            m_SelectedJFAPingFramebuffer = blackboard.Scratch.JFAPing;
+            builder.AllowSamePassReadWrite(blackboard.Scratch.JFAPing);
+            builder.Write(blackboard.Scratch.JFAPing, RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto pingRead = builder.Read(blackboard.Scratch.JFAPing, RGReadUsage::ShaderSample);
         }
 
-        if (blackboard.JFAPong.IsValid())
+        if (blackboard.Scratch.JFAPong.IsValid())
         {
-            m_SelectedJFAPongFramebuffer = blackboard.JFAPong;
-            builder.AllowFeedback(blackboard.JFAPong);
-            builder.Write(blackboard.JFAPong, RGWriteUsage::RenderTarget);
-            [[maybe_unused]] const auto pongRead = builder.Read(blackboard.JFAPong, RGReadUsage::ShaderSample);
+            m_SelectedJFAPongFramebuffer = blackboard.Scratch.JFAPong;
+            builder.AllowSamePassReadWrite(blackboard.Scratch.JFAPong);
+            builder.Write(blackboard.Scratch.JFAPong, RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto pongRead = builder.Read(blackboard.Scratch.JFAPong, RGReadUsage::ShaderSample);
         }
     }
 
@@ -121,13 +125,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        Ref<Framebuffer> inputFramebuffer;
+        // Sample-only consumer: input framebuffer is intentionally not
+        // resolved here — see ReadFirstValidVersionedInputForPass docs.
         u32 inputColorTextureID = 0u;
-        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
-        {
-            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
-                inputFramebuffer = resolvedInput;
-        }
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
             inputColorTextureID = context.ResolveTexture(inputTextureHandle);
 
@@ -141,7 +141,7 @@ namespace OloEngine
         if (m_SelectedSceneEntityTexture.IsValid())
             sceneEntityTextureID = context.ResolveTexture(m_SelectedSceneEntityTexture);
 
-        if (!outputFramebuffer || !inputFramebuffer || inputColorTextureID == 0u || sceneEntityTextureID == 0u)
+        if (!outputFramebuffer || inputColorTextureID == 0u || sceneEntityTextureID == 0u)
         {
             m_Target = nullptr;
             return;

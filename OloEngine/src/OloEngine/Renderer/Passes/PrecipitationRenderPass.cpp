@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/PrecipitationRenderPass.h"
 
+#include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -40,10 +41,10 @@ namespace OloEngine
         if (!m_Enabled)
             return;
 
-        if (blackboard.PrecipitationColor.IsValid())
+        if (blackboard.Post.PrecipitationColor.IsValid())
         {
             constexpr std::string_view precipitationVersionTag = "PrecipitationPass";
-            const auto outputHandle = builder.WriteNewVersion(blackboard.PrecipitationColor, RGWriteUsage::RenderTarget, precipitationVersionTag);
+            const auto outputHandle = builder.WriteNewVersion(blackboard.Post.PrecipitationColor, RGWriteUsage::RenderTarget, precipitationVersionTag);
             if (!outputHandle.IsValid())
                 return;
 
@@ -87,13 +88,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        Ref<Framebuffer> inputFramebuffer;
+        // Sample-only consumer: input framebuffer is intentionally not
+        // resolved here — see ReadFirstValidVersionedInputForPass docs.
         u32 inputColorTextureID = 0u;
-        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
-        {
-            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
-                inputFramebuffer = resolvedInput;
-        }
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
             inputColorTextureID = context.ResolveTexture(inputTextureHandle);
 
@@ -105,11 +102,11 @@ namespace OloEngine
         }
         if (!m_Enabled)
         {
-            m_Target = inputFramebuffer;
+            m_Target = nullptr;
             return;
         }
 
-        if (!inputFramebuffer || inputColorTextureID == 0u || !outputFramebuffer || !m_PrecipitationShader || !m_PrecipitationScreenUBO)
+        if (inputColorTextureID == 0u || !outputFramebuffer || !m_PrecipitationShader || !m_PrecipitationScreenUBO)
         {
             m_Target = nullptr;
             return;
@@ -137,6 +134,11 @@ namespace OloEngine
         context.Clear();
 
         m_PrecipitationShader->Bind();
+
+        // Rebind the main precipitation UBO (binding 18) — other passes may
+        // have displaced it between PrecipitationSystem::Update and here.
+        if (const auto precipitationUBO = PrecipitationSystem::GetPrecipitationUBO())
+            precipitationUBO->Bind();
 
         context.BindTexture(0, inputColorTextureID);
         m_PrecipitationShader->SetInt("u_Texture", 0);

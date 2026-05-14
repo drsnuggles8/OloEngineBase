@@ -17,7 +17,7 @@
 #include "OloEngine/Wind/WindSystem.h"
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Snow/SnowEjectaSystem.h"
-#include "OloEngine/Renderer/LightCulling/ClusteredForward.h"
+#include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 
 #include <algorithm>
@@ -559,7 +559,7 @@ namespace OloEngine
         static bool IsOcclusionCullingEnabled();
 
         // Forward+ light culling control
-        static ClusteredForward& GetForwardPlus()
+        static TiledForwardPlus& GetForwardPlus()
         {
             return s_Data.ForwardPlus;
         }
@@ -1264,7 +1264,7 @@ namespace OloEngine
             bool ParallelSubmissionActive = false;
 
             // Forward+ light culling
-            ClusteredForward ForwardPlus;
+            TiledForwardPlus ForwardPlus;
 
             // Global renderer settings (path selection, culling toggles, etc.)
             RendererSettings Settings;

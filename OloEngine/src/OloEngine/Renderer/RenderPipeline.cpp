@@ -468,6 +468,7 @@ namespace OloEngine
         {
             PostProcessPasses.MotionBlur->SetEnabled(data.PostProcess.MotionBlurEnabled);
             PostProcessPasses.MotionBlur->SetMotionBlurUBO(data.PostProcessGPU.MotionBlur);
+            PostProcessPasses.MotionBlur->SetPostProcessUBO(data.PostProcessGPU.PostProcess);
         }
 
         if (PostProcessPasses.TAA)
@@ -892,6 +893,26 @@ namespace OloEngine
         HashBool(h, data.Snow.Enabled);
         HashBool(h, data.Snow.SSSBlurEnabled);
 
+        // Selection outline gate inputs — PopulateBlackboard declares
+        // SelectionOutlineColor / JFAPing / JFAPong only when the editor
+        // has at least one selected entity AND the toggle is on. Both
+        // values must invalidate the cache or selecting an entity after
+        // a frame with no selection would silently skip declaration.
+        HashBool(h, data.EnableSelectionOutline);
+        HashBool(h, !data.SelectionOutlineEntityIDs.empty());
+
+        // Temporal-history gate inputs — `if (TAAHistoryValid && Texture)`
+        // / `if (FogHistoryValid && Texture)` decide whether the prior
+        // frame's history is imported into the blackboard for reprojection.
+        // These flags flip false→true after the FIRST successful frame
+        // produces history, so the cache MUST invalidate on that transition
+        // — otherwise PopulateBlackboard never re-runs, the import never
+        // happens, and TAA / fog reprojection sample the current frame as
+        // history (TAA degenerates to a pass-through and the jitter shows
+        // through as a screen-space shake).
+        HashBool(h, TAAHistoryValid);
+        HashBool(h, FogHistoryValid);
+
         // Pass-set readiness (covers branches like
         //   `if (pipeline.PostProcessPasses.X && X->IsReadyForExecution())`)
         // The same fingerprint is reused as the RenderGraph::BuildFrameGraph
@@ -958,6 +979,14 @@ namespace OloEngine
         // if nothing has changed since last frame, the existing handles in
         // FrameBlackboard + the imported-resource maps inside RenderGraph are
         // still valid and we can skip the entire body.
+        //
+        // Stable handles (review item 5) keep this cache correct — the slot
+        // generations no longer churn across frames, so the handles held in
+        // FrameBlackboard remain valid. The cache is still load-bearing as a
+        // fast-path: skipping the ~80 declarations + 11 string-keyed map
+        // resets is the win, not handle stability per se. The deeper item-19
+        // fix (interned name → handle slot table) would speed up the work
+        // we *do* pay when the fingerprint actually changes.
         {
             const u64 currentFingerprint = ComputeBlackboardFingerprint(data);
             if (m_HasValidBlackboardCache && currentFingerprint == m_BlackboardFingerprint)
@@ -992,11 +1021,11 @@ namespace OloEngine
                     RGResourceFormat::Depth24Stencil8,
                 };
                 sceneDesc.DebugName = std::string(ResourceNames::SceneColor);
-                board.SceneColor = graph.DeclareTransientFramebuffer(ResourceNames::SceneColor, sceneDesc);
-                board.SceneColorTexture = graph.CreateFramebufferAttachmentView(ResourceNames::SceneColorTexture, board.SceneColor, 0u);
-                board.SceneEntityID = graph.CreateFramebufferAttachmentView(ResourceNames::SceneEntityID, board.SceneColor, 1u);
-                board.SceneViewNormals = graph.CreateFramebufferAttachmentView(ResourceNames::SceneViewNormals, board.SceneColor, 2u);
-                board.SceneDepthAttachment = graph.CreateFramebufferDepthAttachmentView(ResourceNames::SceneDepthAttachment, board.SceneColor);
+                board.Scene.SceneColor = graph.DeclareTransientFramebuffer(ResourceNames::SceneColor, sceneDesc);
+                board.Scene.SceneColorTexture = graph.CreateFramebufferAttachmentView(ResourceNames::SceneColorTexture, board.Scene.SceneColor, 0u);
+                board.Scene.SceneEntityID = graph.CreateFramebufferAttachmentView(ResourceNames::SceneEntityID, board.Scene.SceneColor, 1u);
+                board.Scene.SceneViewNormals = graph.CreateFramebufferAttachmentView(ResourceNames::SceneViewNormals, board.Scene.SceneColor, 2u);
+                board.Scene.SceneDepthAttachment = graph.CreateFramebufferDepthAttachmentView(ResourceNames::SceneDepthAttachment, board.Scene.SceneColor);
             }
 
             // AO/Deferred consumers need true geometric depth + view-space
@@ -1016,7 +1045,7 @@ namespace OloEngine
                 depthDesc.Width = sceneSpec.Width;
                 depthDesc.Height = sceneSpec.Height;
                 depthDesc.DebugName = std::string(ResourceNames::SceneDepth);
-                board.SceneDepth = graph.AllocateTransientTextureHandle(ResourceNames::SceneDepth, depthDesc);
+                board.Scene.SceneDepth = graph.AllocateTransientTextureHandle(ResourceNames::SceneDepth, depthDesc);
 
                 RGResourceDesc normalsDesc;
                 normalsDesc.Kind = ResourceHandle::Kind::Texture2D;
@@ -1024,7 +1053,7 @@ namespace OloEngine
                 normalsDesc.Width = sceneSpec.Width;
                 normalsDesc.Height = sceneSpec.Height;
                 normalsDesc.DebugName = std::string(ResourceNames::SceneNormals);
-                board.SceneNormals = graph.AllocateTransientTextureHandle(ResourceNames::SceneNormals, normalsDesc);
+                board.Scene.SceneNormals = graph.AllocateTransientTextureHandle(ResourceNames::SceneNormals, normalsDesc);
             }
         }
 
@@ -1089,11 +1118,11 @@ namespace OloEngine
                     buildGBufferFramebufferDesc(gbuffer->GetSampleCount(), ResourceNames::GBufferMS),
                     gbuffer->GetFramebuffer());
 
-                board.GBufferAlbedoMS = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferAlbedoMS, multisampleGBuffer, 0u);
-                board.GBufferNormalMS = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferNormalMS, multisampleGBuffer, 1u);
-                board.GBufferEmissiveMS = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferEmissiveMS, multisampleGBuffer, 2u);
-                board.VelocityMS = graph.CreateFramebufferAttachmentView(ResourceNames::VelocityMS, multisampleGBuffer, 3u);
-                board.SceneDepthMS = graph.CreateFramebufferDepthAttachmentView(ResourceNames::SceneDepthMS, multisampleGBuffer);
+                board.GBuffer.GBufferAlbedoMS = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferAlbedoMS, multisampleGBuffer, 0u);
+                board.GBuffer.GBufferNormalMS = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferNormalMS, multisampleGBuffer, 1u);
+                board.GBuffer.GBufferEmissiveMS = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferEmissiveMS, multisampleGBuffer, 2u);
+                board.GBuffer.VelocityMS = graph.CreateFramebufferAttachmentView(ResourceNames::VelocityMS, multisampleGBuffer, 3u);
+                board.GBuffer.SceneDepthMS = graph.CreateFramebufferDepthAttachmentView(ResourceNames::SceneDepthMS, multisampleGBuffer);
 
                 const auto sceneDepthResolvedBacking =
                     graph.CreateFramebufferDepthAttachmentView(buildResolvedBackingName(ResourceNames::SceneDepth), resolvedGBuffer);
@@ -1112,33 +1141,33 @@ namespace OloEngine
                 // read surface for downstream passes, but when MSAA is active
                 // model them explicitly as resolve views over the multisample
                 // attachments rather than as unrelated sibling names.
-                board.SceneDepth = graph.CreateTextureMultisampleResolveView(ResourceNames::SceneDepth,
-                                                                             board.SceneDepthMS,
+                board.Scene.SceneDepth = graph.CreateTextureMultisampleResolveView(ResourceNames::SceneDepth,
+                                                                             board.GBuffer.SceneDepthMS,
                                                                              sceneDepthResolvedBacking);
-                board.SceneNormals = graph.CreateTextureMultisampleResolveView(ResourceNames::SceneNormals,
-                                                                               board.GBufferNormalMS,
+                board.Scene.SceneNormals = graph.CreateTextureMultisampleResolveView(ResourceNames::SceneNormals,
+                                                                               board.GBuffer.GBufferNormalMS,
                                                                                sceneNormalsResolvedBacking);
-                board.GBufferAlbedo = graph.CreateTextureMultisampleResolveView(ResourceNames::GBufferAlbedo,
-                                                                                board.GBufferAlbedoMS,
+                board.GBuffer.GBufferAlbedo = graph.CreateTextureMultisampleResolveView(ResourceNames::GBufferAlbedo,
+                                                                                board.GBuffer.GBufferAlbedoMS,
                                                                                 gbufferAlbedoResolvedBacking);
-                board.GBufferNormal = graph.CreateTextureMultisampleResolveView(ResourceNames::GBufferNormal,
-                                                                                board.GBufferNormalMS,
+                board.GBuffer.GBufferNormal = graph.CreateTextureMultisampleResolveView(ResourceNames::GBufferNormal,
+                                                                                board.GBuffer.GBufferNormalMS,
                                                                                 gbufferNormalResolvedBacking);
-                board.GBufferEmissive = graph.CreateTextureMultisampleResolveView(ResourceNames::GBufferEmissive,
-                                                                                  board.GBufferEmissiveMS,
+                board.GBuffer.GBufferEmissive = graph.CreateTextureMultisampleResolveView(ResourceNames::GBufferEmissive,
+                                                                                  board.GBuffer.GBufferEmissiveMS,
                                                                                   gbufferEmissiveResolvedBacking);
-                board.Velocity = graph.CreateTextureMultisampleResolveView(ResourceNames::Velocity,
-                                                                           board.VelocityMS,
+                board.GBuffer.Velocity = graph.CreateTextureMultisampleResolveView(ResourceNames::Velocity,
+                                                                           board.GBuffer.VelocityMS,
                                                                            velocityResolvedBacking);
             }
             else
             {
-                board.SceneDepth = graph.CreateFramebufferDepthAttachmentView(ResourceNames::SceneDepth, resolvedGBuffer);
-                board.SceneNormals = graph.CreateFramebufferAttachmentView(ResourceNames::SceneNormals, resolvedGBuffer, 1u);
-                board.GBufferAlbedo = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferAlbedo, resolvedGBuffer, 0u);
-                board.GBufferNormal = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferNormal, resolvedGBuffer, 1u);
-                board.GBufferEmissive = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferEmissive, resolvedGBuffer, 2u);
-                board.Velocity = graph.CreateFramebufferAttachmentView(ResourceNames::Velocity, resolvedGBuffer, 3u);
+                board.Scene.SceneDepth = graph.CreateFramebufferDepthAttachmentView(ResourceNames::SceneDepth, resolvedGBuffer);
+                board.Scene.SceneNormals = graph.CreateFramebufferAttachmentView(ResourceNames::SceneNormals, resolvedGBuffer, 1u);
+                board.GBuffer.GBufferAlbedo = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferAlbedo, resolvedGBuffer, 0u);
+                board.GBuffer.GBufferNormal = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferNormal, resolvedGBuffer, 1u);
+                board.GBuffer.GBufferEmissive = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferEmissive, resolvedGBuffer, 2u);
+                board.GBuffer.Velocity = graph.CreateFramebufferAttachmentView(ResourceNames::Velocity, resolvedGBuffer, 3u);
             }
         }
 
@@ -1156,7 +1185,7 @@ namespace OloEngine
                 velocityDesc.Width = sceneSpec.Width;
                 velocityDesc.Height = sceneSpec.Height;
                 velocityDesc.DebugName = std::string(ResourceNames::Velocity);
-                board.Velocity = graph.AllocateTransientTextureHandle(ResourceNames::Velocity, velocityDesc);
+                board.GBuffer.Velocity = graph.AllocateTransientTextureHandle(ResourceNames::Velocity, velocityDesc);
             }
         }
 
@@ -1190,7 +1219,7 @@ namespace OloEngine
                 aoDesc.Width = aoWidth;
                 aoDesc.Height = aoHeight;
                 aoDesc.DebugName = std::string(ResourceNames::AOBuffer);
-                board.AOBuffer = graph.AllocateTransientTextureHandle(ResourceNames::AOBuffer, aoDesc);
+                board.AO.AOBuffer = graph.AllocateTransientTextureHandle(ResourceNames::AOBuffer, aoDesc);
             }
             else if (gtaoReady)
             {
@@ -1209,7 +1238,7 @@ namespace OloEngine
                 aoDesc.Width = aoWidth;
                 aoDesc.Height = aoHeight;
                 aoDesc.DebugName = std::string(ResourceNames::AOBuffer);
-                board.AOBuffer = graph.AllocateTransientTextureHandle(ResourceNames::AOBuffer, aoDesc);
+                board.AO.AOBuffer = graph.AllocateTransientTextureHandle(ResourceNames::AOBuffer, aoDesc);
             }
 
             static i32 s_PrevAOTechnique = -1;
@@ -1219,7 +1248,7 @@ namespace OloEngine
             static bool s_PrevGTAOReady = false;
             static bool s_PrevAOHandleValid = false;
             const i32 activeTechnique = static_cast<i32>(data.PostProcess.ActiveAOTechnique);
-            const bool aoHandleValid = board.AOBuffer.IsValid();
+            const bool aoHandleValid = board.AO.AOBuffer.IsValid();
             if (activeTechnique != s_PrevAOTechnique ||
                 data.PostProcess.SSAOEnabled != s_PrevSSAOEnabled ||
                 data.PostProcess.GTAOEnabled != s_PrevGTAOEnabled ||
@@ -1267,7 +1296,7 @@ namespace OloEngine
             const u32 spotID = data.Shadow.GetSpotRendererID();
             if (csmID != 0)
             {
-                board.ShadowMapCSM = graph.DeclareTransientTexture(
+                board.Shadows.ShadowMapCSM = graph.DeclareTransientTexture(
                     ResourceNames::ShadowMapCSM,
                     buildShadowTextureDesc(ResourceHandle::Kind::Texture2DArray,
                                            ResourceNames::ShadowMapCSM,
@@ -1276,13 +1305,13 @@ namespace OloEngine
 
                 for (u32 cascade = 0; cascade < FrameBlackboard::MaxShadowMapCascades; ++cascade)
                 {
-                    board.ShadowMapCSMCascades[cascade] = graph.CreateTextureArrayLayerView(
-                        ResourceNames::ShadowMapCSMCascade[cascade], board.ShadowMapCSM, cascade);
+                    board.Shadows.ShadowMapCSMCascades[cascade] = graph.CreateTextureArrayLayerView(
+                        ResourceNames::ShadowMapCSMCascade[cascade], board.Shadows.ShadowMapCSM, cascade);
                 }
             }
             if (spotID != 0)
             {
-                board.ShadowMapSpot = graph.DeclareTransientTexture(
+                board.Shadows.ShadowMapSpot = graph.DeclareTransientTexture(
                     ResourceNames::ShadowMapSpot,
                     buildShadowTextureDesc(ResourceHandle::Kind::Texture2DArray,
                                            ResourceNames::ShadowMapSpot,
@@ -1291,8 +1320,8 @@ namespace OloEngine
 
                 for (u32 light = 0; light < FrameBlackboard::MaxShadowMapSpotLights; ++light)
                 {
-                    board.ShadowMapSpotLayers[light] = graph.CreateTextureArrayLayerView(
-                        ResourceNames::ShadowMapSpotLayer[light], board.ShadowMapSpot, light);
+                    board.Shadows.ShadowMapSpotLayers[light] = graph.CreateTextureArrayLayerView(
+                        ResourceNames::ShadowMapSpotLayer[light], board.Shadows.ShadowMapSpot, light);
                 }
             }
             // Point-light shadow cubemaps — declare each active light slot as a
@@ -1302,7 +1331,7 @@ namespace OloEngine
                 const u32 pointID = data.Shadow.GetPointRendererID(i);
                 if (pointID != 0)
                 {
-                    board.ShadowMapPoint[i] = graph.DeclareTransientTexture(
+                    board.Shadows.ShadowMapPoint[i] = graph.DeclareTransientTexture(
                         ResourceNames::ShadowMapPoint[i],
                         buildShadowTextureDesc(ResourceHandle::Kind::TextureCube,
                                                ResourceNames::ShadowMapPoint[i],
@@ -1312,8 +1341,8 @@ namespace OloEngine
                     for (u32 face = 0; face < FrameBlackboard::MaxShadowMapCubeFaces; ++face)
                     {
                         const auto faceViewName = std::string(ResourceNames::ShadowMapPoint[i]) + "Face" + std::to_string(face);
-                        board.ShadowMapPointFaces[i][face] = graph.CreateTextureCubeFaceView(
-                            faceViewName, board.ShadowMapPoint[i], face);
+                        board.Shadows.ShadowMapPointFaces[i][face] = graph.CreateTextureCubeFaceView(
+                            faceViewName, board.Shadows.ShadowMapPoint[i], face);
                     }
                 }
             }
@@ -1385,7 +1414,7 @@ namespace OloEngine
         if (pipeline.SceneCompositePasses.SSAO &&
             data.PostProcess.ActiveAOTechnique == AOTechnique::SSAO &&
             data.PostProcess.SSAOEnabled &&
-            board.AOBuffer.IsValid())
+            board.AO.AOBuffer.IsValid())
         {
             // SSAORaw / SSAOBlur must match the SSAO pass's half-res viewport.
             // Using the full-res FramebufferSpecification here was the cause of
@@ -1402,20 +1431,20 @@ namespace OloEngine
                 rawDesc.Width = ssaoWidth;
                 rawDesc.Height = ssaoHeight;
                 rawDesc.DebugName = "SSAORaw";
-                board.SSAORaw = declareGraphOnlyFramebuffer("SSAORaw", rawDesc);
+                board.Scratch.SSAORaw = declareGraphOnlyFramebuffer("SSAORaw", rawDesc);
 
                 RGResourceDesc blurDesc = rawDesc;
                 blurDesc.DebugName = std::string(ResourceNames::SSAOBlur);
-                board.SSAOBlur = declareGraphOnlyFramebuffer(ResourceNames::SSAOBlur, blurDesc);
+                board.Scratch.SSAOBlur = declareGraphOnlyFramebuffer(ResourceNames::SSAOBlur, blurDesc);
             }
         }
 
         if (pipeline.SceneCompositePasses.GTAO &&
             data.PostProcess.ActiveAOTechnique == AOTechnique::GTAO &&
             data.PostProcess.GTAOEnabled &&
-            board.AOBuffer.IsValid() &&
-            board.SceneDepth.IsValid() &&
-            board.SceneNormals.IsValid())
+            board.AO.AOBuffer.IsValid() &&
+            board.Scene.SceneDepth.IsValid() &&
+            board.Scene.SceneNormals.IsValid())
         {
             const auto nextPow2 = [](u32 value)
             {
@@ -1441,15 +1470,15 @@ namespace OloEngine
             hzbDesc.Height = hzbH;
             hzbDesc.MipLevels = mipCount;
             hzbDesc.DebugName = std::string(ResourceNames::HZBDepth);
-            board.HZBDepth = declareGraphOnlyTexture(ResourceNames::HZBDepth, hzbDesc);
+            board.Scratch.HZBDepth = declareGraphOnlyTexture(ResourceNames::HZBDepth, hzbDesc);
 
-            if (board.HZBDepth.IsValid())
+            if (board.Scratch.HZBDepth.IsValid())
             {
                 const auto declaredMipViewCount = std::min<u32>(mipCount, FrameBlackboard::MaxHZBMipViews);
                 for (u32 mip = 0u; mip < declaredMipViewCount; ++mip)
                 {
                     const auto mipViewName = std::string(ResourceNames::HZBDepth) + "Mip" + std::to_string(mip);
-                    board.HZBDepthMipViews[mip] = graph.CreateTextureMipView(mipViewName, board.HZBDepth, mip);
+                    board.Scratch.HZBDepthMipViews[mip] = graph.CreateTextureMipView(mipViewName, board.Scratch.HZBDepth, mip);
                 }
             }
 
@@ -1459,7 +1488,7 @@ namespace OloEngine
             edgeDesc.Width = postProcessWidth;
             edgeDesc.Height = postProcessHeight;
             edgeDesc.DebugName = "GTAOEdge";
-            board.GTAOEdge = declareGraphOnlyTexture("GTAOEdge", edgeDesc);
+            board.Scratch.GTAOEdge = declareGraphOnlyTexture("GTAOEdge", edgeDesc);
 
             RGResourceDesc denoiseDesc;
             denoiseDesc.Kind = ResourceHandle::Kind::Texture2D;
@@ -1467,15 +1496,15 @@ namespace OloEngine
             denoiseDesc.Width = postProcessWidth;
             denoiseDesc.Height = postProcessHeight;
             denoiseDesc.DebugName = std::string(ResourceNames::GTAODenoisePing);
-            board.GTAODenoisePing = declareGraphOnlyTexture(ResourceNames::GTAODenoisePing, denoiseDesc);
+            board.Scratch.GTAODenoisePing = declareGraphOnlyTexture(ResourceNames::GTAODenoisePing, denoiseDesc);
 
             denoiseDesc.DebugName = std::string(ResourceNames::GTAODenoisePong);
-            board.GTAODenoisePong = declareGraphOnlyTexture(ResourceNames::GTAODenoisePong, denoiseDesc);
+            board.Scratch.GTAODenoisePong = declareGraphOnlyTexture(ResourceNames::GTAODenoisePong, denoiseDesc);
         }
 
         if (pipeline.RenderStreamPasses.Water &&
             pipeline.RenderStreamPasses.Water->GetCommandBucket().GetCommandCount() > 0 &&
-            board.SceneColor.IsValid())
+            board.Scene.SceneColor.IsValid())
         {
             RGResourceDesc refrDesc;
             refrDesc.Kind = ResourceHandle::Kind::Texture2D;
@@ -1483,7 +1512,7 @@ namespace OloEngine
             refrDesc.Width = postProcessWidth;
             refrDesc.Height = postProcessHeight;
             refrDesc.DebugName = "WaterRefraction";
-            board.WaterRefraction = declareGraphOnlyTexture("WaterRefraction", refrDesc);
+            board.Scratch.WaterRefraction = declareGraphOnlyTexture("WaterRefraction", refrDesc);
         }
 
         if (pipeline.PostProcessPasses.SSS &&
@@ -1495,8 +1524,8 @@ namespace OloEngine
                 ResourceNames::SSSColor,
                 ResourceNames::SSSColorTexture,
                 RGResourceFormat::RGBA16Float);
-            board.SSSColor = sssOutput.Framebuffer;
-            board.SSSColorTexture = sssOutput.Texture;
+            board.Post.SSSColor = sssOutput.Framebuffer;
+            board.Post.SSSColorTexture = sssOutput.Texture;
         }
 
         // AOApplyColor exists only when AO apply is actually executable for
@@ -1506,15 +1535,15 @@ namespace OloEngine
         {
             if (pipeline.PostProcessPasses.AOApply->IsEnabled() &&
                 pipeline.PostProcessPasses.AOApply->IsReadyForExecution() &&
-                board.AOBuffer.IsValid() &&
-                board.SceneDepth.IsValid())
+                board.AO.AOBuffer.IsValid() &&
+                board.Scene.SceneDepth.IsValid())
             {
                 const auto aoApplyOutput = declareGraphOnlyPostProcessOutput(
                     ResourceNames::AOApplyColor,
                     ResourceNames::AOApplyColorTexture,
                     RGResourceFormat::RGBA16Float);
-                board.AOApplyColor = aoApplyOutput.Framebuffer;
-                board.AOApplyColorTexture = aoApplyOutput.Texture;
+                board.Post.AOApplyColor = aoApplyOutput.Framebuffer;
+                board.Post.AOApplyColorTexture = aoApplyOutput.Texture;
             }
         }
 
@@ -1526,7 +1555,7 @@ namespace OloEngine
         // producer/consumer chain, which lets AO/SSS get culled and can feed
         // stale/black data into the post stack.
         //
-        // The handle copies below keep board.PostProcessColor usable by code
+        // The handle copies below keep board.Post.PostProcessColor usable by code
         // paths that already hold the typed handle. RegisterFramebufferAlias /
         // RegisterTextureAlias also make the base-name "PostProcessColor"
         // resolvable via graph.GetFramebufferHandle / GetTextureHandle, so
@@ -1535,24 +1564,24 @@ namespace OloEngine
         // every possible chain source explicitly in their candidate arrays.
         std::string_view postProcessTargetFramebuffer;
         std::string_view postProcessTargetTexture;
-        if (board.AOApplyColor.IsValid())
+        if (board.Post.AOApplyColor.IsValid())
         {
-            board.PostProcessColor = board.AOApplyColor;
-            board.PostProcessColorTexture = board.AOApplyColorTexture;
+            board.Post.PostProcessColor = board.Post.AOApplyColor;
+            board.Post.PostProcessColorTexture = board.Post.AOApplyColorTexture;
             postProcessTargetFramebuffer = ResourceNames::AOApplyColor;
             postProcessTargetTexture = ResourceNames::AOApplyColorTexture;
         }
-        else if (board.SSSColor.IsValid())
+        else if (board.Post.SSSColor.IsValid())
         {
-            board.PostProcessColor = board.SSSColor;
-            board.PostProcessColorTexture = board.SSSColorTexture;
+            board.Post.PostProcessColor = board.Post.SSSColor;
+            board.Post.PostProcessColorTexture = board.Post.SSSColorTexture;
             postProcessTargetFramebuffer = ResourceNames::SSSColor;
             postProcessTargetTexture = ResourceNames::SSSColorTexture;
         }
         else
         {
-            board.PostProcessColor = board.SceneColor;
-            board.PostProcessColorTexture = board.SceneColorTexture;
+            board.Post.PostProcessColor = board.Scene.SceneColor;
+            board.Post.PostProcessColorTexture = board.Scene.SceneColorTexture;
             postProcessTargetFramebuffer = ResourceNames::SceneColor;
             postProcessTargetTexture = ResourceNames::SceneColorTexture;
         }
@@ -1588,8 +1617,8 @@ namespace OloEngine
                     ResourceNames::BloomColor,
                     ResourceNames::BloomColorTexture,
                     RGResourceFormat::RGBA16Float);
-                board.BloomColor = bloomOutput.Framebuffer;
-                board.BloomColorTexture = bloomOutput.Texture;
+                board.Post.BloomColor = bloomOutput.Framebuffer;
+                board.Post.BloomColorTexture = bloomOutput.Texture;
 
                 u32 mipW = postProcessWidth / 2u;
                 u32 mipH = postProcessHeight / 2u;
@@ -1604,7 +1633,7 @@ namespace OloEngine
                     mipDesc.Width = mipW;
                     mipDesc.Height = mipH;
                     mipDesc.DebugName = "BloomMip" + std::to_string(i);
-                    board.BloomMips[i] = declareGraphOnlyFramebuffer(mipDesc.DebugName, mipDesc);
+                    board.Scratch.BloomMips[i] = declareGraphOnlyFramebuffer(mipDesc.DebugName, mipDesc);
 
                     mipW /= 2u;
                     mipH /= 2u;
@@ -1620,8 +1649,8 @@ namespace OloEngine
                 ResourceNames::DOFColor,
                 ResourceNames::DOFColorTexture,
                 RGResourceFormat::RGBA16Float);
-            board.DOFColor = dofOutput.Framebuffer;
-            board.DOFColorTexture = dofOutput.Texture;
+            board.Post.DOFColor = dofOutput.Framebuffer;
+            board.Post.DOFColorTexture = dofOutput.Texture;
         }
 
         // MotionBlurColor is declared only when motion blur is enabled.
@@ -1632,8 +1661,8 @@ namespace OloEngine
                 ResourceNames::MotionBlurColor,
                 ResourceNames::MotionBlurColorTexture,
                 RGResourceFormat::RGBA16Float);
-            board.MotionBlurColor = motionBlurOutput.Framebuffer;
-            board.MotionBlurColorTexture = motionBlurOutput.Texture;
+            board.Post.MotionBlurColor = motionBlurOutput.Framebuffer;
+            board.Post.MotionBlurColorTexture = motionBlurOutput.Texture;
         }
 
         // TAAColor is declared only when TAA is enabled.
@@ -1644,8 +1673,8 @@ namespace OloEngine
                 ResourceNames::TAAColor,
                 ResourceNames::TAAColorTexture,
                 RGResourceFormat::RGBA16Float);
-            board.TAAColor = taaOutput.Framebuffer;
-            board.TAAColorTexture = taaOutput.Texture;
+            board.Post.TAAColor = taaOutput.Framebuffer;
+            board.Post.TAAColorTexture = taaOutput.Texture;
         }
 
         // PrecipitationColor is declared only when screen FX are active.
@@ -1659,8 +1688,8 @@ namespace OloEngine
                 ResourceNames::PrecipitationColor,
                 ResourceNames::PrecipitationColorTexture,
                 RGResourceFormat::RGBA16Float);
-            board.PrecipitationColor = precipitationOutput.Framebuffer;
-            board.PrecipitationColorTexture = precipitationOutput.Texture;
+            board.Post.PrecipitationColor = precipitationOutput.Framebuffer;
+            board.Post.PrecipitationColorTexture = precipitationOutput.Texture;
         }
 
         // FogColor is declared only when fog is enabled.
@@ -1671,8 +1700,8 @@ namespace OloEngine
                 ResourceNames::FogColor,
                 ResourceNames::FogColorTexture,
                 RGResourceFormat::RGBA16Float);
-            board.FogColor = fogOutput.Framebuffer;
-            board.FogColorTexture = fogOutput.Texture;
+            board.Post.FogColor = fogOutput.Framebuffer;
+            board.Post.FogColorTexture = fogOutput.Texture;
 
             const auto& fogSpec = pipeline.PostProcessPasses.Fog->GetFramebufferSpecification();
             if (fogSpec.Width > 0u && fogSpec.Height > 0u)
@@ -1683,7 +1712,7 @@ namespace OloEngine
                 fogHalfDesc.Width = (fogSpec.Width + 1u) / 2u;
                 fogHalfDesc.Height = (fogSpec.Height + 1u) / 2u;
                 fogHalfDesc.DebugName = std::string(ResourceNames::FogHalfRes);
-                board.FogHalfRes = declareGraphOnlyFramebuffer(ResourceNames::FogHalfRes, fogHalfDesc);
+                board.Scratch.FogHalfRes = declareGraphOnlyFramebuffer(ResourceNames::FogHalfRes, fogHalfDesc);
             }
         }
 
@@ -1698,8 +1727,8 @@ namespace OloEngine
                 ResourceNames::ChromAbColor,
                 ResourceNames::ChromAbColorTexture,
                 RGResourceFormat::RGBA16Float);
-            board.ChromAbColor = chromAbOutput.Framebuffer;
-            board.ChromAbColorTexture = chromAbOutput.Texture;
+            board.Post.ChromAbColor = chromAbOutput.Framebuffer;
+            board.Post.ChromAbColorTexture = chromAbOutput.Texture;
         }
         if (pipeline.PostProcessPasses.ColorGrading && data.PostProcess.ColorGradingEnabled &&
             pipeline.PostProcessPasses.ColorGrading->IsReadyForExecution())
@@ -1708,8 +1737,8 @@ namespace OloEngine
                 ResourceNames::ColorGradingColor,
                 ResourceNames::ColorGradingColorTexture,
                 RGResourceFormat::RGBA16Float);
-            board.ColorGradingColor = colorGradingOutput.Framebuffer;
-            board.ColorGradingColorTexture = colorGradingOutput.Texture;
+            board.Post.ColorGradingColor = colorGradingOutput.Framebuffer;
+            board.Post.ColorGradingColorTexture = colorGradingOutput.Texture;
         }
         if (pipeline.PostProcessPasses.ToneMap && pipeline.PostProcessPasses.ToneMap->IsReadyForExecution())
         {
@@ -1717,8 +1746,8 @@ namespace OloEngine
                 ResourceNames::ToneMapColor,
                 ResourceNames::ToneMapColorTexture,
                 RGResourceFormat::RGBA16Float);
-            board.ToneMapColor = toneMapOutput.Framebuffer;
-            board.ToneMapColorTexture = toneMapOutput.Texture;
+            board.Post.ToneMapColor = toneMapOutput.Framebuffer;
+            board.Post.ToneMapColorTexture = toneMapOutput.Texture;
         }
         if (pipeline.PostProcessPasses.Vignette && data.PostProcess.VignetteEnabled &&
             pipeline.PostProcessPasses.Vignette->IsReadyForExecution())
@@ -1727,12 +1756,12 @@ namespace OloEngine
                 ResourceNames::VignetteColor,
                 ResourceNames::VignetteColorTexture,
                 RGResourceFormat::RGBA8UNorm);
-            board.VignetteColor = vignetteOutput.Framebuffer;
-            board.VignetteColorTexture = vignetteOutput.Texture;
+            board.Post.VignetteColor = vignetteOutput.Framebuffer;
+            board.Post.VignetteColorTexture = vignetteOutput.Texture;
         }
 
         // Only declare FXAAColor when FXAA is active so
-        // downstream consumers can rely on `board.FXAAColor.IsValid()` as
+        // downstream consumers can rely on `board.Post.FXAAColor.IsValid()` as
         // the canonical "anti-aliased post-process available" signal.
         if (pipeline.PostProcessPasses.FXAA && data.PostProcess.FXAAEnabled &&
             pipeline.PostProcessPasses.FXAA->IsReadyForExecution())
@@ -1741,20 +1770,26 @@ namespace OloEngine
                 ResourceNames::FXAAColor,
                 ResourceNames::FXAAColorTexture,
                 RGResourceFormat::RGBA8UNorm);
-            board.FXAAColor = fxaaOutput.Framebuffer;
-            board.FXAAColorTexture = fxaaOutput.Texture;
+            board.Post.FXAAColor = fxaaOutput.Framebuffer;
+            board.Post.FXAAColorTexture = fxaaOutput.Texture;
         }
 
+        // Gate on the data flags that drive UploadExecutionState's SetEnabled
+        // computation (which runs AFTER PopulateBlackboard, so checking the
+        // pass's m_Enabled here would always reflect the previous frame).
+        // The fingerprint cache (ComputeBlackboardFingerprint) hashes the
+        // same two values so a selection change forces a rebuild.
         if (pipeline.PostProcessPasses.SelectionOutline &&
-            pipeline.PostProcessPasses.SelectionOutline->IsEnabled() &&
+            data.EnableSelectionOutline &&
+            !data.SelectionOutlineEntityIDs.empty() &&
             pipeline.PostProcessPasses.SelectionOutline->IsReadyForExecution())
         {
             const auto selectionOutlineOutput = declareGraphOnlyPostProcessOutput(
                 ResourceNames::SelectionOutlineColor,
                 ResourceNames::SelectionOutlineColorTexture,
                 RGResourceFormat::RGBA8UNorm);
-            board.SelectionOutlineColor = selectionOutlineOutput.Framebuffer;
-            board.SelectionOutlineColorTexture = selectionOutlineOutput.Texture;
+            board.Post.SelectionOutlineColor = selectionOutlineOutput.Framebuffer;
+            board.Post.SelectionOutlineColorTexture = selectionOutlineOutput.Texture;
 
             const auto& outlineSpec = pipeline.PostProcessPasses.SelectionOutline->GetFramebufferSpecification();
             if (outlineSpec.Width > 0u && outlineSpec.Height > 0u)
@@ -1766,10 +1801,10 @@ namespace OloEngine
                 jfaDesc.Height = outlineSpec.Height;
 
                 jfaDesc.DebugName = "JFAPing";
-                board.JFAPing = declareGraphOnlyFramebuffer("JFAPing", jfaDesc);
+                board.Scratch.JFAPing = declareGraphOnlyFramebuffer("JFAPing", jfaDesc);
 
                 jfaDesc.DebugName = "JFAPong";
-                board.JFAPong = declareGraphOnlyFramebuffer("JFAPong", jfaDesc);
+                board.Scratch.JFAPong = declareGraphOnlyFramebuffer("JFAPong", jfaDesc);
             }
         }
 
@@ -1781,14 +1816,14 @@ namespace OloEngine
             uiCompositeDesc.Height = postProcessHeight;
             uiCompositeDesc.Attachments = { RGResourceFormat::RGBA8UNorm, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
             uiCompositeDesc.DebugName = std::string(ResourceNames::UIComposite);
-            board.UIComposite = graph.DeclareTransientFramebuffer(ResourceNames::UIComposite, uiCompositeDesc);
-            board.UICompositeTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, board.UIComposite, 0u);
+            board.Post.UIComposite = graph.DeclareTransientFramebuffer(ResourceNames::UIComposite, uiCompositeDesc);
+            board.Post.UICompositeTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, board.Post.UIComposite, 0u);
         }
 
         // Default framebuffer / swapchain target represented as an imported
         // external output resource. Backing framebuffer is null by design;
         // FinalPass presents via RGCommandContext::BindDefaultFramebuffer().
-        board.Backbuffer = graph.ImportFramebuffer(
+        board.Post.Backbuffer = graph.ImportFramebuffer(
             ResourceNames::Backbuffer, nullptr,
             RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, ResourceNames::Backbuffer));
 
@@ -1799,8 +1834,8 @@ namespace OloEngine
         // *actually* active for this frame. Skipping the declaration when OIT
         // is disabled means transparent contributor
         // passes (Particle / Water / Decal) bail out of their
-        // `builder.Write(board.OITAccum, ...)` declarations
-        // (`if (board.OITAccum.IsValid())` is already guarded), so the
+        // `builder.Write(board.OIT.OITAccum, ...)` declarations
+        // (`if (board.OIT.OITAccum.IsValid())` is already guarded), so the
         // graph never sees write edges into a buffer that nothing reads.
         // OITPreparePass and OITResolvePass also self-skip via `m_Enabled`.
         const bool oitActive = data.Settings.OITEnabled &&
@@ -1823,10 +1858,10 @@ namespace OloEngine
             oitDesc.DebugName = std::string(ResourceNames::OITBuffer);
 
             const auto oitHandle = graph.DeclareTransientFramebuffer(ResourceNames::OITBuffer, oitDesc);
-            board.OITBuffer = oitHandle;
-            board.OITAccum = graph.CreateFramebufferAttachmentView(ResourceNames::OITAccum, oitHandle, 0u);
-            board.OITRevealage = graph.CreateFramebufferAttachmentView(ResourceNames::OITRevealage, oitHandle, 1u);
-            board.OITDepthAttachment = graph.CreateFramebufferDepthAttachmentView(ResourceNames::OITDepthAttachment, oitHandle);
+            board.OIT.OITBuffer = oitHandle;
+            board.OIT.OITAccum = graph.CreateFramebufferAttachmentView(ResourceNames::OITAccum, oitHandle, 0u);
+            board.OIT.OITRevealage = graph.CreateFramebufferAttachmentView(ResourceNames::OITRevealage, oitHandle, 1u);
+            board.OIT.OITDepthAttachment = graph.CreateFramebufferDepthAttachmentView(ResourceNames::OITDepthAttachment, oitHandle);
         }
 
         // ------------------------------------------------------------------
@@ -1848,7 +1883,7 @@ namespace OloEngine
         }
         if (pipeline.TAAHistoryValid && pipeline.TAAHistoryTexture)
         {
-            board.TAAHistory = graph.ImportHistory(
+            board.Temporal.TAAHistory = graph.ImportHistory(
                 ResourceNames::TAAHistory, pipeline.TAAHistoryTexture->GetRendererID());
         }
 
@@ -1870,7 +1905,7 @@ namespace OloEngine
         }
         if (pipeline.FogHistoryValid && pipeline.FogHistoryTexture)
         {
-            board.FogHistory = graph.ImportHistory(
+            board.Temporal.FogHistory = graph.ImportHistory(
                 ResourceNames::FogHistory, pipeline.FogHistoryTexture->GetRendererID());
         }
 
@@ -1879,19 +1914,19 @@ namespace OloEngine
         // ------------------------------------------------------------------
         if (data.GlobalIrradianceMapID != 0)
         {
-            board.IrradianceMap = graph.ImportTexture(
+            board.IBL.IrradianceMap = graph.ImportTexture(
                 ResourceNames::IrradianceMap, data.GlobalIrradianceMapID,
                 RGResourceDesc::FromHandleKind(ResourceHandle::Kind::TextureCube, ResourceNames::IrradianceMap));
         }
         if (data.GlobalPrefilterMapID != 0)
         {
-            board.PrefilterMap = graph.ImportTexture(
+            board.IBL.PrefilterMap = graph.ImportTexture(
                 ResourceNames::PrefilterMap, data.GlobalPrefilterMapID,
                 RGResourceDesc::FromHandleKind(ResourceHandle::Kind::TextureCube, ResourceNames::PrefilterMap));
         }
         if (data.GlobalBRDFLutMapID != 0)
         {
-            board.BrdfLut = graph.ImportTexture(
+            board.IBL.BrdfLut = graph.ImportTexture(
                 ResourceNames::BrdfLut, data.GlobalBRDFLutMapID,
                 RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, ResourceNames::BrdfLut));
         }

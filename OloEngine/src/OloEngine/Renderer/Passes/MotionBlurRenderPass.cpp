@@ -38,15 +38,15 @@ namespace OloEngine
         if (!m_Enabled)
             return;
 
-        if (blackboard.SceneDepth.IsValid())
+        if (blackboard.Scene.SceneDepth.IsValid())
         {
-            m_SelectedSceneDepthTexture = blackboard.SceneDepth;
-            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.SceneDepth, RGReadUsage::ShaderSample);
+            m_SelectedSceneDepthTexture = blackboard.Scene.SceneDepth;
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.Scene.SceneDepth, RGReadUsage::ShaderSample);
         }
-        if (blackboard.MotionBlurColor.IsValid())
+        if (blackboard.Post.MotionBlurColor.IsValid())
         {
             constexpr std::string_view motionBlurVersionTag = "MotionBlurPass";
-            const auto outputHandle = builder.WriteNewVersion(blackboard.MotionBlurColor, RGWriteUsage::RenderTarget, motionBlurVersionTag);
+            const auto outputHandle = builder.WriteNewVersion(blackboard.Post.MotionBlurColor, RGWriteUsage::RenderTarget, motionBlurVersionTag);
             if (!outputHandle.IsValid())
                 return;
 
@@ -88,13 +88,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        Ref<Framebuffer> inputFramebuffer;
+        // Sample-only consumer: input framebuffer is intentionally not
+        // resolved here — see ReadFirstValidVersionedInputForPass docs.
         u32 inputColorTextureID = 0u;
-        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
-        {
-            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
-                inputFramebuffer = resolvedInput;
-        }
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
             inputColorTextureID = context.ResolveTexture(inputTextureHandle);
 
@@ -106,11 +102,11 @@ namespace OloEngine
         }
         if (!m_Enabled)
         {
-            m_Target = inputFramebuffer;
+            m_Target = nullptr;
             return;
         }
 
-        if (!inputFramebuffer || inputColorTextureID == 0u || !outputFramebuffer || !m_MotionBlurShader)
+        if (inputColorTextureID == 0u || !outputFramebuffer || !m_MotionBlurShader)
         {
             m_Target = nullptr;
             return;
@@ -128,6 +124,8 @@ namespace OloEngine
 
         m_Target = outputFramebuffer;
 
+        if (m_PostProcessUBO)
+            m_PostProcessUBO->Bind();
         if (m_MotionBlurUBO)
             m_MotionBlurUBO->Bind();
 

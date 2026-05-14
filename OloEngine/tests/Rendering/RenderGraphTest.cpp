@@ -1124,13 +1124,13 @@ TEST(RenderGraph, UICompositePublishesVersionedOutputAndFinalPrefersProducerOwne
     const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
 
     auto& blackboard = graph.GetBlackboard();
-    blackboard.SceneColor = sceneHandle;
-    blackboard.SceneColorTexture = sceneTexture;
-    blackboard.PostProcessColor = sceneHandle;
-    blackboard.PostProcessColorTexture = sceneTexture;
-    blackboard.UIComposite = uiHandle;
-    blackboard.UICompositeTexture = uiTexture;
-    blackboard.Backbuffer = graph.ImportFramebuffer(
+    blackboard.Scene.SceneColor = sceneHandle;
+    blackboard.Scene.SceneColorTexture = sceneTexture;
+    blackboard.Post.PostProcessColor = sceneHandle;
+    blackboard.Post.PostProcessColorTexture = sceneTexture;
+    blackboard.Post.UIComposite = uiHandle;
+    blackboard.Post.UICompositeTexture = uiTexture;
+    blackboard.Post.Backbuffer = graph.ImportFramebuffer(
         ResourceNames::Backbuffer,
         nullptr,
         RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, ResourceNames::Backbuffer));
@@ -1195,12 +1195,12 @@ TEST(RenderGraph, FXAAPublishesVersionedOutputAndDownstreamPassesPreferProducerO
     const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
 
     auto& blackboard = graph.GetBlackboard();
-    blackboard.VignetteColor = vignetteHandle;
-    blackboard.VignetteColorTexture = vignetteTexture;
-    blackboard.FXAAColor = fxaaHandle;
-    blackboard.FXAAColorTexture = fxaaTexture;
-    blackboard.UIComposite = uiHandle;
-    blackboard.UICompositeTexture = uiTexture;
+    blackboard.Post.VignetteColor = vignetteHandle;
+    blackboard.Post.VignetteColorTexture = vignetteTexture;
+    blackboard.Post.FXAAColor = fxaaHandle;
+    blackboard.Post.FXAAColorTexture = fxaaTexture;
+    blackboard.Post.UIComposite = uiHandle;
+    blackboard.Post.UICompositeTexture = uiTexture;
 
     auto fxaaPass = Ref<FXAARenderPass>::Create();
     fxaaPass->SetName("FXAAPass");
@@ -1270,12 +1270,12 @@ TEST(RenderGraph, VignettePublishesVersionedOutputAndDownstreamPassesPreferProdu
     const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
 
     auto& blackboard = graph.GetBlackboard();
-    blackboard.ToneMapColor = toneMapHandle;
-    blackboard.ToneMapColorTexture = toneMapTexture;
-    blackboard.VignetteColor = vignetteHandle;
-    blackboard.VignetteColorTexture = vignetteTexture;
-    blackboard.UIComposite = uiHandle;
-    blackboard.UICompositeTexture = uiTexture;
+    blackboard.Post.ToneMapColor = toneMapHandle;
+    blackboard.Post.ToneMapColorTexture = toneMapTexture;
+    blackboard.Post.VignetteColor = vignetteHandle;
+    blackboard.Post.VignetteColorTexture = vignetteTexture;
+    blackboard.Post.UIComposite = uiHandle;
+    blackboard.Post.UICompositeTexture = uiTexture;
 
     auto vignettePass = Ref<VignetteRenderPass>::Create();
     vignettePass->SetName("VignettePass");
@@ -1345,12 +1345,12 @@ TEST(RenderGraph, ToneMapPublishesVersionedOutputAndDownstreamPassesPreferProduc
     const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
 
     auto& blackboard = graph.GetBlackboard();
-    blackboard.ColorGradingColor = colorGradingHandle;
-    blackboard.ColorGradingColorTexture = colorGradingTexture;
-    blackboard.ToneMapColor = toneMapHandle;
-    blackboard.ToneMapColorTexture = toneMapTexture;
-    blackboard.UIComposite = uiHandle;
-    blackboard.UICompositeTexture = uiTexture;
+    blackboard.Post.ColorGradingColor = colorGradingHandle;
+    blackboard.Post.ColorGradingColorTexture = colorGradingTexture;
+    blackboard.Post.ToneMapColor = toneMapHandle;
+    blackboard.Post.ToneMapColorTexture = toneMapTexture;
+    blackboard.Post.UIComposite = uiHandle;
+    blackboard.Post.UICompositeTexture = uiTexture;
 
     auto toneMapPass = Ref<ToneMapRenderPass>::Create();
     toneMapPass->SetName("ToneMapPass");
@@ -1420,12 +1420,12 @@ TEST(RenderGraph, ColorGradingPublishesVersionedOutputAndDownstreamPassesPreferP
     const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
 
     auto& blackboard = graph.GetBlackboard();
-    blackboard.ChromAbColor = chromAbHandle;
-    blackboard.ChromAbColorTexture = chromAbTexture;
-    blackboard.ColorGradingColor = colorGradingHandle;
-    blackboard.ColorGradingColorTexture = colorGradingTexture;
-    blackboard.UIComposite = uiHandle;
-    blackboard.UICompositeTexture = uiTexture;
+    blackboard.Post.ChromAbColor = chromAbHandle;
+    blackboard.Post.ChromAbColorTexture = chromAbTexture;
+    blackboard.Post.ColorGradingColor = colorGradingHandle;
+    blackboard.Post.ColorGradingColorTexture = colorGradingTexture;
+    blackboard.Post.UIComposite = uiHandle;
+    blackboard.Post.UICompositeTexture = uiTexture;
 
     auto colorGradingPass = Ref<ColorGradingRenderPass>::Create();
     colorGradingPass->SetName("ColorGradingPass");
@@ -1503,12 +1503,12 @@ TEST(RenderGraph, ChromaticAberrationPublishesVersionedOutputAndDownstreamPasses
     const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
 
     auto& blackboard = graph.GetBlackboard();
-    blackboard.FogColor = fogHandle;
-    blackboard.FogColorTexture = fogTexture;
-    blackboard.ChromAbColor = chromAbHandle;
-    blackboard.ChromAbColorTexture = chromAbTexture;
-    blackboard.UIComposite = uiHandle;
-    blackboard.UICompositeTexture = uiTexture;
+    blackboard.Post.FogColor = fogHandle;
+    blackboard.Post.FogColorTexture = fogTexture;
+    blackboard.Post.ChromAbColor = chromAbHandle;
+    blackboard.Post.ChromAbColorTexture = chromAbTexture;
+    blackboard.Post.UIComposite = uiHandle;
+    blackboard.Post.UICompositeTexture = uiTexture;
 
     auto chromAbPass = Ref<ChromaticAberrationRenderPass>::Create();
     chromAbPass->SetName("ChromAberrationPass");
@@ -1593,12 +1593,12 @@ TEST(RenderGraph, FogPublishesVersionedOutputAndDownstreamPassesPreferProducerOw
     const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
 
     auto& blackboard = graph.GetBlackboard();
-    blackboard.PrecipitationColor = precipitationHandle;
-    blackboard.PrecipitationColorTexture = precipitationTexture;
-    blackboard.FogColor = fogHandle;
-    blackboard.FogColorTexture = fogTexture;
-    blackboard.UIComposite = uiHandle;
-    blackboard.UICompositeTexture = uiTexture;
+    blackboard.Post.PrecipitationColor = precipitationHandle;
+    blackboard.Post.PrecipitationColorTexture = precipitationTexture;
+    blackboard.Post.FogColor = fogHandle;
+    blackboard.Post.FogColorTexture = fogTexture;
+    blackboard.Post.UIComposite = uiHandle;
+    blackboard.Post.UICompositeTexture = uiTexture;
 
     auto fogPass = Ref<FogRenderPass>::Create();
     fogPass->SetName("FogPass");
@@ -1690,12 +1690,12 @@ TEST(RenderGraph, PrecipitationPublishesVersionedOutputAndDownstreamPassesPrefer
     const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
 
     auto& blackboard = graph.GetBlackboard();
-    blackboard.MotionBlurColor = motionBlurHandle;
-    blackboard.MotionBlurColorTexture = motionBlurTexture;
-    blackboard.PrecipitationColor = precipitationHandle;
-    blackboard.PrecipitationColorTexture = precipitationTexture;
-    blackboard.UIComposite = uiHandle;
-    blackboard.UICompositeTexture = uiTexture;
+    blackboard.Post.MotionBlurColor = motionBlurHandle;
+    blackboard.Post.MotionBlurColorTexture = motionBlurTexture;
+    blackboard.Post.PrecipitationColor = precipitationHandle;
+    blackboard.Post.PrecipitationColorTexture = precipitationTexture;
+    blackboard.Post.UIComposite = uiHandle;
+    blackboard.Post.UICompositeTexture = uiTexture;
 
     auto precipitationPass = Ref<PrecipitationRenderPass>::Create();
     precipitationPass->SetName("PrecipitationPass");
@@ -1794,12 +1794,12 @@ TEST(RenderGraph, TAAPublishesVersionedOutputAndDownstreamPassesPreferProducerOw
     const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
 
     auto& blackboard = graph.GetBlackboard();
-    blackboard.MotionBlurColor = motionBlurHandle;
-    blackboard.MotionBlurColorTexture = motionBlurTexture;
-    blackboard.TAAColor = taaHandle;
-    blackboard.TAAColorTexture = taaTexture;
-    blackboard.UIComposite = uiHandle;
-    blackboard.UICompositeTexture = uiTexture;
+    blackboard.Post.MotionBlurColor = motionBlurHandle;
+    blackboard.Post.MotionBlurColorTexture = motionBlurTexture;
+    blackboard.Post.TAAColor = taaHandle;
+    blackboard.Post.TAAColorTexture = taaTexture;
+    blackboard.Post.UIComposite = uiHandle;
+    blackboard.Post.UICompositeTexture = uiTexture;
 
     auto taaPass = Ref<TAARenderPass>::Create();
     taaPass->SetName("TAAPass");
@@ -1905,12 +1905,12 @@ TEST(RenderGraph, SSSPublishesVersionedOutputAndAOApplyAndBloomPreferProducerOwn
     const auto bloomTexture = graph.CreateFramebufferAttachmentView(ResourceNames::BloomColorTexture, bloomHandle, 0u);
 
     auto& blackboard = graph.GetBlackboard();
-    blackboard.SceneColor = sceneHandle;
-    blackboard.SceneColorTexture = sceneTexture;
-    blackboard.SSSColor = sssHandle;
-    blackboard.SSSColorTexture = sssTexture;
-    blackboard.BloomColor = bloomHandle;
-    blackboard.BloomColorTexture = bloomTexture;
+    blackboard.Scene.SceneColor = sceneHandle;
+    blackboard.Scene.SceneColorTexture = sceneTexture;
+    blackboard.Post.SSSColor = sssHandle;
+    blackboard.Post.SSSColorTexture = sssTexture;
+    blackboard.Post.BloomColor = bloomHandle;
+    blackboard.Post.BloomColorTexture = bloomTexture;
 
     SnowSettings snowSettings;
     snowSettings.Enabled = true;
@@ -1995,14 +1995,14 @@ TEST(RenderGraph, AOApplyPublishesVersionedOutputAndBloomPrefersProducerOwnedVer
         RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, ResourceNames::SceneDepth));
 
     auto& blackboard = graph.GetBlackboard();
-    blackboard.SceneColor = sceneHandle;
-    blackboard.SceneColorTexture = sceneTexture;
-    blackboard.AOApplyColor = aoApplyHandle;
-    blackboard.AOApplyColorTexture = aoApplyTexture;
-    blackboard.BloomColor = bloomHandle;
-    blackboard.BloomColorTexture = bloomTexture;
-    blackboard.AOBuffer = aoBufferHandle;
-    blackboard.SceneDepth = sceneDepthHandle;
+    blackboard.Scene.SceneColor = sceneHandle;
+    blackboard.Scene.SceneColorTexture = sceneTexture;
+    blackboard.Post.AOApplyColor = aoApplyHandle;
+    blackboard.Post.AOApplyColorTexture = aoApplyTexture;
+    blackboard.Post.BloomColor = bloomHandle;
+    blackboard.Post.BloomColorTexture = bloomTexture;
+    blackboard.AO.AOBuffer = aoBufferHandle;
+    blackboard.Scene.SceneDepth = sceneDepthHandle;
 
     auto aoApplyPass = Ref<AOApplyRenderPass>::Create();
     aoApplyPass->SetName("AOApplyPass");
@@ -2067,12 +2067,12 @@ TEST(RenderGraph, BloomPublishesVersionedOutputAndDownstreamPassesPreferProducer
     const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
 
     auto& blackboard = graph.GetBlackboard();
-    blackboard.BloomColor = bloomHandle;
-    blackboard.BloomColorTexture = bloomTexture;
-    blackboard.PostProcessColor = postProcessHandle;
-    blackboard.PostProcessColorTexture = postProcessTexture;
-    blackboard.UIComposite = uiHandle;
-    blackboard.UICompositeTexture = uiTexture;
+    blackboard.Post.BloomColor = bloomHandle;
+    blackboard.Post.BloomColorTexture = bloomTexture;
+    blackboard.Post.PostProcessColor = postProcessHandle;
+    blackboard.Post.PostProcessColorTexture = postProcessTexture;
+    blackboard.Post.UIComposite = uiHandle;
+    blackboard.Post.UICompositeTexture = uiTexture;
 
     auto bloomPass = Ref<BloomRenderPass>::Create();
     bloomPass->SetName("BloomPass");
@@ -2199,12 +2199,12 @@ TEST(RenderGraph, DOFPublishesVersionedOutputAndDownstreamPassesPreferProducerOw
     const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
 
     auto& blackboard = graph.GetBlackboard();
-    blackboard.BloomColor = bloomHandle;
-    blackboard.BloomColorTexture = bloomTexture;
-    blackboard.DOFColor = dofHandle;
-    blackboard.DOFColorTexture = dofTexture;
-    blackboard.UIComposite = uiHandle;
-    blackboard.UICompositeTexture = uiTexture;
+    blackboard.Post.BloomColor = bloomHandle;
+    blackboard.Post.BloomColorTexture = bloomTexture;
+    blackboard.Post.DOFColor = dofHandle;
+    blackboard.Post.DOFColorTexture = dofTexture;
+    blackboard.Post.UIComposite = uiHandle;
+    blackboard.Post.UICompositeTexture = uiTexture;
 
     auto dofPass = Ref<DOFRenderPass>::Create();
     dofPass->SetName("DOFPass");
@@ -2324,12 +2324,12 @@ TEST(RenderGraph, MotionBlurPublishesVersionedOutputAndDownstreamPassesPreferPro
     const auto uiTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, uiHandle, 0u);
 
     auto& blackboard = graph.GetBlackboard();
-    blackboard.DOFColor = dofHandle;
-    blackboard.DOFColorTexture = dofTexture;
-    blackboard.MotionBlurColor = motionBlurHandle;
-    blackboard.MotionBlurColorTexture = motionBlurTexture;
-    blackboard.UIComposite = uiHandle;
-    blackboard.UICompositeTexture = uiTexture;
+    blackboard.Post.DOFColor = dofHandle;
+    blackboard.Post.DOFColorTexture = dofTexture;
+    blackboard.Post.MotionBlurColor = motionBlurHandle;
+    blackboard.Post.MotionBlurColorTexture = motionBlurTexture;
+    blackboard.Post.UIComposite = uiHandle;
+    blackboard.Post.UICompositeTexture = uiTexture;
 
     auto motionBlurPass = Ref<MotionBlurRenderPass>::Create();
     motionBlurPass->SetName("MotionBlurPass");
@@ -5165,11 +5165,11 @@ TEST(RenderGraphTransientPool, PhaseD_GTAODenoisePingPongDeclaredAsTransientText
         "GTAOPass",
         [pingHandle, pongHandle](RGBuilder& builder)
         {
-            builder.AllowFeedback(pingHandle);
+            builder.AllowSamePassReadWrite(pingHandle);
             builder.Write(pingHandle, RGWriteUsage::ShaderImage);
             [[maybe_unused]] const auto pingRead = builder.Read(pingHandle, RGReadUsage::ShaderImage);
 
-            builder.AllowFeedback(pongHandle);
+            builder.AllowSamePassReadWrite(pongHandle);
             builder.Write(pongHandle, RGWriteUsage::ShaderImage);
             [[maybe_unused]] const auto pongRead = builder.Read(pongHandle, RGReadUsage::ShaderImage);
         });
@@ -11098,7 +11098,7 @@ TEST(RenderGraphBuildDiagnostics, SceneColorRMWChainIsRegistrationOrderIndepende
                     "SceneColor",
                     11u,
                     RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
-                builder.AllowFeedback(sceneColor);
+                builder.AllowSamePassReadWrite(sceneColor);
                 [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
                 builder.Write(sceneColor, RGWriteUsage::RenderTarget);
                 if (previous != nullptr)
@@ -11166,8 +11166,8 @@ TEST(RenderGraphBuildDiagnostics, OITAccumContributorChainIsRegistrationOrderInd
                 "OITRevealage",
                 13u,
                 RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "OITRevealage"));
-            builder.AllowFeedback(oitAccum);
-            builder.AllowFeedback(oitRevealage);
+            builder.AllowSamePassReadWrite(oitAccum);
+            builder.AllowSamePassReadWrite(oitRevealage);
             [[maybe_unused]] const auto accumRead = builder.Read(oitAccum, RGReadUsage::RenderTargetRead);
             builder.Write(oitAccum, RGWriteUsage::RenderTarget);
             [[maybe_unused]] const auto revealageRead = builder.Read(oitRevealage, RGReadUsage::RenderTargetRead);
@@ -11189,8 +11189,8 @@ TEST(RenderGraphBuildDiagnostics, OITAccumContributorChainIsRegistrationOrderInd
                 "OITRevealage",
                 13u,
                 RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "OITRevealage"));
-            builder.AllowFeedback(oitAccum);
-            builder.AllowFeedback(oitRevealage);
+            builder.AllowSamePassReadWrite(oitAccum);
+            builder.AllowSamePassReadWrite(oitRevealage);
             [[maybe_unused]] const auto accumRead = builder.Read(oitAccum, RGReadUsage::RenderTargetRead);
             builder.Write(oitAccum, RGWriteUsage::RenderTarget);
             [[maybe_unused]] const auto revealageRead = builder.Read(oitRevealage, RGReadUsage::RenderTargetRead);

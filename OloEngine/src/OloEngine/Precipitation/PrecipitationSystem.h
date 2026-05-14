@@ -116,6 +116,11 @@ namespace OloEngine
         /// @return Performance and state statistics.
         [[nodiscard]] static PrecipitationStats GetStatistics();
 
+        /// @return The precipitation UBO (binding 18). Used by passes that
+        /// need to rebind before sampling (other passes may have displaced
+        /// the binding point between this system's update and the draw).
+        [[nodiscard]] static Ref<UniformBuffer> GetPrecipitationUBO();
+
       private:
         struct PrecipitationData
         {

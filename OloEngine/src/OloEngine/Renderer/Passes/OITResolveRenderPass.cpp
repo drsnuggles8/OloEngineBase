@@ -28,32 +28,36 @@ namespace OloEngine
         m_SelectedOITAccumTexture = {};
         m_SelectedOITRevealageTexture = {};
 
-        const auto inputHandle = RenderPipelineBuilderInternal::SelectFirstValidFramebufferForPass(this, blackboard.SceneColor);
+        const auto inputHandle = RenderPipelineBuilderInternal::SelectFirstValidFramebufferForPass(this, blackboard.Scene.SceneColor);
 
         if (!m_Enabled || !m_HasContributors)
             return;
 
-        if (blackboard.OITAccum.IsValid())
+        if (blackboard.OIT.OITAccum.IsValid())
         {
-            m_SelectedOITAccumTexture = blackboard.OITAccum;
+            m_SelectedOITAccumTexture = blackboard.OIT.OITAccum;
             // Resolve samples OITAccum / OITRevealage as textures (see Execute
             // BindTexture calls), not as input attachments — the hazard planner
             // needs a sample barrier, not a sub-pass attachment-read.
-            [[maybe_unused]] const auto oitAccumRead = builder.Read(blackboard.OITAccum, RGReadUsage::ShaderSample);
+            [[maybe_unused]] const auto oitAccumRead = builder.Read(blackboard.OIT.OITAccum, RGReadUsage::ShaderSample);
         }
-        if (blackboard.OITRevealage.IsValid())
+        if (blackboard.OIT.OITRevealage.IsValid())
         {
-            m_SelectedOITRevealageTexture = blackboard.OITRevealage;
-            [[maybe_unused]] const auto oitRevealageRead = builder.Read(blackboard.OITRevealage, RGReadUsage::ShaderSample);
+            m_SelectedOITRevealageTexture = blackboard.OIT.OITRevealage;
+            [[maybe_unused]] const auto oitRevealageRead = builder.Read(blackboard.OIT.OITRevealage, RGReadUsage::ShaderSample);
         }
 
-        if (blackboard.SceneColor.IsValid())
-            builder.AllowFeedback(blackboard.SceneColor);
-
+        // Inter-pass RMW: read the prior SceneColor version (the input
+        // framebuffer selected above) and advertise a renamed output via
+        // WriteNewVersion. The prior-version RenderTargetRead is emitted by
+        // ReadFirstValidFramebuffer below; the rename means no same-pass
+        // feedback loop exists for the validator.
         RenderPipelineBuilderInternal::ReadFirstValidFramebuffer(builder, inputHandle);
-        if (blackboard.SceneColor.IsValid())
+        if (blackboard.Scene.SceneColor.IsValid())
         {
-            builder.Write(blackboard.SceneColor, RGWriteUsage::RenderTarget);
+            constexpr std::string_view oitResolveVersionTag = "OITResolvePass";
+            [[maybe_unused]] const auto sceneColorNew =
+                builder.WriteNewVersion(blackboard.Scene.SceneColor, RGWriteUsage::RenderTarget, oitResolveVersionTag);
             builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
         }
     }

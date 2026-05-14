@@ -30,34 +30,38 @@ namespace OloEngine
         if (!m_Settings.SSAOEnabled || m_Settings.ActiveAOTechnique != AOTechnique::SSAO)
             return;
 
-        if (blackboard.SceneDepth.IsValid())
+        if (blackboard.Scene.SceneDepth.IsValid())
         {
-            m_SelectedSceneDepthTexture = blackboard.SceneDepth;
-            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.SceneDepth, RGReadUsage::ShaderSample);
+            m_SelectedSceneDepthTexture = blackboard.Scene.SceneDepth;
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.Scene.SceneDepth, RGReadUsage::ShaderSample);
         }
-        if (blackboard.SceneNormals.IsValid())
+        if (blackboard.Scene.SceneNormals.IsValid())
         {
-            m_SelectedSceneNormalsTexture = blackboard.SceneNormals;
-            [[maybe_unused]] const auto sceneNormalsRead = builder.Read(blackboard.SceneNormals, RGReadUsage::ShaderSample);
+            m_SelectedSceneNormalsTexture = blackboard.Scene.SceneNormals;
+            [[maybe_unused]] const auto sceneNormalsRead = builder.Read(blackboard.Scene.SceneNormals, RGReadUsage::ShaderSample);
         }
-        if (blackboard.AOBuffer.IsValid())
+        if (blackboard.AO.AOBuffer.IsValid())
         {
-            m_SelectedAOOutputTexture = blackboard.AOBuffer;
-            builder.Write(blackboard.AOBuffer, RGWriteUsage::RenderTarget);
-        }
-
-        if (blackboard.SSAORaw.IsValid())
-        {
-            SetPrimaryOutputFramebufferHandle(blackboard.SSAORaw);
-            builder.AllowFeedback(blackboard.SSAORaw);
-            builder.Write(blackboard.SSAORaw, RGWriteUsage::RenderTarget);
-            [[maybe_unused]] const auto rawRead = builder.Read(blackboard.SSAORaw, RGReadUsage::RenderTargetRead);
+            m_SelectedAOOutputTexture = blackboard.AO.AOBuffer;
+            builder.Write(blackboard.AO.AOBuffer, RGWriteUsage::RenderTarget);
         }
 
-        if (blackboard.SSAOBlur.IsValid())
+        if (blackboard.Scratch.SSAORaw.IsValid())
         {
-            m_SelectedBlurFramebuffer = blackboard.SSAOBlur;
-            builder.Write(blackboard.SSAOBlur, RGWriteUsage::RenderTarget);
+            SetPrimaryOutputFramebufferHandle(blackboard.Scratch.SSAORaw);
+            // Intra-pass write-then-sample: Pass 1 renders raw SSAO into this
+            // framebuffer; Pass 2 (bilateral blur) samples it back as a
+            // texture within the same Execute. Graph-owned scratch with no
+            // prior writer to chain against.
+            builder.AllowSamePassReadWrite(blackboard.Scratch.SSAORaw);
+            builder.Write(blackboard.Scratch.SSAORaw, RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto rawRead = builder.Read(blackboard.Scratch.SSAORaw, RGReadUsage::RenderTargetRead);
+        }
+
+        if (blackboard.Scratch.SSAOBlur.IsValid())
+        {
+            m_SelectedBlurFramebuffer = blackboard.Scratch.SSAOBlur;
+            builder.Write(blackboard.Scratch.SSAOBlur, RGWriteUsage::RenderTarget);
         }
     }
 

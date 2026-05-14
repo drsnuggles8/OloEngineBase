@@ -40,11 +40,11 @@ namespace OloEngine
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SceneColor, ResourceNames::SceneColorTexture),
             });
 
-        if (!m_Enabled || !blackboard.BloomColor.IsValid())
+        if (!m_Enabled || !blackboard.Post.BloomColor.IsValid())
             return;
 
         constexpr std::string_view bloomVersionTag = "BloomPass";
-        const auto outputHandle = builder.WriteNewVersion(blackboard.BloomColor, RGWriteUsage::RenderTarget, bloomVersionTag);
+        const auto outputHandle = builder.WriteNewVersion(blackboard.Post.BloomColor, RGWriteUsage::RenderTarget, bloomVersionTag);
         if (!outputHandle.IsValid())
             return;
 
@@ -60,13 +60,17 @@ namespace OloEngine
         // sample fence, not a sub-pass attachment-read.
         for (u32 i = 0; i < MAX_BLOOM_MIPS; ++i)
         {
-            if (!blackboard.BloomMips[i].IsValid())
+            if (!blackboard.Scratch.BloomMips[i].IsValid())
                 break;
 
-            m_SelectedBloomMipFramebuffers[i] = blackboard.BloomMips[i];
-            builder.AllowFeedback(blackboard.BloomMips[i]);
-            builder.Write(blackboard.BloomMips[i], RGWriteUsage::RenderTarget);
-            [[maybe_unused]] const auto mipRead = builder.Read(blackboard.BloomMips[i], RGReadUsage::ShaderSample);
+            m_SelectedBloomMipFramebuffers[i] = blackboard.Scratch.BloomMips[i];
+            // Intra-pass ping-pong: the downsample/upsample loop binds each
+            // mip as a render target and then samples it from the next-mip
+            // shader inside a single Execute. No prior pass produces these
+            // mips, so renaming via WriteNewVersion would not buy ordering.
+            builder.AllowSamePassReadWrite(blackboard.Scratch.BloomMips[i]);
+            builder.Write(blackboard.Scratch.BloomMips[i], RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto mipRead = builder.Read(blackboard.Scratch.BloomMips[i], RGReadUsage::ShaderSample);
         }
     }
 
@@ -104,13 +108,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        Ref<Framebuffer> inputFramebuffer;
+        // Sample-only consumer: input framebuffer is intentionally not
+        // resolved here — see ReadFirstValidVersionedInputForPass docs.
         u32 inputColorTextureID = 0u;
-        if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
-        {
-            if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
-                inputFramebuffer = resolvedInput;
-        }
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
             inputColorTextureID = context.ResolveTexture(inputTextureHandle);
 
@@ -123,7 +123,7 @@ namespace OloEngine
 
         if (!m_Enabled)
         {
-            m_Target = inputFramebuffer;
+            m_Target = nullptr;
             m_LastFailureMask = 0;
             return;
         }
@@ -162,7 +162,7 @@ namespace OloEngine
         constexpr u32 FAIL_NO_SHADERS = 1u << 3u;
 
         u32 failureMask = 0;
-        if (!inputFramebuffer || inputColorTextureID == 0u)
+        if (inputColorTextureID == 0u)
             failureMask |= FAIL_NO_INPUT;
         if (!outputFramebuffer)
             failureMask |= FAIL_NO_OUTPUT;
@@ -175,9 +175,8 @@ namespace OloEngine
         {
             if (m_LastFailureMask != failureMask)
             {
-                OLO_CORE_ERROR("BloomRenderPass: prerequisites missing (mask=0x{:x}, inputFB={}, inputTex={}, outputFB={}, mipCount={}, mipHandlesValid={}, mipResolved={}, shadersReady={})",
+                OLO_CORE_ERROR("BloomRenderPass: prerequisites missing (mask=0x{:x}, inputTex={}, outputFB={}, mipCount={}, mipHandlesValid={}, mipResolved={}, shadersReady={})",
                                failureMask,
-                               inputFramebuffer ? inputFramebuffer->GetRendererID() : 0u,
                                inputColorTextureID,
                                outputFramebuffer ? outputFramebuffer->GetRendererID() : 0u,
                                bloomMipCount,
@@ -192,19 +191,10 @@ namespace OloEngine
             return;
         }
 
-        // (Dropped the per-frame inputFB/outputFB trace: transient framebuffers
-        // are double-buffered so the dedup never held. The feedback-loop guard
-        // below stays — it's an error path, only fires on a real bug.)
-        if (inputFramebuffer->GetRendererID() == outputFramebuffer->GetRendererID())
-        {
-            OLO_CORE_ERROR("BloomRenderPass: invalid feedback loop detected (inputFB == outputFB == {})",
-                           inputFramebuffer->GetRendererID());
-        }
-
         if (m_LastFailureMask != 0)
         {
-            OLO_CORE_INFO("BloomRenderPass: recovered (inputFB={}, outputFB={}, mipCount={})",
-                          inputFramebuffer->GetRendererID(), outputFramebuffer->GetRendererID(), bloomMipCount);
+            OLO_CORE_INFO("BloomRenderPass: recovered (outputFB={}, mipCount={})",
+                          outputFramebuffer->GetRendererID(), bloomMipCount);
             m_LastFailureMask = 0;
         }
 

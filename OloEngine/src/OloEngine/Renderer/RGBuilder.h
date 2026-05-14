@@ -28,7 +28,7 @@ namespace OloEngine
     //
     //   void SetupMyPass(RGBuilder& builder, const MyPassParams& params)
     //   {
-    //       auto sceneColor = builder.UseBlackboard().SceneColor;
+    //       auto sceneColor = builder.UseBlackboard().Scene.SceneColor;
     //       auto myAO = builder.Read(sceneColor, RGReadUsage::ShaderSample);
     //       auto myOutput = builder.Create(outputDesc);
     //       builder.Write(myOutput, RGWriteUsage::RenderTarget);
@@ -194,20 +194,32 @@ namespace OloEngine
             RGFramebufferHandle framebufferHandle);
 
         // -------------------------------------------------------------------
-        // Feedback declarations
+        // Same-pass read/write declarations
         // -------------------------------------------------------------------
 
-        // Declare an intentional same-pass read/write overlap for graph-owned
-        // scratch or accumulation resources. This suppresses the explicit
-        // feedback hazard for the declared subresource range only.
-        void AllowFeedback(
+        // Declare an intentional same-pass read/write overlap on a single
+        // resource. This is the correct construct ONLY for genuine intra-pass
+        // ping-pong / iteration patterns where one Execute legitimately reads
+        // and writes the same handle — e.g. mip-chain reduction (Bloom,
+        // HZB), jump-flood ping/pong (Selection outline JFA), denoise
+        // ping-pong (GTAO), or a write-then-sample blit (Fog half-res,
+        // Water refraction copy). The hazard validator suppresses the
+        // same-pass feedback diagnostic for the declared subresource range
+        // only — it does NOT silence inter-pass ordering hazards.
+        //
+        // Inter-pass read-modify-write of a shared resource (Decal/Particle
+        // accumulating into SceneColor / OIT targets, etc.) must instead use
+        // `WriteNewVersion` so the new pass output is a renamed version and
+        // the prior version's read precedes the rename — no feedback loop
+        // exists for the validator to see.
+        void AllowSamePassReadWrite(
             RGTextureHandle handle,
             const RGSubresourceRange& range = RGSubresourceRange::Full());
 
-        void AllowFeedback(
+        void AllowSamePassReadWrite(
             RGFramebufferHandle handle);
 
-        void AllowFeedback(
+        void AllowSamePassReadWrite(
             RGBufferHandle handle,
             const RGSubresourceRange& range = RGSubresourceRange::Full());
 

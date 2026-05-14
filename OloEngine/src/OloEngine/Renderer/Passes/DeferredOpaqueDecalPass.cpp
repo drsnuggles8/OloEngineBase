@@ -32,57 +32,57 @@ namespace OloEngine
 
         const bool hasDecalWork = m_DecalPass && m_DecalPass->GetCommandBucket().GetCommandCount() > 0;
 
-        if (hasDecalWork && blackboard.SceneDepth.IsValid())
+        if (hasDecalWork && blackboard.Scene.SceneDepth.IsValid())
         {
-            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.SceneDepth, RGReadUsage::ShaderSample);
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.Scene.SceneDepth, RGReadUsage::ShaderSample);
         }
 
-        if (blackboard.SceneNormals.IsValid())
+        if (blackboard.Scene.SceneNormals.IsValid())
         {
-            m_SelectedSceneNormalsExport = blackboard.SceneNormals;
-            builder.Write(blackboard.SceneNormals, RGWriteUsage::TransferDest);
+            m_SelectedSceneNormalsExport = blackboard.Scene.SceneNormals;
+            builder.Write(blackboard.Scene.SceneNormals, RGWriteUsage::TransferDest);
         }
 
-        if (blackboard.GBufferAlbedo.IsValid())
+        if (blackboard.GBuffer.GBufferAlbedo.IsValid())
         {
-            m_SelectedGBufferAlbedoExport = blackboard.GBufferAlbedo;
-            builder.Write(blackboard.GBufferAlbedo, RGWriteUsage::TransferDest);
+            m_SelectedGBufferAlbedoExport = blackboard.GBuffer.GBufferAlbedo;
+            builder.Write(blackboard.GBuffer.GBufferAlbedo, RGWriteUsage::TransferDest);
         }
-        if (blackboard.GBufferNormal.IsValid())
+        if (blackboard.GBuffer.GBufferNormal.IsValid())
         {
-            m_SelectedGBufferNormalExport = blackboard.GBufferNormal;
-            builder.Write(blackboard.GBufferNormal, RGWriteUsage::TransferDest);
+            m_SelectedGBufferNormalExport = blackboard.GBuffer.GBufferNormal;
+            builder.Write(blackboard.GBuffer.GBufferNormal, RGWriteUsage::TransferDest);
         }
-        if (blackboard.GBufferEmissive.IsValid())
+        if (blackboard.GBuffer.GBufferEmissive.IsValid())
         {
-            m_SelectedGBufferEmissiveExport = blackboard.GBufferEmissive;
-            builder.Write(blackboard.GBufferEmissive, RGWriteUsage::TransferDest);
+            m_SelectedGBufferEmissiveExport = blackboard.GBuffer.GBufferEmissive;
+            builder.Write(blackboard.GBuffer.GBufferEmissive, RGWriteUsage::TransferDest);
         }
 
-        if (blackboard.GBufferAlbedoMS.IsValid())
+        if (blackboard.GBuffer.GBufferAlbedoMS.IsValid())
         {
-            m_SelectedGBufferAlbedoMSExport = blackboard.GBufferAlbedoMS;
-            builder.Write(blackboard.GBufferAlbedoMS, RGWriteUsage::TransferDest);
+            m_SelectedGBufferAlbedoMSExport = blackboard.GBuffer.GBufferAlbedoMS;
+            builder.Write(blackboard.GBuffer.GBufferAlbedoMS, RGWriteUsage::TransferDest);
         }
-        if (blackboard.GBufferNormalMS.IsValid())
+        if (blackboard.GBuffer.GBufferNormalMS.IsValid())
         {
-            m_SelectedGBufferNormalMSExport = blackboard.GBufferNormalMS;
-            builder.Write(blackboard.GBufferNormalMS, RGWriteUsage::TransferDest);
+            m_SelectedGBufferNormalMSExport = blackboard.GBuffer.GBufferNormalMS;
+            builder.Write(blackboard.GBuffer.GBufferNormalMS, RGWriteUsage::TransferDest);
         }
-        if (blackboard.GBufferEmissiveMS.IsValid())
+        if (blackboard.GBuffer.GBufferEmissiveMS.IsValid())
         {
-            m_SelectedGBufferEmissiveMSExport = blackboard.GBufferEmissiveMS;
-            builder.Write(blackboard.GBufferEmissiveMS, RGWriteUsage::TransferDest);
+            m_SelectedGBufferEmissiveMSExport = blackboard.GBuffer.GBufferEmissiveMS;
+            builder.Write(blackboard.GBuffer.GBufferEmissiveMS, RGWriteUsage::TransferDest);
         }
-        if (blackboard.VelocityMS.IsValid())
+        if (blackboard.GBuffer.VelocityMS.IsValid())
         {
-            m_SelectedVelocityMSExport = blackboard.VelocityMS;
-            builder.Write(blackboard.VelocityMS, RGWriteUsage::TransferDest);
+            m_SelectedVelocityMSExport = blackboard.GBuffer.VelocityMS;
+            builder.Write(blackboard.GBuffer.VelocityMS, RGWriteUsage::TransferDest);
         }
-        if (blackboard.SceneDepthMS.IsValid())
+        if (blackboard.GBuffer.SceneDepthMS.IsValid())
         {
-            m_SelectedSceneDepthMSExport = blackboard.SceneDepthMS;
-            builder.Write(blackboard.SceneDepthMS, RGWriteUsage::TransferDest);
+            m_SelectedSceneDepthMSExport = blackboard.GBuffer.SceneDepthMS;
+            builder.Write(blackboard.GBuffer.SceneDepthMS, RGWriteUsage::TransferDest);
         }
     }
 

@@ -592,10 +592,10 @@ namespace OloEngine
         static constexpr u32 TEX_WIND_FIELD = 29;           // 3D wind velocity field (sampler3D, RGBA16F)
         static constexpr u32 TEX_SNOW_DEPTH = 30;           // Snow accumulation depth map (sampler2D, R32F)
         static constexpr u32 TEX_PRECIPITATION_NOISE = 31;  // Precipitation streak/lens noise (sampler2D)
-        static constexpr u32 TEX_HZB = 32;                  // Hierarchical Z-Buffer depth pyramid
-        static constexpr u32 TEX_GTAO_OUTPUT = 33;          // GTAO raw/denoised AO output
-        static constexpr u32 TEX_GTAO_EDGES = 34;           // GTAO edge-detection texture
-        static constexpr u32 TEX_HILBERT_LUT = 35;          // Hilbert curve LUT for GTAO spatial noise
+        // Slots 32-35 were reserved for GTAO (HZB / output / edges / Hilbert LUT) but
+        // the GTAO compute shaders bind to low sequential slots (0-5) instead — see
+        // GTAORenderPass.cpp's GTAO_HZB/NORMALS/HILBERT_TEXTURE_SLOT constants.
+        // Leaving the range free for future graphics-pipeline-stage GTAO consumers.
         static constexpr u32 TEX_WATER_NORMAL_0 = 36;       // Water scrolling normal map 0
         static constexpr u32 TEX_WATER_NORMAL_1 = 37;       // Water scrolling normal map 1
         static constexpr u32 TEX_WATER_NOISE = 38;          // Water specular noise texture

@@ -277,6 +277,31 @@ namespace OloEngine::RenderGraphBarrierPlanner
             }
         };
 
+        // Pre-compute a per-resource ordered list of (passIndex, passName, writeUsage)
+        // tuples so the producer lookup for each barrier is O(log N) (lower_bound)
+        // instead of O(N·D). Previously the inner loop scanned the full execution
+        // order for every barrier and didn't break on hit — O(B·N·D) per build.
+        struct WriterEntry
+        {
+            std::size_t PassIndex;
+            const std::string* PassName;
+            RGWriteUsage Usage;
+        };
+        std::unordered_map<std::string, std::vector<WriterEntry>> writersByResource;
+        for (std::size_t i = 0; i < input.ExecutionOrder.size(); ++i)
+        {
+            const auto& passName = input.ExecutionOrder[i];
+            const auto dit = input.PassAccessDeclarations.find(passName);
+            if (dit == input.PassAccessDeclarations.end())
+                continue;
+            for (const auto& decl : dit->second)
+            {
+                if (!decl.IsWrite)
+                    continue;
+                writersByResource[decl.ResourceName].push_back(WriterEntry{ i, &passName, decl.WriteUsage });
+            }
+        }
+
         std::vector<RenderGraph::ResourceTransition> transitions;
         transitions.reserve(input.PlannedBarriers.size());
 
@@ -306,10 +331,13 @@ namespace OloEngine::RenderGraphBarrierPlanner
                 }
             }
 
-            // Walk the execution order from the start up to (but not including)
-            // the consumer to find the LAST writer — that is the producer for
-            // this transition. When no writer is found the resource is imported
-            // externally (initial state) so ProducerPass stays "external".
+            // Producer lookup: latest writer of this resource at a pass-index
+            // strictly less than the consumer's. The per-resource writer list
+            // is in execution order (we built it in order), so a back-walk
+            // hits the LAST writer in O(W_resource) instead of O(N·D). For
+            // graphs where each resource has few writers this is essentially
+            // O(1). External producers (no prior writer) keep ProducerPass =
+            // "external" with RenderTarget as the default from-usage.
             t.ProducerPass = "external";
             t.FromUsage = RGWriteUsage::RenderTarget;
 
@@ -317,20 +345,17 @@ namespace OloEngine::RenderGraphBarrierPlanner
             if (consumerIdxIt != passOrderIdx.end())
             {
                 const std::size_t consumerIdx = consumerIdxIt->second;
-                for (std::size_t i = 0; i < consumerIdx; ++i)
+                if (const auto writersIt = writersByResource.find(barrier.Resource);
+                    writersIt != writersByResource.end())
                 {
-                    const auto& passName = input.ExecutionOrder[i];
-                    if (const auto dit = input.PassAccessDeclarations.find(passName);
-                        dit != input.PassAccessDeclarations.end())
+                    const auto& writers = writersIt->second;
+                    for (auto it = writers.rbegin(); it != writers.rend(); ++it)
                     {
-                        for (const auto& decl : dit->second)
+                        if (it->PassIndex < consumerIdx)
                         {
-                            if (decl.ResourceName == barrier.Resource && decl.IsWrite)
-                            {
-                                // Keep scanning — we want the LAST writer.
-                                t.ProducerPass = passName;
-                                t.FromUsage = decl.WriteUsage;
-                            }
+                            t.ProducerPass = *it->PassName;
+                            t.FromUsage = it->Usage;
+                            break;
                         }
                     }
                 }

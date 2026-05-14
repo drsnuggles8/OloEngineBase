@@ -27,6 +27,10 @@ namespace OloEngine::RenderGraphTransientPlanner
     // Pure descriptor helpers (no graph state — usable from any caller).
     // ----------------------------------------------------------------
     [[nodiscard]] auto BuildAliasGroup(const RGResourceDesc& desc) -> std::string;
+    // Same identity as BuildAliasGroup but as a 64-bit hash for O(1) lookup
+    // and cheap sort comparison. The string form remains available for the
+    // public `TransientPlanEntry::AliasGroup` field and JSON dumps.
+    [[nodiscard]] auto HashAliasGroup(const RGResourceDesc& desc) -> u64;
     [[nodiscard]] auto EstimateBytes(const RGResourceDesc& desc) -> u64;
     [[nodiscard]] auto IsAllocatable(const RGResourceDesc& desc) -> bool;
     [[nodiscard]] auto GetSkipReason(const RGResourceDesc& desc) -> std::string_view;

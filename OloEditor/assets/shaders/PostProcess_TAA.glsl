@@ -173,8 +173,18 @@ void main()
     vec3 clampedHistory = YCoCgToRGB(clampedYCoCg);
 
     // 4) Feedback-weighted blend. Scale feedback down when velocity is large
-    // to reduce ghosting around fast motion.
-    float motionWeight = clamp(length(velocity) * 100.0, 0.0, 1.0);
+    // to reduce ghosting around fast motion. The "motion" must be measured
+    // in *pixels*, not UV — and with a sub-pixel dead zone so the Halton
+    // jitter delta (always ~1 px frame-to-frame) doesn't keep dragging
+    // feedback toward 0.5 even when the camera is stationary. Without the
+    // dead zone TAA still half-converges, but ~10–15 % of the current
+    // jittered frame bleeds through every frame, visible as a faint shake.
+    //
+    // Velocity is in UV space; divide by TexelSize to get pixels. The dead
+    // zone ramp starts at 1 px (anything sub-pixel = static, no ghosting
+    // risk) and saturates at ~5 px (definitely real motion).
+    vec2 velocityPixels = velocity / u_TexelSize;
+    float motionWeight = clamp((length(velocityPixels) - 1.0) * 0.25, 0.0, 1.0);
     float effectiveFeedback = mix(u_Feedback, 0.5, motionWeight);
 
     vec3 resolved = mix(currentColor, clampedHistory, effectiveFeedback);
