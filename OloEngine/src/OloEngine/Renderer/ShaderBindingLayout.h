@@ -596,13 +596,13 @@ namespace OloEngine
         // the GTAO compute shaders bind to low sequential slots (0-5) instead — see
         // GTAORenderPass.cpp's GTAO_HZB/NORMALS/HILBERT_TEXTURE_SLOT constants.
         // Leaving the range free for future graphics-pipeline-stage GTAO consumers.
-        static constexpr u32 TEX_WATER_NORMAL_0 = 36;       // Water scrolling normal map 0
-        static constexpr u32 TEX_WATER_NORMAL_1 = 37;       // Water scrolling normal map 1
-        static constexpr u32 TEX_WATER_NOISE = 38;          // Water specular noise texture
-        static constexpr u32 TEX_WATER_DEPTH = 39;          // Scene depth for water depth effects
-        static constexpr u32 TEX_WATER_REFRACTION = 40;     // Pre-water scene color for refraction
-        static constexpr u32 TEX_WATER_FOAM = 41;           // Foam texture
-        static constexpr u32 TEX_WATER_SSR = 42;            // SSR reflection result for water
+        static constexpr u32 TEX_WATER_NORMAL_0 = 36;   // Water scrolling normal map 0
+        static constexpr u32 TEX_WATER_NORMAL_1 = 37;   // Water scrolling normal map 1
+        static constexpr u32 TEX_WATER_NOISE = 38;      // Water specular noise texture
+        static constexpr u32 TEX_WATER_DEPTH = 39;      // Scene depth for water depth effects
+        static constexpr u32 TEX_WATER_REFRACTION = 40; // Pre-water scene color for refraction
+        static constexpr u32 TEX_WATER_FOAM = 41;       // Foam texture
+        static constexpr u32 TEX_WATER_SSR = 42;        // SSR reflection result for water
         // Deferred renderer G-Buffer sampler slots (consumed by DeferredLightingPass).
         // RT0: Albedo (RGB) + Metallic (A) — RGBA8
         // RT1: Octahedral Normal (RG) + Roughness + AO — RGBA16F (packed)

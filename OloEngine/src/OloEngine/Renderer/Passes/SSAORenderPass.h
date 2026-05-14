@@ -44,8 +44,14 @@ namespace OloEngine
         // dimensions — if they're full-res, the half-res viewport leaves
         // 3/4 of the FB un-rendered and the blur samples garbage outside
         // the valid region, producing spatially-shifted "ghost" AO.
-        [[nodiscard]] u32 GetHalfWidth() const noexcept { return m_HalfWidth; }
-        [[nodiscard]] u32 GetHalfHeight() const noexcept { return m_HalfHeight; }
+        [[nodiscard]] u32 GetHalfWidth() const noexcept
+        {
+            return m_HalfWidth;
+        }
+        [[nodiscard]] u32 GetHalfHeight() const noexcept
+        {
+            return m_HalfHeight;
+        }
 
       private:
         void CreateNoiseTexture();

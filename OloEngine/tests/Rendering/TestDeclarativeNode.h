@@ -26,10 +26,10 @@ namespace OloEngine
             for (const auto& write : m_TestWrites)
             {
                 const bool sameResourceRead = std::any_of(m_TestReads.begin(), m_TestReads.end(),
-                    [&write](const ResourceHandle& read)
-                    {
-                        return read.Name == write.Name;
-                    });
+                                                          [&write](const ResourceHandle& read)
+                                                          {
+                                                              return read.Name == write.Name;
+                                                          });
                 MirrorWrite(builder, write, sameResourceRead);
             }
         }

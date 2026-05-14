@@ -34,7 +34,7 @@ namespace OloEngine::RenderGraphHandleAllocator
     // callers can pass either the plain `unordered_map<string, ...>` form or
     // the transparent-hash variants used by `RenderGraph` without forcing two
     // overloads. Same applies to `activeNames` (set vs transparent set).
-    template <typename HandlesByNameT, typename SlotT, typename ActiveNamesT>
+    template<typename HandlesByNameT, typename SlotT, typename ActiveNamesT>
     void Reconcile(HandlesByNameT& handlesByName,
                    std::vector<SlotT>& slots,
                    std::vector<u32>& freeIndices,
@@ -64,7 +64,7 @@ namespace OloEngine::RenderGraphHandleAllocator
         }
     }
 
-    template <typename HandlesByNameT, typename SlotT, typename PhysicalT, typename MakeHandleFn>
+    template<typename HandlesByNameT, typename SlotT, typename PhysicalT, typename MakeHandleFn>
     auto Allocate(const std::string& name,
                   HandlesByNameT& handlesByName,
                   std::vector<SlotT>& slots,

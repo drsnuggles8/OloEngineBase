@@ -55,9 +55,9 @@ namespace OloEngine
     struct RGPrimaryHandleSet
     {
         RGFramebufferHandle InputFramebuffer;
-        RGTextureHandle     InputTexture;
+        RGTextureHandle InputTexture;
         RGFramebufferHandle OutputFramebuffer;
-        RGTextureHandle     OutputTexture;
+        RGTextureHandle OutputTexture;
     };
 
     // RenderGraphNode is the single base class for all graph entries. It provides

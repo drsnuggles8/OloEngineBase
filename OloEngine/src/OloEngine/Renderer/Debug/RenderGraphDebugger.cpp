@@ -1147,7 +1147,8 @@ namespace OloEngine
         const bool ready = node->IsReadyForExecution();
 
         // Status flags row.
-        const auto flagColor = [](bool ok, bool warn = false) {
+        const auto flagColor = [](bool ok, bool warn = false)
+        {
             if (warn)
                 return ImVec4(1.0f, 0.7f, 0.3f, 1.0f);
             return ok ? ImVec4(0.4f, 0.9f, 0.4f, 1.0f) : ImVec4(0.95f, 0.5f, 0.5f, 1.0f);

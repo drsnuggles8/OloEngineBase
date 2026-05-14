@@ -2532,7 +2532,8 @@ namespace OloEngine
             .SubmissionPlan = m_CachedSubmissionPlan,
             .Context = commandContext,
             .RuntimeBarrierExecutionEnabled = m_RuntimeBarrierExecutionEnabled,
-            .IsPassReachable = [this](const std::string& passName) { return IsPassReachable(passName); },
+            .IsPassReachable = [this](const std::string& passName)
+            { return IsPassReachable(passName); },
             .BatchEventHook = m_BatchEventHook,
             .PostPassHook = m_PostPassHook,
             .GraphForPostPassHook = this,
@@ -3292,7 +3293,8 @@ namespace OloEngine
             .ExecutionOrder = m_ExecutionOrder,
             .Dependencies = m_Dependencies,
             .PassAccessDeclarations = m_PassAccessDeclarations,
-            .IsGraphEntryAsyncComputeCandidate = [this](std::string_view name) { return IsGraphEntryAsyncComputeCandidate(name); },
+            .IsGraphEntryAsyncComputeCandidate = [this](std::string_view name)
+            { return IsGraphEntryAsyncComputeCandidate(name); },
         });
     }
 
@@ -3310,7 +3312,8 @@ namespace OloEngine
             .ExecutionOrder = m_ExecutionOrder,
             .PlannedBarriers = m_PlannedBarriers,
             .Batches = batches,
-            .GetPassWorkType = [this](const std::string& passName) { return GetGraphEntryWorkType(passName); },
+            .GetPassWorkType = [this](const std::string& passName)
+            { return GetGraphEntryWorkType(passName); },
             .ResolveNodePointer = [this](const std::string& passName) -> RenderGraphNode*
             {
                 if (auto nodeIt = m_NodeLookup.find(passName); nodeIt != m_NodeLookup.end() && nodeIt->second)
@@ -3330,7 +3333,8 @@ namespace OloEngine
             .PlannedBarriers = m_PlannedBarriers,
             .ExecutionOrder = m_ExecutionOrder,
             .PassAccessDeclarations = m_PassAccessDeclarations,
-            .GetPassWorkType = [this](const std::string& passName) { return GetGraphEntryWorkType(passName); },
+            .GetPassWorkType = [this](const std::string& passName)
+            { return GetGraphEntryWorkType(passName); },
         });
     }
 
@@ -3663,7 +3667,8 @@ namespace OloEngine
         auto plan = RenderGraphBarrierPlanner::ComputePlan({
             .ExecutionOrder = m_ExecutionOrder,
             .PassAccessDeclarations = m_PassAccessDeclarations,
-            .IsPassReachable = [this](const std::string& passName) { return IsPassReachable(passName); },
+            .IsPassReachable = [this](const std::string& passName)
+            { return IsPassReachable(passName); },
         });
 
         m_PlannedBarriers = std::move(plan.PlannedBarriers);
@@ -3887,10 +3892,14 @@ namespace OloEngine
 
         // Delegate to the extracted hazard-validator module (Phase 7 split).
         return RenderGraphHazardValidator::Validate({
-            .IsPassReachable = [this](const std::string& passName) { return IsPassReachable(passName); },
-            .ResolveTexture = [this](RGTextureHandle handle) { return ResolveTexture(handle); },
-            .ResolveBuffer = [this](RGBufferHandle handle) { return ResolveBuffer(handle); },
-            .ResolveFramebuffer = [this](RGFramebufferHandle handle) { return ResolveFramebuffer(handle); },
+            .IsPassReachable = [this](const std::string& passName)
+            { return IsPassReachable(passName); },
+            .ResolveTexture = [this](RGTextureHandle handle)
+            { return ResolveTexture(handle); },
+            .ResolveBuffer = [this](RGBufferHandle handle)
+            { return ResolveBuffer(handle); },
+            .ResolveFramebuffer = [this](RGFramebufferHandle handle)
+            { return ResolveFramebuffer(handle); },
             .ExecutionOrder = m_ExecutionOrder,
             .Dependencies = m_Dependencies,
             .PassAccessDeclarations = m_PassAccessDeclarations,
@@ -3899,7 +3908,6 @@ namespace OloEngine
             .RegisteredResources = m_RegisteredResources,
         });
     }
-
 
     void RenderGraph::EnsureResourceRegistryBuilt() const
     {
@@ -3929,7 +3937,8 @@ namespace OloEngine
             .TextureViewResourceDescs = m_TextureViewResourceDescs,
             .InsertionOrder = m_InsertionOrder,
             .PassAccessDeclarations = m_PassAccessDeclarations,
-            .IsExternallyBackedTransientResource = [this](std::string_view name) { return IsExternallyBackedTransientResource(name); },
+            .IsExternallyBackedTransientResource = [this](std::string_view name)
+            { return IsExternallyBackedTransientResource(name); },
         });
 
         m_ResourceRegistry = std::move(built.Registry);
@@ -4028,8 +4037,10 @@ namespace OloEngine
             .TransientResourceDescs = m_TransientResourceDescs,
             .ExecutionOrder = m_ExecutionOrder,
             .PassAccessDeclarations = m_PassAccessDeclarations,
-            .IsPassReachable = [this](const std::string& passName) { return IsPassReachable(passName); },
-            .IsExternallyBackedTransientResource = [this](std::string_view name) { return IsExternallyBackedTransientResource(name); },
+            .IsPassReachable = [this](const std::string& passName)
+            { return IsPassReachable(passName); },
+            .IsExternallyBackedTransientResource = [this](std::string_view name)
+            { return IsExternallyBackedTransientResource(name); },
         });
     }
 
@@ -5397,8 +5408,8 @@ namespace OloEngine
             // Maps are u32->u32 internally; resolve through the interner once
             // here for emission. std::map for deterministic JSON ordering.
             const auto writeAliasMap = [this, &out, &jsonEscape](const char* label,
-                                                                  const std::unordered_map<u32, u32>& aliases,
-                                                                  bool trailingComma)
+                                                                 const std::unordered_map<u32, u32>& aliases,
+                                                                 bool trailingComma)
             {
                 std::map<std::string, std::string> sorted;
                 for (const auto& [aliasId, targetId] : aliases)
@@ -6188,210 +6199,210 @@ namespace OloEngine
 #if !defined(OLO_DIST)
         if (IsRenderGraphDiagnosticsEnabled())
         {
-        const auto currentSimulation = simulateDerivedDependencies(processedNodeNames);
-        auto reversedProcessedNodeNames = processedNodeNames;
-        std::reverse(reversedProcessedNodeNames.begin(), reversedProcessedNodeNames.end());
-        const auto reversedSimulation = simulateDerivedDependencies(reversedProcessedNodeNames);
+            const auto currentSimulation = simulateDerivedDependencies(processedNodeNames);
+            auto reversedProcessedNodeNames = processedNodeNames;
+            std::reverse(reversedProcessedNodeNames.begin(), reversedProcessedNodeNames.end());
+            const auto reversedSimulation = simulateDerivedDependencies(reversedProcessedNodeNames);
 
-        enum class SimulatedOrderingRelation
-        {
-            Unordered,
-            BeforeAfter,
-            AfterBefore,
-        };
-
-        const auto hasSimulatedOrdering = [](const std::unordered_map<std::string, std::vector<std::string>>& dependencies,
-                                             const std::string& beforePass,
-                                             const std::string& afterPass) -> bool
-        {
-            if (beforePass.empty() || afterPass.empty() || beforePass == afterPass)
-                return false;
-
-            std::unordered_set<std::string> visited;
-            std::vector<std::string> frontier{ afterPass };
-            while (!frontier.empty())
+            enum class SimulatedOrderingRelation
             {
-                auto current = std::move(frontier.back());
-                frontier.pop_back();
+                Unordered,
+                BeforeAfter,
+                AfterBefore,
+            };
 
-                if (!visited.insert(current).second)
-                    continue;
+            const auto hasSimulatedOrdering = [](const std::unordered_map<std::string, std::vector<std::string>>& dependencies,
+                                                 const std::string& beforePass,
+                                                 const std::string& afterPass) -> bool
+            {
+                if (beforePass.empty() || afterPass.empty() || beforePass == afterPass)
+                    return false;
 
-                if (current == beforePass)
-                    return true;
-
-                const auto it = dependencies.find(current);
-                if (it == dependencies.end())
-                    continue;
-
-                for (const auto& producer : it->second)
+                std::unordered_set<std::string> visited;
+                std::vector<std::string> frontier{ afterPass };
+                while (!frontier.empty())
                 {
-                    if (!visited.contains(producer))
-                        frontier.push_back(producer);
+                    auto current = std::move(frontier.back());
+                    frontier.pop_back();
+
+                    if (!visited.insert(current).second)
+                        continue;
+
+                    if (current == beforePass)
+                        return true;
+
+                    const auto it = dependencies.find(current);
+                    if (it == dependencies.end())
+                        continue;
+
+                    for (const auto& producer : it->second)
+                    {
+                        if (!visited.contains(producer))
+                            frontier.push_back(producer);
+                    }
+                }
+
+                return false;
+            };
+
+            const auto getSimulatedOrderingRelation = [&hasSimulatedOrdering](const std::unordered_map<std::string, std::vector<std::string>>& dependencies,
+                                                                              const std::string& passA,
+                                                                              const std::string& passB) -> SimulatedOrderingRelation
+            {
+                const bool aBeforeB = hasSimulatedOrdering(dependencies, passA, passB);
+                const bool bBeforeA = hasSimulatedOrdering(dependencies, passB, passA);
+
+                if (aBeforeB && !bBeforeA)
+                    return SimulatedOrderingRelation::BeforeAfter;
+                if (!aBeforeB && bBeforeA)
+                    return SimulatedOrderingRelation::AfterBefore;
+                return SimulatedOrderingRelation::Unordered;
+            };
+
+            const auto shouldReportBuildDiagnostic =
+                [&currentSimulation, &reversedSimulation, &getSimulatedOrderingRelation](const EdgeKey* currentEdge,
+                                                                                         const EdgeKey* alternateEdge) -> bool
+            {
+                const auto* comparisonEdge = currentEdge ? currentEdge : alternateEdge;
+                if (!comparisonEdge)
+                    return false;
+
+                const auto currentRelation = getSimulatedOrderingRelation(currentSimulation.Dependencies,
+                                                                          comparisonEdge->BeforePass,
+                                                                          comparisonEdge->AfterPass);
+                const auto alternateRelation = getSimulatedOrderingRelation(reversedSimulation.Dependencies,
+                                                                            comparisonEdge->BeforePass,
+                                                                            comparisonEdge->AfterPass);
+                return currentRelation != alternateRelation;
+            };
+
+            auto appendBuildDiagnostic =
+                [this](const EdgeKey* currentEdge,
+                       const DerivedEdgeOrigin* currentOrigin,
+                       const EdgeKey* alternateEdge,
+                       const DerivedEdgeOrigin* alternateOrigin)
+            {
+                BuildDiagnostic diagnostic{};
+                diagnostic.Kind = BuildDiagnosticKind::RegistrationOrderSensitivity;
+
+                if (currentOrigin && !currentOrigin->ResourceName.empty())
+                    diagnostic.Resource = currentOrigin->ResourceName;
+                else if (alternateOrigin && !alternateOrigin->ResourceName.empty())
+                    diagnostic.Resource = alternateOrigin->ResourceName;
+
+                if (currentEdge)
+                {
+                    diagnostic.CurrentBeforePass = currentEdge->BeforePass;
+                    diagnostic.CurrentAfterPass = currentEdge->AfterPass;
+                }
+
+                if (alternateEdge)
+                {
+                    diagnostic.AlternateBeforePass = alternateEdge->BeforePass;
+                    diagnostic.AlternateAfterPass = alternateEdge->AfterPass;
+                }
+
+                std::string message = "registration order changed derived dependency result";
+                if (!diagnostic.Resource.empty())
+                    message += " for resource '" + diagnostic.Resource + "'";
+
+                if (currentEdge && alternateEdge)
+                {
+                    message += ": current build derives '" + diagnostic.CurrentBeforePass + "' -> '" + diagnostic.CurrentAfterPass +
+                               "', reversed visitation derives '" + diagnostic.AlternateBeforePass + "' -> '" + diagnostic.AlternateAfterPass + "'";
+                }
+                else if (currentEdge)
+                {
+                    message += ": current build derives '" + diagnostic.CurrentBeforePass + "' -> '" + diagnostic.CurrentAfterPass +
+                               "', reversed visitation derives no matching edge";
+                }
+                else if (alternateEdge)
+                {
+                    message += ": current build derives no matching edge, reversed visitation derives '" + diagnostic.AlternateBeforePass +
+                               "' -> '" + diagnostic.AlternateAfterPass + "'";
+                }
+
+                diagnostic.Message = std::move(message);
+                m_BuildDiagnostics.push_back(std::move(diagnostic));
+            };
+
+            std::unordered_set<EdgeKey, EdgeKeyHasher> consumedReversedEdges;
+            for (const auto& [edge, origin] : currentSimulation.DerivedEdges)
+            {
+                if (reversedSimulation.DerivedEdges.contains(edge))
+                    continue;
+
+                const EdgeKey oppositeEdge{ edge.AfterPass, edge.BeforePass };
+                if (const auto oppositeIt = reversedSimulation.DerivedEdges.find(oppositeEdge);
+                    oppositeIt != reversedSimulation.DerivedEdges.end())
+                {
+                    if (!shouldReportBuildDiagnostic(&edge, &oppositeEdge))
+                        continue;
+
+                    appendBuildDiagnostic(&edge, &origin, &oppositeEdge, &oppositeIt->second);
+                    consumedReversedEdges.insert(oppositeEdge);
+                    continue;
+                }
+
+                if (!shouldReportBuildDiagnostic(&edge, nullptr))
+                    continue;
+
+                appendBuildDiagnostic(&edge, &origin, nullptr, nullptr);
+            }
+
+            for (const auto& [edge, origin] : reversedSimulation.DerivedEdges)
+            {
+                if (currentSimulation.DerivedEdges.contains(edge) || consumedReversedEdges.contains(edge))
+                    continue;
+
+                if (!shouldReportBuildDiagnostic(nullptr, &edge))
+                    continue;
+
+                appendBuildDiagnostic(nullptr, nullptr, &edge, &origin);
+            }
+
+            std::sort(m_BuildDiagnostics.begin(), m_BuildDiagnostics.end(),
+                      [](const BuildDiagnostic& lhs, const BuildDiagnostic& rhs)
+                      {
+                          if (lhs.Resource != rhs.Resource)
+                              return lhs.Resource < rhs.Resource;
+                          if (lhs.CurrentBeforePass != rhs.CurrentBeforePass)
+                              return lhs.CurrentBeforePass < rhs.CurrentBeforePass;
+                          if (lhs.CurrentAfterPass != rhs.CurrentAfterPass)
+                              return lhs.CurrentAfterPass < rhs.CurrentAfterPass;
+                          if (lhs.AlternateBeforePass != rhs.AlternateBeforePass)
+                              return lhs.AlternateBeforePass < rhs.AlternateBeforePass;
+                          if (lhs.AlternateAfterPass != rhs.AlternateAfterPass)
+                              return lhs.AlternateAfterPass < rhs.AlternateAfterPass;
+                          return lhs.Message < rhs.Message;
+                      });
+
+            m_LastBuildStats.OrderSensitiveResults = static_cast<u32>(m_BuildDiagnostics.size());
+
+            if (m_BuildDiagnostics.empty())
+            {
+                m_LastLoggedBuildDiagnosticDigest.clear();
+            }
+            else
+            {
+                std::string buildDiagnosticDigest;
+                for (const auto& diagnostic : m_BuildDiagnostics)
+                {
+                    if (!buildDiagnosticDigest.empty())
+                        buildDiagnosticDigest += ';';
+                    buildDiagnosticDigest += diagnostic.Message;
+                }
+
+                if (buildDiagnosticDigest != m_LastLoggedBuildDiagnosticDigest)
+                {
+                    OLO_CORE_WARN("RenderGraph::BuildFrameGraph: registration order changed the derived dependency result ({} diagnostics)",
+                                  m_BuildDiagnostics.size());
+                    for (const auto& diagnostic : m_BuildDiagnostics)
+                        OLO_CORE_WARN("RenderGraph::BuildFrameGraph: {}", diagnostic.Message);
+
+                    m_LastLoggedBuildDiagnosticDigest = std::move(buildDiagnosticDigest);
                 }
             }
-
-            return false;
-        };
-
-        const auto getSimulatedOrderingRelation = [&hasSimulatedOrdering](const std::unordered_map<std::string, std::vector<std::string>>& dependencies,
-                                                                          const std::string& passA,
-                                                                          const std::string& passB) -> SimulatedOrderingRelation
-        {
-            const bool aBeforeB = hasSimulatedOrdering(dependencies, passA, passB);
-            const bool bBeforeA = hasSimulatedOrdering(dependencies, passB, passA);
-
-            if (aBeforeB && !bBeforeA)
-                return SimulatedOrderingRelation::BeforeAfter;
-            if (!aBeforeB && bBeforeA)
-                return SimulatedOrderingRelation::AfterBefore;
-            return SimulatedOrderingRelation::Unordered;
-        };
-
-        const auto shouldReportBuildDiagnostic =
-            [&currentSimulation, &reversedSimulation, &getSimulatedOrderingRelation](const EdgeKey* currentEdge,
-                                                                                     const EdgeKey* alternateEdge) -> bool
-        {
-            const auto* comparisonEdge = currentEdge ? currentEdge : alternateEdge;
-            if (!comparisonEdge)
-                return false;
-
-            const auto currentRelation = getSimulatedOrderingRelation(currentSimulation.Dependencies,
-                                                                      comparisonEdge->BeforePass,
-                                                                      comparisonEdge->AfterPass);
-            const auto alternateRelation = getSimulatedOrderingRelation(reversedSimulation.Dependencies,
-                                                                        comparisonEdge->BeforePass,
-                                                                        comparisonEdge->AfterPass);
-            return currentRelation != alternateRelation;
-        };
-
-        auto appendBuildDiagnostic =
-            [this](const EdgeKey* currentEdge,
-                   const DerivedEdgeOrigin* currentOrigin,
-                   const EdgeKey* alternateEdge,
-                   const DerivedEdgeOrigin* alternateOrigin)
-        {
-            BuildDiagnostic diagnostic{};
-            diagnostic.Kind = BuildDiagnosticKind::RegistrationOrderSensitivity;
-
-            if (currentOrigin && !currentOrigin->ResourceName.empty())
-                diagnostic.Resource = currentOrigin->ResourceName;
-            else if (alternateOrigin && !alternateOrigin->ResourceName.empty())
-                diagnostic.Resource = alternateOrigin->ResourceName;
-
-            if (currentEdge)
-            {
-                diagnostic.CurrentBeforePass = currentEdge->BeforePass;
-                diagnostic.CurrentAfterPass = currentEdge->AfterPass;
-            }
-
-            if (alternateEdge)
-            {
-                diagnostic.AlternateBeforePass = alternateEdge->BeforePass;
-                diagnostic.AlternateAfterPass = alternateEdge->AfterPass;
-            }
-
-            std::string message = "registration order changed derived dependency result";
-            if (!diagnostic.Resource.empty())
-                message += " for resource '" + diagnostic.Resource + "'";
-
-            if (currentEdge && alternateEdge)
-            {
-                message += ": current build derives '" + diagnostic.CurrentBeforePass + "' -> '" + diagnostic.CurrentAfterPass +
-                           "', reversed visitation derives '" + diagnostic.AlternateBeforePass + "' -> '" + diagnostic.AlternateAfterPass + "'";
-            }
-            else if (currentEdge)
-            {
-                message += ": current build derives '" + diagnostic.CurrentBeforePass + "' -> '" + diagnostic.CurrentAfterPass +
-                           "', reversed visitation derives no matching edge";
-            }
-            else if (alternateEdge)
-            {
-                message += ": current build derives no matching edge, reversed visitation derives '" + diagnostic.AlternateBeforePass +
-                           "' -> '" + diagnostic.AlternateAfterPass + "'";
-            }
-
-            diagnostic.Message = std::move(message);
-            m_BuildDiagnostics.push_back(std::move(diagnostic));
-        };
-
-        std::unordered_set<EdgeKey, EdgeKeyHasher> consumedReversedEdges;
-        for (const auto& [edge, origin] : currentSimulation.DerivedEdges)
-        {
-            if (reversedSimulation.DerivedEdges.contains(edge))
-                continue;
-
-            const EdgeKey oppositeEdge{ edge.AfterPass, edge.BeforePass };
-            if (const auto oppositeIt = reversedSimulation.DerivedEdges.find(oppositeEdge);
-                oppositeIt != reversedSimulation.DerivedEdges.end())
-            {
-                if (!shouldReportBuildDiagnostic(&edge, &oppositeEdge))
-                    continue;
-
-                appendBuildDiagnostic(&edge, &origin, &oppositeEdge, &oppositeIt->second);
-                consumedReversedEdges.insert(oppositeEdge);
-                continue;
-            }
-
-            if (!shouldReportBuildDiagnostic(&edge, nullptr))
-                continue;
-
-            appendBuildDiagnostic(&edge, &origin, nullptr, nullptr);
-        }
-
-        for (const auto& [edge, origin] : reversedSimulation.DerivedEdges)
-        {
-            if (currentSimulation.DerivedEdges.contains(edge) || consumedReversedEdges.contains(edge))
-                continue;
-
-            if (!shouldReportBuildDiagnostic(nullptr, &edge))
-                continue;
-
-            appendBuildDiagnostic(nullptr, nullptr, &edge, &origin);
-        }
-
-        std::sort(m_BuildDiagnostics.begin(), m_BuildDiagnostics.end(),
-                  [](const BuildDiagnostic& lhs, const BuildDiagnostic& rhs)
-                  {
-                      if (lhs.Resource != rhs.Resource)
-                          return lhs.Resource < rhs.Resource;
-                      if (lhs.CurrentBeforePass != rhs.CurrentBeforePass)
-                          return lhs.CurrentBeforePass < rhs.CurrentBeforePass;
-                      if (lhs.CurrentAfterPass != rhs.CurrentAfterPass)
-                          return lhs.CurrentAfterPass < rhs.CurrentAfterPass;
-                      if (lhs.AlternateBeforePass != rhs.AlternateBeforePass)
-                          return lhs.AlternateBeforePass < rhs.AlternateBeforePass;
-                      if (lhs.AlternateAfterPass != rhs.AlternateAfterPass)
-                          return lhs.AlternateAfterPass < rhs.AlternateAfterPass;
-                      return lhs.Message < rhs.Message;
-                  });
-
-        m_LastBuildStats.OrderSensitiveResults = static_cast<u32>(m_BuildDiagnostics.size());
-
-        if (m_BuildDiagnostics.empty())
-        {
-            m_LastLoggedBuildDiagnosticDigest.clear();
-        }
-        else
-        {
-            std::string buildDiagnosticDigest;
-            for (const auto& diagnostic : m_BuildDiagnostics)
-            {
-                if (!buildDiagnosticDigest.empty())
-                    buildDiagnosticDigest += ';';
-                buildDiagnosticDigest += diagnostic.Message;
-            }
-
-            if (buildDiagnosticDigest != m_LastLoggedBuildDiagnosticDigest)
-            {
-                OLO_CORE_WARN("RenderGraph::BuildFrameGraph: registration order changed the derived dependency result ({} diagnostics)",
-                              m_BuildDiagnostics.size());
-                for (const auto& diagnostic : m_BuildDiagnostics)
-                    OLO_CORE_WARN("RenderGraph::BuildFrameGraph: {}", diagnostic.Message);
-
-                m_LastLoggedBuildDiagnosticDigest = std::move(buildDiagnosticDigest);
-            }
-        }
         } // end if (IsRenderGraphDiagnosticsEnabled())
 #endif // !defined(OLO_DIST)
 

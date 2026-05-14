@@ -43,20 +43,41 @@ namespace OloEngine
     struct RGStringTransparentHash
     {
         using is_transparent = void;
-        [[nodiscard]] size_t operator()(std::string_view sv) const noexcept { return std::hash<std::string_view>{}(sv); }
-        [[nodiscard]] size_t operator()(const std::string& s) const noexcept { return std::hash<std::string_view>{}(s); }
-        [[nodiscard]] size_t operator()(const char* s) const noexcept { return std::hash<std::string_view>{}(s); }
+        [[nodiscard]] size_t operator()(std::string_view sv) const noexcept
+        {
+            return std::hash<std::string_view>{}(sv);
+        }
+        [[nodiscard]] size_t operator()(const std::string& s) const noexcept
+        {
+            return std::hash<std::string_view>{}(s);
+        }
+        [[nodiscard]] size_t operator()(const char* s) const noexcept
+        {
+            return std::hash<std::string_view>{}(s);
+        }
     };
     struct RGStringTransparentEqual
     {
         using is_transparent = void;
-        [[nodiscard]] bool operator()(std::string_view a, std::string_view b) const noexcept { return a == b; }
-        [[nodiscard]] bool operator()(const std::string& a, std::string_view b) const noexcept { return a == b; }
-        [[nodiscard]] bool operator()(std::string_view a, const std::string& b) const noexcept { return a == b; }
-        [[nodiscard]] bool operator()(const std::string& a, const std::string& b) const noexcept { return a == b; }
+        [[nodiscard]] bool operator()(std::string_view a, std::string_view b) const noexcept
+        {
+            return a == b;
+        }
+        [[nodiscard]] bool operator()(const std::string& a, std::string_view b) const noexcept
+        {
+            return a == b;
+        }
+        [[nodiscard]] bool operator()(std::string_view a, const std::string& b) const noexcept
+        {
+            return a == b;
+        }
+        [[nodiscard]] bool operator()(const std::string& a, const std::string& b) const noexcept
+        {
+            return a == b;
+        }
     };
 
-    template <typename V>
+    template<typename V>
     using RGTransparentStringMap = std::unordered_map<std::string, V, RGStringTransparentHash, RGStringTransparentEqual>;
     using RGTransparentStringSet = std::unordered_set<std::string, RGStringTransparentHash, RGStringTransparentEqual>;
 

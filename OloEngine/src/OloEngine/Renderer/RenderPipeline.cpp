@@ -811,9 +811,12 @@ namespace OloEngine
     namespace
     {
         constexpr u64 kFnv1aOffset = 0xcbf29ce484222325ull;
-        constexpr u64 kFnv1aPrime  = 0x100000001b3ull;
+        constexpr u64 kFnv1aPrime = 0x100000001b3ull;
 
-        inline void HashByte(u64& h, u8 v) noexcept { h = (h ^ v) * kFnv1aPrime; }
+        inline void HashByte(u64& h, u8 v) noexcept
+        {
+            h = (h ^ v) * kFnv1aPrime;
+        }
         inline void HashU32(u64& h, u32 v) noexcept
         {
             HashByte(h, static_cast<u8>(v & 0xffu));
@@ -821,7 +824,10 @@ namespace OloEngine
             HashByte(h, static_cast<u8>((v >> 16) & 0xffu));
             HashByte(h, static_cast<u8>((v >> 24) & 0xffu));
         }
-        inline void HashBool(u64& h, bool v) noexcept { HashByte(h, v ? 1u : 0u); }
+        inline void HashBool(u64& h, bool v) noexcept
+        {
+            HashByte(h, v ? 1u : 0u);
+        }
 
         template<typename PassPtr>
         inline void HashPassState(u64& h, const PassPtr& pass) noexcept
@@ -1142,23 +1148,23 @@ namespace OloEngine
                 // model them explicitly as resolve views over the multisample
                 // attachments rather than as unrelated sibling names.
                 board.Scene.SceneDepth = graph.CreateTextureMultisampleResolveView(ResourceNames::SceneDepth,
-                                                                             board.GBuffer.SceneDepthMS,
-                                                                             sceneDepthResolvedBacking);
+                                                                                   board.GBuffer.SceneDepthMS,
+                                                                                   sceneDepthResolvedBacking);
                 board.Scene.SceneNormals = graph.CreateTextureMultisampleResolveView(ResourceNames::SceneNormals,
-                                                                               board.GBuffer.GBufferNormalMS,
-                                                                               sceneNormalsResolvedBacking);
+                                                                                     board.GBuffer.GBufferNormalMS,
+                                                                                     sceneNormalsResolvedBacking);
                 board.GBuffer.GBufferAlbedo = graph.CreateTextureMultisampleResolveView(ResourceNames::GBufferAlbedo,
-                                                                                board.GBuffer.GBufferAlbedoMS,
-                                                                                gbufferAlbedoResolvedBacking);
+                                                                                        board.GBuffer.GBufferAlbedoMS,
+                                                                                        gbufferAlbedoResolvedBacking);
                 board.GBuffer.GBufferNormal = graph.CreateTextureMultisampleResolveView(ResourceNames::GBufferNormal,
-                                                                                board.GBuffer.GBufferNormalMS,
-                                                                                gbufferNormalResolvedBacking);
+                                                                                        board.GBuffer.GBufferNormalMS,
+                                                                                        gbufferNormalResolvedBacking);
                 board.GBuffer.GBufferEmissive = graph.CreateTextureMultisampleResolveView(ResourceNames::GBufferEmissive,
-                                                                                  board.GBuffer.GBufferEmissiveMS,
-                                                                                  gbufferEmissiveResolvedBacking);
+                                                                                          board.GBuffer.GBufferEmissiveMS,
+                                                                                          gbufferEmissiveResolvedBacking);
                 board.GBuffer.Velocity = graph.CreateTextureMultisampleResolveView(ResourceNames::Velocity,
-                                                                           board.GBuffer.VelocityMS,
-                                                                           velocityResolvedBacking);
+                                                                                   board.GBuffer.VelocityMS,
+                                                                                   velocityResolvedBacking);
             }
             else
             {

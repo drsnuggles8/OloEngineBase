@@ -252,15 +252,15 @@ namespace OloEngine
         // Per-subsystem typed slots. Each pass reads/writes the slot for the
         // subsystem it cares about — adding a new pass touches only the slot
         // struct(s) it actually uses, not the central blackboard layout.
-        SceneSlot           Scene;
-        GBufferSlot         GBuffer;
-        AOSlot              AO;
-        ScratchSlot         Scratch;
-        ShadowSlot          Shadows;
-        PostProcessSlot     Post;
-        OITSlot             OIT;
+        SceneSlot Scene;
+        GBufferSlot GBuffer;
+        AOSlot AO;
+        ScratchSlot Scratch;
+        ShadowSlot Shadows;
+        PostProcessSlot Post;
+        OITSlot OIT;
         TemporalHistorySlot Temporal;
-        IBLSlot             IBL;
+        IBLSlot IBL;
 
         // Resets all handles to the default (invalid) state.
         // Called at the start of each frame before imports are registered.
