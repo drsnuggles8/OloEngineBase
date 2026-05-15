@@ -124,6 +124,7 @@ TEST_F(CharacterControllerContactCallbackTest, CallbackFiresWhenControllerTouche
     // any other contacts that may have fired in the same window.
     EXPECT_EQ(m_WallEntitySeen, m_Wall.GetUUID())
         << "callback fired but never recorded a contact with the wall (saw "
-           "other=" << static_cast<u64>(m_OtherEntitySeen)
+           "other="
+        << static_cast<u64>(m_OtherEntitySeen)
         << ") — the controller is missing the static-wall collision event.";
 }

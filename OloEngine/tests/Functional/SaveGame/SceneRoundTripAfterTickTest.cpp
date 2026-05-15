@@ -115,7 +115,7 @@ class SceneRoundTripAfterTickTest : public FunctionalTest
         // Push the camera off its constructor defaults so the round-trip
         // assertion can tell "saved + restored" apart from "constructed fresh".
         cam.Camera.SetProjectionType(SceneCamera::ProjectionType::Perspective);
-        cam.Camera.SetPerspectiveVerticalFOV(0.9f);   // ~51.5°
+        cam.Camera.SetPerspectiveVerticalFOV(0.9f); // ~51.5°
         cam.Camera.SetOrthographicSize(7.5f);
         camera.GetComponent<TransformComponent>().Translation = { 0.0f, 5.0f, -10.0f };
 

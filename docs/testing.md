@@ -15,7 +15,7 @@ This document is intended for:
 If a claim in this document disagrees with the code, the code wins and this
 file should be updated in the same PR. Operational rules — the registration
 contract, pre-commit checks, the add-a-test workflow — live in
-[.github/instructions/testing-architecture.instructions.md](../.github/instructions/testing-architecture.instructions.md).
+[docs/agent-rules/testing-architecture.md](agent-rules/testing-architecture.md).
 
 ---
 

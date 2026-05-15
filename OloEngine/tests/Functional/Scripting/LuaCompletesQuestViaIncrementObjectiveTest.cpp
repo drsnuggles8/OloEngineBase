@@ -93,7 +93,8 @@ function script.OnUpdate(entityID, ts)
     local id = math.tointeger(entityID) or 0
     local jc = entity_utils.get_component(id, "QuestJournalComponent")
     if jc ~= nil then
-        jc:IncrementObjective(")") + kQuestID + R"(", ")" + kObjID + R"(", 3)
+        jc:IncrementObjective(")") + kQuestID +
+                                      R"(", ")" + kObjID + R"(", 3)
         applied = true
     end
 end
