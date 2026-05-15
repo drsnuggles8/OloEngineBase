@@ -161,6 +161,12 @@ namespace OloEngine::Functional
                                    f32 timeoutSeconds,
                                    f32 dtSeconds)
     {
+        // Non-positive dt would loop forever (elapsed never advances). Treat
+        // it as a programmer error and bail out so the test fails fast rather
+        // than hanging.
+        if (dtSeconds <= 0.0f)
+            return false;
+
         const Timestep ts{ dtSeconds };
         f32 elapsed = 0.0f;
         // Check before first tick so a predicate that's already true on entry

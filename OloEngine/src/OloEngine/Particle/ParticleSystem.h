@@ -201,6 +201,6 @@ namespace OloEngine
 
         void ProcessSubEmitterTriggers();
         void UpdateInternal(f32 dt, const glm::vec3& emitterPosition, const glm::vec3& parentVelocity, const glm::quat& emitterRotation);
-        void UpdateGPU(f32 dt, const glm::vec3& emitterPosition, const glm::quat& emitterRotation);
+        void UpdateGPU(f32 dt, const glm::vec3& emitterPosition, const glm::quat& emitterRotation, bool emissionAllowed);
     };
 } // namespace OloEngine

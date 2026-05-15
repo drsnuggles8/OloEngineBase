@@ -37,6 +37,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -972,20 +973,19 @@ namespace OloEngine::Tests
                             foundExact = true;
                             break;
                         }
-                        // Manual ASCII-only case-fold for the
-                        // case-insensitive match. Asset filenames in
-                        // this project are ASCII; non-ASCII would need
-                        // full Unicode case folding which isn't worth
-                        // pulling ICU in for.
+                        // ASCII-only case-fold for the case-insensitive
+                        // match. Asset filenames in this project are ASCII;
+                        // non-ASCII would need full Unicode case folding
+                        // which isn't worth pulling ICU in for. std::tolower
+                        // requires the unsigned-char cast to avoid UB on
+                        // negative char values.
                         if (name.size() == expectedName.size())
                         {
                             bool ci = true;
                             for (sizet k = 0; k < name.size(); ++k)
                             {
-                                const u8 a = static_cast<u8>(name[k]);
-                                const u8 b = static_cast<u8>(expectedName[k]);
-                                const u8 al = (a >= 'A' && a <= 'Z') ? (a + 32) : a;
-                                const u8 bl = (b >= 'A' && b <= 'Z') ? (b + 32) : b;
+                                const int al = std::tolower(static_cast<unsigned char>(name[k]));
+                                const int bl = std::tolower(static_cast<unsigned char>(expectedName[k]));
                                 if (al != bl)
                                 {
                                     ci = false;

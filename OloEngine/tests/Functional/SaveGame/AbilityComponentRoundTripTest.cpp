@@ -115,4 +115,8 @@ TEST_F(AbilityComponentRoundTripTest, AttributesAbilitiesAndTagsSurviveSceneYAML
         << "AbilityTag didn't survive round-trip — GameplayTag string round-trip is broken.";
     EXPECT_NEAR(restoredDef.CooldownDuration, kCooldown, 1e-4f)
         << "CooldownDuration didn't survive — a numeric write was forgotten in the writer.";
+    EXPECT_EQ(restoredDef.IsChanneled, false)
+        << "IsChanneled flag didn't survive round-trip — bool was dropped in writer or reader.";
+    EXPECT_EQ(restoredDef.IsToggled, false)
+        << "IsToggled flag didn't survive round-trip — bool was dropped in writer or reader.";
 }

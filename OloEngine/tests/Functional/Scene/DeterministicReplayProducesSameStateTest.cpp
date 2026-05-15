@@ -97,6 +97,18 @@ TEST_F(DeterministicReplayProducesSameStateTest, TwoIdenticalRunsProduceMatching
     ASSERT_TRUE(std::isfinite(runA.x) && std::isfinite(runA.y) && std::isfinite(runA.z));
     ASSERT_TRUE(std::isfinite(runB.x) && std::isfinite(runB.y) && std::isfinite(runB.z));
 
+    // Liveness: both runs must have actually advanced from the initial state
+    // (ball at y=5). Without this guard, a regression where the simulation
+    // silently no-ops would still satisfy runA == runB and produce a false
+    // pass. The ball drops ~5m under gravity in 1s, so a displacement >0.5m
+    // proves real motion happened.
+    constexpr f32 kInitialY = 5.0f;
+    constexpr f32 kMinAdvance = 0.5f;
+    ASSERT_GT(std::fabs(kInitialY - runA.y), kMinAdvance)
+        << "runA did not advance from initial state — simulation never ran";
+    ASSERT_GT(std::fabs(kInitialY - runB.y), kMinAdvance)
+        << "runB did not advance from initial state — simulation never ran";
+
     // Tight tolerance — Jolt is deterministic given the same inputs and step
     // count. Anything wider than ~1e-4 here means a subsystem is reading
     // non-deterministic state (wall clock, unseeded RNG, thread schedule).

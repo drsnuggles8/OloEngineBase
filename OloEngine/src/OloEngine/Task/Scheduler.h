@@ -127,6 +127,12 @@ namespace OloEngine::LowLevelTasks
         bool HasPendingWakeUp() const;
 
         static FTlsValues& GetTlsValuesRef();
+        // Null-tolerant accessor for use during shutdown paths that may run
+        // from a static destructor on the main thread, AFTER the thread_local
+        // s_TlsValuesHolder has already been destroyed (its dtor zeroes out
+        // TlsValues, but the storage bits remain readable). Hot paths should
+        // keep using GetTlsValuesRef() — null TLS there indicates a real bug.
+        static FTlsValues* TryGetTlsValues() noexcept;
     };
 
     // @class FScheduler

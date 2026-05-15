@@ -37,7 +37,7 @@ namespace
     // Write the script contents to a per-test temp file. Returning the path
     // lets the test reference it via LuaScriptComponent.ScriptFile and the
     // engine load it via sol::state::load_file.
-    std::filesystem::path WriteScriptTo(const std::string& contents, const char* nameStem)
+    std::filesystem::path WriteScript(const std::string& contents, const char* nameStem)
     {
         const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
         std::string fileName = std::string("olo_l12_") + nameStem + "_" + (info ? info->name() : "unknown") + ".lua";
@@ -88,7 +88,7 @@ function script.OnUpdate(entityID, ts)
 end
 return script
 )";
-        m_ScriptPath = WriteScriptTo(scriptSrc, "tick_counter");
+        m_ScriptPath = WriteScript(scriptSrc, "tick_counter");
         RegisterLuaScript(m_Scripted, m_ScriptPath);
     }
 

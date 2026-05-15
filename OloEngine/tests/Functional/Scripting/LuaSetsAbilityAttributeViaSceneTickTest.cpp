@@ -31,6 +31,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <stdexcept>
 
 using namespace OloEngine;
 using namespace OloEngine::Functional;
@@ -42,7 +43,16 @@ namespace
         const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
         const std::string fileName = std::string("olo_functional_") + nameStem + "_" + (info ? info->name() : "unknown") + ".lua";
         const auto path = std::filesystem::temp_directory_path() / fileName;
-        std::ofstream(path, std::ios::binary | std::ios::trunc) << contents;
+        // Validate the open and the write — a silent I/O failure here would
+        // surface much later as a "Lua failed to load script" inside the engine,
+        // making the real cause hard to pin down.
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        if (!out.is_open())
+            throw std::runtime_error("WriteScript: failed to open temp file for writing: " + path.string());
+        out << contents;
+        out.flush();
+        if (!out.good())
+            throw std::runtime_error("WriteScript: write failed for: " + path.string());
         return path;
     }
 } // namespace

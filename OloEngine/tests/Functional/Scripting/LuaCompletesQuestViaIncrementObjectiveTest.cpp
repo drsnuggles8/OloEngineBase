@@ -81,8 +81,11 @@ class LuaCompletesQuestViaIncrementObjectiveTest : public FunctionalTest
         EnableLua();
 
         // Lua script: on first OnUpdate, fetch our QuestJournalComponent and
-        // increment the objective by the required count in one call.
-        const std::string scriptSrc = R"(
+        // increment the objective by the required count in one call. The
+        // quest and objective IDs are interpolated from the C++ constants so
+        // a rename here can't silently desync the Lua call from the AcceptQuest
+        // call above.
+        const std::string scriptSrc = std::string(R"(
 local script = {}
 local applied = false
 function script.OnUpdate(entityID, ts)
@@ -90,7 +93,7 @@ function script.OnUpdate(entityID, ts)
     local id = math.tointeger(entityID) or 0
     local jc = entity_utils.get_component(id, "QuestJournalComponent")
     if jc ~= nil then
-        jc:IncrementObjective("Q_KillThreeViaLua", "kill_target", 3)
+        jc:IncrementObjective(")") + kQuestID + R"(", ")" + kObjID + R"(", 3)
         applied = true
     end
 end

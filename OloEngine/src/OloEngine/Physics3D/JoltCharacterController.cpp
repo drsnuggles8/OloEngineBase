@@ -607,11 +607,13 @@ namespace OloEngine
     {
         // Persistent-contact path. We deliberately do NOT touch m_CollisionFlags
         // here — OnContactAdded handles the begin-of-frame reset+set; doing it
-        // again per-persistent-contact would clobber multi-contact state. We
-        // only need to route the begin-event callback (HandleCollision /
-        // HandleTrigger dedupe via m_CollidedBodies / m_TriggeredBodies, so
-        // the user-visible callback fires exactly once per body even if Jolt
-        // emits this for many frames).
+        // again per-persistent-contact would clobber multi-contact state.
+        // Jolt can fire OnContactPersisted multiple times per body per frame
+        // when the character has multiple sub-shape contacts against the same
+        // body. m_CollidedBodies / m_TriggeredBodies only track the previous
+        // frame, so they don't dedupe within the current frame — use
+        // m_StillCollidedBodies / m_StillTriggeredBodies (this-frame sets)
+        // so HandleCollision / HandleTrigger fire at most once per body.
         bool isSensor = false;
         if (m_Scene && m_Scene->GetJoltSystemPtr())
         {
@@ -626,11 +628,17 @@ namespace OloEngine
 
         if (isSensor)
         {
-            HandleTrigger(inContact.mBodyB);
+            if (m_StillTriggeredBodies.insert(inContact.mBodyB).second)
+            {
+                HandleTrigger(inContact.mBodyB);
+            }
         }
         else
         {
-            HandleCollision(inContact.mBodyB);
+            if (m_StillCollidedBodies.insert(inContact.mBodyB).second)
+            {
+                HandleCollision(inContact.mBodyB);
+            }
         }
     }
 

@@ -40,6 +40,17 @@ namespace
         glm::vec3 Scale{};
         bool HasCamera = false;
         bool HasSprite = false;
+        // Sprite payload (only valid when HasSprite is true) — captured so
+        // the round-trip assertion catches value loss, not just presence loss.
+        glm::vec4 SpriteColor{};
+        f32 SpriteTilingFactor = 0.0f;
+        // Camera payload (only valid when HasCamera is true). Primary +
+        // projection params catch the "everything present, but the active
+        // camera lost its FOV" failure class.
+        bool CameraPrimary = false;
+        i32 CameraProjectionType = -1;
+        f32 CameraPerspectiveFOV = 0.0f;
+        f32 CameraOrthographicSize = 0.0f;
     };
 
     std::unordered_map<std::string, EntitySnapshot> SnapshotByTag(Scene& scene)
@@ -57,6 +68,20 @@ namespace
             snap.Scale = t.Scale;
             snap.HasCamera = entity.HasComponent<CameraComponent>();
             snap.HasSprite = entity.HasComponent<SpriteRendererComponent>();
+            if (snap.HasSprite)
+            {
+                const auto& sprite = entity.GetComponent<SpriteRendererComponent>();
+                snap.SpriteColor = sprite.Color;
+                snap.SpriteTilingFactor = sprite.TilingFactor;
+            }
+            if (snap.HasCamera)
+            {
+                const auto& cam = entity.GetComponent<CameraComponent>();
+                snap.CameraPrimary = cam.Primary;
+                snap.CameraProjectionType = static_cast<i32>(cam.Camera.GetProjectionType());
+                snap.CameraPerspectiveFOV = cam.Camera.GetPerspectiveVerticalFOV();
+                snap.CameraOrthographicSize = cam.Camera.GetOrthographicSize();
+            }
             out.emplace(tag, snap);
         }
         return out;
@@ -87,6 +112,11 @@ class SceneRoundTripAfterTickTest : public FunctionalTest
         auto camera = GetScene().CreateEntity("Camera");
         auto& cam = camera.AddComponent<CameraComponent>();
         cam.Primary = true;
+        // Push the camera off its constructor defaults so the round-trip
+        // assertion can tell "saved + restored" apart from "constructed fresh".
+        cam.Camera.SetProjectionType(SceneCamera::ProjectionType::Perspective);
+        cam.Camera.SetPerspectiveVerticalFOV(0.9f);   // ~51.5°
+        cam.Camera.SetOrthographicSize(7.5f);
         camera.GetComponent<TransformComponent>().Translation = { 0.0f, 5.0f, -10.0f };
 
         auto prop = GetScene().CreateEntity("Prop");
@@ -139,5 +169,29 @@ TEST_F(SceneRoundTripAfterTickTest, CapturedAfterTickRestoresIdenticalState)
             << "CameraComponent presence diverged for tag=" << tag;
         EXPECT_EQ(restoredSnap.HasSprite, originalSnap.HasSprite)
             << "SpriteRendererComponent presence diverged for tag=" << tag;
+
+        // Value-loss guards: presence alone isn't enough — bugs where a
+        // component round-trips but its fields silently reset to defaults
+        // (color = white, FOV = 0, etc.) only surface with these checks.
+        if (originalSnap.HasSprite && restoredSnap.HasSprite)
+        {
+            EXPECT_NEAR(restoredSnap.SpriteColor.r, originalSnap.SpriteColor.r, 1e-4f) << "tag=" << tag;
+            EXPECT_NEAR(restoredSnap.SpriteColor.g, originalSnap.SpriteColor.g, 1e-4f) << "tag=" << tag;
+            EXPECT_NEAR(restoredSnap.SpriteColor.b, originalSnap.SpriteColor.b, 1e-4f) << "tag=" << tag;
+            EXPECT_NEAR(restoredSnap.SpriteColor.a, originalSnap.SpriteColor.a, 1e-4f) << "tag=" << tag;
+            EXPECT_NEAR(restoredSnap.SpriteTilingFactor, originalSnap.SpriteTilingFactor, 1e-4f)
+                << "SpriteRendererComponent.TilingFactor lost across round-trip; tag=" << tag;
+        }
+        if (originalSnap.HasCamera && restoredSnap.HasCamera)
+        {
+            EXPECT_EQ(restoredSnap.CameraPrimary, originalSnap.CameraPrimary)
+                << "CameraComponent.Primary lost across round-trip; tag=" << tag;
+            EXPECT_EQ(restoredSnap.CameraProjectionType, originalSnap.CameraProjectionType)
+                << "SceneCamera projection type lost across round-trip; tag=" << tag;
+            EXPECT_NEAR(restoredSnap.CameraPerspectiveFOV, originalSnap.CameraPerspectiveFOV, 1e-4f)
+                << "SceneCamera perspective FOV lost across round-trip; tag=" << tag;
+            EXPECT_NEAR(restoredSnap.CameraOrthographicSize, originalSnap.CameraOrthographicSize, 1e-4f)
+                << "SceneCamera orthographic size lost across round-trip; tag=" << tag;
+        }
     }
 }

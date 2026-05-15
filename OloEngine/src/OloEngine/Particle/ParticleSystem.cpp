@@ -261,10 +261,13 @@ namespace OloEngine
             Emitter.Reset();
         }
 
-        // GPU path: emit on CPU, simulate on GPU
+        // GPU path: emit on CPU, simulate on GPU. Pass emissionAllowed so
+        // the GPU branch respects the same Playing/Looping/Duration gate
+        // as the CPU branch — without it, a non-looping system would keep
+        // spawning particles past its Duration.
         if (UseGPU)
         {
-            UpdateGPU(scaledDt, emitterPosition, emitterRotation);
+            UpdateGPU(scaledDt, emitterPosition, emitterRotation, emissionAllowed);
             m_PendingTriggers.clear();
             return;
         }
@@ -582,7 +585,7 @@ namespace OloEngine
         }
     }
 
-    void ParticleSystem::UpdateGPU(f32 scaledDt, const glm::vec3& emitterPosition, const glm::quat& emitterRotation)
+    void ParticleSystem::UpdateGPU(f32 scaledDt, const glm::vec3& emitterPosition, const glm::quat& emitterRotation, bool emissionAllowed)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -593,10 +596,15 @@ namespace OloEngine
         }
 
         // Use a temporary CPU pool to emit particles through the existing emitter
-        // We reuse the main pool but snapshot the alive count to detect new particles
+        // We reuse the main pool but snapshot the alive count to detect new particles.
+        // Skip emission when the system has stopped playing — the GPU pipeline
+        // still simulates/compacts alive particles below so the pool drains.
         glm::vec3 emitPos = (SimulationSpace == ParticleSpace::Local) ? glm::vec3(0.0f) : emitterPosition;
         u32 prevAlive = m_Pool.GetAliveCount();
-        Emitter.Update(scaledDt, m_Pool, emitPos, m_LODSpawnRateMultiplier, emitterRotation);
+        if (emissionAllowed)
+        {
+            Emitter.Update(scaledDt, m_Pool, emitPos, m_LODSpawnRateMultiplier, emitterRotation);
+        }
         u32 newAlive = m_Pool.GetAliveCount();
         u32 newCount = newAlive - prevAlive;
 

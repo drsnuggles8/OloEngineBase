@@ -75,6 +75,11 @@ class CharacterControllerContactCallbackTest : public FunctionalTest
     Entity m_Wall;
     std::atomic<u32> m_CallbackHits{ 0 };
     UUID m_OtherEntitySeen{ 0 };
+    // Wall-specific record so the assertion below doesn't depend on
+    // wall being the *last* callback to fire — if any non-wall contact
+    // fires after the wall (e.g. a future change re-enables gravity and
+    // the controller settles onto a floor), the wall hit still survives.
+    UUID m_WallEntitySeen{ 0 };
 };
 
 TEST_F(CharacterControllerContactCallbackTest, CallbackFiresWhenControllerTouchesStaticWall)
@@ -87,12 +92,16 @@ TEST_F(CharacterControllerContactCallbackTest, CallbackFiresWhenControllerTouche
     // it first to avoid the "controller already exists" branch.
     joltScene->DestroyCharacterController(m_Character);
 
+    const UUID wallUUID = m_Wall.GetUUID();
     auto controller = joltScene->CreateCharacterController(m_Character,
-                                                           [this](Entity self, Entity other)
+                                                           [this, wallUUID](Entity self, Entity other)
                                                            {
                                                                (void)self;
                                                                ++m_CallbackHits;
-                                                               m_OtherEntitySeen = other.GetUUID();
+                                                               const UUID otherUUID = other.GetUUID();
+                                                               m_OtherEntitySeen = otherUUID;
+                                                               if (otherUUID == wallUUID)
+                                                                   m_WallEntitySeen = otherUUID;
                                                            });
     ASSERT_TRUE(controller) << "JoltScene refused to recreate the controller";
 
@@ -111,9 +120,10 @@ TEST_F(CharacterControllerContactCallbackTest, CallbackFiresWhenControllerTouche
            "(possibly the post-API-change OnContactAdded) is not invoking the "
            "registered callback.";
 
-    // The other entity should be the wall, not the floor.
-    EXPECT_EQ(m_OtherEntitySeen, m_Wall.GetUUID())
-        << "callback fired but with the wrong other-entity (likely the floor "
-           "instead of the wall — the controller is reporting ground contacts "
-           "as collision events).";
+    // The wall must have been a registered contact — order-independent of
+    // any other contacts that may have fired in the same window.
+    EXPECT_EQ(m_WallEntitySeen, m_Wall.GetUUID())
+        << "callback fired but never recorded a contact with the wall (saw "
+           "other=" << static_cast<u64>(m_OtherEntitySeen)
+        << ") — the controller is missing the static-wall collision event.";
 }

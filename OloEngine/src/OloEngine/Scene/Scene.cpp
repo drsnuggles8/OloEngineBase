@@ -407,6 +407,13 @@ namespace OloEngine
             }
         }
 
+        // Same deal for character controllers — without this, JoltScene keeps
+        // a live JoltCharacterController referring to a destroyed entity.
+        if (m_JoltScene && entity.HasComponent<CharacterController3DComponent>())
+        {
+            m_JoltScene->DestroyCharacterController(entity);
+        }
+
         m_Registry.destroy(entity);
         m_EntityMap.Remove(entityUUID);
 
@@ -1143,6 +1150,12 @@ namespace OloEngine
                         auto& transform = entity.GetComponent<TransformComponent>();
                         auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
 
+                        // Runtime-added Rigidbody2DComponent has RuntimeBody ==
+                        // b2_nullBodyId until OnPhysics2DStart creates one.
+                        // Skip rather than calling Box2D with an invalid handle.
+                        if (!b2Body_IsValid(rb2d.RuntimeBody))
+                            continue;
+
                         b2Vec2 position = b2Body_GetPosition(rb2d.RuntimeBody);
                         b2Rot rotation = b2Body_GetRotation(rb2d.RuntimeBody);
 
@@ -1531,6 +1544,12 @@ namespace OloEngine
                         Entity entity = { e, this };
                         auto& transform = entity.GetComponent<TransformComponent>();
                         auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
+
+                        // Runtime-added Rigidbody2DComponent has RuntimeBody ==
+                        // b2_nullBodyId until OnPhysics2DStart creates one.
+                        // Skip rather than calling Box2D with an invalid handle.
+                        if (!b2Body_IsValid(rb2d.RuntimeBody))
+                            continue;
 
                         b2Vec2 position = b2Body_GetPosition(rb2d.RuntimeBody);
                         b2Rot rotation = b2Body_GetRotation(rb2d.RuntimeBody);
@@ -2293,6 +2312,16 @@ namespace OloEngine
                 m_JoltScene->DestroyBody(ent);
                 rb3d.m_RuntimeBodyToken = 0;
             }
+        }
+
+        // Clean up character controllers symmetrically — JoltScene::Shutdown
+        // otherwise inherits dangling JoltCharacterController instances tied
+        // to entities that are about to vanish.
+        auto controllerView = m_Registry.view<CharacterController3DComponent>();
+        for (auto entity : controllerView)
+        {
+            Entity ent = { entity, this };
+            m_JoltScene->DestroyCharacterController(ent);
         }
 
         m_JoltScene->Shutdown();
@@ -4937,7 +4966,20 @@ namespace OloEngine
     OLO_ON_COMPONENT_REMOVED_NOOP(BehaviorTreeComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(StateMachineComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(TileRendererComponent)
-    OLO_ON_COMPONENT_REMOVED_NOOP(Rigidbody2DComponent)
+
+    // Specialisation: when a Rigidbody2DComponent is removed at runtime,
+    // the Box2D world must release the body. Without this hook, the body
+    // leaks and the per-tick sync loop later reads a stale b2BodyId.
+    template<>
+    void Scene::OnComponentRemoved<Rigidbody2DComponent>(Entity, Rigidbody2DComponent& component)
+    {
+        if (b2World_IsValid(m_PhysicsWorld) && b2Body_IsValid(component.RuntimeBody))
+        {
+            b2DestroyBody(component.RuntimeBody);
+            component.RuntimeBody = b2_nullBodyId;
+        }
+    }
+
     OLO_ON_COMPONENT_REMOVED_NOOP(BoxCollider2DComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(CircleCollider2DComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(BoxCollider3DComponent)

@@ -150,6 +150,11 @@ namespace OloEngine::Tests
         // Cheaper than walking every included file: pull the union of
         // every `*Component` token used as a struct declaration across
         // a curated set of header roots that Components.h pulls in.
+        // MAINTENANCE: when adding new subsystem/component headers (especially
+        // those that declare `struct *Component` outside of Components.h),
+        // append the header path here to avoid false positives where this
+        // coverage test flags externally-declared components as missing
+        // serializer support.
         const std::vector<fs::path> componentHeaderRoots = {
             componentsHeader,
             // The headers Components.h itself reaches via #include — the

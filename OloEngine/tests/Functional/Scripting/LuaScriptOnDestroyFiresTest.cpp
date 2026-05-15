@@ -32,7 +32,7 @@ using namespace OloEngine::Functional;
 
 namespace
 {
-    std::filesystem::path WriteScriptTo(const std::string& contents, const char* stem)
+    std::filesystem::path WriteScript(const std::string& contents, const char* stem)
     {
         const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
         std::string fileName = std::string("olo_l12_") + stem + "_" + (info ? info->name() : "unknown") + ".lua";
@@ -70,7 +70,7 @@ function script.OnDestroy(entityID)
 end
 return script
 )";
-        m_ScriptPath = WriteScriptTo(scriptSrc, "ondestroy");
+        m_ScriptPath = WriteScript(scriptSrc, "ondestroy");
 
         m_Scripted = GetScene().CreateEntityWithUUID(UUID{ kScriptedUUID }, "Scripted");
         RegisterLuaScript(m_Scripted, m_ScriptPath);

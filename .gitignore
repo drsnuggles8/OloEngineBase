@@ -60,7 +60,7 @@ OloEngine/vendor/*
 OloEditor/assets/tests/captures/
 /assets/tests/captures/
 
-# L12 Functional Test capture artefacts (scene snapshots on assertion failure)
+# Functional test capture artefacts (scene snapshots on assertion failure)
 OloEngine/tests/Functional/captures/
 
 # Debug export files (Command Bucket Inspector)
@@ -84,3 +84,4 @@ OloEditor/cmake_test_discovery_*.json
 .claude/
 skills-lock.json
 docs/agents/
+.claude/settings.local.json

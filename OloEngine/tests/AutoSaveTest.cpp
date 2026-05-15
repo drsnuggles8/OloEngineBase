@@ -36,7 +36,10 @@ namespace
         {
             const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
             // Per-test subdir so parallel ctest runs don't fight.
-            m_TempDir = std::filesystem::temp_directory_path() / "olo_autosave_test" / (std::string(info ? info->test_suite_name() : "x") + "_" + std::string(info ? info->name() : "y"));
+            const std::string testSuite = info ? info->test_suite_name() : "x";
+            const std::string testName = info ? info->name() : "y";
+            const std::filesystem::path baseDir = std::filesystem::temp_directory_path() / "olo_autosave_test";
+            m_TempDir = baseDir / (testSuite + "_" + testName);
             std::error_code ec;
             std::filesystem::remove_all(m_TempDir, ec);
             std::filesystem::create_directories(m_TempDir, ec);
