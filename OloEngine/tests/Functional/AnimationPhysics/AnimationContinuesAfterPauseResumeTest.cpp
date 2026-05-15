@@ -60,8 +60,8 @@ class AnimationContinuesAfterPauseResumeTest : public FunctionalTest
 
 TEST_F(AnimationContinuesAfterPauseResumeTest, ClipTimeResumesFromPauseSnapshot)
 {
-    constexpr u32 kPrePauseFrames  = 15; // ~0.25s
-    constexpr u32 kPausedFrames    = 30; // ~0.5s of "wall time" — must NOT advance the clip
+    constexpr u32 kPrePauseFrames = 15;   // ~0.25s
+    constexpr u32 kPausedFrames = 30;     // ~0.5s of "wall time" — must NOT advance the clip
     constexpr u32 kPostResumeFrames = 15; // ~0.25s
 
     // Phase 1: tick before pause. Snapshot the clip time.
@@ -86,7 +86,7 @@ TEST_F(AnimationContinuesAfterPauseResumeTest, ClipTimeResumesFromPauseSnapshot)
 
     constexpr f32 dt = 1.0f / 60.0f;
     const f32 expectedDelta = kPostResumeFrames * dt;
-    const f32 expectedTime  = prePauseTime + expectedDelta;
+    const f32 expectedTime = prePauseTime + expectedDelta;
 
     EXPECT_NEAR(postResumeTime, expectedTime, dt * 0.6f) // tolerate <1 frame
         << "animation did not resume from the pause-snapshot; pre=" << prePauseTime

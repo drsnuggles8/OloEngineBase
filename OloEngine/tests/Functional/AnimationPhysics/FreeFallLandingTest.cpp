@@ -57,12 +57,12 @@ namespace
 
         BoneAnimation boneAnim;
         boneAnim.BoneName = "Child";
-        boneAnim.PositionKeys.push_back({ 0.0,                          glm::vec3(0.0f, 0.0f, 0.0f) });
-        boneAnim.PositionKeys.push_back({ static_cast<f64>(duration),   glm::vec3(0.0f, 1.0f, 0.0f) });
-        boneAnim.RotationKeys.push_back({ 0.0,                          glm::quat(1.0f, 0.0f, 0.0f, 0.0f) });
-        boneAnim.RotationKeys.push_back({ static_cast<f64>(duration),   glm::quat(1.0f, 0.0f, 0.0f, 0.0f) });
-        boneAnim.ScaleKeys.push_back   ({ 0.0,                          glm::vec3(1.0f) });
-        boneAnim.ScaleKeys.push_back   ({ static_cast<f64>(duration),   glm::vec3(1.0f) });
+        boneAnim.PositionKeys.push_back({ 0.0, glm::vec3(0.0f, 0.0f, 0.0f) });
+        boneAnim.PositionKeys.push_back({ static_cast<f64>(duration), glm::vec3(0.0f, 1.0f, 0.0f) });
+        boneAnim.RotationKeys.push_back({ 0.0, glm::quat(1.0f, 0.0f, 0.0f, 0.0f) });
+        boneAnim.RotationKeys.push_back({ static_cast<f64>(duration), glm::quat(1.0f, 0.0f, 0.0f, 0.0f) });
+        boneAnim.ScaleKeys.push_back({ 0.0, glm::vec3(1.0f) });
+        boneAnim.ScaleKeys.push_back({ static_cast<f64>(duration), glm::vec3(1.0f) });
         clip->BoneAnimations.push_back(boneAnim);
         clip->InitializeBoneCache();
         return clip;
@@ -111,14 +111,16 @@ class FreeFallLandingTest : public FunctionalTest
 
 TEST_F(FreeFallLandingTest, BallLandsAndAnimationKeepsTicking)
 {
-    constexpr f32 kFloorTop      = 0.0f;
-    constexpr f32 kBallRadius    = 0.5f;
+    constexpr f32 kFloorTop = 0.0f;
+    constexpr f32 kBallRadius = 0.5f;
     constexpr f32 kSettleEpsilon = 0.05f; // tolerance for "at rest on floor"
 
-    const auto BallY = [this] {
+    const auto BallY = [this]
+    {
         return m_Ball.GetComponent<TransformComponent>().Translation.y;
     };
-    const auto BallLanded = [&] {
+    const auto BallLanded = [&]
+    {
         return BallY() <= (kFloorTop + kBallRadius + kSettleEpsilon);
     };
 

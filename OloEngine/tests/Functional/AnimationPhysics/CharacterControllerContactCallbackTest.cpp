@@ -88,11 +88,12 @@ TEST_F(CharacterControllerContactCallbackTest, CallbackFiresWhenControllerTouche
     joltScene->DestroyCharacterController(m_Character);
 
     auto controller = joltScene->CreateCharacterController(m_Character,
-        [this](Entity self, Entity other) {
-            (void)self;
-            ++m_CallbackHits;
-            m_OtherEntitySeen = other.GetUUID();
-        });
+                                                           [this](Entity self, Entity other)
+                                                           {
+                                                               (void)self;
+                                                               ++m_CallbackHits;
+                                                               m_OtherEntitySeen = other.GetUUID();
+                                                           });
     ASSERT_TRUE(controller) << "JoltScene refused to recreate the controller";
 
     // No floor collisions — keep the test focused on the wall contact.

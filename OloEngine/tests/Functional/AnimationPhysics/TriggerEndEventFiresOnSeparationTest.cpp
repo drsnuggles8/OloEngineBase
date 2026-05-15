@@ -86,11 +86,12 @@ TEST_F(TriggerEndEventFiresOnSeparationTest, EnterAndExitBothInvokeTheCallback)
 
     joltScene->DestroyCharacterController(m_Character);
     auto controller = joltScene->CreateCharacterController(m_Character,
-        [this](Entity self, Entity other) {
-            (void)self;
-            std::lock_guard<std::mutex> lock(m_HitsMutex);
-            ++m_HitsByOther[static_cast<u64>(other.GetUUID())];
-        });
+                                                           [this](Entity self, Entity other)
+                                                           {
+                                                               (void)self;
+                                                               std::lock_guard<std::mutex> lock(m_HitsMutex);
+                                                               ++m_HitsByOther[static_cast<u64>(other.GetUUID())];
+                                                           });
     ASSERT_TRUE(controller);
 
     controller->SetGravityEnabled(false);

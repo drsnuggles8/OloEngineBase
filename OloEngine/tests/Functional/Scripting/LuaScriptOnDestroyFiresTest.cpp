@@ -35,8 +35,7 @@ namespace
     std::filesystem::path WriteScriptTo(const std::string& contents, const char* stem)
     {
         const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        std::string fileName = std::string("olo_l12_") + stem + "_"
-                             + (info ? info->name() : "unknown") + ".lua";
+        std::string fileName = std::string("olo_l12_") + stem + "_" + (info ? info->name() : "unknown") + ".lua";
         const auto path = std::filesystem::temp_directory_path() / fileName;
         std::ofstream out(path, std::ios::binary | std::ios::trunc);
         out << contents;
@@ -48,7 +47,7 @@ class LuaScriptOnDestroyFiresTest : public FunctionalTest
 {
   protected:
     static constexpr u64 kScriptedUUID = 54321;
-    static constexpr u64 kBuddyUUID    = 67890;
+    static constexpr u64 kBuddyUUID = 67890;
 
     void BuildScene() override
     {
@@ -66,7 +65,8 @@ function script.OnUpdate(entityID, ts)
 end
 function script.OnDestroy(entityID)
     -- Side-channel: write a known sentinel to the buddy entity's x.
-    entity_utils.set_translation()" + std::to_string(kBuddyUUID) + R"(, vec3.new(123.0, 0, 0))
+    entity_utils.set_translation()" + std::to_string(kBuddyUUID) +
+                                      R"(, vec3.new(123.0, 0, 0))
 end
 return script
 )";

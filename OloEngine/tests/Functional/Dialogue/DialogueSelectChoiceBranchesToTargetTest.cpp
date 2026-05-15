@@ -43,10 +43,10 @@ using namespace OloEngine::Functional;
 class DialogueSelectChoiceBranchesToTargetTest : public FunctionalTest
 {
   protected:
-    static constexpr u64 kStart_ID  = 0x1ULL;
+    static constexpr u64 kStart_ID = 0x1ULL;
     static constexpr u64 kChoice_ID = 0x2ULL;
-    static constexpr u64 kLeft_ID   = 0x3ULL;
-    static constexpr u64 kRight_ID  = 0x4ULL;
+    static constexpr u64 kLeft_ID = 0x3ULL;
+    static constexpr u64 kRight_ID = 0x4ULL;
     static constexpr const char* kRightText = "took the right path";
 
     void BuildScene() override
@@ -89,9 +89,9 @@ class DialogueSelectChoiceBranchesToTargetTest : public FunctionalTest
         nodes.push_back(std::move(right));
 
         // Edges: Start → Choice, Choice → Left, Choice → Right.
-        edges.push_back({ OloEngine::UUID{ kStart_ID  }, OloEngine::UUID{ kChoice_ID }, "", "" });
-        edges.push_back({ OloEngine::UUID{ kChoice_ID }, OloEngine::UUID{ kLeft_ID   }, "Left",  "" });
-        edges.push_back({ OloEngine::UUID{ kChoice_ID }, OloEngine::UUID{ kRight_ID  }, "Right", "" });
+        edges.push_back({ OloEngine::UUID{ kStart_ID }, OloEngine::UUID{ kChoice_ID }, "", "" });
+        edges.push_back({ OloEngine::UUID{ kChoice_ID }, OloEngine::UUID{ kLeft_ID }, "Left", "" });
+        edges.push_back({ OloEngine::UUID{ kChoice_ID }, OloEngine::UUID{ kRight_ID }, "Right", "" });
 
         m_TreeAsset->SetRootNodeID(OloEngine::UUID{ kStart_ID });
         m_TreeAsset->RebuildNodeIndex();

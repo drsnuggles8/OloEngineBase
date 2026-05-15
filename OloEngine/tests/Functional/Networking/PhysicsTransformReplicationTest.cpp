@@ -92,7 +92,7 @@ TEST_F(PhysicsTransformReplicationTest, NetArchiveRoundTripPreservesPostPhysicsT
     writer.ArIsNetArchive = true;
     ComponentReplicator::Serialize(writer, server);
     ASSERT_FALSE(writer.IsError()) << "net-archive write failed";
-    ASSERT_GT(buffer.size(), 0u)   << "net-archive produced empty payload";
+    ASSERT_GT(buffer.size(), 0u) << "net-archive produced empty payload";
 
     // Deserialise into a fresh "client-side" component.
     TransformComponent client;

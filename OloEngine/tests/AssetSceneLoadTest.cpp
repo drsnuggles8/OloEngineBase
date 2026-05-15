@@ -88,7 +88,8 @@ namespace OloEngine::Tests
             std::error_code ec;
             fs::remove_all(tempRoot, ec);
             fs::create_directories(tempRoot, ec);
-            if (ec) return {};
+            if (ec)
+                return {};
 
             // Recursive copy: every file, every subdirectory. We need
             // Assets/, AssetRegistry.oar, and the .oloproj at minimum;
@@ -98,7 +99,8 @@ namespace OloEngine::Tests
                          fs::copy_options::overwrite_existing |
                          fs::copy_options::copy_symlinks,
                      ec);
-            if (ec) return {};
+            if (ec)
+                return {};
 
             return tempRoot;
         }
@@ -111,7 +113,8 @@ namespace OloEngine::Tests
             std::error_code ec;
             for (auto& entry : fs::directory_iterator(tempRoot, ec))
             {
-                if (ec) break;
+                if (ec)
+                    break;
                 if (entry.is_regular_file() && entry.path().extension() == ".oloproj")
                     return entry.path();
             }
@@ -153,14 +156,19 @@ namespace OloEngine::Tests
         std::error_code ec;
         for (auto& entry : fs::recursive_directory_iterator(scenesDir, ec))
         {
-            if (ec) break;
+            if (ec)
+                break;
             if (entry.is_regular_file() && entry.path().extension() == ".olo")
                 scenes.push_back(entry.path());
         }
         ASSERT_FALSE(scenes.empty()) << "No scenes found under " << scenesDir.string();
         std::sort(scenes.begin(), scenes.end());
 
-        struct Failure { std::string Path; std::string Reason; };
+        struct Failure
+        {
+            std::string Path;
+            std::string Reason;
+        };
         std::vector<Failure> failures;
 
         for (const auto& path : scenes)
@@ -195,7 +203,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " sample scene(s) failed full deserialisation:\n";
             for (const auto& f : failures)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
 

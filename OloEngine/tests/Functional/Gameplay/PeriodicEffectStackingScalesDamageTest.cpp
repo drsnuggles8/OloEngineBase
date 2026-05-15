@@ -86,7 +86,7 @@ TEST_F(PeriodicEffectStackingScalesDamageTest, ThreeStacksDeductFifteenPerPeriod
     EXPECT_LE(health, 100.0f - 14.0f)
         << "after one period, Health dropped by less than expected (got "
         << health << ", expected ≈ 85). Either CurrentStacks isn't being "
-           "scaled into the magnitude, or fewer ticks fired than expected.";
+                     "scaled into the magnitude, or fewer ticks fired than expected.";
     EXPECT_GE(health, 100.0f - 16.0f)
         << "Health dropped by MORE than expected (got " << health
         << "). More than one period boundary fired in 0.12s — period "

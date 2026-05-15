@@ -94,7 +94,8 @@ TEST_F(Save2DBodyVelocityRoundTripTest, SavedRuntimeVelocityIsAppliedOnReload)
     const f32 yResumeStart = restoredBody.GetComponent<TransformComponent>().Translation.y;
     {
         const Timestep ts{ 1.0f / 60.0f };
-        for (u32 i = 0; i < 3; ++i) restored->OnUpdateRuntime(ts); // 0.05s
+        for (u32 i = 0; i < 3; ++i)
+            restored->OnUpdateRuntime(ts); // 0.05s
     }
     const f32 yAfterShortTick = restoredBody.GetComponent<TransformComponent>().Translation.y;
     const f32 fall = yResumeStart - yAfterShortTick;

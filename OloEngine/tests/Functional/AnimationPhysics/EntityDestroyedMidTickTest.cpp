@@ -59,8 +59,8 @@ namespace
         boneAnim.PositionKeys.push_back({ 1.0, glm::vec3(0.0f, 0.5f, 0.0f) });
         boneAnim.RotationKeys.push_back({ 0.0, glm::quat(1.0f, 0.0f, 0.0f, 0.0f) });
         boneAnim.RotationKeys.push_back({ 1.0, glm::quat(1.0f, 0.0f, 0.0f, 0.0f) });
-        boneAnim.ScaleKeys.push_back   ({ 0.0, glm::vec3(1.0f) });
-        boneAnim.ScaleKeys.push_back   ({ 1.0, glm::vec3(1.0f) });
+        boneAnim.ScaleKeys.push_back({ 0.0, glm::vec3(1.0f) });
+        boneAnim.ScaleKeys.push_back({ 1.0, glm::vec3(1.0f) });
         clip->BoneAnimations.push_back(boneAnim);
         clip->InitializeBoneCache();
         return clip;
@@ -94,8 +94,8 @@ class EntityDestroyedMidTickTest : public FunctionalTest
         // Three falling spheres laterally separated so they don't collide
         // with each other before B is destroyed.
         m_A = MakeFallingSphere(GetScene(), "A", { -2.0f, 5.0f, 0.0f });
-        m_B = MakeFallingSphere(GetScene(), "B", {  0.0f, 5.0f, 0.0f });
-        m_C = MakeFallingSphere(GetScene(), "C", {  2.0f, 5.0f, 0.0f });
+        m_B = MakeFallingSphere(GetScene(), "B", { 0.0f, 5.0f, 0.0f });
+        m_C = MakeFallingSphere(GetScene(), "C", { 2.0f, 5.0f, 0.0f });
 
         // Animation canary.
         m_Animated = GetScene().CreateEntity("Animated");

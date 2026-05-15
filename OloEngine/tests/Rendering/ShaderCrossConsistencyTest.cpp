@@ -165,7 +165,8 @@ namespace OloEngine::Tests
         checkUnique(ssboNameToUses, "SSBO", errors);
 
         if (!errors.str().empty())
-            FAIL() << "Cross-shader binding inconsistency detected:\n" << errors.str();
+            FAIL() << "Cross-shader binding inconsistency detected:\n"
+                   << errors.str();
 
         EXPECT_FALSE(uboNameToUses.empty()) << "Reflection produced no UBO blocks across all shaders.";
     }
@@ -206,13 +207,20 @@ namespace OloEngine::Tests
         {
             switch (s.Dim)
             {
-                case spv::Dim1D:      return "sampler1D-family";
-                case spv::Dim2D:      return "sampler2D-family";
-                case spv::Dim3D:      return "sampler3D";
-                case spv::DimCube:    return "samplerCube-family";
-                case spv::DimRect:    return "samplerRect";
-                case spv::DimBuffer:  return "samplerBuffer";
-                default:              return "sampler?";
+                case spv::Dim1D:
+                    return "sampler1D-family";
+                case spv::Dim2D:
+                    return "sampler2D-family";
+                case spv::Dim3D:
+                    return "sampler3D";
+                case spv::DimCube:
+                    return "samplerCube-family";
+                case spv::DimRect:
+                    return "samplerRect";
+                case spv::DimBuffer:
+                    return "samplerBuffer";
+                default:
+                    return "sampler?";
             }
         }
 
@@ -275,7 +283,9 @@ namespace OloEngine::Tests
                         });
                     }
                 }
-                catch (...) { /* reflection errors handled elsewhere */ }
+                catch (...)
+                { /* reflection errors handled elsewhere */
+                }
             }
         }
 
@@ -297,7 +307,8 @@ namespace OloEngine::Tests
         }
 
         if (!errors.str().empty())
-            FAIL() << "Sampler-type inconsistency detected:\n" << errors.str();
+            FAIL() << "Sampler-type inconsistency detected:\n"
+                   << errors.str();
 
         EXPECT_FALSE(bindingToUses.empty()) << "Reflection produced no samplers across all shaders.";
     }

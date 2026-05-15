@@ -39,7 +39,7 @@ class ParticleSystemEmitsAndExpiresTest : public FunctionalTest
         auto& psc = m_Emitter.GetComponent<ParticleSystemComponent>();
         psc.System.Playing = true;
         psc.System.Looping = false;
-        psc.System.Duration = 0.4f;          // Stop emitting after 0.4s.
+        psc.System.Duration = 0.4f; // Stop emitting after 0.4s.
         psc.System.Emitter.RateOverTime = 50.0f;
         psc.System.Emitter.LifetimeMin = 0.3f;
         psc.System.Emitter.LifetimeMax = 0.5f;

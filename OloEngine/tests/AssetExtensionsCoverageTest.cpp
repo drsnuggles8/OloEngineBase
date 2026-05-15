@@ -42,16 +42,16 @@ namespace OloEngine::Tests
         const std::set<AssetType> kRuntimeOnly = {
             AssetType::None,
             // Logical wrappers — backed by other asset types on disk:
-            AssetType::Script,    // abstract C# script (file is `ScriptFile` / .cs)
-            AssetType::Shader,    // compiled at runtime from .glsl; no asset entry
-            AssetType::ComputeShader,    // ditto
-            AssetType::Model,     // runtime container — uses `MeshSource` (.fbx/.gltf/...)
-            AssetType::Environment, // runtime env map — uses `EnvMap` source
+            AssetType::Script,               // abstract C# script (file is `ScriptFile` / .cs)
+            AssetType::Shader,               // compiled at runtime from .glsl; no asset entry
+            AssetType::ComputeShader,        // ditto
+            AssetType::Model,                // runtime container — uses `MeshSource` (.fbx/.gltf/...)
+            AssetType::Environment,          // runtime env map — uses `EnvMap` source
             AssetType::SpatializationConfig, // audio runtime config; no asset file yet
-            AssetType::Terrain,   // procedural — generated, not imported
-            AssetType::NavMesh,   // baked at runtime from scene geometry
-            AssetType::SoundGraph,// runtime sound graph; the asset file uses `SoundGraphSound`
-            AssetType::TextureCube, // built at runtime from 6 .png faces (or an HDR equirect → cubemap conversion); no dedicated extension
+            AssetType::Terrain,              // procedural — generated, not imported
+            AssetType::NavMesh,              // baked at runtime from scene geometry
+            AssetType::SoundGraph,           // runtime sound graph; the asset file uses `SoundGraphSound`
+            AssetType::TextureCube,          // built at runtime from 6 .png faces (or an HDR equirect → cubemap conversion); no dedicated extension
         };
 
         // Walk every declared enum value via static_cast loop. The
@@ -63,7 +63,8 @@ namespace OloEngine::Tests
         for (u16 raw = 1; raw <= kMaxKnownValue; ++raw)
         {
             const AssetType t = static_cast<AssetType>(raw);
-            if (kRuntimeOnly.contains(t)) continue;
+            if (kRuntimeOnly.contains(t))
+                continue;
             const auto extensions = AssetExtensions::GetExtensionsForAssetType(t);
             if (extensions.empty())
                 uncovered.push_back(t);
@@ -106,7 +107,7 @@ namespace OloEngine::Tests
             {
                 brokenRoundTrip.push_back(
                     ext + " → AssetType::None (extension in supported list but "
-                    "GetAssetTypeFromExtension returned None)");
+                          "GetAssetTypeFromExtension returned None)");
                 continue;
             }
 
@@ -122,7 +123,11 @@ namespace OloEngine::Tests
                 std::string lhs = ext;
                 if (!lhs.empty() && lhs.front() == '.')
                     lhs.erase(0, 1);
-                if (normalised == lhs) { foundInReverse = true; break; }
+                if (normalised == lhs)
+                {
+                    foundInReverse = true;
+                    break;
+                }
             }
             if (!foundInReverse)
             {

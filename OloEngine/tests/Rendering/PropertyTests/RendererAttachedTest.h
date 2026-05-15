@@ -79,9 +79,18 @@ namespace OloEngine::Tests
         /// enabled) drives the entire Renderer3D pipeline.
         void RunFrames(u32 count, f32 dtSeconds = 1.0f / 60.0f);
 
-        [[nodiscard]] Scene& GetScene() { return *m_Scene; }
-        [[nodiscard]] const Scene& GetScene() const { return *m_Scene; }
-        [[nodiscard]] Ref<Scene> GetSceneRef() const { return m_Scene; }
+        [[nodiscard]] Scene& GetScene()
+        {
+            return *m_Scene;
+        }
+        [[nodiscard]] const Scene& GetScene() const
+        {
+            return *m_Scene;
+        }
+        [[nodiscard]] Ref<Scene> GetSceneRef() const
+        {
+            return m_Scene;
+        }
 
         // Default viewport that the renderer renders into. Subclasses
         // can call `SetViewport(w, h)` from `BuildScene` before any tick.

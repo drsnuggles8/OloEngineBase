@@ -33,8 +33,8 @@ using namespace OloEngine::Functional;
 class NavAgentReachesTargetTest : public FunctionalTest
 {
   protected:
-    static constexpr glm::vec3 kStart  { -5.0f, 0.5f, 0.0f };
-    static constexpr glm::vec3 kTarget {  5.0f, 0.5f, 0.0f };
+    static constexpr glm::vec3 kStart{ -5.0f, 0.5f, 0.0f };
+    static constexpr glm::vec3 kTarget{ 5.0f, 0.5f, 0.0f };
 
     void BuildScene() override
     {
@@ -61,7 +61,7 @@ class NavAgentReachesTargetTest : public FunctionalTest
         const auto navMesh = NavMeshGenerator::Generate(
             &GetScene(), settings,
             /*boundsMin=*/glm::vec3(-25.0f, -2.0f, -7.0f),
-            /*boundsMax=*/glm::vec3( 25.0f,  5.0f,  7.0f));
+            /*boundsMax=*/glm::vec3(25.0f, 5.0f, 7.0f));
         ASSERT_TRUE(navMesh && navMesh->IsValid())
             << "NavMeshGenerator::Generate produced an invalid mesh — Recast bake "
                "failed on the static-collider geometry.";
@@ -73,12 +73,12 @@ class NavAgentReachesTargetTest : public FunctionalTest
         m_Agent.GetComponent<TransformComponent>().Translation = kStart;
         m_Agent.AddComponent<NavAgentComponent>();
         auto& agent = m_Agent.GetComponent<NavAgentComponent>();
-        agent.m_MaxSpeed = 8.0f;          // fast enough to cross in a couple seconds
+        agent.m_MaxSpeed = 8.0f; // fast enough to cross in a couple seconds
         agent.m_StoppingDistance = 0.3f;
         agent.m_LockYAxis = true;
         agent.m_TargetPosition = kTarget;
         agent.m_HasTarget = true;
-        agent.m_HasPath = false;          // force path recomputation on first tick
+        agent.m_HasPath = false; // force path recomputation on first tick
     }
 
     Entity m_Agent;

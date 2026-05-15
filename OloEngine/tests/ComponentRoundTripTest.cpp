@@ -890,8 +890,8 @@ namespace OloEngine::Tests
         const f32 expectedRotation = 73.5f;
         const f32 expectedExposure = 2.5f;
         const f32 expectedBlur = 0.4f;
-        const bool expectedEnableSkybox = false;   // non-default
-        const bool expectedEnableIBL = false;      // non-default
+        const bool expectedEnableSkybox = false; // non-default
+        const bool expectedEnableIBL = false;    // non-default
         const f32 expectedIBLIntensity = 1.75f;
         const glm::vec3 expectedTint{ 0.8f, 0.9f, 1.0f };
 
@@ -1668,8 +1668,8 @@ namespace OloEngine::Tests
     // -------------------------------------------------------------------------
     TEST(ComponentRoundTrip, ParticleSystemComponentSurvivesYAMLRoundTrip)
     {
-        const bool expectedPlaying = false;        // non-default (default is true-ish, but mostly: deterministic)
-        const bool expectedLooping = false;        // non-default
+        const bool expectedPlaying = false; // non-default (default is true-ish, but mostly: deterministic)
+        const bool expectedLooping = false; // non-default
         const f32 expectedDuration = 7.5f;
         const f32 expectedPlaybackSpeed = 1.75f;
         const f32 expectedRate = 25.0f;
@@ -1717,8 +1717,8 @@ namespace OloEngine::Tests
     TEST(ComponentRoundTrip, NetworkIdentityComponentSurvivesYAMLRoundTrip)
     {
         const u32 expectedOwnerID = 42;
-        const ENetworkAuthority expectedAuthority = ENetworkAuthority::Client;  // non-default
-        const bool expectedReplicated = false;                                  // non-default
+        const ENetworkAuthority expectedAuthority = ENetworkAuthority::Client; // non-default
+        const bool expectedReplicated = false;                                 // non-default
 
         std::string yaml;
         {
@@ -1848,7 +1848,8 @@ namespace OloEngine::Tests
     // -------------------------------------------------------------------------
     TEST(ComponentRoundTrip, SerializeLoadSerializeProducesIdenticalYAML)
     {
-        auto buildScene = [] {
+        auto buildScene = []
+        {
             auto scene = Scene::Create();
 
             Entity camera = scene->CreateEntity("Camera");
@@ -1886,8 +1887,10 @@ namespace OloEngine::Tests
                "Most likely cause: a component has an asymmetric default "
                "(one side emits the default, the other reads-with-default), "
                "or a non-deterministic ordering of entities / fields.\n"
-               "First pass length:  " << firstYaml.size() << "\n"
-               "Second pass length: " << secondYaml.size();
+               "First pass length:  "
+            << firstYaml.size() << "\n"
+                                   "Second pass length: "
+            << secondYaml.size();
     }
 
     // -------------------------------------------------------------------------
@@ -1904,73 +1907,126 @@ namespace OloEngine::Tests
     // -------------------------------------------------------------------------
     TEST(ComponentRoundTrip, SerializeLoadSerializeWithWideComponentSetIsIdempotent)
     {
-        auto buildScene = [] {
+        auto buildScene = []
+        {
             auto scene = Scene::Create();
 
             // Lights
             Entity pl = scene->CreateEntity("Point");
-            { auto& l = pl.AddComponent<PointLightComponent>();
-              l.m_Color = { 0.7f, 0.2f, 0.4f }; l.m_Intensity = 3.0f; l.m_Range = 15.0f; }
+            {
+                auto& l = pl.AddComponent<PointLightComponent>();
+                l.m_Color = { 0.7f, 0.2f, 0.4f };
+                l.m_Intensity = 3.0f;
+                l.m_Range = 15.0f;
+            }
             Entity sl = scene->CreateEntity("Spot");
-            { auto& l = sl.AddComponent<SpotLightComponent>();
-              l.m_Color = { 0.5f, 0.5f, 0.9f }; l.m_InnerCutoff = 12.0f; l.m_OuterCutoff = 22.0f; }
+            {
+                auto& l = sl.AddComponent<SpotLightComponent>();
+                l.m_Color = { 0.5f, 0.5f, 0.9f };
+                l.m_InnerCutoff = 12.0f;
+                l.m_OuterCutoff = 22.0f;
+            }
 
             // 2D renderers
             Entity circle = scene->CreateEntity("Circle");
-            { auto& c = circle.AddComponent<CircleRendererComponent>();
-              c.Color = { 0.1f, 0.9f, 0.5f, 0.8f }; c.Thickness = 0.6f; c.Fade = 0.05f; }
+            {
+                auto& c = circle.AddComponent<CircleRendererComponent>();
+                c.Color = { 0.1f, 0.9f, 0.5f, 0.8f };
+                c.Thickness = 0.6f;
+                c.Fade = 0.05f;
+            }
 
             // Text
             Entity text = scene->CreateEntity("Text");
-            { auto& t = text.AddComponent<TextComponent>();
-              t.TextString = "Determinism check"; t.Color = { 0.3f, 0.5f, 0.7f, 1.0f };
-              t.Kerning = 0.125f; t.LineSpacing = 0.0625f; }
+            {
+                auto& t = text.AddComponent<TextComponent>();
+                t.TextString = "Determinism check";
+                t.Color = { 0.3f, 0.5f, 0.7f, 1.0f };
+                t.Kerning = 0.125f;
+                t.LineSpacing = 0.0625f;
+            }
 
             // Audio
             Entity src = scene->CreateEntity("AudioSrc");
-            { auto& s = src.AddComponent<AudioSourceComponent>();
-              s.Config.VolumeMultiplier = 0.6f; s.Config.Looping = true;
-              s.Config.MinDistance = 2.0f; s.Config.MaxDistance = 25.0f; }
+            {
+                auto& s = src.AddComponent<AudioSourceComponent>();
+                s.Config.VolumeMultiplier = 0.6f;
+                s.Config.Looping = true;
+                s.Config.MinDistance = 2.0f;
+                s.Config.MaxDistance = 25.0f;
+            }
             Entity listener = scene->CreateEntity("AudioListen");
-            { auto& l = listener.AddComponent<AudioListenerComponent>();
-              l.Active = false; }
+            {
+                auto& l = listener.AddComponent<AudioListenerComponent>();
+                l.Active = false;
+            }
 
             // Light probes
             Entity probe = scene->CreateEntity("Probe");
-            { auto& p = probe.AddComponent<LightProbeComponent>();
-              p.m_InfluenceRadius = 8.0f; p.m_Intensity = 1.25f; p.m_Active = true; }
+            {
+                auto& p = probe.AddComponent<LightProbeComponent>();
+                p.m_InfluenceRadius = 8.0f;
+                p.m_Intensity = 1.25f;
+                p.m_Active = true;
+            }
             Entity probeVol = scene->CreateEntity("ProbeVolume");
-            { auto& v = probeVol.AddComponent<LightProbeVolumeComponent>();
-              v.m_BoundsMin = { -4, -1, -4 }; v.m_BoundsMax = { 4, 3, 4 };
-              v.m_Spacing = 2.0f; v.m_Intensity = 1.5f; v.m_Active = true; }
+            {
+                auto& v = probeVol.AddComponent<LightProbeVolumeComponent>();
+                v.m_BoundsMin = { -4, -1, -4 };
+                v.m_BoundsMax = { 4, 3, 4 };
+                v.m_Spacing = 2.0f;
+                v.m_Intensity = 1.5f;
+                v.m_Active = true;
+            }
 
             // Skybox / env map
             Entity env = scene->CreateEntity("Sky");
-            { auto& e = env.AddComponent<EnvironmentMapComponent>();
-              e.m_Rotation = 30.0f; e.m_Exposure = 1.8f; e.m_BlurAmount = 0.2f;
-              e.m_EnableSkybox = false; e.m_EnableIBL = true; e.m_IBLIntensity = 1.5f; }
+            {
+                auto& e = env.AddComponent<EnvironmentMapComponent>();
+                e.m_Rotation = 30.0f;
+                e.m_Exposure = 1.8f;
+                e.m_BlurAmount = 0.2f;
+                e.m_EnableSkybox = false;
+                e.m_EnableIBL = true;
+                e.m_IBLIntensity = 1.5f;
+            }
 
             // Mesh colliders
             Entity mc = scene->CreateEntity("MeshCollider");
-            { auto& c = mc.AddComponent<MeshCollider3DComponent>();
-              c.m_ColliderAsset = AssetHandle{ 111ULL };
-              c.m_Offset = { 0, 0.5f, 0 }; c.m_UseComplexAsSimple = true; }
+            {
+                auto& c = mc.AddComponent<MeshCollider3DComponent>();
+                c.m_ColliderAsset = AssetHandle{ 111ULL };
+                c.m_Offset = { 0, 0.5f, 0 };
+                c.m_UseComplexAsSimple = true;
+            }
             Entity cv = scene->CreateEntity("ConvexCollider");
-            { auto& c = cv.AddComponent<ConvexMeshCollider3DComponent>();
-              c.m_ColliderAsset = AssetHandle{ 222ULL };
-              c.m_ConvexRadius = 0.1f; c.m_MaxVertices = 100; }
+            {
+                auto& c = cv.AddComponent<ConvexMeshCollider3DComponent>();
+                c.m_ColliderAsset = AssetHandle{ 222ULL };
+                c.m_ConvexRadius = 0.1f;
+                c.m_MaxVertices = 100;
+            }
             Entity tm = scene->CreateEntity("TriMeshCollider");
-            { auto& c = tm.AddComponent<TriangleMeshCollider3DComponent>();
-              c.m_ColliderAsset = AssetHandle{ 333ULL };
-              c.m_Scale = { 1.5f, 1.5f, 1.5f }; }
+            {
+                auto& c = tm.AddComponent<TriangleMeshCollider3DComponent>();
+                c.m_ColliderAsset = AssetHandle{ 333ULL };
+                c.m_Scale = { 1.5f, 1.5f, 1.5f };
+            }
             Entity cap = scene->CreateEntity("Capsule");
-            { auto& c = cap.AddComponent<CapsuleCollider3DComponent>();
-              c.m_Radius = 0.5f; c.m_HalfHeight = 1.0f; }
+            {
+                auto& c = cap.AddComponent<CapsuleCollider3DComponent>();
+                c.m_Radius = 0.5f;
+                c.m_HalfHeight = 1.0f;
+            }
 
             // Character controller
             Entity cc = scene->CreateEntity("CharCtl");
-            { auto& c = cc.AddComponent<CharacterController3DComponent>();
-              c.m_SlopeLimitDeg = 50.0f; c.m_StepOffset = 0.3f; c.m_JumpPower = 9.5f; }
+            {
+                auto& c = cc.AddComponent<CharacterController3DComponent>();
+                c.m_SlopeLimitDeg = 50.0f;
+                c.m_StepOffset = 0.3f;
+                c.m_JumpPower = 9.5f;
+            }
 
             return scene;
         };
@@ -1986,8 +2042,10 @@ namespace OloEngine::Tests
             << "Scene YAML drifted after a serialize→load→serialize cycle with a "
                "wide component set. A component added since the original "
                "determinism test was written has introduced an asymmetric default.\n"
-               "First pass length:  " << firstYaml.size() << "\n"
-               "Second pass length: " << secondYaml.size();
+               "First pass length:  "
+            << firstYaml.size() << "\n"
+                                   "Second pass length: "
+            << secondYaml.size();
     }
 
     // -------------------------------------------------------------------------

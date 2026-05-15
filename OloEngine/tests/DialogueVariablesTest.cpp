@@ -39,7 +39,7 @@ TEST(DialogueVariables, MissingKeysReturnTheCallerProvidedDefault)
     DialogueVariables vars;
 
     EXPECT_FALSE(vars.GetBool("nope"));
-    EXPECT_TRUE (vars.GetBool("nope", true));
+    EXPECT_TRUE(vars.GetBool("nope", true));
 
     EXPECT_EQ(vars.GetInt("nope"), 0);
     EXPECT_EQ(vars.GetInt("nope", 42), 42);

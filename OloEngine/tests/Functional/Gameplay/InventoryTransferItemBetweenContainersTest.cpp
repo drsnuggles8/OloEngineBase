@@ -79,9 +79,9 @@ class InventoryTransferItemBetweenContainersTest : public FunctionalTest
 TEST_F(InventoryTransferItemBetweenContainersTest, TransferFromPlayerToChestMovesItemAndClearsSource)
 {
     auto& playerInv = m_Player.GetComponent<InventoryComponent>().PlayerInventory;
-    auto& chestInv  = m_Chest .GetComponent<InventoryComponent>().PlayerInventory;
+    auto& chestInv = m_Chest.GetComponent<InventoryComponent>().PlayerInventory;
     ASSERT_EQ(playerInv.GetUsedSlots(), 1);
-    ASSERT_EQ(chestInv.GetUsedSlots(),  0);
+    ASSERT_EQ(chestInv.GetUsedSlots(), 0);
 
     EXPECT_TRUE(playerInv.TransferItem(/*fromSlot=*/0, chestInv))
         << "TransferItem returned false on a valid transfer — the destination "
@@ -90,7 +90,7 @@ TEST_F(InventoryTransferItemBetweenContainersTest, TransferFromPlayerToChestMove
     EXPECT_EQ(playerInv.GetUsedSlots(), 0)
         << "source slot 0 wasn't cleared after a successful transfer — "
            "TransferItem didn't slot.reset() after the destination accepted.";
-    EXPECT_EQ(chestInv.GetUsedSlots(),  1);
+    EXPECT_EQ(chestInv.GetUsedSlots(), 1);
     EXPECT_TRUE(chestInv.HasItem(kItemID))
         << "destination doesn't report holding the transferred item — "
            "either AddItem mis-tracked or HasItem queries the wrong axis.";
@@ -101,7 +101,7 @@ TEST_F(InventoryTransferItemBetweenContainersTest, TransferFromPlayerToChestMove
         << "TransferItem from an empty source slot returned true — the "
            "has_value() guard was skipped.";
     EXPECT_EQ(playerInv.GetUsedSlots(), 0);
-    EXPECT_EQ(chestInv.GetUsedSlots(),  1) << "failed transfer mutated the destination.";
+    EXPECT_EQ(chestInv.GetUsedSlots(), 1) << "failed transfer mutated the destination.";
 
     // Same-inventory self-transfer is also rejected (different invariant,
     // but it lives in the same code path).

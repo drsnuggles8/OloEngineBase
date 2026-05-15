@@ -40,8 +40,7 @@ namespace
     std::filesystem::path WriteScriptTo(const std::string& contents, const char* nameStem)
     {
         const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        std::string fileName = std::string("olo_l12_") + nameStem + "_"
-                             + (info ? info->name() : "unknown") + ".lua";
+        std::string fileName = std::string("olo_l12_") + nameStem + "_" + (info ? info->name() : "unknown") + ".lua";
         const auto path = std::filesystem::temp_directory_path() / fileName;
         {
             std::ofstream out(path, std::ios::binary | std::ios::trunc);

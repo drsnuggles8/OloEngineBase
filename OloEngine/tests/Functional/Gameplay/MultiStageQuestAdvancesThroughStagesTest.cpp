@@ -42,8 +42,8 @@ class MultiStageQuestAdvancesThroughStagesTest : public FunctionalTest
 {
   protected:
     static constexpr const char* kQuestID = "Q_TwoStage";
-    static constexpr const char* kObj0   = "kill_wolf";
-    static constexpr const char* kObj1   = "reach_village";
+    static constexpr const char* kObj0 = "kill_wolf";
+    static constexpr const char* kObj1 = "reach_village";
 
     void BuildScene() override
     {

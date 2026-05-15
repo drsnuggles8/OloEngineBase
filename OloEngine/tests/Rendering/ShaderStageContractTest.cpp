@@ -105,7 +105,9 @@ namespace OloEngine::Tests
                                              "nothing and renders silently as black." });
                     }
                 }
-                catch (...) {}
+                catch (...)
+                {
+                }
             }
         }
 
@@ -116,7 +118,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " fragment shader(s) declare zero outputs:\n";
             for (const auto& f : failures)
-                oss << "----\n" << f.ShaderPath << "\n    " << f.Detail << "\n";
+                oss << "----\n"
+                    << f.ShaderPath << "\n    " << f.Detail << "\n";
             FAIL() << oss.str();
         }
     }
@@ -159,7 +162,11 @@ namespace OloEngine::Tests
             // stage in those shaders legitimately just forwards attributes.
             bool hasTessEval = false;
             for (const auto& [kind, _] : stages)
-                if (kind == shaderc_glsl_tess_evaluation_shader) { hasTessEval = true; break; }
+                if (kind == shaderc_glsl_tess_evaluation_shader)
+                {
+                    hasTessEval = true;
+                    break;
+                }
             if (hasTessEval)
                 continue;
 
@@ -186,7 +193,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " vertex shader(s) never assign gl_Position:\n";
             for (const auto& f : failures)
-                oss << "----\n" << f.ShaderPath << "\n    " << f.Detail << "\n";
+                oss << "----\n"
+                    << f.ShaderPath << "\n    " << f.Detail << "\n";
             FAIL() << oss.str();
         }
     }

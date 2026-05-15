@@ -30,7 +30,8 @@ namespace OloEngine::Functional
         // build was relocated without rebuilding, or the test binary is
         // running against a stripped checkout. Either way, file-loading
         // tests will fail mysteriously without this guard.
-        static const bool s_Verified = [&] {
+        static const bool s_Verified = [&]
+        {
             if (!std::filesystem::exists(root))
             {
                 throw std::runtime_error{
@@ -49,11 +50,20 @@ namespace OloEngine::Functional
         u64 HashTestName(const char* suite, const char* name)
         {
             constexpr u64 kFnvOffset = 0xcbf29ce484222325ULL;
-            constexpr u64 kFnvPrime  = 0x00000100000001B3ULL;
+            constexpr u64 kFnvPrime = 0x00000100000001B3ULL;
             u64 h = kFnvOffset;
-            for (const char* p = suite; p && *p; ++p) { h ^= static_cast<u8>(*p); h *= kFnvPrime; }
-            h ^= '.'; h *= kFnvPrime;
-            for (const char* p = name; p && *p; ++p)  { h ^= static_cast<u8>(*p); h *= kFnvPrime; }
+            for (const char* p = suite; p && *p; ++p)
+            {
+                h ^= static_cast<u8>(*p);
+                h *= kFnvPrime;
+            }
+            h ^= '.';
+            h *= kFnvPrime;
+            for (const char* p = name; p && *p; ++p)
+            {
+                h ^= static_cast<u8>(*p);
+                h *= kFnvPrime;
+            }
             return h;
         }
     } // namespace
@@ -141,7 +151,8 @@ namespace OloEngine::Functional
 
     void FunctionalTest::TickFor(f32 totalSeconds, f32 dtSeconds)
     {
-        if (totalSeconds <= 0.0f || dtSeconds <= 0.0f) return;
+        if (totalSeconds <= 0.0f || dtSeconds <= 0.0f)
+            return;
         const u32 frames = static_cast<u32>(std::ceil(totalSeconds / dtSeconds));
         RunFrames(frames, dtSeconds);
     }
@@ -154,13 +165,15 @@ namespace OloEngine::Functional
         f32 elapsed = 0.0f;
         // Check before first tick so a predicate that's already true on entry
         // returns immediately without an off-by-one tick.
-        if (predicate()) return true;
+        if (predicate())
+            return true;
         while (elapsed < timeoutSeconds)
         {
             m_Scene->OnUpdateRuntime(ts);
             m_ElapsedSimulated += dtSeconds;
             elapsed += dtSeconds;
-            if (predicate()) return true;
+            if (predicate())
+                return true;
         }
         return false;
     }
@@ -174,7 +187,8 @@ namespace OloEngine::Functional
         // so the harness owns the lifecycle for any test that needs Physics3D.
         void EnsureTaskSchedulerStarted()
         {
-            static const bool s_Once = [] {
+            static const bool s_Once = []
+            {
                 LowLevelTasks::InitGameThreadId();
                 Tasks::FNamedThreadManager::Get().AttachToThread(Tasks::ENamedThread::GameThread);
                 LowLevelTasks::FScheduler::Get().StartWorkers();
@@ -284,8 +298,7 @@ namespace OloEngine::Functional
         // SerializeAssetRegistry will write AssetRegistry.oar HERE, not in
         // the working tree.
         const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        const std::string folder = std::string(info ? info->test_suite_name() : "Unknown")
-                                 + "." + std::string(info ? info->name() : "Unknown");
+        const std::string folder = std::string(info ? info->test_suite_name() : "Unknown") + "." + std::string(info ? info->name() : "Unknown");
 
         std::error_code ec;
         m_AssetProjectDir = std::filesystem::temp_directory_path() / "OloEngineFunctional" / folder;

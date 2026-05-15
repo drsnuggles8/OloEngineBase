@@ -64,13 +64,13 @@ TEST_F(HierarchyPreservedAcrossSaveLoadTest, ChildRetainsParentReferenceAfterRou
     ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*restored, payload));
 
     auto restoredParentOpt = restored->TryGetEntityWithUUID(m_ParentUUID);
-    auto restoredChildOpt  = restored->TryGetEntityWithUUID(m_ChildUUID);
+    auto restoredChildOpt = restored->TryGetEntityWithUUID(m_ChildUUID);
 
     ASSERT_TRUE(restoredParentOpt) << "parent entity missing after round-trip";
-    ASSERT_TRUE(restoredChildOpt)  << "child entity missing after round-trip";
+    ASSERT_TRUE(restoredChildOpt) << "child entity missing after round-trip";
 
     Entity restoredParent = *restoredParentOpt;
-    Entity restoredChild  = *restoredChildOpt;
+    Entity restoredChild = *restoredChildOpt;
 
     // The headline assertion: child's parent reference survived.
     Entity restoredChildParent = restoredChild.GetParent();

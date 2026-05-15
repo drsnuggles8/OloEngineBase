@@ -54,7 +54,7 @@ class CharacterPushesDynamicBodyTest : public FunctionalTest
         m_Crate.AddComponent<SphereCollider3DComponent>(crateCol);
         Rigidbody3DComponent crateBody;
         crateBody.m_Type = BodyType3D::Dynamic;
-        crateBody.m_Mass = 0.5f;     // light enough to be pushed
+        crateBody.m_Mass = 0.5f; // light enough to be pushed
         crateBody.m_LinearDrag = 0.5f;
         m_Crate.AddComponent<Rigidbody3DComponent>(crateBody);
 

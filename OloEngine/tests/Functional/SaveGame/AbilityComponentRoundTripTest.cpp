@@ -44,8 +44,8 @@ class AbilityComponentRoundTripTest : public FunctionalTest
 {
   protected:
     static constexpr f32 kCustomHealth = 73.5f;
-    static constexpr f32 kCustomMana   = 12.0f;
-    static constexpr f32 kCooldown     = 2.5f;
+    static constexpr f32 kCustomMana = 12.0f;
+    static constexpr f32 kCooldown = 2.5f;
     static constexpr const char* kAbilityName = "Heal";
     GameplayTag m_AbilityTag{ "Ability.Heal" };
     GameplayTag m_OwnedTag{ "State.Alive" };

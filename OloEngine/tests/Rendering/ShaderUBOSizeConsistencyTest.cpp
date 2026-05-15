@@ -60,27 +60,27 @@ namespace OloEngine::Tests
         // Block names that production shaders use, mapped to their
         // canonical C++ struct size. Aliases are listed explicitly.
         const std::array<KnownBlock, 21> kKnownBlocks = { {
-            { "CameraMatrices",        sizeof(UBOStructures::CameraUBO) },
-            { "Camera",                sizeof(UBOStructures::CameraUBO) },
-            { "LightProperties",       sizeof(UBOStructures::LightUBO) },
-            { "MultiLightBuffer",      sizeof(UBOStructures::MultiLightUBO) },
-            { "MultiLightData",        sizeof(UBOStructures::MultiLightUBO) },
-            { "MaterialProperties",    sizeof(UBOStructures::MaterialUBO) },
+            { "CameraMatrices", sizeof(UBOStructures::CameraUBO) },
+            { "Camera", sizeof(UBOStructures::CameraUBO) },
+            { "LightProperties", sizeof(UBOStructures::LightUBO) },
+            { "MultiLightBuffer", sizeof(UBOStructures::MultiLightUBO) },
+            { "MultiLightData", sizeof(UBOStructures::MultiLightUBO) },
+            { "MaterialProperties", sizeof(UBOStructures::MaterialUBO) },
             { "PBRMaterialProperties", sizeof(UBOStructures::PBRMaterialUBO) },
-            { "ModelMatrices",         sizeof(UBOStructures::ModelUBO) },
-            { "MeshInstanceData",      sizeof(UBOStructures::ModelUBO) },
-            { "AnimationMatrices",     sizeof(UBOStructures::AnimationUBO) },
-            { "BoneMatrices",          sizeof(UBOStructures::AnimationUBO) },
-            { "ShadowData",            sizeof(UBOStructures::ShadowUBO) },
-            { "TerrainParams",         sizeof(UBOStructures::TerrainUBO) },
-            { "BrushPreview",          sizeof(UBOStructures::BrushPreviewUBO) },
-            { "FoliageParams",         sizeof(UBOStructures::FoliageUBO) },
-            { "DecalParams",           sizeof(UBOStructures::DecalUBO) },
-            { "WaterParams",           sizeof(UBOStructures::WaterUBO) },
-            { "ForwardPlusParams",     sizeof(UBOStructures::ForwardPlusUBO) },
-            { "SelectionOutlineUBO",   sizeof(UBOStructures::SelectionOutlineUBO) },
-            { "JumpFloodUBO",          sizeof(UBOStructures::JumpFloodUBO) },
-            { "IBLParameters",         sizeof(UBOStructures::IBLParametersUBO) },
+            { "ModelMatrices", sizeof(UBOStructures::ModelUBO) },
+            { "MeshInstanceData", sizeof(UBOStructures::ModelUBO) },
+            { "AnimationMatrices", sizeof(UBOStructures::AnimationUBO) },
+            { "BoneMatrices", sizeof(UBOStructures::AnimationUBO) },
+            { "ShadowData", sizeof(UBOStructures::ShadowUBO) },
+            { "TerrainParams", sizeof(UBOStructures::TerrainUBO) },
+            { "BrushPreview", sizeof(UBOStructures::BrushPreviewUBO) },
+            { "FoliageParams", sizeof(UBOStructures::FoliageUBO) },
+            { "DecalParams", sizeof(UBOStructures::DecalUBO) },
+            { "WaterParams", sizeof(UBOStructures::WaterUBO) },
+            { "ForwardPlusParams", sizeof(UBOStructures::ForwardPlusUBO) },
+            { "SelectionOutlineUBO", sizeof(UBOStructures::SelectionOutlineUBO) },
+            { "JumpFloodUBO", sizeof(UBOStructures::JumpFloodUBO) },
+            { "IBLParameters", sizeof(UBOStructures::IBLParametersUBO) },
         } };
 
         const KnownBlock* FindKnownBlock(std::string_view glslName)
@@ -249,13 +249,27 @@ namespace OloEngine::Tests
                 const char* stageName = nullptr;
                 switch (kind)
                 {
-                    case shaderc_glsl_vertex_shader:           stageName = "vertex"; break;
-                    case shaderc_glsl_fragment_shader:         stageName = "fragment"; break;
-                    case shaderc_glsl_geometry_shader:         stageName = "geometry"; break;
-                    case shaderc_glsl_tess_control_shader:     stageName = "tess_control"; break;
-                    case shaderc_glsl_tess_evaluation_shader:  stageName = "tess_eval"; break;
-                    case shaderc_glsl_compute_shader:          stageName = "compute"; break;
-                    default:                                    stageName = "?"; break;
+                    case shaderc_glsl_vertex_shader:
+                        stageName = "vertex";
+                        break;
+                    case shaderc_glsl_fragment_shader:
+                        stageName = "fragment";
+                        break;
+                    case shaderc_glsl_geometry_shader:
+                        stageName = "geometry";
+                        break;
+                    case shaderc_glsl_tess_control_shader:
+                        stageName = "tess_control";
+                        break;
+                    case shaderc_glsl_tess_evaluation_shader:
+                        stageName = "tess_eval";
+                        break;
+                    case shaderc_glsl_compute_shader:
+                        stageName = "compute";
+                        break;
+                    default:
+                        stageName = "?";
+                        break;
                 }
 
                 try
@@ -269,7 +283,9 @@ namespace OloEngine::Tests
                         blockSizesByName[name].push_back({ stageName, size });
                     }
                 }
-                catch (...) {}
+                catch (...)
+                {
+                }
             }
 
             for (const auto& [name, sizes] : blockSizesByName)
@@ -280,7 +296,11 @@ namespace OloEngine::Tests
                 const u32 first = sizes.front().Size;
                 bool agree = true;
                 for (const auto& s : sizes)
-                    if (s.Size != first) { agree = false; break; }
+                    if (s.Size != first)
+                    {
+                        agree = false;
+                        break;
+                    }
                 if (!agree)
                     mismatches.push_back({ path.generic_string(), name, sizes });
             }
@@ -293,7 +313,8 @@ namespace OloEngine::Tests
                 << " shader(s) declare a UBO block with inconsistent layout between stages:\n";
             for (const auto& m : mismatches)
             {
-                oss << "----\n" << m.ShaderPath << "\n"
+                oss << "----\n"
+                    << m.ShaderPath << "\n"
                     << "    block '" << m.BlockName << "' size by stage:\n";
                 for (const auto& s : m.Sizes)
                     oss << "        " << s.Stage << ": " << s.Size << " B\n";
@@ -394,16 +415,23 @@ namespace OloEngine::Tests
                                 if (existing.Members[k].Name != obs.Members[k].Name ||
                                     existing.Members[k].Offset != obs.Members[k].Offset)
                                 {
-                                    sameLayout = false; break;
+                                    sameLayout = false;
+                                    break;
                                 }
                             }
-                            if (sameLayout) { matched = true; break; }
+                            if (sameLayout)
+                            {
+                                matched = true;
+                                break;
+                            }
                         }
                         if (!matched)
                             layouts.push_back(std::move(obs));
                     }
                 }
-                catch (...) {}
+                catch (...)
+                {
+                }
             }
         }
 
@@ -411,7 +439,8 @@ namespace OloEngine::Tests
         std::ostringstream errors;
         for (const auto& [blockName, layouts] : blockLayouts)
         {
-            if (layouts.size() <= 1) continue;
+            if (layouts.size() <= 1)
+                continue;
 
             // std140 allows shaders to declare a prefix of a buffer
             // (one shader sees a shorter CameraMatrices than another).
@@ -428,16 +457,22 @@ namespace OloEngine::Tests
             for (const auto& l : layouts)
             {
                 const sizet n = l.Members.size();
-                if (n > longest->Members.size()) { allPrefixesAgree = false; break; }
+                if (n > longest->Members.size())
+                {
+                    allPrefixesAgree = false;
+                    break;
+                }
                 for (sizet k = 0; k < n; ++k)
                 {
                     if (l.Members[k].Name != longest->Members[k].Name ||
                         l.Members[k].Offset != longest->Members[k].Offset)
                     {
-                        allPrefixesAgree = false; break;
+                        allPrefixesAgree = false;
+                        break;
                     }
                 }
-                if (!allPrefixesAgree) break;
+                if (!allPrefixesAgree)
+                    break;
             }
 
             if (allPrefixesAgree)
@@ -455,6 +490,7 @@ namespace OloEngine::Tests
         }
 
         if (!errors.str().empty())
-            FAIL() << "Cross-shader UBO member-layout disagreement:\n" << errors.str();
+            FAIL() << "Cross-shader UBO member-layout disagreement:\n"
+                   << errors.str();
     }
 } // namespace OloEngine::Tests

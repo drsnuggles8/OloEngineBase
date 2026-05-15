@@ -35,7 +35,7 @@ class NavMeshQueryFindPathBetweenPointsTest : public FunctionalTest
 {
   protected:
     static constexpr glm::vec3 kStart{ -4.0f, 0.2f, 0.0f };
-    static constexpr glm::vec3 kEnd  {  4.0f, 0.2f, 0.0f };
+    static constexpr glm::vec3 kEnd{ 4.0f, 0.2f, 0.0f };
 
     void BuildScene() override
     {
@@ -56,7 +56,7 @@ class NavMeshQueryFindPathBetweenPointsTest : public FunctionalTest
         const auto navMesh = NavMeshGenerator::Generate(
             &GetScene(), settings,
             /*boundsMin=*/glm::vec3(-25.0f, -2.0f, -7.0f),
-            /*boundsMax=*/glm::vec3( 25.0f,  5.0f,  7.0f));
+            /*boundsMax=*/glm::vec3(25.0f, 5.0f, 7.0f));
         ASSERT_TRUE(navMesh && navMesh->IsValid())
             << "NavMeshGenerator failed on a thin-floor scene — pre-condition broken.";
         GetScene().SetNavMesh(navMesh);
@@ -81,7 +81,7 @@ TEST_F(NavMeshQueryFindPathBetweenPointsTest, DirectFindPathReturnsPolylineConne
            "an empty/degenerate path that no agent can follow.";
 
     const glm::vec3 first = path.front();
-    const glm::vec3 last  = path.back();
+    const glm::vec3 last = path.back();
 
     auto distXZ = [](const glm::vec3& a, const glm::vec3& b)
     {

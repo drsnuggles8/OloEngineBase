@@ -86,11 +86,12 @@ TEST_F(TriggerVolumeFiresOverlapEventTest, OverlapEventFiresWhenCharacterEntersT
     // Replace the auto-created controller with one that has our test callback.
     joltScene->DestroyCharacterController(m_Character);
     auto controller = joltScene->CreateCharacterController(m_Character,
-        [this](Entity self, Entity other) {
-            (void)self;
-            ++m_TriggerHits;
-            m_OtherSeen = other.GetUUID();
-        });
+                                                           [this](Entity self, Entity other)
+                                                           {
+                                                               (void)self;
+                                                               ++m_TriggerHits;
+                                                               m_OtherSeen = other.GetUUID();
+                                                           });
     ASSERT_TRUE(controller);
 
     controller->SetGravityEnabled(false);
@@ -108,6 +109,6 @@ TEST_F(TriggerVolumeFiresOverlapEventTest, OverlapEventFiresWhenCharacterEntersT
     EXPECT_EQ(m_OtherSeen, m_Trigger.GetUUID())
         << "callback fired but the 'other' entity was not the trigger volume "
            "(possibly the floor): trigger uuid="
-           << static_cast<u64>(m_Trigger.GetUUID())
-           << " seen=" << static_cast<u64>(m_OtherSeen);
+        << static_cast<u64>(m_Trigger.GetUUID())
+        << " seen=" << static_cast<u64>(m_OtherSeen);
 }

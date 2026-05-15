@@ -66,7 +66,8 @@ namespace OloEngine::Tests
                 return out;
             for (auto& entry : fs::recursive_directory_iterator(dir, ec))
             {
-                if (ec) break;
+                if (ec)
+                    break;
                 if (!entry.is_regular_file())
                     continue;
                 if (entry.path().extension() == extension)
@@ -115,7 +116,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " " << assetKind << " file(s) failed validation:\n";
             for (const auto& f : failures)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
 
@@ -138,7 +140,11 @@ namespace OloEngine::Tests
         {
             std::string reason;
             auto node = ParseYAMLFile(path, reason);
-            if (!node) { failures.push_back({ path.generic_string(), reason }); continue; }
+            if (!node)
+            {
+                failures.push_back({ path.generic_string(), reason });
+                continue;
+            }
 
             if (!(*node)["Scene"])
             {
@@ -203,7 +209,11 @@ namespace OloEngine::Tests
         {
             std::string reason;
             auto node = ParseYAMLFile(path, reason);
-            if (!node) { failures.push_back({ path.generic_string(), reason }); continue; }
+            if (!node)
+            {
+                failures.push_back({ path.generic_string(), reason });
+                continue;
+            }
 
             const YAML::Node item = (*node)["ItemDefinition"];
             if (!item)
@@ -235,7 +245,11 @@ namespace OloEngine::Tests
         {
             std::string reason;
             auto node = ParseYAMLFile(path, reason);
-            if (!node) { failures.push_back({ path.generic_string(), reason }); continue; }
+            if (!node)
+            {
+                failures.push_back({ path.generic_string(), reason });
+                continue;
+            }
 
             // Quest files are flat YAML — keys at the root, no nesting
             // under a `Quest:` wrapper. Required: a stable QuestID and
@@ -273,7 +287,11 @@ namespace OloEngine::Tests
         {
             std::string reason;
             auto node = ParseYAMLFile(path, reason);
-            if (!node) { failures.push_back({ path.generic_string(), reason }); continue; }
+            if (!node)
+            {
+                failures.push_back({ path.generic_string(), reason });
+                continue;
+            }
 
             // Dialogue files declare a top-level key — accept either
             // 'Dialogue' or 'DialogueTree' depending on which authoring
@@ -290,7 +308,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " dialogue file(s) failed validation:\n";
             for (const auto& f : failures)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
     }
@@ -324,20 +343,31 @@ namespace OloEngine::Tests
         {
             std::string reason;
             auto node = ParseYAMLFile(path, reason);
-            if (!node) continue; // structural-parse failures handled elsewhere
+            if (!node)
+                continue; // structural-parse failures handled elsewhere
 
             const YAML::Node entities = (*node)["Entities"];
-            if (!entities || !entities.IsSequence()) continue;
+            if (!entities || !entities.IsSequence())
+                continue;
 
             std::set<u64> seen;
             for (sizet i = 0; i < entities.size(); ++i)
             {
                 const YAML::Node ent = entities[i];
-                if (!ent.IsMap()) continue;
+                if (!ent.IsMap())
+                    continue;
                 const YAML::Node uuidNode = ent["Entity"];
-                if (!uuidNode || !uuidNode.IsScalar()) continue;
+                if (!uuidNode || !uuidNode.IsScalar())
+                    continue;
                 u64 uuid;
-                try { uuid = uuidNode.as<u64>(); } catch (...) { continue; }
+                try
+                {
+                    uuid = uuidNode.as<u64>();
+                }
+                catch (...)
+                {
+                    continue;
+                }
 
                 if (!seen.insert(uuid).second)
                 {
@@ -384,32 +414,40 @@ namespace OloEngine::Tests
         {
             std::string reason;
             auto node = ParseYAMLFile(path, reason);
-            if (!node) continue;
+            if (!node)
+                continue;
 
             const YAML::Node entities = (*node)["Entities"];
-            if (!entities || !entities.IsSequence()) continue;
+            if (!entities || !entities.IsSequence())
+                continue;
 
             for (sizet i = 0; i < entities.size(); ++i)
             {
                 const YAML::Node ent = entities[i];
-                if (!ent.IsMap()) continue;
+                if (!ent.IsMap())
+                    continue;
                 const YAML::Node prefab = ent["PrefabComponent"];
-                if (!prefab || !prefab.IsMap()) continue;
+                if (!prefab || !prefab.IsMap())
+                    continue;
 
-                auto check = [&](const char* key) {
+                auto check = [&](const char* key)
+                {
                     const YAML::Node n = prefab[key];
                     if (!n || !n.IsScalar())
                     {
                         failures.push_back({
                             path.generic_string(),
-                            "Entities[" + std::to_string(i) + "].PrefabComponent missing '"
-                                + std::string(key) + "' UUID field",
+                            "Entities[" + std::to_string(i) + "].PrefabComponent missing '" + std::string(key) + "' UUID field",
                         });
                         return;
                     }
                     u64 v = 0;
-                    try { v = n.as<u64>(); }
-                    catch (...) {
+                    try
+                    {
+                        v = n.as<u64>();
+                    }
+                    catch (...)
+                    {
                         failures.push_back({
                             path.generic_string(),
                             "Entities[" + std::to_string(i) + "].PrefabComponent." + key +
@@ -436,7 +474,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " PrefabComponent structural defect(s):\n";
             for (const auto& f : failures)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
     }
@@ -464,10 +503,12 @@ namespace OloEngine::Tests
         {
             std::string reason;
             auto node = ParseYAMLFile(path, reason);
-            if (!node) continue;
+            if (!node)
+                continue;
 
             const YAML::Node entities = (*node)["Entities"];
-            if (!entities || !entities.IsSequence()) continue;
+            if (!entities || !entities.IsSequence())
+                continue;
 
             // Key = (PrefabID, PrefabEntityID). Two entities with the
             // same pair = duplicate slot, the failure case.
@@ -476,16 +517,27 @@ namespace OloEngine::Tests
             for (sizet i = 0; i < entities.size(); ++i)
             {
                 const YAML::Node ent = entities[i];
-                if (!ent.IsMap()) continue;
+                if (!ent.IsMap())
+                    continue;
                 const YAML::Node prefab = ent["PrefabComponent"];
-                if (!prefab || !prefab.IsMap()) continue;
+                if (!prefab || !prefab.IsMap())
+                    continue;
                 const YAML::Node pid = prefab["PrefabID"];
                 const YAML::Node eid = prefab["PrefabEntityID"];
-                if (!pid || !pid.IsScalar() || !eid || !eid.IsScalar()) continue;
+                if (!pid || !pid.IsScalar() || !eid || !eid.IsScalar())
+                    continue;
                 u64 pidVal = 0, eidVal = 0;
-                try { pidVal = pid.as<u64>(); eidVal = eid.as<u64>(); }
-                catch (...) { continue; }
-                if (pidVal == 0 || eidVal == 0) continue; // covered by structural test
+                try
+                {
+                    pidVal = pid.as<u64>();
+                    eidVal = eid.as<u64>();
+                }
+                catch (...)
+                {
+                    continue;
+                }
+                if (pidVal == 0 || eidVal == 0)
+                    continue; // covered by structural test
 
                 if (!seen.insert({ pidVal, eidVal }).second)
                 {
@@ -506,7 +558,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " duplicate (PrefabID, PrefabEntityID) pair(s):\n";
             for (const auto& f : failures)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
     }
@@ -524,7 +577,11 @@ namespace OloEngine::Tests
         {
             std::string reason;
             auto node = ParseYAMLFile(path, reason);
-            if (!node) { failures.push_back({ path.generic_string(), reason }); continue; }
+            if (!node)
+            {
+                failures.push_back({ path.generic_string(), reason });
+                continue;
+            }
 
             const YAML::Node graph = (*node)["ShaderGraph"];
             if (!graph)
@@ -655,7 +712,7 @@ namespace OloEngine::Tests
                                         "' resolves to " + expected.generic_string() +
                                         ", but that file does not declare `class " +
                                         className + " : Entity` — the runtime "
-                                        "script-binding system will silently no-op.",
+                                                    "script-binding system will silently no-op.",
                                 });
                             }
                         }
@@ -692,7 +749,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " scene-bound script reference(s) missing on disk:\n";
             for (const auto& f : failures)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
     }
@@ -757,7 +815,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << missing.size() << " registered asset path(s) missing on disk:\n";
             for (const auto& f : missing)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             oss << "\nTo clean the registry, run:\n"
                 << "  OloEngine-Tests.exe --gtest_also_run_disabled_tests "
                 << "--gtest_filter=AssetContentValidity.DISABLED_RebaseAssetRegistry\n";
@@ -806,8 +865,10 @@ namespace OloEngine::Tests
         std::error_code ec;
         for (auto& entry : fs::recursive_directory_iterator(assetsRoot, ec))
         {
-            if (ec) break;
-            if (!entry.is_regular_file()) continue;
+            if (ec)
+                break;
+            if (!entry.is_regular_file())
+                continue;
 
             // AssetExtensions::IsExtensionSupported takes a normalised
             // string (with or without leading dot). The std::filesystem
@@ -819,7 +880,8 @@ namespace OloEngine::Tests
             // Path the registry stores: project-relative, forward
             // slashes, including the `Assets/` prefix.
             std::string relative = fs::relative(entry.path(), projectRoot, ec).generic_string();
-            if (ec) continue;
+            if (ec)
+                continue;
 
             if (!registeredPaths.contains(relative))
             {
@@ -836,7 +898,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << unregistered.size() << " on-disk asset file(s) missing from registry:\n";
             for (const auto& f : unregistered)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             oss << "\nTo regenerate the registry, launch OloEditor (which auto-rescans),\n"
                 << "or run the DISABLED_RebaseAssetRegistry helper (currently only removes\n"
                 << "stale entries — extend it if a clean-rebuild path becomes useful).\n";
@@ -886,7 +949,8 @@ namespace OloEngine::Tests
                  ++component)
             {
                 const std::string expectedName = component->generic_string();
-                if (expectedName.empty() || expectedName == ".") continue;
+                if (expectedName.empty() || expectedName == ".")
+                    continue;
 
                 // Enumerate the directory and look for a case-exact
                 // match. Case-insensitive matches (different casing) get
@@ -900,9 +964,14 @@ namespace OloEngine::Tests
                 {
                     for (auto& entry : fs::directory_iterator(accumulated, ec))
                     {
-                        if (ec) break;
+                        if (ec)
+                            break;
                         const std::string name = entry.path().filename().generic_string();
-                        if (name == expectedName) { foundExact = true; break; }
+                        if (name == expectedName)
+                        {
+                            foundExact = true;
+                            break;
+                        }
                         // Manual ASCII-only case-fold for the
                         // case-insensitive match. Asset filenames in
                         // this project are ASCII; non-ASCII would need
@@ -917,9 +986,17 @@ namespace OloEngine::Tests
                                 const u8 b = static_cast<u8>(expectedName[k]);
                                 const u8 al = (a >= 'A' && a <= 'Z') ? (a + 32) : a;
                                 const u8 bl = (b >= 'A' && b <= 'Z') ? (b + 32) : b;
-                                if (al != bl) { ci = false; break; }
+                                if (al != bl)
+                                {
+                                    ci = false;
+                                    break;
+                                }
                             }
-                            if (ci) { foundCaseInsensitive = true; actualName = name; }
+                            if (ci)
+                            {
+                                foundCaseInsensitive = true;
+                                actualName = name;
+                            }
                         }
                     }
                 }
@@ -945,7 +1022,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << mismatches.size() << " registry path(s) with case mismatch vs disk:\n";
             for (const auto& f : mismatches)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
     }
@@ -989,10 +1067,10 @@ namespace OloEngine::Tests
             "TextureHandle",
             "FontHandle",
             "AudioFileHandle",
-            "ColliderAsset",            // MeshCollider3D / ConvexMeshCollider3D / TriangleMeshCollider3D
-            "RegionAssetHandle",        // StreamingVolumeComponent
-            "BehaviorTreeAsset",        // BehaviorTreeComponent (note: no "Handle" suffix)
-            "StateMachineAsset",        // StateMachineComponent (note: no "Handle" suffix)
+            "ColliderAsset",     // MeshCollider3D / ConvexMeshCollider3D / TriangleMeshCollider3D
+            "RegionAssetHandle", // StreamingVolumeComponent
+            "BehaviorTreeAsset", // BehaviorTreeComponent (note: no "Handle" suffix)
+            "StateMachineAsset", // StateMachineComponent (note: no "Handle" suffix)
         };
 
         const auto scenes = EnumerateFilesByExtension(projectRoot / "Assets" / "Scenes", ".olo");
@@ -1002,44 +1080,55 @@ namespace OloEngine::Tests
         // Recursive walker — for each map node, inspect its keys and
         // descend.
         std::function<void(const YAML::Node&, const std::string&, const std::string&)> walk =
-            [&](const YAML::Node& n, const std::string& path, const std::string& currentKey) {
-                if (n.IsScalar())
+            [&](const YAML::Node& n, const std::string& path, const std::string& currentKey)
+        {
+            if (n.IsScalar())
+            {
+                if (!handleFieldNames.contains(currentKey))
+                    return;
+                u64 handle = 0;
+                try
                 {
-                    if (!handleFieldNames.contains(currentKey)) return;
-                    u64 handle = 0;
-                    try { handle = n.as<u64>(); } catch (...) { return; }
-                    if (handle == 0) return; // unset
-                    ++handlesChecked;
-                    if (!registry.Exists(static_cast<AssetHandle>(handle)))
-                    {
-                        failures.push_back({
-                            path,
-                            currentKey + " = " + std::to_string(handle) +
-                                " is not in AssetRegistry.oar — the editor "
-                                "would resolve to a missing asset.",
-                        });
-                    }
+                    handle = n.as<u64>();
                 }
-                else if (n.IsSequence())
+                catch (...)
                 {
-                    for (sizet i = 0; i < n.size(); ++i)
-                        walk(n[i], path, currentKey);
+                    return;
                 }
-                else if (n.IsMap())
+                if (handle == 0)
+                    return; // unset
+                ++handlesChecked;
+                if (!registry.Exists(static_cast<AssetHandle>(handle)))
                 {
-                    for (auto it = n.begin(); it != n.end(); ++it)
-                    {
-                        const std::string key = it->first.as<std::string>("?");
-                        walk(it->second, path, key);
-                    }
+                    failures.push_back({
+                        path,
+                        currentKey + " = " + std::to_string(handle) +
+                            " is not in AssetRegistry.oar — the editor "
+                            "would resolve to a missing asset.",
+                    });
                 }
-            };
+            }
+            else if (n.IsSequence())
+            {
+                for (sizet i = 0; i < n.size(); ++i)
+                    walk(n[i], path, currentKey);
+            }
+            else if (n.IsMap())
+            {
+                for (auto it = n.begin(); it != n.end(); ++it)
+                {
+                    const std::string key = it->first.as<std::string>("?");
+                    walk(it->second, path, key);
+                }
+            }
+        };
 
         for (const auto& path : scenes)
         {
             std::string reason;
             auto node = ParseYAMLFile(path, reason);
-            if (!node) continue;
+            if (!node)
+                continue;
             walk(*node, path.generic_string(), "");
         }
 
@@ -1048,7 +1137,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " unregistered scene asset handle(s):\n";
             for (const auto& f : failures)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
         // No EXPECT_GT here: scenes may legitimately use zero non-zero
@@ -1086,17 +1176,21 @@ namespace OloEngine::Tests
         std::error_code ec;
         for (auto& entry : fs::recursive_directory_iterator(cacheRoot, ec))
         {
-            if (ec) break;
-            if (!entry.is_regular_file()) continue;
+            if (ec)
+                break;
+            if (!entry.is_regular_file())
+                continue;
 
             // Strip everything from `.cached_` onwards to recover the
             // source filename. Matches all backend / stage variants
             // (`cached_opengl.frag`, `cached_vulkan.pgr`, `cached_opengl.comp`).
             const std::string filename = entry.path().filename().generic_string();
             const auto cachedPos = filename.find(".cached_");
-            if (cachedPos == std::string::npos) continue; // not a cache entry
+            if (cachedPos == std::string::npos)
+                continue; // not a cache entry
             const std::string sourceName = filename.substr(0, cachedPos);
-            if (sourceName.empty()) continue;
+            if (sourceName.empty())
+                continue;
 
             // Engine-internal shaders (convention: leading double
             // underscore) are constructed procedurally by
@@ -1112,11 +1206,14 @@ namespace OloEngine::Tests
             bool found = false;
             for (auto& candidate : fs::recursive_directory_iterator(shaderRoot, ec))
             {
-                if (ec) break;
-                if (!candidate.is_regular_file()) continue;
+                if (ec)
+                    break;
+                if (!candidate.is_regular_file())
+                    continue;
                 if (candidate.path().filename().generic_string() == sourceName)
                 {
-                    found = true; break;
+                    found = true;
+                    break;
                 }
             }
             if (!found)
@@ -1124,7 +1221,7 @@ namespace OloEngine::Tests
                 orphans.push_back({
                     entry.path().generic_string(),
                     "cache file references '" + sourceName +
-                    "' but no matching source under " + shaderRoot.generic_string(),
+                        "' but no matching source under " + shaderRoot.generic_string(),
                 });
             }
         }
@@ -1134,7 +1231,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << orphans.size() << " orphan shader cache entries:\n";
             for (const auto& f : orphans)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             oss << "\nTo clean: delete each orphan cache file. The engine will "
                 << "regenerate any it actually needs on next launch.\n";
             FAIL() << oss.str();
@@ -1163,7 +1261,12 @@ namespace OloEngine::Tests
         // Known cache kinds and the regex each file under them must match.
         // Adding a new cache kind without an entry here intentionally fails
         // this test.
-        struct KnownCacheKind { std::string Subdir; std::regex Pattern; std::string Description; };
+        struct KnownCacheKind
+        {
+            std::string Subdir;
+            std::regex Pattern;
+            std::string Description;
+        };
         const KnownCacheKind known[] = {
             // Both authored shaders (`<Name>.glsl.cached_*`) and engine-internal
             // procedurally-constructed shaders (`__Foo.cached_*`, e.g.
@@ -1184,11 +1287,17 @@ namespace OloEngine::Tests
         std::error_code ec;
         for (auto& entry : fs::recursive_directory_iterator(cacheRoot, ec))
         {
-            if (ec) break;
-            if (!entry.is_regular_file()) continue;
+            if (ec)
+                break;
+            if (!entry.is_regular_file())
+                continue;
 
             const fs::path relToCache = fs::relative(entry.path(), cacheRoot, ec);
-            if (ec) { ec.clear(); continue; }
+            if (ec)
+            {
+                ec.clear();
+                continue;
+            }
 
             // First component identifies the kind (e.g. "shader" in "shader/opengl/Foo.glsl.cached_opengl.frag").
             const fs::path firstComponent = *relToCache.begin();
@@ -1196,13 +1305,14 @@ namespace OloEngine::Tests
             const std::string filename = entry.path().filename().generic_string();
 
             auto it = std::find_if(std::begin(known), std::end(known),
-                [&](const KnownCacheKind& k){ return k.Subdir == kindName; });
+                                   [&](const KnownCacheKind& k)
+                                   { return k.Subdir == kindName; });
             if (it == std::end(known))
             {
                 unclassified.push_back({
                     entry.path().generic_string(),
                     "cache subdirectory '" + kindName +
-                    "' has no entry in the known-cache whitelist (extend AllCacheFilesMatchKnownPattern).",
+                        "' has no entry in the known-cache whitelist (extend AllCacheFilesMatchKnownPattern).",
                 });
                 continue;
             }
@@ -1211,7 +1321,7 @@ namespace OloEngine::Tests
                 unclassified.push_back({
                     entry.path().generic_string(),
                     "file does not match expected pattern for '" + kindName +
-                    "' cache (" + it->Description + ").",
+                        "' cache (" + it->Description + ").",
                 });
             }
         }
@@ -1221,7 +1331,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << unclassified.size() << " unclassified cache file(s):\n";
             for (const auto& f : unclassified)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             oss << "\nTo fix: either delete the offending file (if stray), or "
                 << "extend the whitelist in AssetContentValidityTest.cpp"
                 << " with a regex covering the new cache kind.\n";
@@ -1257,12 +1368,20 @@ namespace OloEngine::Tests
         std::error_code ec;
         for (auto& entry : fs::recursive_directory_iterator(shaderRoot, ec))
         {
-            if (ec) break;
-            if (!entry.is_regular_file()) continue;
-            if (entry.path().extension() != ".glsl") continue;
+            if (ec)
+                break;
+            if (!entry.is_regular_file())
+                continue;
+            if (entry.path().extension() != ".glsl")
+                continue;
             const std::string rel = fs::relative(entry.path(), shaderRoot, ec).generic_string();
-            if (ec) { ec.clear(); continue; }
-            if (rel.starts_with("include/") || rel.starts_with("tests/")) continue;
+            if (ec)
+            {
+                ec.clear();
+                continue;
+            }
+            if (rel.starts_with("include/") || rel.starts_with("tests/"))
+                continue;
             sources.push_back(entry.path());
         }
         ASSERT_GE(sources.size(), 1u) << "Enumerated zero production shaders.";
@@ -1278,16 +1397,20 @@ namespace OloEngine::Tests
         aggregateSource.reserve(8 * 1024 * 1024);
         for (const auto& root : scanRoots)
         {
-            if (!fs::exists(root, ec)) continue;
+            if (!fs::exists(root, ec))
+                continue;
             for (auto& entry : fs::recursive_directory_iterator(root, ec))
             {
-                if (ec) break;
-                if (!entry.is_regular_file()) continue;
+                if (ec)
+                    break;
+                if (!entry.is_regular_file())
+                    continue;
                 const std::string ext = entry.path().extension().generic_string();
                 if (ext != ".cpp" && ext != ".h" && ext != ".hpp" && ext != ".inl")
                     continue;
                 std::ifstream in(entry.path(), std::ios::binary);
-                if (!in) continue;
+                if (!in)
+                    continue;
                 std::ostringstream ss;
                 ss << in.rdbuf();
                 aggregateSource += ss.str();
@@ -1316,7 +1439,7 @@ namespace OloEngine::Tests
             unreferenced.push_back({
                 src.generic_string(),
                 "neither '" + filename + "' nor '" + stem + "' appears anywhere "
-                "under OloEngine/src or OloEditor/src — shader is orphan content.",
+                                                            "under OloEngine/src or OloEditor/src — shader is orphan content.",
             });
         }
 
@@ -1325,7 +1448,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << unreferenced.size() << " orphan shader(s):\n";
             for (const auto& f : unreferenced)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             oss << "\nTypical cause: a feature was reimplemented and the old "
                 << "shader file wasn't deleted alongside its load-call. Fix by "
                 << "deleting the orphan .glsl source (and its `.cached_*` "
@@ -1369,9 +1493,11 @@ namespace OloEngine::Tests
         for (const char* key : pathFields)
         {
             const YAML::Node n = project[key];
-            if (!n || !n.IsScalar()) continue;
+            if (!n || !n.IsScalar())
+                continue;
             const std::string value = n.as<std::string>();
-            if (value.empty()) continue;
+            if (value.empty())
+                continue;
 
             // Heuristics for absolute paths:
             //   - POSIX absolute: starts with '/'.
@@ -1398,7 +1524,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " absolute path(s) in Sandbox.oloproj:\n";
             for (const auto& f : failures)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
     }
@@ -1469,29 +1596,36 @@ namespace OloEngine::Tests
         {
             std::string reason;
             auto node = ParseYAMLFile(scenePath, reason);
-            if (!node) continue;
+            if (!node)
+                continue;
             const YAML::Node entities = (*node)["Entities"];
-            if (!entities || !entities.IsSequence()) continue;
+            if (!entities || !entities.IsSequence())
+                continue;
 
             for (sizet i = 0; i < entities.size(); ++i)
             {
                 const YAML::Node ent = entities[i];
-                if (!ent.IsMap()) continue;
+                if (!ent.IsMap())
+                    continue;
                 const YAML::Node sc = ent["ScriptComponent"];
-                if (!sc || !sc.IsMap()) continue;
+                if (!sc || !sc.IsMap())
+                    continue;
                 const YAML::Node fields = sc["ScriptFields"];
-                if (!fields || !fields.IsSequence() || fields.size() == 0) continue;
+                if (!fields || !fields.IsSequence() || fields.size() == 0)
+                    continue;
 
                 // Resolve the .cs file by class name.
                 std::string fullName = sc["ClassName"] ? sc["ClassName"].as<std::string>() : "";
-                if (fullName.empty()) continue;
+                if (fullName.empty())
+                    continue;
                 const auto dot = fullName.rfind('.');
                 const std::string className = (dot == std::string::npos)
                                                   ? fullName
                                                   : fullName.substr(dot + 1);
                 const fs::path csFile = sourceDir / (className + ".cs");
                 std::error_code ec;
-                if (!fs::exists(csFile, ec)) continue;
+                if (!fs::exists(csFile, ec))
+                    continue;
 
                 std::ifstream sf(csFile, std::ios::binary);
                 std::ostringstream buf;
@@ -1501,11 +1635,14 @@ namespace OloEngine::Tests
                 for (sizet j = 0; j < fields.size(); ++j)
                 {
                     const YAML::Node field = fields[j];
-                    if (!field.IsMap()) continue;
+                    if (!field.IsMap())
+                        continue;
                     const YAML::Node nameNode = field["Name"];
-                    if (!nameNode || !nameNode.IsScalar()) continue;
+                    if (!nameNode || !nameNode.IsScalar())
+                        continue;
                     const std::string fieldName = nameNode.as<std::string>();
-                    if (fieldName.empty()) continue;
+                    if (fieldName.empty())
+                        continue;
 
                     // Match `public <Type> <FieldName> [=;]` — Type is
                     // any single identifier (we don't enforce it).
@@ -1520,7 +1657,7 @@ namespace OloEngine::Tests
                                 "].ScriptComponent.ScriptFields[" + std::to_string(j) +
                                 "].Name = '" + fieldName + "' but " + csFile.filename().generic_string() +
                                 " has no `public <Type> " + fieldName + "` declaration — "
-                                "scene override will be silently dropped.",
+                                                                        "scene override will be silently dropped.",
                         });
                         continue;
                     }
@@ -1530,28 +1667,29 @@ namespace OloEngine::Tests
                     // declares the matching C# type. Catches "renamed
                     // the type on C# side, scene YAML still says old."
                     const YAML::Node typeNode = field["Type"];
-                    if (!typeNode || !typeNode.IsScalar()) continue;
+                    if (!typeNode || !typeNode.IsScalar())
+                        continue;
                     const std::string yamlType = typeNode.as<std::string>();
 
                     // Map: YAML ScriptFieldType ↔ C# type token. Mirrors
                     // ScriptEngine.h's ScriptFieldType enum.
                     static const std::unordered_map<std::string, std::vector<std::string>> kTypeMap = {
-                        { "Float",   { "float" } },
-                        { "Double",  { "double" } },
-                        { "Bool",    { "bool" } },
-                        { "Char",    { "char" } },
-                        { "Byte",    { "byte" } },
-                        { "Short",   { "short" } },
-                        { "Int",     { "int" } },
-                        { "Long",    { "long" } },
-                        { "UByte",   { "byte" } },   // unsigned byte aliased as `byte` in C#
-                        { "UShort",  { "ushort" } },
-                        { "UInt",    { "uint" } },
-                        { "ULong",   { "ulong" } },
+                        { "Float", { "float" } },
+                        { "Double", { "double" } },
+                        { "Bool", { "bool" } },
+                        { "Char", { "char" } },
+                        { "Byte", { "byte" } },
+                        { "Short", { "short" } },
+                        { "Int", { "int" } },
+                        { "Long", { "long" } },
+                        { "UByte", { "byte" } }, // unsigned byte aliased as `byte` in C#
+                        { "UShort", { "ushort" } },
+                        { "UInt", { "uint" } },
+                        { "ULong", { "ulong" } },
                         { "Vector2", { "Vector2" } },
                         { "Vector3", { "Vector3" } },
                         { "Vector4", { "Vector4" } },
-                        { "Entity",  { "Entity" } },
+                        { "Entity", { "Entity" } },
                     };
 
                     auto it = kTypeMap.find(yamlType);
@@ -1566,7 +1704,8 @@ namespace OloEngine::Tests
                         };
                         if (std::regex_search(csSource, typedPat))
                         {
-                            typeMatches = true; break;
+                            typeMatches = true;
+                            break;
                         }
                     }
                     if (!typeMatches)
@@ -1591,7 +1730,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " ScriptField name mismatch(es):\n";
             for (const auto& f : failures)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
     }
@@ -1657,7 +1797,8 @@ namespace OloEngine::Tests
         bool PathResolvesUnderAnyRoot(const std::string& value,
                                       const std::vector<fs::path>& candidateRoots)
         {
-            if (value.empty()) return true; // unset — fine
+            if (value.empty())
+                return true; // unset — fine
             std::error_code ec;
             // Absolute path: check directly.
             const fs::path raw{ value };
@@ -1671,7 +1812,7 @@ namespace OloEngine::Tests
             }
             return false;
         }
-    }
+    } // namespace
 
     TEST(AssetContentValidity, AllSandboxScenePathReferencesResolve)
     {
@@ -1681,27 +1822,31 @@ namespace OloEngine::Tests
         const fs::path repoRoot = editorRoot.parent_path();
 
         const std::vector<fs::path> candidateRoots = {
-            assetsRoot,    // Project::GetAssetDirectory() convention
-            editorRoot,    // OloEditor working-dir convention (`assets/...`)
-            projectRoot,   // Project::GetProjectDirectory() convention
-            repoRoot,      // `../../assets/...` repo-root convention
+            assetsRoot,  // Project::GetAssetDirectory() convention
+            editorRoot,  // OloEditor working-dir convention (`assets/...`)
+            projectRoot, // Project::GetProjectDirectory() convention
+            repoRoot,    // `../../assets/...` repo-root convention
         };
 
         // Known path-bearing field name set (substring match — any key
         // ending in Path / Filepath / File / ScriptFile counts).
-        auto isPathField = [](const std::string& key) {
+        auto isPathField = [](const std::string& key)
+        {
             return key.ends_with("Path") || key == "Filepath" ||
                    key == "FilePath" || key == "ScriptFile";
         };
 
         std::vector<Failure> failures;
         std::function<void(const YAML::Node&, const std::string&, const std::string&)> walk;
-        walk = [&](const YAML::Node& n, const std::string& path, const std::string& currentKey) {
+        walk = [&](const YAML::Node& n, const std::string& path, const std::string& currentKey)
+        {
             if (n.IsScalar())
             {
-                if (!isPathField(currentKey)) return;
+                if (!isPathField(currentKey))
+                    return;
                 const std::string value = n.as<std::string>();
-                if (value.empty()) return;
+                if (value.empty())
+                    return;
                 // Cubemap folder references (Skybox folder) are
                 // directories; the check works equally for dirs.
                 if (!PathResolvesUnderAnyRoot(value, candidateRoots))
@@ -1709,8 +1854,8 @@ namespace OloEngine::Tests
                     failures.push_back({
                         path,
                         currentKey + " = '" + value + "' does not resolve under any "
-                        "candidate root (Project Assets/, OloEditor/, repo root). "
-                        "The runtime asset loader would silently fail to find it.",
+                                                      "candidate root (Project Assets/, OloEditor/, repo root). "
+                                                      "The runtime asset loader would silently fail to find it.",
                     });
                 }
             }
@@ -1734,7 +1879,8 @@ namespace OloEngine::Tests
         {
             std::string reason;
             auto node = ParseYAMLFile(scenePath, reason);
-            if (!node) continue;
+            if (!node)
+                continue;
             walk(*node, scenePath.generic_string(), "");
         }
 
@@ -1743,7 +1889,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " scene path reference(s) don't resolve:\n";
             for (const auto& f : failures)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
     }
@@ -1813,7 +1960,8 @@ namespace OloEngine::Tests
         {
             std::string reason;
             auto node = ParseYAMLFile(path, reason);
-            if (!node) continue;
+            if (!node)
+                continue;
             WalkYAMLForBackslashes(*node, path.generic_string(), "", failures);
         }
 
@@ -1822,7 +1970,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " scene scalar(s) contain Windows backslashes:\n";
             for (const auto& f : failures)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
     }
@@ -1838,11 +1987,15 @@ namespace OloEngine::Tests
     TEST(AssetContentValidity, AllSandboxAssetYAMLPathsUseForwardSlashes)
     {
         const fs::path assetsRoot = SandboxAssetsRoot();
-        struct AssetTypeRoot { const char* Subdir; const char* Extension; };
+        struct AssetTypeRoot
+        {
+            const char* Subdir;
+            const char* Extension;
+        };
         const std::array<AssetTypeRoot, 4> roots = { {
-            { "Items",        ".oloitem" },
-            { "Quests",       ".oloquest" },
-            { "Dialogues",    ".olodialogue" },
+            { "Items", ".oloitem" },
+            { "Quests", ".oloquest" },
+            { "Dialogues", ".olodialogue" },
             { "ShaderGraphs", ".olosg" },
         } };
 
@@ -1856,7 +2009,8 @@ namespace OloEngine::Tests
             {
                 std::string reason;
                 auto node = ParseYAMLFile(path, reason);
-                if (!node) continue;
+                if (!node)
+                    continue;
                 WalkYAMLForBackslashes(*node, path.generic_string(), "", failures);
             }
         }
@@ -1866,7 +2020,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " asset scalar(s) contain Windows backslashes:\n";
             for (const auto& f : failures)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
 

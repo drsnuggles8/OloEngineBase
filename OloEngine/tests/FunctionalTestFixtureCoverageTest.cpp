@@ -92,9 +92,12 @@ namespace OloEngine::Tests
         std::error_code ec;
         for (auto& entry : fs::recursive_directory_iterator(functionalRoot, ec))
         {
-            if (ec) break;
-            if (!entry.is_regular_file()) continue;
-            if (entry.path().extension() != ".cpp") continue;
+            if (ec)
+                break;
+            if (!entry.is_regular_file())
+                continue;
+            if (entry.path().extension() != ".cpp")
+                continue;
 
             std::ifstream f(entry.path(), std::ios::binary);
             std::ostringstream buf;

@@ -195,7 +195,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " shader binding(s) do not match the C++ ShaderBindingLayout:\n";
             for (const auto& f : failures)
-                oss << "----\n" << f.ShaderPath << ":\n  " << f.Detail << "\n";
+                oss << "----\n"
+                    << f.ShaderPath << ":\n  " << f.Detail << "\n";
             FAIL() << oss.str();
         }
     }

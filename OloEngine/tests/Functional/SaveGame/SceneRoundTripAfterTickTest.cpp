@@ -38,8 +38,8 @@ namespace
         glm::vec3 Translation{};
         glm::vec3 Rotation{};
         glm::vec3 Scale{};
-        bool      HasCamera = false;
-        bool      HasSprite = false;
+        bool HasCamera = false;
+        bool HasSprite = false;
     };
 
     std::unordered_map<std::string, EntitySnapshot> SnapshotByTag(Scene& scene)
@@ -53,10 +53,10 @@ namespace
             EntitySnapshot snap;
             const auto& t = entity.GetComponent<TransformComponent>();
             snap.Translation = t.Translation;
-            snap.Rotation    = t.GetRotationEuler();
-            snap.Scale       = t.Scale;
-            snap.HasCamera   = entity.HasComponent<CameraComponent>();
-            snap.HasSprite   = entity.HasComponent<SpriteRendererComponent>();
+            snap.Rotation = t.GetRotationEuler();
+            snap.Scale = t.Scale;
+            snap.HasCamera = entity.HasComponent<CameraComponent>();
+            snap.HasSprite = entity.HasComponent<SpriteRendererComponent>();
             out.emplace(tag, snap);
         }
         return out;
@@ -91,7 +91,7 @@ class SceneRoundTripAfterTickTest : public FunctionalTest
 
         auto prop = GetScene().CreateEntity("Prop");
         prop.GetComponent<TransformComponent>().Translation = { -4.0f, 0.0f, 7.0f };
-        prop.GetComponent<TransformComponent>().Scale       = { 2.0f, 2.0f, 2.0f };
+        prop.GetComponent<TransformComponent>().Scale = { 2.0f, 2.0f, 2.0f };
     }
 };
 

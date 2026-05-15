@@ -87,7 +87,7 @@ TEST_F(CharacterControllerJumpsTest, JumpRisesThenFallsBackUnderGravity)
     EXPECT_GT(yMidJump, yGrounded + 0.3f)
         << "character did not rise after Jump(); y went from " << yGrounded << " to "
         << yMidJump << " — Jolt's CharacterVirtual didn't consume m_JumpRequested or "
-           "ApplyGravityAndJump's grounded-jump branch is broken.";
+                       "ApplyGravityAndJump's grounded-jump branch is broken.";
 
     // Tick longer — character should fall back down under gravity.
     TickFor(/*seconds=*/2.0f);
@@ -100,5 +100,5 @@ TEST_F(CharacterControllerJumpsTest, JumpRisesThenFallsBackUnderGravity)
     EXPECT_NEAR(yFinal, yGrounded, 0.3f)
         << "after the full jump arc, character ended at y=" << yFinal
         << " (baseline " << yGrounded << ") — either gravity didn't bring them down "
-           "or the floor isn't catching them on landing.";
+                                         "or the floor isn't catching them on landing.";
 }

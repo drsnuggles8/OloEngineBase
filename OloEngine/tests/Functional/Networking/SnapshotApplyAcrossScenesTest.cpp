@@ -86,7 +86,7 @@ TEST_F(SnapshotApplyAcrossScenesTest, ServerSnapshotMirrorsToClientSceneAndScene
         writer.ArIsNetArchive = true;
         ComponentReplicator::Serialize(writer, serverCopy);
         ASSERT_FALSE(writer.IsError()) << "server-side snapshot write failed";
-        ASSERT_GT(snapshot.size(), 0u)  << "snapshot payload is empty";
+        ASSERT_GT(snapshot.size(), 0u) << "snapshot payload is empty";
     }
 
     // Phase 3: build a client scene. Distinct Scene instance, distinct entity,
@@ -123,7 +123,8 @@ TEST_F(SnapshotApplyAcrossScenesTest, ServerSnapshotMirrorsToClientSceneAndScene
     TickFor(/*seconds=*/0.5f); // server (harness scene) ticks via the harness
     {
         const f32 dt = 1.0f / 60.0f;
-        for (u32 i = 0; i < 30; ++i) clientScene->OnUpdateRuntime(dt);
+        for (u32 i = 0; i < 30; ++i)
+            clientScene->OnUpdateRuntime(dt);
     }
 
     const f32 serverYAfter = m_ServerBody.GetComponent<TransformComponent>().Translation.y;

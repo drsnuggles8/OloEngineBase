@@ -94,7 +94,8 @@ TEST_F(InventoryAutoPickupOnProximityTest, NearbyAutoPickupIsConsumedIntoInvento
         const auto& inv = m_Picker.GetComponent<InventoryComponent>().PlayerInventory;
         EXPECT_EQ(inv.CountItem("test_potion"), 1)
             << "InventorySystem did not auto-pick up the nearby ItemPickup; "
-               "inventory count for test_potion is " << inv.CountItem("test_potion");
+               "inventory count for test_potion is "
+            << inv.CountItem("test_potion");
     }
 
     // Pickup entity is destroyed. (Scene::DestroyEntity is called by the

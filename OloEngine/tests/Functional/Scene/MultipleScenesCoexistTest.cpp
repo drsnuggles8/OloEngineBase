@@ -67,7 +67,7 @@ class MultipleScenesCoexistTest : public FunctionalTest
     void BuildScene() override
     {
         // Scene A: harness-owned. Sphere starts at y=5 directly above origin.
-        m_FloorA  = MakeFloor(GetScene());
+        m_FloorA = MakeFloor(GetScene());
         m_SphereA = MakeFallingSphere(GetScene(), { 0.0f, 5.0f, 0.0f });
         EnablePhysics3D();
     }
@@ -82,7 +82,7 @@ TEST_F(MultipleScenesCoexistTest, BothScenesTickAndLandIndependently)
     Ref<Scene> sceneB = Scene::Create();
     sceneB->SetRenderingEnabled(false);
 
-    Entity floorB  = MakeFloor(*sceneB);
+    Entity floorB = MakeFloor(*sceneB);
     // Different starting position so a coordinate leak between scenes would
     // be visible (sphere B should not see floor A or vice versa).
     Entity sphereB = MakeFallingSphere(*sceneB, { 10.0f, 7.0f, 0.0f });
@@ -116,7 +116,7 @@ TEST_F(MultipleScenesCoexistTest, BothScenesTickAndLandIndependently)
 
     // Spheres started at different x and should keep their x — proves bodies
     // didn't get cross-wired between the two JoltScenes.
-    EXPECT_NEAR(xA, 0.0f, 0.5f)  << "Scene A sphere drifted from origin; x=" << xA;
+    EXPECT_NEAR(xA, 0.0f, 0.5f) << "Scene A sphere drifted from origin; x=" << xA;
     EXPECT_NEAR(xB, 10.0f, 0.5f) << "Scene B sphere drifted from x=10; x=" << xB;
 
     // Clean up scene B before the test exits, otherwise the global Jolt

@@ -79,7 +79,8 @@ class StateMachineTransitionsViaSceneTickTest : public FunctionalTest
         FSMTransition t;
         t.FromState = "Idle";
         t.ToState = "Chase";
-        t.Condition = [](Entity, const BTBlackboard& bb) {
+        t.Condition = [](Entity, const BTBlackboard& bb)
+        {
             return bb.Get<bool>("seen_enemy", false);
         };
         fsm->AddTransition(t);

@@ -57,11 +57,14 @@ namespace OloEngine::Tests
         {
             std::vector<fs::path> out;
             std::error_code ec;
-            if (!fs::exists(root, ec)) return out;
+            if (!fs::exists(root, ec))
+                return out;
             for (auto& entry : fs::recursive_directory_iterator(root, ec))
             {
-                if (ec) break;
-                if (!entry.is_regular_file()) continue;
+                if (ec)
+                    break;
+                if (!entry.is_regular_file())
+                    continue;
                 if (entry.path().extension() == extension)
                     out.push_back(entry.path());
             }
@@ -77,7 +80,14 @@ namespace OloEngine::Tests
 
         // PNG magic: 89 50 4E 47 0D 0A 1A 0A
         constexpr std::array<u8, 8> kPngMagic{
-            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0x89,
+            0x50,
+            0x4E,
+            0x47,
+            0x0D,
+            0x0A,
+            0x1A,
+            0x0A,
         };
 
         // WAV: 'R' 'I' 'F' 'F' <4 size bytes> 'W' 'A' 'V' 'E'
@@ -120,12 +130,13 @@ namespace OloEngine::Tests
                 for (u8 b : header)
                 {
                     hex << std::hex << std::uppercase;
-                    if (b < 0x10) hex << '0';
+                    if (b < 0x10)
+                        hex << '0';
                     hex << static_cast<u32>(b) << ' ';
                 }
                 failures.push_back({ path.generic_string(),
                                      "PNG magic bytes mismatch — got: " + hex.str() +
-                                     "(expected 89 50 4E 47 0D 0A 1A 0A)" });
+                                         "(expected 89 50 4E 47 0D 0A 1A 0A)" });
             }
         }
 
@@ -136,7 +147,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " .png file(s) failed magic-byte check:\n";
             for (const auto& f : failures)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
     }
@@ -186,7 +198,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " .wav file(s) failed RIFF/WAVE prefix check:\n";
             for (const auto& f : failures)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
     }

@@ -83,6 +83,7 @@ TEST_F(SceneStepAdvancesOneFrameTest, StepAdvancesExactlyTheRequestedFrameCountT
 
     EXPECT_NEAR(yAfterMorePausedTicks, yAtPauseRestore, 1e-3f)
         << "scene continued to advance after Step's budget should have been consumed; "
-           "y went from " << yAtPauseRestore << " to " << yAfterMorePausedTicks
-           << " — Step did not re-pause once m_StepFrames hit zero.";
+           "y went from "
+        << yAtPauseRestore << " to " << yAfterMorePausedTicks
+        << " — Step did not re-pause once m_StepFrames hit zero.";
 }

@@ -45,13 +45,13 @@ class DamageKillsEntityAndFlipsDeathTagTest : public FunctionalTest
         m_Player = GetScene().CreateEntity("Player");
         auto& playerAC = m_Player.AddComponent<AbilityComponent>();
         playerAC.InitializeDefaultRPGAttributes(/*maxHealth=*/100.0f, /*maxMana=*/50.0f,
-                                                 /*attackPower=*/20.0f, /*defense=*/5.0f);
+                                                /*attackPower=*/20.0f, /*defense=*/5.0f);
         playerAC.OwnedTags.AddTag(m_AliveTag);
 
         m_Goblin = GetScene().CreateEntity("Goblin");
         auto& goblinAC = m_Goblin.AddComponent<AbilityComponent>();
         goblinAC.InitializeDefaultRPGAttributes(/*maxHealth=*/50.0f, /*maxMana=*/0.0f,
-                                                 /*attackPower=*/8.0f, /*defense=*/0.0f);
+                                                /*attackPower=*/8.0f, /*defense=*/0.0f);
         goblinAC.OwnedTags.AddTag(m_AliveTag);
     }
 

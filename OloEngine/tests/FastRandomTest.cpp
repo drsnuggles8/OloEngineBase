@@ -74,10 +74,10 @@ TEST(FastRandomTest, SameSeedProducesIdenticalSequenceAcrossAllGenerators)
             ASSERT_EQ(v1, v2) << "divergence at draw " << i << " — RNG state is not seed-deterministic";
         }
     };
-    compareStream(FastRandomLCG(42),      FastRandomLCG(42),      100);
-    compareStream(FastRandomPCG(42),      FastRandomPCG(42),      100);
+    compareStream(FastRandomLCG(42), FastRandomLCG(42), 100);
+    compareStream(FastRandomPCG(42), FastRandomPCG(42), 100);
     compareStream(FastRandomSplitMix(42), FastRandomSplitMix(42), 100);
-    compareStream(FastRandomXoshiro(42),  FastRandomXoshiro(42),  100);
+    compareStream(FastRandomXoshiro(42), FastRandomXoshiro(42), 100);
 }
 
 // Pinned PCG output vector — gap §7.6 from docs/testing.md.
@@ -92,14 +92,21 @@ TEST(FastRandomTest, PCGSeed42ProducesPinnedOutputVector)
 {
     FastRandomPCG rng(42);
     std::array<u32, 8> stream{};
-    for (auto& v : stream) v = rng.GetUInt32();
+    for (auto& v : stream)
+        v = rng.GetUInt32();
 
     // Captured 2026-05-11 from FastRandomPCG(42).GetUInt32() on MSVC x64.
     // If this fires after a deliberate algorithm change, replace this
     // block with the new observed stream and note the change here.
     static constexpr std::array<u32, 8> kExpected{
-        0x3805E708u, 0x3728F332u, 0x52B39A59u, 0x31481EAAu,
-        0x5EBFBD7Au, 0xA84AC172u, 0x2233EDE4u, 0x1AFD7B9Bu,
+        0x3805E708u,
+        0x3728F332u,
+        0x52B39A59u,
+        0x31481EAAu,
+        0x5EBFBD7Au,
+        0xA84AC172u,
+        0x2233EDE4u,
+        0x1AFD7B9Bu,
     };
 
     // We intentionally don't pin LCG / SplitMix / Xoshiro values here —
@@ -124,8 +131,8 @@ TEST(FastRandomTest, EveryGetXInRangeRespectsTheRequestedBounds)
     constexpr int kDraws = 200;
     for (int i = 0; i < kDraws; ++i)
     {
-        const i8  i8v  = rng.GetInt8InRange (-50, 50);
-        const u8  u8v  = rng.GetUInt8InRange(0, 200);
+        const i8 i8v = rng.GetInt8InRange(-50, 50);
+        const u8 u8v = rng.GetUInt8InRange(0, 200);
         const i16 i16v = rng.GetInt16InRange(-1000, 1000);
         const u16 u16v = rng.GetUInt16InRange(0, 50000);
         const i32 i32v = rng.GetInt32InRange(-1'000'000, 1'000'000);
@@ -135,16 +142,22 @@ TEST(FastRandomTest, EveryGetXInRangeRespectsTheRequestedBounds)
         const f32 f32v = rng.GetFloat32InRange(-1.0f, 1.0f);
         const f64 f64v = rng.GetFloat64InRange(0.0, 100.0);
 
-        EXPECT_GE(i8v, -50); EXPECT_LE(i8v, 50);
+        EXPECT_GE(i8v, -50);
+        EXPECT_LE(i8v, 50);
         EXPECT_LE(u8v, 200);
-        EXPECT_GE(i16v, -1000); EXPECT_LE(i16v, 1000);
+        EXPECT_GE(i16v, -1000);
+        EXPECT_LE(i16v, 1000);
         EXPECT_LE(u16v, 50000);
-        EXPECT_GE(i32v, -1'000'000); EXPECT_LE(i32v, 1'000'000);
+        EXPECT_GE(i32v, -1'000'000);
+        EXPECT_LE(i32v, 1'000'000);
         EXPECT_LE(u32v, 5'000'000u);
-        EXPECT_GE(i64v, -1'000'000'000'000LL); EXPECT_LE(i64v, 1'000'000'000'000LL);
+        EXPECT_GE(i64v, -1'000'000'000'000LL);
+        EXPECT_LE(i64v, 1'000'000'000'000LL);
         EXPECT_LE(u64v, 5'000'000'000'000ULL);
-        EXPECT_GE(f32v, -1.0f); EXPECT_LE(f32v, 1.0f);
-        EXPECT_GE(f64v, 0.0);   EXPECT_LE(f64v, 100.0);
+        EXPECT_GE(f32v, -1.0f);
+        EXPECT_LE(f32v, 1.0f);
+        EXPECT_GE(f64v, 0.0);
+        EXPECT_LE(f64v, 100.0);
     }
 }
 
@@ -207,9 +220,12 @@ TEST(FastRandomTest, RandomUtilsDispatchesToGlobalRNG)
         const f32 f = RandomUtils::Float32();
         const f32 r = RandomUtils::Float32(0.0f, 100.0f);
         const i32 n = RandomUtils::Int32(-100, 100);
-        EXPECT_GE(f, 0.0f); EXPECT_LT(f, 1.0f);
-        EXPECT_GE(r, 0.0f); EXPECT_LE(r, 100.0f);
-        EXPECT_GE(n, -100); EXPECT_LE(n, 100);
+        EXPECT_GE(f, 0.0f);
+        EXPECT_LT(f, 1.0f);
+        EXPECT_GE(r, 0.0f);
+        EXPECT_LE(r, 100.0f);
+        EXPECT_GE(n, -100);
+        EXPECT_LE(n, 100);
         (void)RandomUtils::Bool();
     }
 }

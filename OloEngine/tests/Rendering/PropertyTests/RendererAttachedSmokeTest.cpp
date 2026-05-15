@@ -44,7 +44,9 @@ namespace OloEngine::Tests
     class EmptyScene : public RendererAttachedTest
     {
       protected:
-        void BuildScene() override { /* deliberately empty */ }
+        void BuildScene() override
+        { /* deliberately empty */
+        }
     };
 
     TEST_F(EmptyScene, RendererInitAndTickDoNotCrash)

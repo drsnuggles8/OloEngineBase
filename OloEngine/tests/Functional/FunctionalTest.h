@@ -129,13 +129,28 @@ namespace OloEngine::Functional
 
         // ------------------------- Accessors ---------------------------------
 
-        [[nodiscard]] Scene& GetScene() { return *m_Scene; }
-        [[nodiscard]] const Scene& GetScene() const { return *m_Scene; }
+        [[nodiscard]] Scene& GetScene()
+        {
+            return *m_Scene;
+        }
+        [[nodiscard]] const Scene& GetScene() const
+        {
+            return *m_Scene;
+        }
         /// Non-owning Ref to the harness's Scene, for APIs that need the
         /// Ref<> form (e.g. `SceneSerializer(const Ref<Scene>&)`).
-        [[nodiscard]] Ref<Scene> GetSceneRef() const { return m_Scene; }
-        [[nodiscard]] f32 ElapsedSimulatedSeconds() const noexcept { return m_ElapsedSimulated; }
-        [[nodiscard]] FastRandomPCG& Rng() noexcept { return m_Rng; }
+        [[nodiscard]] Ref<Scene> GetSceneRef() const
+        {
+            return m_Scene;
+        }
+        [[nodiscard]] f32 ElapsedSimulatedSeconds() const noexcept
+        {
+            return m_ElapsedSimulated;
+        }
+        [[nodiscard]] FastRandomPCG& Rng() noexcept
+        {
+            return m_Rng;
+        }
 
       private:
         Ref<Scene> m_Scene;

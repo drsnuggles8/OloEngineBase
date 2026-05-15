@@ -66,7 +66,7 @@ namespace
 class AnimationGraphMultipleEntitiesAdvanceIndependentlyTest : public FunctionalTest
 {
   protected:
-    static constexpr const char* kFirstStateName  = "FirstIdle";
+    static constexpr const char* kFirstStateName = "FirstIdle";
     static constexpr const char* kSecondStateName = "SecondIdle";
 
     void BuildScene() override
@@ -90,22 +90,22 @@ class AnimationGraphMultipleEntitiesAdvanceIndependentlyTest : public Functional
 
 TEST_F(AnimationGraphMultipleEntitiesAdvanceIndependentlyTest, EachEntityKeepsItsOwnStateMachineState)
 {
-    auto& firstGc  = m_First .GetComponent<AnimationGraphComponent>();
+    auto& firstGc = m_First.GetComponent<AnimationGraphComponent>();
     auto& secondGc = m_Second.GetComponent<AnimationGraphComponent>();
     ASSERT_NE(firstGc.RuntimeGraph.Raw(), secondGc.RuntimeGraph.Raw())
         << "the two entities ended up sharing the same RuntimeGraph instance — "
            "test setup is broken or AddComponent copied through a Ref-sharing path.";
-    ASSERT_FALSE(firstGc .RuntimeGraph->Layers[0].StateMachine->HasStarted());
+    ASSERT_FALSE(firstGc.RuntimeGraph->Layers[0].StateMachine->HasStarted());
     ASSERT_FALSE(secondGc.RuntimeGraph->Layers[0].StateMachine->HasStarted());
 
     RunFrames(2);
 
-    auto* firstSM  = firstGc .RuntimeGraph->Layers[0].StateMachine.Raw();
+    auto* firstSM = firstGc.RuntimeGraph->Layers[0].StateMachine.Raw();
     auto* secondSM = secondGc.RuntimeGraph->Layers[0].StateMachine.Raw();
 
-    EXPECT_TRUE(firstSM ->HasStarted());
+    EXPECT_TRUE(firstSM->HasStarted());
     EXPECT_TRUE(secondSM->HasStarted());
-    EXPECT_EQ(firstSM ->GetCurrentStateName(), std::string(kFirstStateName))
+    EXPECT_EQ(firstSM->GetCurrentStateName(), std::string(kFirstStateName))
         << "first entity's state machine doesn't report its own default state — "
            "AnimationGraphSystem may be writing one entity's parameters into "
            "another's RuntimeGraph (parameter swap-in/swap-out crossed wires).";

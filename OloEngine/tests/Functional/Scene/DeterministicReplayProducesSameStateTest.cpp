@@ -70,7 +70,7 @@ namespace
         scene->OnPhysics3DStop();
         return result;
     }
-}
+} // namespace
 
 class DeterministicReplayProducesSameStateTest : public FunctionalTest
 {

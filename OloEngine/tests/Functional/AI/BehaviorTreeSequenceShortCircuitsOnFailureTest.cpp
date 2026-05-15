@@ -40,8 +40,8 @@ using namespace OloEngine::Functional;
 class BehaviorTreeSequenceShortCircuitsOnFailureTest : public FunctionalTest
 {
   protected:
-    static constexpr const char* kFirstKey  = "ran_first";
-    static constexpr const char* kThirdKey  = "ran_third";
+    static constexpr const char* kFirstKey = "ran_first";
+    static constexpr const char* kThirdKey = "ran_third";
     static constexpr const char* kMissingKey = "this_key_is_absent";
 
     void BuildScene() override

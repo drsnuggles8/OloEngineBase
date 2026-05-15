@@ -47,7 +47,8 @@ TEST(ContainerSmoke, TSparseArrayAddAndIterate)
     arr.Add(30);
     EXPECT_EQ(arr.Num(), 3);
     i32 sum = 0;
-    for (auto it = arr.CreateIterator(); it; ++it) sum += *it;
+    for (auto it = arr.CreateIterator(); it; ++it)
+        sum += *it;
     EXPECT_EQ(sum, 60);
 }
 

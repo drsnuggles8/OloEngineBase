@@ -209,8 +209,8 @@ namespace OloEngine::Tests
 
         // Distinctive non-default values so the round-trip catches
         // either-side asymmetry.
-        constexpr bool expectedEnableAutoSave = false;     // default true → false
-        constexpr int expectedAutoSaveInterval = 73;       // default 300 → 73
+        constexpr bool expectedEnableAutoSave = false; // default true → false
+        constexpr int expectedAutoSaveInterval = 73;   // default 300 → 73
         const std::string expectedName = "ExtendedRoundTrip";
 
         {

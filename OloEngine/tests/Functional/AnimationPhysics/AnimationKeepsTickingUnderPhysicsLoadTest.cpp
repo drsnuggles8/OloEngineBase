@@ -58,12 +58,12 @@ namespace
 
         BoneAnimation boneAnim;
         boneAnim.BoneName = "Child";
-        boneAnim.PositionKeys.push_back({ 0.0,                        glm::vec3(0.0f, 0.0f, 0.0f) });
+        boneAnim.PositionKeys.push_back({ 0.0, glm::vec3(0.0f, 0.0f, 0.0f) });
         boneAnim.PositionKeys.push_back({ static_cast<f64>(duration), glm::vec3(0.0f, 0.5f, 0.0f) });
-        boneAnim.RotationKeys.push_back({ 0.0,                        glm::quat(1.0f, 0.0f, 0.0f, 0.0f) });
+        boneAnim.RotationKeys.push_back({ 0.0, glm::quat(1.0f, 0.0f, 0.0f, 0.0f) });
         boneAnim.RotationKeys.push_back({ static_cast<f64>(duration), glm::quat(1.0f, 0.0f, 0.0f, 0.0f) });
-        boneAnim.ScaleKeys.push_back   ({ 0.0,                        glm::vec3(1.0f) });
-        boneAnim.ScaleKeys.push_back   ({ static_cast<f64>(duration), glm::vec3(1.0f) });
+        boneAnim.ScaleKeys.push_back({ 0.0, glm::vec3(1.0f) });
+        boneAnim.ScaleKeys.push_back({ static_cast<f64>(duration), glm::vec3(1.0f) });
         clip->BoneAnimations.push_back(boneAnim);
         clip->InitializeBoneCache();
         return clip;
@@ -73,10 +73,10 @@ namespace
 class AnimationKeepsTickingUnderPhysicsLoadTest : public FunctionalTest
 {
   protected:
-    static constexpr u32 kBodyCount  = 8;
-    static constexpr f32 kRadius     = 0.4f;
+    static constexpr u32 kBodyCount = 8;
+    static constexpr f32 kRadius = 0.4f;
     static constexpr f32 kSimSeconds = 4.0f;
-    static constexpr f32 kClipLen    = 1.0f;
+    static constexpr f32 kClipLen = 1.0f;
 
     void BuildScene() override
     {

@@ -50,7 +50,10 @@ namespace OloEngine::Tests
 
         // Repo root: OLO_TEST_EDITOR_ROOT points at OloEditor/; the
         // parent is the repo root.
-        fs::path RepoRoot() { return fs::path{ OLO_TEST_EDITOR_ROOT }.parent_path(); }
+        fs::path RepoRoot()
+        {
+            return fs::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
+        }
 
         // Probe a Python interpreter. Tries `python`, `python3`, then
         // `py -3` (the Windows launcher). Returns the working invocation
@@ -107,14 +110,19 @@ namespace OloEngine::Tests
         std::error_code ec;
         for (auto& entry : fs::directory_iterator(scriptsDir, ec))
         {
-            if (ec) break;
+            if (ec)
+                break;
             if (entry.is_regular_file() && entry.path().extension() == ".py")
                 scripts.push_back(entry.path());
         }
         ASSERT_FALSE(scripts.empty()) << "No .py files in " << scriptsDir.string();
         std::sort(scripts.begin(), scripts.end());
 
-        struct Failure { std::string Path; int ExitCode; };
+        struct Failure
+        {
+            std::string Path;
+            int ExitCode;
+        };
         std::vector<Failure> failures;
 
         for (const auto& path : scripts)
@@ -139,7 +147,8 @@ namespace OloEngine::Tests
             oss << failures.size() << " Python script(s) failed py_compile:\n";
             for (const auto& f : failures)
             {
-                oss << "----\n" << f.Path << "\n"
+                oss << "----\n"
+                    << f.Path << "\n"
                     << "    py_compile exit code: " << f.ExitCode << "\n"
                     << "    re-run manually: " << python
                     << " -m py_compile " << f.Path << "\n";

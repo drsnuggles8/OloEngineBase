@@ -60,11 +60,21 @@ namespace OloEngine::Tests
             std::string base;
             switch (v.BaseType)
             {
-                case spirv_cross::SPIRType::Float:   base = "float"; break;
-                case spirv_cross::SPIRType::Int:     base = "int";   break;
-                case spirv_cross::SPIRType::UInt:    base = "uint";  break;
-                case spirv_cross::SPIRType::Boolean: base = "bool";  break;
-                default:                             base = "?";     break;
+                case spirv_cross::SPIRType::Float:
+                    base = "float";
+                    break;
+                case spirv_cross::SPIRType::Int:
+                    base = "int";
+                    break;
+                case spirv_cross::SPIRType::UInt:
+                    base = "uint";
+                    break;
+                case spirv_cross::SPIRType::Boolean:
+                    base = "bool";
+                    break;
+                default:
+                    base = "?";
+                    break;
             }
             if (v.Columns > 1)
             {
@@ -208,7 +218,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " vertex/fragment interface mismatch(es):\n";
             for (const auto& f : failures)
-                oss << "----\n" << f.ShaderPath << ":\n  " << f.Detail << "\n";
+                oss << "----\n"
+                    << f.ShaderPath << ":\n  " << f.Detail << "\n";
             FAIL() << oss.str();
         }
     }

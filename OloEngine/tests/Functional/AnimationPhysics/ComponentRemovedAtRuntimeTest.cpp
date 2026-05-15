@@ -102,5 +102,5 @@ TEST_F(ComponentRemovedAtRuntimeTest, RemovingRigidbodyReleasesJoltBodyAndStopsT
     EXPECT_NEAR(endPos.y, freezePos.y, 1e-4f)
         << "transform continued to update after Rigidbody3D was removed — the "
            "stale Jolt body is still being synced into the entity. y went from "
-           << freezePos.y << " to " << endPos.y;
+        << freezePos.y << " to " << endPos.y;
 }

@@ -71,7 +71,8 @@ TEST_F(NetworkIdentitySurvivesSaveLoadTest, AuthorityOwnerAndReplicatedFlagRound
     restored->SetRenderingEnabled(false);
     ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*restored, payload));
 
-    auto verify = [&](Entity src, ENetworkAuthority expectedAuth, u32 expectedOwner, bool expectedReplicated) {
+    auto verify = [&](Entity src, ENetworkAuthority expectedAuth, u32 expectedOwner, bool expectedReplicated)
+    {
         Entity restoredEntity = restored->FindEntityByName(src.GetComponent<TagComponent>().Tag);
         ASSERT_TRUE(restoredEntity)
             << "entity '" << src.GetComponent<TagComponent>().Tag << "' missing from restored scene";
@@ -85,5 +86,5 @@ TEST_F(NetworkIdentitySurvivesSaveLoadTest, AuthorityOwnerAndReplicatedFlagRound
 
     verify(m_ServerActor, ENetworkAuthority::Server, 0u, true);
     verify(m_ClientActor, ENetworkAuthority::Client, 42u, true);
-    verify(m_LocalProp,   ENetworkAuthority::Server, 0u, false);
+    verify(m_LocalProp, ENetworkAuthority::Server, 0u, false);
 }

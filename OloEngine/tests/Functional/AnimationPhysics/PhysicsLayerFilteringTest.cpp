@@ -43,14 +43,14 @@ class PhysicsLayerFilteringTest : public FunctionalTest
         PhysicsLayerManager::ClearLayers();
 
         m_GroundLayer = PhysicsLayerManager::AddLayer("Functional_Ground", /*setCollisions=*/false);
-        m_AlphaLayer  = PhysicsLayerManager::AddLayer("Functional_Alpha",  /*setCollisions=*/false);
-        m_BetaLayer   = PhysicsLayerManager::AddLayer("Functional_Beta",   /*setCollisions=*/false);
+        m_AlphaLayer = PhysicsLayerManager::AddLayer("Functional_Alpha", /*setCollisions=*/false);
+        m_BetaLayer = PhysicsLayerManager::AddLayer("Functional_Beta", /*setCollisions=*/false);
 
         // Collision matrix: Alpha and Beta both collide with Ground, but
         // explicitly *not* with each other.
         PhysicsLayerManager::SetLayerCollision(m_AlphaLayer, m_GroundLayer, true);
-        PhysicsLayerManager::SetLayerCollision(m_BetaLayer,  m_GroundLayer, true);
-        PhysicsLayerManager::SetLayerCollision(m_AlphaLayer, m_BetaLayer,   false);
+        PhysicsLayerManager::SetLayerCollision(m_BetaLayer, m_GroundLayer, true);
+        PhysicsLayerManager::SetLayerCollision(m_AlphaLayer, m_BetaLayer, false);
 
         // Floor on Ground layer.
         auto floor = GetScene().CreateEntity("Floor");
@@ -96,22 +96,22 @@ class PhysicsLayerFilteringTest : public FunctionalTest
     Entity m_AlphaSphere;
     Entity m_BetaSphere;
     u32 m_GroundLayer = INVALID_LAYER_ID;
-    u32 m_AlphaLayer  = INVALID_LAYER_ID;
-    u32 m_BetaLayer   = INVALID_LAYER_ID;
+    u32 m_AlphaLayer = INVALID_LAYER_ID;
+    u32 m_BetaLayer = INVALID_LAYER_ID;
 };
 
 TEST_F(PhysicsLayerFilteringTest, AlphaPassesThroughBetaAndBothLandOnGround)
 {
     // Sanity: layers were configured the way we asked.
     ASSERT_TRUE(PhysicsLayerManager::ShouldCollide(m_AlphaLayer, m_GroundLayer));
-    ASSERT_TRUE(PhysicsLayerManager::ShouldCollide(m_BetaLayer,  m_GroundLayer));
+    ASSERT_TRUE(PhysicsLayerManager::ShouldCollide(m_BetaLayer, m_GroundLayer));
     ASSERT_FALSE(PhysicsLayerManager::ShouldCollide(m_AlphaLayer, m_BetaLayer))
         << "collision matrix didn't actually disable Alpha↔Beta collision";
 
     TickFor(/*seconds=*/3.0f);
 
     const f32 alphaY = m_AlphaSphere.GetComponent<TransformComponent>().Translation.y;
-    const f32 betaY  = m_BetaSphere.GetComponent<TransformComponent>().Translation.y;
+    const f32 betaY = m_BetaSphere.GetComponent<TransformComponent>().Translation.y;
 
     ASSERT_TRUE(std::isfinite(alphaY) && std::isfinite(betaY))
         << "transform contains NaN/Inf";

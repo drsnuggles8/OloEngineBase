@@ -37,7 +37,10 @@ namespace OloEngine::Tests
     namespace
     {
         namespace fs = std::filesystem;
-        fs::path RepoRoot() { return fs::path{ OLO_TEST_EDITOR_ROOT }.parent_path(); }
+        fs::path RepoRoot()
+        {
+            return fs::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
+        }
 
         std::string ReadFile(const fs::path& path)
         {
@@ -80,18 +83,19 @@ namespace OloEngine::Tests
         // Each entry needs the rationale documented inline so the
         // exclusion list doesn't quietly grow into a dumping ground.
         const std::set<std::string> kRuntimeOnly = {
-            "IDComponent",            // Entity UUID; serialised as the top-level `Entity: <uuid>` line, not as a sub-map under the entity.
-            "DialogueStateComponent", // Active dialogue progression (current node, text-reveal progress); recomputed at runtime.
-            "InstancePortalComponent",// Networking runtime — assigned by the instance / portal manager, not authored in scenes.
-            "NetworkLODComponent",    // Networking-derived LOD level; set by the interest manager per tick.
-            "PhaseComponent",         // Animation phase runtime state; recomputed each tick.
-            "UIResolvedRectComponent",// Layout-resolved UI rect; computed each tick by the UI system.
+            "IDComponent",             // Entity UUID; serialised as the top-level `Entity: <uuid>` line, not as a sub-map under the entity.
+            "DialogueStateComponent",  // Active dialogue progression (current node, text-reveal progress); recomputed at runtime.
+            "InstancePortalComponent", // Networking runtime — assigned by the instance / portal manager, not authored in scenes.
+            "NetworkLODComponent",     // Networking-derived LOD level; set by the interest manager per tick.
+            "PhaseComponent",          // Animation phase runtime state; recomputed each tick.
+            "UIResolvedRectComponent", // Layout-resolved UI rect; computed each tick by the UI system.
         };
 
         std::vector<std::string> missing;
         for (const auto& name : declared)
         {
-            if (kRuntimeOnly.contains(name)) continue;
+            if (kRuntimeOnly.contains(name))
+                continue;
             // The serializer references each component by its quoted
             // type-name string on the emit side AND the deserialize side.
             const std::string token = '"' + name + '"';
@@ -167,7 +171,8 @@ namespace OloEngine::Tests
         for (const auto& path : componentHeaderRoots)
         {
             std::error_code ec;
-            if (!fs::exists(path, ec)) continue; // header path may have moved; tolerate
+            if (!fs::exists(path, ec))
+                continue; // header path may have moved; tolerate
             const std::string src = ReadFile(path);
             for (auto it = std::sregex_iterator(src.begin(), src.end(), structPat);
                  it != std::sregex_iterator(); ++it)

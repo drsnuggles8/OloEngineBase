@@ -58,7 +58,7 @@ namespace OloEngine::Functional::Fixtures
         f32 duration,
         std::string boneName = "Root",
         glm::vec3 fromPos = glm::vec3(0.0f),
-        glm::vec3 toPos   = glm::vec3(0.0f, 0.5f, 0.0f))
+        glm::vec3 toPos = glm::vec3(0.0f, 0.5f, 0.0f))
     {
         auto clip = Ref<AnimationClip>::Create();
         clip->Name = "Functional_TranslationClip";
@@ -66,12 +66,12 @@ namespace OloEngine::Functional::Fixtures
 
         BoneAnimation boneAnim;
         boneAnim.BoneName = std::move(boneName);
-        boneAnim.PositionKeys.push_back({ 0.0,                        fromPos });
-        boneAnim.PositionKeys.push_back({ static_cast<f64>(duration), toPos   });
-        boneAnim.RotationKeys.push_back({ 0.0,                        glm::quat(1.0f, 0.0f, 0.0f, 0.0f) });
+        boneAnim.PositionKeys.push_back({ 0.0, fromPos });
+        boneAnim.PositionKeys.push_back({ static_cast<f64>(duration), toPos });
+        boneAnim.RotationKeys.push_back({ 0.0, glm::quat(1.0f, 0.0f, 0.0f, 0.0f) });
         boneAnim.RotationKeys.push_back({ static_cast<f64>(duration), glm::quat(1.0f, 0.0f, 0.0f, 0.0f) });
-        boneAnim.ScaleKeys.push_back   ({ 0.0,                        glm::vec3(1.0f) });
-        boneAnim.ScaleKeys.push_back   ({ static_cast<f64>(duration), glm::vec3(1.0f) });
+        boneAnim.ScaleKeys.push_back({ 0.0, glm::vec3(1.0f) });
+        boneAnim.ScaleKeys.push_back({ static_cast<f64>(duration), glm::vec3(1.0f) });
         clip->BoneAnimations.push_back(std::move(boneAnim));
         clip->InitializeBoneCache();
         return clip;

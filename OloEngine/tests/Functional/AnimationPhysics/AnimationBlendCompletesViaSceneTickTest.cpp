@@ -46,13 +46,13 @@ class AnimationBlendCompletesViaSceneTickTest : public FunctionalTest
 
         auto& animState = m_Animated.AddComponent<AnimationStateComponent>();
         animState.m_CurrentClip = m_ClipA;
-        animState.m_NextClip    = m_ClipB;
-        animState.m_IsPlaying   = true;
-        animState.m_Blending    = true;
+        animState.m_NextClip = m_ClipB;
+        animState.m_IsPlaying = true;
+        animState.m_Blending = true;
         animState.m_BlendDuration = kBlendDuration;
-        animState.m_BlendTime   = 0.0f;
+        animState.m_BlendTime = 0.0f;
         animState.m_CurrentTime = 0.0f;
-        animState.m_NextTime    = 0.0f;
+        animState.m_NextTime = 0.0f;
     }
 
     static constexpr f32 kBlendDuration = 0.3f;

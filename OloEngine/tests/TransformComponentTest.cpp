@@ -199,9 +199,7 @@ TEST(MathDecompose, TRSMatrixRoundTripsThroughDecompose)
     const glm::vec3 expectedScale(2.0f, 3.0f, 1.5f);
 
     const glm::mat4 transform =
-          glm::translate(glm::mat4(1.0f), expectedTranslation)
-        * glm::toMat4(glm::quat(expectedRotation))
-        * glm::scale(glm::mat4(1.0f), expectedScale);
+        glm::translate(glm::mat4(1.0f), expectedTranslation) * glm::toMat4(glm::quat(expectedRotation)) * glm::scale(glm::mat4(1.0f), expectedScale);
 
     glm::vec3 translation, rotation, scale;
     ASSERT_TRUE(OloEngine::Math::DecomposeTransform(transform, translation, rotation, scale));
@@ -210,14 +208,14 @@ TEST(MathDecompose, TRSMatrixRoundTripsThroughDecompose)
     for (u32 i = 0; i < 3; ++i)
     {
         EXPECT_NEAR(translation[i], expectedTranslation[i], kEps);
-        EXPECT_NEAR(scale[i],       expectedScale[i],       kEps);
+        EXPECT_NEAR(scale[i], expectedScale[i], kEps);
     }
 
     // Euler decomposition isn't unique -- different platforms may return
     // equivalent angles via a different quadrant. Compare rotation
     // matrices instead.
     const glm::mat4 expectedRot = glm::toMat4(glm::quat(expectedRotation));
-    const glm::mat4 actualRot   = glm::toMat4(glm::quat(rotation));
+    const glm::mat4 actualRot = glm::toMat4(glm::quat(rotation));
     for (u32 col = 0; col < 3; ++col)
     {
         for (u32 row = 0; row < 3; ++row)

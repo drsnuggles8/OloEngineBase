@@ -54,7 +54,8 @@ namespace OloEngine::Tests
                 return out;
             for (auto& entry : fs::recursive_directory_iterator(dir, ec))
             {
-                if (ec) break;
+                if (ec)
+                    break;
                 if (!entry.is_regular_file())
                     continue;
                 if (entry.path().extension() == ".cs")
@@ -99,12 +100,10 @@ namespace OloEngine::Tests
             };
             if (!std::regex_search(source, pattern))
             {
-                failures.push_back({
-                    path.generic_string(),
-                    "no `class " + expectedClass + "` declaration found — "
-                    "file name does not match the contained class. "
-                    "Scenes binding via ScriptComponent.ClassName will silently no-op."
-                });
+                failures.push_back({ path.generic_string(),
+                                     "no `class " + expectedClass + "` declaration found — "
+                                                                    "file name does not match the contained class. "
+                                                                    "Scenes binding via ScriptComponent.ClassName will silently no-op." });
             }
         }
 
@@ -113,7 +112,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " C# file(s) declare no class matching their filename:\n";
             for (const auto& f : failures)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
     }
@@ -141,7 +141,8 @@ namespace OloEngine::Tests
         // Detect Entity-derived classes (those bindable via
         // ScriptComponent). A non-Entity helper is excluded from the
         // orphan check.
-        auto isEntityDerived = [](const std::string& source) -> bool {
+        auto isEntityDerived = [](const std::string& source) -> bool
+        {
             // Match `class <Anything> : Entity` (with optional access
             // modifier, possibly across `: Entity, ISomething`).
             static const std::regex pat{
@@ -157,26 +158,40 @@ namespace OloEngine::Tests
         std::error_code ec;
         for (auto& entry : fs::recursive_directory_iterator(assetsRoot / "Scenes", ec))
         {
-            if (ec) break;
-            if (!entry.is_regular_file()) continue;
-            if (entry.path().extension() != ".olo") continue;
+            if (ec)
+                break;
+            if (!entry.is_regular_file())
+                continue;
+            if (entry.path().extension() != ".olo")
+                continue;
 
             YAML::Node sceneNode;
-            try { sceneNode = YAML::LoadFile(entry.path().generic_string()); }
-            catch (...) { continue; }
+            try
+            {
+                sceneNode = YAML::LoadFile(entry.path().generic_string());
+            }
+            catch (...)
+            {
+                continue;
+            }
 
             const YAML::Node entities = sceneNode["Entities"];
-            if (!entities || !entities.IsSequence()) continue;
+            if (!entities || !entities.IsSequence())
+                continue;
             for (sizet i = 0; i < entities.size(); ++i)
             {
                 const YAML::Node ent = entities[i];
-                if (!ent.IsMap()) continue;
+                if (!ent.IsMap())
+                    continue;
                 const YAML::Node sc = ent["ScriptComponent"];
-                if (!sc || !sc.IsMap()) continue;
+                if (!sc || !sc.IsMap())
+                    continue;
                 const YAML::Node cn = sc["ClassName"];
-                if (!cn || !cn.IsScalar()) continue;
+                if (!cn || !cn.IsScalar())
+                    continue;
                 std::string fullName = cn.as<std::string>();
-                if (fullName.empty()) continue;
+                if (fullName.empty())
+                    continue;
                 const auto dot = fullName.rfind('.');
                 std::string className = (dot == std::string::npos)
                                             ? fullName
@@ -201,8 +216,8 @@ namespace OloEngine::Tests
                 orphans.push_back({
                     path.generic_string(),
                     "Entity-derived class '" + className +
-                    "' is not referenced by any scene's ScriptComponent.ClassName — "
-                    "the compiled class is dead code.",
+                        "' is not referenced by any scene's ScriptComponent.ClassName — "
+                        "the compiled class is dead code.",
                 });
             }
         }
@@ -212,7 +227,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << orphans.size() << " orphan Entity-derived C# script(s):\n";
             for (const auto& f : orphans)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
     }
@@ -258,12 +274,10 @@ namespace OloEngine::Tests
             const std::string token = '"' + path.filename().generic_string() + '"';
             if (cmakeContent.find(token) == std::string::npos)
             {
-                missing.push_back({
-                    path.generic_string(),
-                    "no `\"" + path.filename().generic_string() +
-                    "\"` entry found in CMakeLists.txt — Sandbox-Scripting.dll "
-                    "will not contain the class declared in this file."
-                });
+                missing.push_back({ path.generic_string(),
+                                    "no `\"" + path.filename().generic_string() +
+                                        "\"` entry found in CMakeLists.txt — Sandbox-Scripting.dll "
+                                        "will not contain the class declared in this file." });
             }
         }
 
@@ -272,7 +286,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << missing.size() << " C# file(s) missing from CMakeLists.txt SOURCES:\n";
             for (const auto& f : missing)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
     }
@@ -323,7 +338,8 @@ namespace OloEngine::Tests
             bool referenced = false;
             for (const auto& [otherPath, otherSource] : sources)
             {
-                if (otherPath == path) continue;
+                if (otherPath == path)
+                    continue;
                 if (std::regex_search(otherSource, usagePat))
                 {
                     referenced = true;
@@ -335,7 +351,7 @@ namespace OloEngine::Tests
                 orphans.push_back({
                     path.generic_string(),
                     "non-Entity helper class '" + className +
-                    "' is not referenced by any other .cs file — dead code.",
+                        "' is not referenced by any other .cs file — dead code.",
                 });
             }
         }
@@ -345,7 +361,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << orphans.size() << " orphan helper class(es) with no .cs callers:\n";
             for (const auto& f : orphans)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
     }

@@ -40,7 +40,8 @@ TEST(FunctionWithContext, DefaultConstructedIsNullAndExposesNullSlots)
 TEST(FunctionWithContext, LambdaBoundCallableInvokesCaptureBody)
 {
     bool wasCalled = false;
-    auto lambda = [&wasCalled](int a, int b) { wasCalled = (a + b == 12); };
+    auto lambda = [&wasCalled](int a, int b)
+    { wasCalled = (a + b == 12); };
 
     TFunctionWithContext<void(int, int)> func = lambda;
     EXPECT_TRUE(func);
@@ -54,8 +55,10 @@ TEST(FunctionWithContext, LambdaBoundCallableInvokesCaptureBody)
 TEST(FunctionWithContext, ReassignmentReplacesBoundCallable)
 {
     int counter = 0;
-    auto first = [&counter]() { counter = 1; };
-    auto second = [&counter]() { counter = 2; };
+    auto first = [&counter]()
+    { counter = 1; };
+    auto second = [&counter]()
+    { counter = 2; };
 
     TFunctionWithContext<void()> func = first;
     func();
@@ -79,12 +82,13 @@ namespace
     {
         return fn ? fn(ctx, arg) : 0;
     }
-}
+} // namespace
 
 TEST(FunctionWithContext, RoundTripsThroughStatelessInvocationAPI)
 {
     int multiplier = 10;
-    TFunctionWithContext<int(int)> func = [&multiplier](int v) { return v * multiplier; };
+    TFunctionWithContext<int(int)> func = [&multiplier](int v)
+    { return v * multiplier; };
 
     const int result = InvokeStateless(func.GetFunction(), func.GetContext(), 5);
     EXPECT_EQ(result, 50)

@@ -60,7 +60,8 @@ namespace OloEngine::Tests
                 return out;
             for (auto& entry : fs::recursive_directory_iterator(dir, ec))
             {
-                if (ec) break;
+                if (ec)
+                    break;
                 if (!entry.is_regular_file())
                     continue;
                 if (entry.path().extension() == ".lua")
@@ -113,7 +114,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " Lua script(s) failed to parse:\n";
             for (const auto& f : failures)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
 
@@ -171,7 +173,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << failures.size() << " Lua script(s) declare no engine hooks:\n";
             for (const auto& f : failures)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
     }
@@ -207,26 +210,40 @@ namespace OloEngine::Tests
         std::error_code ec;
         for (auto& entry : fs::recursive_directory_iterator(assetsRoot / "Scenes", ec))
         {
-            if (ec) break;
-            if (!entry.is_regular_file()) continue;
-            if (entry.path().extension() != ".olo") continue;
+            if (ec)
+                break;
+            if (!entry.is_regular_file())
+                continue;
+            if (entry.path().extension() != ".olo")
+                continue;
 
             YAML::Node sceneNode;
-            try { sceneNode = YAML::LoadFile(entry.path().generic_string()); }
-            catch (...) { continue; }
+            try
+            {
+                sceneNode = YAML::LoadFile(entry.path().generic_string());
+            }
+            catch (...)
+            {
+                continue;
+            }
 
             const YAML::Node entities = sceneNode["Entities"];
-            if (!entities || !entities.IsSequence()) continue;
+            if (!entities || !entities.IsSequence())
+                continue;
             for (sizet i = 0; i < entities.size(); ++i)
             {
                 const YAML::Node ent = entities[i];
-                if (!ent.IsMap()) continue;
+                if (!ent.IsMap())
+                    continue;
                 const YAML::Node lsc = ent["LuaScriptComponent"];
-                if (!lsc || !lsc.IsMap()) continue;
+                if (!lsc || !lsc.IsMap())
+                    continue;
                 const YAML::Node sf = lsc["ScriptFile"];
-                if (!sf || !sf.IsScalar()) continue;
+                if (!sf || !sf.IsScalar())
+                    continue;
                 std::string scriptFile = sf.as<std::string>();
-                if (scriptFile.empty()) continue;
+                if (scriptFile.empty())
+                    continue;
                 std::replace(scriptFile.begin(), scriptFile.end(), '\\', '/');
                 referencedScripts.insert(std::move(scriptFile));
             }
@@ -252,7 +269,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << orphans.size() << " orphan Lua script(s) with no scene reference:\n";
             for (const auto& f : orphans)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
     }
@@ -285,14 +303,18 @@ namespace OloEngine::Tests
         const auto scripts = EnumerateLuaScripts(scriptsDir);
         ASSERT_FALSE(scripts.empty());
 
-        struct HookSpec { const char* Name; const char* ExpectedArgs; };
+        struct HookSpec
+        {
+            const char* Name;
+            const char* ExpectedArgs;
+        };
         // For each hook, the regex MUST match what's after the hook
         // name's opening paren. `id` for OnCreate/OnDestroy, `id` plus
         // any comma-separated second arg for OnUpdate.
         const std::array<HookSpec, 3> hooks = { {
-            { "OnCreate",  R"(\(\s*[a-zA-Z_]\w*\s*\))" },              // (id)
-            { "OnUpdate",  R"(\(\s*[a-zA-Z_]\w*\s*,\s*[a-zA-Z_]\w*\s*\))" }, // (id, dt)
-            { "OnDestroy", R"(\(\s*[a-zA-Z_]\w*\s*\))" },              // (id)
+            { "OnCreate", R"(\(\s*[a-zA-Z_]\w*\s*\))" },                    // (id)
+            { "OnUpdate", R"(\(\s*[a-zA-Z_]\w*\s*,\s*[a-zA-Z_]\w*\s*\))" }, // (id, dt)
+            { "OnDestroy", R"(\(\s*[a-zA-Z_]\w*\s*\))" },                   // (id)
         } };
 
         std::vector<Failure> wrongSig;
@@ -341,7 +363,8 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << wrongSig.size() << " Lua hook declaration(s) with wrong signature:\n";
             for (const auto& f : wrongSig)
-                oss << "----\n" << f.Path << "\n    " << f.Reason << "\n";
+                oss << "----\n"
+                    << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
     }

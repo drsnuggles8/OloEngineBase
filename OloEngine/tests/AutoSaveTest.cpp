@@ -36,10 +36,7 @@ namespace
         {
             const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
             // Per-test subdir so parallel ctest runs don't fight.
-            m_TempDir = std::filesystem::temp_directory_path()
-                        / "olo_autosave_test"
-                        / (std::string(info ? info->test_suite_name() : "x")
-                            + "_" + std::string(info ? info->name() : "y"));
+            m_TempDir = std::filesystem::temp_directory_path() / "olo_autosave_test" / (std::string(info ? info->test_suite_name() : "x") + "_" + std::string(info ? info->name() : "y"));
             std::error_code ec;
             std::filesystem::remove_all(m_TempDir, ec);
             std::filesystem::create_directories(m_TempDir, ec);
@@ -64,8 +61,7 @@ namespace
         void SetMTime(const std::filesystem::path& path, int offsetSeconds) const
         {
             std::error_code ec;
-            const auto t = std::filesystem::file_time_type::clock::now()
-                         + std::chrono::seconds(offsetSeconds);
+            const auto t = std::filesystem::file_time_type::clock::now() + std::chrono::seconds(offsetSeconds);
             std::filesystem::last_write_time(path, t, ec);
             ASSERT_FALSE(ec)
                 << "last_write_time injection failed for " << path
@@ -73,7 +69,7 @@ namespace
                 << " (the test cannot proceed deterministically on this filesystem).";
         }
     };
-}
+} // namespace
 
 TEST_F(FileSystemIsNewerTest, ReturnsFalseWhenFileADoesNotExist)
 {
@@ -106,7 +102,7 @@ TEST_F(FileSystemIsNewerTest, DetectsNewerFileByInjectedMTime)
     // filesystem resolution sees a difference, deterministic regardless
     // of clock granularity.
     SetMTime(fileOld, -10);
-    SetMTime(fileNew,  10);
+    SetMTime(fileNew, 10);
 
     EXPECT_TRUE(FileSystem::IsNewer(fileNew, fileOld));
     EXPECT_FALSE(FileSystem::IsNewer(fileOld, fileNew));

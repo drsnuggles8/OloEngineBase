@@ -64,8 +64,8 @@ class TwoCharacterControllersCoexistTest : public FunctionalTest
             return e;
         };
 
-        m_Alpha = makeChar("Alpha", { 0.0f, 1.0f,  kStartZ });
-        m_Beta  = makeChar("Beta",  { 0.0f, 1.0f, -kStartZ });
+        m_Alpha = makeChar("Alpha", { 0.0f, 1.0f, kStartZ });
+        m_Beta = makeChar("Beta", { 0.0f, 1.0f, -kStartZ });
 
         EnablePhysics3D();
     }
@@ -80,7 +80,7 @@ TEST_F(TwoCharacterControllersCoexistTest, EachControllerIntegratesItsOwnVelocit
     ASSERT_NE(joltScene, nullptr);
 
     auto alphaCtrl = joltScene->GetCharacterController(m_Alpha);
-    auto betaCtrl  = joltScene->GetCharacterController(m_Beta);
+    auto betaCtrl = joltScene->GetCharacterController(m_Beta);
     ASSERT_TRUE(alphaCtrl)
         << "Alpha got no controller; the iteration over CharacterController3DComponent "
            "entities in OnPhysics3DStart skipped one (likely due to an entt-view bug "
@@ -98,13 +98,13 @@ TEST_F(TwoCharacterControllersCoexistTest, EachControllerIntegratesItsOwnVelocit
     betaCtrl->SetGravityEnabled(false);
     betaCtrl->SetControlMovementInAir(true);
 
-    alphaCtrl->SetLinearVelocity({  1.0f, 0.0f, 0.0f }); // +X 1 m/s
-    betaCtrl ->SetLinearVelocity({ -1.0f, 0.0f, 0.0f }); // -X 1 m/s
+    alphaCtrl->SetLinearVelocity({ 1.0f, 0.0f, 0.0f }); // +X 1 m/s
+    betaCtrl->SetLinearVelocity({ -1.0f, 0.0f, 0.0f }); // -X 1 m/s
 
     TickFor(/*seconds=*/1.0f);
 
     const auto& alphaT = m_Alpha.GetComponent<TransformComponent>().Translation;
-    const auto& betaT  = m_Beta .GetComponent<TransformComponent>().Translation;
+    const auto& betaT = m_Beta.GetComponent<TransformComponent>().Translation;
     EXPECT_TRUE(std::isfinite(alphaT.x) && std::isfinite(betaT.x));
 
     EXPECT_GT(alphaT.x, 0.5f)
@@ -115,10 +115,10 @@ TEST_F(TwoCharacterControllersCoexistTest, EachControllerIntegratesItsOwnVelocit
 
     // Z separation should be preserved — controllers shouldn't bleed into
     // each other's Z component.
-    EXPECT_NEAR(alphaT.z,  kStartZ, 0.3f)
+    EXPECT_NEAR(alphaT.z, kStartZ, 0.3f)
         << "Alpha drifted on Z; cross-character state aliasing leaked Beta's "
            "Z toward Alpha.";
-    EXPECT_NEAR(betaT.z,  -kStartZ, 0.3f)
+    EXPECT_NEAR(betaT.z, -kStartZ, 0.3f)
         << "Beta drifted on Z — same issue mirrored.";
 
     // They must not have ended up at the same spot.

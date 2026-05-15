@@ -58,8 +58,8 @@ namespace
         boneAnim.PositionKeys.push_back({ 2.0, glm::vec3(0.0f, 0.5f, 0.0f) });
         boneAnim.RotationKeys.push_back({ 0.0, glm::quat(1.0f, 0.0f, 0.0f, 0.0f) });
         boneAnim.RotationKeys.push_back({ 2.0, glm::quat(1.0f, 0.0f, 0.0f, 0.0f) });
-        boneAnim.ScaleKeys.push_back   ({ 0.0, glm::vec3(1.0f) });
-        boneAnim.ScaleKeys.push_back   ({ 2.0, glm::vec3(1.0f) });
+        boneAnim.ScaleKeys.push_back({ 0.0, glm::vec3(1.0f) });
+        boneAnim.ScaleKeys.push_back({ 2.0, glm::vec3(1.0f) });
         clip->BoneAnimations.push_back(boneAnim);
         clip->InitializeBoneCache();
         return clip;
@@ -121,12 +121,12 @@ TEST_F(ScenePauseFreezesAllSubsystemsTest, PauseStopsAllTickingSubsystemsResumeR
     // -------- Phase 1: unpaused, both subsystems advance ---------------
     ASSERT_FALSE(GetScene().IsPaused()) << "scene started paused unexpectedly";
 
-    const f32 startY    = BodyY();
+    const f32 startY = BodyY();
     const f32 startAnim = AnimTime();
 
     RunFrames(/*count=*/15); // 0.25s
 
-    const f32 phase1Y    = BodyY();
+    const f32 phase1Y = BodyY();
     const f32 phase1Anim = AnimTime();
 
     ASSERT_LT(phase1Y, startY - 0.05f)
@@ -140,7 +140,7 @@ TEST_F(ScenePauseFreezesAllSubsystemsTest, PauseStopsAllTickingSubsystemsResumeR
 
     RunFrames(/*count=*/30); // 0.5s of "wall time" but no simulated tick
 
-    const f32 phase2Y    = BodyY();
+    const f32 phase2Y = BodyY();
     const f32 phase2Anim = AnimTime();
 
     EXPECT_NEAR(phase2Y, phase1Y, 1e-4f)
@@ -154,7 +154,7 @@ TEST_F(ScenePauseFreezesAllSubsystemsTest, PauseStopsAllTickingSubsystemsResumeR
 
     RunFrames(/*count=*/15); // 0.25s
 
-    const f32 phase3Y    = BodyY();
+    const f32 phase3Y = BodyY();
     const f32 phase3Anim = AnimTime();
 
     EXPECT_LT(phase3Y, phase2Y - 0.05f)
