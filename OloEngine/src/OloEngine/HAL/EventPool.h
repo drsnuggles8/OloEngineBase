@@ -91,6 +91,21 @@ namespace OloEngine
         }
 
         /**
+         * @brief Gets the singleton instance if it has not been torn down
+         * @return Pointer to the event pool singleton, or nullptr if it has
+         *         already been destroyed (e.g. called from another static
+         *         object's destructor running after this singleton's).
+         *
+         * Use from destructors that may run during program exit — calling
+         * Get() after TearDown returns a reference to destroyed memory and
+         * any subsequent member access SEGVs at zero-page.
+         */
+        static TEventPool* TryGet()
+        {
+            return TLazySingleton<TEventPool>::TryGet();
+        }
+
+        /**
          * @brief Tears down the singleton instance
          */
         static void TearDown()

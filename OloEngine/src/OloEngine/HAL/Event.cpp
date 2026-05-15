@@ -88,46 +88,72 @@ namespace OloEngine
 
     FEventRef::~FEventRef()
     {
-        if (m_Event != nullptr)
-        {
+        if (m_Event == nullptr)
+            return;
 
-            // Try to access the vtable to see if the object is valid
-            bool isManualReset = false;
-            try
+        // Try to access the vtable to see if the object is valid
+        bool isManualReset = false;
+        try
+        {
+            isManualReset = m_Event->IsManualReset();
+        }
+        catch (...)
+        {
+            return;
+        }
+
+        // TryGet (not Get) — this destructor is reachable from the static
+        // destruction chain (FScheduler::s_Singleton → m_WorkerEvents.Reset →
+        // ~FWaitEvent → ~FEventRef). The TLazySingleton<TEventPool> may
+        // already have torn itself down in a different translation unit; in
+        // that case Get() dereferences a null Ptr and the subsequent
+        // m_Pool.Push SEGVs at zero-page. Fall back to deleting the event
+        // directly — the pool's own destructor would have done the same.
+        FEvent* event = m_Event;
+        m_Event = nullptr;
+        if (isManualReset)
+        {
+            if (auto* pool = TEventPool<EEventMode::ManualReset>::TryGet())
             {
-                isManualReset = m_Event->IsManualReset();
-            }
-            catch (...)
-            {
+                pool->ReturnToPool(event);
                 return;
             }
-
-            if (isManualReset)
+        }
+        else
+        {
+            if (auto* pool = TEventPool<EEventMode::AutoReset>::TryGet())
             {
-                auto& pool = TEventPool<EEventMode::ManualReset>::Get();
-                pool.ReturnToPool(m_Event);
-            }
-            else
-            {
-                TEventPool<EEventMode::AutoReset>::Get().ReturnToPool(m_Event);
+                pool->ReturnToPool(event);
+                return;
             }
         }
+        delete event;
     }
 
     // FSharedEventRef implementation
     void FSharedEventRef::FEventPoolDeleter::operator()(FEvent* Event) const
     {
-        if (Event != nullptr)
+        if (Event == nullptr)
+            return;
+
+        // See ~FEventRef above for why TryGet is required here.
+        if (Mode == EEventMode::ManualReset)
         {
-            if (Mode == EEventMode::ManualReset)
+            if (auto* pool = TEventPool<EEventMode::ManualReset>::TryGet())
             {
-                TEventPool<EEventMode::ManualReset>::Get().ReturnToPool(Event);
-            }
-            else
-            {
-                TEventPool<EEventMode::AutoReset>::Get().ReturnToPool(Event);
+                pool->ReturnToPool(Event);
+                return;
             }
         }
+        else
+        {
+            if (auto* pool = TEventPool<EEventMode::AutoReset>::TryGet())
+            {
+                pool->ReturnToPool(Event);
+                return;
+            }
+        }
+        delete Event;
     }
 
     FSharedEventRef::FSharedEventRef(EEventMode Mode)

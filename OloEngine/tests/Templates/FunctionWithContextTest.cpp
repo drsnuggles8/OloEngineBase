@@ -87,8 +87,15 @@ namespace
 TEST(FunctionWithContext, RoundTripsThroughStatelessInvocationAPI)
 {
     int multiplier = 10;
-    TFunctionWithContext<int(int)> func = [&multiplier](int v)
+    // The lambda must be a named lvalue: TFunctionWithContext is a
+    // *non-owning* wrapper (see the header comment on the class), so the
+    // captured-lambda's storage has to outlive every call through
+    // GetContext(). Initialising the wrapper from a temporary rvalue
+    // dangles the context pointer to a stack slot that dies at the end of
+    // the full-expression — ASan stack-use-after-scope.
+    auto lambda = [&multiplier](int v)
     { return v * multiplier; };
+    TFunctionWithContext<int(int)> func = lambda;
 
     const int result = InvokeStateless(func.GetFunction(), func.GetContext(), 5);
     EXPECT_EQ(result, 50)
