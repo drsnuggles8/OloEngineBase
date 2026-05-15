@@ -48,6 +48,7 @@ layout(location = 0) out vec4 o_GBufferAlbedo;    // RGBA8
 layout(location = 1) out vec4 o_GBufferNormal;    // RGBA16F
 layout(location = 2) out vec4 o_GBufferEmissive;  // RGBA16F — carries unlit flag in .a
 layout(location = 3) out vec2 o_GBufferVelocity;  // RG16F
+layout(location = 4) out int  o_GBufferEntityID;  // RED_INTEGER — skybox is not pickable
 
 layout(binding = 9) uniform samplerCube u_Skybox;
 
@@ -67,4 +68,5 @@ void main()
     o_GBufferEmissive = vec4(skyColor, 1.0);
     // Skybox is rigidly attached to the camera — no screen-space velocity.
     o_GBufferVelocity = vec2(0.0);
+    o_GBufferEntityID = -1;
 }

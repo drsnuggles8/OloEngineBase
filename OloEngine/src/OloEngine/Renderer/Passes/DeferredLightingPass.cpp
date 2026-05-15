@@ -373,11 +373,47 @@ namespace OloEngine
         auto const& samplingFB = m_GBuffer->GetSamplingFramebuffer();
         if (samplingFB)
         {
+            const u32 samplingFBID = samplingFB->GetRendererID();
             glBlitNamedFramebuffer(
-                samplingFB->GetRendererID(), sceneFBID,
+                samplingFBID, sceneFBID,
                 0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
                 0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
                 GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+
+            // Copy the G-Buffer's per-pixel entity-ID attachment (RT4) into
+            // the scene FB's entity-ID attachment (RT1). The forward path
+            // writes entity IDs directly into Scene FB RT1 during ScenePass;
+            // the deferred path's PBR shaders write into the G-Buffer
+            // instead, so without this blit SelectionOutline (and the
+            // viewport's pixel-picking readback) sees only the cleared
+            // sentinel (-1) and selection never seeds.
+            //
+            // glBlitFramebuffer copies "the currently-selected colour
+            // attachment", which `glNamedFramebufferReadBuffer` /
+            // `glNamedFramebufferDrawBuffer` redirect. Integer attachments
+            // require GL_NEAREST (per the GL 4.6 spec); MSAA → single-
+            // sample resolution takes sample 0, which is correct for
+            // discrete entity IDs.
+            glNamedFramebufferReadBuffer(samplingFBID, GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(GBuffer::EntityID));
+            glNamedFramebufferDrawBuffer(sceneFBID, GL_COLOR_ATTACHMENT1);
+            glBlitNamedFramebuffer(
+                samplingFBID, sceneFBID,
+                0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
+                0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
+                GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+            // Restore the scene FB's draw-buffer set so the following
+            // ForwardOverlayPass write-RT0-RT2 path still sees its intended
+            // targets (it sets its own draw buffers but expects all
+            // attachments to be available on bind).
+            if (sceneColorAttachmentCount > 0)
+            {
+                std::array<GLenum, 16> fullDrawBufs{};
+                const u32 n = std::min<u32>(sceneColorAttachmentCount, static_cast<u32>(fullDrawBufs.size()));
+                for (u32 i = 0; i < n; ++i)
+                    fullDrawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
+                glNamedFramebufferDrawBuffers(sceneFBID, static_cast<GLsizei>(n), fullDrawBufs.data());
+            }
         }
 
         m_SceneFramebuffer->Unbind();

@@ -58,6 +58,7 @@ layout(location = 0) out vec4 o_GBufferAlbedo;
 layout(location = 1) out vec4 o_GBufferNormal;
 layout(location = 2) out vec4 o_GBufferEmissive;
 layout(location = 3) out vec2 o_GBufferVelocity;
+layout(location = 4) out int  o_GBufferEntityID;
 
 const float c_GridScale = 1.0;
 
@@ -123,6 +124,7 @@ void main() {
     o_GBufferNormal   = vec4(0.0);
     o_GBufferEmissive = vec4(emissive, 1.0);
     o_GBufferVelocity = vec2(0.0);
+    o_GBufferEntityID = -1; // grid is not pickable
 
     gl_FragDepth = ComputeDepth(fragPos3D);
 }

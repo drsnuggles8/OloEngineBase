@@ -33,6 +33,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
+#include "OloEngine/Renderer/GBuffer.h"
 #include "OloEngine/Renderer/Passes/ForwardOverlayRenderPass.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
@@ -106,5 +107,27 @@ namespace OloEngine::Tests
         // through OloEditor's Deferred-mode sample scenes.
         ForwardOverlayRenderPass pass;
         SUCCEED();
+    }
+
+    // =========================================================================
+    // G-Buffer entity-ID attachment — regression coverage for the deferred-
+    // path selection-outline gap (logged 2026-05-15). PBR meshes render into
+    // the G-Buffer and never reach SceneColor RT1 in deferred; without a
+    // dedicated entity-ID slot, the JFA Init shader sees only the clear
+    // sentinel (-1) at every pixel and no outline ever appears.
+    // =========================================================================
+
+    TEST(GBufferLayout, EntityIDIsTheFifthAttachment)
+    {
+        // Locking these enum values pins the order PBR_GBuffer.glsl etc.
+        // assume (location = 4 → entity ID). A shader-side mismatch would
+        // either silently discard entity-ID writes (renderer regression) or
+        // overwrite the normal/emissive attachment (visual regression).
+        EXPECT_EQ(static_cast<u32>(GBuffer::Albedo), 0u);
+        EXPECT_EQ(static_cast<u32>(GBuffer::Normal), 1u);
+        EXPECT_EQ(static_cast<u32>(GBuffer::Emissive), 2u);
+        EXPECT_EQ(static_cast<u32>(GBuffer::Velocity), 3u);
+        EXPECT_EQ(static_cast<u32>(GBuffer::EntityID), 4u);
+        EXPECT_EQ(static_cast<u32>(GBuffer::Count), 5u);
     }
 } // namespace OloEngine::Tests

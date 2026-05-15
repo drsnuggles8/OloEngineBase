@@ -67,6 +67,9 @@ namespace OloEngine
             // Inter-pass RMW: read the prior SceneColor version, then
             // advertise a renamed output via WriteNewVersion so the
             // validator does not see a same-pass feedback loop.
+            // `WriteNewVersion` republishes the base attachment views as
+            // versioned siblings; see ForwardOverlayRenderPass for the
+            // rationale.
             SetPrimaryInputFramebufferHandle(blackboard.Scene.SceneColor);
             [[maybe_unused]] const auto sceneColorRead = builder.Read(blackboard.Scene.SceneColor, RGReadUsage::RenderTargetRead);
             constexpr std::string_view particleSceneColorVersionTag = "ParticlePass";

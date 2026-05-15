@@ -150,6 +150,7 @@ layout(location = 0) out vec4 o_GBufferAlbedo;
 layout(location = 1) out vec4 o_GBufferNormal;
 layout(location = 2) out vec4 o_GBufferEmissive;
 layout(location = 3) out vec2 o_GBufferVelocity;
+layout(location = 4) out int  o_GBufferEntityID;
 
 vec2 octEncodeGB(vec3 n)
 {
@@ -189,4 +190,5 @@ void main()
     o_GBufferNormal   = vec4(octEncodeGB(N), roughness, ao);
     o_GBufferEmissive = vec4(emissive, 0.0);
     o_GBufferVelocity = velocity;
+    o_GBufferEntityID = u_EntityID;
 }

@@ -35,7 +35,9 @@ namespace OloEngine
             // Inter-pass RMW: bind the prior SceneColor version as the
             // render target (resolved via GetPrimaryInputFramebufferHandle
             // in Execute) and advertise a renamed output. The SceneColorTexture
-            // sample below provides the prior-version read.
+            // sample below provides the prior-version read. `WriteNewVersion`
+            // republishes the base attachment views as versioned siblings; see
+            // ForwardOverlayRenderPass for the rationale.
             SetPrimaryInputFramebufferHandle(board.Scene.SceneColor);
             constexpr std::string_view waterSceneColorVersionTag = "WaterPass";
             [[maybe_unused]] const auto sceneColorNew =
