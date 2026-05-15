@@ -91,14 +91,22 @@ namespace OloEngine
         if (m_Event == nullptr)
             return;
 
+        // Extract the raw pointer and null the member *before* any code that
+        // can throw, so an exception from IsManualReset() can't leave both
+        // a populated m_Event and an unowned heap allocation. The catch
+        // below uses the saved local to delete the event itself.
+        FEvent* event = m_Event;
+        m_Event = nullptr;
+
         // Try to access the vtable to see if the object is valid
         bool isManualReset = false;
         try
         {
-            isManualReset = m_Event->IsManualReset();
+            isManualReset = event->IsManualReset();
         }
         catch (...)
         {
+            delete event;
             return;
         }
 
@@ -109,8 +117,6 @@ namespace OloEngine
         // that case Get() dereferences a null Ptr and the subsequent
         // m_Pool.Push SEGVs at zero-page. Fall back to deleting the event
         // directly — the pool's own destructor would have done the same.
-        FEvent* event = m_Event;
-        m_Event = nullptr;
         if (isManualReset)
         {
             if (auto* pool = TEventPool<EEventMode::ManualReset>::TryGet())
