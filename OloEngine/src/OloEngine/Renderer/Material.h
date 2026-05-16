@@ -295,7 +295,7 @@ namespace OloEngine
         {
             return m_EnableIBL;
         }
-        void SetEnableIBL(f32 enable)
+        void SetEnableIBL(bool enable)
         {
             m_EnableIBL = enable;
         }

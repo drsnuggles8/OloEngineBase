@@ -77,7 +77,11 @@ namespace OloEngine::Tests
         };
 
         // Read back the GPU pixels of a Texture2D into a CPU buffer and CRC them.
-        // Returns false (and leaves the buffer empty) if readback fails.
+        // Returns false (and leaves the buffer empty) if readback fails — a
+        // zero renderer ID, a zero size, or any GL error during the readback
+        // (out-of-range level, bad format, allocation failure, etc.) flips
+        // the return to false so the caller can skip CRC comparison rather
+        // than diffing a buffer that's full of zeroes or stale junk.
         bool ReadbackTextureToCRC(const Ref<Texture2D>& tex, u32& outCRC, u32& outWidth, u32& outHeight, std::vector<u8>& outRGBA)
         {
             outCRC = 0;
@@ -85,6 +89,10 @@ namespace OloEngine::Tests
             outHeight = 0;
             outRGBA.clear();
             if (!tex)
+                return false;
+
+            const auto rendererID = tex->GetRendererID();
+            if (rendererID == 0)
                 return false;
 
             const auto width = tex->GetWidth();
@@ -96,12 +104,26 @@ namespace OloEngine::Tests
             outHeight = height;
             outRGBA.assign(static_cast<sizet>(width) * height * 4, 0);
 
+            // Drain any lingering GL errors from previous calls so the
+            // post-readback check below only sees errors caused by us.
+            while (::glGetError() != GL_NO_ERROR)
+            {
+            }
+
             // Read back at mip level 0 as RGBA8.
-            ::glGetTextureImage(tex->GetRendererID(),
+            ::glGetTextureImage(rendererID,
                                 /*level*/ 0,
                                 GL_RGBA, GL_UNSIGNED_BYTE,
                                 static_cast<GLsizei>(outRGBA.size()),
                                 outRGBA.data());
+
+            if (const GLenum err = ::glGetError(); err != GL_NO_ERROR)
+            {
+                outRGBA.clear();
+                outWidth = 0;
+                outHeight = 0;
+                return false;
+            }
 
             outCRC = Hash::CRC32(outRGBA.data(), outRGBA.size());
             return true;

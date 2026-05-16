@@ -59,14 +59,20 @@ by the Newport Loft HDR environment + a soft fill directional. Camera at
 
 ### [SponzaDeferred.olo](SponzaDeferred.olo)
 
-**Purpose**: A/B comparison with SponzaCSM on the **Deferred** path. Validates G-Buffer pipeline against the same geometry.
-**Contents**: Same as SponzaCSM minus the IBL dim-down, plus 4 warm/cool accent point lights at floor level.
+**Purpose**: Validate the deferred G-Buffer pipeline on the same Sponza geometry. Pair with SponzaCSM.olo, but expect intentional lighting differences (see below) — this is *not* a pixel-for-pixel A/B.
+**Contents**: Same Sponza geometry as SponzaCSM.olo, with these deliberate scene-level differences:
+- Sun direction `[-0.4, -0.85, -0.3]` (more overhead) vs SponzaCSM's `[-0.55, -0.7, -0.45]` (more side-cast).
+- Sun intensity `6` vs SponzaCSM's `14` — overall scene is noticeably dimmer.
+- Full-strength IBL (SponzaCSM dims IBL to keep the sun dominant).
+- 4 warm/cool accent point lights at floor level (exercise tiled deferred light culling).
 **Pass** — open with renderer set to **Deferred**:
-- Visually equivalent to SponzaCSM (with the 4 accent lights added).
-- Shadows still work through the deferred path.
+- Sponza renders correctly through the deferred path (geometry, materials, normals, AO all visible).
+- Shadow cascades work through deferred (column/arch shadows visible on floor and walls).
+- Sun shadows fall at the steeper angle implied by the more-overhead direction — shorter horizontal shadows than in SponzaCSM.
+- Overall scene is dimmer than SponzaCSM (intensity 6 vs 14) but mid-tones are more visible (IBL not dimmed).
+- 4 accent point lights produce localized warm/cool color pools on the floor.
 - DamagedHelmet emissive parts glow.
-- Toggle Deferred ↔ Forward+ — should be visually identical aside from numerical differences.
-**Fail**: G-Buffer encoding artifacts (banded normals, blocky roughness); missing emissive on the helmet; shadows missing on deferred path while working on forward.
+**Fail**: G-Buffer encoding artifacts (banded normals, blocky roughness); missing emissive on the helmet; shadows missing on deferred path while working on forward; lighting matches SponzaCSM exactly (means the scene file wasn't loaded with its own sun/IBL values); accent point lights missing (deferred light culling regression).
 
 ---
 
