@@ -81,6 +81,7 @@
     "OloEngine/tests/Rendering/ShaderPackTest.cpp": "shaderpipe",
     "OloEngine/tests/Rendering/RenderingRegressionTest.cpp": "integration",
     "OloEngine/tests/Rendering/SelectionOutlineTest.cpp": "integration",
+    "OloEngine/tests/Rendering/DeccerCubesLoadingTest.cpp": "integration",
     "OloEngine/tests/Rendering/WaterRenderingTest.cpp": "integration",
     "OloEngine/tests/ShaderGraph/ShaderGraphCommandTest.cpp": "shaderpipe",
     "OloEngine/tests/ShaderGraph/ShaderGraphCompilerTest.cpp": "shaderpipe",
