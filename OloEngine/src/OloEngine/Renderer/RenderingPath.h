@@ -104,6 +104,12 @@ namespace OloEngine
         bool ShowGrid = true;
         bool ShowPhysicsColliders = false;
         bool ShowLightGizmos = true;
+        // World-origin XYZ axis helper (small RGB axes at (0,0,0) plus negative-axis dashes).
+        // Frequently mistaken for a light gizmo because the green Y axis reads as yellow in HDR.
+        bool ShowWorldAxisHelper = true;
+        // Yellow/cyan frustum wireframe drawn at every CameraComponent's transform. Useful when
+        // composing scene cameras, noisy when you're just walking around the editor camera.
+        bool ShowCameraFrustums = true;
         // Visualise the per-object screen-space velocity buffer in Forward
         // and Forward+ paths. Ignored in Deferred (which has its own
         // G-Buffer velocity debug channel — DeferredSettings::DebugChannel

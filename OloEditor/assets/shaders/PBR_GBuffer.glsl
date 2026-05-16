@@ -93,10 +93,10 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_UseEmissiveMap;
     int u_EnableIBL;
     int u_ApplyGammaCorrection;
-    int u_AlphaCutoff;
+    float u_AlphaCutoff;
     int u_EnableLightProbes;
     float u_IBLIntensity;
-    int _pbrPad1;
+    int u_AlphaMode;        // 0=Opaque, 1=Mask, 2=Blend
     int _pbrPad2;
 };
 
@@ -146,6 +146,17 @@ vec2 octEncodeGB(vec3 n)
 
 void main()
 {
+    // glTF MASK: discard before any other work when sampled alpha falls below cutoff.
+    // Per glTF 2.0 spec, the sampled alpha is texture.a * baseColorFactor.a.
+    if (u_AlphaMode == 1)
+    {
+        float sampledAlpha = u_BaseColorFactor.a;
+        if (u_UseAlbedoMap == 1)
+            sampledAlpha *= texture(u_AlbedoMap, v_TexCoord).a;
+        if (sampledAlpha < u_AlphaCutoff)
+            discard;
+    }
+
     vec3 albedo = sampleAlbedo(u_AlbedoMap, v_TexCoord, u_BaseColorFactor.rgb, bool(u_UseAlbedoMap));
     vec2 metallicRoughness = sampleMetallicRoughness(u_MetallicRoughnessMap, v_TexCoord,
                                                      u_MetallicFactor, u_RoughnessFactor,
@@ -166,10 +177,6 @@ void main()
     vec2 ndcCurr = v_ClipPosCurr.xy / max(v_ClipPosCurr.w, 1e-6);
     vec2 ndcPrev = v_ClipPosPrev.xy / max(v_ClipPosPrev.w, 1e-6);
     vec2 velocity = (ndcCurr - ndcPrev) * 0.5; // convert [-2,2] -> [-1,1]
-
-    // Alpha cutoff — match Forward path behaviour for foliage-style masking.
-    if (u_AlphaCutoff != 0 && u_BaseColorFactor.a < 0.5)
-        discard;
 
     o_GBufferAlbedo   = vec4(albedo, metallic);
     o_GBufferNormal   = vec4(octEncodeGB(N), roughness, ao);

@@ -142,10 +142,10 @@ namespace OloEngine
             i32 UseEmissiveMap;          // Use emissive map
             i32 EnableIBL = 0;           // Enable IBL
             i32 ApplyGammaCorrection;    // Whether to apply gamma correction in this pass
-            i32 AlphaCutoff;             // Alpha cutoff for transparency (repurposed from padding)
+            f32 AlphaCutoff = 0.5f;      // Alpha cutoff for MASK mode
             i32 EnableLightProbes;       // Enable light probe indirect diffuse
             f32 IBLIntensity = 1.0f;     // Runtime IBL strength multiplier
-            i32 _pbrPad1 = 0;
+            i32 AlphaMode = 0;           // 0=Opaque, 1=Mask, 2=Blend (matches AlphaMode enum)
             i32 _pbrPad2 = 0;
             static constexpr u32 GetSize()
             {

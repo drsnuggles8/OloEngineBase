@@ -295,7 +295,10 @@ namespace OloEngine
                         continue;
                     uploadShadowModelUBO(caster.transform);
                     RendererID const drawVao = (caster.shadowVaoID != 0) ? caster.shadowVaoID : caster.vaoID;
-                    RenderCommand::DrawIndexedRaw(drawVao, caster.indexCount);
+                    // baseIndex matters for submeshes that share a combined IBO
+                    // (e.g. Sponza's 22 opaque submeshes all hang off one VAO/IBO);
+                    // without the offset every caster would redraw indices [0,N).
+                    RenderCommand::DrawIndexedRaw(drawVao, caster.indexCount, caster.baseIndex);
                 }
             }
         }
@@ -334,7 +337,7 @@ namespace OloEngine
                         }
                     }
 
-                    RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount);
+                    RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount, caster.baseIndex);
                 }
             }
         }
@@ -412,16 +415,16 @@ namespace OloEngine
     }
 
     // Shadow caster submission methods
-    void ShadowRenderPass::AddMeshCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform,
+    void ShadowRenderPass::AddMeshCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
                                          RendererID shadowVaoID, const BoundingBox& worldBounds)
     {
-        m_MeshCasters.push_back({ vaoID, indexCount, transform, shadowVaoID, worldBounds });
+        m_MeshCasters.push_back({ vaoID, indexCount, baseIndex, transform, shadowVaoID, worldBounds });
     }
 
-    void ShadowRenderPass::AddSkinnedCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform,
+    void ShadowRenderPass::AddSkinnedCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
                                             u32 boneBufferOffset, u32 boneCount, const BoundingBox& worldBounds)
     {
-        m_SkinnedCasters.push_back({ vaoID, indexCount, transform, boneBufferOffset, boneCount, worldBounds });
+        m_SkinnedCasters.push_back({ vaoID, indexCount, baseIndex, transform, boneBufferOffset, boneCount, worldBounds });
     }
 
     void ShadowRenderPass::AddTerrainCaster(RendererID vaoID, u32 indexCount, u32 patchVertexCount,

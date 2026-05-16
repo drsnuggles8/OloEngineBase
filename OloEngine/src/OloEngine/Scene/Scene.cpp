@@ -3939,7 +3939,7 @@ namespace OloEngine
                             if (va)
                             {
                                 Renderer3D::AddMeshShadowCaster(
-                                    va->GetRendererID(), submesh->GetIndexCount(),
+                                    va->GetRendererID(), submesh->GetIndexCount(), submesh->GetBaseIndex(),
                                     transform.GetTransform(), GetShadowVaoID(submesh),
                                     submesh->GetTransformedBoundingBox(transform.GetTransform()));
                             }
@@ -3995,7 +3995,7 @@ namespace OloEngine
                     if (va)
                     {
                         Renderer3D::AddMeshShadowCaster(
-                            va->GetRendererID(), submesh.m_Mesh->GetIndexCount(),
+                            va->GetRendererID(), submesh.m_Mesh->GetIndexCount(), submesh.m_Mesh->GetBaseIndex(),
                             transform.GetTransform(), GetShadowVaoID(submesh.m_Mesh),
                             submesh.m_Mesh->GetTransformedBoundingBox(transform.GetTransform()));
                     }
@@ -4017,7 +4017,43 @@ namespace OloEngine
 
                 // Model::DrawParallel uses the model's own materials loaded from file
                 // Pass entity ID for mouse picking support
-                model.m_Model->DrawParallel(transform.GetTransform(), static_cast<int>(entity));
+                const auto modelTransform = transform.GetTransform();
+                model.m_Model->DrawParallel(modelTransform, static_cast<int>(entity));
+
+                // Submit each submesh as a shadow caster — Model::DrawParallel
+                // only enqueues color draws, so without this loop ModelComponent
+                // meshes never reach ShadowRenderPass.
+                if (meshHasActiveShadows)
+                {
+                    const auto& meshes = model.m_Model->GetMeshes();
+                    const auto& materials = model.m_Model->GetMaterials();
+                    for (const auto& submesh : meshes)
+                    {
+                        if (!submesh) continue;
+
+                        const u32 matIdx = submesh->GetSubmesh().m_MaterialIndex;
+                        if (matIdx < materials.size() && materials[matIdx])
+                        {
+                            const auto& mat = *materials[matIdx];
+                            if (mat.GetFlag(MaterialFlag::DisableShadowCasting))
+                                continue;
+                            // ShadowDepth.glsl has no UV/albedo sampling, so an
+                            // alpha-masked banner would otherwise project its
+                            // full geometry as a solid shadow. Skip until a
+                            // separate alpha-aware shadow shader exists.
+                            if (mat.GetAlphaMode() != AlphaMode::Opaque)
+                                continue;
+                        }
+
+                        auto va = submesh->GetVertexArray();
+                        if (!va) continue;
+
+                        Renderer3D::AddMeshShadowCaster(
+                            va->GetRendererID(), submesh->GetIndexCount(), submesh->GetBaseIndex(),
+                            modelTransform, GetShadowVaoID(submesh),
+                            submesh->GetTransformedBoundingBox(modelTransform));
+                    }
+                }
             }
         }
 
@@ -4070,7 +4106,7 @@ namespace OloEngine
                                     if (cmd)
                                     {
                                         Renderer3D::AddSkinnedShadowCaster(
-                                            va->GetRendererID(), submesh->GetIndexCount(),
+                                            va->GetRendererID(), submesh->GetIndexCount(), submesh->GetBaseIndex(),
                                             transform.GetTransform(),
                                             cmd->boneBufferOffset, cmd->boneCount,
                                             submesh->GetTransformedBoundingBox(transform.GetTransform()));
@@ -4142,7 +4178,7 @@ namespace OloEngine
                             if (va)
                             {
                                 Renderer3D::AddMeshShadowCaster(
-                                    va->GetRendererID(), tileComp.TileMesh->GetIndexCount(),
+                                    va->GetRendererID(), tileComp.TileMesh->GetIndexCount(), tileComp.TileMesh->GetBaseIndex(),
                                     tileTransform, GetShadowVaoID(tileComp.TileMesh),
                                     tileComp.TileMesh->GetTransformedBoundingBox(tileTransform));
                             }
@@ -4175,7 +4211,10 @@ namespace OloEngine
         }
 
         // Draw world axis helper at origin
-        Renderer3D::DrawWorldAxisHelper(3.0f);
+        if (m_ShowWorldAxisHelper)
+        {
+            Renderer3D::DrawWorldAxisHelper(3.0f);
+        }
 
         // Draw light visualization gizmos
         if (m_ShowLightGizmos)
@@ -4371,6 +4410,7 @@ namespace OloEngine
         }
 
         // Draw camera frustum gizmos for scene cameras (only in editor mode)
+        if (m_ShowCameraFrustums)
         {
             auto view = m_Registry.view<TransformComponent, CameraComponent>();
             for (auto entity : view)

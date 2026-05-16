@@ -1,0 +1,1896 @@
+Scene: SponzaForwardPlus.olo
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1.5
+  BloomIntensity: 0.6
+  BloomIterations: 5
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 16
+  SSAODebugView: false
+Entities:
+  # -- Camera --
+  - Entity: 770000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [-13, 4, 0]
+      Rotation: [-0.15, 1.5707963, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.05
+        PerspectiveFar: 2500
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # -- Skybox (low IBL — point lights dominate) --
+  - Entity: 770000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/hdr/newport_loft.hdr
+      IsCubemapFolder: false
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 0.15
+      Tint: [1, 1, 1]
+  # -- Dim directional (just a hint of sky light) --
+  - Entity: 770000000000003
+    TagComponent:
+      Tag: Ambient Sun
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.3, -1, -0.2]
+      Color: [0.7, 0.8, 1]
+      Intensity: 0.2
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 2000
+      CascadeSplitLambda: 0.95
+  # -- Sponza --
+  - Entity: 770000000000010
+    TagComponent:
+      Tag: Sponza
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ModelComponent:
+      FilePath: assets/models/Sponza/glTF/Sponza.gltf
+      Visible: true
+  # -- 120 point lights (6 X * 4 Z * 5 Y) --
+  - Entity: 770000000000100
+    TagComponent:
+      Tag: PLight 0
+    TransformComponent:
+      Translation: [-12, 0.6, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.1]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000101
+    TagComponent:
+      Tag: PLight 1
+    TransformComponent:
+      Translation: [-7.2, 0.6, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.6, 0.1]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000102
+    TagComponent:
+      Tag: PLight 2
+    TransformComponent:
+      Translation: [-2.4, 0.6, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 1, 0.2]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000103
+    TagComponent:
+      Tag: PLight 3
+    TransformComponent:
+      Translation: [2.4, 0.6, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000104
+    TagComponent:
+      Tag: PLight 4
+    TransformComponent:
+      Translation: [7.2, 0.6, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.8, 0.8]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000105
+    TagComponent:
+      Tag: PLight 5
+    TransformComponent:
+      Translation: [12, 0.6, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.5, 1]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000106
+    TagComponent:
+      Tag: PLight 6
+    TransformComponent:
+      Translation: [-12, 0.6, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000107
+    TagComponent:
+      Tag: PLight 7
+    TransformComponent:
+      Translation: [-7.2, 0.6, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.6, 0.2, 1]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000108
+    TagComponent:
+      Tag: PLight 8
+    TransformComponent:
+      Translation: [-2.4, 0.6, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.8]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000109
+    TagComponent:
+      Tag: PLight 9
+    TransformComponent:
+      Translation: [2.4, 0.6, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.4, 0.6]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000110
+    TagComponent:
+      Tag: PLight 10
+    TransformComponent:
+      Translation: [7.2, 0.6, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.8, 0.4]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000111
+    TagComponent:
+      Tag: PLight 11
+    TransformComponent:
+      Translation: [12, 0.6, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.3]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000112
+    TagComponent:
+      Tag: PLight 12
+    TransformComponent:
+      Translation: [-12, 0.6, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.1]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000113
+    TagComponent:
+      Tag: PLight 13
+    TransformComponent:
+      Translation: [-7.2, 0.6, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.6, 0.1]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000114
+    TagComponent:
+      Tag: PLight 14
+    TransformComponent:
+      Translation: [-2.4, 0.6, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 1, 0.2]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000115
+    TagComponent:
+      Tag: PLight 15
+    TransformComponent:
+      Translation: [2.4, 0.6, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000116
+    TagComponent:
+      Tag: PLight 16
+    TransformComponent:
+      Translation: [7.2, 0.6, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.8, 0.8]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000117
+    TagComponent:
+      Tag: PLight 17
+    TransformComponent:
+      Translation: [12, 0.6, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.5, 1]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000118
+    TagComponent:
+      Tag: PLight 18
+    TransformComponent:
+      Translation: [-12, 0.6, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000119
+    TagComponent:
+      Tag: PLight 19
+    TransformComponent:
+      Translation: [-7.2, 0.6, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.6, 0.2, 1]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000120
+    TagComponent:
+      Tag: PLight 20
+    TransformComponent:
+      Translation: [-2.4, 0.6, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.8]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000121
+    TagComponent:
+      Tag: PLight 21
+    TransformComponent:
+      Translation: [2.4, 0.6, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.4, 0.6]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000122
+    TagComponent:
+      Tag: PLight 22
+    TransformComponent:
+      Translation: [7.2, 0.6, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.8, 0.4]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000123
+    TagComponent:
+      Tag: PLight 23
+    TransformComponent:
+      Translation: [12, 0.6, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.3]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000124
+    TagComponent:
+      Tag: PLight 24
+    TransformComponent:
+      Translation: [-12, 3, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.1]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000125
+    TagComponent:
+      Tag: PLight 25
+    TransformComponent:
+      Translation: [-7.2, 3, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.6, 0.1]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000126
+    TagComponent:
+      Tag: PLight 26
+    TransformComponent:
+      Translation: [-2.4, 3, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 1, 0.2]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000127
+    TagComponent:
+      Tag: PLight 27
+    TransformComponent:
+      Translation: [2.4, 3, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000128
+    TagComponent:
+      Tag: PLight 28
+    TransformComponent:
+      Translation: [7.2, 3, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.8, 0.8]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000129
+    TagComponent:
+      Tag: PLight 29
+    TransformComponent:
+      Translation: [12, 3, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.5, 1]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000130
+    TagComponent:
+      Tag: PLight 30
+    TransformComponent:
+      Translation: [-12, 3, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000131
+    TagComponent:
+      Tag: PLight 31
+    TransformComponent:
+      Translation: [-7.2, 3, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.6, 0.2, 1]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000132
+    TagComponent:
+      Tag: PLight 32
+    TransformComponent:
+      Translation: [-2.4, 3, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.8]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000133
+    TagComponent:
+      Tag: PLight 33
+    TransformComponent:
+      Translation: [2.4, 3, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.4, 0.6]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000134
+    TagComponent:
+      Tag: PLight 34
+    TransformComponent:
+      Translation: [7.2, 3, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.8, 0.4]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000135
+    TagComponent:
+      Tag: PLight 35
+    TransformComponent:
+      Translation: [12, 3, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.3]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000136
+    TagComponent:
+      Tag: PLight 36
+    TransformComponent:
+      Translation: [-12, 3, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.1]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000137
+    TagComponent:
+      Tag: PLight 37
+    TransformComponent:
+      Translation: [-7.2, 3, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.6, 0.1]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000138
+    TagComponent:
+      Tag: PLight 38
+    TransformComponent:
+      Translation: [-2.4, 3, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 1, 0.2]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000139
+    TagComponent:
+      Tag: PLight 39
+    TransformComponent:
+      Translation: [2.4, 3, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000140
+    TagComponent:
+      Tag: PLight 40
+    TransformComponent:
+      Translation: [7.2, 3, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.8, 0.8]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000141
+    TagComponent:
+      Tag: PLight 41
+    TransformComponent:
+      Translation: [12, 3, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.5, 1]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000142
+    TagComponent:
+      Tag: PLight 42
+    TransformComponent:
+      Translation: [-12, 3, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000143
+    TagComponent:
+      Tag: PLight 43
+    TransformComponent:
+      Translation: [-7.2, 3, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.6, 0.2, 1]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000144
+    TagComponent:
+      Tag: PLight 44
+    TransformComponent:
+      Translation: [-2.4, 3, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.8]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000145
+    TagComponent:
+      Tag: PLight 45
+    TransformComponent:
+      Translation: [2.4, 3, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.4, 0.6]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000146
+    TagComponent:
+      Tag: PLight 46
+    TransformComponent:
+      Translation: [7.2, 3, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.8, 0.4]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000147
+    TagComponent:
+      Tag: PLight 47
+    TransformComponent:
+      Translation: [12, 3, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.3]
+      Intensity: 6
+      Range: 7
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000148
+    TagComponent:
+      Tag: PLight 48
+    TransformComponent:
+      Translation: [-12, 6.5, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.1]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000149
+    TagComponent:
+      Tag: PLight 49
+    TransformComponent:
+      Translation: [-7.2, 6.5, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.6, 0.1]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000150
+    TagComponent:
+      Tag: PLight 50
+    TransformComponent:
+      Translation: [-2.4, 6.5, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 1, 0.2]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000151
+    TagComponent:
+      Tag: PLight 51
+    TransformComponent:
+      Translation: [2.4, 6.5, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000152
+    TagComponent:
+      Tag: PLight 52
+    TransformComponent:
+      Translation: [7.2, 6.5, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.8, 0.8]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000153
+    TagComponent:
+      Tag: PLight 53
+    TransformComponent:
+      Translation: [12, 6.5, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.5, 1]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000154
+    TagComponent:
+      Tag: PLight 54
+    TransformComponent:
+      Translation: [-12, 6.5, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000155
+    TagComponent:
+      Tag: PLight 55
+    TransformComponent:
+      Translation: [-7.2, 6.5, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.6, 0.2, 1]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000156
+    TagComponent:
+      Tag: PLight 56
+    TransformComponent:
+      Translation: [-2.4, 6.5, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.8]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000157
+    TagComponent:
+      Tag: PLight 57
+    TransformComponent:
+      Translation: [2.4, 6.5, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.4, 0.6]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000158
+    TagComponent:
+      Tag: PLight 58
+    TransformComponent:
+      Translation: [7.2, 6.5, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.8, 0.4]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000159
+    TagComponent:
+      Tag: PLight 59
+    TransformComponent:
+      Translation: [12, 6.5, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.3]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000160
+    TagComponent:
+      Tag: PLight 60
+    TransformComponent:
+      Translation: [-12, 6.5, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.1]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000161
+    TagComponent:
+      Tag: PLight 61
+    TransformComponent:
+      Translation: [-7.2, 6.5, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.6, 0.1]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000162
+    TagComponent:
+      Tag: PLight 62
+    TransformComponent:
+      Translation: [-2.4, 6.5, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 1, 0.2]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000163
+    TagComponent:
+      Tag: PLight 63
+    TransformComponent:
+      Translation: [2.4, 6.5, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000164
+    TagComponent:
+      Tag: PLight 64
+    TransformComponent:
+      Translation: [7.2, 6.5, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.8, 0.8]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000165
+    TagComponent:
+      Tag: PLight 65
+    TransformComponent:
+      Translation: [12, 6.5, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.5, 1]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000166
+    TagComponent:
+      Tag: PLight 66
+    TransformComponent:
+      Translation: [-12, 6.5, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000167
+    TagComponent:
+      Tag: PLight 67
+    TransformComponent:
+      Translation: [-7.2, 6.5, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.6, 0.2, 1]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000168
+    TagComponent:
+      Tag: PLight 68
+    TransformComponent:
+      Translation: [-2.4, 6.5, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.8]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000169
+    TagComponent:
+      Tag: PLight 69
+    TransformComponent:
+      Translation: [2.4, 6.5, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.4, 0.6]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000170
+    TagComponent:
+      Tag: PLight 70
+    TransformComponent:
+      Translation: [7.2, 6.5, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.8, 0.4]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000171
+    TagComponent:
+      Tag: PLight 71
+    TransformComponent:
+      Translation: [12, 6.5, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.3]
+      Intensity: 5
+      Range: 8
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000172
+    TagComponent:
+      Tag: PLight 72
+    TransformComponent:
+      Translation: [-12, 10.5, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.1]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000173
+    TagComponent:
+      Tag: PLight 73
+    TransformComponent:
+      Translation: [-7.2, 10.5, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.6, 0.1]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000174
+    TagComponent:
+      Tag: PLight 74
+    TransformComponent:
+      Translation: [-2.4, 10.5, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 1, 0.2]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000175
+    TagComponent:
+      Tag: PLight 75
+    TransformComponent:
+      Translation: [2.4, 10.5, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000176
+    TagComponent:
+      Tag: PLight 76
+    TransformComponent:
+      Translation: [7.2, 10.5, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.8, 0.8]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000177
+    TagComponent:
+      Tag: PLight 77
+    TransformComponent:
+      Translation: [12, 10.5, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.5, 1]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000178
+    TagComponent:
+      Tag: PLight 78
+    TransformComponent:
+      Translation: [-12, 10.5, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000179
+    TagComponent:
+      Tag: PLight 79
+    TransformComponent:
+      Translation: [-7.2, 10.5, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.6, 0.2, 1]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000180
+    TagComponent:
+      Tag: PLight 80
+    TransformComponent:
+      Translation: [-2.4, 10.5, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.8]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000181
+    TagComponent:
+      Tag: PLight 81
+    TransformComponent:
+      Translation: [2.4, 10.5, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.4, 0.6]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000182
+    TagComponent:
+      Tag: PLight 82
+    TransformComponent:
+      Translation: [7.2, 10.5, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.8, 0.4]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000183
+    TagComponent:
+      Tag: PLight 83
+    TransformComponent:
+      Translation: [12, 10.5, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.3]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000184
+    TagComponent:
+      Tag: PLight 84
+    TransformComponent:
+      Translation: [-12, 10.5, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.1]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000185
+    TagComponent:
+      Tag: PLight 85
+    TransformComponent:
+      Translation: [-7.2, 10.5, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.6, 0.1]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000186
+    TagComponent:
+      Tag: PLight 86
+    TransformComponent:
+      Translation: [-2.4, 10.5, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 1, 0.2]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000187
+    TagComponent:
+      Tag: PLight 87
+    TransformComponent:
+      Translation: [2.4, 10.5, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000188
+    TagComponent:
+      Tag: PLight 88
+    TransformComponent:
+      Translation: [7.2, 10.5, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.8, 0.8]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000189
+    TagComponent:
+      Tag: PLight 89
+    TransformComponent:
+      Translation: [12, 10.5, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.5, 1]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000190
+    TagComponent:
+      Tag: PLight 90
+    TransformComponent:
+      Translation: [-12, 10.5, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000191
+    TagComponent:
+      Tag: PLight 91
+    TransformComponent:
+      Translation: [-7.2, 10.5, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.6, 0.2, 1]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000192
+    TagComponent:
+      Tag: PLight 92
+    TransformComponent:
+      Translation: [-2.4, 10.5, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.8]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000193
+    TagComponent:
+      Tag: PLight 93
+    TransformComponent:
+      Translation: [2.4, 10.5, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.4, 0.6]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000194
+    TagComponent:
+      Tag: PLight 94
+    TransformComponent:
+      Translation: [7.2, 10.5, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.8, 0.4]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000195
+    TagComponent:
+      Tag: PLight 95
+    TransformComponent:
+      Translation: [12, 10.5, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.3]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000196
+    TagComponent:
+      Tag: PLight 96
+    TransformComponent:
+      Translation: [-12, 14, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.1]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000197
+    TagComponent:
+      Tag: PLight 97
+    TransformComponent:
+      Translation: [-7.2, 14, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.6, 0.1]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000198
+    TagComponent:
+      Tag: PLight 98
+    TransformComponent:
+      Translation: [-2.4, 14, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 1, 0.2]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000199
+    TagComponent:
+      Tag: PLight 99
+    TransformComponent:
+      Translation: [2.4, 14, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000200
+    TagComponent:
+      Tag: PLight 100
+    TransformComponent:
+      Translation: [7.2, 14, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.8, 0.8]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000201
+    TagComponent:
+      Tag: PLight 101
+    TransformComponent:
+      Translation: [12, 14, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.5, 1]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000202
+    TagComponent:
+      Tag: PLight 102
+    TransformComponent:
+      Translation: [-12, 14, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000203
+    TagComponent:
+      Tag: PLight 103
+    TransformComponent:
+      Translation: [-7.2, 14, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.6, 0.2, 1]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000204
+    TagComponent:
+      Tag: PLight 104
+    TransformComponent:
+      Translation: [-2.4, 14, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.8]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000205
+    TagComponent:
+      Tag: PLight 105
+    TransformComponent:
+      Translation: [2.4, 14, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.4, 0.6]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000206
+    TagComponent:
+      Tag: PLight 106
+    TransformComponent:
+      Translation: [7.2, 14, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.8, 0.4]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000207
+    TagComponent:
+      Tag: PLight 107
+    TransformComponent:
+      Translation: [12, 14, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.3]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000208
+    TagComponent:
+      Tag: PLight 108
+    TransformComponent:
+      Translation: [-12, 14, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.1]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000209
+    TagComponent:
+      Tag: PLight 109
+    TransformComponent:
+      Translation: [-7.2, 14, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.6, 0.1]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000210
+    TagComponent:
+      Tag: PLight 110
+    TransformComponent:
+      Translation: [-2.4, 14, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 1, 0.2]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000211
+    TagComponent:
+      Tag: PLight 111
+    TransformComponent:
+      Translation: [2.4, 14, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000212
+    TagComponent:
+      Tag: PLight 112
+    TransformComponent:
+      Translation: [7.2, 14, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.8, 0.8]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000213
+    TagComponent:
+      Tag: PLight 113
+    TransformComponent:
+      Translation: [12, 14, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.5, 1]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000214
+    TagComponent:
+      Tag: PLight 114
+    TransformComponent:
+      Translation: [-12, 14, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000215
+    TagComponent:
+      Tag: PLight 115
+    TransformComponent:
+      Translation: [-7.2, 14, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.6, 0.2, 1]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000216
+    TagComponent:
+      Tag: PLight 116
+    TransformComponent:
+      Translation: [-2.4, 14, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.8]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000217
+    TagComponent:
+      Tag: PLight 117
+    TransformComponent:
+      Translation: [2.4, 14, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.4, 0.6]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000218
+    TagComponent:
+      Tag: PLight 118
+    TransformComponent:
+      Translation: [7.2, 14, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.8, 0.4]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 770000000000219
+    TagComponent:
+      Tag: PLight 119
+    TransformComponent:
+      Translation: [12, 14, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.3]
+      Intensity: 4
+      Range: 9
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1

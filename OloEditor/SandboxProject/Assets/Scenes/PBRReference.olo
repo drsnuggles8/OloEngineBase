@@ -1,0 +1,131 @@
+Scene: PBRReference.olo
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1
+  BloomIntensity: 0.4
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: true
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+Entities:
+  # ── Camera ──
+  - Entity: 750000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 1, 4]
+      Rotation: [-0.1, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Skybox + IBL (Newport Loft equirectangular HDR) ──
+  - Entity: 750000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/hdr/newport_loft.hdr
+      IsCubemapFolder: false
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 1
+      Tint: [1, 1, 1]
+  # ── Soft fill directional (low intensity — IBL is the main light source) ──
+  - Entity: 750000000000003
+    TagComponent:
+      Tag: Fill Light
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.4, -1, -0.3]
+      Color: [1, 0.97, 0.92]
+      Intensity: 0.5
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 50
+      CascadeSplitLambda: 0.95
+  # ── DamagedHelmet (Khronos PBR reference, left) ──
+  - Entity: 750000000000010
+    TagComponent:
+      Tag: DamagedHelmet
+    TransformComponent:
+      Translation: [-1.4, 1, 0]
+      Rotation: [0, 0.6, 0]
+      Scale: [1, 1, 1]
+    ModelComponent:
+      FilePath: assets/models/DamagedHelmet/glTF/DamagedHelmet.gltf
+      Visible: true
+  # ── SciFiHelmet (Khronos PBR reference, right) ──
+  - Entity: 750000000000011
+    TagComponent:
+      Tag: SciFiHelmet
+    TransformComponent:
+      Translation: [1.4, 1, 0]
+      Rotation: [0, -0.6, 0]
+      Scale: [1, 1, 1]
+    ModelComponent:
+      FilePath: assets/models/SciFiHelmet/glTF/SciFiHelmet.gltf
+      Visible: true
+  # ── Suzanne (smoke test for normals/tangents, behind) ──
+  - Entity: 750000000000012
+    TagComponent:
+      Tag: Suzanne
+    TransformComponent:
+      Translation: [0, 1, -2]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 0.6, 0.6]
+    ModelComponent:
+      FilePath: assets/models/Suzanne/glTF/Suzanne.gltf
+      Visible: true
+  # ── Ground plane (matte, so reflections come from the models, not the floor) ──
+  - Entity: 750000000000020
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [20, 1, 20]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.18, 0.18, 0.18]
+      Metallic: 0
+      Roughness: 0.92

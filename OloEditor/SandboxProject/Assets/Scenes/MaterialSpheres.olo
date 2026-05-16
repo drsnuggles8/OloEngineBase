@@ -1,0 +1,790 @@
+Scene: MaterialSpheres.olo
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1
+  BloomIntensity: 0.35
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: true
+  SSAORadius: 0.4
+  SSAOBias: 0.025
+  SSAOIntensity: 0.7
+  SSAOSamples: 32
+  SSAODebugView: false
+Entities:
+  # -- Camera (top-down-ish view of the grid) --
+  - Entity: 780000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 6, 9]
+      Rotation: [-0.55, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # -- Skybox + IBL (Newport Loft equirect HDR) --
+  - Entity: 780000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/hdr/newport_loft.hdr
+      IsCubemapFolder: false
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 1
+      Tint: [1, 1, 1]
+  # -- Strong directional sun (gives clear PBR specular highlights on metals) --
+  - Entity: 780000000000003
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.3, -1, -0.4]
+      Color: [1, 0.97, 0.92]
+      Intensity: 4
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 50
+      CascadeSplitLambda: 0.95
+  # -- Ground plane (dark so colored spheres pop) --
+  - Entity: 780000000000004
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0, -0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [25, 1, 25]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.08, 0.08, 0.08]
+      Metallic: 0
+      Roughness: 0.95
+  # -- Spheres grid: X = roughness sweep, Z = metallic sweep --
+  # -- Albedo cycles across columns (red, orange, yellow, green, teal, blue, magenta) --
+  # -- so the metallic/roughness gradients show clearly per-color --
+  - Entity: 780000000000100
+    TagComponent:
+      Tag: M0_R0.05
+    TransformComponent:
+      Translation: [-4.5, 0.5, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.20, 0.20]
+      Metallic: 0
+      Roughness: 0.05
+  - Entity: 780000000000101
+    TagComponent:
+      Tag: M0_R0.2
+    TransformComponent:
+      Translation: [-3, 0.5, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.55, 0.15]
+      Metallic: 0
+      Roughness: 0.2
+  - Entity: 780000000000102
+    TagComponent:
+      Tag: M0_R0.35
+    TransformComponent:
+      Translation: [-1.5, 0.5, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.90, 0.85, 0.20]
+      Metallic: 0
+      Roughness: 0.35
+  - Entity: 780000000000103
+    TagComponent:
+      Tag: M0_R0.5
+    TransformComponent:
+      Translation: [0, 0.5, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.30, 0.80, 0.30]
+      Metallic: 0
+      Roughness: 0.5
+  - Entity: 780000000000104
+    TagComponent:
+      Tag: M0_R0.65
+    TransformComponent:
+      Translation: [1.5, 0.5, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.20, 0.75, 0.80]
+      Metallic: 0
+      Roughness: 0.65
+  - Entity: 780000000000105
+    TagComponent:
+      Tag: M0_R0.8
+    TransformComponent:
+      Translation: [3, 0.5, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.25, 0.45, 0.95]
+      Metallic: 0
+      Roughness: 0.8
+  - Entity: 780000000000106
+    TagComponent:
+      Tag: M0_R0.95
+    TransformComponent:
+      Translation: [4.5, 0.5, -4.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.25, 0.80]
+      Metallic: 0
+      Roughness: 0.95
+  - Entity: 780000000000107
+    TagComponent:
+      Tag: M0.167_R0.05
+    TransformComponent:
+      Translation: [-4.5, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.20, 0.20]
+      Metallic: 0.167
+      Roughness: 0.05
+  - Entity: 780000000000108
+    TagComponent:
+      Tag: M0.167_R0.2
+    TransformComponent:
+      Translation: [-3, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.55, 0.15]
+      Metallic: 0.167
+      Roughness: 0.2
+  - Entity: 780000000000109
+    TagComponent:
+      Tag: M0.167_R0.35
+    TransformComponent:
+      Translation: [-1.5, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.90, 0.85, 0.20]
+      Metallic: 0.167
+      Roughness: 0.35
+  - Entity: 780000000000110
+    TagComponent:
+      Tag: M0.167_R0.5
+    TransformComponent:
+      Translation: [0, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.30, 0.80, 0.30]
+      Metallic: 0.167
+      Roughness: 0.5
+  - Entity: 780000000000111
+    TagComponent:
+      Tag: M0.167_R0.65
+    TransformComponent:
+      Translation: [1.5, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.20, 0.75, 0.80]
+      Metallic: 0.167
+      Roughness: 0.65
+  - Entity: 780000000000112
+    TagComponent:
+      Tag: M0.167_R0.8
+    TransformComponent:
+      Translation: [3, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.25, 0.45, 0.95]
+      Metallic: 0.167
+      Roughness: 0.8
+  - Entity: 780000000000113
+    TagComponent:
+      Tag: M0.167_R0.95
+    TransformComponent:
+      Translation: [4.5, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.25, 0.80]
+      Metallic: 0.167
+      Roughness: 0.95
+  - Entity: 780000000000114
+    TagComponent:
+      Tag: M0.333_R0.05
+    TransformComponent:
+      Translation: [-4.5, 0.5, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.20, 0.20]
+      Metallic: 0.333
+      Roughness: 0.05
+  - Entity: 780000000000115
+    TagComponent:
+      Tag: M0.333_R0.2
+    TransformComponent:
+      Translation: [-3, 0.5, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.55, 0.15]
+      Metallic: 0.333
+      Roughness: 0.2
+  - Entity: 780000000000116
+    TagComponent:
+      Tag: M0.333_R0.35
+    TransformComponent:
+      Translation: [-1.5, 0.5, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.90, 0.85, 0.20]
+      Metallic: 0.333
+      Roughness: 0.35
+  - Entity: 780000000000117
+    TagComponent:
+      Tag: M0.333_R0.5
+    TransformComponent:
+      Translation: [0, 0.5, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.30, 0.80, 0.30]
+      Metallic: 0.333
+      Roughness: 0.5
+  - Entity: 780000000000118
+    TagComponent:
+      Tag: M0.333_R0.65
+    TransformComponent:
+      Translation: [1.5, 0.5, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.20, 0.75, 0.80]
+      Metallic: 0.333
+      Roughness: 0.65
+  - Entity: 780000000000119
+    TagComponent:
+      Tag: M0.333_R0.8
+    TransformComponent:
+      Translation: [3, 0.5, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.25, 0.45, 0.95]
+      Metallic: 0.333
+      Roughness: 0.8
+  - Entity: 780000000000120
+    TagComponent:
+      Tag: M0.333_R0.95
+    TransformComponent:
+      Translation: [4.5, 0.5, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.25, 0.80]
+      Metallic: 0.333
+      Roughness: 0.95
+  - Entity: 780000000000121
+    TagComponent:
+      Tag: M0.5_R0.05
+    TransformComponent:
+      Translation: [-4.5, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.20, 0.20]
+      Metallic: 0.5
+      Roughness: 0.05
+  - Entity: 780000000000122
+    TagComponent:
+      Tag: M0.5_R0.2
+    TransformComponent:
+      Translation: [-3, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.55, 0.15]
+      Metallic: 0.5
+      Roughness: 0.2
+  - Entity: 780000000000123
+    TagComponent:
+      Tag: M0.5_R0.35
+    TransformComponent:
+      Translation: [-1.5, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.90, 0.85, 0.20]
+      Metallic: 0.5
+      Roughness: 0.35
+  - Entity: 780000000000124
+    TagComponent:
+      Tag: M0.5_R0.5
+    TransformComponent:
+      Translation: [0, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.30, 0.80, 0.30]
+      Metallic: 0.5
+      Roughness: 0.5
+  - Entity: 780000000000125
+    TagComponent:
+      Tag: M0.5_R0.65
+    TransformComponent:
+      Translation: [1.5, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.20, 0.75, 0.80]
+      Metallic: 0.5
+      Roughness: 0.65
+  - Entity: 780000000000126
+    TagComponent:
+      Tag: M0.5_R0.8
+    TransformComponent:
+      Translation: [3, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.25, 0.45, 0.95]
+      Metallic: 0.5
+      Roughness: 0.8
+  - Entity: 780000000000127
+    TagComponent:
+      Tag: M0.5_R0.95
+    TransformComponent:
+      Translation: [4.5, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.25, 0.80]
+      Metallic: 0.5
+      Roughness: 0.95
+  - Entity: 780000000000128
+    TagComponent:
+      Tag: M0.667_R0.05
+    TransformComponent:
+      Translation: [-4.5, 0.5, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.20, 0.20]
+      Metallic: 0.667
+      Roughness: 0.05
+  - Entity: 780000000000129
+    TagComponent:
+      Tag: M0.667_R0.2
+    TransformComponent:
+      Translation: [-3, 0.5, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.55, 0.15]
+      Metallic: 0.667
+      Roughness: 0.2
+  - Entity: 780000000000130
+    TagComponent:
+      Tag: M0.667_R0.35
+    TransformComponent:
+      Translation: [-1.5, 0.5, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.90, 0.85, 0.20]
+      Metallic: 0.667
+      Roughness: 0.35
+  - Entity: 780000000000131
+    TagComponent:
+      Tag: M0.667_R0.5
+    TransformComponent:
+      Translation: [0, 0.5, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.30, 0.80, 0.30]
+      Metallic: 0.667
+      Roughness: 0.5
+  - Entity: 780000000000132
+    TagComponent:
+      Tag: M0.667_R0.65
+    TransformComponent:
+      Translation: [1.5, 0.5, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.20, 0.75, 0.80]
+      Metallic: 0.667
+      Roughness: 0.65
+  - Entity: 780000000000133
+    TagComponent:
+      Tag: M0.667_R0.8
+    TransformComponent:
+      Translation: [3, 0.5, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.25, 0.45, 0.95]
+      Metallic: 0.667
+      Roughness: 0.8
+  - Entity: 780000000000134
+    TagComponent:
+      Tag: M0.667_R0.95
+    TransformComponent:
+      Translation: [4.5, 0.5, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.25, 0.80]
+      Metallic: 0.667
+      Roughness: 0.95
+  - Entity: 780000000000135
+    TagComponent:
+      Tag: M0.833_R0.05
+    TransformComponent:
+      Translation: [-4.5, 0.5, 3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.20, 0.20]
+      Metallic: 0.833
+      Roughness: 0.05
+  - Entity: 780000000000136
+    TagComponent:
+      Tag: M0.833_R0.2
+    TransformComponent:
+      Translation: [-3, 0.5, 3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.55, 0.15]
+      Metallic: 0.833
+      Roughness: 0.2
+  - Entity: 780000000000137
+    TagComponent:
+      Tag: M0.833_R0.35
+    TransformComponent:
+      Translation: [-1.5, 0.5, 3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.90, 0.85, 0.20]
+      Metallic: 0.833
+      Roughness: 0.35
+  - Entity: 780000000000138
+    TagComponent:
+      Tag: M0.833_R0.5
+    TransformComponent:
+      Translation: [0, 0.5, 3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.30, 0.80, 0.30]
+      Metallic: 0.833
+      Roughness: 0.5
+  - Entity: 780000000000139
+    TagComponent:
+      Tag: M0.833_R0.65
+    TransformComponent:
+      Translation: [1.5, 0.5, 3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.20, 0.75, 0.80]
+      Metallic: 0.833
+      Roughness: 0.65
+  - Entity: 780000000000140
+    TagComponent:
+      Tag: M0.833_R0.8
+    TransformComponent:
+      Translation: [3, 0.5, 3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.25, 0.45, 0.95]
+      Metallic: 0.833
+      Roughness: 0.8
+  - Entity: 780000000000141
+    TagComponent:
+      Tag: M0.833_R0.95
+    TransformComponent:
+      Translation: [4.5, 0.5, 3]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.25, 0.80]
+      Metallic: 0.833
+      Roughness: 0.95
+  - Entity: 780000000000142
+    TagComponent:
+      Tag: M1_R0.05
+    TransformComponent:
+      Translation: [-4.5, 0.5, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.20, 0.20]
+      Metallic: 1
+      Roughness: 0.05
+  - Entity: 780000000000143
+    TagComponent:
+      Tag: M1_R0.2
+    TransformComponent:
+      Translation: [-3, 0.5, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.55, 0.15]
+      Metallic: 1
+      Roughness: 0.2
+  - Entity: 780000000000144
+    TagComponent:
+      Tag: M1_R0.35
+    TransformComponent:
+      Translation: [-1.5, 0.5, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.90, 0.85, 0.20]
+      Metallic: 1
+      Roughness: 0.35
+  - Entity: 780000000000145
+    TagComponent:
+      Tag: M1_R0.5
+    TransformComponent:
+      Translation: [0, 0.5, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.30, 0.80, 0.30]
+      Metallic: 1
+      Roughness: 0.5
+  - Entity: 780000000000146
+    TagComponent:
+      Tag: M1_R0.65
+    TransformComponent:
+      Translation: [1.5, 0.5, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.20, 0.75, 0.80]
+      Metallic: 1
+      Roughness: 0.65
+  - Entity: 780000000000147
+    TagComponent:
+      Tag: M1_R0.8
+    TransformComponent:
+      Translation: [3, 0.5, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.25, 0.45, 0.95]
+      Metallic: 1
+      Roughness: 0.8
+  - Entity: 780000000000148
+    TagComponent:
+      Tag: M1_R0.95
+    TransformComponent:
+      Translation: [4.5, 0.5, 4.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.55, 0.55, 0.55]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.25, 0.80]
+      Metallic: 1
+      Roughness: 0.95
+  - Entity: 780000000000200
+    TagComponent:
+      Tag: Gold (ref)
+    TransformComponent:
+      Translation: [-4.5, 0.5, 6]
+      Rotation: [0, 0, 0]
+      Scale: [0.7, 0.7, 0.7]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.765, 0.336]
+      Metallic: 1
+      Roughness: 0.15
+  - Entity: 780000000000201
+    TagComponent:
+      Tag: Rusted Iron (ref)
+    TransformComponent:
+      Translation: [-1.5, 0.5, 6]
+      Rotation: [0, 0, 0]
+      Scale: [0.7, 0.7, 0.7]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.35, 0.25]
+      Metallic: 0.8
+      Roughness: 0.7
+  - Entity: 780000000000202
+    TagComponent:
+      Tag: Plastic (ref)
+    TransformComponent:
+      Translation: [1.5, 0.5, 6]
+      Rotation: [0, 0, 0]
+      Scale: [0.7, 0.7, 0.7]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.2, 0.2]
+      Metallic: 0
+      Roughness: 0.4
+  - Entity: 780000000000203
+    TagComponent:
+      Tag: Wall (ref)
+    TransformComponent:
+      Translation: [4.5, 0.5, 6]
+      Rotation: [0, 0, 0]
+      Scale: [0.7, 0.7, 0.7]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.7, 0.65, 0.55]
+      Metallic: 0
+      Roughness: 0.85

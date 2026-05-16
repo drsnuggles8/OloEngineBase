@@ -33,6 +33,7 @@ namespace OloEngine
     {
         RendererID vaoID = 0;
         u32 indexCount = 0;
+        u32 baseIndex = 0; // Offset (in u32 entries) into the IBO — non-zero for submeshes sharing a combined IBO
         glm::mat4 transform = glm::mat4(1.0f);
         RendererID shadowVaoID = 0;         // Position-merged shadow IB; 0 = use vaoID
         BoundingBox WorldBounds = NoBounds; // World-space AABB; NoBounds = always include
@@ -42,6 +43,7 @@ namespace OloEngine
     {
         RendererID vaoID = 0;
         u32 indexCount = 0;
+        u32 baseIndex = 0; // Same role as in ShadowMeshCaster
         glm::mat4 transform = glm::mat4(1.0f);
         u32 boneBufferOffset = 0;
         u32 boneCount = 0;
@@ -105,9 +107,9 @@ namespace OloEngine
         // Pass worldBounds (world-space AABB) when available; it enables per-cascade
         // frustum culling in Execute() so empty cascades skip all GPU work.
         // Leave as NoBounds when no tight bounds are available (foliage, terrain, etc.).
-        void AddMeshCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform,
+        void AddMeshCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
                            RendererID shadowVaoID = 0, const BoundingBox& worldBounds = NoBounds);
-        void AddSkinnedCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform,
+        void AddSkinnedCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
                               u32 boneBufferOffset, u32 boneCount, const BoundingBox& worldBounds = NoBounds);
         void AddTerrainCaster(RendererID vaoID, u32 indexCount, u32 patchVertexCount,
                               const glm::mat4& transform, RendererID heightmapTextureID,

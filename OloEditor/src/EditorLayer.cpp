@@ -321,6 +321,8 @@ namespace OloEngine
                 m_ActiveScene->SetGridVisible(Renderer3D::GetRendererSettings().ShowGrid);
                 m_ActiveScene->SetGridSpacing(m_GridSpacing);
                 m_ActiveScene->SetLightGizmosVisible(Renderer3D::GetRendererSettings().ShowLightGizmos);
+                m_ActiveScene->SetWorldAxisHelperVisible(Renderer3D::GetRendererSettings().ShowWorldAxisHelper);
+                m_ActiveScene->SetCameraFrustumsVisible(Renderer3D::GetRendererSettings().ShowCameraFrustums);
                 m_ActiveScene->OnUpdateEditor(ts, m_EditorCamera);
 
                 // Auto-save timer
@@ -342,6 +344,8 @@ namespace OloEngine
                 m_ActiveScene->SetGridVisible(Renderer3D::GetRendererSettings().ShowGrid);
                 m_ActiveScene->SetGridSpacing(m_GridSpacing);
                 m_ActiveScene->SetLightGizmosVisible(Renderer3D::GetRendererSettings().ShowLightGizmos);
+                m_ActiveScene->SetWorldAxisHelperVisible(Renderer3D::GetRendererSettings().ShowWorldAxisHelper);
+                m_ActiveScene->SetCameraFrustumsVisible(Renderer3D::GetRendererSettings().ShowCameraFrustums);
                 m_ActiveScene->OnUpdateSimulation(ts, m_EditorCamera);
                 break;
             }

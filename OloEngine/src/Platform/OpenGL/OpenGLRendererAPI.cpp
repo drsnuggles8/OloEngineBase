@@ -250,6 +250,20 @@ namespace OloEngine
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::VerticesRendered, indexCount);
     }
 
+    void OpenGLRendererAPI::DrawIndexedRaw(const u32 vaoID, const u32 indexCount, const u32 baseIndex)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glBindVertexArray(vaoID);
+        // baseIndex is an index count; convert to a byte offset for glDrawElements.
+        const void* indexOffset = reinterpret_cast<const void*>(static_cast<uintptr_t>(baseIndex) * sizeof(u32));
+        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indexCount), GL_UNSIGNED_INT, indexOffset);
+
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::TrianglesRendered, indexCount / 3);
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::VerticesRendered, indexCount);
+    }
+
     void OpenGLRendererAPI::DrawIndexedPatchesRaw(const u32 vaoID, const u32 indexCount, const u32 patchVertices)
     {
         OLO_PROFILE_FUNCTION();

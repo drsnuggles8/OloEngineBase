@@ -29,6 +29,14 @@ namespace OloEngine
         PBR = 1     // Physically Based Rendering material
     };
 
+    // Matches glTF 2.0 spec alphaMode. Encoded as i32 in shader UBOs.
+    enum class AlphaMode : i32
+    {
+        Opaque = 0, // No alpha test, no blending (default)
+        Mask = 1,   // Per-pixel discard when sampled alpha < alphaCutoff
+        Blend = 2   // Alpha blending (also requires MaterialFlag::Blend)
+    };
+
     // @brief Material class for handling PBR and legacy material properties
     //
     // This class uses a consistent encapsulated design with getter/setter methods.
@@ -290,6 +298,23 @@ namespace OloEngine
             m_EnableIBL = enable;
         }
 
+        AlphaMode GetAlphaMode() const
+        {
+            return m_AlphaMode;
+        }
+        void SetAlphaMode(AlphaMode mode)
+        {
+            m_AlphaMode = mode;
+        }
+        float GetAlphaCutoff() const
+        {
+            return m_AlphaCutoff;
+        }
+        void SetAlphaCutoff(float cutoff)
+        {
+            m_AlphaCutoff = cutoff;
+        }
+
         // PBR texture maps
         Ref<Texture2D> GetAlbedoMap() const
         {
@@ -485,6 +510,8 @@ namespace OloEngine
         float m_NormalScale = 1.0f;                    // Normal map scale
         float m_OcclusionStrength = 1.0f;              // AO strength
         bool m_EnableIBL = false;                      // Enable IBL
+        AlphaMode m_AlphaMode = AlphaMode::Opaque;     // glTF-style alpha mode
+        float m_AlphaCutoff = 0.5f;                    // Threshold for MASK mode discard
 
         // PBR texture maps
         Ref<Texture2D> m_AlbedoMap;            // Base color texture

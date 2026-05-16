@@ -75,6 +75,13 @@ namespace OloEngine
             s_RendererAPI->DrawIndexedRaw(vaoID, indexCount);
         }
 
+        // baseIndex variant — required for submeshes that share a combined IBO
+        // with their siblings (Sponza-style multi-submesh static models).
+        static void DrawIndexedRaw(u32 vaoID, u32 indexCount, u32 baseIndex)
+        {
+            s_RendererAPI->DrawIndexedRaw(vaoID, indexCount, baseIndex);
+        }
+
         static void DrawIndexedPatchesRaw(u32 vaoID, u32 indexCount, u32 patchVertices)
         {
             s_RendererAPI->DrawIndexedPatchesRaw(vaoID, indexCount, patchVertices);

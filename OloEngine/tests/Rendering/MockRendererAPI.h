@@ -167,6 +167,15 @@ namespace OloEngine::Testing
             m_Calls.push_back(c);
             m_DrawCallCount++;
         }
+        void DrawIndexedRaw(u32 vaoID, u32 indexCount, u32 baseIndex) override
+        {
+            RecordedCall c{ "DrawIndexedRawBase" };
+            c.ParamU32_0 = vaoID;
+            c.ParamU32_1 = indexCount;
+            c.ParamU32_2 = baseIndex;
+            m_Calls.push_back(c);
+            m_DrawCallCount++;
+        }
         void DrawIndexedPatchesRaw(u32 vaoID, u32 indexCount, u32 patchVerts) override
         {
             RecordedCall c{ "DrawIndexedPatchesRaw" };

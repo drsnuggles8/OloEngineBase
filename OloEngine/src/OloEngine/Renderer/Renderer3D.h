@@ -675,10 +675,10 @@ namespace OloEngine
             return s_Data.Shadow;
         }
 
-        static void AddMeshShadowCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform,
+        static void AddMeshShadowCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
                                         RendererID shadowVaoID = 0, const BoundingBox& worldBounds = NoBounds);
 
-        static void AddSkinnedShadowCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform,
+        static void AddSkinnedShadowCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
                                            u32 boneBufferOffset, u32 boneCount, const BoundingBox& worldBounds = NoBounds);
 
         static void AddTerrainShadowCaster(RendererID vaoID, u32 indexCount, u32 patchVertexCount,
