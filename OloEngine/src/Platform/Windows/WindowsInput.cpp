@@ -11,26 +11,23 @@ namespace OloEngine
     static bool s_CurrentKeys[s_MaxKeys]{};
     static bool s_PreviousKeys[s_MaxKeys]{};
 
-    void Input::Update()
-    {
-        auto* const nativeWindow = Application::Get().GetWindow().GetNativeWindow();
-        if (!nativeWindow)
-        {
-            std::memcpy(s_PreviousKeys, s_CurrentKeys, sizeof(s_CurrentKeys));
-            std::memset(s_CurrentKeys, 0, sizeof(s_CurrentKeys));
-            return;
-        }
-
-        auto* const window = static_cast<GLFWwindow*>(nativeWindow);
-        std::memcpy(s_PreviousKeys, s_CurrentKeys, sizeof(s_CurrentKeys));
-        for (i32 key = GLFW_KEY_SPACE; key < s_MaxKeys; ++key)
-        {
-            s_CurrentKeys[key] = (GLFWAPI::glfwGetKey(window, key) == GLFW_PRESS);
-        }
-    }
-
     namespace
     {
+        // Returns the GLFW window if both Application and its Window are
+        // available, otherwise nullptr. Functional tests drive Scene ticks
+        // without constructing an Application, so Application::s_Instance is
+        // null — calling Application::Get() then would dereference a null
+        // pointer and Application::GetWindow() would SEGV reading m_Window
+        // at a small offset from zero. Routing through TryGet() lets each
+        // Input method fall back to its cached / no-input behaviour safely.
+        GLFWwindow* TryGetGlfwWindow()
+        {
+            auto* const app = Application::TryGet();
+            if (!app)
+                return nullptr;
+            return static_cast<GLFWwindow*>(app->GetWindow().GetNativeWindow());
+        }
+
         // Fallback for headless / no-window paths: report the cached
         // s_CurrentKeys state, returning false for out-of-range key codes.
         bool IsKeyCached(const KeyCode key)
@@ -40,19 +37,28 @@ namespace OloEngine
         }
     } // namespace
 
+    void Input::Update()
+    {
+        auto* const window = TryGetGlfwWindow();
+        if (!window)
+        {
+            std::memcpy(s_PreviousKeys, s_CurrentKeys, sizeof(s_CurrentKeys));
+            std::memset(s_CurrentKeys, 0, sizeof(s_CurrentKeys));
+            return;
+        }
+
+        std::memcpy(s_PreviousKeys, s_CurrentKeys, sizeof(s_CurrentKeys));
+        for (i32 key = GLFW_KEY_SPACE; key < s_MaxKeys; ++key)
+        {
+            s_CurrentKeys[key] = (GLFWAPI::glfwGetKey(window, key) == GLFW_PRESS);
+        }
+    }
+
     bool Input::IsKeyPressed(const KeyCode key)
     {
-        // Application may not exist yet (or at all, in headless test binaries
-        // that drive a Scene tick without constructing an Application). Falling
-        // back to the cached s_CurrentKeys state means "no key pressed" which
-        // is the right answer when there is no input source.
-        auto* const app = Application::TryGet();
-        if (!app)
+        auto* const window = TryGetGlfwWindow();
+        if (!window)
             return IsKeyCached(key);
-        auto* const nativeWindow = app->GetWindow().GetNativeWindow();
-        if (!nativeWindow)
-            return IsKeyCached(key);
-        auto* const window = static_cast<GLFWwindow*>(nativeWindow);
         const auto state = GLFWAPI::glfwGetKey(window, static_cast<i32>(key));
         return GLFW_PRESS == state;
     }
@@ -79,24 +85,18 @@ namespace OloEngine
 
     bool Input::IsMouseButtonPressed(const MouseCode button)
     {
-        auto* const nativeWindow = Application::Get().GetWindow().GetNativeWindow();
-        if (!nativeWindow)
-        {
+        auto* const window = TryGetGlfwWindow();
+        if (!window)
             return false;
-        }
-        auto* const window = static_cast<GLFWwindow*>(nativeWindow);
         const auto state = GLFWAPI::glfwGetMouseButton(window, static_cast<i32>(button));
         return GLFW_PRESS == state;
     }
 
     glm::vec2 Input::GetMousePosition()
     {
-        auto* const nativeWindow = Application::Get().GetWindow().GetNativeWindow();
-        if (!nativeWindow)
-        {
+        auto* const window = TryGetGlfwWindow();
+        if (!window)
             return { 0.0f, 0.0f };
-        }
-        auto* const window = static_cast<GLFWwindow*>(nativeWindow);
         f64 xpos{};
         f64 ypos{};
         GLFWAPI::glfwGetCursorPos(window, &xpos, &ypos);
