@@ -84,6 +84,7 @@ add_executable(OloEngine-Tests
 		Rendering/WaterRenderingTest.cpp
 		Rendering/RenderingRegressionTest.cpp
 		Rendering/SelectionOutlineTest.cpp
+		Rendering/DeccerCubesLoadingTest.cpp
 		# Rendering property tests (require GL 4.5+ context; skip gracefully if unavailable)
 		Rendering/PropertyTests/RenderPropertyTest.cpp
 		Rendering/PropertyTests/PostProcessPropertyTests.cpp

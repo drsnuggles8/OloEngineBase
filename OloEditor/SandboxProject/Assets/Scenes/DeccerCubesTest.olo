@@ -1,0 +1,185 @@
+Scene: DeccerCubesTest.olo
+# The "deccer cubes" challenge (github.com/deccer/deccer-cubes). Seven .gltf
+# variants of the same cube cluster, each stressing a different aspect of the
+# importer:
+#   plain     — geometry-only (.bin sidecar)
+#   colored   — per-material baseColorFactor, no textures (.glb, fully embedded)
+#   textured  — UVs + 5 sidecar PNG diffuse maps
+#   complex   — bigger cluster, base64-embedded buffers
+#   embedded  — textures base64'd into the .gltf
+#   rotation  — cubes positioned via scene-node rotations (verifies the
+#               loader's aiProcess_PreTransformVertices actually bakes node
+#               transforms into vertex positions)
+#   atlas     — single mesh + single atlas texture
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1
+  BloomIntensity: 0.5
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 16
+  SSAODebugView: false
+Entities:
+  # ── Camera ──
+  - Entity: 740000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 8, 28]
+      Rotation: [-0.25, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Directional Light (key) ──
+  - Entity: 740000000000002
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.3, -1, -0.2]
+      Color: [1, 1, 1]
+      Intensity: 2
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.95
+  # ── Fill point light ──
+  - Entity: 740000000000003
+    TagComponent:
+      Tag: Fill Light
+    TransformComponent:
+      Translation: [0, 12, 12]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.95, 0.85]
+      Intensity: 5
+      Range: 50
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  # ── Ground Plane ──
+  - Entity: 740000000000004
+    TagComponent:
+      Tag: Ground Plane
+    TransformComponent:
+      Translation: [0, -4, 0]
+      Rotation: [0, 0, 0]
+      Scale: [60, 0.1, 20]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.25, 0.25, 0.27]
+      Metallic: 0
+      Roughness: 0.9
+  # ── Plain (geometry only) ──
+  - Entity: 740000000000010
+    TagComponent:
+      Tag: DeccerCubes_Plain
+    TransformComponent:
+      Translation: [-18, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.04, 0.04, 0.04]
+    ModelComponent:
+      FilePath: assets/models/DeccerCubes/SM_Deccer_Cubes.gltf
+      Visible: true
+  # ── Colored (.glb, per-material colors) ──
+  - Entity: 740000000000011
+    TagComponent:
+      Tag: DeccerCubes_Colored
+    TransformComponent:
+      Translation: [-12, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.04, 0.04, 0.04]
+    ModelComponent:
+      FilePath: assets/models/DeccerCubes/SM_Deccer_Cubes_Colored.glb
+      Visible: true
+  # ── Textured (sidecar PNGs) ──
+  - Entity: 740000000000012
+    TagComponent:
+      Tag: DeccerCubes_Textured
+    TransformComponent:
+      Translation: [-6, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.04, 0.04, 0.04]
+    ModelComponent:
+      FilePath: assets/models/DeccerCubes/SM_Deccer_Cubes_Textured.gltf
+      Visible: true
+  # ── Textured Complex (embedded buffers) ──
+  - Entity: 740000000000013
+    TagComponent:
+      Tag: DeccerCubes_Textured_Complex
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.04, 0.04, 0.04]
+    ModelComponent:
+      FilePath: assets/models/DeccerCubes/SM_Deccer_Cubes_Textured_Complex.gltf
+      Visible: true
+  # ── Textured Embedded (textures base64 in .gltf) ──
+  - Entity: 740000000000014
+    TagComponent:
+      Tag: DeccerCubes_Textured_Embedded
+    TransformComponent:
+      Translation: [6, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.04, 0.04, 0.04]
+    ModelComponent:
+      FilePath: assets/models/DeccerCubes/SM_Deccer_Cubes_Textured_Embedded.gltf
+      Visible: true
+  # ── With Rotation (verifies node-rotation bake-in) ──
+  - Entity: 740000000000015
+    TagComponent:
+      Tag: DeccerCubes_With_Rotation
+    TransformComponent:
+      Translation: [12, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.04, 0.04, 0.04]
+    ModelComponent:
+      FilePath: assets/models/DeccerCubes/SM_Deccer_Cubes_With_Rotation.gltf
+      Visible: true
+  # ── Merged Texture Atlas (single mesh + atlas PNG) ──
+  - Entity: 740000000000016
+    TagComponent:
+      Tag: DeccerCubes_Merged_Atlas
+    TransformComponent:
+      Translation: [18, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.04, 0.04, 0.04]
+    ModelComponent:
+      FilePath: assets/models/DeccerCubes/SM_Deccer_Cubes_Merged_Texture_Atlas.gltf
+      Visible: true

@@ -285,6 +285,89 @@ namespace OloEngine
             texture->SetData(packed.data(), static_cast<u32>(packed.size()));
             return texture;
         }
+
+        // Build a Texture2D from an Assimp embedded texture. glTF / FBX may
+        // embed the bitmap either as compressed bytes (PNG/JPG in pcData,
+        // mHeight==0, mWidth=byte-length) or as raw BGRA aiTexel pixels
+        // (mWidth/mHeight = dimensions). The on-disk loader flips rows for
+        // OpenGL's bottom-left origin, so we flip embedded data the same way
+        // to keep UVs consistent between embedded and external assets.
+        Ref<Texture2D> CreateTextureFromEmbedded(const aiTexture* embedded)
+        {
+            if (!embedded || !embedded->pcData)
+                return nullptr;
+
+            std::vector<u8> rgba;
+            u32 width = 0;
+            u32 height = 0;
+
+            if (embedded->mHeight == 0)
+            {
+                // Compressed: pcData is a raw byte buffer of size mWidth.
+                if (embedded->mWidth == 0)
+                    return nullptr;
+
+                i32 w = 0;
+                i32 h = 0;
+                i32 channels = 0;
+                ::stbi_set_flip_vertically_on_load_thread(1);
+                stbi_uc* decoded = ::stbi_load_from_memory(
+                    reinterpret_cast<const stbi_uc*>(embedded->pcData),
+                    static_cast<i32>(embedded->mWidth),
+                    &w, &h, &channels, STBI_rgb_alpha);
+                ::stbi_set_flip_vertically_on_load_thread(0);
+
+                if (!decoded || w <= 0 || h <= 0)
+                {
+                    if (decoded)
+                        ::stbi_image_free(decoded);
+                    return nullptr;
+                }
+
+                width = static_cast<u32>(w);
+                height = static_cast<u32>(h);
+                rgba.assign(decoded, decoded + (static_cast<sizet>(width) * height * 4u));
+                ::stbi_image_free(decoded);
+            }
+            else
+            {
+                // Raw aiTexel data is BGRA8 in row-major top-to-bottom order.
+                // Convert to RGBA8 while flipping rows for OpenGL convention.
+                width = embedded->mWidth;
+                height = embedded->mHeight;
+                if (width == 0 || height == 0)
+                    return nullptr;
+
+                rgba.resize(static_cast<sizet>(width) * height * 4u);
+                for (u32 y = 0; y < height; ++y)
+                {
+                    const u32 srcRow = height - 1u - y;
+                    for (u32 x = 0; x < width; ++x)
+                    {
+                        const aiTexel& src = embedded->pcData[static_cast<sizet>(srcRow) * width + x];
+                        const sizet dst = (static_cast<sizet>(y) * width + x) * 4u;
+                        rgba[dst + 0] = src.r;
+                        rgba[dst + 1] = src.g;
+                        rgba[dst + 2] = src.b;
+                        rgba[dst + 3] = src.a;
+                    }
+                }
+            }
+
+            TextureSpecification spec;
+            spec.Width = width;
+            spec.Height = height;
+            spec.Format = ImageFormat::RGBA8;
+            spec.GenerateMips = true;
+            spec.MipLevels = 0;
+
+            auto texture = Texture2D::Create(spec);
+            if (!texture || !texture->IsLoaded())
+                return nullptr;
+
+            texture->SetData(rgba.data(), static_cast<u32>(rgba.size()));
+            return texture;
+        }
     } // namespace
 
     Model::Model(const std::string& path, const TextureOverride& textureOverride, bool flipUV)
@@ -351,7 +434,7 @@ namespace OloEngine
                             auto matIdx = scene->mMeshes[i]->mMaterialIndex;
                             if (matIdx < scene->mNumMaterials)
                             {
-                                m_Materials[i] = ProcessMaterial(scene->mMaterials[matIdx]);
+                                m_Materials[i] = ProcessMaterial(scene->mMaterials[matIdx], scene);
                             }
                         }
                         // Fill any unfilled slots with a default material so accesses never see null
@@ -386,13 +469,27 @@ namespace OloEngine
         // Create an instance of the Importer class
         Assimp::Importer importer;
 
-        // And have it read the given file with some postprocessing
+        // And have it read the given file with some postprocessing.
+        //
+        // Deliberately omitted:
+        //   aiProcess_OptimizeMeshes — would merge meshes that share materials
+        //     across nodes. We run meshoptimizer ourselves (MeshOptimization::
+        //     OptimizeMesh in MeshSource::Build) on a per-Assimp-mesh basis,
+        //     and material slots stay aligned 1:1 with submeshes. Letting
+        //     Assimp pre-merge changes that mapping.
+        //   aiProcess_FlipWindingOrder — OpenGL front-face is CCW and our
+        //     incoming data is already CCW. Flipping here would invert
+        //     backface culling for every imported asset.
+        //   aiProcess_GlobalScale — requires AI_CONFIG_GLOBAL_SCALE_FACTOR_KEY
+        //     to be set; scenes carry their own scale via TransformComponent.
         const aiScene* scene = importer.ReadFile(path,
                                                  aiProcess_Triangulate |               // Make sure we get triangles
                                                      aiProcess_GenNormals |            // Create normals if not present
                                                      aiProcess_CalcTangentSpace |      // Calculate tangents and bitangents
                                                      aiProcess_JoinIdenticalVertices | // Deduplicate identical vertices for smaller buffers
                                                      aiProcess_ValidateDataStructure | // Validate the imported data structure
+                                                     aiProcess_FindDegenerates |       // Remove zero-area / collinear triangles
+                                                     aiProcess_FindInvalidData |       // Drop NaN/Inf normals, duplicate UVs, etc.
                                                      aiProcess_PreTransformVertices    // Bake node transforms into vertices (safe for static meshes)
         );
 
@@ -574,7 +671,7 @@ namespace OloEngine
 
                 // Add new material and create mapping
                 u32 newMaterialIndex = static_cast<u32>(m_Materials.size());
-                m_Materials.push_back(ProcessMaterial(material));
+                m_Materials.push_back(ProcessMaterial(material, scene));
                 m_MaterialIndexMap[mesh->mMaterialIndex] = newMaterialIndex;
             }
         }
@@ -644,7 +741,7 @@ namespace OloEngine
         return primaryMesh;
     }
 
-    std::vector<Ref<Texture2D>> Model::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type)
+    std::vector<Ref<Texture2D>> Model::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type, const aiScene* scene)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -654,6 +751,34 @@ namespace OloEngine
         {
             aiString str;
             mat->GetTexture(type, i, &str);
+
+            // glTF / FBX embed textures inside the file and reference them
+            // via Assimp's "*N" URI (asterisk + index into aiScene::mTextures).
+            // GetEmbeddedTexture handles both that form and an embedded
+            // texture's mFilename match, so we can route both cases through
+            // the same decode helper. If the path is a real filesystem URI
+            // we fall through to the on-disk loader below.
+            if (scene && str.length > 0)
+            {
+                if (const aiTexture* embedded = scene->GetEmbeddedTexture(str.C_Str()))
+                {
+                    const std::string cacheKey = std::string{ "embedded|" } + str.C_Str();
+                    if (auto it = m_LoadedTextures.find(cacheKey); it != m_LoadedTextures.end())
+                    {
+                        textures.push_back(it->second);
+                    }
+                    else if (auto decoded = CreateTextureFromEmbedded(embedded); decoded && decoded->IsLoaded())
+                    {
+                        m_LoadedTextures[cacheKey] = decoded;
+                        textures.push_back(decoded);
+                    }
+                    else
+                    {
+                        OLO_CORE_WARN("Model::LoadMaterialTextures: Failed to decode embedded texture '{}'", str.C_Str());
+                    }
+                    continue;
+                }
+            }
 
             std::filesystem::path relativePath = str.C_Str();
             std::filesystem::path texturePath = std::filesystem::path(m_Directory) / relativePath;
@@ -740,7 +865,7 @@ namespace OloEngine
         return textures;
     }
 
-    Ref<Material> Model::ProcessMaterial(const aiMaterial* mat)
+    Ref<Material> Model::ProcessMaterial(const aiMaterial* mat, const aiScene* scene)
     {
         aiString name;
         mat->Get(AI_MATKEY_NAME, name);
@@ -813,11 +938,11 @@ namespace OloEngine
         else
         {
             // Fall back to FBX textures
-            auto albedoMaps = LoadMaterialTextures(mat, aiTextureType_DIFFUSE);
+            auto albedoMaps = LoadMaterialTextures(mat, aiTextureType_DIFFUSE, scene);
             if (albedoMaps.empty())
             {
                 // Try base color for newer PBR materials
-                albedoMaps = LoadMaterialTextures(mat, aiTextureType_BASE_COLOR);
+                albedoMaps = LoadMaterialTextures(mat, aiTextureType_BASE_COLOR, scene);
             }
             if (!albedoMaps.empty())
             {
@@ -843,11 +968,11 @@ namespace OloEngine
         else
         {
             // Fall back to FBX textures
-            auto metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_METALNESS);
+            auto metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_METALNESS, scene);
             if (metallicRoughnessMaps.empty())
             {
                 // Try alternative metallic texture types
-                metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_REFLECTION);
+                metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_REFLECTION, scene);
             }
             if (!metallicRoughnessMaps.empty())
             {
@@ -879,7 +1004,7 @@ namespace OloEngine
                 // and buckles retain high specular/metallic response in the PBR shader.
                 if (metallicSourcePath.empty())
                 {
-                    auto specularMaps = LoadMaterialTextures(mat, aiTextureType_SPECULAR);
+                    auto specularMaps = LoadMaterialTextures(mat, aiTextureType_SPECULAR, scene);
                     metallicSourcePath = getFirstTexturePath(specularMaps);
                 }
 
@@ -936,11 +1061,11 @@ namespace OloEngine
         else
         {
             // Fall back to FBX textures
-            auto normalMaps = LoadMaterialTextures(mat, aiTextureType_NORMALS);
+            auto normalMaps = LoadMaterialTextures(mat, aiTextureType_NORMALS, scene);
             if (normalMaps.empty())
             {
                 // Try height maps as normal maps
-                normalMaps = LoadMaterialTextures(mat, aiTextureType_HEIGHT);
+                normalMaps = LoadMaterialTextures(mat, aiTextureType_HEIGHT, scene);
             }
             if (!normalMaps.empty())
             {
@@ -985,11 +1110,11 @@ namespace OloEngine
         else
         {
             // Fall back to FBX textures
-            auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION);
+            auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION, scene);
             if (aoMaps.empty())
             {
                 // Try lightmap as AO
-                aoMaps = LoadMaterialTextures(mat, aiTextureType_LIGHTMAP);
+                aoMaps = LoadMaterialTextures(mat, aiTextureType_LIGHTMAP, scene);
             }
             if (!aoMaps.empty())
             {
@@ -1032,7 +1157,7 @@ namespace OloEngine
         else
         {
             // Fall back to FBX textures
-            auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE);
+            auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE, scene);
             if (!emissiveMaps.empty())
             {
                 materialRef->SetEmissiveMap(emissiveMaps[0]);
