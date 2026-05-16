@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Asset/AssetExtensions.h"
+#include <algorithm>
 #include <cstdint>
 #include <fstream>
 #include <filesystem>
@@ -265,8 +266,13 @@ namespace OloEngine
                 file.write(reinterpret_cast<const char*>(&statusValue), sizeof(statusValue));
                 // Note: LastWriteTime serialization temporarily skipped - std::filesystem::file_time_type is complex to serialize
 
-                // Write path string
-                const std::string pathStr = metadata.FilePath.string();
+                // Write path string. Use generic_string() so the .oar is
+                // portable across platforms: on Windows path.string() returns
+                // backslash separators, which on Linux fs::path treats as
+                // literal filename characters (not separators), so subsequent
+                // fs::exists / fs::relative resolve incorrectly. generic_string
+                // always emits forward slashes regardless of OS.
+                const std::string pathStr = metadata.FilePath.generic_string();
                 const u32 pathLength = static_cast<u32>(pathStr.length());
                 file.write(reinterpret_cast<const char*>(&pathLength), sizeof(pathLength));
                 file.write(pathStr.c_str(), pathLength);
@@ -367,6 +373,13 @@ namespace OloEngine
 
                 std::string pathStr(pathLength, '\0');
                 file.read(pathStr.data(), pathLength);
+                // Normalize Windows-style backslash separators that may be
+                // present in legacy .oar files serialized before Serialize()
+                // switched to generic_string(). On Linux a fs::path built
+                // from "Assets\Textures\foo.png" sees one component (literal
+                // filename with backslashes) and fs::exists / fs::relative
+                // both miss the actual on-disk file.
+                std::replace(pathStr.begin(), pathStr.end(), '\\', '/');
                 metadata.FilePath = pathStr;
 
                 // Refresh LastWriteTime from filesystem if file exists

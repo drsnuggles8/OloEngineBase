@@ -26,6 +26,18 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        // JPH::Factory and the RTTI registered by JPH::RegisterTypes() are
+        // process-wide singletons. Each JoltScene owns its own PhysicsSystem
+        // but they all share these globals, so re-creating them on every
+        // JoltScene::Initialize() leaked the previous Factory plus its
+        // string_view/u32 RTTI hash tables whenever two JoltScenes coexisted
+        // (caught by LSan via MultipleScenesCoexistTest). Ref-count instead
+        // so global state is allocated on the first scene and torn down
+        // exactly once when the last scene shuts down.
+        std::atomic<i32> s_JoltGlobalRefCount{ 0 };
+    } // namespace
 
     JoltScene::JoltScene(Scene* scene)
         : m_Scene(scene)
@@ -737,11 +749,17 @@ namespace OloEngine
 
     void JoltScene::InitializeJolt()
     {
-        // Register all Jolt physics types
-        JPH::RegisterDefaultAllocator();
-        JPH::Trace = nullptr; // Disable Jolt's trace output
-        JPH::Factory::sInstance = new JPH::Factory();
-        JPH::RegisterTypes();
+        // Allocate process-global Jolt state only when this is the first
+        // active JoltScene. Subsequent JoltScene::Initialize() calls share
+        // the existing Factory and registered RTTI — see comment on
+        // s_JoltGlobalRefCount above for the leak this prevents.
+        if (s_JoltGlobalRefCount.fetch_add(1, std::memory_order_acq_rel) == 0)
+        {
+            JPH::RegisterDefaultAllocator();
+            JPH::Trace = nullptr; // Disable Jolt's trace output
+            JPH::Factory::sInstance = new JPH::Factory();
+            JPH::RegisterTypes();
+        }
 
         // Create temp allocator
         m_TempAllocator = std::make_unique<JPH::TempAllocatorImpl>(s_TempAllocatorSize);
@@ -787,10 +805,15 @@ namespace OloEngine
         m_JobSystem.reset();
         m_TempAllocator.reset();
 
-        // Cleanup Jolt
-        delete JPH::Factory::sInstance;
-        JPH::Factory::sInstance = nullptr;
-        JPH::UnregisterTypes();
+        // Free process-global Jolt state only when this is the last active
+        // JoltScene. Otherwise other scenes still rely on the Factory and
+        // registered RTTI.
+        if (s_JoltGlobalRefCount.fetch_sub(1, std::memory_order_acq_rel) == 1)
+        {
+            JPH::UnregisterTypes();
+            delete JPH::Factory::sInstance;
+            JPH::Factory::sInstance = nullptr;
+        }
 
         OLO_CORE_INFO("Jolt Physics shut down");
     }
