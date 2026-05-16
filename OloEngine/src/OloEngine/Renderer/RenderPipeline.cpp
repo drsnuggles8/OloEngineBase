@@ -1089,11 +1089,18 @@ namespace OloEngine
                 desc.Width = gbuffer->GetWidth();
                 desc.Height = gbuffer->GetHeight();
                 desc.Samples = sampleCount;
+                // RT layout must match `GBuffer::AttachmentIndex` so the
+                // transient-pool aliasing key matches the physical G-Buffer.
+                // Index 4 (R32Int) is the per-pixel entity-ID slot blitted
+                // into Scene FB RT1 by `DeferredLightingPass` so picking +
+                // selection-outline see real IDs in Deferred just like
+                // Forward.
                 desc.Attachments = {
                     RGResourceFormat::RGBA8UNorm,
                     RGResourceFormat::RGBA16Float,
                     RGResourceFormat::RGBA16Float,
                     RGResourceFormat::RG16Float,
+                    RGResourceFormat::R32Int,
                     RGResourceFormat::Depth24Stencil8,
                 };
                 desc.DebugName = std::string(debugName);

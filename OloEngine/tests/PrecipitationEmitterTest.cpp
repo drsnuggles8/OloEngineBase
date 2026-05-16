@@ -208,100 +208,25 @@ TEST(PrecipitationEmitter, GPUParticleSizeIs96Bytes)
 // Type-Specific Default Settings
 // =============================================================================
 
-TEST(PrecipitationDefaults, SnowDefaultsAreReasonable)
-{
-    auto s = PrecipitationSettings::GetDefaultsForType(PrecipitationType::Snow);
-    EXPECT_EQ(s.Type, PrecipitationType::Snow);
-    EXPECT_LT(s.GravityScale, 1.5f);    // Snow falls gently
-    EXPECT_GT(s.DragCoefficient, 0.1f); // Significant drag
-    EXPECT_GT(s.TurbulenceStrength, 0.2f);
-    EXPECT_FLOAT_EQ(s.CollisionBounce, 0.0f); // Snow sticks
-    EXPECT_TRUE(s.FeedAccumulation);
-}
-
-TEST(PrecipitationDefaults, RainDefaultsAreReasonable)
-{
-    auto r = PrecipitationSettings::GetDefaultsForType(PrecipitationType::Rain);
-    EXPECT_EQ(r.Type, PrecipitationType::Rain);
-    EXPECT_GT(r.GravityScale, 1.5f);          // Rain falls fast
-    EXPECT_LT(r.DragCoefficient, 0.1f);       // Low drag
-    EXPECT_LT(r.TurbulenceStrength, 0.2f);    // Minimal turbulence
-    EXPECT_FLOAT_EQ(r.CollisionBounce, 0.0f); // Rain splashes
-    EXPECT_FALSE(r.FeedAccumulation);         // No accumulation
-    EXPECT_GT(r.NearFieldSpeedMin, 3.0f);     // Faster than snow
-}
-
-TEST(PrecipitationDefaults, HailDefaultsAreReasonable)
-{
-    auto h = PrecipitationSettings::GetDefaultsForType(PrecipitationType::Hail);
-    EXPECT_EQ(h.Type, PrecipitationType::Hail);
-    EXPECT_GT(h.GravityScale, 2.0f);    // Hail is heavy
-    EXPECT_GT(h.CollisionBounce, 0.1f); // Hail bounces
-    EXPECT_FALSE(h.FeedAccumulation);
-    EXPECT_GT(h.NearFieldSpeedMin, 5.0f); // Very fast
-}
-
-TEST(PrecipitationDefaults, SleetDefaultsAreReasonable)
-{
-    auto sl = PrecipitationSettings::GetDefaultsForType(PrecipitationType::Sleet);
-    EXPECT_EQ(sl.Type, PrecipitationType::Sleet);
-    EXPECT_TRUE(sl.FeedAccumulation); // Sleet accumulates (partially)
-    // Sleet is between snow and rain
-    auto snow = PrecipitationSettings::GetDefaultsForType(PrecipitationType::Snow);
-    auto rain = PrecipitationSettings::GetDefaultsForType(PrecipitationType::Rain);
-    EXPECT_GT(sl.GravityScale, snow.GravityScale);
-    EXPECT_LT(sl.GravityScale, rain.GravityScale);
-}
-
-TEST(PrecipitationDefaults, RainFallsFasterThanSnow)
-{
-    auto snow = PrecipitationSettings::GetDefaultsForType(PrecipitationType::Snow);
-    auto rain = PrecipitationSettings::GetDefaultsForType(PrecipitationType::Rain);
-    EXPECT_GT(rain.NearFieldSpeedMin, snow.NearFieldSpeedMin);
-    EXPECT_GT(rain.NearFieldSpeedMax, snow.NearFieldSpeedMax);
-    EXPECT_GT(rain.GravityScale, snow.GravityScale);
-}
+// PrecipitationDefaults::*DefaultsAreReasonable + RainFallsFasterThanSnow
+// retired -- all five pinned specific values returned by GetDefaultsForType
+// (e.g. "Snow's GravityScale < 1.5", "Hail's NearFieldSpeedMin > 5"). These
+// are design choices in the production code, not invariants -- they fire
+// when someone retunes the physics, not when the system breaks. The
+// EXPECT_EQ(type, ...) checks were checking that the function returns the
+// correct enum branch, which is more contract-like, but those are
+// dominated by the AllTypesGenerateValidParticles test further down.
+// See docs/testing.md section 4.1.
 
 // =============================================================================
 // Type-Specific Particle Generation
 // =============================================================================
 
-TEST(PrecipitationEmitter, RainParticlesFallFasterThanSnow)
-{
-    glm::vec3 cameraPos(0.0f, 50.0f, 0.0f);
-    PrecipitationSettings snowSettings = PrecipitationSettings::GetDefaultsForType(PrecipitationType::Snow);
-    snowSettings.Enabled = true;
-    PrecipitationSettings rainSettings = PrecipitationSettings::GetDefaultsForType(PrecipitationType::Rain);
-    rainSettings.Enabled = true;
-
-    auto snowParticles = PrecipitationEmitter::GenerateParticles(
-        cameraPos, cameraPos, snowSettings, 1.0f,
-        PrecipitationLayer::NearField, glm::vec3(0.0f, 0.0f, 1.0f), 0.0f, 0.1f);
-    auto rainParticles = PrecipitationEmitter::GenerateParticles(
-        cameraPos, cameraPos, rainSettings, 1.0f,
-        PrecipitationLayer::NearField, glm::vec3(0.0f, 0.0f, 1.0f), 0.0f, 0.1f);
-
-    ASSERT_FALSE(snowParticles.empty()) << "Snow particles should be generated";
-    ASSERT_FALSE(rainParticles.empty()) << "Rain particles should be generated";
-
-    // Average fall speed (more negative = faster)
-    f32 snowAvgY = 0.0f;
-    for (const auto& p : snowParticles)
-    {
-        snowAvgY += p.VelocityMaxLifetime.y;
-    }
-    snowAvgY /= static_cast<f32>(snowParticles.size());
-
-    f32 rainAvgY = 0.0f;
-    for (const auto& p : rainParticles)
-    {
-        rainAvgY += p.VelocityMaxLifetime.y;
-    }
-    rainAvgY /= static_cast<f32>(rainParticles.size());
-
-    // Rain should fall faster (more negative)
-    EXPECT_LT(rainAvgY, snowAvgY);
-}
+// RainParticlesFallFasterThanSnow retired -- relative-ordering check
+// against design-choice defaults. The emitter math contract is exercised
+// by GeneratesParticlesAtFullIntensity + ParticlesHaveDownwardVelocity
+// (which IS an invariant: gravity points -Y). See docs/testing.md
+// section 4.1.
 
 TEST(PrecipitationEmitter, AllTypesGenerateValidParticles)
 {

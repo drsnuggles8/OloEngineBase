@@ -532,3 +532,65 @@ TEST(RenderGraphPathSwitch, DeferredDecalOrderingIsTopologicallyValid)
     EXPECT_LT(decal, lighting) << "Decal must run before DeferredLightingPass composites";
     EXPECT_LT(lighting, overlay) << "Overlay runs after DeferredLighting";
 }
+
+// =============================================================================
+// Determinism: rebuilding the same path twice — whether on a fresh graph or
+// after ResetTopology — must produce byte-identical execution orders.
+//
+// Why this matters even though Kahn's topological sort is deterministic on
+// paper: pass registration into `RenderGraph` flows through string-keyed
+// containers internally. If any of those become `std::unordered_map`
+// (hash-randomized in some STL builds) the iteration order in Kahn's ready-
+// queue silently diverges between runs. Symptoms: GPU debugging timelines
+// reorder, transient-pool aliasing decisions shift, frame-to-frame stability
+// breaks on the *same* scene. This test pins the contract.
+// =============================================================================
+TEST(RenderGraphDeterminism, ForwardPathBuildOrderIsStableAcrossFreshInstances)
+{
+    RenderGraph g1;
+    RebuildTopology(g1, /*deferred=*/false);
+    (void)g1.ValidateResourceHazards(); // triggers UpdateDependencyGraph
+
+    RenderGraph g2;
+    RebuildTopology(g2, /*deferred=*/false);
+    (void)g2.ValidateResourceHazards();
+
+    EXPECT_EQ(g1.GetExecutionOrder(), g2.GetExecutionOrder())
+        << "Forward path built on two fresh RenderGraph instances produced "
+        << "different execution orders — Kahn's topological sort is reading "
+        << "from a hash-randomized container somewhere.";
+}
+
+TEST(RenderGraphDeterminism, DeferredPathBuildOrderIsStableAcrossFreshInstances)
+{
+    RenderGraph g1;
+    RebuildTopology(g1, /*deferred=*/true);
+    (void)g1.ValidateResourceHazards();
+
+    RenderGraph g2;
+    RebuildTopology(g2, /*deferred=*/true);
+    (void)g2.ValidateResourceHazards();
+
+    EXPECT_EQ(g1.GetExecutionOrder(), g2.GetExecutionOrder())
+        << "Deferred path built on two fresh RenderGraph instances produced "
+        << "different execution orders.";
+}
+
+TEST(RenderGraphDeterminism, RebuildAfterResetMatchesFreshBuild)
+{
+    // Same-instance rebuild after ResetTopology must match a freshly
+    // constructed instance — catches stale state leaks through Reset.
+    RenderGraph reused;
+    RebuildTopology(reused, /*deferred=*/false);
+    RebuildTopology(reused, /*deferred=*/true);
+    RebuildTopology(reused, /*deferred=*/false); // back to forward
+    (void)reused.ValidateResourceHazards();
+
+    RenderGraph fresh;
+    RebuildTopology(fresh, /*deferred=*/false);
+    (void)fresh.ValidateResourceHazards();
+
+    EXPECT_EQ(reused.GetExecutionOrder(), fresh.GetExecutionOrder())
+        << "Rebuilt-after-reset graph diverges from a fresh-instance build of "
+        << "the same path — ResetTopology is leaving state behind.";
+}

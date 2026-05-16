@@ -156,27 +156,11 @@ TEST_F(InventoryTestFixture, Inventory_AddItem)
     EXPECT_EQ(inv.GetUsedSlots(), 1);
 }
 
-TEST_F(InventoryTestFixture, Inventory_AddStackableItems)
-{
-    Inventory inv(10);
-
-    ItemInstance potion1;
-    potion1.InstanceID = UUID();
-    potion1.ItemDefinitionID = "health_potion";
-    potion1.StackCount = 5;
-
-    ItemInstance potion2;
-    potion2.InstanceID = UUID();
-    potion2.ItemDefinitionID = "health_potion";
-    potion2.StackCount = 3;
-
-    EXPECT_TRUE(inv.AddItem(potion1));
-    EXPECT_TRUE(inv.AddItem(potion2));
-
-    // Should stack into 1 slot
-    EXPECT_EQ(inv.GetUsedSlots(), 1);
-    EXPECT_EQ(inv.CountItem("health_potion"), 8);
-}
+// Inventory_AddStackableItems retired -- duplicated by
+// Functional/Gameplay/InventoryStackConsolidationTest, which drives the
+// same contract through a real Scene + InventoryComponent. See
+// docs/testing.md section 5 (retirement criterion: subsumed by
+// a Functional test with broader scope).
 
 TEST_F(InventoryTestFixture, Inventory_CapacityLimit)
 {
@@ -339,23 +323,10 @@ TEST_F(InventoryTestFixture, Inventory_MoveToEmptySlot)
     EXPECT_EQ(inv.GetItemAtSlot(5)->ItemDefinitionID, "sword_iron");
 }
 
-TEST_F(InventoryTestFixture, Inventory_TransferBetweenInventories)
-{
-    Inventory inv1(10);
-    Inventory inv2(10);
-
-    ItemInstance sword;
-    sword.InstanceID = UUID();
-    sword.ItemDefinitionID = "sword_iron";
-    sword.StackCount = 1;
-
-    inv1.AddItemToSlot(0, sword);
-    EXPECT_TRUE(inv1.TransferItem(0, inv2));
-
-    EXPECT_EQ(inv1.GetUsedSlots(), 0);
-    EXPECT_EQ(inv2.GetUsedSlots(), 1);
-    EXPECT_EQ(inv2.CountItem("sword_iron"), 1);
-}
+// Inventory_TransferBetweenInventories retired -- duplicated by
+// Functional/Gameplay/InventoryTransferItemBetweenContainersTest, which
+// also covers the negative paths (empty source, self-transfer guard).
+// See docs/testing.md section 5.
 
 // ===== Inventory Sort Tests =====
 

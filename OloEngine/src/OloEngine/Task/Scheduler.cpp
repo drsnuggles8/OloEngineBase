@@ -252,6 +252,15 @@ namespace OloEngine::LowLevelTasks
         return *s_TlsValuesHolder.TlsValues;
     }
 
+    FSchedulerTls::FTlsValues* FSchedulerTls::TryGetTlsValues() noexcept
+    {
+        // Direct read of TlsValues — see header comment. The thread_local
+        // holder's dtor sets this to nullptr before the storage formally
+        // dies, so this read is well-defined even from atexit on the main
+        // thread.
+        return s_TlsValuesHolder.TlsValues;
+    }
+
     // Singleton instance
     FScheduler FScheduler::s_Singleton;
 
@@ -603,7 +612,12 @@ namespace OloEngine::LowLevelTasks
             m_WaitingQueue[1].FinishShutdown();
 
             m_GameThreadLocalQueue.reset();
-            FSchedulerTls::GetTlsValuesRef().LocalQueue = nullptr;
+            // Use the null-tolerant accessor — this code path runs both during
+            // explicit shutdown (TLS still alive) and from ~FScheduler via
+            // atexit on Linux (TLS already destroyed; reading through the
+            // reference-returning GetTlsValuesRef would SEGV / trip UBSan).
+            if (auto* tls = FSchedulerTls::TryGetTlsValues())
+                tls->LocalQueue = nullptr;
 
             m_NextWorkerId = 0;
             m_WorkerThreads.reset();

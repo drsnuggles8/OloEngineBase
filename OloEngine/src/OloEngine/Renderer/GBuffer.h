@@ -6,7 +6,7 @@
 
 namespace OloEngine
 {
-    // @brief 4-RT G-Buffer for the deferred renderer.
+    // @brief 5-RT G-Buffer for the deferred renderer.
     //
     // Layout (matches the plan in /memories/session/plan.md and the slot
     // constants in ShaderBindingLayout::TEX_GBUFFER_*):
@@ -17,6 +17,10 @@ namespace OloEngine
     //                       (GTAO converts to view-space at runtime via u_ViewMatrix)
     //   RT2 (RGBA16F)     — Emissive RGB + packed material-flags A
     //   RT3 (RG16F)       — Screen-space velocity (previous→current)
+    //   RT4 (R32I)        — Picking entity ID (cleared to -1 each frame).
+    //                       Blitted into SceneColor RT1 by DeferredLightingPass
+    //                       so the SelectionOutline JFA Init sees per-pixel
+    //                       entity IDs in Deferred just like Forward.
     //   Depth (D32F)      — shared with subsequent lighting / OIT passes
     //
     // The class is a thin convenience wrapper around a Framebuffer. Phase 2
@@ -27,11 +31,12 @@ namespace OloEngine
       public:
         enum AttachmentIndex : u32
         {
-            Albedo = 0,   // RGBA8   — base colour + metallic
-            Normal = 1,   // RGBA16F — octahedral normal + roughness + AO
-            Emissive = 2, // RGBA16F — emissive + material flags
-            Velocity = 3, // RG16F   — screen-space velocity
-            Count = 4
+            Albedo = 0,   // RGBA8       — base colour + metallic
+            Normal = 1,   // RGBA16F     — octahedral normal + roughness + AO
+            Emissive = 2, // RGBA16F     — emissive + material flags
+            Velocity = 3, // RG16F       — screen-space velocity
+            EntityID = 4, // RED_INTEGER — per-pixel picking entity ID (cleared to -1)
+            Count = 5
         };
 
         // Create a G-Buffer sized to (width, height). sampleCount = 1 means

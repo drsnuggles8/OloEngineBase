@@ -2,8 +2,10 @@
 #include <gtest/gtest.h>
 
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Math/Math.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/quaternion.hpp>
 
@@ -183,4 +185,42 @@ TEST(TransformComponent, CopyPreservesPrivateFields)
     EXPECT_FLOAT_EQ(q1.x, q2.x);
     EXPECT_FLOAT_EQ(q1.y, q2.y);
     EXPECT_FLOAT_EQ(q1.z, q2.z);
+}
+
+// =============================================================================
+// Math::DecomposeTransform -- merged from MathTest.cpp (single-test file
+// retired per docs/testing.md section 4.10).
+// =============================================================================
+
+TEST(MathDecompose, TRSMatrixRoundTripsThroughDecompose)
+{
+    const glm::vec3 expectedTranslation(10.0f, -5.0f, 3.0f);
+    const glm::vec3 expectedRotation(0.3f, 0.7f, -0.4f);
+    const glm::vec3 expectedScale(2.0f, 3.0f, 1.5f);
+
+    const glm::mat4 transform =
+        glm::translate(glm::mat4(1.0f), expectedTranslation) * glm::toMat4(glm::quat(expectedRotation)) * glm::scale(glm::mat4(1.0f), expectedScale);
+
+    glm::vec3 translation, rotation, scale;
+    ASSERT_TRUE(OloEngine::Math::DecomposeTransform(transform, translation, rotation, scale));
+
+    constexpr f32 kEps = 1e-4f;
+    for (u32 i = 0; i < 3; ++i)
+    {
+        EXPECT_NEAR(translation[i], expectedTranslation[i], kEps);
+        EXPECT_NEAR(scale[i], expectedScale[i], kEps);
+    }
+
+    // Euler decomposition isn't unique -- different platforms may return
+    // equivalent angles via a different quadrant. Compare rotation
+    // matrices instead.
+    const glm::mat4 expectedRot = glm::toMat4(glm::quat(expectedRotation));
+    const glm::mat4 actualRot = glm::toMat4(glm::quat(rotation));
+    for (u32 col = 0; col < 3; ++col)
+    {
+        for (u32 row = 0; row < 3; ++row)
+        {
+            EXPECT_NEAR(actualRot[col][row], expectedRot[col][row], kEps);
+        }
+    }
 }

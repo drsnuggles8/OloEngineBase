@@ -270,28 +270,9 @@ TEST(HeadlessMode, TickRateFromServerConfig)
 // ServerMonitor - basic functionality
 // ============================================================================
 
-TEST(ServerMonitor, DefaultConstruction)
-{
-    ServerMonitor monitor;
-    // Should not crash on construction or immediate report
-    monitor.ForceReport();
-}
-
-TEST(ServerMonitor, RecordTicksWithoutCrash)
-{
-    ServerMonitor monitor(1000.0f, 0.020f); // 20ms budget
-    for (int i = 0; i < 100; ++i)
-    {
-        monitor.RecordTick(0.016f); // ~60 Hz, under budget
-    }
-    monitor.ForceReport();
-}
-
-TEST(ServerMonitor, CustomReportInterval)
-{
-    ServerMonitor monitor(10.0f);
-    monitor.SetReportInterval(5.0f);
-    monitor.SetTickBudget(0.033f);
-    // No crash; interval/budget change is accepted
-    monitor.RecordTick(0.016f);
-}
+// ServerMonitor tests retired -- all three were "does not crash on
+// construction / setter / RecordTick" smoke. The class has no
+// observable state surface to assert against post-call (ForceReport
+// writes to a logger and returns void). When the class grows public
+// queries (current measured Hz, latest budget breach), pin those.
+// See docs/testing.md section 4.5 (lifecycle smoke).

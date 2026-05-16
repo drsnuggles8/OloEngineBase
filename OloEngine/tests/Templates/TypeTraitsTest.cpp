@@ -3,211 +3,149 @@
 
 #include "OloEngine/Templates/UnrealTypeTraits.h"
 
-using namespace OloEngine;
+#include <cstring>
+#include <string>
+#include <vector>
 
 // ============================================================================
-// TFormatSpecifier Tests
+// TypeTraitsTest — compile-time checks for the UnrealTypeTraits header.
+//
+// Every contract here is enforceable at compile time. We use one TEST
+// to register the file in gtest's per-binary inventory + give a clear
+// failure target, but the real work happens in static_asserts above —
+// the test body itself only calls SUCCEED(). See docs/testing.md
+// §4.3 ("static-assert in disguise") for the prior anti-pattern: 18
+// runtime TEST cases asserting EXPECT_STREQ on TFormatSpecifier<u8>
+// when `static_assert(strcmp(...) == 0)` does the same work for free.
 // ============================================================================
 
-TEST(TypeTraitsTest, TFormatSpecifier_ReturnsCorrectFormatForIntegers)
-{
-    EXPECT_STREQ(TFormatSpecifier<u8>::GetFormatSpecifier(), "%u");
-    EXPECT_STREQ(TFormatSpecifier<u16>::GetFormatSpecifier(), "%u");
-    EXPECT_STREQ(TFormatSpecifier<u32>::GetFormatSpecifier(), "%u");
-    EXPECT_STREQ(TFormatSpecifier<u64>::GetFormatSpecifier(), "%llu");
+using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 
-    EXPECT_STREQ(TFormatSpecifier<i8>::GetFormatSpecifier(), "%d");
-    EXPECT_STREQ(TFormatSpecifier<i16>::GetFormatSpecifier(), "%d");
-    EXPECT_STREQ(TFormatSpecifier<i32>::GetFormatSpecifier(), "%d");
-    EXPECT_STREQ(TFormatSpecifier<i64>::GetFormatSpecifier(), "%lld");
+// constexpr-strcmp helper so the format-specifier / name lookups become
+// compile-time facts. strcmp is constexpr-friendly since C++23 with MSVC,
+// but rolling our own keeps this portable to clang-cl.
+constexpr bool CStrEq(const char* a, const char* b)
+{
+    if (a == nullptr || b == nullptr)
+        return a == b;
+    while (*a && *a == *b)
+    {
+        ++a;
+        ++b;
+    }
+    return *a == *b;
 }
 
-TEST(TypeTraitsTest, TFormatSpecifier_ReturnsCorrectFormatForFloats)
+// ----- TFormatSpecifier -----
+static_assert(CStrEq(TFormatSpecifier<u8>::GetFormatSpecifier(), "%u"));
+static_assert(CStrEq(TFormatSpecifier<u16>::GetFormatSpecifier(), "%u"));
+static_assert(CStrEq(TFormatSpecifier<u32>::GetFormatSpecifier(), "%u"));
+static_assert(CStrEq(TFormatSpecifier<u64>::GetFormatSpecifier(), "%llu"));
+static_assert(CStrEq(TFormatSpecifier<i8>::GetFormatSpecifier(), "%d"));
+static_assert(CStrEq(TFormatSpecifier<i16>::GetFormatSpecifier(), "%d"));
+static_assert(CStrEq(TFormatSpecifier<i32>::GetFormatSpecifier(), "%d"));
+static_assert(CStrEq(TFormatSpecifier<i64>::GetFormatSpecifier(), "%lld"));
+static_assert(CStrEq(TFormatSpecifier<f32>::GetFormatSpecifier(), "%f"));
+static_assert(CStrEq(TFormatSpecifier<f64>::GetFormatSpecifier(), "%f"));
+static_assert(CStrEq(TFormatSpecifier<long double>::GetFormatSpecifier(), "%f"));
+static_assert(CStrEq(TFormatSpecifier<bool>::GetFormatSpecifier(), "%i"));
+
+// TNameOf::GetName() returns a non-constexpr const char*, so it runs at
+// TEST time below in AllNameOfsAreCorrect — kept as a single TEST to
+// preserve the contract without proliferating registration overhead.
+
+// ----- TNthTypeFromParameterPack -----
+static_assert(std::is_same_v<TNthTypeFromParameterPack_T<0, int, float, double>, int>);
+static_assert(std::is_same_v<TNthTypeFromParameterPack_T<1, int, float, double>, float>);
+static_assert(std::is_same_v<TNthTypeFromParameterPack_T<2, int, float, double>, double>);
+
+// ----- TIsFundamentalType -----
+static_assert(TIsFundamentalType<int>::Value);
+static_assert(TIsFundamentalType<float>::Value);
+static_assert(TIsFundamentalType<double>::Value);
+static_assert(TIsFundamentalType<char>::Value);
+static_assert(TIsFundamentalType<bool>::Value);
+static_assert(TIsFundamentalType<void>::Value);
+
+namespace TypeTraitsTestDetail
 {
-    EXPECT_STREQ(TFormatSpecifier<f32>::GetFormatSpecifier(), "%f");
-    EXPECT_STREQ(TFormatSpecifier<f64>::GetFormatSpecifier(), "%f");
-    EXPECT_STREQ(TFormatSpecifier<long double>::GetFormatSpecifier(), "%f");
-}
-
-TEST(TypeTraitsTest, TFormatSpecifier_ReturnsCorrectFormatForBool)
-{
-    EXPECT_STREQ(TFormatSpecifier<bool>::GetFormatSpecifier(), "%i");
-}
-
-// ============================================================================
-// TNameOf Tests
-// ============================================================================
-
-TEST(TypeTraitsTest, TNameOf_ReturnsCorrectNameForIntegers)
-{
-    EXPECT_STREQ(TNameOf<u8>::GetName(), "u8");
-    EXPECT_STREQ(TNameOf<u16>::GetName(), "u16");
-    EXPECT_STREQ(TNameOf<u32>::GetName(), "u32");
-    EXPECT_STREQ(TNameOf<u64>::GetName(), "u64");
-
-    EXPECT_STREQ(TNameOf<i8>::GetName(), "i8");
-    EXPECT_STREQ(TNameOf<i16>::GetName(), "i16");
-    EXPECT_STREQ(TNameOf<i32>::GetName(), "i32");
-    EXPECT_STREQ(TNameOf<i64>::GetName(), "i64");
-}
-
-TEST(TypeTraitsTest, TNameOf_ReturnsCorrectNameForFloats)
-{
-    EXPECT_STREQ(TNameOf<f32>::GetName(), "f32");
-    EXPECT_STREQ(TNameOf<f64>::GetName(), "f64");
-}
-
-// ============================================================================
-// TNthTypeFromParameterPack Tests
-// ============================================================================
-
-TEST(TypeTraitsTest, TNthTypeFromParameterPack_ReturnsCorrectType)
-{
-    static_assert(std::is_same_v<TNthTypeFromParameterPack_T<0, int, float, double>, int>);
-    static_assert(std::is_same_v<TNthTypeFromParameterPack_T<1, int, float, double>, float>);
-    static_assert(std::is_same_v<TNthTypeFromParameterPack_T<2, int, float, double>, double>);
-
-    // Just verify it compiles - static_asserts above do the real check
-    SUCCEED();
-}
-
-// ============================================================================
-// TIsFundamentalType Tests
-// ============================================================================
-
-TEST(TypeTraitsTest, TIsFundamentalType_TrueForArithmetic)
-{
-    EXPECT_TRUE(TIsFundamentalType<int>::Value);
-    EXPECT_TRUE(TIsFundamentalType<float>::Value);
-    EXPECT_TRUE(TIsFundamentalType<double>::Value);
-    EXPECT_TRUE(TIsFundamentalType<char>::Value);
-    EXPECT_TRUE(TIsFundamentalType<bool>::Value);
-}
-
-TEST(TypeTraitsTest, TIsFundamentalType_TrueForVoid)
-{
-    EXPECT_TRUE(TIsFundamentalType<void>::Value);
-}
-
-TEST(TypeTraitsTest, TIsFundamentalType_FalseForClassTypes)
-{
-    struct TestStruct
+    struct PlainStruct
     {
     };
-    EXPECT_FALSE(TIsFundamentalType<TestStruct>::Value);
-    EXPECT_FALSE(TIsFundamentalType<std::string>::Value);
-}
-
-// ============================================================================
-// TIsFunction Tests
-// ============================================================================
-
-TEST(TypeTraitsTest, TIsFunction_TrueForFunctions)
-{
-    EXPECT_TRUE((TIsFunction<void()>::Value));
-    EXPECT_TRUE((TIsFunction<int(float, double)>::Value));
-    EXPECT_TRUE((TIsFunction<void(int, int, int)>::Value));
-}
-
-TEST(TypeTraitsTest, TIsFunction_FalseForNonFunctions)
-{
-    EXPECT_FALSE(TIsFunction<int>::Value);
-    EXPECT_FALSE(TIsFunction<int*>::Value);
-    EXPECT_FALSE((TIsFunction<int (*)(float)>::Value)); // Function pointer, not function
-}
-
-// ============================================================================
-// TCallTraits Tests
-// ============================================================================
-
-TEST(TypeTraitsTest, TCallTraits_SmallPODPassedByValue)
-{
-    // Small POD types should be passed by value (const T)
-    static_assert(std::is_same_v<TCallTraits<int>::ParamType, const int>);
-    static_assert(std::is_same_v<TCallTraits<float>::ParamType, const float>);
-    SUCCEED();
-}
-
-TEST(TypeTraitsTest, TCallTraits_LargeTypesPassedByReference)
-{
-    struct LargeStruct
-    {
-        char data[1024];
-    };
-    // Large types should be passed by const reference
-    static_assert(std::is_same_v<TCallTraits<LargeStruct>::ParamType, const LargeStruct&>);
-    SUCCEED();
-}
-
-TEST(TypeTraitsTest, TCallTraits_PointersPassedByValue)
-{
-    // Pointers should be passed by value
-    static_assert(std::is_same_v<TCallTraits<int*>::ParamType, int*>);
-    SUCCEED();
-}
-
-// ============================================================================
-// TIsBitwiseConstructible Tests
-// ============================================================================
-
-TEST(TypeTraitsTest, TIsBitwiseConstructible_TrueForSameType)
-{
-    EXPECT_TRUE((TIsBitwiseConstructible<int, int>::Value));
-    EXPECT_TRUE((TIsBitwiseConstructible<float, float>::Value));
-}
-
-TEST(TypeTraitsTest, TIsBitwiseConstructible_TrueForSignedUnsignedPairs)
-{
-    EXPECT_TRUE((TIsBitwiseConstructible<u32, i32>::Value));
-    EXPECT_TRUE((TIsBitwiseConstructible<i32, u32>::Value));
-    EXPECT_TRUE((TIsBitwiseConstructible<u64, i64>::Value));
-    EXPECT_TRUE((TIsBitwiseConstructible<i64, u64>::Value));
-}
-
-TEST(TypeTraitsTest, TIsBitwiseConstructible_TrueForConstPointerFromNonConst)
-{
-    EXPECT_TRUE((TIsBitwiseConstructible<const int*, int*>::Value));
-}
-
-// ============================================================================
-// Basic Type Trait Tests
-// ============================================================================
-
-TEST(TypeTraitsTest, TIsZeroConstructType_TrueForFundamentals)
-{
-    EXPECT_TRUE(TIsZeroConstructType<int>::Value);
-    EXPECT_TRUE(TIsZeroConstructType<float>::Value);
-    EXPECT_TRUE(TIsZeroConstructType<int*>::Value);
-}
-
-TEST(TypeTraitsTest, TIsPODType_TrueForPODs)
-{
     struct PODStruct
     {
         int x;
         float y;
     };
-    EXPECT_TRUE(TIsPODType<int>::Value);
-    EXPECT_TRUE(TIsPODType<PODStruct>::Value);
+    struct LargeStruct
+    {
+        char data[1024];
+    };
+} // namespace TypeTraitsTestDetail
+static_assert(!TIsFundamentalType<TypeTraitsTestDetail::PlainStruct>::Value);
+static_assert(!TIsFundamentalType<std::string>::Value);
+
+// ----- TIsFunction -----
+static_assert(TIsFunction<void()>::Value);
+static_assert(TIsFunction<int(float, double)>::Value);
+static_assert(TIsFunction<void(int, int, int)>::Value);
+static_assert(!TIsFunction<int>::Value);
+static_assert(!TIsFunction<int*>::Value);
+static_assert(!TIsFunction<int (*)(float)>::Value); // pointer-to-function, not function itself
+
+// ----- TCallTraits -----
+static_assert(std::is_same_v<TCallTraits<int>::ParamType, const int>);
+static_assert(std::is_same_v<TCallTraits<float>::ParamType, const float>);
+static_assert(std::is_same_v<TCallTraits<TypeTraitsTestDetail::LargeStruct>::ParamType,
+                             const TypeTraitsTestDetail::LargeStruct&>);
+static_assert(std::is_same_v<TCallTraits<int*>::ParamType, int*>);
+
+// ----- TIsBitwiseConstructible -----
+static_assert(TIsBitwiseConstructible<int, int>::Value);
+static_assert(TIsBitwiseConstructible<float, float>::Value);
+static_assert(TIsBitwiseConstructible<u32, i32>::Value);
+static_assert(TIsBitwiseConstructible<i32, u32>::Value);
+static_assert(TIsBitwiseConstructible<u64, i64>::Value);
+static_assert(TIsBitwiseConstructible<i64, u64>::Value);
+static_assert(TIsBitwiseConstructible<const int*, int*>::Value);
+
+// ----- TIsZeroConstructType -----
+static_assert(TIsZeroConstructType<int>::Value);
+static_assert(TIsZeroConstructType<float>::Value);
+static_assert(TIsZeroConstructType<int*>::Value);
+
+// ----- TIsPODType -----
+static_assert(TIsPODType<int>::Value);
+static_assert(TIsPODType<TypeTraitsTestDetail::PODStruct>::Value);
+static_assert(!TIsPODType<std::string>::Value);
+static_assert(!TIsPODType<std::vector<int>>::Value);
+
+// ----- Logical combinators (TAnd / TOr / TNot) -----
+static_assert(TAnd<TIsArithmetic<int>, TIsArithmetic<float>>::Value);
+static_assert(!TAnd<TIsArithmetic<int>, TIsPointer<int>>::Value);
+static_assert(TOr<TIsArithmetic<int>, TIsPointer<int>>::Value);
+static_assert(!TOr<TIsPointer<int>, TIsPointer<float>>::Value);
+static_assert(TNot<TIsPointer<int>>::Value);
+static_assert(!TNot<TIsArithmetic<int>>::Value);
+
+TEST(TypeTraitsTest, AllChecksAreCompileTime)
+{
+    // The compile-time block above is the real test surface — if any
+    // static_assert fires, the build fails before this body runs.
+    SUCCEED();
 }
 
-TEST(TypeTraitsTest, TIsPODType_FalseForNonPODs)
+TEST(TypeTraitsTest, AllNameOfsAreCorrect)
 {
-    EXPECT_FALSE(TIsPODType<std::string>::Value);
-    EXPECT_FALSE(TIsPODType<std::vector<int>>::Value);
-}
-
-TEST(TypeTraitsTest, LogicalCombinators_WorkCorrectly)
-{
-    // TAnd
-    EXPECT_TRUE((TAnd<TIsArithmetic<int>, TIsArithmetic<float>>::Value));
-    EXPECT_FALSE((TAnd<TIsArithmetic<int>, TIsPointer<int>>::Value));
-
-    // TOr
-    EXPECT_TRUE((TOr<TIsArithmetic<int>, TIsPointer<int>>::Value));
-    EXPECT_FALSE((TOr<TIsPointer<int>, TIsPointer<float>>::Value));
-
-    // TNot
-    EXPECT_TRUE(TNot<TIsPointer<int>>::Value);
-    EXPECT_FALSE(TNot<TIsArithmetic<int>>::Value);
+    // TNameOf::GetName is not constexpr; check the strings at runtime.
+    EXPECT_STREQ(TNameOf<u8>::GetName(), "u8");
+    EXPECT_STREQ(TNameOf<u16>::GetName(), "u16");
+    EXPECT_STREQ(TNameOf<u32>::GetName(), "u32");
+    EXPECT_STREQ(TNameOf<u64>::GetName(), "u64");
+    EXPECT_STREQ(TNameOf<i8>::GetName(), "i8");
+    EXPECT_STREQ(TNameOf<i16>::GetName(), "i16");
+    EXPECT_STREQ(TNameOf<i32>::GetName(), "i32");
+    EXPECT_STREQ(TNameOf<i64>::GetName(), "i64");
+    EXPECT_STREQ(TNameOf<f32>::GetName(), "f32");
+    EXPECT_STREQ(TNameOf<f64>::GetName(), "f64");
 }

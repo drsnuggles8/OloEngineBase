@@ -43,6 +43,13 @@ namespace OloEngine
         StateMachine = 32,
     };
 
+    // If AssetType grows past StateMachine, bump kMaxKnownValue in
+    // OloEngine/tests/AssetExtensionsCoverageTest.cpp or that test will
+    // silently skip the new entries.
+    static_assert(static_cast<u16>(AssetType::StateMachine) == 32,
+                  "AssetType::StateMachine moved; update kMaxKnownValue in "
+                  "AssetExtensionsCoverageTest.cpp to match the new max value.");
+
     enum class AssetFlag : u16
     {
         None = 0,

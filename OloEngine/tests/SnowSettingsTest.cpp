@@ -12,42 +12,8 @@ using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 // SnowSettings Defaults
 // =============================================================================
 
-TEST(SnowSettings, DefaultsAreReasonable)
-{
-    SnowSettings snow;
-
-    EXPECT_FALSE(snow.Enabled);
-    EXPECT_FALSE(snow.SSSBlurEnabled);
-
-    // Coverage
-    EXPECT_LT(snow.HeightStart, snow.HeightFull);
-    EXPECT_GT(snow.SlopeStart, snow.SlopeFull);
-    EXPECT_GT(snow.SlopeStart, 0.0f);
-    EXPECT_LT(snow.SlopeStart, 1.0f);
-
-    // Material
-    EXPECT_GT(snow.Roughness, 0.0f);
-    EXPECT_LE(snow.Roughness, 1.0f);
-    EXPECT_GT(snow.Albedo.r, 0.9f);
-    EXPECT_GT(snow.Albedo.g, 0.9f);
-    EXPECT_GT(snow.Albedo.b, 0.9f);
-
-    // SSS
-    EXPECT_GT(snow.SSSIntensity, 0.0f);
-    EXPECT_LE(snow.SSSIntensity, 1.0f);
-
-    // Sparkle
-    EXPECT_GT(snow.SparkleIntensity, 0.0f);
-    EXPECT_GT(snow.SparkleDensity, 0.0f);
-    EXPECT_GT(snow.SparkleScale, 0.0f);
-
-    // Normal perturbation
-    EXPECT_GT(snow.NormalPerturbStrength, 0.0f);
-
-    // Blur
-    EXPECT_GT(snow.SSSBlurRadius, 0.0f);
-    EXPECT_GT(snow.SSSBlurFalloff, 0.0f);
-}
+// DefaultsAreReasonable retired — pinned design choices in the header.
+// See docs/testing.md §4.1.
 
 // =============================================================================
 // SnowUBOData Layout (std140 alignment)
@@ -164,59 +130,5 @@ TEST(ShaderBindingLayout, SnowAndSSSBindingsExist)
 // SnowAccumulationSettings Defaults
 // =============================================================================
 
-TEST(SnowAccumulationSettings, DefaultsAreReasonable)
-{
-    SnowAccumulationSettings sa;
-
-    EXPECT_FALSE(sa.Enabled);
-    EXPECT_GT(sa.AccumulationRate, 0.0f);
-    EXPECT_GT(sa.MaxDepth, 0.0f);
-    EXPECT_GE(sa.MeltRate, 0.0f);
-    EXPECT_GE(sa.RestorationRate, 0.0f);
-    EXPECT_GT(sa.DisplacementScale, 0.0f);
-    EXPECT_GT(sa.ClipmapResolution, 0u);
-    EXPECT_GT(sa.ClipmapExtent, 0.0f);
-    EXPECT_GE(sa.NumClipmapRings, 1u);
-    EXPECT_GE(sa.SnowDensity, 0.0f);
-    EXPECT_LE(sa.SnowDensity, 1.0f);
-}
-
-// =============================================================================
-// SnowEjectaSettings Defaults
-// =============================================================================
-
-TEST(SnowEjectaSettings, DefaultsAreReasonable)
-{
-    SnowEjectaSettings se;
-
-    EXPECT_FALSE(se.Enabled);
-    EXPECT_GT(se.ParticlesPerDeform, 0u);
-    EXPECT_GT(se.EjectaSpeed, 0.0f);
-    EXPECT_GE(se.SpeedVariance, 0.0f);
-    EXPECT_LE(se.SpeedVariance, 1.0f);
-    EXPECT_GE(se.UpwardBias, 0.0f);
-    EXPECT_LE(se.UpwardBias, 1.0f);
-    EXPECT_GT(se.LifetimeMin, 0.0f);
-    EXPECT_GE(se.LifetimeMax, se.LifetimeMin);
-    EXPECT_GT(se.InitialSize, 0.0f);
-    EXPECT_GE(se.SizeVariance, 0.0f);
-    EXPECT_GE(se.GravityScale, 0.0f);
-    EXPECT_GE(se.DragCoefficient, 0.0f);
-    EXPECT_GE(se.VelocityThreshold, 0.0f);
-    EXPECT_GT(se.MaxParticles, 0u);
-}
-
-TEST(SnowEjectaSettings, SimConstantsHaveSaneDefaults)
-{
-    SnowEjectaSettings se;
-
-    EXPECT_GE(se.WindInfluence, 0.0f);
-    EXPECT_LE(se.WindInfluence, 1.0f);
-    EXPECT_GE(se.NoiseStrength, 0.0f);
-    EXPECT_GT(se.NoiseFrequency, 0.0f);
-    EXPECT_FLOAT_EQ(se.GroundY, 0.0f);
-    EXPECT_GE(se.CollisionBounce, 0.0f);
-    EXPECT_LE(se.CollisionBounce, 1.0f);
-    EXPECT_GE(se.CollisionFriction, 0.0f);
-    EXPECT_LE(se.CollisionFriction, 1.0f);
-}
+// SnowAccumulation/Ejecta defaults-sanity blocks retired — pure design-choice
+// pinning. See docs/testing.md §4.1.

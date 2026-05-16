@@ -10857,6 +10857,301 @@ TEST(RenderGraphSceneColorChain, DeferredSceneColorRMWChainViaBuilderCallbacksIs
         << "ForwardOverlayPass must precede FoliagePass (derived from SceneColor Read)";
 }
 
+TEST(RenderGraphSceneColorChain, RmwPassRemainsReachableWhenAllOptionalRmwChainStepsAreAbsent)
+{
+    // Regression: a deferred RMW pass that does `WriteNewVersion(SceneColor, …)`
+    // (e.g. ForwardOverlayPass) used to be culled with "No downstream reader"
+    // whenever every optional pinning step between it and the post-process
+    // chain (Foliage / Decal / Water / Particle / OITResolve) had empty
+    // buckets and short-circuited their Setup. Post-process passes look up
+    // `SceneColorTexture` via the latest-version map, but `WriteNewVersion`
+    // only republished the framebuffer version — the texture-view name still
+    // resolved to the base view (which is parented on the base framebuffer),
+    // so the dep walked back to the base writer (DeferredLightingPass) and
+    // skipped ForwardOverlay entirely.
+    //
+    // `CreateVersionedFramebufferHandle` now auto-publishes versioned
+    // siblings for every attachment view of the source framebuffer. This
+    // test pins that behaviour: registering only the base FB, a base RT0
+    // view, and a single RMW pass with no further pinning steps still leaves
+    // the RMW pass reachable through a name-based-latest reader.
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    // Mirror what `RenderPipeline::PopulateBlackboard` does at frame start:
+    // register the base SceneColor framebuffer and its canonical RT0 view.
+    RGResourceDesc fbDesc;
+    fbDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    fbDesc.Width = 1u;
+    fbDesc.Height = 1u;
+    fbDesc.Attachments = { RGResourceFormat::RGBA8UNorm };
+    fbDesc.DebugName = std::string(ResourceNames::SceneColor);
+    const auto sceneColorFB = graph.DeclareTransientFramebuffer(ResourceNames::SceneColor, fbDesc);
+    [[maybe_unused]] const auto baseSceneColorView = graph.CreateFramebufferAttachmentView(
+        ResourceNames::SceneColorTexture, sceneColorFB, 0u);
+
+    // Base SceneColor writer (stand-in for DeferredLightingPass).
+    AddSetupNode(
+        graph,
+        "DeferredLightingPass",
+        [sceneColorFB](RGBuilder& builder)
+        {
+            builder.Write(sceneColorFB, RGWriteUsage::RenderTarget);
+        });
+
+    // The pass under test. RMW on SceneColor with no other RMW step pinning
+    // it; orphaned before the auto-publish fix.
+    AddSetupNode(
+        graph,
+        "ForwardOverlayPass",
+        [sceneColorFB](RGBuilder& builder)
+        {
+            [[maybe_unused]] const auto r = builder.Read(sceneColorFB, RGReadUsage::RenderTargetRead);
+            [[maybe_unused]] const auto newVer = builder.WriteNewVersion(
+                sceneColorFB, RGWriteUsage::RenderTarget, "ForwardOverlayPass");
+            builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
+        });
+
+    // Post-process-style consumer: reads whatever the latest SceneColorTexture
+    // version is, via the same name-based lookup that
+    // `ReadFirstValidVersionedInputForPass` uses in production. Falls back to
+    // the base view if no versioned sibling exists — which is exactly the
+    // path that orphaned ForwardOverlay before this fix.
+    AddSetupNode(
+        graph,
+        "DownstreamReaderPass",
+        [](RGBuilder& builder)
+        {
+            const auto latestTex = builder.GetGraph().GetTextureHandle(ResourceNames::SceneColorTexture);
+            if (latestTex.IsValid())
+                [[maybe_unused]]
+                const auto r = builder.Read(latestTex, RGReadUsage::ShaderSample);
+        });
+
+    graph.SetFinalPass("DownstreamReaderPass");
+    graph.BuildFrameGraph();
+
+    // The auto-publish must have created the versioned attachment view so
+    // the latest-version map for `SceneColorTexture` points at it.
+    const auto versionedView = graph.GetTextureHandle("SceneColorTexture@ForwardOverlayPass");
+    EXPECT_TRUE(versionedView.IsValid())
+        << "WriteNewVersion on a framebuffer must auto-publish versioned attachment views";
+
+    // ForwardOverlayPass must NOT be culled.
+    const auto& culled = graph.GetCulledPasses();
+    EXPECT_TRUE(std::find(culled.begin(), culled.end(), "ForwardOverlayPass") == culled.end())
+        << "ForwardOverlayPass must remain reachable when no optional RMW step pins the SceneColor chain";
+
+    const auto& order = graph.GetExecutionOrder();
+    const auto overlayPos = std::find(order.begin(), order.end(), "ForwardOverlayPass");
+    const auto downstreamPos = std::find(order.begin(), order.end(), "DownstreamReaderPass");
+    const auto lightingPos = std::find(order.begin(), order.end(), "DeferredLightingPass");
+
+    ASSERT_NE(overlayPos, order.end()) << "ForwardOverlayPass missing from execution order";
+    ASSERT_NE(downstreamPos, order.end()) << "DownstreamReaderPass missing from execution order";
+    ASSERT_NE(lightingPos, order.end()) << "DeferredLightingPass missing from execution order";
+
+    EXPECT_LT(lightingPos - order.begin(), overlayPos - order.begin())
+        << "Base SceneColor writer must precede the RMW pass";
+    EXPECT_LT(overlayPos - order.begin(), downstreamPos - order.begin())
+        << "RMW pass must precede the downstream name-based reader";
+}
+
+TEST(RenderGraphSceneColorChain, EarlierRmwPassRemainsReachableWhenLaterRmwPassOverwritesLatestVersion)
+{
+    // Regression: when two RMW passes both call WriteNewVersion on the same
+    // base resource, the SECOND one's version becomes the latest. Downstream
+    // readers depend on the latest (second) writer. Without proper
+    // last-writer tracking on the BASE name, the second pass's
+    // `DependsOnPreviousWriter("SceneColor")` resolves to the *original
+    // base writer* (e.g. DeferredLightingPass) instead of the previous
+    // VERSIONED writer (the first RMW pass) — and the first RMW pass is
+    // orphaned with "no downstream reader".
+    //
+    // This pins the fix in `processGraphNode`: when a versioned write
+    // `X@tag` is recorded, the base name's last-writer entry is updated
+    // to the same pass too, so the chain stays intact.
+    //
+    // Production scenario this catches: DeferredLighting → ForwardOverlay
+    // → ParticlePass → AOApply / etc. — every RMW pass is reachable.
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    RGResourceDesc fbDesc;
+    fbDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    fbDesc.Width = 1u;
+    fbDesc.Height = 1u;
+    fbDesc.Attachments = { RGResourceFormat::RGBA8UNorm };
+    fbDesc.DebugName = std::string(ResourceNames::SceneColor);
+    const auto sceneColorFB = graph.DeclareTransientFramebuffer(ResourceNames::SceneColor, fbDesc);
+    [[maybe_unused]] const auto baseSceneColorView = graph.CreateFramebufferAttachmentView(
+        ResourceNames::SceneColorTexture, sceneColorFB, 0u);
+
+    AddSetupNode(
+        graph,
+        "DeferredLightingPass",
+        [sceneColorFB](RGBuilder& builder)
+        {
+            builder.Write(sceneColorFB, RGWriteUsage::RenderTarget);
+        });
+
+    // FIRST RMW pass — the one that historically got orphaned.
+    AddSetupNode(
+        graph,
+        "ForwardOverlayPass",
+        [sceneColorFB](RGBuilder& builder)
+        {
+            [[maybe_unused]] const auto r = builder.Read(sceneColorFB, RGReadUsage::RenderTargetRead);
+            [[maybe_unused]] const auto newVer = builder.WriteNewVersion(
+                sceneColorFB, RGWriteUsage::RenderTarget, "ForwardOverlayPass");
+            builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
+        });
+
+    // SECOND RMW pass — overwrites the latest SceneColor version, then
+    // calls DependsOnPreviousWriter to chain back. Must resolve to the
+    // FIRST RMW pass (ForwardOverlayPass), not the base writer.
+    AddSetupNode(
+        graph,
+        "ParticlePass",
+        [sceneColorFB](RGBuilder& builder)
+        {
+            [[maybe_unused]] const auto r = builder.Read(sceneColorFB, RGReadUsage::RenderTargetRead);
+            [[maybe_unused]] const auto newVer = builder.WriteNewVersion(
+                sceneColorFB, RGWriteUsage::RenderTarget, "ParticlePass");
+            builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
+        });
+
+    AddSetupNode(
+        graph,
+        "DownstreamReaderPass",
+        [](RGBuilder& builder)
+        {
+            const auto latestTex = builder.GetGraph().GetTextureHandle(ResourceNames::SceneColorTexture);
+            if (latestTex.IsValid())
+                [[maybe_unused]]
+                const auto r = builder.Read(latestTex, RGReadUsage::ShaderSample);
+        });
+
+    graph.SetFinalPass("DownstreamReaderPass");
+    graph.BuildFrameGraph();
+
+    // Both RMW passes must remain reachable.
+    const auto& culled = graph.GetCulledPasses();
+    EXPECT_TRUE(std::find(culled.begin(), culled.end(), "ForwardOverlayPass") == culled.end())
+        << "ForwardOverlayPass must stay reachable even when ParticlePass overwrites the latest SceneColor version";
+    EXPECT_TRUE(std::find(culled.begin(), culled.end(), "ParticlePass") == culled.end())
+        << "ParticlePass must stay reachable (it writes the latest SceneColor version)";
+
+    // Verify chain ordering: DeferredLighting → ForwardOverlay → Particle → Downstream.
+    const auto& order = graph.GetExecutionOrder();
+    auto posOf = [&order](const char* name)
+    { return std::find(order.begin(), order.end(), name) - order.begin(); };
+
+    ASSERT_NE(std::find(order.begin(), order.end(), "ForwardOverlayPass"), order.end());
+    ASSERT_NE(std::find(order.begin(), order.end(), "ParticlePass"), order.end());
+
+    EXPECT_LT(posOf("DeferredLightingPass"), posOf("ForwardOverlayPass"));
+    EXPECT_LT(posOf("ForwardOverlayPass"), posOf("ParticlePass"))
+        << "DependsOnPreviousWriter must chain ParticlePass back to ForwardOverlayPass, not skip to DeferredLightingPass";
+    EXPECT_LT(posOf("ParticlePass"), posOf("DownstreamReaderPass"));
+}
+
+TEST(RenderGraphSceneColorChain, RmwContributorsRemainReachableWhenConsumerReadsBaseResource)
+{
+    // Regression: OIT-chain shape. OITPreparePass clears the BASE OITAccum;
+    // DecalPass / ParticlePass do RMW via WriteNewVersion; OITResolvePass
+    // reads the BASE OITAccum at the end (via typed handle, NOT via the
+    // name-based latest-version cascade). Without the local
+    // lastWriterByResource fix that propagates versioned writes back to the
+    // base name's writer list, the consumer's Read→Writer derivation only
+    // finds the original base writer (OITPreparePass) — the RMW
+    // contributors are orphaned and culled as "no downstream reader", and
+    // their writes never run even though their data is read at execute time.
+    //
+    // This pins the local-map base-name propagation in processGraphNode
+    // (the analog of the m_LastWriterPassNameByResource fix above).
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    // Single-attachment FB stands in for the OIT MRT — same shape, fewer
+    // dependencies in the test.
+    RGResourceDesc fbDesc;
+    fbDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    fbDesc.Width = 1u;
+    fbDesc.Height = 1u;
+    fbDesc.Attachments = { RGResourceFormat::RGBA8UNorm };
+    fbDesc.DebugName = "TestRMWBuffer";
+    const auto rmwFB = graph.DeclareTransientFramebuffer("TestRMWBuffer", fbDesc);
+    [[maybe_unused]] const auto rmwBaseView = graph.CreateFramebufferAttachmentView(
+        "TestRMWBufferView", rmwFB, 0u);
+
+    // Base writer (clear pass — stand-in for OITPreparePass).
+    AddSetupNode(
+        graph,
+        "ClearPass",
+        [rmwFB](RGBuilder& builder)
+        {
+            builder.Write(rmwFB, RGWriteUsage::RenderTarget);
+        });
+
+    // First RMW contributor (stand-in for DecalPass).
+    AddSetupNode(
+        graph,
+        "ContributorA",
+        [rmwFB](RGBuilder& builder)
+        {
+            [[maybe_unused]] const auto r = builder.Read(rmwFB, RGReadUsage::RenderTargetRead);
+            [[maybe_unused]] const auto newVer = builder.WriteNewVersion(
+                rmwFB, RGWriteUsage::RenderTarget, "ContributorA");
+            builder.DependsOnPreviousWriter("TestRMWBuffer");
+        });
+
+    // Second RMW contributor (stand-in for ParticlePass).
+    AddSetupNode(
+        graph,
+        "ContributorB",
+        [rmwFB](RGBuilder& builder)
+        {
+            [[maybe_unused]] const auto r = builder.Read(rmwFB, RGReadUsage::RenderTargetRead);
+            [[maybe_unused]] const auto newVer = builder.WriteNewVersion(
+                rmwFB, RGWriteUsage::RenderTarget, "ContributorB");
+            builder.DependsOnPreviousWriter("TestRMWBuffer");
+        });
+
+    // Consumer reads the BASE handle directly — like OITResolvePass reading
+    // `blackboard.OIT.OITAccum`. No name-based candidate cascade, no
+    // DependsOnPreviousWriter. The contributors must still anchor via the
+    // local lastWriterByResource map propagating versioned writes to the
+    // base name.
+    AddSetupNode(
+        graph,
+        "ConsumerPass",
+        [rmwFB](RGBuilder& builder)
+        {
+            [[maybe_unused]] const auto r = builder.Read(rmwFB, RGReadUsage::ShaderSample);
+        });
+
+    graph.SetFinalPass("ConsumerPass");
+    graph.BuildFrameGraph();
+
+    const auto& culled = graph.GetCulledPasses();
+    EXPECT_TRUE(std::find(culled.begin(), culled.end(), "ContributorA") == culled.end())
+        << "ContributorA must be reachable through base-name Read on consumer (not just the original clear writer)";
+    EXPECT_TRUE(std::find(culled.begin(), culled.end(), "ContributorB") == culled.end())
+        << "ContributorB must be reachable through base-name Read on consumer";
+
+    const auto& order = graph.GetExecutionOrder();
+    auto posOf = [&order](const char* name)
+    { return std::find(order.begin(), order.end(), name) - order.begin(); };
+
+    ASSERT_NE(std::find(order.begin(), order.end(), "ContributorA"), order.end());
+    ASSERT_NE(std::find(order.begin(), order.end(), "ContributorB"), order.end());
+
+    EXPECT_LT(posOf("ClearPass"), posOf("ContributorA"));
+    EXPECT_LT(posOf("ContributorA"), posOf("ContributorB"));
+    EXPECT_LT(posOf("ContributorB"), posOf("ConsumerPass"));
+}
+
 TEST(RenderGraphBuildDiagnostics, RegistrationOrderSensitivityIsReportedForReverseRmwChain)
 {
     RenderGraph graph;

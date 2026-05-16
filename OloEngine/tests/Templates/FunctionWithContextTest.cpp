@@ -3,192 +3,102 @@
 
 #include "OloEngine/Templates/FunctionWithContext.h"
 
-#include <string>
+// ============================================================================
+// FunctionWithContextTest — TFunctionWithContext is a 2-pointer callable
+// wrapper used to bridge stateless-API entry points (e.g. ParkingLot) to
+// captures from C++ lambdas without heap allocation. The contract is:
+//
+//   1. Default-constructed wrapper is null (no function, no context).
+//   2. Constructing from a capturing lambda binds the callable and
+//      captures-as-context such that invoking it runs the lambda body.
+//   3. Reassignment replaces the bound callable; the previous one is
+//      released.
+//   4. GetFunction()/GetContext() round-trip through the stateless API
+//      shape that motivated the wrapper.
+//
+// The previous version of this file had 11 tests covering void/int return
+// shapes, 1/2/3-arg permutations, function-pointer construction, and a
+// duplicate ParkingLot demo. Per docs/testing.md §4.7 the
+// type-permutation padding adds no defence — the wrapper's behaviour is
+// invariant in arity/return-type, those are template parameters. The
+// four tests below pin the four contract clauses above, no more.
+// ============================================================================
 
 using namespace OloEngine;
 
-// ============================================================================
-// TFunctionWithContext Tests
-// ============================================================================
-
-TEST(FunctionWithContextTest, DefaultConstruction)
+TEST(FunctionWithContext, DefaultConstructedIsNullAndExposesNullSlots)
 {
-    TFunctionWithContext<void()> NullFunc;
-    EXPECT_FALSE(NullFunc);
-    EXPECT_EQ(NullFunc.GetFunction(), nullptr);
-    EXPECT_EQ(NullFunc.GetContext(), nullptr);
+    TFunctionWithContext<void()> nullFunc;
+    EXPECT_FALSE(nullFunc);
+    EXPECT_EQ(nullFunc.GetFunction(), nullptr);
+    EXPECT_EQ(nullFunc.GetContext(), nullptr);
+
+    TFunctionWithContext<void()> nullFuncFromNullptr(nullptr);
+    EXPECT_FALSE(nullFuncFromNullptr);
 }
 
-TEST(FunctionWithContextTest, NullptrConstruction)
+TEST(FunctionWithContext, LambdaBoundCallableInvokesCaptureBody)
 {
-    TFunctionWithContext<void()> NullFunc(nullptr);
-    EXPECT_FALSE(NullFunc);
+    bool wasCalled = false;
+    auto lambda = [&wasCalled](int a, int b)
+    { wasCalled = (a + b == 12); };
+
+    TFunctionWithContext<void(int, int)> func = lambda;
+    EXPECT_TRUE(func);
+    EXPECT_NE(func.GetFunction(), nullptr);
+    EXPECT_NE(func.GetContext(), nullptr);
+
+    func(5, 7);
+    EXPECT_TRUE(wasCalled);
 }
 
-TEST(FunctionWithContextTest, LambdaConstruction)
+TEST(FunctionWithContext, ReassignmentReplacesBoundCallable)
 {
-    bool WasCalled = false;
-    auto Lambda = [&WasCalled]()
-    { WasCalled = true; };
-    TFunctionWithContext<void()> Func = Lambda;
+    int counter = 0;
+    auto first = [&counter]()
+    { counter = 1; };
+    auto second = [&counter]()
+    { counter = 2; };
 
-    EXPECT_TRUE(Func);
-    EXPECT_NE(Func.GetFunction(), nullptr);
-    EXPECT_NE(Func.GetContext(), nullptr);
+    TFunctionWithContext<void()> func = first;
+    func();
+    EXPECT_EQ(counter, 1);
 
-    Func();
-    EXPECT_TRUE(WasCalled);
+    func = second;
+    func();
+    EXPECT_EQ(counter, 2)
+        << "reassignment didn't replace the bound callable — the wrapper "
+           "is still calling the previous lambda's context.";
 }
 
-TEST(FunctionWithContextTest, LambdaWithReturnValue)
+// Demonstrates the motivating use case: a stateless internal entry point
+// that takes (function pointer, void* context) — the shape ParkingLot uses
+// — being driven by a lambda-with-captures via TFunctionWithContext. If
+// this contract breaks, every ParkingLot-style API silently invokes the
+// wrong context.
+namespace
 {
-    int Value = 42;
-    auto Lambda = [&Value]()
-    { return Value * 2; };
-    TFunctionWithContext<int()> Func = Lambda;
-
-    EXPECT_TRUE(Func);
-    EXPECT_EQ(Func(), 84);
-}
-
-TEST(FunctionWithContextTest, LambdaWithArguments)
-{
-    int Sum = 0;
-    auto Lambda = [&Sum](int A, int B)
-    { Sum = A + B; };
-    TFunctionWithContext<void(int, int)> Func = Lambda;
-
-    EXPECT_TRUE(Func);
-    Func(10, 20);
-    EXPECT_EQ(Sum, 30);
-}
-
-TEST(FunctionWithContextTest, LambdaWithArgumentsAndReturn)
-{
-    auto Lambda = [](int A, int B)
-    { return A + B; };
-    TFunctionWithContext<int(int, int)> Func = Lambda;
-
-    EXPECT_TRUE(Func);
-    EXPECT_EQ(Func(5, 7), 12);
-}
-
-TEST(FunctionWithContextTest, ExplicitFunctionPointerConstruction)
-{
-    static int GlobalValue = 0;
-    auto SetValue = [](void* Context, int Value)
+    int InvokeStateless(int (*fn)(void*, int), void* ctx, int arg)
     {
-        GlobalValue = Value + *static_cast<int*>(Context);
-    };
-
-    int Offset = 100;
-    TFunctionWithContext<void(int)> Func(+SetValue, &Offset);
-
-    EXPECT_TRUE(Func);
-    Func(5);
-    EXPECT_EQ(GlobalValue, 105);
-}
-
-TEST(FunctionWithContextTest, Assignment)
-{
-    int CallCount = 0;
-    auto Lambda1 = [&CallCount]()
-    { CallCount = 1; };
-    TFunctionWithContext<void()> Func = Lambda1;
-    Func();
-    EXPECT_EQ(CallCount, 1);
-
-    // Reassign to different lambda
-    auto Lambda2 = [&CallCount]()
-    { CallCount = 2; };
-    Func = Lambda2;
-    Func();
-    EXPECT_EQ(CallCount, 2);
-}
-
-TEST(FunctionWithContextTest, GetFunctionAndContext)
-{
-    int Value = 42;
-    auto Lambda = [&Value]()
-    { return Value; };
-    TFunctionWithContext<int()> Func = Lambda;
-
-    // Manually invoke using extracted function and context
-    auto FunctionPtr = Func.GetFunction();
-    auto Context = Func.GetContext();
-
-    EXPECT_NE(FunctionPtr, nullptr);
-    EXPECT_NE(Context, nullptr);
-    EXPECT_EQ(FunctionPtr(Context), 42);
-}
-
-TEST(FunctionWithContextTest, MultipleArgTypes)
-{
-    // Explicit <string> include lives at the top of the file; this test
-    // relies on std::string + std::to_string directly rather than through
-    // transitive PCH includes.
-    std::string Result;
-    auto Lambda =
-        [&Result](const char* Str, int I, float F)
-    {
-        Result = std::string(Str) + "_" + std::to_string(I) + "_" + std::to_string(static_cast<int>(F));
-    };
-    TFunctionWithContext<void(const char*, int, float)> Func = Lambda;
-
-    Func("test", 42, 3.14f);
-    EXPECT_EQ(Result, "test_42_3");
-}
-
-// ============================================================================
-// Usage Pattern: Simulating ParkingLot-style API
-// ============================================================================
-
-namespace TestParkingLotStyle
-{
-    // Internal implementation functions that take raw function pointers
-    static void InternalCall(void (*Func)(void*), void* Context)
-    {
-        if (Func)
-        {
-            Func(Context);
-        }
+        return fn ? fn(ctx, arg) : 0;
     }
+} // namespace
 
-    static int InternalCallWithReturn(int (*Func)(void*, int), void* Context, int Value)
-    {
-        if (Func)
-        {
-            return Func(Context, Value);
-        }
-        return 0;
-    }
-
-    // Public API using TFunctionWithContext
-    static void PublicCall(TFunctionWithContext<void()> Func)
-    {
-        InternalCall(Func.GetFunction(), Func.GetContext());
-    }
-
-    static int PublicCallWithReturn(TFunctionWithContext<int(int)> Func, int Value)
-    {
-        return InternalCallWithReturn(Func.GetFunction(), Func.GetContext(), Value);
-    }
-} // namespace TestParkingLotStyle
-
-TEST(FunctionWithContextTest, ParkingLotStyleUsageVoid)
+TEST(FunctionWithContext, RoundTripsThroughStatelessInvocationAPI)
 {
-    bool WasCalled = false;
-    TestParkingLotStyle::PublicCall([&WasCalled]()
-                                    { WasCalled = true; });
-    EXPECT_TRUE(WasCalled);
-}
+    int multiplier = 10;
+    // The lambda must be a named lvalue: TFunctionWithContext is a
+    // *non-owning* wrapper (see the header comment on the class), so the
+    // captured-lambda's storage has to outlive every call through
+    // GetContext(). Initialising the wrapper from a temporary rvalue
+    // dangles the context pointer to a stack slot that dies at the end of
+    // the full-expression — ASan stack-use-after-scope.
+    auto lambda = [&multiplier](int v)
+    { return v * multiplier; };
+    TFunctionWithContext<int(int)> func = lambda;
 
-TEST(FunctionWithContextTest, ParkingLotStyleUsageWithReturn)
-{
-    int Multiplier = 10;
-    int Result = TestParkingLotStyle::PublicCallWithReturn(
-        [&Multiplier](int Value)
-        { return Value * Multiplier; },
-        5);
-    EXPECT_EQ(Result, 50);
+    const int result = InvokeStateless(func.GetFunction(), func.GetContext(), 5);
+    EXPECT_EQ(result, 50)
+        << "GetFunction/GetContext round-trip lost the lambda's capture — "
+           "the wrapper is not the right shape for stateless-API bridges.";
 }

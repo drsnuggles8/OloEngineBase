@@ -147,9 +147,21 @@ namespace OloEngine
         // JPH::CharacterContactListener interface
         void OnAdjustBodyVelocity(const JPH::CharacterVirtual* inCharacter, const JPH::Body& inBody2,
                                   JPH::Vec3& ioLinearVelocity, JPH::Vec3& ioAngularVelocity) override;
+        // Jolt aggregated per-contact parameters into JPH::CharacterContact in
+        // mid-2024; older signatures (BodyID + SubShapeID + position + normal
+        // expanded) no longer override anything.
         bool OnContactValidate(const JPH::CharacterVirtual* inCharacter, const JPH::CharacterContact& inContact) override;
         void OnContactAdded(const JPH::CharacterVirtual* inCharacter, const JPH::CharacterContact& inContact,
                             JPH::CharacterContactSettings& ioSettings) override;
+        // Persistent contacts (still touching N+ frames after first contact).
+        // Without this override the contact callback never fires for static
+        // bodies — Jolt now reports the first frame as Added and every
+        // subsequent frame as Persisted, but it can also report the *first*
+        // frame as Persisted depending on how the contact was discovered.
+        // Routing both events through the same handler is the only way to
+        // guarantee gameplay code sees the begin-event.
+        void OnContactPersisted(const JPH::CharacterVirtual* inCharacter, const JPH::CharacterContact& inContact,
+                                JPH::CharacterContactSettings& ioSettings) override;
         void OnContactSolve(const JPH::CharacterVirtual* inCharacter, const JPH::BodyID& inBodyID2,
                             const JPH::SubShapeID& inSubShapeID2, JPH::RVec3Arg inContactPosition,
                             JPH::Vec3Arg inContactNormal, JPH::Vec3Arg inContactVelocity,
@@ -199,7 +211,13 @@ namespace OloEngine
         f32 m_StepOffset = 0.4f;
         f32 m_AngularVelocityDeltaTime = 0.0f;
 
-        u32 m_CollisionLayer = 0;
+        // Default to ObjectLayers::CHARACTER (3, see JoltLayerInterface.h).
+        // Layer 0 = NON_MOVING — the static-vs-static pair filter rejects every
+        // contact, so a controller on layer 0 silently passes through every
+        // wall, floor, and prop in the scene without firing a single contact
+        // event. CHARACTER is the canonical layer for player/NPC controllers
+        // and collides with NON_MOVING / MOVING / TRIGGER as expected.
+        u32 m_CollisionLayer = 3;
         u32 m_IgnoreCollisionLayers = 0;
         ECollisionFlags m_CollisionFlags = ECollisionFlags::None;
 

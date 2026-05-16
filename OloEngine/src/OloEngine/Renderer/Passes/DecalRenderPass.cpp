@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "OloEngine/Renderer/GBuffer.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Renderer.h"
@@ -82,8 +83,9 @@ namespace OloEngine
             // Inter-pass RMW: bind the prior SceneColor version as the
             // render target (so Execute resolves the same physical FB via
             // GetPrimaryInputFramebufferHandle) and advertise a new version
-            // as this pass's logical output. The prior-version Read precedes
-            // the rename so no same-pass feedback loop is created.
+            // as this pass's logical output. `WriteNewVersion` republishes
+            // the base attachment views as versioned siblings; see
+            // ForwardOverlayRenderPass for the rationale.
             SetPrimaryInputFramebufferHandle(board.Scene.SceneColor);
             [[maybe_unused]] const auto sceneColorRead = builder.Read(board.Scene.SceneColor, RGReadUsage::RenderTargetRead);
             constexpr std::string_view decalSceneColorVersionTag = "DecalPass";
@@ -327,14 +329,19 @@ namespace OloEngine
 
         // Manual per-packet dispatch — each DrawDecalCommand::mode selects a
         // different drawbuffer + colorMask configuration so the decal only
-        // writes into the intended G-Buffer channels.
-        const GLenum drawAlbedoOnly[4] = { GL_COLOR_ATTACHMENT0, GL_NONE, GL_NONE, GL_NONE };
-        const GLenum drawNormalOnly[4] = { GL_NONE, GL_COLOR_ATTACHMENT1, GL_NONE, GL_NONE };
-        const GLenum drawAlbedoAndNormal[4] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_NONE, GL_NONE };
-        const GLenum drawEmissiveOnly[4] = { GL_NONE, GL_NONE, GL_COLOR_ATTACHMENT2, GL_NONE };
-        const GLenum fullDrawBufs[4] = {
+        // writes into the intended G-Buffer channels. Arrays are sized to
+        // `GBuffer::Count` so RT4 (entity ID) stays at GL_NONE during decal
+        // rendering — decals must not stamp their own pickability over the
+        // underlying mesh's entity ID.
+        constexpr GLsizei kGBufferCount = static_cast<GLsizei>(GBuffer::Count);
+        const GLenum drawAlbedoOnly[kGBufferCount] = { GL_COLOR_ATTACHMENT0, GL_NONE, GL_NONE, GL_NONE, GL_NONE };
+        const GLenum drawNormalOnly[kGBufferCount] = { GL_NONE, GL_COLOR_ATTACHMENT1, GL_NONE, GL_NONE, GL_NONE };
+        const GLenum drawAlbedoAndNormal[kGBufferCount] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_NONE, GL_NONE, GL_NONE };
+        const GLenum drawEmissiveOnly[kGBufferCount] = { GL_NONE, GL_NONE, GL_COLOR_ATTACHMENT2, GL_NONE, GL_NONE };
+        const GLenum fullDrawBufs[kGBufferCount] = {
             GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1,
-            GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3
+            GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3,
+            GL_COLOR_ATTACHMENT4
         };
 
         using DecalMode = DrawDecalCommand::DecalMode;
@@ -382,21 +389,21 @@ namespace OloEngine
                 switch (packetMode)
                 {
                     case DecalMode::Normal: // RT1 only, xy writable, zw preserved
-                        glNamedFramebufferDrawBuffers(gbufferID, 4, drawNormalOnly);
+                        glNamedFramebufferDrawBuffers(gbufferID, kGBufferCount, drawNormalOnly);
                         glColorMaski(0, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
                         glColorMaski(1, GL_TRUE, GL_TRUE, GL_FALSE, GL_FALSE);
                         glColorMaski(2, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
                         glColorMaski(3, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
                         break;
                     case DecalMode::RMA: // RT0.a + RT1.zw writable
-                        glNamedFramebufferDrawBuffers(gbufferID, 4, drawAlbedoAndNormal);
+                        glNamedFramebufferDrawBuffers(gbufferID, kGBufferCount, drawAlbedoAndNormal);
                         glColorMaski(0, GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
                         glColorMaski(1, GL_FALSE, GL_FALSE, GL_TRUE, GL_TRUE);
                         glColorMaski(2, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
                         glColorMaski(3, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
                         break;
                     case DecalMode::Emissive: // RT2.rgb writable, RT2.a (unlit flag) preserved
-                        glNamedFramebufferDrawBuffers(gbufferID, 4, drawEmissiveOnly);
+                        glNamedFramebufferDrawBuffers(gbufferID, kGBufferCount, drawEmissiveOnly);
                         glColorMaski(0, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
                         glColorMaski(1, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
                         glColorMaski(2, GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
@@ -404,7 +411,7 @@ namespace OloEngine
                         break;
                     case DecalMode::Albedo:
                     default: // RT0.rgb writable, RT0.a preserved
-                        glNamedFramebufferDrawBuffers(gbufferID, 4, drawAlbedoOnly);
+                        glNamedFramebufferDrawBuffers(gbufferID, kGBufferCount, drawAlbedoOnly);
                         glColorMaski(0, GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
                         glColorMaski(1, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
                         glColorMaski(2, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
@@ -428,9 +435,13 @@ namespace OloEngine
         RenderCommand::BackCull();
 
         // Restore full colour masks + draw buffers for subsequent passes.
+        // Only the RGBA-colour attachments (RT0-RT3) need a colour-mask
+        // restore — RT4 is integer (R32I, entity ID) and `glColorMaski`
+        // on integer attachments is a no-op (per OpenGL spec the mask only
+        // applies to floating-point/normalised outputs).
         for (GLuint rt = 0; rt < 4; ++rt)
             glColorMaski(rt, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        glNamedFramebufferDrawBuffers(gbufferID, 4, fullDrawBufs);
+        glNamedFramebufferDrawBuffers(gbufferID, kGBufferCount, fullDrawBufs);
 
         // Restore RT2 blend state — emissive additive blending leaks into
         // the next pass otherwise (observed as SSAO / GTAO darkening the

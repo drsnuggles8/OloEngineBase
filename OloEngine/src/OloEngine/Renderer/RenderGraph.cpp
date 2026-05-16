@@ -589,6 +589,68 @@ namespace OloEngine
         if (versionHandle.IsValid())
         {
             m_LatestFramebufferHandlesByBaseName[std::string(GetVersionLookupBaseName(sourceResource))] = versionHandle;
+
+            // Auto-publish versioned attachment views: every colour/depth
+            // attachment view that was registered against the *base*
+            // framebuffer needs a corresponding versioned sibling, otherwise
+            // `GetTextureHandle(baseViewName)` (which is what the post-process
+            // chain's `ReadFirstValidVersionedInputForPass` ultimately calls)
+            // falls back to the base view. The base view's dependency points
+            // at the base framebuffer's writer (e.g. ScenePass /
+            // DeferredLightingPass), so the pass that produced *this* new
+            // version is orphaned and reachability culls it with "No
+            // downstream reader". Republishing the views forces the
+            // latest-version map for each view name to point at this
+            // version's sibling, which traces back to this pass instead.
+            //
+            // Without this, every RMW pass that writes a new SceneColor
+            // version has to remember to publish its own versioned
+            // SceneColorTexture (and any other attachment views) — a
+            // boilerplate trap that bit us through ForwardOverlayPass +
+            // 5 siblings before this fix landed.
+            const auto versionTag = versionedName.find('@') != std::string_view::npos
+                                        ? versionedName.substr(versionedName.find('@') + 1u)
+                                        : std::string_view{};
+            if (!versionTag.empty())
+            {
+                // Snapshot the view names first so we don't mutate the map
+                // while iterating it.
+                struct PendingVersionedView
+                {
+                    std::string BaseViewName;
+                    u32 AttachmentIndex = 0u;
+                    TextureViewKind Kind = TextureViewKind::FramebufferColorAttachment;
+                };
+                std::vector<PendingVersionedView> pending;
+                pending.reserve(8u);
+                for (const auto& [viewName, def] : m_TextureViewDefinitions)
+                {
+                    if (def.ParentResource != sourceResource)
+                        continue;
+                    if (def.Kind != TextureViewKind::FramebufferColorAttachment &&
+                        def.Kind != TextureViewKind::FramebufferDepthAttachment)
+                        continue;
+                    // Skip views that are already a versioned variant —
+                    // only the canonical base views should seed siblings.
+                    if (viewName.find('@') != std::string::npos)
+                        continue;
+                    pending.push_back({ viewName, def.AttachmentIndex, def.Kind });
+                }
+                for (const auto& entry : pending)
+                {
+                    const auto versionedViewName = entry.BaseViewName + "@" + std::string(versionTag);
+                    if (entry.Kind == TextureViewKind::FramebufferColorAttachment)
+                    {
+                        [[maybe_unused]] const auto created =
+                            CreateFramebufferAttachmentView(versionedViewName, versionHandle, entry.AttachmentIndex);
+                    }
+                    else // FramebufferDepthAttachment
+                    {
+                        [[maybe_unused]] const auto created =
+                            CreateFramebufferDepthAttachmentView(versionedViewName, versionHandle);
+                    }
+                }
+            }
         }
 
         return versionHandle;
@@ -6015,7 +6077,57 @@ namespace OloEngine
                     // subsequent RMW pass's Setup can call
                     // RenderGraph::GetLastWriterPassName(resource) and emit an
                     // explicit DependsOnPass edge without a typed setter.
+                    //
+                    // When the write is on a versioned variant (`X@tag` from
+                    // WriteNewVersion), also update the BASE name's entry so
+                    // a downstream RMW pass that calls
+                    // DependsOnPreviousWriter("X") picks up the latest
+                    // versioned writer — not just the original base-name
+                    // writer. Without this, a chain like:
+                    //   DeferredLightingPass    writes "SceneColor"
+                    //   ForwardOverlayPass      WriteNewVersion("SceneColor")
+                    //   ParticlePass            DependsOnPreviousWriter("SceneColor")
+                    // resolves ParticlePass's DependsOnPreviousWriter to
+                    // DeferredLightingPass (skipping ForwardOverlay), and the
+                    // reachability sweep culls ForwardOverlay as "no
+                    // downstream reader" whenever the optional read paths in
+                    // between are absent.
                     m_LastWriterPassNameByResource[access.ResourceName] = nodeName;
+                    if (const auto baseName = GetVersionLookupBaseName(access.ResourceName);
+                        baseName != access.ResourceName)
+                    {
+                        m_LastWriterPassNameByResource[std::string(baseName)] = nodeName;
+
+                        // Same fix at the LOCAL Read→Writer derivation level:
+                        // when a versioned write happens, also publish the
+                        // current pass as a writer of the BASE resource name
+                        // so subsequent Reads on the base handle (e.g.
+                        // OITResolvePass reading `blackboard.OIT.OITAccum`)
+                        // derive a dependency on the versioned writer, not
+                        // just the original base writer.
+                        //
+                        // Without this, the OIT chain in WB-OIT mode is
+                        // silently broken: OITPreparePass clears OITAccum
+                        // (base), Decal / Particle write versioned siblings,
+                        // and OITResolve reads the base — so only
+                        // OITPreparePass is in OITResolve's dependency set,
+                        // and Decal / Particle are culled as orphans even
+                        // though their writes feed the resolve.
+                        const auto baseNameStr = std::string(baseName);
+                        auto& baseWriterVec = lastWriterByResource[baseNameStr];
+                        bool baseSlotPresent = false;
+                        for (auto& slot : baseWriterVec)
+                        {
+                            if (slot.PassName == nodeName)
+                            {
+                                slot.Range = RGSubresourceRange::Full();
+                                baseSlotPresent = true;
+                                break;
+                            }
+                        }
+                        if (!baseSlotPresent)
+                            baseWriterVec.push_back(DepWriterSlot{ nodeName, RGSubresourceRange::Full() });
+                    }
                 }
             }
 

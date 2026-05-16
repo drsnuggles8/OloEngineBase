@@ -15,7 +15,7 @@ Entities:
       TilingFactor: 1
       TexturePath: ""
     AudioSourceComponent:
-      Filepath: Audio\ding.wav
+      Filepath: Audio/ding.wav
       VolumeMultiplier: 1
       PitchMultiplier: 1
       PlayOnAwake: true
@@ -49,7 +49,7 @@ Entities:
       TilingFactor: 1
       TexturePath: ""
     AudioSourceComponent:
-      Filepath: Audio\ding.wav
+      Filepath: Audio/ding.wav
       VolumeMultiplier: 1
       PitchMultiplier: 1
       PlayOnAwake: true
@@ -83,7 +83,7 @@ Entities:
       TilingFactor: 1
       TexturePath: ""
     AudioSourceComponent:
-      Filepath: Audio\ding.wav
+      Filepath: Audio/ding.wav
       VolumeMultiplier: 0.800000012
       PitchMultiplier: 1
       PlayOnAwake: true

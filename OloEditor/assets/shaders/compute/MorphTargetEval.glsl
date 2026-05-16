@@ -18,37 +18,35 @@ struct MorphDelta
 };
 
 layout(std430, binding = 0) readonly buffer BaseVertices { Vertex baseVerts[]; };
-layout(std430, binding = 1) readonly buffer MorphDeltas  { MorphDelta deltas[]; };  // [target][vertex]
+layout(std430, binding = 1) readonly buffer MorphDeltas  { MorphDelta deltas[]; };  // [target * vertexCount + vertex]
 layout(std430, binding = 2) readonly buffer Weights      { float weights[]; };
 layout(std430, binding = 3) writeonly buffer OutputVerts  { Vertex outVerts[]; };
 
-// Non-opaque uniforms must live inside a UBO block when compiling GLSL
-// for the Vulkan SPIR-V target environment (shaderc's default). Using a
-// dedicated small UBO keeps the CPU-side binding trivial (glNamedBufferData
-// + glBindBufferBase on binding 0 of GL_UNIFORM_BUFFER).
-layout(std140, binding = 0) uniform MorphEvalParams
-{
-    uint u_VertexCount;
-    uint u_TargetCount;
-    uint _pad0;
-    uint _pad1;
-};
-
+// Vertex / target counts are derived from the bound SSBO sizes via the
+// GLSL 4.30+ `.length()` builtin. The earlier revision pushed them through
+// a small UBO at binding 0 — but binding 0 is reserved for UBO_CAMERA at
+// the OpenGL level (a program-global indexed binding pool), so reading it
+// from a compute shader yielded whatever the last graphics pass had bound
+// there. Using `.length()` keeps this compute shader self-contained and
+// removes the silent collision.
 void main()
 {
     uint vid = gl_GlobalInvocationID.x;
-    if (vid >= u_VertexCount)
+    uint vertexCount = baseVerts.length();
+    if (vid >= vertexCount)
         return;
+
+    uint targetCount = weights.length();
 
     vec3 pos = baseVerts[vid].position;
     vec3 nrm = baseVerts[vid].normal;
 
-    for (uint t = 0; t < u_TargetCount; ++t)
+    for (uint t = 0; t < targetCount; ++t)
     {
         float w = weights[t];
         if (w > 0.001)
         {
-            uint idx = t * u_VertexCount + vid;
+            uint idx = t * vertexCount + vid;
             pos += deltas[idx].deltaPos * w;
             nrm += deltas[idx].deltaNormal * w;
         }

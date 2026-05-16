@@ -24,20 +24,10 @@ class SoundGraphBasicTest : public ::testing::Test
     }
 };
 
-TEST_F(SoundGraphBasicTest, CanCreateUUID)
-{
-    // Test basic UUID creation which is used in SoundGraph
-    UUID testId1 = UUID();
-    UUID testId2 = UUID();
-
-    // UUIDs should be unique
-    EXPECT_NE(testId1, testId2);
-
-    // UUID should be convertible to u64
-    u64 id1_val = static_cast<u64>(testId1);
-    u64 id2_val = static_cast<u64>(testId2);
-    EXPECT_NE(id1_val, id2_val);
-}
+// CanCreateUUID retired -- it tests UUID generation, not SoundGraph. The
+// UUID's uniqueness contract belongs in its own test (and is implicitly
+// exercised every time any test calls UUID()). See
+// docs/testing.md section 4.5.
 
 TEST_F(SoundGraphBasicTest, SoundGraphAssetBasicOperations)
 {

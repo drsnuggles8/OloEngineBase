@@ -1,7 +1,7 @@
 // =============================================================================
 // ShaderUnitTests.cpp
 //
-// Layer-2 of the testing pyramid (docs/renderer-testing-strategy.md §2):
+// Layer-2 of the renderer pyramid (docs/testing.md §6.3 — L2):
 // compute-shader harnesses that exercise individual shader math functions on
 // the actual GPU. Complements the Layer-1 property tests by catching
 // math-level bugs (clamping, endpoints, round-trip error) before they
@@ -673,7 +673,7 @@ namespace OloEngine::Tests
     // the three production modes (linear, exponential, exponential-squared)
     // for a grid of distances and verifies the physical invariants.
     //
-    // Covers two catalog items from docs/renderer-testing-strategy.md §1:
+    // Covers two catalog items from docs/testing.md §6.3 (L1 properties):
     //   - Fog at zero distance     → factor == 0
     //   - Fog at infinite distance → factor == 1 (or saturates at fogEnd for linear)
     // =========================================================================

@@ -12,59 +12,8 @@ using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 // PrecipitationSettings Defaults
 // =============================================================================
 
-TEST(PrecipitationSettings, DefaultsAreReasonable)
-{
-    PrecipitationSettings ps;
-
-    EXPECT_FALSE(ps.Enabled);
-    EXPECT_EQ(ps.Type, PrecipitationType::Snow);
-    EXPECT_GE(ps.Intensity, 0.0f);
-    EXPECT_LE(ps.Intensity, 1.0f);
-    EXPECT_GT(ps.TransitionSpeed, 0.0f);
-
-    // Emission
-    EXPECT_GT(ps.BaseEmissionRate, 0u);
-    EXPECT_GT(ps.MaxParticlesNearField, 0u);
-    EXPECT_GT(ps.MaxParticlesFarField, 0u);
-
-    // Near-field extents should be positive
-    EXPECT_GT(ps.NearFieldExtent.x, 0.0f);
-    EXPECT_GT(ps.NearFieldExtent.y, 0.0f);
-    EXPECT_GT(ps.NearFieldExtent.z, 0.0f);
-    EXPECT_GT(ps.NearFieldParticleSize, 0.0f);
-    EXPECT_GE(ps.NearFieldSizeVariance, 0.0f);
-    EXPECT_GT(ps.NearFieldLifetime, 0.0f);
-
-    // Far-field extents should be larger than near-field
-    EXPECT_GT(ps.FarFieldExtent.x, ps.NearFieldExtent.x);
-    EXPECT_GT(ps.FarFieldParticleSize, 0.0f);
-    EXPECT_GT(ps.FarFieldLifetime, 0.0f);
-    EXPECT_GT(ps.FarFieldAlphaMultiplier, 0.0f);
-    EXPECT_LE(ps.FarFieldAlphaMultiplier, 1.0f);
-
-    // Physics
-    EXPECT_GT(ps.GravityScale, 0.0f);
-    EXPECT_GT(ps.WindInfluence, 0.0f);
-    EXPECT_GT(ps.DragCoefficient, 0.0f);
-    EXPECT_GT(ps.TurbulenceStrength, 0.0f);
-
-    // Screen effects
-    EXPECT_GT(ps.ScreenStreakIntensity, 0.0f);
-    EXPECT_GT(ps.ScreenStreakLength, 0.0f);
-    EXPECT_GT(ps.LensImpactRate, 0.0f);
-    EXPECT_GT(ps.LensImpactLifetime, 0.0f);
-    EXPECT_GT(ps.LensImpactSize, 0.0f);
-
-    // LOD
-    EXPECT_GT(ps.LODNearDistance, 0.0f);
-    EXPECT_GT(ps.LODFarDistance, ps.LODNearDistance);
-    EXPECT_GT(ps.FrameBudgetMs, 0.0f);
-
-    // Visual
-    EXPECT_GT(ps.ParticleColor.a, 0.0f);
-    EXPECT_GE(ps.ColorVariance, 0.0f);
-    EXPECT_GE(ps.RotationSpeed, 0.0f);
-}
+// Defaults-sanity blocks intentionally retired — they pinned design choices
+// in the header rather than contracts; see docs/testing.md §4.1.
 
 TEST(PrecipitationSettings, TypeEnumValues)
 {
@@ -132,22 +81,6 @@ TEST(PrecipitationBindings, TextureBindingIsKnown)
 // Emission Rate Calculation — covered by PrecipitationEmitterTest
 // =============================================================================
 
-TEST(PrecipitationSettings, NearFieldExtentSmallerThanFarField)
-{
-    PrecipitationSettings ps;
-
-    // Near-field AABB should be strictly smaller than far-field in all axes
-    EXPECT_LT(ps.NearFieldExtent.x, ps.FarFieldExtent.x);
-    EXPECT_LT(ps.NearFieldExtent.y, ps.FarFieldExtent.y);
-    EXPECT_LT(ps.NearFieldExtent.z, ps.FarFieldExtent.z);
-}
-
-TEST(PrecipitationSettings, SpeedRangesAreValid)
-{
-    PrecipitationSettings ps;
-
-    EXPECT_LE(ps.NearFieldSpeedMin, ps.NearFieldSpeedMax);
-    EXPECT_LE(ps.FarFieldSpeedMin, ps.FarFieldSpeedMax);
-    EXPECT_GT(ps.NearFieldSpeedMin, 0.0f);
-    EXPECT_GT(ps.FarFieldSpeedMin, 0.0f);
-}
+// NearFieldExtentSmallerThanFarField and SpeedRangesAreValid retired —
+// these compared default-constructed values against each other (design
+// choices in the settings header, not invariants). docs/testing.md §4.1.

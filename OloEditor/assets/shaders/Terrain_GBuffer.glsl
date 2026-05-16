@@ -335,6 +335,7 @@ layout(location = 0) out vec4 o_GBufferAlbedo;
 layout(location = 1) out vec4 o_GBufferNormal;
 layout(location = 2) out vec4 o_GBufferEmissive;
 layout(location = 3) out vec2 o_GBufferVelocity;
+layout(location = 4) out int  o_GBufferEntityID;
 
 vec2 octEncodeGB(vec3 n)
 {
@@ -617,4 +618,5 @@ void main()
     o_GBufferEmissive = vec4(0.0, 0.0, 0.0, 0.0);
     // Static terrain → zero screen-space velocity.
     o_GBufferVelocity = vec2(0.0);
+    o_GBufferEntityID = u_EntityID;
 }

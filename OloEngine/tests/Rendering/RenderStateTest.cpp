@@ -77,24 +77,14 @@ TEST(RenderState, DefaultsAreCorrect)
     EXPECT_FLOAT_EQ(state.lineWidth, 1.0f);
 }
 
-TEST(RenderState, TriviallyCopyable)
-{
-    PODRenderState original{};
-    original.blendEnabled = true;
-    original.depthFunction = GL_LEQUAL;
-    original.cullingEnabled = true;
-    original.polygonMode = GL_LINE;
-    original.lineWidth = 2.5f;
-
-    PODRenderState copy{};
-    std::memcpy(&copy, &original, sizeof(PODRenderState));
-
-    EXPECT_EQ(copy.blendEnabled, original.blendEnabled);
-    EXPECT_EQ(copy.depthFunction, original.depthFunction);
-    EXPECT_EQ(copy.cullingEnabled, original.cullingEnabled);
-    EXPECT_EQ(copy.polygonMode, original.polygonMode);
-    EXPECT_FLOAT_EQ(copy.lineWidth, original.lineWidth);
-}
+// TriviallyCopyable: the actual contract is `std::is_trivially_copyable_v<PODRenderState>`,
+// which is a compile-time fact. memcpy-and-check at runtime is exactly the
+// "static-assert in disguise" anti-pattern (docs/testing.md
+// section 4.3). Replaced with a static_assert that fails the build if the
+// struct ever stops being trivially copyable.
+static_assert(std::is_trivially_copyable_v<PODRenderState>,
+              "PODRenderState must stay trivially copyable -- command bucket "
+              "and render-graph code memcpy/memcmps it directly.");
 
 // =============================================================================
 // Blended Objects Must Use Transparent Sort Keys

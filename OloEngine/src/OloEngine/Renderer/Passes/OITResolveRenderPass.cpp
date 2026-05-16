@@ -51,7 +51,9 @@ namespace OloEngine
         // framebuffer selected above) and advertise a renamed output via
         // WriteNewVersion. The prior-version RenderTargetRead is emitted by
         // ReadFirstValidFramebuffer below; the rename means no same-pass
-        // feedback loop exists for the validator.
+        // feedback loop exists for the validator. `WriteNewVersion`
+        // republishes the base attachment views as versioned siblings; see
+        // ForwardOverlayRenderPass for the rationale.
         RenderPipelineBuilderInternal::ReadFirstValidFramebuffer(builder, inputHandle);
         if (blackboard.Scene.SceneColor.IsValid())
         {

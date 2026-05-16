@@ -48,6 +48,19 @@ void main()
 #type fragment
 #version 460 core
 
+// Mirror the vertex-stage ModelMatrices block so u_EntityID is available
+// for the location=4 picking write. SPIR-V link validation requires the
+// padding fields to match the vertex declaration exactly.
+layout(std140, binding = 3) uniform ModelMatrices {
+    mat4 u_Model;
+    mat4 u_Normal;
+    int u_EntityID;
+    int _paddingEntity0;
+    int _paddingEntity1;
+    int _paddingEntity2;
+    mat4 u_PrevModel;
+};
+
 layout(std140, binding = 10) uniform TerrainParams {
     vec4 u_WorldSizeAndHeightScale;
     vec4 u_TerrainParams;
@@ -74,6 +87,7 @@ layout(location = 0) out vec4 o_GBufferAlbedo;
 layout(location = 1) out vec4 o_GBufferNormal;
 layout(location = 2) out vec4 o_GBufferEmissive;
 layout(location = 3) out vec2 o_GBufferVelocity;
+layout(location = 4) out int  o_GBufferEntityID;
 
 vec2 octEncodeGB(vec3 n)
 {
@@ -140,4 +154,5 @@ void main()
     o_GBufferEmissive = vec4(0.0, 0.0, 0.0, 0.0);
     // Static terrain → zero velocity.
     o_GBufferVelocity = vec2(0.0);
+    o_GBufferEntityID = u_EntityID;
 }

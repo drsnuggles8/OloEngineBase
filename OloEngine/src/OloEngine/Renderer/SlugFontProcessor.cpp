@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "SlugFontProcessor.h"
 
+#include <glad/gl.h>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -557,8 +559,16 @@ namespace OloEngine
             }
         }
 
-        // Create GPU textures.
-        if (curveTexelCount > 0)
+        // Create GPU textures only if a live GL context is bound. Headless
+        // harnesses (Functional tests, asset preprocessors) load fonts for
+        // their metrics + glyph data without ever rendering them; calling
+        // glCreateTextures via Texture2D::Create without a context segfaults
+        // through the null glad function pointer. Probing one DSA entry point
+        // is sufficient because glad resolves them as a batch — if any one is
+        // non-null, a context exists and the rest do too.
+        const bool hasGLContext = (glad_glCreateTextures != nullptr);
+
+        if (hasGLContext && curveTexelCount > 0)
         {
             auto curveWidth = std::min(curveTexelCount, kBandTextureWidth);
             auto curveHeight = (curveTexelCount + kBandTextureWidth - 1) / kBandTextureWidth;
@@ -577,7 +587,7 @@ namespace OloEngine
                                            static_cast<u32>(totalTexels * 4 * sizeof(f32)));
         }
 
-        if (bandTexelCount > 0)
+        if (hasGLContext && bandTexelCount > 0)
         {
             auto bandWidth = std::min(bandTexelCount, kBandTextureWidth);
             auto bandHeight = (bandTexelCount + kBandTextureWidth - 1) / kBandTextureWidth;
@@ -593,6 +603,11 @@ namespace OloEngine
             fontData.BandTexture = Texture2D::Create(bandSpec);
             fontData.BandTexture->SetData(bandTexelData.data(),
                                           static_cast<u32>(totalTexels * 2 * sizeof(u16)));
+        }
+
+        if (!hasGLContext)
+        {
+            OLO_CORE_TRACE("SlugFontProcessor: no GL context — skipping curve/band texture upload (metrics-only load).");
         }
 
         OLO_CORE_INFO("SlugFontProcessor: processed {} glyphs, {} curve texels, {} band texels",

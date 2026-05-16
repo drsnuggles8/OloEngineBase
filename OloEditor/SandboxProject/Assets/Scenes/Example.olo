@@ -9,7 +9,7 @@ Entities:
       Scale: [1, 1, 1]
     SpriteRendererComponent:
       Color: [0, 1, 0, 1]
-  - Entity: 12837192831273
+  - Entity: 12837192831274
     TagComponent:
       Tag: Red Square
     TransformComponent:
@@ -18,7 +18,7 @@ Entities:
       Scale: [1, 1, 1]
     SpriteRendererComponent:
       Color: [1, 0, 0, 1]
-  - Entity: 12837192831273
+  - Entity: 12837192831275
     TagComponent:
       Tag: Camera A
     TransformComponent:
@@ -36,7 +36,7 @@ Entities:
         OrthographicFar: 1
       Primary: true
       FixedAspectRatio: false
-  - Entity: 12837192831273
+  - Entity: 12837192831276
     TagComponent:
       Tag: Camera B
     TransformComponent:

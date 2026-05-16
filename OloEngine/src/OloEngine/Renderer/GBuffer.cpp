@@ -19,10 +19,11 @@ namespace OloEngine
             spec.Height = height;
             spec.Samples = sampleCount;
             spec.Attachments = FramebufferAttachmentSpecification{
-                FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA8 },   // RT0 Albedo + Metallic
-                FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA16F }, // RT1 Normal + Roughness + AO
-                FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA16F }, // RT2 Emissive + Flags
-                FramebufferTextureSpecification{ FramebufferTextureFormat::RG16F },   // RT3 Velocity
+                FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA8 },       // RT0 Albedo + Metallic
+                FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA16F },     // RT1 Normal + Roughness + AO
+                FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA16F },     // RT2 Emissive + Flags
+                FramebufferTextureSpecification{ FramebufferTextureFormat::RG16F },       // RT3 Velocity
+                FramebufferTextureSpecification{ FramebufferTextureFormat::RED_INTEGER }, // RT4 EntityID (picking)
                 // Depth must match the scene framebuffer's depth format
                 // (`FramebufferTextureFormat::Depth` = DEPTH24STENCIL8) so that
                 // `glBlitNamedFramebuffer(GL_DEPTH_BUFFER_BIT, …)` — the path used
@@ -181,9 +182,10 @@ namespace OloEngine
             GL_COLOR_ATTACHMENT0,
             GL_COLOR_ATTACHMENT1,
             GL_COLOR_ATTACHMENT2,
-            GL_COLOR_ATTACHMENT3
+            GL_COLOR_ATTACHMENT3,
+            GL_COLOR_ATTACHMENT4
         };
-        glNamedFramebufferDrawBuffers(dstFB, 4, fullDrawBufs);
+        glNamedFramebufferDrawBuffers(dstFB, static_cast<GLsizei>(Count), fullDrawBufs);
     }
 
     u32 GBuffer::GetColorAttachmentID(AttachmentIndex index) const

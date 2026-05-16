@@ -54,7 +54,7 @@ Entities:
     SpriteRendererComponent:
       Color: [0, 0, 1, 1]
     ScriptComponent:
-      ClassName: CustomBehavior
+      ClassName: Sandbox.Player
     PrefabComponent:
       PrefabID: 9999000000001
       PrefabEntityID: 2000000000003

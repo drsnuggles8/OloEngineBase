@@ -128,10 +128,11 @@ layout(location = 2) in vec2 v_TexCoord;
 layout(location = 3) in vec4 v_ClipPosCurr;
 layout(location = 4) in vec4 v_ClipPosPrev;
 
-layout(location = 0) out vec4 o_GBufferAlbedo;    // RGBA8   albedo + metallic
-layout(location = 1) out vec4 o_GBufferNormal;    // RGBA16F octNormal + roughness + ao
-layout(location = 2) out vec4 o_GBufferEmissive;  // RGBA16F emissive + flags
-layout(location = 3) out vec2 o_GBufferVelocity;  // RG16F   screen-space velocity
+layout(location = 0) out vec4 o_GBufferAlbedo;    // RGBA8       albedo + metallic
+layout(location = 1) out vec4 o_GBufferNormal;    // RGBA16F     octNormal + roughness + ao
+layout(location = 2) out vec4 o_GBufferEmissive;  // RGBA16F     emissive + flags
+layout(location = 3) out vec2 o_GBufferVelocity;  // RG16F       screen-space velocity
+layout(location = 4) out int  o_GBufferEntityID;  // RED_INTEGER picking entity ID (blitted to SceneColor RT1 by DeferredLightingPass)
 
 // Octahedral encode: unit normal -> [-1,1]^2.
 vec2 octEncodeGB(vec3 n)
@@ -174,4 +175,5 @@ void main()
     o_GBufferNormal   = vec4(octEncodeGB(N), roughness, ao);
     o_GBufferEmissive = vec4(emissive, 0.0); // flags reserved for Phase 3/4
     o_GBufferVelocity = velocity;
+    o_GBufferEntityID = u_EntityID;
 }

@@ -167,28 +167,10 @@ TEST_F(QuestSystemTest, ObjectiveTracking_Overshoot)
     EXPECT_TRUE(journal.IsQuestActive("multi_stage"));
 }
 
-// Test multi-stage advancement
-TEST_F(QuestSystemTest, MultiStage_Advancement)
-{
-    QuestJournal journal;
-    auto def = MakeMultiStageQuest();
-    journal.AcceptQuest("multi_stage", def);
-
-    EXPECT_EQ(journal.GetCurrentStageIndex("multi_stage"), 0);
-
-    // Complete stage 1
-    for (int i = 0; i < 3; ++i)
-    {
-        journal.NotifyKill("wolf");
-    }
-
-    EXPECT_EQ(journal.GetCurrentStageIndex("multi_stage"), 1);
-
-    // Complete stage 2
-    journal.NotifyCollect("herb", 5);
-
-    EXPECT_TRUE(journal.HasCompletedQuest("multi_stage"));
-}
+// MultiStage_Advancement retired -- duplicated by
+// Functional/Gameplay/MultiStageQuestAdvancesThroughStagesTest which pins
+// the additional contract that stage-1 objectives REPLACE stage-0 ones
+// (rather than coexisting). See docs/testing.md section 5.
 
 // Test notify-based progress (Kill)
 TEST_F(QuestSystemTest, NotifyKill_UpdatesCorrectObjective)

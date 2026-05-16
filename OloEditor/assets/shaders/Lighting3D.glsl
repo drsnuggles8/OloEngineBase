@@ -95,7 +95,9 @@ layout(std140, binding = 2) uniform MaterialProperties {
     vec4 u_MaterialSpecular;
     vec4 u_MaterialEmissive;
     int u_UseTextureMaps;
-    int _padding[3];
+    int u_AlphaMode;
+    int u_DoubleSided;
+    int _padding;
 };
 
 vec3 CalcDirectionalLight(vec3 normal, vec3 viewDir, vec3 diffuseColor, vec3 specularColor)

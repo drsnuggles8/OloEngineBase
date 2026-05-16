@@ -67,11 +67,7 @@ TEST_F(AssetCreationTest, ColliderMaterial_Basic)
     EXPECT_FLOAT_EQ(material.GetRestitution(), 0.2f) << "Restitution should be assignable";
 }
 
-// @brief Test AssetType enum values
-TEST_F(AssetCreationTest, AssetType_Values)
-{
-    // Verify our asset type enum values match expected values
-    EXPECT_EQ(static_cast<i32>(AssetType::MeshCollider), 17) << "MeshCollider should have AssetType value 17";
-    EXPECT_EQ(static_cast<i32>(AssetType::ScriptFile), 15) << "ScriptFile should have AssetType value 15";
-    EXPECT_EQ(static_cast<i32>(AssetType::Audio), 10) << "Audio should have AssetType value 10";
-}
+// AssetType_Values retired -- the enum's integer values aren't an on-disk
+// contract (we serialize by name via AssetExtensions and the registry),
+// so pinning specific integer values fires on any reorder while
+// surfacing zero real bugs. See docs/testing.md section 4.6.

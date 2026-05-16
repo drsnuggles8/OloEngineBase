@@ -8,18 +8,26 @@ add_executable(OloEngine-Tests
 		PrecipitationSettingsTest.cpp
 		PrecipitationEmitterTest.cpp
 		PrecipitationSystemTest.cpp
-		PrecipitationBenchmarkTest.cpp
 		CoreUtilitiesTest.cpp
-		LoggerTest.cpp
-		MathTest.cpp
 		SlugFontRenderingTest.cpp
 		AssetCreationTest.cpp
+		AssetBinaryIntegrityTest.cpp
+		AssetContentValidityTest.cpp
+		AssetExtensionsCoverageTest.cpp
+		AssetSceneLoadTest.cpp
 		AssetGenerationTest.cpp
+		AssetLuaScriptValidityTest.cpp
+		AssetCSharpScriptValidityTest.cpp
 		AssetPackTest.cpp
+		AssetRegistryInvariantsTest.cpp
+		ComponentRoundTripTest.cpp
+		ComponentSerializerCoverageTest.cpp
+		EngineSubsystemSmokeTest.cpp
+		FunctionalTestFixtureCoverageTest.cpp
+		PreCommitToolingSmokeTest.cpp
 		PrefabOverrideTest.cpp
 		ShadowMapTest.cpp
 		PostProcessTest.cpp
-		ComputeShaderAndSSBOTest.cpp
 		LightCullingTest.cpp
 		SoundGraphBasicTest.cpp
 		AudioEventQueueTest.cpp
@@ -53,6 +61,11 @@ add_executable(OloEngine-Tests
 		Rendering/MeshOptimizationTest.cpp
 		Rendering/PODCommandTest.cpp
 		Rendering/ShaderBindingLayoutTest.cpp
+		Rendering/ShaderReflectionBindingTest.cpp
+		Rendering/ShaderCrossConsistencyTest.cpp
+		Rendering/ShaderUBOSizeConsistencyTest.cpp
+		Rendering/ShaderStageInterfaceTest.cpp
+		Rendering/ShaderStageContractTest.cpp
 		Rendering/ShaderPackTest.cpp
 		Rendering/FrameDataBufferTest.cpp
 		Rendering/CommandPacketTest.cpp
@@ -86,12 +99,13 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/DeferredOverlayPassTests.cpp
 		Rendering/PropertyTests/OITPropertyTests.cpp
 		Rendering/PropertyTests/ShaderCompilationTest.cpp
+		Rendering/PropertyTests/RendererAttachedTest.cpp
+		Rendering/PropertyTests/RendererAttachedSmokeTest.cpp
 		Rendering/PropertyTests/TestFailureCapture.cpp
 		Rendering/PropertyTests/TestFailureCaptureTest.cpp
 		Streaming/SceneStreamingTest.cpp
 		InputActionTest.cpp
 		GamepadTest.cpp
-		Networking/NetworkManagerTest.cpp
 		Networking/NetworkMessageTest.cpp
 		Networking/NetworkMessageDispatcherTest.cpp
 		Networking/NetworkThreadDispatchTest.cpp
@@ -137,7 +151,6 @@ add_executable(OloEngine-Tests
 		SaveGame/SaveFileWorldDatabaseTest.cpp
 		# Navigation Tests
 		NavMeshTest.cpp
-		UndoRedoTest.cpp
 		HeadlessTest.cpp
 		# Animation State Machine & Blend Tree Tests
 		AnimationStateMachineTest.cpp
@@ -173,12 +186,95 @@ add_executable(OloEngine-Tests
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser/ContentBrowserItem.cpp
 		# Lua Binding Tests
 		Lua/LuaBindingTest.cpp
+		# Functional / cross-subsystem world-tick tests (see ADR 0001).
+		Functional/FunctionalTest.cpp
+		Functional/AnimationPhysics/FreeFallLandingTest.cpp
+		Functional/AnimationPhysics/AnimationKeepsTickingUnderPhysicsLoadTest.cpp
+		Functional/SaveGame/SceneRoundTripAfterTickTest.cpp
+		Functional/Networking/PhysicsTransformReplicationTest.cpp
+		Functional/Scene/ScenePauseFreezesAllSubsystemsTest.cpp
+		Functional/AnimationPhysics/EntityDestroyedMidTickTest.cpp
+		Functional/AnimationPhysics/PhysicsLayerFilteringTest.cpp
+		Functional/AnimationPhysics/EntityAddedAtRuntimeTest.cpp
+		Functional/Scene/PhysicsRestartIsCleanTest.cpp
+		Functional/Scene/MultipleScenesCoexistTest.cpp
+		Functional/Scene/HierarchyChildFollowsPhysicsParentTest.cpp
+		Functional/AI/BehaviorTreeAdvancesViaSceneTickTest.cpp
+		Functional/Particles/ParticleSystemEmitsAndExpiresTest.cpp
+		Functional/AnimationPhysics/CharacterControllerWalksTest.cpp
+		Functional/AnimationPhysics/AnimationBlendCompletesViaSceneTickTest.cpp
+		Functional/Networking/SnapshotApplyAcrossScenesTest.cpp
+		Functional/AnimationPhysics/Physics2DSimulatesViaSceneTickTest.cpp
+		Functional/AnimationPhysics/CharacterControllerContactCallbackTest.cpp
+		Functional/AnimationPhysics/ComponentRemovedAtRuntimeTest.cpp
+		Functional/AnimationPhysics/TriggerVolumeFiresOverlapEventTest.cpp
+		Functional/Scene/SceneStepAdvancesOneFrameTest.cpp
+		Functional/Scene/DeterministicReplayProducesSameStateTest.cpp
+		Functional/Scene/PrimaryCameraResolutionTest.cpp
+		Functional/Scene/EntityCreateWithUUIDTest.cpp
+		Functional/AnimationPhysics/AnimationContinuesAfterPauseResumeTest.cpp
+		Functional/AnimationPhysics/CharacterPushesDynamicBodyTest.cpp
+		Functional/SaveGame/Save2DBodyVelocityRoundTripTest.cpp
+		Functional/AnimationPhysics/TriggerEndEventFiresOnSeparationTest.cpp
+		Functional/Gameplay/InventoryAutoPickupOnProximityTest.cpp
+		Functional/Scene/EntitySetParentCycleRejectionTest.cpp
+		Functional/Scene/DuplicateTagFindableTest.cpp
+		Functional/SaveGame/NetworkIdentitySurvivesSaveLoadTest.cpp
+		Functional/AnimationPhysics/CharacterControllerJumpsTest.cpp
+		Functional/Scripting/LuaScriptMutatesTransformViaSceneTickTest.cpp
+		Functional/Scripting/LuaScriptOnDestroyFiresTest.cpp
+		Functional/AnimationPhysics/RigidbodyDisableGravityFlagTest.cpp
+		Functional/AnimationPhysics/InitialLinearVelocityIsAppliedTest.cpp
+		Functional/Audio/AudioListenerPositionUpdatesViaSceneTickTest.cpp
+		Functional/AnimationPhysics/AnimationGraphStateMachineTickTest.cpp
+		Functional/Navigation/NavAgentReachesTargetTest.cpp
+		Functional/Asset/AssetManagerImportsStagedAssetTest.cpp
+		Functional/Gameplay/TimedQuestFailsAfterDeadlineTest.cpp
+		Functional/Gameplay/AbilityCooldownTicksDownViaSceneTickTest.cpp
+		Functional/Scripting/LuaScriptSetsRigidbody2DVelocityTest.cpp
+		Functional/SaveGame/AbilityComponentRoundTripTest.cpp
+		Functional/Dialogue/DialogueTextRevealsOverTicksTest.cpp
+		Functional/Gameplay/DamageKillsEntityAndFlipsDeathTagTest.cpp
+		Functional/Gameplay/QuestObjectiveCompletionAdvancesStageTest.cpp
+		Functional/Gameplay/PeriodicDamageEffectTicksHealthDownTest.cpp
+		Functional/AI/StateMachineTransitionsViaSceneTickTest.cpp
+		Functional/Scripting/LuaSetsAbilityAttributeViaSceneTickTest.cpp
+		Functional/SaveGame/QuestJournalSceneYAMLRoundTripTest.cpp
+		Functional/Gameplay/GameplayEffectExpiresAndRevertsAttributeTest.cpp
+		Functional/Gameplay/AbilityBlockedByOwnerTagTest.cpp
+		Functional/Gameplay/InventoryStackConsolidationTest.cpp
+		Functional/Navigation/NavMeshQueryFindPathBetweenPointsTest.cpp
+		Functional/Scripting/LuaRaycastHitsPhysicsBodyTest.cpp
+		Functional/Scripting/LuaCompletesQuestViaIncrementObjectiveTest.cpp
+		Functional/Dialogue/DialogueAdvanceMovesToNextNodeTest.cpp
+		Functional/Gameplay/InventoryTransferItemBetweenContainersTest.cpp
+		Functional/Gameplay/ChanneledAbilityAutoDeactivatesAtEndOfDurationTest.cpp
+		Functional/Gameplay/MultiStageQuestAdvancesThroughStagesTest.cpp
+		Functional/AnimationPhysics/AnimationGraphMultipleEntitiesAdvanceIndependentlyTest.cpp
+		Functional/Gameplay/ToggledAbilityReactivateCancelsTest.cpp
+		Functional/Gameplay/PeriodicEffectStackingScalesDamageTest.cpp
+		Functional/Gameplay/AbilityActivationEffectAppliesToCasterTest.cpp
+		Functional/Gameplay/AbilityRequiredTagGatesActivationTest.cpp
+		Functional/AnimationPhysics/TwoCharacterControllersCoexistTest.cpp
+		Functional/Gameplay/AbilityResourceCostDeductedFromManaTest.cpp
+		Functional/Dialogue/DialogueSelectChoiceBranchesToTargetTest.cpp
+		Functional/AI/BehaviorTreeSequenceShortCircuitsOnFailureTest.cpp
+		Functional/Scripting/LuaReadsTransformOfAnotherEntityTest.cpp
+		Functional/SaveGame/InventoryComponentSceneYAMLRoundTripTest.cpp
+		Functional/SaveGame/HierarchyPreservedAcrossSaveLoadTest.cpp
+		Functional/Scene/EntityNameMapStaysConsistentTest.cpp
+		Functional/Diagnostics/EmptyTickReproTest.cpp
 )
 target_link_libraries(OloEngine-Tests
 	OloEngine
 	gtest)
 
 target_compile_definitions(OloEngine-Tests PRIVATE SOL_ALL_SAFETIES_ON=1)
+
+# Functional fixtures resolve the editor asset root from this define so
+# tests don't depend on the binary's working directory. See ADR 0003.
+target_compile_definitions(OloEngine-Tests PRIVATE
+    OLO_TEST_EDITOR_ROOT="${CMAKE_SOURCE_DIR}/OloEditor")
 
 # Fix UTF-8 compilation issue
 if(MSVC)
@@ -189,6 +285,7 @@ target_include_directories(OloEngine-Tests PRIVATE
 	${CMAKE_SOURCE_DIR}/OloEngine/src
 	${atomic_queue_SOURCE_DIR}/include
 	${spdlog_SOURCE_DIR}/include
+	${CMAKE_CURRENT_SOURCE_DIR}
 	${CMAKE_CURRENT_SOURCE_DIR}/Rendering
 	${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser
 )

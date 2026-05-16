@@ -156,12 +156,27 @@ layout(std140, binding = 12) uniform FoliageParams
     float _foliagePad2;
 };
 
+// Mirror the vertex-stage ModelMatrices block so the entity-ID picking
+// slot is available in the fragment stage. SPIR-V link validation rejects
+// mismatched layouts so the padding fields stay identical.
+layout(std140, binding = 3) uniform ModelMatrices
+{
+    mat4 u_Model;
+    mat4 u_Normal;
+    int  u_EntityID;
+    int  _paddingEntity0;
+    int  _paddingEntity1;
+    int  _paddingEntity2;
+    mat4 u_PrevModel;
+};
+
 layout(binding = 0) uniform sampler2D u_DiffuseTexture;
 
 layout(location = 0) out vec4 o_GBufferAlbedo;
 layout(location = 1) out vec4 o_GBufferNormal;
 layout(location = 2) out vec4 o_GBufferEmissive;
 layout(location = 3) out vec2 o_GBufferVelocity;
+layout(location = 4) out int  o_GBufferEntityID;
 
 vec2 octEncodeGB(vec3 n)
 {
@@ -208,4 +223,6 @@ void main()
     vec2 ndcCurr = clipCurr.xy / clipCurr.w;
     vec2 ndcPrev = clipPrev.xy / clipPrev.w;
     o_GBufferVelocity = (ndcCurr - ndcPrev) * 0.5;
+
+    o_GBufferEntityID = u_EntityID;
 }

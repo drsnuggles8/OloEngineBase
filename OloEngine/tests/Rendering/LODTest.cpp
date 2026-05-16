@@ -9,40 +9,15 @@ using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 // LODLevel Tests
 // =============================================================================
 
-TEST(LODLevel, DefaultConstruction)
-{
-    LODLevel level;
-    EXPECT_EQ(level.MeshHandle, AssetHandle(0));
-    EXPECT_FLOAT_EQ(level.MaxDistance, 0.0f);
-    EXPECT_EQ(level.TriangleCount, 0u);
-}
-
-TEST(LODLevel, ParameterizedConstruction)
-{
-    LODLevel level(AssetHandle(42), 100.0f, 5000);
-    EXPECT_EQ(level.MeshHandle, AssetHandle(42));
-    EXPECT_FLOAT_EQ(level.MaxDistance, 100.0f);
-    EXPECT_EQ(level.TriangleCount, 5000u);
-}
-
-TEST(LODLevel, ParameterizedConstructionDefaultTriangles)
-{
-    LODLevel level(AssetHandle(7), 50.0f);
-    EXPECT_EQ(level.MeshHandle, AssetHandle(7));
-    EXPECT_FLOAT_EQ(level.MaxDistance, 50.0f);
-    EXPECT_EQ(level.TriangleCount, 0u);
-}
+// LODLevel::DefaultConstruction / ParameterizedConstruction /
+// ParameterizedConstructionDefaultTriangles retired -- pure POD
+// field-init smoke (assign value, read it back). Same for
+// LODGroup::DefaultConstruction. See docs/testing.md
+// section 4.1. The SelectLOD-related tests below pin the real contract.
 
 // =============================================================================
 // LODGroup Tests — Empty / Single Level
 // =============================================================================
-
-TEST(LODGroup, DefaultConstruction)
-{
-    LODGroup group;
-    EXPECT_TRUE(group.Levels.empty());
-    EXPECT_FLOAT_EQ(group.Bias, 1.0f);
-}
 
 TEST(LODGroup, EmptyGroupReturnsInvalid)
 {

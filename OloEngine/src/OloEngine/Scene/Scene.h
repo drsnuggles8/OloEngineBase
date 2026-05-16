@@ -127,6 +127,17 @@ namespace OloEngine
         {
             return m_IsRunning;
         }
+
+        // Mark the scene as running without invoking the full
+        // `OnRuntimeStart` lifecycle. Used by headless test harnesses
+        // (Functional tests) that exercise per-tick behaviour but can't
+        // call `OnRuntimeStart` because it depends on `Application::Get()`.
+        // Production code should keep using `OnRuntimeStart` so the
+        // physics/audio/dialogue init runs properly.
+        void SetRunning(bool running) noexcept
+        {
+            m_IsRunning = running;
+        }
         [[nodiscard("Store this!")]] bool IsPaused() const
         {
             return m_IsPaused;
@@ -175,6 +186,20 @@ namespace OloEngine
         // Physics lifecycle (public for external scene setup)
         void OnPhysics3DStart();
         void OnPhysics3DStop();
+        void OnPhysics2DStart();
+        void OnPhysics2DStop();
+
+        // Audio runtime init. Production code reaches this via
+        // OnRuntimeStart (non-headless path). Exposed for headless test
+        // harnesses that need a working AudioEventsManager + position
+        // resolver without depending on Application::Get().
+        void InitAudioRuntime();
+
+        // DialogueSystem instantiation. Production code reaches this via
+        // OnRuntimeStart. Exposed for headless test harnesses that drive
+        // dialogue state machines without invoking the full runtime
+        // lifecycle (which would also wire up scripting, networking, etc.).
+        void InitDialogueSystem();
 
         // 3D rendering mode
         void SetIs3DModeEnabled(bool enabled)
@@ -405,8 +430,18 @@ namespace OloEngine
         template<typename T>
         void OnComponentAdded(Entity entity, T& component);
 
-        void OnPhysics2DStart();
-        void OnPhysics2DStop();
+        // Called by Entity::RemoveComponent before the component is erased
+        // from the registry, so subsystem teardown can read runtime state
+        // (e.g. m_RuntimeBodyToken for Rigidbody3DComponent). The primary
+        // template is intentionally declaration-only — every component type
+        // that supports RemoveComponent<T>() has an explicit specialisation
+        // in Scene.cpp, mirroring the OnComponentAdded pattern. The compiler
+        // emits an unresolved-symbol error for any component type that adds
+        // RemoveComponent<T>() callsites without a matching specialisation,
+        // forcing the engine author to acknowledge the new component's
+        // teardown semantics.
+        template<typename T>
+        void OnComponentRemoved(Entity entity, T& component);
 
         void RenderScene(EditorCamera const& camera);
         void RenderScene3D(EditorCamera const& camera);

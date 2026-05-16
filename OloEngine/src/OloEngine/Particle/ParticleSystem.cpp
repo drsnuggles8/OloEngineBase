@@ -198,7 +198,11 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!Playing)
+        // After Playing flips to false (non-looping system reached Duration),
+        // we still need to tick existing alive particles down to expiration —
+        // otherwise the last cohort of an explosion freezes mid-fade. Bail
+        // only when there's truly nothing left to update.
+        if (!Playing && m_Pool.GetAliveCount() == 0)
         {
             return;
         }
@@ -240,11 +244,15 @@ namespace OloEngine
             m_BoundingSphere = BoundingSphere(emitterPosition, radius);
         }
 
-        // Check duration
+        // Check duration. Once a non-looping system has emitted its full
+        // budget we stop emission, but we deliberately do NOT return — the
+        // alive particles still need their lifetime ticked down so the
+        // pool drains to empty instead of freezing.
+        bool emissionAllowed = Playing;
         if (!Looping && m_Time >= Duration)
         {
             Playing = false;
-            return;
+            emissionAllowed = false;
         }
 
         if (Looping && m_Time >= Duration)
@@ -253,10 +261,13 @@ namespace OloEngine
             Emitter.Reset();
         }
 
-        // GPU path: emit on CPU, simulate on GPU
+        // GPU path: emit on CPU, simulate on GPU. Pass emissionAllowed so
+        // the GPU branch respects the same Playing/Looping/Duration gate
+        // as the CPU branch — without it, a non-looping system would keep
+        // spawning particles past its Duration.
         if (UseGPU)
         {
-            UpdateGPU(scaledDt, emitterPosition, emitterRotation);
+            UpdateGPU(scaledDt, emitterPosition, emitterRotation, emissionAllowed);
             m_PendingTriggers.clear();
             return;
         }
@@ -269,8 +280,14 @@ namespace OloEngine
         m_PendingTriggers.clear();
 
         // 1. Emit new particles (with LOD rate multiplier passed as parameter)
+        // Skip emission when the system has stopped playing (e.g. a non-
+        // looping system that exceeded its Duration); the rest of the
+        // function still runs so existing particles tick down.
         u32 prevAlive = m_Pool.GetAliveCount();
-        Emitter.Update(scaledDt, m_Pool, emitPos, m_LODSpawnRateMultiplier, emitterRotation);
+        if (emissionAllowed)
+        {
+            Emitter.Update(scaledDt, m_Pool, emitPos, m_LODSpawnRateMultiplier, emitterRotation);
+        }
         u32 newAlive = m_Pool.GetAliveCount();
 
         // Apply velocity inheritance: add parent entity velocity to newly spawned particles
@@ -568,7 +585,7 @@ namespace OloEngine
         }
     }
 
-    void ParticleSystem::UpdateGPU(f32 scaledDt, const glm::vec3& emitterPosition, const glm::quat& emitterRotation)
+    void ParticleSystem::UpdateGPU(f32 scaledDt, const glm::vec3& emitterPosition, const glm::quat& emitterRotation, bool emissionAllowed)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -579,10 +596,15 @@ namespace OloEngine
         }
 
         // Use a temporary CPU pool to emit particles through the existing emitter
-        // We reuse the main pool but snapshot the alive count to detect new particles
+        // We reuse the main pool but snapshot the alive count to detect new particles.
+        // Skip emission when the system has stopped playing — the GPU pipeline
+        // still simulates/compacts alive particles below so the pool drains.
         glm::vec3 emitPos = (SimulationSpace == ParticleSpace::Local) ? glm::vec3(0.0f) : emitterPosition;
         u32 prevAlive = m_Pool.GetAliveCount();
-        Emitter.Update(scaledDt, m_Pool, emitPos, m_LODSpawnRateMultiplier, emitterRotation);
+        if (emissionAllowed)
+        {
+            Emitter.Update(scaledDt, m_Pool, emitPos, m_LODSpawnRateMultiplier, emitterRotation);
+        }
         u32 newAlive = m_Pool.GetAliveCount();
         u32 newCount = newAlive - prevAlive;
 
