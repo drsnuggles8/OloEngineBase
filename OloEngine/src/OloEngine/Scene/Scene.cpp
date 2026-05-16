@@ -4029,7 +4029,8 @@ namespace OloEngine
                     const auto& materials = model.m_Model->GetMaterials();
                     for (const auto& submesh : meshes)
                     {
-                        if (!submesh) continue;
+                        if (!submesh)
+                            continue;
 
                         const u32 matIdx = submesh->GetSubmesh().m_MaterialIndex;
                         if (matIdx < materials.size() && materials[matIdx])
@@ -4046,7 +4047,8 @@ namespace OloEngine
                         }
 
                         auto va = submesh->GetVertexArray();
-                        if (!va) continue;
+                        if (!va)
+                            continue;
 
                         Renderer3D::AddMeshShadowCaster(
                             va->GetRendererID(), submesh->GetIndexCount(), submesh->GetBaseIndex(),

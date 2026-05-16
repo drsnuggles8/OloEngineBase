@@ -1834,10 +1834,13 @@ namespace OloEngine
 
         // Diagnostic: what textures ended up where for this material?
         {
-            auto pathOrNone = [](const Ref<Texture2D>& t) -> std::string {
-                if (!t) return "<none>";
+            auto pathOrNone = [](const Ref<Texture2D>& t) -> std::string
+            {
+                if (!t)
+                    return "<none>";
                 const auto& p = t->GetPath();
-                if (p.empty()) return "<unnamed>";
+                if (p.empty())
+                    return "<unnamed>";
                 return std::filesystem::path(p).filename().string();
             };
             OLO_CORE_INFO(

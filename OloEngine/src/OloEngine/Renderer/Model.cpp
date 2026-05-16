@@ -524,7 +524,8 @@ namespace OloEngine
                 {
                     for (sizet i = 0; i < m_Meshes.size(); ++i)
                     {
-                        if (!m_Meshes[i]) continue;
+                        if (!m_Meshes[i])
+                            continue;
                         const auto& sub = m_Meshes[i]->GetSubmesh();
                         const u32 matIdx = sub.m_MaterialIndex;
                         const bool inRange = matIdx < m_Materials.size();
@@ -1272,10 +1273,13 @@ namespace OloEngine
         // the axe-head ends up with a cloth diffuse, or an emissive map gets
         // bound to albedo, we see it directly here.
         {
-            auto pathOrNone = [](const Ref<Texture2D>& t) -> std::string {
-                if (!t) return "<none>";
+            auto pathOrNone = [](const Ref<Texture2D>& t) -> std::string
+            {
+                if (!t)
+                    return "<none>";
                 const auto& p = t->GetPath();
-                if (p.empty()) return "<unnamed>";
+                if (p.empty())
+                    return "<unnamed>";
                 return std::filesystem::path(p).filename().string();
             };
             OLO_CORE_INFO(

@@ -59,9 +59,9 @@ namespace OloEngine::Tests
             u32 m_IndexCount = 0;
             u32 m_SubmeshCount = 0;
             u32 m_MaterialCount = 0;
-            u32 m_VertexCRC = 0;       // CRC32 over the raw vertex bytes
-            u32 m_IndexCRC = 0;        // CRC32 over the raw index bytes
-            u32 m_TextureCRC = 0;      // CRC32 over the albedo texture's RGBA pixels
+            u32 m_VertexCRC = 0;  // CRC32 over the raw vertex bytes
+            u32 m_IndexCRC = 0;   // CRC32 over the raw index bytes
+            u32 m_TextureCRC = 0; // CRC32 over the albedo texture's RGBA pixels
             u32 m_TextureWidth = 0;
             u32 m_TextureHeight = 0;
             std::string m_AlbedoPath; // Source path of the albedo texture
@@ -170,7 +170,8 @@ namespace OloEngine::Tests
             if (model.GetMeshes().empty() || !model.GetMeshes()[0])
                 return;
             const auto src = model.GetMeshes()[0]->GetMeshSource();
-            if (!src) return;
+            if (!src)
+                return;
             const auto& indices = src->GetIndices();
             const auto& subs = src->GetSubmeshes();
             std::printf("[%s] submesh[0] baseIdx=%u idxCount=%u baseVtx=%u vtxCount=%u preOpt=%d\n",

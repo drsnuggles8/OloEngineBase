@@ -128,22 +128,34 @@ void main() { o_Color = vec4(1.0); }
         // unless its baseIndex offset is respected.
         const std::array<f32, 6 * 3> vertices = {
             // Triangle A (entirely in LEFT half, centered ~x=-0.5) — vertices 0,1,2
-            -0.9f, -0.9f, 0.0f,
-            -0.1f, -0.9f, 0.0f,
-            -0.5f,  0.9f, 0.0f,
+            -0.9f,
+            -0.9f,
+            0.0f,
+            -0.1f,
+            -0.9f,
+            0.0f,
+            -0.5f,
+            0.9f,
+            0.0f,
             // Triangle B (entirely in RIGHT half, centered ~x=+0.5) — vertices 3,4,5
-             0.1f, -0.9f, 0.0f,
-             0.9f, -0.9f, 0.0f,
-             0.5f,  0.9f, 0.0f,
+            0.1f,
+            -0.9f,
+            0.0f,
+            0.9f,
+            -0.9f,
+            0.0f,
+            0.5f,
+            0.9f,
+            0.0f,
         };
-        const std::array<u32, 6> indices = { 0, 1, 2,  3, 4, 5 };
+        const std::array<u32, 6> indices = { 0, 1, 2, 3, 4, 5 };
 
         // Pixel probe regions: small (8x8) windows centered on each triangle's
         // expected fill area in framebuffer space. For 64x64 viewport:
         //   left  probe — pixel (~16, ~16) — interior of triangle A
         //   right probe — pixel (~48, ~16) — interior of triangle B
         constexpr u32 kProbeHalfSize = 4;
-        const auto leftProbeCenter  = std::pair<u32, u32>{ 16, 16 };
+        const auto leftProbeCenter = std::pair<u32, u32>{ 16, 16 };
         const auto rightProbeCenter = std::pair<u32, u32>{ 48, 16 };
 
         GLuint vao = 0, vbo = 0, ibo = 0;
@@ -184,13 +196,13 @@ void main() { o_Color = vec4(1.0); }
             std::vector<u8> pixels(kWidth * kHeight * 4u, 0);
             ::glReadPixels(0, 0, kWidth, kHeight, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
 
-            const f32 leftProbe  = AverageBrightness(pixels, kWidth, kHeight,
-                leftProbeCenter.first  - kProbeHalfSize, leftProbeCenter.second  - kProbeHalfSize,
-                leftProbeCenter.first  + kProbeHalfSize, leftProbeCenter.second  + kProbeHalfSize);
+            const f32 leftProbe = AverageBrightness(pixels, kWidth, kHeight,
+                                                    leftProbeCenter.first - kProbeHalfSize, leftProbeCenter.second - kProbeHalfSize,
+                                                    leftProbeCenter.first + kProbeHalfSize, leftProbeCenter.second + kProbeHalfSize);
             const f32 rightProbe = AverageBrightness(pixels, kWidth, kHeight,
-                rightProbeCenter.first - kProbeHalfSize, rightProbeCenter.second - kProbeHalfSize,
-                rightProbeCenter.first + kProbeHalfSize, rightProbeCenter.second + kProbeHalfSize);
-            EXPECT_GT(leftProbe,  0.9f) << "Triangle A (indices 0..2) should fill the LEFT probe at pixel (16,16).";
+                                                     rightProbeCenter.first - kProbeHalfSize, rightProbeCenter.second - kProbeHalfSize,
+                                                     rightProbeCenter.first + kProbeHalfSize, rightProbeCenter.second + kProbeHalfSize);
+            EXPECT_GT(leftProbe, 0.9f) << "Triangle A (indices 0..2) should fill the LEFT probe at pixel (16,16).";
             EXPECT_LT(rightProbe, 0.1f) << "RIGHT probe at pixel (48,16) must be empty when only indices 0..2 are drawn.";
         }
 
@@ -212,16 +224,16 @@ void main() { o_Color = vec4(1.0); }
             std::vector<u8> pixels(kWidth * kHeight * 4u, 0);
             ::glReadPixels(0, 0, kWidth, kHeight, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
 
-            const f32 leftProbe  = AverageBrightness(pixels, kWidth, kHeight,
-                leftProbeCenter.first  - kProbeHalfSize, leftProbeCenter.second  - kProbeHalfSize,
-                leftProbeCenter.first  + kProbeHalfSize, leftProbeCenter.second  + kProbeHalfSize);
+            const f32 leftProbe = AverageBrightness(pixels, kWidth, kHeight,
+                                                    leftProbeCenter.first - kProbeHalfSize, leftProbeCenter.second - kProbeHalfSize,
+                                                    leftProbeCenter.first + kProbeHalfSize, leftProbeCenter.second + kProbeHalfSize);
             const f32 rightProbe = AverageBrightness(pixels, kWidth, kHeight,
-                rightProbeCenter.first - kProbeHalfSize, rightProbeCenter.second - kProbeHalfSize,
-                rightProbeCenter.first + kProbeHalfSize, rightProbeCenter.second + kProbeHalfSize);
+                                                     rightProbeCenter.first - kProbeHalfSize, rightProbeCenter.second - kProbeHalfSize,
+                                                     rightProbeCenter.first + kProbeHalfSize, rightProbeCenter.second + kProbeHalfSize);
             // This is the exact regression: if baseIndex is silently dropped (as it was in the
             // shadow pass before the fix), the LEFT probe lights up (triangle A redrawn)
             // and the RIGHT probe stays dark.
-            EXPECT_LT(leftProbe,  0.1f) << "baseIndex=3 must NOT draw triangle A. LEFT probe must remain empty.";
+            EXPECT_LT(leftProbe, 0.1f) << "baseIndex=3 must NOT draw triangle A. LEFT probe must remain empty.";
             EXPECT_GT(rightProbe, 0.9f) << "baseIndex=3 must draw triangle B (indices 3..5). RIGHT probe must be filled.";
         }
 
