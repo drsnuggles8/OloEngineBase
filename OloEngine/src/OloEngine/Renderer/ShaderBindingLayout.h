@@ -959,11 +959,11 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_UseEmissiveMap;
     int u_EnableIBL;
     int u_ApplyGammaCorrection;
-    int u_AlphaCutoff;
+    float u_AlphaCutoff;
     int u_EnableLightProbes;
     float u_IBLIntensity;
-    int _pbrPad1;
-    int _pbrPad2;
+    int u_AlphaMode;
+    int u__pbrPad2;
 };)";
         }
 

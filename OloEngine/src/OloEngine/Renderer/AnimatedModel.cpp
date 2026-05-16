@@ -1843,7 +1843,10 @@ namespace OloEngine
                     return "<unnamed>";
                 return std::filesystem::path(p).filename().string();
             };
-            OLO_CORE_INFO(
+            // Downgraded from INFO: this fires once per material per animated
+            // model load, which is too chatty for default-level logs. Flip
+            // OloEngine.log to TRACE if you need the per-material dump.
+            OLO_CORE_TRACE(
                 "AnimatedModel::ProcessMaterial: '{}' albedo='{}' normal='{}' mr='{}' ao='{}' emissive='{}' alphaMode={} twoSided={}",
                 materialName,
                 pathOrNone(material.GetAlbedoMap()),

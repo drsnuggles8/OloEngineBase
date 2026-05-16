@@ -1,10 +1,17 @@
 Scene: SponzaDeferred.olo
-# NOTE: This scene is intentionally identical in content to SponzaCSM.olo so
-# you can A/B the deferred path against forward. The rendering path is set on
-# the renderer (RendererSettings::Path / RenderingPath), not in the .olo file,
-# so when running this scene make sure the editor is configured to Deferred.
-# Phase 5 (deferred MSAA, decals, transparent OIT) is still WIP; use this scene
-# to validate G-Buffer correctness and tiled deferred lighting once it lands.
+# NOTE: SponzaDeferred.olo is the deferred-path companion to SponzaCSM.olo —
+# similar geometry, but NOT byte-for-byte identical. Differences to keep in
+# mind when A/B'ing the two:
+#   * SponzaDeferred adds a handful of warm/cool accent point lights at floor
+#     level (exercises tiled deferred light culling).
+#   * Directional-light direction and intensity are tuned differently for the
+#     deferred path; IBL contribution is left at full strength here (SponzaCSM
+#     dims IBL to keep the sun dominant).
+# The rendering path is set on the renderer (RendererSettings::Path /
+# RenderingPath), not in the .olo file, so when running this scene make sure
+# the editor is configured to Deferred. Phase 5 (deferred MSAA, decals,
+# transparent OIT) is still WIP; use this scene to validate G-Buffer
+# correctness and tiled deferred lighting once it lands.
 PostProcessSettings:
   TonemapOperator: 0
   Exposure: 1

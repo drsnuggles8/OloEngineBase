@@ -50,6 +50,15 @@ namespace OloEngine::Tests
             const auto root = fs::path("assets") / "tests" / "captures" / "ModelLoadDeterminism";
             std::error_code ec;
             fs::create_directories(root, ec);
+            // Bail loudly on directory-creation failure — silently returning a
+            // missing path turns later stbi_write_png/snapshot failures into a
+            // mystery instead of pointing at the real cause.
+            if (ec)
+            {
+                throw std::runtime_error(
+                    "ModelLoadDeterminismTest: failed to create capture directory '" +
+                    root.string() + "': " + ec.message());
+            }
             return root;
         }
 
@@ -140,12 +149,20 @@ namespace OloEngine::Tests
                         // glGetTextureImage returns rows top-to-bottom in our setup
                         // (stbi_set_flip_vertically_on_load(1) at load time), so
                         // write directly without flipping.
-                        ::stbi_write_png(pngPath.c_str(),
-                                         static_cast<int>(s.m_TextureWidth),
-                                         static_cast<int>(s.m_TextureHeight),
-                                         /*comp*/ 4,
-                                         pixels.data(),
-                                         /*stride*/ static_cast<int>(s.m_TextureWidth) * 4);
+                        const int writeOk = ::stbi_write_png(pngPath.c_str(),
+                                                             static_cast<int>(s.m_TextureWidth),
+                                                             static_cast<int>(s.m_TextureHeight),
+                                                             /*comp*/ 4,
+                                                             pixels.data(),
+                                                             /*stride*/ static_cast<int>(s.m_TextureWidth) * 4);
+                        // Surfacing PNG-write failures keeps the test honest:
+                        // a silent dud means the comparison fixture (the file
+                        // a debugging engineer would diff against) is missing
+                        // and a real regression could pass unnoticed.
+                        if (writeOk == 0)
+                        {
+                            ADD_FAILURE() << "stbi_write_png failed for '" << pngPath << "'";
+                        }
                     }
                 }
             }

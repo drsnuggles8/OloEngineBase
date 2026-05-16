@@ -460,11 +460,21 @@ namespace OloEngine
                 //       flat order, which can differ from DFS visit order.
                 {
                     Assimp::Importer importer;
+                    // Must mirror the fresh-import flags below — otherwise the
+                    // tree we walk here visits a different number/order of
+                    // submeshes than CreateCombinedMeshSource saw on the cold
+                    // path, and material indices drift. FindDegenerates +
+                    // FindInvalidData are the two that prune meshes (zero-area
+                    // tris, NaN normals, etc.), so leaving them off here breaks
+                    // the 1:1 m_Meshes[i] ↔ DFS-mesh[i] mapping that the
+                    // material-rebuild relies on.
                     constexpr u32 kCacheLoadFlags = aiProcess_Triangulate |
                                                     aiProcess_GenNormals |
                                                     aiProcess_CalcTangentSpace |
                                                     aiProcess_JoinIdenticalVertices |
                                                     aiProcess_ValidateDataStructure |
+                                                    aiProcess_FindDegenerates |
+                                                    aiProcess_FindInvalidData |
                                                     aiProcess_PreTransformVertices;
                     const aiScene* scene = importer.ReadFile(path, kCacheLoadFlags);
                     if (scene && scene->mRootNode)
@@ -520,7 +530,9 @@ namespace OloEngine
 
                 // Diagnostic: per-submesh material resolution. Mirrors the
                 // path Scene.cpp will take at render time, so what we print
-                // here is what the GPU will see.
+                // here is what the GPU will see. Gated to keep the log quiet
+                // for normal loads; set OLO_MODEL_IMPORT_DIAGNOSTICS=1 to enable.
+                if (IsModelImportDiagnosticsEnabled())
                 {
                     for (sizet i = 0; i < m_Meshes.size(); ++i)
                     {
@@ -1271,7 +1283,9 @@ namespace OloEngine
         // Diagnostic: dump which texture ended up in each PBR slot. This is the
         // single best signal for catching material/texture-misbinding bugs: if
         // the axe-head ends up with a cloth diffuse, or an emissive map gets
-        // bound to albedo, we see it directly here.
+        // bound to albedo, we see it directly here. Gated behind the
+        // OLO_MODEL_IMPORT_DIAGNOSTICS env var so default loads stay quiet.
+        if (IsModelImportDiagnosticsEnabled())
         {
             auto pathOrNone = [](const Ref<Texture2D>& t) -> std::string
             {
