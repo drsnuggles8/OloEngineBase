@@ -286,6 +286,17 @@ namespace OloEngine
             return texture;
         }
 
+        // Sanity cap on embedded textures. A hostile (or just thoughtlessly
+        // exported) glTF can declare arbitrary dimensions; without a limit we
+        // would happily ask stb_image to decode several gigabytes of RGBA on
+        // a single drag-and-drop. 100M pixels = 400MB at RGBA8 — generous
+        // enough for any plausible game texture, small enough that a single
+        // allocation cannot exhaust 32-bit address space.
+        constexpr u64 kMaxEmbeddedTexturePixels = 100'000'000ULL;
+        static_assert(kMaxEmbeddedTexturePixels * 4ULL <= std::numeric_limits<u32>::max(),
+                      "Embedded-texture pixel cap must keep the RGBA byte count within u32 — "
+                      "Texture2D::SetData takes the size as u32.");
+
         // Build a Texture2D from an Assimp embedded texture. glTF / FBX may
         // embed the bitmap either as compressed bytes (PNG/JPG in pcData,
         // mHeight==0, mWidth=byte-length) or as raw BGRA aiTexel pixels
@@ -324,6 +335,14 @@ namespace OloEngine
                     return nullptr;
                 }
 
+                if (static_cast<u64>(w) * static_cast<u64>(h) > kMaxEmbeddedTexturePixels)
+                {
+                    OLO_CORE_WARN("Model: Refusing oversized embedded texture {}x{} (cap {} pixels)",
+                                  w, h, kMaxEmbeddedTexturePixels);
+                    ::stbi_image_free(decoded);
+                    return nullptr;
+                }
+
                 width = static_cast<u32>(w);
                 height = static_cast<u32>(h);
                 rgba.assign(decoded, decoded + (static_cast<sizet>(width) * height * 4u));
@@ -337,6 +356,13 @@ namespace OloEngine
                 height = embedded->mHeight;
                 if (width == 0 || height == 0)
                     return nullptr;
+
+                if (static_cast<u64>(width) * static_cast<u64>(height) > kMaxEmbeddedTexturePixels)
+                {
+                    OLO_CORE_WARN("Model: Refusing oversized embedded texture {}x{} (cap {} pixels)",
+                                  width, height, kMaxEmbeddedTexturePixels);
+                    return nullptr;
+                }
 
                 rgba.resize(static_cast<sizet>(width) * height * 4u);
                 for (u32 y = 0; y < height; ++y)
