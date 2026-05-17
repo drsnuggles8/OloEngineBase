@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLTextureCubemap.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
@@ -188,6 +189,10 @@ namespace OloEngine
         // Unregister from GPU Resource Inspector
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 
+        // See OpenGLTexture2D::~OpenGLTexture2D — same skip-bind hazard applies
+        // when the recycled ID is later supplied for a cubemap slot.
+        CommandDispatch::InvalidateTextureBinding(m_RendererID);
+
         u32 id = m_RendererID;
         FrameResourceManager::Get().SubmitForDeletion([id]()
                                                       { glDeleteTextures(1, &id); });
@@ -202,7 +207,8 @@ namespace OloEngine
         int width;
         int height;
         int channels;
-        stbi_set_flip_vertically_on_load(0); // Don't flip cubemap textures
+        // Use thread-local API — see OpenGLTexture2D for the latching-override hazard.
+        stbi_set_flip_vertically_on_load_thread(0); // Don't flip cubemap textures
 
         // First pass: check sizes and determine format
         bool firstFace = true;

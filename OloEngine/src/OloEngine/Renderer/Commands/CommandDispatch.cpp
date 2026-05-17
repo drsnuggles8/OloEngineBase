@@ -102,6 +102,21 @@ namespace OloEngine
         }
     }
 
+    void CommandDispatch::InvalidateTextureBinding(u32 textureID)
+    {
+        if (textureID == 0)
+            return;
+        // Clear every slot that still claims this GL ID. After glDeleteTextures
+        // the driver unbinds the texture, but our cached BoundTextureIDs would
+        // otherwise still say it's bound — causing the next BindTrackedTexture
+        // call (with a recycled GL ID) to skip the actual glBindTextureUnit.
+        for (auto& slot : s_Data.BoundTextureIDs)
+        {
+            if (slot == textureID)
+                slot = 0;
+        }
+    }
+
     // Conditionally bind a UBO only when the binding point has changed,
     // avoiding redundant glBindBufferBase calls each draw.
     static void BindUBOIfNeeded(u32 bindingPoint, u32 rendererID)
@@ -350,7 +365,8 @@ namespace OloEngine
                 pbrMaterialData.UseEmissiveMap = mat.emissiveMapID != 0 ? 1 : 0;
                 pbrMaterialData.EnableIBL = mat.enableIBL ? 1 : 0;
                 pbrMaterialData.ApplyGammaCorrection = 1;
-                pbrMaterialData.AlphaCutoff = 0;
+                pbrMaterialData.AlphaCutoff = mat.alphaCutoff;
+                pbrMaterialData.AlphaMode = mat.alphaMode;
                 pbrMaterialData.EnableLightProbes = 0;
                 pbrMaterialData.IBLIntensity = mat.iblIntensity;
 

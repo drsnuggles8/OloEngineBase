@@ -58,6 +58,7 @@ namespace OloEngine
 
         // Raw VAO ID overloads for POD shadow casters (no Ref<VertexArray> available)
         virtual void DrawIndexedRaw(u32 vaoID, u32 indexCount) = 0;
+        virtual void DrawIndexedRaw(u32 vaoID, u32 indexCount, u32 baseIndex) = 0;
         virtual void DrawIndexedPatchesRaw(u32 vaoID, u32 indexCount, u32 patchVertices) = 0;
 
         virtual void SetLineWidth(f32 width) = 0;

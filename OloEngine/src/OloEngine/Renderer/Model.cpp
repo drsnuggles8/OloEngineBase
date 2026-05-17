@@ -23,6 +23,7 @@
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Task/ParallelFor.h"
 
+#include <assimp/GltfMaterial.h>
 #include <stb_image/stb_image.h>
 
 namespace OloEngine
@@ -445,36 +446,74 @@ namespace OloEngine
                     m_Meshes.push_back(Ref<Mesh>::Create(cachedMesh, static_cast<u32>(i)));
                 }
 
-                // Load materials from the source file (lightweight Assimp read — no geometry postprocessing)
-                // CreateCombinedMeshSource sets materialIndex = meshIdx, so m_Materials[i]
-                // must hold the material for the i-th Assimp mesh.
+                // Load materials from the source file.
+                //
+                // Fresh load runs ProcessNode under aiProcess_PreTransformVertices,
+                // so m_Meshes ends up in the DFS order that ProcessNode visits.
+                // CreateCombinedMeshSource writes submeshes in that same order
+                // and sets m_MaterialIndex = the m_Meshes index. To rebuild the
+                // material array correctly we must:
+                //   (a) re-import with the same flags so the tree we walk matches
+                //       what fresh load saw (PreTransformVertices flattens the
+                //       hierarchy and can reorder/merge meshes), and
+                //   (b) walk that tree in DFS order — never use scene->mMeshes
+                //       flat order, which can differ from DFS visit order.
                 {
                     Assimp::Importer importer;
-                    const aiScene* scene = importer.ReadFile(path, 0);
-                    if (scene)
+                    // Must mirror the fresh-import flags below — otherwise the
+                    // tree we walk here visits a different number/order of
+                    // submeshes than CreateCombinedMeshSource saw on the cold
+                    // path, and material indices drift. FindDegenerates +
+                    // FindInvalidData are the two that prune meshes (zero-area
+                    // tris, NaN normals, etc.), so leaving them off here breaks
+                    // the 1:1 m_Meshes[i] ↔ DFS-mesh[i] mapping that the
+                    // material-rebuild relies on.
+                    constexpr u32 kCacheLoadFlags = aiProcess_Triangulate |
+                                                    aiProcess_GenNormals |
+                                                    aiProcess_CalcTangentSpace |
+                                                    aiProcess_JoinIdenticalVertices |
+                                                    aiProcess_ValidateDataStructure |
+                                                    aiProcess_FindDegenerates |
+                                                    aiProcess_FindInvalidData |
+                                                    aiProcess_PreTransformVertices;
+                    const aiScene* scene = importer.ReadFile(path, kCacheLoadFlags);
+                    if (scene && scene->mRootNode)
                     {
-                        m_Materials.resize(m_Meshes.size());
-                        auto numSceneMeshes = std::min(scene->mNumMeshes, static_cast<u32>(m_Meshes.size()));
-                        for (u32 i = 0; i < numSceneMeshes; ++i)
+                        std::vector<u32> sceneMeshIndices;
+                        sceneMeshIndices.reserve(m_Meshes.size());
+
+                        const auto collectDFS = [](const aiNode* node, std::vector<u32>& out, auto&& self) -> void
                         {
-                            auto matIdx = scene->mMeshes[i]->mMaterialIndex;
+                            for (u32 i = 0; i < node->mNumMeshes; ++i)
+                                out.push_back(node->mMeshes[i]);
+                            for (u32 i = 0; i < node->mNumChildren; ++i)
+                                self(node->mChildren[i], out, self);
+                        };
+                        collectDFS(scene->mRootNode, sceneMeshIndices, collectDFS);
+
+                        m_Materials.resize(m_Meshes.size());
+                        const auto numToProcess = std::min(sceneMeshIndices.size(), m_Meshes.size());
+                        for (sizet i = 0; i < numToProcess; ++i)
+                        {
+                            const u32 sceneMeshIdx = sceneMeshIndices[i];
+                            if (sceneMeshIdx >= scene->mNumMeshes)
+                                continue;
+                            const u32 matIdx = scene->mMeshes[sceneMeshIdx]->mMaterialIndex;
                             if (matIdx < scene->mNumMaterials)
                             {
                                 m_Materials[i] = ProcessMaterial(scene->mMaterials[matIdx], scene);
                             }
                         }
-                        // Fill any unfilled slots with a default material so accesses never see null
-                        if (numSceneMeshes < static_cast<u32>(m_Meshes.size()))
+
+                        if (sceneMeshIndices.size() != m_Meshes.size())
                         {
-                            OLO_CORE_WARN("Model::LoadModel: Scene has {} meshes but cache has {} — "
-                                          "assigning default material to trailing entries",
-                                          numSceneMeshes, m_Meshes.size());
-                            for (auto i = numSceneMeshes; i < static_cast<u32>(m_Meshes.size()); ++i)
+                            OLO_CORE_WARN("Model::LoadModel: cache has {} submeshes but DFS walk produced {} — "
+                                          "materials beyond the overlap will use a default. Stale cache?",
+                                          m_Meshes.size(), sceneMeshIndices.size());
+                            for (sizet i = numToProcess; i < m_Meshes.size(); ++i)
                             {
                                 if (!m_Materials[i])
-                                {
                                     m_Materials[i] = Ref<Material>::Create();
-                                }
                             }
                         }
                     }
@@ -488,6 +527,26 @@ namespace OloEngine
                 CalculateBounds();
 
                 OLO_CORE_TRACE("Model::LoadModel: Loaded {} meshes from cache '{}'", m_Meshes.size(), cachePrefix.empty() ? "<default>" : cachePrefix);
+
+                // Diagnostic: per-submesh material resolution. Mirrors the
+                // path Scene.cpp will take at render time, so what we print
+                // here is what the GPU will see. Gated to keep the log quiet
+                // for normal loads; set OLO_MODEL_IMPORT_DIAGNOSTICS=1 to enable.
+                if (IsModelImportDiagnosticsEnabled())
+                {
+                    for (sizet i = 0; i < m_Meshes.size(); ++i)
+                    {
+                        if (!m_Meshes[i])
+                            continue;
+                        const auto& sub = m_Meshes[i]->GetSubmesh();
+                        const u32 matIdx = sub.m_MaterialIndex;
+                        const bool inRange = matIdx < m_Materials.size();
+                        const std::string matName = (inRange && m_Materials[matIdx]) ? m_Materials[matIdx]->GetName() : "<oob>";
+                        OLO_CORE_INFO("Model: cache submesh[{}] '{}' -> matIdx={} ({})",
+                                      i, sub.m_NodeName.empty() ? "<unnamed>" : sub.m_NodeName,
+                                      matIdx, matName);
+                    }
+                }
                 return;
             }
         }
@@ -920,6 +979,37 @@ namespace OloEngine
             metallic,
             roughness);
 
+        // glTF alpha mode + cutoff. Assimp surfaces these from the gltf2 importer
+        // via dedicated keys; legacy formats simply don't set them, leaving the
+        // material at the Opaque default.
+        aiString alphaModeStr;
+        if (mat->Get(AI_MATKEY_GLTF_ALPHAMODE, alphaModeStr) == AI_SUCCESS)
+        {
+            std::string_view mode(alphaModeStr.C_Str(), alphaModeStr.length);
+            if (mode == "MASK")
+            {
+                materialRef->SetAlphaMode(AlphaMode::Mask);
+            }
+            else if (mode == "BLEND")
+            {
+                materialRef->SetAlphaMode(AlphaMode::Blend);
+                materialRef->SetFlag(MaterialFlag::Blend, true);
+            }
+        }
+
+        f32 alphaCutoff = 0.5f;
+        if (mat->Get(AI_MATKEY_GLTF_ALPHACUTOFF, alphaCutoff) == AI_SUCCESS)
+        {
+            materialRef->SetAlphaCutoff(alphaCutoff);
+        }
+
+        // Double-sided: glTF "doubleSided": true maps to assimp's TWOSIDED key.
+        i32 twoSided = 0;
+        if (mat->Get(AI_MATKEY_TWOSIDED, twoSided) == AI_SUCCESS && twoSided != 0)
+        {
+            materialRef->SetFlag(MaterialFlag::TwoSided, true);
+        }
+
         // Load PBR textures - prioritize overrides if provided
         // Track the albedo filename for PBR companion texture discovery
         std::filesystem::path albedoFilename;
@@ -1188,6 +1278,34 @@ namespace OloEngine
             {
                 materialRef->SetEmissiveMap(emissiveMaps[0]);
             }
+        }
+
+        // Diagnostic: dump which texture ended up in each PBR slot. This is the
+        // single best signal for catching material/texture-misbinding bugs: if
+        // the axe-head ends up with a cloth diffuse, or an emissive map gets
+        // bound to albedo, we see it directly here. Gated behind the
+        // OLO_MODEL_IMPORT_DIAGNOSTICS env var so default loads stay quiet.
+        if (IsModelImportDiagnosticsEnabled())
+        {
+            auto pathOrNone = [](const Ref<Texture2D>& t) -> std::string
+            {
+                if (!t)
+                    return "<none>";
+                const auto& p = t->GetPath();
+                if (p.empty())
+                    return "<unnamed>";
+                return std::filesystem::path(p).filename().string();
+            };
+            OLO_CORE_INFO(
+                "Model::ProcessMaterial: '{}' albedo='{}' normal='{}' mr='{}' ao='{}' emissive='{}' alphaMode={} twoSided={}",
+                materialName,
+                pathOrNone(materialRef->GetAlbedoMap()),
+                pathOrNone(materialRef->GetNormalMap()),
+                pathOrNone(materialRef->GetMetallicRoughnessMap()),
+                pathOrNone(materialRef->GetAOMap()),
+                pathOrNone(materialRef->GetEmissiveMap()),
+                static_cast<i32>(materialRef->GetAlphaMode()),
+                materialRef->GetFlag(MaterialFlag::TwoSided) ? "true" : "false");
         }
 
         return materialRef;
@@ -1522,6 +1640,12 @@ namespace OloEngine
         // NOTE: Do NOT call Build() here — this MeshSource is only used for cache serialization,
         // not rendering. Build() would re-run OptimizeMesh on already-optimized data, corrupting
         // submesh base vertex/index offsets.
+        //
+        // Each per-mesh source has already had OptimizeMesh applied in ProcessMesh::Build, so the
+        // concatenated data is effectively pre-optimized. Mark it so on cache reload Build() skips
+        // OptimizeMesh — running it on multi-submesh combined data has been observed to scramble
+        // UVs/indices across submeshes (AnimatedModel does the same thing for the same reason).
+        combinedMeshSource->SetPreOptimized(true);
 
         OLO_CORE_INFO("Model::CreateCombinedMeshSource: Combined {} meshes into {} vertices, {} indices, {} submeshes",
                       m_Meshes.size(), combinedMeshSource->GetVertices().Num(),

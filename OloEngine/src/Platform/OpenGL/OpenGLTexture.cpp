@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLTexture.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
@@ -234,13 +235,19 @@ namespace OloEngine
         int width = 0;
         int height = 0;
         int channels = 0;
-        ::stbi_set_flip_vertically_on_load(1);
+        // Use the THREAD-LOCAL flip setter. Once stbi_set_flip_vertically_on_load_thread
+        // has been called anywhere in this thread (e.g. from CreatePackedMetallicRoughnessTexture's
+        // LoadSingleChannelImage), the thread-local override is permanently latched and the
+        // *global* setter via stbi_set_flip_vertically_on_load() is silently ignored — which
+        // produced the long-running "second Model load has un-flipped textures" bug. Setting
+        // the thread-local explicitly here makes the load deterministic regardless of any
+        // prior calls.
+        ::stbi_set_flip_vertically_on_load_thread(1);
         stbi_uc* data = nullptr;
         {
             OLO_PROFILE_SCOPE("stbi_load - OpenGLTexture2D::OpenGLTexture2D(const std::string&)");
             data = ::stbi_load(path.c_str(), &width, &height, &channels, 0);
         }
-        ::stbi_set_flip_vertically_on_load(0); // reset global flag to avoid polluting later stbi calls
 
         if (!data)
         {
@@ -262,6 +269,10 @@ namespace OloEngine
         // Unregister from GPU Resource Inspector
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 
+        // Drop any cached "this slot already has this texture bound" entries so a
+        // future bind with a recycled GL ID isn't skipped against stale tracking.
+        CommandDispatch::InvalidateTextureBinding(m_RendererID);
+
         u32 id = m_RendererID;
         FrameResourceManager::Get().SubmitForDeletion([id]()
                                                       { glDeleteTextures(1, &id); });
@@ -280,6 +291,7 @@ namespace OloEngine
         // Dealloc old
         OLO_TRACK_DEALLOC(this);
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
+        CommandDispatch::InvalidateTextureBinding(m_RendererID);
 
         u32 oldId = m_RendererID;
         FrameResourceManager::Get().SubmitForDeletion([oldId]()

@@ -1,0 +1,106 @@
+Scene: SponzaCSM.olo
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1.2
+  BloomIntensity: 0.35
+  BloomIterations: 5
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: true
+  SSAORadius: 0.6
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+Entities:
+  # ── Camera (atrium-level view, looking along the long axis) ──
+  - Entity: 760000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [-9, 3, 0]
+      Rotation: [-0.1, 1.5707963, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.05
+        PerspectiveFar: 2500
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Skybox + IBL (low intensity — sun dominates) ──
+  - Entity: 760000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/hdr/newport_loft.hdr
+      IsCubemapFolder: false
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 0.25
+      Tint: [1, 1, 1]
+  # ── Sun (high-intensity directional with CSM, angled to cast long shadows through Sponza's arches) ──
+  - Entity: 760000000000003
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.55, -0.7, -0.45]
+      Color: [1, 0.95, 0.85]
+      Intensity: 14
+      CastShadows: true
+      ShadowBias: 0.0015
+      ShadowNormalBias: 0.15
+      MaxShadowDistance: 2000
+      CascadeSplitLambda: 0.92
+  # ── Sponza ──
+  - Entity: 760000000000010
+    TagComponent:
+      Tag: Sponza
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ModelComponent:
+      FilePath: assets/models/Sponza/glTF/Sponza.gltf
+      Visible: true
+  # ── DamagedHelmet placed at floor center as a focal object to also test IBL response ──
+  - Entity: 760000000000011
+    TagComponent:
+      Tag: DamagedHelmet
+    TransformComponent:
+      Translation: [0, 1.2, 0]
+      Rotation: [0, 0.4, 0]
+      Scale: [0.8, 0.8, 0.8]
+    ModelComponent:
+      FilePath: assets/models/DamagedHelmet/glTF/DamagedHelmet.gltf
+      Visible: true

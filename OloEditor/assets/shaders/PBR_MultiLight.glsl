@@ -113,10 +113,10 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_UseEmissiveMap;       // Use emissive map
     int u_EnableIBL;            // Enable IBL
     int u_ApplyGammaCorrection; // Apply gamma correction in this pass
-    int u_AlphaCutoff;          // Alpha cutoff for transparency
+    float u_AlphaCutoff;        // Alpha cutoff for MASK mode
     int u_EnableLightProbes;    // Enable light probe indirect diffuse
     float u_IBLIntensity;       // Runtime IBL strength multiplier
-    int _pbrPad1;
+    int u_AlphaMode;            // 0=Opaque, 1=Mask, 2=Blend
     int _pbrPad2;
 };
 
@@ -224,6 +224,16 @@ layout(std140, binding = 3) uniform ModelMatrices {
 
 void main()
 {
+    // glTF MASK alpha test (texture.a * baseColorFactor.a < cutoff).
+    if (u_AlphaMode == 1)
+    {
+        float sampledAlpha = u_BaseColorFactor.a;
+        if (u_UseAlbedoMap == 1)
+            sampledAlpha *= texture(u_AlbedoMap, v_TexCoord).a;
+        if (sampledAlpha < u_AlphaCutoff)
+            discard;
+    }
+
     vec3 albedo = sampleAlbedo(u_AlbedoMap, v_TexCoord, u_BaseColorFactor.rgb, bool(u_UseAlbedoMap));
     vec2 metallicRoughness = sampleMetallicRoughness(u_MetallicRoughnessMap, v_TexCoord,
                                                      u_MetallicFactor, u_RoughnessFactor,

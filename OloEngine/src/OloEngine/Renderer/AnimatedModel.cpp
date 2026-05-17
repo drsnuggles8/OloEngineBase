@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Animation/MorphTargets/MorphTarget.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
+#include <assimp/GltfMaterial.h>
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -564,12 +565,19 @@ namespace OloEngine
                     {
                         m_Animations = MeshCache::LoadAnimationsFromCache(sourcePath);
 
-                        // Load materials from the source file (lightweight Assimp read — no geometry postprocessing).
-                        // ProcessNode builds m_Meshes in DFS order, so we replay
-                        // the same traversal to collect material indices in matching order.
+                        // Load materials from the source file. We must re-import with the
+                        // SAME flags the fresh-load path used, otherwise Assimp can produce
+                        // a different scene tree and our DFS walk below would visit meshes
+                        // in a different order than what was cached.
                         {
                             Assimp::Importer matImporter;
-                            const aiScene* matScene = matImporter.ReadFile(path, 0);
+                            constexpr u32 kAnimCacheLoadFlags = aiProcess_Triangulate |
+                                                                aiProcess_GenNormals |
+                                                                aiProcess_CalcTangentSpace |
+                                                                aiProcess_ValidateDataStructure |
+                                                                aiProcess_LimitBoneWeights |
+                                                                aiProcess_GlobalScale;
+                            const aiScene* matScene = matImporter.ReadFile(path, kAnimCacheLoadFlags);
                             if (matScene && !(matScene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) && matScene->mRootNode)
                             {
                                 std::vector<u32> materialIndices;
@@ -1760,6 +1768,34 @@ namespace OloEngine
             material = Material{};
         }
 
+        // glTF alpha mode + cutoff + double-sided (mirrors Model::ProcessMaterial).
+        aiString alphaModeStr;
+        if (mat->Get(AI_MATKEY_GLTF_ALPHAMODE, alphaModeStr) == AI_SUCCESS)
+        {
+            std::string_view mode(alphaModeStr.C_Str(), alphaModeStr.length);
+            if (mode == "MASK")
+            {
+                material.SetAlphaMode(AlphaMode::Mask);
+            }
+            else if (mode == "BLEND")
+            {
+                material.SetAlphaMode(AlphaMode::Blend);
+                material.SetFlag(MaterialFlag::Blend, true);
+            }
+        }
+
+        f32 alphaCutoff = 0.5f;
+        if (mat->Get(AI_MATKEY_GLTF_ALPHACUTOFF, alphaCutoff) == AI_SUCCESS)
+        {
+            material.SetAlphaCutoff(alphaCutoff);
+        }
+
+        i32 twoSided = 0;
+        if (mat->Get(AI_MATKEY_TWOSIDED, twoSided) == AI_SUCCESS && twoSided != 0)
+        {
+            material.SetFlag(MaterialFlag::TwoSided, true);
+        }
+
         // Load PBR textures
         auto albedoMaps = LoadMaterialTextures(mat, aiTextureType_DIFFUSE);
         if (albedoMaps.empty())
@@ -1794,6 +1830,32 @@ namespace OloEngine
         if (!emissiveMaps.empty())
         {
             material.SetEmissiveMap(emissiveMaps[0]);
+        }
+
+        // Diagnostic: what textures ended up where for this material?
+        {
+            auto pathOrNone = [](const Ref<Texture2D>& t) -> std::string
+            {
+                if (!t)
+                    return "<none>";
+                const auto& p = t->GetPath();
+                if (p.empty())
+                    return "<unnamed>";
+                return std::filesystem::path(p).filename().string();
+            };
+            // Downgraded from INFO: this fires once per material per animated
+            // model load, which is too chatty for default-level logs. Flip
+            // OloEngine.log to TRACE if you need the per-material dump.
+            OLO_CORE_TRACE(
+                "AnimatedModel::ProcessMaterial: '{}' albedo='{}' normal='{}' mr='{}' ao='{}' emissive='{}' alphaMode={} twoSided={}",
+                materialName,
+                pathOrNone(material.GetAlbedoMap()),
+                pathOrNone(material.GetNormalMap()),
+                pathOrNone(material.GetMetallicRoughnessMap()),
+                pathOrNone(material.GetAOMap()),
+                pathOrNone(material.GetEmissiveMap()),
+                static_cast<i32>(material.GetAlphaMode()),
+                material.GetFlag(MaterialFlag::TwoSided) ? "true" : "false");
         }
 
         return material;

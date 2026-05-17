@@ -152,6 +152,16 @@ namespace OloEngine
         const auto fullCorners = GetFrustumCornersWorldSpace(cameraProjection, cameraView);
         const f32 fullRange = cameraFar - cameraNear;
 
+        // Extract camera world position from the inverse view matrix.
+        // The cascade box is positioned RELATIVE to this point, NOT relative to
+        // the rotated frustum center — that's the key to camera-rotation-stable
+        // shadows. Centering on the rotated frustum-corner-average makes the
+        // cascade orbit the camera as the camera rotates, which causes visible
+        // shadow drift even with texel snapping (the box translates smoothly,
+        // snapping only fixes sub-texel jitter).
+        const glm::mat4 invView = glm::inverse(cameraView);
+        const glm::vec3 cameraWorldPos = glm::vec3(invView[3]);
+
         for (u32 cascade = 0; cascade < MAX_CSM_CASCADES; ++cascade)
         {
             const f32 nearSplit = cascadeSplits[cascade];
@@ -170,17 +180,21 @@ namespace OloEngine
                 subCorners[i + 4] = fullCorners[i] + cornerRay * farT;
             }
 
-            // Compute the center of the sub-frustum
-            glm::vec3 center(0.0f);
-            for (const auto& corner : subCorners)
-            {
-                center += corner;
-            }
-            center /= 8.0f;
+            // Cascade center pinned to camera POSITION. Camera rotation does
+            // not move this point, so the X/Y ortho footprint is stationary in
+            // world space as the user pans/turns the view — combined with the
+            // texel snapping below, shadow texels stay locked to world geometry.
+            // The cost is that the cascade now covers a sphere around the
+            // camera rather than just the visible frustum slice, so a portion
+            // of the shadow-map resolution falls outside the view; for typical
+            // FOVs (60-90°) the resolution loss is ~30-40% per cascade, well
+            // worth the gain in visual stability.
+            const glm::vec3 center = cameraWorldPos;
 
-            // Compute bounding sphere radius for stable X/Y coverage.
-            // A sphere's radius stays constant regardless of camera rotation,
-            // preventing shadow coverage from shifting every frame.
+            // Radius = farthest-corner distance from cameraWorldPos. Because
+            // a perspective frustum is camera-anchored, the distance from the
+            // camera to a frustum corner depends only on FOV/aspect/depth —
+            // all orientation-invariant — so this value is stable across rotation.
             f32 radius = 0.0f;
             for (const auto& corner : subCorners)
             {
@@ -191,9 +205,16 @@ namespace OloEngine
             const f32 texelsPerUnit = static_cast<f32>(m_Settings.Resolution) / (radius * 2.0f);
             radius = std::ceil(radius * texelsPerUnit) / texelsPerUnit;
 
-            // Build the light view matrix looking at the center
+            // Place the light eye FAR away along the light direction so every
+            // potential shadow caster — including tall columns that extend high
+            // above the camera frustum — is in front of the eye, not behind.
+            // Using just `radius` as the eye distance (as the original code did)
+            // would put the eye INSIDE the cascade volume, clipping anything
+            // taller than `radius` away in the sun direction. The fixed large
+            // distance below dwarfs any practical scene scale.
+            constexpr f32 kLightEyeDistance = 1000.0f;
             const glm::mat4 lightView = glm::lookAt(
-                center - lightDir * radius,
+                center - lightDir * kLightEyeDistance,
                 center,
                 glm::vec3(0.0f, 1.0f, 0.0f));
 
@@ -208,10 +229,11 @@ namespace OloEngine
                 maxZ = std::max(maxZ, z);
             }
 
-            // Convert to positive distances from the eye and add padding
-            // for shadow casters outside the camera frustum.
-            // -maxZ = closest distance, -minZ = farthest distance (both positive).
-            constexpr f32 zPadding = 50.0f;
+            // Convert to positive distances from the eye and add generous padding
+            // so shadow casters OUTSIDE the camera frustum (tall walls/columns/
+            // ceilings above the viewer) still register in the depth map. The
+            // padding must comfortably exceed the tallest caster in the scene.
+            constexpr f32 zPadding = 200.0f;
             const f32 nearDist = std::max(-maxZ - zPadding, 0.1f);
             const f32 farDist = -minZ + zPadding;
 

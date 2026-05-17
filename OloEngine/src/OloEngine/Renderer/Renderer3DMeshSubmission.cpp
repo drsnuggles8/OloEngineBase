@@ -101,6 +101,8 @@ namespace OloEngine
         data.normalScale = material.GetNormalScale();
         data.occlusionStrength = material.GetOcclusionStrength();
         data.enableIBL = material.IsIBLEnabled();
+        data.alphaMode = static_cast<i32>(material.GetAlphaMode());
+        data.alphaCutoff = material.GetAlphaCutoff();
 
         // PBR texture renderer IDs.
         data.albedoMapID = material.GetAlbedoMap() ? material.GetAlbedoMap()->GetRendererID() : 0;

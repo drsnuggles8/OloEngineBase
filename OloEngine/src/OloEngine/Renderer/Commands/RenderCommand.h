@@ -134,6 +134,9 @@ namespace OloEngine
         f32 occlusionStrength = 1.0f;
         bool enableIBL = false;
         f32 iblIntensity = 1.0f;
+        // glTF-style alpha mode: 0=Opaque, 1=Mask, 2=Blend (matches AlphaMode enum).
+        i32 alphaMode = 0;
+        f32 alphaCutoff = 0.5f;
 
         // PBR texture IDs (renderer IDs, 0 = none)
         RendererID albedoMapID = 0;
@@ -149,7 +152,7 @@ namespace OloEngine
         // Field-wise equality (safe against struct padding, unlike memcmp)
         bool operator==(const PODMaterialData& o) const
         {
-            return shaderRendererID == o.shaderRendererID && ambient == o.ambient && diffuse == o.diffuse && specular == o.specular && shininess == o.shininess && useTextureMaps == o.useTextureMaps && diffuseMapID == o.diffuseMapID && specularMapID == o.specularMapID && enablePBR == o.enablePBR && baseColorFactor == o.baseColorFactor && emissiveFactor == o.emissiveFactor && metallicFactor == o.metallicFactor && roughnessFactor == o.roughnessFactor && normalScale == o.normalScale && occlusionStrength == o.occlusionStrength && enableIBL == o.enableIBL && iblIntensity == o.iblIntensity && albedoMapID == o.albedoMapID && metallicRoughnessMapID == o.metallicRoughnessMapID && normalMapID == o.normalMapID && aoMapID == o.aoMapID && emissiveMapID == o.emissiveMapID && environmentMapID == o.environmentMapID && irradianceMapID == o.irradianceMapID && prefilterMapID == o.prefilterMapID && brdfLutMapID == o.brdfLutMapID;
+            return shaderRendererID == o.shaderRendererID && ambient == o.ambient && diffuse == o.diffuse && specular == o.specular && shininess == o.shininess && useTextureMaps == o.useTextureMaps && diffuseMapID == o.diffuseMapID && specularMapID == o.specularMapID && enablePBR == o.enablePBR && baseColorFactor == o.baseColorFactor && emissiveFactor == o.emissiveFactor && metallicFactor == o.metallicFactor && roughnessFactor == o.roughnessFactor && normalScale == o.normalScale && occlusionStrength == o.occlusionStrength && enableIBL == o.enableIBL && iblIntensity == o.iblIntensity && alphaMode == o.alphaMode && alphaCutoff == o.alphaCutoff && albedoMapID == o.albedoMapID && metallicRoughnessMapID == o.metallicRoughnessMapID && normalMapID == o.normalMapID && aoMapID == o.aoMapID && emissiveMapID == o.emissiveMapID && environmentMapID == o.environmentMapID && irradianceMapID == o.irradianceMapID && prefilterMapID == o.prefilterMapID && brdfLutMapID == o.brdfLutMapID;
         }
     };
 

@@ -3903,10 +3903,15 @@ namespace OloEngine
                                                ? m_Registry.get<MaterialComponent>(entity).m_Material
                                                : GetDefaultMaterial();
 
-                // Check if this entity should cast shadows
+                // Check if this entity should cast shadows. Alpha-masked /
+                // blended materials are excluded for the same reason as the
+                // ModelComponent path below: the shared shadow-depth shader
+                // doesn't sample the albedo alpha, so otherwise see-through
+                // geometry would project as solid silhouettes.
                 bool castsShadow = meshHasActiveShadows &&
                                    (!m_Registry.all_of<MaterialComponent>(entity) ||
-                                    !m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting));
+                                    (!m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting) &&
+                                     m_Registry.get<MaterialComponent>(entity).m_Material.GetAlphaMode() == AlphaMode::Opaque));
 
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
@@ -3939,7 +3944,7 @@ namespace OloEngine
                             if (va)
                             {
                                 Renderer3D::AddMeshShadowCaster(
-                                    va->GetRendererID(), submesh->GetIndexCount(),
+                                    va->GetRendererID(), submesh->GetIndexCount(), submesh->GetBaseIndex(),
                                     transform.GetTransform(), GetShadowVaoID(submesh),
                                     submesh->GetTransformedBoundingBox(transform.GetTransform()));
                             }
@@ -3966,9 +3971,13 @@ namespace OloEngine
                                                ? m_Registry.get<MaterialComponent>(entity).m_Material
                                                : GetDefaultMaterial();
 
+                // Exclude alpha-masked/blended materials: see comment on the
+                // MeshComponent branch above (shared shadow-depth shader has
+                // no alpha sampling).
                 bool castsShadow = meshHasActiveShadows &&
                                    (!m_Registry.all_of<MaterialComponent>(entity) ||
-                                    !m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting));
+                                    (!m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting) &&
+                                     m_Registry.get<MaterialComponent>(entity).m_Material.GetAlphaMode() == AlphaMode::Opaque));
 
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
@@ -3995,7 +4004,7 @@ namespace OloEngine
                     if (va)
                     {
                         Renderer3D::AddMeshShadowCaster(
-                            va->GetRendererID(), submesh.m_Mesh->GetIndexCount(),
+                            va->GetRendererID(), submesh.m_Mesh->GetIndexCount(), submesh.m_Mesh->GetBaseIndex(),
                             transform.GetTransform(), GetShadowVaoID(submesh.m_Mesh),
                             submesh.m_Mesh->GetTransformedBoundingBox(transform.GetTransform()));
                     }
@@ -4017,7 +4026,45 @@ namespace OloEngine
 
                 // Model::DrawParallel uses the model's own materials loaded from file
                 // Pass entity ID for mouse picking support
-                model.m_Model->DrawParallel(transform.GetTransform(), static_cast<int>(entity));
+                const auto modelTransform = transform.GetTransform();
+                model.m_Model->DrawParallel(modelTransform, static_cast<int>(entity));
+
+                // Submit each submesh as a shadow caster — Model::DrawParallel
+                // only enqueues color draws, so without this loop ModelComponent
+                // meshes never reach ShadowRenderPass.
+                if (meshHasActiveShadows)
+                {
+                    const auto& meshes = model.m_Model->GetMeshes();
+                    const auto& materials = model.m_Model->GetMaterials();
+                    for (const auto& submesh : meshes)
+                    {
+                        if (!submesh)
+                            continue;
+
+                        const u32 matIdx = submesh->GetSubmesh().m_MaterialIndex;
+                        if (matIdx < materials.size() && materials[matIdx])
+                        {
+                            const auto& mat = *materials[matIdx];
+                            if (mat.GetFlag(MaterialFlag::DisableShadowCasting))
+                                continue;
+                            // ShadowDepth.glsl has no UV/albedo sampling, so an
+                            // alpha-masked banner would otherwise project its
+                            // full geometry as a solid shadow. Skip until a
+                            // separate alpha-aware shadow shader exists.
+                            if (mat.GetAlphaMode() != AlphaMode::Opaque)
+                                continue;
+                        }
+
+                        auto va = submesh->GetVertexArray();
+                        if (!va)
+                            continue;
+
+                        Renderer3D::AddMeshShadowCaster(
+                            va->GetRendererID(), submesh->GetIndexCount(), submesh->GetBaseIndex(),
+                            modelTransform, GetShadowVaoID(submesh),
+                            submesh->GetTransformedBoundingBox(modelTransform));
+                    }
+                }
             }
         }
 
@@ -4045,9 +4092,12 @@ namespace OloEngine
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
 
+                // Exclude alpha-masked/blended materials (see MeshComponent
+                // branch comment above for the underlying shader limitation).
                 bool castsShadow = meshHasActiveShadows &&
                                    (!m_Registry.all_of<MaterialComponent>(entity) ||
-                                    !m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting));
+                                    (!m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting) &&
+                                     m_Registry.get<MaterialComponent>(entity).m_Material.GetAlphaMode() == AlphaMode::Opaque));
 
                 // Draw each submesh as an animated mesh
                 if (!mesh.m_MeshSource->GetSubmeshes().IsEmpty())
@@ -4070,7 +4120,7 @@ namespace OloEngine
                                     if (cmd)
                                     {
                                         Renderer3D::AddSkinnedShadowCaster(
-                                            va->GetRendererID(), submesh->GetIndexCount(),
+                                            va->GetRendererID(), submesh->GetIndexCount(), submesh->GetBaseIndex(),
                                             transform.GetTransform(),
                                             cmd->boneBufferOffset, cmd->boneCount,
                                             submesh->GetTransformedBoundingBox(transform.GetTransform()));
@@ -4135,14 +4185,16 @@ namespace OloEngine
                         if (packet)
                             Renderer3D::SubmitPacket(packet);
 
-                        // Shadow caster for this tile
-                        if (meshHasActiveShadows && !material.GetFlag(MaterialFlag::DisableShadowCasting))
+                        // Shadow caster for this tile — Opaque only, see
+                        // MeshComponent branch comment above.
+                        if (meshHasActiveShadows && !material.GetFlag(MaterialFlag::DisableShadowCasting) &&
+                            material.GetAlphaMode() == AlphaMode::Opaque)
                         {
                             auto va = tileComp.TileMesh->GetVertexArray();
                             if (va)
                             {
                                 Renderer3D::AddMeshShadowCaster(
-                                    va->GetRendererID(), tileComp.TileMesh->GetIndexCount(),
+                                    va->GetRendererID(), tileComp.TileMesh->GetIndexCount(), tileComp.TileMesh->GetBaseIndex(),
                                     tileTransform, GetShadowVaoID(tileComp.TileMesh),
                                     tileComp.TileMesh->GetTransformedBoundingBox(tileTransform));
                             }
@@ -4175,7 +4227,10 @@ namespace OloEngine
         }
 
         // Draw world axis helper at origin
-        Renderer3D::DrawWorldAxisHelper(3.0f);
+        if (m_ShowWorldAxisHelper)
+        {
+            Renderer3D::DrawWorldAxisHelper(3.0f);
+        }
 
         // Draw light visualization gizmos
         if (m_ShowLightGizmos)
@@ -4371,6 +4426,7 @@ namespace OloEngine
         }
 
         // Draw camera frustum gizmos for scene cameras (only in editor mode)
+        if (m_ShowCameraFrustums)
         {
             auto view = m_Registry.view<TransformComponent, CameraComponent>();
             for (auto entity : view)
@@ -4378,8 +4434,21 @@ namespace OloEngine
                 const auto& [transform, cameraComp] = view.get<TransformComponent, CameraComponent>(entity);
                 const SceneCamera& sceneCamera = cameraComp.Camera;
 
-                // Calculate aspect ratio (use current viewport aspect if not fixed)
-                f32 aspectRatio = (m_ViewportHeight > 0) ? static_cast<f32>(m_ViewportWidth) / static_cast<f32>(m_ViewportHeight) : 1.778f;
+                // Aspect ratio: cameras flagged FixedAspectRatio use their own
+                // projection aspect (set externally and not driven by the
+                // editor viewport). Otherwise default to the editor viewport
+                // aspect so the gizmo matches what the camera would actually
+                // render into the main viewport.
+                f32 aspectRatio;
+                const f32 cameraAspect = sceneCamera.GetAspectRatio();
+                if (cameraComp.FixedAspectRatio && cameraAspect > 0.0f)
+                {
+                    aspectRatio = cameraAspect;
+                }
+                else
+                {
+                    aspectRatio = (m_ViewportHeight > 0) ? static_cast<f32>(m_ViewportWidth) / static_cast<f32>(m_ViewportHeight) : 1.778f;
+                }
 
                 if (sceneCamera.GetProjectionType() == SceneCamera::ProjectionType::Perspective)
                 {

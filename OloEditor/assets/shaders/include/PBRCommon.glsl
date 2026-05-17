@@ -692,8 +692,24 @@ float calculateCascadedShadowFactorCSM(
         }
     }
 
-    // Distance fade: smoothly transition to no shadow at max shadow distance
-    float fadeStart = maxShadowDistance * 0.8;
+    // Distance fade: smoothly transition to no shadow at max shadow distance.
+    // The fade band is (1 - fadeStartFraction) of MaxShadowDistance — at 0.7
+    // that's the last 30% of the range, wide enough that a player walking
+    // toward the edge of CSM coverage sees a gradual falloff rather than a
+    // hard "pop" appearing within a few meters. Tightening this fraction
+    // (e.g. 0.95) compresses the fade into a narrow band and reads as a
+    // sudden binary transition; loosening it (e.g. 0.5) starts the fade
+    // earlier and shadows visibly thin out at mid-range.
+    // TODO(olbu): future enhancements to lift the cascade-reach vs. fade-distance coupling:
+    //   - Expose fadeStartFraction as a per-scene/per-light parameter instead
+    //     of a shader literal.
+    //   - Add a separate ShadowFadeDistance distinct from MaxShadowDistance so
+    //     cascade splits don't stretch when you only want a longer fade tail.
+    //   - Unreal-style Far Shadow Cascades: a second pool of low-res cascades
+    //     for long-range geometry tagged with bCastFarShadow, so we get
+    //     "shadows visible to the horizon" without losing near-camera resolution.
+    //   - Distance Field Shadows beyond CSM range as a cheap soft-shadow fallback.
+    float fadeStart = maxShadowDistance * 0.7;
     float distanceFade = 1.0 - smoothstep(fadeStart, maxShadowDistance, -viewDepth);
     shadow = mix(1.0, shadow, distanceFade);
 

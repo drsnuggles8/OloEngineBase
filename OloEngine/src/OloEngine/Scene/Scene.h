@@ -234,6 +234,22 @@ namespace OloEngine
         {
             return m_ShowLightGizmos;
         }
+        void SetWorldAxisHelperVisible(bool visible)
+        {
+            m_ShowWorldAxisHelper = visible;
+        }
+        [[nodiscard("Store this!")]] bool IsWorldAxisHelperVisible() const
+        {
+            return m_ShowWorldAxisHelper;
+        }
+        void SetCameraFrustumsVisible(bool visible)
+        {
+            m_ShowCameraFrustums = visible;
+        }
+        [[nodiscard("Store this!")]] bool AreCameraFrustumsVisible() const
+        {
+            return m_ShowCameraFrustums;
+        }
         void SetGridSpacing(f32 spacing)
         {
             if (spacing > 0.0f)
@@ -470,6 +486,8 @@ namespace OloEngine
         bool m_RenderingEnabled = true;                        // Skip rendering when throttled
         bool m_ShowGrid = true;                                // Viewport grid visibility
         bool m_ShowLightGizmos = true;                         // Light gizmo visibility
+        bool m_ShowWorldAxisHelper = true;                     // World-origin XYZ axes visibility
+        bool m_ShowCameraFrustums = true;                      // Per-CameraComponent frustum gizmo visibility
         f32 m_GridSpacing = 1.0f;                              // Viewport grid spacing
         f32 m_LastAnimationTime = -1.0f;                       // Tracks previous-frame animation time for wind/water/foliage velocity reprojection
         bool m_PreviousMouseButtonDown = false;                // Track mouse state for UI input

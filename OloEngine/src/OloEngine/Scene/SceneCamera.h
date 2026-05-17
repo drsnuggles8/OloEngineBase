@@ -82,6 +82,14 @@ namespace OloEngine
         {
             return m_ProjectionType;
         }
+        // Aspect ratio the projection was last built with. Reflects the value
+        // set via SetViewportSize — for cameras flagged FixedAspectRatio on
+        // their CameraComponent this stays at the author-intended aspect,
+        // independent of the editor viewport size.
+        [[nodiscard("Store this!")]] f32 GetAspectRatio() const
+        {
+            return m_AspectRatio;
+        }
         void SetProjectionType(const ProjectionType type)
         {
             m_ProjectionType = type;

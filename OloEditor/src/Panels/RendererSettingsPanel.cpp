@@ -130,6 +130,8 @@ namespace OloEngine
             AppendChange(changes, "ShowGrid", before.ShowGrid, after.ShowGrid);
             AppendChange(changes, "ShowPhysicsColliders", before.ShowPhysicsColliders, after.ShowPhysicsColliders);
             AppendChange(changes, "ShowLightGizmos", before.ShowLightGizmos, after.ShowLightGizmos);
+            AppendChange(changes, "ShowWorldAxisHelper", before.ShowWorldAxisHelper, after.ShowWorldAxisHelper);
+            AppendChange(changes, "ShowCameraFrustums", before.ShowCameraFrustums, after.ShowCameraFrustums);
             AppendChange(changes, "DebugVelocityOverlayForward", before.DebugVelocityOverlayForward, after.DebugVelocityOverlayForward);
 
             SettingsChangeLog::EmitLog("RendererSettingsPanel", changes);
@@ -676,6 +678,14 @@ namespace OloEngine
                 m_DebugSettingsChanged = true;
             }
             if (ImGui::Checkbox("Show Light Gizmos", &settings.ShowLightGizmos))
+            {
+                m_DebugSettingsChanged = true;
+            }
+            if (ImGui::Checkbox("Show World Axis Helper", &settings.ShowWorldAxisHelper))
+            {
+                m_DebugSettingsChanged = true;
+            }
+            if (ImGui::Checkbox("Show Camera Frustums", &settings.ShowCameraFrustums))
             {
                 m_DebugSettingsChanged = true;
             }

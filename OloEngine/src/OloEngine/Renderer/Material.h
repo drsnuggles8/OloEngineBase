@@ -9,6 +9,8 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <algorithm>
+#include <cmath>
 #include <string>
 
 namespace OloEngine
@@ -27,6 +29,14 @@ namespace OloEngine
     {
         Legacy = 0, // Legacy Phong-style material
         PBR = 1     // Physically Based Rendering material
+    };
+
+    // Matches glTF 2.0 spec alphaMode. Encoded as i32 in shader UBOs.
+    enum class AlphaMode : i32
+    {
+        Opaque = 0, // No alpha test, no blending (default)
+        Mask = 1,   // Per-pixel discard when sampled alpha < alphaCutoff
+        Blend = 2   // Alpha blending (also requires MaterialFlag::Blend)
     };
 
     // @brief Material class for handling PBR and legacy material properties
@@ -63,7 +73,7 @@ namespace OloEngine
         static Ref<Material> Copy(const Ref<Material>& other, const std::string& name = "");
 
         // Static factory method for PBR materials - returns Ref<Material> for consistency
-        static Ref<Material> CreatePBR(const std::string& name, const glm::vec3& baseColor, float metallic = 0.0f, float roughness = 0.5f);
+        static Ref<Material> CreatePBR(const std::string& name, const glm::vec3& baseColor, f32 metallic = 0.0f, f32 roughness = 0.5f);
         // Static factory for snow PBR material (white, high roughness, non-metallic)
         static Ref<Material> CreateSnow(const std::string& name = "Snow");
 
@@ -100,8 +110,8 @@ namespace OloEngine
             return m_Shader;
         }
 
-        virtual void Set(const std::string& name, float value);
-        virtual void Set(const std::string& name, int value);
+        virtual void Set(const std::string& name, f32 value);
+        virtual void Set(const std::string& name, i32 value);
         virtual void Set(const std::string& name, u32 value);
         virtual void Set(const std::string& name, bool value);
         virtual void Set(const std::string& name, const glm::vec2& value);
@@ -118,7 +128,7 @@ namespace OloEngine
         virtual void Set(const std::string& name, const Ref<Texture2D>& texture, u32 arrayIndex);
         virtual void Set(const std::string& name, const Ref<TextureCubemap>& texture);
 
-        virtual float GetFloat(const std::string& name) const;
+        virtual f32 GetFloat(const std::string& name) const;
         virtual i32 GetInt(const std::string& name) const;
         virtual u32 GetUInt(const std::string& name) const;
         virtual bool GetBool(const std::string& name) const;
@@ -199,11 +209,11 @@ namespace OloEngine
         {
             m_Specular = specular;
         }
-        float GetShininess() const
+        f32 GetShininess() const
         {
             return m_Shininess;
         }
-        void SetShininess(float shininess)
+        void SetShininess(f32 shininess)
         {
             m_Shininess = shininess;
         }
@@ -249,35 +259,35 @@ namespace OloEngine
         {
             m_EmissiveFactor = emissive;
         }
-        float GetMetallicFactor() const
+        f32 GetMetallicFactor() const
         {
             return m_MetallicFactor;
         }
-        void SetMetallicFactor(float metallic)
+        void SetMetallicFactor(f32 metallic)
         {
             m_MetallicFactor = metallic;
         }
-        float GetRoughnessFactor() const
+        f32 GetRoughnessFactor() const
         {
             return m_RoughnessFactor;
         }
-        void SetRoughnessFactor(float roughness)
+        void SetRoughnessFactor(f32 roughness)
         {
             m_RoughnessFactor = roughness;
         }
-        float GetNormalScale() const
+        f32 GetNormalScale() const
         {
             return m_NormalScale;
         }
-        void SetNormalScale(float scale)
+        void SetNormalScale(f32 scale)
         {
             m_NormalScale = scale;
         }
-        float GetOcclusionStrength() const
+        f32 GetOcclusionStrength() const
         {
             return m_OcclusionStrength;
         }
-        void SetOcclusionStrength(float strength)
+        void SetOcclusionStrength(f32 strength)
         {
             m_OcclusionStrength = strength;
         }
@@ -288,6 +298,28 @@ namespace OloEngine
         void SetEnableIBL(bool enable)
         {
             m_EnableIBL = enable;
+        }
+
+        AlphaMode GetAlphaMode() const
+        {
+            return m_AlphaMode;
+        }
+        void SetAlphaMode(AlphaMode mode)
+        {
+            m_AlphaMode = mode;
+        }
+        f32 GetAlphaCutoff() const
+        {
+            return m_AlphaCutoff;
+        }
+        void SetAlphaCutoff(f32 cutoff)
+        {
+            // Sanitize at the API boundary: NaN/Inf would propagate into the
+            // UBO and break the shader-side mask discard (which expects a
+            // finite [0,1] threshold).
+            if (!std::isfinite(cutoff))
+                cutoff = 0.0f;
+            m_AlphaCutoff = std::clamp(cutoff, 0.0f, 1.0f);
         }
 
         // PBR texture maps
@@ -472,7 +504,7 @@ namespace OloEngine
         glm::vec3 m_Ambient = glm::vec3(0.2f);
         glm::vec3 m_Diffuse = glm::vec3(0.8f);
         glm::vec3 m_Specular = glm::vec3(1.0f);
-        float m_Shininess = 32.0f;
+        f32 m_Shininess = 32.0f;
         bool m_UseTextureMaps = false;
         Ref<Texture2D> m_DiffuseMap;
         Ref<Texture2D> m_SpecularMap;
@@ -480,11 +512,13 @@ namespace OloEngine
         // PBR material properties
         glm::vec4 m_BaseColorFactor = glm::vec4(1.0f); // Base color (albedo) with alpha
         glm::vec4 m_EmissiveFactor = glm::vec4(0.0f);  // Emissive color
-        float m_MetallicFactor = 0.0f;                 // Metallic factor
-        float m_RoughnessFactor = 1.0f;                // Roughness factor
-        float m_NormalScale = 1.0f;                    // Normal map scale
-        float m_OcclusionStrength = 1.0f;              // AO strength
+        f32 m_MetallicFactor = 0.0f;                   // Metallic factor
+        f32 m_RoughnessFactor = 1.0f;                  // Roughness factor
+        f32 m_NormalScale = 1.0f;                      // Normal map scale
+        f32 m_OcclusionStrength = 1.0f;                // AO strength
         bool m_EnableIBL = false;                      // Enable IBL
+        AlphaMode m_AlphaMode = AlphaMode::Opaque;     // glTF-style alpha mode
+        f32 m_AlphaCutoff = 0.5f;                      // Threshold for MASK mode discard
 
         // PBR texture maps
         Ref<Texture2D> m_AlbedoMap;            // Base color texture

@@ -40,6 +40,11 @@ namespace OloEngine
         static void ResetState();
         static void InvalidateRenderStateCache();
         static void InvalidateUBOCache(u32 bindingPoint);
+
+        // Clear any cached texture-slot binding that points at this OpenGL texture ID.
+        // Must be called when a Texture2D is destroyed so that a future call to
+        // BindTrackedTexture with a recycled GL ID is not incorrectly skipped.
+        static void InvalidateTextureBinding(u32 textureID);
         static void SetDepthPrepassActive(bool active);
         static void SetDepthPrepassColorPassActive(bool active);
         static void SetViewProjectionMatrix(const glm::mat4& vp);

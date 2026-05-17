@@ -20,21 +20,21 @@ namespace OloEngine
         return s_Data.Pipeline->FrameCorePasses.Shadow != nullptr;
     }
 
-    void Renderer3D::AddMeshShadowCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform,
+    void Renderer3D::AddMeshShadowCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
                                          RendererID shadowVaoID, const BoundingBox& worldBounds)
     {
         if (auto shadowPass = s_Data.Pipeline->FrameCorePasses.Shadow; shadowPass)
         {
-            shadowPass->AddMeshCaster(vaoID, indexCount, transform, shadowVaoID, worldBounds);
+            shadowPass->AddMeshCaster(vaoID, indexCount, baseIndex, transform, shadowVaoID, worldBounds);
         }
     }
 
-    void Renderer3D::AddSkinnedShadowCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform,
+    void Renderer3D::AddSkinnedShadowCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
                                             u32 boneBufferOffset, u32 boneCount, const BoundingBox& worldBounds)
     {
         if (auto shadowPass = s_Data.Pipeline->FrameCorePasses.Shadow; shadowPass)
         {
-            shadowPass->AddSkinnedCaster(vaoID, indexCount, transform, boneBufferOffset, boneCount, worldBounds);
+            shadowPass->AddSkinnedCaster(vaoID, indexCount, baseIndex, transform, boneBufferOffset, boneCount, worldBounds);
         }
     }
 

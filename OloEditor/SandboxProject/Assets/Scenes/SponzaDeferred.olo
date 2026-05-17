@@ -1,0 +1,180 @@
+Scene: SponzaDeferred.olo
+# NOTE: SponzaDeferred.olo is the deferred-path companion to SponzaCSM.olo —
+# similar geometry, but NOT byte-for-byte identical. Differences to keep in
+# mind when A/B'ing the two:
+#   * SponzaDeferred adds a handful of warm/cool accent point lights at floor
+#     level (exercises tiled deferred light culling).
+#   * Directional-light direction and intensity are tuned differently for the
+#     deferred path; IBL contribution is left at full strength here (SponzaCSM
+#     dims IBL to keep the sun dominant).
+# The rendering path is set on the renderer (RendererSettings::Path /
+# RenderingPath), not in the .olo file, so when running this scene make sure
+# the editor is configured to Deferred. Phase 5 (deferred MSAA, decals,
+# transparent OIT) is still WIP; use this scene to validate G-Buffer
+# correctness and tiled deferred lighting once it lands.
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1.2
+  BloomIntensity: 0.35
+  BloomIterations: 5
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: true
+  SSAORadius: 0.6
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+Entities:
+  # ── Camera (matches SponzaCSM for A/B testing) ──
+  - Entity: 790000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [-9, 3, 0]
+      Rotation: [-0.1, 1.5707963, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.05
+        PerspectiveFar: 2500
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Skybox + IBL ──
+  - Entity: 790000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/hdr/newport_loft.hdr
+      IsCubemapFolder: false
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 0.4
+      Tint: [1, 1, 1]
+  # ── Sun (CSM) ──
+  - Entity: 790000000000003
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.4, -0.85, -0.3]
+      Color: [1, 0.95, 0.85]
+      Intensity: 6
+      CastShadows: true
+      ShadowBias: 0.0015
+      ShadowNormalBias: 0.15
+      MaxShadowDistance: 2000
+      CascadeSplitLambda: 0.92
+  # ── A handful of colored point lights — exercises tiled deferred light culling ──
+  - Entity: 790000000000004
+    TagComponent:
+      Tag: PLight Warm L
+    TransformComponent:
+      Translation: [-6, 1.5, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.65, 0.3]
+      Intensity: 5
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 790000000000005
+    TagComponent:
+      Tag: PLight Warm R
+    TransformComponent:
+      Translation: [-6, 1.5, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.65, 0.3]
+      Intensity: 5
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 790000000000006
+    TagComponent:
+      Tag: PLight Cool L
+    TransformComponent:
+      Translation: [6, 1.5, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.4, 0.7, 1]
+      Intensity: 5
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 790000000000007
+    TagComponent:
+      Tag: PLight Cool R
+    TransformComponent:
+      Translation: [6, 1.5, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.4, 0.7, 1]
+      Intensity: 5
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  # ── Sponza ──
+  - Entity: 790000000000010
+    TagComponent:
+      Tag: Sponza
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ModelComponent:
+      FilePath: assets/models/Sponza/glTF/Sponza.gltf
+      Visible: true
+  # ── DamagedHelmet (focal object — easier to spot G-Buffer artifacts on a high-roughness sweep) ──
+  - Entity: 790000000000011
+    TagComponent:
+      Tag: DamagedHelmet
+    TransformComponent:
+      Translation: [0, 1.2, 0]
+      Rotation: [0, 0.4, 0]
+      Scale: [0.8, 0.8, 0.8]
+    ModelComponent:
+      FilePath: assets/models/DamagedHelmet/glTF/DamagedHelmet.gltf
+      Visible: true
