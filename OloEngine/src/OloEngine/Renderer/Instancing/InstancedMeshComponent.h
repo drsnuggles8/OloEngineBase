@@ -2,7 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
-#include "OloEngine/Asset/Asset.h" // AssetHandle
+#include "OloEngine/Asset/Asset.h"                      // AssetHandle
 #include "OloEngine/Animation/AnimatedMeshComponents.h" // MeshPrimitive
 #include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Renderer/Material.h"
@@ -60,7 +60,7 @@ namespace OloEngine
         AssetHandle PlacementAssetHandle = 0;
 
         bool FrustumCullPerInstance = true; // Cull instances individually before upload
-        bool CastShadows            = true; // Submit shadow-caster entries for visible instances
-        f32  CullDistance           = 0.0f; // World-space radius; 0 disables distance culling
+        bool CastShadows = true;            // Submit shadow-caster entries for visible instances
+        f32 CullDistance = 0.0f;            // World-space radius; 0 disables distance culling
     };
 } // namespace OloEngine

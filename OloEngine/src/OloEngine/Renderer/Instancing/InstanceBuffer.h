@@ -46,21 +46,30 @@ namespace OloEngine
         void Bind() const;
 
         // Number of instances currently considered "live" (set by Upload()).
-        [[nodiscard]] u32 GetCount() const { return m_Count; }
+        [[nodiscard]] u32 GetCount() const
+        {
+            return m_Count;
+        }
 
         // Allocated capacity in instances.
-        [[nodiscard]] u32 GetCapacity() const { return m_Capacity; }
+        [[nodiscard]] u32 GetCapacity() const
+        {
+            return m_Capacity;
+        }
 
         // Underlying SSBO byte size (= capacity * sizeof(InstanceData)).
         [[nodiscard]] u32 GetSizeBytes() const;
 
         // Access the underlying storage (for render-pass code that needs to
         // pass the SSBO handle into a CommandBucket entry, etc.).
-        [[nodiscard]] const Ref<StorageBuffer>& GetStorage() const { return m_Storage; }
+        [[nodiscard]] const Ref<StorageBuffer>& GetStorage() const
+        {
+            return m_Storage;
+        }
 
       private:
         Ref<StorageBuffer> m_Storage;
         u32 m_Capacity = 0; // in instances
-        u32 m_Count    = 0; // in instances
+        u32 m_Count = 0;    // in instances
     };
 } // namespace OloEngine

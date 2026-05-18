@@ -24,14 +24,14 @@ namespace OloEngine
     // (wind sway phase, health-bar fill, etc.).
     struct InstanceData
     {
-        glm::mat4 Transform     = glm::mat4(1.0f); // world transform
-        glm::mat4 Normal        = glm::mat4(1.0f); // transpose(inverse(Transform)), supplied CPU-side
+        glm::mat4 Transform = glm::mat4(1.0f);     // world transform
+        glm::mat4 Normal = glm::mat4(1.0f);        // transpose(inverse(Transform)), supplied CPU-side
         glm::mat4 PrevTransform = glm::mat4(1.0f); // previous-frame world transform for motion vectors
-        glm::vec4 Color         = glm::vec4(1.0f); // per-instance tint
-        i32       EntityID      = -1;              // editor picking; -1 = no entity
-        f32       Custom        = 0.0f;            // free per-instance float
-        i32       _pad0         = 0;
-        i32       _pad1         = 0;
+        glm::vec4 Color = glm::vec4(1.0f);         // per-instance tint
+        i32 EntityID = -1;                         // editor picking; -1 = no entity
+        f32 Custom = 0.0f;                         // free per-instance float
+        i32 _pad0 = 0;
+        i32 _pad1 = 0;
     };
 
     // std430 size assertion. Layout (offset, size):

@@ -48,12 +48,12 @@ namespace OloEngine::Tests
     {
         // Offsets must match the GLSL block emitted by
         // ShaderBindingLayout::GetInstanceSSBOLayout(). std430 layout:
-        EXPECT_EQ(offsetof(InstanceData, Transform),     0u);
-        EXPECT_EQ(offsetof(InstanceData, Normal),        64u);
+        EXPECT_EQ(offsetof(InstanceData, Transform), 0u);
+        EXPECT_EQ(offsetof(InstanceData, Normal), 64u);
         EXPECT_EQ(offsetof(InstanceData, PrevTransform), 128u);
-        EXPECT_EQ(offsetof(InstanceData, Color),         192u);
-        EXPECT_EQ(offsetof(InstanceData, EntityID),      208u);
-        EXPECT_EQ(offsetof(InstanceData, Custom),        212u);
+        EXPECT_EQ(offsetof(InstanceData, Color), 192u);
+        EXPECT_EQ(offsetof(InstanceData, EntityID), 208u);
+        EXPECT_EQ(offsetof(InstanceData, Custom), 212u);
     }
 
     TEST(InstanceDataLayout, DefaultsAreIdentityAndNeutral)
@@ -105,18 +105,18 @@ namespace OloEngine::Tests
         const std::string_view glsl{ ShaderBindingLayout::GetInstanceSSBOLayout() };
         // Field names: a typo or rename in the helper string would otherwise
         // surface only when a migrated shader fails to compile.
-        EXPECT_NE(glsl.find("Transform"),     std::string_view::npos);
-        EXPECT_NE(glsl.find("Normal"),        std::string_view::npos);
+        EXPECT_NE(glsl.find("Transform"), std::string_view::npos);
+        EXPECT_NE(glsl.find("Normal"), std::string_view::npos);
         EXPECT_NE(glsl.find("PrevTransform"), std::string_view::npos);
-        EXPECT_NE(glsl.find("Color"),         std::string_view::npos);
-        EXPECT_NE(glsl.find("EntityID"),      std::string_view::npos);
-        EXPECT_NE(glsl.find("Custom"),        std::string_view::npos);
+        EXPECT_NE(glsl.find("Color"), std::string_view::npos);
+        EXPECT_NE(glsl.find("EntityID"), std::string_view::npos);
+        EXPECT_NE(glsl.find("Custom"), std::string_view::npos);
 
         // Layout qualifier sanity: must be std430 + binding 15. Anything
         // else means the helper has drifted from the C++ constant or the
         // wrong layout qualifier was used (std140 would corrupt mat4 arrays).
-        EXPECT_NE(glsl.find("std430"),         std::string_view::npos);
-        EXPECT_NE(glsl.find("binding = 15"),   std::string_view::npos);
+        EXPECT_NE(glsl.find("std430"), std::string_view::npos);
+        EXPECT_NE(glsl.find("binding = 15"), std::string_view::npos);
         EXPECT_NE(glsl.find("readonly buffer"), std::string_view::npos);
     }
 } // namespace OloEngine::Tests
