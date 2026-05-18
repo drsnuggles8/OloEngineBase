@@ -1,5 +1,9 @@
 #include "SceneHierarchyPanel.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Renderer/Instancing/InstancedMeshComponent.h"
+
+#include <random>
+#include <glm/gtc/matrix_transform.hpp>
 #include "OloEngine/Scene/Prefab.h"
 #include "OloEngine/Audio/AudioEvents/AudioCommandRegistry.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
@@ -1639,6 +1643,7 @@ namespace OloEngine
 
             // 3D Components
             DisplayAddComponentEntry<MeshComponent>("Mesh");
+            DisplayAddComponentEntry<InstancedMeshComponent>("Instanced Mesh");
             DisplayAddComponentEntry<ModelComponent>("Model (with Materials)");
             DisplayAddComponentEntry<MaterialComponent>("Material");
             DisplayAddComponentEntry<LODGroupComponent>("LOD Group");
@@ -2318,6 +2323,79 @@ namespace OloEngine
 					component.m_Primitive = MeshPrimitive::None;
 				}
 			} });
+
+        DrawComponent<InstancedMeshComponent>("Instanced Mesh", entity, [](auto& component)
+                                              {
+            // Phase 5 inspector: read-only summary of the component's resource
+            // bindings + flag editors + a basic scatter-brush MVP for inline
+            // placements. Procedural density / slope-aware surface scatter is
+            // a dedicated viewport-tool feature — see
+            // docs/GPU_INSTANCING_FUTURE_IMPROVEMENTS.md §1 for the spec.
+            // The volume-scatter controls below let an author drop N random
+            // placements in an authored AABB via a single button — enough
+            // for a working foliage demo without leaving the inspector.
+            ImGui::Text("Mesh Source: %s", component.MeshSource ? "Loaded" : "None");
+            if (component.MeshSource)
+            {
+                ImGui::Text("Submeshes: %d", component.MeshSource->GetSubmeshes().Num());
+            }
+            ImGui::Text("Override Material: %s", component.OverrideMaterial ? "Set" : "None");
+            ImGui::Text("Inline Instance Count: %zu", component.Instances.size());
+            ImGui::Text("Placement Asset Handle: %llu", static_cast<unsigned long long>(component.PlacementAssetHandle));
+            ImGui::Separator();
+            ImGui::Checkbox("Frustum Cull Per Instance", &component.FrustumCullPerInstance);
+            ImGui::Checkbox("Cast Shadows", &component.CastShadows);
+            ImGui::DragFloat("Cull Distance", &component.CullDistance, 1.0f, 0.0f, 100000.0f, "%.1f m");
+            ImGui::TextDisabled("0 disables distance culling");
+
+            ImGui::Separator();
+            ImGui::TextUnformatted("Scatter Brush (MVP)");
+            static i32 s_ScatterCount = 100;
+            static glm::vec3 s_ScatterMin = glm::vec3(-10.0f, 0.0f, -10.0f);
+            static glm::vec3 s_ScatterMax = glm::vec3( 10.0f, 0.0f,  10.0f);
+            static f32 s_ScatterScaleMin = 0.8f;
+            static f32 s_ScatterScaleMax = 1.2f;
+            static bool s_ScatterRandomYRot = true;
+            ImGui::SliderInt("Count", &s_ScatterCount, 1, 5000);
+            ImGui::DragFloat3("AABB Min", &s_ScatterMin.x, 0.5f);
+            ImGui::DragFloat3("AABB Max", &s_ScatterMax.x, 0.5f);
+            ImGui::DragFloatRange2("Scale", &s_ScatterScaleMin, &s_ScatterScaleMax, 0.01f, 0.01f, 10.0f);
+            ImGui::Checkbox("Random Y Rotation", &s_ScatterRandomYRot);
+            if (ImGui::Button("Scatter Append"))
+            {
+                // Deterministic RNG via seed-from-frame is too unstable for
+                // editor authoring (re-clicking yields the same set), so we
+                // pull entropy from std::random_device. Authored result lives
+                // in the component's Instances list and is YAML-persisted
+                // by SceneSerializer like any other inline placement.
+                std::random_device rd;
+                std::mt19937 rng(rd());
+                std::uniform_real_distribution<f32> distX(s_ScatterMin.x, s_ScatterMax.x);
+                std::uniform_real_distribution<f32> distY(s_ScatterMin.y, s_ScatterMax.y);
+                std::uniform_real_distribution<f32> distZ(s_ScatterMin.z, s_ScatterMax.z);
+                std::uniform_real_distribution<f32> distScale(s_ScatterScaleMin, s_ScatterScaleMax);
+                std::uniform_real_distribution<f32> distRot(0.0f, 6.2831853f);
+                component.Instances.reserve(component.Instances.size() + static_cast<sizet>(s_ScatterCount));
+                for (i32 i = 0; i < s_ScatterCount; ++i)
+                {
+                    InstanceData inst;
+                    glm::vec3 pos(distX(rng), distY(rng), distZ(rng));
+                    f32 scale = distScale(rng);
+                    f32 yaw = s_ScatterRandomYRot ? distRot(rng) : 0.0f;
+                    glm::mat4 t = glm::translate(glm::mat4(1.0f), pos);
+                    glm::mat4 r = glm::rotate(glm::mat4(1.0f), yaw, glm::vec3(0, 1, 0));
+                    glm::mat4 s = glm::scale(glm::mat4(1.0f), glm::vec3(scale));
+                    inst.Transform = t * r * s;
+                    inst.Normal = glm::transpose(glm::inverse(inst.Transform));
+                    inst.PrevTransform = inst.Transform;
+                    component.Instances.push_back(inst);
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Clear Inline"))
+            {
+                component.Instances.clear();
+            } });
 
         DrawComponent<ModelComponent>("Model", entity, [](auto& component)
                                       {

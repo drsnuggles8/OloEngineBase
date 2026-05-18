@@ -8,6 +8,7 @@
 #include "Components.h"
 #include "Prefab.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Asset/InstancePlacementAsset.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Renderer/Renderer2D.h"
@@ -1911,6 +1912,8 @@ namespace OloEngine
     // Animation/ECS explicit specializations
     template<>
     void Scene::OnComponentAdded<MeshComponent>(Entity, MeshComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<InstancedMeshComponent>(Entity, InstancedMeshComponent&) {}
     template<>
     void Scene::OnComponentAdded<ModelComponent>(Entity, ModelComponent&) {}
     template<>
@@ -3954,6 +3957,105 @@ namespace OloEngine
             }
         }
 
+        // Draw entity-owned dense instance batches (InstancedMeshComponent).
+        // Each entity holds its own world-space InstanceData[] and renders in
+        // a single DrawMeshInstanced packet per submesh (chunked at the
+        // dispatcher's MaxMeshInstances cap when the count exceeds it).
+        // Per-instance Color/Custom/EntityID survive to the shader via the
+        // InstanceData overload of Renderer3D::DrawMeshInstanced.
+        {
+            auto view = m_Registry.view<InstancedMeshComponent>();
+            for (auto entity : view)
+            {
+                const auto& imc = view.get<InstancedMeshComponent>(entity);
+                if (!imc.MeshSource)
+                    continue;
+
+                // Combine inline + asset-backed placements into one transient
+                // span. The asset's instances live in the AssetManager-owned
+                // memory and would normally be referenced directly; here we
+                // build a unified buffer so the submission path stays simple
+                // and per-instance fields (Color, Custom, EntityID) stay
+                // contiguous.
+                const std::vector<InstanceData>* assetInstances = nullptr;
+                if (imc.PlacementAssetHandle != 0)
+                {
+                    if (auto placement = AssetManager::GetAsset<InstancePlacementAsset>(imc.PlacementAssetHandle))
+                        assetInstances = &placement->GetInstances();
+                }
+
+                const sizet inlineCount = imc.Instances.size();
+                const sizet assetCount = assetInstances ? assetInstances->size() : 0;
+                if (inlineCount + assetCount == 0)
+                    continue;
+
+                std::vector<InstanceData> combined;
+                const InstanceData* instData = nullptr;
+                sizet totalCount = 0;
+                if (assetCount == 0)
+                {
+                    instData = imc.Instances.data();
+                    totalCount = inlineCount;
+                }
+                else
+                {
+                    combined.reserve(inlineCount + assetCount);
+                    combined.insert(combined.end(), imc.Instances.begin(), imc.Instances.end());
+                    combined.insert(combined.end(), assetInstances->begin(), assetInstances->end());
+                    instData = combined.data();
+                    totalCount = combined.size();
+                }
+
+                const Material& material = imc.OverrideMaterial
+                                               ? *imc.OverrideMaterial.Raw()
+                                               : (m_Registry.all_of<MaterialComponent>(entity)
+                                                      ? m_Registry.get<MaterialComponent>(entity).m_Material
+                                                      : GetDefaultMaterial());
+
+                const u64 ownerKey = static_cast<u64>(static_cast<u32>(entity));
+
+                const bool castsShadow = imc.CastShadows && meshHasActiveShadows &&
+                                         material.GetAlphaMode() == AlphaMode::Opaque &&
+                                         !material.GetFlag(MaterialFlag::DisableShadowCasting);
+
+                if (!imc.MeshSource->GetSubmeshes().IsEmpty())
+                {
+                    for (i32 i = 0; i < imc.MeshSource->GetSubmeshes().Num(); ++i)
+                    {
+                        auto submesh = Ref<Mesh>::Create(imc.MeshSource, i);
+                        auto* packet = Renderer3D::DrawMeshInstanced(
+                            submesh,
+                            std::span<const InstanceData>(instData, totalCount),
+                            material, true, ownerKey);
+                        if (packet)
+                            Renderer3D::SubmitPacket(packet);
+
+                        // Shadow casters: one entry per instance per submesh.
+                        // ShadowRenderPass auto-batches identical (vao, mesh)
+                        // pairs in its own bucket so this stays O(1) draws on
+                        // the shadow side even at N instances. Submitting per
+                        // instance (rather than one combined caster) lets the
+                        // shadow path do its own per-instance frustum cull
+                        // against each cascade.
+                        if (castsShadow && submesh)
+                        {
+                            if (auto va = submesh->GetVertexArray())
+                            {
+                                const u32 shadowVao = GetShadowVaoID(submesh);
+                                for (sizet k = 0; k < totalCount; ++k)
+                                {
+                                    Renderer3D::AddMeshShadowCaster(
+                                        va->GetRendererID(), submesh->GetIndexCount(),
+                                        submesh->GetBaseIndex(), instData[k].Transform, shadowVao,
+                                        submesh->GetTransformedBoundingBox(instData[k].Transform));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Draw submesh entities (if they have their own transforms)
         {
             auto view = m_Registry.view<TransformComponent, SubmeshComponent>();
@@ -5008,6 +5110,7 @@ namespace OloEngine
     OLO_ON_COMPONENT_REMOVED_NOOP(CircleRendererComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(TextComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(MeshComponent)
+    OLO_ON_COMPONENT_REMOVED_NOOP(InstancedMeshComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(ModelComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(SubmeshComponent)
     OLO_ON_COMPONENT_REMOVED_NOOP(AnimationStateComponent)

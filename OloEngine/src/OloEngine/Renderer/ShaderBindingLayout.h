@@ -650,6 +650,7 @@ namespace OloEngine
         static constexpr u32 SSBO_FPLUS_LIGHT_GRID = 12;    // Forward+ per-tile (offset, count) pairs
         static constexpr u32 SSBO_FPLUS_GLOBAL_INDEX = 13;  // Forward+ atomic counter for light index append
         static constexpr u32 SSBO_GPU_PARTICLES_PREV = 14;  // GPU particle previous-frame positions (vec4[maxParticles]) for motion vectors
+        static constexpr u32 SSBO_INSTANCE_DATA = 15;       // Per-instance transform/color/entity data indexed by gl_InstanceIndex
 
         // =============================================================================
         // TYPE ALIASES FOR CONVENIENCE
@@ -1092,6 +1093,32 @@ layout(std140, binding = 23) uniform WaterParams {
             return R"(
 layout(std140, binding = 25) uniform ForwardPlusParams {
     uvec4 fplus_Params; // x = TileSizePixels, y = TileCountX, z = Enabled (0/1), w = reserved
+};)";
+        }
+
+        // Per-instance data SSBO indexed by gl_InstanceIndex. Layout mirrors
+        // OloEngine::InstanceData (Renderer/Instancing/InstanceData.h, 224 B
+        // std430). Shaders migrating from the legacy ModelUBO (binding = 3)
+        // replace `u_Model` with `instances[gl_InstanceIndex].Transform`,
+        // `u_Normal` with `instances[gl_InstanceIndex].Normal`, etc. Non-
+        // instanced draws bind a single-element instance buffer so the same
+        // shader body works in both cases.
+        static const char* GetInstanceSSBOLayout()
+        {
+            return R"(
+struct InstanceData {
+    mat4 Transform;
+    mat4 Normal;
+    mat4 PrevTransform;
+    vec4 Color;
+    int  EntityID;
+    float Custom;
+    int  _pad0;
+    int  _pad1;
+};
+
+layout(std430, binding = 15) readonly buffer InstanceBuffer {
+    InstanceData instances[];
 };)";
         }
     };

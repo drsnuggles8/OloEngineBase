@@ -5,6 +5,8 @@
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
+#include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
@@ -266,20 +268,25 @@ namespace OloEngine
         auto& cameraUBO = shadowMap.GetShadowCameraUBO();
         cameraUBO->SetData(&cameraUBOData, ShaderBindingLayout::CameraUBO::GetSize());
         cameraUBO->Bind();
-        auto& modelUBO = shadowMap.GetShadowModelUBO();
-        modelUBO->Bind();
 
-        // Helper to populate and upload the shadow ModelUBO for a given transform
-        auto uploadShadowModelUBO = [&modelUBO](const glm::mat4& worldTransform)
+        // Shadow shaders read transforms from the engine-wide InstanceBuffer
+        // at SSBO_INSTANCE_DATA = 15 (no more shadow-specific UBO at binding 3).
+        // One InstanceData per caster — auto-batching of shadow casters is a
+        // future Phase 2 follow-up that would collapse same-mesh casters into
+        // one DrawIndexedInstanced per cascade.
+        auto instanceBuffer = Renderer3D::GetModelInstanceBuffer();
+        auto uploadShadowModelUBO = [&instanceBuffer](const glm::mat4& worldTransform)
         {
-            ShaderBindingLayout::ModelUBO modelData;
-            modelData.Model = worldTransform;
-            modelData.Normal = glm::mat4(1.0f); // Shadow depth shaders don't use normals
-            modelData.EntityID = -1;
-            modelData._paddingEntity[0] = 0;
-            modelData._paddingEntity[1] = 0;
-            modelData._paddingEntity[2] = 0;
-            modelUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
+            if (!instanceBuffer)
+                return;
+            InstanceData inst;
+            inst.Transform = worldTransform;
+            inst.Normal = glm::mat4(1.0f);       // Shadow depth shaders don't use normals
+            inst.PrevTransform = worldTransform; // shadow casters have no motion-vector use today
+            inst.EntityID = -1;
+            const std::span<const InstanceData> oneInstance(&inst, 1);
+            instanceBuffer->Upload(oneInstance);
+            instanceBuffer->Bind();
         };
 
         // ── Static meshes ──

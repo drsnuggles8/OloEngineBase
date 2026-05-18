@@ -93,6 +93,7 @@ namespace OloEngine
         s_ExtensionMap["olosg"] = AssetType::ShaderGraph;
         s_ExtensionMap["olobt"] = AssetType::BehaviorTree;
         s_ExtensionMap["olofsm"] = AssetType::StateMachine;
+        s_ExtensionMap["oloinstances"] = AssetType::InstancePlacement;
 
         // Script files
         s_ExtensionMap["cs"] = AssetType::ScriptFile;

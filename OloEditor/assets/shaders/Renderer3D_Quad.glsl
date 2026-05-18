@@ -13,19 +13,13 @@ layout(std140, binding = 0) uniform CameraMatrices {
     float _padding0;
 };
 
-layout(std140, binding = 3) uniform ModelMatrices {
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-};
+#include "include/InstanceBlock_Vertex.glsl"
 
 layout(location = 0) out vec2 v_TexCoord;
 
 void main()
 {
+    OLO_INSTANCE_FORWARD();
     v_TexCoord = a_TexCoord;
     gl_Position = u_ViewProjection * u_Model * vec4(a_Position, 1.0);
 }

@@ -18,6 +18,8 @@
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Task/ParallelFor.h"
 
+#include <numeric>
+
 #include <atomic>
 
 namespace OloEngine
@@ -500,6 +502,95 @@ namespace OloEngine
             metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
         metadata.m_IsStatic = isStatic;
         packet->SetMetadata(metadata);
+
+        return packet;
+    }
+
+    // InstanceData overload — extracts transforms for the existing pipeline
+    // (frustum cull, FrameDataBuffer allocation, prev-transform history,
+    // command construction) then patches the resulting packet with per-instance
+    // EntityID / Color / Custom streams pulled straight from the InstanceData
+    // span. Keeps the single source of truth for instancing logic in the
+    // transform-only overload.
+    CommandPacket* Renderer3D::DrawMeshInstanced(const Ref<Mesh>& mesh, std::span<const InstanceData> instances, const Material& material, bool isStatic, u64 ownerKey)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (instances.empty())
+            return nullptr;
+
+        std::vector<glm::mat4> transforms;
+        transforms.reserve(instances.size());
+        for (const auto& inst : instances)
+            transforms.push_back(inst.Transform);
+
+        CommandPacket* packet = DrawMeshInstanced(mesh, transforms, material, isStatic, ownerKey);
+        if (!packet)
+            return nullptr; // entirely culled or alloc failure
+
+        // Post-cull instance count from the produced packet — the transform-only
+        // overload may have filtered out frustum-culled instances. We only
+        // populate the auxiliary streams for the surviving subset to keep the
+        // i-th color/custom/entityID aligned with the i-th transform.
+        auto* cmd = packet->GetCommandData<DrawMeshInstancedCommand>();
+        const u32 visibleCount = cmd->instanceCount;
+        if (visibleCount == 0)
+            return packet;
+
+        // The transform-only overload doesn't expose its post-cull index map,
+        // so we re-run frustum culling with the same parameters to know which
+        // source instances survived. If frustum culling is disabled, the
+        // visible subset is 0..N-1 contiguous and this becomes a no-op pass.
+        std::vector<u32> visibleIndices;
+        if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
+        {
+            BoundingSphere localSphere = mesh->GetBoundingSphere();
+            localSphere.Radius *= 1.3f;
+            visibleIndices.reserve(visibleCount);
+            for (sizet i = 0; i < instances.size() && visibleIndices.size() < visibleCount; ++i)
+            {
+                BoundingSphere worldSphere = localSphere.Transform(instances[i].Transform);
+                if (s_Data.ViewFrustum.IsBoundingSphereVisible(worldSphere))
+                    visibleIndices.push_back(static_cast<u32>(i));
+            }
+        }
+        else
+        {
+            visibleIndices.resize(visibleCount);
+            std::iota(visibleIndices.begin(), visibleIndices.end(), 0u);
+        }
+
+        FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
+        u32 colorOffset = frameBuffer.AllocateColors(visibleCount);
+        u32 customOffset = frameBuffer.AllocateCustoms(visibleCount);
+        u32 entityIDOffset = frameBuffer.AllocateEntityIDs(visibleCount);
+
+        if (colorOffset != UINT32_MAX)
+        {
+            std::vector<glm::vec4> colors;
+            colors.reserve(visibleCount);
+            for (u32 idx : visibleIndices)
+                colors.push_back(instances[idx].Color);
+            frameBuffer.WriteColors(colorOffset, colors.data(), visibleCount);
+            cmd->colorBufferOffset = colorOffset;
+        }
+        if (customOffset != UINT32_MAX)
+        {
+            std::vector<f32> customs;
+            customs.reserve(visibleCount);
+            for (u32 idx : visibleIndices)
+                customs.push_back(instances[idx].Custom);
+            frameBuffer.WriteCustoms(customOffset, customs.data(), visibleCount);
+            cmd->customBufferOffset = customOffset;
+        }
+        if (entityIDOffset != UINT32_MAX)
+        {
+            std::vector<i32> ids;
+            ids.reserve(visibleCount);
+            for (u32 idx : visibleIndices)
+                ids.push_back(instances[idx].EntityID);
+            frameBuffer.WriteEntityIDs(entityIDOffset, ids.data(), visibleCount);
+            cmd->entityIDBufferOffset = entityIDOffset;
+        }
 
         return packet;
     }

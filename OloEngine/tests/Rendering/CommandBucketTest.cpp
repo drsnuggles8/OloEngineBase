@@ -759,3 +759,114 @@ TEST_F(CommandBucketBatchTest, BatchedTransformsAreContiguous)
             << "Transform " << i << " must match original";
     }
 }
+
+// =============================================================================
+// 10k-Instance Stress: GPU Instancing acceptance criterion
+// =============================================================================
+// Issue #173 acceptance: "10,000+ instances rendered in 1-2 draw calls". The
+// default CommandBucketConfig::MaxMeshInstances is now 16384 (capped at the
+// FrameDataBuffer EntityID stream capacity), so 10k same-mesh draws collapse
+// into a single DrawMeshInstanced packet without raising the cap in the test.
+// Dispatcher uses a TLS heap scratch buffer, so the 10k * 224 B = 2.24 MB of
+// per-instance data lives off-stack.
+
+TEST_F(CommandBucketBatchTest, TenThousandInstancesCollapseToSinglePacket)
+{
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    // Uses the default MaxMeshInstances (16384) — no override needed.
+    CommandBucket bucket(config);
+
+    constexpr u32 kCount = 10000;
+    for (u32 i = 0; i < kCount; ++i)
+    {
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(i));
+        cmd.vertexArrayID = 100;
+        cmd.renderStateIndex = 0;
+        cmd.materialDataIndex = 0;
+        cmd.transform = glm::translate(glm::mat4(1.0f), glm::vec3(static_cast<f32>(i) * 0.01f, 0.0f, 0.0f));
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+    }
+
+    EXPECT_EQ(bucket.GetCommandCount(), kCount);
+
+    bucket.BatchCommands(*m_Allocator);
+
+    // Acceptance: 10k identical draws collapse into a single DrawMeshInstanced
+    // packet. If this regresses, the auto-batching key matching or the
+    // FrameDataBuffer transform allocator has broken.
+    ASSERT_EQ(bucket.GetSortedCommands().size(), 1u);
+    const auto* packet = bucket.GetSortedCommands()[0];
+    ASSERT_EQ(packet->GetCommandType(), CommandType::DrawMeshInstanced);
+    auto const* icmd = static_cast<const DrawMeshInstancedCommand*>(packet->GetRawCommandData());
+    EXPECT_EQ(icmd->instanceCount, kCount);
+    EXPECT_EQ(icmd->transformCount, kCount);
+}
+
+// =============================================================================
+// Per-Source EntityID + PrevTransform Survive Batch Collapse
+// =============================================================================
+// Regression: before this test, BatchCommands captured only `transform` per
+// instance and dropped each source's `entityID` and `prevTransform`. The
+// dispatcher then wrote -1 / aliased prev=current, silently breaking editor
+// picking and TAA velocity on every auto-batched draw. The two new
+// FrameDataBuffer streams (EntityIDs + the second transform allocation for
+// prevs) plug both holes — this test pins the contract end-to-end.
+
+TEST_F(CommandBucketBatchTest, BatchedEntityIDAndPrevTransformSurviveCollapse)
+{
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    CommandBucket bucket(config);
+
+    constexpr u32 kCount = 8;
+    i32 expectedEntityIDs[kCount];
+    glm::mat4 expectedPrev[kCount];
+    for (u32 i = 0; i < kCount; ++i)
+    {
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(100 + i));
+        cmd.vertexArrayID = 100;
+        cmd.renderStateIndex = 0;
+        cmd.materialDataIndex = 0;
+        cmd.transform = glm::translate(glm::mat4(1.0f), glm::vec3(static_cast<f32>(i), 0.0f, 0.0f));
+        // Distinct prev-transform per source so aliasing prev=current would be
+        // immediately visible.
+        cmd.prevTransform = glm::translate(glm::mat4(1.0f), glm::vec3(static_cast<f32>(i) - 0.5f, 0.0f, 0.0f));
+        expectedEntityIDs[i] = static_cast<i32>(100 + i);
+        expectedPrev[i] = cmd.prevTransform;
+
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+    }
+
+    bucket.BatchCommands(*m_Allocator);
+
+    ASSERT_EQ(bucket.GetSortedCommands().size(), 1u);
+    const auto* packet = bucket.GetSortedCommands()[0];
+    ASSERT_EQ(packet->GetCommandType(), CommandType::DrawMeshInstanced);
+    auto const* icmd = static_cast<const DrawMeshInstancedCommand*>(packet->GetRawCommandData());
+    EXPECT_EQ(icmd->instanceCount, kCount);
+
+    // Both auxiliary streams must be allocated.
+    ASSERT_NE(icmd->entityIDBufferOffset, UINT32_MAX) << "EntityID stream must be allocated for batched draws";
+    ASSERT_NE(icmd->prevTransformBufferOffset, UINT32_MAX) << "PrevTransform stream must be allocated for batched draws";
+
+    FrameDataBuffer& fb = FrameDataBufferManager::Get();
+    const i32* storedIDs = fb.GetEntityIDPtr(icmd->entityIDBufferOffset);
+    const glm::mat4* storedPrev = fb.GetTransformPtr(icmd->prevTransformBufferOffset);
+    ASSERT_NE(storedIDs, nullptr);
+    ASSERT_NE(storedPrev, nullptr);
+
+    for (u32 i = 0; i < kCount; ++i)
+    {
+        EXPECT_EQ(storedIDs[i], expectedEntityIDs[i])
+            << "EntityID " << i << " lost across batch collapse";
+        EXPECT_EQ(storedPrev[i], expectedPrev[i])
+            << "PrevTransform " << i << " lost across batch collapse";
+    }
+}

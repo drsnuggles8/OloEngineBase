@@ -26,16 +26,7 @@ layout(std140, binding = 0) uniform CameraMatrices
 };
 
 // Model UBO (binding 3)
-layout(std140, binding = 3) uniform ModelMatrices
-{
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-    mat4 u_PrevModel;
-};
+#include "include/InstanceBlock_Vertex.glsl"
 
 // Water UBO (binding 23)
 layout(std140, binding = 23) uniform WaterParams
@@ -73,6 +64,7 @@ layout(location = 7) out vec3 v_PrevWorldPos;
 
 void main()
 {
+    OLO_INSTANCE_FORWARD();
     vec4 worldPos = u_Model * vec4(a_Position, 1.0);
     vec4 worldPosPrev = u_PrevModel * vec4(a_Position, 1.0);
 
@@ -239,16 +231,7 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_PrevViewProjection;
 };
 
-layout(std140, binding = 3) uniform ModelMatrices
-{
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-    mat4 u_PrevModel;
-};
+#include "include/InstanceBlock_Single.glsl"
 
 layout(std140, binding = 23) uniform WaterParams
 {
@@ -386,16 +369,7 @@ layout(std140, binding = 0) uniform CameraMatrices
 };
 
 // Model UBO (binding 3) for entity ID
-layout(std140, binding = 3) uniform ModelMatrices
-{
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-    mat4 u_PrevModel;
-};
+#include "include/InstanceBlock.glsl"
 
 // Water UBO (binding 23)
 layout(std140, binding = 23) uniform WaterParams

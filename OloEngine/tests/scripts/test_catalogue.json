@@ -78,6 +78,7 @@
     "OloEngine/tests/Rendering/ShaderReflectionBindingTest.cpp": "shaderpipe",
     "OloEngine/tests/Rendering/ShaderCrossConsistencyTest.cpp": "shaderpipe",
     "OloEngine/tests/Rendering/ShaderUBOSizeConsistencyTest.cpp": "shaderpipe",
+    "OloEngine/tests/Rendering/InstanceDataLayoutTest.cpp": "shaderpipe",
     "OloEngine/tests/Rendering/ShaderStageInterfaceTest.cpp": "shaderpipe",
     "OloEngine/tests/Rendering/ShaderStageContractTest.cpp": "shaderpipe",
     "OloEngine/tests/Rendering/ShaderPackTest.cpp": "shaderpipe",

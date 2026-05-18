@@ -14,6 +14,7 @@
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
+#include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
 #include "OloEngine/Wind/WindSystem.h"
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Snow/SnowEjectaSystem.h"
@@ -26,6 +27,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <span>
 #include <vector>
 
 // Forward declarations
@@ -188,6 +190,17 @@ namespace OloEngine
         // see GetAndRecordPrevInstanceTransforms. Leaving it at 0 preserves
         // the legacy mesh-handle-only cache key.
         static CommandPacket* DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true, u64 ownerKey = 0);
+
+        // InstanceData overload — propagates per-instance Color, Custom, and
+        // EntityID through FrameDataBuffer's parallel streams so shaders that
+        // read `instances[gl_InstanceIndex].Color` etc. (see
+        // InstanceBlock_Vertex.glsl) get the values the caller supplied.
+        // Used by Scene's InstancedMeshComponent loop to plumb authored
+        // per-instance tints + free-float data end-to-end. PrevTransform is
+        // aliased from Transform per-instance (per-instance motion vectors
+        // for explicit InstancedMeshComponent placements are a future
+        // extension).
+        static CommandPacket* DrawMeshInstanced(const Ref<Mesh>& mesh, std::span<const InstanceData> instances, const Material& material, bool isStatic = true, u64 ownerKey = 0);
         static CommandPacket* DrawLightCube(const glm::mat4& modelMatrix);
         static CommandPacket* DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
         static CommandPacket* DrawSkybox(const Ref<TextureCubemap>& skyboxTexture);
@@ -833,9 +846,13 @@ namespace OloEngine
         {
             return s_Data.WaterUBO;
         }
-        static Ref<UniformBuffer> GetModelMatrixUBO()
+        // Per-draw instance data SSBO (binding = 15). Every mesh / shadow /
+        // decal / foliage / water shader reads its model transform from here
+        // via InstanceBlock.glsl; the legacy ModelMatrixUBO at binding 3 has
+        // been retired.
+        static Ref<InstanceBuffer> GetModelInstanceBuffer()
         {
-            return s_Data.ModelMatrixUBO;
+            return s_Data.ModelInstanceBuffer;
         }
 
         static PostProcessSettings& GetPostProcessSettings()
@@ -1145,7 +1162,12 @@ namespace OloEngine
             Ref<UniformBuffer> MultiLightBuffer;
             Ref<UniformBuffer> BoneMatricesUBO;
             Ref<UniformBuffer> PrevBoneMatricesUBO;
-            Ref<UniformBuffer> ModelMatrixUBO;
+            // Per-draw instance data SSBO at ShaderBindingLayout::SSBO_INSTANCE_DATA
+            // (= 15), indexed by gl_InstanceIndex in vertex stages and by the
+            // flat `v_InstanceIndex` varying in fragment stages. Every
+            // mesh-rendering shader reads its model transform from here; the
+            // legacy ModelMatrixUBO at binding 3 has been retired.
+            Ref<InstanceBuffer> ModelInstanceBuffer;
             PostProcessGPUState PostProcessGPU;
             Ref<UniformBuffer> TerrainUBO;
             Ref<UniformBuffer> FoliageUBO;

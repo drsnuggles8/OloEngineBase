@@ -9,6 +9,8 @@
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
+#include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Terrain/TerrainData.h"
 #include "OloEngine/Terrain/TerrainMaterial.h"
@@ -294,6 +296,22 @@ namespace OloEngine
         shader->Bind();
         m_VisibleInstances = 0;
 
+        // Foliage's per-blade transforms come from its own instance VBO
+        // (a_PositionScale, a_RotationHeight) in world space. The shaders now
+        // read `u_Model` from the engine's ModelInstanceBuffer (binding 15) —
+        // upload identity once so the matrix is a no-op for blade positioning.
+        // Without this, the SSBO would still hold whatever the previous
+        // DrawMesh wrote, causing every grass blade to inherit the last
+        // entity's transform.
+        if (auto instanceBuffer = Renderer3D::GetModelInstanceBuffer())
+        {
+            InstanceData identity{};
+            identity.EntityID = -1;
+            const std::span<const InstanceData> one(&identity, 1);
+            instanceBuffer->Upload(one);
+            instanceBuffer->Bind();
+        }
+
         for (auto& layer : m_Layers)
         {
             if (layer.InstanceCount == 0 || !layer.VAO)
@@ -334,6 +352,18 @@ namespace OloEngine
         }
 
         depthShader->Bind();
+
+        // Same identity-instance pattern as Render(): the depth shader reads
+        // u_Model from the ModelInstanceBuffer but foliage's per-blade data
+        // is already in world space via the instance VBO.
+        if (auto instanceBuffer = Renderer3D::GetModelInstanceBuffer())
+        {
+            InstanceData identity{};
+            identity.EntityID = -1;
+            const std::span<const InstanceData> one(&identity, 1);
+            instanceBuffer->Upload(one);
+            instanceBuffer->Bind();
+        }
 
         for (auto& layer : m_Layers)
         {

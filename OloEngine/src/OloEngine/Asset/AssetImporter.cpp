@@ -76,7 +76,8 @@ namespace OloEngine
             serializers[AssetType::DialogueTree] = CreateScope<DialogueTreeSerializer>();
             serializers[AssetType::ShaderGraph] = CreateScope<ShaderGraphSerializer>();
             serializers[AssetType::BehaviorTree] = CreateScope<BehaviorTreeSerializer>();
-            serializers[AssetType::StateMachine] = CreateScope<StateMachineSerializer>(); });
+            serializers[AssetType::StateMachine] = CreateScope<StateMachineSerializer>();
+            serializers[AssetType::InstancePlacement] = CreateScope<InstancePlacementSerializer>(); });
     }
 
     void AssetImporter::Shutdown()

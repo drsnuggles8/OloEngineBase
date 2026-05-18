@@ -812,6 +812,71 @@ namespace OloEngine
     // MaterialComponent //////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
 
+    static i32 InstancedMeshComponent_GetInstanceCount(UUID entityID)
+    {
+        OLO_PROFILE_FUNCTION();
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        if (!entity.HasComponent<InstancedMeshComponent>())
+            return 0;
+        return static_cast<i32>(entity.GetComponent<InstancedMeshComponent>().Instances.size());
+    }
+
+    static void InstancedMeshComponent_AddInstance(UUID entityID, glm::vec3* position, glm::vec3* eulerRotation, glm::vec3* scale, glm::vec4* color, f32 custom, i32 instanceEntityID)
+    {
+        OLO_PROFILE_FUNCTION();
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        if (!entity.HasComponent<InstancedMeshComponent>())
+            return;
+
+        InstanceData inst;
+        glm::mat4 t = glm::translate(glm::mat4(1.0f), *position);
+        glm::mat4 r = glm::toMat4(glm::quat(*eulerRotation));
+        glm::mat4 s = glm::scale(glm::mat4(1.0f), *scale);
+        inst.Transform = t * r * s;
+        inst.Normal = glm::transpose(glm::inverse(inst.Transform));
+        inst.PrevTransform = inst.Transform;
+        inst.Color = *color;
+        inst.Custom = custom;
+        inst.EntityID = instanceEntityID;
+        entity.GetComponent<InstancedMeshComponent>().Instances.push_back(inst);
+    }
+
+    static void InstancedMeshComponent_ClearInstances(UUID entityID)
+    {
+        OLO_PROFILE_FUNCTION();
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        if (entity.HasComponent<InstancedMeshComponent>())
+            entity.GetComponent<InstancedMeshComponent>().Instances.clear();
+    }
+
+    static bool InstancedMeshComponent_GetCastShadows(UUID entityID)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        return entity.HasComponent<InstancedMeshComponent>() && entity.GetComponent<InstancedMeshComponent>().CastShadows;
+    }
+
+    static void InstancedMeshComponent_SetCastShadows(UUID entityID, bool value)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        if (entity.HasComponent<InstancedMeshComponent>())
+            entity.GetComponent<InstancedMeshComponent>().CastShadows = value;
+    }
+
     static u64 MaterialComponent_GetShaderGraphHandle(UUID entityID)
     {
         OLO_PROFILE_FUNCTION();
@@ -2884,6 +2949,15 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(DialogueVariables_SetString);
         OLO_ADD_INTERNAL_CALL(DialogueVariables_Has);
         OLO_ADD_INTERNAL_CALL(DialogueVariables_Clear);
+
+        ///////////////////////////////////////////////////////////////
+        // InstancedMeshComponent ////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(InstancedMeshComponent_GetInstanceCount);
+        OLO_ADD_INTERNAL_CALL(InstancedMeshComponent_AddInstance);
+        OLO_ADD_INTERNAL_CALL(InstancedMeshComponent_ClearInstances);
+        OLO_ADD_INTERNAL_CALL(InstancedMeshComponent_GetCastShadows);
+        OLO_ADD_INTERNAL_CALL(InstancedMeshComponent_SetCastShadows);
 
         ///////////////////////////////////////////////////////////////
         // MaterialComponent /////////////////////////////////////////

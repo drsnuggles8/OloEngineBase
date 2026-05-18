@@ -234,6 +234,21 @@ namespace OloEngine
 		internal static extern void MaterialComponent_SetShaderGraphHandle(ulong entityID, ulong handle);
 		#endregion
 
+		#region InstancedMeshComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int InstancedMeshComponent_GetInstanceCount(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void InstancedMeshComponent_AddInstance(ulong entityID,
+			ref Vector3 position, ref Vector3 eulerRotation, ref Vector3 scale,
+			ref Vector4 color, float custom, int instanceEntityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void InstancedMeshComponent_ClearInstances(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool InstancedMeshComponent_GetCastShadows(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void InstancedMeshComponent_SetCastShadows(ulong entityID, bool value);
+		#endregion
+
 		#region ShaderLibrary3D
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool ShaderLibrary3D_LoadShader(string filepath);

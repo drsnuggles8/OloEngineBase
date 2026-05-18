@@ -85,11 +85,15 @@ namespace OloEngine
     class FrameDataBuffer
     {
       public:
-        static constexpr sizet DEFAULT_BONE_CAPACITY = 4096;      // ~256KB for bones
-        static constexpr sizet DEFAULT_TRANSFORM_CAPACITY = 8192; // ~512KB for transforms
+        static constexpr sizet DEFAULT_BONE_CAPACITY = 4096;       // ~256KB for bones
+        static constexpr sizet DEFAULT_TRANSFORM_CAPACITY = 65536; // ~4MB for transforms; doubled to cover the parallel prev-transform stream
+                                                                   // that CommandBucket auto-batching now allocates alongside the current
+                                                                   // stream (~32k current + ~32k prev with headroom for non-batched draws).
+        static constexpr sizet DEFAULT_ENTITY_ID_CAPACITY = 16384; // ~64KB i32 stream (auto-batching can collapse many small draws)
 
         FrameDataBuffer(sizet boneCapacity = DEFAULT_BONE_CAPACITY,
-                        sizet transformCapacity = DEFAULT_TRANSFORM_CAPACITY);
+                        sizet transformCapacity = DEFAULT_TRANSFORM_CAPACITY,
+                        sizet entityIDCapacity = DEFAULT_ENTITY_ID_CAPACITY);
 
         // Non-copyable
         FrameDataBuffer(const FrameDataBuffer&) = delete;
@@ -152,6 +156,61 @@ namespace OloEngine
          * @param count Number of matrices to write
          */
         void WriteTransforms(u32 offset, const glm::mat4* data, u32 count);
+
+        /**
+         * @brief Allocate space for per-instance entity IDs
+         * @param count Number of i32 entity IDs to allocate
+         * @return Offset into the entity ID buffer (in i32 units, not bytes)
+         *
+         * Returns UINT32_MAX if allocation fails (out of capacity). Used by
+         * CommandBucket auto-batching to preserve per-source EntityID across
+         * the N-into-1 DrawMeshInstanced collapse so editor picking still
+         * resolves to the original entity.
+         */
+        u32 AllocateEntityIDs(u32 count);
+
+        /**
+         * @brief Get pointer to entity IDs at offset
+         */
+        i32* GetEntityIDPtr(u32 offset);
+        const i32* GetEntityIDPtr(u32 offset) const;
+
+        /**
+         * @brief Write entity IDs to allocated space
+         */
+        void WriteEntityIDs(u32 offset, const i32* data, u32 count);
+
+        sizet GetEntityIDCount() const
+        {
+            return m_EntityIDOffset;
+        }
+        sizet GetEntityIDCapacity() const
+        {
+            return m_EntityIDs.size();
+        }
+
+        // ====================================================================
+        // Per-instance Color (vec4) and Custom (f32) streams
+        //
+        // Used by Renderer3D::DrawMeshInstanced(InstanceData) so that
+        // InstancedMeshComponent's per-instance tint + free float reach the
+        // GPU. Allocated lazily — when the InstanceData overload writes them,
+        // the dispatcher reads them. Default-construction (no allocation)
+        // leaves InstanceData.Color = (1,1,1,1) and InstanceData.Custom = 0
+        // in the SSBO upload.
+        // ====================================================================
+        static constexpr sizet DEFAULT_COLOR_CAPACITY = 16384;
+        static constexpr sizet DEFAULT_CUSTOM_CAPACITY = 16384;
+
+        u32 AllocateColors(u32 count);
+        glm::vec4* GetColorPtr(u32 offset);
+        const glm::vec4* GetColorPtr(u32 offset) const;
+        void WriteColors(u32 offset, const glm::vec4* data, u32 count);
+
+        u32 AllocateCustoms(u32 count);
+        f32* GetCustomPtr(u32 offset);
+        const f32* GetCustomPtr(u32 offset) const;
+        void WriteCustoms(u32 offset, const f32* data, u32 count);
 
         // Statistics
         sizet GetBoneMatrixCount() const
@@ -306,12 +365,21 @@ namespace OloEngine
       private:
         std::vector<glm::mat4> m_BoneMatrices;
         std::vector<glm::mat4> m_Transforms;
+        std::vector<i32> m_EntityIDs;
+        std::vector<glm::vec4> m_Colors;
+        std::vector<f32> m_Customs;
 
         u32 m_BoneMatrixOffset = 0; // Current allocation offset
         u32 m_TransformOffset = 0;  // Current allocation offset
+        u32 m_EntityIDOffset = 0;   // Current allocation offset (i32 stream)
+        u32 m_ColorOffset = 0;      // Current allocation offset (vec4 stream)
+        u32 m_CustomOffset = 0;     // Current allocation offset (f32 stream)
 
         mutable FMutex m_BoneMutex;
         mutable FMutex m_TransformMutex;
+        mutable FMutex m_EntityIDMutex;
+        mutable FMutex m_ColorMutex;
+        mutable FMutex m_CustomMutex;
 
         // ====================================================================
         // RenderState Table Storage

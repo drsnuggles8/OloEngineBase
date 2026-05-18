@@ -604,6 +604,21 @@ namespace OloEngine
         bool isAnimatedMesh = false;
         u32 boneBufferOffset = 0;     // Offset into FrameDataBuffer for all instance bone matrices
         u32 boneCountPerInstance = 0; // Number of bones per instance
+
+        // Per-instance i32 entity IDs in FrameDataBuffer::EntityIDs. UINT32_MAX
+        // = no stream (dispatcher writes -1 to InstanceData.EntityID, breaking
+        // editor picking on the batched instances). Auto-batching always
+        // populates this so per-source picking survives the N-into-1 collapse.
+        u32 entityIDBufferOffset = UINT32_MAX;
+
+        // Per-instance vec4 Color and f32 Custom in FrameDataBuffer::Colors /
+        // FrameDataBuffer::Customs. UINT32_MAX leaves InstanceData defaults
+        // ((1,1,1,1) tint, 0 free float). Populated by the InstanceData
+        // overload of Renderer3D::DrawMeshInstanced — auto-batching of plain
+        // DrawMeshCommand sources leaves them at UINT32_MAX since
+        // DrawMeshCommand has no per-source color/custom slot.
+        u32 colorBufferOffset = UINT32_MAX;
+        u32 customBufferOffset = UINT32_MAX;
     };
 
     // Static assertion to verify DrawMeshInstancedCommand is trivially copyable

@@ -1687,6 +1687,71 @@ namespace OloEngine
             }
         }
 
+        if (auto imcNode = entity["InstancedMeshComponent"]; imcNode)
+        {
+            auto& imc = deserializedEntity.AddComponent<InstancedMeshComponent>();
+            if (imcNode["MeshSourceHandle"])
+            {
+                u64 handle = imcNode["MeshSourceHandle"].as<u64>();
+                imc.MeshSource = AssetManager::GetAsset<MeshSource>(handle);
+            }
+            if (imcNode["OverrideMaterialHandle"])
+            {
+                u64 handle = imcNode["OverrideMaterialHandle"].as<u64>();
+                imc.OverrideMaterial = AssetManager::GetAsset<Material>(handle);
+            }
+            if (imcNode["FrustumCullPerInstance"])
+                imc.FrustumCullPerInstance = imcNode["FrustumCullPerInstance"].as<bool>();
+            if (imcNode["CastShadows"])
+                imc.CastShadows = imcNode["CastShadows"].as<bool>();
+            if (imcNode["CullDistance"])
+                imc.CullDistance = imcNode["CullDistance"].as<f32>();
+            if (imcNode["PlacementAssetHandle"])
+                imc.PlacementAssetHandle = imcNode["PlacementAssetHandle"].as<u64>();
+            if (imcNode["Primitive"])
+            {
+                const auto primitiveInt = imcNode["Primitive"].as<i32>();
+                if (primitiveInt >= static_cast<i32>(MeshPrimitive::None) && primitiveInt <= static_cast<i32>(MeshPrimitive::Torus))
+                {
+                    imc.Primitive = static_cast<MeshPrimitive>(primitiveInt);
+                    // Resolve MeshSource from the primitive if not already
+                    // assigned. Mirrors the MeshComponent fallback path.
+                    if (!imc.MeshSource && imc.Primitive != MeshPrimitive::None)
+                    {
+                        if (auto mesh = CreateMeshFromPrimitive(imc.Primitive))
+                            imc.MeshSource = mesh->GetMeshSource();
+                    }
+                }
+            }
+
+            // Instances: flat-array form. Transform is 16 floats, Color is 4
+            // floats, then EntityID (int) and Custom (float). Anything missing
+            // defaults to identity / white tint / -1 / 0.
+            if (auto instances = imcNode["Instances"]; instances && instances.IsSequence())
+            {
+                imc.Instances.reserve(instances.size());
+                for (const auto& node : instances)
+                {
+                    InstanceData inst;
+                    if (auto t = node["Transform"]; t && t.IsSequence() && t.size() == 16)
+                    {
+                        for (sizet i = 0; i < 16; ++i)
+                            (&inst.Transform[0][0])[i] = t[i].as<f32>();
+                    }
+                    if (auto c = node["Color"]; c && c.IsSequence() && c.size() == 4)
+                    {
+                        for (sizet i = 0; i < 4; ++i)
+                            (&inst.Color[0])[i] = c[i].as<f32>();
+                    }
+                    if (node["EntityID"])
+                        inst.EntityID = node["EntityID"].as<i32>();
+                    if (node["Custom"])
+                        inst.Custom = node["Custom"].as<f32>();
+                    imc.Instances.push_back(inst);
+                }
+            }
+        }
+
         if (auto modelComponent = entity["ModelComponent"]; modelComponent)
         {
             auto& mc = deserializedEntity.AddComponent<ModelComponent>();
@@ -3414,6 +3479,48 @@ namespace OloEngine
             out << YAML::Key << "Visible" << YAML::Value << modelComponent.m_Visible;
 
             out << YAML::EndMap; // ModelComponent
+        }
+
+        if (entity.HasComponent<InstancedMeshComponent>())
+        {
+            auto const& imc = entity.GetComponent<InstancedMeshComponent>();
+            out << YAML::Key << "InstancedMeshComponent";
+            out << YAML::BeginMap; // InstancedMeshComponent
+
+            if (imc.MeshSource && imc.MeshSource->GetHandle() != 0)
+                out << YAML::Key << "MeshSourceHandle" << YAML::Value << static_cast<u64>(imc.MeshSource->GetHandle());
+            if (imc.OverrideMaterial && imc.OverrideMaterial->GetHandle() != 0)
+                out << YAML::Key << "OverrideMaterialHandle" << YAML::Value << static_cast<u64>(imc.OverrideMaterial->GetHandle());
+
+            out << YAML::Key << "FrustumCullPerInstance" << YAML::Value << imc.FrustumCullPerInstance;
+            out << YAML::Key << "CastShadows" << YAML::Value << imc.CastShadows;
+            out << YAML::Key << "CullDistance" << YAML::Value << imc.CullDistance;
+            if (imc.PlacementAssetHandle != 0)
+                out << YAML::Key << "PlacementAssetHandle" << YAML::Value << static_cast<u64>(imc.PlacementAssetHandle);
+            if (imc.Primitive != MeshPrimitive::None)
+                out << YAML::Key << "Primitive" << YAML::Value << static_cast<i32>(imc.Primitive);
+
+            // Only Transform, Color, EntityID, and Custom are authored
+            // round-trip data. Normal and PrevTransform are runtime-derived.
+            out << YAML::Key << "Instances" << YAML::Value << YAML::BeginSeq;
+            for (const auto& inst : imc.Instances)
+            {
+                out << YAML::BeginMap;
+                out << YAML::Key << "Transform" << YAML::Value << YAML::Flow << YAML::BeginSeq;
+                for (sizet i = 0; i < 16; ++i)
+                    out << (&inst.Transform[0][0])[i];
+                out << YAML::EndSeq;
+                out << YAML::Key << "Color" << YAML::Value << YAML::Flow << YAML::BeginSeq
+                    << inst.Color.x << inst.Color.y << inst.Color.z << inst.Color.w << YAML::EndSeq;
+                if (inst.EntityID != -1)
+                    out << YAML::Key << "EntityID" << YAML::Value << inst.EntityID;
+                if (inst.Custom != 0.0f)
+                    out << YAML::Key << "Custom" << YAML::Value << inst.Custom;
+                out << YAML::EndMap;
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::EndMap; // InstancedMeshComponent
         }
 
         if (entity.HasComponent<LODGroupComponent>())

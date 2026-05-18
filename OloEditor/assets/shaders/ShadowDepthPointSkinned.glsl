@@ -21,15 +21,7 @@ layout(std140, binding = 0) uniform CameraMatrices
 	float _padding0;       // Repurposed as far plane
 };
 
-layout(std140, binding = 3) uniform ModelMatrices
-{
-	mat4 u_Model;
-	mat4 u_Normal;
-	int u_EntityID;
-	int _paddingEntity0;
-	int _paddingEntity1;
-	int _paddingEntity2;
-};
+#include "include/InstanceBlock_Vertex.glsl"
 
 layout(std140, binding = 4) uniform AnimationMatrices
 {
@@ -40,6 +32,7 @@ layout(location = 0) out vec3 v_WorldPosition;
 
 void main()
 {
+	OLO_INSTANCE_FORWARD();
 	// Calculate bone transformation
 	mat4 boneTransform = u_BoneMatrices[a_BoneIndices[0]] * a_BoneWeights[0];
 	boneTransform += u_BoneMatrices[a_BoneIndices[1]] * a_BoneWeights[1];

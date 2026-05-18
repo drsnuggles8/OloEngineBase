@@ -142,6 +142,7 @@ namespace OloEngine
         friend class ShaderGraphSerializer;
         friend class BehaviorTreeSerializer;
         friend class StateMachineSerializer;
+        friend class InstancePlacementSerializer;
 
         bool IsValid() const
         {

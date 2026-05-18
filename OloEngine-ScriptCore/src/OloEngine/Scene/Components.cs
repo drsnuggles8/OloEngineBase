@@ -264,6 +264,41 @@ namespace OloEngine
 		}
 	}
 
+	// Scripted surface for InstancedMeshComponent. The C++ component holds the
+	// authoritative mesh source and material refs (asset handles); scripts can't
+	// reassign those today (mirrors how MeshComponent is exposed: properties +
+	// behaviours only, no resource swaps from script). What scripts CAN do is
+	// drive the per-instance placement at runtime — populate / clear instances
+	// and read the current count for procedural placement systems written in C#.
+	public class InstancedMeshComponent : Component
+	{
+		public int InstanceCount => InternalCalls.InstancedMeshComponent_GetInstanceCount(Entity.ID);
+
+		// Append a single placement. `eulerRotation` is in radians. `color`
+		// becomes the per-instance tint sent to shaders via InstanceData.Color;
+		// pass Vector4(1,1,1,1) for no tint. `custom` is the per-instance free
+		// float (e.g. wind sway phase, health-bar fill, hash for vegetation
+		// variation). `instanceEntityID` is what editor picking returns when
+		// this specific instance is clicked; -1 means "unselectable".
+		public void AddInstance(Vector3 position, Vector3 eulerRotation, Vector3 scale,
+			Vector4 color, float custom = 0.0f, int instanceEntityID = -1)
+		{
+			InternalCalls.InstancedMeshComponent_AddInstance(Entity.ID,
+				ref position, ref eulerRotation, ref scale, ref color, custom, instanceEntityID);
+		}
+
+		public void AddInstance(Vector3 position) =>
+			AddInstance(position, Vector3.Zero, new Vector3(1.0f, 1.0f, 1.0f), new Vector4(1.0f, 1.0f, 1.0f, 1.0f));
+
+		public void ClearInstances() => InternalCalls.InstancedMeshComponent_ClearInstances(Entity.ID);
+
+		public bool CastShadows
+		{
+			get => InternalCalls.InstancedMeshComponent_GetCastShadows(Entity.ID);
+			set => InternalCalls.InstancedMeshComponent_SetCastShadows(Entity.ID, value);
+		}
+	}
+
 	public partial class NavAgentComponent : Component
 	{
 		public bool HasPath => InternalCalls.NavAgentComponent_HasPath(Entity.ID);

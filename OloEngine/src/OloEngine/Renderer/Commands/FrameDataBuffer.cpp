@@ -6,12 +6,18 @@
 
 namespace OloEngine
 {
-    FrameDataBuffer::FrameDataBuffer(sizet boneCapacity, sizet transformCapacity)
+    FrameDataBuffer::FrameDataBuffer(sizet boneCapacity, sizet transformCapacity, sizet entityIDCapacity)
     {
         m_BoneMatrices.resize(boneCapacity);
         m_Transforms.resize(transformCapacity);
+        m_EntityIDs.resize(entityIDCapacity);
+        m_Colors.resize(DEFAULT_COLOR_CAPACITY);
+        m_Customs.resize(DEFAULT_CUSTOM_CAPACITY);
         m_BoneMatrixOffset = 0;
         m_TransformOffset = 0;
+        m_EntityIDOffset = 0;
+        m_ColorOffset = 0;
+        m_CustomOffset = 0;
         m_MaterialData.resize(MAX_MATERIAL_DATA_PER_FRAME);
     }
 
@@ -26,6 +32,18 @@ namespace OloEngine
         {
             TUniqueLock<FMutex> transformLock(m_TransformMutex);
             m_TransformOffset = 0;
+        }
+        {
+            TUniqueLock<FMutex> entityIDLock(m_EntityIDMutex);
+            m_EntityIDOffset = 0;
+        }
+        {
+            TUniqueLock<FMutex> colorLock(m_ColorMutex);
+            m_ColorOffset = 0;
+        }
+        {
+            TUniqueLock<FMutex> customLock(m_CustomMutex);
+            m_CustomOffset = 0;
         }
 
         // Reset parallel submission state
@@ -160,6 +178,138 @@ namespace OloEngine
             return;
         }
         std::memcpy(&m_Transforms[offset], data, count * sizeof(glm::mat4));
+    }
+
+    u32 FrameDataBuffer::AllocateEntityIDs(u32 count)
+    {
+        if (count == 0)
+            return 0;
+        TUniqueLock<FMutex> lock(m_EntityIDMutex);
+        u32 offset = m_EntityIDOffset;
+        if (count > static_cast<u32>(m_EntityIDs.size()) - offset)
+        {
+            OLO_CORE_ERROR("FrameDataBuffer: EntityID buffer overflow! Requested {} ids at offset {}, capacity {}",
+                           count, offset, m_EntityIDs.size());
+            return UINT32_MAX;
+        }
+        m_EntityIDOffset = offset + count;
+        return offset;
+    }
+
+    i32* FrameDataBuffer::GetEntityIDPtr(u32 offset)
+    {
+        TUniqueLock<FMutex> lock(m_EntityIDMutex);
+        if (offset >= m_EntityIDs.size())
+            return nullptr;
+        return &m_EntityIDs[offset];
+    }
+
+    const i32* FrameDataBuffer::GetEntityIDPtr(u32 offset) const
+    {
+        TUniqueLock<FMutex> lock(m_EntityIDMutex);
+        if (offset >= m_EntityIDs.size())
+            return nullptr;
+        return &m_EntityIDs[offset];
+    }
+
+    void FrameDataBuffer::WriteEntityIDs(u32 offset, const i32* data, u32 count)
+    {
+        TUniqueLock<FMutex> lock(m_EntityIDMutex);
+        if (offset + count > m_EntityIDs.size())
+        {
+            OLO_CORE_ERROR("FrameDataBuffer: WriteEntityIDs out of bounds: offset={}, count={}, capacity={}",
+                           offset, count, m_EntityIDs.size());
+            return;
+        }
+        std::memcpy(&m_EntityIDs[offset], data, count * sizeof(i32));
+    }
+
+    u32 FrameDataBuffer::AllocateColors(u32 count)
+    {
+        if (count == 0)
+            return 0;
+        TUniqueLock<FMutex> lock(m_ColorMutex);
+        u32 offset = m_ColorOffset;
+        if (count > static_cast<u32>(m_Colors.size()) - offset)
+        {
+            OLO_CORE_ERROR("FrameDataBuffer: Color buffer overflow! Requested {} at offset {}, capacity {}",
+                           count, offset, m_Colors.size());
+            return UINT32_MAX;
+        }
+        m_ColorOffset = offset + count;
+        return offset;
+    }
+
+    glm::vec4* FrameDataBuffer::GetColorPtr(u32 offset)
+    {
+        TUniqueLock<FMutex> lock(m_ColorMutex);
+        if (offset >= m_Colors.size())
+            return nullptr;
+        return &m_Colors[offset];
+    }
+
+    const glm::vec4* FrameDataBuffer::GetColorPtr(u32 offset) const
+    {
+        TUniqueLock<FMutex> lock(m_ColorMutex);
+        if (offset >= m_Colors.size())
+            return nullptr;
+        return &m_Colors[offset];
+    }
+
+    void FrameDataBuffer::WriteColors(u32 offset, const glm::vec4* data, u32 count)
+    {
+        TUniqueLock<FMutex> lock(m_ColorMutex);
+        if (offset + count > m_Colors.size())
+        {
+            OLO_CORE_ERROR("FrameDataBuffer: WriteColors out of bounds: offset={}, count={}, capacity={}",
+                           offset, count, m_Colors.size());
+            return;
+        }
+        std::memcpy(&m_Colors[offset], data, count * sizeof(glm::vec4));
+    }
+
+    u32 FrameDataBuffer::AllocateCustoms(u32 count)
+    {
+        if (count == 0)
+            return 0;
+        TUniqueLock<FMutex> lock(m_CustomMutex);
+        u32 offset = m_CustomOffset;
+        if (count > static_cast<u32>(m_Customs.size()) - offset)
+        {
+            OLO_CORE_ERROR("FrameDataBuffer: Custom buffer overflow! Requested {} at offset {}, capacity {}",
+                           count, offset, m_Customs.size());
+            return UINT32_MAX;
+        }
+        m_CustomOffset = offset + count;
+        return offset;
+    }
+
+    f32* FrameDataBuffer::GetCustomPtr(u32 offset)
+    {
+        TUniqueLock<FMutex> lock(m_CustomMutex);
+        if (offset >= m_Customs.size())
+            return nullptr;
+        return &m_Customs[offset];
+    }
+
+    const f32* FrameDataBuffer::GetCustomPtr(u32 offset) const
+    {
+        TUniqueLock<FMutex> lock(m_CustomMutex);
+        if (offset >= m_Customs.size())
+            return nullptr;
+        return &m_Customs[offset];
+    }
+
+    void FrameDataBuffer::WriteCustoms(u32 offset, const f32* data, u32 count)
+    {
+        TUniqueLock<FMutex> lock(m_CustomMutex);
+        if (offset + count > m_Customs.size())
+        {
+            OLO_CORE_ERROR("FrameDataBuffer: WriteCustoms out of bounds: offset={}, count={}, capacity={}",
+                           offset, count, m_Customs.size());
+            return;
+        }
+        std::memcpy(&m_Customs[offset], data, count * sizeof(f32));
     }
 
     // ========================================================================

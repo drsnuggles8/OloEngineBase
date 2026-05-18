@@ -15,14 +15,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
     float _padding0;
 };
 
-layout(std140, binding = 3) uniform ModelMatrices {
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-};
+#include "include/InstanceBlock_Vertex.glsl"
 
 layout(std140, binding = 4) uniform AnimationMatrices {
     mat4 u_BoneMatrices[100];
@@ -34,6 +27,7 @@ layout(location = 2) out vec2 v_TexCoord;
 
 void main()
 {
+    OLO_INSTANCE_FORWARD();
     // Simple GPU Skinning
     mat4 boneTransform = mat4(0.0);
     for (int i = 0; i < 4; ++i)

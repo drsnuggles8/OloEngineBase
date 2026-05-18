@@ -8,6 +8,9 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
+#include "OloEngine/Renderer/Instancing/InstanceData.h"
+#include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "OloEngine/Renderer/Light.h"
@@ -46,7 +49,7 @@ namespace OloEngine
         Ref<UniformBuffer> LightUBO = nullptr;
         Ref<UniformBuffer> BoneMatricesUBO = nullptr;
         Ref<UniformBuffer> PrevBoneMatricesUBO = nullptr;
-        Ref<UniformBuffer> ModelMatrixUBO = nullptr;
+        Ref<InstanceBuffer> ModelInstanceBuffer = nullptr;
         TiledForwardPlus* ForwardPlus = nullptr;
         glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
         glm::mat4 ViewMatrix = glm::mat4(1.0f);
@@ -627,7 +630,7 @@ namespace OloEngine
         s_Data.LightUBO.Reset();
         s_Data.BoneMatricesUBO.Reset();
         s_Data.PrevBoneMatricesUBO.Reset();
-        s_Data.ModelMatrixUBO.Reset();
+        s_Data.ModelInstanceBuffer.Reset();
         s_Data.ForwardPlus = nullptr;
     }
 
@@ -636,7 +639,7 @@ namespace OloEngine
         const Ref<UniformBuffer>& materialUBO,
         const Ref<UniformBuffer>& lightUBO,
         const Ref<UniformBuffer>& boneMatricesUBO,
-        const Ref<UniformBuffer>& modelMatrixUBO,
+        const Ref<InstanceBuffer>& modelInstanceBuffer,
         const Ref<UniformBuffer>& prevBoneMatricesUBO,
         TiledForwardPlus* forwardPlus)
     {
@@ -644,10 +647,42 @@ namespace OloEngine
         s_Data.MaterialUBO = materialUBO;
         s_Data.LightUBO = lightUBO;
         s_Data.BoneMatricesUBO = boneMatricesUBO;
-        s_Data.ModelMatrixUBO = modelMatrixUBO;
+        s_Data.ModelInstanceBuffer = modelInstanceBuffer;
         s_Data.PrevBoneMatricesUBO = prevBoneMatricesUBO;
         s_Data.ForwardPlus = forwardPlus;
     }
+
+    namespace
+    {
+        // Upload a single InstanceData built from a per-draw ModelUBO struct
+        // into the InstanceBuffer at SSBO_INSTANCE_DATA = 15. This is the
+        // only model-matrix upload path now that the legacy ModelMatrixUBO
+        // at binding 3 has been retired — every mesh / shadow / decal /
+        // foliage / water shader reads `instances[gl_InstanceIndex].Transform`
+        // (or `instances[v_InstanceIndex]` in fragment) via InstanceBlock.glsl.
+        //
+        // `instanceBuffer` is taken by non-const reference because OloEngine's
+        // Ref<T> propagates const through operator->; a `const Ref<T>&` would
+        // make Upload/Bind unreachable here (they mutate the GPU buffer).
+        void UploadModelInstance(const ShaderBindingLayout::ModelUBO& modelData,
+                                 Ref<InstanceBuffer>& instanceBuffer)
+        {
+            if (!instanceBuffer)
+                return;
+
+            InstanceData inst;
+            inst.Transform = modelData.Model;
+            inst.Normal = modelData.Normal;
+            inst.PrevTransform = modelData.PrevModel;
+            inst.EntityID = modelData.EntityID;
+            // Color / Custom keep their defaults (white tint, 0) — the explicit
+            // instancing path populates them in Phase 3.
+
+            const std::span<const InstanceData> oneInstance(&inst, 1);
+            instanceBuffer->Upload(oneInstance);
+            instanceBuffer->Bind();
+        }
+    } // namespace
 
     void CommandDispatch::BindSceneResources()
     {
@@ -1101,7 +1136,7 @@ namespace OloEngine
                 BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
             }
 
-            if (s_Data.ModelMatrixUBO)
+            if (s_Data.ModelInstanceBuffer)
             {
                 ShaderBindingLayout::ModelUBO modelData;
                 modelData.Model = cmd->transform;
@@ -1113,8 +1148,8 @@ namespace OloEngine
                 modelData.PrevModel = cmd->prevTransform;
 
                 constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
-                s_Data.ModelMatrixUBO->SetData(&modelData, expectedSize);
-                BindUBOIfNeeded(ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+                UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
+                // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
             }
 
             // Bone matrices are still needed for skinned mesh vertex positions.
@@ -1141,7 +1176,7 @@ namespace OloEngine
             }
 
             // Update model matrix UBO
-            if (s_Data.ModelMatrixUBO)
+            if (s_Data.ModelInstanceBuffer)
             {
                 ShaderBindingLayout::ModelUBO modelData;
                 modelData.Model = cmd->transform;
@@ -1155,8 +1190,8 @@ namespace OloEngine
                 constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
                 static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");
 
-                s_Data.ModelMatrixUBO->SetData(&modelData, expectedSize);
-                BindUBOIfNeeded(ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+                UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
+                // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
             }
 
             // Material UBO + texture bindings (skipped when material unchanged)
@@ -1249,7 +1284,12 @@ namespace OloEngine
         // Material UBO + texture bindings (skipped when material unchanged)
         UploadMaterialState(mat, cmd->materialDataIndex);
 
-        // Get transforms from FrameDataBuffer
+        // Pack the per-instance transforms (and prev-frame transforms) into the
+        // engine's ModelInstanceBuffer SSBO at binding 15. Shaders read each
+        // instance via `instances[gl_InstanceIndex].Transform` etc. — see
+        // include/InstanceBlock_Vertex.glsl. The legacy `u_ModelMatrices[]`
+        // uniform-array path is dead since the migration off ModelMatrices UBO;
+        // no production shader declares those uniforms anymore.
         constexpr sizet maxInstances = CommandBucketConfig{}.MaxMeshInstances;
         sizet instanceCount = static_cast<sizet>(cmd->transformCount);
         if (instanceCount > maxInstances)
@@ -1259,42 +1299,54 @@ namespace OloEngine
             instanceCount = maxInstances;
         }
 
-        // Set instance transforms from FrameDataBuffer
-        // Use single glUniformMatrix4fv call with count > 1 to upload all matrices at once
-        // This avoids per-element glGetUniformLocation calls which are expensive
-        const glm::mat4* transforms = FrameDataBufferManager::Get().GetTransformPtr(cmd->transformBufferOffset);
-        if (transforms)
-        {
-            // Get base location once for u_ModelMatrices[0] - array elements are sequential
-            GLint baseLocation = glGetUniformLocation(mat.shaderRendererID, "u_ModelMatrices[0]");
-            if (baseLocation != -1)
-            {
-                // Upload all instance matrices in a single GL call
-                glUniformMatrix4fv(baseLocation, static_cast<GLsizei>(instanceCount), GL_FALSE, glm::value_ptr(transforms[0]));
-            }
-            GLint instanceCountLoc = glGetUniformLocation(mat.shaderRendererID, "u_InstanceCount");
-            if (instanceCountLoc != -1)
-            {
-                glUniform1i(instanceCountLoc, static_cast<GLint>(instanceCount));
-            }
-        }
+        auto& frameBuffer = FrameDataBufferManager::Get();
+        const glm::mat4* transforms = frameBuffer.GetTransformPtr(cmd->transformBufferOffset);
+        const glm::mat4* prevTransforms = nullptr;
+        if (cmd->prevTransformBufferOffset != UINT32_MAX)
+            prevTransforms = frameBuffer.GetTransformPtr(cmd->prevTransformBufferOffset);
+        if (!prevTransforms)
+            prevTransforms = transforms; // Aliasing matches the non-instanced path's zero-velocity convention.
+        const i32* entityIDs = nullptr;
+        if (cmd->entityIDBufferOffset != UINT32_MAX)
+            entityIDs = frameBuffer.GetEntityIDPtr(cmd->entityIDBufferOffset);
+        const glm::vec4* colors = nullptr;
+        if (cmd->colorBufferOffset != UINT32_MAX)
+            colors = frameBuffer.GetColorPtr(cmd->colorBufferOffset);
+        const f32* customs = nullptr;
+        if (cmd->customBufferOffset != UINT32_MAX)
+            customs = frameBuffer.GetCustomPtr(cmd->customBufferOffset);
 
-        // Previous-frame per-instance transforms for Deferred velocity. When the caller
-        // used UINT32_MAX (no prev stream / first frame), fall back to the current
-        // transforms — the skinned G-Buffer shader then computes zero motion for this
-        // instance instead of reading stale data.
-        GLint prevBaseLocation = glGetUniformLocation(mat.shaderRendererID, "u_PrevModelMatrices[0]");
-        if (prevBaseLocation != -1)
+        if (transforms && s_Data.ModelInstanceBuffer)
         {
-            const glm::mat4* prevTransforms = nullptr;
-            if (cmd->prevTransformBufferOffset != UINT32_MAX)
-                prevTransforms = FrameDataBufferManager::Get().GetTransformPtr(cmd->prevTransformBufferOffset);
-            if (!prevTransforms)
-                prevTransforms = transforms;
-            if (prevTransforms)
+            // Thread-local scratch — heap-backed so MaxMeshInstances can scale
+            // to thousands without blowing the stack (16384 * 224 B = 3.5 MB
+            // would be a hard stack overflow on Windows's default 1 MB).
+            // `vector::resize` only grows; subsequent calls in the same thread
+            // reuse the existing allocation.
+            thread_local std::vector<InstanceData> scratch;
+            if (scratch.size() < instanceCount)
+                scratch.resize(instanceCount);
+
+            for (sizet i = 0; i < instanceCount; ++i)
             {
-                glUniformMatrix4fv(prevBaseLocation, static_cast<GLsizei>(instanceCount), GL_FALSE, glm::value_ptr(prevTransforms[0]));
+                InstanceData& inst = scratch[i];
+                inst.Transform = transforms[i];
+                inst.Normal = glm::transpose(glm::inverse(transforms[i]));
+                inst.PrevTransform = prevTransforms[i];
+                // Per-source EntityID survives the N-into-1 batch collapse via
+                // FrameDataBuffer's EntityID stream — CommandBucket::BatchCommands
+                // writes one entry per source DrawMeshCommand, and the fragment
+                // shader's flat `v_InstanceIndex` varying selects the right
+                // entry (see InstanceBlock.glsl). Fallback to -1 when the
+                // stream wasn't allocated (alloc-failure path) keeps picking
+                // deterministic.
+                inst.EntityID = entityIDs ? entityIDs[i] : -1;
+                inst.Color = colors ? colors[i] : glm::vec4(1.0f);
+                inst.Custom = customs ? customs[i] : 0.0f;
             }
+            const std::span<const InstanceData> instances(scratch.data(), instanceCount);
+            s_Data.ModelInstanceBuffer->Upload(instances);
+            s_Data.ModelInstanceBuffer->Bind();
         }
 
         // Shadow/snow textures (per-frame, outside material diffing)
@@ -1315,6 +1367,46 @@ namespace OloEngine
         ++s_Data.Stats.DrawCalls;
         const void* indexOffset = reinterpret_cast<const void*>(static_cast<uintptr_t>(cmd->baseIndex) * sizeof(u32));
         glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, indexOffset, static_cast<GLsizei>(instanceCount));
+
+        // RendererProfiler: surface the batching savings. One instanced draw
+        // covers `instanceCount` entities; `InstancesBatched` reports the
+        // savings vs naive submission so a scene with 100 trees shows up as
+        // "1 instanced draw, 100 instances, 99 batched" instead of being
+        // invisible in the regular DrawCalls counter.
+        //
+        // Triangle / vertex counters get the *post-instance-multiplication*
+        // totals — without this, "Triangles per draw call" in the perf
+        // overlay reads as ~3 for any instanced draw regardless of count,
+        // making the "Low triangles per draw call" warning fire on
+        // perfectly-batched scenes. Mirrors what OpenGLRendererAPI::Draw-
+        // IndexedInstanced does for the non-Command dispatch path.
+        auto& profiler = RendererProfiler::GetInstance();
+        profiler.IncrementCounter(RendererProfiler::MetricType::InstancedDrawCalls, 1);
+        profiler.IncrementCounter(RendererProfiler::MetricType::InstancesRendered, static_cast<u32>(instanceCount));
+        if (instanceCount > 1)
+            profiler.IncrementCounter(RendererProfiler::MetricType::InstancesBatched, static_cast<u32>(instanceCount - 1));
+        const u32 instCount32 = static_cast<u32>(instanceCount);
+        profiler.IncrementCounter(RendererProfiler::MetricType::TrianglesRendered, (cmd->indexCount / 3u) * instCount32);
+        profiler.IncrementCounter(RendererProfiler::MetricType::VerticesRendered, cmd->indexCount * instCount32);
+
+        // Per-call breakdown for the "which entities collapsed together?" view
+        // in the profiler UI. Recording is opt-in (toggle in the panel) so
+        // most frames pay only the bool check. `fromAutoBatching` is true when
+        // CommandBucket collapsed N source DrawMeshCommands into this packet
+        // (entityID stream populated by BatchCommands) and false for explicit
+        // InstancedMeshComponent submissions (entityID stream populated by
+        // Renderer3D::DrawMeshInstanced(span<InstanceData>)).
+        if (profiler.IsRecordingInstancedDraws())
+        {
+            const bool fromAutoBatching = (cmd->entityIDBufferOffset != UINT32_MAX) && (instanceCount > 1);
+            profiler.RecordInstancedDraw(
+                static_cast<u64>(cmd->meshHandle),
+                cmd->vertexArrayID,
+                cmd->indexCount,
+                static_cast<u32>(instanceCount),
+                entityIDs,
+                fromAutoBatching);
+        }
     }
 
     void CommandDispatch::DrawSkybox(const void* data, RendererAPI& api)
@@ -1395,7 +1487,7 @@ namespace OloEngine
         }
 
         // Update model matrix UBO
-        if (s_Data.ModelMatrixUBO)
+        if (s_Data.ModelInstanceBuffer)
         {
             ShaderBindingLayout::ModelUBO modelData;
             modelData.Model = cmd->transform;
@@ -1406,11 +1498,7 @@ namespace OloEngine
             modelData._paddingEntity[2] = 0;
             modelData.PrevModel = cmd->transform; // static quad: no motion contribution
 
-            constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
-            static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");
-
-            s_Data.ModelMatrixUBO->SetData(&modelData, expectedSize);
-            BindUBOIfNeeded(ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+            UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
         }
 
         // Bind texture using renderer ID directly
@@ -1518,7 +1606,7 @@ namespace OloEngine
         }
 
         // Upload model matrix UBO
-        if (s_Data.ModelMatrixUBO)
+        if (s_Data.ModelInstanceBuffer)
         {
             ShaderBindingLayout::ModelUBO modelData;
             modelData.Model = cmd->transform;
@@ -1528,8 +1616,8 @@ namespace OloEngine
             modelData._paddingEntity[1] = 0;
             modelData._paddingEntity[2] = 0;
             modelData.PrevModel = cmd->transform; // terrain: routed through ForwardOverlayPass, no motion tracking
-            s_Data.ModelMatrixUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
-            BindUBOIfNeeded(ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+            UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
+            // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
         }
 
         // Upload light UBO
@@ -1662,7 +1750,7 @@ namespace OloEngine
         }
 
         // Upload model matrix UBO
-        if (s_Data.ModelMatrixUBO)
+        if (s_Data.ModelInstanceBuffer)
         {
             ShaderBindingLayout::ModelUBO modelData;
             modelData.Model = cmd->transform;
@@ -1672,8 +1760,8 @@ namespace OloEngine
             modelData._paddingEntity[1] = 0;
             modelData._paddingEntity[2] = 0;
             modelData.PrevModel = cmd->transform; // voxel: routed through ForwardOverlayPass, no motion tracking
-            s_Data.ModelMatrixUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
-            BindUBOIfNeeded(ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+            UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
+            // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
         }
 
         // Upload light UBO
@@ -1745,7 +1833,7 @@ namespace OloEngine
         }
 
         // Upload model UBO
-        if (s_Data.ModelMatrixUBO)
+        if (s_Data.ModelInstanceBuffer)
         {
             ShaderBindingLayout::ModelUBO modelData{};
             modelData.Model = cmd->decalTransform;
@@ -1757,8 +1845,8 @@ namespace OloEngine
             // `modelData{}` would otherwise leave, which produces bogus
             // per-fragment velocity for every decal under TAA/motion blur.
             modelData.PrevModel = cmd->decalTransform;
-            s_Data.ModelMatrixUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
-            BindUBOIfNeeded(ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+            UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
+            // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
         }
 
         // Upload decal UBO
@@ -1834,15 +1922,15 @@ namespace OloEngine
         }
 
         // Upload model UBO (parent terrain transform)
-        if (s_Data.ModelMatrixUBO)
+        if (s_Data.ModelInstanceBuffer)
         {
             ShaderBindingLayout::ModelUBO modelData{};
             modelData.Model = cmd->modelTransform;
             modelData.Normal = cmd->normalMatrix;
             modelData.EntityID = cmd->entityID;
             modelData.PrevModel = cmd->modelTransform; // foliage: no per-instance prev history — alias current for zero motion
-            s_Data.ModelMatrixUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
-            BindUBOIfNeeded(ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+            UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
+            // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
         }
 
         // Upload foliage UBO (per-layer parameters)
@@ -1902,15 +1990,15 @@ namespace OloEngine
         }
 
         // Upload model UBO
-        if (s_Data.ModelMatrixUBO)
+        if (s_Data.ModelInstanceBuffer)
         {
             ShaderBindingLayout::ModelUBO modelData{};
             modelData.Model = cmd->modelTransform;
             modelData.Normal = cmd->normalMatrix;
             modelData.EntityID = cmd->entityID;
             modelData.PrevModel = cmd->modelTransform; // water: surface is animated in-shader; mesh transform stable — alias for zero rigid motion
-            s_Data.ModelMatrixUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
-            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+            UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
+            // Legacy ModelMatrixUBO bind removed — water shader reads transforms from the InstanceBuffer SSBO at binding 15.
         }
 
         // Upload water UBO

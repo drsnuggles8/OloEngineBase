@@ -151,6 +151,7 @@ namespace OloEngine
             REGISTER_COMPONENT(CircleRendererComponent),
             REGISTER_COMPONENT(TextComponent),
             REGISTER_COMPONENT(MeshComponent),
+            REGISTER_COMPONENT(InstancedMeshComponent),
             REGISTER_COMPONENT(MaterialComponent),
             REGISTER_COMPONENT(BoxCollider2DComponent),
             REGISTER_COMPONENT(CircleCollider2DComponent),
@@ -742,6 +743,28 @@ namespace OloEngine
                                         "primitive", sol::property([](const MeshComponent& c) -> int
                                                                    { return static_cast<int>(c.m_Primitive); }, [](MeshComponent& c, int v)
                                                                    { if (v >= 0 && v <= 7) c.m_Primitive = static_cast<MeshPrimitive>(v); }));
+
+        // --- InstancedMeshComponent ---
+        // Scripts can drive per-instance placements at runtime (procedural
+        // foliage / debris / crowds). The component's mesh source and override
+        // material are authored in editor / via YAML — Lua exposes the
+        // behavioural fields plus instance-list manipulation.
+        lua.new_usertype<InstancedMeshComponent>("InstancedMeshComponent", "cast_shadows", &InstancedMeshComponent::CastShadows, "frustum_cull_per_instance", &InstancedMeshComponent::FrustumCullPerInstance, "cull_distance", &InstancedMeshComponent::CullDistance, "instance_count", sol::readonly_property([](const InstancedMeshComponent& c) -> int
+                                                                                                                                                                                                                                                                                                                { return static_cast<int>(c.Instances.size()); }),
+                                                 "clear_instances", [](InstancedMeshComponent& c)
+                                                 { c.Instances.clear(); }, "add_instance", [](InstancedMeshComponent& c, f32 px, f32 py, f32 pz, f32 ex, f32 ey, f32 ez, f32 sx, f32 sy, f32 sz, f32 cr, f32 cg, f32 cb, f32 ca, f32 custom, i32 instanceEntityID)
+                                                 {
+                                glm::mat4 t = glm::translate(glm::mat4(1.0f), glm::vec3(px, py, pz));
+                                glm::mat4 r = glm::toMat4(glm::quat(glm::vec3(ex, ey, ez)));
+                                glm::mat4 s = glm::scale(glm::mat4(1.0f), glm::vec3(sx, sy, sz));
+                                InstanceData inst;
+                                inst.Transform = t * r * s;
+                                inst.Normal = glm::transpose(glm::inverse(inst.Transform));
+                                inst.PrevTransform = inst.Transform;
+                                inst.Color = glm::vec4(cr, cg, cb, ca);
+                                inst.Custom = custom;
+                                inst.EntityID = instanceEntityID;
+                                c.Instances.push_back(inst); });
 
         // --- UICanvasComponent ---
         lua.new_usertype<UICanvasComponent>("UICanvasComponent",
