@@ -94,19 +94,23 @@ Inspector button: "Bake inline → new placement asset" — produces a fresh
 
 ---
 
-## 2. Per-Instance Motion Vectors for `InstancedMeshComponent` (Medium Impact / Medium Effort)
+## 2. Per-Instance Motion Vectors for `InstancedMeshComponent` ✅ done
 
-The `Renderer3D::DrawMeshInstanced(span<InstanceData>)` overload currently
-aliases `PrevTransform = Transform` per instance (zero velocity). That's
-fine for static placements (foliage, props) but wrong for moving
-batches (crowd actors, vehicle convoys, projectile swarms).
+The `Renderer3D::DrawMeshInstanced(span<InstanceData>)` overload delegates
+to the transform-only overload, which now records per-instance transform
+history via `GetAndRecordPrevInstanceTransforms` keyed by
+`(meshHandle, ownerKey)`. `RenderPipeline::BeginFrame` rotates
+`CurrInstanceTransforms` → `PrevInstanceTransforms` so frame N+1 looks up
+the array submitted on frame N. The dispatcher reads
+`prevTransformBufferOffset` from the produced `DrawMeshInstancedCommand`
+and writes per-slot `PrevTransform` into the `InstanceData` SSBO — TAA
+and motion-blur paths get correct per-instance velocity for free.
 
-To fix: stash the previous-frame `Instances` vector per component (keyed
-by entity + handle), and at submission time emit per-instance prev
-transforms into the dispatcher's `prevTransformBufferOffset` stream. The
-auto-batching path in `CommandBucket::BatchCommands` already does this for
-`DrawMeshCommand` — the explicit `InstancedMeshComponent` path just needs
-to wire up the same idea.
+Note: the `InstanceData.PrevTransform` field that callers can author on
+`imc.Instances[i].PrevTransform` is **not** forwarded through the
+submission path; the engine-managed cache is the authoritative source.
+Per-instance `PrevTransform` authoring (e.g. for shader-side history
+manipulation) would need a separate overload that opts out of the cache.
 
 ---
 
@@ -129,33 +133,46 @@ chapter.
 
 ---
 
-## 4. Multi-Mesh / LOD Batching (Medium Impact / Medium Effort)
+## 4. Multi-Mesh / LOD Batching ⚠️ partial — current state covers same-LOD groups
 
-The current auto-batcher groups by `(meshHandle, materialDataIndex,
-renderStateIndex)`. LOD selection happens *before* submission — so an
-entity at LOD 0 and one at LOD 1 with the same source mesh produce
-different `meshHandle` keys and don't batch.
+**Current state**: LOD selection happens *before* `Renderer3D::DrawMesh`
+constructs the command, so `cmd.meshHandle` already names the
+LOD-resolved mesh. The auto-batcher groups by
+`(meshHandle, materialDataIndex, renderStateIndex)` — so entities of the
+same source asset that resolve to the *same* LOD level batch into one
+draw, while different LOD levels stay as separate draws. A scene with
+100 trees split 30 / 40 / 30 across three LOD levels already collapses
+to 3 draws (down from 100).
 
-A smarter grouping key plus a per-instance LOD selector buffer would
-collapse "100 trees at varying distances" into a single drawcall that
-picks the right LOD per vertex shader invocation. Requires:
+**Future work**: collapsing across LOD levels — "100 trees at varying
+distances → 1 draw" — requires `glMultiDrawElementsIndirect` with a
+per-instance `(indexOffset, indexCount)` lookup, since each LOD level
+reads a different slice of the combined index buffer. This is a
+significantly larger rewrite touching the mesh asset format,
+the LOD struct, and the dispatcher. Deferred until profiling shows the
+2-3 draws per source asset are an actual bottleneck.
+
+Sketch (when worth the effort):
 
 - Mesh asset stores all LODs in one VAO with submesh offsets.
 - New `InstanceData` field: `u32 LODIndex`.
-- Vertex shader uses `gl_InstanceIndex` to pick `indices[LODIndex]` (an
-  array of `(indexOffset, indexCount)` per LOD).
-- Auto-batcher groups by source asset rather than LOD-resolved handle.
+- Per-LOD `(indexOffset, indexCount, baseVertex)` table emitted as a
+  command buffer for `glMultiDrawElementsIndirect`.
+- Auto-batcher groups by source asset rather than LOD-resolved handle;
+  each per-instance `LODIndex` indexes into the indirect command buffer.
 
 ---
 
-## 5. Shadow Auto-Batching (Medium Impact / Low Effort)
+## 5. Shadow Auto-Batching ✅ done
 
-`ShadowRenderPass::Execute` currently uploads one `InstanceData` per
-shadow caster per cascade ([ShadowRenderPass.cpp](../OloEngine/src/OloEngine/Renderer/Passes/ShadowRenderPass.cpp)).
-For dense scenes (many trees, identical buildings) this is wasteful —
-shadow casters that share a mesh could collapse the same way the main
-scene path does. The shadow pass should use its own `CommandBucket` per
-cascade so `BatchCommands` runs against shadow casters too.
+`ShadowRenderPass::RenderCascadeOrFace` now groups static mesh casters by
+`(drawVao, indexCount, baseIndex)` and emits one
+`glDrawElementsInstanced` per group per cascade via
+`RendererAPI::DrawIndexedInstancedRaw`. The `InstancingDemo` scene's
+500 cubes collapse from 2000 individual depth draws (4 cascades × 500
+casters) to 4 instanced draws total. Skinned / terrain / voxel casters
+keep their per-caster loop because per-instance state (bone matrices,
+heightmap, terrain UBO) blocks batching — see §8 for the skinned case.
 
 ---
 
@@ -174,16 +191,19 @@ assets this is a measurable allocation. Either:
 
 ---
 
-## 7. Color/Custom Wiring for Auto-Batched Draws (Low Impact / Low Effort)
+## 7. Color/Custom Wiring for Auto-Batched Draws ✅ done
 
-The auto-batching path collapses N source `DrawMeshCommand`s into one
-`DrawMeshInstancedCommand`. `DrawMeshCommand` has no per-source Color /
-Custom slot, so all auto-batched instances render with default tint
-((1,1,1,1)) and Custom = 0.0. To support per-entity tint on regular
-`MeshComponent` entities (e.g. team colors on a crowd of identical
-soldiers), add `Color` / `Custom` to `DrawMeshCommand` and have
-`CommandBucket::BatchCommands` populate the same FrameDataBuffer streams
-the explicit path already uses.
+`DrawMeshCommand` now carries `glm::vec4 color` (default white) and
+`f32 custom` (default 0.0). `CommandBucket::BatchCommands` scans the
+group for any non-default value; if found, it allocates a parallel
+`FrameDataBuffer::Colors` / `Customs` stream and writes per-source
+values into it, setting `colorBufferOffset` / `customBufferOffset` on
+the emitted `DrawMeshInstancedCommand`. All-identity groups skip
+allocation (the common case) so scenes that don't use per-entity tinting
+pay zero extra FrameDataBuffer pressure. Callers wiring up per-entity
+tint (scripts, future `MaterialComponent` per-entity override path) set
+`cmd.color` / `cmd.custom` on the `DrawMeshCommand` they construct;
+batch collapse preserves both fields.
 
 ---
 

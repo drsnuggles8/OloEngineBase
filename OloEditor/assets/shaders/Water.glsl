@@ -368,8 +368,11 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_PrevViewProjection;
 };
 
-// Model UBO (binding 3) for entity ID
-#include "include/InstanceBlock.glsl"
+// Instance SSBO (binding 15). Water is single-instance — the tess_eval
+// stage uses InstanceBlock_Single (no v_InstanceIndex output), so the
+// fragment stage must match it rather than declaring `flat in int
+// v_InstanceIndex` with no producer (link error).
+#include "include/InstanceBlock_Single.glsl"
 
 // Water UBO (binding 23)
 layout(std140, binding = 23) uniform WaterParams

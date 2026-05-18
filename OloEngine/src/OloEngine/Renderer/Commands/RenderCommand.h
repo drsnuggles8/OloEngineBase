@@ -572,6 +572,16 @@ namespace OloEngine
 
         // Occlusion culling: query index for conditional rendering (UINT32_MAX = no query)
         u32 occlusionQueryIndex = UINT32_MAX;
+
+        // Per-source tint and free float. Survive CommandBucket auto-batching
+        // via FrameDataBuffer Colors / Customs streams; the InstanceData the
+        // dispatcher writes for this source ends up with these values rather
+        // than the (1,1,1,1) / 0.0f defaults from InstanceData. Callers that
+        // need per-entity tinting (scripts, future MaterialComponent override
+        // path) set these directly; non-setters get identity behaviour for
+        // free.
+        glm::vec4 color = glm::vec4(1.0f);
+        f32 custom = 0.0f;
     };
 
     // Static assertion to verify DrawMeshCommand is trivially copyable (POD)

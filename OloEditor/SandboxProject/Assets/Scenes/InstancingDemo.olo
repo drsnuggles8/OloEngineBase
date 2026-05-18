@@ -29,7 +29,7 @@ Entities:
       Direction: [-0.3, -0.8, -0.5]
       Color: [1.0, 0.95, 0.85]
       Intensity: 3.0
-      CastShadows: false
+      CastShadows: true
       ShadowBias: 0.005
       ShadowNormalBias: 0.4
   - Entity: 1000000000003
@@ -55,7 +55,7 @@ Entities:
     InstancedMeshComponent:
       Primitive: 1
       FrustumCullPerInstance: true
-      CastShadows: false
+      CastShadows: true
       CullDistance: 0.0
       Instances:
         - Transform: [-0.5267, 0.0000, 0.4417, 0.0000, 0.0000, 0.6874, 0.0000, 0.0000, -0.4417, 0.0000, -0.5267, 0.0000, -5.6794, 0.3437, -2.5668, 1.0000]

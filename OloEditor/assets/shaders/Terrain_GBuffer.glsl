@@ -266,7 +266,9 @@ layout(std140, binding = 0) uniform CameraMatrices {
     float _padding0;
 };
 
-#include "include/InstanceBlock.glsl"
+// Terrain is single-instance; match the tess_eval include so v_InstanceIndex
+// isn't declared as fragment input without a producer (link error).
+#include "include/InstanceBlock_Single.glsl"
 
 layout(std140, binding = 10) uniform TerrainParams {
     vec4 u_WorldSizeAndHeightScale;

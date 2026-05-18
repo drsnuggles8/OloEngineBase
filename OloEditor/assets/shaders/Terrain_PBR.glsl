@@ -270,8 +270,12 @@ layout(std140, binding = 6) uniform ShadowData {
     int _shadowPad2;
 };
 
-// Model UBO (binding 3)
-#include "include/InstanceBlock.glsl"
+// Instance SSBO (binding 15). Terrain is single-instance — the tess_eval
+// stage uses InstanceBlock_Single (which doesn't write `v_InstanceIndex`),
+// so the fragment stage must match it rather than including the regular
+// InstanceBlock.glsl that declares `flat in int v_InstanceIndex` and would
+// fail to link.
+#include "include/InstanceBlock_Single.glsl"
 
 // Terrain UBO (binding 10)
 layout(std140, binding = 10) uniform TerrainParams {

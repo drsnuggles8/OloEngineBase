@@ -271,9 +271,9 @@ namespace OloEngine
 
         // Shadow shaders read transforms from the engine-wide InstanceBuffer
         // at SSBO_INSTANCE_DATA = 15 (no more shadow-specific UBO at binding 3).
-        // One InstanceData per caster — auto-batching of shadow casters is a
-        // future Phase 2 follow-up that would collapse same-mesh casters into
-        // one DrawIndexedInstanced per cascade.
+        // Static mesh casters use the auto-batched path below; the helper lambda
+        // covers skinned / terrain / voxel paths where per-caster state (bones,
+        // heightmap, terrain UBO) blocks batching.
         auto instanceBuffer = Renderer3D::GetModelInstanceBuffer();
         auto uploadShadowModelUBO = [&instanceBuffer](const glm::mat4& worldTransform)
         {
@@ -289,23 +289,69 @@ namespace OloEngine
             instanceBuffer->Bind();
         };
 
-        // ── Static meshes ──
+        // ── Static meshes (auto-batched by shared VAO + index range) ──
         {
             const char* shaderName = (type == ShadowPassType::Point) ? "ShadowDepthPoint" : "ShadowDepth";
             auto shadowShader = Renderer3D::GetShaderLibrary().Get(shaderName);
-            if (shadowShader)
+            if (shadowShader && !m_MeshCasters.empty())
             {
-                shadowShader->Bind();
+                // Casters sharing (drawVao, indexCount, baseIndex) all read the
+                // same submesh range, so they can collapse into a single
+                // glDrawElementsInstanced. The shadow VS reads
+                // instances[gl_InstanceIndex].Transform from the SSBO.
+                struct ShadowMeshBatch
+                {
+                    RendererID drawVao;
+                    u32 indexCount;
+                    u32 baseIndex;
+                    std::vector<InstanceData> instances;
+                };
+                thread_local std::vector<ShadowMeshBatch> batches;
+                batches.clear();
+
                 for (const auto& caster : m_MeshCasters)
                 {
                     if (cullFrustum && ShouldCull(caster.WorldBounds, *cullFrustum))
                         continue;
-                    uploadShadowModelUBO(caster.transform);
+
                     RendererID const drawVao = (caster.shadowVaoID != 0) ? caster.shadowVaoID : caster.vaoID;
-                    // baseIndex matters for submeshes that share a combined IBO
-                    // (e.g. Sponza's 22 opaque submeshes all hang off one VAO/IBO);
-                    // without the offset every caster would redraw indices [0,N).
-                    RenderCommand::DrawIndexedRaw(drawVao, caster.indexCount, caster.baseIndex);
+                    InstanceData inst;
+                    inst.Transform = caster.transform;
+                    inst.Normal = glm::mat4(1.0f);
+                    inst.PrevTransform = caster.transform;
+                    inst.EntityID = -1;
+
+                    auto it = std::find_if(batches.begin(), batches.end(),
+                                           [&](const ShadowMeshBatch& b)
+                                           { return b.drawVao == drawVao && b.indexCount == caster.indexCount &&
+                                                    b.baseIndex == caster.baseIndex; });
+                    if (it == batches.end())
+                    {
+                        batches.push_back({ drawVao, caster.indexCount, caster.baseIndex, { inst } });
+                    }
+                    else
+                    {
+                        it->instances.push_back(inst);
+                    }
+                }
+
+                if (!batches.empty())
+                {
+                    shadowShader->Bind();
+                    for (const auto& batch : batches)
+                    {
+                        if (instanceBuffer)
+                        {
+                            instanceBuffer->Upload(std::span<const InstanceData>(batch.instances.data(),
+                                                                                 batch.instances.size()));
+                            instanceBuffer->Bind();
+                        }
+                        // Single-instance groups still go through the instanced
+                        // call — gl_InstanceIndex is 0 either way and the
+                        // driver handles count==1 cheaply.
+                        RenderCommand::DrawIndexedInstancedRaw(batch.drawVao, batch.indexCount, batch.baseIndex,
+                                                               static_cast<u32>(batch.instances.size()));
+                    }
                 }
             }
         }

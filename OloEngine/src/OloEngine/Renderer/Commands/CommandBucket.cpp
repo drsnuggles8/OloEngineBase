@@ -641,6 +641,39 @@ namespace OloEngine
                 OLO_CORE_WARN("CommandBucket::BatchCommands: Failed to allocate {} entity IDs; batched picking will return -1", totalInstances);
             }
 
+            // Only allocate Color / Custom streams when at least one source has
+            // a non-default value — common case is no per-entity tinting set,
+            // in which case the dispatcher falls back to the InstanceData
+            // defaults (1,1,1,1) / 0.0f. Saves N*20 B of per-frame FrameDataBuffer
+            // pressure on the typical scene.
+            bool anyNonDefaultColor = false;
+            bool anyNonDefaultCustom = false;
+            for (u32 t = 0; t < totalInstances; ++t)
+            {
+                auto const* meshCmd = m_Packets[indices[t]]->GetCommandData<DrawMeshCommand>();
+                if (meshCmd->color != glm::vec4(1.0f))
+                    anyNonDefaultColor = true;
+                if (meshCmd->custom != 0.0f)
+                    anyNonDefaultCustom = true;
+                if (anyNonDefaultColor && anyNonDefaultCustom)
+                    break;
+            }
+
+            u32 colorOffset = UINT32_MAX;
+            u32 customOffset = UINT32_MAX;
+            if (anyNonDefaultColor)
+            {
+                colorOffset = frameBuffer.AllocateColors(totalInstances);
+                if (colorOffset == UINT32_MAX)
+                    OLO_CORE_WARN("CommandBucket::BatchCommands: Failed to allocate {} colors; per-entity tint lost in batched draw", totalInstances);
+            }
+            if (anyNonDefaultCustom)
+            {
+                customOffset = frameBuffer.AllocateCustoms(totalInstances);
+                if (customOffset == UINT32_MAX)
+                    OLO_CORE_WARN("CommandBucket::BatchCommands: Failed to allocate {} customs; per-entity Custom lost in batched draw", totalInstances);
+            }
+
             // Write each source command's per-instance data contiguously.
             for (u32 t = 0; t < totalInstances; ++t)
             {
@@ -650,6 +683,10 @@ namespace OloEngine
                     frameBuffer.WriteTransforms(prevTransformOffset + t, &meshCmd->prevTransform, 1);
                 if (entityIDOffset != UINT32_MAX)
                     frameBuffer.WriteEntityIDs(entityIDOffset + t, &meshCmd->entityID, 1);
+                if (colorOffset != UINT32_MAX)
+                    frameBuffer.WriteColors(colorOffset + t, &meshCmd->color, 1);
+                if (customOffset != UINT32_MAX)
+                    frameBuffer.WriteCustoms(customOffset + t, &meshCmd->custom, 1);
             }
 
             // Build the instanced command from the first DrawMeshCommand
@@ -672,6 +709,8 @@ namespace OloEngine
             icmd->transformCount = totalInstances;
             icmd->prevTransformBufferOffset = prevTransformOffset; // UINT32_MAX on alloc failure -> dispatcher aliases current
             icmd->entityIDBufferOffset = entityIDOffset;           // UINT32_MAX on alloc failure -> dispatcher writes -1
+            icmd->colorBufferOffset = colorOffset;                 // UINT32_MAX when all sources had identity tint
+            icmd->customBufferOffset = customOffset;               // UINT32_MAX when all sources had Custom == 0
             icmd->shaderHandle = firstCmd->shaderHandle;
             icmd->materialDataIndex = firstCmd->materialDataIndex;
             icmd->renderStateIndex = firstCmd->renderStateIndex;
