@@ -98,6 +98,14 @@ namespace OloEngine::Tests
         EXPECT_TRUE(imc.FrustumCullPerInstance);
         EXPECT_TRUE(imc.CastShadows);
         EXPECT_EQ(imc.CullDistance, 0.0f);
+
+        // Merge cache starts empty and matches no real input — first render
+        // pass will populate it. Sentinel ensures InvalidateMergedCache works.
+        EXPECT_EQ(imc._MergedCache.InlineSize, 0u);
+        EXPECT_EQ(imc._MergedCache.AssetSize, 0u);
+        EXPECT_TRUE(imc._MergedCache.Data.empty());
+        imc.InvalidateMergedCache();
+        EXPECT_NE(imc._MergedCache.InlineSize, 0u) << "Invalidation should leave the size at a sentinel value distinct from any real inline size";
     }
 
     TEST(InstanceDataLayout, GLSLLayoutMentionsAllFieldsAndBinding)

@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
+#include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 #include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
@@ -168,6 +169,12 @@ namespace OloEngine
         data.CurrEntityTransforms.clear();
         data.PrevInstanceTransforms = std::move(data.CurrInstanceTransforms);
         data.CurrInstanceTransforms.clear();
+
+        // GPU frustum-cull pool reset — slot cursor recycles from 0 each
+        // frame. Buffers stay allocated (lifetime = engine, not frame) so
+        // steady-state scatter scenes don't re-allocate on every frame.
+        if (data.GPUFrustumCuller)
+            data.GPUFrustumCuller->BeginFrame();
 
         // Get main-thread allocator for this frame (already reset by BeginFrame).
         CommandAllocator* frameAllocator = FrameResourceManager::Get().GetMainAllocator();

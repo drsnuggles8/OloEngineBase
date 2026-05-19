@@ -629,6 +629,18 @@ namespace OloEngine
         // DrawMeshCommand has no per-source color/custom slot.
         u32 colorBufferOffset = UINT32_MAX;
         u32 customBufferOffset = UINT32_MAX;
+
+        // GPU frustum-cull path. When `cullIndirectBufferID` is non-zero, the
+        // dispatcher SKIPS the FrameDataBuffer-driven InstanceData upload
+        // (the cull compute already wrote compacted survivors to
+        // `cullOutputInstanceBufferID`), rebinds that buffer at
+        // SSBO_INSTANCE_DATA = 15, and uses `glDrawElementsIndirect` with
+        // `cullIndirectBufferID` so the surviving instance count comes from
+        // the GPU without a CPU readback. Set by
+        // Renderer3D::DrawMeshInstanced for submissions above the GPU-cull
+        // threshold; left at 0 for the regular CPU-cull / upload path.
+        u32 cullOutputInstanceBufferID = 0;
+        u32 cullIndirectBufferID = 0;
     };
 
     // Static assertion to verify DrawMeshInstancedCommand is trivially copyable

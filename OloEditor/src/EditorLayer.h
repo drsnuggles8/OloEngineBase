@@ -7,6 +7,7 @@
 #include "Panels/PostProcessSettingsPanel.h"
 #include "Panels/RendererSettingsPanel.h"
 #include "Panels/TerrainEditorPanel.h"
+#include "Panels/InstanceScatterBrushPanel.h"
 #include "Panels/StreamingPanel.h"
 #include "Panels/InputSettingsPanel.h"
 #include "Panels/NetworkDebugPanel.h"
@@ -203,6 +204,8 @@ namespace OloEngine
         PostProcessSettingsPanel m_PostProcessSettingsPanel;
         RendererSettingsPanel m_RendererSettingsPanel;
         TerrainEditorPanel m_TerrainEditorPanel;
+        InstanceScatterBrushPanel m_InstanceScatterBrushPanel;
+        bool m_ShowInstanceScatterBrush = false;
         StreamingPanel m_StreamingPanel;
         InputSettingsPanel m_InputSettingsPanel;
         NetworkDebugPanel m_NetworkDebugPanel;

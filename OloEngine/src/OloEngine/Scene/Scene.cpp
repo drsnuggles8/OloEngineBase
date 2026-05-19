@@ -3967,16 +3967,16 @@ namespace OloEngine
             auto view = m_Registry.view<InstancedMeshComponent>();
             for (auto entity : view)
             {
-                const auto& imc = view.get<InstancedMeshComponent>(entity);
+                auto& imc = view.get<InstancedMeshComponent>(entity);
                 if (!imc.MeshSource)
                     continue;
 
-                // Combine inline + asset-backed placements into one transient
-                // span. The asset's instances live in the AssetManager-owned
-                // memory and would normally be referenced directly; here we
-                // build a unified buffer so the submission path stays simple
-                // and per-instance fields (Color, Custom, EntityID) stay
-                // contiguous.
+                // Combine inline + asset-backed placements into one contiguous
+                // buffer. The merge result is cached on the component itself
+                // (`imc._MergedCache`) and reused frame-to-frame as long as
+                // the inline size, asset handle, and asset's instance count /
+                // data pointer all match the cached fingerprint — saves the
+                // 224 B / instance memcpy for steady-state scatter scenes.
                 const std::vector<InstanceData>* assetInstances = nullptr;
                 if (imc.PlacementAssetHandle != 0)
                 {
@@ -3989,21 +3989,38 @@ namespace OloEngine
                 if (inlineCount + assetCount == 0)
                     continue;
 
-                std::vector<InstanceData> combined;
                 const InstanceData* instData = nullptr;
                 sizet totalCount = 0;
                 if (assetCount == 0)
                 {
+                    // Inline-only fast path — the InstancedMeshComponent's
+                    // own `Instances` vector is already the contiguous buffer
+                    // the submission needs. No copy and no cache involvement.
                     instData = imc.Instances.data();
                     totalCount = inlineCount;
                 }
                 else
                 {
-                    combined.reserve(inlineCount + assetCount);
-                    combined.insert(combined.end(), imc.Instances.begin(), imc.Instances.end());
-                    combined.insert(combined.end(), assetInstances->begin(), assetInstances->end());
-                    instData = combined.data();
-                    totalCount = combined.size();
+                    auto& cache = imc._MergedCache;
+                    const InstanceData* currentAssetDataPtr = assetInstances->data();
+                    const bool cacheValid = cache.InlineSize == inlineCount &&
+                                            cache.PlacementHandle == imc.PlacementAssetHandle &&
+                                            cache.AssetSize == assetCount &&
+                                            cache.AssetDataPtr == currentAssetDataPtr &&
+                                            cache.Data.size() == (inlineCount + assetCount);
+                    if (!cacheValid)
+                    {
+                        cache.Data.clear();
+                        cache.Data.reserve(inlineCount + assetCount);
+                        cache.Data.insert(cache.Data.end(), imc.Instances.begin(), imc.Instances.end());
+                        cache.Data.insert(cache.Data.end(), assetInstances->begin(), assetInstances->end());
+                        cache.InlineSize = inlineCount;
+                        cache.PlacementHandle = imc.PlacementAssetHandle;
+                        cache.AssetSize = assetCount;
+                        cache.AssetDataPtr = currentAssetDataPtr;
+                    }
+                    instData = cache.Data.data();
+                    totalCount = cache.Data.size();
                 }
 
                 const Material& material = imc.OverrideMaterial

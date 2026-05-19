@@ -276,9 +276,20 @@ namespace OloEngine
         glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(indexCount), GL_UNSIGNED_INT, indexOffset,
                                 static_cast<GLsizei>(instanceCount));
 
-        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
-        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::TrianglesRendered, (indexCount / 3) * instanceCount);
-        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::VerticesRendered, indexCount * instanceCount);
+        // Keep all "Instanced" frame counters consistent across every path
+        // that emits an instanced draw — CommandDispatch::DrawMeshInstanced
+        // bumps them for the CPU-batched + GPU-cull paths; this raw entry
+        // covers the shadow batcher (ShadowRenderPass) and any future
+        // direct caller. Without these, the profiler's "Instanced Draws"
+        // tab and the headline counters disagree on the totals.
+        auto& profiler = RendererProfiler::GetInstance();
+        profiler.IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
+        profiler.IncrementCounter(RendererProfiler::MetricType::InstancedDrawCalls, 1);
+        profiler.IncrementCounter(RendererProfiler::MetricType::InstancesRendered, instanceCount);
+        if (instanceCount > 1)
+            profiler.IncrementCounter(RendererProfiler::MetricType::InstancesBatched, instanceCount - 1);
+        profiler.IncrementCounter(RendererProfiler::MetricType::TrianglesRendered, (indexCount / 3) * instanceCount);
+        profiler.IncrementCounter(RendererProfiler::MetricType::VerticesRendered, indexCount * instanceCount);
     }
 
     void OpenGLRendererAPI::DrawIndexedPatchesRaw(const u32 vaoID, const u32 indexCount, const u32 patchVertices)
@@ -593,6 +604,27 @@ namespace OloEngine
         glDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr);
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
 
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
+    }
+
+    void OpenGLRendererAPI::DrawElementsIndirectRaw(u32 vaoID, u32 indirectBufferID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (vaoID == 0 || indirectBufferID == 0)
+            return;
+
+        glBindVertexArray(vaoID);
+        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBufferID);
+        glDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr);
+        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+
+        // The actual instance/triangle counts live on the GPU (the cull
+        // compute writes them and we don't sync) — counting one draw call
+        // here is the most accurate stat we can record without a CPU readback
+        // that would stall the pipeline. The "Instanced Draws" tab still
+        // reports per-call mesh handle / instance count via the
+        // RendererProfiler hook in CommandDispatch::DrawMeshInstanced.
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
     }
 

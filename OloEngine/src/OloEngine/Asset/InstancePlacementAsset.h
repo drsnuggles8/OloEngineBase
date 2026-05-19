@@ -26,6 +26,15 @@ namespace OloEngine
     {
       public:
         InstancePlacementAsset() = default;
+        // Convenience ctor for editor bake — lets
+        // EditorAssetManager::CreateOrReplaceAsset<InstancePlacementAsset>(path,
+        // std::move(vec)) write the painted placements straight into the
+        // asset on disk via the template's `AssetImporter::Serialize`. No
+        // separate "fill then re-serialize" step needed at the call site.
+        explicit InstancePlacementAsset(std::vector<InstanceData> instances)
+            : m_Instances(std::move(instances))
+        {
+        }
         ~InstancePlacementAsset() override = default;
 
         static AssetType GetStaticType()

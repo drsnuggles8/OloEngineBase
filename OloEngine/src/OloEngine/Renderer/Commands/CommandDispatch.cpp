@@ -1284,6 +1284,72 @@ namespace OloEngine
         // Material UBO + texture bindings (skipped when material unchanged)
         UploadMaterialState(mat, cmd->materialDataIndex);
 
+        // GPU-frustum-cull fast path: the cull compute already wrote
+        // compacted survivors to `cullOutputInstanceBufferID` and the
+        // surviving count into `cullIndirectBufferID`. Skip the FrameDataBuffer
+        // -> InstanceData scratch loop and the upload; bind the pre-populated
+        // output buffer at SSBO_INSTANCE_DATA and draw indirect.
+        const bool useGPUCull = cmd->cullIndirectBufferID != 0 && cmd->cullOutputInstanceBufferID != 0;
+        if (useGPUCull)
+        {
+            // Rebind slot 15 to the per-submission output buffer. The engine-
+            // wide `s_Data.ModelInstanceBuffer` is unchanged so it can be
+            // reused by subsequent CPU-path draws in the same frame.
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ShaderBindingLayout::SSBO_INSTANCE_DATA,
+                             cmd->cullOutputInstanceBufferID);
+
+            // Shadow/snow textures (per-frame, outside material diffing)
+            if (mat.enablePBR)
+                BindShadowTextures();
+
+            // Bone matrices (no-op for non-animated GPU-cull submissions)
+            UploadBoneMatrices(cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCountPerInstance);
+
+            if (cmd->indexCount == 0)
+            {
+                OLO_CORE_ERROR("CommandDispatch::DrawMeshInstanced (GPU cull): No indices to draw");
+                return;
+            }
+
+            BindVAOIfNeeded(cmd->vertexArrayID);
+            ++s_Data.Stats.DrawCalls;
+            api.DrawElementsIndirectRaw(cmd->vertexArrayID, cmd->cullIndirectBufferID);
+
+            // Profiler stats — we DON'T know the surviving instance count
+            // without a CPU readback (which would stall the GPU pipeline),
+            // so we record `transformCount` (the pre-cull count) as both
+            // `InstancesRendered` and as the "Instanced Draws" tab payload.
+            // The over-report is bounded by the cull's input size and keeps
+            // the counters stable across frames where cull ratios vary.
+            auto& profiler = RendererProfiler::GetInstance();
+            profiler.IncrementCounter(RendererProfiler::MetricType::InstancedDrawCalls, 1);
+            const u32 preCullCount = cmd->transformCount;
+            profiler.IncrementCounter(RendererProfiler::MetricType::InstancesRendered, preCullCount);
+            if (preCullCount > 1)
+                profiler.IncrementCounter(RendererProfiler::MetricType::InstancesBatched, preCullCount - 1);
+            profiler.IncrementCounter(RendererProfiler::MetricType::TrianglesRendered, (cmd->indexCount / 3u) * preCullCount);
+            profiler.IncrementCounter(RendererProfiler::MetricType::VerticesRendered, cmd->indexCount * preCullCount);
+
+            // Surface this draw in the "Instanced Draws" tab so the user
+            // can see GPU-culled submissions alongside CPU-batched ones.
+            // EntityID stream is intentionally null — the GPU cull doesn't
+            // know which input instances survived without a readback, so
+            // the tab shows the pre-cull count with "(no entity-ID stream)"
+            // rather than a bogus per-instance breakdown.
+            if (profiler.IsRecordingInstancedDraws())
+            {
+                profiler.RecordInstancedDraw(
+                    static_cast<u64>(cmd->meshHandle),
+                    cmd->vertexArrayID,
+                    cmd->indexCount,
+                    preCullCount,
+                    /*entityIDs=*/nullptr,
+                    /*fromAutoBatching=*/false,
+                    "Scene (GPU cull)");
+            }
+            return;
+        }
+
         // Pack the per-instance transforms (and prev-frame transforms) into the
         // engine's ModelInstanceBuffer SSBO at binding 15. Shaders read each
         // instance via `instances[gl_InstanceIndex].Transform` etc. — see

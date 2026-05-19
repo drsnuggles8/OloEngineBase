@@ -3,6 +3,7 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Renderer/Renderer3DDrawHelpers.h"
+#include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionCuller.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
@@ -369,6 +370,19 @@ namespace OloEngine
         }
         s_Data.Stats.TotalMeshes += static_cast<u32>(transforms.size());
 
+        // GPU-side frustum cull pre-pass: when the input count is large
+        // enough that the CPU sphere loop dominates submission cost, route
+        // through the compute-shader path. Threshold defaults to 1024 (tuned
+        // for the breakeven of dispatch+memory-barrier overhead vs the linear
+        // CPU test) and can be raised at runtime via `s_Data.GPUCullThreshold`.
+        const bool cullEnabled = s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled);
+        if (cullEnabled && s_Data.GPUFrustumCuller &&
+            transforms.size() >= static_cast<sizet>(s_Data.GPUCullThreshold) &&
+            mesh)
+        {
+            return SubmitGPUCulledInstanced(mesh, transforms, material, isStatic, ownerKey);
+        }
+
         const std::vector<glm::mat4>* activeTransforms = &transforms;
         std::vector<glm::mat4> filteredTransforms;
         // Index map from post-cull visible slot -> pre-cull stable instance
@@ -377,7 +391,7 @@ namespace OloEngine
         // projects prev onto the visible subset. Empty when no culling ran.
         std::vector<u32> visibleIndices;
 
-        if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
+        if (cullEnabled)
         {
             // Extract the local bounding sphere once and transform per-instance
             // instead of recomputing from mesh source each time.
@@ -592,6 +606,107 @@ namespace OloEngine
             cmd->entityIDBufferOffset = entityIDOffset;
         }
 
+        return packet;
+    }
+
+    CommandPacket* Renderer3D::SubmitGPUCulledInstanced(const Ref<Mesh>& mesh,
+                                                        const std::vector<glm::mat4>& transforms,
+                                                        const Material& material, bool isStatic,
+                                                        u64 ownerKey)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Pre-cull prev-transform history: look up the per-instance prev
+        // array from the cache **before** the cull so survivors carry the
+        // correct PrevTransform. The cache always sees the FULL pre-cull
+        // list — the GPU cull projects it onto survivors automatically by
+        // copying each slot's PrevTransform along with its Transform.
+        const u64 meshKey = static_cast<u64>(mesh->GetHandle());
+        bool usedFallback = false;
+        std::vector<glm::mat4> prevTransforms = GetAndRecordPrevInstanceTransforms(meshKey, ownerKey, transforms, nullptr, &usedFallback);
+        if (usedFallback || prevTransforms.size() != transforms.size())
+            prevTransforms = transforms; // first frame / size mismatch -> zero velocity
+
+        // Build the InstanceData[] the cull compute reads. Color / Custom /
+        // EntityID stay at their identity defaults — the transform-only
+        // overload doesn't carry that per-instance data. The InstanceData
+        // overload of DrawMeshInstanced overwrites them with the real values
+        // once the GPU-cull path is wired into it as a future follow-up.
+        std::vector<InstanceData> packed;
+        packed.reserve(transforms.size());
+        for (sizet i = 0; i < transforms.size(); ++i)
+        {
+            InstanceData inst;
+            inst.Transform = transforms[i];
+            inst.Normal = glm::transpose(glm::inverse(transforms[i]));
+            inst.PrevTransform = prevTransforms[i];
+            packed.push_back(inst);
+        }
+
+        // Run the GPU cull. RadiusExpansion folds the CPU path's two safety
+        // multipliers (1.3 × 1.05 = 1.365) into a single uniform so the two
+        // paths produce identical visibility decisions (verified by
+        // GPUFrustumCullParityTest in tests/Rendering/).
+        BoundingSphere localSphere = mesh->GetBoundingSphere();
+        constexpr f32 kRadiusExpansion = 1.3f * 1.05f;
+        const glm::vec4 sphereUniform{ localSphere.Center, localSphere.Radius };
+
+        auto cullResult = s_Data.GPUFrustumCuller->Cull(
+            packed,
+            mesh->GetIndexCount(),
+            mesh->GetBaseIndex(),
+            sphereUniform,
+            kRadiusExpansion);
+
+        // Build the DrawMeshInstancedCommand. The dispatcher takes the
+        // indirect-draw branch because `cullIndirectBufferID` is non-zero —
+        // it skips the FrameDataBuffer-driven scratch loop entirely and
+        // binds `cullOutputInstanceBufferID` at SSBO_INSTANCE_DATA before
+        // calling DrawElementsIndirectRaw.
+        Ref<Shader> shaderToUse = material.GetShader() ? material.GetShader() : s_Data.LightingShader;
+        const u32 vertexArrayID = mesh->GetVertexArray()->GetRendererID();
+        const u32 shaderRendererID = shaderToUse->GetRendererID();
+        if (!ValidateDrawMeshRendererIDs("Renderer3D::SubmitGPUCulledInstanced", vertexArrayID, shaderRendererID))
+            return nullptr;
+
+        CommandPacket* packet = CreateDrawCall<DrawMeshInstancedCommand>();
+        if (!packet)
+            return nullptr;
+        auto* cmd = packet->GetCommandData<DrawMeshInstancedCommand>();
+        cmd->header.type = CommandType::DrawMeshInstanced;
+        cmd->meshHandle = mesh->GetHandle();
+        cmd->vertexArrayID = vertexArrayID;
+        cmd->indexCount = mesh->GetIndexCount();
+        cmd->baseIndex = mesh->GetBaseIndex();
+        // `transformCount` carries the pre-cull count so the profiler reports
+        // the input size; the GPU determines the actual survivor count at
+        // draw time via the indirect command.
+        cmd->transformCount = static_cast<u32>(transforms.size());
+        cmd->instanceCount = static_cast<u32>(transforms.size());
+        cmd->shaderHandle = shaderToUse->GetHandle();
+        cmd->materialDataIndex = FrameDataBufferManager::Get().AllocateMaterialData(
+            CreatePODMaterialDataForMaterial(material, shaderRendererID));
+        cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreatePODRenderStateForMaterial(material));
+        cmd->isAnimatedMesh = false;
+        cmd->cullOutputInstanceBufferID = cullResult.OutputBuffer->GetStorage()->GetRendererID();
+        cmd->cullIndirectBufferID = cullResult.IndirectBuffer->GetRendererID();
+
+        packet->SetCommandType(cmd->header.type);
+        packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+
+        // Sort key — same convention as the CPU path: use the first
+        // transform's depth so the bucket sorter places this near other
+        // submissions at roughly the same depth.
+        PacketMetadata metadata = packet->GetMetadata();
+        u32 shaderID = shaderRendererID & 0xFFFF;
+        u32 materialID = ComputeMaterialID(material);
+        u32 depth = transforms.empty() ? 0 : ComputeDepthForSortKey(transforms[0]);
+        if (material.GetFlag(MaterialFlag::Blend))
+            metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
+        else
+            metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
+        metadata.m_IsStatic = isStatic;
+        packet->SetMetadata(metadata);
         return packet;
     }
 

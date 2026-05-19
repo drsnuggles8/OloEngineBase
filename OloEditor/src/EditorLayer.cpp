@@ -435,6 +435,49 @@ namespace OloEngine
                 m_TerrainEditorPanel.OnUpdate(ts, terrainHitPos, hasTerrainHit, mouseDown);
             }
 
+            // Instance scatter brush: shares the terrain raycast (the brush
+            // paints onto the heightmap surface). Approximated surface
+            // normal comes from the terrain CPU heightmap via finite
+            // differences — `vec3(0, 1, 0)` fallback when no terrain hit.
+            if (m_ShowInstanceScatterBrush && m_InstanceScatterBrushPanel.IsActive() &&
+                m_ViewportHovered && m_SceneState == SceneState::Edit)
+            {
+                // Sync the target from the SceneHierarchy selection. The
+                // brush panel refuses to paint when the selected entity
+                // doesn't have an InstancedMeshComponent, so an empty
+                // selection here is harmless.
+                m_InstanceScatterBrushPanel.SetTargetEntity(m_SceneHierarchyPanel.GetSelectedEntity());
+
+                glm::vec3 hitPos{};
+                glm::vec3 surfaceNormal{ 0.0f, 1.0f, 0.0f };
+                const bool hasHit = TerrainRaycast({ mx, my }, viewportSize, hitPos);
+                if (hasHit && m_ActiveScene)
+                {
+                    // Pull the surface normal from the same terrain entity
+                    // TerrainRaycast hit. The normal is needed for slope
+                    // filtering (§1.4) and align-to-normal (§1.5 style).
+                    auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, TerrainComponent>();
+                    for (auto entityID : view)
+                    {
+                        Entity terrainEntity(entityID, m_ActiveScene.get());
+                        const auto& tc = terrainEntity.GetComponent<TerrainComponent>();
+                        const auto& tx = terrainEntity.GetComponent<TransformComponent>();
+                        if (!tc.m_TerrainData || tc.m_WorldSizeX <= 0.0f || tc.m_WorldSizeZ <= 0.0f)
+                            break;
+                        const f32 normX = (hitPos.x - tx.Translation.x) / tc.m_WorldSizeX;
+                        const f32 normZ = (hitPos.z - tx.Translation.z) / tc.m_WorldSizeZ;
+                        surfaceNormal = tc.m_TerrainData->GetNormalAt(
+                            glm::clamp(normX, 0.0f, 1.0f),
+                            glm::clamp(normZ, 0.0f, 1.0f),
+                            tc.m_WorldSizeX, tc.m_WorldSizeZ, tc.m_HeightScale);
+                        break;
+                    }
+                }
+                const bool mouseDown = Input::IsMouseButtonPressed(Mouse::ButtonLeft) &&
+                                       !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt);
+                m_InstanceScatterBrushPanel.OnUpdate(ts, hitPos, surfaceNormal, hasHit, mouseDown);
+            }
+
             if (m_Is3DMode)
             {
                 OnOverlayRender3D();
@@ -698,6 +741,7 @@ namespace OloEngine
             ImGui::MenuItem("Post Process Settings", nullptr, &m_ShowPostProcessSettings);
             ImGui::MenuItem("Renderer Settings", nullptr, &m_ShowRendererSettings);
             ImGui::MenuItem("Terrain Editor", nullptr, &m_ShowTerrainEditor);
+            ImGui::MenuItem("Instance Scatter Brush", nullptr, &m_ShowInstanceScatterBrush);
             ImGui::MenuItem("Scene Streaming", nullptr, &m_ShowStreamingPanel);
             ImGui::MenuItem("Input Settings", nullptr, &m_ShowInputSettings);
             ImGui::MenuItem("Network Debug", nullptr, &m_ShowNetworkDebug);
@@ -1121,6 +1165,13 @@ namespace OloEngine
         }
 
         // Terrain Editor Panel
+        if (m_ShowInstanceScatterBrush)
+        {
+            m_InstanceScatterBrushPanel.SetContext(m_ActiveScene);
+            m_InstanceScatterBrushPanel.OnImGuiRender();
+            m_ShowInstanceScatterBrush = m_InstanceScatterBrushPanel.Visible;
+        }
+
         if (m_ShowTerrainEditor)
         {
             m_TerrainEditorPanel.SetContext(m_ActiveScene);
@@ -1591,6 +1642,14 @@ namespace OloEngine
     {
         // When terrain editor is active, consume left-click for brush application
         if (m_ShowTerrainEditor && m_TerrainEditorPanel.IsActive() && e.GetMouseButton() == Mouse::ButtonLeft && m_ViewportHovered && !Input::IsKeyPressed(Key::LeftAlt))
+        {
+            return true;
+        }
+        // Same pattern for the instance scatter brush — when in Paint mode,
+        // left-click is a stroke deposit, not entity-picking.
+        if (m_ShowInstanceScatterBrush && m_InstanceScatterBrushPanel.IsActive() &&
+            e.GetMouseButton() == Mouse::ButtonLeft && m_ViewportHovered &&
+            !Input::IsKeyPressed(Key::LeftAlt))
         {
             return true;
         }
@@ -2329,6 +2388,8 @@ namespace OloEngine
         m_PostProcessSettingsPanel.SetCommandHistory(&m_CommandHistory);
         m_TerrainEditorPanel.SetContext(m_EditorScene);
         m_TerrainEditorPanel.SetCommandHistory(&m_CommandHistory);
+        m_InstanceScatterBrushPanel.SetContext(m_EditorScene);
+        m_InstanceScatterBrushPanel.SetCommandHistory(&m_CommandHistory);
         m_StreamingPanel.SetContext(m_EditorScene);
         m_StreamingPanel.SetCommandHistory(&m_CommandHistory);
         m_StatisticsPanel.SetContext(m_EditorScene);

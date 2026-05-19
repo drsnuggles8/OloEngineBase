@@ -550,6 +550,8 @@
 		"OloEngine/Renderer/Instancing/InstanceBuffer.cpp"
 		"OloEngine/Renderer/Instancing/InstanceBuffer.h"
 		"OloEngine/Renderer/Instancing/InstanceData.h"
+		"OloEngine/Renderer/Instancing/GPUFrustumCuller.cpp"
+		"OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 		"OloEngine/Renderer/ComputeShader.cpp"
 		"OloEngine/Renderer/ComputeShader.h"
 		"OloEngine/Renderer/MemoryBarrierFlags.h"

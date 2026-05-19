@@ -62,5 +62,35 @@ namespace OloEngine
         bool FrustumCullPerInstance = true; // Cull instances individually before upload
         bool CastShadows = true;            // Submit shadow-caster entries for visible instances
         f32 CullDistance = 0.0f;            // World-space radius; 0 disables distance culling
+
+        // Render-path merge cache — Scene's render loop builds this lazily by
+        // concatenating `Instances` with the placement asset's instances, then
+        // reuses it frame-to-frame as long as none of the inputs have changed.
+        // Avoids the per-frame `vector<InstanceData>` copy that the merge
+        // requires (dominated by the 224 B / element memcpy for thousands of
+        // instances). Internal — do not write from user code; not serialized.
+        //
+        // Invalidation fingerprint covers: inline `Instances.size()`,
+        // `PlacementAssetHandle`, the asset's instance count, and the asset's
+        // instance data pointer (catches hot-reload that swaps the backing
+        // storage even when size is unchanged). In-place edits to
+        // `Instances[i]` that keep size + pointer stable are NOT detected —
+        // call `InvalidateMergedCache()` explicitly when scripting mutates
+        // contents without changing size.
+        struct MergedCache
+        {
+            std::vector<InstanceData> Data;
+            sizet InlineSize = 0;
+            AssetHandle PlacementHandle = 0;
+            sizet AssetSize = 0;
+            const InstanceData* AssetDataPtr = nullptr;
+        };
+        MergedCache _MergedCache;
+
+        // Drop the cache so the next render-loop pass rebuilds it.
+        void InvalidateMergedCache()
+        {
+            _MergedCache.InlineSize = static_cast<sizet>(-1); // sentinel — never matches a real size
+        }
     };
 } // namespace OloEngine

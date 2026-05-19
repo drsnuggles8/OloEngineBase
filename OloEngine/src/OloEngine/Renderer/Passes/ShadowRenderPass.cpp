@@ -9,7 +9,10 @@
 #include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
+#include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
+
+#include <cstdio>
 
 namespace OloEngine
 {
@@ -338,6 +341,21 @@ namespace OloEngine
                 if (!batches.empty())
                 {
                     shadowShader->Bind();
+                    // Build the source label once per pass. We tag every
+                    // shadow batch with the cascade / light index so the
+                    // profiler's "Instanced Draws" tab can show e.g.
+                    // "Shadow CSM cascade 1" — making it obvious which
+                    // shadow target a given batched draw is filling in.
+                    auto& profiler = RendererProfiler::GetInstance();
+                    const bool recording = profiler.IsRecordingInstancedDraws();
+                    char sourceLabel[64];
+                    if (recording)
+                    {
+                        const char* kind = (type == ShadowPassType::CSM)    ? "CSM cascade"
+                                           : (type == ShadowPassType::Spot) ? "Spot light"
+                                                                            : "Point light";
+                        std::snprintf(sourceLabel, sizeof(sourceLabel), "Shadow %s %u", kind, layerOrLight);
+                    }
                     for (const auto& batch : batches)
                     {
                         if (instanceBuffer)
@@ -351,6 +369,20 @@ namespace OloEngine
                         // driver handles count==1 cheaply.
                         RenderCommand::DrawIndexedInstancedRaw(batch.drawVao, batch.indexCount, batch.baseIndex,
                                                                static_cast<u32>(batch.instances.size()));
+                        if (recording)
+                        {
+                            // EntityIDs intentionally null — shadow casters
+                            // carry raw VAOs + transforms, not entity refs,
+                            // so per-instance picking isn't meaningful here.
+                            profiler.RecordInstancedDraw(
+                                /*meshHandle=*/0,
+                                batch.drawVao,
+                                batch.indexCount,
+                                static_cast<u32>(batch.instances.size()),
+                                /*entityIDs=*/nullptr,
+                                /*fromAutoBatching=*/true,
+                                sourceLabel);
+                        }
                     }
                 }
             }

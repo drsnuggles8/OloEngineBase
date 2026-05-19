@@ -644,13 +644,15 @@ namespace OloEngine
         static constexpr u32 SSBO_LIGHT_PROBES = 8;      // Light probe SH coefficient data
 
         // Forward+ light culling SSBOs
-        static constexpr u32 SSBO_FPLUS_POINT_LIGHTS = 9;   // Forward+ point light data array
-        static constexpr u32 SSBO_FPLUS_SPOT_LIGHTS = 10;   // Forward+ spot light data array
-        static constexpr u32 SSBO_FPLUS_LIGHT_INDICES = 11; // Forward+ per-tile light index list
-        static constexpr u32 SSBO_FPLUS_LIGHT_GRID = 12;    // Forward+ per-tile (offset, count) pairs
-        static constexpr u32 SSBO_FPLUS_GLOBAL_INDEX = 13;  // Forward+ atomic counter for light index append
-        static constexpr u32 SSBO_GPU_PARTICLES_PREV = 14;  // GPU particle previous-frame positions (vec4[maxParticles]) for motion vectors
-        static constexpr u32 SSBO_INSTANCE_DATA = 15;       // Per-instance transform/color/entity data indexed by gl_InstanceIndex
+        static constexpr u32 SSBO_FPLUS_POINT_LIGHTS = 9;      // Forward+ point light data array
+        static constexpr u32 SSBO_FPLUS_SPOT_LIGHTS = 10;      // Forward+ spot light data array
+        static constexpr u32 SSBO_FPLUS_LIGHT_INDICES = 11;    // Forward+ per-tile light index list
+        static constexpr u32 SSBO_FPLUS_LIGHT_GRID = 12;       // Forward+ per-tile (offset, count) pairs
+        static constexpr u32 SSBO_FPLUS_GLOBAL_INDEX = 13;     // Forward+ atomic counter for light index append
+        static constexpr u32 SSBO_GPU_PARTICLES_PREV = 14;     // GPU particle previous-frame positions (vec4[maxParticles]) for motion vectors
+        static constexpr u32 SSBO_INSTANCE_DATA = 15;          // Per-instance transform/color/entity data indexed by gl_InstanceIndex
+        static constexpr u32 SSBO_INSTANCE_CULL_INPUT = 16;    // Full InstanceData[] input to the GPU frustum-cull compute (output goes back to SSBO_INSTANCE_DATA)
+        static constexpr u32 SSBO_INSTANCE_DRAW_INDIRECT = 17; // DrawElementsIndirectCommand populated by the cull compute, read by glDrawElementsIndirect
 
         // =============================================================================
         // TYPE ALIASES FOR CONVENIENCE

@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
+#include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 #include "OloEngine/Renderer/Renderer3DDrawHelpers.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
@@ -303,6 +304,10 @@ namespace OloEngine
         // capacity 1 covers the non-batched path; CommandBucket auto-batching
         // grows it on demand via InstanceBuffer::EnsureCapacity().
         s_Data.ModelInstanceBuffer = Ref<InstanceBuffer>::Create(1);
+        // GPU per-instance frustum culler — compute shader is lazy-loaded on
+        // first cull dispatch so a stripped-down embedded build that doesn't
+        // ship the compute shaders can still drive the CPU path.
+        s_Data.GPUFrustumCuller = Ref<GPUFrustumCuller>::Create();
         s_Data.BoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION);
         s_Data.PrevBoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION_PREV);
         s_Data.TerrainUBO = UniformBuffer::Create(ShaderBindingLayout::TerrainUBO::GetSize(), ShaderBindingLayout::UBO_TERRAIN);

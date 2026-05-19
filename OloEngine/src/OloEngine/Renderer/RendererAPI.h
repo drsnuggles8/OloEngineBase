@@ -94,6 +94,9 @@ namespace OloEngine
         // Indirect draw calls (GPU-driven rendering)
         virtual void DrawElementsIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID) = 0;
         virtual void DrawArraysIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID) = 0;
+        // Raw-VAO variant used by the GPU-frustum-cull path which only has a
+        // RendererID (the dispatcher's BindVAOIfNeeded() cache populates it).
+        virtual void DrawElementsIndirectRaw(u32 vaoID, u32 indirectBufferID) = 0;
 
         // Compute shader dispatch
         virtual void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ) = 0;

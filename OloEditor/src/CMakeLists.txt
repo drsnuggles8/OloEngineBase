@@ -39,6 +39,8 @@
 		"Panels/SceneHierarchyPanel.h"
 		"Panels/TerrainEditorPanel.cpp"
 		"Panels/TerrainEditorPanel.h"
+		"Panels/InstanceScatterBrushPanel.cpp"
+		"Panels/InstanceScatterBrushPanel.h"
 		"Panels/StreamingPanel.cpp"
 		"Panels/StreamingPanel.h"
 		"Panels/NetworkDebugPanel.cpp"

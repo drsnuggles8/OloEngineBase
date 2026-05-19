@@ -278,6 +278,13 @@ namespace OloEngine
             s_RendererAPI->DrawArraysIndirect(vertexArray, indirectBufferID);
         }
 
+        // Raw-VAO variant used by the GPU frustum-cull path that only has a
+        // RendererID (no Ref<VertexArray> on hand inside the dispatcher).
+        static void DrawElementsIndirectRaw(u32 vaoID, u32 indirectBufferID)
+        {
+            s_RendererAPI->DrawElementsIndirectRaw(vaoID, indirectBufferID);
+        }
+
         // Compute shader dispatch
         static void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ)
         {

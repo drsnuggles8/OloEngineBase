@@ -975,7 +975,8 @@ namespace OloEngine
     }
 
     void RendererProfiler::RecordInstancedDraw(u64 meshHandle, u32 vertexArrayID, u32 indexCount,
-                                               u32 instanceCount, const i32* entityIDs, bool fromAutoBatching)
+                                               u32 instanceCount, const i32* entityIDs, bool fromAutoBatching,
+                                               const char* source)
     {
         if (!m_RecordInstancedDraws)
             return;
@@ -986,6 +987,8 @@ namespace OloEngine
         record.m_IndexCount = indexCount;
         record.m_InstanceCount = instanceCount;
         record.m_FromAutoBatching = fromAutoBatching;
+        if (source && *source)
+            record.m_Source = source;
         if (entityIDs && instanceCount > 0)
         {
             record.m_EntityIDs.assign(entityIDs, entityIDs + instanceCount);
@@ -1288,6 +1291,10 @@ namespace OloEngine
         u32 totalInstances = 0;
         u32 autoBatchedCalls = 0;
         u32 autoBatchedInstances = 0;
+        u32 shadowCalls = 0;
+        u32 shadowInstances = 0;
+        u32 gpuCullCalls = 0;
+        u32 gpuCullInstances = 0;
         for (const auto& rec : m_InstancedDrawRecords)
         {
             totalInstances += rec.m_InstanceCount;
@@ -1296,12 +1303,30 @@ namespace OloEngine
                 ++autoBatchedCalls;
                 autoBatchedInstances += rec.m_InstanceCount;
             }
+            if (rec.m_Source.rfind("Shadow", 0) == 0)
+            {
+                ++shadowCalls;
+                shadowInstances += rec.m_InstanceCount;
+            }
+            else if (rec.m_Source.find("GPU cull") != std::string::npos)
+            {
+                ++gpuCullCalls;
+                gpuCullInstances += rec.m_InstanceCount;
+            }
         }
         ImGui::Text("Total instances across these draws: %u", totalInstances);
         ImGui::Text("Auto-batched: %u calls / %u instances    Explicit InstancedMeshComponent: %u calls / %u instances",
                     autoBatchedCalls, autoBatchedInstances,
                     static_cast<u32>(m_InstancedDrawRecords.size()) - autoBatchedCalls,
                     totalInstances - autoBatchedInstances);
+        // Per-pipeline breakdown — surfaces shadow / GPU-cull contributions
+        // that previously hid because both ran outside the regular
+        // CommandDispatch::DrawMeshInstanced hook.
+        if (shadowCalls > 0 || gpuCullCalls > 0)
+        {
+            ImGui::Text("    Shadow: %u calls / %u instances    GPU-cull: %u calls / %u instances",
+                        shadowCalls, shadowInstances, gpuCullCalls, gpuCullInstances);
+        }
 
         // Diagnostic text-dump — copies a structured report to the system
         // clipboard. Designed to be pasted into a chat / issue / log so
@@ -1325,7 +1350,7 @@ namespace OloEngine
             for (sizet i = 0; i < m_InstancedDrawRecords.size(); ++i)
             {
                 const auto& rec = m_InstancedDrawRecords[i];
-                report << "[" << i << "] MeshHandle=" << rec.m_MeshHandle
+                report << "[" << i << "] (" << rec.m_Source << ") MeshHandle=" << rec.m_MeshHandle
                        << " VAO=" << rec.m_VertexArrayID
                        << " IndexCount=" << rec.m_IndexCount
                        << " Instances=" << rec.m_InstanceCount
@@ -1354,15 +1379,16 @@ namespace OloEngine
         ImGui::TextDisabled("(structured text dump for sharing / external analysis)");
         ImGui::Spacing();
 
-        if (ImGui::BeginTable("InstancedDraws", 5,
+        if (ImGui::BeginTable("InstancedDraws", 6,
                               ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY |
                                   ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders))
         {
             ImGui::TableSetupColumn("#");
+            ImGui::TableSetupColumn("Source");
             ImGui::TableSetupColumn("Mesh Handle");
             ImGui::TableSetupColumn("VAO");
             ImGui::TableSetupColumn("Instances");
-            ImGui::TableSetupColumn("Source / Entity IDs");
+            ImGui::TableSetupColumn("Entity IDs");
             ImGui::TableHeadersRow();
 
             for (sizet i = 0; i < m_InstancedDrawRecords.size(); ++i)
@@ -1374,19 +1400,31 @@ namespace OloEngine
                 ImGui::TableSetColumnIndex(0);
                 ImGui::Text("%zu", i);
 
+                // Source column. Tint shadow draws so they're visually
+                // distinct from scene draws when both fire in the same
+                // frame — at a glance "everything CSM-tagged is cyan,
+                // everything Scene-tagged is white".
                 ImGui::TableSetColumnIndex(1);
-                ImGui::Text("%llu", static_cast<unsigned long long>(rec.m_MeshHandle));
+                if (rec.m_Source.rfind("Shadow", 0) == 0)
+                    ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "%s", rec.m_Source.c_str());
+                else if (rec.m_Source.find("GPU cull") != std::string::npos)
+                    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.4f, 1.0f), "%s", rec.m_Source.c_str());
+                else
+                    ImGui::TextUnformatted(rec.m_Source.c_str());
 
                 ImGui::TableSetColumnIndex(2);
-                ImGui::Text("%u", rec.m_VertexArrayID);
+                ImGui::Text("%llu", static_cast<unsigned long long>(rec.m_MeshHandle));
 
                 ImGui::TableSetColumnIndex(3);
+                ImGui::Text("%u", rec.m_VertexArrayID);
+
+                ImGui::TableSetColumnIndex(4);
                 if (rec.m_FromAutoBatching)
                     ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1.0f), "%u (batched)", rec.m_InstanceCount);
                 else
                     ImGui::Text("%u", rec.m_InstanceCount);
 
-                ImGui::TableSetColumnIndex(4);
+                ImGui::TableSetColumnIndex(5);
                 if (rec.m_EntityIDs.empty())
                 {
                     ImGui::TextDisabled("(no entity-ID stream)");

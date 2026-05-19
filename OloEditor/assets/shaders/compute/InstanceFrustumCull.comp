@@ -1,0 +1,122 @@
+#version 450 core
+
+// GPU per-instance frustum culling pre-pass.
+//
+// Input  (SSBO 16): full InstanceData[] uploaded by Renderer3D::DrawMeshInstanced.
+// Output (SSBO 15): compacted InstanceData[] — only frustum-visible instances.
+// Indirect (SSBO 17): DrawElementsIndirectCommand whose `instanceCount` field
+//                     atomic-counts survivors so the subsequent
+//                     glDrawElementsIndirect picks up the right draw count.
+//
+// The bounding sphere is *local-space*; per-instance world transform comes
+// from `inputInstances[idx].Transform` and the world radius is
+// `localRadius * maxColumnScale * u_RadiusExpansion`. The expansion factor
+// folds the CPU path's 1.3× pre-scale and BoundingSphere::Transform's 1.05×
+// safety margin into one uniform so the two paths match (verified by
+// FrustumCullParityTest in tests/Rendering/).
+//
+// Frustum planes are derived from `u_ViewProjection` (camera UBO binding 0)
+// using the same row-of-VP technique as `Frustum::Update()` in
+// OloEngine/src/OloEngine/Renderer/Frustum.cpp — keeping the math here in
+// sync with the C++ side is the load-bearing invariant.
+
+layout(local_size_x = 256) in;
+
+// Layout mirrors OloEngine::InstanceData (Renderer/Instancing/InstanceData.h,
+// 224 B std430). Drift here vs. InstanceBlock_Vertex.glsl produces silent
+// rendering corruption; pinned by InstanceDataLayoutTest.
+struct InstanceData {
+    mat4 Transform;
+    mat4 Normal;
+    mat4 PrevTransform;
+    vec4 Color;
+    int  EntityID;
+    float Custom;
+    int  _instancePad0;
+    int  _instancePad1;
+};
+
+layout(std430, binding = 16) readonly buffer InstanceCullInput {
+    InstanceData inputInstances[];
+};
+
+layout(std430, binding = 15) writeonly buffer InstanceCullOutput {
+    InstanceData outputInstances[];
+};
+
+// DrawElementsIndirectCommand — 5 u32 fields the GL spec defines for
+// glDrawElementsIndirect. CPU writes count/firstIndex/baseVertex/baseInstance
+// and zeros instanceCount before each dispatch; the compute atomic-adds
+// surviving instances into it.
+layout(std430, binding = 17) buffer InstanceCullIndirect {
+    uint count;
+    uint instanceCount;
+    uint firstIndex;
+    uint baseVertex;
+    uint baseInstance;
+    uint _indirectPad0;
+    uint _indirectPad1;
+    uint _indirectPad2;
+} indirect;
+
+layout(std140, binding = 0) uniform CameraMatrices
+{
+    mat4 u_ViewProjection;
+    mat4 u_View;
+    mat4 u_Projection;
+    vec3 u_CameraPosition;
+    float _padding0;
+};
+
+uniform uint u_InstanceCount;
+uniform vec4 u_LocalBoundingSphere; // xyz = center, w = radius (pre-expansion)
+uniform float u_RadiusExpansion;    // Pre-multiplied on CPU: 1.3 × 1.05 = 1.365 for static draws
+
+// Extract a single frustum plane from a row-of-VP combination.
+// `colSign` is +1 (Left/Bottom/Near) or -1 (Right/Top/Far); `col` is 0/1/2.
+// Plane is returned as (Normal.xyz, Distance) — normalized.
+vec4 extractPlane(int col, float colSign)
+{
+    vec4 p = vec4(
+        u_ViewProjection[0][3] + colSign * u_ViewProjection[0][col],
+        u_ViewProjection[1][3] + colSign * u_ViewProjection[1][col],
+        u_ViewProjection[2][3] + colSign * u_ViewProjection[2][col],
+        u_ViewProjection[3][3] + colSign * u_ViewProjection[3][col]
+    );
+    float len = length(p.xyz);
+    return p / len;
+}
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= u_InstanceCount)
+        return;
+
+    // World-space bounding sphere for this instance.
+    mat4 t = inputInstances[idx].Transform;
+    vec4 wc4 = t * vec4(u_LocalBoundingSphere.xyz, 1.0);
+    vec3 worldCenter = wc4.xyz / wc4.w;
+    float maxColumnScale = max(max(length(t[0].xyz), length(t[1].xyz)), length(t[2].xyz));
+    float worldRadius = u_LocalBoundingSphere.w * maxColumnScale * u_RadiusExpansion;
+
+    // Six frustum planes — same indexing as Frustum::Update().
+    vec4 planes[6];
+    planes[0] = extractPlane(0,  1.0); // Left
+    planes[1] = extractPlane(0, -1.0); // Right
+    planes[2] = extractPlane(1,  1.0); // Bottom
+    planes[3] = extractPlane(1, -1.0); // Top
+    planes[4] = extractPlane(2,  1.0); // Near
+    planes[5] = extractPlane(2, -1.0); // Far
+
+    for (int i = 0; i < 6; ++i)
+    {
+        float signedDistance = dot(planes[i].xyz, worldCenter) + planes[i].w;
+        if (signedDistance < -worldRadius)
+            return; // Culled — outside this plane.
+    }
+
+    // Survivor — atomic-append into the compacted output.
+    uint outIdx = atomicAdd(indirect.instanceCount, 1);
+    outputInstances[outIdx] = inputInstances[idx];
+}

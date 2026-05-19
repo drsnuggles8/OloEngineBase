@@ -140,6 +140,13 @@ namespace OloEngine
             std::vector<i32> m_EntityIDs;    // Per-instance source entity IDs (size == m_InstanceCount when populated).
             bool m_FromAutoBatching = false; // true: collapsed by CommandBucket from N DrawMeshCommands;
                                              // false: explicit InstancedMeshComponent submission.
+            // Free-form label for *which* renderer pipeline emitted this
+            // draw — lets the UI / clipboard report distinguish "Scene"
+            // (main CommandDispatch::DrawMeshInstanced) from "Scene (GPU
+            // cull)" (the indirect-draw branch) or "Shadow CSM cascade 0"
+            // (ShadowRenderPass auto-batched casters). Defaults to "Scene"
+            // so the existing call sites stay unchanged.
+            std::string m_Source = "Scene";
         };
 
         struct RenderPassInfo
@@ -225,7 +232,8 @@ namespace OloEngine
         // wants to see "which entities collapsed into which draw call". Each
         // record is held until the next BeginFrame() then discarded.
         void RecordInstancedDraw(u64 meshHandle, u32 vertexArrayID, u32 indexCount,
-                                 u32 instanceCount, const i32* entityIDs, bool fromAutoBatching);
+                                 u32 instanceCount, const i32* entityIDs, bool fromAutoBatching,
+                                 const char* source = "Scene");
 
         // @brief Toggle per-frame instanced-draw recording.
         void SetRecordInstancedDraws(bool enabled)

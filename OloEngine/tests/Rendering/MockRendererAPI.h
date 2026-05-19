@@ -310,6 +310,11 @@ namespace OloEngine::Testing
             Record("DrawArraysIndirect");
             m_DrawCallCount++;
         }
+        void DrawElementsIndirectRaw(u32 /*vaoID*/, u32 /*bufID*/) override
+        {
+            Record("DrawElementsIndirectRaw");
+            m_DrawCallCount++;
+        }
         void DispatchCompute(u32 /*x*/, u32 /*y*/, u32 /*z*/) override
         {
             Record("DispatchCompute");

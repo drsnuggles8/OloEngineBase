@@ -63,6 +63,7 @@ namespace OloEngine
 
         void DrawElementsIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID) override;
         void DrawArraysIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID) override;
+        void DrawElementsIndirectRaw(u32 vaoID, u32 indirectBufferID) override;
 
         void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ) override;
         void MemoryBarrier(MemoryBarrierFlags flags) override;

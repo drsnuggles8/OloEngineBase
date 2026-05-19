@@ -15,6 +15,7 @@
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
+#include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 #include "OloEngine/Wind/WindSystem.h"
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Snow/SnowEjectaSystem.h"
@@ -1131,6 +1132,18 @@ namespace OloEngine
         static auto ValidateDrawMeshRendererIDs(const char* context, u32 vaoID, u32 shaderID) -> bool;
         static auto CreatePODMaterialDataForMaterial(const Material& material, RendererID shaderRendererID) -> PODMaterialData;
 
+        // GPU-cull submission helper called from DrawMeshInstanced when the
+        // input count exceeds `s_Data.GPUCullThreshold`. Builds the full
+        // pre-cull InstanceData[], hands it to the GPUFrustumCuller, then
+        // attaches the resulting `cullOutputInstanceBufferID` and
+        // `cullIndirectBufferID` to the DrawMeshInstancedCommand so the
+        // dispatcher takes the indirect-draw path. Returns nullptr on
+        // allocation failure or if the cull resources weren't ready.
+        static CommandPacket* SubmitGPUCulledInstanced(const Ref<Mesh>& mesh,
+                                                       const std::vector<glm::mat4>& transforms,
+                                                       const Material& material, bool isStatic,
+                                                       u64 ownerKey);
+
       private:
         struct Renderer3DData
         {
@@ -1168,6 +1181,19 @@ namespace OloEngine
             // mesh-rendering shader reads its model transform from here; the
             // legacy ModelMatrixUBO at binding 3 has been retired.
             Ref<InstanceBuffer> ModelInstanceBuffer;
+
+            // GPU-side per-instance frustum cull pre-pass. Used by
+            // `DrawMeshInstanced` when the input count crosses
+            // `s_Data.GPUCullThreshold` — the cull compute moves the
+            // per-instance sphere test off the CPU and produces a compacted
+            // InstanceBuffer + indirect draw command for the actual draw.
+            // Null when the compute shader failed to load (engine falls back
+            // to the CPU loop in that case).
+            Ref<class GPUFrustumCuller> GPUFrustumCuller;
+            // Minimum input count required to route a DrawMeshInstanced
+            // submission through the GPU cull path. Below this, the CPU
+            // loop wins on launch overhead.
+            u32 GPUCullThreshold = 1024;
             PostProcessGPUState PostProcessGPU;
             Ref<UniformBuffer> TerrainUBO;
             Ref<UniformBuffer> FoliageUBO;

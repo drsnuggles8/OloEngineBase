@@ -1,233 +1,128 @@
 # GPU Instancing — Future Improvements
 
-Follow-ups identified during the implementation of issue #173 (GPU instancing).
-The core feature is shipped on `feature/gpu-instancing-issue-173`:
-auto-batching of same-mesh-same-material draws into single
-`DrawIndexedInstanced` calls, an explicit `InstancedMeshComponent` for
-authored dense placements, per-instance `Color` / `Custom` / `EntityID`
-plumbed end-to-end, `InstancePlacementAsset` for shared placement data,
-C#/Lua bindings, a 500-cube `InstancingDemo.olo` test scene under
-`SandboxProject/Assets/Scenes/`, and a **"Instanced Draws" tab** in the
-RendererProfiler panel that shows per-call mesh handle / instance count /
-contributing entity IDs (toggle "Record Instanced Draws" to start
-capturing).
+Originally a follow-up list for issue #173. Most items shipped; this
+doc now only tracks **what's still open** and why. Items that landed
+(auto-batching of `DrawMeshCommand` groups, `InstancedMeshComponent`,
+GPU-side frustum culling, shadow auto-batching, per-instance motion
+vectors, Color/Custom wiring, the `InstancePlacementAsset` merge cache,
+the scatter-brush editor panel with slope filter / variants / undo /
+bake) are documented in the source and pinned by tests
+(`InstanceDataLayoutTest`, `CommandBucketBatchTest`,
+`GPUFrustumCullParityTest`, `ScatterBrushMathTest`).
 
-Items below are intentionally left for later passes. Grouped by area and
-roughly ordered by impact within each section.
-
----
-
-## 1. Procedural Scatter Brush (High Impact / Medium Effort)
-
-The current `Scatter Append` button in the `InstancedMeshComponent`
-inspector ([SceneHierarchyPanel.cpp](../OloEditor/src/Panels/SceneHierarchyPanel.cpp))
-is a **volume-based MVP**: it drops N random `InstanceData` placements
-inside an authored AABB with optional random Y rotation and a scale range.
-That covers "scatter inside a clearing" but not the spec's:
-
-> Editor scatter brush — paint instances on terrain/surfaces with
-> density, randomization, and slope filtering.
-
-A real surface scatter brush needs:
-
-### 1.1 Viewport Tool Mode
-
-Promote the inspector controls into a proper editor tool — same pattern as
-[`TerrainEditorPanel`](../OloEditor/src/Panels/TerrainEditorPanel.cpp). A
-dedicated tool mode that intercepts viewport clicks, draws a brush preview
-ring on the surface under the cursor, and accumulates placements on
-left-drag.
-
-### 1.2 Surface Raycast
-
-Replace the AABB volume with a per-frame mouse-to-world raycast against:
-
-- Terrain (heightmap sample at the hit UV, using the same lookup the
-  terrain shaders use — see `Terrain_PBR.glsl` tess-eval stage).
-- Mesh entities (BVH against scene meshes — the engine already has
-  `BoundingVolumeHierarchy` for occlusion culling that could be reused).
-
-Reject placements with no hit.
-
-### 1.3 Density Falloff
-
-Brush radius + density slider produce **Poisson-disc-distributed** points
-inside the brush footprint each tick (use Bridson's algorithm for cheap
-Poisson sampling). Avoids the clumpy clusters that uniform-random scatter
-produces.
-
-### 1.4 Slope Filtering
-
-At each candidate placement, sample the surface normal:
-
-- Reject if `dot(normal, up) < slopeThreshold` (configurable; default
-  ~0.7 = ~45°).
-- Optionally bias placement orientation toward the surface normal (foliage
-  bends away from gravity, debris settles flat).
-
-### 1.5 Mesh Variation
-
-Most foliage layers want >1 mesh variant per layer. Either:
-
-- Multi-mesh `InstancedMeshComponent` (one entity, several
-  meshes/materials, the brush picks one at random per placement). Today
-  each variant needs its own entity.
-- Or: variant selector on `InstancePlacementAsset` (a layer references N
-  mesh assets and the per-instance `Custom` float carries a 0..1 variant
-  index that the shader uses to pick a sub-mesh / sub-material).
-
-### 1.6 Undo/Redo
-
-The volume-scatter MVP appends in bulk and "Clear Inline" wipes the lot —
-no granular undo. A real brush needs per-stroke undo (snapshot the
-`Instances` vector at brush-down, restore on Ctrl+Z) integrated with the
-editor's existing undo stack.
-
-### 1.7 Persistence Path
-
-Once the brush produces meaningful data, authors will want to **bake** a
-stroke into an `InstancePlacementAsset` (the `.oloinstances` type already
-exists — see [InstancePlacementAsset.h](../OloEngine/src/OloEngine/Asset/InstancePlacementAsset.h)).
-Inspector button: "Bake inline → new placement asset" — produces a fresh
-`.oloinstances` file in the content browser, sets the component's
-`PlacementAssetHandle`, clears the inline list.
+The three items below are deferred with concrete blockers — not
+oversights. Each waits on adjacent work (BVH, mesh asset format change,
+crowd-content authoring) that doesn't make sense to build
+speculatively.
 
 ---
 
-## 2. Per-Instance Motion Vectors for `InstancedMeshComponent` ✅ done
+## §1.2 — Scatter Brush: Mesh-Surface Raycast
 
-The `Renderer3D::DrawMeshInstanced(span<InstanceData>)` overload delegates
-to the transform-only overload, which now records per-instance transform
-history via `GetAndRecordPrevInstanceTransforms` keyed by
-`(meshHandle, ownerKey)`. `RenderPipeline::BeginFrame` rotates
-`CurrInstanceTransforms` → `PrevInstanceTransforms` so frame N+1 looks up
-the array submitted on frame N. The dispatcher reads
-`prevTransformBufferOffset` from the produced `DrawMeshInstancedCommand`
-and writes per-slot `PrevTransform` into the `InstanceData` SSBO — TAA
-and motion-blur paths get correct per-instance velocity for free.
+**Current**: the brush raycasts onto the terrain heightmap only.
+[`InstanceScatterBrushPanel`](../OloEditor/src/Panels/InstanceScatterBrushPanel.cpp)
+already consumes a `(hitPos, normal, hasHit)` triple from `EditorLayer`
+— forward-compatible the moment a mesh ray-cast exists.
 
-Note: the `InstanceData.PrevTransform` field that callers can author on
-`imc.Instances[i].PrevTransform` is **not** forwarded through the
-submission path; the engine-managed cache is the authoritative source.
-Per-instance `PrevTransform` authoring (e.g. for shader-side history
-manipulation) would need a separate overload that opts out of the cache.
+**Blocker**: no `BoundingVolumeHierarchy` ray-vs-mesh capability today.
+An AABB-only fallback would return bad surface normals (slope filter
+can't work) and float placements above the actual geometry. The right
+unblock is the BVH itself, used by both the brush and any future tool
+that needs world raycasts (gizmo snapping, click-to-select on mesh
+backings, debug raycast viz).
 
----
-
-## 3. GPU-Side Per-Instance Frustum Culling (Medium Impact / High Effort)
-
-CPU per-instance culling already happens in
-`Renderer3D::DrawMeshInstanced` before the FrameDataBuffer allocation. For
-huge counts (10k–100k instances) the CPU loop becomes the bottleneck. A
-compute-shader cull pre-pass would:
-
-1. Read the input `InstanceData[]` buffer.
-2. Test each instance's mesh bounds against the view frustum on GPU.
-3. Use `atomicCounterIncrement` to compact survivors into an output
-   buffer.
-4. Driver-side: indirect dispatch reads the output buffer + the survivor
-   count for the actual `glDrawElementsIndirect`.
-
-Reference: NVIDIA's "Indirect Multi-Draw with Compute Culling" GPU Gems
-chapter.
+**Integration after BVH lands**: extend `EditorLayer`'s per-frame
+raycast loop in the scatter-brush branch to query the BVH after the
+terrain pass; surface the closer hit (plus the triangle normal) to
+`InstanceScatterBrushPanel::OnUpdate`. Nothing inside the panel
+changes.
 
 ---
 
-## 4. Multi-Mesh / LOD Batching ⚠️ partial — current state covers same-LOD groups
+## §4 — Multi-Mesh / LOD Batching (Full Multi-Draw Indirect)
 
-**Current state**: LOD selection happens *before* `Renderer3D::DrawMesh`
-constructs the command, so `cmd.meshHandle` already names the
-LOD-resolved mesh. The auto-batcher groups by
-`(meshHandle, materialDataIndex, renderStateIndex)` — so entities of the
-same source asset that resolve to the *same* LOD level batch into one
-draw, while different LOD levels stay as separate draws. A scene with
-100 trees split 30 / 40 / 30 across three LOD levels already collapses
-to 3 draws (down from 100).
+**Current**: `SelectLODMesh()` resolves to a single `Ref<Mesh>` before
+the `DrawMeshCommand` is built, so the auto-batcher already collapses
+**same-LOD** entities of the same source asset (`(meshHandle,
+materialDataIndex, renderStateIndex)` grouping key). A 100-tree forest
+split 30 / 40 / 30 across three LODs collapses to 3 draws.
 
-**Future work**: collapsing across LOD levels — "100 trees at varying
-distances → 1 draw" — requires `glMultiDrawElementsIndirect` with a
-per-instance `(indexOffset, indexCount)` lookup, since each LOD level
-reads a different slice of the combined index buffer. This is a
-significantly larger rewrite touching the mesh asset format,
-the LOD struct, and the dispatcher. Deferred until profiling shows the
-2-3 draws per source asset are an actual bottleneck.
+**Blocker**: collapsing **across** LODs into one
+`glMultiDrawElementsIndirect` would require all LODs of a source asset
+in a single VAO with per-LOD `(indexOffset, indexCount, baseVertex)`
+ranges. Today `LODGroup::Levels[i]` holds a distinct `AssetHandle`,
+each pointing at its own `MeshSource` / VAO / IBO. That's a **mesh
+asset format + import-pipeline change**, not a renderer change.
 
-Sketch (when worth the effort):
+**Why not speculate now**: the codebase has the `LODGroupComponent`,
+`LODGroup`, and `SelectLODMesh()` plumbing, but no shipped scene
+meaningfully drives them — `LODTest.cpp` is the only consumer. The
+3-draws-per-source state is unprofiled; the win is undefined.
 
-- Mesh asset stores all LODs in one VAO with submesh offsets.
-- New `InstanceData` field: `u32 LODIndex`.
-- Per-LOD `(indexOffset, indexCount, baseVertex)` table emitted as a
-  command buffer for `glMultiDrawElementsIndirect`.
-- Auto-batcher groups by source asset rather than LOD-resolved handle;
-  each per-instance `LODIndex` indexes into the indirect command buffer.
+**Renderer-side prereqs** already in place from §3 work:
 
----
+- Single-draw indirect (`RendererAPI::DrawElementsIndirectRaw`).
+- `gl_InstanceIndex` already accounts for `baseInstance`, so multi-draw
+  indirect with per-LOD `baseInstance` Just Works.
 
-## 5. Shadow Auto-Batching ✅ done
+**Concrete sketch when the time comes**:
 
-`ShadowRenderPass::RenderCascadeOrFace` now groups static mesh casters by
-`(drawVao, indexCount, baseIndex)` and emits one
-`glDrawElementsInstanced` per group per cascade via
-`RendererAPI::DrawIndexedInstancedRaw`. The `InstancingDemo` scene's
-500 cubes collapse from 2000 individual depth draws (4 cascades × 500
-casters) to 4 instanced draws total. Skinned / terrain / voxel casters
-keep their per-caster loop because per-instance state (bone matrices,
-heightmap, terrain UBO) blocks batching — see §8 for the skinned case.
-
----
-
-## 6. `InstancePlacementAsset` Streaming (Low–Medium Impact / Medium Effort)
-
-`Scene.cpp`'s per-frame merge of `imc.Instances` + `placementAsset->GetInstances()`
-copies into a new `std::vector` every frame. For huge static placement
-assets this is a measurable allocation. Either:
-
-- Cache the merged vector on the component (rebuild when either source
-  changes).
-- Stream the asset's instances directly into FrameDataBuffer without the
-  inline-merge step (allocate the streams for the asset's chunk, then
-  separately for the inline chunk, then emit two `DrawMeshInstanced`
-  packets that share the same SortKey so they sit adjacent).
+- Mesh asset gains an optional `LODRanges` table:
+  `vector<{u32 indexOffset, u32 indexCount, u32 baseVertex}>` per LOD
+  level, with all geometry merged into one VAO at import.
+- `LODGroup::Levels[i]` switches from `AssetHandle MeshHandle` to
+  `(AssetHandle SourceMesh, u32 LODIndex)`.
+- New `RendererAPI::MultiDrawElementsIndirectRaw(vaoID, indirectBufferID, drawCount)`
+  wraps `glMultiDrawElementsIndirect`.
+- Per-instance LOD index lives in a **parallel SSBO** (not in
+  `InstanceData` — the 224-byte std430 layout is pinned by
+  `InstanceDataLayoutTest`).
+- `CommandBucket::BatchCommands` buckets by LOD, sorts contiguous,
+  emits one `DrawElementsIndirectCommand` per LOD bucket into a
+  multi-draw command buffer, and calls `MultiDrawElementsIndirectRaw`
+  once.
 
 ---
 
-## 7. Color/Custom Wiring for Auto-Batched Draws ✅ done
+## §8 — Per-Instance Skinned Mesh Batching
 
-`DrawMeshCommand` now carries `glm::vec4 color` (default white) and
-`f32 custom` (default 0.0). `CommandBucket::BatchCommands` scans the
-group for any non-default value; if found, it allocates a parallel
-`FrameDataBuffer::Colors` / `Customs` stream and writes per-source
-values into it, setting `colorBufferOffset` / `customBufferOffset` on
-the emitted `DrawMeshInstancedCommand`. All-identity groups skip
-allocation (the common case) so scenes that don't use per-entity tinting
-pay zero extra FrameDataBuffer pressure. Callers wiring up per-entity
-tint (scripts, future `MaterialComponent` per-entity override path) set
-`cmd.color` / `cmd.custom` on the `DrawMeshCommand` they construct;
-batch collapse preserves both fields.
+**Current**: the `isAnimatedMesh` skip at
+[`CommandBucket.cpp:602`](../OloEngine/src/OloEngine/Renderer/Commands/CommandBucket.cpp)
+intentionally blocks animated draws from auto-batching. Each animated
+entity uploads its own 100-bone palette to `UBO_ANIMATION`.
 
----
+**Blockers**:
 
-## 8. Per-Instance Skinned Mesh Batching (Low Impact / High Effort)
+- **Shader rewrite required**. `PBR_Skinned.glsl`,
+  `PBR_MultiLight_Skinned.glsl`, and `PBR_GBuffer_Skinned.glsl` all
+  index bones as `u_BoneTransforms[a_BoneIDs[i]]` from a `mat4[100]`
+  UBO at binding 4. Batched draws would need
+  `u_BoneTransforms[gl_InstanceIndex * 100 + a_BoneIDs[i]]` against an
+  SSBO sized at `(maxInstances × 100)` — new shader variants, not a
+  swap-in change. The parallel `UBO_ANIMATION_PREV` (TAA motion
+  vectors) needs the same migration or batched draws silently break
+  reprojection.
+- **Bandwidth cost**. 100 bones × 64 B = 6.4 KB / instance →
+  6.4 MB / frame for 1000 instances, plus prev-bones. The bone-matrix
+  UBO budget caps at `GL_MAX_UNIFORM_BLOCK_SIZE` (≈16 MB on most
+  hardware), so an SSBO-based path is required anyway.
+- **No shipped use case**. `fox.olo` is a single character;
+  `AnimationIKTest` and `InstancingDemo` don't crowd animated bodies.
 
-Animated mesh draws are explicitly excluded from auto-batching in
-`CommandBucket::BatchCommands` (see the `isAnimatedMesh` skip). The bone
-matrix array is large and per-instance, so collapsing them would require
-either:
+**Two future paths** (in increasing order of investment):
 
-- A bone-matrix SSBO indexed by `(gl_InstanceIndex, boneIndex)`.
-- Or pre-computed bone palettes per crowd archetype (every soldier shares
-  one of K pose snapshots; per-instance picks the archetype index).
+1. **Bone-palette archetypes** (no shader changes — the right starting
+   move when crowd content lands). K pre-computed pose snapshots
+   (`idle`, `walk_cycle_phase_0`, …); each character picks one
+   archetype's `boneBufferOffset`. Identical archetypes auto-batch
+   with the existing static path; no per-instance bone storage needed.
+   Requires authoring tooling and a `BoneArchetypeAsset` type.
+2. **Per-instance bone SSBO** (the doc's original §8 sketch). Replace
+   `UBO_ANIMATION` / `UBO_ANIMATION_PREV` with two SSBOs sized at
+   `N_instances × 100 mat4`, rewrite all three skinned shaders to
+   index by `gl_InstanceIndex * 100 + boneID`. Generalises to
+   arbitrary per-instance animation but pays the full bandwidth +
+   shader rewrite cost.
 
-Specialized — only relevant for crowd-heavy games.
-
----
-
-## References
-
-| Source | Notes |
-|---|---|
-| Issue #173 | Original spec; this doc tracks deferred items |
-| `feature/gpu-instancing-issue-173` | Implementation branch |
-| [InstanceBlock_Vertex.glsl](../OloEditor/assets/shaders/include/InstanceBlock_Vertex.glsl) | Shader contract for instance SSBO |
-| Bridson, R. — *Fast Poisson Disk Sampling in Arbitrary Dimensions* (2007) | For §1.3 |
-| NVIDIA GPU Gems 3, Ch. 36 — *Indirect Multi-Draw* | For §3 |
+Path (1) is what most crowd games actually use — background actors
+share poses; only hero characters get unique skeletal sims.
