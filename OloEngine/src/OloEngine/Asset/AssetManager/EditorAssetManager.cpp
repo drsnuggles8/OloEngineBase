@@ -977,6 +977,31 @@ namespace OloEngine
         return std::filesystem::relative(canonicalFile, canonicalProject);
     }
 
+    AssetHandle EditorAssetManager::GetAssetHandleFromFilePath(const std::filesystem::path& filepath)
+    {
+        // Asset registry stores relative paths; normalise the query first
+        // so callers can pass either absolute or relative paths.
+        const auto relative = filepath.is_absolute() ? GetRelativePath(filepath) : filepath;
+        return m_AssetRegistry.GetHandleFromPath(relative);
+    }
+
+    std::filesystem::path EditorAssetManager::GetFileSystemPath(AssetHandle handle)
+    {
+        return GetFileSystemPath(m_AssetRegistry.GetMetadata(handle));
+    }
+
+    std::filesystem::path EditorAssetManager::GetFileSystemPath(const AssetMetadata& metadata)
+    {
+        if (metadata.FilePath.is_absolute())
+            return metadata.FilePath;
+        return m_ProjectPath / metadata.FilePath;
+    }
+
+    std::string EditorAssetManager::GetFileSystemPathString(const AssetMetadata& metadata)
+    {
+        return GetFileSystemPath(metadata).string();
+    }
+
     std::unordered_map<AssetHandle, Ref<Asset>> EditorAssetManager::GetLoadedAssets() const
     {
         TSharedLock<FSharedMutex> lock(m_AssetsMutex);

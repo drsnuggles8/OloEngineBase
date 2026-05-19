@@ -23,15 +23,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
     float _padding0;
 };
 
-layout(std140, binding = 3) uniform ModelMatrices {
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-    mat4 u_PrevModel;
-};
+#include "include/InstanceBlock_Vertex.glsl"
 
 layout(std140, binding = 4) uniform BoneMatrices {
     mat4 u_BoneTransforms[100];
@@ -58,6 +50,7 @@ layout(location = 4) out vec4 v_ClipPosPrev;
 
 void main()
 {
+    OLO_INSTANCE_FORWARD();
     mat4 boneTransform = mat4(0.0);
     mat4 prevBoneTransform = mat4(0.0);
     float totalWeight = a_BoneWeights.x + a_BoneWeights.y + a_BoneWeights.z + a_BoneWeights.w;
@@ -124,15 +117,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int _pbrPad2;
 };
 
-layout(std140, binding = 3) uniform ModelMatrices {
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-    mat4 u_PrevModel;
-};
+#include "include/InstanceBlock.glsl"
 
 layout(binding = 0) uniform sampler2D u_AlbedoMap;
 layout(binding = 1) uniform sampler2D u_MetallicRoughnessMap;

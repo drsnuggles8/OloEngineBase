@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
+#include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 #include "OloEngine/Renderer/Renderer3DDrawHelpers.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
@@ -297,7 +298,16 @@ namespace OloEngine
             }
         }
 
-        s_Data.ModelMatrixUBO = UniformBuffer::Create(ShaderBindingLayout::ModelUBO::GetSize(), ShaderBindingLayout::UBO_MODEL);
+        // Per-draw instance SSBO at SSBO_INSTANCE_DATA = 15. The legacy
+        // ModelMatrixUBO at binding 3 has been retired — every mesh shader
+        // now reads transforms from this SSBO via InstanceBlock.glsl. Initial
+        // capacity 1 covers the non-batched path; CommandBucket auto-batching
+        // grows it on demand via InstanceBuffer::EnsureCapacity().
+        s_Data.ModelInstanceBuffer = Ref<InstanceBuffer>::Create(1);
+        // GPU per-instance frustum culler — compute shader is lazy-loaded on
+        // first cull dispatch so a stripped-down embedded build that doesn't
+        // ship the compute shaders can still drive the CPU path.
+        s_Data.GPUFrustumCuller = Ref<GPUFrustumCuller>::Create();
         s_Data.BoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION);
         s_Data.PrevBoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION_PREV);
         s_Data.TerrainUBO = UniformBuffer::Create(ShaderBindingLayout::TerrainUBO::GetSize(), ShaderBindingLayout::UBO_TERRAIN);
@@ -332,7 +342,7 @@ namespace OloEngine
             s_Data.SharedSceneUBOs.Material,
             s_Data.SharedSceneUBOs.LightProperties,
             s_Data.BoneMatricesUBO,
-            s_Data.ModelMatrixUBO,
+            s_Data.ModelInstanceBuffer,
             s_Data.PrevBoneMatricesUBO,
             &s_Data.ForwardPlus);
 
@@ -452,7 +462,7 @@ namespace OloEngine
         // Release UBOs explicitly while the GL context is still alive
         s_Data.SharedSceneUBOs.Reset();
         s_Data.MultiLightBuffer.Reset();
-        s_Data.ModelMatrixUBO.Reset();
+        s_Data.ModelInstanceBuffer.Reset();
         s_Data.BoneMatricesUBO.Reset();
         s_Data.TerrainUBO.Reset();
         s_Data.FoliageUBO.Reset();

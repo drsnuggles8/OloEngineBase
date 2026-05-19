@@ -30,15 +30,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
 };
 
 // Model UBO (binding 3)
-layout(std140, binding = 3) uniform ModelMatrices {
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-    mat4 u_PrevModel;
-};
+#include "include/InstanceBlock_Vertex.glsl"
 
 // MotionBlur UBO (binding 8) — reused for previous-frame ViewProjection so we
 // can compute screen-space velocity. PrevViewProjection equals
@@ -56,6 +48,7 @@ layout(location = 4) out vec4 v_ClipPosPrev;
 
 void main()
 {
+    OLO_INSTANCE_FORWARD();
     v_WorldPos = vec3(u_Model * vec4(a_Position, 1.0));
     v_Normal = mat3(u_Normal) * a_Normal;
     v_TexCoord = a_TexCoord;
@@ -105,15 +98,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
 // identical to the vertex stage so GLSL/SPIR-V link validation accepts it;
 // u_PrevModel goes unused by the fragment stage but must be present to keep
 // block signatures matched across stages.
-layout(std140, binding = 3) uniform ModelMatrices {
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-    mat4 u_PrevModel;
-};
+#include "include/InstanceBlock.glsl"
 
 // Texture bindings — must match PBR_MultiLight so material data works unchanged.
 layout(binding = 0) uniform sampler2D u_AlbedoMap;

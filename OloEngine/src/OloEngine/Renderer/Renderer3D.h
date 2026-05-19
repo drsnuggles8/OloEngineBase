@@ -14,6 +14,8 @@
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
+#include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
+#include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 #include "OloEngine/Wind/WindSystem.h"
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Snow/SnowEjectaSystem.h"
@@ -26,6 +28,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <span>
 #include <vector>
 
 // Forward declarations
@@ -188,6 +191,17 @@ namespace OloEngine
         // see GetAndRecordPrevInstanceTransforms. Leaving it at 0 preserves
         // the legacy mesh-handle-only cache key.
         static CommandPacket* DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true, u64 ownerKey = 0);
+
+        // InstanceData overload — propagates per-instance Color, Custom, and
+        // EntityID through FrameDataBuffer's parallel streams so shaders that
+        // read `instances[gl_InstanceIndex].Color` etc. (see
+        // InstanceBlock_Vertex.glsl) get the values the caller supplied.
+        // Used by Scene's InstancedMeshComponent loop to plumb authored
+        // per-instance tints + free-float data end-to-end. PrevTransform is
+        // aliased from Transform per-instance (per-instance motion vectors
+        // for explicit InstancedMeshComponent placements are a future
+        // extension).
+        static CommandPacket* DrawMeshInstanced(const Ref<Mesh>& mesh, std::span<const InstanceData> instances, const Material& material, bool isStatic = true, u64 ownerKey = 0);
         static CommandPacket* DrawLightCube(const glm::mat4& modelMatrix);
         static CommandPacket* DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
         static CommandPacket* DrawSkybox(const Ref<TextureCubemap>& skyboxTexture);
@@ -833,9 +847,13 @@ namespace OloEngine
         {
             return s_Data.WaterUBO;
         }
-        static Ref<UniformBuffer> GetModelMatrixUBO()
+        // Per-draw instance data SSBO (binding = 15). Every mesh / shadow /
+        // decal / foliage / water shader reads its model transform from here
+        // via InstanceBlock.glsl; the legacy ModelMatrixUBO at binding 3 has
+        // been retired.
+        static Ref<InstanceBuffer> GetModelInstanceBuffer()
         {
-            return s_Data.ModelMatrixUBO;
+            return s_Data.ModelInstanceBuffer;
         }
 
         static PostProcessSettings& GetPostProcessSettings()
@@ -1114,6 +1132,18 @@ namespace OloEngine
         static auto ValidateDrawMeshRendererIDs(const char* context, u32 vaoID, u32 shaderID) -> bool;
         static auto CreatePODMaterialDataForMaterial(const Material& material, RendererID shaderRendererID) -> PODMaterialData;
 
+        // GPU-cull submission helper called from DrawMeshInstanced when the
+        // input count exceeds `s_Data.GPUCullThreshold`. Builds the full
+        // pre-cull InstanceData[], hands it to the GPUFrustumCuller, then
+        // attaches the resulting `cullOutputInstanceBufferID` and
+        // `cullIndirectBufferID` to the DrawMeshInstancedCommand so the
+        // dispatcher takes the indirect-draw path. Returns nullptr on
+        // allocation failure or if the cull resources weren't ready.
+        static CommandPacket* SubmitGPUCulledInstanced(const Ref<Mesh>& mesh,
+                                                       const std::vector<glm::mat4>& transforms,
+                                                       const Material& material, bool isStatic,
+                                                       u64 ownerKey);
+
       private:
         struct Renderer3DData
         {
@@ -1145,7 +1175,25 @@ namespace OloEngine
             Ref<UniformBuffer> MultiLightBuffer;
             Ref<UniformBuffer> BoneMatricesUBO;
             Ref<UniformBuffer> PrevBoneMatricesUBO;
-            Ref<UniformBuffer> ModelMatrixUBO;
+            // Per-draw instance data SSBO at ShaderBindingLayout::SSBO_INSTANCE_DATA
+            // (= 15), indexed by gl_InstanceIndex in vertex stages and by the
+            // flat `v_InstanceIndex` varying in fragment stages. Every
+            // mesh-rendering shader reads its model transform from here; the
+            // legacy ModelMatrixUBO at binding 3 has been retired.
+            Ref<InstanceBuffer> ModelInstanceBuffer;
+
+            // GPU-side per-instance frustum cull pre-pass. Used by
+            // `DrawMeshInstanced` when the input count crosses
+            // `s_Data.GPUCullThreshold` — the cull compute moves the
+            // per-instance sphere test off the CPU and produces a compacted
+            // InstanceBuffer + indirect draw command for the actual draw.
+            // Null when the compute shader failed to load (engine falls back
+            // to the CPU loop in that case).
+            Ref<class GPUFrustumCuller> GPUFrustumCuller;
+            // Minimum input count required to route a DrawMeshInstanced
+            // submission through the GPU cull path. Below this, the CPU
+            // loop wins on launch overhead.
+            u32 GPUCullThreshold = 1024;
             PostProcessGPUState PostProcessGPU;
             Ref<UniformBuffer> TerrainUBO;
             Ref<UniformBuffer> FoliageUBO;

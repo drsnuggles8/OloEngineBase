@@ -90,6 +90,15 @@ namespace OloEngine
         m_CurrentFrame.m_CommandPackets = 0;
         m_CurrentFrame.m_SortingTime = 0.0;
         m_CurrentFrame.m_CullingTime = 0.0;
+        m_CurrentFrame.m_InstancedDrawCalls = 0;
+        m_CurrentFrame.m_InstancesRendered = 0;
+        m_CurrentFrame.m_InstancesBatched = 0;
+
+        // Drop last frame's per-call instance breakdown. Recording is opt-in
+        // so this is empty most of the time; clearing unconditionally keeps
+        // the cost negligible and stops stale data from polluting the UI
+        // when the toggle is flipped on mid-session.
+        m_InstancedDrawRecords.clear();
     }
 
     void RendererProfiler::EndFrame()
@@ -118,6 +127,9 @@ namespace OloEngine
         m_Counters[MetricType::CommandPackets].AddSample(m_CurrentFrame.m_CommandPackets);
         m_Counters[MetricType::SortingTime].AddSample(m_CurrentFrame.m_SortingTime);
         m_Counters[MetricType::CullingTime].AddSample(m_CurrentFrame.m_CullingTime);
+        m_Counters[MetricType::InstancedDrawCalls].AddSample(m_CurrentFrame.m_InstancedDrawCalls);
+        m_Counters[MetricType::InstancesRendered].AddSample(m_CurrentFrame.m_InstancesRendered);
+        m_Counters[MetricType::InstancesBatched].AddSample(m_CurrentFrame.m_InstancesBatched);
 
         // Move current to previous
         m_PreviousFrame = m_CurrentFrame;
@@ -165,6 +177,15 @@ namespace OloEngine
                 break;
             case MetricType::CommandPackets:
                 m_CurrentFrame.m_CommandPackets += value;
+                break;
+            case MetricType::InstancedDrawCalls:
+                m_CurrentFrame.m_InstancedDrawCalls += value;
+                break;
+            case MetricType::InstancesRendered:
+                m_CurrentFrame.m_InstancesRendered += value;
+                break;
+            case MetricType::InstancesBatched:
+                m_CurrentFrame.m_InstancesBatched += value;
                 break;
             default:
                 break;
@@ -256,6 +277,12 @@ namespace OloEngine
                 if (ImGui::BeginTabItem("Frame Compare"))
                 {
                     RenderFrameComparisonTab();
+                    ImGui::EndTabItem();
+                }
+
+                if (ImGui::BeginTabItem("Instanced Draws"))
+                {
+                    RenderInstancedDrawsTab();
                     ImGui::EndTabItem();
                 }
 
@@ -646,6 +673,12 @@ namespace OloEngine
                 return "Sorting Time";
             case MetricType::CullingTime:
                 return "Culling Time";
+            case MetricType::InstancedDrawCalls:
+                return "Instanced Draws";
+            case MetricType::InstancesRendered:
+                return "Instances";
+            case MetricType::InstancesBatched:
+                return "Instances Batched";
             default:
                 return "Unknown";
         }
@@ -835,6 +868,9 @@ namespace OloEngine
         m_CommandPackets = 0;
         m_SortingTime = 0.0;
         m_CullingTime = 0.0;
+        m_InstancedDrawCalls = 0;
+        m_InstancesRendered = 0;
+        m_InstancesBatched = 0;
     }
 
     // ProfileScope implementation
@@ -936,6 +972,28 @@ namespace OloEngine
 
         OLO_CORE_TRACE("RendererProfiler: Tracked draw call '{}' with shader '{}' - {} verts, {} indices",
                        name, shaderName, vertexCount, indexCount);
+    }
+
+    void RendererProfiler::RecordInstancedDraw(u64 meshHandle, u32 vertexArrayID, u32 indexCount,
+                                               u32 instanceCount, const i32* entityIDs, bool fromAutoBatching,
+                                               const char* source)
+    {
+        if (!m_RecordInstancedDraws)
+            return;
+
+        InstancedDrawRecord record;
+        record.m_MeshHandle = meshHandle;
+        record.m_VertexArrayID = vertexArrayID;
+        record.m_IndexCount = indexCount;
+        record.m_InstanceCount = instanceCount;
+        record.m_FromAutoBatching = fromAutoBatching;
+        if (source && *source)
+            record.m_Source = source;
+        if (entityIDs && instanceCount > 0)
+        {
+            record.m_EntityIDs.assign(entityIDs, entityIDs + instanceCount);
+        }
+        m_InstancedDrawRecords.push_back(std::move(record));
     }
 
     std::string RendererProfiler::CompareFrames(const CapturedFrame& frame1, const CapturedFrame& frame2) const
@@ -1187,6 +1245,241 @@ namespace OloEngine
                 // For now just log it, later we could show it in a popup or export it
                 OLO_CORE_INFO("Frame Comparison Report:\n{}", report);
             }
+        }
+    }
+
+    void RendererProfiler::RenderInstancedDrawsTab()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        ImGui::TextWrapped(
+            "Per-frame breakdown of every glDrawElementsInstanced call: which "
+            "mesh, how many instances, and which entity IDs collapsed into "
+            "each call. Recording is opt-in (small CPU cost per draw); the "
+            "list refreshes every frame while enabled.");
+        ImGui::Spacing();
+
+        bool recording = m_RecordInstancedDraws;
+        if (ImGui::Checkbox("Record Instanced Draws", &recording))
+        {
+            m_RecordInstancedDraws = recording;
+            if (!recording)
+                m_InstancedDrawRecords.clear();
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(toggle to start/stop capturing this frame's instanced submissions)");
+
+        ImGui::Separator();
+
+        if (!m_RecordInstancedDraws)
+        {
+            ImGui::TextDisabled("Recording disabled — toggle on to start collecting per-call breakdowns.");
+            return;
+        }
+        if (m_InstancedDrawRecords.empty())
+        {
+            ImGui::TextDisabled("No instanced draws recorded this frame yet.");
+            return;
+        }
+
+        ImGui::Text("Recorded draws this frame: %zu", m_InstancedDrawRecords.size());
+
+        // Aggregate stats so the user can see the ratio at a glance — and the
+        // diagnostic-friendly version of these counters lives in the "Copy to
+        // Clipboard" payload below for handoff to external analysis (LLMs,
+        // bug reports, perf reviews).
+        u32 totalInstances = 0;
+        u32 autoBatchedCalls = 0;
+        u32 autoBatchedInstances = 0;
+        u32 shadowCalls = 0;
+        u32 shadowInstances = 0;
+        u32 gpuCullCalls = 0;
+        u32 gpuCullInstances = 0;
+        for (const auto& rec : m_InstancedDrawRecords)
+        {
+            totalInstances += rec.m_InstanceCount;
+            if (rec.m_FromAutoBatching)
+            {
+                ++autoBatchedCalls;
+                autoBatchedInstances += rec.m_InstanceCount;
+            }
+            if (rec.m_Source.rfind("Shadow", 0) == 0)
+            {
+                ++shadowCalls;
+                shadowInstances += rec.m_InstanceCount;
+            }
+            else if (rec.m_Source.find("GPU cull") != std::string::npos)
+            {
+                ++gpuCullCalls;
+                gpuCullInstances += rec.m_InstanceCount;
+            }
+        }
+        ImGui::Text("Total instances across these draws: %u", totalInstances);
+        ImGui::Text("Auto-batched: %u calls / %u instances    Explicit InstancedMeshComponent: %u calls / %u instances",
+                    autoBatchedCalls, autoBatchedInstances,
+                    static_cast<u32>(m_InstancedDrawRecords.size()) - autoBatchedCalls,
+                    totalInstances - autoBatchedInstances);
+        // Per-pipeline breakdown — surfaces shadow / GPU-cull contributions
+        // that previously hid because both ran outside the regular
+        // CommandDispatch::DrawMeshInstanced hook.
+        if (shadowCalls > 0 || gpuCullCalls > 0)
+        {
+            ImGui::Text("    Shadow: %u calls / %u instances    GPU-cull: %u calls / %u instances",
+                        shadowCalls, shadowInstances, gpuCullCalls, gpuCullInstances);
+        }
+
+        // Diagnostic text-dump — copies a structured report to the system
+        // clipboard. Designed to be pasted into a chat / issue / log so
+        // anyone reading (including an LLM helper) can analyze the breakdown
+        // without screenshots. Format is stable so future tools can parse it.
+        if (ImGui::Button("Copy Frame Report to Clipboard"))
+        {
+            std::ostringstream report;
+            const auto& frame = m_CurrentFrame;
+            report << "=== OloEngine Renderer Profiler — Frame " << m_FrameNumber << " ===\n";
+            report << "Frame Time:  " << std::fixed << std::setprecision(2) << frame.m_FrameTime << " ms\n";
+            report << "CPU Time:    " << frame.m_CPUTime << " ms\n";
+            report << "Draw Calls:  " << frame.m_DrawCalls << "  (of which instanced: " << frame.m_InstancedDrawCalls << ")\n";
+            report << "Instances:   " << frame.m_InstancesRendered << "  (batched savings: " << frame.m_InstancesBatched << ")\n";
+            report << "State Changes: " << frame.m_StateChanges << "\n";
+            report << "Vertices:    " << frame.m_VerticesRendered << "\n";
+            report << "Triangles:   " << frame.m_TrianglesRendered << "\n";
+            report << "Shader/Tex/Buf binds: " << frame.m_ShaderBinds << " / "
+                   << frame.m_TextureBinds << " / " << frame.m_BufferBinds << "\n";
+            report << "\n--- Instanced Draws (" << m_InstancedDrawRecords.size() << ") ---\n";
+            for (sizet i = 0; i < m_InstancedDrawRecords.size(); ++i)
+            {
+                const auto& rec = m_InstancedDrawRecords[i];
+                report << "[" << i << "] (" << rec.m_Source << ") MeshHandle=" << rec.m_MeshHandle
+                       << " VAO=" << rec.m_VertexArrayID
+                       << " IndexCount=" << rec.m_IndexCount
+                       << " Instances=" << rec.m_InstanceCount
+                       << (rec.m_FromAutoBatching ? " [auto-batched]" : " [explicit]")
+                       << "\n";
+                if (!rec.m_EntityIDs.empty())
+                {
+                    report << "    EntityIDs (" << rec.m_EntityIDs.size() << "): ";
+                    constexpr sizet kMaxIDs = 64;
+                    const sizet shown = std::min<sizet>(kMaxIDs, rec.m_EntityIDs.size());
+                    for (sizet k = 0; k < shown; ++k)
+                    {
+                        if (k > 0)
+                            report << ", ";
+                        report << rec.m_EntityIDs[k];
+                    }
+                    if (rec.m_EntityIDs.size() > shown)
+                        report << ", ... (+" << (rec.m_EntityIDs.size() - shown) << " more)";
+                    report << "\n";
+                }
+            }
+            report << "=== end ===\n";
+            ImGui::SetClipboardText(report.str().c_str());
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(structured text dump for sharing / external analysis)");
+        ImGui::Spacing();
+
+        if (ImGui::BeginTable("InstancedDraws", 6,
+                              ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY |
+                                  ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders))
+        {
+            ImGui::TableSetupColumn("#");
+            ImGui::TableSetupColumn("Source");
+            ImGui::TableSetupColumn("Mesh Handle");
+            ImGui::TableSetupColumn("VAO");
+            ImGui::TableSetupColumn("Instances");
+            ImGui::TableSetupColumn("Entity IDs");
+            ImGui::TableHeadersRow();
+
+            for (sizet i = 0; i < m_InstancedDrawRecords.size(); ++i)
+            {
+                const auto& rec = m_InstancedDrawRecords[i];
+                ImGui::TableNextRow();
+                ImGui::PushID(static_cast<int>(i));
+
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("%zu", i);
+
+                // Source column. Tint shadow draws so they're visually
+                // distinct from scene draws when both fire in the same
+                // frame — at a glance "everything CSM-tagged is cyan,
+                // everything Scene-tagged is white".
+                ImGui::TableSetColumnIndex(1);
+                if (rec.m_Source.rfind("Shadow", 0) == 0)
+                    ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "%s", rec.m_Source.c_str());
+                else if (rec.m_Source.find("GPU cull") != std::string::npos)
+                    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.4f, 1.0f), "%s", rec.m_Source.c_str());
+                else
+                    ImGui::TextUnformatted(rec.m_Source.c_str());
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("%llu", static_cast<unsigned long long>(rec.m_MeshHandle));
+
+                ImGui::TableSetColumnIndex(3);
+                ImGui::Text("%u", rec.m_VertexArrayID);
+
+                ImGui::TableSetColumnIndex(4);
+                if (rec.m_FromAutoBatching)
+                    ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1.0f), "%u (batched)", rec.m_InstanceCount);
+                else
+                    ImGui::Text("%u", rec.m_InstanceCount);
+
+                ImGui::TableSetColumnIndex(5);
+                if (rec.m_EntityIDs.empty())
+                {
+                    ImGui::TextDisabled("(no entity-ID stream)");
+                }
+                else if (rec.m_FromAutoBatching)
+                {
+                    // Auto-batched: list the contributing entity IDs. Inline
+                    // for small batches, collapsible TreeNode for large ones.
+                    if (rec.m_EntityIDs.size() <= 8)
+                    {
+                        std::string ids;
+                        ids.reserve(rec.m_EntityIDs.size() * 6);
+                        for (sizet k = 0; k < rec.m_EntityIDs.size(); ++k)
+                        {
+                            if (k > 0)
+                                ids += ", ";
+                            ids += std::to_string(rec.m_EntityIDs[k]);
+                        }
+                        ImGui::TextUnformatted(ids.c_str());
+                    }
+                    else
+                    {
+                        if (ImGui::TreeNode("entity-ids", "%zu entity IDs (click to expand)", rec.m_EntityIDs.size()))
+                        {
+                            // Render in rows of 10 for readability
+                            std::string row;
+                            row.reserve(80);
+                            for (sizet k = 0; k < rec.m_EntityIDs.size(); ++k)
+                            {
+                                if (!row.empty())
+                                    row += ", ";
+                                row += std::to_string(rec.m_EntityIDs[k]);
+                                if (((k + 1) % 10) == 0)
+                                {
+                                    ImGui::TextUnformatted(row.c_str());
+                                    row.clear();
+                                }
+                            }
+                            if (!row.empty())
+                                ImGui::TextUnformatted(row.c_str());
+                            ImGui::TreePop();
+                        }
+                    }
+                }
+                else
+                {
+                    // Explicit InstancedMeshComponent: per-instance IDs are the
+                    // values the author set on InstanceData.EntityID. Distinct
+                    // from auto-batched because the source is a single entity.
+                    ImGui::TextDisabled("InstancedMeshComponent (%zu per-instance IDs)", rec.m_EntityIDs.size());
+                }
+
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
         }
     }
 } // namespace OloEngine

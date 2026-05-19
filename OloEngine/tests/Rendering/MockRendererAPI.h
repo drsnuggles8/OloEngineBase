@@ -176,6 +176,16 @@ namespace OloEngine::Testing
             m_Calls.push_back(c);
             m_DrawCallCount++;
         }
+        void DrawIndexedInstancedRaw(u32 vaoID, u32 indexCount, u32 baseIndex, u32 instanceCount) override
+        {
+            RecordedCall c{ "DrawIndexedInstancedRaw" };
+            c.ParamU32_0 = vaoID;
+            c.ParamU32_1 = indexCount;
+            c.ParamU32_2 = baseIndex;
+            c.ParamU32_3 = instanceCount;
+            m_Calls.push_back(c);
+            m_DrawCallCount++;
+        }
         void DrawIndexedPatchesRaw(u32 vaoID, u32 indexCount, u32 patchVerts) override
         {
             RecordedCall c{ "DrawIndexedPatchesRaw" };
@@ -298,6 +308,11 @@ namespace OloEngine::Testing
         void DrawArraysIndirect(const Ref<VertexArray>& /*va*/, u32 /*bufID*/) override
         {
             Record("DrawArraysIndirect");
+            m_DrawCallCount++;
+        }
+        void DrawElementsIndirectRaw(u32 /*vaoID*/, u32 /*bufID*/) override
+        {
+            Record("DrawElementsIndirectRaw");
             m_DrawCallCount++;
         }
         void DispatchCompute(u32 /*x*/, u32 /*y*/, u32 /*z*/) override

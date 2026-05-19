@@ -13,14 +13,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
     float _padding0;
 };
 
-layout(std140, binding = 3) uniform ModelMatrices {
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-};
+#include "include/InstanceBlock_Vertex.glsl"
 
 layout(location = 0) out vec3 v_Normal;
 layout(location = 1) out vec3 v_FragPos;
@@ -28,6 +21,7 @@ layout(location = 2) out vec2 v_TexCoord;
 
 void main()
 {
+    OLO_INSTANCE_FORWARD();
     v_FragPos = vec3(u_Model * vec4(a_Position, 1.0));
     v_Normal = mat3(u_Normal) * a_Normal;
     v_TexCoord = a_TexCoord;
@@ -62,14 +56,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
     float _padding0;
 };
 
-layout(std140, binding = 3) uniform ModelMatrices {
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-};
+#include "include/InstanceBlock.glsl"
 
 const int DIRECTIONAL_LIGHT = 0;
 const int POINT_LIGHT = 1;

@@ -616,19 +616,77 @@ namespace OloEngine
             u32 totalInstances = static_cast<u32>(
                 std::min(indices.size(), static_cast<sizet>(m_Config.MaxMeshInstances)));
 
-            // Allocate contiguous transform block for all instances at once
+            // Allocate three parallel per-instance streams in FrameDataBuffer:
+            //   • transforms      — current-frame world transforms (always present)
+            //   • prevTransforms  — previous-frame transforms for TAA/motion-vector velocity
+            //   • entityIDs       — per-source EntityIDs for editor picking
+            // All three indexed by the same instance slot (0..totalInstances-1).
             u32 transformOffset = frameBuffer.AllocateTransforms(totalInstances);
             if (transformOffset == UINT32_MAX)
             {
                 OLO_CORE_ERROR("CommandBucket::BatchCommands: Failed to allocate {} transforms in FrameDataBuffer", totalInstances);
                 continue;
             }
+            u32 prevTransformOffset = frameBuffer.AllocateTransforms(totalInstances);
+            if (prevTransformOffset == UINT32_MAX)
+            {
+                OLO_CORE_WARN("CommandBucket::BatchCommands: Failed to allocate {} prev-transforms; batched motion vectors will alias current frame", totalInstances);
+                // Continue without prev-transform stream — dispatcher falls back
+                // to prevTransforms = transforms, producing zero velocity for
+                // this draw (same behaviour as a brand-new entity in frame 0).
+            }
+            u32 entityIDOffset = frameBuffer.AllocateEntityIDs(totalInstances);
+            if (entityIDOffset == UINT32_MAX)
+            {
+                OLO_CORE_WARN("CommandBucket::BatchCommands: Failed to allocate {} entity IDs; batched picking will return -1", totalInstances);
+            }
 
-            // Write all transforms contiguously
+            // Only allocate Color / Custom streams when at least one source has
+            // a non-default value — common case is no per-entity tinting set,
+            // in which case the dispatcher falls back to the InstanceData
+            // defaults (1,1,1,1) / 0.0f. Saves N*20 B of per-frame FrameDataBuffer
+            // pressure on the typical scene.
+            bool anyNonDefaultColor = false;
+            bool anyNonDefaultCustom = false;
+            for (u32 t = 0; t < totalInstances; ++t)
+            {
+                auto const* meshCmd = m_Packets[indices[t]]->GetCommandData<DrawMeshCommand>();
+                if (meshCmd->color != glm::vec4(1.0f))
+                    anyNonDefaultColor = true;
+                if (meshCmd->custom != 0.0f)
+                    anyNonDefaultCustom = true;
+                if (anyNonDefaultColor && anyNonDefaultCustom)
+                    break;
+            }
+
+            u32 colorOffset = UINT32_MAX;
+            u32 customOffset = UINT32_MAX;
+            if (anyNonDefaultColor)
+            {
+                colorOffset = frameBuffer.AllocateColors(totalInstances);
+                if (colorOffset == UINT32_MAX)
+                    OLO_CORE_WARN("CommandBucket::BatchCommands: Failed to allocate {} colors; per-entity tint lost in batched draw", totalInstances);
+            }
+            if (anyNonDefaultCustom)
+            {
+                customOffset = frameBuffer.AllocateCustoms(totalInstances);
+                if (customOffset == UINT32_MAX)
+                    OLO_CORE_WARN("CommandBucket::BatchCommands: Failed to allocate {} customs; per-entity Custom lost in batched draw", totalInstances);
+            }
+
+            // Write each source command's per-instance data contiguously.
             for (u32 t = 0; t < totalInstances; ++t)
             {
                 auto const* meshCmd = m_Packets[indices[t]]->GetCommandData<DrawMeshCommand>();
                 frameBuffer.WriteTransforms(transformOffset + t, &meshCmd->transform, 1);
+                if (prevTransformOffset != UINT32_MAX)
+                    frameBuffer.WriteTransforms(prevTransformOffset + t, &meshCmd->prevTransform, 1);
+                if (entityIDOffset != UINT32_MAX)
+                    frameBuffer.WriteEntityIDs(entityIDOffset + t, &meshCmd->entityID, 1);
+                if (colorOffset != UINT32_MAX)
+                    frameBuffer.WriteColors(colorOffset + t, &meshCmd->color, 1);
+                if (customOffset != UINT32_MAX)
+                    frameBuffer.WriteCustoms(customOffset + t, &meshCmd->custom, 1);
             }
 
             // Build the instanced command from the first DrawMeshCommand
@@ -649,6 +707,10 @@ namespace OloEngine
             icmd->instanceCount = totalInstances;
             icmd->transformBufferOffset = transformOffset;
             icmd->transformCount = totalInstances;
+            icmd->prevTransformBufferOffset = prevTransformOffset; // UINT32_MAX on alloc failure -> dispatcher aliases current
+            icmd->entityIDBufferOffset = entityIDOffset;           // UINT32_MAX on alloc failure -> dispatcher writes -1
+            icmd->colorBufferOffset = colorOffset;                 // UINT32_MAX when all sources had identity tint
+            icmd->customBufferOffset = customOffset;               // UINT32_MAX when all sources had Custom == 0
             icmd->shaderHandle = firstCmd->shaderHandle;
             icmd->materialDataIndex = firstCmd->materialDataIndex;
             icmd->renderStateIndex = firstCmd->renderStateIndex;

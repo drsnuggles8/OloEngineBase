@@ -9,6 +9,7 @@ namespace OloEngine
 {
     class TiledForwardPlus;
     class UniformBuffer;
+    class InstanceBuffer;
     class Light;
     class ShaderResourceRegistry;
 
@@ -77,7 +78,7 @@ namespace OloEngine
             const Ref<UniformBuffer>& materialUBO,
             const Ref<UniformBuffer>& lightUBO,
             const Ref<UniformBuffer>& boneMatricesUBO,
-            const Ref<UniformBuffer>& modelMatrixUBO,
+            const Ref<InstanceBuffer>& modelInstanceBuffer,
             const Ref<UniformBuffer>& prevBoneMatricesUBO = nullptr,
             TiledForwardPlus* forwardPlus = nullptr);
 

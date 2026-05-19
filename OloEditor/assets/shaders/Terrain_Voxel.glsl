@@ -22,21 +22,14 @@ layout(std140, binding = 0) uniform CameraMatrices {
 };
 
 // Model UBO (binding 3)
-layout(std140, binding = 3) uniform ModelMatrices {
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-    mat4 u_PrevModel;
-};
+#include "include/InstanceBlock_Vertex.glsl"
 
 layout(location = 0) out vec3 v_WorldPos;
 layout(location = 1) out vec3 v_Normal;
 
 void main()
 {
+    OLO_INSTANCE_FORWARD();
     vec4 worldPos = u_Model * vec4(a_Position, 1.0);
     v_WorldPos = worldPos.xyz;
     v_Normal = normalize(mat3(u_Normal) * a_Normal);
@@ -85,15 +78,7 @@ layout(std140, binding = 6) uniform ShadowData {
 };
 
 // Model UBO (binding 3)
-layout(std140, binding = 3) uniform ModelMatrices {
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-    mat4 u_PrevModel;
-};
+#include "include/InstanceBlock.glsl"
 
 // Terrain UBO (binding 10) — reuse terrain layer tiling/sharpness for texture arrays
 layout(std140, binding = 10) uniform TerrainParams {

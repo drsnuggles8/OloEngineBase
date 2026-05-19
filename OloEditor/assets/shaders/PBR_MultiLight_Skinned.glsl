@@ -26,20 +26,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
 };
 
 // Model UBO (binding 3)
-layout(std140, binding = 3) uniform ModelMatrices {
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-    // Previous-frame world transform. For skinned meshes we reuse the
-    // current bone palette (prev-bone matrices are only streamed in the
-    // Deferred G-Buffer skinned shader), so the emitted velocity covers
-    // rigid whole-body motion only — intra-skeleton bone deltas resolve
-    // to zero, which is acceptable for TAA reprojection on forward paths.
-    mat4 u_PrevModel;
-};
+#include "include/InstanceBlock_Vertex.glsl"
 
 // Bone Matrices UBO (binding 4)
 layout(std140, binding = 4) uniform BoneMatrices {
@@ -63,6 +50,7 @@ layout(location = 4) out vec4 v_ClipPosPrev;
 
 void main()
 {
+    OLO_INSTANCE_FORWARD();
     // Calculate bone transformation
     mat4 boneTransform = mat4(0.0);
     mat4 prevBoneTransform = mat4(0.0);
@@ -242,15 +230,7 @@ vec2 octEncode(vec3 n)
 // (which includes the trailing u_PrevModel). u_PrevModel is unused in
 // fragment but the declaration keeps the two stages' block types
 // identical so glLinkProgram() succeeds.
-layout(std140, binding = 3) uniform ModelMatrices {
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-    mat4 u_PrevModel;
-};
+#include "include/InstanceBlock.glsl"
 
 // =============================================================================
 // MAIN FRAGMENT SHADER

@@ -13,19 +13,13 @@ layout(location = 0) in vec3 a_Position;
 
 #include "include/CameraCommon.glsl"
 
-layout(std140, binding = 3) uniform ModelMatrices {
-    mat4 u_Model;
-    mat4 u_NormalMatrix;
-    int u_EntityID;
-    int _modelPad0;
-    int _modelPad1;
-    int _modelPad2;
-};
+#include "include/InstanceBlock_Vertex.glsl"
 
 layout(location = 0) out vec4 v_ClipPos;
 
 void main()
 {
+    OLO_INSTANCE_FORWARD();
     vec4 worldPos = u_Model * vec4(a_Position, 1.0);
     v_ClipPos = u_ViewProjection * worldPos;
     gl_Position = v_ClipPos;

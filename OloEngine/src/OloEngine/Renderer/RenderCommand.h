@@ -82,6 +82,13 @@ namespace OloEngine
             s_RendererAPI->DrawIndexedRaw(vaoID, indexCount, baseIndex);
         }
 
+        // Instanced raw variant — used by shadow caster auto-batching to collapse
+        // N casters sharing (vao, indexCount, baseIndex) into one GPU draw.
+        static void DrawIndexedInstancedRaw(u32 vaoID, u32 indexCount, u32 baseIndex, u32 instanceCount)
+        {
+            s_RendererAPI->DrawIndexedInstancedRaw(vaoID, indexCount, baseIndex, instanceCount);
+        }
+
         static void DrawIndexedPatchesRaw(u32 vaoID, u32 indexCount, u32 patchVertices)
         {
             s_RendererAPI->DrawIndexedPatchesRaw(vaoID, indexCount, patchVertices);
@@ -269,6 +276,13 @@ namespace OloEngine
         static void DrawArraysIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID)
         {
             s_RendererAPI->DrawArraysIndirect(vertexArray, indirectBufferID);
+        }
+
+        // Raw-VAO variant used by the GPU frustum-cull path that only has a
+        // RendererID (no Ref<VertexArray> on hand inside the dispatcher).
+        static void DrawElementsIndirectRaw(u32 vaoID, u32 indirectBufferID)
+        {
+            s_RendererAPI->DrawElementsIndirectRaw(vaoID, indirectBufferID);
         }
 
         // Compute shader dispatch

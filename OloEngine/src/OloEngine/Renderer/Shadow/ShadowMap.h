@@ -180,14 +180,13 @@ namespace OloEngine
         // Reset per-frame state (call at BeginScene)
         void BeginFrame();
 
-        // Accessors for shadow-pass rendering UBOs (shared across frames)
+        // Accessors for shadow-pass rendering UBOs (shared across frames).
+        // GetShadowModelUBO was retired alongside the renderer's ModelMatrixUBO;
+        // shadow shaders now read transforms from the engine-wide InstanceBuffer
+        // at binding 15 (see Renderer3D::GetModelInstanceBuffer()).
         [[nodiscard]] Ref<UniformBuffer>& GetShadowCameraUBO()
         {
             return m_ShadowCameraUBO;
-        }
-        [[nodiscard]] Ref<UniformBuffer>& GetShadowModelUBO()
-        {
-            return m_ShadowModelUBO;
         }
         [[nodiscard]] Ref<UniformBuffer>& GetShadowAnimationUBO()
         {
@@ -223,7 +222,6 @@ namespace OloEngine
 
         // Temporary UBOs for shadow-pass rendering (reused each frame)
         Ref<UniformBuffer> m_ShadowCameraUBO;
-        Ref<UniformBuffer> m_ShadowModelUBO;
         Ref<UniformBuffer> m_ShadowAnimationUBO;
 
         bool m_Initialized = false;

@@ -18,11 +18,12 @@ namespace OloEngine
             m_OwnedAllocator = CreateScope<CommandAllocator>();
             m_Allocator = m_OwnedAllocator.get();
 
-            // Disable batching until shaders support instanced drawing
-            // (u_ModelMatrices[] / gl_InstanceID). Individual render passes
-            // can re-enable it once their shader pipelines are ready.
+            // Batching is on: same-mesh-same-material DrawMesh commands collapse
+            // into a single DrawMeshInstanced packet that uploads N transforms
+            // into the ModelInstanceBuffer SSBO (binding 15) and issues one
+            // glDrawElementsInstanced call. Vertex shaders read each instance
+            // via `instances[gl_InstanceIndex]` (see InstanceBlock_Vertex.glsl).
             CommandBucketConfig config;
-            config.EnableBatching = false;
             m_CommandBucket = CommandBucket(config);
             // The bucket's internal `m_Allocator` is the one consumed by
             // `CommandBucket::CreateDrawCall<T>()` / `BatchCommands` / etc.

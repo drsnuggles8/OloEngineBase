@@ -1,5 +1,9 @@
 #include "SceneHierarchyPanel.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Renderer/Instancing/InstancedMeshComponent.h"
+
+#include <random>
+#include <glm/gtc/matrix_transform.hpp>
 #include "OloEngine/Scene/Prefab.h"
 #include "OloEngine/Audio/AudioEvents/AudioCommandRegistry.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
@@ -1639,6 +1643,7 @@ namespace OloEngine
 
             // 3D Components
             DisplayAddComponentEntry<MeshComponent>("Mesh");
+            DisplayAddComponentEntry<InstancedMeshComponent>("Instanced Mesh");
             DisplayAddComponentEntry<ModelComponent>("Model (with Materials)");
             DisplayAddComponentEntry<MaterialComponent>("Material");
             DisplayAddComponentEntry<LODGroupComponent>("LOD Group");
@@ -2318,6 +2323,203 @@ namespace OloEngine
 					component.m_Primitive = MeshPrimitive::None;
 				}
 			} });
+
+        DrawComponent<InstancedMeshComponent>("Instanced Mesh", entity, [](auto& component)
+                                              {
+            // Phase 5 inspector: read-only summary of the component's resource
+            // bindings + flag editors + a basic scatter-brush MVP for inline
+            // placements. Procedural density / slope-aware surface scatter is
+            // a dedicated viewport-tool feature — see
+            // docs/GPU_INSTANCING_FUTURE_IMPROVEMENTS.md §1 for the spec.
+            // The volume-scatter controls below let an author drop N random
+            // placements in an authored AABB via a single button — enough
+            // for a working foliage demo without leaving the inspector.
+            ImGui::Text("Mesh Source: %s", component.MeshSource ? "Loaded" : "None");
+            if (component.MeshSource)
+            {
+                ImGui::Text("Submeshes: %d", component.MeshSource->GetSubmeshes().Num());
+            }
+            ImGui::Text("Override Material: %s", component.OverrideMaterial ? "Set" : "None");
+            ImGui::Text("Inline Instance Count: %zu", component.Instances.size());
+            ImGui::Text("Placement Asset Handle: %llu", static_cast<unsigned long long>(component.PlacementAssetHandle));
+            ImGui::Separator();
+            ImGui::Checkbox("Frustum Cull Per Instance", &component.FrustumCullPerInstance);
+            ImGui::Checkbox("Cast Shadows", &component.CastShadows);
+            ImGui::DragFloat("Cull Distance", &component.CullDistance, 1.0f, 0.0f, 100000.0f, "%.1f m");
+            ImGui::TextDisabled("0 disables distance culling");
+
+            ImGui::Separator();
+            ImGui::TextUnformatted("Scatter Brush (MVP)");
+            static i32 s_ScatterCount = 100;
+            static glm::vec3 s_ScatterMin = glm::vec3(-10.0f, 0.0f, -10.0f);
+            static glm::vec3 s_ScatterMax = glm::vec3( 10.0f, 0.0f,  10.0f);
+            static f32 s_ScatterScaleMin = 0.8f;
+            static f32 s_ScatterScaleMax = 1.2f;
+            static bool s_ScatterRandomYRot = true;
+            // Poisson-disc sampling (Bridson 2007) avoids the clumpy
+            // clusters that uniform-random produces — important for
+            // foliage scatter where uniform distribution looks artificial.
+            // Disabled by default; when enabled the `Count` slider becomes
+            // a *budget* (the algorithm stops earlier if the XZ footprint
+            // can't fit `Count` non-overlapping discs).
+            static bool s_ScatterUsePoisson = false;
+            static f32 s_ScatterPoissonRadius = 1.5f;
+            ImGui::SliderInt("Count", &s_ScatterCount, 1, 5000);
+            ImGui::DragFloat3("AABB Min", &s_ScatterMin.x, 0.5f);
+            ImGui::DragFloat3("AABB Max", &s_ScatterMax.x, 0.5f);
+            ImGui::DragFloatRange2("Scale", &s_ScatterScaleMin, &s_ScatterScaleMax, 0.01f, 0.01f, 10.0f);
+            ImGui::Checkbox("Random Y Rotation", &s_ScatterRandomYRot);
+            ImGui::Checkbox("Poisson Disc (no clumps)", &s_ScatterUsePoisson);
+            if (s_ScatterUsePoisson)
+            {
+                ImGui::DragFloat("Min Spacing (XZ)", &s_ScatterPoissonRadius, 0.05f, 0.05f, 50.0f, "%.2f m");
+                ImGui::TextDisabled("Y is uniform-random inside [Min.y, Max.y]");
+            }
+            if (ImGui::Button("Scatter Append"))
+            {
+                // Deterministic RNG via seed-from-frame is too unstable for
+                // editor authoring (re-clicking yields the same set), so we
+                // pull entropy from std::random_device. Authored result lives
+                // in the component's Instances list and is YAML-persisted
+                // by SceneSerializer like any other inline placement.
+                std::random_device rd;
+                std::mt19937 rng(rd());
+                std::uniform_real_distribution<f32> distY(s_ScatterMin.y, s_ScatterMax.y);
+                std::uniform_real_distribution<f32> distScale(s_ScatterScaleMin, s_ScatterScaleMax);
+                std::uniform_real_distribution<f32> distRot(0.0f, 6.2831853f);
+
+                // Build the XZ position list. Two strategies:
+                //   - Uniform-random: classic per-instance independent draws.
+                //   - Poisson disc (Bridson 2007): grid-accelerated rejection
+                //     so no two samples are closer than `r` on the XZ plane.
+                std::vector<glm::vec2> xzPositions;
+                xzPositions.reserve(static_cast<sizet>(s_ScatterCount));
+                if (!s_ScatterUsePoisson)
+                {
+                    std::uniform_real_distribution<f32> distX(s_ScatterMin.x, s_ScatterMax.x);
+                    std::uniform_real_distribution<f32> distZ(s_ScatterMin.z, s_ScatterMax.z);
+                    for (i32 i = 0; i < s_ScatterCount; ++i)
+                        xzPositions.emplace_back(distX(rng), distZ(rng));
+                }
+                else
+                {
+                    // Bridson 2007: 2D Poisson-disc sampling with a uniform
+                    // grid for O(1) neighbour queries. `Count` acts as the
+                    // budget — the algorithm stops either when the active
+                    // list empties (footprint saturated) or when the budget
+                    // is reached, whichever comes first.
+                    const f32 r = std::max(0.05f, s_ScatterPoissonRadius);
+                    const f32 minX = s_ScatterMin.x, maxX = s_ScatterMax.x;
+                    const f32 minZ = s_ScatterMin.z, maxZ = s_ScatterMax.z;
+                    if (maxX > minX && maxZ > minZ)
+                    {
+                        const f32 cellSize = r * 0.7071067811865475f; // r / sqrt(2)
+                        const i32 cellsX = std::max(1, static_cast<i32>(std::ceil((maxX - minX) / cellSize)));
+                        const i32 cellsZ = std::max(1, static_cast<i32>(std::ceil((maxZ - minZ) / cellSize)));
+                        std::vector<i32> grid(static_cast<sizet>(cellsX * cellsZ), -1);
+                        auto cellIndex = [&](f32 x, f32 z) -> std::pair<i32, i32>
+                        {
+                            i32 cx = std::clamp(static_cast<i32>((x - minX) / cellSize), 0, cellsX - 1);
+                            i32 cz = std::clamp(static_cast<i32>((z - minZ) / cellSize), 0, cellsZ - 1);
+                            return { cx, cz };
+                        };
+
+                        std::uniform_real_distribution<f32> distX(minX, maxX);
+                        std::uniform_real_distribution<f32> distZ(minZ, maxZ);
+                        std::uniform_real_distribution<f32> distAngle(0.0f, 6.2831853f);
+                        std::uniform_real_distribution<f32> distRadiusFactor(1.0f, 2.0f);
+
+                        // Seed: one uniformly chosen point.
+                        const glm::vec2 seed{ distX(rng), distZ(rng) };
+                        xzPositions.push_back(seed);
+                        auto [scx, scz] = cellIndex(seed.x, seed.y);
+                        grid[scz * cellsX + scx] = 0;
+                        std::vector<i32> activeList = { 0 };
+
+                        // k = 30 is Bridson's recommended sample-per-point
+                        // budget — at higher k the algorithm produces a
+                        // slightly denser packing but spends more time per
+                        // candidate. 30 is the empirical knee.
+                        constexpr i32 kCandidatesPerActive = 30;
+                        while (!activeList.empty() && static_cast<i32>(xzPositions.size()) < s_ScatterCount)
+                        {
+                            std::uniform_int_distribution<sizet> distActive(0, activeList.size() - 1);
+                            const sizet activeSlot = distActive(rng);
+                            const glm::vec2 base = xzPositions[static_cast<sizet>(activeList[activeSlot])];
+                            bool found = false;
+                            for (i32 c = 0; c < kCandidatesPerActive; ++c)
+                            {
+                                const f32 angle = distAngle(rng);
+                                const f32 radius = r * distRadiusFactor(rng);
+                                const glm::vec2 cand{ base.x + std::cos(angle) * radius,
+                                                       base.y + std::sin(angle) * radius };
+                                if (cand.x < minX || cand.x > maxX || cand.y < minZ || cand.y > maxZ)
+                                    continue;
+
+                                // Reject if any neighbour in the 5x5 grid
+                                // window is within `r`. 5x5 (not 3x3) is
+                                // required because annulus candidates can
+                                // sit at distance up to 2r from `base` and
+                                // we need to check cells they might touch.
+                                auto [ccx, ccz] = cellIndex(cand.x, cand.y);
+                                bool tooClose = false;
+                                for (i32 dz = -2; dz <= 2 && !tooClose; ++dz)
+                                {
+                                    for (i32 dx = -2; dx <= 2 && !tooClose; ++dx)
+                                    {
+                                        const i32 nx = ccx + dx;
+                                        const i32 nz = ccz + dz;
+                                        if (nx < 0 || nx >= cellsX || nz < 0 || nz >= cellsZ)
+                                            continue;
+                                        const i32 idx = grid[nz * cellsX + nx];
+                                        if (idx < 0)
+                                            continue;
+                                        const glm::vec2 other = xzPositions[static_cast<sizet>(idx)];
+                                        if (glm::distance(cand, other) < r)
+                                            tooClose = true;
+                                    }
+                                }
+                                if (tooClose)
+                                    continue;
+
+                                xzPositions.push_back(cand);
+                                const i32 newIdx = static_cast<i32>(xzPositions.size()) - 1;
+                                grid[ccz * cellsX + ccx] = newIdx;
+                                activeList.push_back(newIdx);
+                                found = true;
+                                break;
+                            }
+                            if (!found)
+                            {
+                                // Saturated around this point — retire it.
+                                activeList[activeSlot] = activeList.back();
+                                activeList.pop_back();
+                            }
+                        }
+                    }
+                }
+
+                component.Instances.reserve(component.Instances.size() + xzPositions.size());
+                for (const auto& xz : xzPositions)
+                {
+                    InstanceData inst;
+                    glm::vec3 pos(xz.x, distY(rng), xz.y);
+                    f32 scale = distScale(rng);
+                    f32 yaw = s_ScatterRandomYRot ? distRot(rng) : 0.0f;
+                    glm::mat4 t = glm::translate(glm::mat4(1.0f), pos);
+                    glm::mat4 r = glm::rotate(glm::mat4(1.0f), yaw, glm::vec3(0, 1, 0));
+                    glm::mat4 s = glm::scale(glm::mat4(1.0f), glm::vec3(scale));
+                    inst.Transform = t * r * s;
+                    inst.Normal = glm::transpose(glm::inverse(inst.Transform));
+                    inst.PrevTransform = inst.Transform;
+                    component.Instances.push_back(inst);
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Clear Inline"))
+            {
+                component.Instances.clear();
+            } });
 
         DrawComponent<ModelComponent>("Model", entity, [](auto& component)
                                       {

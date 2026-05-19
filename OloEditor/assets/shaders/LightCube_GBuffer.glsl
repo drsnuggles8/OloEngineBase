@@ -20,15 +20,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
     float _padding0;
 };
 
-layout(std140, binding = 3) uniform ModelMatrices {
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-    mat4 u_PrevModel;
-};
+#include "include/InstanceBlock_Vertex.glsl"
 
 layout(std140, binding = 8) uniform MotionBlurMatrices {
     mat4 u_InverseViewProjection;
@@ -40,6 +32,7 @@ layout(location = 1) out vec4 v_ClipPosPrev;
 
 void main()
 {
+    OLO_INSTANCE_FORWARD();
     vec4 worldPos = u_Model * vec4(a_Position, 1.0);
     v_ClipPosCurr = u_ViewProjection * worldPos;
 
@@ -60,15 +53,7 @@ layout(location = 1) in vec4 v_ClipPosPrev;
 // Mirror the vertex-stage UBO block so the entity ID picking slot is
 // available in the fragment stage too. SPIR-V link validation rejects
 // mismatched layouts, so the padding fields stay identical.
-layout(std140, binding = 3) uniform ModelMatrices {
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-    mat4 u_PrevModel;
-};
+#include "include/InstanceBlock.glsl"
 
 layout(location = 0) out vec4 o_GBufferAlbedo;
 layout(location = 1) out vec4 o_GBufferNormal;

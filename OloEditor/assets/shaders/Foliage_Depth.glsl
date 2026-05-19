@@ -26,15 +26,7 @@ layout(std140, binding = 0) uniform CameraMatrices
 };
 
 // Model UBO (binding 3)
-layout(std140, binding = 3) uniform ModelMatrices
-{
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-};
+#include "include/InstanceBlock_Vertex.glsl"
 
 // Foliage UBO (binding 12)
 layout(std140, binding = 12) uniform FoliageParams
@@ -56,6 +48,7 @@ layout(location = 1) out float v_AlphaCutoff;
 
 void main()
 {
+    OLO_INSTANCE_FORWARD();
     float scale = a_PositionScale.w;
     float rotation = a_RotationHeight.x;
     float height = a_RotationHeight.y;

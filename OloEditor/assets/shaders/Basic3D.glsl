@@ -13,20 +13,18 @@ layout(std140, binding = 0) uniform CameraMatrices {
     float _padding0;
 };
 
-layout(std140, binding = 3) uniform ModelMatrices {
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-};
+// Per-draw transform / normal matrix / entity id come from the instance SSBO
+// at binding = 15. The shader body keeps reading `u_Model` etc. via the
+// macros declared in InstanceBlock.glsl, so only the resource declaration
+// differs from the legacy ModelMatrices UBO at binding = 3.
+#include "include/InstanceBlock_Vertex.glsl"
 
 layout(location = 0) out vec3 v_Color;
 layout(location = 1) out vec2 v_TexCoord;
 
 void main()
 {
+    OLO_INSTANCE_FORWARD();
     v_Color = a_Color;
     v_TexCoord = a_TexCoord;
     gl_Position = u_ViewProjection * u_Model * vec4(a_Position, 1.0);

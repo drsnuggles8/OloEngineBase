@@ -8,6 +8,8 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
+#include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -86,10 +88,10 @@ namespace OloEngine
             return;
         }
 
-        auto modelUBO = Renderer3D::GetModelMatrixUBO();
-        if (!modelUBO)
+        auto instanceBuffer = Renderer3D::GetModelInstanceBuffer();
+        if (!instanceBuffer)
         {
-            OLO_CORE_WARN("OcclusionCuller: Model UBO not available, skipping queries");
+            OLO_CORE_WARN("OcclusionCuller: ModelInstanceBuffer not available, skipping queries");
             m_PendingQueries.clear();
             return;
         }
@@ -105,13 +107,18 @@ namespace OloEngine
             glm::mat4 model = glm::translate(glm::mat4(1.0f), center);
             model = glm::scale(model, extent);
 
-            ShaderBindingLayout::ModelUBO modelData{};
-            modelData.Model = model;
-            modelData.Normal = glm::transpose(glm::inverse(model));
-            modelData.EntityID = -1;
-            modelUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
-            modelUBO->Bind();
-            CommandDispatch::InvalidateUBOCache(ShaderBindingLayout::UBO_MODEL);
+            // OcclusionProxy shader reads u_Model from the InstanceBuffer SSBO
+            // at binding 15 via InstanceBlock_Vertex.glsl. Push a single
+            // instance per query; proxies have no motion history so
+            // PrevTransform aliases Transform (zero velocity).
+            InstanceData inst;
+            inst.Transform = model;
+            inst.Normal = glm::transpose(glm::inverse(model));
+            inst.PrevTransform = model;
+            inst.EntityID = -1;
+            const std::span<const InstanceData> oneInstance(&inst, 1);
+            instanceBuffer->Upload(oneInstance);
+            instanceBuffer->Bind();
 
             // Issue the query: draw the box between Begin/EndQuery
             queryPool.BeginQuery(pending.QueryIndex);

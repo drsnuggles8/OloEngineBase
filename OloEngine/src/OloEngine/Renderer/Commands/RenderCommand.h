@@ -572,6 +572,16 @@ namespace OloEngine
 
         // Occlusion culling: query index for conditional rendering (UINT32_MAX = no query)
         u32 occlusionQueryIndex = UINT32_MAX;
+
+        // Per-source tint and free float. Survive CommandBucket auto-batching
+        // via FrameDataBuffer Colors / Customs streams; the InstanceData the
+        // dispatcher writes for this source ends up with these values rather
+        // than the (1,1,1,1) / 0.0f defaults from InstanceData. Callers that
+        // need per-entity tinting (scripts, future MaterialComponent override
+        // path) set these directly; non-setters get identity behaviour for
+        // free.
+        glm::vec4 color = glm::vec4(1.0f);
+        f32 custom = 0.0f;
     };
 
     // Static assertion to verify DrawMeshCommand is trivially copyable (POD)
@@ -604,6 +614,33 @@ namespace OloEngine
         bool isAnimatedMesh = false;
         u32 boneBufferOffset = 0;     // Offset into FrameDataBuffer for all instance bone matrices
         u32 boneCountPerInstance = 0; // Number of bones per instance
+
+        // Per-instance i32 entity IDs in FrameDataBuffer::EntityIDs. UINT32_MAX
+        // = no stream (dispatcher writes -1 to InstanceData.EntityID, breaking
+        // editor picking on the batched instances). Auto-batching always
+        // populates this so per-source picking survives the N-into-1 collapse.
+        u32 entityIDBufferOffset = UINT32_MAX;
+
+        // Per-instance vec4 Color and f32 Custom in FrameDataBuffer::Colors /
+        // FrameDataBuffer::Customs. UINT32_MAX leaves InstanceData defaults
+        // ((1,1,1,1) tint, 0 free float). Populated by the InstanceData
+        // overload of Renderer3D::DrawMeshInstanced — auto-batching of plain
+        // DrawMeshCommand sources leaves them at UINT32_MAX since
+        // DrawMeshCommand has no per-source color/custom slot.
+        u32 colorBufferOffset = UINT32_MAX;
+        u32 customBufferOffset = UINT32_MAX;
+
+        // GPU frustum-cull path. When `cullIndirectBufferID` is non-zero, the
+        // dispatcher SKIPS the FrameDataBuffer-driven InstanceData upload
+        // (the cull compute already wrote compacted survivors to
+        // `cullOutputInstanceBufferID`), rebinds that buffer at
+        // SSBO_INSTANCE_DATA = 15, and uses `glDrawElementsIndirect` with
+        // `cullIndirectBufferID` so the surviving instance count comes from
+        // the GPU without a CPU readback. Set by
+        // Renderer3D::DrawMeshInstanced for submissions above the GPU-cull
+        // threshold; left at 0 for the regular CPU-cull / upload path.
+        u32 cullOutputInstanceBufferID = 0;
+        u32 cullIndirectBufferID = 0;
     };
 
     // Static assertion to verify DrawMeshInstancedCommand is trivially copyable

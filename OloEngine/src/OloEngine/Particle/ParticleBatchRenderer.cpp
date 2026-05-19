@@ -453,10 +453,13 @@ namespace OloEngine
         auto vao = mesh->GetVertexArray();
         u32 indexCount = mesh->GetIndexCount();
 
-        // Render each mesh particle individually (one draw call per particle)
-        // gl_InstanceIndex is not supported in the engine's shader cross-compilation
-        // pipeline (spirv-cross outputs gl_InstanceID which shaderc rejects), so we
-        // pass a single instance per UBO and draw without instancing.
+        // Render each mesh particle individually (one draw call per particle).
+        // The shader cross-compilation pipeline now handles gl_InstanceIndex
+        // correctly (OpenGLShader.cpp rewrites the cross-compiled GLSL before
+        // the OpenGL shaderc pass; see Particle_Billboard_GPU.glsl for a
+        // working example). Migrating this mesh-particle path to a real
+        // DrawMeshInstanced + ModelInstanceBuffer upload is a future
+        // optimisation — see GPU instancing (#173) Phase 4.
         for (u32 i = 0; i < instances.size(); ++i)
         {
             s_Data.MeshInstanceUBO->SetData(&instances[i], sizeof(MeshParticleInstance));

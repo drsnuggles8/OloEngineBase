@@ -228,8 +228,10 @@ namespace OloEngine
             }
 
             Ref<T> asset = Ref<T>::Create(std::forward<Args>(args)...);
-            asset->Handle = metadata.Handle;
-            m_LoadedAssets[asset->Handle] = asset;
+            // SetHandle is protected on Asset, but EditorAssetManager is
+            // friended so we can call it through the base class.
+            asset->Asset::SetHandle(metadata.Handle);
+            m_LoadedAssets[metadata.Handle] = asset;
             AssetImporter::Serialize(metadata, asset);
 
             // Read serialized timestamp

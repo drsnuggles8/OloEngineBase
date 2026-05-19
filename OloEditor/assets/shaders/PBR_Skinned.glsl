@@ -23,14 +23,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
 };
 
 // Model UBO (binding 3)
-layout(std140, binding = 3) uniform ModelMatrices {
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-};
+#include "include/InstanceBlock_Vertex.glsl"
 
 // Animation UBO (binding 4)
 layout(std140, binding = 4) uniform AnimationMatrices {
@@ -44,6 +37,7 @@ layout(location = 2) out vec2 v_TexCoord;
 
 void main()
 {
+    OLO_INSTANCE_FORWARD();
     // Calculate bone transformation
     mat4 boneTransform = u_BoneMatrices[a_BoneIndices[0]] * a_BoneWeights[0];
     boneTransform += u_BoneMatrices[a_BoneIndices[1]] * a_BoneWeights[1];
@@ -87,14 +81,7 @@ vec2 octEncode(vec3 n)
 }
 
 // Model UBO (binding 3) for entity ID access
-layout(std140, binding = 3) uniform ModelMatrices {
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-};
+#include "include/InstanceBlock.glsl"
 
 // Light UBO (binding 1)
 layout(std140, binding = 1) uniform LightProperties {

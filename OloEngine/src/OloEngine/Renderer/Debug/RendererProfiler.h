@@ -32,6 +32,9 @@ namespace OloEngine
             CommandPackets,
             SortingTime,
             CullingTime,
+            InstancedDrawCalls, // glDrawElementsInstanced calls this frame
+            InstancesRendered,  // sum of all instances rendered across InstancedDrawCalls
+            InstancesBatched,   // instances collapsed by CommandBucket auto-batching (visible savings vs naive submission)
             COUNT
         };
 
@@ -86,6 +89,9 @@ namespace OloEngine
             u32 m_CommandPackets = 0;
             f64 m_SortingTime = 0.0;
             f64 m_CullingTime = 0.0;
+            u32 m_InstancedDrawCalls = 0;
+            u32 m_InstancesRendered = 0;
+            u32 m_InstancesBatched = 0;
 
             void Reset();
         };
@@ -118,6 +124,29 @@ namespace OloEngine
             sizet m_TextureMemory = 0;
             sizet m_BufferMemory = 0;
             bool m_IsCulled = false;
+        };
+
+        // Per-draw record of an instanced submission — what mesh, how many
+        // instances, which entity IDs collapsed into that single call. Populated
+        // by the dispatcher when `m_RecordInstancedDraws` is on and cleared at
+        // BeginFrame. Lets the UI answer "which entities batched together this
+        // frame?" without touching the heavier frame-capture state machine.
+        struct InstancedDrawRecord
+        {
+            u64 m_MeshHandle = 0;
+            u32 m_VertexArrayID = 0;
+            u32 m_IndexCount = 0;
+            u32 m_InstanceCount = 0;
+            std::vector<i32> m_EntityIDs;    // Per-instance source entity IDs (size == m_InstanceCount when populated).
+            bool m_FromAutoBatching = false; // true: collapsed by CommandBucket from N DrawMeshCommands;
+                                             // false: explicit InstancedMeshComponent submission.
+            // Free-form label for *which* renderer pipeline emitted this
+            // draw — lets the UI / clipboard report distinguish "Scene"
+            // (main CommandDispatch::DrawMeshInstanced) from "Scene (GPU
+            // cull)" (the indirect-draw branch) or "Shadow CSM cascade 0"
+            // (ShadowRenderPass auto-batched casters). Defaults to "Scene"
+            // so the existing call sites stay unchanged.
+            std::string m_Source = "Scene";
         };
 
         struct RenderPassInfo
@@ -196,6 +225,30 @@ namespace OloEngine
         void TrackDrawCall(const std::string& name, const std::string& shaderName,
                            u32 vertexCount, u32 indexCount, f64 cpuTime, f64 gpuTime = 0.0);
 
+        // @brief Record an instanced draw with its source entity IDs.
+        //
+        // Cheap when m_RecordInstancedDraws is false (default) — single bool
+        // check and early-out. Toggle on via the profiler UI when the user
+        // wants to see "which entities collapsed into which draw call". Each
+        // record is held until the next BeginFrame() then discarded.
+        void RecordInstancedDraw(u64 meshHandle, u32 vertexArrayID, u32 indexCount,
+                                 u32 instanceCount, const i32* entityIDs, bool fromAutoBatching,
+                                 const char* source = "Scene");
+
+        // @brief Toggle per-frame instanced-draw recording.
+        void SetRecordInstancedDraws(bool enabled)
+        {
+            m_RecordInstancedDraws = enabled;
+        }
+        [[nodiscard]] bool IsRecordingInstancedDraws() const
+        {
+            return m_RecordInstancedDraws;
+        }
+        [[nodiscard]] const std::vector<InstancedDrawRecord>& GetInstancedDrawRecords() const
+        {
+            return m_InstancedDrawRecords;
+        }
+
         // @brief Get captured frames for analysis
         const std::vector<CapturedFrame>& GetCapturedFrames() const
         {
@@ -260,6 +313,7 @@ namespace OloEngine
         void RenderHistoryTab();
         void RenderFrameCaptureTab();
         void RenderFrameComparisonTab();
+        void RenderInstancedDrawsTab();
 
         // Helper methods
         std::string GetMetricTypeName(MetricType type) const;
@@ -273,6 +327,14 @@ namespace OloEngine
         RenderPassInfo* m_CurrentRenderPass = nullptr;
         u32 m_FrameNumber = 0;
         static constexpr u32 OLO_MAX_CAPTURED_FRAMES = 10; // Keep only last 10 captured frames
+
+        // Instanced-draw breakdown (opt-in, per-frame). When
+        // m_RecordInstancedDraws is true, the dispatcher pushes one record
+        // here per glDrawElementsInstanced — the UI then shows the entity ID
+        // list per call so authors can see exactly which entities batched
+        // together. Cleared every BeginFrame() to bound memory.
+        std::vector<InstancedDrawRecord> m_InstancedDrawRecords;
+        bool m_RecordInstancedDraws = false;
 
         // Data storage
         FrameData m_CurrentFrame;

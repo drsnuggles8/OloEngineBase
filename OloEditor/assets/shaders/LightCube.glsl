@@ -12,21 +12,14 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_PrevViewProjection;
 };
 
-layout(std140, binding = 3) uniform ModelMatrices {
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-    mat4 u_PrevModel;
-};
+#include "include/InstanceBlock_Vertex.glsl"
 
 layout(location = 0) out vec4 v_ClipPosCurr;
 layout(location = 1) out vec4 v_ClipPosPrev;
 
 void main()
 {
+    OLO_INSTANCE_FORWARD();
     vec4 worldPos = u_Model * vec4(a_Position, 1.0);
     vec4 clipCurr = u_ViewProjection * worldPos;
     vec4 prevWorldPos = u_PrevModel * vec4(a_Position, 1.0);

@@ -30,16 +30,7 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_PrevViewProjection;
 };
 
-layout(std140, binding = 3) uniform ModelMatrices
-{
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-    mat4 u_PrevModel;
-};
+#include "include/InstanceBlock_Vertex.glsl"
 
 layout(std140, binding = 12) uniform FoliageParams
 {
@@ -67,6 +58,7 @@ layout(location = 6) out vec3 v_PrevWorldPos;
 
 void main()
 {
+    OLO_INSTANCE_FORWARD();
     float scale = a_PositionScale.w;
     float rotation = a_RotationHeight.x;
     float height = a_RotationHeight.y;
@@ -159,16 +151,7 @@ layout(std140, binding = 12) uniform FoliageParams
 // Mirror the vertex-stage ModelMatrices block so the entity-ID picking
 // slot is available in the fragment stage. SPIR-V link validation rejects
 // mismatched layouts so the padding fields stay identical.
-layout(std140, binding = 3) uniform ModelMatrices
-{
-    mat4 u_Model;
-    mat4 u_Normal;
-    int  u_EntityID;
-    int  _paddingEntity0;
-    int  _paddingEntity1;
-    int  _paddingEntity2;
-    mat4 u_PrevModel;
-};
+#include "include/InstanceBlock.glsl"
 
 layout(binding = 0) uniform sampler2D u_DiffuseTexture;
 

@@ -56,13 +56,13 @@ namespace OloEngine
             UBOStructures::ShadowUBO::GetSize(),
             ShaderBindingLayout::UBO_SHADOW);
 
-        // Create temporary UBOs for the shadow rendering pass
+        // Create temporary UBOs for the shadow rendering pass. m_ShadowModelUBO
+        // was retired alongside Renderer3D::ModelMatrixUBO — shadow shaders
+        // now read transforms from the engine-wide InstanceBuffer SSBO at
+        // binding 15.
         m_ShadowCameraUBO = UniformBuffer::Create(
             ShaderBindingLayout::CameraUBO::GetSize(),
             ShaderBindingLayout::UBO_CAMERA);
-        m_ShadowModelUBO = UniformBuffer::Create(
-            ShaderBindingLayout::ModelUBO::GetSize(),
-            ShaderBindingLayout::UBO_MODEL);
         m_ShadowAnimationUBO = UniformBuffer::Create(
             ShaderBindingLayout::AnimationUBO::GetSize(),
             ShaderBindingLayout::UBO_ANIMATION);
@@ -99,7 +99,6 @@ namespace OloEngine
 
         m_ShadowUBO.Reset();
         m_ShadowCameraUBO.Reset();
-        m_ShadowModelUBO.Reset();
         m_ShadowAnimationUBO.Reset();
         m_Initialized = false;
     }

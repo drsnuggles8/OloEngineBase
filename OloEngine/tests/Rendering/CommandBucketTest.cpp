@@ -759,3 +759,271 @@ TEST_F(CommandBucketBatchTest, BatchedTransformsAreContiguous)
             << "Transform " << i << " must match original";
     }
 }
+
+// =============================================================================
+// 10k-Instance Stress: GPU Instancing acceptance criterion
+// =============================================================================
+// Issue #173 acceptance: "10,000+ instances rendered in 1-2 draw calls". The
+// default CommandBucketConfig::MaxMeshInstances is now 16384 (capped at the
+// FrameDataBuffer EntityID stream capacity), so 10k same-mesh draws collapse
+// into a single DrawMeshInstanced packet without raising the cap in the test.
+// Dispatcher uses a TLS heap scratch buffer, so the 10k * 224 B = 2.24 MB of
+// per-instance data lives off-stack.
+
+TEST_F(CommandBucketBatchTest, TenThousandInstancesCollapseToSinglePacket)
+{
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    // Uses the default MaxMeshInstances (16384) — no override needed.
+    CommandBucket bucket(config);
+
+    constexpr u32 kCount = 10000;
+    for (u32 i = 0; i < kCount; ++i)
+    {
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(i));
+        cmd.vertexArrayID = 100;
+        cmd.renderStateIndex = 0;
+        cmd.materialDataIndex = 0;
+        cmd.transform = glm::translate(glm::mat4(1.0f), glm::vec3(static_cast<f32>(i) * 0.01f, 0.0f, 0.0f));
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+    }
+
+    EXPECT_EQ(bucket.GetCommandCount(), kCount);
+
+    bucket.BatchCommands(*m_Allocator);
+
+    // Acceptance: 10k identical draws collapse into a single DrawMeshInstanced
+    // packet. If this regresses, the auto-batching key matching or the
+    // FrameDataBuffer transform allocator has broken.
+    ASSERT_EQ(bucket.GetSortedCommands().size(), 1u);
+    const auto* packet = bucket.GetSortedCommands()[0];
+    ASSERT_EQ(packet->GetCommandType(), CommandType::DrawMeshInstanced);
+    auto const* icmd = static_cast<const DrawMeshInstancedCommand*>(packet->GetRawCommandData());
+    EXPECT_EQ(icmd->instanceCount, kCount);
+    EXPECT_EQ(icmd->transformCount, kCount);
+}
+
+// =============================================================================
+// Per-Source EntityID + PrevTransform Survive Batch Collapse
+// =============================================================================
+// Regression: before this test, BatchCommands captured only `transform` per
+// instance and dropped each source's `entityID` and `prevTransform`. The
+// dispatcher then wrote -1 / aliased prev=current, silently breaking editor
+// picking and TAA velocity on every auto-batched draw. The two new
+// FrameDataBuffer streams (EntityIDs + the second transform allocation for
+// prevs) plug both holes — this test pins the contract end-to-end.
+
+TEST_F(CommandBucketBatchTest, BatchedEntityIDAndPrevTransformSurviveCollapse)
+{
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    CommandBucket bucket(config);
+
+    constexpr u32 kCount = 8;
+    i32 expectedEntityIDs[kCount];
+    glm::mat4 expectedPrev[kCount];
+    for (u32 i = 0; i < kCount; ++i)
+    {
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(100 + i));
+        cmd.vertexArrayID = 100;
+        cmd.renderStateIndex = 0;
+        cmd.materialDataIndex = 0;
+        cmd.transform = glm::translate(glm::mat4(1.0f), glm::vec3(static_cast<f32>(i), 0.0f, 0.0f));
+        // Distinct prev-transform per source so aliasing prev=current would be
+        // immediately visible.
+        cmd.prevTransform = glm::translate(glm::mat4(1.0f), glm::vec3(static_cast<f32>(i) - 0.5f, 0.0f, 0.0f));
+        expectedEntityIDs[i] = static_cast<i32>(100 + i);
+        expectedPrev[i] = cmd.prevTransform;
+
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+    }
+
+    bucket.BatchCommands(*m_Allocator);
+
+    ASSERT_EQ(bucket.GetSortedCommands().size(), 1u);
+    const auto* packet = bucket.GetSortedCommands()[0];
+    ASSERT_EQ(packet->GetCommandType(), CommandType::DrawMeshInstanced);
+    auto const* icmd = static_cast<const DrawMeshInstancedCommand*>(packet->GetRawCommandData());
+    EXPECT_EQ(icmd->instanceCount, kCount);
+
+    // Both auxiliary streams must be allocated.
+    ASSERT_NE(icmd->entityIDBufferOffset, UINT32_MAX) << "EntityID stream must be allocated for batched draws";
+    ASSERT_NE(icmd->prevTransformBufferOffset, UINT32_MAX) << "PrevTransform stream must be allocated for batched draws";
+
+    FrameDataBuffer& fb = FrameDataBufferManager::Get();
+    const i32* storedIDs = fb.GetEntityIDPtr(icmd->entityIDBufferOffset);
+    const glm::mat4* storedPrev = fb.GetTransformPtr(icmd->prevTransformBufferOffset);
+    ASSERT_NE(storedIDs, nullptr);
+    ASSERT_NE(storedPrev, nullptr);
+
+    for (u32 i = 0; i < kCount; ++i)
+    {
+        EXPECT_EQ(storedIDs[i], expectedEntityIDs[i])
+            << "EntityID " << i << " lost across batch collapse";
+        EXPECT_EQ(storedPrev[i], expectedPrev[i])
+            << "PrevTransform " << i << " lost across batch collapse";
+    }
+}
+
+TEST_F(CommandBucketBatchTest, IdentityColorAndCustomSkipParallelStreamAllocation)
+{
+    // Most scenes don't set per-entity Color / Custom on DrawMeshCommand, so
+    // the batcher must NOT allocate those streams in that case — saving the
+    // per-frame FrameDataBuffer pressure that the existing entityID stream
+    // already pays.
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    CommandBucket bucket(config);
+
+    constexpr u32 kCount = 4;
+    for (u32 i = 0; i < kCount; ++i)
+    {
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(i));
+        cmd.vertexArrayID = 100;
+        cmd.renderStateIndex = 0;
+        cmd.materialDataIndex = 0;
+        // Default color (1,1,1,1) and default custom (0.0) on every source.
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+    }
+
+    bucket.BatchCommands(*m_Allocator);
+
+    ASSERT_EQ(bucket.GetSortedCommands().size(), 1u);
+    auto const* icmd = static_cast<const DrawMeshInstancedCommand*>(
+        bucket.GetSortedCommands()[0]->GetRawCommandData());
+    EXPECT_EQ(icmd->instanceCount, kCount);
+    EXPECT_EQ(icmd->colorBufferOffset, UINT32_MAX)
+        << "All-identity colors should skip stream allocation";
+    EXPECT_EQ(icmd->customBufferOffset, UINT32_MAX)
+        << "All-zero customs should skip stream allocation";
+}
+
+TEST_F(CommandBucketBatchTest, SameLODBatchesAndDifferentLODsStaySeparate)
+{
+    // LOD selection runs before DrawMeshCommand is constructed, so
+    // `cmd.meshHandle` already names the LOD-resolved mesh. The auto-batcher
+    // groups by meshHandle, so same-LOD instances collapse to one draw and
+    // different-LOD instances stay separate (one draw per LOD). This pins the
+    // current behaviour — relaxing it to a single multi-LOD draw needs
+    // glMultiDrawElementsIndirect (see §4 of GPU_INSTANCING_FUTURE_IMPROVEMENTS).
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    CommandBucket bucket(config);
+
+    // 6 entities: 4 at LOD-0 (meshHandle 100), 2 at LOD-1 (meshHandle 101).
+    constexpr u32 kLOD0Count = 4;
+    constexpr u32 kLOD1Count = 2;
+    constexpr u32 kLOD0Handle = 100;
+    constexpr u32 kLOD1Handle = 101;
+    u32 nextEntity = 0;
+    for (u32 i = 0; i < kLOD0Count; ++i)
+    {
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(nextEntity));
+        cmd.meshHandle = UUID(kLOD0Handle); // LOD-resolved mesh handle differs by LOD level.
+        cmd.vertexArrayID = kLOD0Handle;
+        cmd.renderStateIndex = 0;
+        cmd.materialDataIndex = 0;
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, kLOD0Handle, 1, nextEntity);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+        ++nextEntity;
+    }
+    for (u32 i = 0; i < kLOD1Count; ++i)
+    {
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(nextEntity));
+        cmd.meshHandle = UUID(kLOD1Handle);
+        cmd.vertexArrayID = kLOD1Handle;
+        cmd.renderStateIndex = 0;
+        cmd.materialDataIndex = 0;
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, kLOD1Handle, 1, nextEntity);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+        ++nextEntity;
+    }
+
+    bucket.BatchCommands(*m_Allocator);
+
+    // Expect two DrawMeshInstanced packets — one per LOD — each holding
+    // their respective instance counts.
+    auto const& sorted = bucket.GetSortedCommands();
+    u32 lod0InstanceCount = 0;
+    u32 lod1InstanceCount = 0;
+    u32 instancedPacketCount = 0;
+    for (const auto* pkt : sorted)
+    {
+        if (!pkt || pkt->GetCommandType() != CommandType::DrawMeshInstanced)
+            continue;
+        auto const* icmd = static_cast<const DrawMeshInstancedCommand*>(pkt->GetRawCommandData());
+        ++instancedPacketCount;
+        if (icmd->meshHandle == kLOD0Handle)
+            lod0InstanceCount = icmd->instanceCount;
+        else if (icmd->meshHandle == kLOD1Handle)
+            lod1InstanceCount = icmd->instanceCount;
+    }
+    EXPECT_EQ(instancedPacketCount, 2u) << "Two LOD levels should produce two instanced packets";
+    EXPECT_EQ(lod0InstanceCount, kLOD0Count);
+    EXPECT_EQ(lod1InstanceCount, kLOD1Count);
+}
+
+TEST_F(CommandBucketBatchTest, NonDefaultColorAndCustomSurviveCollapse)
+{
+    // When at least one source sets a non-identity Color or non-zero Custom,
+    // the batcher must allocate the parallel stream and preserve every
+    // source's value — the dispatcher reads these into InstanceData per slot.
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    CommandBucket bucket(config);
+
+    constexpr u32 kCount = 4;
+    glm::vec4 expectedColors[kCount];
+    f32 expectedCustoms[kCount];
+    for (u32 i = 0; i < kCount; ++i)
+    {
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(i));
+        cmd.vertexArrayID = 100;
+        cmd.renderStateIndex = 0;
+        cmd.materialDataIndex = 0;
+        cmd.color = glm::vec4(0.1f * static_cast<f32>(i), 0.5f, 0.25f, 1.0f);
+        cmd.custom = static_cast<f32>(i) * 2.5f;
+        expectedColors[i] = cmd.color;
+        expectedCustoms[i] = cmd.custom;
+
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+    }
+
+    bucket.BatchCommands(*m_Allocator);
+
+    ASSERT_EQ(bucket.GetSortedCommands().size(), 1u);
+    auto const* icmd = static_cast<const DrawMeshInstancedCommand*>(
+        bucket.GetSortedCommands()[0]->GetRawCommandData());
+    EXPECT_EQ(icmd->instanceCount, kCount);
+    ASSERT_NE(icmd->colorBufferOffset, UINT32_MAX) << "Non-default colors must allocate stream";
+    ASSERT_NE(icmd->customBufferOffset, UINT32_MAX) << "Non-default customs must allocate stream";
+
+    FrameDataBuffer& fb = FrameDataBufferManager::Get();
+    const glm::vec4* storedColors = fb.GetColorPtr(icmd->colorBufferOffset);
+    const f32* storedCustoms = fb.GetCustomPtr(icmd->customBufferOffset);
+    ASSERT_NE(storedColors, nullptr);
+    ASSERT_NE(storedCustoms, nullptr);
+
+    for (u32 i = 0; i < kCount; ++i)
+    {
+        EXPECT_EQ(storedColors[i], expectedColors[i])
+            << "Color " << i << " lost across batch collapse";
+        EXPECT_EQ(storedCustoms[i], expectedCustoms[i])
+            << "Custom " << i << " lost across batch collapse";
+    }
+}

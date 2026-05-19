@@ -26,6 +26,7 @@ namespace OloEngine
 
         void DrawIndexedRaw(u32 vaoID, u32 indexCount) override;
         void DrawIndexedRaw(u32 vaoID, u32 indexCount, u32 baseIndex) override;
+        void DrawIndexedInstancedRaw(u32 vaoID, u32 indexCount, u32 baseIndex, u32 instanceCount) override;
         void DrawIndexedPatchesRaw(u32 vaoID, u32 indexCount, u32 patchVertices) override;
 
         void SetLineWidth(f32 width) override;
@@ -62,6 +63,7 @@ namespace OloEngine
 
         void DrawElementsIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID) override;
         void DrawArraysIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID) override;
+        void DrawElementsIndirectRaw(u32 vaoID, u32 indirectBufferID) override;
 
         void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ) override;
         void MemoryBarrier(MemoryBarrierFlags flags) override;

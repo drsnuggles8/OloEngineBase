@@ -69,10 +69,13 @@ namespace OloEngine
     // Configuration for command bucket processing
     struct CommandBucketConfig
     {
-        bool EnableSorting = true;  // Sort commands to minimize state changes
-        bool EnableBatching = true; // Batch similar DrawMesh → DrawMeshInstanced (requires instanced shader support)
-        u32 MaxMeshInstances = 100; // Maximum instances for instanced mesh rendering
-        u32 InitialCapacity = 1024; // Initial capacity for command arrays
+        bool EnableSorting = true;    // Sort commands to minimize state changes
+        bool EnableBatching = true;   // Batch similar DrawMesh → DrawMeshInstanced (requires instanced shader support)
+        u32 MaxMeshInstances = 16384; // Maximum instances per DrawMeshInstanced packet. Capped at the FrameDataBuffer
+                                      // EntityID stream capacity (16384) so an N-into-1 collapse never silently
+                                      // truncates per-source picking IDs. Dispatcher uses a TLS heap scratch so
+                                      // raising this doesn't bloat the stack.
+        u32 InitialCapacity = 1024;   // Initial capacity for command arrays
     };
 
     // Cache-line padded slot for thread-local storage
