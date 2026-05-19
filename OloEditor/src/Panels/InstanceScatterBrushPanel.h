@@ -114,9 +114,9 @@ namespace OloEngine
         Mode m_Mode = Mode::Off;
 
         // Brush settings
-        f32 m_BrushRadius = 5.0f;          // World units
-        i32 m_DepositsPerTick = 8;         // Candidate placements per frame while held
-        f32 m_PoissonMinSpacing = 1.0f;    // Min XZ distance between *new* and *existing* placements
+        f32 m_BrushRadius = 5.0f;       // World units
+        i32 m_DepositsPerTick = 8;      // Candidate placements per frame while held
+        f32 m_PoissonMinSpacing = 1.0f; // Min XZ distance between *new* and *existing* placements
         f32 m_ScaleMin = 0.8f;
         f32 m_ScaleMax = 1.2f;
         bool m_RandomYRot = true;

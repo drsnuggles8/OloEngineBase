@@ -93,9 +93,9 @@ namespace OloEngine
     }
 
     GPUFrustumCuller::CullResult GPUFrustumCuller::Cull(std::span<const InstanceData> instances,
-                                                       u32 indexCount, u32 baseIndex,
-                                                       const glm::vec4& localBoundingSphere,
-                                                       f32 radiusExpansion)
+                                                        u32 indexCount, u32 baseIndex,
+                                                        const glm::vec4& localBoundingSphere,
+                                                        f32 radiusExpansion)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -130,9 +130,9 @@ namespace OloEngine
         slot.IndirectBuffer->SetData(&seed, sizeof(seed), 0);
 
         // ── 3. Bind SSBOs and dispatch ───────────────────────────────────
-        slot.InputBuffer->Bind();          // SSBO_INSTANCE_CULL_INPUT (16)
-        slot.OutputBuffer->Bind();         // SSBO_INSTANCE_DATA (15)
-        slot.IndirectBuffer->Bind();       // SSBO_INSTANCE_DRAW_INDIRECT (17)
+        slot.InputBuffer->Bind();    // SSBO_INSTANCE_CULL_INPUT (16)
+        slot.OutputBuffer->Bind();   // SSBO_INSTANCE_DATA (15)
+        slot.IndirectBuffer->Bind(); // SSBO_INSTANCE_DRAW_INDIRECT (17)
 
         m_CullShader->Bind();
         m_CullShader->SetUint("u_InstanceCount", inputCount);

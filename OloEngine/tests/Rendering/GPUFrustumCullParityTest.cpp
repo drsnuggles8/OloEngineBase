@@ -59,17 +59,17 @@ namespace OloEngine::Tests
             const glm::vec4 wc4 = instanceTransform * glm::vec4(glm::vec3(localSphere), 1.0f);
             const glm::vec3 worldCenter = glm::vec3(wc4) / wc4.w;
             const f32 maxColumnScale = glm::max(glm::max(
-                glm::length(glm::vec3(instanceTransform[0])),
-                glm::length(glm::vec3(instanceTransform[1]))),
-                glm::length(glm::vec3(instanceTransform[2])));
+                                                    glm::length(glm::vec3(instanceTransform[0])),
+                                                    glm::length(glm::vec3(instanceTransform[1]))),
+                                                glm::length(glm::vec3(instanceTransform[2])));
             const f32 worldRadius = localSphere.w * maxColumnScale * radiusExpansion;
 
             const std::array<glm::vec4, 6> planes{
-                ExtractPlane_GLSLEquivalent(viewProjection, 0,  1.0f), // Left
+                ExtractPlane_GLSLEquivalent(viewProjection, 0, 1.0f),  // Left
                 ExtractPlane_GLSLEquivalent(viewProjection, 0, -1.0f), // Right
-                ExtractPlane_GLSLEquivalent(viewProjection, 1,  1.0f), // Bottom
+                ExtractPlane_GLSLEquivalent(viewProjection, 1, 1.0f),  // Bottom
                 ExtractPlane_GLSLEquivalent(viewProjection, 1, -1.0f), // Top
-                ExtractPlane_GLSLEquivalent(viewProjection, 2,  1.0f), // Near
+                ExtractPlane_GLSLEquivalent(viewProjection, 2, 1.0f),  // Near
                 ExtractPlane_GLSLEquivalent(viewProjection, 2, -1.0f)  // Far
             };
             for (const auto& plane : planes)
@@ -131,7 +131,8 @@ namespace OloEngine::Tests
             const glm::vec3 pos{ posDist(rng), posDist(rng), posDist(rng) };
             const glm::vec3 axis = glm::normalize(glm::vec3(rotDist(rng) - glm::pi<f32>(),
                                                             rotDist(rng) - glm::pi<f32>(),
-                                                            rotDist(rng) - glm::pi<f32>()) + glm::vec3(0.001f));
+                                                            rotDist(rng) - glm::pi<f32>()) +
+                                                  glm::vec3(0.001f));
             const f32 angle = rotDist(rng);
             const glm::vec3 scale{ scaleDist(rng), scaleDist(rng), scaleDist(rng) };
 
@@ -142,15 +143,17 @@ namespace OloEngine::Tests
             const bool cpu = IsInstanceVisible_CPU(transform, localSphereCPU, frustum);
             const bool glsl = IsInstanceVisible_GLSLEquivalent(transform, localSphereGLSL, kRadiusExpansion, viewProjection);
 
-            if (cpu) ++visibleCPU;
-            if (glsl) ++visibleGLSL;
+            if (cpu)
+                ++visibleCPU;
+            if (glsl)
+                ++visibleGLSL;
             if (cpu != glsl)
                 ++mismatchCount;
 
             EXPECT_EQ(cpu, glsl) << "Instance " << i << " visibility mismatch — CPU=" << cpu
-                                  << ", GLSL=" << glsl
-                                  << ". Pos=(" << pos.x << "," << pos.y << "," << pos.z << ")"
-                                  << " scaleMax=" << glm::max(glm::max(scale.x, scale.y), scale.z);
+                                 << ", GLSL=" << glsl
+                                 << ". Pos=(" << pos.x << "," << pos.y << "," << pos.z << ")"
+                                 << " scaleMax=" << glm::max(glm::max(scale.x, scale.y), scale.z);
         }
 
         // Sanity: with random positions in [-30,30]^3 and a frustum looking

@@ -51,7 +51,7 @@ namespace OloEngine::Tests
         {
             const i32 clamped = std::clamp(variantIndex, 0, std::max(0, variantCount - 1));
             return (variantCount > 1) ? static_cast<f32>(clamped) / static_cast<f32>(variantCount - 1)
-                                       : 0.0f;
+                                      : 0.0f;
         }
     } // namespace
 

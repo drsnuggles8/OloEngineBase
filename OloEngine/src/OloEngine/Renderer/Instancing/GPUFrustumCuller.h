@@ -50,9 +50,9 @@ namespace OloEngine
         // `DrawElementsIndirectRaw(vaoID, IndirectBufferID)`.
         struct CullResult
         {
-            Ref<InstanceBuffer> OutputBuffer;     // bind at SSBO_INSTANCE_DATA = 15 before the draw
-            Ref<StorageBuffer> IndirectBuffer;    // pass to glDrawElementsIndirect
-            u32 InputCount = 0;                   // pre-cull count, recorded for the profiler
+            Ref<InstanceBuffer> OutputBuffer;  // bind at SSBO_INSTANCE_DATA = 15 before the draw
+            Ref<StorageBuffer> IndirectBuffer; // pass to glDrawElementsIndirect
+            u32 InputCount = 0;                // pre-cull count, recorded for the profiler
         };
 
         GPUFrustumCuller();
@@ -84,16 +84,22 @@ namespace OloEngine
 
         // Number of pool slots currently in use this frame. Useful for the
         // RendererProfiler "Instanced Draws" tab and parity tests.
-        [[nodiscard]] u32 GetFrameUsedSlotCount() const { return m_NextSlot; }
-        [[nodiscard]] u32 GetPoolCapacity() const { return static_cast<u32>(m_Pool.size()); }
+        [[nodiscard]] u32 GetFrameUsedSlotCount() const
+        {
+            return m_NextSlot;
+        }
+        [[nodiscard]] u32 GetPoolCapacity() const
+        {
+            return static_cast<u32>(m_Pool.size());
+        }
 
       private:
         struct PoolSlot
         {
-            Ref<StorageBuffer> InputBuffer;     // binding 16 — CPU writes InstanceData[]
-            Ref<InstanceBuffer> OutputBuffer;   // binding 15 — compute writes survivors
-            Ref<StorageBuffer> IndirectBuffer;  // binding 17 — DrawElementsIndirectCommand
-            u32 Capacity = 0;                   // in instances
+            Ref<StorageBuffer> InputBuffer;    // binding 16 — CPU writes InstanceData[]
+            Ref<InstanceBuffer> OutputBuffer;  // binding 15 — compute writes survivors
+            Ref<StorageBuffer> IndirectBuffer; // binding 17 — DrawElementsIndirectCommand
+            u32 Capacity = 0;                  // in instances
         };
 
         PoolSlot& AcquireSlot(u32 requiredCapacity);

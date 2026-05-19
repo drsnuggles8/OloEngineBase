@@ -217,15 +217,27 @@ namespace OloEngine
                                   m_PostPlacementHandle(postPlacementHandle)
                             {
                             }
-                            void Execute() override { Apply(m_PostPlacementHandle, true); }
-                            void Undo() override { Apply(m_PrePlacementHandle, false); }
-                            [[nodiscard]] std::string GetDescription() const override { return "Bake Scatter to .oloinstances"; }
+                            void Execute() override
+                            {
+                                Apply(m_PostPlacementHandle, true);
+                            }
+                            void Undo() override
+                            {
+                                Apply(m_PrePlacementHandle, false);
+                            }
+                            [[nodiscard]] std::string GetDescription() const override
+                            {
+                                return "Bake Scatter to .oloinstances";
+                            }
+
                           private:
                             void Apply(AssetHandle handle, bool clearInline)
                             {
-                                if (!m_Scene) return;
+                                if (!m_Scene)
+                                    return;
                                 Entity e = m_Scene->GetEntityByUUID(m_EntityUUID);
-                                if (!e || !e.HasComponent<InstancedMeshComponent>()) return;
+                                if (!e || !e.HasComponent<InstancedMeshComponent>())
+                                    return;
                                 auto& imc = e.GetComponent<InstancedMeshComponent>();
                                 imc.PlacementAssetHandle = handle;
                                 if (clearInline)
@@ -234,7 +246,8 @@ namespace OloEngine
                                     imc.Instances = m_PreInstances;
                                 imc.InvalidateMergedCache();
                             }
-                            Ref<Scene> m_Scene; UUID m_EntityUUID;
+                            Ref<Scene> m_Scene;
+                            UUID m_EntityUUID;
                             std::vector<InstanceData> m_PreInstances;
                             AssetHandle m_PrePlacementHandle, m_PostPlacementHandle;
                         };
@@ -260,13 +273,13 @@ namespace OloEngine
     }
 
     void InstanceScatterBrushPanel::OnUpdate(f32 deltaTime, const glm::vec3& hitPos,
-                                              const glm::vec3& surfaceNormal,
-                                              bool hasHit, bool mouseDown)
+                                             const glm::vec3& surfaceNormal,
+                                             bool hasHit, bool mouseDown)
     {
         (void)deltaTime;
         m_BrushWorldPos = hitPos;
         m_BrushSurfaceNormal = (glm::length(surfaceNormal) > 0.0001f) ? glm::normalize(surfaceNormal)
-                                                                       : glm::vec3(0.0f, 1.0f, 0.0f);
+                                                                      : glm::vec3(0.0f, 1.0f, 0.0f);
         m_HasBrushHit = hasHit;
 
         if (!IsActive())
@@ -404,7 +417,7 @@ namespace OloEngine
             const i32 variantIdx = static_cast<i32>(distVariant(rng));
             const i32 variantClamped = std::clamp(variantIdx, 0, std::max(0, m_VariantCount - 1));
             inst.Custom = (m_VariantCount > 1) ? static_cast<f32>(variantClamped) / static_cast<f32>(m_VariantCount - 1)
-                                                : 0.0f;
+                                               : 0.0f;
             imc.Instances.push_back(inst);
         }
         imc.InvalidateMergedCache();
