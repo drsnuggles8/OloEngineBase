@@ -75,6 +75,7 @@ CMake will also create the `build/` directory, which contains the Visual Studio 
 - **Scripting Support**: Full C# (Mono) and Lua (Sol2) bindings for all UI components
 
 ## Future Features
+
 - Advanced lighting (global illumination, ray tracing)
 - Scripting debugger and hot-reload
 - GPU-driven particle compute pipeline
@@ -85,6 +86,7 @@ CMake will also create the `build/` directory, which contains the Visual Studio 
 All dependencies are automatically fetched via FetchContent and CPM (CMake Package Manager — CPM hosts Sol2, choc, nlohmann/json, ImGui, and ImGuizmo; FetchContent hosts the rest) and stored in `OloEngine/vendor/`:
 
 ### Core Libraries
+
 * [entt](https://github.com/skypjack/entt) - Fast and reliable entity-component system (ECS)
 * [glm](https://github.com/g-truc/glm) - OpenGL Mathematics library for graphics transformations
 * [spdlog](https://github.com/gabime/spdlog) - Fast C++ logging library
@@ -111,6 +113,7 @@ All dependencies are automatically fetched via FetchContent and CPM (CMake Packa
 * [protobuf](https://github.com/protocolbuffers/protobuf) - Wire format for snapshots / RPC
 
 ### Navigation
+
 * [recastnavigation](https://github.com/recastnavigation/recastnavigation) - Navigation mesh generation
 
 ### Audio

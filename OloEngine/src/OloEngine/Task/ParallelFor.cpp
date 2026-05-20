@@ -4,6 +4,7 @@
 #include "OloEngine/Task/ParallelFor.h"
 #include "OloEngine/HAL/PlatformMisc.h"
 
+#include <mutex>
 #include <thread>
 #include <cstdlib>
 #include <cstring>
@@ -22,8 +23,12 @@ namespace OloEngine
     // Can be disabled for debugging or on single-core systems
     static bool s_ShouldUseThreadingForPerformance = true;
 
-    // Whether s_ShouldUseThreadingForPerformance has been initialized
-    static bool s_ThreadingForPerformanceInitialized = false;
+    // One-time initialization guard. ShouldUseThreadingForPerformance() is
+    // called from many worker threads concurrently; the previous ad-hoc
+    // `bool s_…Initialized` check was a data race. std::call_once provides
+    // the happens-before edges we need without each call paying a mutex cost
+    // after the first successful initialization.
+    static std::once_flag s_ThreadingInitFlag;
 
     // @brief Initialize threading configuration from environment/command line
     //
@@ -31,12 +36,6 @@ namespace OloEngine
     // command line parameters like -NoThreading, -ForceMultithread, etc.
     static void InitializeThreadingConfiguration()
     {
-        if (s_ThreadingForPerformanceInitialized)
-        {
-            return;
-        }
-        s_ThreadingForPerformanceInitialized = true;
-
         // Start with hardware-based decision
         const u32 NumCores = std::thread::hardware_concurrency();
         s_ShouldUseThreadingForPerformance = (NumCores > 1);
@@ -82,11 +81,10 @@ namespace OloEngine
 
     bool ShouldUseThreadingForPerformance()
     {
-        // Lazy initialization on first call
-        if (!s_ThreadingForPerformanceInitialized)
-        {
-            InitializeThreadingConfiguration();
-        }
+        // Race-free lazy init. std::call_once both guarantees single execution
+        // and establishes a happens-before edge so the subsequent read of
+        // s_ShouldUseThreadingForPerformance sees the writes done inside.
+        std::call_once(s_ThreadingInitFlag, InitializeThreadingConfiguration);
         return s_ShouldUseThreadingForPerformance;
     }
 

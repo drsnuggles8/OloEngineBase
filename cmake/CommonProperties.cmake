@@ -109,10 +109,17 @@ function(olo_set_common_definitions target_name)
     target_compile_definitions(${target_name} PRIVATE
         $<$<CONFIG:Debug>:OLO_DEBUG>
         $<$<CONFIG:Release>:OLO_RELEASE>
-        $<$<CONFIG:Release>:TRACY_ENABLE>
-        $<$<CONFIG:Release>:TRACY_ON_DEMAND>
         $<$<CONFIG:Dist>:OLO_DIST>
     )
+    # Tracy: only define the macro when the CMake option is on. This lets the
+    # TSan preset turn Tracy off (-DTRACY_ENABLE=OFF) — Tracy's rpmalloc has a
+    # known static-init-order race that TSan flags, halting test discovery.
+    if(TRACY_ENABLE)
+        target_compile_definitions(${target_name} PRIVATE
+            $<$<CONFIG:Release>:TRACY_ENABLE>
+            $<$<CONFIG:Release>:TRACY_ON_DEMAND>
+        )
+    endif()
 endfunction()
 
 # Configure link options for all builds

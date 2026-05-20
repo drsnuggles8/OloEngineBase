@@ -1803,7 +1803,11 @@ namespace OloEngine
             glm::vec3 rotation = glm::degrees(component.GetRotationEuler());
             glm::vec3 savedRotation = rotation;
             DrawVec3Control("Rotation", rotation);
-            if (rotation != savedRotation)
+            // Bit-exact edit detection — DragFloat3 returns the input bytes
+            // verbatim when the user doesn't interact, so any byte difference
+            // is a real user edit (cpp-coding-quality §2a; an epsilon compare
+            // here would mask sub-degree edits the user actually intended).
+            if (std::memcmp(&rotation, &savedRotation, sizeof(glm::vec3)) != 0)
             {
                 component.SetRotationEuler(glm::radians(rotation));
             }
@@ -2047,7 +2051,7 @@ namespace OloEngine
             const char* const bodyTypeStrings[] = { "Static", "Dynamic", "Kinematic" };
             if (const char* currentBodyTypeString = bodyTypeStrings[static_cast<int>(component.Type)]; ImGui::BeginCombo("Body Type", currentBodyTypeString))
             {
-                for (int i = 0; i < 2; ++i)
+                for (int i = 0; i < 3; ++i)
                 {
                     const bool isSelected = currentBodyTypeString == bodyTypeStrings[i];
                     if (ImGui::Selectable(bodyTypeStrings[i], isSelected))

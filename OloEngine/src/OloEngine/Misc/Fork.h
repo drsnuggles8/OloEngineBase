@@ -100,14 +100,14 @@ namespace OloEngine
         // This is important because after fork(), only the calling thread exists in the child.
         static bool SupportsMultithreadingPostFork()
         {
-            return s_SupportsMultithreadingPostFork;
+            return s_SupportsMultithreadingPostFork.load(std::memory_order_acquire);
         }
 
         // @brief Set whether multithreading is supported post-fork.
         // @param bSupported Whether to allow multithreading after fork
         static void SetSupportsMultithreadingPostFork(bool bSupported)
         {
-            s_SupportsMultithreadingPostFork = bSupported;
+            s_SupportsMultithreadingPostFork.store(bSupported, std::memory_order_release);
         }
 
         // @brief Performs low-level cross-platform actions that should happen immediately
@@ -173,7 +173,7 @@ namespace OloEngine
         inline static std::atomic<bool> s_ForkRequested{ false };
         inline static std::atomic<bool> s_IsForkedChildProcess{ false };
         inline static std::atomic<bool> s_IsForkedMultithreadInstance{ false };
-        inline static bool s_SupportsMultithreadingPostFork{ false };
+        inline static std::atomic<bool> s_SupportsMultithreadingPostFork{ false };
         inline static u16 s_ForkedChildProcessIndex{ 0 };
     };
 

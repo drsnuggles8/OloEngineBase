@@ -70,7 +70,7 @@ namespace OloEngine
     struct TagComponent
     {
         std::string Tag;
-        bool renaming = false;
+        bool renaming = false; // Transient editor flag — NOT authoring data.
 
         TagComponent() = default;
         TagComponent(const TagComponent& other) = default;
@@ -86,7 +86,13 @@ namespace OloEngine
             return Tag;
         }
 
-        auto operator==(const TagComponent&) const -> bool = default;
+        // Authoring-only equality — `renaming` is a transient editor flag toggled
+        // while the user is mid-rename. Including it would treat start/end of an
+        // inline edit as a real change and pollute the undo stack.
+        auto operator==(const TagComponent& other) const -> bool
+        {
+            return Tag == other.Tag;
+        }
     };
 
     struct PrefabComponent
@@ -396,13 +402,13 @@ namespace OloEngine
         Rigidbody2DComponent() = default;
         Rigidbody2DComponent(const Rigidbody2DComponent&) = default;
 
-        // RuntimeBody/b2BodyId is opaque runtime state; we compare it as POD
-        // bytes via memcmp on the whole struct since all members are trivially
-        // copyable. Manual to bypass the glm::vec2 `==` SonarQube rule for
-        // serialized-field intent — float fields are bit-exact compared.
+        // Compare only authored fields. RuntimeBody is a b2BodyId set by the
+        // physics system when entering Play mode; including it in equality
+        // would flag enter/exit-play as an authored change. Float fields use
+        // bit-exact memcmp per cpp-coding-quality §2a.
         auto operator==(const Rigidbody2DComponent& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(Rigidbody2DComponent)) == 0;
+            return Type == other.Type && FixedRotation == other.FixedRotation && std::memcmp(&LinearVelocity, &other.LinearVelocity, sizeof(glm::vec2)) == 0 && std::memcmp(&AngularVelocity, &other.AngularVelocity, sizeof(f32)) == 0;
         }
     };
 
@@ -428,9 +434,11 @@ namespace OloEngine
         BoxCollider2DComponent() = default;
         BoxCollider2DComponent(const BoxCollider2DComponent&) = default;
 
+        // RuntimeFixture (void*) is a Box2D handle populated on Play; excluded
+        // from equality so play-mode enter/exit doesn't show as authored change.
         auto operator==(const BoxCollider2DComponent& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(BoxCollider2DComponent)) == 0;
+            return std::memcmp(&Offset, &other.Offset, sizeof(glm::vec2)) == 0 && std::memcmp(&Size, &other.Size, sizeof(glm::vec2)) == 0 && std::memcmp(&Density, &other.Density, sizeof(f32)) == 0 && std::memcmp(&Friction, &other.Friction, sizeof(f32)) == 0 && std::memcmp(&Restitution, &other.Restitution, sizeof(f32)) == 0 && std::memcmp(&RestitutionThreshold, &other.RestitutionThreshold, sizeof(f32)) == 0;
         }
     };
 
@@ -456,9 +464,10 @@ namespace OloEngine
         CircleCollider2DComponent() = default;
         CircleCollider2DComponent(const CircleCollider2DComponent&) = default;
 
+        // RuntimeFixture (void*) is a Box2D handle populated on Play; excluded.
         auto operator==(const CircleCollider2DComponent& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(CircleCollider2DComponent)) == 0;
+            return std::memcmp(&Offset, &other.Offset, sizeof(glm::vec2)) == 0 && std::memcmp(&Radius, &other.Radius, sizeof(f32)) == 0 && std::memcmp(&Density, &other.Density, sizeof(f32)) == 0 && std::memcmp(&Friction, &other.Friction, sizeof(f32)) == 0 && std::memcmp(&Restitution, &other.Restitution, sizeof(f32)) == 0 && std::memcmp(&RestitutionThreshold, &other.RestitutionThreshold, sizeof(f32)) == 0;
         }
     };
 
@@ -500,9 +509,11 @@ namespace OloEngine
         Rigidbody3DComponent() = default;
         Rigidbody3DComponent(const Rigidbody3DComponent&) = default;
 
+        // m_RuntimeBodyToken is a Jolt body ID assigned on Play; excluded from
+        // authored-state equality so play-mode enter/exit doesn't show as a change.
         auto operator==(const Rigidbody3DComponent& other) const -> bool
         {
-            return std::memcmp(this, &other, sizeof(Rigidbody3DComponent)) == 0;
+            return m_Type == other.m_Type && m_LayerID == other.m_LayerID && std::memcmp(&m_Mass, &other.m_Mass, sizeof(f32)) == 0 && std::memcmp(&m_LinearDrag, &other.m_LinearDrag, sizeof(f32)) == 0 && std::memcmp(&m_AngularDrag, &other.m_AngularDrag, sizeof(f32)) == 0 && m_DisableGravity == other.m_DisableGravity && m_IsTrigger == other.m_IsTrigger && m_LockedAxes == other.m_LockedAxes && std::memcmp(&m_InitialLinearVelocity, &other.m_InitialLinearVelocity, sizeof(glm::vec3)) == 0 && std::memcmp(&m_InitialAngularVelocity, &other.m_InitialAngularVelocity, sizeof(glm::vec3)) == 0 && std::memcmp(&m_MaxLinearVelocity, &other.m_MaxLinearVelocity, sizeof(f32)) == 0 && std::memcmp(&m_MaxAngularVelocity, &other.m_MaxAngularVelocity, sizeof(f32)) == 0;
         }
     };
 

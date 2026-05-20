@@ -216,7 +216,12 @@ add_library(atomic_queue_interface INTERFACE)
 target_include_directories(atomic_queue_interface INTERFACE ${atomic_queue_SOURCE_DIR}/include)
 set(ATOMIC_QUEUE_INCLUDE_DIR "${atomic_queue_SOURCE_DIR}/include" CACHE INTERNAL "")
 
-target_compile_definitions("TracyClient" PRIVATE $<$<CONFIG:Release>:TRACY_ENABLE>)
+# Tracy's own macros — only define when the CMake option is on. With this off
+# the entire Profiler ctor (and its worker threads) compile out, which avoids
+# the static-init race that TSan trips on (see CMakePresets.json linux-tsan).
+if(TRACY_ENABLE)
+    target_compile_definitions("TracyClient" PRIVATE $<$<CONFIG:Release>:TRACY_ENABLE>)
+endif()
 
 glad_add_library(glad STATIC API gl:core=4.6 LOCATION ${PROJECT_SOURCE_DIR}/vendor/glad-build/${TARGET})
 

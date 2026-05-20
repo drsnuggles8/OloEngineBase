@@ -6,6 +6,7 @@
 #include "OloEngine/Gameplay/Abilities/Tags/GameplayTagContainer.h"
 
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace OloEngine

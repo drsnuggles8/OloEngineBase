@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/Texture.h"
 
 #include <glm/glm.hpp>
+#include <cstring>
 #include <string>
 
 namespace OloEngine
@@ -51,7 +52,15 @@ namespace OloEngine
 
         bool Enabled = true;
 
-        auto operator==(const FoliageLayer&) const -> bool = default;
+        // Manual operator== — excludes the runtime AlbedoTexture (a re-load of
+        // the same asset hands out a different Ref pointer, which would
+        // spuriously flag layers as changed). Float / glm::vec3 fields use
+        // bit-exact memcmp per cpp-coding-quality §2a; AlbedoPath identifies
+        // the texture authoritatively for equality purposes.
+        auto operator==(const FoliageLayer& other) const -> bool
+        {
+            return Name == other.Name && MeshPath == other.MeshPath && AlbedoPath == other.AlbedoPath && std::memcmp(&Density, &other.Density, sizeof(f32)) == 0 && SplatmapChannel == other.SplatmapChannel && std::memcmp(&MinSlopeAngle, &other.MinSlopeAngle, sizeof(f32)) == 0 && std::memcmp(&MaxSlopeAngle, &other.MaxSlopeAngle, sizeof(f32)) == 0 && std::memcmp(&MinScale, &other.MinScale, sizeof(f32)) == 0 && std::memcmp(&MaxScale, &other.MaxScale, sizeof(f32)) == 0 && std::memcmp(&MinHeight, &other.MinHeight, sizeof(f32)) == 0 && std::memcmp(&MaxHeight, &other.MaxHeight, sizeof(f32)) == 0 && RandomRotation == other.RandomRotation && std::memcmp(&ViewDistance, &other.ViewDistance, sizeof(f32)) == 0 && std::memcmp(&FadeStartDistance, &other.FadeStartDistance, sizeof(f32)) == 0 && std::memcmp(&WindStrength, &other.WindStrength, sizeof(f32)) == 0 && std::memcmp(&WindSpeed, &other.WindSpeed, sizeof(f32)) == 0 && std::memcmp(&BaseColor, &other.BaseColor, sizeof(glm::vec3)) == 0 && std::memcmp(&Roughness, &other.Roughness, sizeof(f32)) == 0 && std::memcmp(&AlphaCutoff, &other.AlphaCutoff, sizeof(f32)) == 0 && Enabled == other.Enabled;
+        }
     };
 
     // Per-instance data for GPU (must match shader layout)

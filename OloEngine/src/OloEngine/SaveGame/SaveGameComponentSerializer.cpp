@@ -1547,9 +1547,15 @@ namespace OloEngine
                         break;
                     }
                     default:
-                        // Unknown tag — skip this entry; subsequent entries may still load.
-                        OLO_CORE_WARN("[SaveGame] Unknown blackboard variant tag {}; entry skipped", tag);
-                        break;
+                        // Unknown tag means the stream layout has changed or the
+                        // save-file is corrupt. We MUST NOT just skip — the
+                        // variant payload is still in the stream, so dropping
+                        // it would misalign the cursor and corrupt every entry
+                        // after this one. Mark the archive in error and bail;
+                        // the caller (FArchive::IsError) aborts the wider load.
+                        OLO_CORE_ERROR("[SaveGame] Unknown blackboard variant tag {} — stream is misaligned, aborting load", tag);
+                        ar.SetError();
+                        return;
                 }
             }
         }
@@ -1625,15 +1631,24 @@ namespace OloEngine
         {
             i32 capacity{};
             ar << capacity;
+            // Defensive clamp — a corrupt save-file could deliver a negative
+            // capacity, and a naive `static_cast<u64>(capacity)` below would
+            // wrap that to ~1.8e19 and admit out-of-bounds AddItemToSlot calls.
+            if (capacity < 0)
+            {
+                OLO_CORE_WARN("[SaveGame] Negative inventory capacity {} in stream — clamping to 0", capacity);
+                capacity = 0;
+            }
             inv.SetCapacity(capacity);
             ar << inv.MaxWeight;
             u64 slotCount{};
             ar << slotCount;
+            const u64 slotBound = static_cast<u64>(capacity);
             for (u64 i = 0; i < slotCount; ++i)
             {
                 std::optional<ItemInstance> loaded;
                 SerializeOptionalItem(ar, loaded);
-                if (loaded && i < static_cast<u64>(capacity))
+                if (loaded && i < slotBound)
                 {
                     inv.AddItemToSlot(static_cast<i32>(i), *loaded);
                 }

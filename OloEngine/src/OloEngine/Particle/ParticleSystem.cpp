@@ -4,6 +4,7 @@
 #include "OloEngine/Task/Task.h"
 
 #include <algorithm>
+#include <cmath>
 #include <numeric>
 
 namespace OloEngine
