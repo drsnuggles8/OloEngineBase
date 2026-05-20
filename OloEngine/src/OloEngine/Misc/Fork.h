@@ -48,14 +48,14 @@ namespace OloEngine
         // process via fake forking.
         static bool IsForkRequested()
         {
-            return s_bForkRequested.load(std::memory_order_relaxed);
+            return s_ForkRequested.load(std::memory_order_relaxed);
         }
 
         // @brief Sets the fork requested flag.
         // Call this before engine initialization if you intend to fork.
         static void SetForkRequested(bool bRequested)
         {
-            s_bForkRequested.store(bRequested, std::memory_order_release);
+            s_ForkRequested.store(bRequested, std::memory_order_release);
         }
 
         // @brief Are we a forked process that supports multithreading.
@@ -64,13 +64,13 @@ namespace OloEngine
         // IsForkedChildProcess is true but IsForkedMultithreadInstance will be false.
         static bool IsForkedMultithreadInstance()
         {
-            return s_bIsForkedMultithreadInstance.load(std::memory_order_acquire);
+            return s_IsForkedMultithreadInstance.load(std::memory_order_acquire);
         }
 
         // @brief Is this a process that was forked.
         static bool IsForkedChildProcess()
         {
-            return s_bIsForkedChildProcess.load(std::memory_order_acquire);
+            return s_IsForkedChildProcess.load(std::memory_order_acquire);
         }
 
         // @brief Sets the forked child process flag and index given to this child process.
@@ -78,7 +78,7 @@ namespace OloEngine
         static void SetIsForkedChildProcess(u16 ChildIndex = 1)
         {
             s_ForkedChildProcessIndex = ChildIndex;
-            s_bIsForkedChildProcess.store(true, std::memory_order_release);
+            s_IsForkedChildProcess.store(true, std::memory_order_release);
         }
 
         // @brief Returns the unique index of this forked child process.
@@ -92,7 +92,7 @@ namespace OloEngine
         // to create real threads.
         static void OnForkingOccured()
         {
-            s_bIsForkedMultithreadInstance.store(true, std::memory_order_release);
+            s_IsForkedMultithreadInstance.store(true, std::memory_order_release);
         }
 
         // @brief Tells if we allow multithreading on forked processes.
@@ -100,14 +100,14 @@ namespace OloEngine
         // This is important because after fork(), only the calling thread exists in the child.
         static bool SupportsMultithreadingPostFork()
         {
-            return s_bSupportsMultithreadingPostFork;
+            return s_SupportsMultithreadingPostFork;
         }
 
         // @brief Set whether multithreading is supported post-fork.
         // @param bSupported Whether to allow multithreading after fork
         static void SetSupportsMultithreadingPostFork(bool bSupported)
         {
-            s_bSupportsMultithreadingPostFork = bSupported;
+            s_SupportsMultithreadingPostFork = bSupported;
         }
 
         // @brief Performs low-level cross-platform actions that should happen immediately
@@ -170,10 +170,10 @@ namespace OloEngine
             bool bAllowPreFork = false);
 
       private:
-        inline static std::atomic<bool> s_bForkRequested{ false };
-        inline static std::atomic<bool> s_bIsForkedChildProcess{ false };
-        inline static std::atomic<bool> s_bIsForkedMultithreadInstance{ false };
-        inline static bool s_bSupportsMultithreadingPostFork{ false };
+        inline static std::atomic<bool> s_ForkRequested{ false };
+        inline static std::atomic<bool> s_IsForkedChildProcess{ false };
+        inline static std::atomic<bool> s_IsForkedMultithreadInstance{ false };
+        inline static bool s_SupportsMultithreadingPostFork{ false };
         inline static u16 s_ForkedChildProcessIndex{ 0 };
     };
 
@@ -216,7 +216,7 @@ namespace OloEngine
         // @return True if conversion was successful
         bool ConvertToRealThread()
         {
-            if (m_bIsRealThread || !m_Runnable)
+            if (m_IsRealThread || !m_Runnable)
             {
                 return false;
             }
@@ -225,7 +225,7 @@ namespace OloEngine
             if (CreateInternal(m_Runnable, m_ThreadName.c_str(), m_StackSize,
                                m_ThreadPriority, m_ThreadAffinityMask, m_CreateFlags))
             {
-                m_bIsRealThread = true;
+                m_IsRealThread = true;
                 return true;
             }
             return false;
@@ -237,7 +237,7 @@ namespace OloEngine
         // this to give the runnable a chance to execute.
         void Tick()
         {
-            if (m_bIsRealThread || !m_Runnable)
+            if (m_IsRealThread || !m_Runnable)
             {
                 return;
             }
@@ -262,7 +262,7 @@ namespace OloEngine
             m_ThreadPriority = InThreadPri;
             m_ThreadAffinityMask = InThreadAffinityMask;
             m_CreateFlags = InCreateFlags;
-            m_bIsRealThread = false;
+            m_IsRealThread = false;
 
             // Initialize the runnable (but don't start the thread yet)
             if (m_Runnable)
@@ -275,7 +275,7 @@ namespace OloEngine
       private:
         u32 m_StackSize = 0;
         EThreadCreateFlags m_CreateFlags = EThreadCreateFlags::None;
-        bool m_bIsRealThread = false;
+        bool m_IsRealThread = false;
     };
 
     inline FRunnableThread* FForkProcessHelper::CreateForkableThread(

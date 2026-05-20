@@ -63,6 +63,11 @@ olo_enable_lto(OloEngine)
 olo_enable_pch(OloEngine src/OloEnginePCH.h)
 olo_set_compiler_options(OloEngine)
 
+# Propagate C++23 as a transitive requirement so anything that links OloEngine
+# (apps, tests, scripting bindings) inherits the standard rather than relying
+# on the global CMAKE_CXX_STANDARD=23. Belt-and-braces with the global setting.
+target_compile_features(OloEngine PUBLIC cxx_std_23)
+
 # UE5.7-ported code (Containers/, Templates/, Serialization/, HAL/) triggers
 # warnings that don't apply to our codebase.  PUBLIC so consumers that
 # transitively include these headers (Scene.h -> Map.h, etc.) also compile

@@ -82,13 +82,13 @@ namespace OloEngine
             m_TopChunk = Other.m_TopChunk;
             m_TopMark = Other.m_TopMark;
             m_NumMarks = Other.m_NumMarks;
-            m_bShouldEnforceAllocMarks = Other.m_bShouldEnforceAllocMarks;
+            m_ShouldEnforceAllocMarks = Other.m_ShouldEnforceAllocMarks;
             m_PageSize = Other.m_PageSize;
             Other.m_Top = nullptr;
             Other.m_End = nullptr;
             Other.m_TopChunk = nullptr;
             Other.m_NumMarks = 0;
-            Other.m_bShouldEnforceAllocMarks = false;
+            Other.m_ShouldEnforceAllocMarks = false;
             return *this;
         }
 
@@ -127,7 +127,7 @@ namespace OloEngine
             // Debug checks
             OLO_CORE_ASSERT((Alignment & (Alignment - 1)) == 0, "Alignment must be power of 2");
             OLO_CORE_ASSERT(m_Top <= m_End, "Stack corruption detected");
-            OLO_CORE_ASSERT(!m_bShouldEnforceAllocMarks || m_NumMarks > 0, "Allocation without mark!");
+            OLO_CORE_ASSERT(!m_ShouldEnforceAllocMarks || m_NumMarks > 0, "Allocation without mark!");
 
             // Try to get memory from the current chunk
             u8* Result = Align(m_Top, Alignment);
@@ -226,7 +226,7 @@ namespace OloEngine
         EPageSize m_PageSize = EPageSize::Small;
 
       protected:
-        bool m_bShouldEnforceAllocMarks = false;
+        bool m_ShouldEnforceAllocMarks = false;
     };
 
     // ========================================================================
@@ -243,7 +243,7 @@ namespace OloEngine
       public:
         FMemStack()
         {
-            m_bShouldEnforceAllocMarks = true;
+            m_ShouldEnforceAllocMarks = true;
         }
 
         // @brief Get the thread-local memory stack instance
@@ -271,7 +271,7 @@ namespace OloEngine
         // @brief Construct a mark at the current stack position
         // @param InMem The memory stack to mark
         explicit FMemMark(FMemStackBase& InMem)
-            : m_Mem(InMem), m_Top(InMem.m_Top), m_SavedChunk(InMem.m_TopChunk), m_bPopped(false), m_NextTopmostMark(InMem.m_TopMark)
+            : m_Mem(InMem), m_Top(InMem.m_Top), m_SavedChunk(InMem.m_TopChunk), m_Popped(false), m_NextTopmostMark(InMem.m_TopMark)
         {
             m_Mem.m_TopMark = this;
 
@@ -294,10 +294,10 @@ namespace OloEngine
         // Free the memory allocated after the mark was created.
         void Pop()
         {
-            if (!m_bPopped)
+            if (!m_Popped)
             {
                 OLO_CORE_ASSERT(m_Mem.m_TopMark == this, "Marks must be popped in LIFO order!");
-                m_bPopped = true;
+                m_Popped = true;
 
                 // Track the number of outstanding marks on the stack
                 --m_Mem.m_NumMarks;
@@ -321,7 +321,7 @@ namespace OloEngine
         FMemStackBase& m_Mem;
         u8* m_Top;
         FMemStackBase::FTaggedMemory* m_SavedChunk;
-        bool m_bPopped;
+        bool m_Popped;
         FMemMark* m_NextTopmostMark;
     };
 

@@ -42,7 +42,7 @@
 #include "OloEngine/Audio/AudioEvents/CommandID.h"
 #include "OloEngine/Scene/Streaming/SceneStreamer.h"
 
-#include "box2d/box2d.h"
+#include <box2d/box2d.h>
 
 #include <algorithm>
 #include <cmath>

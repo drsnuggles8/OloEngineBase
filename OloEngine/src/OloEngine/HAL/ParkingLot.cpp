@@ -378,7 +378,7 @@ namespace OloEngine::ParkingLot
                 return s_ThreadLocalData.m_Thread;
             }
 
-            if (s_ThreadLocalData.m_bDestroyed)
+            if (s_ThreadLocalData.m_Destroyed)
             {
                 // During thread destruction, create a temporary FThread
                 return TRefCountPtr<FThread>(new FThread);
@@ -394,7 +394,7 @@ namespace OloEngine::ParkingLot
 
         inline static std::atomic<u32> s_ThreadCount{ 0 };
         TRefCountPtr<FThread> m_Thread;
-        bool m_bDestroyed = false;
+        bool m_Destroyed = false;
     };
 
     //////////////////////////////////////////////////////////////////////////
@@ -848,7 +848,7 @@ namespace OloEngine::ParkingLot
     {
         s_ThreadCount.fetch_sub(1, std::memory_order_relaxed);
         m_Thread = TRefCountPtr<FThread>(); // Release thread
-        m_bDestroyed = true;
+        m_Destroyed = true;
     }
 
     //////////////////////////////////////////////////////////////////////////

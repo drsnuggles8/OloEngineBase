@@ -141,8 +141,8 @@ namespace OloEngine
 
     bool FLowLevelMemTracker::IsEnabled()
     {
-        return Get().m_bEnabled.load(std::memory_order_acquire) &&
-               Get().m_bInitialized.load(std::memory_order_acquire);
+        return Get().m_Enabled.load(std::memory_order_acquire) &&
+               Get().m_Initialized.load(std::memory_order_acquire);
     }
 
     FLowLevelMemTracker::FLowLevelMemTracker()
@@ -157,28 +157,28 @@ namespace OloEngine
 
     void FLowLevelMemTracker::Initialize()
     {
-        if (m_bInitialized.load(std::memory_order_acquire))
+        if (m_Initialized.load(std::memory_order_acquire))
         {
             return;
         }
 
         InitializeTagData();
 
-        m_bInitialized.store(true, std::memory_order_release);
-        m_bEnabled.store(true, std::memory_order_release);
+        m_Initialized.store(true, std::memory_order_release);
+        m_Enabled.store(true, std::memory_order_release);
 
         OLO_CORE_INFO("LLM: Low-Level Memory Tracker initialized");
     }
 
     void FLowLevelMemTracker::Shutdown()
     {
-        if (!m_bInitialized.load(std::memory_order_acquire))
+        if (!m_Initialized.load(std::memory_order_acquire))
         {
             return;
         }
 
-        m_bEnabled.store(false, std::memory_order_release);
-        m_bInitialized.store(false, std::memory_order_release);
+        m_Enabled.store(false, std::memory_order_release);
+        m_Initialized.store(false, std::memory_order_release);
 
         OLO_CORE_INFO("LLM: Low-Level Memory Tracker shutdown");
     }
@@ -368,9 +368,9 @@ namespace OloEngine
     // ============================================================================
 
     FLLMScope::FLLMScope(ELLMTag Tag, [[maybe_unused]] bool bIsStatTag, [[maybe_unused]] ELLMTagSet TagSet, [[maybe_unused]] ELLMTracker Tracker)
-        : m_Tag(Tag), m_bEnabled(FLowLevelMemTracker::IsEnabled())
+        : m_Tag(Tag), m_Enabled(FLowLevelMemTracker::IsEnabled())
     {
-        if (m_bEnabled)
+        if (m_Enabled)
         {
             FLowLevelMemTracker::Get().GetThreadState().PushTag(Tag);
         }
@@ -378,7 +378,7 @@ namespace OloEngine
 
     FLLMScope::~FLLMScope()
     {
-        if (m_bEnabled)
+        if (m_Enabled)
         {
             FLowLevelMemTracker::Get().GetThreadState().PopTag();
         }
@@ -389,9 +389,9 @@ namespace OloEngine
     // ============================================================================
 
     FLLMPauseScope::FLLMPauseScope()
-        : m_bEnabled(FLowLevelMemTracker::IsEnabled())
+        : m_Enabled(FLowLevelMemTracker::IsEnabled())
     {
-        if (m_bEnabled)
+        if (m_Enabled)
         {
             FLowLevelMemTracker::Get().GetThreadState().Pause();
         }
@@ -399,7 +399,7 @@ namespace OloEngine
 
     FLLMPauseScope::~FLLMPauseScope()
     {
-        if (m_bEnabled)
+        if (m_Enabled)
         {
             FLowLevelMemTracker::Get().GetThreadState().Unpause();
         }

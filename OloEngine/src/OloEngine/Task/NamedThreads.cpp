@@ -23,7 +23,7 @@ namespace OloEngine::Tasks
     // @brief Thread-local flag tracking if we're currently processing tasks
     //
     // Used to prevent re-entrancy in TryWaitOnNamedThread.
-    thread_local bool FNamedThreadManager::s_bIsProcessingTasks = false;
+    thread_local bool FNamedThreadManager::s_IsProcessingTasks = false;
 
     // ============================================================================
     // Configuration globals

@@ -151,7 +151,8 @@ namespace OloEngine::Audio::DSP
     {
         float x = vec.x;
         float y = vec.z;
-        if (x == 0.0f && y == 0.0f)
+        constexpr float angleEpsilon = 1e-6f;
+        if (std::abs(x) < angleEpsilon && std::abs(y) < angleEpsilon)
         {
             return 0.0f;
         }
@@ -162,7 +163,8 @@ namespace OloEngine::Audio::DSP
     {
         float x = vec.x;
         float y = vec.y;
-        if (x == 0.0f && y == 0.0f)
+        constexpr float angleEpsilon = 1e-6f;
+        if (std::abs(x) < angleEpsilon && std::abs(y) < angleEpsilon)
         {
             return 0.0f;
         }

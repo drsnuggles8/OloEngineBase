@@ -5,6 +5,8 @@
 #include <cmath>
 
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Animation/IKTargetComponent.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
 #include "OloEngine/Audio/AudioListener.h"
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Core/Hash.h"
@@ -18,6 +20,7 @@
 #include "OloEngine/Particle/ParticleTrail.h"
 #include "OloEngine/Particle/SubEmitter.h"
 #include "OloEngine/Physics3D/ColliderMaterial.h"
+#include "OloEngine/Renderer/Instancing/InstancedMeshComponent.h"
 #include "OloEngine/Renderer/LOD.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/SphericalHarmonics.h"
@@ -1304,6 +1307,172 @@ namespace OloEngine
         ar << c.LoadRadius << c.UnloadRadius;
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& /*ar*/, SkeletonComponent& /*c*/)
+    {
+        // Skeleton is a runtime Ref reconstructed from the model file on load
+        // (Ref<Skeleton>, tag cache, mutex are all rebuild-on-load state). The
+        // presence of the component is what we persist — actual bone data
+        // comes back when the associated Model / AnimationState reloads.
+        // Marker-only serializer; mirrors SceneSerializer.cpp:4589 which also
+        // emits an empty map for the component.
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, LuaScriptComponent& c)
+    {
+        ar << c.ScriptFile;
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, TileRendererComponent& c)
+    {
+        // TileMesh is a runtime Ref — rebuilt from MaterialIDs/Materials on load.
+        ar << c.Width << c.Height << c.TileSize;
+        ar << c.MaterialIDs;
+
+        // Materials: serialize base PBR factors only (full Material has runtime
+        // texture / shader state that the renderer rebuilds from MaterialIDs).
+        u64 materialCount = c.Materials.size();
+        ar << materialCount;
+        if (ar.IsLoading())
+            c.Materials.resize(materialCount);
+        for (u64 i = 0; i < materialCount; ++i)
+        {
+            if (ar.IsSaving())
+            {
+                auto base = c.Materials[i].GetBaseColorFactor();
+                auto metallic = c.Materials[i].GetMetallicFactor();
+                auto roughness = c.Materials[i].GetRoughnessFactor();
+                auto emissive = c.Materials[i].GetEmissiveFactor();
+                ar << base.x << base.y << base.z << base.w;
+                ar << metallic << roughness;
+                ar << emissive.x << emissive.y << emissive.z << emissive.w;
+            }
+            else
+            {
+                glm::vec4 base{};
+                glm::vec4 emissive{};
+                f32 metallic{};
+                f32 roughness{};
+                ar << base.x << base.y << base.z << base.w;
+                ar << metallic << roughness;
+                ar << emissive.x << emissive.y << emissive.z << emissive.w;
+                c.Materials[i].SetBaseColorFactor(base);
+                c.Materials[i].SetMetallicFactor(metallic);
+                c.Materials[i].SetRoughnessFactor(roughness);
+                c.Materials[i].SetEmissiveFactor(emissive);
+            }
+        }
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, DialogueComponent& c)
+    {
+        ar << c.m_DialogueTree;
+        ar << c.m_AutoTrigger;
+        ar << c.m_TriggerRadius;
+        ar << c.m_TriggerOnce;
+        // m_HasTriggered is runtime-only — not persisted (resets on load).
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, NavMeshBoundsComponent& c)
+    {
+        ar << c.m_Min.x << c.m_Min.y << c.m_Min.z;
+        ar << c.m_Max.x << c.m_Max.y << c.m_Max.z;
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, NavAgentComponent& c)
+    {
+        ar << c.m_Radius << c.m_Height;
+        ar << c.m_MaxSpeed << c.m_Acceleration << c.m_StoppingDistance;
+        ar << c.m_AvoidancePriority;
+        ar << c.m_LockYAxis;
+        // Runtime path state intentionally excluded — recomputed by the nav system.
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, NameplateComponent& c)
+    {
+        ar << c.m_Enabled << c.m_ShowHealthBar << c.m_ShowManaBar;
+        ar << c.m_WorldOffset.x << c.m_WorldOffset.y << c.m_WorldOffset.z;
+        ar << c.m_BarSize.x << c.m_BarSize.y;
+        ar << c.m_HealthBarColor.x << c.m_HealthBarColor.y << c.m_HealthBarColor.z << c.m_HealthBarColor.w;
+        ar << c.m_ManaBarColor.x << c.m_ManaBarColor.y << c.m_ManaBarColor.z << c.m_ManaBarColor.w;
+        ar << c.m_BarBackgroundColor.x << c.m_BarBackgroundColor.y << c.m_BarBackgroundColor.z << c.m_BarBackgroundColor.w;
+        ar << c.m_ManaBarGap;
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, IKTargetComponent& c)
+    {
+        // --- Aim IK ---
+        ar << c.AimIKEnabled << c.AimBoneIndex;
+        ar << c.AimTarget.x << c.AimTarget.y << c.AimTarget.z;
+        ar << c.AimAxis.x << c.AimAxis.y << c.AimAxis.z;
+        ar << c.AimOffset.x << c.AimOffset.y << c.AimOffset.z;
+        ar << c.AimPoleVector.x << c.AimPoleVector.y << c.AimPoleVector.z;
+        ar << c.AimChainLength << c.AimChainFactor << c.AimWeight;
+        ar << c.AimTargetEntity;
+
+        // --- Limb IK ---
+        ar << c.LimbIKEnabled << c.LimbBoneIndex;
+        ar << c.LimbTarget.x << c.LimbTarget.y << c.LimbTarget.z;
+        ar << c.LimbChainLength << c.LimbWeight;
+        ar << c.LimbTargetEntity;
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, UIWorldAnchorComponent& c)
+    {
+        ar << c.m_TargetEntity;
+        ar << c.m_WorldOffset.x << c.m_WorldOffset.y << c.m_WorldOffset.z;
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, MorphTargetComponent& c)
+    {
+        // Ref<MorphTargetSet> + cached base data are runtime — not persisted.
+        // Weights map IS persisted so character poses survive save/load.
+        u64 weightCount = c.Weights.size();
+        ar << weightCount;
+        if (ar.IsSaving())
+        {
+            for (auto& [name, weight] : c.Weights)
+            {
+                std::string nameCopy = name; // ar << requires non-const reference
+                f32 weightCopy = weight;
+                ar << nameCopy << weightCopy;
+            }
+        }
+        else
+        {
+            c.Weights.clear();
+            for (u64 i = 0; i < weightCount; ++i)
+            {
+                std::string name;
+                f32 weight{};
+                ar << name << weight;
+                c.Weights[name] = weight;
+            }
+        }
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, InstancedMeshComponent& c)
+    {
+        // MeshSource / OverrideMaterial / merge cache are runtime Refs — rebuilt
+        // from the primitive + placement asset handle on load.
+        ar << c.Primitive;
+        ar << c.PlacementAssetHandle;
+        ar << c.FrustumCullPerInstance << c.CastShadows;
+        ar << c.CullDistance;
+
+        // Inline placement list — round-trip the per-instance transforms.
+        u64 instanceCount = c.Instances.size();
+        ar << instanceCount;
+        if (ar.IsLoading())
+            c.Instances.resize(instanceCount);
+        for (u64 i = 0; i < instanceCount; ++i)
+        {
+            auto& inst = c.Instances[i];
+            for (int row = 0; row < 4; ++row)
+                for (int col = 0; col < 4; ++col)
+                    ar << inst.Transform[row][col];
+        }
+    }
+
     // ========================================================================
     // Registry
     // ========================================================================
@@ -1383,7 +1552,25 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(MeshComponent);
         REGISTER_SAVE_COMPONENT(ModelComponent);
         REGISTER_SAVE_COMPONENT(AnimationStateComponent);
+        REGISTER_SAVE_COMPONENT(SkeletonComponent);
         REGISTER_SAVE_COMPONENT(StreamingVolumeComponent);
+        REGISTER_SAVE_COMPONENT(LuaScriptComponent);
+        REGISTER_SAVE_COMPONENT(TileRendererComponent);
+        REGISTER_SAVE_COMPONENT(DialogueComponent);
+        REGISTER_SAVE_COMPONENT(NavMeshBoundsComponent);
+        REGISTER_SAVE_COMPONENT(NavAgentComponent);
+        REGISTER_SAVE_COMPONENT(NameplateComponent);
+        REGISTER_SAVE_COMPONENT(IKTargetComponent);
+        REGISTER_SAVE_COMPONENT(UIWorldAnchorComponent);
+        REGISTER_SAVE_COMPONENT(MorphTargetComponent);
+        REGISTER_SAVE_COMPONENT(InstancedMeshComponent);
+
+        // Note: AnimationGraphComponent, BehaviorTreeComponent,
+        // StateMachineComponent, InventoryComponent, ItemPickupComponent,
+        // ItemContainerComponent, QuestJournalComponent, QuestGiverComponent,
+        // and AbilityComponent are intentionally NOT yet registered — their
+        // gameplay-state schemas are still in flux. Add Serialize() overloads
+        // here once the field set stabilises.
 
         OLO_CORE_TRACE("[SaveGameComponentSerializer] Registered {} component serializers", s_Registry.size());
     }

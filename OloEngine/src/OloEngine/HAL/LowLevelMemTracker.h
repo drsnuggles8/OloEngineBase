@@ -291,7 +291,7 @@ namespace OloEngine
         // @brief Check if LLM is fully initialized
         bool IsInitialized() const
         {
-            return m_bInitialized.load(std::memory_order_acquire);
+            return m_Initialized.load(std::memory_order_acquire);
         }
 
       private:
@@ -305,8 +305,8 @@ namespace OloEngine
 
       private:
         LLMPrivate::FTagData m_TagData[LLM_TAG_COUNT];
-        std::atomic<bool> m_bInitialized{ false };
-        std::atomic<bool> m_bEnabled{ true };
+        std::atomic<bool> m_Initialized{ false };
+        std::atomic<bool> m_Enabled{ true };
     };
 
     // ============================================================================
@@ -328,7 +328,7 @@ namespace OloEngine
 
       private:
         ELLMTag m_Tag;
-        bool m_bEnabled;
+        bool m_Enabled;
     };
 
     // ============================================================================
@@ -347,7 +347,7 @@ namespace OloEngine
         FLLMPauseScope& operator=(const FLLMPauseScope&) = delete;
 
       private:
-        bool m_bEnabled;
+        bool m_Enabled;
     };
 
     // ============================================================================

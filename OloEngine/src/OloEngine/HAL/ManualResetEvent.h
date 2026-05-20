@@ -38,7 +38,7 @@ namespace OloEngine
 #if defined(OLO_PLATFORM_LINUX)
             m_State.store(0, std::memory_order_release);
 #else
-            m_bWait.store(true, std::memory_order_release);
+            m_Wait.store(true, std::memory_order_release);
 #endif
         }
 
@@ -50,7 +50,7 @@ namespace OloEngine
 #if defined(OLO_PLATFORM_LINUX)
             return m_State.load(std::memory_order_acquire) != 0;
 #else
-            return !m_bWait.load(std::memory_order_acquire);
+            return !m_Wait.load(std::memory_order_acquire);
 #endif
         }
 
@@ -63,7 +63,7 @@ namespace OloEngine
                 return;
             }
 #else
-            if (OLO_LIKELY(!m_bWait.load(std::memory_order_acquire)))
+            if (OLO_LIKELY(!m_Wait.load(std::memory_order_acquire)))
             {
                 return;
             }
@@ -82,7 +82,7 @@ namespace OloEngine
 #if defined(OLO_PLATFORM_LINUX)
             return m_State.load(std::memory_order_acquire) != 0 || WaitForSlow(WaitTime);
 #else
-            return !m_bWait.load(std::memory_order_acquire) || WaitForSlow(WaitTime);
+            return !m_Wait.load(std::memory_order_acquire) || WaitForSlow(WaitTime);
 #endif
         }
 
@@ -97,7 +97,7 @@ namespace OloEngine
 #if defined(OLO_PLATFORM_LINUX)
             return m_State.load(std::memory_order_acquire) != 0 || WaitUntilSlow(WaitTime);
 #else
-            return !m_bWait.load(std::memory_order_acquire) || WaitUntilSlow(WaitTime);
+            return !m_Wait.load(std::memory_order_acquire) || WaitUntilSlow(WaitTime);
 #endif
         }
 
@@ -114,7 +114,7 @@ namespace OloEngine
         std::atomic<u32> m_State{ 0 };
 #else
         // Windows and fallback use bool: true = waiting, false = notified
-        std::atomic<bool> m_bWait{ true };
+        std::atomic<bool> m_Wait{ true };
 #endif
     };
 

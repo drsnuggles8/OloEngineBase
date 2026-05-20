@@ -26,19 +26,19 @@ namespace OloEngine
         LowLevelTasks::FOversubscriptionScope Scope;
         for (;;)
         {
-            bool bLocalWait = m_bWait.load(std::memory_order_acquire);
+            bool bLocalWait = m_Wait.load(std::memory_order_acquire);
             if (!bLocalWait)
             {
                 return;
             }
             // WaitOnAddress blocks until the value at the address changes
-            ::WaitOnAddress(&m_bWait, &bLocalWait, sizeof(bool), INFINITE);
+            ::WaitOnAddress(&m_Wait, &bLocalWait, sizeof(bool), INFINITE);
         }
     }
 
     bool FPlatformManualResetEvent::WaitForSlow(FMonotonicTimeSpan WaitTime)
     {
-        bool bLocalWait = m_bWait.load(std::memory_order_acquire);
+        bool bLocalWait = m_Wait.load(std::memory_order_acquire);
         if (!bLocalWait || WaitTime <= FMonotonicTimeSpan::Zero())
         {
             return !bLocalWait;
@@ -50,8 +50,8 @@ namespace OloEngine
         const f64 RawWaitMs = WaitTime.ToMilliseconds();
         const DWORD WaitMs = RawWaitMs > static_cast<f64>(INFINITE - 1) ? INFINITE : static_cast<DWORD>(CeilToInt64(RawWaitMs));
 
-        const bool bTimedOut = !::WaitOnAddress(&m_bWait, &bLocalWait, sizeof(bool), WaitMs) && GetLastError() == ERROR_TIMEOUT;
-        bLocalWait = m_bWait.load(std::memory_order_acquire);
+        const bool bTimedOut = !::WaitOnAddress(&m_Wait, &bLocalWait, sizeof(bool), WaitMs) && GetLastError() == ERROR_TIMEOUT;
+        bLocalWait = m_Wait.load(std::memory_order_acquire);
         if (OLO_LIKELY(!bLocalWait || bTimedOut))
         {
             return !bLocalWait;
@@ -70,22 +70,22 @@ namespace OloEngine
 
         for (;;)
         {
-            bool bLocalWait = m_bWait.load(std::memory_order_acquire);
+            bool bLocalWait = m_Wait.load(std::memory_order_acquire);
             if (!bLocalWait || WaitSpan <= FMonotonicTimeSpan::Zero())
             {
                 return !bLocalWait;
             }
             const DWORD WaitMs = WaitTime.IsInfinity() ? INFINITE : static_cast<DWORD>(CeilToInt64(WaitSpan.ToMilliseconds()));
-            ::WaitOnAddress(&m_bWait, &bLocalWait, sizeof(bool), WaitMs);
+            ::WaitOnAddress(&m_Wait, &bLocalWait, sizeof(bool), WaitMs);
             WaitSpan = WaitTime - FMonotonicTimePoint::Now();
         }
     }
 
     void FPlatformManualResetEvent::Notify()
     {
-        m_bWait.store(false, std::memory_order_release);
+        m_Wait.store(false, std::memory_order_release);
         // Wake ALL waiters - this is a manual reset event
-        ::WakeByAddressAll(reinterpret_cast<void*>(&m_bWait));
+        ::WakeByAddressAll(reinterpret_cast<void*>(&m_Wait));
     }
 
 #elif defined(OLO_PLATFORM_LINUX)
@@ -211,7 +211,7 @@ namespace OloEngine
     void FPlatformManualResetEvent::WaitSlow()
     {
         LowLevelTasks::FOversubscriptionScope Scope;
-        while (m_bWait.load(std::memory_order_acquire))
+        while (m_Wait.load(std::memory_order_acquire))
         {
             FPlatformProcess::Yield();
         }
@@ -225,11 +225,11 @@ namespace OloEngine
     bool FPlatformManualResetEvent::WaitUntilSlow(FMonotonicTimePoint WaitTime)
     {
         LowLevelTasks::FOversubscriptionScope Scope;
-        while (m_bWait.load(std::memory_order_acquire))
+        while (m_Wait.load(std::memory_order_acquire))
         {
             if (FMonotonicTimePoint::Now() >= WaitTime)
             {
-                return !m_bWait.load(std::memory_order_acquire);
+                return !m_Wait.load(std::memory_order_acquire);
             }
             FPlatformProcess::Yield();
         }
@@ -238,7 +238,7 @@ namespace OloEngine
 
     void FPlatformManualResetEvent::Notify()
     {
-        m_bWait.store(false, std::memory_order_release);
+        m_Wait.store(false, std::memory_order_release);
     }
 
 #endif

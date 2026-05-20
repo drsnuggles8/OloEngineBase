@@ -22,7 +22,7 @@
 
 #pragma warning(push)
 #pragma warning(disable : 4996)
-#include "entt.hpp"
+#include <entt.hpp>
 #pragma warning(pop)
 
 namespace OloEngine

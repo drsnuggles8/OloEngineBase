@@ -253,7 +253,13 @@ namespace OloEngine::Audio::SoundGraph
                 using VT = std::decay_t<decltype(v)>;
                 if constexpr (std::is_same_v<VT, bool>) return v;
                 else if constexpr (std::is_same_v<VT, i32>) return v != 0;
-                else if constexpr (std::is_same_v<VT, f32>) return v != 0.0f;
+                else if constexpr (std::is_same_v<VT, f32>) {
+                    // Patch "is non-zero" predicate — bit-exact sentinel
+                    // comparison; subnormal/near-zero values are still "set"
+                    // and should round-trip identically (cpp-coding-quality §2a).
+                    constexpr f32 zero = 0.0f;
+                    return std::memcmp(&v, &zero, sizeof(f32)) != 0;
+                }
                 else return fallback; }, pv);
         };
 

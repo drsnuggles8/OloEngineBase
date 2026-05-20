@@ -20,10 +20,10 @@ namespace OloEngine
 
     // Whether to use threading for performance-critical code paths
     // Can be disabled for debugging or on single-core systems
-    static bool s_bShouldUseThreadingForPerformance = true;
+    static bool s_ShouldUseThreadingForPerformance = true;
 
-    // Whether s_bShouldUseThreadingForPerformance has been initialized
-    static bool s_bThreadingForPerformanceInitialized = false;
+    // Whether s_ShouldUseThreadingForPerformance has been initialized
+    static bool s_ThreadingForPerformanceInitialized = false;
 
     // @brief Initialize threading configuration from environment/command line
     //
@@ -31,15 +31,15 @@ namespace OloEngine
     // command line parameters like -NoThreading, -ForceMultithread, etc.
     static void InitializeThreadingConfiguration()
     {
-        if (s_bThreadingForPerformanceInitialized)
+        if (s_ThreadingForPerformanceInitialized)
         {
             return;
         }
-        s_bThreadingForPerformanceInitialized = true;
+        s_ThreadingForPerformanceInitialized = true;
 
         // Start with hardware-based decision
         const u32 NumCores = std::thread::hardware_concurrency();
-        s_bShouldUseThreadingForPerformance = (NumCores > 1);
+        s_ShouldUseThreadingForPerformance = (NumCores > 1);
 
         // Check environment variables for configuration
         // OLO_NO_THREADING=1 disables threading
@@ -47,7 +47,7 @@ namespace OloEngine
         {
             if (std::strcmp(EnvNoThreading, "1") == 0 || std::strcmp(EnvNoThreading, "true") == 0)
             {
-                s_bShouldUseThreadingForPerformance = false;
+                s_ShouldUseThreadingForPerformance = false;
             }
         }
 
@@ -56,7 +56,7 @@ namespace OloEngine
         {
             if (std::strcmp(EnvForceMultithread, "1") == 0 || std::strcmp(EnvForceMultithread, "true") == 0)
             {
-                s_bShouldUseThreadingForPerformance = true;
+                s_ShouldUseThreadingForPerformance = true;
             }
         }
 
@@ -83,11 +83,11 @@ namespace OloEngine
     bool ShouldUseThreadingForPerformance()
     {
         // Lazy initialization on first call
-        if (!s_bThreadingForPerformanceInitialized)
+        if (!s_ThreadingForPerformanceInitialized)
         {
             InitializeThreadingConfiguration();
         }
-        return s_bShouldUseThreadingForPerformance;
+        return s_ShouldUseThreadingForPerformance;
     }
 
 } // namespace OloEngine

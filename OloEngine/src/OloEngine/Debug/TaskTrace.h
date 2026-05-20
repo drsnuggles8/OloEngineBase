@@ -183,9 +183,9 @@ namespace OloEngine
             ~FWaitingScope();
 
           private:
-            bool m_bIsActive = false;
+            bool m_IsActive = false;
 #if TRACY_ENABLE && OLO_TASK_TRACE_ENABLED
-            tracy::ScopedZone* m_pZone = nullptr;
+            tracy::ScopedZone* m_Zone = nullptr;
 #endif
         };
 
@@ -206,10 +206,10 @@ namespace OloEngine
             FTaskTimingEventScope& operator=(const FTaskTimingEventScope&) = delete;
 
           private:
-            bool m_bIsActive = false;
+            bool m_IsActive = false;
             FId m_TaskId = InvalidId;
 #if TRACY_ENABLE && OLO_TASK_TRACE_ENABLED
-            bool m_bZoneActive = false;
+            bool m_ZoneActive = false;
 #endif
         };
 
@@ -353,7 +353,7 @@ namespace OloEngine
         {
             if (!g_TaskTraceInitialized.load(std::memory_order_acquire))
                 return;
-            m_bIsActive = true;
+            m_IsActive = true;
             g_Metrics.WaitingThreads.fetch_add(1, std::memory_order_relaxed);
 
 #if TRACY_ENABLE
@@ -369,7 +369,7 @@ namespace OloEngine
         {
             if (!g_TaskTraceInitialized.load(std::memory_order_acquire))
                 return;
-            m_bIsActive = true;
+            m_IsActive = true;
             g_Metrics.WaitingThreads.fetch_add(1, std::memory_order_relaxed);
 
 #if TRACY_ENABLE
@@ -381,7 +381,7 @@ namespace OloEngine
 
         inline FWaitingScope::~FWaitingScope()
         {
-            if (!m_bIsActive)
+            if (!m_IsActive)
                 return;
             g_Metrics.WaitingThreads.fetch_sub(1, std::memory_order_relaxed);
 
@@ -399,7 +399,7 @@ namespace OloEngine
                 return;
 
             Started(m_TaskId);
-            m_bIsActive = true;
+            m_IsActive = true;
 
 #if TRACY_ENABLE
             // Important: Don't output CPU profiler events on RenderThread to avoid
@@ -408,7 +408,7 @@ namespace OloEngine
             // events, and task execution events would incorrectly close these.
             if (!Tasks::Private::IsInRenderingThread())
             {
-                m_bZoneActive = true;
+                m_ZoneActive = true;
                 // Use dynamic zone name if debug name is provided
                 if (DebugName && DebugName[0] != '\0')
                 {
@@ -423,13 +423,13 @@ namespace OloEngine
 
         inline FTaskTimingEventScope::~FTaskTimingEventScope()
         {
-            if (!m_bIsActive)
+            if (!m_IsActive)
                 return;
 
             Finished(m_TaskId);
 
 #if TRACY_ENABLE
-            if (m_bZoneActive)
+            if (m_ZoneActive)
             {
                 // Zone ends automatically when scope exits
             }

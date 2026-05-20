@@ -995,11 +995,16 @@ namespace OloEngine
                     continue;
                 }
 
-                // Find an empty slot in the bone influence data
+                // Find an empty slot in the bone influence data. Slots are
+                // value-initialized to bit-exact 0.0f; SetBoneData writes
+                // valid non-zero weights, so a bit-exact zero check is the
+                // correct sentinel (no epsilon).
                 bool slotFound = false;
+                constexpr f32 emptySlotSentinel = 0.0f;
                 for (u32 i = 0; i < 4; ++i)
                 {
-                    if (outBoneInfluences[vertexId].m_Weights[i] == 0.0f)
+                    const f32 currentWeight = outBoneInfluences[vertexId].m_Weights[i];
+                    if (std::memcmp(&currentWeight, &emptySlotSentinel, sizeof(f32)) == 0)
                     {
                         outBoneInfluences[vertexId].SetBoneData(i, skeletonBoneId, weight);
                         slotFound = true;

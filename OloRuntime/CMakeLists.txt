@@ -14,7 +14,7 @@ target_link_libraries(OloRuntime
                     OloEngine
 )
 
-set_target_properties(OloRuntime PROPERTIES FOLDER "Applications")
+# FOLDER is assigned at the root CMakeLists.txt to keep app folder grouping in one place.
 
 # In Dist (distribution) builds, hide the console window — players should only
 # see the game window.  We keep the standard main() entry point via /ENTRY.

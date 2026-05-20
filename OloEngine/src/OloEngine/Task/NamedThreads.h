@@ -407,20 +407,20 @@ namespace OloEngine::Tasks
         // @brief Request the thread to return from ProcessUntil
         void RequestReturn()
         {
-            m_bReturnRequested.store(true, std::memory_order_release);
+            m_ReturnRequested.store(true, std::memory_order_release);
             m_TaskAvailable.Notify();
         }
 
         // @brief Clear the return request flag
         void ClearReturnRequest()
         {
-            m_bReturnRequested.store(false, std::memory_order_release);
+            m_ReturnRequested.store(false, std::memory_order_release);
         }
 
         // @brief Check if return has been requested
         bool IsReturnRequested() const
         {
-            return m_bReturnRequested.load(std::memory_order_acquire);
+            return m_ReturnRequested.load(std::memory_order_acquire);
         }
 
         // @brief Notify waiting threads (for waking up thread without enqueuing task)
@@ -436,7 +436,7 @@ namespace OloEngine::Tasks
         TDeque<FNamedThreadTask> m_LocalHighPriQueue;
         TDeque<FNamedThreadTask> m_LocalNormalPriQueue;
         FEventCount m_TaskAvailable;
-        std::atomic<bool> m_bReturnRequested{ false };
+        std::atomic<bool> m_ReturnRequested{ false };
     };
 
     // @class FNamedThreadManager
@@ -586,7 +586,7 @@ namespace OloEngine::Tasks
         bool IsThreadProcessingTasks(ENamedThread Thread) const
         {
             // Use TLS tracking for accurate detection
-            return s_CurrentNamedThread == Thread && s_bIsProcessingTasks;
+            return s_CurrentNamedThread == Thread && s_IsProcessingTasks;
         }
 
         // @brief RAII scope guard for tracking when we're processing tasks
@@ -598,12 +598,12 @@ namespace OloEngine::Tasks
           public:
             FProcessingScope()
             {
-                m_bWasProcessing = FNamedThreadManager::s_bIsProcessingTasks;
-                FNamedThreadManager::s_bIsProcessingTasks = true;
+                m_WasProcessing = FNamedThreadManager::s_IsProcessingTasks;
+                FNamedThreadManager::s_IsProcessingTasks = true;
             }
             ~FProcessingScope()
             {
-                FNamedThreadManager::s_bIsProcessingTasks = m_bWasProcessing;
+                FNamedThreadManager::s_IsProcessingTasks = m_WasProcessing;
             }
 
             // Non-copyable
@@ -611,7 +611,7 @@ namespace OloEngine::Tasks
             FProcessingScope& operator=(const FProcessingScope&) = delete;
 
           private:
-            bool m_bWasProcessing;
+            bool m_WasProcessing;
         };
 
         // @brief Get the queue for a named thread
@@ -635,7 +635,7 @@ namespace OloEngine::Tasks
         std::atomic<u32> m_ThreadIds[static_cast<u32>(ENamedThread::Count)] = {};
 
         static thread_local ENamedThread s_CurrentNamedThread;
-        static thread_local bool s_bIsProcessingTasks;
+        static thread_local bool s_IsProcessingTasks;
     };
 
     // ============================================================================

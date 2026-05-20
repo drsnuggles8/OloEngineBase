@@ -196,7 +196,7 @@ namespace OloEngine
             // Two references: one in FThread, one here (Self)
             // Self is released in Exit(), FThread's is released on destruction
             std::shared_ptr<FThreadImpl> m_Self;
-            std::atomic<bool> m_bIsInitialized{ false };
+            std::atomic<bool> m_IsInitialized{ false };
 
             std::function<void()> m_ThreadFunction;
             std::function<void()> m_SingleThreadTickFunction;
@@ -247,7 +247,7 @@ namespace OloEngine
     inline void FThread::FThreadImpl::Initialize(const std::shared_ptr<FThreadImpl>& InSelf)
     {
         m_Self = InSelf;
-        m_bIsInitialized.store(true, std::memory_order_release);
+        m_IsInitialized.store(true, std::memory_order_release);
     }
 
     inline bool FThread::FThreadImpl::IsJoinable() const
@@ -286,7 +286,7 @@ namespace OloEngine
     inline void FThread::FThreadImpl::Exit()
     {
         // Busy-wait until Self is initialized
-        while (!m_bIsInitialized.load(std::memory_order_acquire))
+        while (!m_IsInitialized.load(std::memory_order_acquire))
         {
             // Spin
         }

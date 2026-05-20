@@ -77,7 +77,18 @@ namespace OloEngine
     struct MeshComponent;
     struct ModelComponent;
     struct AnimationStateComponent;
+    struct SkeletonComponent;
     struct StreamingVolumeComponent;
+    struct LuaScriptComponent;
+    struct TileRendererComponent;
+    struct DialogueComponent;
+    struct NavMeshBoundsComponent;
+    struct NavAgentComponent;
+    struct NameplateComponent;
+    struct IKTargetComponent;
+    struct UIWorldAnchorComponent;
+    struct MorphTargetComponent;
+    struct InstancedMeshComponent;
 
     // Type-erased save-game serialization function (raw pointer: no heap allocation)
     using SaveGameSerializeFn = void (*)(FArchive&, void*);
@@ -152,7 +163,18 @@ namespace OloEngine
         static void Serialize(FArchive& ar, MeshComponent& c);
         static void Serialize(FArchive& ar, ModelComponent& c);
         static void Serialize(FArchive& ar, AnimationStateComponent& c);
+        static void Serialize(FArchive& ar, SkeletonComponent& c);
         static void Serialize(FArchive& ar, StreamingVolumeComponent& c);
+        static void Serialize(FArchive& ar, LuaScriptComponent& c);
+        static void Serialize(FArchive& ar, TileRendererComponent& c);
+        static void Serialize(FArchive& ar, DialogueComponent& c);
+        static void Serialize(FArchive& ar, NavMeshBoundsComponent& c);
+        static void Serialize(FArchive& ar, NavAgentComponent& c);
+        static void Serialize(FArchive& ar, NameplateComponent& c);
+        static void Serialize(FArchive& ar, IKTargetComponent& c);
+        static void Serialize(FArchive& ar, UIWorldAnchorComponent& c);
+        static void Serialize(FArchive& ar, MorphTargetComponent& c);
+        static void Serialize(FArchive& ar, InstancedMeshComponent& c);
 
         // Registry lookup by type hash
         static void Register(u32 typeHash, SaveGameSerializeFn serializer);

@@ -14,7 +14,7 @@
 #include "OloEngine/Serialization/Archive.h"
 #include "OloEngine/Serialization/ArchiveExtensions.h"
 
-#include "box2d/box2d.h"
+#include <box2d/box2d.h>
 
 namespace OloEngine
 {

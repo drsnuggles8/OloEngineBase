@@ -84,7 +84,7 @@ namespace OloEngine::LowLevelTasks
           private:
             bool m_ActivelyLookingForWork = false;
 #if TRACY_ENABLE
-            bool m_bTracyEventEmitted = false;
+            bool m_TracyEventEmitted = false;
 #endif
 
           public:
@@ -110,7 +110,7 @@ namespace OloEngine::LowLevelTasks
                         0 // Color - 0 uses default
                     };
                     tracy::ScopedZone zone(&OutOfWorkSourceLoc, true);
-                    m_bTracyEventEmitted = true;
+                    m_TracyEventEmitted = true;
 #endif
                     m_ActivelyLookingForWork = true;
                     return true;
@@ -127,7 +127,7 @@ namespace OloEngine::LowLevelTasks
 #if TRACY_ENABLE
                     // Tracy zones are automatically ended when scope exits
                     // We just track whether we emitted one
-                    m_bTracyEventEmitted = false;
+                    m_TracyEventEmitted = false;
 #endif
                     m_ActivelyLookingForWork = false;
                     return true;

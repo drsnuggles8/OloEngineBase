@@ -114,7 +114,7 @@ namespace OloEngine::LowLevelTasks
     // Thread-local storage definitions
     thread_local FSchedulerTls::FTlsValuesHolder FSchedulerTls::s_TlsValuesHolder;
     // Note: FTask::s_ActiveTask is defined inline in Task.h (C++17 inline variable)
-    thread_local bool Private::FOversubscriptionTls::s_bIsOversubscriptionAllowed = false;
+    thread_local bool Private::FOversubscriptionTls::s_IsOversubscriptionAllowed = false;
 
     // SchedulerTls are allocated very early at thread creation and we need an allocator
     // that is OK with being called that early.
@@ -229,14 +229,14 @@ namespace OloEngine::LowLevelTasks
 
     bool& Private::FOversubscriptionTls::GetIsOversubscriptionAllowedRef()
     {
-        return s_bIsOversubscriptionAllowed;
+        return s_IsOversubscriptionAllowed;
     }
 
     void FOversubscriptionScope::TryIncrementOversubscription()
     {
         if (Private::FOversubscriptionTls::IsOversubscriptionAllowed())
         {
-            m_bIncrementOversubscriptionEmitted = true;
+            m_IncrementOversubscriptionEmitted = true;
             FScheduler::Get().IncrementOversubscription();
         }
     }
@@ -244,7 +244,7 @@ namespace OloEngine::LowLevelTasks
     void FOversubscriptionScope::DecrementOversubscription()
     {
         FScheduler::Get().DecrementOversubscription();
-        m_bIncrementOversubscriptionEmitted = false;
+        m_IncrementOversubscriptionEmitted = false;
     }
 
     FSchedulerTls::FTlsValues& FSchedulerTls::GetTlsValuesRef()

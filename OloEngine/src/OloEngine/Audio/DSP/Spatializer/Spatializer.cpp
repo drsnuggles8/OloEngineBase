@@ -85,7 +85,8 @@ namespace OloEngine::Audio::DSP
                                      float speedOfSound, float dopplerFactor)
     {
         float len = glm::length(relativePosition);
-        if (len == 0.0f)
+        constexpr float lengthEpsilon = 1e-6f;
+        if (len < lengthEpsilon)
         {
             return 1.0f;
         }

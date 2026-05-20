@@ -207,7 +207,7 @@ namespace OloEngine::LowLevelTasks
 
                 void Init(TLocalQueueRegistry& InRegistry, ELocalQueueType InQueueType)
                 {
-                    if (m_bIsInitialized.exchange(true, std::memory_order_relaxed))
+                    if (m_IsInitialized.exchange(true, std::memory_order_relaxed))
                     {
                         OLO_CORE_ASSERT(false, "Trying to initialize local queue more than once");
                     }
@@ -227,7 +227,7 @@ namespace OloEngine::LowLevelTasks
 
                 ~TLocalQueue()
                 {
-                    if (m_bIsInitialized.exchange(false, std::memory_order_relaxed))
+                    if (m_IsInitialized.exchange(false, std::memory_order_relaxed))
                     {
                         for (i32 PriorityIndex = 0; PriorityIndex < i32(ETaskPriority::Count); PriorityIndex++)
                         {
@@ -319,7 +319,7 @@ namespace OloEngine::LowLevelTasks
                 u32 m_CachedRandomIndex = InvalidIndex;
                 u32 m_CachedPriorityIndex = 0;
                 ELocalQueueType m_QueueType;
-                std::atomic<bool> m_bIsInitialized{ false };
+                std::atomic<bool> m_IsInitialized{ false };
 
               public:
                 // Make movable for std::vector compatibility
@@ -327,14 +327,14 @@ namespace OloEngine::LowLevelTasks
                 // The queues should be empty when moving, and new ones will be default-initialized.
                 // m_DequeueHazards are moved individually since they have move assignment.
                 TLocalQueue(TLocalQueue&& Other) noexcept
-                    : m_Registry(Other.m_Registry), m_CachedRandomIndex(Other.m_CachedRandomIndex), m_CachedPriorityIndex(Other.m_CachedPriorityIndex), m_QueueType(Other.m_QueueType), m_bIsInitialized(Other.m_bIsInitialized.load(std::memory_order_relaxed))
+                    : m_Registry(Other.m_Registry), m_CachedRandomIndex(Other.m_CachedRandomIndex), m_CachedPriorityIndex(Other.m_CachedPriorityIndex), m_QueueType(Other.m_QueueType), m_IsInitialized(Other.m_IsInitialized.load(std::memory_order_relaxed))
                 {
                     for (u32 i = 0; i < u32(ETaskPriority::Count); ++i)
                     {
                         m_DequeueHazards[i] = std::move(Other.m_DequeueHazards[i]);
                     }
                     Other.m_Registry = nullptr;
-                    Other.m_bIsInitialized.store(false, std::memory_order_relaxed);
+                    Other.m_IsInitialized.store(false, std::memory_order_relaxed);
                 }
 
                 TLocalQueue& operator=(TLocalQueue&&) = delete;

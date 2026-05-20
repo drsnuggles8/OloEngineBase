@@ -128,7 +128,7 @@ namespace OloEngine
     struct FMemScope
     {
         explicit FMemScope([[maybe_unused]] i32 InMemTag)
-            : m_PreviousTag(MemoryTrace_GetActiveTag()), m_bActive(true)
+            : m_PreviousTag(MemoryTrace_GetActiveTag()), m_Active(true)
         {
             // TODO: Set active tag when memory tracing is implemented
             (void)m_PreviousTag;
@@ -136,7 +136,7 @@ namespace OloEngine
 
         ~FMemScope()
         {
-            if (m_bActive)
+            if (m_Active)
             {
                 // TODO: Restore previous tag
             }
@@ -144,7 +144,7 @@ namespace OloEngine
 
       private:
         i32 m_PreviousTag = 0;
-        bool m_bActive = false;
+        bool m_Active = false;
     };
 #endif // OLO_MEMORY_TAGS_TRACE_ENABLED
 
@@ -205,7 +205,7 @@ namespace OloEngine
 
         // Movable - transfers ownership of context restoration
         FInheritedContextScope(FInheritedContextScope&& Other) noexcept
-            : m_CapturedTag(Other.m_CapturedTag), m_PreviousTag(Other.m_PreviousTag), m_bOwnsContext(Other.m_bOwnsContext)
+            : m_CapturedTag(Other.m_CapturedTag), m_PreviousTag(Other.m_PreviousTag), m_OwnsContext(Other.m_OwnsContext)
 #if OLO_ENABLE_LOW_LEVEL_MEM_TRACKER
               ,
               m_LLMScopes(std::move(Other.m_LLMScopes))
@@ -219,7 +219,7 @@ namespace OloEngine
               m_MetaScope(std::move(Other.m_MetaScope))
 #endif
         {
-            Other.m_bOwnsContext = false; // Transfer ownership
+            Other.m_OwnsContext = false; // Transfer ownership
         }
 
         FInheritedContextScope& operator=(FInheritedContextScope&& Other) noexcept
@@ -227,15 +227,15 @@ namespace OloEngine
             if (this != &Other)
             {
                 // Restore our context before taking Other's
-                if (m_bOwnsContext)
+                if (m_OwnsContext)
                 {
                     OLO::FTaskTagScope::SwapTag(m_PreviousTag);
                 }
 
                 m_CapturedTag = Other.m_CapturedTag;
                 m_PreviousTag = Other.m_PreviousTag;
-                m_bOwnsContext = Other.m_bOwnsContext;
-                Other.m_bOwnsContext = false;
+                m_OwnsContext = Other.m_OwnsContext;
+                Other.m_OwnsContext = false;
 
 #if OLO_ENABLE_LOW_LEVEL_MEM_TRACKER
                 m_LLMScopes = std::move(Other.m_LLMScopes);
@@ -253,7 +253,7 @@ namespace OloEngine
         ~FInheritedContextScope()
         {
             // Restore the previous context when this scope ends
-            if (m_bOwnsContext)
+            if (m_OwnsContext)
             {
                 OLO::FTaskTagScope::SwapTag(m_PreviousTag);
             }
@@ -280,7 +280,7 @@ namespace OloEngine
             u32 InMetadataId
 #endif
             )
-            : m_CapturedTag(InCapturedTag), m_PreviousTag(OLO::ETaskTag::ENone), m_bOwnsContext(bHasCapturedContext)
+            : m_CapturedTag(InCapturedTag), m_PreviousTag(OLO::ETaskTag::ENone), m_OwnsContext(bHasCapturedContext)
 #if OLO_ENABLE_LOW_LEVEL_MEM_TRACKER
               ,
               m_LLMScopes(InLLMTags)
@@ -294,7 +294,7 @@ namespace OloEngine
               m_MetaScope(InMetadataId)
 #endif
         {
-            if (m_bOwnsContext)
+            if (m_OwnsContext)
             {
                 // Apply the captured context and save the current one for restoration
                 m_PreviousTag = OLO::FTaskTagScope::SwapTag(m_CapturedTag);
@@ -304,7 +304,7 @@ namespace OloEngine
         // Task tag state
         OLO::ETaskTag m_CapturedTag = OLO::ETaskTag::ENone;
         OLO::ETaskTag m_PreviousTag = OLO::ETaskTag::ENone;
-        bool m_bOwnsContext = false;
+        bool m_OwnsContext = false;
 
         // LLM scope restoration
 #if OLO_ENABLE_LOW_LEVEL_MEM_TRACKER
@@ -371,7 +371,7 @@ namespace OloEngine
         {
             // Capture the current thread's task tag
             m_CapturedTaskTag = OLO::FTaskTagScope::GetCurrentTag();
-            m_bContextCaptured = true;
+            m_ContextCaptured = true;
 
             // Capture LLM tags if enabled
 #if OLO_ENABLE_LOW_LEVEL_MEM_TRACKER
@@ -399,7 +399,7 @@ namespace OloEngine
         {
             return FInheritedContextScope(
                 m_CapturedTaskTag,
-                m_bContextCaptured
+                m_ContextCaptured
 #if OLO_ENABLE_LOW_LEVEL_MEM_TRACKER
                 ,
                 m_InheritedLLMTags
@@ -419,7 +419,7 @@ namespace OloEngine
         // @return true if CaptureInheritedContext() was called
         bool HasCapturedContext() const
         {
-            return m_bContextCaptured;
+            return m_ContextCaptured;
         }
 
         // @brief Get the captured task tag
@@ -434,7 +434,7 @@ namespace OloEngine
         OLO::ETaskTag m_CapturedTaskTag = OLO::ETaskTag::ENone;
 
         // Whether context has been captured
-        bool m_bContextCaptured = false;
+        bool m_ContextCaptured = false;
 
         // LLM (Low-Level Memory) tags for memory attribution
 #if OLO_ENABLE_LOW_LEVEL_MEM_TRACKER

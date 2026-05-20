@@ -57,7 +57,7 @@ namespace OLO
 
     void FQueuedThreadPoolScheduler::Destroy()
     {
-        m_bIsExiting.store(true, std::memory_order_release);
+        m_IsExiting.store(true, std::memory_order_release);
 
         // Process all pending work - try to cancel, otherwise let it run
         while (true)
@@ -91,7 +91,7 @@ namespace OLO
 
     void FQueuedThreadPoolScheduler::Pause()
     {
-        m_bIsPaused.store(true, std::memory_order_release);
+        m_IsPaused.store(true, std::memory_order_release);
     }
 
     void FQueuedThreadPoolScheduler::Resume(i32 numWork)
@@ -111,7 +111,7 @@ namespace OLO
         // Full unpause
         if (numWork == -1)
         {
-            m_bIsPaused.store(false, std::memory_order_release);
+            m_IsPaused.store(false, std::memory_order_release);
         }
 
         bool wakeUpWorker = true;
@@ -120,7 +120,7 @@ namespace OLO
 
     void FQueuedThreadPoolScheduler::AddQueuedWork(IQueuedWork* inWork, EQueuedWorkPriority inPriority)
     {
-        OLO_CORE_ASSERT(!m_bIsExiting.load(std::memory_order_acquire), "Cannot add work while pool is exiting");
+        OLO_CORE_ASSERT(!m_IsExiting.load(std::memory_order_acquire), "Cannot add work while pool is exiting");
 
         // Create internal data for tracking/cancellation
         FWorkInternalData* internalData = new FWorkInternalData();
@@ -153,7 +153,7 @@ namespace OLO
             },
             flags);
 
-        if (!m_bIsPaused.load(std::memory_order_acquire))
+        if (!m_IsPaused.load(std::memory_order_acquire))
         {
             m_TaskCount.fetch_add(1, std::memory_order_acquire);
             m_Scheduler->TryLaunch(internalData->Task, LowLevelTasks::EQueuePreference::GlobalQueuePreference);
@@ -185,7 +185,7 @@ namespace OLO
 
     void FQueuedThreadPoolScheduler::ScheduleTasks(bool wakeUpWorker)
     {
-        while (!m_bIsPaused.load(std::memory_order_acquire))
+        while (!m_IsPaused.load(std::memory_order_acquire))
         {
             FWorkInternalData* work = Dequeue();
             if (work)
@@ -207,7 +207,7 @@ namespace OLO
 
     void FQueuedThreadPoolScheduler::FinalizeExecution()
     {
-        if (m_TaskCount.fetch_sub(1, std::memory_order_release) == 1 && m_bIsExiting.load(std::memory_order_acquire))
+        if (m_TaskCount.fetch_sub(1, std::memory_order_release) == 1 && m_IsExiting.load(std::memory_order_acquire))
         {
             m_Finished.Notify();
         }

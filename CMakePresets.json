@@ -64,10 +64,11 @@
 			"configuration": "Release"
 		},
 		{
-			"name": "clangcl-asan-relwithdebinfo",
-			"displayName": "ClangCL ASan RelWithDebInfo",
+			"name": "clangcl-asan-release",
+			"displayName": "ClangCL ASan Release",
+			"description": "Project uses Debug/Release/Dist (see cmake/SetupConfigurations.cmake); Release already includes PDB debug info on MSVC.",
 			"configurePreset": "clangcl-asan",
-			"configuration": "RelWithDebInfo"
+			"configuration": "Release"
 		}
 	],
 	"testPresets": [

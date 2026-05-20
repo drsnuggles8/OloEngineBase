@@ -495,7 +495,9 @@ namespace OloEngine
         if (isHovered)
         {
             f32 const scroll = ImGui::GetIO().MouseWheel;
-            if (scroll != 0.0f)
+            // Bit-exact zero sentinel — see cpp-coding-quality §2a.
+            constexpr f32 noScroll = 0.0f;
+            if (std::memcmp(&scroll, &noScroll, sizeof(f32)) != 0)
             {
                 f32 const zoomDelta = scroll * 0.1f;
                 m_Zoom = std::clamp(m_Zoom + zoomDelta, 0.25f, 3.0f);

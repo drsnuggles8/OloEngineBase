@@ -291,7 +291,7 @@ namespace OloEngine
         u32 newAlive = m_Pool.GetAliveCount();
 
         // Apply velocity inheritance: add parent entity velocity to newly spawned particles
-        if (VelocityInheritance != 0.0f && newAlive > prevAlive)
+        if (std::abs(VelocityInheritance) > 1e-6f && newAlive > prevAlive)
         {
             glm::vec3 inherited = m_ParentVelocity * VelocityInheritance;
             for (u32 i = prevAlive; i < newAlive; ++i)

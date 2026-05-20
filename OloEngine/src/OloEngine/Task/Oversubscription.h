@@ -17,7 +17,7 @@ namespace OloEngine::LowLevelTasks
         // spawned during blocking operations.
         class FOversubscriptionTls
         {
-            static thread_local bool s_bIsOversubscriptionAllowed;
+            static thread_local bool s_IsOversubscriptionAllowed;
 
             friend class FOversubscriptionAllowedScope;
 
@@ -26,7 +26,7 @@ namespace OloEngine::LowLevelTasks
           public:
             static bool IsOversubscriptionAllowed()
             {
-                return s_bIsOversubscriptionAllowed;
+                return s_IsOversubscriptionAllowed;
             }
         };
 
@@ -39,19 +39,19 @@ namespace OloEngine::LowLevelTasks
             FOversubscriptionAllowedScope& operator=(const FOversubscriptionAllowedScope&) = delete;
 
             explicit FOversubscriptionAllowedScope(bool bIsOversubscriptionAllowed)
-                : m_bValue(FOversubscriptionTls::GetIsOversubscriptionAllowedRef()), m_bPreviousValue(m_bValue)
+                : m_Value(FOversubscriptionTls::GetIsOversubscriptionAllowedRef()), m_PreviousValue(m_Value)
             {
-                m_bValue = bIsOversubscriptionAllowed;
+                m_Value = bIsOversubscriptionAllowed;
             }
 
             ~FOversubscriptionAllowedScope()
             {
-                m_bValue = m_bPreviousValue;
+                m_Value = m_PreviousValue;
             }
 
           private:
-            bool& m_bValue;
-            bool m_bPreviousValue;
+            bool& m_Value;
+            bool m_PreviousValue;
         };
 
     } // namespace Private
@@ -77,7 +77,7 @@ namespace OloEngine::LowLevelTasks
 
         ~FOversubscriptionScope()
         {
-            if (m_bIncrementOversubscriptionEmitted)
+            if (m_IncrementOversubscriptionEmitted)
             {
                 DecrementOversubscription();
             }
@@ -87,8 +87,8 @@ namespace OloEngine::LowLevelTasks
         void TryIncrementOversubscription();
         void DecrementOversubscription();
 
-        bool m_bIncrementOversubscriptionEmitted = false;
-        // Note: m_bCpuBeginEventEmitted was removed as it was dead code (never set)
+        bool m_IncrementOversubscriptionEmitted = false;
+        // Note: m_CpuBeginEventEmitted was removed as it was dead code (never set)
         // UE uses it for CPU profiler trace integration. If CPU tracing is needed,
         // integrate with OloEngine's Tracy profiler using OLO_PROFILE_SCOPE instead.
     };

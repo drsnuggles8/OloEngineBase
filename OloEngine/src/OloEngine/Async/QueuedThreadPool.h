@@ -343,8 +343,8 @@ namespace OLO
         FMutex m_PendingWorkMutex;
 
         std::atomic<u32> m_TaskCount{ 0 };
-        std::atomic<bool> m_bIsExiting{ false };
-        std::atomic<bool> m_bIsPaused{ false };
+        std::atomic<bool> m_IsExiting{ false };
+        std::atomic<bool> m_IsPaused{ false };
         FManualResetEvent m_Finished;
     };
 

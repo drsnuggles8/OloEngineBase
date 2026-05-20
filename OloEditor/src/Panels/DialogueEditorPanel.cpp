@@ -702,7 +702,10 @@ namespace OloEngine
         if (isHovered)
         {
             f32 const scroll = ImGui::GetIO().MouseWheel;
-            if (scroll != 0.0f)
+            // ImGui reports 0.0f when no wheel motion this frame; bit-exact
+            // check (cpp-coding-quality §2a) — discrete tick values never alias to subnormals.
+            constexpr f32 noScroll = 0.0f;
+            if (std::memcmp(&scroll, &noScroll, sizeof(f32)) != 0)
             {
                 ImVec2 const mousePos = ImGui::GetIO().MousePos;
                 glm::vec2 const worldBefore = ScreenToWorld(mousePos, canvasOrigin);

@@ -172,7 +172,9 @@ set(BuildTests OFF CACHE BOOL "" FORCE)
 set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)
 
 set(SPDLOG_USE_STD_FORMAT OFF CACHE BOOL "" FORCE)
-set(TRACY_ENABLE OFF CACHE BOOL "Enable profiling")
+# Tracy: profiling enabled by default. The leading `set(... OFF)` would have
+# established a cache var that the following `option()` would then no-op on,
+# leaving Tracy disabled — the single `option()` below is the source of truth.
 option(TRACY_ENABLE "Enable profiling" ON)
 set(TRACY_ON_DEMAND OFF CACHE BOOL "" FORCE)
 set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)

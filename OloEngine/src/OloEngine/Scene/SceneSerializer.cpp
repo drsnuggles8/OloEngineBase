@@ -2612,6 +2612,26 @@ namespace OloEngine
             TrySet(nic.InterestGroup, networkInterestComponent["InterestGroup"]);
         }
 
+        if (auto phaseComponent = entity["PhaseComponent"]; phaseComponent)
+        {
+            auto& pc = deserializedEntity.AddComponent<PhaseComponent>();
+            TrySet(pc.PhaseID, phaseComponent["PhaseID"]);
+        }
+
+        if (auto instancePortalComponent = entity["InstancePortalComponent"]; instancePortalComponent)
+        {
+            auto& ipc = deserializedEntity.AddComponent<InstancePortalComponent>();
+            TrySet(ipc.TargetZoneID, instancePortalComponent["TargetZoneID"]);
+            TrySet(ipc.InstanceType, instancePortalComponent["InstanceType"]);
+            TrySet(ipc.MaxPlayers, instancePortalComponent["MaxPlayers"]);
+        }
+
+        if (auto networkLODComponent = entity["NetworkLODComponent"]; networkLODComponent)
+        {
+            auto& nlc = deserializedEntity.AddComponent<NetworkLODComponent>();
+            TrySetEnum(nlc.Level, networkLODComponent["Level"]);
+        }
+
         if (auto dialogueComponent = entity["DialogueComponent"]; dialogueComponent)
         {
             auto& dc = deserializedEntity.AddComponent<DialogueComponent>();
@@ -3514,8 +3534,13 @@ namespace OloEngine
                     << inst.Color.x << inst.Color.y << inst.Color.z << inst.Color.w << YAML::EndSeq;
                 if (inst.EntityID != -1)
                     out << YAML::Key << "EntityID" << YAML::Value << inst.EntityID;
-                if (inst.Custom != 0.0f)
-                    out << YAML::Key << "Custom" << YAML::Value << inst.Custom;
+                // Skip emitting Custom when it's exactly the default — bit-exact
+                // because the loader assigns the literal 0.0f default (see cpp-coding-quality §2a).
+                {
+                    constexpr f32 defaultCustom = 0.0f;
+                    if (std::memcmp(&inst.Custom, &defaultCustom, sizeof(f32)) != 0)
+                        out << YAML::Key << "Custom" << YAML::Value << inst.Custom;
+                }
                 out << YAML::EndMap;
             }
             out << YAML::EndSeq;
@@ -4687,6 +4712,41 @@ namespace OloEngine
             out << YAML::Key << "InterestGroup" << YAML::Value << nic.InterestGroup;
 
             out << YAML::EndMap; // NetworkInterestComponent
+        }
+
+        if (entity.HasComponent<PhaseComponent>())
+        {
+            out << YAML::Key << "PhaseComponent";
+            out << YAML::BeginMap;
+
+            auto const& pc = entity.GetComponent<PhaseComponent>();
+            out << YAML::Key << "PhaseID" << YAML::Value << pc.PhaseID;
+
+            out << YAML::EndMap; // PhaseComponent
+        }
+
+        if (entity.HasComponent<InstancePortalComponent>())
+        {
+            out << YAML::Key << "InstancePortalComponent";
+            out << YAML::BeginMap;
+
+            auto const& ipc = entity.GetComponent<InstancePortalComponent>();
+            out << YAML::Key << "TargetZoneID" << YAML::Value << ipc.TargetZoneID;
+            out << YAML::Key << "InstanceType" << YAML::Value << static_cast<u32>(ipc.InstanceType);
+            out << YAML::Key << "MaxPlayers" << YAML::Value << ipc.MaxPlayers;
+
+            out << YAML::EndMap; // InstancePortalComponent
+        }
+
+        if (entity.HasComponent<NetworkLODComponent>())
+        {
+            out << YAML::Key << "NetworkLODComponent";
+            out << YAML::BeginMap;
+
+            auto const& nlc = entity.GetComponent<NetworkLODComponent>();
+            out << YAML::Key << "Level" << YAML::Value << static_cast<i32>(nlc.Level);
+
+            out << YAML::EndMap; // NetworkLODComponent
         }
 
         if (entity.HasComponent<DialogueComponent>())

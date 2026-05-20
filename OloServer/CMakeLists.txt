@@ -22,4 +22,4 @@ target_compile_definitions(OloServer PRIVATE
     OLO_HEADLESS=1
 )
 
-set_target_properties(OloServer PROPERTIES FOLDER "Applications")
+# FOLDER is assigned at the root CMakeLists.txt to keep app folder grouping in one place.

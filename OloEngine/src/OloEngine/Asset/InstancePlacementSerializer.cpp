@@ -28,8 +28,13 @@ namespace OloEngine
                 << inst.Color.x << inst.Color.y << inst.Color.z << inst.Color.w << YAML::EndSeq;
             if (inst.EntityID != -1)
                 out << YAML::Key << "EntityID" << YAML::Value << inst.EntityID;
-            if (inst.Custom != 0.0f)
-                out << YAML::Key << "Custom" << YAML::Value << inst.Custom;
+            // Skip emitting Custom when it's exactly the default — bit-exact
+            // sentinel comparison per cpp-coding-quality §2a.
+            {
+                constexpr f32 defaultCustom = 0.0f;
+                if (std::memcmp(&inst.Custom, &defaultCustom, sizeof(f32)) != 0)
+                    out << YAML::Key << "Custom" << YAML::Value << inst.Custom;
+            }
             out << YAML::EndMap;
         }
 

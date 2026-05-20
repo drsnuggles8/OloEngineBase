@@ -50,6 +50,8 @@ namespace OloEngine
         Ref<Texture2D> AlbedoTexture;
 
         bool Enabled = true;
+
+        auto operator==(const FoliageLayer&) const -> bool = default;
     };
 
     // Per-instance data for GPU (must match shader layout)

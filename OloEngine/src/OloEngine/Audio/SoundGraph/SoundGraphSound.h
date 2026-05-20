@@ -34,8 +34,8 @@ namespace OloEngine
         AssetHandle m_DataSourceAsset = 0;
         f32 m_VolumeMultiplier = 1.0f;
         f32 m_PitchMultiplier = 1.0f;
-        bool m_bLooping = false;
-        bool m_bSpatializationEnabled = false;
+        bool m_Looping = false;
+        bool m_SpatializationEnabled = false;
 
         // Filter values (0.0 - 1.0, normalized)
         f32 m_LPFilterValue = 1.0f; // 1.0 = no filtering
