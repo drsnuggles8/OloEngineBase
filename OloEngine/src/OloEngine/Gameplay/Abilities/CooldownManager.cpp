@@ -70,4 +70,9 @@ namespace OloEngine
         m_Cooldowns.clear();
     }
 
+    void CooldownManager::RestoreFromSnapshot(const GameplayTag& abilityTag, f32 duration, f32 remaining)
+    {
+        m_Cooldowns[abilityTag] = { duration, remaining };
+    }
+
 } // namespace OloEngine

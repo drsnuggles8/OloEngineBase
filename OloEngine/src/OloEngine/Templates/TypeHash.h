@@ -202,25 +202,29 @@ namespace OloEngine
     // Floating point types - reinterpret as integer bits
     [[nodiscard]] inline u32 GetTypeHash(f32 Value)
     {
-        // Handle -0.0f == 0.0f
-        if (Value == 0.0f)
-        {
-            Value = 0.0f;
-        }
         u32 IntValue;
         std::memcpy(&IntValue, &Value, sizeof(f32));
+        // Normalize -0.0f → +0.0f at the bit level. IEEE 754 treats +0/-0 as
+        // equal numerically, so their hashes must agree. Working on the int
+        // bits avoids the cpp-coding-quality §2a float == prohibition.
+        constexpr u32 negativeZeroBits = 0x80000000u;
+        if (IntValue == negativeZeroBits)
+        {
+            IntValue = 0u;
+        }
         return IntValue;
     }
 
     [[nodiscard]] inline u32 GetTypeHash(f64 Value)
     {
-        // Handle -0.0 == 0.0
-        if (Value == 0.0)
-        {
-            Value = 0.0;
-        }
         u64 IntValue;
         std::memcpy(&IntValue, &Value, sizeof(f64));
+        // Same ±0 normalization as the f32 overload — see comment there.
+        constexpr u64 negativeZeroBits = 0x8000000000000000ull;
+        if (IntValue == negativeZeroBits)
+        {
+            IntValue = 0ull;
+        }
         return GetTypeHash(IntValue);
     }
 

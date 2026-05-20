@@ -117,6 +117,15 @@ namespace OloEngine
         return empty;
     }
 
+    void AttributeSet::RestoreFromSnapshot(const std::string& name, f32 baseValue,
+                                           const std::vector<AttributeModifier>& modifiers)
+    {
+        auto& attr = m_Attributes[name];
+        attr.BaseValue = baseValue;
+        attr.Modifiers = modifiers;
+        attr.Dirty = true;
+    }
+
     auto AttributeSet::operator==(const AttributeSet& other) const -> bool
     {
         if (m_Attributes.size() != other.m_Attributes.size())

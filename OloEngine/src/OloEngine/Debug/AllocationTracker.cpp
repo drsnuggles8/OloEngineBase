@@ -103,8 +103,8 @@ namespace OloEngine
           private:
             static sizet GetNextCreationOrder()
             {
-                static std::atomic<sizet> s_creation_counter{ 0 };
-                return s_creation_counter.fetch_add(1, std::memory_order_relaxed);
+                static std::atomic<sizet> s_CreationCounter{ 0 };
+                return s_CreationCounter.fetch_add(1, std::memory_order_relaxed);
             }
         };
 
@@ -312,14 +312,14 @@ namespace OloEngine
 
         static LiveObjectMap& GetLiveObjects()
         {
-            static LiveObjectMap s_live_objects;
-            return s_live_objects;
+            static LiveObjectMap s_LiveObjects;
+            return s_LiveObjects;
         }
 
         static FMutex& GetMutex()
         {
-            static FMutex s_mutex;
-            return s_mutex;
+            static FMutex s_Mutex;
+            return s_Mutex;
         }
     };
 
@@ -335,7 +335,7 @@ namespace OloEngine
     {
       public:
         AllocationSnapshot()
-            : m_snapshot_time(std::chrono::steady_clock::now()), m_live_objects(AllocationTrackerExtended<Tag>::GetLiveObjectPointers()), m_initial_count(m_live_objects.size())
+            : m_SnapshotTime(std::chrono::steady_clock::now()), m_LiveObjects(AllocationTrackerExtended<Tag>::GetLiveObjectPointers()), m_InitialCount(m_LiveObjects.size())
         {
         }
 
@@ -350,8 +350,8 @@ namespace OloEngine
 
             // Create unordered_set from snapshot for O(1) lookups
             std::unordered_set<void const*> snapshot_set;
-            snapshot_set.reserve(m_live_objects.size());
-            for (void const* obj : m_live_objects)
+            snapshot_set.reserve(m_LiveObjects.size());
+            for (void const* obj : m_LiveObjects)
             {
                 snapshot_set.insert(obj);
             }
@@ -386,7 +386,7 @@ namespace OloEngine
             }
 
             // Find objects in snapshot that aren't in current
-            for (void const* obj : m_live_objects)
+            for (void const* obj : m_LiveObjects)
             {
                 if (current_set.find(obj) == current_set.end())
                 {
@@ -406,8 +406,8 @@ namespace OloEngine
 
             // Create unordered_set from snapshot for O(1) lookups
             std::unordered_set<void const*> snapshot_set;
-            snapshot_set.reserve(m_live_objects.size());
-            for (void const* obj : m_live_objects)
+            snapshot_set.reserve(m_LiveObjects.size());
+            for (void const* obj : m_LiveObjects)
             {
                 snapshot_set.insert(obj);
             }
@@ -434,8 +434,8 @@ namespace OloEngine
 
             // Create unordered_set from snapshot for O(1) lookups
             std::unordered_set<void const*> snapshot_set;
-            snapshot_set.reserve(m_live_objects.size());
-            for (void const* obj : m_live_objects)
+            snapshot_set.reserve(m_LiveObjects.size());
+            for (void const* obj : m_LiveObjects)
             {
                 snapshot_set.insert(obj);
             }
@@ -459,7 +459,7 @@ namespace OloEngine
         i64 GetNetChange() const
         {
             sizet current_count = AllocationTrackerExtended<Tag>::GetLiveCount();
-            return static_cast<i64>(current_count) - static_cast<i64>(m_initial_count);
+            return static_cast<i64>(current_count) - static_cast<i64>(m_InitialCount);
         }
 
         /**
@@ -478,7 +478,7 @@ namespace OloEngine
             std::ostringstream report;
             report << "=== ALLOCATION DELTA REPORT ===\n";
             report << "Snapshot taken: " << GetSnapshotAgeSeconds() << " seconds ago\n";
-            report << "Initial count: " << m_initial_count << "\n";
+            report << "Initial count: " << m_InitialCount << "\n";
             report << "Current count: " << AllocationTrackerExtended<Tag>::GetLiveCount() << "\n";
             report << "Net change: " << GetNetChange() << "\n";
 
@@ -506,14 +506,14 @@ namespace OloEngine
         double GetSnapshotAgeSeconds() const
         {
             auto now = std::chrono::steady_clock::now();
-            auto duration = now - m_snapshot_time;
+            auto duration = now - m_SnapshotTime;
             return std::chrono::duration<double>(duration).count();
         }
 
       private:
-        std::chrono::steady_clock::time_point m_snapshot_time;
-        std::vector<void const*> m_live_objects;
-        sizet m_initial_count;
+        std::chrono::steady_clock::time_point m_SnapshotTime;
+        std::vector<void const*> m_LiveObjects;
+        sizet m_InitialCount;
     };
 
     // Explicit instantiation declarations for commonly used types

@@ -6,7 +6,7 @@ Guidance for Claude Code (claude.ai/code) working in this repository.
 
 When you finish a task that touched code or assets:
 
-1. **Pre-commit is automatic.** A `Stop` hook in `.claude/settings.json` runs `pre-commit run` on your modified files at the end of every turn. If it reformats anything, the changes are already on disk — re-stage them before committing. Do **not** run `pre-commit` again manually unless it failed.
+1. **Pre-commit is automatic.** A `Stop` hook in `.claude/settings.json` runs `pre-commit run --all-files` at the end of every turn (the wrapper script at `scripts/claude-stop-hook.ps1` is the source of truth — it runs the whole repo, not just modified files, on purpose). If it reformats anything, the changes are already on disk — re-stage them before committing. Do **not** run `pre-commit` again manually unless it failed.
 2. **Test-catalogue regeneration** is enforced by the `test-catalogue-in-sync` hook above. If it fails, run `python OloEngine/tests/scripts/generate_test_catalogue.py` and re-stage.
 3. **Cross-binding check** — the pre-commit hook does **not** catch this. If you added or changed an ECS component, you must update **all five** touch-points or scripting / scene saves / save-games / runtime copies will silently drop it:
    - `Scene/Components.h` — the component struct itself **and** add it to the `AllComponents` tuple at the bottom of the file (scene copy, prefab instantiation, and `HasComponent<T>()` script registration all iterate this tuple).
@@ -15,7 +15,7 @@ When you finish a task that touched code or assets:
    - `Scripting/C#/Generated/` is auto-generated from `OLO_PROPERTY` annotations by OloHeaderTool (see below) — add the annotations on the component fields. Don't hand-edit the generated `.inl` / `.cs`.
    - `Scripting/Lua/LuaScriptGlue.cpp::RegisterAllTypes()` — Sol2 usertype registration. (`OloEngine-LuaScriptCore/` is the Mono-equivalent project target but the actual bindings live in `Scripting/Lua/`.)
 
-   Missing any one causes silent script or scene failures. Audit the existing list in `AllComponents` (`Scene/Components.h:1961`-ish) as the source of truth for what's expected to round-trip.
+   Missing any one causes silent script or scene failures. Audit the existing list in `AllComponents` (`Scene/Components.h`, near the bottom of the file) as the source of truth for what's expected to round-trip.
 
 If you find yourself wanting to write "remember to run pre-commit" anywhere, don't — the hook owns that.
 

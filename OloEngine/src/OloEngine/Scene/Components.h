@@ -379,11 +379,15 @@ namespace OloEngine
             Dynamic,
             Kinematic
         };
+        OLO_PROPERTY(Name = "Type", Type = "int", Get = "static_cast<int>(comp.Type)", Set = "comp.Type = static_cast<Rigidbody2DComponent::BodyType>({v})")
         BodyType Type = BodyType::Static;
+        OLO_PROPERTY()
         bool FixedRotation = false;
 
         // Persisted velocity — snapshot from runtime before save, applied on body creation
+        OLO_PROPERTY()
         glm::vec2 LinearVelocity = { 0.0f, 0.0f };
+        OLO_PROPERTY()
         f32 AngularVelocity = 0.0f;
 
         // Storage for runtime
@@ -2155,7 +2159,9 @@ namespace OloEngine
 
     struct NavMeshBoundsComponent
     {
+        OLO_PROPERTY()
         glm::vec3 m_Min = { -100.0f, -10.0f, -100.0f };
+        OLO_PROPERTY()
         glm::vec3 m_Max = { 100.0f, 50.0f, 100.0f };
 
         NavMeshBoundsComponent() = default;

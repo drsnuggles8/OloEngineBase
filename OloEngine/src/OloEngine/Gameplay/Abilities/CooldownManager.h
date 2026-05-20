@@ -24,6 +24,25 @@ namespace OloEngine
         void ResetCooldown(const GameplayTag& abilityTag);
         void ResetAll();
 
+        // For deserialization round-trip: (tag, duration, remaining) triples.
+        // Cleaner than exposing the private CooldownEntry struct.
+        void RestoreFromSnapshot(const GameplayTag& abilityTag, f32 duration, f32 remaining);
+
+        // For serialization: enumerate (tag, duration, remaining) without
+        // leaking the private CooldownEntry struct to the caller.
+        template<typename Fn>
+        void ForEachCooldown(Fn&& fn) const
+        {
+            for (auto const& [tag, entry] : m_Cooldowns)
+            {
+                fn(tag, entry.Duration, entry.Remaining);
+            }
+        }
+        [[nodiscard]] std::size_t Size() const
+        {
+            return m_Cooldowns.size();
+        }
+
         auto operator==(const CooldownManager&) const -> bool = default;
 
       private:

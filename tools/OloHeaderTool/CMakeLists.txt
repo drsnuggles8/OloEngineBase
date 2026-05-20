@@ -1,8 +1,16 @@
 project(OloHeaderTool LANGUAGES CXX)
 
 add_executable(OloHeaderTool main.cpp)
-target_compile_features(OloHeaderTool PRIVATE cxx_std_20)
-set_target_properties(OloHeaderTool PROPERTIES FOLDER "Tools")
+# OloHeaderTool is a small build-time tool; nothing in main.cpp requires C++23,
+# so pin it explicitly at C++20 instead of inheriting the global C++23 baseline.
+# Setting per-target standard properties (rather than `cxx_std_20` features)
+# both lowers the minimum AND caps the standard used to compile this target.
+set_target_properties(OloHeaderTool PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+    FOLDER "Tools"
+)
 
 # Define the output paths for generated files
 set(OHT_SCAN_DIR "${CMAKE_SOURCE_DIR}/OloEngine/src" CACHE PATH "Directory to scan for OLO_PROPERTY annotations")

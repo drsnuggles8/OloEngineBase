@@ -77,12 +77,12 @@ CMake will also create the `build/` directory, which contains the Visual Studio 
 ## Future Features
 - Advanced lighting (global illumination, ray tracing)
 - Scripting debugger and hot-reload
-- Additional compute-shader workloads (GPU culling fast paths, particle compute)
+- GPU-driven particle compute pipeline
 - Expanded post-processing pipeline (motion blur, additional AA modes)
 
 ## Dependencies
 
-All dependencies are automatically fetched via fetchcontent and CPM (CMake Package Manager, only used for Sol) and stored in `OloEngine/vendor/`:
+All dependencies are automatically fetched via FetchContent and CPM (CMake Package Manager — CPM hosts Sol2, choc, nlohmann/json, ImGui, and ImGuizmo; FetchContent hosts the rest) and stored in `OloEngine/vendor/`:
 
 ### Core Libraries
 * [entt](https://github.com/skypjack/entt) - Fast and reliable entity-component system (ECS)

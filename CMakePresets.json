@@ -36,6 +36,53 @@
 			"cacheVariables": {
 				"OLO_ENABLE_ASAN": "ON"
 			}
+		},
+		{
+			"name": "linux-gcc",
+			"displayName": "Linux GCC (Ninja)",
+			"description": "Base Linux preset using GCC 14 and Ninja Multi-Config",
+			"generator": "Ninja Multi-Config",
+			"binaryDir": "${sourceDir}/build-linux",
+			"cacheVariables": {
+				"BUILD_TESTS": "ON",
+				"CMAKE_C_COMPILER": "gcc-14",
+				"CMAKE_CXX_COMPILER": "g++-14"
+			},
+			"condition": {
+				"type": "equals",
+				"lhs": "${hostSystemName}",
+				"rhs": "Linux"
+			}
+		},
+		{
+			"name": "linux-asan",
+			"displayName": "Linux GCC + ASan",
+			"description": "GCC ASan build; also enables LSan automatically per cmake/Sanitizers.cmake.",
+			"inherits": "linux-gcc",
+			"binaryDir": "${sourceDir}/build-linux-asan",
+			"cacheVariables": {
+				"OLO_ENABLE_ASAN": "ON"
+			}
+		},
+		{
+			"name": "linux-ubsan",
+			"displayName": "Linux GCC + UBSan",
+			"description": "GCC Undefined Behavior Sanitizer build (no ASan).",
+			"inherits": "linux-gcc",
+			"binaryDir": "${sourceDir}/build-linux-ubsan",
+			"cacheVariables": {
+				"OLO_ENABLE_UBSAN": "ON"
+			}
+		},
+		{
+			"name": "linux-tsan",
+			"displayName": "Linux GCC + TSan",
+			"description": "GCC Thread Sanitizer build (incompatible with ASan).",
+			"inherits": "linux-gcc",
+			"binaryDir": "${sourceDir}/build-linux-tsan",
+			"cacheVariables": {
+				"OLO_ENABLE_TSAN": "ON"
+			}
 		}
 	],
 	"buildPresets": [
@@ -68,6 +115,24 @@
 			"displayName": "ClangCL ASan Release",
 			"description": "Project uses Debug/Release/Dist (see cmake/SetupConfigurations.cmake); Release already includes PDB debug info on MSVC.",
 			"configurePreset": "clangcl-asan",
+			"configuration": "Release"
+		},
+		{
+			"name": "linux-asan-release",
+			"displayName": "Linux ASan Release",
+			"configurePreset": "linux-asan",
+			"configuration": "Release"
+		},
+		{
+			"name": "linux-ubsan-release",
+			"displayName": "Linux UBSan Release",
+			"configurePreset": "linux-ubsan",
+			"configuration": "Release"
+		},
+		{
+			"name": "linux-tsan-release",
+			"displayName": "Linux TSan Release",
+			"configurePreset": "linux-tsan",
 			"configuration": "Release"
 		}
 	],

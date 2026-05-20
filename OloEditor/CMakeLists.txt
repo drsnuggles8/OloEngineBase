@@ -6,15 +6,13 @@
 add_subdirectory(src)
 
 # Configure the OloEditor target using our common properties
-olo_configure_app(OloEditor NO_PCH)
-
-add_dependencies(OloEditor
-				OloEngine
-)
+olo_configure_app(OloEditor)
 
 # Set up common include directories
 olo_set_common_include_directories(OloEditor)
 
+# target_link_libraries implies a build-order dependency on OloEngine, so no
+# separate add_dependencies(... OloEngine) is needed.
 target_link_libraries(OloEditor
-					OloEngine
+                    OloEngine
 )

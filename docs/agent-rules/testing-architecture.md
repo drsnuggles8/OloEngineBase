@@ -30,11 +30,11 @@ Every new test belongs to exactly one renderer Layer **or** carries the `"Functi
 | L1 Property / behavioural | math / physics contracts, monotonicity, energy bounds | `OloEngine/tests/Rendering/PropertyTests/*PropertyTests.cpp` |
 | L2 Shader unit | GLSL helper correctness via compute-shader readback | `OloEngine/tests/Rendering/PropertyTests/ShaderUnitTests.cpp` + `OloEditor/assets/shaders/tests/` |
 | L3 Data round-trip | CPU↔GPU bit/byte identity, cache round-trips | `OloEngine/tests/Rendering/PropertyTests/DataRoundTripTests.cpp` |
-| L4 GPU state validation | blend / depth / stencil / FBO / UBO leaks across passes | `OloEngine/tests/Rendering/PropertyTests/GLStateGuardTest.cpp`, `RenderStateTest.cpp` |
+| L4 GPU state validation | blend / depth / stencil / FBO / UBO leaks across passes | `OloEngine/tests/Rendering/PropertyTests/GLStateGuardTest.cpp`, `OloEngine/tests/Rendering/RenderStateTest.cpp` |
 | L5 Render graph / hazards | pass ordering, read-after-write, parallel-write | `OloEngine/tests/Rendering/RenderGraphTest.cpp`, `ResourceHazardValidationTests.cpp` |
 | L6 Performance regression | per-pass timing vs. pinned baseline with anti-flake | `OloEngine/tests/Rendering/PropertyTests/PerfRegressionTests.cpp` + `perf_baselines.txt` |
 | L7 Smoke / sanity readback | NaN / Inf detection, empty / clean framebuffers | `OloEngine/tests/Rendering/PropertyTests/RendererValidateTest.cpp` |
-| L8 Golden image | SSIM cascade over scene fixtures | `OloEngine/tests/Rendering/PropertyTests/GoldenImageTests.cpp` + `OloEditor/assets/goldens/` |
+| L8 Golden image | SSIM cascade over scene fixtures | `OloEngine/tests/Rendering/PropertyTests/GoldenImageTests.cpp` + `OloEditor/assets/tests/golden/` |
 | L9 Cross-vendor | llvmpipe conformance in CI (workflow only, no code) | `.github/workflows/cross-vendor.yml` |
 | L10 Diagnostic escalation | auto-capture framebuffer + metadata on `ASSERT_` failure | `TestFailureCapture.{h,cpp}` (consumed automatically) |
 | L11 Sanitizers & fuzzing | libFuzzer harnesses + ASan / UBSan in CI | `OloEngine/tests/Fuzzing/Fuzz*.cpp` + `.github/workflows/fuzz.yml` |

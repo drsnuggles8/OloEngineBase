@@ -1265,8 +1265,8 @@ namespace OloEngine
                         // positives when comparing snapshot vs current via memcmp.
                         alignas(alignof(T)) unsigned char snapshotBytes[sizeof(T)]{};
                     };
-                    static std::unordered_map<u64, EditState> s_editStates;
-                    auto& editState = s_editStates[static_cast<u64>(entity.GetUUID()) ^ typeid(T).hash_code()];
+                    static std::unordered_map<u64, EditState> s_EditStates;
+                    auto& editState = s_EditStates[static_cast<u64>(entity.GetUUID()) ^ typeid(T).hash_code()];
 
                     // Take a snapshot once per idle→edit cycle (not every frame)
                     if (!editState.isEditing && !editState.snapshotValid)
@@ -1597,7 +1597,7 @@ namespace OloEngine
             std::strncpy(buffer, tag.c_str(), sizeof(buffer) - 1);
 
             // Save tag before InputText modifies it (for undo tracking)
-            static std::string s_tagEditStart;
+            static std::string s_TagEditStart;
             const std::string tagBeforeInput = tag;
 
             if (ImGui::InputText("##Tag", buffer, sizeof(buffer)))
@@ -1609,13 +1609,13 @@ namespace OloEngine
 
             if (ImGui::IsItemActivated())
             {
-                s_tagEditStart = tagBeforeInput;
+                s_TagEditStart = tagBeforeInput;
             }
 
             if (ImGui::IsItemDeactivatedAfterEdit() && m_CommandHistory)
             {
                 m_CommandHistory->PushAlreadyExecuted(
-                    std::make_unique<RenameEntityCommand>(m_Context, entity.GetUUID(), s_tagEditStart, tag));
+                    std::make_unique<RenameEntityCommand>(m_Context, entity.GetUUID(), s_TagEditStart, tag));
             }
         }
 
@@ -1799,211 +1799,211 @@ namespace OloEngine
 
         DrawComponent<TransformComponent>("Transform", entity, [](auto& component)
                                           {
-			DrawVec3Control("Translation", component.Translation);
-			glm::vec3 rotation = glm::degrees(component.GetRotationEuler());
-			glm::vec3 savedRotation = rotation;
-			DrawVec3Control("Rotation", rotation);
-			if (rotation != savedRotation)
-			{
-				component.SetRotationEuler(glm::radians(rotation));
-			}
-			DrawVec3Control("Scale", component.Scale, 1.0f); });
+            DrawVec3Control("Translation", component.Translation);
+            glm::vec3 rotation = glm::degrees(component.GetRotationEuler());
+            glm::vec3 savedRotation = rotation;
+            DrawVec3Control("Rotation", rotation);
+            if (rotation != savedRotation)
+            {
+                component.SetRotationEuler(glm::radians(rotation));
+            }
+            DrawVec3Control("Scale", component.Scale, 1.0f); });
 
         DrawComponent<CameraComponent>("Camera", entity, [](auto& component)
                                        {
-			auto& camera = component.Camera;
+            auto& camera = component.Camera;
 
-			ImGui::Checkbox("Primary", &component.Primary);
+            ImGui::Checkbox("Primary", &component.Primary);
 
-			const char* const projectionTypeStrings[2] = { "Perspective", "Orthographic" };
-			if (const char* currentProjectionTypeString = projectionTypeStrings[static_cast<int>(camera.GetProjectionType())]; ImGui::BeginCombo("Projection", currentProjectionTypeString))
-			{
-				for (int i = 0; i < 2; ++i)
-				{
-					const bool isSelected = currentProjectionTypeString == projectionTypeStrings[i];
-					if (ImGui::Selectable(projectionTypeStrings[i], isSelected))
-					{
-						currentProjectionTypeString = projectionTypeStrings[i];
-						camera.SetProjectionType(static_cast<SceneCamera::ProjectionType>(i));
-					}
+            const char* const projectionTypeStrings[2] = { "Perspective", "Orthographic" };
+            if (const char* currentProjectionTypeString = projectionTypeStrings[static_cast<int>(camera.GetProjectionType())]; ImGui::BeginCombo("Projection", currentProjectionTypeString))
+            {
+                for (int i = 0; i < 2; ++i)
+                {
+                    const bool isSelected = currentProjectionTypeString == projectionTypeStrings[i];
+                    if (ImGui::Selectable(projectionTypeStrings[i], isSelected))
+                    {
+                        currentProjectionTypeString = projectionTypeStrings[i];
+                        camera.SetProjectionType(static_cast<SceneCamera::ProjectionType>(i));
+                    }
 
-					if (isSelected)
-					{
-						ImGui::SetItemDefaultFocus();
-					}
-				}
+                    if (isSelected)
+                    {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
 
-				ImGui::EndCombo();
-			}
+                ImGui::EndCombo();
+            }
 
-			if (camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective)
-			{
-				if (f32 perspectiveVerticalFov = glm::degrees(camera.GetPerspectiveVerticalFOV()); ImGui::DragFloat("Vertical FOV", &perspectiveVerticalFov))
-				{
-					camera.SetPerspectiveVerticalFOV(glm::radians(perspectiveVerticalFov));
-				}
+            if (camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective)
+            {
+                if (f32 perspectiveVerticalFov = glm::degrees(camera.GetPerspectiveVerticalFOV()); ImGui::DragFloat("Vertical FOV", &perspectiveVerticalFov))
+                {
+                    camera.SetPerspectiveVerticalFOV(glm::radians(perspectiveVerticalFov));
+                }
 
-				if (f32 perspectiveNear = camera.GetPerspectiveNearClip(); ImGui::DragFloat("Near", &perspectiveNear))
-				{
-					camera.SetPerspectiveNearClip(perspectiveNear);
-				}
+                if (f32 perspectiveNear = camera.GetPerspectiveNearClip(); ImGui::DragFloat("Near", &perspectiveNear))
+                {
+                    camera.SetPerspectiveNearClip(perspectiveNear);
+                }
 
-				f32 perspectiveFar = camera.GetPerspectiveFarClip();
-				if (ImGui::DragFloat("Far", &perspectiveFar))
-				{
-					camera.SetPerspectiveFarClip(perspectiveFar);
-				}
-			}
+                f32 perspectiveFar = camera.GetPerspectiveFarClip();
+                if (ImGui::DragFloat("Far", &perspectiveFar))
+                {
+                    camera.SetPerspectiveFarClip(perspectiveFar);
+                }
+            }
 
-			if (camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
-			{
-				if (f32 orthoSize = camera.GetOrthographicSize(); ImGui::DragFloat("Size", &orthoSize))
-				{
-					camera.SetOrthographicSize(orthoSize);
-				}
+            if (camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
+            {
+                if (f32 orthoSize = camera.GetOrthographicSize(); ImGui::DragFloat("Size", &orthoSize))
+                {
+                    camera.SetOrthographicSize(orthoSize);
+                }
 
-				if (f32 orthoNear = camera.GetOrthographicNearClip(); ImGui::DragFloat("Near", &orthoNear))
-				{
-					camera.SetOrthographicNearClip(orthoNear);
-				}
+                if (f32 orthoNear = camera.GetOrthographicNearClip(); ImGui::DragFloat("Near", &orthoNear))
+                {
+                    camera.SetOrthographicNearClip(orthoNear);
+                }
 
-				if (f32 orthoFar = camera.GetOrthographicFarClip(); ImGui::DragFloat("Far", &orthoFar))
-				{
-					camera.SetOrthographicFarClip(orthoFar);
-				}
+                if (f32 orthoFar = camera.GetOrthographicFarClip(); ImGui::DragFloat("Far", &orthoFar))
+                {
+                    camera.SetOrthographicFarClip(orthoFar);
+                }
 
-				ImGui::Checkbox("Fixed Aspect Ratio", &component.FixedAspectRatio);
-			}
+                ImGui::Checkbox("Fixed Aspect Ratio", &component.FixedAspectRatio);
+            }
 
-			ImGui::Separator();
-			ImGui::Checkbox("Runtime Control (FPS Fly)", &component.RuntimeControl);
-			if (component.RuntimeControl)
-			{
-				ImGui::DragFloat("Fly Speed", &component.FlySpeed, 0.1f, 0.1f, 100.0f);
-			} });
+            ImGui::Separator();
+            ImGui::Checkbox("Runtime Control (FPS Fly)", &component.RuntimeControl);
+            if (component.RuntimeControl)
+            {
+                ImGui::DragFloat("Fly Speed", &component.FlySpeed, 0.1f, 0.1f, 100.0f);
+            } });
 
         DrawComponent<ScriptComponent>("Script", entity, [entity, scene = m_Context](auto& component) mutable
                                        {
-			bool scriptClassExists = ScriptEngine::EntityClassExists(component.ClassName);
+            bool scriptClassExists = ScriptEngine::EntityClassExists(component.ClassName);
 
-			// Dropdown picker from registered script classes
-			{
-				const auto& entityClasses = ScriptEngine::GetEntityClasses();
-				static std::vector<std::string> cachedClassNames;
-				static size_t cachedSize = 0;
-				if (entityClasses.size() != cachedSize)
-				{
-					cachedClassNames.clear();
-					cachedClassNames.reserve(entityClasses.size());
-					for (const auto& [name, _] : entityClasses)
-						cachedClassNames.push_back(name);
-					std::ranges::sort(cachedClassNames);
-					cachedSize = entityClasses.size();
-				}
+            // Dropdown picker from registered script classes
+            {
+                const auto& entityClasses = ScriptEngine::GetEntityClasses();
+                static std::vector<std::string> cachedClassNames;
+                static size_t cachedSize = 0;
+                if (entityClasses.size() != cachedSize)
+                {
+                    cachedClassNames.clear();
+                    cachedClassNames.reserve(entityClasses.size());
+                    for (const auto& [name, _] : entityClasses)
+                        cachedClassNames.push_back(name);
+                    std::ranges::sort(cachedClassNames);
+                    cachedSize = entityClasses.size();
+                }
 
-				const char* currentItem = component.ClassName.c_str();
-				UI::ScopedStyleColor textColor(ImGuiCol_Text, ImVec4(0.9f, 0.2f, 0.3f, 1.0f), !scriptClassExists);
+                const char* currentItem = component.ClassName.c_str();
+                UI::ScopedStyleColor textColor(ImGuiCol_Text, ImVec4(0.9f, 0.2f, 0.3f, 1.0f), !scriptClassExists);
 
-				if (ImGui::BeginCombo("Class", currentItem))
-				{
-					for (const auto& name : cachedClassNames)
-					{
-						bool isSelected = (component.ClassName == name);
-						if (ImGui::Selectable(name.c_str(), isSelected))
-							component.ClassName = name;
-						if (isSelected)
-							ImGui::SetItemDefaultFocus();
-					}
-					ImGui::EndCombo();
-				}
-			}
+                if (ImGui::BeginCombo("Class", currentItem))
+                {
+                    for (const auto& name : cachedClassNames)
+                    {
+                        bool isSelected = (component.ClassName == name);
+                        if (ImGui::Selectable(name.c_str(), isSelected))
+                            component.ClassName = name;
+                        if (isSelected)
+                            ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+            }
 
-			// Fields
+            // Fields
 
-			if (bool sceneRunning = scene->IsRunning(); sceneRunning)
-			{
-				if (Ref<ScriptInstance> scriptInstance = ScriptEngine::GetEntityScriptInstance(entity.GetUUID()); scriptInstance)
-				{
-					for (const auto& fields = scriptInstance->GetScriptClass()->GetFields(); const auto& [name, field] : fields)
-					{
-						if (field.Type == ScriptFieldType::Float)
-						{
-							if (f32 data = scriptInstance->GetFieldValue<f32>(name); ImGui::DragFloat(name.c_str(), &data))
-							{
-								scriptInstance->SetFieldValue(name, data);
-							}
-						}
-					}
-				}
-			}
-			else
-			{
-			if (scriptClassExists)
-			{
-				Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(component.ClassName);
-				const auto& fields = entityClass->GetFields();
-				auto& entityFields = ScriptEngine::GetScriptFieldMap(entity);
-				static std::unordered_map<std::string, f32> s_scriptFieldSnapshots;
-					for (const auto& [name, field] : fields)
-					{
-						auto const snapshotKey = std::to_string(static_cast<u64>(entity.GetUUID())) + "::" + name;
-						// Field has been set in editor
-						if (entityFields.contains(name))
-						{
-							ScriptFieldInstance& scriptField = entityFields.at(name);
+            if (bool sceneRunning = scene->IsRunning(); sceneRunning)
+            {
+                if (Ref<ScriptInstance> scriptInstance = ScriptEngine::GetEntityScriptInstance(entity.GetUUID()); scriptInstance)
+                {
+                    for (const auto& fields = scriptInstance->GetScriptClass()->GetFields(); const auto& [name, field] : fields)
+                    {
+                        if (field.Type == ScriptFieldType::Float)
+                        {
+                            if (f32 data = scriptInstance->GetFieldValue<f32>(name); ImGui::DragFloat(name.c_str(), &data))
+                            {
+                                scriptInstance->SetFieldValue(name, data);
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+            if (scriptClassExists)
+            {
+                Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(component.ClassName);
+                const auto& fields = entityClass->GetFields();
+                auto& entityFields = ScriptEngine::GetScriptFieldMap(entity);
+                static std::unordered_map<std::string, f32> s_ScriptFieldSnapshots;
+                    for (const auto& [name, field] : fields)
+                    {
+                        auto const snapshotKey = std::to_string(static_cast<u64>(entity.GetUUID())) + "::" + name;
+                        // Field has been set in editor
+                        if (entityFields.contains(name))
+                        {
+                            ScriptFieldInstance& scriptField = entityFields.at(name);
 
-							if (field.Type == ScriptFieldType::Float)
-							{
-								f32 data = scriptField.GetValue<f32>();
-								f32 preEditValue = data;
-								if (ImGui::DragFloat(name.c_str(), &data))
-								{
-									scriptField.SetValue(data);
-								}
-								// Track undo for script field edits
-								if (s_DrawComponentCmdHistory && s_DrawComponentScene)
-								{
-									if (ImGui::IsItemActivated())
-									{
-										s_scriptFieldSnapshots[snapshotKey] = preEditValue;
-									}
-									if (ImGui::IsItemDeactivatedAfterEdit())
-									{
-										if (auto snapIt = s_scriptFieldSnapshots.find(snapshotKey); snapIt != s_scriptFieldSnapshots.end())
-										{
-											s_DrawComponentCmdHistory->PushAlreadyExecuted(
-												std::make_unique<ScriptFieldChangeCommand>(
-													s_DrawComponentScene, entity.GetUUID(),
-													name, snapIt->second, data));
-										}
-									}
-								}
-							}
-						}
-						else
-						{
-							if (field.Type == ScriptFieldType::Float)
-							{
-								f32 data = 0.0f;
-								if (ImGui::DragFloat(name.c_str(), &data))
-								{
-									ScriptFieldInstance& fieldInstance = entityFields[name];
-									fieldInstance.Field = field;
-									fieldInstance.SetValue(data);
-								}
-								// Track undo for newly created script field
-								if (s_DrawComponentCmdHistory && s_DrawComponentScene && ImGui::IsItemDeactivatedAfterEdit())
-								{
-									s_DrawComponentCmdHistory->PushAlreadyExecuted(
-										std::make_unique<ScriptFieldChangeCommand>(
-											s_DrawComponentScene, entity.GetUUID(),
-											name, 0.0f, data));
-								}
-							}
-						}
-					}
-				}
-			} });
+                            if (field.Type == ScriptFieldType::Float)
+                            {
+                                f32 data = scriptField.GetValue<f32>();
+                                f32 preEditValue = data;
+                                if (ImGui::DragFloat(name.c_str(), &data))
+                                {
+                                    scriptField.SetValue(data);
+                                }
+                                // Track undo for script field edits
+                                if (s_DrawComponentCmdHistory && s_DrawComponentScene)
+                                {
+                                    if (ImGui::IsItemActivated())
+                                    {
+                                        s_ScriptFieldSnapshots[snapshotKey] = preEditValue;
+                                    }
+                                    if (ImGui::IsItemDeactivatedAfterEdit())
+                                    {
+                                        if (auto snapIt = s_ScriptFieldSnapshots.find(snapshotKey); snapIt != s_ScriptFieldSnapshots.end())
+                                        {
+                                            s_DrawComponentCmdHistory->PushAlreadyExecuted(
+                                                std::make_unique<ScriptFieldChangeCommand>(
+                                                    s_DrawComponentScene, entity.GetUUID(),
+                                                    name, snapIt->second, data));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        else
+                        {
+                            if (field.Type == ScriptFieldType::Float)
+                            {
+                                f32 data = 0.0f;
+                                if (ImGui::DragFloat(name.c_str(), &data))
+                                {
+                                    ScriptFieldInstance& fieldInstance = entityFields[name];
+                                    fieldInstance.Field = field;
+                                    fieldInstance.SetValue(data);
+                                }
+                                // Track undo for newly created script field
+                                if (s_DrawComponentCmdHistory && s_DrawComponentScene && ImGui::IsItemDeactivatedAfterEdit())
+                                {
+                                    s_DrawComponentCmdHistory->PushAlreadyExecuted(
+                                        std::make_unique<ScriptFieldChangeCommand>(
+                                            s_DrawComponentScene, entity.GetUUID(),
+                                            name, 0.0f, data));
+                                }
+                            }
+                        }
+                    }
+                }
+            } });
 
         DrawComponent<LuaScriptComponent>("Lua Script", entity, [](auto& component)
                                           {
@@ -2014,315 +2014,315 @@ namespace OloEngine
 
         DrawComponent<SpriteRendererComponent>("Sprite Renderer", entity, [](auto& component)
                                                {
-			ImGui::ColorEdit4("Color", glm::value_ptr(component.Color));
+            ImGui::ColorEdit4("Color", glm::value_ptr(component.Color));
 
-			ImGui::Button("Texture", ImVec2(100.0f, 0.0f));
-			if (ImGui::BeginDragDropTarget())
-			{
-			if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
-				{
-					std::filesystem::path texturePath = PathFromUtf8Payload(*payload);
-					Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
-					if (texture->IsLoaded())
-					{
-						component.Texture = texture;
-					}
-					else
-					{
-						OLO_WARN("Could not load texture {0}", texturePath.filename().string());
-					}
-				}
-				ImGui::EndDragDropTarget();
-			}
-			ImGui::DragFloat("Tiling Factor", &component.TilingFactor, 0.1f, 0.0f, 100.0f); });
+            ImGui::Button("Texture", ImVec2(100.0f, 0.0f));
+            if (ImGui::BeginDragDropTarget())
+            {
+            if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                {
+                    std::filesystem::path texturePath = PathFromUtf8Payload(*payload);
+                    Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
+                    if (texture->IsLoaded())
+                    {
+                        component.Texture = texture;
+                    }
+                    else
+                    {
+                        OLO_WARN("Could not load texture {0}", texturePath.filename().string());
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+            ImGui::DragFloat("Tiling Factor", &component.TilingFactor, 0.1f, 0.0f, 100.0f); });
 
         DrawComponent<CircleRendererComponent>("Circle Renderer", entity, [](auto& component)
                                                {
-			ImGui::ColorEdit4("Color", glm::value_ptr(component.Color));
-			ImGui::DragFloat("Thickness", &component.Thickness, 0.025f, 0.0f, 1.0f);
-			ImGui::DragFloat("Fade", &component.Fade, 0.00025f, 0.0f, 1.0f); });
+            ImGui::ColorEdit4("Color", glm::value_ptr(component.Color));
+            ImGui::DragFloat("Thickness", &component.Thickness, 0.025f, 0.0f, 1.0f);
+            ImGui::DragFloat("Fade", &component.Fade, 0.00025f, 0.0f, 1.0f); });
 
         DrawComponent<Rigidbody2DComponent>("Rigidbody 2D", entity, [](auto& component)
                                             {
-			const char* const bodyTypeStrings[] = { "Static", "Dynamic", "Kinematic" };
-			if (const char* currentBodyTypeString = bodyTypeStrings[static_cast<int>(component.Type)]; ImGui::BeginCombo("Body Type", currentBodyTypeString))
-			{
-				for (int i = 0; i < 2; ++i)
-				{
-					const bool isSelected = currentBodyTypeString == bodyTypeStrings[i];
-					if (ImGui::Selectable(bodyTypeStrings[i], isSelected))
-					{
-						currentBodyTypeString = bodyTypeStrings[i];
-						component.Type = static_cast<Rigidbody2DComponent::BodyType>(i);
-					}
+            const char* const bodyTypeStrings[] = { "Static", "Dynamic", "Kinematic" };
+            if (const char* currentBodyTypeString = bodyTypeStrings[static_cast<int>(component.Type)]; ImGui::BeginCombo("Body Type", currentBodyTypeString))
+            {
+                for (int i = 0; i < 2; ++i)
+                {
+                    const bool isSelected = currentBodyTypeString == bodyTypeStrings[i];
+                    if (ImGui::Selectable(bodyTypeStrings[i], isSelected))
+                    {
+                        currentBodyTypeString = bodyTypeStrings[i];
+                        component.Type = static_cast<Rigidbody2DComponent::BodyType>(i);
+                    }
 
-					if (isSelected)
-					{
-						ImGui::SetItemDefaultFocus();
-					}
-				}
+                    if (isSelected)
+                    {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
 
-				ImGui::EndCombo();
-			}
+                ImGui::EndCombo();
+            }
 
-			ImGui::Checkbox("Fixed Rotation", &component.FixedRotation); });
+            ImGui::Checkbox("Fixed Rotation", &component.FixedRotation); });
 
         DrawComponent<BoxCollider2DComponent>("Box Collider 2D", entity, [](auto& component)
                                               {
-			ImGui::DragFloat2("Offset", glm::value_ptr(component.Offset));
-			ImGui::DragFloat2("Size", glm::value_ptr(component.Size));
-			ImGui::DragFloat("Density", &component.Density, 0.01f, 0.0f, 1.0f);
-			ImGui::DragFloat("Friction", &component.Friction, 0.01f, 0.0f, 1.0f);
-			ImGui::DragFloat("Restitution", &component.Restitution, 0.01f, 0.0f, 1.0f);
-			ImGui::DragFloat("Restitution Threshold", &component.RestitutionThreshold, 0.01f, 0.0f); });
+            ImGui::DragFloat2("Offset", glm::value_ptr(component.Offset));
+            ImGui::DragFloat2("Size", glm::value_ptr(component.Size));
+            ImGui::DragFloat("Density", &component.Density, 0.01f, 0.0f, 1.0f);
+            ImGui::DragFloat("Friction", &component.Friction, 0.01f, 0.0f, 1.0f);
+            ImGui::DragFloat("Restitution", &component.Restitution, 0.01f, 0.0f, 1.0f);
+            ImGui::DragFloat("Restitution Threshold", &component.RestitutionThreshold, 0.01f, 0.0f); });
 
         DrawComponent<CircleCollider2DComponent>("Circle Collider 2D", entity, [](auto& component)
                                                  {
-			ImGui::DragFloat2("Offset", glm::value_ptr(component.Offset));
-			ImGui::DragFloat("Radius", &component.Radius);
-			ImGui::DragFloat("Density", &component.Density, 0.01f, 0.0f, 1.0f);
-			ImGui::DragFloat("Friction", &component.Friction, 0.01f, 0.0f, 1.0f);
-			ImGui::DragFloat("Restitution", &component.Restitution, 0.01f, 0.0f, 1.0f);
-			ImGui::DragFloat("Restitution Threshold", &component.RestitutionThreshold, 0.01f, 0.0f); });
+            ImGui::DragFloat2("Offset", glm::value_ptr(component.Offset));
+            ImGui::DragFloat("Radius", &component.Radius);
+            ImGui::DragFloat("Density", &component.Density, 0.01f, 0.0f, 1.0f);
+            ImGui::DragFloat("Friction", &component.Friction, 0.01f, 0.0f, 1.0f);
+            ImGui::DragFloat("Restitution", &component.Restitution, 0.01f, 0.0f, 1.0f);
+            ImGui::DragFloat("Restitution Threshold", &component.RestitutionThreshold, 0.01f, 0.0f); });
 
         DrawComponent<TextComponent>("Text Renderer", entity, [](auto& component)
                                      {
-			ImGui::InputTextMultiline("Text String", &component.TextString);
-			ImGui::ColorEdit4("Color", glm::value_ptr(component.Color));
-			ImGui::DragFloat("Kerning", &component.Kerning, 0.025f);
-			ImGui::DragFloat("Line Spacing", &component.LineSpacing, 0.025f);
-			ImGui::DragFloat("Max Width", &component.MaxWidth, 0.1f, 0.0f, 100.0f);
-			ImGui::Checkbox("Drop Shadow", &component.DropShadow);
-			if (component.DropShadow)
-			{
-				ImGui::DragFloat("Shadow Distance", &component.ShadowDistance, 0.001f, 0.0f, 1.0f);
-				ImGui::ColorEdit4("Shadow Color", glm::value_ptr(component.ShadowColor));
-			} });
+            ImGui::InputTextMultiline("Text String", &component.TextString);
+            ImGui::ColorEdit4("Color", glm::value_ptr(component.Color));
+            ImGui::DragFloat("Kerning", &component.Kerning, 0.025f);
+            ImGui::DragFloat("Line Spacing", &component.LineSpacing, 0.025f);
+            ImGui::DragFloat("Max Width", &component.MaxWidth, 0.1f, 0.0f, 100.0f);
+            ImGui::Checkbox("Drop Shadow", &component.DropShadow);
+            if (component.DropShadow)
+            {
+                ImGui::DragFloat("Shadow Distance", &component.ShadowDistance, 0.001f, 0.0f, 1.0f);
+                ImGui::ColorEdit4("Shadow Color", glm::value_ptr(component.ShadowColor));
+            } });
 
         // 3D Components
         DrawComponent<MeshComponent>("Mesh", entity, [entity, scene = m_Context](auto& component) mutable
                                      {
-			ImGui::Text("Mesh Source: %s", component.m_MeshSource ? "Loaded" : "None");
+            ImGui::Text("Mesh Source: %s", component.m_MeshSource ? "Loaded" : "None");
 
-			if (component.m_MeshSource)
-			{
-				ImGui::Text("Submeshes: %d", component.m_MeshSource->GetSubmeshes().Num());
-				ImGui::Text("Vertices: %d", component.m_MeshSource->GetVertices().Num());
-				ImGui::Text("Shadow VA: %s", component.m_MeshSource->HasShadowVertexArray() ? "Yes" : "No");
+            if (component.m_MeshSource)
+            {
+                ImGui::Text("Submeshes: %d", component.m_MeshSource->GetSubmeshes().Num());
+                ImGui::Text("Vertices: %d", component.m_MeshSource->GetVertices().Num());
+                ImGui::Text("Shadow VA: %s", component.m_MeshSource->HasShadowVertexArray() ? "Yes" : "No");
 
-				// On-demand mesh analysis via meshoptimizer
-				if (ImGui::TreeNode("Mesh Analysis"))
-				{
-					static MeshAnalysis s_CachedAnalysis;
-					static AssetHandle s_AnalyzedHandle{0};
-					static u64 s_AnalyzedGeneration = 0;
-					static const MeshSource* s_AnalyzedSource = nullptr;
+                // On-demand mesh analysis via meshoptimizer
+                if (ImGui::TreeNode("Mesh Analysis"))
+                {
+                    static MeshAnalysis s_CachedAnalysis;
+                    static AssetHandle s_AnalyzedHandle{0};
+                    static u64 s_AnalyzedGeneration = 0;
+                    static const MeshSource* s_AnalyzedSource = nullptr;
 
-					AssetHandle currentHandle = component.m_MeshSource->GetHandle();
-					u64 currentGeneration = component.m_MeshSource->GetGeneration();
-					const MeshSource* currentSource = component.m_MeshSource.get();
-					if (s_AnalyzedSource != currentSource || s_AnalyzedGeneration != currentGeneration || s_AnalyzedHandle != currentHandle)
-					{
-						s_CachedAnalysis = MeshOptimization::AnalyzeMesh(*component.m_MeshSource);
-						s_AnalyzedSource = currentSource;
-						s_AnalyzedGeneration = currentGeneration;
-						s_AnalyzedHandle = currentHandle;
-					}
-					ImGui::Text("Triangles: %u", s_CachedAnalysis.TriangleCount);
-					ImGui::Text("ACMR: %.3f (lower=better)", s_CachedAnalysis.ACMR);
-					ImGui::Text("ATVR: %.3f (ideal=1.0)", s_CachedAnalysis.ATVR);
-					ImGui::Text("Overdraw: %.3f (ideal=1.0)", s_CachedAnalysis.Overdraw);
-					ImGui::Text("Fetch Overfetch: %.3f (ideal=1.0)", s_CachedAnalysis.OverfetchRatio);
-					ImGui::TreePop();
-				}
-			}
+                    AssetHandle currentHandle = component.m_MeshSource->GetHandle();
+                    u64 currentGeneration = component.m_MeshSource->GetGeneration();
+                    const MeshSource* currentSource = component.m_MeshSource.get();
+                    if (s_AnalyzedSource != currentSource || s_AnalyzedGeneration != currentGeneration || s_AnalyzedHandle != currentHandle)
+                    {
+                        s_CachedAnalysis = MeshOptimization::AnalyzeMesh(*component.m_MeshSource);
+                        s_AnalyzedSource = currentSource;
+                        s_AnalyzedGeneration = currentGeneration;
+                        s_AnalyzedHandle = currentHandle;
+                    }
+                    ImGui::Text("Triangles: %u", s_CachedAnalysis.TriangleCount);
+                    ImGui::Text("ACMR: %.3f (lower=better)", s_CachedAnalysis.ACMR);
+                    ImGui::Text("ATVR: %.3f (ideal=1.0)", s_CachedAnalysis.ATVR);
+                    ImGui::Text("Overdraw: %.3f (ideal=1.0)", s_CachedAnalysis.Overdraw);
+                    ImGui::Text("Fetch Overfetch: %.3f (ideal=1.0)", s_CachedAnalysis.OverfetchRatio);
+                    ImGui::TreePop();
+                }
+            }
 
-			// Import static model from file
-			if (ImGui::Button("Import Static Model..."))
-			{
-				std::string filepath = FileDialogs::OpenFile(
-					"3D Models (*.obj;*.fbx;*.gltf;*.glb)\0*.obj;*.fbx;*.gltf;*.glb\0"
-					"Wavefront OBJ (*.obj)\0*.obj\0"
-					"FBX (*.fbx)\0*.fbx\0"
-					"glTF (*.gltf;*.glb)\0*.gltf;*.glb\0"
-					"All Files (*.*)\0*.*\0");
-				if (!filepath.empty())
-				{
-					auto model = Ref<Model>::Create(filepath);
-					if (model && model->GetMeshCount() > 0)
-					{
-						// Create a combined MeshSource from all meshes in the model
-						auto combinedMeshSource = model->CreateCombinedMeshSource();
-						if (combinedMeshSource)
-						{
-							component.m_MeshSource = combinedMeshSource;
-							OLO_CORE_INFO("Imported static model: {} ({} meshes combined)", filepath, model->GetMeshCount());
-						}
-						else
-						{
-							OLO_CORE_ERROR("Failed to create combined mesh from model: {}", filepath);
-						}
-					}
-					else
-					{
-						OLO_CORE_ERROR("Failed to load model: {}", filepath);
-					}
-				}
-			}
+            // Import static model from file
+            if (ImGui::Button("Import Static Model..."))
+            {
+                std::string filepath = FileDialogs::OpenFile(
+                    "3D Models (*.obj;*.fbx;*.gltf;*.glb)\0*.obj;*.fbx;*.gltf;*.glb\0"
+                    "Wavefront OBJ (*.obj)\0*.obj\0"
+                    "FBX (*.fbx)\0*.fbx\0"
+                    "glTF (*.gltf;*.glb)\0*.gltf;*.glb\0"
+                    "All Files (*.*)\0*.*\0");
+                if (!filepath.empty())
+                {
+                    auto model = Ref<Model>::Create(filepath);
+                    if (model && model->GetMeshCount() > 0)
+                    {
+                        // Create a combined MeshSource from all meshes in the model
+                        auto combinedMeshSource = model->CreateCombinedMeshSource();
+                        if (combinedMeshSource)
+                        {
+                            component.m_MeshSource = combinedMeshSource;
+                            OLO_CORE_INFO("Imported static model: {} ({} meshes combined)", filepath, model->GetMeshCount());
+                        }
+                        else
+                        {
+                            OLO_CORE_ERROR("Failed to create combined mesh from model: {}", filepath);
+                        }
+                    }
+                    else
+                    {
+                        OLO_CORE_ERROR("Failed to load model: {}", filepath);
+                    }
+                }
+            }
 
-			ImGui::SameLine();
+            ImGui::SameLine();
 
-			// Import animated model from file (adds skeleton, animation components)
-			if (ImGui::Button("Import Animated Model..."))
-			{
-				std::string filepath = FileDialogs::OpenFile(
-					"Animated Models (*.fbx;*.gltf;*.glb)\0*.fbx;*.gltf;*.glb\0"
-					"FBX (*.fbx)\0*.fbx\0"
-					"glTF (*.gltf;*.glb)\0*.gltf;*.glb\0"
-					"All Files (*.*)\0*.*\0");
-				if (!filepath.empty())
-				{
-					auto animatedModel = Ref<AnimatedModel>::Create(filepath);
-					if (animatedModel && !animatedModel->GetMeshes().empty())
-					{
-						// Track auto-added components for undo
-						auto* cmdHistory = s_DrawComponentCmdHistory;
-						auto cmdScene = s_DrawComponentScene;
-						UUID entityUUID = entity.GetUUID();
-						auto compound = std::make_unique<CompoundCommand>("Import Animated Model");
+            // Import animated model from file (adds skeleton, animation components)
+            if (ImGui::Button("Import Animated Model..."))
+            {
+                std::string filepath = FileDialogs::OpenFile(
+                    "Animated Models (*.fbx;*.gltf;*.glb)\0*.fbx;*.gltf;*.glb\0"
+                    "FBX (*.fbx)\0*.fbx\0"
+                    "glTF (*.gltf;*.glb)\0*.gltf;*.glb\0"
+                    "All Files (*.*)\0*.*\0");
+                if (!filepath.empty())
+                {
+                    auto animatedModel = Ref<AnimatedModel>::Create(filepath);
+                    if (animatedModel && !animatedModel->GetMeshes().empty())
+                    {
+                        // Track auto-added components for undo
+                        auto* cmdHistory = s_DrawComponentCmdHistory;
+                        auto cmdScene = s_DrawComponentScene;
+                        UUID entityUUID = entity.GetUUID();
+                        auto compound = std::make_unique<CompoundCommand>("Import Animated Model");
 
-						// Set the mesh source from the animated model
-						component.m_MeshSource = animatedModel->GetMeshes()[0];
-						OLO_CORE_INFO("Imported animated model: {} ({} meshes)", filepath, animatedModel->GetMeshes().size());
+                        // Set the mesh source from the animated model
+                        component.m_MeshSource = animatedModel->GetMeshes()[0];
+                        OLO_CORE_INFO("Imported animated model: {} ({} meshes)", filepath, animatedModel->GetMeshes().size());
 
-						// Add MaterialComponent if the model has materials
-						if (!animatedModel->GetMaterials().empty())
-						{
-							if (!entity.HasComponent<MaterialComponent>())
-							{
-								auto& materialComp = entity.AddComponent<MaterialComponent>();
-								materialComp.m_Material = animatedModel->GetMaterials()[0];
-								OLO_CORE_INFO("Added MaterialComponent from animated model");
-								if (cmdHistory && cmdScene)
-								{
-									compound->Add(std::make_unique<AddComponentCommand<MaterialComponent>>(cmdScene, entityUUID));
-								}
-							}
-							else
-							{
-								auto& materialComp = entity.GetComponent<MaterialComponent>();
-								materialComp.m_Material = animatedModel->GetMaterials()[0];
-							}
-						}
+                        // Add MaterialComponent if the model has materials
+                        if (!animatedModel->GetMaterials().empty())
+                        {
+                            if (!entity.HasComponent<MaterialComponent>())
+                            {
+                                auto& materialComp = entity.AddComponent<MaterialComponent>();
+                                materialComp.m_Material = animatedModel->GetMaterials()[0];
+                                OLO_CORE_INFO("Added MaterialComponent from animated model");
+                                if (cmdHistory && cmdScene)
+                                {
+                                    compound->Add(std::make_unique<AddComponentCommand<MaterialComponent>>(cmdScene, entityUUID));
+                                }
+                            }
+                            else
+                            {
+                                auto& materialComp = entity.GetComponent<MaterialComponent>();
+                                materialComp.m_Material = animatedModel->GetMaterials()[0];
+                            }
+                        }
 
-						// Add SkeletonComponent if the model has a skeleton
-						if (animatedModel->HasSkeleton())
-						{
-							if (!entity.HasComponent<SkeletonComponent>())
-							{
-								auto& skeletonComp = entity.AddComponent<SkeletonComponent>();
-								skeletonComp.m_Skeleton = animatedModel->GetSkeleton();
-								OLO_CORE_INFO("Added SkeletonComponent: {} bones", skeletonComp.m_Skeleton->m_BoneNames.size());
-								if (cmdHistory && cmdScene)
-								{
-									compound->Add(std::make_unique<AddComponentCommand<SkeletonComponent>>(cmdScene, entityUUID));
-								}
-							}
-							else
-							{
-								auto& skeletonComp = entity.GetComponent<SkeletonComponent>();
-								skeletonComp.m_Skeleton = animatedModel->GetSkeleton();
-							}
-						}
+                        // Add SkeletonComponent if the model has a skeleton
+                        if (animatedModel->HasSkeleton())
+                        {
+                            if (!entity.HasComponent<SkeletonComponent>())
+                            {
+                                auto& skeletonComp = entity.AddComponent<SkeletonComponent>();
+                                skeletonComp.m_Skeleton = animatedModel->GetSkeleton();
+                                OLO_CORE_INFO("Added SkeletonComponent: {} bones", skeletonComp.m_Skeleton->m_BoneNames.size());
+                                if (cmdHistory && cmdScene)
+                                {
+                                    compound->Add(std::make_unique<AddComponentCommand<SkeletonComponent>>(cmdScene, entityUUID));
+                                }
+                            }
+                            else
+                            {
+                                auto& skeletonComp = entity.GetComponent<SkeletonComponent>();
+                                skeletonComp.m_Skeleton = animatedModel->GetSkeleton();
+                            }
+                        }
 
-						// Add AnimationStateComponent if the model has animations
-						if (animatedModel->HasAnimations())
-						{
-							if (!entity.HasComponent<AnimationStateComponent>())
-							{
-								auto& animStateComp = entity.AddComponent<AnimationStateComponent>();
-								// Store all available clips
-								animStateComp.m_AvailableClips = animatedModel->GetAnimations();
-								animStateComp.m_CurrentClip = animStateComp.m_AvailableClips[0];
-								animStateComp.m_CurrentClipIndex = 0;
-								animStateComp.m_State = AnimationStateComponent::State::Idle;
-								animStateComp.m_CurrentTime = 0.0f;
-								animStateComp.m_IsPlaying = false;
-								animStateComp.m_SourceFilePath = filepath; // Save for serialization
-								OLO_CORE_INFO("Added AnimationStateComponent: {} animations available", animStateComp.m_AvailableClips.size());
+                        // Add AnimationStateComponent if the model has animations
+                        if (animatedModel->HasAnimations())
+                        {
+                            if (!entity.HasComponent<AnimationStateComponent>())
+                            {
+                                auto& animStateComp = entity.AddComponent<AnimationStateComponent>();
+                                // Store all available clips
+                                animStateComp.m_AvailableClips = animatedModel->GetAnimations();
+                                animStateComp.m_CurrentClip = animStateComp.m_AvailableClips[0];
+                                animStateComp.m_CurrentClipIndex = 0;
+                                animStateComp.m_State = AnimationStateComponent::State::Idle;
+                                animStateComp.m_CurrentTime = 0.0f;
+                                animStateComp.m_IsPlaying = false;
+                                animStateComp.m_SourceFilePath = filepath; // Save for serialization
+                                OLO_CORE_INFO("Added AnimationStateComponent: {} animations available", animStateComp.m_AvailableClips.size());
 
-								// List all available animations
-								for (sizet i = 0; i < animStateComp.m_AvailableClips.size(); i++)
-								{
-									auto& anim = animStateComp.m_AvailableClips[i];
-									OLO_CORE_INFO("  Animation [{}]: '{}' - Duration: {:.2f}s", i, anim->Name, anim->Duration);
-								}
-								if (cmdHistory && cmdScene)
-								{
-									compound->Add(std::make_unique<AddComponentCommand<AnimationStateComponent>>(cmdScene, entityUUID));
-								}
-							}
-							else
-							{
-								auto& animStateComp = entity.GetComponent<AnimationStateComponent>();
-								animStateComp.m_AvailableClips = animatedModel->GetAnimations();
-								animStateComp.m_CurrentClip = animStateComp.m_AvailableClips[0];
-								animStateComp.m_CurrentClipIndex = 0;
-								animStateComp.m_SourceFilePath = filepath; // Save for serialization
-							}
-						}
-						else
-						{
-							OLO_CORE_WARN("Animated model has no animations: {}", filepath);
-						}
+                                // List all available animations
+                                for (sizet i = 0; i < animStateComp.m_AvailableClips.size(); i++)
+                                {
+                                    auto& anim = animStateComp.m_AvailableClips[i];
+                                    OLO_CORE_INFO("  Animation [{}]: '{}' - Duration: {:.2f}s", i, anim->Name, anim->Duration);
+                                }
+                                if (cmdHistory && cmdScene)
+                                {
+                                    compound->Add(std::make_unique<AddComponentCommand<AnimationStateComponent>>(cmdScene, entityUUID));
+                                }
+                            }
+                            else
+                            {
+                                auto& animStateComp = entity.GetComponent<AnimationStateComponent>();
+                                animStateComp.m_AvailableClips = animatedModel->GetAnimations();
+                                animStateComp.m_CurrentClip = animStateComp.m_AvailableClips[0];
+                                animStateComp.m_CurrentClipIndex = 0;
+                                animStateComp.m_SourceFilePath = filepath; // Save for serialization
+                            }
+                        }
+                        else
+                        {
+                            OLO_CORE_WARN("Animated model has no animations: {}", filepath);
+                        }
 
-						// Push compound command for auto-added components (MeshComponent change handled by DrawComponent tracking)
-						if (cmdHistory && !compound->IsEmpty())
-						{
-							cmdHistory->PushAlreadyExecuted(std::move(compound));
-						}
-					}
-					else
-					{
-						OLO_CORE_ERROR("Failed to load animated model: {}", filepath);
-					}
-				}
-			}
+                        // Push compound command for auto-added components (MeshComponent change handled by DrawComponent tracking)
+                        if (cmdHistory && !compound->IsEmpty())
+                        {
+                            cmdHistory->PushAlreadyExecuted(std::move(compound));
+                        }
+                    }
+                    else
+                    {
+                        OLO_CORE_ERROR("Failed to load animated model: {}", filepath);
+                    }
+                }
+            }
 
-			// Primitive mesh creation dropdown
-			const char* primitives[] = { "Create Primitive...", "Cube", "Sphere", "Plane", "Cylinder", "Cone", "Icosphere", "Torus" };
-			static int currentPrimitive = 0;
-			ImGui::SetNextItemWidth(150.0f);
-			if (ImGui::Combo("##PrimitiveCombo", &currentPrimitive, primitives, IM_ARRAYSIZE(primitives)))
-			{
-				Ref<Mesh> mesh = nullptr;
-				switch (currentPrimitive)
-				{
-				case 1: mesh = MeshPrimitives::CreateCube(); break;
-				case 2: mesh = MeshPrimitives::CreateSphere(); break;
-				case 3: mesh = MeshPrimitives::CreatePlane(); break;
-				case 4: mesh = MeshPrimitives::CreateCylinder(); break;
-				case 5: mesh = MeshPrimitives::CreateCone(); break;
-				case 6: mesh = MeshPrimitives::CreateIcosphere(); break;
-				case 7: mesh = MeshPrimitives::CreateTorus(); break;
-				}
-				if (mesh)
-				{
-					component.m_MeshSource = mesh->GetMeshSource();
-					component.m_Primitive = static_cast<MeshPrimitive>(currentPrimitive);
-				}
-				currentPrimitive = 0; // Reset selection
-			}
+            // Primitive mesh creation dropdown
+            const char* primitives[] = { "Create Primitive...", "Cube", "Sphere", "Plane", "Cylinder", "Cone", "Icosphere", "Torus" };
+            static int currentPrimitive = 0;
+            ImGui::SetNextItemWidth(150.0f);
+            if (ImGui::Combo("##PrimitiveCombo", &currentPrimitive, primitives, IM_ARRAYSIZE(primitives)))
+            {
+                Ref<Mesh> mesh = nullptr;
+                switch (currentPrimitive)
+                {
+                case 1: mesh = MeshPrimitives::CreateCube(); break;
+                case 2: mesh = MeshPrimitives::CreateSphere(); break;
+                case 3: mesh = MeshPrimitives::CreatePlane(); break;
+                case 4: mesh = MeshPrimitives::CreateCylinder(); break;
+                case 5: mesh = MeshPrimitives::CreateCone(); break;
+                case 6: mesh = MeshPrimitives::CreateIcosphere(); break;
+                case 7: mesh = MeshPrimitives::CreateTorus(); break;
+                }
+                if (mesh)
+                {
+                    component.m_MeshSource = mesh->GetMeshSource();
+                    component.m_Primitive = static_cast<MeshPrimitive>(currentPrimitive);
+                }
+                currentPrimitive = 0; // Reset selection
+            }
 
-			// Clear mesh button
-			if (component.m_MeshSource)
-			{
-				if (ImGui::Button("Clear Mesh"))
-				{
-					component.m_MeshSource.Reset();
-					component.m_Primitive = MeshPrimitive::None;
-				}
-			} });
+            // Clear mesh button
+            if (component.m_MeshSource)
+            {
+                if (ImGui::Button("Clear Mesh"))
+                {
+                    component.m_MeshSource.Reset();
+                    component.m_Primitive = MeshPrimitive::None;
+                }
+            } });
 
         DrawComponent<InstancedMeshComponent>("Instanced Mesh", entity, [](auto& component)
                                               {
@@ -3016,53 +3016,53 @@ namespace OloEngine
 
         DrawComponent<DirectionalLightComponent>("Directional Light", entity, [](auto& component)
                                                  {
-			DrawVec3Control("Direction", component.m_Direction);
-			ImGui::ColorEdit3("Color", glm::value_ptr(component.m_Color));
-			ImGui::DragFloat("Intensity##DirectionalLight", &component.m_Intensity, 0.1f, 0.0f, 10.0f);
-			ImGui::Checkbox("Cast Shadows##DirectionalLight", &component.m_CastShadows);
-			if (component.m_CastShadows)
-			{
-				ImGui::Indent();
-				ImGui::DragFloat("Shadow Bias##DirLight", &component.m_ShadowBias, 0.0001f, 0.0f, 0.05f, "%.4f");
-				ImGui::DragFloat("Normal Bias##DirLight", &component.m_ShadowNormalBias, 0.001f, 0.0f, 0.1f, "%.3f");
-				ImGui::DragFloat("Max Shadow Distance##DirLight", &component.m_MaxShadowDistance, 1.0f, 10.0f, 1000.0f);
-				ImGui::DragFloat("Cascade Split Lambda##DirLight", &component.m_CascadeSplitLambda, 0.01f, 0.0f, 1.0f, "%.2f");
-				ImGui::Checkbox("Cascade Debug Visualization##DirLight", &component.m_CascadeDebugVisualization);
-				ImGui::Unindent();
-			} });
+            DrawVec3Control("Direction", component.m_Direction);
+            ImGui::ColorEdit3("Color", glm::value_ptr(component.m_Color));
+            ImGui::DragFloat("Intensity##DirectionalLight", &component.m_Intensity, 0.1f, 0.0f, 10.0f);
+            ImGui::Checkbox("Cast Shadows##DirectionalLight", &component.m_CastShadows);
+            if (component.m_CastShadows)
+            {
+                ImGui::Indent();
+                ImGui::DragFloat("Shadow Bias##DirLight", &component.m_ShadowBias, 0.0001f, 0.0f, 0.05f, "%.4f");
+                ImGui::DragFloat("Normal Bias##DirLight", &component.m_ShadowNormalBias, 0.001f, 0.0f, 0.1f, "%.3f");
+                ImGui::DragFloat("Max Shadow Distance##DirLight", &component.m_MaxShadowDistance, 1.0f, 10.0f, 1000.0f);
+                ImGui::DragFloat("Cascade Split Lambda##DirLight", &component.m_CascadeSplitLambda, 0.01f, 0.0f, 1.0f, "%.2f");
+                ImGui::Checkbox("Cascade Debug Visualization##DirLight", &component.m_CascadeDebugVisualization);
+                ImGui::Unindent();
+            } });
 
         DrawComponent<PointLightComponent>("Point Light", entity, [](auto& component)
                                            {
-			ImGui::ColorEdit3("Color##PointLight", glm::value_ptr(component.m_Color));
-			ImGui::DragFloat("Intensity##PointLight", &component.m_Intensity, 0.1f, 0.0f, 10.0f);
-			ImGui::DragFloat("Range##PointLight", &component.m_Range, 0.1f, 0.1f, 100.0f);
-			ImGui::DragFloat("Attenuation##PointLight", &component.m_Attenuation, 0.1f, 0.1f, 4.0f);
-			ImGui::Checkbox("Cast Shadows##PointLight", &component.m_CastShadows);
-			if (component.m_CastShadows)
-			{
-				ImGui::Indent();
-				ImGui::DragFloat("Shadow Bias##PointLight", &component.m_ShadowBias, 0.0001f, 0.0f, 0.05f, "%.4f");
-				ImGui::DragFloat("Normal Bias##PointLight", &component.m_ShadowNormalBias, 0.001f, 0.0f, 0.1f, "%.3f");
-				ImGui::Unindent();
-			} });
+            ImGui::ColorEdit3("Color##PointLight", glm::value_ptr(component.m_Color));
+            ImGui::DragFloat("Intensity##PointLight", &component.m_Intensity, 0.1f, 0.0f, 10.0f);
+            ImGui::DragFloat("Range##PointLight", &component.m_Range, 0.1f, 0.1f, 100.0f);
+            ImGui::DragFloat("Attenuation##PointLight", &component.m_Attenuation, 0.1f, 0.1f, 4.0f);
+            ImGui::Checkbox("Cast Shadows##PointLight", &component.m_CastShadows);
+            if (component.m_CastShadows)
+            {
+                ImGui::Indent();
+                ImGui::DragFloat("Shadow Bias##PointLight", &component.m_ShadowBias, 0.0001f, 0.0f, 0.05f, "%.4f");
+                ImGui::DragFloat("Normal Bias##PointLight", &component.m_ShadowNormalBias, 0.001f, 0.0f, 0.1f, "%.3f");
+                ImGui::Unindent();
+            } });
 
         DrawComponent<SpotLightComponent>("Spot Light", entity, [](auto& component)
                                           {
-			DrawVec3Control("Direction##SpotLight", component.m_Direction);
-			ImGui::ColorEdit3("Color##SpotLight", glm::value_ptr(component.m_Color));
-			ImGui::DragFloat("Intensity##SpotLight", &component.m_Intensity, 0.1f, 0.0f, 10.0f);
-			ImGui::DragFloat("Range##SpotLight", &component.m_Range, 0.1f, 0.1f, 100.0f);
-			ImGui::DragFloat("Inner Cutoff##SpotLight", &component.m_InnerCutoff, 0.1f, 0.0f, 90.0f);
-			ImGui::DragFloat("Outer Cutoff##SpotLight", &component.m_OuterCutoff, 0.1f, 0.0f, 90.0f);
-			ImGui::DragFloat("Attenuation##SpotLight", &component.m_Attenuation, 0.1f, 0.1f, 4.0f);
-			ImGui::Checkbox("Cast Shadows##SpotLight", &component.m_CastShadows);
-			if (component.m_CastShadows)
-			{
-				ImGui::Indent();
-				ImGui::DragFloat("Shadow Bias##SpotLight", &component.m_ShadowBias, 0.0001f, 0.0f, 0.05f, "%.4f");
-				ImGui::DragFloat("Normal Bias##SpotLight", &component.m_ShadowNormalBias, 0.001f, 0.0f, 0.1f, "%.3f");
-				ImGui::Unindent();
-			} });
+            DrawVec3Control("Direction##SpotLight", component.m_Direction);
+            ImGui::ColorEdit3("Color##SpotLight", glm::value_ptr(component.m_Color));
+            ImGui::DragFloat("Intensity##SpotLight", &component.m_Intensity, 0.1f, 0.0f, 10.0f);
+            ImGui::DragFloat("Range##SpotLight", &component.m_Range, 0.1f, 0.1f, 100.0f);
+            ImGui::DragFloat("Inner Cutoff##SpotLight", &component.m_InnerCutoff, 0.1f, 0.0f, 90.0f);
+            ImGui::DragFloat("Outer Cutoff##SpotLight", &component.m_OuterCutoff, 0.1f, 0.0f, 90.0f);
+            ImGui::DragFloat("Attenuation##SpotLight", &component.m_Attenuation, 0.1f, 0.1f, 4.0f);
+            ImGui::Checkbox("Cast Shadows##SpotLight", &component.m_CastShadows);
+            if (component.m_CastShadows)
+            {
+                ImGui::Indent();
+                ImGui::DragFloat("Shadow Bias##SpotLight", &component.m_ShadowBias, 0.0001f, 0.0f, 0.05f, "%.4f");
+                ImGui::DragFloat("Normal Bias##SpotLight", &component.m_ShadowNormalBias, 0.001f, 0.0f, 0.1f, "%.3f");
+                ImGui::Unindent();
+            } });
 
         DrawComponent<EnvironmentMapComponent>("Environment Map", entity, [](auto& component)
                                                {
@@ -3153,32 +3153,32 @@ namespace OloEngine
 
         DrawComponent<Rigidbody3DComponent>("Rigidbody 3D", entity, [](auto& component)
                                             {
-			const char* bodyTypeStrings[] = { "Static", "Dynamic", "Kinematic" };
-			const char* currentBodyTypeString = bodyTypeStrings[static_cast<int>(component.m_Type)];
-			if (ImGui::BeginCombo("Body Type", currentBodyTypeString))
-			{
-				for (int i = 0; i < 3; ++i)
-				{
-					const bool isSelected = currentBodyTypeString == bodyTypeStrings[i];
-					if (ImGui::Selectable(bodyTypeStrings[i], isSelected))
-					{
-						component.m_Type = static_cast<BodyType3D>(i);
-					}
-					if (isSelected)
-						ImGui::SetItemDefaultFocus();
-				}
-				ImGui::EndCombo();
-			}
-			ImGui::DragFloat("Mass##Rigidbody3D", &component.m_Mass, 0.01f, 0.1f, 1000.0f);
-			ImGui::DragFloat("Linear Drag##Rigidbody3D", &component.m_LinearDrag, 0.001f, 0.0f, 1.0f);
-			ImGui::DragFloat("Angular Drag##Rigidbody3D", &component.m_AngularDrag, 0.001f, 0.0f, 1.0f);
-			ImGui::Checkbox("Disable Gravity##Rigidbody3D", &component.m_DisableGravity);
-			ImGui::Checkbox("Is Trigger##Rigidbody3D", &component.m_IsTrigger); });
+            const char* bodyTypeStrings[] = { "Static", "Dynamic", "Kinematic" };
+            const char* currentBodyTypeString = bodyTypeStrings[static_cast<int>(component.m_Type)];
+            if (ImGui::BeginCombo("Body Type", currentBodyTypeString))
+            {
+                for (int i = 0; i < 3; ++i)
+                {
+                    const bool isSelected = currentBodyTypeString == bodyTypeStrings[i];
+                    if (ImGui::Selectable(bodyTypeStrings[i], isSelected))
+                    {
+                        component.m_Type = static_cast<BodyType3D>(i);
+                    }
+                    if (isSelected)
+                        ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::DragFloat("Mass##Rigidbody3D", &component.m_Mass, 0.01f, 0.1f, 1000.0f);
+            ImGui::DragFloat("Linear Drag##Rigidbody3D", &component.m_LinearDrag, 0.001f, 0.0f, 1.0f);
+            ImGui::DragFloat("Angular Drag##Rigidbody3D", &component.m_AngularDrag, 0.001f, 0.0f, 1.0f);
+            ImGui::Checkbox("Disable Gravity##Rigidbody3D", &component.m_DisableGravity);
+            ImGui::Checkbox("Is Trigger##Rigidbody3D", &component.m_IsTrigger); });
 
         DrawComponent<BoxCollider3DComponent>("Box Collider 3D", entity, [](auto& component)
                                               {
-			DrawVec3Control("Half Extents##BoxCollider3D", component.m_HalfExtents);
-			DrawVec3Control("Offset##BoxCollider3D", component.m_Offset);
+            DrawVec3Control("Half Extents##BoxCollider3D", component.m_HalfExtents);
+            DrawVec3Control("Offset##BoxCollider3D", component.m_Offset);
             f32 staticFriction = component.m_Material.GetStaticFriction();
             if (ImGui::DragFloat("Static Friction##BoxCollider3D", &staticFriction, 0.01f, 0.0f, 2.0f))
                 component.m_Material.SetStaticFriction(staticFriction);
@@ -3191,8 +3191,8 @@ namespace OloEngine
 
         DrawComponent<SphereCollider3DComponent>("Sphere Collider 3D", entity, [](auto& component)
                                                  {
-			ImGui::DragFloat("Radius##SphereCollider3D", &component.m_Radius, 0.01f, 0.01f, 100.0f);
-			DrawVec3Control("Offset##SphereCollider3D", component.m_Offset);
+            ImGui::DragFloat("Radius##SphereCollider3D", &component.m_Radius, 0.01f, 0.01f, 100.0f);
+            DrawVec3Control("Offset##SphereCollider3D", component.m_Offset);
             f32 staticFriction = component.m_Material.GetStaticFriction();
             if (ImGui::DragFloat("Static Friction##SphereCollider3D", &staticFriction, 0.01f, 0.0f, 2.0f))
                 component.m_Material.SetStaticFriction(staticFriction);
@@ -3205,9 +3205,9 @@ namespace OloEngine
 
         DrawComponent<CapsuleCollider3DComponent>("Capsule Collider 3D", entity, [](auto& component)
                                                   {
-			ImGui::DragFloat("Radius##CapsuleCollider3D", &component.m_Radius, 0.01f, 0.01f, 100.0f);
-			ImGui::DragFloat("Half Height##CapsuleCollider3D", &component.m_HalfHeight, 0.01f, 0.01f, 100.0f);
-			DrawVec3Control("Offset##CapsuleCollider3D", component.m_Offset);
+            ImGui::DragFloat("Radius##CapsuleCollider3D", &component.m_Radius, 0.01f, 0.01f, 100.0f);
+            ImGui::DragFloat("Half Height##CapsuleCollider3D", &component.m_HalfHeight, 0.01f, 0.01f, 100.0f);
+            DrawVec3Control("Offset##CapsuleCollider3D", component.m_Offset);
             f32 staticFriction = component.m_Material.GetStaticFriction();
             if (ImGui::DragFloat("Static Friction##CapsuleCollider3D", &staticFriction, 0.01f, 0.0f, 2.0f))
                 component.m_Material.SetStaticFriction(staticFriction);

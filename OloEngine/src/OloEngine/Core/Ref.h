@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Core/Base.h" // u32 typedef used in this header
+
 #include <atomic>
 #include <type_traits>
 #include <cstdint>
